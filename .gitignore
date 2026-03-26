@@ -1,5 +1,4 @@
 /target
-**/*.wasm
 *.swp
 *.swo
 .DS_Store
