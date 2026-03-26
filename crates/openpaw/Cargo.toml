@@ -1,0 +1,44 @@
+[package]
+name = "openpaw"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Open Paw — Agent daemon built on Temper platform"
+
+[[bin]]
+name = "openpaw"
+path = "src/main.rs"
+
+[dependencies]
+# Temper platform engine (git dependency)
+temper-platform = { git = "https://github.com/nerdsane/temper.git", branch = "main" }
+temper-server = { git = "https://github.com/nerdsane/temper.git", branch = "main" }
+temper-runtime = { git = "https://github.com/nerdsane/temper.git", branch = "main" }
+temper-jit = { git = "https://github.com/nerdsane/temper.git", branch = "main" }
+temper-authz = { git = "https://github.com/nerdsane/temper.git", branch = "main" }
+temper-store-turso = { git = "https://github.com/nerdsane/temper.git", branch = "main" }
+
+# Paw transport (local)
+paw-transport = { path = "../paw-transport" }
+
+# Async runtime
+tokio = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# HTTP server
+axum = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+# Error handling
+anyhow = { workspace = true }
+
+# Crypto / encoding (for vault key)
+base64 = "0.22"
+rand = "0.9"
