@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="utf-8"?>
+<edmx:Edmx Version="4.0" xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx">
+  <edmx:DataServices>
+    <Schema Namespace="Paw.Compute" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+
+      <EntityType Name="Computer">
+        <Key>
+          <PropertyRef Name="Id" />
+        </Key>
+        <Property Name="Id" Type="Edm.String" Nullable="false" />
+        <Property Name="Status" Type="Edm.String" />
+        <Property Name="Name" Type="Edm.String" />
+        <Property Name="Description" Type="Edm.String" />
+        <Property Name="Provider" Type="Edm.String" />
+        <Property Name="MachineId" Type="Edm.String" />
+        <Property Name="SandboxUrl" Type="Edm.String" />
+        <Property Name="SshHost" Type="Edm.String" />
+        <Property Name="CpuCores" Type="Edm.Int32" />
+        <Property Name="MemoryGb" Type="Edm.Int32" />
+        <Property Name="StorageGb" Type="Edm.Int32" />
+        <Property Name="BaseImage" Type="Edm.String" />
+        <Property Name="SetupScript" Type="Edm.String" />
+        <Property Name="LastCheckpointAt" Type="Edm.String" />
+        <Property Name="ProvisionedAt" Type="Edm.String" />
+        <Property Name="ErrorMessage" Type="Edm.String" />
+
+        <Action Name="Configure" IsBound="true">
+          <Parameter Name="bindingParameter" Type="Paw.Compute.Computer" />
+          <Parameter Name="name" Type="Edm.String" Nullable="false" />
+          <Parameter Name="description" Type="Edm.String" />
+          <Parameter Name="provider" Type="Edm.String" />
+          <Parameter Name="cpu_cores" Type="Edm.Int32" />
+          <Parameter Name="memory_gb" Type="Edm.Int32" />
+          <Parameter Name="storage_gb" Type="Edm.Int32" />
+          <Parameter Name="base_image" Type="Edm.String" />
+          <Parameter Name="setup_script" Type="Edm.String" />
+        </Action>
+
+        <Action Name="Provision" IsBound="true">
+          <Parameter Name="bindingParameter" Type="Paw.Compute.Computer" />
+        </Action>
+
+        <Action Name="ProvisionComplete" IsBound="true">
+          <Parameter Name="bindingParameter" Type="Paw.Compute.Computer" />
+          <Parameter Name="machine_id" Type="Edm.String" Nullable="false" />
+          <Parameter Name="sandbox_url" Type="Edm.String" Nullable="false" />
+          <Parameter Name="ssh_host" Type="Edm.String" />
+        </Action>
+
+        <Action Name="ProvisionFailed" IsBound="true">
+          <Parameter Name="bindingParameter" Type="Paw.Compute.Computer" />
+          <Parameter Name="error_message" Type="Edm.String" Nullable="false" />
+        </Action>
+
+        <Action Name="Checkpoint" IsBound="true">
+          <Parameter Name="bindingParameter" Type="Paw.Compute.Computer" />
+        </Action>
+
+        <Action Name="CheckpointComplete" IsBound="true">
+          <Parameter Name="bindingParameter" Type="Paw.Compute.Computer" />
+        </Action>
+
+        <Action Name="Sleep" IsBound="true">
+          <Parameter Name="bindingParameter" Type="Paw.Compute.Computer" />
+        </Action>
+
+        <Action Name="Wake" IsBound="true">
+          <Parameter Name="bindingParameter" Type="Paw.Compute.Computer" />
+        </Action>
+
+        <Action Name="Destroy" IsBound="true">
+          <Parameter Name="bindingParameter" Type="Paw.Compute.Computer" />
+        </Action>
+      </EntityType>
+
+      <EntityContainer Name="PawComputeService">
+        <EntitySet Name="Computers" EntityType="Paw.Compute.Computer" />
+      </EntityContainer>
+
+    </Schema>
+  </edmx:DataServices>
+</edmx:Edmx>
