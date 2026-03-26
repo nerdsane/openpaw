@@ -1,0 +1,133 @@
+# WorkCycle — Governed implementation loop for one planned change.
+
+[automaton]
+name = "WorkCycle"
+states = ["Planning", "Planned", "InProgress", "Testing", "Reviewing", "Complete", "Failed"]
+initial = "Planning"
+
+[[state]]
+name = "project_harness_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "task_summary"
+type = "string"
+initial = ""
+
+[[state]]
+name = "planner_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "approver_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "plan_summary"
+type = "string"
+initial = ""
+
+[[state]]
+name = "test_summary"
+type = "string"
+initial = ""
+
+[[state]]
+name = "pr_url"
+type = "string"
+initial = ""
+
+[[state]]
+name = "error_message"
+type = "string"
+initial = ""
+
+[[state]]
+name = "has_plan"
+type = "bool"
+initial = "false"
+
+[[state]]
+name = "tests_passed"
+type = "bool"
+initial = "false"
+
+[[action]]
+name = "Configure"
+kind = "input"
+from = ["Planning"]
+params = ["project_harness_id", "task_summary", "planner_id"]
+hint = "Attach the work cycle to a harness and identify the planner for the change."
+
+[[action]]
+name = "WritePlan"
+kind = "input"
+from = ["Planning"]
+to = "Planned"
+params = ["plan_summary", "planner_id"]
+effect = "set has_plan true"
+hint = "Draft the plan before implementation can begin."
+
+[[action]]
+name = "StartWork"
+kind = "input"
+from = ["Planned"]
+to = "InProgress"
+guard = "is_true has_plan"
+hint = "Start implementation only after a plan exists."
+
+[[action]]
+name = "BeginTesting"
+kind = "input"
+from = ["InProgress"]
+to = "Testing"
+hint = "Move implementation into test execution."
+
+[[action]]
+name = "PassTests"
+kind = "input"
+from = ["Testing"]
+to = "Reviewing"
+params = ["test_summary"]
+effect = "set tests_passed true"
+hint = "Only passing work should enter review."
+
+[[action]]
+name = "Approve"
+kind = "input"
+from = ["Reviewing"]
+to = "Complete"
+guard = "is_true tests_passed"
+params = ["approver_id", "pr_url"]
+hint = "Approve the reviewed change after tests have passed."
+
+[[action]]
+name = "Fail"
+kind = "input"
+from = ["Planning", "Planned", "InProgress", "Testing", "Reviewing"]
+to = "Failed"
+params = ["error_message"]
+hint = "Record a failed work cycle with the reason for failure."
+
+[[invariant]]
+name = "PlannedWorkHasPlan"
+when = ["Planned", "InProgress", "Testing", "Reviewing", "Complete"]
+assert = "has_plan"
+
+[[invariant]]
+name = "ReviewedWorkPassedTests"
+when = ["Reviewing", "Complete"]
+assert = "tests_passed"
+
+[[invariant]]
+name = "CompleteIsFinal"
+when = ["Complete"]
+assert = "no_further_transitions"
+
+[[invariant]]
+name = "FailedIsFinal"
+when = ["Failed"]
+assert = "no_further_transitions"

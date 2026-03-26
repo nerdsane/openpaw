@@ -1,0 +1,109 @@
+<?xml version="1.0" encoding="utf-8"?>
+<edmx:Edmx Version="4.0" xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx">
+  <edmx:DataServices>
+    <Schema Namespace="Paw.Vocab" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+      <Term Name="AuthZ.CedarPolicy" Type="Edm.String" AppliesTo="EntityType Action Function"/>
+      <Term Name="Agent.Hint" Type="Edm.String" AppliesTo="Action Function EntityType"/>
+    </Schema>
+
+    <Schema Namespace="OpenPaw.Heal" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+      <EntityType Name="Monitor">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.String" Nullable="false"/>
+        <Property Name="Status" Type="Edm.String"/>
+        <Property Name="LogfireQuery" Type="Edm.String"/>
+        <Property Name="Threshold" Type="Edm.String"/>
+        <Property Name="DdMonitorId" Type="Edm.String"/>
+        <Property Name="LastAlertPayload" Type="Edm.String"/>
+        <Property Name="AlertCount" Type="Edm.Int64"/>
+        <Annotation Term="Paw.Vocab.Agent.Hint" String="Represents a live Logfire-backed watch for self-healing."/>
+      </EntityType>
+
+      <EntityType Name="AlertCycle">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.String" Nullable="false"/>
+        <Property Name="Status" Type="Edm.String"/>
+        <Property Name="MonitorId" Type="Edm.String"/>
+        <Property Name="AlertPayload" Type="Edm.String"/>
+        <Property Name="Diagnosis" Type="Edm.String"/>
+        <Property Name="PrUrl" Type="Edm.String"/>
+        <Property Name="ScoutAgentId" Type="Edm.String"/>
+        <Property Name="DeveloperAgentId" Type="Edm.String"/>
+        <Property Name="TuningNotes" Type="Edm.String"/>
+        <Annotation Term="Paw.Vocab.AuthZ.CedarPolicy" String="policies/alert_cycle.cedar"/>
+        <Annotation Term="Paw.Vocab.Agent.Hint" String="Tracks triage, remediation, and tuning for one alert."/>
+      </EntityType>
+
+      <Action Name="Configure" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Heal.Monitor"/>
+        <Parameter Name="logfire_query" Type="Edm.String" Nullable="false"/>
+        <Parameter Name="threshold" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="dd_monitor_id" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="OpenPaw.Heal.Monitor"/>
+      </Action>
+
+      <Action Name="Activate" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Heal.Monitor"/>
+        <ReturnType Type="OpenPaw.Heal.Monitor"/>
+      </Action>
+
+      <Action Name="AlertFired" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Heal.Monitor"/>
+        <Parameter Name="last_alert_payload" Type="Edm.String" Nullable="false"/>
+        <ReturnType Type="OpenPaw.Heal.Monitor"/>
+      </Action>
+
+      <Action Name="Tune" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Heal.Monitor"/>
+        <Parameter Name="logfire_query" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="threshold" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="dd_monitor_id" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="OpenPaw.Heal.Monitor"/>
+      </Action>
+
+      <Action Name="Pause" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Heal.Monitor"/>
+        <ReturnType Type="OpenPaw.Heal.Monitor"/>
+      </Action>
+
+      <Action Name="Archive" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Heal.Monitor"/>
+        <ReturnType Type="OpenPaw.Heal.Monitor"/>
+      </Action>
+
+      <Action Name="Open" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Heal.AlertCycle"/>
+        <Parameter Name="monitor_id" Type="Edm.String" Nullable="false"/>
+        <Parameter Name="alert_payload" Type="Edm.String" Nullable="false"/>
+        <Parameter Name="scout_agent_id" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="OpenPaw.Heal.AlertCycle"/>
+      </Action>
+
+      <Action Name="HealComplete" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Heal.AlertCycle"/>
+        <Parameter Name="diagnosis" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="pr_url" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="developer_agent_id" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="OpenPaw.Heal.AlertCycle"/>
+      </Action>
+
+      <Action Name="TuneComplete" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Heal.AlertCycle"/>
+        <Parameter Name="diagnosis" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="tuning_notes" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="OpenPaw.Heal.AlertCycle"/>
+      </Action>
+
+      <Action Name="Escalate" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Heal.AlertCycle"/>
+        <Parameter Name="diagnosis" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="OpenPaw.Heal.AlertCycle"/>
+      </Action>
+
+      <EntityContainer Name="Service">
+        <EntitySet Name="Monitors" EntityType="OpenPaw.Heal.Monitor"/>
+        <EntitySet Name="AlertCycles" EntityType="OpenPaw.Heal.AlertCycle"/>
+      </EntityContainer>
+    </Schema>
+  </edmx:DataServices>
+</edmx:Edmx>

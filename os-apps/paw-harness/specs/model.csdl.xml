@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="utf-8"?>
+<edmx:Edmx Version="4.0" xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx">
+  <edmx:DataServices>
+    <Schema Namespace="Paw.Vocab" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+      <Term Name="AuthZ.CedarPolicy" Type="Edm.String" AppliesTo="EntityType Action Function"/>
+      <Term Name="Agent.Hint" Type="Edm.String" AppliesTo="Action Function EntityType"/>
+    </Schema>
+
+    <Schema Namespace="OpenPaw.Harness" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+      <EntityType Name="ProjectHarness">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.String" Nullable="false"/>
+        <Property Name="Status" Type="Edm.String"/>
+        <Property Name="RepoUrl" Type="Edm.String"/>
+        <Property Name="TechStack" Type="Edm.String"/>
+        <Property Name="Conventions" Type="Edm.String"/>
+        <Property Name="LastActivatedAt" Type="Edm.String"/>
+        <Annotation Term="Paw.Vocab.Agent.Hint" String="Repository contract for a governed development loop."/>
+      </EntityType>
+
+      <EntityType Name="WorkCycle">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.String" Nullable="false"/>
+        <Property Name="Status" Type="Edm.String"/>
+        <Property Name="ProjectHarnessId" Type="Edm.String"/>
+        <Property Name="TaskSummary" Type="Edm.String"/>
+        <Property Name="PlannerId" Type="Edm.String"/>
+        <Property Name="ApproverId" Type="Edm.String"/>
+        <Property Name="PlanSummary" Type="Edm.String"/>
+        <Property Name="TestSummary" Type="Edm.String"/>
+        <Property Name="PrUrl" Type="Edm.String"/>
+        <Property Name="ErrorMessage" Type="Edm.String"/>
+        <Property Name="HasPlan" Type="Edm.Boolean"/>
+        <Property Name="TestsPassed" Type="Edm.Boolean"/>
+        <Annotation Term="Paw.Vocab.AuthZ.CedarPolicy" String="policies/work_cycle.cedar"/>
+        <Annotation Term="Paw.Vocab.Agent.Hint" String="Tracks plan, implementation, testing, and review for one change."/>
+      </EntityType>
+
+      <Action Name="Configure" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Harness.ProjectHarness"/>
+        <Parameter Name="repo_url" Type="Edm.String" Nullable="false"/>
+        <Parameter Name="tech_stack" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="conventions" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="OpenPaw.Harness.ProjectHarness"/>
+      </Action>
+
+      <Action Name="Activate" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Harness.ProjectHarness"/>
+        <Parameter Name="last_activated_at" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="OpenPaw.Harness.ProjectHarness"/>
+      </Action>
+
+      <Action Name="Archive" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Harness.ProjectHarness"/>
+        <ReturnType Type="OpenPaw.Harness.ProjectHarness"/>
+      </Action>
+
+      <Action Name="Configure" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Harness.WorkCycle"/>
+        <Parameter Name="project_harness_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="task_summary" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="planner_id" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="OpenPaw.Harness.WorkCycle"/>
+      </Action>
+
+      <Action Name="WritePlan" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Harness.WorkCycle"/>
+        <Parameter Name="plan_summary" Type="Edm.String" Nullable="false"/>
+        <Parameter Name="planner_id" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="OpenPaw.Harness.WorkCycle"/>
+      </Action>
+
+      <Action Name="StartWork" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Harness.WorkCycle"/>
+        <ReturnType Type="OpenPaw.Harness.WorkCycle"/>
+      </Action>
+
+      <Action Name="BeginTesting" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Harness.WorkCycle"/>
+        <ReturnType Type="OpenPaw.Harness.WorkCycle"/>
+      </Action>
+
+      <Action Name="PassTests" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Harness.WorkCycle"/>
+        <Parameter Name="test_summary" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="OpenPaw.Harness.WorkCycle"/>
+      </Action>
+
+      <Action Name="Approve" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Harness.WorkCycle"/>
+        <Parameter Name="approver_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="pr_url" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="OpenPaw.Harness.WorkCycle"/>
+      </Action>
+
+      <Action Name="Fail" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Harness.WorkCycle"/>
+        <Parameter Name="error_message" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="OpenPaw.Harness.WorkCycle"/>
+      </Action>
+
+      <EntityContainer Name="Service">
+        <EntitySet Name="ProjectHarnesses" EntityType="OpenPaw.Harness.ProjectHarness"/>
+        <EntitySet Name="WorkCycles" EntityType="OpenPaw.Harness.WorkCycle"/>
+      </EntityContainer>
+    </Schema>
+  </edmx:DataServices>
+</edmx:Edmx>

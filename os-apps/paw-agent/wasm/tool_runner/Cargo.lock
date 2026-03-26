@@ -3,6 +3,12 @@
 version = 4
 
 [[package]]
+name = "base64"
+version = "0.22.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
+
+[[package]]
 name = "itoa"
 version = "1.0.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -95,6 +101,7 @@ dependencies = [
 [[package]]
 name = "temper-wasm-sdk"
 version = "0.1.0"
+source = "git+https://github.com/nerdsane/temper.git?branch=main#a00cf408d14a9bd9e292ffc362bf52ee50608636"
 dependencies = [
  "serde_json",
 ]
@@ -103,6 +110,7 @@ dependencies = [
 name = "tool-runner"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "session-tree-lib",
  "temper-wasm-sdk",
 ]

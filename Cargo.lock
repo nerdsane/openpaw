@@ -3000,6 +3000,7 @@ dependencies = [
  "anyhow",
  "axum 0.8.8",
  "base64 0.22.1",
+ "dotenvy",
  "paw-transport",
  "rand 0.9.2",
  "reqwest",
@@ -5155,7 +5156,6 @@ dependencies = [
 [[package]]
 name = "temper-wasm"
 version = "0.1.0"
-source = "git+https://github.com/nerdsane/temper.git?branch=main#a00cf408d14a9bd9e292ffc362bf52ee50608636"
 dependencies = [
  "async-trait",
  "reqwest",

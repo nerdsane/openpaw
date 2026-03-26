@@ -4,12 +4,14 @@
 //! The daemon boots the Temper platform, installs Paw OS apps, seeds souls,
 //! and starts the Discord transport.
 
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use temper_platform::PlatformState;
 use temper_platform::router::build_platform_router;
+use temper_runtime::tenant::TenantId;
 
 use crate::config::Config;
 
@@ -20,6 +22,8 @@ const PAW_OS_APPS: &[&str] = &[
     "paw-fs",
     "paw-pm",
     "paw-compute",
+    "paw-harness",
+    "paw-heal",
 ];
 
 /// Run the Open Paw daemon.
@@ -40,7 +44,7 @@ pub async fn run(config: Config) -> Result<()> {
     tracing::info!("Phase 3: Loading OS apps from ./os-apps/...");
     let os_apps_dir = PathBuf::from("os-apps");
     if os_apps_dir.exists() {
-        temper_platform::os_apps::set_os_apps_dir(os_apps_dir);
+        temper_platform::os_apps::set_os_apps_dir(os_apps_dir.clone());
     } else {
         tracing::warn!("os-apps/ directory not found — OS apps will not be available");
     }
@@ -59,11 +63,28 @@ pub async fn run(config: Config) -> Result<()> {
     {
         let key_bytes: [u8; 32] = if let Some(ref key_b64) = config.vault_key {
             use base64::Engine as _;
-            let decoded = base64::engine::general_purpose::STANDARD
-                .decode(key_b64)
-                .context("TEMPER_VAULT_KEY must be valid base64")?;
-            anyhow::ensure!(decoded.len() == 32, "TEMPER_VAULT_KEY must be 32 bytes");
-            decoded.try_into().unwrap()
+
+            match base64::engine::general_purpose::STANDARD.decode(key_b64) {
+                Ok(decoded) if decoded.len() == 32 => decoded.try_into().unwrap(),
+                Ok(decoded) => {
+                    let mut key = [0u8; 32];
+                    rand::fill(&mut key);
+                    tracing::warn!(
+                        actual_len = decoded.len(),
+                        "TEMPER_VAULT_KEY was not 32 bytes after base64 decode — using ephemeral vault key"
+                    );
+                    key
+                }
+                Err(error) => {
+                    let mut key = [0u8; 32];
+                    rand::fill(&mut key);
+                    tracing::warn!(
+                        %error,
+                        "TEMPER_VAULT_KEY was invalid base64 — using ephemeral vault key"
+                    );
+                    key
+                }
+            }
         } else {
             // Ephemeral key — secrets lost on restart.
             let mut key = [0u8; 32];
@@ -84,17 +105,46 @@ pub async fn run(config: Config) -> Result<()> {
             }
         }
 
+        if let Some(ref key) = config.e2b_api_key {
+            let _ = vault.cache_secret("default", "e2b_api_key", key.clone());
+            if tenant != "default" {
+                let _ = vault.cache_secret(&tenant, "e2b_api_key", key.clone());
+            }
+        }
+
+        if let Some(ref token) = config.github_token {
+            let _ = vault.cache_secret("default", "github_token", token.clone());
+            if tenant != "default" {
+                let _ = vault.cache_secret(&tenant, "github_token", token.clone());
+            }
+        }
+
+        if let Some(ref token) = config.logfire_read_token {
+            let _ = vault.cache_secret("default", "logfire_read_token", token.clone());
+            if tenant != "default" {
+                let _ = vault.cache_secret(&tenant, "logfire_read_token", token.clone());
+            }
+        }
+
+        if let Some(ref token) = config.logfire_write_token {
+            let _ = vault.cache_secret("default", "logfire_write_token", token.clone());
+            if tenant != "default" {
+                let _ = vault.cache_secret(&tenant, "logfire_write_token", token.clone());
+            }
+        }
+
         let api_url = format!("http://127.0.0.1:{port}");
         let _ = vault.cache_secret("default", "temper_api_url", api_url.clone());
         if tenant != "default" {
             let _ = vault.cache_secret(&tenant, "temper_api_url", api_url);
         }
 
-        // Local sandbox (auto-start if script exists)
+        // Local sandbox (auto-start if script exists). Keep it available for
+        // explicit Configure overrides, but do not force it as the default when
+        // E2B is configured and no SANDBOX_URL override was provided.
+        let explicit_sandbox_url = std::env::var("SANDBOX_URL").ok();
         let sandbox_port = port + 10;
-        let sandbox_url = if let Ok(url) = std::env::var("SANDBOX_URL") {
-            url
-        } else {
+        let local_sandbox_url = {
             let sandbox_script = Path::new("os-apps/paw-agent/sandbox/local_sandbox.py");
             let url = format!("http://127.0.0.1:{sandbox_port}");
             if sandbox_script.exists() {
@@ -116,9 +166,56 @@ pub async fn run(config: Config) -> Result<()> {
             }
             url
         };
-        let _ = vault.cache_secret("default", "sandbox_url", sandbox_url.clone());
+
+        let default_sandbox_url = explicit_sandbox_url.or_else(|| {
+            if config.e2b_api_key.is_some() {
+                tracing::info!(
+                    "E2B_API_KEY is configured; leaving sandbox_url unset so provisioning can use E2B by default"
+                );
+                None
+            } else {
+                Some(local_sandbox_url.clone())
+            }
+        });
+
+        if let Some(sandbox_url) = default_sandbox_url {
+            let _ = vault.cache_secret("default", "sandbox_url", sandbox_url.clone());
+            if tenant != "default" {
+                let _ = vault.cache_secret(&tenant, "sandbox_url", sandbox_url);
+            }
+        }
+
+        // Local blob store for TemperFS content uploads/downloads.
+        let blob_store_port = port + 20;
+        let blob_endpoint = if let Ok(url) = std::env::var("BLOB_ENDPOINT") {
+            url
+        } else {
+            let blob_script = Path::new("os-apps/paw-fs/sandbox/local_blob_store.py");
+            let url = format!("http://127.0.0.1:{blob_store_port}");
+            if blob_script.exists() {
+                let _ = std::fs::create_dir_all("/tmp/openpaw-blobs");
+                match std::process::Command::new("python3")
+                    .arg(blob_script)
+                    .arg("--port")
+                    .arg(blob_store_port.to_string())
+                    .arg("--dir")
+                    .arg("/tmp/openpaw-blobs")
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .spawn()
+                {
+                    Ok(_) => tracing::info!("Local blob store: {url} (auto-started)"),
+                    Err(e) => tracing::warn!("Failed to start local blob store: {e}"),
+                }
+            }
+            url
+        };
+        let blob_bucket = std::env::var("BLOB_BUCKET").unwrap_or_else(|_| "temper-fs".into());
+        let _ = vault.cache_secret("default", "blob_endpoint", blob_endpoint.clone());
+        let _ = vault.cache_secret("default", "blob_bucket", blob_bucket.clone());
         if tenant != "default" {
-            let _ = vault.cache_secret(&tenant, "sandbox_url", sandbox_url);
+            let _ = vault.cache_secret(&tenant, "blob_endpoint", blob_endpoint);
+            let _ = vault.cache_secret(&tenant, "blob_bucket", blob_bucket);
         }
 
         // Discord bot token
@@ -141,10 +238,18 @@ pub async fn run(config: Config) -> Result<()> {
     // Phase 6: Install Paw OS apps
     tracing::info!("Phase 6: Installing Paw OS apps...");
     for app_name in PAW_OS_APPS {
+        if temper_platform::os_apps::get_os_app(app_name).is_none() {
+            tracing::warn!("Skipping OS app '{app_name}' because its bundle is missing or invalid");
+            continue;
+        }
         match temper_platform::install_os_app(&state, &tenant, app_name).await {
             Ok(result) => tracing::info!("  Installed {app_name}: {result:?}"),
             Err(e) => tracing::error!("  Failed to install {app_name}: {e}"),
         }
+    }
+
+    if let Err(error) = build_and_register_local_wasm_modules(&state, &tenant, &os_apps_dir).await {
+        tracing::error!(%error, "Failed to build/register local OS app WASM modules");
     }
 
     // Phase 7: Recovery (Cedar policies + WASM modules + secrets from store)
@@ -170,7 +275,12 @@ pub async fn run(config: Config) -> Result<()> {
 
     // Start Discord transport if token is available
     if let Some(ref token) = config.discord_bot_token {
-        spawn_discord_transport(token.clone(), &tenant, actual_port, config.temper_api_key.clone());
+        spawn_discord_transport(
+            token.clone(),
+            &tenant,
+            actual_port,
+            config.temper_api_key.clone(),
+        );
     } else {
         tracing::warn!("No DISCORD_BOT_TOKEN — Discord transport not started");
     }
@@ -190,7 +300,7 @@ pub async fn run(config: Config) -> Result<()> {
 /// Bootstrap Paw souls into the entity system.
 ///
 /// Reads soul files from `souls/` directory, creates TemperFS File entities
-/// for the content, and registers AgentSoul entities. Runs once on first boot;
+/// for the content, and registers Soul entities. Runs once on first boot;
 /// skips if souls already exist.
 fn spawn_soul_bootstrap(port: u16, tenant: String, api_key: Option<String>) {
     tokio::spawn(async move {
@@ -202,12 +312,26 @@ fn spawn_soul_bootstrap(port: u16, tenant: String, api_key: Option<String>) {
 
         let souls = [
             ("Paw", "Paw project manager agent", "souls/paw.md"),
-            ("Developer", "Software developer agent", "souls/developer.md"),
+            (
+                "Developer",
+                "Software developer agent",
+                "souls/developer.md",
+            ),
             ("Scout", "Monitoring and triage agent", "souls/scout.md"),
         ];
 
         for (name, description, path) in &souls {
-            match bootstrap_soul(&client, &api_url, &tenant, &api_key, name, description, path).await {
+            match bootstrap_soul(
+                &client,
+                &api_url,
+                &tenant,
+                &api_key,
+                name,
+                description,
+                path,
+            )
+            .await
+            {
                 Ok(soul_id) => tracing::info!("  Soul '{name}' ready: {soul_id}"),
                 Err(e) => tracing::error!("  Failed to bootstrap soul '{name}': {e}"),
             }
@@ -220,7 +344,7 @@ fn spawn_soul_bootstrap(port: u16, tenant: String, api_key: Option<String>) {
     });
 }
 
-/// Create or find an AgentSoul entity for the given soul file.
+/// Create or find a Soul entity for the given soul file.
 async fn bootstrap_soul(
     client: &reqwest::Client,
     api_url: &str,
@@ -232,13 +356,13 @@ async fn bootstrap_soul(
 ) -> Result<String> {
     // Check if soul already exists
     let filter = format!("Name eq '{name}'");
-    let list_url = format!("{api_url}/tdata/AgentSouls?$filter={filter}");
+    let list_url = format!("{api_url}/tdata/Souls?$filter={filter}");
     let resp = odata_get(client, &list_url, tenant, api_key).await?;
     let items = resp["value"].as_array();
 
     if let Some(items) = items {
         if let Some(existing) = items.first() {
-            let id = existing["Id"].as_str().unwrap_or("unknown");
+            let id = entity_id_from_json(existing).unwrap_or("unknown");
             tracing::info!("  Soul '{name}' already exists: {id}");
             return Ok(id.to_string());
         }
@@ -258,7 +382,8 @@ async fn bootstrap_soul(
             "Name": format!("{name}.soul.md"),
             "MimeType": "text/markdown"
         }),
-    ).await?;
+    )
+    .await?;
     // OData response puts id at "entity_id" (top level) or "fields.Id"
     let file_id = file_resp["entity_id"]
         .as_str()
@@ -269,20 +394,20 @@ async fn bootstrap_soul(
 
     // Upload content to the file
     let upload_url = format!("{api_url}/tdata/Files('{file_id}')/$value");
-    let mut req = client.put(&upload_url)
-        .header("x-tenant-id", tenant)
-        .header("x-temper-principal-kind", "admin")
-        .header("content-type", "text/markdown")
-        .body(content);
-    if let Some(key) = api_key {
-        req = req.header("authorization", format!("Bearer {key}"));
-    }
-    req.send().await.context("Failed to upload soul content")?;
+    odata_put_bytes(
+        client,
+        &upload_url,
+        tenant,
+        api_key,
+        "text/markdown",
+        content.into_bytes(),
+    )
+    .await?;
 
-    // Create AgentSoul entity
+    // Create Soul entity
     let soul_resp = odata_post(
         client,
-        &format!("{api_url}/tdata/AgentSouls"),
+        &format!("{api_url}/tdata/Souls"),
         tenant,
         api_key,
         serde_json::json!({
@@ -290,22 +415,24 @@ async fn bootstrap_soul(
             "Description": description,
             "ContentFileId": file_id
         }),
-    ).await?;
+    )
+    .await?;
     let soul_id = soul_resp["entity_id"]
         .as_str()
         .or_else(|| soul_resp["fields"]["Id"].as_str())
         .or_else(|| soul_resp["Id"].as_str())
-        .context("AgentSoul creation did not return Id")?
+        .context("Soul creation did not return Id")?
         .to_string();
 
     // Publish the soul (Draft → Active)
     odata_post(
         client,
-        &format!("{api_url}/tdata/AgentSouls('{soul_id}')/Paw.Agent.Publish"),
+        &format!("{api_url}/tdata/Souls('{soul_id}')/OpenPaw.Publish"),
         tenant,
         api_key,
         serde_json::json!({}),
-    ).await?;
+    )
+    .await?;
 
     Ok(soul_id)
 }
@@ -322,14 +449,15 @@ async fn set_default_soul(
     let filter = format!("Name eq '{soul_name}'");
     let resp = odata_get(
         client,
-        &format!("{api_url}/tdata/AgentSouls?$filter={filter}"),
+        &format!("{api_url}/tdata/Souls?$filter={filter}"),
         tenant,
         api_key,
-    ).await?;
+    )
+    .await?;
     let soul_id = resp["value"]
         .as_array()
         .and_then(|a| a.first())
-        .and_then(|s| s["Id"].as_str())
+        .and_then(entity_id_from_json)
         .context("Paw soul not found")?
         .to_string();
 
@@ -339,21 +467,24 @@ async fn set_default_soul(
         &format!("{api_url}/tdata/AgentRoutes"),
         tenant,
         api_key,
-    ).await?;
+    )
+    .await?;
 
     if let Some(routes) = routes_resp["value"].as_array() {
         for route in routes {
-            let route_id = route["Id"].as_str().unwrap_or("");
-            let current_soul = route["SoulId"].as_str().unwrap_or("");
+            let route_id = entity_id_from_json(route).unwrap_or("");
+            let current_soul = entity_field_str(route, &["SoulId", "soul_id"]).unwrap_or("");
             if current_soul.is_empty() && !route_id.is_empty() {
                 // Update route with Paw soul
                 odata_post(
                     client,
-                    &format!("{api_url}/tdata/AgentRoutes('{route_id}')/Paw.Channel.AgentRoute.Configure"),
+                    &format!("{api_url}/tdata/AgentRoutes('{route_id}')/Paw.Channel.Update"),
                     tenant,
                     api_key,
                     serde_json::json!({ "soul_id": soul_id }),
-                ).await.ok(); // Best effort
+                )
+                .await
+                .ok(); // Best effort
                 tracing::info!("  Set soul '{soul_name}' on AgentRoute {route_id}");
             }
         }
@@ -369,14 +500,19 @@ async fn odata_get(
     tenant: &str,
     api_key: &Option<String>,
 ) -> Result<serde_json::Value> {
-    let mut req = client.get(url)
+    let mut req = client
+        .get(url)
         .header("x-tenant-id", tenant)
         .header("x-temper-principal-kind", "admin");
     if let Some(key) = api_key {
         req = req.header("authorization", format!("Bearer {key}"));
     }
     let resp = req.send().await.context("OData GET failed")?;
+    let status = resp.status();
     let body = resp.text().await.context("Failed to read response")?;
+    if !status.is_success() {
+        anyhow::bail!("OData GET {url} returned {status}: {body}");
+    }
     serde_json::from_str(&body).context("Failed to parse JSON response")
 }
 
@@ -388,7 +524,8 @@ async fn odata_post(
     api_key: &Option<String>,
     body: serde_json::Value,
 ) -> Result<serde_json::Value> {
-    let mut req = client.post(url)
+    let mut req = client
+        .post(url)
         .header("x-tenant-id", tenant)
         .header("x-temper-principal-kind", "admin")
         .header("content-type", "application/json")
@@ -405,13 +542,262 @@ async fn odata_post(
     Ok(serde_json::from_str(&text).unwrap_or(serde_json::Value::Null))
 }
 
-/// Spawn the Discord channel transport.
-fn spawn_discord_transport(
-    bot_token: String,
+async fn odata_put_bytes(
+    client: &reqwest::Client,
+    url: &str,
     tenant: &str,
-    port: u16,
-    api_key: Option<String>,
-) {
+    api_key: &Option<String>,
+    content_type: &str,
+    body: Vec<u8>,
+) -> Result<()> {
+    let mut req = client
+        .put(url)
+        .header("x-tenant-id", tenant)
+        .header("x-temper-principal-kind", "admin")
+        .header("content-type", content_type)
+        .body(body);
+    if let Some(key) = api_key {
+        req = req.header("authorization", format!("Bearer {key}"));
+    }
+
+    let resp = req.send().await.context("OData PUT failed")?;
+    let status = resp.status();
+    let text = resp.text().await.context("Failed to read PUT response")?;
+    if !status.is_success() {
+        anyhow::bail!("OData PUT {url} returned {status}: {text}");
+    }
+    Ok(())
+}
+
+fn entity_id_from_json(value: &serde_json::Value) -> Option<&str> {
+    value
+        .get("entity_id")
+        .and_then(serde_json::Value::as_str)
+        .or_else(|| value.get("Id").and_then(serde_json::Value::as_str))
+        .or_else(|| {
+            value
+                .get("fields")
+                .and_then(|fields| fields.get("Id"))
+                .and_then(serde_json::Value::as_str)
+        })
+}
+
+fn entity_field_str<'a>(value: &'a serde_json::Value, names: &[&str]) -> Option<&'a str> {
+    names.iter().find_map(|name| {
+        value
+            .get(*name)
+            .and_then(serde_json::Value::as_str)
+            .or_else(|| {
+                value
+                    .get("fields")
+                    .and_then(|fields| fields.get(*name))
+                    .and_then(serde_json::Value::as_str)
+            })
+    })
+}
+
+async fn build_and_register_local_wasm_modules(
+    state: &PlatformState,
+    tenant: &str,
+    os_apps_dir: &Path,
+) -> Result<()> {
+    build_missing_wasm_modules(os_apps_dir)?;
+
+    let tenant_id = TenantId::new(tenant);
+    let mut registered = 0usize;
+
+    for module_dir in wasm_module_dirs(os_apps_dir)? {
+        let module_name = module_dir
+            .file_name()
+            .and_then(OsStr::to_str)
+            .unwrap_or_default();
+        if module_name.is_empty() {
+            continue;
+        }
+
+        let Some(wasm_path) = find_wasm_binary(&module_dir, module_name) else {
+            continue;
+        };
+
+        let wasm_bytes = std::fs::read(&wasm_path)
+            .with_context(|| format!("Failed to read WASM binary: {}", wasm_path.display()))?;
+        let hash = state
+            .server
+            .wasm_engine
+            .compile_and_cache(&wasm_bytes)
+            .map_err(|error| {
+                anyhow::anyhow!(
+                    "Failed to compile WASM module '{module_name}' from {}: {error}",
+                    wasm_path.display()
+                )
+            })?;
+        state
+            .server
+            .upsert_wasm_module(tenant, module_name, &wasm_bytes, &hash)
+            .await
+            .map_err(|error| {
+                anyhow::anyhow!("Failed to persist WASM module '{module_name}': {error}")
+            })?;
+        {
+            let mut registry = state.server.wasm_module_registry.write().unwrap();
+            registry.register(&tenant_id, module_name, &hash);
+        }
+
+        registered += 1;
+        tracing::info!(
+            module = module_name,
+            path = %wasm_path.display(),
+            hash = %hash,
+            "Registered local WASM module"
+        );
+    }
+
+    tracing::info!("Registered {registered} local WASM modules for tenant '{tenant}'");
+    Ok(())
+}
+
+fn build_missing_wasm_modules(os_apps_dir: &Path) -> Result<()> {
+    for build_script in wasm_build_scripts(os_apps_dir)? {
+        let build_dir = build_script
+            .parent()
+            .context("build.sh path missing parent directory")?;
+        if !wasm_build_needed(build_dir)? {
+            continue;
+        }
+
+        tracing::info!(path = %build_script.display(), "Building local WASM modules");
+        let script_name = build_script
+            .file_name()
+            .and_then(OsStr::to_str)
+            .context("build.sh path missing file name")?;
+        let status = std::process::Command::new("bash")
+            .arg(script_name)
+            .current_dir(build_dir)
+            .status()
+            .with_context(|| format!("Failed to run {}", build_script.display()))?;
+        if !status.success() {
+            anyhow::bail!("{} exited with status {status}", build_script.display());
+        }
+    }
+
+    Ok(())
+}
+
+fn wasm_build_scripts(os_apps_dir: &Path) -> Result<Vec<PathBuf>> {
+    let mut scripts = Vec::new();
+
+    for app_entry in std::fs::read_dir(os_apps_dir)? {
+        let app_dir = match app_entry {
+            Ok(entry) if entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false) => entry.path(),
+            _ => continue,
+        };
+        let wasm_dir = app_dir.join("wasm");
+        if !wasm_dir.is_dir() {
+            continue;
+        }
+
+        let root_build = wasm_dir.join("build.sh");
+        if root_build.is_file() {
+            scripts.push(root_build);
+            continue;
+        }
+
+        for child in std::fs::read_dir(&wasm_dir)? {
+            let child_dir = match child {
+                Ok(entry) if entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false) => {
+                    entry.path()
+                }
+                _ => continue,
+            };
+            let child_build = child_dir.join("build.sh");
+            if child_build.is_file() {
+                scripts.push(child_build);
+            }
+        }
+    }
+
+    scripts.sort();
+    Ok(scripts)
+}
+
+fn wasm_build_needed(build_dir: &Path) -> Result<bool> {
+    if build_dir.join("Cargo.toml").is_file() {
+        let module_name = build_dir
+            .file_name()
+            .and_then(OsStr::to_str)
+            .unwrap_or_default();
+        return Ok(find_wasm_binary(build_dir, module_name).is_none());
+    }
+
+    for child in std::fs::read_dir(build_dir)? {
+        let child_dir = match child {
+            Ok(entry) if entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false) => entry.path(),
+            _ => continue,
+        };
+        if !child_dir.join("Cargo.toml").is_file() {
+            continue;
+        }
+
+        let module_name = child_dir
+            .file_name()
+            .and_then(OsStr::to_str)
+            .unwrap_or_default();
+        if find_wasm_binary(&child_dir, module_name).is_none() {
+            return Ok(true);
+        }
+    }
+
+    Ok(false)
+}
+
+fn wasm_module_dirs(os_apps_dir: &Path) -> Result<Vec<PathBuf>> {
+    let mut dirs = Vec::new();
+
+    for app_entry in std::fs::read_dir(os_apps_dir)? {
+        let app_dir = match app_entry {
+            Ok(entry) if entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false) => entry.path(),
+            _ => continue,
+        };
+        let wasm_dir = app_dir.join("wasm");
+        if !wasm_dir.is_dir() {
+            continue;
+        }
+
+        for child in std::fs::read_dir(&wasm_dir)? {
+            let child_dir = match child {
+                Ok(entry) if entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false) => {
+                    entry.path()
+                }
+                _ => continue,
+            };
+            if child_dir.join("Cargo.toml").is_file() {
+                dirs.push(child_dir);
+            }
+        }
+    }
+
+    dirs.sort();
+    Ok(dirs)
+}
+
+fn find_wasm_binary(module_dir: &Path, module_name: &str) -> Option<PathBuf> {
+    if module_name.is_empty() {
+        return None;
+    }
+
+    let release_dir = module_dir.join("target/wasm32-unknown-unknown/release");
+    let candidates = [
+        release_dir.join(format!("{module_name}.wasm")),
+        release_dir.join(format!("{}.wasm", module_name.replace('_', "-"))),
+        module_dir.join(format!("{module_name}.wasm")),
+        module_dir.join(format!("{}.wasm", module_name.replace('_', "-"))),
+    ];
+
+    candidates.into_iter().find(|path| path.is_file())
+}
+
+/// Spawn the Discord channel transport.
+fn spawn_discord_transport(bot_token: String, tenant: &str, port: u16, api_key: Option<String>) {
     use paw_transport::PawApiConfig;
     use paw_transport::discord::types::intents;
     use paw_transport::discord::{DiscordConfig, DiscordTransport};
