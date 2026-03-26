@@ -19,6 +19,7 @@ const PAW_OS_APPS: &[&str] = &[
     "paw-channels",
     "paw-fs",
     "paw-pm",
+    "paw-compute",
 ];
 
 /// Run the Open Paw daemon.
