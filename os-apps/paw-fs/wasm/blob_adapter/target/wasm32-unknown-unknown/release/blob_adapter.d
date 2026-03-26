@@ -1,0 +1,1 @@
+/Users/seshendranalla/Development/temper/os-apps/temper-fs/wasm/blob_adapter/target/wasm32-unknown-unknown/release/blob_adapter.wasm: /Users/seshendranalla/Development/temper/os-apps/temper-fs/wasm/blob_adapter/src/lib.rs
