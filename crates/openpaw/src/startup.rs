@@ -259,7 +259,11 @@ async fn bootstrap_soul(
             "MimeType": "text/markdown"
         }),
     ).await?;
-    let file_id = file_resp["Id"].as_str()
+    // OData response puts id at "entity_id" (top level) or "fields.Id"
+    let file_id = file_resp["entity_id"]
+        .as_str()
+        .or_else(|| file_resp["fields"]["Id"].as_str())
+        .or_else(|| file_resp["Id"].as_str())
         .context("File creation did not return Id")?
         .to_string();
 
@@ -267,6 +271,7 @@ async fn bootstrap_soul(
     let upload_url = format!("{api_url}/tdata/Files('{file_id}')/$value");
     let mut req = client.put(&upload_url)
         .header("x-tenant-id", tenant)
+        .header("x-temper-principal-kind", "admin")
         .header("content-type", "text/markdown")
         .body(content);
     if let Some(key) = api_key {
@@ -286,7 +291,10 @@ async fn bootstrap_soul(
             "ContentFileId": file_id
         }),
     ).await?;
-    let soul_id = soul_resp["Id"].as_str()
+    let soul_id = soul_resp["entity_id"]
+        .as_str()
+        .or_else(|| soul_resp["fields"]["Id"].as_str())
+        .or_else(|| soul_resp["Id"].as_str())
         .context("AgentSoul creation did not return Id")?
         .to_string();
 
@@ -354,14 +362,16 @@ async fn set_default_soul(
     Ok(())
 }
 
-/// OData GET helper with tenant + auth headers.
+/// OData GET helper with tenant + admin auth headers.
 async fn odata_get(
     client: &reqwest::Client,
     url: &str,
     tenant: &str,
     api_key: &Option<String>,
 ) -> Result<serde_json::Value> {
-    let mut req = client.get(url).header("x-tenant-id", tenant);
+    let mut req = client.get(url)
+        .header("x-tenant-id", tenant)
+        .header("x-temper-principal-kind", "admin");
     if let Some(key) = api_key {
         req = req.header("authorization", format!("Bearer {key}"));
     }
@@ -370,7 +380,7 @@ async fn odata_get(
     serde_json::from_str(&body).context("Failed to parse JSON response")
 }
 
-/// OData POST helper with tenant + auth headers.
+/// OData POST helper with tenant + admin auth headers.
 async fn odata_post(
     client: &reqwest::Client,
     url: &str,
@@ -380,6 +390,7 @@ async fn odata_post(
 ) -> Result<serde_json::Value> {
     let mut req = client.post(url)
         .header("x-tenant-id", tenant)
+        .header("x-temper-principal-kind", "admin")
         .header("content-type", "application/json")
         .json(&body);
     if let Some(key) = api_key {
