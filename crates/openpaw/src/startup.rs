@@ -177,10 +177,220 @@ pub async fn run(config: Config) -> Result<()> {
     // Spawn background loops
     // TODO: spawn_optimization_loop, spawn_actor_passivation_loop
 
+    // Spawn soul bootstrap (needs OData API running, so runs after bind)
+    spawn_soul_bootstrap(actual_port, tenant.clone(), config.temper_api_key.clone());
+
     tracing::info!("Open Paw listening on port {actual_port}");
     axum::serve(listener, router).await?;
 
     Ok(())
+}
+
+/// Bootstrap Paw souls into the entity system.
+///
+/// Reads soul files from `souls/` directory, creates TemperFS File entities
+/// for the content, and registers AgentSoul entities. Runs once on first boot;
+/// skips if souls already exist.
+fn spawn_soul_bootstrap(port: u16, tenant: String, api_key: Option<String>) {
+    tokio::spawn(async move {
+        // Give the server a moment to be ready
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+        let api_url = format!("http://127.0.0.1:{port}");
+        let client = reqwest::Client::new();
+
+        let souls = [
+            ("Paw", "Paw project manager agent", "souls/paw.md"),
+            ("Developer", "Software developer agent", "souls/developer.md"),
+            ("Scout", "Monitoring and triage agent", "souls/scout.md"),
+        ];
+
+        for (name, description, path) in &souls {
+            match bootstrap_soul(&client, &api_url, &tenant, &api_key, name, description, path).await {
+                Ok(soul_id) => tracing::info!("  Soul '{name}' ready: {soul_id}"),
+                Err(e) => tracing::error!("  Failed to bootstrap soul '{name}': {e}"),
+            }
+        }
+
+        // Set Paw as the default soul for the Discord channel route
+        if let Err(e) = set_default_soul(&client, &api_url, &tenant, &api_key, "Paw").await {
+            tracing::warn!("Could not set default soul on AgentRoute: {e}");
+        }
+    });
+}
+
+/// Create or find an AgentSoul entity for the given soul file.
+async fn bootstrap_soul(
+    client: &reqwest::Client,
+    api_url: &str,
+    tenant: &str,
+    api_key: &Option<String>,
+    name: &str,
+    description: &str,
+    path: &str,
+) -> Result<String> {
+    // Check if soul already exists
+    let filter = format!("Name eq '{name}'");
+    let list_url = format!("{api_url}/tdata/AgentSouls?$filter={filter}");
+    let resp = odata_get(client, &list_url, tenant, api_key).await?;
+    let items = resp["value"].as_array();
+
+    if let Some(items) = items {
+        if let Some(existing) = items.first() {
+            let id = existing["Id"].as_str().unwrap_or("unknown");
+            tracing::info!("  Soul '{name}' already exists: {id}");
+            return Ok(id.to_string());
+        }
+    }
+
+    // Read soul content from disk
+    let content = std::fs::read_to_string(path)
+        .with_context(|| format!("Failed to read soul file: {path}"))?;
+
+    // Create TemperFS File for the soul content
+    let file_resp = odata_post(
+        client,
+        &format!("{api_url}/tdata/Files"),
+        tenant,
+        api_key,
+        serde_json::json!({
+            "Name": format!("{name}.soul.md"),
+            "MimeType": "text/markdown"
+        }),
+    ).await?;
+    let file_id = file_resp["Id"].as_str()
+        .context("File creation did not return Id")?
+        .to_string();
+
+    // Upload content to the file
+    let upload_url = format!("{api_url}/tdata/Files('{file_id}')/$value");
+    let mut req = client.put(&upload_url)
+        .header("x-tenant-id", tenant)
+        .header("content-type", "text/markdown")
+        .body(content);
+    if let Some(key) = api_key {
+        req = req.header("authorization", format!("Bearer {key}"));
+    }
+    req.send().await.context("Failed to upload soul content")?;
+
+    // Create AgentSoul entity
+    let soul_resp = odata_post(
+        client,
+        &format!("{api_url}/tdata/AgentSouls"),
+        tenant,
+        api_key,
+        serde_json::json!({
+            "Name": name,
+            "Description": description,
+            "ContentFileId": file_id
+        }),
+    ).await?;
+    let soul_id = soul_resp["Id"].as_str()
+        .context("AgentSoul creation did not return Id")?
+        .to_string();
+
+    // Publish the soul (Draft → Active)
+    odata_post(
+        client,
+        &format!("{api_url}/tdata/AgentSouls('{soul_id}')/Paw.Agent.Publish"),
+        tenant,
+        api_key,
+        serde_json::json!({}),
+    ).await?;
+
+    Ok(soul_id)
+}
+
+/// Set the Paw soul as the default on any existing AgentRoute.
+async fn set_default_soul(
+    client: &reqwest::Client,
+    api_url: &str,
+    tenant: &str,
+    api_key: &Option<String>,
+    soul_name: &str,
+) -> Result<()> {
+    // Find the Paw soul
+    let filter = format!("Name eq '{soul_name}'");
+    let resp = odata_get(
+        client,
+        &format!("{api_url}/tdata/AgentSouls?$filter={filter}"),
+        tenant,
+        api_key,
+    ).await?;
+    let soul_id = resp["value"]
+        .as_array()
+        .and_then(|a| a.first())
+        .and_then(|s| s["Id"].as_str())
+        .context("Paw soul not found")?
+        .to_string();
+
+    // Find AgentRoutes and update their soul_id
+    let routes_resp = odata_get(
+        client,
+        &format!("{api_url}/tdata/AgentRoutes"),
+        tenant,
+        api_key,
+    ).await?;
+
+    if let Some(routes) = routes_resp["value"].as_array() {
+        for route in routes {
+            let route_id = route["Id"].as_str().unwrap_or("");
+            let current_soul = route["SoulId"].as_str().unwrap_or("");
+            if current_soul.is_empty() && !route_id.is_empty() {
+                // Update route with Paw soul
+                odata_post(
+                    client,
+                    &format!("{api_url}/tdata/AgentRoutes('{route_id}')/Paw.Channel.AgentRoute.Configure"),
+                    tenant,
+                    api_key,
+                    serde_json::json!({ "soul_id": soul_id }),
+                ).await.ok(); // Best effort
+                tracing::info!("  Set soul '{soul_name}' on AgentRoute {route_id}");
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// OData GET helper with tenant + auth headers.
+async fn odata_get(
+    client: &reqwest::Client,
+    url: &str,
+    tenant: &str,
+    api_key: &Option<String>,
+) -> Result<serde_json::Value> {
+    let mut req = client.get(url).header("x-tenant-id", tenant);
+    if let Some(key) = api_key {
+        req = req.header("authorization", format!("Bearer {key}"));
+    }
+    let resp = req.send().await.context("OData GET failed")?;
+    let body = resp.text().await.context("Failed to read response")?;
+    serde_json::from_str(&body).context("Failed to parse JSON response")
+}
+
+/// OData POST helper with tenant + auth headers.
+async fn odata_post(
+    client: &reqwest::Client,
+    url: &str,
+    tenant: &str,
+    api_key: &Option<String>,
+    body: serde_json::Value,
+) -> Result<serde_json::Value> {
+    let mut req = client.post(url)
+        .header("x-tenant-id", tenant)
+        .header("content-type", "application/json")
+        .json(&body);
+    if let Some(key) = api_key {
+        req = req.header("authorization", format!("Bearer {key}"));
+    }
+    let resp = req.send().await.context("OData POST failed")?;
+    let status = resp.status();
+    let text = resp.text().await.context("Failed to read response")?;
+    if !status.is_success() {
+        anyhow::bail!("OData POST {url} returned {status}: {text}");
+    }
+    Ok(serde_json::from_str(&text).unwrap_or(serde_json::Value::Null))
 }
 
 /// Spawn the Discord channel transport.
