@@ -42,3 +42,6 @@ anyhow = { workspace = true }
 # Crypto / encoding (for vault key)
 base64 = "0.22"
 rand = "0.9"
+
+# HTTP client (for soul bootstrap OData calls)
+reqwest = { version = "0.12", features = ["json"] }
