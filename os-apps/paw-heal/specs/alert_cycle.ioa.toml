@@ -1,0 +1,88 @@
+# AlertCycle — One self-healing attempt opened from a monitor alert.
+
+[automaton]
+name = "AlertCycle"
+states = ["Created", "Triaging", "Fixed", "Tuned", "Failed"]
+initial = "Created"
+
+[[state]]
+name = "monitor_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "alert_payload"
+type = "string"
+initial = ""
+
+[[state]]
+name = "diagnosis"
+type = "string"
+initial = ""
+
+[[state]]
+name = "pr_url"
+type = "string"
+initial = ""
+
+[[state]]
+name = "scout_agent_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "developer_agent_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "tuning_notes"
+type = "string"
+initial = ""
+
+[[action]]
+name = "Open"
+kind = "input"
+from = ["Created"]
+to = "Triaging"
+params = ["monitor_id", "alert_payload", "scout_agent_id"]
+hint = "Open a triage cycle and optionally attach the scout agent responsible for diagnosis."
+
+[[action]]
+name = "HealComplete"
+kind = "input"
+from = ["Triaging"]
+to = "Fixed"
+params = ["diagnosis", "pr_url", "developer_agent_id"]
+hint = "Mark the alert as fixed and record the remediation PR."
+
+[[action]]
+name = "TuneComplete"
+kind = "input"
+from = ["Triaging"]
+to = "Tuned"
+params = ["diagnosis", "tuning_notes"]
+hint = "Mark the cycle as tuned when the monitor was adjusted instead of code being changed."
+
+[[action]]
+name = "Escalate"
+kind = "input"
+from = ["Triaging"]
+to = "Failed"
+params = ["diagnosis"]
+hint = "Escalate when the loop cannot safely remediate the issue."
+
+[[invariant]]
+name = "FixedIsFinal"
+when = ["Fixed"]
+assert = "no_further_transitions"
+
+[[invariant]]
+name = "TunedIsFinal"
+when = ["Tuned"]
+assert = "no_further_transitions"
+
+[[invariant]]
+name = "FailedIsFinal"
+when = ["Failed"]
+assert = "no_further_transitions"

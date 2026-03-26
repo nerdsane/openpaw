@@ -230,7 +230,7 @@ anthropic_api_key (or api_key) for anthropic, openrouter_api_key (or api_key) fo
         }
 
         // System prompt assembly (Pi architecture):
-        // 1. Soul content (from AgentSoul entity via TemperFS)
+        // 1. Soul content (from Soul entity via TemperFS)
         // 2. system_prompt override (from Configure action)
         // 3. Available skills XML block
         // 4. Memory context
@@ -1307,12 +1307,12 @@ fn stringify_content(value: &Value) -> String {
 }
 
 fn emit_progress_ignore(ctx: &Context, payload: Value) {
-    let _ = ctx.emit_progress(&payload);
+    let _ = (ctx, payload);
 }
 
 fn send_heartbeat(ctx: &Context, temper_api_url: &str, tenant: &str) -> Result<(), String> {
     let url = format!(
-        "{temper_api_url}/tdata/TemperAgents('{}')/Temper.Agent.TemperAgent.Heartbeat",
+        "{temper_api_url}/tdata/Agents('{}')/OpenPaw.Heartbeat",
         ctx.entity_id
     );
     let body = json!({ "last_heartbeat_at": "alive" });
@@ -1339,7 +1339,8 @@ fn mock_plan_requests_hang(messages: &[Value]) -> bool {
 }
 
 fn simulate_mock_hang(ctx: &Context) -> Result<(), String> {
-    let base_url = temper_api_url(ctx);
+    let fields = ctx.entity_state.get("fields").cloned().unwrap_or_else(|| json!({}));
+    let base_url = resolve_temper_api_url(ctx, &fields);
     let url = format!(
         "{base_url}/observe/entities/{}/{}/wait?statuses=__never__&timeout_ms=10000&poll_ms=250",
         ctx.entity_type, ctx.entity_id
@@ -1702,7 +1703,7 @@ fn build_tool_definitions(tools_enabled: &str, sandbox_url: &str, workdir: &str)
     if enabled.contains(&"bash") {
         tools.push(json!({
             "name": "bash",
-            "description": format!("Run a bash command in the sandbox at {sandbox_url}. Working directory: {workdir}"),
+            "description": format!("Run a bash command in the sandbox at {sandbox_url}. Working directory: {workdir}. GitHub HTTPS commands automatically receive Git auth when tenant secrets provide github_token; GITHUB_TOKEN and GH_TOKEN are available in the shell."),
             "input_schema": {
                 "type": "object",
                 "properties": {
@@ -1760,7 +1761,7 @@ fn build_tool_definitions(tools_enabled: &str, sandbox_url: &str, workdir: &str)
     if enabled.contains(&"spawn_agent") {
         tools.push(json!({
             "name": "spawn_agent",
-            "description": "Create, configure, and provision a child TemperAgent.",
+            "description": "Create, configure, and provision a child Agent.",
             "input_schema": {
                 "type": "object",
                 "properties": {
@@ -1886,7 +1887,7 @@ fn build_tool_definitions(tools_enabled: &str, sandbox_url: &str, workdir: &str)
     if enabled.contains(&"spawn_agent") {
         tools.push(json!({
             "name": "spawn_agent",
-            "description": "Spawn a child TemperAgent to handle a subtask. The child runs autonomously and returns its result.",
+            "description": "Spawn a child Agent to handle a subtask. The child runs autonomously and returns its result.",
             "input_schema": {
                 "type": "object",
                 "properties": {
@@ -2168,14 +2169,14 @@ fn assemble_system_prompt(
     Ok(parts.join("\n\n"))
 }
 
-/// Load soul content from AgentSoul entity.
+/// Load soul content from Soul entity.
 fn load_soul_content(
     ctx: &Context,
     temper_api_url: &str,
     tenant: &str,
     soul_id: &str,
 ) -> Result<String, String> {
-    let url = format!("{temper_api_url}/tdata/AgentSouls('{soul_id}')");
+    let url = format!("{temper_api_url}/tdata/Souls('{soul_id}')");
     let headers = vec![
         ("x-tenant-id".to_string(), tenant.to_string()),
         ("x-temper-principal-kind".to_string(), "admin".to_string()),
@@ -2202,7 +2203,7 @@ fn load_skills_block(
     temper_api_url: &str,
     tenant: &str,
 ) -> Result<String, String> {
-    let url = format!("{temper_api_url}/tdata/AgentSkills?$filter=Status eq 'Active'");
+    let url = format!("{temper_api_url}/tdata/Skills?$filter=Status eq 'Active'");
     let headers = vec![
         ("x-tenant-id".to_string(), tenant.to_string()),
         ("x-temper-principal-kind".to_string(), "admin".to_string()),
@@ -2236,7 +2237,7 @@ fn load_memory_block(
     soul_id: &str,
 ) -> Result<String, String> {
     let url = format!(
-        "{temper_api_url}/tdata/AgentMemorys?$filter=SoulId eq '{}' and Status eq 'Active'",
+        "{temper_api_url}/tdata/Memories?$filter=SoulId eq '{}' and Status eq 'Active'",
         soul_id
     );
     let headers = vec![

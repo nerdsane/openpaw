@@ -20,3 +20,6 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 axum = { version = "0.8", features = ["macros"] }
 anyhow = "1"
+
+[patch."https://github.com/nerdsane/temper.git"]
+temper-wasm = { path = "vendor/temper-wasm-workspace/crates/temper-wasm" }

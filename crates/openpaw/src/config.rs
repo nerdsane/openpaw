@@ -15,6 +15,18 @@ pub struct Config {
     /// Anthropic API key for LLM calls.
     pub anthropic_api_key: Option<String>,
 
+    /// E2B API key for sandbox provisioning.
+    pub e2b_api_key: Option<String>,
+
+    /// GitHub token for repo cloning and PR flows.
+    pub github_token: Option<String>,
+
+    /// Logfire read token for querying alerts and traces.
+    pub logfire_read_token: Option<String>,
+
+    /// Logfire write token for emitting logs and monitor events.
+    pub logfire_write_token: Option<String>,
+
     /// Bearer token for Temper API authentication.
     pub temper_api_key: Option<String>,
 
@@ -35,20 +47,32 @@ pub struct Config {
 impl Config {
     /// Load configuration from environment variables.
     pub fn from_env() -> anyhow::Result<Self> {
+        let _ = dotenvy::dotenv();
+
         Ok(Self {
-            discord_bot_token: std::env::var("DISCORD_BOT_TOKEN").ok(),
-            turso_url: std::env::var("TURSO_URL").ok(),
-            turso_auth_token: std::env::var("TURSO_AUTH_TOKEN").ok(),
-            anthropic_api_key: std::env::var("ANTHROPIC_API_KEY").ok(),
-            temper_api_key: std::env::var("TEMPER_API_KEY").ok(),
-            vault_key: std::env::var("TEMPER_VAULT_KEY").ok(),
-            fly_api_token: std::env::var("FLY_API_TOKEN").ok(),
+            discord_bot_token: optional_env("DISCORD_BOT_TOKEN"),
+            turso_url: optional_env("TURSO_URL"),
+            turso_auth_token: optional_env("TURSO_AUTH_TOKEN"),
+            anthropic_api_key: optional_env("ANTHROPIC_API_KEY"),
+            e2b_api_key: optional_env("E2B_API_KEY"),
+            github_token: optional_env("GITHUB_TOKEN"),
+            logfire_read_token: optional_env("LOGFIRE_READ_TOKEN"),
+            logfire_write_token: optional_env("LOGFIRE_WRITE_TOKEN"),
+            temper_api_key: optional_env("TEMPER_API_KEY"),
+            vault_key: optional_env("TEMPER_VAULT_KEY"),
+            fly_api_token: optional_env("FLY_API_TOKEN"),
             port: std::env::var("PORT")
                 .ok()
                 .and_then(|p| p.parse().ok())
                 .unwrap_or(3467),
-            tenant: std::env::var("PAW_TENANT")
-                .unwrap_or_else(|_| "default".to_string()),
+            tenant: std::env::var("PAW_TENANT").unwrap_or_else(|_| "default".to_string()),
         })
     }
+}
+
+fn optional_env(name: &str) -> Option<String> {
+    std::env::var(name)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
 }

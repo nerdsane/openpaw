@@ -84,10 +84,14 @@ class SandboxHandler(BaseHTTPRequestHandler):
                 return
             command = req.get("command", "")
             cwd = req.get("workdir", self.workdir)
+            extra_env = req.get("env", {})
             if not command:
                 self._json_response(400, {"error": "missing command"})
                 return
             try:
+                env = os.environ.copy()
+                if isinstance(extra_env, dict):
+                    env.update({str(k): str(v) for k, v in extra_env.items()})
                 result = subprocess.run(
                     command,
                     shell=True,
@@ -95,6 +99,7 @@ class SandboxHandler(BaseHTTPRequestHandler):
                     text=True,
                     timeout=30,
                     cwd=cwd,
+                    env=env,
                 )
                 self._json_response(200, {
                     "stdout": result.stdout,

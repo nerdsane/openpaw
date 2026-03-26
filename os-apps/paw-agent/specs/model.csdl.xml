@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <edmx:Edmx Version="4.0" xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx">
   <edmx:DataServices>
-    <Schema Namespace="Paw.Agent" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+    <Schema Namespace="OpenPaw" xmlns="http://docs.oasis-open.org/odata/ns/edm">
 
-      <EntityType Name="TemperAgent">
+      <EntityType Name="Agent">
         <Key><PropertyRef Name="Id"/></Key>
         <Property Name="Id" Type="Edm.String" Nullable="false"/>
         <Property Name="Status" Type="Edm.String"/>
@@ -49,7 +49,7 @@
         <Property Name="HeartbeatTimeoutSeconds" Type="Edm.String"/>
       </EntityType>
 
-      <EntityType Name="AgentSoul">
+      <EntityType Name="Soul">
         <Key><PropertyRef Name="Id"/></Key>
         <Property Name="Id" Type="Edm.String" Nullable="false"/>
         <Property Name="Status" Type="Edm.String"/>
@@ -60,7 +60,7 @@
         <Property Name="AuthorId" Type="Edm.String"/>
       </EntityType>
 
-      <EntityType Name="AgentSkill">
+      <EntityType Name="Skill">
         <Key><PropertyRef Name="Id"/></Key>
         <Property Name="Id" Type="Edm.String" Nullable="false"/>
         <Property Name="Status" Type="Edm.String"/>
@@ -71,7 +71,7 @@
         <Property Name="AgentFilter" Type="Edm.String"/>
       </EntityType>
 
-      <EntityType Name="AgentMemory">
+      <EntityType Name="Memory">
         <Key><PropertyRef Name="Id"/></Key>
         <Property Name="Id" Type="Edm.String" Nullable="false"/>
         <Property Name="Status" Type="Edm.String"/>
@@ -135,7 +135,7 @@
       </EntityType>
 
       <Action Name="Configure" IsBound="true">
-        <Parameter Name="bindingParameter" Type="Paw.Agent.TemperAgent"/>
+        <Parameter Name="bindingParameter" Type="OpenPaw.Agent"/>
         <Parameter Name="system_prompt" Type="Edm.String" Nullable="false"/>
         <Parameter Name="user_message" Type="Edm.String" Nullable="false"/>
         <Parameter Name="model" Type="Edm.String" Nullable="true"/>
@@ -154,16 +154,16 @@
         <Parameter Name="keep_recent_tokens" Type="Edm.String" Nullable="true"/>
         <Parameter Name="compaction_model" Type="Edm.String" Nullable="true"/>
         <Parameter Name="heartbeat_timeout_seconds" Type="Edm.String" Nullable="true"/>
-        <ReturnType Type="Paw.Agent.TemperAgent"/>
+        <ReturnType Type="OpenPaw.Agent"/>
       </Action>
 
       <Action Name="Provision" IsBound="true">
-        <Parameter Name="bindingParameter" Type="Paw.Agent.TemperAgent"/>
-        <ReturnType Type="Paw.Agent.TemperAgent"/>
+        <Parameter Name="bindingParameter" Type="OpenPaw.Agent"/>
+        <ReturnType Type="OpenPaw.Agent"/>
       </Action>
 
       <Action Name="SandboxReady" IsBound="true">
-        <Parameter Name="bindingParameter" Type="Paw.Agent.TemperAgent"/>
+        <Parameter Name="bindingParameter" Type="OpenPaw.Agent"/>
         <Parameter Name="sandbox_url" Type="Edm.String" Nullable="false"/>
         <Parameter Name="sandbox_id" Type="Edm.String" Nullable="false"/>
         <Parameter Name="workspace_id" Type="Edm.String" Nullable="true"/>
@@ -171,97 +171,97 @@
         <Parameter Name="file_manifest_id" Type="Edm.String" Nullable="true"/>
         <Parameter Name="session_file_id" Type="Edm.String" Nullable="true"/>
         <Parameter Name="session_leaf_id" Type="Edm.String" Nullable="true"/>
-        <ReturnType Type="Paw.Agent.TemperAgent"/>
+        <ReturnType Type="OpenPaw.Agent"/>
       </Action>
 
       <Action Name="ProcessToolCalls" IsBound="true">
-        <Parameter Name="bindingParameter" Type="Paw.Agent.TemperAgent"/>
+        <Parameter Name="bindingParameter" Type="OpenPaw.Agent"/>
         <Parameter Name="pending_tool_calls" Type="Edm.String" Nullable="false"/>
         <Parameter Name="conversation" Type="Edm.String" Nullable="true"/>
         <Parameter Name="input_tokens" Type="Edm.Int64" Nullable="true"/>
         <Parameter Name="output_tokens" Type="Edm.Int64" Nullable="true"/>
         <Parameter Name="session_leaf_id" Type="Edm.String" Nullable="true"/>
         <Parameter Name="context_tokens" Type="Edm.Int64" Nullable="true"/>
-        <ReturnType Type="Paw.Agent.TemperAgent"/>
+        <ReturnType Type="OpenPaw.Agent"/>
       </Action>
 
       <Action Name="HandleToolResults" IsBound="true">
-        <Parameter Name="bindingParameter" Type="Paw.Agent.TemperAgent"/>
+        <Parameter Name="bindingParameter" Type="OpenPaw.Agent"/>
         <Parameter Name="pending_tool_calls" Type="Edm.String" Nullable="false"/>
         <Parameter Name="conversation" Type="Edm.String" Nullable="true"/>
         <Parameter Name="session_leaf_id" Type="Edm.String" Nullable="true"/>
-        <ReturnType Type="Paw.Agent.TemperAgent"/>
+        <ReturnType Type="OpenPaw.Agent"/>
       </Action>
 
       <Action Name="NeedsCompaction" IsBound="true">
-        <Parameter Name="bindingParameter" Type="Paw.Agent.TemperAgent"/>
+        <Parameter Name="bindingParameter" Type="OpenPaw.Agent"/>
         <Parameter Name="input_tokens" Type="Edm.Int64" Nullable="true"/>
         <Parameter Name="output_tokens" Type="Edm.Int64" Nullable="true"/>
-        <ReturnType Type="Paw.Agent.TemperAgent"/>
+        <ReturnType Type="OpenPaw.Agent"/>
       </Action>
 
       <Action Name="CompactionComplete" IsBound="true">
-        <Parameter Name="bindingParameter" Type="Paw.Agent.TemperAgent"/>
+        <Parameter Name="bindingParameter" Type="OpenPaw.Agent"/>
         <Parameter Name="session_leaf_id" Type="Edm.String" Nullable="true"/>
         <Parameter Name="context_tokens" Type="Edm.Int64" Nullable="true"/>
-        <ReturnType Type="Paw.Agent.TemperAgent"/>
+        <ReturnType Type="OpenPaw.Agent"/>
       </Action>
 
       <Action Name="CheckSteering" IsBound="true">
-        <Parameter Name="bindingParameter" Type="Paw.Agent.TemperAgent"/>
+        <Parameter Name="bindingParameter" Type="OpenPaw.Agent"/>
         <Parameter Name="input_tokens" Type="Edm.Int64" Nullable="true"/>
         <Parameter Name="output_tokens" Type="Edm.Int64" Nullable="true"/>
         <Parameter Name="session_leaf_id" Type="Edm.String" Nullable="true"/>
         <Parameter Name="context_tokens" Type="Edm.Int64" Nullable="true"/>
-        <ReturnType Type="Paw.Agent.TemperAgent"/>
+        <ReturnType Type="OpenPaw.Agent"/>
       </Action>
 
       <Action Name="ContinueWithSteering" IsBound="true">
-        <Parameter Name="bindingParameter" Type="Paw.Agent.TemperAgent"/>
+        <Parameter Name="bindingParameter" Type="OpenPaw.Agent"/>
         <Parameter Name="session_leaf_id" Type="Edm.String" Nullable="true"/>
         <Parameter Name="steering_messages" Type="Edm.String" Nullable="true"/>
         <Parameter Name="conversation" Type="Edm.String" Nullable="true"/>
-        <ReturnType Type="Paw.Agent.TemperAgent"/>
+        <ReturnType Type="OpenPaw.Agent"/>
       </Action>
 
       <Action Name="FinalizeResult" IsBound="true">
-        <Parameter Name="bindingParameter" Type="Paw.Agent.TemperAgent"/>
+        <Parameter Name="bindingParameter" Type="OpenPaw.Agent"/>
         <Parameter Name="result" Type="Edm.String" Nullable="false"/>
         <Parameter Name="conversation" Type="Edm.String" Nullable="true"/>
         <Parameter Name="session_leaf_id" Type="Edm.String" Nullable="true"/>
-        <ReturnType Type="Paw.Agent.TemperAgent"/>
+        <ReturnType Type="OpenPaw.Agent"/>
       </Action>
 
       <Action Name="Steer" IsBound="true">
-        <Parameter Name="bindingParameter" Type="Paw.Agent.TemperAgent"/>
+        <Parameter Name="bindingParameter" Type="OpenPaw.Agent"/>
         <Parameter Name="steering_messages" Type="Edm.String" Nullable="false"/>
-        <ReturnType Type="Paw.Agent.TemperAgent"/>
+        <ReturnType Type="OpenPaw.Agent"/>
       </Action>
 
       <Action Name="RecordResult" IsBound="true">
-        <Parameter Name="bindingParameter" Type="Paw.Agent.TemperAgent"/>
+        <Parameter Name="bindingParameter" Type="OpenPaw.Agent"/>
         <Parameter Name="result" Type="Edm.String" Nullable="false"/>
         <Parameter Name="conversation" Type="Edm.String" Nullable="true"/>
         <Parameter Name="input_tokens" Type="Edm.Int64" Nullable="true"/>
         <Parameter Name="output_tokens" Type="Edm.Int64" Nullable="true"/>
         <Parameter Name="session_leaf_id" Type="Edm.String" Nullable="true"/>
-        <ReturnType Type="Paw.Agent.TemperAgent"/>
+        <ReturnType Type="OpenPaw.Agent"/>
       </Action>
 
       <Action Name="Heartbeat" IsBound="true">
-        <Parameter Name="bindingParameter" Type="Paw.Agent.TemperAgent"/>
+        <Parameter Name="bindingParameter" Type="OpenPaw.Agent"/>
         <Parameter Name="last_heartbeat_at" Type="Edm.String" Nullable="false"/>
-        <ReturnType Type="Paw.Agent.TemperAgent"/>
+        <ReturnType Type="OpenPaw.Agent"/>
       </Action>
 
       <Action Name="TimeoutFail" IsBound="true">
-        <Parameter Name="bindingParameter" Type="Paw.Agent.TemperAgent"/>
+        <Parameter Name="bindingParameter" Type="OpenPaw.Agent"/>
         <Parameter Name="error_message" Type="Edm.String" Nullable="false"/>
-        <ReturnType Type="Paw.Agent.TemperAgent"/>
+        <ReturnType Type="OpenPaw.Agent"/>
       </Action>
 
       <Action Name="Resume" IsBound="true">
-        <Parameter Name="bindingParameter" Type="Paw.Agent.TemperAgent"/>
+        <Parameter Name="bindingParameter" Type="OpenPaw.Agent"/>
         <Parameter Name="sandbox_url" Type="Edm.String" Nullable="false"/>
         <Parameter Name="sandbox_id" Type="Edm.String" Nullable="false"/>
         <Parameter Name="workspace_id" Type="Edm.String" Nullable="false"/>
@@ -269,151 +269,151 @@
         <Parameter Name="file_manifest_id" Type="Edm.String" Nullable="false"/>
         <Parameter Name="session_file_id" Type="Edm.String" Nullable="true"/>
         <Parameter Name="session_leaf_id" Type="Edm.String" Nullable="true"/>
-        <ReturnType Type="Paw.Agent.TemperAgent"/>
+        <ReturnType Type="OpenPaw.Agent"/>
       </Action>
 
       <Action Name="Fail" IsBound="true">
-        <Parameter Name="bindingParameter" Type="Paw.Agent.TemperAgent"/>
+        <Parameter Name="bindingParameter" Type="OpenPaw.Agent"/>
         <Parameter Name="error_message" Type="Edm.String" Nullable="false"/>
-        <ReturnType Type="Paw.Agent.TemperAgent"/>
+        <ReturnType Type="OpenPaw.Agent"/>
       </Action>
 
       <Action Name="Cancel" IsBound="true">
-        <Parameter Name="bindingParameter" Type="Paw.Agent.TemperAgent"/>
-        <ReturnType Type="Paw.Agent.TemperAgent"/>
+        <Parameter Name="bindingParameter" Type="OpenPaw.Agent"/>
+        <ReturnType Type="OpenPaw.Agent"/>
       </Action>
 
       <Action Name="Create" IsBound="true">
-        <Parameter Name="bindingParameter" Type="Paw.Agent.AgentSoul"/>
+        <Parameter Name="bindingParameter" Type="OpenPaw.Soul"/>
         <Parameter Name="name" Type="Edm.String" Nullable="false"/>
         <Parameter Name="description" Type="Edm.String" Nullable="true"/>
         <Parameter Name="content_file_id" Type="Edm.String" Nullable="true"/>
         <Parameter Name="author_id" Type="Edm.String" Nullable="true"/>
-        <ReturnType Type="Paw.Agent.AgentSoul"/>
+        <ReturnType Type="OpenPaw.Soul"/>
       </Action>
 
       <Action Name="Publish" IsBound="true">
-        <Parameter Name="bindingParameter" Type="Paw.Agent.AgentSoul"/>
-        <ReturnType Type="Paw.Agent.AgentSoul"/>
+        <Parameter Name="bindingParameter" Type="OpenPaw.Soul"/>
+        <ReturnType Type="OpenPaw.Soul"/>
       </Action>
 
       <Action Name="Update" IsBound="true">
-        <Parameter Name="bindingParameter" Type="Paw.Agent.AgentSoul"/>
+        <Parameter Name="bindingParameter" Type="OpenPaw.Soul"/>
         <Parameter Name="content_file_id" Type="Edm.String" Nullable="true"/>
         <Parameter Name="description" Type="Edm.String" Nullable="true"/>
-        <ReturnType Type="Paw.Agent.AgentSoul"/>
+        <ReturnType Type="OpenPaw.Soul"/>
       </Action>
 
       <Action Name="Archive" IsBound="true">
-        <Parameter Name="bindingParameter" Type="Paw.Agent.AgentSoul"/>
-        <ReturnType Type="Paw.Agent.AgentSoul"/>
+        <Parameter Name="bindingParameter" Type="OpenPaw.Soul"/>
+        <ReturnType Type="OpenPaw.Soul"/>
       </Action>
 
       <Action Name="Register" IsBound="true">
-        <Parameter Name="bindingParameter" Type="Paw.Agent.AgentSkill"/>
+        <Parameter Name="bindingParameter" Type="OpenPaw.Skill"/>
         <Parameter Name="name" Type="Edm.String" Nullable="false"/>
         <Parameter Name="description" Type="Edm.String" Nullable="true"/>
         <Parameter Name="content_file_id" Type="Edm.String" Nullable="true"/>
         <Parameter Name="scope" Type="Edm.String" Nullable="true"/>
         <Parameter Name="agent_filter" Type="Edm.String" Nullable="true"/>
-        <ReturnType Type="Paw.Agent.AgentSkill"/>
+        <ReturnType Type="OpenPaw.Skill"/>
       </Action>
 
       <Action Name="Disable" IsBound="true">
-        <Parameter Name="bindingParameter" Type="Paw.Agent.AgentSkill"/>
-        <ReturnType Type="Paw.Agent.AgentSkill"/>
+        <Parameter Name="bindingParameter" Type="OpenPaw.Skill"/>
+        <ReturnType Type="OpenPaw.Skill"/>
       </Action>
 
       <Action Name="Enable" IsBound="true">
-        <Parameter Name="bindingParameter" Type="Paw.Agent.AgentSkill"/>
-        <ReturnType Type="Paw.Agent.AgentSkill"/>
+        <Parameter Name="bindingParameter" Type="OpenPaw.Skill"/>
+        <ReturnType Type="OpenPaw.Skill"/>
       </Action>
 
       <Action Name="Update" IsBound="true">
-        <Parameter Name="bindingParameter" Type="Paw.Agent.AgentSkill"/>
+        <Parameter Name="bindingParameter" Type="OpenPaw.Skill"/>
         <Parameter Name="description" Type="Edm.String" Nullable="true"/>
         <Parameter Name="content_file_id" Type="Edm.String" Nullable="true"/>
-        <ReturnType Type="Paw.Agent.AgentSkill"/>
+        <ReturnType Type="OpenPaw.Skill"/>
       </Action>
 
       <Action Name="Save" IsBound="true">
-        <Parameter Name="bindingParameter" Type="Paw.Agent.AgentMemory"/>
+        <Parameter Name="bindingParameter" Type="OpenPaw.Memory"/>
         <Parameter Name="key" Type="Edm.String" Nullable="false"/>
         <Parameter Name="content" Type="Edm.String" Nullable="false"/>
         <Parameter Name="memory_type" Type="Edm.String" Nullable="true"/>
         <Parameter Name="soul_id" Type="Edm.String" Nullable="true"/>
         <Parameter Name="author_agent_id" Type="Edm.String" Nullable="true"/>
-        <ReturnType Type="Paw.Agent.AgentMemory"/>
+        <ReturnType Type="OpenPaw.Memory"/>
       </Action>
 
       <Action Name="Update" IsBound="true">
-        <Parameter Name="bindingParameter" Type="Paw.Agent.AgentMemory"/>
+        <Parameter Name="bindingParameter" Type="OpenPaw.Memory"/>
         <Parameter Name="content" Type="Edm.String" Nullable="false"/>
-        <ReturnType Type="Paw.Agent.AgentMemory"/>
+        <ReturnType Type="OpenPaw.Memory"/>
       </Action>
 
       <Action Name="Archive" IsBound="true">
-        <Parameter Name="bindingParameter" Type="Paw.Agent.AgentMemory"/>
-        <ReturnType Type="Paw.Agent.AgentMemory"/>
+        <Parameter Name="bindingParameter" Type="OpenPaw.Memory"/>
+        <ReturnType Type="OpenPaw.Memory"/>
       </Action>
 
       <Action Name="Recall" IsBound="true">
-        <Parameter Name="bindingParameter" Type="Paw.Agent.AgentMemory"/>
-        <ReturnType Type="Paw.Agent.AgentMemory"/>
+        <Parameter Name="bindingParameter" Type="OpenPaw.Memory"/>
+        <ReturnType Type="OpenPaw.Memory"/>
       </Action>
 
       <Action Name="Register" IsBound="true">
-        <Parameter Name="bindingParameter" Type="Paw.Agent.ToolHook"/>
+        <Parameter Name="bindingParameter" Type="OpenPaw.ToolHook"/>
         <Parameter Name="name" Type="Edm.String" Nullable="false"/>
         <Parameter Name="hook_type" Type="Edm.String" Nullable="true"/>
         <Parameter Name="tool_pattern" Type="Edm.String" Nullable="true"/>
         <Parameter Name="hook_action" Type="Edm.String" Nullable="true"/>
         <Parameter Name="soul_id" Type="Edm.String" Nullable="true"/>
         <Parameter Name="priority" Type="Edm.Int64" Nullable="true"/>
-        <ReturnType Type="Paw.Agent.ToolHook"/>
+        <ReturnType Type="OpenPaw.ToolHook"/>
       </Action>
 
       <Action Name="Disable" IsBound="true">
-        <Parameter Name="bindingParameter" Type="Paw.Agent.ToolHook"/>
-        <ReturnType Type="Paw.Agent.ToolHook"/>
+        <Parameter Name="bindingParameter" Type="OpenPaw.ToolHook"/>
+        <ReturnType Type="OpenPaw.ToolHook"/>
       </Action>
 
       <Action Name="Enable" IsBound="true">
-        <Parameter Name="bindingParameter" Type="Paw.Agent.ToolHook"/>
-        <ReturnType Type="Paw.Agent.ToolHook"/>
+        <Parameter Name="bindingParameter" Type="OpenPaw.ToolHook"/>
+        <ReturnType Type="OpenPaw.ToolHook"/>
       </Action>
 
       <Action Name="Start" IsBound="true">
-        <Parameter Name="bindingParameter" Type="Paw.Agent.HeartbeatMonitor"/>
-        <ReturnType Type="Paw.Agent.HeartbeatMonitor"/>
+        <Parameter Name="bindingParameter" Type="OpenPaw.HeartbeatMonitor"/>
+        <ReturnType Type="OpenPaw.HeartbeatMonitor"/>
       </Action>
 
       <Action Name="ScanComplete" IsBound="true">
-        <Parameter Name="bindingParameter" Type="Paw.Agent.HeartbeatMonitor"/>
+        <Parameter Name="bindingParameter" Type="OpenPaw.HeartbeatMonitor"/>
         <Parameter Name="last_scan_at" Type="Edm.String" Nullable="true"/>
         <Parameter Name="stale_agents_found" Type="Edm.Int64" Nullable="true"/>
-        <ReturnType Type="Paw.Agent.HeartbeatMonitor"/>
+        <ReturnType Type="OpenPaw.HeartbeatMonitor"/>
       </Action>
 
       <Action Name="ScheduledScan" IsBound="true">
-        <Parameter Name="bindingParameter" Type="Paw.Agent.HeartbeatMonitor"/>
-        <ReturnType Type="Paw.Agent.HeartbeatMonitor"/>
+        <Parameter Name="bindingParameter" Type="OpenPaw.HeartbeatMonitor"/>
+        <ReturnType Type="OpenPaw.HeartbeatMonitor"/>
       </Action>
 
       <Action Name="ScanFailed" IsBound="true">
-        <Parameter Name="bindingParameter" Type="Paw.Agent.HeartbeatMonitor"/>
+        <Parameter Name="bindingParameter" Type="OpenPaw.HeartbeatMonitor"/>
         <Parameter Name="error_message" Type="Edm.String" Nullable="false"/>
-        <ReturnType Type="Paw.Agent.HeartbeatMonitor"/>
+        <ReturnType Type="OpenPaw.HeartbeatMonitor"/>
       </Action>
 
       <Action Name="ScheduleFailed" IsBound="true">
-        <Parameter Name="bindingParameter" Type="Paw.Agent.HeartbeatMonitor"/>
+        <Parameter Name="bindingParameter" Type="OpenPaw.HeartbeatMonitor"/>
         <Parameter Name="error_message" Type="Edm.String" Nullable="false"/>
-        <ReturnType Type="Paw.Agent.HeartbeatMonitor"/>
+        <ReturnType Type="OpenPaw.HeartbeatMonitor"/>
       </Action>
 
       <Action Name="Configure" IsBound="true">
-        <Parameter Name="bindingParameter" Type="Paw.Agent.CronJob"/>
+        <Parameter Name="bindingParameter" Type="OpenPaw.CronJob"/>
         <Parameter Name="name" Type="Edm.String" Nullable="false"/>
         <Parameter Name="schedule" Type="Edm.String" Nullable="false"/>
         <Parameter Name="soul_id" Type="Edm.String" Nullable="true"/>
@@ -425,86 +425,86 @@
         <Parameter Name="sandbox_url" Type="Edm.String" Nullable="true"/>
         <Parameter Name="max_turns" Type="Edm.String" Nullable="true"/>
         <Parameter Name="max_runs" Type="Edm.String" Nullable="true"/>
-        <ReturnType Type="Paw.Agent.CronJob"/>
+        <ReturnType Type="OpenPaw.CronJob"/>
       </Action>
 
       <Action Name="Activate" IsBound="true">
-        <Parameter Name="bindingParameter" Type="Paw.Agent.CronJob"/>
-        <ReturnType Type="Paw.Agent.CronJob"/>
+        <Parameter Name="bindingParameter" Type="OpenPaw.CronJob"/>
+        <ReturnType Type="OpenPaw.CronJob"/>
       </Action>
 
       <Action Name="Pause" IsBound="true">
-        <Parameter Name="bindingParameter" Type="Paw.Agent.CronJob"/>
-        <ReturnType Type="Paw.Agent.CronJob"/>
+        <Parameter Name="bindingParameter" Type="OpenPaw.CronJob"/>
+        <ReturnType Type="OpenPaw.CronJob"/>
       </Action>
 
       <Action Name="Resume" IsBound="true">
-        <Parameter Name="bindingParameter" Type="Paw.Agent.CronJob"/>
-        <ReturnType Type="Paw.Agent.CronJob"/>
+        <Parameter Name="bindingParameter" Type="OpenPaw.CronJob"/>
+        <ReturnType Type="OpenPaw.CronJob"/>
       </Action>
 
       <Action Name="Trigger" IsBound="true">
-        <Parameter Name="bindingParameter" Type="Paw.Agent.CronJob"/>
+        <Parameter Name="bindingParameter" Type="OpenPaw.CronJob"/>
         <Parameter Name="last_run_at" Type="Edm.String" Nullable="true"/>
-        <ReturnType Type="Paw.Agent.CronJob"/>
+        <ReturnType Type="OpenPaw.CronJob"/>
       </Action>
 
       <Action Name="TriggerComplete" IsBound="true">
-        <Parameter Name="bindingParameter" Type="Paw.Agent.CronJob"/>
+        <Parameter Name="bindingParameter" Type="OpenPaw.CronJob"/>
         <Parameter Name="last_agent_id" Type="Edm.String" Nullable="true"/>
         <Parameter Name="last_result" Type="Edm.String" Nullable="true"/>
-        <ReturnType Type="Paw.Agent.CronJob"/>
+        <ReturnType Type="OpenPaw.CronJob"/>
       </Action>
 
       <Action Name="Expire" IsBound="true">
-        <Parameter Name="bindingParameter" Type="Paw.Agent.CronJob"/>
-        <ReturnType Type="Paw.Agent.CronJob"/>
+        <Parameter Name="bindingParameter" Type="OpenPaw.CronJob"/>
+        <ReturnType Type="OpenPaw.CronJob"/>
       </Action>
 
       <Action Name="TriggerFailed" IsBound="true">
-        <Parameter Name="bindingParameter" Type="Paw.Agent.CronJob"/>
+        <Parameter Name="bindingParameter" Type="OpenPaw.CronJob"/>
         <Parameter Name="error_message" Type="Edm.String" Nullable="false"/>
-        <ReturnType Type="Paw.Agent.CronJob"/>
+        <ReturnType Type="OpenPaw.CronJob"/>
       </Action>
 
       <Action Name="Start" IsBound="true">
-        <Parameter Name="bindingParameter" Type="Paw.Agent.CronScheduler"/>
-        <ReturnType Type="Paw.Agent.CronScheduler"/>
+        <Parameter Name="bindingParameter" Type="OpenPaw.CronScheduler"/>
+        <ReturnType Type="OpenPaw.CronScheduler"/>
       </Action>
 
       <Action Name="CheckComplete" IsBound="true">
-        <Parameter Name="bindingParameter" Type="Paw.Agent.CronScheduler"/>
+        <Parameter Name="bindingParameter" Type="OpenPaw.CronScheduler"/>
         <Parameter Name="last_check_at" Type="Edm.String" Nullable="true"/>
         <Parameter Name="jobs_triggered" Type="Edm.Int64" Nullable="true"/>
-        <ReturnType Type="Paw.Agent.CronScheduler"/>
+        <ReturnType Type="OpenPaw.CronScheduler"/>
       </Action>
 
       <Action Name="ScheduledCheck" IsBound="true">
-        <Parameter Name="bindingParameter" Type="Paw.Agent.CronScheduler"/>
-        <ReturnType Type="Paw.Agent.CronScheduler"/>
+        <Parameter Name="bindingParameter" Type="OpenPaw.CronScheduler"/>
+        <ReturnType Type="OpenPaw.CronScheduler"/>
       </Action>
 
       <Action Name="CheckFailed" IsBound="true">
-        <Parameter Name="bindingParameter" Type="Paw.Agent.CronScheduler"/>
+        <Parameter Name="bindingParameter" Type="OpenPaw.CronScheduler"/>
         <Parameter Name="error_message" Type="Edm.String" Nullable="false"/>
-        <ReturnType Type="Paw.Agent.CronScheduler"/>
+        <ReturnType Type="OpenPaw.CronScheduler"/>
       </Action>
 
       <Action Name="ScheduleFailed" IsBound="true">
-        <Parameter Name="bindingParameter" Type="Paw.Agent.CronScheduler"/>
+        <Parameter Name="bindingParameter" Type="OpenPaw.CronScheduler"/>
         <Parameter Name="error_message" Type="Edm.String" Nullable="false"/>
-        <ReturnType Type="Paw.Agent.CronScheduler"/>
+        <ReturnType Type="OpenPaw.CronScheduler"/>
       </Action>
 
       <EntityContainer Name="Service">
-        <EntitySet Name="TemperAgents" EntityType="Paw.Agent.TemperAgent"/>
-        <EntitySet Name="AgentSouls" EntityType="Paw.Agent.AgentSoul"/>
-        <EntitySet Name="AgentSkills" EntityType="Paw.Agent.AgentSkill"/>
-        <EntitySet Name="AgentMemorys" EntityType="Paw.Agent.AgentMemory"/>
-        <EntitySet Name="ToolHooks" EntityType="Paw.Agent.ToolHook"/>
-        <EntitySet Name="HeartbeatMonitors" EntityType="Paw.Agent.HeartbeatMonitor"/>
-        <EntitySet Name="CronJobs" EntityType="Paw.Agent.CronJob"/>
-        <EntitySet Name="CronSchedulers" EntityType="Paw.Agent.CronScheduler"/>
+        <EntitySet Name="Agents" EntityType="OpenPaw.Agent"/>
+        <EntitySet Name="Souls" EntityType="OpenPaw.Soul"/>
+        <EntitySet Name="Skills" EntityType="OpenPaw.Skill"/>
+        <EntitySet Name="Memories" EntityType="OpenPaw.Memory"/>
+        <EntitySet Name="ToolHooks" EntityType="OpenPaw.ToolHook"/>
+        <EntitySet Name="HeartbeatMonitors" EntityType="OpenPaw.HeartbeatMonitor"/>
+        <EntitySet Name="CronJobs" EntityType="OpenPaw.CronJob"/>
+        <EntitySet Name="CronSchedulers" EntityType="OpenPaw.CronScheduler"/>
       </EntityContainer>
 
     </Schema>

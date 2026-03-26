@@ -5,8 +5,11 @@
 //!
 //! Build: `cargo build --target wasm32-unknown-unknown --release`
 
+use base64::Engine as _;
 use std::collections::BTreeMap;
 use temper_wasm_sdk::prelude::*;
+
+const MAX_TOOL_RESULT_BYTES: usize = 16 * 1024;
 
 /// Entry point.
 #[unsafe(no_mangle)]
@@ -38,10 +41,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             .get("hook_policy")
             .and_then(|v| v.as_str())
             .unwrap_or("none");
-        let soul_id = fields
-            .get("soul_id")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+        let soul_id = fields.get("soul_id").and_then(|v| v.as_str()).unwrap_or("");
         let _ = send_heartbeat(&ctx, &temper_api_url, tenant);
 
         // Read pending tool calls from trigger params
@@ -86,14 +86,21 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
 
             let result = if let Err(error) = validate_tool_input(tool_name, &input) {
                 Err(error)
-            } else if let Some(error) =
-                evaluate_before_hooks(&ctx, &temper_api_url, tenant, soul_id, hook_policy, tool_name)?
-            {
+            } else if let Some(error) = evaluate_before_hooks(
+                &ctx,
+                &temper_api_url,
+                tenant,
+                soul_id,
+                hook_policy,
+                tool_name,
+            )? {
                 Err(error)
             } else if is_entity_tool(tool_name) {
                 execute_entity_tool(&ctx, &temper_api_url, tenant, &fields, tool_name, &input)
             } else if sandbox_url.is_empty() {
-                Err(format!("sandbox_url is empty — cannot execute sandbox tool '{tool_name}'"))
+                Err(format!(
+                    "sandbox_url is empty — cannot execute sandbox tool '{tool_name}'"
+                ))
             } else {
                 execute_tool(&ctx, sandbox_url, workdir, tool_name, &input)
             };
@@ -113,6 +120,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 ),
                 Err(e) => (format!("Error: {e}"), true),
             };
+            let content = truncate_tool_result(&content);
             let _ = send_heartbeat(&ctx, &temper_api_url, tenant);
             emit_progress_ignore(
                 &ctx,
@@ -154,19 +162,32 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
 
         if !session_file_id.is_empty() && !session_leaf_id.is_empty() {
             // Session tree mode: append tool results
-            let session_jsonl = read_session_from_temperfs(&ctx, &temper_api_url, tenant, session_file_id)?;
+            let session_jsonl =
+                read_session_from_temperfs(&ctx, &temper_api_url, tenant, session_file_id)?;
             let mut tree = session_tree_lib::SessionTree::from_jsonl(&session_jsonl);
             let tool_results_value = json!(tool_results.clone());
             let tokens_est = results_json.len() / 4;
-            let (new_leaf, _) = tree.append_tool_results(session_leaf_id, &tool_results_value, tokens_est);
+            let (new_leaf, _) =
+                tree.append_tool_results(session_leaf_id, &tool_results_value, tokens_est);
             let updated_jsonl = tree.to_jsonl();
-            write_session_to_temperfs(&ctx, &temper_api_url, tenant, session_file_id, &updated_jsonl)?;
+            write_session_to_temperfs(
+                &ctx,
+                &temper_api_url,
+                tenant,
+                session_file_id,
+                &updated_jsonl,
+            )?;
 
+            params["pending_tool_calls"] = json!(compact_tool_results_marker(&tool_results));
             params["session_leaf_id"] = json!(new_leaf);
         } else if !conversation_file_id.is_empty() {
             // Legacy flat JSON mode
-            let mut messages: Vec<Value> =
-                read_conversation_from_temperfs(&ctx, &temper_api_url, tenant, conversation_file_id)?;
+            let mut messages: Vec<Value> = read_conversation_from_temperfs(
+                &ctx,
+                &temper_api_url,
+                tenant,
+                conversation_file_id,
+            )?;
 
             // Append tool results as a user message (Anthropic API format)
             messages.push(json!({
@@ -237,6 +258,11 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             .get("max_sync_file_bytes")
             .and_then(|s| s.parse().ok())
             .unwrap_or(61440);
+        let max_sync_files: usize = ctx
+            .config
+            .get("max_sync_files")
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(64);
         let sync_exclude = ctx.config.get("sync_exclude").cloned().unwrap_or_default();
 
         if !file_manifest_id.is_empty() && !workspace_id.is_empty() && !sandbox_url.is_empty() {
@@ -251,6 +277,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 workdir,
                 e2b,
                 max_sync_file_bytes,
+                max_sync_files,
                 &sync_exclude,
             ) {
                 Ok(count) => ctx.log(
@@ -395,7 +422,10 @@ fn query_logfire(ctx: &Context, input: &Value) -> Result<String, String> {
         .unwrap_or(true);
     let min_timestamp = input.get("min_timestamp").and_then(Value::as_str);
     let max_timestamp = input.get("max_timestamp").and_then(Value::as_str);
-    let query_kind = input.get("query_kind").and_then(Value::as_str).unwrap_or("sql");
+    let query_kind = input
+        .get("query_kind")
+        .and_then(Value::as_str)
+        .unwrap_or("sql");
 
     let base_url = normalize_logfire_base_url(
         ctx.config
@@ -683,7 +713,12 @@ fn compact_logfire_row(row: &Value) -> Value {
         copy_attribute(attributes, &mut compact, "decision", "decision");
         copy_attribute(attributes, &mut compact, "agent_id", "agent_id");
         copy_attribute(attributes, &mut compact, "tenant", "tenant");
-        copy_attribute(attributes, &mut compact, "temper.from_status", "from_status");
+        copy_attribute(
+            attributes,
+            &mut compact,
+            "temper.from_status",
+            "from_status",
+        );
         copy_attribute(attributes, &mut compact, "temper.to_status", "to_status");
     }
 
@@ -748,10 +783,13 @@ fn run_bash_local(
     command: &str,
     workdir: &str,
 ) -> Result<String, String> {
+    let command = prepare_bash_command(command);
     let url = format!("{sandbox_url}/v1/processes/run");
+    let env = sandbox_env(ctx);
     let body = serde_json::to_string(&json!({
         "command": command,
         "workdir": workdir,
+        "env": env,
     }))
     .unwrap_or_default();
 
@@ -840,56 +878,63 @@ fn write_file_e2b(
 ///
 /// Uses the `host_connect_call` host function which handles Connect binary
 /// frame parsing. The envd daemon returns server-streamed process output
-/// frames, each containing stdout/stderr/exitCode fields.
+/// frames using the Connect JSON mapping for protobuf messages.
 fn run_bash_e2b(
     ctx: &Context,
     sandbox_url: &str,
     command: &str,
     workdir: &str,
 ) -> Result<String, String> {
+    let command = prepare_bash_command(command);
     let url = format!("{sandbox_url}/process.Process/Start");
+    let envs = sandbox_env(ctx);
     let body = serde_json::to_string(&json!({
-        "command": command,
-        "envs": {},
-        "cwd": workdir,
+        "process": {
+            "cmd": "/bin/bash",
+            "args": ["-l", "-c", command],
+            "envs": envs,
+            "cwd": workdir,
+        },
+        "stdin": false,
     }))
     .unwrap_or_default();
 
-    let headers: Vec<(String, String)> = Vec::new();
+    let headers = vec![("Keepalive-Ping-Interval".to_string(), "20".to_string())];
     let frames = ctx.connect_call(&url, &headers, &body)?;
 
     if frames.is_empty() {
         return Ok(String::new());
     }
 
-    // Parse each frame — E2B process output has stdout, stderr, exitCode fields
     let mut stdout = String::new();
     let mut stderr = String::new();
     let mut exit_code: i64 = 0;
+    let mut error_message = String::new();
 
     for frame_str in &frames {
         if let Ok(frame) = serde_json::from_str::<Value>(frame_str) {
-            if let Some(event) = frame.get("event") {
-                // Connect-streamed events may nest the data
-                if let Some(s) = event.get("stdout").and_then(|v| v.as_str()) {
-                    stdout.push_str(s);
+            let Some(event) = frame.get("event") else {
+                continue;
+            };
+
+            if let Some(data) = event.get("data") {
+                if let Some(encoded) = data.get("stdout").and_then(|v| v.as_str()) {
+                    stdout.push_str(&decode_e2b_output(encoded)?);
                 }
-                if let Some(s) = event.get("stderr").and_then(|v| v.as_str()) {
-                    stderr.push_str(s);
+                if let Some(encoded) = data.get("stderr").and_then(|v| v.as_str()) {
+                    stderr.push_str(&decode_e2b_output(encoded)?);
                 }
-                if let Some(c) = event.get("exitCode").and_then(|v| v.as_i64()) {
+            }
+
+            if let Some(end) = event.get("end") {
+                if let Some(c) = end.get("exitCode").and_then(|v| v.as_i64()) {
                     exit_code = c;
                 }
-            } else {
-                // Direct fields
-                if let Some(s) = frame.get("stdout").and_then(|v| v.as_str()) {
-                    stdout.push_str(s);
-                }
-                if let Some(s) = frame.get("stderr").and_then(|v| v.as_str()) {
-                    stderr.push_str(s);
-                }
-                if let Some(c) = frame.get("exitCode").and_then(|v| v.as_i64()) {
+                if let Some(c) = end.get("exit_code").and_then(|v| v.as_i64()) {
                     exit_code = c;
+                }
+                if let Some(message) = end.get("error").and_then(|v| v.as_str()) {
+                    error_message = message.to_string();
                 }
             }
         }
@@ -909,7 +954,92 @@ fn run_bash_e2b(
     if exit_code != 0 {
         output.push_str(&format!("\n(exit code: {exit_code})"));
     }
+    if !error_message.is_empty() {
+        if !output.is_empty() {
+            output.push('\n');
+        }
+        output.push_str("ERROR: ");
+        output.push_str(&error_message);
+    }
     Ok(output)
+}
+
+fn decode_e2b_output(encoded: &str) -> Result<String, String> {
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(encoded)
+        .map_err(|e| format!("failed to decode E2B output chunk: {e}"))?;
+    Ok(String::from_utf8_lossy(&bytes).into_owned())
+}
+
+fn truncate_tool_result(content: &str) -> String {
+    if content.len() <= MAX_TOOL_RESULT_BYTES {
+        return content.to_string();
+    }
+
+    let mut end = MAX_TOOL_RESULT_BYTES;
+    while !content.is_char_boundary(end) {
+        end -= 1;
+    }
+
+    format!(
+        "{}\n\n[truncated tool output: kept {} of {} bytes]",
+        &content[..end],
+        end,
+        content.len()
+    )
+}
+
+fn compact_tool_results_marker(tool_results: &[Value]) -> String {
+    let total_bytes: usize = tool_results
+        .iter()
+        .map(|result| {
+            result
+                .get("content")
+                .and_then(Value::as_str)
+                .map(str::len)
+                .unwrap_or(0)
+        })
+        .sum();
+
+    format!(
+        "[stored {} tool result(s) in session tree; {} bytes retained outside entity state]",
+        tool_results.len(),
+        total_bytes
+    )
+}
+
+fn sandbox_env(ctx: &Context) -> BTreeMap<String, String> {
+    let mut env = BTreeMap::new();
+
+    if let Ok(token) = ctx.get_secret("github_token") {
+        if !token.trim().is_empty() {
+            env.insert("GITHUB_TOKEN".to_string(), token.clone());
+            env.insert("GH_TOKEN".to_string(), token);
+            env.insert("GIT_TERMINAL_PROMPT".to_string(), "0".to_string());
+        }
+    }
+
+    env
+}
+
+fn prepare_bash_command(command: &str) -> String {
+    format!(
+        r#"if [ -n "${{GITHUB_TOKEN:-}}" ]; then
+  export GH_TOKEN="${{GH_TOKEN:-$GITHUB_TOKEN}}"
+  export GIT_TERMINAL_PROMPT="${{GIT_TERMINAL_PROMPT:-0}}"
+  export GIT_ASKPASS="${{TMPDIR:-/tmp}}/openpaw-git-askpass.sh"
+  cat >"$GIT_ASKPASS" <<'EOF'
+#!/bin/sh
+case "$1" in
+  *Username*) printf '%s\n' "x-access-token" ;;
+  *Password*) printf '%s\n' "${{GITHUB_TOKEN:-}}" ;;
+  *) printf '\n' ;;
+esac
+EOF
+  chmod 700 "$GIT_ASKPASS"
+fi
+{command}"#
+    )
 }
 
 /// Read conversation from TemperFS File entity.
@@ -1114,6 +1244,7 @@ fn sync_files_to_temperfs(
     workdir: &str,
     e2b: bool,
     max_file_bytes: u64,
+    max_files: usize,
     exclude: &str,
 ) -> Result<usize, String> {
     // 1. Enumerate current sandbox files with stat metadata
@@ -1136,11 +1267,36 @@ fn sync_files_to_temperfs(
     ];
 
     let file_url = format!("{temper_api_url}/tdata/Files");
-    let mut new_manifest: BTreeMap<String, Value> = BTreeMap::new();
+    let mut new_manifest: BTreeMap<String, Value> = old_manifest
+        .iter()
+        .map(|(path, entry)| {
+            (
+                path.clone(),
+                json!({
+                    "file_id": entry.file_id,
+                    "size_bytes": entry.size_bytes,
+                    "mtime": entry.mtime,
+                }),
+            )
+        })
+        .collect();
     let mut synced_count: usize = 0;
+    let budget_limited = current_files.len() > max_files;
+    if budget_limited {
+        ctx.log(
+            "warn",
+            &format!(
+                "tool_runner: fsync limiting uploads to first {max_files} of {} files",
+                current_files.len()
+            ),
+        );
+    }
 
     // 3. Sync new/modified files
-    for (path, entry) in &current_files {
+    for (index, (path, entry)) in current_files.iter().enumerate() {
+        if index >= max_files {
+            break;
+        }
         // Check if unchanged (size AND mtime match)
         if let Some(old_entry) = old_manifest.get(path) {
             if old_entry.size_bytes == entry.size_bytes && old_entry.mtime == entry.mtime {
@@ -1236,7 +1392,7 @@ fn sync_files_to_temperfs(
     for (path, old_entry) in &old_manifest {
         if !current_files.contains_key(path) {
             let archive_url = format!(
-                "{temper_api_url}/tdata/Files('{}')/TemperFS.File.Archive",
+                "{temper_api_url}/tdata/Files('{}')/Paw.FS.FileArchive",
                 old_entry.file_id
             );
             match ctx.http_call("POST", &archive_url, &headers, "{}") {
@@ -1264,12 +1420,12 @@ fn sync_files_to_temperfs(
 // --- Entity tool dispatch ---
 
 fn emit_progress_ignore(ctx: &Context, payload: Value) {
-    let _ = ctx.emit_progress(&payload);
+    let _ = (ctx, payload);
 }
 
 fn send_heartbeat(ctx: &Context, temper_api_url: &str, tenant: &str) -> Result<(), String> {
     let url = format!(
-        "{temper_api_url}/tdata/TemperAgents('{}')/Temper.Agent.TemperAgent.Heartbeat",
+        "{temper_api_url}/tdata/Agents('{}')/OpenPaw.Heartbeat",
         ctx.entity_id
     );
     let body = json!({ "last_heartbeat_at": "alive" });
@@ -1325,9 +1481,12 @@ fn evaluate_before_hooks(
             "block" => {
                 return Ok(Some(format!(
                     "tool blocked by hook '{name}' for tool '{tool_name}'"
-                )))
+                )));
             }
-            "log" => ctx.log("info", &format!("tool_runner: before hook '{name}' matched {tool_name}")),
+            "log" => ctx.log(
+                "info",
+                &format!("tool_runner: before hook '{name}' matched {tool_name}"),
+            ),
             _ => {}
         }
     }
@@ -1354,7 +1513,10 @@ fn apply_after_hooks(
             "modify" => {
                 output = format!("[modified by hook:{name}]\n{output}");
             }
-            "log" => ctx.log("info", &format!("tool_runner: after hook '{name}' matched {tool_name}")),
+            "log" => ctx.log(
+                "info",
+                &format!("tool_runner: after hook '{name}' matched {tool_name}"),
+            ),
             _ => {}
         }
     }
@@ -1429,17 +1591,35 @@ fn execute_entity_tool(
 ) -> Result<String, String> {
     match tool_name {
         "save_memory" => {
-            let key = input.get("key").and_then(|v| v.as_str()).ok_or("save_memory: missing 'key'")?;
-            let content = input.get("content").and_then(|v| v.as_str()).ok_or("save_memory: missing 'content'")?;
-            let memory_type = input.get("memory_type").and_then(|v| v.as_str()).unwrap_or("reference");
+            let key = input
+                .get("key")
+                .and_then(|v| v.as_str())
+                .ok_or("save_memory: missing 'key'")?;
+            let content = input
+                .get("content")
+                .and_then(|v| v.as_str())
+                .ok_or("save_memory: missing 'content'")?;
+            let memory_type = input
+                .get("memory_type")
+                .and_then(|v| v.as_str())
+                .unwrap_or("reference");
             let soul_id = fields.get("soul_id").and_then(|v| v.as_str()).unwrap_or("");
-            let agent_id = ctx.entity_state.get("entity_id").and_then(|v| v.as_str()).unwrap_or("");
+            let agent_id = ctx
+                .entity_state
+                .get("entity_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             let body = json!({
                 "Key": key, "Content": content, "MemoryType": memory_type,
                 "SoulId": soul_id, "AuthorAgentId": agent_id,
             });
-            let url = format!("{temper_api_url}/tdata/AgentMemorys");
-            let resp = ctx.http_call("POST", &url, &odata_headers(tenant), &serde_json::to_string(&body).unwrap_or_default())?;
+            let url = format!("{temper_api_url}/tdata/Memories");
+            let resp = ctx.http_call(
+                "POST",
+                &url,
+                &odata_headers(tenant),
+                &serde_json::to_string(&body).unwrap_or_default(),
+            )?;
             if resp.status >= 200 && resp.status < 300 {
                 let parsed: Value = serde_json::from_str(&resp.body).unwrap_or(json!({}));
                 let entity_id = parsed
@@ -1448,20 +1628,26 @@ fn execute_entity_tool(
                     .and_then(|v| v.as_str())
                     .unwrap_or("");
                 if !entity_id.is_empty() {
-                    let action_url = format!(
-                        "{temper_api_url}/tdata/AgentMemorys('{entity_id}')/Temper.Agent.AgentMemory.Save"
-                    );
+                    let action_url =
+                        format!("{temper_api_url}/tdata/Memories('{entity_id}')/OpenPaw.Save");
                     let _ = ctx.http_call("POST", &action_url, &odata_headers(tenant), "{}");
                 }
                 Ok(format!("Memory saved: key={key}, type={memory_type}"))
             } else {
-                Err(format!("save_memory failed (HTTP {}): {}", resp.status, &resp.body[..resp.body.len().min(200)]))
+                Err(format!(
+                    "save_memory failed (HTTP {}): {}",
+                    resp.status,
+                    &resp.body[..resp.body.len().min(200)]
+                ))
             }
         }
         "recall_memory" => {
-            let query = input.get("query").and_then(|v| v.as_str()).ok_or("recall_memory: missing 'query'")?;
+            let query = input
+                .get("query")
+                .and_then(|v| v.as_str())
+                .ok_or("recall_memory: missing 'query'")?;
             let soul_id = fields.get("soul_id").and_then(|v| v.as_str()).unwrap_or("");
-            let url = format!("{temper_api_url}/tdata/AgentMemorys");
+            let url = format!("{temper_api_url}/tdata/Memories");
             let resp = ctx.http_call("GET", &url, &odata_headers(tenant), "")?;
             if resp.status == 200 {
                 let parsed: Value = serde_json::from_str(&resp.body).unwrap_or(json!({}));
@@ -1474,8 +1660,12 @@ fn execute_entity_tool(
                     .filter(|mem| {
                         entity_field_str(mem, &["Status"]) == Some("Active")
                             && entity_field_str(mem, &["SoulId"]).unwrap_or("") == soul_id
-                            && (entity_field_str(mem, &["Key"]).unwrap_or("").contains(query)
-                                || entity_field_str(mem, &["Content"]).unwrap_or("").contains(query))
+                            && (entity_field_str(mem, &["Key"])
+                                .unwrap_or("")
+                                .contains(query)
+                                || entity_field_str(mem, &["Content"])
+                                    .unwrap_or("")
+                                    .contains(query))
                     })
                     .collect::<Vec<_>>();
                 if memories.is_empty() {
@@ -1495,32 +1685,77 @@ fn execute_entity_tool(
             }
         }
         "spawn_agent" => {
-            let task = input.get("task").and_then(|v| v.as_str()).ok_or("spawn_agent: missing 'task'")?;
+            let task = input
+                .get("task")
+                .and_then(|v| v.as_str())
+                .ok_or("spawn_agent: missing 'task'")?;
             let requested_id = input.get("agent_id").and_then(|v| v.as_str()).unwrap_or("");
-            let model = input.get("model").and_then(|v| v.as_str())
-                .unwrap_or_else(|| fields.get("model").and_then(|v| v.as_str()).unwrap_or("claude-sonnet-4-20250514"));
-            let provider = input.get("provider").and_then(|v| v.as_str())
-                .unwrap_or_else(|| fields.get("provider").and_then(|v| v.as_str()).unwrap_or("anthropic"));
-            let max_turns = input.get("max_turns").and_then(|v| v.as_i64()).unwrap_or(20);
-            let tools = input.get("tools").and_then(|v| v.as_str())
-                .unwrap_or_else(|| fields.get("tools_enabled").and_then(|v| v.as_str()).unwrap_or("read,write,edit,bash"));
-            let soul_id = input.get("soul_id").and_then(|v| v.as_str())
+            let model = input
+                .get("model")
+                .and_then(|v| v.as_str())
+                .unwrap_or_else(|| {
+                    fields
+                        .get("model")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("claude-sonnet-4-20250514")
+                });
+            let provider = input
+                .get("provider")
+                .and_then(|v| v.as_str())
+                .unwrap_or_else(|| {
+                    fields
+                        .get("provider")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("anthropic")
+                });
+            let max_turns = input
+                .get("max_turns")
+                .and_then(|v| v.as_i64())
+                .unwrap_or(20);
+            let tools = input
+                .get("tools")
+                .and_then(|v| v.as_str())
+                .unwrap_or_else(|| {
+                    fields
+                        .get("tools_enabled")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("read,write,edit,bash")
+                });
+            let soul_id = input
+                .get("soul_id")
+                .and_then(|v| v.as_str())
                 .unwrap_or_else(|| fields.get("soul_id").and_then(|v| v.as_str()).unwrap_or(""));
-            let parent_id = ctx.entity_state.get("entity_id").and_then(|v| v.as_str()).unwrap_or("");
-            let sandbox_url = fields.get("sandbox_url").and_then(|v| v.as_str()).unwrap_or("");
-            let workdir = fields.get("workdir").and_then(|v| v.as_str()).unwrap_or("/workspace");
-            let background = input.get("background").and_then(|v| v.as_bool()).unwrap_or(false);
-            let current_depth = fields.get("agent_depth").and_then(|v| v.as_i64()).unwrap_or(0);
+            let parent_id = ctx
+                .entity_state
+                .get("entity_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let sandbox_url = fields
+                .get("sandbox_url")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let workdir = fields
+                .get("workdir")
+                .and_then(|v| v.as_str())
+                .unwrap_or("/workspace");
+            let background = input
+                .get("background")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            let current_depth = fields
+                .get("agent_depth")
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0);
             if current_depth >= 5 {
                 return Err("spawn_agent: agent_depth guard hit (max depth 5)".to_string());
             }
 
             // 1. Create child entity
-            let url = format!("{temper_api_url}/tdata/TemperAgents");
+            let url = format!("{temper_api_url}/tdata/Agents");
             let create_body = if requested_id.is_empty() {
                 "{}".to_string()
             } else {
-                json!({ "TemperAgentId": requested_id }).to_string()
+                json!({ "Id": requested_id }).to_string()
             };
             let resp = ctx.http_call("POST", &url, &odata_headers(tenant), &create_body)?;
             if resp.status < 200 || resp.status >= 300 {
@@ -1544,21 +1779,29 @@ fn execute_entity_tool(
                 "soul_id": soul_id, "user_message": task, "parent_agent_id": parent_id,
                 "sandbox_url": sandbox_url, "workdir": workdir, "agent_depth": current_depth + 1,
             });
-            let config_url = format!(
-                "{temper_api_url}/tdata/TemperAgents('{child_id}')/Temper.Agent.TemperAgent.Configure"
-            );
-            let resp2 = ctx.http_call("POST", &config_url, &odata_headers(tenant), &serde_json::to_string(&config_body).unwrap_or_default())?;
+            let config_url =
+                format!("{temper_api_url}/tdata/Agents('{child_id}')/OpenPaw.Configure");
+            let resp2 = ctx.http_call(
+                "POST",
+                &config_url,
+                &odata_headers(tenant),
+                &serde_json::to_string(&config_body).unwrap_or_default(),
+            )?;
             if resp2.status < 200 || resp2.status >= 300 {
-                return Err(format!("spawn_agent: configure failed (HTTP {})", resp2.status));
+                return Err(format!(
+                    "spawn_agent: configure failed (HTTP {})",
+                    resp2.status
+                ));
             }
 
             // 3. Provision
-            let prov_url = format!(
-                "{temper_api_url}/tdata/TemperAgents('{child_id}')/Temper.Agent.TemperAgent.Provision"
-            );
+            let prov_url = format!("{temper_api_url}/tdata/Agents('{child_id}')/OpenPaw.Provision");
             let resp3 = ctx.http_call("POST", &prov_url, &odata_headers(tenant), "{}")?;
             if resp3.status < 200 || resp3.status >= 300 {
-                return Err(format!("spawn_agent: provision failed (HTTP {})", resp3.status));
+                return Err(format!(
+                    "spawn_agent: provision failed (HTTP {})",
+                    resp3.status
+                ));
             }
             if background {
                 return Ok(format!(
@@ -1568,7 +1811,7 @@ fn execute_entity_tool(
 
             // 4. Wait for completion
             let wait_url = format!(
-                "{temper_api_url}/observe/entities/TemperAgent/{child_id}/wait?statuses=Completed,Failed,Cancelled&timeout_ms=300000&poll_ms=250"
+                "{temper_api_url}/observe/entities/Agent/{child_id}/wait?statuses=Completed,Failed,Cancelled&timeout_ms=300000&poll_ms=250"
             );
             let wait_headers = vec![
                 ("x-tenant-id".to_string(), tenant.to_string()),
@@ -1578,20 +1821,31 @@ fn execute_entity_tool(
             let resp4 = ctx.http_call("GET", &wait_url, &wait_headers, "")?;
             if resp4.status == 200 {
                 let result: Value = serde_json::from_str(&resp4.body).unwrap_or(json!({}));
-                let status = result.get("status").and_then(|v| v.as_str()).unwrap_or("unknown");
+                let status = result
+                    .get("status")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown");
                 let agent_result = result
                     .get("fields")
                     .and_then(|v| v.get("result"))
                     .or_else(|| result.get("fields").and_then(|v| v.get("Result")))
                     .and_then(|v| v.as_str())
                     .unwrap_or("");
-                Ok(format!("Child agent {child_id} finished with status={status}. Result: {agent_result}"))
+                Ok(format!(
+                    "Child agent {child_id} finished with status={status}. Result: {agent_result}"
+                ))
             } else {
-                Ok(format!("Child agent {child_id} created and provisioned (poll for status)."))
+                Ok(format!(
+                    "Child agent {child_id} created and provisioned (poll for status)."
+                ))
             }
         }
         "list_agents" => {
-            let parent_id = ctx.entity_state.get("entity_id").and_then(|v| v.as_str()).unwrap_or("");
+            let parent_id = ctx
+                .entity_state
+                .get("entity_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             let agents = list_temper_agents(ctx, temper_api_url, tenant)?;
             let child_agents = agents
                 .into_iter()
@@ -1612,13 +1866,15 @@ fn execute_entity_tool(
             }
         }
         "abort_agent" => {
-            let agent_id = input.get("agent_id").and_then(|v| v.as_str()).ok_or("abort_agent: missing 'agent_id'")?;
+            let agent_id = input
+                .get("agent_id")
+                .and_then(|v| v.as_str())
+                .ok_or("abort_agent: missing 'agent_id'")?;
             let resolved_agent_id = resolve_agent_reference(ctx, temper_api_url, tenant, agent_id)?
                 .map(|agent| agent_entity_id(&agent).to_string())
                 .unwrap_or_else(|| agent_id.to_string());
-            let url = format!(
-                "{temper_api_url}/tdata/TemperAgents('{resolved_agent_id}')/Temper.Agent.TemperAgent.Cancel"
-            );
+            let url =
+                format!("{temper_api_url}/tdata/Agents('{resolved_agent_id}')/OpenPaw.Cancel");
             let resp = ctx.http_call("POST", &url, &odata_headers(tenant), "{}")?;
             if resp.status >= 200 && resp.status < 300 {
                 Ok(format!("Agent {resolved_agent_id} cancelled."))
@@ -1627,9 +1883,16 @@ fn execute_entity_tool(
             }
         }
         "steer_agent" => {
-            let agent_id = input.get("agent_id").and_then(|v| v.as_str()).ok_or("steer_agent: missing 'agent_id'")?;
-            let message = input.get("message").and_then(|v| v.as_str()).ok_or("steer_agent: missing 'message'")?;
-            let Some(agent) = resolve_agent_reference(ctx, temper_api_url, tenant, agent_id)? else {
+            let agent_id = input
+                .get("agent_id")
+                .and_then(|v| v.as_str())
+                .ok_or("steer_agent: missing 'agent_id'")?;
+            let message = input
+                .get("message")
+                .and_then(|v| v.as_str())
+                .ok_or("steer_agent: missing 'message'")?;
+            let Some(agent) = resolve_agent_reference(ctx, temper_api_url, tenant, agent_id)?
+            else {
                 return Err(format!("steer_agent: agent '{agent_id}' not found"));
             };
             let resolved_agent_id = agent_entity_id(&agent);
@@ -1641,9 +1904,7 @@ fn execute_entity_tool(
             let body = json!({
                 "steering_messages": serde_json::to_string(&queue).unwrap_or_else(|_| "[]".to_string())
             });
-            let url = format!(
-                "{temper_api_url}/tdata/TemperAgents('{resolved_agent_id}')/Temper.Agent.TemperAgent.Steer"
-            );
+            let url = format!("{temper_api_url}/tdata/Agents('{resolved_agent_id}')/OpenPaw.Steer");
             let resp = ctx.http_call(
                 "POST",
                 &url,
@@ -1660,36 +1921,65 @@ fn execute_entity_tool(
             }
         }
         "read_entity" => {
-            let file_id = input.get("file_id").and_then(|v| v.as_str()).ok_or("read_entity: missing 'file_id'")?;
+            let file_id = input
+                .get("file_id")
+                .and_then(|v| v.as_str())
+                .ok_or("read_entity: missing 'file_id'")?;
             let url = format!("{temper_api_url}/tdata/Files('{file_id}')/$value");
             let headers = vec![
                 ("x-tenant-id".to_string(), tenant.to_string()),
                 ("x-temper-principal-kind".to_string(), "admin".to_string()),
             ];
             let resp = ctx.http_call("GET", &url, &headers, "")?;
-            if resp.status == 200 { Ok(resp.body) }
-            else { Err(format!("read_entity failed (HTTP {})", resp.status)) }
+            if resp.status == 200 {
+                Ok(resp.body)
+            } else {
+                Err(format!("read_entity failed (HTTP {})", resp.status))
+            }
         }
         "run_coding_agent" => {
-            let agent_type = input.get("agent_type").and_then(|v| v.as_str()).ok_or("run_coding_agent: missing 'agent_type'")?;
-            let task = input.get("task").and_then(|v| v.as_str()).ok_or("run_coding_agent: missing 'task'")?;
-            let agent_workdir = input.get("workdir").and_then(|v| v.as_str())
-                .unwrap_or_else(|| fields.get("workdir").and_then(|v| v.as_str()).unwrap_or("/workspace"));
-            let background = input.get("background").and_then(|v| v.as_bool()).unwrap_or(false);
-            let sandbox_url = fields.get("sandbox_url").and_then(|v| v.as_str()).unwrap_or("");
+            let agent_type = input
+                .get("agent_type")
+                .and_then(|v| v.as_str())
+                .ok_or("run_coding_agent: missing 'agent_type'")?;
+            let task = input
+                .get("task")
+                .and_then(|v| v.as_str())
+                .ok_or("run_coding_agent: missing 'task'")?;
+            let agent_workdir = input
+                .get("workdir")
+                .and_then(|v| v.as_str())
+                .unwrap_or_else(|| {
+                    fields
+                        .get("workdir")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("/workspace")
+                });
+            let background = input
+                .get("background")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            let sandbox_url = fields
+                .get("sandbox_url")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             if sandbox_url.is_empty() {
                 return Err("run_coding_agent: sandbox_url is empty".to_string());
             }
             let escaped_task = task.replace('\'', "'\\''");
             let command = match agent_type {
-                "claude-code" => format!("cd {agent_workdir} && claude --permission-mode bypassPermissions --print '{escaped_task}'"),
+                "claude-code" => format!(
+                    "cd {agent_workdir} && claude --permission-mode bypassPermissions --print '{escaped_task}'"
+                ),
                 "codex" => format!("cd {agent_workdir} && codex exec '{escaped_task}'"),
                 "pi" => format!("cd {agent_workdir} && pi -p '{escaped_task}'"),
                 "opencode" => format!("cd {agent_workdir} && opencode run '{escaped_task}'"),
                 _ => return Err(format!("unsupported coding agent type: {agent_type}")),
             };
             let final_cmd = if background {
-                format!("nohup bash -c '{command}' > /tmp/coding-agent-{agent_type}.log 2>&1 & echo $!")
+                format!(
+                    "nohup bash -c '{command}' > /tmp/coding-agent-{agent_type}.log 2>&1 & echo $!"
+                )
             } else {
                 command
             };
@@ -1697,7 +1987,12 @@ fn execute_entity_tool(
             let url = format!("{sandbox_url}/v1/processes/run");
             let body = json!({ "command": final_cmd, "workdir": agent_workdir });
             let headers = vec![("content-type".to_string(), "application/json".to_string())];
-            let resp = ctx.http_call("POST", &url, &headers, &serde_json::to_string(&body).unwrap_or_default())?;
+            let resp = ctx.http_call(
+                "POST",
+                &url,
+                &headers,
+                &serde_json::to_string(&body).unwrap_or_default(),
+            )?;
             if resp.status >= 200 && resp.status < 300 {
                 let parsed: Value = serde_json::from_str(&resp.body).unwrap_or(json!({}));
                 let stdout = parsed.get("stdout").and_then(|v| v.as_str()).unwrap_or("");
@@ -1773,7 +2068,7 @@ fn agent_entity_id<'a>(agent: &'a Value) -> &'a str {
 }
 
 fn agent_display_id<'a>(agent: &'a Value) -> &'a str {
-    entity_field_str(agent, &["TemperAgentId", "Id", "entity_id", "id"]).unwrap_or("?")
+    entity_field_str(agent, &["AgentId", "Id", "entity_id", "id"]).unwrap_or("?")
 }
 
 fn list_temper_agents(
@@ -1781,10 +2076,13 @@ fn list_temper_agents(
     temper_api_url: &str,
     tenant: &str,
 ) -> Result<Vec<Value>, String> {
-    let url = format!("{temper_api_url}/tdata/TemperAgents");
+    let url = format!("{temper_api_url}/tdata/Agents");
     let resp = ctx.http_call("GET", &url, &odata_headers(tenant), "")?;
     if resp.status != 200 {
-        return Err(format!("temper agent listing failed (HTTP {})", resp.status));
+        return Err(format!(
+            "temper agent listing failed (HTTP {})",
+            resp.status
+        ));
     }
     let parsed: Value = serde_json::from_str(&resp.body).unwrap_or_else(|_| json!({}));
     Ok(parsed
@@ -1803,7 +2101,7 @@ fn resolve_agent_reference(
     let agents = list_temper_agents(ctx, temper_api_url, tenant)?;
     Ok(agents.into_iter().find(|agent| {
         let entity_id = agent_entity_id(agent);
-        let temper_agent_id = entity_field_str(agent, &["TemperAgentId"]).unwrap_or("");
+        let temper_agent_id = entity_field_str(agent, &["AgentId"]).unwrap_or("");
         entity_id == agent_reference || temper_agent_id == agent_reference
     }))
 }
@@ -1821,9 +2119,16 @@ fn read_session_from_temperfs(
         ("x-temper-principal-kind".to_string(), "admin".to_string()),
     ];
     let resp = ctx.http_call("GET", &url, &headers, "")?;
-    if resp.status == 200 { Ok(resp.body) }
-    else if resp.status == 404 { Ok(String::new()) }
-    else { Err(format!("TemperFS session read failed (HTTP {})", resp.status)) }
+    if resp.status == 200 {
+        Ok(resp.body)
+    } else if resp.status == 404 {
+        Ok(String::new())
+    } else {
+        Err(format!(
+            "TemperFS session read failed (HTTP {})",
+            resp.status
+        ))
+    }
 }
 
 /// Write session JSONL to TemperFS.
@@ -1841,8 +2146,14 @@ fn write_session_to_temperfs(
         ("x-temper-principal-kind".to_string(), "admin".to_string()),
     ];
     let resp = ctx.http_call("PUT", &url, &headers, jsonl)?;
-    if resp.status >= 200 && resp.status < 300 { Ok(()) }
-    else { Err(format!("TemperFS session write failed (HTTP {})", resp.status)) }
+    if resp.status >= 200 && resp.status < 300 {
+        Ok(())
+    } else {
+        Err(format!(
+            "TemperFS session write failed (HTTP {})",
+            resp.status
+        ))
+    }
 }
 
 fn resolve_temper_api_url(ctx: &Context, fields: &Value) -> String {
