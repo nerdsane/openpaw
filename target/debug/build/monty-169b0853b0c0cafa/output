@@ -1,2 +1,0 @@
-cargo:rerun-if-env-changed=PYO3_BUILD_EXTENSION_MODULE
-cargo:rustc-link-arg=-Wl,-rpath,/opt/homebrew/opt/python@3.14/Frameworks/Python.framework/Versions/3.14/lib
