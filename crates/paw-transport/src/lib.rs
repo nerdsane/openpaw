@@ -65,7 +65,7 @@ impl PawApiClient {
     /// Dispatch a bound action on an entity via OData.
     ///
     /// `action_path` should be the full OData action path including namespace,
-    /// e.g. `"Paw.Channel.Channel.ReceiveMessage"`.
+    /// e.g. `"Paw.Channel.ReceiveMessage"`.
     pub async fn dispatch_action(
         &self,
         entity_set: &str,
@@ -184,7 +184,7 @@ impl PawApiClient {
 
     /// Subscribe to entity state change events via SSE.
     pub async fn subscribe_events(&self) -> Result<reqwest::Response, String> {
-        let url = format!("{}/observe/events", self.config.base_url);
+        let url = format!("{}/observe/events/stream", self.config.base_url);
         self.build_request(reqwest::Method::GET, &url)
             .header("accept", "text/event-stream")
             .send()

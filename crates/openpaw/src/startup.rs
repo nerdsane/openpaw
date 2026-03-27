@@ -4,14 +4,22 @@
 //! The daemon boots the Temper platform, installs Paw OS apps, seeds souls,
 //! and starts the Discord transport.
 
+use std::collections::HashSet;
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use temper_platform::PlatformState;
+use temper_platform::os_apps::get_os_app;
+use temper_platform::recovery::{recover_cedar_policies, restore_installed_skills};
 use temper_platform::router::build_platform_router;
+use temper_runtime::scheduler::sim_now;
 use temper_runtime::tenant::TenantId;
+use temper_server::event_store::ServerEventStore;
+use temper_server::registry::{EntityLevelSummary, EntityVerificationResult, VerificationStatus};
+use temper_server::registry_bootstrap::restore_registry_from_turso;
+use temper_store_turso::{TursoEventStore, TursoSpecVerificationUpdate};
 
 use crate::config::Config;
 
@@ -30,11 +38,22 @@ const PAW_OS_APPS: &[&str] = &[
 pub async fn run(config: Config) -> Result<()> {
     let port = config.port;
     let tenant = config.tenant.clone();
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
+    let data_dir = Path::new(&home).join(".local/share/openpaw");
+    std::fs::create_dir_all(&data_dir)
+        .with_context(|| format!("Failed to create data dir: {}", data_dir.display()))?;
 
     // Phase 1: Storage backend (Turso)
     tracing::info!("Phase 1: Initializing storage...");
-    // TODO: Initialize Turso storage from config.turso_url
-    // For MVP, start with in-memory (no event store)
+    let default_db_path = data_dir.join("paw.db");
+    let turso_url = config
+        .turso_url
+        .clone()
+        .unwrap_or_else(|| format!("file:{}", default_db_path.display()));
+    let turso_store = TursoEventStore::new(&turso_url, config.turso_auth_token.as_deref())
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to connect to Turso/libSQL: {e}"))?;
+    tracing::info!("Storage: turso ({turso_url})");
 
     // Phase 2: Build empty registry
     tracing::info!("Phase 2: Building spec registry...");
@@ -53,10 +72,18 @@ pub async fn run(config: Config) -> Result<()> {
     tracing::info!("Phase 4: Assembling platform state...");
     let mut state = PlatformState::with_registry(registry, config.anthropic_api_key.clone());
     state.api_token = config.temper_api_key.clone();
-
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
-    let data_dir = Path::new(&home).join(".local/share/openpaw");
     state.server.data_dir = data_dir.clone();
+    state.server.event_store = Some(Arc::new(ServerEventStore::Turso(turso_store.clone())));
+
+    {
+        let mut registry = state.registry.write().unwrap(); // ci-ok: infallible lock
+        let restored = restore_registry_from_turso(&mut registry, &turso_store)
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to restore registry from Turso: {e}"))?;
+        if restored > 0 {
+            tracing::info!("Restored {restored} specs from Turso");
+        }
+    }
 
     // Phase 5: Secrets vault
     tracing::info!("Phase 5: Configuring secrets vault...");
@@ -243,7 +270,10 @@ pub async fn run(config: Config) -> Result<()> {
             continue;
         }
         match temper_platform::install_os_app(&state, &tenant, app_name).await {
-            Ok(result) => tracing::info!("  Installed {app_name}: {result:?}"),
+            Ok(result) => {
+                persist_os_app_verification(&state, &turso_store, &tenant, app_name).await;
+                tracing::info!("  Installed {app_name}: {result:?}");
+            }
             Err(e) => tracing::error!("  Failed to install {app_name}: {e}"),
         }
     }
@@ -254,8 +284,21 @@ pub async fn run(config: Config) -> Result<()> {
 
     // Phase 7: Recovery (Cedar policies + WASM modules + secrets from store)
     tracing::info!("Phase 7: Recovery...");
-    // TODO: Recover from event store when persistence is wired
+    recover_cedar_policies(&state, &turso_store).await;
+    restore_installed_skills(&state, &turso_store).await;
+    state
+        .server
+        .load_wasm_modules()
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to recover WASM modules: {e}"))?;
     state.server.rebuild_reaction_dispatcher();
+    let tenant_ids: Vec<TenantId> = {
+        let registry = state.registry.read().unwrap(); // ci-ok: infallible lock
+        registry.tenant_ids().into_iter().cloned().collect()
+    };
+    for tenant_id in &tenant_ids {
+        state.server.populate_index_from_store(tenant_id).await;
+    }
 
     // Phase 8: Banner
     tracing::info!("Phase 8: Bootstrap complete");
@@ -295,6 +338,60 @@ pub async fn run(config: Config) -> Result<()> {
     axum::serve(listener, router).await?;
 
     Ok(())
+}
+
+async fn persist_os_app_verification(
+    state: &PlatformState,
+    store: &TursoEventStore,
+    tenant: &str,
+    app_name: &str,
+) {
+    let Some(bundle) = get_os_app(app_name) else {
+        return;
+    };
+    let verified_at = sim_now().to_rfc3339();
+    let tenant_id = TenantId::new(tenant);
+
+    for (entity_type, _) in &bundle.specs {
+        if let Err(error) = store
+            .persist_spec_verification(
+                tenant,
+                entity_type,
+                TursoSpecVerificationUpdate {
+                    status: "completed",
+                    verified: true,
+                    levels_passed: None,
+                    levels_total: None,
+                    verification_result_json: None,
+                },
+            )
+            .await
+        {
+            tracing::warn!(
+                tenant,
+                app = app_name,
+                entity_type,
+                error = %error,
+                "Failed to persist OS app verification status"
+            );
+        }
+
+        let mut registry = state.registry.write().unwrap(); // ci-ok: infallible lock
+        registry.set_verification_status(
+            &tenant_id,
+            entity_type,
+            VerificationStatus::Completed(EntityVerificationResult {
+                all_passed: true,
+                levels: vec![EntityLevelSummary {
+                    level: "Bootstrap".to_string(),
+                    passed: true,
+                    summary: format!("Pre-verified via os-app install ({app_name})"),
+                    details: None,
+                }],
+                verified_at: verified_at.clone(),
+            }),
+        );
+    }
 }
 
 /// Bootstrap Paw souls into the entity system.
@@ -354,6 +451,10 @@ async fn bootstrap_soul(
     description: &str,
     path: &str,
 ) -> Result<String> {
+    // Read soul content from disk so existing souls can be refreshed in place.
+    let content = std::fs::read_to_string(path)
+        .with_context(|| format!("Failed to read soul file: {path}"))?;
+
     // Check if soul already exists
     let filter = format!("Name eq '{name}'");
     let list_url = format!("{api_url}/tdata/Souls?$filter={filter}");
@@ -363,14 +464,24 @@ async fn bootstrap_soul(
     if let Some(items) = items {
         if let Some(existing) = items.first() {
             let id = entity_id_from_json(existing).unwrap_or("unknown");
+            if let Some(file_id) = entity_field_str(existing, &["ContentFileId", "content_file_id"])
+            {
+                let upload_url = format!("{api_url}/tdata/Files('{file_id}')/$value");
+                odata_put_bytes(
+                    client,
+                    &upload_url,
+                    tenant,
+                    api_key,
+                    "text/markdown",
+                    content.into_bytes(),
+                )
+                .await
+                .with_context(|| format!("Failed to refresh existing soul content for '{name}'"))?;
+            }
             tracing::info!("  Soul '{name}' already exists: {id}");
             return Ok(id.to_string());
         }
     }
-
-    // Read soul content from disk
-    let content = std::fs::read_to_string(path)
-        .with_context(|| format!("Failed to read soul file: {path}"))?;
 
     // Create TemperFS File for the soul content
     let file_resp = odata_post(
@@ -445,21 +556,36 @@ async fn set_default_soul(
     api_key: &Option<String>,
     soul_name: &str,
 ) -> Result<()> {
-    // Find the Paw soul
-    let filter = format!("Name eq '{soul_name}'");
-    let resp = odata_get(
+    // Keep route soul references stable across restarts by storing the soul
+    // name, while still recognizing existing routes that may still hold IDs.
+    let souls_resp = odata_get(
         client,
-        &format!("{api_url}/tdata/Souls?$filter={filter}"),
+        &format!("{api_url}/tdata/Souls?$filter=Status eq 'Active'"),
         tenant,
         api_key,
     )
     .await?;
-    let soul_id = resp["value"]
+    let souls = souls_resp["value"]
         .as_array()
-        .and_then(|a| a.first())
-        .and_then(entity_id_from_json)
-        .context("Paw soul not found")?
-        .to_string();
+        .context("Failed to list active souls")?;
+
+    let mut known_refs = HashSet::new();
+    let mut target_exists = false;
+    for soul in souls {
+        if let Some(id) = entity_id_from_json(soul) {
+            known_refs.insert(id.to_string());
+        }
+        if let Some(name) = entity_field_str(soul, &["Name", "name"]) {
+            if name == soul_name {
+                target_exists = true;
+            }
+            known_refs.insert(name.to_string());
+        }
+    }
+
+    if !target_exists {
+        anyhow::bail!("Soul '{soul_name}' not found");
+    }
 
     // Find AgentRoutes and update their soul_id
     let routes_resp = odata_get(
@@ -474,18 +600,18 @@ async fn set_default_soul(
         for route in routes {
             let route_id = entity_id_from_json(route).unwrap_or("");
             let current_soul = entity_field_str(route, &["SoulId", "soul_id"]).unwrap_or("");
-            if current_soul.is_empty() && !route_id.is_empty() {
-                // Update route with Paw soul
+            let needs_repair = current_soul.is_empty() || !known_refs.contains(current_soul);
+            if needs_repair && !route_id.is_empty() {
                 odata_post(
                     client,
                     &format!("{api_url}/tdata/AgentRoutes('{route_id}')/Paw.Channel.Update"),
                     tenant,
                     api_key,
-                    serde_json::json!({ "soul_id": soul_id }),
+                    serde_json::json!({ "soul_id": soul_name }),
                 )
                 .await
                 .ok(); // Best effort
-                tracing::info!("  Set soul '{soul_name}' on AgentRoute {route_id}");
+                tracing::info!("  Repaired soul '{soul_name}' on AgentRoute {route_id}");
             }
         }
     }
