@@ -94,6 +94,7 @@ class SandboxHandler(BaseHTTPRequestHandler):
                 env = os.environ.copy()
                 if isinstance(extra_env, dict):
                     env.update({str(k): str(v) for k, v in extra_env.items()})
+                os.makedirs(cwd, exist_ok=True)
                 r = subprocess.run(
                     cmd, shell=True, capture_output=True, text=True,
                     timeout=60, cwd=cwd, env=env
