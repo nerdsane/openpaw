@@ -42,7 +42,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                     .unwrap_or("");
                 // NextRunAt check deferred to cron_scheduler — this module triggers all active jobs
                 // that the scheduler determined are due
-                let trigger_url = format!("{temper_api_url}/tdata/CronJobs('{job_id}')/Temper.Agent.Trigger");
+                let trigger_url = format!("{temper_api_url}/tdata/CronJobs('{job_id}')/OpenPaw.Trigger");
                 let trigger_body = json!({ "last_run_at": "" });
                 match ctx.http_call("POST", &trigger_url, &headers, &trigger_body.to_string()) {
                     Ok(r) if r.status >= 200 && r.status < 300 => {

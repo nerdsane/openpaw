@@ -1,4 +1,4 @@
-//! Shared helper functions for TemperAgent WASM modules.
+//! Shared helper functions for Agent WASM modules.
 //!
 //! Provides common TemperFS I/O, field extraction, and URL resolution
 //! to eliminate duplication across WASM integration modules.

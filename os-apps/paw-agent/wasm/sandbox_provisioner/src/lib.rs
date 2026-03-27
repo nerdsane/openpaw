@@ -56,8 +56,13 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         let fs_result =
             create_conversation_storage(&ctx, &temper_api_url, tenant, entity_id, user_message);
 
-        let (workspace_id, conversation_file_id, file_manifest_id, session_file_id, session_leaf_id) =
-            match fs_result {
+        let (
+            workspace_id,
+            conversation_file_id,
+            file_manifest_id,
+            session_file_id,
+            session_leaf_id,
+        ) = match fs_result {
             Ok((ws, conv, manifest, session_file_id, session_leaf_id)) => {
                 (ws, conv, manifest, session_file_id, session_leaf_id)
             }
@@ -112,12 +117,14 @@ fn resolve_temper_api_url(ctx: &Context, fields: &Value) -> String {
         .and_then(|v| v.as_str())
         .filter(|s| !s.is_empty())
         .map(|s| s.to_string())
-        .or_else(|| match ctx.config.get("temper_api_url").map(String::as_str) {
-            Some(value) if !value.trim().is_empty() && !value.contains("{secret:") => {
-                Some(value.to_string())
-            }
-            _ => None,
-        })
+        .or_else(
+            || match ctx.config.get("temper_api_url").map(String::as_str) {
+                Some(value) if !value.trim().is_empty() && !value.contains("{secret:") => {
+                    Some(value.to_string())
+                }
+                _ => None,
+            },
+        )
         .unwrap_or_else(|| "http://127.0.0.1:3000".to_string())
 }
 
@@ -131,18 +138,19 @@ fn provision_sandbox(ctx: &Context) -> Result<SandboxResult, String> {
     let static_url = fields
         .get("sandbox_url")
         .and_then(|v| v.as_str())
-        .filter(|s| !s.is_empty())
+        .filter(|s| !s.is_empty() && !s.contains("{secret:"))
         .map(|s| s.to_string())
         .or_else(|| {
             ctx.config
                 .get("sandbox_url")
-                .filter(|s| !s.is_empty())
+                .filter(|s| !s.is_empty() && !s.contains("{secret:"))
                 .cloned()
         })
         .or_else(|| {
             ctx.trigger_params
                 .get("sandbox_url")
                 .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty() && !s.contains("{secret:"))
                 .map(|s| s.to_string())
         });
     if let Some(url) = static_url {
@@ -189,6 +197,9 @@ fn provision_sandbox(ctx: &Context) -> Result<SandboxResult, String> {
     let body = json!({
         "templateID": template_id,
         "timeout": 600,
+        // Open Paw talks directly to the envd URL today; disable secure mode
+        // until we plumb the access token through the agent/tool state.
+        "secure": false,
     });
 
     let resp = ctx.http_call("POST", &create_url, &headers, &body.to_string())?;
@@ -389,8 +400,14 @@ fn create_conversation_storage(
         );
     }
 
-    let (session_file_id, session_leaf_id) =
-        create_session_tree(ctx, temper_api_url, tenant, &workspace_id, agent_id, user_message);
+    let (session_file_id, session_leaf_id) = create_session_tree(
+        ctx,
+        temper_api_url,
+        tenant,
+        &workspace_id,
+        agent_id,
+        user_message,
+    );
 
     Ok((
         workspace_id,
@@ -439,8 +456,7 @@ fn create_session_tree(
     };
 
     let session_file_id = if session_file_resp.status >= 200 && session_file_resp.status < 300 {
-        let parsed: Value =
-            serde_json::from_str(&session_file_resp.body).unwrap_or(json!({}));
+        let parsed: Value = serde_json::from_str(&session_file_resp.body).unwrap_or(json!({}));
         parsed
             .get("entity_id")
             .and_then(|v| v.as_str())

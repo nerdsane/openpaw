@@ -1,6 +1,6 @@
 //! Cron Trigger — WASM module for firing scheduled agent runs.
 //!
-//! Creates a new TemperAgent entity with the cron job's configuration,
+//! Creates a new Agent entity with the cron job's configuration,
 //! including template variable substitution.
 
 use temper_wasm_sdk::prelude::*;
@@ -42,8 +42,8 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             ("x-temper-principal-kind".to_string(), "admin".to_string()),
         ];
 
-        // 1. Create TemperAgent entity
-        let create_url = format!("{temper_api_url}/tdata/TemperAgents");
+        // 1. Create Agent entity
+        let create_url = format!("{temper_api_url}/tdata/Agents");
         let create_resp = ctx.http_call("POST", &create_url, &headers, "{}")?;
         if create_resp.status < 200 || create_resp.status >= 300 {
             return Err(format!("Failed to create agent (HTTP {}): {}", create_resp.status, &create_resp.body[..create_resp.body.len().min(200)]));
@@ -62,7 +62,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
 
         // 2. Configure the agent
         let configure_url = format!(
-            "{temper_api_url}/tdata/TemperAgents('{agent_id}')/Temper.Agent.TemperAgent.Configure"
+            "{temper_api_url}/tdata/Agents('{agent_id}')/OpenPaw.Configure"
         );
         let configure_body = json!({
             "system_prompt": system_prompt,
@@ -81,7 +81,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
 
         // 3. Provision the agent
         let provision_url = format!(
-            "{temper_api_url}/tdata/TemperAgents('{agent_id}')/Temper.Agent.TemperAgent.Provision"
+            "{temper_api_url}/tdata/Agents('{agent_id}')/OpenPaw.Provision"
         );
         let provision_resp = ctx.http_call("POST", &provision_url, &headers, "{}")?;
         if provision_resp.status < 200 || provision_resp.status >= 300 {
