@@ -24,8 +24,15 @@ permit(
     Action::"Activate",
     Action::"AlertFired",
     Action::"Tune",
-    Action::"Pause",
-    Action::"Archive"
+    Action::"Pause"
   ],
   resource is Monitor
 );
+
+permit(
+  principal,
+  action == Action::"Archive",
+  resource is Monitor
+) when {
+  principal.agent_type == "system"
+};

@@ -18,8 +18,15 @@ permit(
     Action::"read",
     Action::"list",
     Action::"Configure",
-    Action::"Activate",
-    Action::"Archive"
+    Action::"Activate"
   ],
   resource is ProjectHarness
 );
+
+permit(
+  principal,
+  action == Action::"Archive",
+  resource is ProjectHarness
+) when {
+  principal.agent_type == "system"
+};

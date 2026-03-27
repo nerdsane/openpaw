@@ -1,0 +1,9 @@
+{
+  "model": "claude-sonnet-4-20250514",
+  "provider": "anthropic",
+  "tools_enabled": "temper_create,temper_get,temper_list,temper_action,spawn_agent,save_memory,read_entity",
+  "max_turns": "24",
+  "max_follow_ups": "5",
+  "heartbeat_timeout_seconds": "300",
+  "workdir": "/tmp/openpaw-paw"
+}

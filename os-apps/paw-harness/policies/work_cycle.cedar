@@ -25,8 +25,7 @@ permit(
     Action::"WritePlan",
     Action::"StartWork",
     Action::"BeginTesting",
-    Action::"PassTests",
-    Action::"Fail"
+    Action::"PassTests"
   ],
   resource is WorkCycle
 );
@@ -37,4 +36,14 @@ permit(
   resource is WorkCycle
 ) when {
   principal.id != resource.PlannerId
+};
+
+permit(
+  principal,
+  action == Action::"Fail",
+  resource is WorkCycle
+) when {
+  principal.agent_type == "system" ||
+  principal.id == resource.PlannerId ||
+  principal.id == resource.ApproverId
 };

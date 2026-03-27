@@ -80,12 +80,14 @@ permit(
   ["sandbox_provisioner", "llm_caller", "tool_runner", "workspace_restorer", "context_compactor"].contains(context.module)
 };
 
-// --- Failure and cancellation: supervisors, humans, and system ---
+// --- Failure and cancellation: admins, system callbacks, or the owning parent/self ---
 
 permit(
   principal,
   action in [Action::"Fail", Action::"Cancel"],
   resource is Agent
 ) when {
-  ["supervisor", "human", "system"].contains(principal.agent_type)
+  principal.agent_type == "system" ||
+  principal.id == resource.ParentAgentId ||
+  principal.id == resource.Id
 };

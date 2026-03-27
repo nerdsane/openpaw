@@ -1,6 +1,6 @@
 //! Discord transport — wires Discord Gateway to Paw Channel entities.
 //!
-//! On startup: bootstraps Channel + default AgentRoute entities.
+//! On startup: bootstraps the Channel entity used for Discord delivery.
 //! On MESSAGE_CREATE: dispatches Channel.ReceiveMessage via OData API.
 //! On Channel.SendReply events: delivers reply via Discord REST API.
 
@@ -64,7 +64,7 @@ impl DiscordTransport {
         let webhook_url = format!("http://127.0.0.1:{webhook_port}/reply");
         println!("  [discord] Webhook listener on port {webhook_port}");
 
-        // Phase 2: Bootstrap Channel + AgentRoute entities.
+        // Phase 2: Bootstrap the Channel entity.
         self.bootstrap_channel(&webhook_url).await?;
 
         // Phase 3: Connect to Discord Gateway.
@@ -93,24 +93,12 @@ impl DiscordTransport {
         }
     }
 
-    /// Bootstrap the Channel entity and default AgentRoute.
+    /// Bootstrap the Channel entity used by the Discord transport.
     ///
-    /// Ensures paw-channels OS app is installed, then creates or finds
-    /// the Channel entity and a default AgentRoute.
+    /// Startup seeds the default fallback AgentRoute ahead of time, so the
+    /// transport only needs to rotate the Channel entity and keep its
+    /// webhook_url in sync with the current listener port.
     async fn bootstrap_channel(&self, webhook_url: &str) -> Result<(), String> {
-        // Ensure paw-channels OS app is installed for the tenant.
-        let install_url = format!(
-            "{}/api/os-apps/paw-channels/install",
-            self.api.config().base_url
-        );
-        let _ = self
-            .api
-            .raw_post(
-                &install_url,
-                serde_json::json!({ "tenant": self.api.config().tenant }),
-            )
-            .await;
-
         // Archive any stale Channel entities from previous runs.
         // The transport creates a fresh Channel each startup so the
         // webhook_url always matches the current listener port.
@@ -192,47 +180,6 @@ impl DiscordTransport {
         }
 
         *self.channel_entity_id.write().await = Some(channel_id.clone());
-
-        // Ensure at least one active AgentRoute exists.
-        let routes = self
-            .api
-            .query_entities("AgentRoutes", "Status eq 'Active'")
-            .await
-            .unwrap_or_default();
-
-        if routes.is_empty() {
-            let route_resp = self
-                .api
-                .create_entity("AgentRoutes", serde_json::json!({}))
-                .await;
-
-            if let Ok(route) = route_resp {
-                let route_id = route
-                    .get("entity_id")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
-                let _ = self
-                    .api
-                    .dispatch_action(
-                        "AgentRoutes",
-                        route_id,
-                        "Paw.Channel.Register",
-                        serde_json::json!({
-                            "binding_tier": "channel",
-                            "channel_id": channel_id,
-                            "agent_config": serde_json::json!({
-                                "system_prompt": "You are a helpful AI assistant. Be concise and conversational.",
-                                "model": "claude-sonnet-4-20250514",
-                                "provider": "anthropic",
-                            }).to_string(),
-                        }),
-                    )
-                    .await;
-                println!("  [discord] Created default AgentRoute: {route_id}");
-            }
-        } else {
-            println!("  [discord] Found {} existing AgentRoute(s)", routes.len());
-        }
 
         Ok(())
     }
