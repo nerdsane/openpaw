@@ -75,7 +75,7 @@ unsafe extern "C" {
 
 // ---- Buffers ----
 
-const CTX_BUF_LEN: usize = 8192;
+const CTX_BUF_LEN: usize = 131072; // 128KB — large enough for session-backed entity state
 const SECRET_BUF_LEN: usize = 1024;
 const HASH_BUF_LEN: usize = 256;
 
