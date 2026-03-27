@@ -1,1 +1,0 @@
-{"rustc":356990515331585862,"features":"","declared_features":"","target":0,"profile":0,"path":0,"deps":[[12347024475581975995,"build_script_build",false,6968485116191232472]],"local":[{"RerunIfChanged":{"output":"wasm32-unknown-unknown/release/build/zmij-e223fab27a68ec47/output","paths":["build.rs"]}}],"rustflags":[],"config":0,"compile_kind":0}
