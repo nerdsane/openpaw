@@ -15,8 +15,9 @@
 //!
 //! Build: `cargo build --target wasm32-unknown-unknown --release`
 
-use temper_wasm_sdk::prelude::*;
 use session_tree_lib::SessionTree;
+use std::collections::BTreeSet;
+use temper_wasm_sdk::prelude::*;
 
 /// Entry point — NOT using `temper_module!` because we need dynamic callback actions.
 #[unsafe(no_mangle)]
@@ -144,10 +145,7 @@ anthropic_api_key (or api_key) for anthropic, openrouter_api_key (or api_key) fo
             .unwrap_or("");
 
         // Soul and steering fields
-        let soul_id = fields
-            .get("soul_id")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+        let soul_id = fields.get("soul_id").and_then(|v| v.as_str()).unwrap_or("");
         let max_follow_ups: i64 = fields
             .get("max_follow_ups")
             .and_then(|v| v.as_str())
@@ -171,7 +169,8 @@ anthropic_api_key (or api_key) for anthropic, openrouter_api_key (or api_key) fo
         let use_session_tree = !session_file_id.is_empty() && !session_leaf_id.is_empty();
 
         let (mut messages, mut session_tree) = if use_session_tree {
-            let session_jsonl = read_session_from_temperfs(&ctx, &temper_api_url, tenant, session_file_id)?;
+            let session_jsonl =
+                read_session_from_temperfs(&ctx, &temper_api_url, tenant, session_file_id)?;
             if session_jsonl.is_empty() {
                 // First turn — tree was just created by sandbox_provisioner but empty
                 let tree = SessionTree::from_jsonl(&session_jsonl);
@@ -181,7 +180,10 @@ anthropic_api_key (or api_key) for anthropic, openrouter_api_key (or api_key) fo
                 let tree = SessionTree::from_jsonl(&session_jsonl);
                 let msgs = tree.build_context(session_leaf_id);
                 if msgs.is_empty() {
-                    (vec![json!({ "role": "user", "content": first_turn_content })], Some(tree))
+                    (
+                        vec![json!({ "role": "user", "content": first_turn_content })],
+                        Some(tree),
+                    )
                 } else {
                     (msgs, Some(tree))
                 }
@@ -189,20 +191,34 @@ anthropic_api_key (or api_key) for anthropic, openrouter_api_key (or api_key) fo
         } else if !conversation_file_id.is_empty() {
             // Legacy flat JSON mode
             let msgs = read_conversation_from_temperfs(
-                &ctx, &temper_api_url, tenant, conversation_file_id, first_turn_content,
+                &ctx,
+                &temper_api_url,
+                tenant,
+                conversation_file_id,
+                first_turn_content,
             )?;
             (msgs, None)
         } else {
             // Inline state
-            let conversation_json = fields.get("conversation").and_then(|v| v.as_str()).unwrap_or("");
+            let conversation_json = fields
+                .get("conversation")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             if conversation_json.is_empty() {
-                (vec![json!({ "role": "user", "content": first_turn_content })], None)
+                (
+                    vec![json!({ "role": "user", "content": first_turn_content })],
+                    None,
+                )
             } else {
-                (serde_json::from_str(conversation_json).unwrap_or_else(|_| {
-                    vec![json!({ "role": "user", "content": first_turn_content })]
-                }), None)
+                (
+                    serde_json::from_str(conversation_json).unwrap_or_else(|_| {
+                        vec![json!({ "role": "user", "content": first_turn_content })]
+                    }),
+                    None,
+                )
             }
         };
+        messages = repair_interrupted_tool_use_messages(messages);
 
         // Build tool definitions based on tools_enabled
         let tools = build_tool_definitions(tools_enabled, sandbox_url, workdir);
@@ -212,18 +228,25 @@ anthropic_api_key (or api_key) for anthropic, openrouter_api_key (or api_key) fo
             if let Some(ref tree) = session_tree {
                 let context_tokens = tree.estimate_tokens(session_leaf_id);
                 // Model context windows (approximate)
-                let context_window: usize = if model.contains("opus") { 200000 }
-                    else if model.contains("haiku") { 200000 }
-                    else { 200000 }; // sonnet default
+                let context_window: usize = if model.contains("opus") {
+                    200000
+                } else if model.contains("haiku") {
+                    200000
+                } else {
+                    200000
+                }; // sonnet default
                 if context_tokens > context_window.saturating_sub(reserve_tokens) {
                     ctx.log("info", &format!(
                         "llm_caller: context_tokens ({}) exceeds threshold ({}), triggering compaction",
                         context_tokens, context_window.saturating_sub(reserve_tokens)
                     ));
-                    set_success_result("NeedsCompaction", &json!({
-                        "context_tokens": context_tokens,
-                        "session_leaf_id": session_leaf_id,
-                    }));
+                    set_success_result(
+                        "NeedsCompaction",
+                        &json!({
+                            "context_tokens": context_tokens,
+                            "session_leaf_id": session_leaf_id,
+                        }),
+                    );
                     return Ok(());
                 }
             }
@@ -234,9 +257,8 @@ anthropic_api_key (or api_key) for anthropic, openrouter_api_key (or api_key) fo
         // 2. system_prompt override (from Configure action)
         // 3. Available skills XML block
         // 4. Memory context
-        let assembled_system_prompt = assemble_system_prompt(
-            &ctx, &temper_api_url, tenant, soul_id, system_prompt,
-        )?;
+        let assembled_system_prompt =
+            assemble_system_prompt(&ctx, &temper_api_url, tenant, soul_id, system_prompt)?;
 
         emit_progress_ignore(
             &ctx,
@@ -350,10 +372,20 @@ anthropic_api_key (or api_key) for anthropic, openrouter_api_key (or api_key) fo
                             response.output_tokens as usize,
                         );
                         let updated_jsonl = tree.to_jsonl();
-                        write_session_to_temperfs(&ctx, &temper_api_url, tenant, session_file_id, &updated_jsonl)?;
+                        write_session_to_temperfs(
+                            &ctx,
+                            &temper_api_url,
+                            tenant,
+                            session_file_id,
+                            &updated_jsonl,
+                        )?;
                         Some(leaf)
-                    } else { None }
-                } else { None };
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
 
                 let tool_calls_json = serde_json::to_string(&tool_calls).unwrap_or_default();
                 let mut params = json!({
@@ -395,16 +427,25 @@ anthropic_api_key (or api_key) for anthropic, openrouter_api_key (or api_key) fo
                             response.output_tokens as usize,
                         );
                         let updated_jsonl = tree.to_jsonl();
-                        write_session_to_temperfs(&ctx, &temper_api_url, tenant, session_file_id, &updated_jsonl)?;
+                        write_session_to_temperfs(
+                            &ctx,
+                            &temper_api_url,
+                            tenant,
+                            session_file_id,
+                            &updated_jsonl,
+                        )?;
 
                         // Route through steering check if follow-ups are enabled
                         if max_follow_ups > 0 {
-                            set_success_result("CheckSteering", &json!({
-                                "result": result_text,
-                                "session_leaf_id": new_leaf,
-                                "input_tokens": response.input_tokens,
-                                "output_tokens": response.output_tokens,
-                            }));
+                            set_success_result(
+                                "CheckSteering",
+                                &json!({
+                                    "result": result_text,
+                                    "session_leaf_id": new_leaf,
+                                    "input_tokens": response.input_tokens,
+                                    "output_tokens": response.output_tokens,
+                                }),
+                            );
                         } else {
                             let params = json!({
                                 "result": result_text,
@@ -507,8 +548,8 @@ fn call_mock(
         .filter(|message| message.get("role").and_then(Value::as_str) == Some("assistant"))
         .count();
 
-    if let Some(step) = extract_mock_plan(messages)
-        .and_then(|steps| steps.get(assistant_turns).cloned())
+    if let Some(step) =
+        extract_mock_plan(messages).and_then(|steps| steps.get(assistant_turns).cloned())
     {
         return build_mock_step_response(messages, assembled_system_prompt, assistant_turns, &step);
     }
@@ -607,7 +648,12 @@ fn build_mock_analysis(signal_summary: &Value) -> Value {
             .unwrap_or_else(|| format!("Add direct support for {intent_title}."));
         let volume = lookup_u64(
             candidate,
-            &["failure_count", "workaround_count", "abandonment_count", "total_count"],
+            &[
+                "failure_count",
+                "workaround_count",
+                "abandonment_count",
+                "total_count",
+            ],
         )
         .unwrap_or(1);
         let success_rate = lookup_f64(candidate, &["success_rate"]).unwrap_or(0.0);
@@ -623,9 +669,8 @@ fn build_mock_analysis(signal_summary: &Value) -> Value {
                 "missing_capability".to_string()
             }
         });
-        let dedupe_key = lookup_string(candidate, &["intent_key"]).unwrap_or_else(|| {
-            normalize_key(&format!("intent:{intent_title}:{issue_title}"))
-        });
+        let dedupe_key = lookup_string(candidate, &["intent_key"])
+            .unwrap_or_else(|| normalize_key(&format!("intent:{intent_title}:{issue_title}")));
         if existing_keys.contains(&normalize_key(&issue_title))
             || existing_keys.contains(&normalize_key(&intent_title))
             || existing_keys.contains(&dedupe_key)
@@ -663,9 +708,12 @@ fn build_mock_analysis(signal_summary: &Value) -> Value {
     }
 
     for unmet in legacy_unmet_intents.iter().take(2) {
-        let entity_type = lookup_string(unmet, &["entity_type"]).unwrap_or_else(|| "UnknownEntity".to_string());
-        let action = lookup_string(unmet, &["action"]).unwrap_or_else(|| "UnknownAction".to_string());
-        let error_pattern = lookup_string(unmet, &["error_pattern"]).unwrap_or_else(|| "UnknownError".to_string());
+        let entity_type =
+            lookup_string(unmet, &["entity_type"]).unwrap_or_else(|| "UnknownEntity".to_string());
+        let action =
+            lookup_string(unmet, &["action"]).unwrap_or_else(|| "UnknownAction".to_string());
+        let error_pattern =
+            lookup_string(unmet, &["error_pattern"]).unwrap_or_else(|| "UnknownError".to_string());
         let failure_count = lookup_u64(unmet, &["failure_count", "count"]).unwrap_or(1);
         let recommendation = lookup_string(unmet, &["recommendation"])
             .unwrap_or_else(|| format!("Add or repair {entity_type}.{action} handling."));
@@ -754,7 +802,8 @@ fn build_mock_analysis(signal_summary: &Value) -> Value {
             let frequency = lookup_u64(feature, &["frequency", "count"]).unwrap_or(1);
             let title = format!("Enable {}", humanize_issue_focus(&description));
             let dedupe_key = normalize_key(&format!("feature:{description}"));
-            if existing_keys.contains(&normalize_key(&title)) || existing_keys.contains(&dedupe_key) {
+            if existing_keys.contains(&normalize_key(&title)) || existing_keys.contains(&dedupe_key)
+            {
                 continue;
             }
             findings.push(json!({
@@ -785,7 +834,8 @@ fn build_mock_analysis(signal_summary: &Value) -> Value {
 
     if findings.is_empty() {
         for agent in agents.iter().take(1) {
-            let agent_id = lookup_string(agent, &["agent_id", "id"]).unwrap_or_else(|| "unknown-agent".to_string());
+            let agent_id = lookup_string(agent, &["agent_id", "id"])
+                .unwrap_or_else(|| "unknown-agent".to_string());
             let total_actions = lookup_u64(agent, &["total_actions"]).unwrap_or(0);
             let success_rate = lookup_f64(agent, &["success_rate"]).unwrap_or(0.0);
             if total_actions == 0 {
@@ -793,7 +843,8 @@ fn build_mock_analysis(signal_summary: &Value) -> Value {
             }
             let title = format!("Reduce workflow friction for {agent_id}");
             let dedupe_key = normalize_key(&format!("friction:{agent_id}"));
-            if existing_keys.contains(&normalize_key(&title)) || existing_keys.contains(&dedupe_key) {
+            if existing_keys.contains(&normalize_key(&title)) || existing_keys.contains(&dedupe_key)
+            {
                 continue;
             }
             findings.push(json!({
@@ -822,7 +873,8 @@ fn build_mock_analysis(signal_summary: &Value) -> Value {
         }
     }
 
-    let tenant = lookup_string(signal_summary, &["tenant"]).unwrap_or_else(|| "unknown-tenant".to_string());
+    let tenant =
+        lookup_string(signal_summary, &["tenant"]).unwrap_or_else(|| "unknown-tenant".to_string());
     let summary = format!(
         "Mock evolution analysis for tenant {tenant}: {} intent candidates, {} workaround patterns, {} abandonment patterns, {} policy suggestions, {} feature requests, {} agent summaries, {} findings emitted.",
         intent_candidates.len(),
@@ -854,9 +906,14 @@ fn collect_existing_dedupe_keys(signal_summary: &Value) -> std::collections::BTr
         }
     }
 
-    if let Some(records) = signal_summary.get("recent_records").and_then(Value::as_array) {
+    if let Some(records) = signal_summary
+        .get("recent_records")
+        .and_then(Value::as_array)
+    {
         for record in records {
-            if let Some(title) = lookup_string(record, &["title", "description", "problem_statement"]) {
+            if let Some(title) =
+                lookup_string(record, &["title", "description", "problem_statement"])
+            {
                 keys.insert(normalize_key(&title));
             }
         }
@@ -1339,7 +1396,11 @@ fn mock_plan_requests_hang(messages: &[Value]) -> bool {
 }
 
 fn simulate_mock_hang(ctx: &Context) -> Result<(), String> {
-    let fields = ctx.entity_state.get("fields").cloned().unwrap_or_else(|| json!({}));
+    let fields = ctx
+        .entity_state
+        .get("fields")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
     let base_url = resolve_temper_api_url(ctx, &fields);
     let url = format!(
         "{base_url}/observe/entities/{}/{}/wait?statuses=__never__&timeout_ms=10000&poll_ms=250",
@@ -1384,7 +1445,10 @@ fn build_mock_step_response(
     step: &Value,
 ) -> Result<LlmResponse, String> {
     if step.get("mode").and_then(Value::as_str) == Some("hang") {
-        return Ok(mock_text_response(messages, "mock hang placeholder".to_string()));
+        return Ok(mock_text_response(
+            messages,
+            "mock hang placeholder".to_string(),
+        ));
     }
 
     let mut content = Vec::<Value>::new();
@@ -1448,6 +1512,76 @@ fn build_mock_step_response(
     ))
 }
 
+fn repair_interrupted_tool_use_messages(messages: Vec<Value>) -> Vec<Value> {
+    let mut repaired = Vec::new();
+
+    for (idx, message) in messages.iter().enumerate() {
+        repaired.push(message.clone());
+
+        if message.get("role").and_then(Value::as_str) != Some("assistant") {
+            continue;
+        }
+
+        let pending_ids = extract_tool_use_ids(message);
+        if pending_ids.is_empty() {
+            continue;
+        }
+
+        let next_tool_results = messages
+            .get(idx + 1)
+            .filter(|next| next.get("role").and_then(Value::as_str) == Some("user"))
+            .map(extract_tool_result_ids)
+            .unwrap_or_default();
+
+        let missing_ids = pending_ids
+            .into_iter()
+            .filter(|tool_use_id| !next_tool_results.contains(tool_use_id))
+            .collect::<Vec<_>>();
+        if missing_ids.is_empty() {
+            continue;
+        }
+
+        repaired.push(json!({
+            "role": "user",
+            "content": missing_ids
+                .into_iter()
+                .map(|tool_use_id| json!({
+                    "type": "tool_result",
+                    "tool_use_id": tool_use_id,
+                    "content": "Tool execution was interrupted because a prior agent run ended before returning results. Continue from the existing thread context.",
+                    "is_error": true,
+                }))
+                .collect::<Vec<_>>(),
+        }));
+    }
+
+    repaired
+}
+
+fn extract_tool_use_ids(message: &Value) -> BTreeSet<String> {
+    message
+        .get("content")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|block| block.get("type").and_then(Value::as_str) == Some("tool_use"))
+        .filter_map(|block| block.get("id").and_then(Value::as_str))
+        .map(ToString::to_string)
+        .collect()
+}
+
+fn extract_tool_result_ids(message: &Value) -> BTreeSet<String> {
+    message
+        .get("content")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|block| block.get("type").and_then(Value::as_str) == Some("tool_result"))
+        .filter_map(|block| block.get("tool_use_id").and_then(Value::as_str))
+        .map(ToString::to_string)
+        .collect()
+}
+
 fn mock_text_response(messages: &[Value], text: String) -> LlmResponse {
     LlmResponse {
         content: json!([{ "type": "text", "text": text.clone() }]),
@@ -1478,19 +1612,31 @@ fn latest_user_text(messages: &[Value]) -> Option<String> {
         .map(|message| stringify_content(message.get("content").unwrap_or(&Value::Null)))
 }
 
-fn resolve_mock_template(template: &str, assembled_system_prompt: &str, latest_user: &str) -> String {
+fn resolve_mock_template(
+    template: &str,
+    assembled_system_prompt: &str,
+    latest_user: &str,
+) -> String {
     let mut text = template.to_string();
     text = text.replace("{{latest_user}}", latest_user);
-    text = text.replace("{{memory_block}}", &extract_tag_block(assembled_system_prompt, "agent_memory"));
+    text = text.replace(
+        "{{memory_block}}",
+        &extract_tag_block(assembled_system_prompt, "agent_memory"),
+    );
     text = text.replace(
         "{{memory_keys}}",
         &extract_memory_keys(assembled_system_prompt).join(", "),
     );
     text = text.replace(
         "{{memory_count}}",
-        &extract_memory_keys(assembled_system_prompt).len().to_string(),
+        &extract_memory_keys(assembled_system_prompt)
+            .len()
+            .to_string(),
     );
-    text = text.replace("{{skills_block}}", &extract_tag_block(assembled_system_prompt, "available_skills"));
+    text = text.replace(
+        "{{skills_block}}",
+        &extract_tag_block(assembled_system_prompt, "available_skills"),
+    );
     text
 }
 
@@ -1584,7 +1730,9 @@ fn convert_messages_to_openrouter(messages: &[Value]) -> Vec<Value> {
                                     .and_then(Value::as_str)
                                     .unwrap_or("unknown_tool_call");
                                 let content = stringify_content(
-                                    block.get("content").unwrap_or(&Value::String(String::new())),
+                                    block
+                                        .get("content")
+                                        .unwrap_or(&Value::String(String::new())),
                                 );
                                 out.push(json!({
                                     "role": "tool",
@@ -1728,6 +1876,73 @@ fn build_tool_definitions(tools_enabled: &str, sandbox_url: &str, workdir: &str)
         }));
     }
 
+    if enabled.contains(&"temper_create") {
+        tools.push(json!({
+            "name": "temper_create",
+            "description": "Create an Open Paw entity through the OData API. Use entity sets like ProjectHarnesses, WorkCycles, Monitors, AlertCycles, Issues, Agents, Channels, and AgentRoutes.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "entity_set": { "type": "string", "description": "OData entity set name, for example ProjectHarnesses or AlertCycles" },
+                    "body": { "type": "object", "description": "JSON body to POST using OData field names" }
+                },
+                "required": ["entity_set"]
+            }
+        }));
+    }
+
+    if enabled.contains(&"temper_get") {
+        tools.push(json!({
+            "name": "temper_get",
+            "description": "Fetch a single Open Paw entity by entity set and ID.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "entity_set": { "type": "string", "description": "OData entity set name" },
+                    "entity_id": { "type": "string", "description": "Entity ID" },
+                    "select": { "type": "string", "description": "Optional comma-separated $select projection" },
+                    "expand": { "type": "string", "description": "Optional $expand clause" }
+                },
+                "required": ["entity_set", "entity_id"]
+            }
+        }));
+    }
+
+    if enabled.contains(&"temper_list") {
+        tools.push(json!({
+            "name": "temper_list",
+            "description": "List Open Paw entities from an OData entity set with optional filter, projection, sort, and limit.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "entity_set": { "type": "string", "description": "OData entity set name" },
+                    "filter": { "type": "string", "description": "Optional OData $filter clause" },
+                    "select": { "type": "string", "description": "Optional comma-separated $select projection" },
+                    "orderby": { "type": "string", "description": "Optional OData $orderby clause" },
+                    "top": { "type": "integer", "description": "Optional row limit" }
+                },
+                "required": ["entity_set"]
+            }
+        }));
+    }
+
+    if enabled.contains(&"temper_action") {
+        tools.push(json!({
+            "name": "temper_action",
+            "description": "Dispatch a bound OData action on an entity. Pass simple action names like Configure, Activate, Open, HealComplete, WritePlan, or Approve and the tool will resolve the correct namespace for the entity set. You may also pass a fully-qualified action name like OpenPaw.Harness.Configure or Paw.Channel.Create.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "entity_set": { "type": "string", "description": "OData entity set name" },
+                    "entity_id": { "type": "string", "description": "Entity ID" },
+                    "action": { "type": "string", "description": "Bound action name. Prefer simple names like Configure, Activate, Open, HealComplete, WritePlan, or Approve unless you need to force a fully-qualified namespace." },
+                    "body": { "type": "object", "description": "Optional JSON action payload" }
+                },
+                "required": ["entity_set", "entity_id", "action"]
+            }
+        }));
+    }
+
     if enabled.contains(&"save_memory") {
         tools.push(json!({
             "name": "save_memory",
@@ -1761,7 +1976,7 @@ fn build_tool_definitions(tools_enabled: &str, sandbox_url: &str, workdir: &str)
     if enabled.contains(&"spawn_agent") {
         tools.push(json!({
             "name": "spawn_agent",
-            "description": "Create, configure, and provision a child Agent.",
+            "description": "Create, configure, and provision a child Agent. By default the child inherits the current sandbox when one is already attached to the parent; pass sandbox_url to override or set inherit_sandbox=false to provision a fresh sandbox.",
             "input_schema": {
                 "type": "object",
                 "properties": {
@@ -1772,6 +1987,9 @@ fn build_tool_definitions(tools_enabled: &str, sandbox_url: &str, workdir: &str)
                     "max_turns": { "type": "integer" },
                     "tools": { "type": "string" },
                     "soul_id": { "type": "string" },
+                    "sandbox_url": { "type": "string" },
+                    "inherit_sandbox": { "type": "boolean" },
+                    "workdir": { "type": "string" },
                     "background": { "type": "boolean" }
                 },
                 "required": ["task"]
@@ -1887,7 +2105,7 @@ fn build_tool_definitions(tools_enabled: &str, sandbox_url: &str, workdir: &str)
     if enabled.contains(&"spawn_agent") {
         tools.push(json!({
             "name": "spawn_agent",
-            "description": "Spawn a child Agent to handle a subtask. The child runs autonomously and returns its result.",
+            "description": "Spawn a child Agent to handle a subtask. The child runs autonomously and returns its result. By default it inherits the current sandbox when one is already attached to the parent; pass sandbox_url to override or set inherit_sandbox=false to provision a fresh sandbox.",
             "input_schema": {
                 "type": "object",
                 "properties": {
@@ -1897,8 +2115,12 @@ fn build_tool_definitions(tools_enabled: &str, sandbox_url: &str, workdir: &str)
                     "provider": { "type": "string", "description": "LLM provider to use (optional, defaults to parent's provider)" },
                     "max_turns": { "type": "integer", "description": "Maximum turns for the child (optional, default 20)" },
                     "tools": { "type": "string", "description": "Comma-separated tools to enable (optional, defaults to parent's tools)" },
-                    "soul_id": { "type": "string", "description": "Soul ID to use (optional, defaults to parent's soul)" },
-                    "background": { "type": "boolean", "description": "If true, return after provisioning without waiting for completion" }
+                    "soul_id": { "type": "string", "description": "Soul name or entity ID to use (optional, defaults to parent's soul)" },
+                    "sandbox_url": { "type": "string", "description": "Optional sandbox endpoint to use for the child. When omitted, the child inherits the parent's sandbox unless inherit_sandbox=false." },
+                    "inherit_sandbox": { "type": "boolean", "description": "Defaults to true. Set false to provision a fresh sandbox instead of inheriting the parent's sandbox." },
+                    "workdir": { "type": "string", "description": "Optional working directory override for the child agent" },
+                    "background": { "type": "boolean", "description": "If true, return after provisioning without waiting for completion" },
+                    "timeout_ms": { "type": "integer", "description": "Optional wait timeout for non-background child runs. Defaults to slightly less than the run_tools budget." }
                 },
                 "required": ["task"]
             }
@@ -1977,7 +2199,23 @@ fn build_tool_definitions(tools_enabled: &str, sandbox_url: &str, workdir: &str)
         }));
     }
 
-    tools
+    dedupe_tools_by_name(tools)
+}
+
+fn dedupe_tools_by_name(tools: Vec<Value>) -> Vec<Value> {
+    let mut seen = BTreeSet::new();
+    let mut deduped = Vec::new();
+    for tool in tools {
+        let name = tool
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        if name.is_empty() || seen.insert(name) {
+            deduped.push(tool);
+        }
+    }
+    deduped
 }
 
 /// Read conversation messages from TemperFS File entity via $value endpoint.
@@ -2093,7 +2331,10 @@ fn read_session_from_temperfs(
     } else if resp.status == 404 {
         Ok(String::new())
     } else {
-        Err(format!("TemperFS session read failed (HTTP {})", resp.status))
+        Err(format!(
+            "TemperFS session read failed (HTTP {})",
+            resp.status
+        ))
     }
 }
 
@@ -2115,7 +2356,10 @@ fn write_session_to_temperfs(
     if resp.status >= 200 && resp.status < 300 {
         Ok(())
     } else {
-        Err(format!("TemperFS session write failed (HTTP {})", resp.status))
+        Err(format!(
+            "TemperFS session write failed (HTTP {})",
+            resp.status
+        ))
     }
 }
 
@@ -2134,7 +2378,10 @@ fn assemble_system_prompt(
         match load_soul_content(ctx, temper_api_url, tenant, soul_id) {
             Ok(content) if !content.is_empty() => parts.push(content),
             Ok(_) => ctx.log("warn", "assemble_system_prompt: soul content is empty"),
-            Err(e) => ctx.log("warn", &format!("assemble_system_prompt: failed to load soul: {e}")),
+            Err(e) => ctx.log(
+                "warn",
+                &format!("assemble_system_prompt: failed to load soul: {e}"),
+            ),
         }
     }
 
@@ -2148,7 +2395,10 @@ fn assemble_system_prompt(
         match load_skills_block(ctx, temper_api_url, tenant) {
             Ok(block) if !block.is_empty() => parts.push(block),
             Ok(_) => {}
-            Err(e) => ctx.log("warn", &format!("assemble_system_prompt: failed to load skills: {e}")),
+            Err(e) => ctx.log(
+                "warn",
+                &format!("assemble_system_prompt: failed to load skills: {e}"),
+            ),
         }
     }
 
@@ -2157,7 +2407,10 @@ fn assemble_system_prompt(
         match load_memory_block(ctx, temper_api_url, tenant, soul_id) {
             Ok(block) if !block.is_empty() => parts.push(block),
             Ok(_) => {}
-            Err(e) => ctx.log("warn", &format!("assemble_system_prompt: failed to load memory: {e}")),
+            Err(e) => ctx.log(
+                "warn",
+                &format!("assemble_system_prompt: failed to load memory: {e}"),
+            ),
         }
     }
 
@@ -2176,33 +2429,62 @@ fn load_soul_content(
     tenant: &str,
     soul_id: &str,
 ) -> Result<String, String> {
-    let url = format!("{temper_api_url}/tdata/Souls('{soul_id}')");
+    let soul = resolve_soul_entity(ctx, temper_api_url, tenant, soul_id)?;
+    let content_file_id = entity_field_str(&soul, &["ContentFileId"]).unwrap_or("");
+    if content_file_id.is_empty() {
+        return Ok(String::new());
+    }
+    // Read from TemperFS
     let headers = vec![
         ("x-tenant-id".to_string(), tenant.to_string()),
         ("x-temper-principal-kind".to_string(), "admin".to_string()),
         ("accept".to_string(), "application/json".to_string()),
     ];
-    let resp = ctx.http_call("GET", &url, &headers, "")?;
-    if resp.status != 200 {
-        return Err(format!("soul read failed (HTTP {})", resp.status));
-    }
-    let parsed: Value = serde_json::from_str(&resp.body).unwrap_or(json!({}));
-    let content_file_id = entity_field_str(&parsed, &["ContentFileId"]).unwrap_or("");
-    if content_file_id.is_empty() {
-        return Ok(String::new());
-    }
-    // Read from TemperFS
     let file_url = format!("{temper_api_url}/tdata/Files('{content_file_id}')/$value");
-    let resp2 = ctx.http_call("GET", &file_url, &headers, "")?;
-    if resp2.status == 200 { Ok(resp2.body) } else { Ok(String::new()) }
+    let resp = ctx.http_call("GET", &file_url, &headers, "")?;
+    if resp.status == 200 {
+        Ok(resp.body)
+    } else {
+        Ok(String::new())
+    }
 }
 
-/// Load active skills as an XML block for the system prompt.
-fn load_skills_block(
+fn resolve_soul_entity(
     ctx: &Context,
     temper_api_url: &str,
     tenant: &str,
-) -> Result<String, String> {
+    soul_ref: &str,
+) -> Result<Value, String> {
+    let headers = vec![
+        ("x-tenant-id".to_string(), tenant.to_string()),
+        ("x-temper-principal-kind".to_string(), "admin".to_string()),
+        ("accept".to_string(), "application/json".to_string()),
+    ];
+    let url = format!("{temper_api_url}/tdata/Souls('{soul_ref}')");
+    let resp = ctx.http_call("GET", &url, &headers, "")?;
+    if resp.status == 200 {
+        return serde_json::from_str(&resp.body)
+            .map_err(|e| format!("failed to parse soul JSON: {e}"));
+    }
+
+    let escaped = soul_ref.replace('\'', "''");
+    let by_name_url =
+        format!("{temper_api_url}/tdata/Souls?$filter=Name eq '{escaped}' and Status eq 'Active'");
+    let resp = ctx.http_call("GET", &by_name_url, &headers, "")?;
+    if resp.status != 200 {
+        return Err(format!("soul read failed (HTTP {})", resp.status));
+    }
+    let parsed: Value = serde_json::from_str(&resp.body).unwrap_or_else(|_| json!({}));
+    parsed
+        .get("value")
+        .and_then(Value::as_array)
+        .and_then(|souls| souls.first())
+        .cloned()
+        .ok_or_else(|| "soul read failed (no active soul matched reference)".to_string())
+}
+
+/// Load active skills as an XML block for the system prompt.
+fn load_skills_block(ctx: &Context, temper_api_url: &str, tenant: &str) -> Result<String, String> {
     let url = format!("{temper_api_url}/tdata/Skills?$filter=Status eq 'Active'");
     let headers = vec![
         ("x-tenant-id".to_string(), tenant.to_string()),
@@ -2214,7 +2496,11 @@ fn load_skills_block(
         return Ok(String::new());
     }
     let parsed: Value = serde_json::from_str(&resp.body).unwrap_or(json!({}));
-    let skills = parsed.get("value").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+    let skills = parsed
+        .get("value")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
     if skills.is_empty() {
         return Ok(String::new());
     }
@@ -2223,7 +2509,9 @@ fn load_skills_block(
         let name = entity_field_str(skill, &["Name"]).unwrap_or("unknown");
         let desc = entity_field_str(skill, &["Description"]).unwrap_or("");
         let file_id = entity_field_str(skill, &["ContentFileId"]).unwrap_or("");
-        xml.push_str(&format!("  <skill name=\"{name}\" description=\"{desc}\" file_id=\"{file_id}\" />\n"));
+        xml.push_str(&format!(
+            "  <skill name=\"{name}\" description=\"{desc}\" file_id=\"{file_id}\" />\n"
+        ));
     }
     xml.push_str("</available_skills>");
     Ok(xml)
@@ -2250,7 +2538,11 @@ fn load_memory_block(
         return Ok(String::new());
     }
     let parsed: Value = serde_json::from_str(&resp.body).unwrap_or(json!({}));
-    let memories = parsed.get("value").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+    let memories = parsed
+        .get("value")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
     if memories.is_empty() {
         return Ok(String::new());
     }
@@ -2259,7 +2551,9 @@ fn load_memory_block(
         let key = entity_field_str(mem, &["Key"]).unwrap_or("unknown");
         let content = entity_field_str(mem, &["Content"]).unwrap_or("");
         let mem_type = entity_field_str(mem, &["MemoryType"]).unwrap_or("reference");
-        block.push_str(&format!("  <memory key=\"{key}\" type=\"{mem_type}\">\n    {content}\n  </memory>\n"));
+        block.push_str(&format!(
+            "  <memory key=\"{key}\" type=\"{mem_type}\">\n    {content}\n  </memory>\n"
+        ));
     }
     block.push_str("</agent_memory>");
     Ok(block)
@@ -2272,7 +2566,8 @@ fn direct_field_str<'a>(value: &'a Value, keys: &[&str]) -> Option<&'a str> {
 
 fn entity_field_str<'a>(value: &'a Value, keys: &[&str]) -> Option<&'a str> {
     direct_field_str(value, keys).or_else(|| {
-        value.get("fields")
+        value
+            .get("fields")
             .and_then(|fields| direct_field_str(fields, keys))
     })
 }
@@ -2283,11 +2578,13 @@ fn resolve_temper_api_url(ctx: &Context, fields: &Value) -> String {
         .and_then(|v| v.as_str())
         .filter(|s| !s.is_empty())
         .map(|s| s.to_string())
-        .or_else(|| match ctx.config.get("temper_api_url").map(String::as_str) {
-            Some(value) if !value.trim().is_empty() && !value.contains("{secret:") => {
-                Some(value.to_string())
-            }
-            _ => None,
-        })
+        .or_else(
+            || match ctx.config.get("temper_api_url").map(String::as_str) {
+                Some(value) if !value.trim().is_empty() && !value.contains("{secret:") => {
+                    Some(value.to_string())
+                }
+                _ => None,
+            },
+        )
         .unwrap_or_else(|| "http://127.0.0.1:3000".to_string())
 }

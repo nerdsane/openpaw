@@ -318,6 +318,12 @@ fn execute_tool(
     input: &Value,
 ) -> Result<String, String> {
     let e2b = is_e2b_sandbox(sandbox_url);
+    if e2b {
+        ensure_e2b_workdir(ctx, sandbox_url, workdir)?;
+    } else {
+        ensure_local_workdir(ctx, sandbox_url, workdir)?;
+    }
+
     match tool_name {
         "read" => {
             let path = input
@@ -828,6 +834,47 @@ fn run_bash_local(
     }
 }
 
+fn ensure_local_workdir(ctx: &Context, sandbox_url: &str, workdir: &str) -> Result<(), String> {
+    if workdir.trim().is_empty() || workdir == "/" {
+        return Ok(());
+    }
+
+    let url = format!("{sandbox_url}/v1/processes/run");
+    let body = serde_json::to_string(&json!({
+        "command": format!("mkdir -p -- {}", shell_quote(workdir)),
+        "workdir": "/",
+    }))
+    .unwrap_or_default();
+    let headers = vec![("content-type".to_string(), "application/json".to_string())];
+    let resp = ctx.http_call("POST", &url, &headers, &body)?;
+    if resp.status < 200 || resp.status >= 300 {
+        return Err(format!(
+            "failed to prepare local workdir {workdir} (HTTP {}): {}",
+            resp.status, resp.body
+        ));
+    }
+
+    let parsed: Value = serde_json::from_str(&resp.body).unwrap_or_else(|_| json!({}));
+    let exit_code = parsed
+        .get("exit_code")
+        .and_then(Value::as_i64)
+        .unwrap_or(-1);
+    if exit_code != 0 {
+        let stderr = parsed.get("stderr").and_then(Value::as_str).unwrap_or("");
+        let stdout = parsed.get("stdout").and_then(Value::as_str).unwrap_or("");
+        let detail = if stderr.trim().is_empty() {
+            stdout.trim()
+        } else {
+            stderr.trim()
+        };
+        return Err(format!(
+            "failed to prepare local workdir {workdir}: mkdir exited with code {exit_code}: {detail}"
+        ));
+    }
+
+    Ok(())
+}
+
 // --- E2B envd API (plain HTTP for files, port 49983) ---
 
 /// Read file via E2B envd HTTP API: GET /files?path=...
@@ -913,6 +960,11 @@ fn run_bash_e2b(
 
     for frame_str in &frames {
         if let Ok(frame) = serde_json::from_str::<Value>(frame_str) {
+            if let Some(error) = frame.get("error") {
+                error_message = extract_connect_error(error);
+                continue;
+            }
+
             let Some(event) = frame.get("event") else {
                 continue;
             };
@@ -964,11 +1016,89 @@ fn run_bash_e2b(
     Ok(output)
 }
 
+fn ensure_e2b_workdir(ctx: &Context, sandbox_url: &str, workdir: &str) -> Result<(), String> {
+    if workdir.trim().is_empty() || workdir == "/" {
+        return Ok(());
+    }
+
+    let url = format!("{sandbox_url}/process.Process/Start");
+    let envs = sandbox_env(ctx);
+    let mkdir_command = format!("mkdir -p -- {}", shell_quote(workdir));
+    let body = serde_json::to_string(&json!({
+        "process": {
+            "cmd": "/bin/bash",
+            "args": ["-l", "-c", mkdir_command],
+            "envs": envs,
+        },
+        "stdin": false,
+    }))
+    .unwrap_or_default();
+
+    let headers = vec![("Keepalive-Ping-Interval".to_string(), "20".to_string())];
+    let frames = ctx.connect_call(&url, &headers, &body)?;
+
+    let mut exit_code: i64 = 0;
+    let mut error_message = String::new();
+    for frame_str in &frames {
+        if let Ok(frame) = serde_json::from_str::<Value>(frame_str) {
+            if let Some(error) = frame.get("error") {
+                error_message = extract_connect_error(error);
+                continue;
+            }
+
+            let Some(event) = frame.get("event") else {
+                continue;
+            };
+
+            if let Some(end) = event.get("end") {
+                if let Some(code) = end.get("exitCode").and_then(|v| v.as_i64()) {
+                    exit_code = code;
+                }
+                if let Some(code) = end.get("exit_code").and_then(|v| v.as_i64()) {
+                    exit_code = code;
+                }
+                if let Some(message) = end.get("error").and_then(|v| v.as_str()) {
+                    error_message = message.to_string();
+                }
+            }
+        }
+    }
+
+    if !error_message.is_empty() {
+        return Err(format!(
+            "failed to prepare E2B workdir {workdir}: {error_message}"
+        ));
+    }
+    if exit_code != 0 {
+        return Err(format!(
+            "failed to prepare E2B workdir {workdir}: mkdir exited with code {exit_code}"
+        ));
+    }
+
+    Ok(())
+}
+
+fn extract_connect_error(error: &Value) -> String {
+    if let Some(message) = error.get("message").and_then(|v| v.as_str()) {
+        return message.to_string();
+    }
+
+    if let Some(message) = error.as_str() {
+        return message.to_string();
+    }
+
+    error.to_string()
+}
+
 fn decode_e2b_output(encoded: &str) -> Result<String, String> {
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(encoded)
         .map_err(|e| format!("failed to decode E2B output chunk: {e}"))?;
     Ok(String::from_utf8_lossy(&bytes).into_owned())
+}
+
+fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\"'\"'"))
 }
 
 fn truncate_tool_result(content: &str) -> String {
@@ -1247,6 +1377,12 @@ fn sync_files_to_temperfs(
     max_files: usize,
     exclude: &str,
 ) -> Result<usize, String> {
+    if e2b {
+        ensure_e2b_workdir(ctx, sandbox_url, workdir)?;
+    } else {
+        ensure_local_workdir(ctx, sandbox_url, workdir)?;
+    }
+
     // 1. Enumerate current sandbox files with stat metadata
     let current_files = enumerate_sandbox_files(ctx, sandbox_url, workdir, exclude, e2b)?;
     ctx.log(
@@ -1433,6 +1569,104 @@ fn send_heartbeat(ctx: &Context, temper_api_url: &str, tenant: &str) -> Result<(
     Ok(())
 }
 
+fn agent_status(value: &Value) -> &str {
+    value
+        .get("status")
+        .and_then(Value::as_str)
+        .or_else(|| {
+            value
+                .get("fields")
+                .and_then(|v| v.get("Status"))
+                .and_then(Value::as_str)
+        })
+        .unwrap_or("unknown")
+}
+
+fn agent_result_summary(value: &Value) -> &str {
+    value
+        .get("fields")
+        .and_then(|v| v.get("result"))
+        .or_else(|| value.get("fields").and_then(|v| v.get("Result")))
+        .and_then(Value::as_str)
+        .or_else(|| {
+            value
+                .get("fields")
+                .and_then(|v| v.get("error_message"))
+                .and_then(Value::as_str)
+        })
+        .or_else(|| {
+            value
+                .get("fields")
+                .and_then(|v| v.get("ErrorMessage"))
+                .and_then(Value::as_str)
+        })
+        .unwrap_or("")
+}
+
+fn is_terminal_agent_status(status: &str) -> bool {
+    matches!(status, "Completed" | "Failed" | "Cancelled")
+}
+
+fn wait_for_child_agent_terminal_state(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+    fields: &Value,
+    child_id: &str,
+    wait_timeout_ms: i64,
+) -> Result<Value, String> {
+    let wait_headers = vec![
+        ("x-tenant-id".to_string(), tenant.to_string()),
+        ("x-temper-principal-kind".to_string(), "admin".to_string()),
+        ("accept".to_string(), "application/json".to_string()),
+    ];
+    let heartbeat_timeout_ms = fields
+        .get("heartbeat_timeout_seconds")
+        .and_then(|v| v.as_str())
+        .and_then(|v| v.parse::<i64>().ok())
+        .unwrap_or(300)
+        .saturating_mul(1000);
+    let max_chunk_ms = 300_000_i64
+        .min(heartbeat_timeout_ms.saturating_sub(30_000).max(30_000))
+        .max(1_000);
+    let mut remaining_ms = wait_timeout_ms.max(1_000);
+
+    loop {
+        let chunk_ms = remaining_ms.min(max_chunk_ms).max(1_000);
+        let wait_url = format!(
+            "{temper_api_url}/observe/entities/Agent/{child_id}/wait?statuses=Completed,Failed,Cancelled&timeout_ms={chunk_ms}&poll_ms=250"
+        );
+        let resp = ctx.http_call("GET", &wait_url, &wait_headers, "")?;
+        if resp.status != 200 {
+            return Err(format!(
+                "spawn_agent: wait failed for child {child_id} (HTTP {})",
+                resp.status
+            ));
+        }
+        let entity: Value = serde_json::from_str(&resp.body).unwrap_or_else(|_| json!({}));
+        let status = agent_status(&entity).to_string();
+        if is_terminal_agent_status(&status) {
+            return Ok(entity);
+        }
+        let timed_out = entity
+            .get("timed_out")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        if !timed_out {
+            return Err(format!(
+                "spawn_agent: child {child_id} returned non-terminal status={status}"
+            ));
+        }
+        if remaining_ms <= chunk_ms {
+            return Err(format!(
+                "spawn_agent: child {child_id} did not reach a terminal state within {wait_timeout_ms}ms; last status={status}"
+            ));
+        }
+        remaining_ms -= chunk_ms;
+        let _ = send_heartbeat(ctx, temper_api_url, tenant);
+    }
+}
+
 fn validate_tool_input(tool_name: &str, input: &Value) -> Result<(), String> {
     let object = input
         .as_object()
@@ -1448,6 +1682,10 @@ fn validate_tool_input(tool_name: &str, input: &Value) -> Result<(), String> {
         "abort_agent" => &["agent_id"],
         "steer_agent" => &["agent_id", "message"],
         "read_entity" => &["file_id"],
+        "temper_create" => &["entity_set"],
+        "temper_get" => &["entity_set", "entity_id"],
+        "temper_list" => &["entity_set"],
+        "temper_action" => &["entity_set", "entity_id", "action"],
         "run_coding_agent" => &["agent_type", "task"],
         _ => &[],
     };
@@ -1460,6 +1698,29 @@ fn validate_tool_input(tool_name: &str, input: &Value) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+fn action_namespace_for_entity_set(entity_set: &str) -> &'static str {
+    match entity_set {
+        "ProjectHarnesses" | "WorkCycles" => "OpenPaw.Harness",
+        "Monitors" | "AlertCycles" => "OpenPaw.Heal",
+        "Channels" | "AgentRoutes" | "ChannelSessions" => "Paw.Channel",
+        "Files" | "Workspaces" => "Paw.FS",
+        _ => "OpenPaw",
+    }
+}
+
+fn resolve_bound_action_name(entity_set: &str, action: &str) -> String {
+    let trimmed = action.trim();
+    if trimmed.contains('.') {
+        trimmed.to_string()
+    } else {
+        format!(
+            "{}.{}",
+            action_namespace_for_entity_set(entity_set),
+            trimmed
+        )
+    }
 }
 
 fn evaluate_before_hooks(
@@ -1577,6 +1838,10 @@ fn is_entity_tool(name: &str) -> bool {
             | "abort_agent"
             | "steer_agent"
             | "read_entity"
+            | "temper_create"
+            | "temper_get"
+            | "temper_list"
+            | "temper_action"
             | "run_coding_agent"
     )
 }
@@ -1725,23 +1990,61 @@ fn execute_entity_tool(
                 .get("soul_id")
                 .and_then(|v| v.as_str())
                 .unwrap_or_else(|| fields.get("soul_id").and_then(|v| v.as_str()).unwrap_or(""));
+            let normalized_soul_id = normalize_soul_ref(ctx, temper_api_url, tenant, soul_id)
+                .unwrap_or_else(|| soul_id.to_string());
             let parent_id = ctx
                 .entity_state
                 .get("entity_id")
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
-            let sandbox_url = fields
+            let inherit_sandbox = input
+                .get("inherit_sandbox")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(true);
+            let child_sandbox_url = input
                 .get("sandbox_url")
                 .and_then(|v| v.as_str())
+                .filter(|v| !v.is_empty())
+                .or_else(|| {
+                    if inherit_sandbox {
+                        fields
+                            .get("sandbox_url")
+                            .and_then(|v| v.as_str())
+                            .filter(|v| !v.is_empty())
+                    } else {
+                        None
+                    }
+                })
                 .unwrap_or("");
             let workdir = fields
                 .get("workdir")
                 .and_then(|v| v.as_str())
                 .unwrap_or("/workspace");
+            let child_workdir = input
+                .get("workdir")
+                .and_then(|v| v.as_str())
+                .unwrap_or(workdir);
             let background = input
                 .get("background")
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false);
+            let run_tools_timeout_secs = ctx
+                .config
+                .get("timeout_secs")
+                .and_then(|v| v.parse::<i64>().ok())
+                .unwrap_or(120);
+            let default_wait_timeout_ms =
+                ((run_tools_timeout_secs.saturating_sub(30)).max(30)) * 1000;
+            let wait_timeout_ms = input
+                .get("timeout_ms")
+                .and_then(|v| v.as_i64())
+                .or_else(|| {
+                    ctx.config
+                        .get("spawn_agent_wait_timeout_ms")
+                        .and_then(|v| v.parse::<i64>().ok())
+                })
+                .unwrap_or(default_wait_timeout_ms)
+                .max(1_000);
             let current_depth = fields
                 .get("agent_depth")
                 .and_then(|v| v.as_i64())
@@ -1776,8 +2079,8 @@ fn execute_entity_tool(
             let config_body = json!({
                 "system_prompt": input.get("system_prompt").and_then(Value::as_str).unwrap_or(""),
                 "model": model, "provider": provider, "max_turns": max_turns.to_string(), "tools_enabled": tools,
-                "soul_id": soul_id, "user_message": task, "parent_agent_id": parent_id,
-                "sandbox_url": sandbox_url, "workdir": workdir, "agent_depth": current_depth + 1,
+                "soul_id": normalized_soul_id, "user_message": task, "parent_agent_id": parent_id,
+                "sandbox_url": child_sandbox_url, "workdir": child_workdir, "agent_depth": current_depth + 1,
             });
             let config_url =
                 format!("{temper_api_url}/tdata/Agents('{child_id}')/OpenPaw.Configure");
@@ -1810,35 +2113,19 @@ fn execute_entity_tool(
             }
 
             // 4. Wait for completion
-            let wait_url = format!(
-                "{temper_api_url}/observe/entities/Agent/{child_id}/wait?statuses=Completed,Failed,Cancelled&timeout_ms=300000&poll_ms=250"
-            );
-            let wait_headers = vec![
-                ("x-tenant-id".to_string(), tenant.to_string()),
-                ("x-temper-principal-kind".to_string(), "admin".to_string()),
-                ("accept".to_string(), "application/json".to_string()),
-            ];
-            let resp4 = ctx.http_call("GET", &wait_url, &wait_headers, "")?;
-            if resp4.status == 200 {
-                let result: Value = serde_json::from_str(&resp4.body).unwrap_or(json!({}));
-                let status = result
-                    .get("status")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("unknown");
-                let agent_result = result
-                    .get("fields")
-                    .and_then(|v| v.get("result"))
-                    .or_else(|| result.get("fields").and_then(|v| v.get("Result")))
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
-                Ok(format!(
-                    "Child agent {child_id} finished with status={status}. Result: {agent_result}"
-                ))
-            } else {
-                Ok(format!(
-                    "Child agent {child_id} created and provisioned (poll for status)."
-                ))
-            }
+            let result = wait_for_child_agent_terminal_state(
+                ctx,
+                temper_api_url,
+                tenant,
+                fields,
+                &child_id,
+                wait_timeout_ms,
+            )?;
+            let status = agent_status(&result);
+            let agent_result = agent_result_summary(&result);
+            Ok(format!(
+                "Child agent {child_id} finished with status={status}. Result: {agent_result}"
+            ))
         }
         "list_agents" => {
             let parent_id = ctx
@@ -1935,6 +2222,129 @@ fn execute_entity_tool(
                 Ok(resp.body)
             } else {
                 Err(format!("read_entity failed (HTTP {})", resp.status))
+            }
+        }
+        "temper_create" => {
+            let entity_set = input
+                .get("entity_set")
+                .and_then(|v| v.as_str())
+                .ok_or("temper_create: missing 'entity_set'")?;
+            let body = input.get("body").cloned().unwrap_or_else(|| json!({}));
+            let url = format!("{temper_api_url}/tdata/{entity_set}");
+            let resp = ctx.http_call("POST", &url, &odata_headers(tenant), &body.to_string())?;
+            if resp.status >= 200 && resp.status < 300 {
+                Ok(resp.body)
+            } else {
+                Err(format!(
+                    "temper_create failed (HTTP {}): {}",
+                    resp.status,
+                    &resp.body[..resp.body.len().min(400)]
+                ))
+            }
+        }
+        "temper_get" => {
+            let entity_set = input
+                .get("entity_set")
+                .and_then(|v| v.as_str())
+                .ok_or("temper_get: missing 'entity_set'")?;
+            let entity_id = input
+                .get("entity_id")
+                .and_then(|v| v.as_str())
+                .ok_or("temper_get: missing 'entity_id'")?;
+            let mut url = format!("{temper_api_url}/tdata/{entity_set}('{entity_id}')");
+            let mut query = Vec::new();
+            if let Some(select) = input.get("select").and_then(|v| v.as_str()) {
+                if !select.trim().is_empty() {
+                    query.push(format!("$select={}", url_encode(select.trim())));
+                }
+            }
+            if let Some(expand) = input.get("expand").and_then(|v| v.as_str()) {
+                if !expand.trim().is_empty() {
+                    query.push(format!("$expand={}", url_encode(expand.trim())));
+                }
+            }
+            if !query.is_empty() {
+                url.push('?');
+                url.push_str(&query.join("&"));
+            }
+            let resp = ctx.http_call("GET", &url, &odata_headers(tenant), "")?;
+            if resp.status == 200 {
+                Ok(resp.body)
+            } else {
+                Err(format!(
+                    "temper_get failed (HTTP {}): {}",
+                    resp.status,
+                    &resp.body[..resp.body.len().min(400)]
+                ))
+            }
+        }
+        "temper_list" => {
+            let entity_set = input
+                .get("entity_set")
+                .and_then(|v| v.as_str())
+                .ok_or("temper_list: missing 'entity_set'")?;
+            let mut url = format!("{temper_api_url}/tdata/{entity_set}");
+            let mut query = Vec::new();
+            if let Some(filter) = input.get("filter").and_then(|v| v.as_str()) {
+                if !filter.trim().is_empty() {
+                    query.push(format!("$filter={}", url_encode(filter.trim())));
+                }
+            }
+            if let Some(select) = input.get("select").and_then(|v| v.as_str()) {
+                if !select.trim().is_empty() {
+                    query.push(format!("$select={}", url_encode(select.trim())));
+                }
+            }
+            if let Some(orderby) = input.get("orderby").and_then(|v| v.as_str()) {
+                if !orderby.trim().is_empty() {
+                    query.push(format!("$orderby={}", url_encode(orderby.trim())));
+                }
+            }
+            if let Some(top) = input.get("top").and_then(|v| v.as_i64()) {
+                if top > 0 {
+                    query.push(format!("$top={top}"));
+                }
+            }
+            if !query.is_empty() {
+                url.push('?');
+                url.push_str(&query.join("&"));
+            }
+            let resp = ctx.http_call("GET", &url, &odata_headers(tenant), "")?;
+            if resp.status == 200 {
+                Ok(resp.body)
+            } else {
+                Err(format!(
+                    "temper_list failed (HTTP {}): {}",
+                    resp.status,
+                    &resp.body[..resp.body.len().min(400)]
+                ))
+            }
+        }
+        "temper_action" => {
+            let entity_set = input
+                .get("entity_set")
+                .and_then(|v| v.as_str())
+                .ok_or("temper_action: missing 'entity_set'")?;
+            let entity_id = input
+                .get("entity_id")
+                .and_then(|v| v.as_str())
+                .ok_or("temper_action: missing 'entity_id'")?;
+            let action = input
+                .get("action")
+                .and_then(|v| v.as_str())
+                .ok_or("temper_action: missing 'action'")?;
+            let body = input.get("body").cloned().unwrap_or_else(|| json!({}));
+            let bound_action = resolve_bound_action_name(entity_set, action);
+            let url = format!("{temper_api_url}/tdata/{entity_set}('{entity_id}')/{bound_action}");
+            let resp = ctx.http_call("POST", &url, &odata_headers(tenant), &body.to_string())?;
+            if resp.status >= 200 && resp.status < 300 {
+                Ok(resp.body)
+            } else {
+                Err(format!(
+                    "temper_action failed (HTTP {}): {}",
+                    resp.status,
+                    &resp.body[..resp.body.len().min(400)]
+                ))
             }
         }
         "run_coding_agent" => {
@@ -2104,6 +2514,44 @@ fn resolve_agent_reference(
         let temper_agent_id = entity_field_str(agent, &["AgentId"]).unwrap_or("");
         entity_id == agent_reference || temper_agent_id == agent_reference
     }))
+}
+
+fn normalize_soul_ref(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+    soul_ref: &str,
+) -> Option<String> {
+    if soul_ref.is_empty() {
+        return None;
+    }
+
+    let by_id_url = format!("{temper_api_url}/tdata/Souls('{soul_ref}')");
+    if let Ok(by_id_resp) = ctx.http_call("GET", &by_id_url, &odata_headers(tenant), "") {
+        if by_id_resp.status == 200 {
+            let parsed: Value =
+                serde_json::from_str(&by_id_resp.body).unwrap_or_else(|_| json!({}));
+            return entity_field_str(&parsed, &["Name"]).map(ToString::to_string);
+        }
+    }
+
+    let escaped = soul_ref.replace('\'', "''");
+    let by_name_url =
+        format!("{temper_api_url}/tdata/Souls?$filter=Name eq '{escaped}' and Status eq 'Active'");
+    if let Ok(by_name_resp) = ctx.http_call("GET", &by_name_url, &odata_headers(tenant), "") {
+        if by_name_resp.status != 200 {
+            return None;
+        }
+        let parsed: Value = serde_json::from_str(&by_name_resp.body).unwrap_or_else(|_| json!({}));
+        return parsed
+            .get("value")
+            .and_then(Value::as_array)
+            .and_then(|souls| souls.first())
+            .and_then(|soul| entity_field_str(soul, &["Name", "Id"]))
+            .map(ToString::to_string);
+    }
+
+    None
 }
 
 /// Read session JSONL from TemperFS.
