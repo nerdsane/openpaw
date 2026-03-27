@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<edmx:Edmx Version="4.0" xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx">
+  <edmx:DataServices>
+    <Schema Namespace="OpenPaw" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+
+      <EntityType Name="AlertCycle">
+        <Key><PropertyRef Name="Id" /></Key>
+        <Property Name="Id" Type="Edm.String" Nullable="false" />
+        <Property Name="Status" Type="Edm.String" />
+        <Property Name="HarnessId" Type="Edm.String" />
+        <Property Name="AlertSource" Type="Edm.String" />
+        <Property Name="AlertPayload" Type="Edm.String" />
+        <Property Name="Severity" Type="Edm.String" />
+        <Property Name="Diagnosis" Type="Edm.String" />
+        <Property Name="IssueId" Type="Edm.String" />
+        <Property Name="PrUrl" Type="Edm.String" />
+        <Property Name="TuneAction" Type="Edm.String" />
+        <Property Name="ErrorMessage" Type="Edm.String" />
+        <Property Name="ScoutAgentId" Type="Edm.String" />
+        <Property Name="DeveloperAgentId" Type="Edm.String" />
+
+        <Action Name="Open" IsBound="true">
+          <Parameter Name="bindingParameter" Type="OpenPaw.AlertCycle" />
+          <Parameter Name="harness_id" Type="Edm.String" Nullable="false" />
+          <Parameter Name="alert_source" Type="Edm.String" Nullable="false" />
+          <Parameter Name="alert_payload" Type="Edm.String" Nullable="false" />
+          <Parameter Name="severity" Type="Edm.String" />
+        </Action>
+        <Action Name="DiagnoseReal" IsBound="true">
+          <Parameter Name="bindingParameter" Type="OpenPaw.AlertCycle" />
+          <Parameter Name="diagnosis" Type="Edm.String" Nullable="false" />
+          <Parameter Name="issue_id" Type="Edm.String" Nullable="false" />
+          <Parameter Name="developer_agent_id" Type="Edm.String" />
+        </Action>
+        <Action Name="HealComplete" IsBound="true">
+          <Parameter Name="bindingParameter" Type="OpenPaw.AlertCycle" />
+          <Parameter Name="pr_url" Type="Edm.String" />
+        </Action>
+        <Action Name="DiagnoseNoise" IsBound="true">
+          <Parameter Name="bindingParameter" Type="OpenPaw.AlertCycle" />
+          <Parameter Name="tune_action" Type="Edm.String" Nullable="false" />
+        </Action>
+        <Action Name="Escalate" IsBound="true">
+          <Parameter Name="bindingParameter" Type="OpenPaw.AlertCycle" />
+          <Parameter Name="diagnosis" Type="Edm.String" Nullable="false" />
+        </Action>
+        <Action Name="Fail" IsBound="true">
+          <Parameter Name="bindingParameter" Type="OpenPaw.AlertCycle" />
+          <Parameter Name="error_message" Type="Edm.String" Nullable="false" />
+        </Action>
+      </EntityType>
+
+      <EntityContainer Name="PawHealService">
+        <EntitySet Name="AlertCycles" EntityType="OpenPaw.AlertCycle" />
+      </EntityContainer>
+
+    </Schema>
+  </edmx:DataServices>
+</edmx:Edmx>

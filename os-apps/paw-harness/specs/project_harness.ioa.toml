@@ -1,0 +1,67 @@
+# ProjectHarness — Development workflow configuration for a repository.
+
+[automaton]
+name = "ProjectHarness"
+states = ["Created", "Active", "Archived"]
+initial = "Created"
+
+[[state]]
+name = "name"
+type = "string"
+initial = ""
+
+[[state]]
+name = "repo_url"
+type = "string"
+initial = ""
+
+[[state]]
+name = "tech_stack"
+type = "string"
+initial = ""
+
+[[state]]
+name = "branch_strategy"
+type = "string"
+initial = "feature-branch"
+
+[[state]]
+name = "conventions"
+type = "string"
+initial = "[]"
+
+[[state]]
+name = "setup_script"
+type = "string"
+initial = ""
+
+[[state]]
+name = "monitoring_config"
+type = "string"
+initial = "{}"
+
+[[action]]
+name = "Configure"
+kind = "input"
+from = ["Created"]
+params = ["name", "repo_url", "tech_stack", "branch_strategy", "setup_script", "monitoring_config"]
+hint = "Configure the project harness with repo URL, tech stack, and settings."
+
+[[action]]
+name = "Activate"
+kind = "input"
+from = ["Created"]
+to = "Active"
+hint = "Make the harness active. Developer agents can now use it."
+
+[[action]]
+name = "Archive"
+kind = "input"
+from = ["Active"]
+to = "Archived"
+hint = "Archive the harness. No more work cycles can be created."
+
+[[invariant]]
+name = "ArchivedIsFinal"
+when = ["Archived"]
+assert = "no_further_transitions"

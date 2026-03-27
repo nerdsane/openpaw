@@ -1,0 +1,31 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/openpaw",
+    "crates/paw-transport",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+rust-version = "1.85"
+
+# Use local temper checkout for development (overrides git dependencies)
+[patch."https://github.com/nerdsane/temper.git"]
+temper-platform = { path = "/Users/seshendranalla/Development/temper/crates/temper-platform" }
+temper-server = { path = "/Users/seshendranalla/Development/temper/crates/temper-server" }
+temper-runtime = { path = "/Users/seshendranalla/Development/temper/crates/temper-runtime" }
+temper-jit = { path = "/Users/seshendranalla/Development/temper/crates/temper-jit" }
+temper-authz = { path = "/Users/seshendranalla/Development/temper/crates/temper-authz" }
+temper-store-turso = { path = "/Users/seshendranalla/Development/temper/crates/temper-store-turso" }
+
+[workspace.dependencies]
+tokio = { version = "1", features = ["full"] }
+tokio-stream = "0.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+axum = { version = "0.8", features = ["macros"] }
+anyhow = "1"

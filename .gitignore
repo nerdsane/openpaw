@@ -1,0 +1,7 @@
+/target
+**/target/
+!os-apps/**/release/*.wasm
+*.swp
+*.swo
+.DS_Store
+.env

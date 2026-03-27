@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="utf-8"?>
+<edmx:Edmx Version="4.0" xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx">
+  <edmx:DataServices>
+    <Schema Namespace="OpenPaw" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+
+      <EntityType Name="ProjectHarness">
+        <Key><PropertyRef Name="Id" /></Key>
+        <Property Name="Id" Type="Edm.String" Nullable="false" />
+        <Property Name="Status" Type="Edm.String" />
+        <Property Name="Name" Type="Edm.String" />
+        <Property Name="RepoUrl" Type="Edm.String" />
+        <Property Name="TechStack" Type="Edm.String" />
+        <Property Name="BranchStrategy" Type="Edm.String" />
+        <Property Name="Conventions" Type="Edm.String" />
+        <Property Name="SetupScript" Type="Edm.String" />
+        <Property Name="MonitoringConfig" Type="Edm.String" />
+
+        <Action Name="Configure" IsBound="true">
+          <Parameter Name="bindingParameter" Type="OpenPaw.ProjectHarness" />
+          <Parameter Name="name" Type="Edm.String" Nullable="false" />
+          <Parameter Name="repo_url" Type="Edm.String" Nullable="false" />
+          <Parameter Name="tech_stack" Type="Edm.String" />
+          <Parameter Name="branch_strategy" Type="Edm.String" />
+          <Parameter Name="setup_script" Type="Edm.String" />
+          <Parameter Name="monitoring_config" Type="Edm.String" />
+        </Action>
+        <Action Name="Activate" IsBound="true">
+          <Parameter Name="bindingParameter" Type="OpenPaw.ProjectHarness" />
+        </Action>
+        <Action Name="Archive" IsBound="true">
+          <Parameter Name="bindingParameter" Type="OpenPaw.ProjectHarness" />
+        </Action>
+      </EntityType>
+
+      <EntityType Name="WorkCycle">
+        <Key><PropertyRef Name="Id" /></Key>
+        <Property Name="Id" Type="Edm.String" Nullable="false" />
+        <Property Name="Status" Type="Edm.String" />
+        <Property Name="HarnessId" Type="Edm.String" />
+        <Property Name="AgentId" Type="Edm.String" />
+        <Property Name="PlannerId" Type="Edm.String" />
+        <Property Name="IssueDescription" Type="Edm.String" />
+        <Property Name="Plan" Type="Edm.String" />
+        <Property Name="TestResults" Type="Edm.String" />
+        <Property Name="ReviewResult" Type="Edm.String" />
+        <Property Name="PrUrl" Type="Edm.String" />
+        <Property Name="ErrorMessage" Type="Edm.String" />
+
+        <Action Name="BeginPlanning" IsBound="true">
+          <Parameter Name="bindingParameter" Type="OpenPaw.WorkCycle" />
+          <Parameter Name="harness_id" Type="Edm.String" Nullable="false" />
+          <Parameter Name="agent_id" Type="Edm.String" Nullable="false" />
+          <Parameter Name="planner_id" Type="Edm.String" Nullable="false" />
+          <Parameter Name="issue_description" Type="Edm.String" Nullable="false" />
+        </Action>
+        <Action Name="WritePlan" IsBound="true">
+          <Parameter Name="bindingParameter" Type="OpenPaw.WorkCycle" />
+          <Parameter Name="plan" Type="Edm.String" Nullable="false" />
+        </Action>
+        <Action Name="ApprovePlan" IsBound="true">
+          <Parameter Name="bindingParameter" Type="OpenPaw.WorkCycle" />
+        </Action>
+        <Action Name="StartWork" IsBound="true">
+          <Parameter Name="bindingParameter" Type="OpenPaw.WorkCycle" />
+        </Action>
+        <Action Name="SubmitTests" IsBound="true">
+          <Parameter Name="bindingParameter" Type="OpenPaw.WorkCycle" />
+          <Parameter Name="test_results" Type="Edm.String" Nullable="false" />
+        </Action>
+        <Action Name="SubmitForReview" IsBound="true">
+          <Parameter Name="bindingParameter" Type="OpenPaw.WorkCycle" />
+          <Parameter Name="pr_url" Type="Edm.String" />
+        </Action>
+        <Action Name="ApproveReview" IsBound="true">
+          <Parameter Name="bindingParameter" Type="OpenPaw.WorkCycle" />
+          <Parameter Name="review_result" Type="Edm.String" />
+        </Action>
+        <Action Name="Reject" IsBound="true">
+          <Parameter Name="bindingParameter" Type="OpenPaw.WorkCycle" />
+          <Parameter Name="review_result" Type="Edm.String" Nullable="false" />
+        </Action>
+        <Action Name="Fail" IsBound="true">
+          <Parameter Name="bindingParameter" Type="OpenPaw.WorkCycle" />
+          <Parameter Name="error_message" Type="Edm.String" Nullable="false" />
+        </Action>
+      </EntityType>
+
+      <EntityContainer Name="PawHarnessService">
+        <EntitySet Name="ProjectHarnesses" EntityType="OpenPaw.ProjectHarness" />
+        <EntitySet Name="WorkCycles" EntityType="OpenPaw.WorkCycle" />
+      </EntityContainer>
+
+    </Schema>
+  </edmx:DataServices>
+</edmx:Edmx>

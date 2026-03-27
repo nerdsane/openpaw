@@ -1,0 +1,120 @@
+# WorkCycle — A unit of development work governed by the harness.
+
+[automaton]
+name = "WorkCycle"
+states = ["Planning", "Planned", "InProgress", "Testing", "Reviewing", "Complete", "Failed"]
+initial = "Planning"
+
+[[state]]
+name = "harness_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "agent_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "planner_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "issue_description"
+type = "string"
+initial = ""
+
+[[state]]
+name = "plan"
+type = "string"
+initial = ""
+
+[[state]]
+name = "test_results"
+type = "string"
+initial = ""
+
+[[state]]
+name = "review_result"
+type = "string"
+initial = ""
+
+[[state]]
+name = "pr_url"
+type = "string"
+initial = ""
+
+[[state]]
+name = "error_message"
+type = "string"
+initial = ""
+
+[[action]]
+name = "BeginPlanning"
+kind = "input"
+from = ["Planning"]
+params = ["harness_id", "agent_id", "planner_id", "issue_description"]
+
+[[action]]
+name = "WritePlan"
+kind = "input"
+from = ["Planning"]
+params = ["plan"]
+
+[[action]]
+name = "ApprovePlan"
+kind = "input"
+from = ["Planning"]
+to = "Planned"
+
+[[action]]
+name = "StartWork"
+kind = "input"
+from = ["Planned"]
+to = "InProgress"
+
+[[action]]
+name = "SubmitTests"
+kind = "input"
+from = ["InProgress"]
+to = "Testing"
+params = ["test_results"]
+
+[[action]]
+name = "SubmitForReview"
+kind = "input"
+from = ["Testing"]
+to = "Reviewing"
+params = ["pr_url"]
+
+[[action]]
+name = "ApproveReview"
+kind = "input"
+from = ["Reviewing"]
+to = "Complete"
+params = ["review_result"]
+
+[[action]]
+name = "Reject"
+kind = "input"
+from = ["Reviewing"]
+to = "InProgress"
+params = ["review_result"]
+
+[[action]]
+name = "Fail"
+kind = "input"
+from = ["Planning", "Planned", "InProgress", "Testing", "Reviewing"]
+to = "Failed"
+params = ["error_message"]
+
+[[invariant]]
+name = "CompleteFinal"
+when = ["Complete"]
+assert = "no_further_transitions"
+
+[[invariant]]
+name = "FailedFinal"
+when = ["Failed"]
+assert = "no_further_transitions"

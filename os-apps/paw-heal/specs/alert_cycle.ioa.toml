@@ -1,0 +1,122 @@
+# AlertCycle — Alert triage and resolution cycle.
+
+[automaton]
+name = "AlertCycle"
+states = ["Created", "Triaging", "Fixed", "Tuned", "Escalated", "Failed"]
+initial = "Created"
+
+[[state]]
+name = "harness_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "alert_source"
+type = "string"
+initial = ""
+
+[[state]]
+name = "alert_payload"
+type = "string"
+initial = ""
+
+[[state]]
+name = "severity"
+type = "string"
+initial = "warning"
+
+[[state]]
+name = "diagnosis"
+type = "string"
+initial = ""
+
+[[state]]
+name = "issue_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "pr_url"
+type = "string"
+initial = ""
+
+[[state]]
+name = "tune_action"
+type = "string"
+initial = ""
+
+[[state]]
+name = "error_message"
+type = "string"
+initial = ""
+
+[[state]]
+name = "scout_agent_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "developer_agent_id"
+type = "string"
+initial = ""
+
+[[action]]
+name = "Open"
+kind = "input"
+from = ["Created"]
+to = "Triaging"
+params = ["harness_id", "alert_source", "alert_payload", "severity"]
+
+[[action]]
+name = "DiagnoseReal"
+kind = "input"
+from = ["Triaging"]
+params = ["diagnosis", "issue_id", "developer_agent_id"]
+
+[[action]]
+name = "HealComplete"
+kind = "input"
+from = ["Triaging"]
+to = "Fixed"
+params = ["pr_url"]
+
+[[action]]
+name = "DiagnoseNoise"
+kind = "input"
+from = ["Triaging"]
+to = "Tuned"
+params = ["tune_action"]
+
+[[action]]
+name = "Escalate"
+kind = "input"
+from = ["Triaging"]
+to = "Escalated"
+params = ["diagnosis"]
+
+[[action]]
+name = "Fail"
+kind = "input"
+from = ["Created", "Triaging"]
+to = "Failed"
+params = ["error_message"]
+
+[[invariant]]
+name = "FixedFinal"
+when = ["Fixed"]
+assert = "no_further_transitions"
+
+[[invariant]]
+name = "TunedFinal"
+when = ["Tuned"]
+assert = "no_further_transitions"
+
+[[invariant]]
+name = "EscalatedFinal"
+when = ["Escalated"]
+assert = "no_further_transitions"
+
+[[invariant]]
+name = "FailedFinal"
+when = ["Failed"]
+assert = "no_further_transitions"
