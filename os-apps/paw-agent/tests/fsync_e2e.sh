@@ -5,11 +5,11 @@
 #   - Temper server running on port 3000
 #   - Local sandbox running on port 9999
 #   - Blob store running on port 8877
-#   - temper-agent app installed with WASM modules uploaded
+#   - paw-agent app installed with WASM modules uploaded
 #   - Valid anthropic_api_key stored in secrets vault
 #
 # Usage:
-#   bash os-apps/temper-agent/tests/fsync_e2e.sh
+#   bash os-apps/paw-agent/tests/fsync_e2e.sh
 #
 # The test creates an agent that writes files via write tool and bash tool,
 # then verifies that:
@@ -41,16 +41,16 @@ curl -sf -X POST "$SANDBOX/v1/processes/run" \
 
 # 1. Create and configure agent
 echo "Step 1: Creating agent..."
-AGENT_RESULT=$(curl -sf -X POST "$SERVER/tdata/TemperAgents" \
+AGENT_RESULT=$(curl -sf -X POST "$SERVER/tdata/Agents" \
   -H "content-type: application/json" \
   -H "x-tenant-id: $TENANT" \
   -H "x-temper-principal-kind: admin" \
-  -d '{"TemperAgentId": "fsync-e2e-test"}')
+  -d '{"Id": "fsync-e2e-test"}')
 AGENT_ID=$(echo "$AGENT_RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin)['entity_id'])")
 echo "  Agent ID: $AGENT_ID"
 
 echo "Step 2: Configuring agent..."
-curl -sf -X POST "$SERVER/tdata/TemperAgents('${AGENT_ID}')/Temper.Agent.TemperAgent.Configure" \
+curl -sf -X POST "$SERVER/tdata/Agents('${AGENT_ID}')/OpenPaw.Configure" \
   -H "content-type: application/json" \
   -H "x-tenant-id: $TENANT" \
   -H "x-temper-principal-kind: admin" \
@@ -65,7 +65,7 @@ curl -sf -X POST "$SERVER/tdata/TemperAgents('${AGENT_ID}')/Temper.Agent.TemperA
 
 # 3. Provision (triggers sandbox_provisioner → creates workspace + manifest)
 echo "Step 3: Provisioning..."
-curl -sf -X POST "$SERVER/tdata/TemperAgents('${AGENT_ID}')/Temper.Agent.TemperAgent.Provision" \
+curl -sf -X POST "$SERVER/tdata/Agents('${AGENT_ID}')/OpenPaw.Provision" \
   -H "content-type: application/json" \
   -H "x-tenant-id: $TENANT" \
   -H "x-temper-principal-kind: admin" \
@@ -74,7 +74,7 @@ curl -sf -X POST "$SERVER/tdata/TemperAgents('${AGENT_ID}')/Temper.Agent.TemperA
 # 4. Poll until completion
 echo "Step 4: Polling for completion..."
 for i in $(seq 1 60); do
-  ENTITY=$(curl -sf "$SERVER/tdata/TemperAgents" \
+  ENTITY=$(curl -sf "$SERVER/tdata/Agents" \
     -H "x-tenant-id: $TENANT" \
     -H "x-temper-principal-kind: admin" | python3 -c "
 import sys, json

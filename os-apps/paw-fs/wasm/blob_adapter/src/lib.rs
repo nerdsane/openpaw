@@ -251,11 +251,21 @@ fn read_context() -> Option<String> {
     unsafe {
         let ptr = addr_of!(CTX_BUF) as *const u8;
         let len = host_get_context(ptr as i32, CTX_BUF_LEN as i32);
-        if len <= 0 || len as usize > CTX_BUF_LEN {
+        if len <= 0 {
             return None;
         }
-        let slice = core::slice::from_raw_parts(ptr, len as usize);
-        Some(String::from_utf8_lossy(slice).to_string())
+        if len as usize <= CTX_BUF_LEN {
+            let slice = core::slice::from_raw_parts(ptr, len as usize);
+            return Some(String::from_utf8_lossy(slice).to_string());
+        }
+
+        let needed = len as usize;
+        let mut dynamic = vec![0u8; needed];
+        let actual = host_get_context(dynamic.as_mut_ptr() as i32, needed as i32);
+        if actual <= 0 || actual as usize != needed {
+            return None;
+        }
+        Some(String::from_utf8_lossy(&dynamic).to_string())
     }
 }
 

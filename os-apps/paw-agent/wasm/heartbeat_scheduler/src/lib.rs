@@ -29,7 +29,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         let _ = ctx.http_call("GET", &wait_url, &headers, "")?;
 
         let action_url = format!(
-            "{base_url}/tdata/HeartbeatMonitors('{}')/Temper.Agent.HeartbeatMonitor.ScheduledScan",
+            "{base_url}/tdata/HeartbeatMonitors('{}')/OpenPaw.ScheduledScan",
             ctx.entity_id
         );
         let _ = ctx.http_call("POST", &action_url, &headers, "{}")?;

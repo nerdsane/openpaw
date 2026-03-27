@@ -1,6 +1,6 @@
 //! Heartbeat Scanner — WASM module for detecting stale agents.
 //!
-//! Queries TemperAgent entities in non-terminal states, checks heartbeat freshness,
+//! Queries Agent entities in non-terminal states, checks heartbeat freshness,
 //! and fires TimeoutFail on stale ones.
 
 use temper_wasm_sdk::prelude::*;
@@ -31,7 +31,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
 
         // Query agents in non-terminal states
         let filter = "$filter=Status ne 'Completed' and Status ne 'Failed' and Status ne 'Cancelled' and Status ne 'Created'";
-        let url = format!("{temper_api_url}/tdata/TemperAgents?{filter}");
+        let url = format!("{temper_api_url}/tdata/Agents?{filter}");
         let resp = ctx.http_call("GET", &url, &headers, "")?;
 
         let mut stale_count: i64 = 0;
@@ -85,7 +85,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
 
                 if is_stale {
                     let fail_url = format!(
-                        "{temper_api_url}/tdata/TemperAgents('{agent_id}')/Temper.Agent.TemperAgent.TimeoutFail"
+                        "{temper_api_url}/tdata/Agents('{agent_id}')/OpenPaw.TimeoutFail"
                     );
                     let elapsed_msg = if last_heartbeat.is_empty() {
                         "no heartbeat observed".to_string()

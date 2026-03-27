@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Build all WASM modules for the temper-agent skill.
-# Usage: cd os-apps/temper-agent/wasm && ./build.sh
+# Build all WASM modules for the paw-agent app.
+# Usage: cd os-apps/paw-agent/wasm && ./build.sh
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"

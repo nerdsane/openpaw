@@ -1,4 +1,4 @@
-//! Session Tree Library — shared JSONL tree operations for TemperAgent WASM modules.
+//! Session Tree Library — shared JSONL tree operations for Agent WASM modules.
 //!
 //! Provides append-only tree-structured conversation storage with branching,
 //! compaction support, and leaf-to-root context assembly.
