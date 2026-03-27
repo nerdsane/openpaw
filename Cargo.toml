@@ -4,6 +4,7 @@ members = [
     "crates/openpaw",
     "crates/paw-transport",
 ]
+exclude = ["vendor/temper-workspace"]
 
 [workspace.package]
 version = "0.1.0"
@@ -22,4 +23,27 @@ axum = { version = "0.8", features = ["macros"] }
 anyhow = "1"
 
 [patch."https://github.com/nerdsane/temper.git"]
+temper-authz = { path = "vendor/temper-workspace/crates/temper-authz" }
+temper-cli = { path = "vendor/temper-workspace/crates/temper-cli" }
+temper-codegen = { path = "vendor/temper-workspace/crates/temper-codegen" }
+temper-evolution = { path = "vendor/temper-workspace/crates/temper-evolution" }
+temper-jit = { path = "vendor/temper-workspace/crates/temper-jit" }
+temper-macros = { path = "vendor/temper-workspace/crates/temper-macros" }
+temper-mcp = { path = "vendor/temper-workspace/crates/temper-mcp" }
+temper-observe = { path = "vendor/temper-workspace/crates/temper-observe" }
+temper-odata = { path = "vendor/temper-workspace/crates/temper-odata" }
+temper-ots = { path = "vendor/temper-workspace/crates/temper-ots" }
+temper-optimize = { path = "vendor/temper-workspace/crates/temper-optimize" }
+temper-platform = { path = "vendor/temper-workspace/crates/temper-platform" }
+temper-runtime = { path = "vendor/temper-workspace/crates/temper-runtime" }
+temper-sandbox = { path = "vendor/temper-workspace/crates/temper-sandbox" }
+temper-sdk = { path = "vendor/temper-workspace/crates/temper-sdk" }
+temper-server = { path = "vendor/temper-workspace/crates/temper-server" }
+temper-spec = { path = "vendor/temper-workspace/crates/temper-spec" }
+temper-store-postgres = { path = "vendor/temper-workspace/crates/temper-store-postgres" }
+temper-store-redis = { path = "vendor/temper-workspace/crates/temper-store-redis" }
+temper-store-sim = { path = "vendor/temper-workspace/crates/temper-store-sim" }
+temper-store-turso = { path = "vendor/temper-workspace/crates/temper-store-turso" }
+temper-verify = { path = "vendor/temper-workspace/crates/temper-verify" }
 temper-wasm = { path = "vendor/temper-wasm-workspace/crates/temper-wasm" }
+temper-wasm-sdk = { path = "vendor/temper-workspace/crates/temper-wasm-sdk" }
