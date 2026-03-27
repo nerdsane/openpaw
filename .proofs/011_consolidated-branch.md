@@ -42,10 +42,10 @@ This proof covers the consolidated Codex base plus selected Claude improvements,
   - Upstream Temper Connect content-type fix
   - Upstream Discord route/session recovery hardening
   - `blob_adapter` large-context buffer fix
+  - Content-per-file session storage architecture
   - More action-oriented `Paw` soul language
 - Deferred:
-  - Claude's content-per-file session architecture was reviewed but not ported in this consolidation
-  - Current branch still uses inline session-tree content rather than one `File` entity per turn payload
+  - No remaining deferred storage changes from Claude; the main unresolved issue is still E2B execution/output fidelity
 
 ---
 
@@ -103,6 +103,14 @@ Artifact:
   - `Scout` agent
 - The `Scout` agent spawned a `Developer` child, the `Developer` fixed the repo, validated it, pushed a branch, and opened a PR.
 - The loop ended with `AlertCycle = Fixed`.
+- Ownership in the proven flow is:
+  - proof driver creates `ProjectHarness`, `Monitor`, and initial `AlertCycle`
+  - `Scout` creates the `WorkCycle` and spawns the `Developer`
+  - `Developer` reads those workflow entities and updates them, but does not create the harness itself
+- The `ProjectHarness` is operational workflow state, not just decorative text:
+  - it holds the repo URL, stack, and conventions used to scope remediation work
+  - it is linked from the `WorkCycle` and `AlertCycle` path the agents read and update
+  - it is not yet a hard-enforced execution substrate or machine image definition
 
 Artifacts:
 - `ProjectHarness`: `019d2d94-4399-7313-943c-ab16d026b14b`
@@ -112,6 +120,13 @@ Artifacts:
 - `Developer`: `019d2d94-bdd3-7be3-8bdb-f48c60346262`
 - PR: `https://github.com/arni-labs/deep-sci-fi/pull/69`
 - Final `AlertCycle` state after restart remained readable as `Fixed`
+- A later rerun on the same branch also completed successfully by validating that the issue had already been fixed upstream, without opening a duplicate PR:
+  - `ProjectHarness`: `019d2f65-f0a1-7440-a039-1c1a58574379`
+  - `Monitor`: `019d2f65-f0b3-75a2-b590-a0c3b8679473`
+  - `AlertCycle`: `019d2f65-f0c7-7e21-bd1e-bd58951df169`
+  - `Scout`: `019d2f65-f0cc-7141-adb0-44547ce30bed`
+  - `Developer`: `019d2f66-5c42-7f71-85e2-80101d53f554`
+  - Validation commit URL returned by the loop: `https://github.com/arni-labs/deep-sci-fi/commit/34e7971428df11f0b60791561faf3bd35a7610ee`
 
 ### 5. Basic webhook ingestion now exists and works
 - `POST /webhooks/alerts` now creates an `AlertCycle` and dispatches `Open`.
@@ -154,29 +169,38 @@ Artifacts:
 - Final agent status: `Completed`
 - Final result included `CLONE_OK`
 
+### 9. Content-per-file session storage is now merged and verified
+- Session payloads are now stored as TemperFS `File` entities, while `session.jsonl` stores only structural references via `content_file_id`.
+- This was verified with a focused local proof and two focused E2B proofs.
+
+Artifacts:
+- Local proof agent: `019d2f61-c2e6-7933-914e-06f6e58bbb27`
+- Local proof session file: `019d2f61-c341-72e2-bbc5-11e1f4e307c8`
+- Local proof content files included:
+  - user message file
+  - assistant `tool_use` file
+  - user `tool_result` file containing `file-backed-proof`
+  - final assistant file containing `DONE: file-backed-proof`
+- E2B proof agent: `019d2f62-702f-7991-b6b3-480244b4c6c4`
+- E2B proof session file: `019d2f62-7211-7863-948b-a94de62d4727`
+- E2B manifest proof agent: `019d2f63-3ffd-7ed1-ad57-c0c2a2311001`
+- E2B manifest proof session file: `019d2f63-4166-7fa0-b24a-e3489069cbcb`
+
 ---
 
 ## What Does Not Work, Or Is Not Strongly Proven Enough To Claim
 
 ### 1. E2B output capture is still not clean
 - Although provisioning and the overall agent loop worked, the rerun showed empty `tool_result` content in the session file.
-- The rerun also produced an empty file manifest payload.
+- A focused E2B proof still stored an empty `tool_result` content file even when the command was `printf e2b-file-backed-proof`.
+- A second focused E2B proof created `note.txt` inside the E2B workdir, but the persisted `file_manifest` still came back as `{}`.
 - That means the upstream Connect fix is in place, but this branch still has a remaining E2B evidence/capture issue.
 
 Current claim boundary:
 - I can honestly claim real E2B provisioning and end-to-end agent completion.
-- I cannot honestly claim perfect E2B stdout/stderr capture or strong fsync evidence from this rerun.
+- I cannot honestly claim correct E2B stdout/stderr capture or trustworthy E2B fsync from the current tool path.
 
-### 2. Claude's content-per-file session architecture is not merged
-- This branch still stores message content inline in the session tree JSONL.
-- Claude's design externalizes per-turn content into `File` entities and keeps only structural references in the session tree.
-- I reviewed the delta, but did not port it in this consolidation because it touches `session-tree-lib`, `llm_caller`, `tool_runner`, `context_compactor`, `steering_checker`, and `sandbox_provisioner`, while this branch already carries other session and tool-result fixes.
-
-Current claim boundary:
-- Session continuation works.
-- The cleaner content-per-file storage architecture is still a gap.
-
-### 3. No real external alert provider is wired end to end
+### 2. No real external alert provider is wired end to end
 - `POST /webhooks/alerts` is basic intake only.
 - There is no provider-specific verification, signature validation, or production connector for Logfire/Datadog webhooks.
 - The self-heal proof still starts from a synthetic/manual alert payload, not a real external monitor push.
@@ -185,7 +209,7 @@ Current claim boundary:
 - Manual or scripted alert intake works.
 - Autonomous observability-driven intake is not yet proven.
 
-### 4. Discord human-message flow is still not re-proven here
+### 3. Discord human-message flow is still not re-proven here
 - Discord transport boots and rotates stale channel entities on startup.
 - The route/session hardening is upstream in Temper.
 - But this consolidation proof did not include a fresh human DM/reply round-trip.
@@ -194,22 +218,28 @@ Current claim boundary:
 - Channel/session logic is proven through curl.
 - A real Discord DM round-trip still needs a live human message test.
 
-### 5. `paw-compute` vision is still mostly unimplemented
+### 4. `paw-compute` vision is still mostly unimplemented
 - There is still no real persistent `Computer` lifecycle in use.
 - No proven provision/sleep/wake/checkpoint/destroy workflow exists for cloud computers.
 - The active runtime still passes `sandbox_url` and `workdir` to agents rather than provisioning a first-class machine entity.
 
-### 6. Local sandbox is intentionally dev-only and not isolated
+### 4.5. `ProjectHarness` is workflow context, not yet hard execution control
+- The harness is real state that the proof driver, `Scout`, and `Developer` read and update around repo work.
+- It carries repo metadata and conventions that shape prompts and approvals.
+- It does not yet enforce tool allowlists, dependency policy, branch policy, or sandbox shape by itself.
+- In that sense it is operational, but still lighter than the full "developer lives inside the harness" vision.
+
+### 5. Local sandbox is intentionally dev-only and not isolated
 - The local sandbox is a Python HTTP shim over the host machine.
 - It is not a VM or container.
 - It runs with host user privileges.
 - It is useful for local verification, but it is not a production sandbox model.
 
-### 7. CI/CD closure beyond PR creation is still missing
+### 6. CI/CD closure beyond PR creation is still missing
 - The proven loop ends at branch push + pull request.
 - No merge, deploy, rollback, or post-deploy verification loop is implemented or proven.
 
-### 8. Compaction is built but not re-proven here
+### 7. Compaction is built but not re-proven here
 - `context_compactor` is present and loaded.
 - This proof did not deliberately drive a conversation far enough to trigger compaction on the consolidated branch.
 
@@ -346,9 +376,9 @@ Open Paw daemon
 
 ### Architectural gaps
 - No first-class persistent `Computer` workflow from `paw-compute`
-- No content-per-file session tree storage
 - No provider-grade webhook adapters with verification and signatures
 - No deploy/rollback loop after PR creation
+- `ProjectHarness` is still primarily coordination/governance metadata, not a fully enforced execution envelope
 
 ### Operational gaps
 - Discord DM round-trip not re-proven in this consolidation
@@ -376,5 +406,4 @@ The strongest end-to-end claim I can make today is:
 - and can provision a real E2B sandbox through upstream Temper
 
 The most important unresolved gap is:
-- E2B execution evidence is still weaker than it should be because output/file-manifest capture was incomplete in the rerun
-- and Claude's content-per-file session design is still not merged
+- E2B execution evidence is still weaker than it should be because output/file-manifest capture is incomplete even after the storage architecture fix

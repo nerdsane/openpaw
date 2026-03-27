@@ -9,7 +9,10 @@
 
 use session_tree_lib::SessionTree;
 use temper_wasm_sdk::prelude::*;
-use wasm_helpers::{read_session_from_temperfs, resolve_temper_api_url, write_session_to_temperfs};
+use wasm_helpers::{
+    create_content_file, read_content_file, read_session_from_temperfs, resolve_temper_api_url,
+    write_session_to_temperfs,
+};
 
 /// Entry point.
 #[unsafe(no_mangle)]
@@ -68,13 +71,50 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             if !session_file_id.is_empty() && !session_leaf_id.is_empty() {
                 let session_jsonl = read_session_from_temperfs(&ctx, &temper_api_url, tenant, session_file_id)?;
                 let mut tree = SessionTree::from_jsonl(&session_jsonl);
+                let workspace_id = fields
+                    .get("workspace_id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
 
-                // Append steering message as a user message in the tree
-                let (new_leaf_id, _line) = tree.append_steering_message(
-                    session_leaf_id,
-                    msg_content,
-                    estimate_tokens(msg_content),
-                );
+                let entry_id = format!("s-{}", tree.len());
+                let new_leaf_id = if !workspace_id.is_empty() {
+                    match create_content_file(
+                        &ctx,
+                        &temper_api_url,
+                        tenant,
+                        workspace_id,
+                        &format!("msg-{entry_id}.txt"),
+                        msg_content,
+                    ) {
+                        Ok(content_file_id) => {
+                            let _line = tree.append_entry_with_file(
+                                &entry_id,
+                                Some(session_leaf_id),
+                                session_tree_lib::EntryType::Steering,
+                                Some("user"),
+                                &content_file_id,
+                                estimate_tokens(msg_content),
+                                None,
+                            );
+                            entry_id.clone()
+                        }
+                        Err(_) => {
+                            let (leaf, _) = tree.append_steering_message(
+                                session_leaf_id,
+                                msg_content,
+                                estimate_tokens(msg_content),
+                            );
+                            leaf
+                        }
+                    }
+                } else {
+                    let (leaf, _) = tree.append_steering_message(
+                        session_leaf_id,
+                        msg_content,
+                        estimate_tokens(msg_content),
+                    );
+                    leaf
+                };
 
                 // Write back
                 let updated_jsonl = tree.to_jsonl();
@@ -147,12 +187,22 @@ fn extract_last_result(
     if !session_file_id.is_empty() && !session_leaf_id.is_empty() {
         let session_jsonl = read_session_from_temperfs(ctx, temper_api_url, tenant, session_file_id)?;
         let tree = SessionTree::from_jsonl(&session_jsonl);
-        let messages = tree.build_context(session_leaf_id);
+        let refs = tree.build_context_refs(session_leaf_id);
 
-        // Find last assistant message
-        for msg in messages.iter().rev() {
-            if msg.get("role").and_then(|v| v.as_str()) == Some("assistant") {
-                return Ok(extract_text_from_content(msg.get("content")));
+        for msg_ref in refs.iter().rev() {
+            if msg_ref.role != "assistant" {
+                continue;
+            }
+            if let Some(ref file_id) = msg_ref.content_file_id {
+                if let Ok(raw) = read_content_file(ctx, temper_api_url, tenant, file_id) {
+                    if !raw.is_empty() {
+                        let content: Value = serde_json::from_str(&raw).unwrap_or(json!(raw));
+                        return Ok(extract_text_from_content(Some(&content)));
+                    }
+                }
+            }
+            if let Some(ref inline) = msg_ref.inline_content {
+                return Ok(extract_text_from_content(Some(inline)));
             }
         }
         Ok(String::new())

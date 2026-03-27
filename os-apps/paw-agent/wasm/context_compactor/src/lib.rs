@@ -8,7 +8,10 @@
 
 use session_tree_lib::SessionTree;
 use temper_wasm_sdk::prelude::*;
-use wasm_helpers::{read_session_from_temperfs, resolve_temper_api_url, write_session_to_temperfs};
+use wasm_helpers::{
+    create_content_file, read_content_file, read_session_from_temperfs, resolve_temper_api_url,
+    write_session_to_temperfs,
+};
 
 /// Entry point.
 #[unsafe(no_mangle)]
@@ -42,6 +45,10 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
 
         let temper_api_url = resolve_temper_api_url(&ctx, &fields);
         let tenant = &ctx.tenant;
+        let workspace_id = fields
+            .get("workspace_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
 
         // 1. Read session tree from TemperFS
         let session_jsonl = read_session_from_temperfs(&ctx, &temper_api_url, tenant, session_file_id)?;
@@ -68,7 +75,9 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         ctx.log("info", &format!("context_compactor: cut point at entry {}", cut_point));
 
         // 3. Build compaction prompt from messages being cut
-        let messages_to_summarize = tree.build_context(&cut_point);
+        let context_refs = tree.build_context_refs(&cut_point);
+        let messages_to_summarize =
+            resolve_context_refs_for_compaction(&ctx, &temper_api_url, tenant, &context_refs);
         if messages_to_summarize.is_empty() {
             ctx.log("warn", "context_compactor: no messages to summarize");
             set_success_result("CompactionComplete", &json!({
@@ -106,7 +115,23 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         ));
 
         // 5. Append compaction entry to session tree
-        let (compaction_id, _line) = tree.append_compaction(session_leaf_id, &summary, &cut_point);
+        let (compaction_id, _line) = if !workspace_id.is_empty() {
+            match create_content_file(
+                &ctx,
+                &temper_api_url,
+                tenant,
+                workspace_id,
+                &format!("compaction-{}.txt", tree.len()),
+                &summary,
+            ) {
+                Ok(summary_file_id) => {
+                    tree.append_compaction_file(session_leaf_id, &summary_file_id, &cut_point)
+                }
+                Err(_) => tree.append_compaction(session_leaf_id, &summary, &cut_point),
+            }
+        } else {
+            tree.append_compaction(session_leaf_id, &summary, &cut_point)
+        };
 
         // 6. Write updated session tree back to TemperFS
         let updated_jsonl = tree.to_jsonl();
@@ -126,6 +151,57 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         set_error_result(&e);
     }
     0
+}
+
+fn resolve_context_refs_for_compaction(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+    refs: &[session_tree_lib::ContextRef],
+) -> Vec<Value> {
+    let mut messages = Vec::new();
+
+    for ctx_ref in refs {
+        match ctx_ref.entry_type {
+            session_tree_lib::EntryType::Compaction => {
+                let summary = if let Some(ref file_id) = ctx_ref.content_file_id {
+                    read_content_file(ctx, temper_api_url, tenant, file_id)
+                        .unwrap_or_else(|_| ctx_ref.inline_summary.clone().unwrap_or_default())
+                } else {
+                    ctx_ref.inline_summary.clone().unwrap_or_default()
+                };
+                if !summary.is_empty() {
+                    messages.push(json!({
+                        "role": "user",
+                        "content": format!("[Previous conversation summary]\n{summary}")
+                    }));
+                }
+            }
+            session_tree_lib::EntryType::Message | session_tree_lib::EntryType::Steering => {
+                if let Some(ref file_id) = ctx_ref.content_file_id {
+                    if let Ok(raw) = read_content_file(ctx, temper_api_url, tenant, file_id) {
+                        if !raw.is_empty() {
+                            let content: Value = serde_json::from_str(&raw).unwrap_or(json!(raw));
+                            messages.push(json!({
+                                "role": ctx_ref.role,
+                                "content": content,
+                            }));
+                            continue;
+                        }
+                    }
+                }
+                if let Some(ref inline) = ctx_ref.inline_content {
+                    messages.push(json!({
+                        "role": ctx_ref.role,
+                        "content": inline.clone(),
+                    }));
+                }
+            }
+            session_tree_lib::EntryType::Header => {}
+        }
+    }
+
+    messages
 }
 
 fn build_mock_summary(conversation_text: &str) -> String {

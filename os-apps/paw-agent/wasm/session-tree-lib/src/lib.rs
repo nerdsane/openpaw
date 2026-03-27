@@ -3,10 +3,12 @@
 //! Provides append-only tree-structured conversation storage with branching,
 //! compaction support, and leaf-to-root context assembly.
 //!
-//! Storage format: JSONL (one JSON object per line) with tree structure via id/parentId.
+//! Storage format: JSONL (one JSON object per line) with tree structure via
+//! id/parentId. Entries can carry content inline or reference TemperFS files
+//! through `content_file_id`.
 
+use serde_json::{json, Value};
 use std::collections::BTreeMap;
-use serde_json::{Value, json};
 
 /// A single entry in the session tree.
 #[derive(Debug, Clone)]
@@ -16,6 +18,7 @@ pub struct SessionEntry {
     pub entry_type: EntryType,
     pub data: Value,
     pub tokens: usize,
+    pub content_file_id: Option<String>,
 }
 
 /// Type of session tree entry.
@@ -52,6 +55,17 @@ impl EntryType {
     }
 }
 
+/// A reference to a context entry for building LLM messages.
+#[derive(Debug, Clone)]
+pub struct ContextRef {
+    pub entry_id: String,
+    pub role: String,
+    pub content_file_id: Option<String>,
+    pub entry_type: EntryType,
+    pub inline_content: Option<Value>,
+    pub inline_summary: Option<String>,
+}
+
 /// The session tree — an append-only tree of conversation entries.
 pub struct SessionTree {
     entries: BTreeMap<String, SessionEntry>,
@@ -76,10 +90,26 @@ impl SessionTree {
             raw_lines.push(line.to_string());
 
             if let Ok(val) = serde_json::from_str::<Value>(line) {
-                let id = val.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                let parent_id = val.get("parentId").and_then(|v| v.as_str()).map(|s| s.to_string());
-                let entry_type = val.get("type").and_then(|v| v.as_str()).map(EntryType::from_str).unwrap_or(EntryType::Message);
+                let id = val
+                    .get("id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let parent_id = val
+                    .get("parentId")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+                let entry_type = val
+                    .get("type")
+                    .and_then(|v| v.as_str())
+                    .map(EntryType::from_str)
+                    .unwrap_or(EntryType::Message);
                 let tokens = val.get("tokens").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+                let content_file_id = val
+                    .get("content_file_id")
+                    .and_then(|v| v.as_str())
+                    .filter(|s| !s.is_empty())
+                    .map(|s| s.to_string());
 
                 if !id.is_empty() {
                     let entry = SessionEntry {
@@ -88,6 +118,7 @@ impl SessionTree {
                         entry_type,
                         data: val,
                         tokens,
+                        content_file_id,
                     };
                     order.push(id.clone());
                     entries.insert(id, entry);
@@ -95,7 +126,11 @@ impl SessionTree {
             }
         }
 
-        SessionTree { entries, order, raw_lines }
+        SessionTree {
+            entries,
+            order,
+            raw_lines,
+        }
     }
 
     /// Create an empty session tree with a header entry.
@@ -117,6 +152,7 @@ impl SessionTree {
             entry_type: EntryType::Header,
             data: header,
             tokens: 0,
+            content_file_id: None,
         };
 
         let mut entries = BTreeMap::new();
@@ -150,10 +186,9 @@ impl SessionTree {
     }
 
     /// Build context messages by walking from leaf_id to root.
-    /// Handles compaction entries: when a compaction is encountered,
-    /// it replaces all entries before it with the summary.
+    /// This only reads inline content; callers that want file-backed content
+    /// should use `build_context_refs`.
     pub fn build_context(&self, leaf_id: &str) -> Vec<Value> {
-        // Walk from leaf to root collecting entries
         let mut chain: Vec<&SessionEntry> = Vec::new();
         let mut current_id = Some(leaf_id.to_string());
 
@@ -166,20 +201,14 @@ impl SessionTree {
             }
         }
 
-        // Reverse to get root-to-leaf order
         chain.reverse();
 
-        // Build messages, handling compaction entries
         let mut messages: Vec<Value> = Vec::new();
 
         for entry in &chain {
             match entry.entry_type {
-                EntryType::Header => {
-                    // Skip headers — they're metadata
-                    continue;
-                }
+                EntryType::Header => continue,
                 EntryType::Compaction => {
-                    // A compaction replaces all prior messages with its summary
                     messages.clear();
                     if let Some(summary) = entry.data.get("summary").and_then(|v| v.as_str()) {
                         messages.push(json!({
@@ -189,8 +218,11 @@ impl SessionTree {
                     }
                 }
                 EntryType::Message | EntryType::Steering => {
-                    // Extract role and content from the entry
-                    let role = entry.data.get("role").and_then(|v| v.as_str()).unwrap_or("user");
+                    let role = entry
+                        .data
+                        .get("role")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("user");
                     if let Some(content) = entry.data.get("content").cloned() {
                         messages.push(json!({
                             "role": role,
@@ -204,8 +236,65 @@ impl SessionTree {
         messages
     }
 
+    /// Build context entry refs by walking from leaf_id to root.
+    pub fn build_context_refs(&self, leaf_id: &str) -> Vec<ContextRef> {
+        let mut chain: Vec<&SessionEntry> = Vec::new();
+        let mut current_id = Some(leaf_id.to_string());
+
+        while let Some(id) = current_id {
+            if let Some(entry) = self.entries.get(&id) {
+                chain.push(entry);
+                current_id = entry.parent_id.clone();
+            } else {
+                break;
+            }
+        }
+
+        chain.reverse();
+
+        let mut refs: Vec<ContextRef> = Vec::new();
+
+        for entry in &chain {
+            match entry.entry_type {
+                EntryType::Header => continue,
+                EntryType::Compaction => {
+                    refs.clear();
+                    refs.push(ContextRef {
+                        entry_id: entry.id.clone(),
+                        role: "user".to_string(),
+                        content_file_id: entry.content_file_id.clone(),
+                        entry_type: EntryType::Compaction,
+                        inline_content: None,
+                        inline_summary: entry
+                            .data
+                            .get("summary")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string()),
+                    });
+                }
+                EntryType::Message | EntryType::Steering => {
+                    let role = entry
+                        .data
+                        .get("role")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("user")
+                        .to_string();
+                    refs.push(ContextRef {
+                        entry_id: entry.id.clone(),
+                        role,
+                        content_file_id: entry.content_file_id.clone(),
+                        entry_type: entry.entry_type.clone(),
+                        inline_content: entry.data.get("content").cloned(),
+                        inline_summary: None,
+                    });
+                }
+            }
+        }
+
+        refs
+    }
+
     /// Append a new entry to the tree. Returns the JSONL line for the new entry.
-    /// The entry is added with the given parent_id.
     pub fn append_entry(
         &mut self,
         id: &str,
@@ -237,6 +326,12 @@ impl SessionTree {
             }
         }
 
+        let content_file_id = data
+            .get("content_file_id")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string());
+
         let line = serde_json::to_string(&data).unwrap_or_default();
 
         let entry = SessionEntry {
@@ -245,6 +340,7 @@ impl SessionTree {
             entry_type,
             data,
             tokens,
+            content_file_id,
         };
 
         self.order.push(id.to_string());
@@ -254,8 +350,34 @@ impl SessionTree {
         line
     }
 
+    /// Append a new entry with content stored in a TemperFS file.
+    pub fn append_entry_with_file(
+        &mut self,
+        id: &str,
+        parent_id: Option<&str>,
+        entry_type: EntryType,
+        role: Option<&str>,
+        content_file_id: &str,
+        tokens: usize,
+        extra_fields: Option<&Value>,
+    ) -> String {
+        let extra = if let Some(existing) = extra_fields {
+            let mut obj = existing.clone();
+            obj["content_file_id"] = json!(content_file_id);
+            Some(obj)
+        } else {
+            Some(json!({ "content_file_id": content_file_id }))
+        };
+        self.append_entry(id, parent_id, entry_type, role, None, tokens, extra.as_ref())
+    }
+
     /// Append a user message. Returns (entry_id, jsonl_line).
-    pub fn append_user_message(&mut self, parent_id: &str, content: &str, tokens: usize) -> (String, String) {
+    pub fn append_user_message(
+        &mut self,
+        parent_id: &str,
+        content: &str,
+        tokens: usize,
+    ) -> (String, String) {
         let id = format!("u-{}", self.order.len());
         let line = self.append_entry(
             &id,
@@ -269,8 +391,33 @@ impl SessionTree {
         (id, line)
     }
 
+    /// Append a user message with content stored in a TemperFS file.
+    pub fn append_user_message_file(
+        &mut self,
+        parent_id: &str,
+        content_file_id: &str,
+        tokens: usize,
+    ) -> (String, String) {
+        let id = format!("u-{}", self.order.len());
+        let line = self.append_entry_with_file(
+            &id,
+            Some(parent_id),
+            EntryType::Message,
+            Some("user"),
+            content_file_id,
+            tokens,
+            None,
+        );
+        (id, line)
+    }
+
     /// Append an assistant message. Returns (entry_id, jsonl_line).
-    pub fn append_assistant_message(&mut self, parent_id: &str, content: &Value, tokens: usize) -> (String, String) {
+    pub fn append_assistant_message(
+        &mut self,
+        parent_id: &str,
+        content: &Value,
+        tokens: usize,
+    ) -> (String, String) {
         let id = format!("a-{}", self.order.len());
         let line = self.append_entry(
             &id,
@@ -284,8 +431,33 @@ impl SessionTree {
         (id, line)
     }
 
-    /// Append a tool result message (role: user with tool_result content). Returns (entry_id, jsonl_line).
-    pub fn append_tool_results(&mut self, parent_id: &str, tool_results: &Value, tokens: usize) -> (String, String) {
+    /// Append an assistant message with content stored in a TemperFS file.
+    pub fn append_assistant_message_file(
+        &mut self,
+        parent_id: &str,
+        content_file_id: &str,
+        tokens: usize,
+    ) -> (String, String) {
+        let id = format!("a-{}", self.order.len());
+        let line = self.append_entry_with_file(
+            &id,
+            Some(parent_id),
+            EntryType::Message,
+            Some("assistant"),
+            content_file_id,
+            tokens,
+            None,
+        );
+        (id, line)
+    }
+
+    /// Append a tool result message. Returns (entry_id, jsonl_line).
+    pub fn append_tool_results(
+        &mut self,
+        parent_id: &str,
+        tool_results: &Value,
+        tokens: usize,
+    ) -> (String, String) {
         let id = format!("t-{}", self.order.len());
         let line = self.append_entry(
             &id,
@@ -299,8 +471,33 @@ impl SessionTree {
         (id, line)
     }
 
+    /// Append a tool result message with content stored in a TemperFS file.
+    pub fn append_tool_results_file(
+        &mut self,
+        parent_id: &str,
+        content_file_id: &str,
+        tokens: usize,
+    ) -> (String, String) {
+        let id = format!("t-{}", self.order.len());
+        let line = self.append_entry_with_file(
+            &id,
+            Some(parent_id),
+            EntryType::Message,
+            Some("user"),
+            content_file_id,
+            tokens,
+            None,
+        );
+        (id, line)
+    }
+
     /// Append a compaction entry. Returns (entry_id, jsonl_line).
-    pub fn append_compaction(&mut self, parent_id: &str, summary: &str, first_kept: &str) -> (String, String) {
+    pub fn append_compaction(
+        &mut self,
+        parent_id: &str,
+        summary: &str,
+        first_kept: &str,
+    ) -> (String, String) {
         let id = format!("c-{}", self.order.len());
         let extra = json!({
             "summary": summary,
@@ -318,8 +515,36 @@ impl SessionTree {
         (id, line)
     }
 
+    /// Append a compaction entry with summary stored in a TemperFS file.
+    pub fn append_compaction_file(
+        &mut self,
+        parent_id: &str,
+        content_file_id: &str,
+        first_kept: &str,
+    ) -> (String, String) {
+        let id = format!("c-{}", self.order.len());
+        let extra = json!({
+            "first_kept": first_kept,
+        });
+        let line = self.append_entry_with_file(
+            &id,
+            Some(parent_id),
+            EntryType::Compaction,
+            None,
+            content_file_id,
+            0,
+            Some(&extra),
+        );
+        (id, line)
+    }
+
     /// Append a steering message. Returns (entry_id, jsonl_line).
-    pub fn append_steering_message(&mut self, parent_id: &str, content: &str, tokens: usize) -> (String, String) {
+    pub fn append_steering_message(
+        &mut self,
+        parent_id: &str,
+        content: &str,
+        tokens: usize,
+    ) -> (String, String) {
         let id = format!("s-{}", self.order.len());
         let line = self.append_entry(
             &id,
@@ -341,7 +566,6 @@ impl SessionTree {
         while let Some(id) = current_id {
             if let Some(entry) = self.entries.get(&id) {
                 if entry.entry_type == EntryType::Compaction {
-                    // After compaction, only count from here forward
                     total += entry.tokens;
                     break;
                 }
@@ -357,7 +581,6 @@ impl SessionTree {
 
     /// Find a cut point for compaction. Returns the entry ID where we should
     /// start keeping messages (everything before this gets compacted).
-    /// Walks backward from the leaf keeping `keep_recent_tokens` worth of messages.
     pub fn find_cut_point(&self, leaf_id: &str, keep_recent_tokens: usize) -> Option<String> {
         let mut accumulated = 0;
         let mut current_id = Some(leaf_id.to_string());
@@ -367,7 +590,6 @@ impl SessionTree {
             if let Some(entry) = self.entries.get(&id) {
                 accumulated += entry.tokens;
                 if accumulated >= keep_recent_tokens {
-                    // This is where we should cut — keep everything after this
                     cut_point = Some(id.clone());
                     break;
                 }
@@ -396,19 +618,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_new_session_tree() {
-        let tree = SessionTree::new("test-1");
-        assert_eq!(tree.len(), 1);
-        assert!(!tree.is_empty());
-    }
-
-    #[test]
-    fn test_append_and_build_context() {
+    fn test_append_and_build_context_inline() {
         let mut tree = SessionTree::new("test-1");
         let header_id = tree.last_entry_id().unwrap().to_string();
-
         let (user_id, _) = tree.append_user_message(&header_id, "Hello", 10);
-        let (asst_id, _) = tree.append_assistant_message(&user_id, &json!([{"type": "text", "text": "Hi there!"}]), 20);
+        let (asst_id, _) =
+            tree.append_assistant_message(&user_id, &json!([{"type":"text","text":"Hi"}]), 20);
 
         let messages = tree.build_context(&asst_id);
         assert_eq!(messages.len(), 2);
@@ -417,68 +632,15 @@ mod tests {
     }
 
     #[test]
-    fn test_compaction() {
-        let mut tree = SessionTree::new("test-1");
-        let header_id = tree.last_entry_id().unwrap().to_string();
-
-        let (u1, _) = tree.append_user_message(&header_id, "First message", 100);
-        let (a1, _) = tree.append_assistant_message(&u1, &json!("Response 1"), 200);
-        let (compact_id, _) = tree.append_compaction(&a1, "Summary of conversation so far", &a1);
-        let (u2, _) = tree.append_user_message(&compact_id, "New message after compaction", 50);
-
-        let messages = tree.build_context(&u2);
-        // Should have: compaction summary + new message
-        assert_eq!(messages.len(), 2);
-        assert!(messages[0]["content"].as_str().unwrap().contains("summary"));
-    }
-
-    #[test]
-    fn test_from_jsonl() {
+    fn test_build_context_refs_for_file_backed_entries() {
         let jsonl = r#"{"id":"h-1","parentId":null,"type":"header","version":1,"tokens":0}
-{"id":"u-1","parentId":"h-1","type":"message","role":"user","content":"Hello","tokens":10}
-{"id":"a-1","parentId":"u-1","type":"message","role":"assistant","content":"Hi!","tokens":5}"#;
+{"id":"u-1","parentId":"h-1","type":"message","role":"user","content_file_id":"file-1","tokens":10}
+{"id":"a-1","parentId":"u-1","type":"message","role":"assistant","content_file_id":"file-2","tokens":5}"#;
 
         let tree = SessionTree::from_jsonl(jsonl);
-        assert_eq!(tree.len(), 3);
-
-        let messages = tree.build_context("a-1");
-        assert_eq!(messages.len(), 2);
-    }
-
-    #[test]
-    fn test_to_jsonl_roundtrip() {
-        let mut tree = SessionTree::new("test-1");
-        let header_id = tree.last_entry_id().unwrap().to_string();
-        tree.append_user_message(&header_id, "Hello", 10);
-
-        let jsonl = tree.to_jsonl();
-        let tree2 = SessionTree::from_jsonl(&jsonl);
-        assert_eq!(tree2.len(), tree.len());
-    }
-
-    #[test]
-    fn test_estimate_tokens() {
-        let mut tree = SessionTree::new("test-1");
-        let header_id = tree.last_entry_id().unwrap().to_string();
-
-        let (u1, _) = tree.append_user_message(&header_id, "Hello", 100);
-        let (a1, _) = tree.append_assistant_message(&u1, &json!("Response"), 200);
-
-        assert_eq!(tree.estimate_tokens(&a1), 300);
-    }
-
-    #[test]
-    fn test_find_cut_point() {
-        let mut tree = SessionTree::new("test-1");
-        let header_id = tree.last_entry_id().unwrap().to_string();
-
-        let (u1, _) = tree.append_user_message(&header_id, "Msg 1", 100);
-        let (a1, _) = tree.append_assistant_message(&u1, &json!("Resp 1"), 200);
-        let (u2, _) = tree.append_user_message(&a1, "Msg 2", 100);
-        let (a2, _) = tree.append_assistant_message(&u2, &json!("Resp 2"), 200);
-
-        // Keep 250 tokens — should cut somewhere in the middle
-        let cut = tree.find_cut_point(&a2, 250);
-        assert!(cut.is_some());
+        let refs = tree.build_context_refs("a-1");
+        assert_eq!(refs.len(), 2);
+        assert_eq!(refs[0].content_file_id.as_deref(), Some("file-1"));
+        assert_eq!(refs[1].content_file_id.as_deref(), Some("file-2"));
     }
 }

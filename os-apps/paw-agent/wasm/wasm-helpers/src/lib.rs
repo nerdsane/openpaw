@@ -68,6 +68,94 @@ pub fn write_session_to_temperfs(
     }
 }
 
+/// Read raw file content from TemperFS by file ID.
+pub fn read_content_file(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+    file_id: &str,
+) -> Result<String, String> {
+    let url = format!("{temper_api_url}/tdata/Files('{file_id}')/$value");
+    let headers = vec![
+        ("x-tenant-id".to_string(), tenant.to_string()),
+        ("x-temper-principal-kind".to_string(), "admin".to_string()),
+    ];
+
+    let resp = ctx.http_call("GET", &url, &headers, "")?;
+    if resp.status == 200 {
+        Ok(resp.body)
+    } else if resp.status == 404 {
+        Ok(String::new())
+    } else {
+        Err(format!(
+            "TemperFS content file read failed (HTTP {})",
+            resp.status
+        ))
+    }
+}
+
+/// Create a TemperFS file and write content into it.
+pub fn create_content_file(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+    workspace_id: &str,
+    file_name: &str,
+    content: &str,
+) -> Result<String, String> {
+    let headers = vec![
+        ("content-type".to_string(), "application/json".to_string()),
+        ("x-tenant-id".to_string(), tenant.to_string()),
+        ("x-temper-principal-kind".to_string(), "admin".to_string()),
+    ];
+
+    let file_body = serde_json::json!({
+        "workspace_id": workspace_id,
+        "name": file_name,
+        "mime_type": "text/plain",
+        "path": format!("/{file_name}")
+    });
+    let file_url = format!("{temper_api_url}/tdata/Files");
+    let file_resp = ctx.http_call("POST", &file_url, &headers, &file_body.to_string())?;
+
+    if file_resp.status < 200 || file_resp.status >= 300 {
+        return Err(format!(
+            "content file creation failed (HTTP {}): {}",
+            file_resp.status,
+            &file_resp.body[..file_resp.body.len().min(300)]
+        ));
+    }
+
+    let file_parsed: Value = serde_json::from_str(&file_resp.body)
+        .map_err(|e| format!("parse content file response: {e}"))?;
+    let file_id = file_parsed
+        .get("entity_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    if file_id.is_empty() {
+        return Err("content file created but entity_id missing".to_string());
+    }
+
+    let value_url = format!("{temper_api_url}/tdata/Files('{file_id}')/$value");
+    let value_headers = vec![
+        ("content-type".to_string(), "text/plain".to_string()),
+        ("x-tenant-id".to_string(), tenant.to_string()),
+        ("x-temper-principal-kind".to_string(), "admin".to_string()),
+    ];
+    let value_resp = ctx.http_call("PUT", &value_url, &value_headers, content)?;
+
+    if value_resp.status < 200 || value_resp.status >= 300 {
+        return Err(format!(
+            "content file write failed (HTTP {})",
+            value_resp.status
+        ));
+    }
+
+    Ok(file_id)
+}
+
 /// Build standard OData headers for tenant-scoped requests.
 pub fn odata_headers(tenant: &str) -> Vec<(String, String)> {
     vec![

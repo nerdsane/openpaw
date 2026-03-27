@@ -154,6 +154,10 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             .get("session_leaf_id")
             .and_then(|v| v.as_str())
             .unwrap_or("");
+        let workspace_id = fields
+            .get("workspace_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
 
         let results_json = serde_json::to_string(&tool_results).unwrap_or_default();
         let mut params = json!({
@@ -167,8 +171,24 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             let mut tree = session_tree_lib::SessionTree::from_jsonl(&session_jsonl);
             let tool_results_value = json!(tool_results.clone());
             let tokens_est = results_json.len() / 4;
-            let (new_leaf, _) =
-                tree.append_tool_results(session_leaf_id, &tool_results_value, tokens_est);
+            let content_str = serde_json::to_string(&tool_results_value).unwrap_or_default();
+            let (new_leaf, _) = if !workspace_id.is_empty() {
+                match create_tool_content_file(
+                    &ctx,
+                    &temper_api_url,
+                    tenant,
+                    workspace_id,
+                    &format!("t-{}", tree.len()),
+                    &content_str,
+                ) {
+                    Ok(content_file_id) => {
+                        tree.append_tool_results_file(session_leaf_id, &content_file_id, tokens_est)
+                    }
+                    Err(_) => tree.append_tool_results(session_leaf_id, &tool_results_value, tokens_est),
+                }
+            } else {
+                tree.append_tool_results(session_leaf_id, &tool_results_value, tokens_est)
+            };
             let updated_jsonl = tree.to_jsonl();
             write_session_to_temperfs(
                 &ctx,
@@ -247,10 +267,6 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         // Fsync sandbox files to TemperFS (best-effort)
         let file_manifest_id = fields
             .get("file_manifest_id")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        let workspace_id = fields
-            .get("workspace_id")
             .and_then(|v| v.as_str())
             .unwrap_or("");
         let max_sync_file_bytes: u64 = ctx
@@ -2602,6 +2618,68 @@ fn write_session_to_temperfs(
             resp.status
         ))
     }
+}
+
+fn create_tool_content_file(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+    workspace_id: &str,
+    entry_id: &str,
+    content: &str,
+) -> Result<String, String> {
+    let headers = vec![
+        ("content-type".to_string(), "application/json".to_string()),
+        ("x-tenant-id".to_string(), tenant.to_string()),
+        ("x-temper-principal-kind".to_string(), "admin".to_string()),
+    ];
+
+    let file_name = format!("msg-{entry_id}.txt");
+    let file_body = json!({
+        "workspace_id": workspace_id,
+        "name": &file_name,
+        "mime_type": "text/plain",
+        "path": format!("/{file_name}")
+    });
+    let file_url = format!("{temper_api_url}/tdata/Files");
+    let file_resp = ctx.http_call("POST", &file_url, &headers, &file_body.to_string())?;
+
+    if file_resp.status < 200 || file_resp.status >= 300 {
+        return Err(format!(
+            "Content file creation failed (HTTP {}): {}",
+            file_resp.status,
+            &file_resp.body[..file_resp.body.len().min(300)]
+        ));
+    }
+
+    let file_parsed: Value = serde_json::from_str(&file_resp.body)
+        .map_err(|e| format!("parse content file response: {e}"))?;
+    let file_id = file_parsed
+        .get("entity_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    if file_id.is_empty() {
+        return Err("Content file created but entity_id missing".to_string());
+    }
+
+    let value_url = format!("{temper_api_url}/tdata/Files('{file_id}')/$value");
+    let value_headers = vec![
+        ("content-type".to_string(), "text/plain".to_string()),
+        ("x-tenant-id".to_string(), tenant.to_string()),
+        ("x-temper-principal-kind".to_string(), "admin".to_string()),
+    ];
+    let value_resp = ctx.http_call("PUT", &value_url, &value_headers, content)?;
+
+    if value_resp.status < 200 || value_resp.status >= 300 {
+        return Err(format!(
+            "Content file $value write failed (HTTP {})",
+            value_resp.status
+        ));
+    }
+
+    Ok(file_id)
 }
 
 fn resolve_temper_api_url(ctx: &Context, fields: &Value) -> String {

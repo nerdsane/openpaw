@@ -15,7 +15,7 @@
 //!
 //! Build: `cargo build --target wasm32-unknown-unknown --release`
 
-use session_tree_lib::SessionTree;
+use session_tree_lib::{EntryType, SessionTree};
 use std::collections::BTreeSet;
 use temper_wasm_sdk::prelude::*;
 
@@ -143,6 +143,10 @@ anthropic_api_key (or api_key) for anthropic, openrouter_api_key (or api_key) fo
             .get("session_leaf_id")
             .and_then(|v| v.as_str())
             .unwrap_or("");
+        let workspace_id = fields
+            .get("workspace_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
 
         // Soul and steering fields
         let soul_id = fields.get("soul_id").and_then(|v| v.as_str()).unwrap_or("");
@@ -178,7 +182,12 @@ anthropic_api_key (or api_key) for anthropic, openrouter_api_key (or api_key) fo
                 (msgs, Some(tree))
             } else {
                 let tree = SessionTree::from_jsonl(&session_jsonl);
-                let msgs = tree.build_context(session_leaf_id);
+                let context_refs = tree.build_context_refs(session_leaf_id);
+                let msgs = if context_refs.is_empty() {
+                    vec![json!({ "role": "user", "content": first_turn_content })]
+                } else {
+                    resolve_context_refs(&ctx, &temper_api_url, tenant, &context_refs)?
+                };
                 if msgs.is_empty() {
                     (
                         vec![json!({ "role": "user", "content": first_turn_content })],
@@ -332,7 +341,7 @@ anthropic_api_key (or api_key) for anthropic, openrouter_api_key (or api_key) fo
         // Write updated conversation to TemperFS (if file_id set) or pass inline
         let updated_conversation = serde_json::to_string(&messages).unwrap_or_default();
 
-        if !conversation_file_id.is_empty() {
+        if !conversation_file_id.is_empty() && !use_session_tree {
             write_conversation_to_temperfs(
                 &ctx,
                 &temper_api_url,
@@ -366,11 +375,35 @@ anthropic_api_key (or api_key) for anthropic, openrouter_api_key (or api_key) fo
                 let new_leaf = if use_session_tree {
                     if let Some(ref mut tree) = session_tree {
                         let parent = session_leaf_id;
-                        let (leaf, _) = tree.append_assistant_message(
-                            parent,
-                            &response.content,
-                            response.output_tokens as usize,
-                        );
+                        let content_str =
+                            serde_json::to_string(&response.content).unwrap_or_default();
+                        let (leaf, _) = if !workspace_id.is_empty() {
+                            match create_content_file_for_entry(
+                                &ctx,
+                                &temper_api_url,
+                                tenant,
+                                workspace_id,
+                                &format!("a-{}", tree.len()),
+                                &content_str,
+                            ) {
+                                Ok(content_file_id) => tree.append_assistant_message_file(
+                                    parent,
+                                    &content_file_id,
+                                    response.output_tokens as usize,
+                                ),
+                                Err(_) => tree.append_assistant_message(
+                                    parent,
+                                    &response.content,
+                                    response.output_tokens as usize,
+                                ),
+                            }
+                        } else {
+                            tree.append_assistant_message(
+                                parent,
+                                &response.content,
+                                response.output_tokens as usize,
+                            )
+                        };
                         let updated_jsonl = tree.to_jsonl();
                         write_session_to_temperfs(
                             &ctx,
@@ -421,11 +454,35 @@ anthropic_api_key (or api_key) for anthropic, openrouter_api_key (or api_key) fo
                 if use_session_tree {
                     if let Some(ref mut tree) = session_tree {
                         let parent = session_leaf_id;
-                        let (new_leaf, _) = tree.append_assistant_message(
-                            parent,
-                            &response.content,
-                            response.output_tokens as usize,
-                        );
+                        let content_str =
+                            serde_json::to_string(&response.content).unwrap_or_default();
+                        let (new_leaf, _) = if !workspace_id.is_empty() {
+                            match create_content_file_for_entry(
+                                &ctx,
+                                &temper_api_url,
+                                tenant,
+                                workspace_id,
+                                &format!("a-{}", tree.len()),
+                                &content_str,
+                            ) {
+                                Ok(content_file_id) => tree.append_assistant_message_file(
+                                    parent,
+                                    &content_file_id,
+                                    response.output_tokens as usize,
+                                ),
+                                Err(_) => tree.append_assistant_message(
+                                    parent,
+                                    &response.content,
+                                    response.output_tokens as usize,
+                                ),
+                            }
+                        } else {
+                            tree.append_assistant_message(
+                                parent,
+                                &response.content,
+                                response.output_tokens as usize,
+                            )
+                        };
                         let updated_jsonl = tree.to_jsonl();
                         write_session_to_temperfs(
                             &ctx,
@@ -2570,6 +2627,144 @@ fn entity_field_str<'a>(value: &'a Value, keys: &[&str]) -> Option<&'a str> {
             .get("fields")
             .and_then(|fields| direct_field_str(fields, keys))
     })
+}
+
+fn resolve_context_refs(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+    refs: &[session_tree_lib::ContextRef],
+) -> Result<Vec<Value>, String> {
+    let mut messages = Vec::new();
+
+    for ctx_ref in refs {
+        match ctx_ref.entry_type {
+            EntryType::Compaction => {
+                let summary = if let Some(ref file_id) = ctx_ref.content_file_id {
+                    read_content_file_raw(ctx, temper_api_url, tenant, file_id)
+                        .unwrap_or_else(|_| ctx_ref.inline_summary.clone().unwrap_or_default())
+                } else {
+                    ctx_ref.inline_summary.clone().unwrap_or_default()
+                };
+                if !summary.is_empty() {
+                    messages.push(json!({
+                        "role": "user",
+                        "content": format!("[Previous conversation summary]\n{summary}")
+                    }));
+                }
+            }
+            EntryType::Message | EntryType::Steering => {
+                if let Some(ref file_id) = ctx_ref.content_file_id {
+                    let raw = read_content_file_raw(ctx, temper_api_url, tenant, file_id)?;
+                    if raw.is_empty() {
+                        if let Some(ref inline) = ctx_ref.inline_content {
+                            messages.push(json!({
+                                "role": ctx_ref.role,
+                                "content": inline.clone(),
+                            }));
+                        }
+                        continue;
+                    }
+                    let content: Value = serde_json::from_str(&raw).unwrap_or(json!(raw));
+                    messages.push(json!({
+                        "role": ctx_ref.role,
+                        "content": content,
+                    }));
+                } else if let Some(ref inline) = ctx_ref.inline_content {
+                    messages.push(json!({
+                        "role": ctx_ref.role,
+                        "content": inline.clone(),
+                    }));
+                }
+            }
+            EntryType::Header => {}
+        }
+    }
+
+    Ok(messages)
+}
+
+fn read_content_file_raw(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+    file_id: &str,
+) -> Result<String, String> {
+    let url = format!("{temper_api_url}/tdata/Files('{file_id}')/$value");
+    let headers = vec![
+        ("x-tenant-id".to_string(), tenant.to_string()),
+        ("x-temper-principal-kind".to_string(), "admin".to_string()),
+    ];
+    let resp = ctx.http_call("GET", &url, &headers, "")?;
+    if resp.status == 200 {
+        Ok(resp.body)
+    } else if resp.status == 404 {
+        Ok(String::new())
+    } else {
+        Err(format!("Content file read failed (HTTP {})", resp.status))
+    }
+}
+
+fn create_content_file_for_entry(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+    workspace_id: &str,
+    entry_id: &str,
+    content: &str,
+) -> Result<String, String> {
+    let headers = vec![
+        ("content-type".to_string(), "application/json".to_string()),
+        ("x-tenant-id".to_string(), tenant.to_string()),
+        ("x-temper-principal-kind".to_string(), "admin".to_string()),
+    ];
+
+    let file_name = format!("msg-{entry_id}.txt");
+    let file_body = json!({
+        "workspace_id": workspace_id,
+        "name": &file_name,
+        "mime_type": "text/plain",
+        "path": format!("/{file_name}")
+    });
+    let file_url = format!("{temper_api_url}/tdata/Files");
+    let file_resp = ctx.http_call("POST", &file_url, &headers, &file_body.to_string())?;
+
+    if file_resp.status < 200 || file_resp.status >= 300 {
+        return Err(format!(
+            "Content file creation failed (HTTP {}): {}",
+            file_resp.status,
+            &file_resp.body[..file_resp.body.len().min(300)]
+        ));
+    }
+
+    let file_parsed: Value = serde_json::from_str(&file_resp.body)
+        .map_err(|e| format!("parse content file response: {e}"))?;
+    let file_id = file_parsed
+        .get("entity_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    if file_id.is_empty() {
+        return Err("Content file created but entity_id missing".to_string());
+    }
+
+    let value_url = format!("{temper_api_url}/tdata/Files('{file_id}')/$value");
+    let value_headers = vec![
+        ("content-type".to_string(), "text/plain".to_string()),
+        ("x-tenant-id".to_string(), tenant.to_string()),
+        ("x-temper-principal-kind".to_string(), "admin".to_string()),
+    ];
+    let value_resp = ctx.http_call("PUT", &value_url, &value_headers, content)?;
+
+    if value_resp.status < 200 || value_resp.status >= 300 {
+        return Err(format!(
+            "Content file $value write failed (HTTP {})",
+            value_resp.status
+        ));
+    }
+
+    Ok(file_id)
 }
 
 fn resolve_temper_api_url(ctx: &Context, fields: &Value) -> String {
