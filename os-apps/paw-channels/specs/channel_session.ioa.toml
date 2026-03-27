@@ -1,4 +1,4 @@
-# ChannelSession — Maps channel threads to TemperAgent entities.
+# ChannelSession — Maps channel threads to Agent entities.
 #
 # Tracks active conversations between channel users and agents.
 # Enables session continuity (same thread = same agent) and steering.

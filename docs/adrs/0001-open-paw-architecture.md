@@ -6,7 +6,7 @@ Accepted
 
 ## Context
 
-Temper-claw is the conversational agent layer inside the temper repository — Channel/AgentRoute/ChannelSession entities for multi-platform messaging, TemperAgent/AgentSoul/AgentMemory for governed agent execution, and the Discord transport for I/O. This layer needs to become an independently deployable product.
+Temper-claw is the conversational agent layer inside the temper repository — Channel/AgentRoute/ChannelSession entities for multi-platform messaging, Agent/Soul/Memory for governed agent execution, and the Discord transport for I/O. This layer needs to become an independently deployable product.
 
 Open Paw extracts this entire layer from temper, rebrands it under the `Paw` CSDL namespace, and extends it with new capabilities: persistent cloud computers for developer agents, development workflow enforcement (harness), and Ramp Inspect-style self-healing monitoring.
 
@@ -27,7 +27,7 @@ All agent logic is modeled as temper OS apps — IOA specs (state machines), WAS
 ### 3. Paw-branded OS apps
 
 Extracted and rebranded OS apps:
-- `paw-agent` (namespace `Paw.Agent`) — TemperAgent, AgentSoul, AgentMemory, AgentSkill
+- `paw-agent` (namespace `OpenPaw`) — Agent, Soul, Memory, Skill
 - `paw-channels` (namespace `Paw.Channel`) — Channel, AgentRoute, ChannelSession
 - `paw-fs` (namespace `Paw.FS`) — File, Workspace
 - `paw-pm` — Issues, Plans (project management)
@@ -46,7 +46,7 @@ Developer agents get persistent Linux VMs via Fly.io Sprites. The Computer entit
 
 ### 5. Souls as TemperFS files
 
-Agent personalities (Paw, Developer, Scout) are system prompt markdown files in `souls/`. At boot, the daemon reads them from disk, creates TemperFS File entities, and registers AgentSoul entities. Runtime uses the entity system — disk files are seed data only.
+Agent personalities (Paw, Developer, Scout) are system prompt markdown files in `souls/`. At boot, the daemon reads them from disk, creates TemperFS File entities, and registers Soul entities. Runtime uses the entity system — disk files are seed data only.
 
 ### 6. Turso storage
 
@@ -71,5 +71,5 @@ The paw-heal OS app implements webhook-driven monitoring: auto-generated Datadog
 - Namespace rename creates a one-time migration burden for existing data
 
 ### Risks
-- Cross-references between OS apps (e.g., route_message WASM references TemperAgent entity type) must be updated consistently
+- Cross-references between OS apps (e.g., route_message WASM references Agent entity type) must be updated consistently
 - temper repo cleanup after extraction needs coordination with other work on that repo

@@ -1,17 +1,17 @@
-// AgentMemory — Cedar Authorization Policies
+// Memory — Cedar Authorization Policies
 
 // Admins can do everything
 permit(
   principal is Admin,
   action,
-  resource is AgentMemory
+  resource is Memory
 );
 
 // System, supervisor, and human principals can manage memories
 permit(
   principal,
   action in [Action::"create", Action::"Save", Action::"Update", Action::"Recall"],
-  resource is AgentMemory
+  resource is Memory
 ) when {
   ["system", "supervisor", "human"].contains(principal.agent_type)
 };
@@ -20,7 +20,7 @@ permit(
 permit(
   principal,
   action in [Action::"create", Action::"Save", Action::"Update", Action::"Recall"],
-  resource is AgentMemory
+  resource is Memory
 ) when {
   principal.agent_type == "agent" && resource.SoulId == principal.soul_id
 };
@@ -29,7 +29,7 @@ permit(
 permit(
   principal,
   action in [Action::"Archive"],
-  resource is AgentMemory
+  resource is Memory
 ) when {
   ["supervisor", "human"].contains(principal.agent_type)
 };
@@ -38,5 +38,5 @@ permit(
 permit(
   principal,
   action in [Action::"read", Action::"list"],
-  resource is AgentMemory
+  resource is Memory
 );

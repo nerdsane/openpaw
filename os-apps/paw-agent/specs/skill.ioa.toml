@@ -1,10 +1,10 @@
-# AgentSkill — Lazy-loaded capability descriptions (SKILL.md equivalent).
+# Skill — Lazy-loaded capability descriptions (SKILL.md equivalent).
 #
 # Skills define WHAT the agent can do. Only descriptions are injected into
 # the system prompt; full content loaded on demand via TemperFS read.
 
 [automaton]
-name = "AgentSkill"
+name = "Skill"
 states = ["Active", "Disabled"]
 initial = "Active"
 

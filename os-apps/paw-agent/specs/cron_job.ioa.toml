@@ -1,6 +1,6 @@
 # CronJob — Scheduled agent runs.
 #
-# Creates and tracks TemperAgent entities on a schedule.
+# Creates and tracks Agent entities on a schedule.
 # Template substitution supports {{now}}, {{run_count}}, {{last_result}}.
 
 [automaton]
@@ -121,7 +121,7 @@ name = "Trigger"
 kind = "input"
 from = ["Active"]
 params = ["last_run_at"]
-hint = "Fire the cron job — creates and provisions a TemperAgent."
+hint = "Fire the cron job — creates and provisions a Agent."
 effect = [{ type = "increment", var = "run_count" }, { type = "trigger", name = "cron_trigger" }]
 
 [[action]]

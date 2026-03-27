@@ -494,7 +494,8 @@ on_failure = "Fail"
 
 [integration.config]
 temper_api_url = "{secret:temper_api_url}"
-timeout_secs = "120"
+timeout_secs = "900"
+spawn_agent_wait_timeout_ms = "840000"
 max_sync_file_bytes = "61440"
 max_sync_files = "64"
 sync_exclude = "__pycache__,node_modules,.git,.next,dist,build,target,coverage,venv,.venv"

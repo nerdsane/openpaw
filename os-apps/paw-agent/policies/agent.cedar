@@ -1,4 +1,4 @@
-// TemperAgent — Cedar Authorization Policies
+// Agent — Cedar Authorization Policies
 //
 // Controls who can create, configure, and interact with spec-driven agents.
 // Callback actions are permitted for system agents to enable the dispatch pipeline loop.
@@ -9,13 +9,13 @@
 permit(
   principal is Admin,
   action,
-  resource is TemperAgent
+  resource is Agent
 );
 
 permit(
   principal,
   action in [Action::"create", Action::"Configure", Action::"Provision", Action::"Resume"],
-  resource is TemperAgent
+  resource is Agent
 ) when {
   ["supervisor", "human"].contains(principal.agent_type)
 };
@@ -25,7 +25,7 @@ permit(
 permit(
   principal,
   action in [Action::"read", Action::"list"],
-  resource is TemperAgent
+  resource is Agent
 );
 
 // --- Steering: supervisors, humans, and system (for parent agents) ---
@@ -33,7 +33,7 @@ permit(
 permit(
   principal,
   action in [Action::"Steer"],
-  resource is TemperAgent
+  resource is Agent
 ) when {
   ["supervisor", "human", "system"].contains(principal.agent_type)
 };
@@ -56,7 +56,7 @@ permit(
     Action::"Heartbeat",
     Action::"TimeoutFail"
   ],
-  resource is TemperAgent
+  resource is Agent
 ) when {
   principal.agent_type == "system"
 };
@@ -85,7 +85,7 @@ permit(
 permit(
   principal,
   action in [Action::"Fail", Action::"Cancel"],
-  resource is TemperAgent
+  resource is Agent
 ) when {
   ["supervisor", "human", "system"].contains(principal.agent_type)
 };
