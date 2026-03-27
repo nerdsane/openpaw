@@ -99,12 +99,15 @@ impl DiscordTransport {
     /// the Channel entity and a default AgentRoute.
     async fn bootstrap_channel(&self, webhook_url: &str) -> Result<(), String> {
         // Ensure paw-channels OS app is installed for the tenant.
-        let install_url = format!("{}/tdata/_install_app", self.api.config().base_url);
+        let install_url = format!(
+            "{}/api/os-apps/paw-channels/install",
+            self.api.config().base_url
+        );
         let _ = self
             .api
             .raw_post(
                 &install_url,
-                serde_json::json!({ "app": "paw-channels" }),
+                serde_json::json!({ "tenant": self.api.config().tenant }),
             )
             .await;
 
@@ -130,7 +133,7 @@ impl DiscordTransport {
                     .dispatch_action(
                         "Channels",
                         old_id,
-                        "Paw.Channel.Channel.Archive",
+                        "Paw.Channel.Archive",
                         serde_json::json!({}),
                     )
                     .await;
@@ -161,7 +164,7 @@ impl DiscordTransport {
                 .dispatch_action(
                     "Channels",
                     &id,
-                    "Paw.Channel.Channel.Configure",
+                    "Paw.Channel.Configure",
                     serde_json::json!({
                         "channel_type": "discord",
                         "channel_id": "discord-gateway",
@@ -176,7 +179,7 @@ impl DiscordTransport {
                 .dispatch_action(
                     "Channels",
                     &id,
-                    "Paw.Channel.Channel.Connect",
+                    "Paw.Channel.Connect",
                     serde_json::json!({}),
                 )
                 .await;
@@ -213,7 +216,7 @@ impl DiscordTransport {
                     .dispatch_action(
                         "AgentRoutes",
                         route_id,
-                        "Paw.Agent.AgentRoute.Register",
+                        "Paw.Channel.Register",
                         serde_json::json!({
                             "binding_tier": "channel",
                             "channel_id": channel_id,
@@ -409,7 +412,7 @@ impl DiscordTransport {
             .dispatch_action(
                 "Channels",
                 &channel_id,
-                "Paw.Channel.Channel.ReceiveMessage",
+                "Paw.Channel.ReceiveMessage",
                 params,
             )
             .await
