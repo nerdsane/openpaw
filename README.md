@@ -27,7 +27,7 @@ Open Paw follows the Temper OS app pattern — all agent logic is modeled as IOA
 
 | App | Namespace | Purpose |
 |-----|-----------|---------|
-| paw-agent | Paw.Agent | Agent execution (TemperAgent, AgentSoul, AgentMemory) |
+| paw-agent | OpenPaw | Agent execution (Agent, Soul, Memory) |
 | paw-channels | Paw.Channel | Multi-platform messaging (Channel, AgentRoute, ChannelSession) |
 | paw-fs | Paw.FS | File storage (File, Workspace) |
 | paw-pm | Paw.PM | Project management (Issues, Plans) |

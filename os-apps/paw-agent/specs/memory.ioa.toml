@@ -1,11 +1,11 @@
-# AgentMemory — Cross-session persistent knowledge.
+# Memory — Cross-session persistent knowledge.
 #
 # Memories persist ACROSS agent runs, scoped to a soul_id.
 # Types: user, feedback, project, reference (matching Claude Code taxonomy).
 # Content stored inline (memories are small).
 
 [automaton]
-name = "AgentMemory"
+name = "Memory"
 states = ["Active", "Archived"]
 initial = "Active"
 

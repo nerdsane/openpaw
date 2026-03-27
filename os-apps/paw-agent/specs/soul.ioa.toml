@@ -1,11 +1,11 @@
-# AgentSoul — Versioned agent identity document (SOUL.md equivalent).
+# Soul — Versioned agent identity document (SOUL.md equivalent).
 #
 # A Soul defines WHO the agent is: personality, instructions, capabilities,
 # constraints. Separate from skills (WHAT) and system_prompt (per-run override).
 # Multiple agent runs can share the same Soul identity.
 
 [automaton]
-name = "AgentSoul"
+name = "Soul"
 states = ["Draft", "Active", "Archived"]
 initial = "Draft"
 
