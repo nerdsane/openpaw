@@ -1,5 +1,6 @@
 use session_tree_lib::SessionTree;
 use temper_wasm_sdk::prelude::*;
+use wasm_helpers::create_content_file;
 
 #[unsafe(no_mangle)]
 pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
@@ -200,7 +201,7 @@ fn resolve_temper_api_url(ctx: &Context, fields: &Value) -> String {
                 .filter(|s| !s.is_empty())
                 .cloned()
         })
-        .unwrap_or_else(|| "http://127.0.0.1:3000".to_string())
+        .unwrap_or_else(|| "http://127.0.0.1:3467".to_string())
 }
 
 fn odata_headers(tenant: &str) -> Vec<(String, String)> {
@@ -322,14 +323,26 @@ fn create_agent_from_route(
     };
     let normalized_soul_ref = normalize_soul_ref(ctx, temper_api_url, tenant, raw_soul_ref)
         .unwrap_or_else(|| raw_soul_ref.to_string());
+    let create_body = "{ }".to_string();
+    ctx.log(
+        "info",
+        &format!(
+            "route_message: creating routed agent via {temper_api_url}/tdata/Agents with {} bytes",
+            create_body.len()
+        ),
+    );
     let create_resp = ctx.http_call(
         "POST",
         &format!("{temper_api_url}/tdata/Agents"),
         &odata_headers(tenant),
-        "{}",
+        &create_body,
     )?;
     if !(200..300).contains(&create_resp.status) {
-        return Err(format!("create Agent failed (HTTP {})", create_resp.status));
+        return Err(format!(
+            "create Agent failed via {temper_api_url} (HTTP {}): {}",
+            create_resp.status,
+            truncate_error_body(&create_resp.body)
+        ));
     }
     let parsed: Value = serde_json::from_str(&create_resp.body).unwrap_or_else(|_| json!({}));
     let agent_id = parsed
@@ -405,12 +418,20 @@ fn continue_session(
     let conversation_file_id =
         str_field(&fields, &["conversation_file_id", "ConversationFileId"]).unwrap_or("");
     let prior_leaf_id = str_field(&fields, &["session_leaf_id", "SessionLeafId"]).unwrap_or("");
+    let workspace_id = resolve_workspace_id_for_session(
+        ctx,
+        temper_api_url,
+        tenant,
+        &fields,
+        session_file_id,
+    )?;
 
     let new_leaf_id = if !session_file_id.is_empty() {
         Some(append_user_message_to_session(
             ctx,
             temper_api_url,
             tenant,
+            &workspace_id,
             session_file_id,
             prior_leaf_id,
             user_message,
@@ -470,14 +491,26 @@ fn continue_session(
 }
 
 fn create_blank_agent(ctx: &Context, temper_api_url: &str, tenant: &str) -> Result<String, String> {
+    let create_body = "{ }".to_string();
+    ctx.log(
+        "info",
+        &format!(
+            "route_message: creating continuation agent via {temper_api_url}/tdata/Agents with {} bytes",
+            create_body.len()
+        ),
+    );
     let create_resp = ctx.http_call(
         "POST",
         &format!("{temper_api_url}/tdata/Agents"),
         &odata_headers(tenant),
-        "{}",
+        &create_body,
     )?;
     if !(200..300).contains(&create_resp.status) {
-        return Err(format!("create Agent failed (HTTP {})", create_resp.status));
+        return Err(format!(
+            "create Agent failed via {temper_api_url} (HTTP {}): {}",
+            create_resp.status,
+            truncate_error_body(&create_resp.body)
+        ));
     }
     let parsed: Value = serde_json::from_str(&create_resp.body).unwrap_or_else(|_| json!({}));
     let agent_id = parsed
@@ -615,6 +648,7 @@ fn append_user_message_to_session(
     ctx: &Context,
     temper_api_url: &str,
     tenant: &str,
+    workspace_id: &str,
     session_file_id: &str,
     session_leaf_id: &str,
     user_message: &str,
@@ -635,8 +669,31 @@ fn append_user_message_to_session(
             tree.append_tool_results(&parent_id, &interrupted_results, tokens);
         parent_id = tool_result_id;
     }
-    let (new_leaf_id, _) =
-        tree.append_user_message(&parent_id, user_message, estimate_tokens(user_message));
+    let tokens = estimate_tokens(user_message);
+    let (new_leaf_id, _) = if !workspace_id.is_empty() {
+        let file_name = format!("session-user-{}.txt", tree.len());
+        match create_content_file(
+            ctx,
+            temper_api_url,
+            tenant,
+            workspace_id,
+            &file_name,
+            user_message,
+        ) {
+            Ok(content_file_id) => tree.append_user_message_file(&parent_id, &content_file_id, tokens),
+            Err(err) => {
+                ctx.log(
+                    "warn",
+                    &format!(
+                        "route_message: failed to externalize continued user message to TemperFS: {err}"
+                    ),
+                );
+                tree.append_user_message(&parent_id, user_message, tokens)
+            }
+        }
+    } else {
+        tree.append_user_message(&parent_id, user_message, tokens)
+    };
     write_file_value(
         ctx,
         temper_api_url,
@@ -664,6 +721,31 @@ fn append_user_message_to_conversation(
     messages.push(json!({ "role": "user", "content": user_message }));
     let updated = json!({ "messages": messages }).to_string();
     write_file_value(ctx, temper_api_url, tenant, conversation_file_id, &updated)
+}
+
+fn resolve_workspace_id_for_session(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+    fields: &Value,
+    session_file_id: &str,
+) -> Result<String, String> {
+    if let Some(workspace_id) = str_field(fields, &["workspace_id", "WorkspaceId"]) {
+        if !workspace_id.is_empty() {
+            return Ok(workspace_id.to_string());
+        }
+    }
+    if session_file_id.is_empty() {
+        return Ok(String::new());
+    }
+    let session_file = fetch_entity(
+        ctx,
+        &format!("{temper_api_url}/tdata/Files('{session_file_id}')"),
+        tenant,
+    )?;
+    Ok(nested_str_field(&session_file, &["workspace_id", "WorkspaceId"])
+        .unwrap_or("")
+        .to_string())
 }
 
 fn read_file_value(
@@ -741,6 +823,15 @@ fn normalize_soul_ref(
     }
 
     None
+}
+
+fn truncate_error_body(body: &str) -> String {
+    const LIMIT: usize = 240;
+    if body.len() <= LIMIT {
+        body.to_string()
+    } else {
+        format!("{}...", &body[..LIMIT])
+    }
 }
 
 fn interrupted_tool_results_for_leaf(tree: &SessionTree, leaf_id: &str) -> Option<Value> {

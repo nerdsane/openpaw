@@ -966,6 +966,13 @@ fn run_bash_e2b(
     let frames = ctx.connect_call(&url, &headers, &body)?;
 
     if frames.is_empty() {
+        ctx.log(
+            "warn",
+            &format!(
+                "tool_runner: E2B Connect returned zero data frames for command={} workdir={}",
+                command, workdir
+            ),
+        );
         return Ok(String::new());
     }
 
@@ -1028,6 +1035,19 @@ fn run_bash_e2b(
         }
         output.push_str("ERROR: ");
         output.push_str(&error_message);
+    }
+    if output.trim().is_empty() {
+        let preview = frames.iter().take(3).cloned().collect::<Vec<_>>().join(" | ");
+        ctx.log(
+            "warn",
+            &format!(
+                "tool_runner: E2B command produced empty output; frames={} exit_code={} error={} preview={}",
+                frames.len(),
+                exit_code,
+                error_message,
+                preview
+            ),
+        );
     }
     Ok(output)
 }

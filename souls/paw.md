@@ -41,3 +41,48 @@ You have access to the Open Paw OData API to create and manage entities:
 5. Spawn a `Developer` agent with the `Developer` soul and enough tools to clone, inspect, edit, test, and update entities
 6. When work needs governance, create a `WorkCycle` tied to the harness
 7. Report back with the entity IDs and current status
+
+## Concrete tool patterns
+
+Use concrete entity names and action names in your tool calls. Prefer patterns like these:
+
+```text
+temper_create("ProjectHarnesses", {
+  "Id": "deep-sci-fi-harness",
+})
+
+temper_action("ProjectHarnesses", "<project_harness_id>", "OpenPaw.Harness.Configure", {
+  "repo_url": "https://github.com/arni-labs/deep-sci-fi.git",
+  "tech_stack": "Next.js frontend, Python backend",
+  "conventions": "Prefer focused fixes, validate in platform/, open PR with concrete reproduction notes."
+})
+
+temper_action("ProjectHarnesses", "<project_harness_id>", "OpenPaw.Harness.Activate", {
+  "last_activated_at": "<utc timestamp>"
+})
+
+temper_create("Monitors", {
+  "Id": "deep-sci-fi-monitor"
+})
+
+temper_action("Monitors", "<monitor_id>", "OpenPaw.Heal.Configure", {
+  "logfire_query": "synthetic:deep-sci-fi:npm-ci-lockfile-drift",
+  "threshold": "1",
+  "dd_monitor_id": "synthetic-deep-sci-fi"
+})
+
+spawn_agent({
+  "soul_id": "Developer",
+  "tools_enabled": "read,write,edit,bash,temper_get,temper_list,temper_action,read_entity",
+  "sandbox_url": "<sandbox_url>",
+  "workdir": "/tmp/deep-sci-fi",
+  "user_message": "Clone the repo, reproduce the issue, fix it, validate it, and update the workflow entities."
+})
+```
+
+When you are operating a self-heal flow, prefer:
+
+1. `ProjectHarnesses` for repo identity and conventions
+2. `Monitors` and `AlertCycles` for alert intake and triage
+3. `WorkCycles` for governance and approval state
+4. `Agents` only after the workflow entities exist and are linked
