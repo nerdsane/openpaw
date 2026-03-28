@@ -6,61 +6,58 @@ Accepted
 
 ## Context
 
-OpenPaw has a working agent loop (Scout → Developer → PR) proven in Proofs 006-008, but the loop is manually triggered via OData calls and Python scripts. The vision requires: human talks to Paw on Discord, says "manage deep-sci-fi", and the system autonomously monitors, triages, fixes, and reports. This ADR documents the phased approach to close that gap.
+Open Paw already has the governed agent primitives needed for a self-healing demo, but the operator experience is still fragmented. The platform can run Scout -> Developer remediation loops, yet the loop is manually kicked off through OData and ad hoc proof scripts instead of starting from a real external signal or an operator message.
+
+The target demo is a tighter story:
+
+- a human tells Paw to manage a project
+- Open Paw creates the project-management structure
+- external alerting enters through a webhook
+- Scout is spawned automatically
+- Developer remediation and PR creation happen inside the governed loop
+- the human gets a proactive update back through the same channel
+
+The implementation also needs to be provable phase by phase, because two independent implementations are being compared and the gaps need to be auditable.
 
 ## Decision
 
-### 1. Phased implementation with proof gates
+### 1. Implement the demo in phases with proof gates
 
-Each phase produces a committed proof report in `.proofs/` before the next phase begins. No phase is considered complete without end-to-end verification. Phases 1-6 require no human interaction — they're fully provable via curl/OData/Python scripts.
+The work is split into ordered phases, and each phase is only considered done when it has a corresponding proof driver and proof report. This keeps the implementation comparable across parallel branches and prevents “wired but unproven” claims from slipping into the demo story.
 
-### 2. Webhook ingestion in the openpaw crate
+### 2. Keep webhook ingestion inside the `openpaw` daemon
 
-External alerts (Logfire, Datadog, GitHub) enter through `POST /webhooks/ingest` — a new route in the openpaw binary, nested alongside the platform router. This keeps the single-binary deployment model from ADR-0001. The webhook handler is an OData client internally — it dispatches entity actions the same way the Discord transport does.
+Webhook handling lives in `crates/openpaw/src/webhooks.rs` and is mounted directly onto the daemon router. We are not creating a separate ingest service. External payloads are translated back into the platform by making internal OData calls to the same entity sets and actions that the rest of the product uses.
 
-**Rationale:** Adding a separate service would complicate deployment. The webhook handler is stateless — it just translates external payloads into OData actions.
+This keeps the workflow governed by the existing entities and avoids creating a second orchestration plane.
 
-### 3. Logfire-first observability strategy
+### 3. Use a Logfire-first observability story
 
-Logfire (by Pydantic, built on OpenTelemetry) is the first observability platform. Datadog follows later. Both support webhook-triggered alerts with the same integration pattern: monitor fires → webhook → OpenPaw ingests → AlertCycle created → Scout triages.
+The primary alert path is a generic external alert webhook that resolves a `Monitor` by its external monitor identifier and records `AlertFired` plus `AlertCycle.Open`. We keep the product language centered on monitors and alert cycles, but the ingest contract is shaped around Logfire-style alerts first because that is the simplest autonomous proof path for the demo.
 
-**Rationale:** Logfire is simpler to set up, has a friendlier API for developers, and the tool_runner already has a `query_logfire` tool.
+GitHub merge webhooks are handled as a second path so PR completion can feed back into `WorkCycle` state.
 
-### 4. Scout auto-spawn on alert
+### 4. Auto-spawn Scout from webhook-created alerts
 
-When the webhook handler creates an AlertCycle, it also spawns a Scout agent to triage it. This closes the gap between "alert exists" and "someone is investigating." The Scout uses the same soul and tool pipeline already proven in Proof 007.
+When a webhook opens a real alert, the daemon should immediately create/configure/provision a Scout agent if enough project context is available. Scout is responsible for triage, PM issue creation, remediation handoff, and final alert closure.
 
-**Rationale:** Manual Scout spawning via OData was the biggest friction point. Auto-spawn makes the system truly reactive.
-
-### 5. Guided-but-flexible soul instructions
-
-Paw's soul describes available entity types and their purpose but does not prescribe rigid step-by-step workflows. Paw is an intelligent agent — it uses judgment about what to set up based on what the human asks.
-
-**Rationale:** Hardcoding flows defeats the purpose of an intelligent agent system. The soul is guidance, not a script.
-
-## Phases
-
-1. **Webhook ingestion** — `POST /webhooks/ingest` creates AlertCycle from external payloads
-2. **Scout auto-spawn** — webhook handler spawns Scout on AlertCycle creation
-3. **Paw orchestration** — Paw handles "manage project" via OData channel (curl-provable)
-4. **E2B self-heal** — full Scout → Developer → PR in E2B sandbox
-5. **PM integration** — Scout creates PM Issues when triaging alerts
-6. **Proactive reporting** — Paw sends summaries via Channel after self-heal completes
-7. **Discord e2e** — prove Discord DM flow (requires human)
-8. **Full demo** — complete end-to-end via Discord (requires human)
+This keeps the alert loop autonomous and makes the webhook path the real entrypoint into the self-heal system instead of a passive event recorder.
 
 ## Consequences
 
 ### Positive
-- Each phase is independently verifiable
-- Phases 1-6 can be automated in CI
-- Webhook ingestion enables real production monitoring
-- Paw orchestration via OData channel means the same code path works for Discord and any future transport
+
+- The demo story becomes coherent: channel orchestration, alert ingress, remediation, and reporting all run through one daemon.
+- External webhooks reuse the governed OData surface instead of bypassing it.
+- Each milestone has a replayable proof script, which makes progress honest and comparable.
 
 ### Negative
-- Webhook handler in the binary means recompile for ingestion changes (acceptable: changes are rare)
-- Scout auto-spawn means every alert gets a triage agent (cost concern at scale — addressed by monitor tuning)
+
+- The daemon now owns more orchestration responsibility, including background reporting after Scout completes.
+- Some later phases still depend on external credentials or a human operator, so not every proof can be executed in a fully isolated environment.
 
 ### Risks
-- Paw's flexible soul instructions may not reliably produce the right entity setup on every invocation — mitigated by proof testing
-- Logfire API changes could break the integration — mitigated by the tool_runner's existing abstraction
+
+- If webhook payloads do not contain enough project context, Scout auto-spawn may open an alert without enough information to remediate.
+- Proactive channel reporting depends on resolving the right channel/thread context; the fallback heuristics are good for the demo but not yet a fully modeled entity relationship.
+- GitHub merge updates are only as reliable as the PR metadata included in the payload or already stored on the `WorkCycle`.

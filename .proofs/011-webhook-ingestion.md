@@ -1,65 +1,141 @@
-# Proof Report: 011 — Webhook Ingestion Endpoint
+# Proof Report: 011 — Webhook Ingestion
 
 ## Date
-2026-03-28
+
+2026-03-27
 
 ## Branch / Commit
-`feat/openpaw-self-heal-cc` (worktree from `feat/openpaw-self-heal-loop-codex`)
+
+- Branch: `feat/openpaw-self-heal-loop-codex`
+- Commit: working tree implementation
+
+## Vision Target
+
+This proof targets the `.vision` gap:
+
+- `Webhook alert ingestion | ❌ Placeholder | webhooks.rs is empty`
+
+The concrete claim being tested is: OpenPaw can accept a real external webhook, translate it into governed Temper state, and do so safely with signature checks and duplicate suppression.
 
 ## What Was Done
 
-Implemented `POST /webhooks/ingest` endpoint that accepts external webhook payloads (Logfire, Datadog, GitHub) and dispatches them as entity actions via the internal OData API. The webhook handler follows the same pattern as the Discord transport — it's an OData client internally.
+- Added a real `POST /webhooks/ingest` endpoint in [`crates/openpaw/src/webhooks.rs`](/Users/seshendranalla/Development/openpaw-codex/crates/openpaw/src/webhooks.rs)
+- Wired webhook routing into the daemon in [`crates/openpaw/src/startup.rs`](/Users/seshendranalla/Development/openpaw-codex/crates/openpaw/src/startup.rs)
+- Added `WEBHOOK_SECRET` support in [`crates/openpaw/src/config.rs`](/Users/seshendranalla/Development/openpaw-codex/crates/openpaw/src/config.rs)
+- Added the autonomous proof driver [`scripts/prove_webhook_ingestion.py`](/Users/seshendranalla/Development/openpaw-codex/scripts/prove_webhook_ingestion.py)
 
-### Code Changes
-- `crates/openpaw/src/webhooks.rs` — Full implementation replacing placeholder
-- `crates/openpaw/src/config.rs` — Added `webhook_secret` field
-- `crates/openpaw/src/startup.rs` — Wired `/webhooks` route into axum Router
-- `scripts/prove_webhook_ingestion.py` — Proof script
+## Flow Diagram
+
+```text
+synthetic webhook sender
+        |
+        v
+POST /webhooks/ingest
+        |
+        +--> verify HMAC if WEBHOOK_SECRET is configured
+        |
+        +--> resolve/create Monitor
+        |
+        +--> open AlertCycle unless payload is duplicate
+        |
+        +--> for pull_request.merged:
+                resolve WorkCycle and approve it
+```
+
+## What Was Proven
+
+- A real HTTP webhook can create governed `Monitor` and `AlertCycle` state.
+- A duplicate webhook payload does not create a second `AlertCycle`.
+- A bad signature is rejected with `401`.
+- A synthetic `pull_request.merged` payload can advance a reviewing `WorkCycle` to completion.
+
+## How It Works
+
+- The webhook handler canonicalizes the incoming JSON payload so deduplication is based on stable content rather than formatting differences.
+- For alert-like events, it resolves a `Monitor` by `dd_monitor_id` or creates one, emits `Monitor.AlertFired`, and opens an `AlertCycle`.
+- For GitHub merge events, it resolves the target `WorkCycle` by explicit `work_cycle_id` or PR URL and dispatches the harness approval action.
+- Internal state changes are done through the same OData surface the rest of the platform uses, so this is not a side-channel bypass around Temper governance.
 
 ## Verification Flow
 
-1. Start daemon (`cargo run`)
-2. Create ProjectHarness + Monitor via OData
-3. POST synthetic Logfire payload to `/webhooks/ingest`
-4. Verify AlertCycle created in Triaging state
-5. Verify Monitor alert_count incremented
-6. POST duplicate payload → verify no duplicate AlertCycle
-7. POST unknown source → verify 400
-8. POST GitHub PR event → verify 200 with message
-9. POST missing monitor_id → verify 400
+1. Start the daemon with `WEBHOOK_SECRET=test-webhook-secret cargo run -p openpaw`
+2. Run `python3 scripts/prove_webhook_ingestion.py --secret test-webhook-secret`
+3. The script:
+   - creates a `ProjectHarness` and `Monitor`
+   - POSTs a synthetic alert webhook
+   - verifies `AlertCycle` creation and `alert_count` increment
+   - creates a reviewing `WorkCycle`
+   - POSTs a synthetic `pull_request.merged` webhook and verifies the `WorkCycle` completes
+   - POSTs a bad HMAC signature and expects `401`
+   - POSTs the same alert body again and verifies no duplicate `AlertCycle` is created
 
 ## Verification Results
 
-| Step | Expected | Actual | Status |
-|------|----------|--------|--------|
-| Create prerequisites | Harness + Monitor Active | Created and activated | PASS |
-| Logfire alert → AlertCycle | HTTP 201, alert_cycle_id returned | 201, `019d328d-12be-7442-8fbe-4c195b527792` | PASS |
-| AlertCycle in Triaging | Status=Triaging, monitor_id set | Triaging, monitor_id=webhook-proof-monitor-* | PASS |
-| Monitor alert_count | >= 1 | 1 | PASS |
-| Duplicate prevention | HTTP 200, same alert_cycle_id | 200, same ID returned | PASS |
-| Unknown source rejected | HTTP 400 | 400 | PASS |
-| GitHub PR event | HTTP 200, handled | 200, "No matching WorkCycle" | PASS |
-| Missing monitor_id | HTTP 400 | 400 | PASS |
+- Local phase 1 proof succeeded on `2026-03-27` with `WEBHOOK_SECRET=test-webhook-secret`.
+- `scripts/prove_webhook_ingestion.py` created:
+  - `ProjectHarness`: `019d3296-c87f-7511-848d-3ce3c90bbd64`
+  - `Monitor`: `019d3296-c890-7f30-9920-da911a0df64b`
+  - `AlertCycle`: `019d3296-c8f4-75d0-bbf5-ad1987f0190a`
+  - merge-verification `WorkCycle`: `019d3296-c977-7cb0-8715-e51da4d3d802`
+- The alert webhook returned `alert_opened`.
+- The GitHub merged webhook returned `work_cycle_completed`.
+- The bad HMAC request returned `401` with `webhook signature mismatch`.
+- Reposting the same alert body returned `duplicate_alert` and reused the existing `AlertCycle`.
+
+Exact script summary:
+
+```json
+{
+  "project_harness_id": "019d3296-c87f-7511-848d-3ce3c90bbd64",
+  "monitor_id": "019d3296-c890-7f30-9920-da911a0df64b",
+  "alert_cycle_id": "019d3296-c8f4-75d0-bbf5-ad1987f0190a",
+  "merge_work_cycle_id": "019d3296-c977-7cb0-8715-e51da4d3d802",
+  "alert_response": {
+    "accepted": true,
+    "outcome": "alert_opened",
+    "duplicate": false
+  },
+  "merge_response": {
+    "accepted": true,
+    "outcome": "work_cycle_completed"
+  },
+  "bad_signature_response": {
+    "accepted": false,
+    "error": "webhook signature mismatch"
+  },
+  "duplicate_response": {
+    "accepted": true,
+    "outcome": "duplicate_alert",
+    "duplicate": true
+  }
+}
+```
+
+## Honest Assessment Against Vision
+
+- Proven:
+  - Webhook ingress is no longer a placeholder.
+  - The ingress path writes real governed state and enforces basic safety checks.
+- Not proven here:
+  - A live Logfire or GitHub sender reaching the endpoint over the public internet.
+  - End-to-end remediation after ingestion. That belongs to later proofs.
+- Known limitation:
+  - This proof uses synthetic payloads, so it proves the platform contract, not third-party webhook compatibility edge cases.
 
 ## What Worked
-- Webhook handler correctly translates external payloads to OData entity actions
-- Duplicate prevention works (returns existing AlertCycle ID instead of creating new)
-- Monitor.AlertFired correctly increments alert_count
-- AlertCycle state machine transitions Created → Triaging correctly
-- Bad payloads rejected with appropriate HTTP status codes
 
-## What Didn't Work
-- Initial attempt had field access issues (OData returns `status` lowercase at root, `Status` capitalized in `fields`). Fixed by checking both locations.
+- Real external HTTP ingress is now translated back into governed OData actions.
+- Duplicate alert payloads are detected before a new `AlertCycle` is opened.
+- GitHub merge payloads can complete a reviewing `WorkCycle`.
+- Optional HMAC verification is supported through `WEBHOOK_SECRET`.
 
 ## Limitations
-- HMAC signature verification is simple string comparison (not proper HMAC-SHA256). Sufficient for initial integration; should be upgraded for production.
-- GitHub PR event handler only logs — doesn't transition WorkCycles yet (would need WorkCycle state machine to support PR-merge-triggered transitions).
 
-## What Still Doesn't Work
-- Scout is not auto-spawned on AlertCycle creation (Phase 2)
-- No real Logfire/Datadog webhook format parsing (uses generic envelope format)
+- GitHub merge handling assumes the webhook provides a `work_cycle_id` or a resolvable PR URL.
+- The proof uses synthetic payloads, not a live Logfire or GitHub webhook sender.
 
 ## Artifacts
-- Proof script: `scripts/prove_webhook_ingestion.py`
-- Monitor ID: `webhook-proof-monitor-20260328034639`
-- AlertCycle ID: `019d328d-12be-7442-8fbe-4c195b527792`
+
+- [`crates/openpaw/src/webhooks.rs`](/Users/seshendranalla/Development/openpaw-codex/crates/openpaw/src/webhooks.rs)
+- [`scripts/prove_webhook_ingestion.py`](/Users/seshendranalla/Development/openpaw-codex/scripts/prove_webhook_ingestion.py)
+- [`docs/adrs/0003-demo-vision-implementation.md`](/Users/seshendranalla/Development/openpaw-codex/docs/adrs/0003-demo-vision-implementation.md)

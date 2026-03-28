@@ -4,10 +4,10 @@
 //! The daemon boots the Temper platform, installs Paw OS apps, seeds souls,
 //! and starts the Discord transport.
 
+use std::collections::HashSet;
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Duration;
 
 use anyhow::{Context, Result};
 use temper_platform::PlatformState;
@@ -20,9 +20,9 @@ use temper_server::event_store::ServerEventStore;
 use temper_server::registry::{EntityLevelSummary, EntityVerificationResult, VerificationStatus};
 use temper_server::registry_bootstrap::restore_registry_from_turso;
 use temper_store_turso::{TursoEventStore, TursoSpecVerificationUpdate};
-use tokio::sync::oneshot;
 
 use crate::config::Config;
+use crate::webhooks;
 
 /// Paw OS apps to install at startup.
 const PAW_OS_APPS: &[&str] = &[
@@ -34,9 +34,6 @@ const PAW_OS_APPS: &[&str] = &[
     "paw-harness",
     "paw-heal",
 ];
-
-const DEFAULT_PAW_AGENT_CONFIG_PATH: &str = "config/paw_agent_config.json";
-const LOCAL_SANDBOX_WORKDIR: &str = "/tmp/paw-sandbox";
 
 /// Run the Open Paw daemon.
 pub async fn run(config: Config) -> Result<()> {
@@ -164,6 +161,91 @@ pub async fn run(config: Config) -> Result<()> {
             }
         }
 
+        let api_url = format!("http://127.0.0.1:{port}");
+        let _ = vault.cache_secret("default", "temper_api_url", api_url.clone());
+        if tenant != "default" {
+            let _ = vault.cache_secret(&tenant, "temper_api_url", api_url);
+        }
+
+        // Local sandbox (auto-start if script exists). Keep it available for
+        // explicit Configure overrides, but do not force it as the default when
+        // E2B is configured and no SANDBOX_URL override was provided.
+        let explicit_sandbox_url = std::env::var("SANDBOX_URL").ok();
+        let sandbox_port = port + 10;
+        let local_sandbox_url = {
+            let sandbox_script = Path::new("os-apps/paw-agent/sandbox/local_sandbox.py");
+            let url = format!("http://127.0.0.1:{sandbox_port}");
+            if sandbox_script.exists() {
+                let _ = std::fs::create_dir_all("/tmp/paw-sandbox");
+                let _ = std::fs::create_dir_all("/workspace");
+                match std::process::Command::new("python3")
+                    .arg(sandbox_script)
+                    .arg("--port")
+                    .arg(sandbox_port.to_string())
+                    .arg("--workdir")
+                    .arg("/tmp/paw-sandbox")
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .spawn()
+                {
+                    Ok(_) => tracing::info!("Local sandbox: {url} (auto-started)"),
+                    Err(e) => tracing::warn!("Failed to start local sandbox: {e}"),
+                }
+            }
+            url
+        };
+
+        let default_sandbox_url = explicit_sandbox_url.or_else(|| {
+            if config.e2b_api_key.is_some() {
+                tracing::info!(
+                    "E2B_API_KEY is configured; leaving sandbox_url unset so provisioning can use E2B by default"
+                );
+                None
+            } else {
+                Some(local_sandbox_url.clone())
+            }
+        });
+
+        if let Some(sandbox_url) = default_sandbox_url {
+            let _ = vault.cache_secret("default", "sandbox_url", sandbox_url.clone());
+            if tenant != "default" {
+                let _ = vault.cache_secret(&tenant, "sandbox_url", sandbox_url);
+            }
+        }
+
+        // Local blob store for TemperFS content uploads/downloads.
+        let blob_store_port = port + 20;
+        let blob_endpoint = if let Ok(url) = std::env::var("BLOB_ENDPOINT") {
+            url
+        } else {
+            let blob_script = Path::new("os-apps/paw-fs/sandbox/local_blob_store.py");
+            let url = format!("http://127.0.0.1:{blob_store_port}");
+            if blob_script.exists() {
+                let _ = std::fs::create_dir_all("/tmp/openpaw-blobs");
+                match std::process::Command::new("python3")
+                    .arg(blob_script)
+                    .arg("--port")
+                    .arg(blob_store_port.to_string())
+                    .arg("--dir")
+                    .arg("/tmp/openpaw-blobs")
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .spawn()
+                {
+                    Ok(_) => tracing::info!("Local blob store: {url} (auto-started)"),
+                    Err(e) => tracing::warn!("Failed to start local blob store: {e}"),
+                }
+            }
+            url
+        };
+        let blob_bucket = std::env::var("BLOB_BUCKET").unwrap_or_else(|_| "temper-fs".into());
+        let _ = vault.cache_secret("default", "blob_endpoint", blob_endpoint.clone());
+        let _ = vault.cache_secret("default", "blob_bucket", blob_bucket.clone());
+        if tenant != "default" {
+            let _ = vault.cache_secret(&tenant, "blob_endpoint", blob_endpoint);
+            let _ = vault.cache_secret(&tenant, "blob_bucket", blob_bucket);
+        }
+
         // Discord bot token
         if let Some(ref token) = config.discord_bot_token {
             let _ = vault.cache_secret("default", "discord_bot_token", token.clone());
@@ -226,41 +308,30 @@ pub async fn run(config: Config) -> Result<()> {
     println!("  Tenant: {tenant}");
     println!();
 
-    // Phase 9: Bind + start server + bootstrap runtime entities + transports
+    // Phase 9: Bind + start transports + serve
     tracing::info!("Phase 9: Starting server...");
+    let router = build_platform_router(state.clone()).merge(webhooks::build_webhook_router(
+        webhooks::WebhookState::new(
+            format!("http://127.0.0.1:{port}"),
+            tenant.clone(),
+            config.temper_api_key.clone(),
+            config.webhook_secret.clone(),
+        ),
+    ));
     let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{port}"))
         .await
         .with_context(|| format!("Failed to bind to port {port}"))?;
     let actual_port = listener.local_addr()?.port();
     let _ = state.server.listen_port.set(actual_port);
-    seed_runtime_secrets(&state, &config, &tenant, actual_port).await?;
 
-    let api_key = config.temper_api_key.clone();
-    let router = build_platform_router(state.clone()).merge(crate::webhooks::router(
-        crate::webhooks::WebhookConfig::new(
-            format!("http://127.0.0.1:{actual_port}"),
-            tenant.clone(),
-            api_key.clone(),
-        ),
-    ));
-    let (ready_tx, ready_rx) = oneshot::channel();
-    let server = tokio::spawn(async move {
-        let _ = ready_tx.send(());
-        axum::serve(listener, router).await
-    });
-    ready_rx
-        .await
-        .map_err(|_| anyhow::anyhow!("server readiness signal dropped before startup bootstrap"))?;
-
-    if let Err(error) =
-        bootstrap_runtime_entities(actual_port, tenant.clone(), api_key.clone()).await
-    {
-        server.abort();
-        return Err(error);
-    }
-
+    // Start Discord transport if token is available
     if let Some(ref token) = config.discord_bot_token {
-        spawn_discord_transport(token.clone(), &tenant, actual_port, api_key);
+        spawn_discord_transport(
+            token.clone(),
+            &tenant,
+            actual_port,
+            config.temper_api_key.clone(),
+        );
     } else {
         tracing::warn!("No DISCORD_BOT_TOKEN — Discord transport not started");
     }
@@ -268,12 +339,13 @@ pub async fn run(config: Config) -> Result<()> {
     // Spawn background loops
     // TODO: spawn_optimization_loop, spawn_actor_passivation_loop
 
+    // Spawn soul bootstrap (needs OData API running, so runs after bind)
+    spawn_soul_bootstrap(actual_port, tenant.clone(), config.temper_api_key.clone());
+
     tracing::info!("Open Paw listening on port {actual_port}");
-    match server.await {
-        Ok(Ok(())) => Ok(()),
-        Ok(Err(error)) => Err(error.into()),
-        Err(error) => Err(anyhow::anyhow!("Open Paw server task failed: {error}")),
-    }
+    axum::serve(listener, router).await?;
+
+    Ok(())
 }
 
 async fn persist_os_app_verification(
@@ -330,43 +402,51 @@ async fn persist_os_app_verification(
     }
 }
 
-/// Bootstrap runtime entities that depend on the OData API being live.
-async fn bootstrap_runtime_entities(
-    port: u16,
-    tenant: String,
-    api_key: Option<String>,
-) -> Result<()> {
-    let api_url = format!("http://127.0.0.1:{port}");
-    let client = reqwest::Client::new();
+/// Bootstrap Paw souls into the entity system.
+///
+/// Reads soul files from `souls/` directory, creates TemperFS File entities
+/// for the content, and registers Soul entities. Runs once on first boot;
+/// skips if souls already exist.
+fn spawn_soul_bootstrap(port: u16, tenant: String, api_key: Option<String>) {
+    tokio::spawn(async move {
+        // Give the server a moment to be ready
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
-    let souls = [
-        ("Paw", "Paw project manager agent", "souls/paw.md"),
-        (
-            "Developer",
-            "Software developer agent",
-            "souls/developer.md",
-        ),
-        ("Scout", "Monitoring and triage agent", "souls/scout.md"),
-    ];
+        let api_url = format!("http://127.0.0.1:{port}");
+        let client = reqwest::Client::new();
 
-    for (name, description, path) in &souls {
-        match bootstrap_soul(
-            &client,
-            &api_url,
-            &tenant,
-            &api_key,
-            name,
-            description,
-            path,
-        )
-        .await
-        {
-            Ok(soul_id) => tracing::info!("  Soul '{name}' ready: {soul_id}"),
-            Err(e) => tracing::error!("  Failed to bootstrap soul '{name}': {e}"),
+        let souls = [
+            ("Paw", "Paw project manager agent", "souls/paw.md"),
+            (
+                "Developer",
+                "Software developer agent",
+                "souls/developer.md",
+            ),
+            ("Scout", "Monitoring and triage agent", "souls/scout.md"),
+        ];
+
+        for (name, description, path) in &souls {
+            match bootstrap_soul(
+                &client,
+                &api_url,
+                &tenant,
+                &api_key,
+                name,
+                description,
+                path,
+            )
+            .await
+            {
+                Ok(soul_id) => tracing::info!("  Soul '{name}' ready: {soul_id}"),
+                Err(e) => tracing::error!("  Failed to bootstrap soul '{name}': {e}"),
+            }
         }
-    }
 
-    ensure_default_agent_route(&client, &api_url, &tenant, &api_key, "Paw").await
+        // Set Paw as the default soul for the Discord channel route
+        if let Err(e) = set_default_soul(&client, &api_url, &tenant, &api_key, "Paw").await {
+            tracing::warn!("Could not set default soul on AgentRoute: {e}");
+        }
+    });
 }
 
 /// Create or find a Soul entity for the given soul file.
@@ -476,27 +556,46 @@ async fn bootstrap_soul(
     Ok(soul_id)
 }
 
-/// Ensure there is one active fallback AgentRoute for the Paw soul.
-async fn ensure_default_agent_route(
+/// Set the Paw soul as the default on any existing AgentRoute.
+async fn set_default_soul(
     client: &reqwest::Client,
     api_url: &str,
     tenant: &str,
     api_key: &Option<String>,
     soul_name: &str,
 ) -> Result<()> {
-    let souls_resp = odata_get(client, &format!("{api_url}/tdata/Souls"), tenant, api_key).await?;
+    // Keep route soul references stable across restarts by storing the soul
+    // name, while still recognizing existing routes that may still hold IDs.
+    let souls_resp = odata_get(
+        client,
+        &format!("{api_url}/tdata/Souls?$filter=Status eq 'Active'"),
+        tenant,
+        api_key,
+    )
+    .await?;
     let souls = souls_resp["value"]
         .as_array()
-        .context("Failed to list souls for default AgentRoute bootstrap")?;
-    let target_exists = souls.iter().any(|soul| {
-        entity_field_str(soul, &["Name", "name"]) == Some(soul_name)
-            && entity_field_str(soul, &["Status", "status"]) == Some("Active")
-    });
+        .context("Failed to list active souls")?;
+
+    let mut known_refs = HashSet::new();
+    let mut target_exists = false;
+    for soul in souls {
+        if let Some(id) = entity_id_from_json(soul) {
+            known_refs.insert(id.to_string());
+        }
+        if let Some(name) = entity_field_str(soul, &["Name", "name"]) {
+            if name == soul_name {
+                target_exists = true;
+            }
+            known_refs.insert(name.to_string());
+        }
+    }
+
     if !target_exists {
         anyhow::bail!("Soul '{soul_name}' not found");
     }
 
-    let agent_config = load_seed_json(DEFAULT_PAW_AGENT_CONFIG_PATH)?;
+    // Find AgentRoutes and update their soul_id
     let routes_resp = odata_get(
         client,
         &format!("{api_url}/tdata/AgentRoutes"),
@@ -504,197 +603,28 @@ async fn ensure_default_agent_route(
         api_key,
     )
     .await?;
-    let existing_fallback_route_id = routes_resp["value"].as_array().and_then(|routes| {
-        routes.iter().find_map(|route| {
-            let status = entity_field_str(route, &["Status", "status"]).unwrap_or("");
-            let binding_tier =
-                entity_field_str(route, &["BindingTier", "binding_tier"]).unwrap_or("");
-            let channel_id = entity_field_str(route, &["ChannelId", "channel_id"]).unwrap_or("");
-            if status == "Active" && binding_tier == "channel" && channel_id.is_empty() {
-                entity_id_from_json(route).map(ToString::to_string)
-            } else {
-                None
+
+    if let Some(routes) = routes_resp["value"].as_array() {
+        for route in routes {
+            let route_id = entity_id_from_json(route).unwrap_or("");
+            let current_soul = entity_field_str(route, &["SoulId", "soul_id"]).unwrap_or("");
+            let needs_repair = current_soul.is_empty() || !known_refs.contains(current_soul);
+            if needs_repair && !route_id.is_empty() {
+                odata_post(
+                    client,
+                    &format!("{api_url}/tdata/AgentRoutes('{route_id}')/Paw.Channel.Update"),
+                    tenant,
+                    api_key,
+                    serde_json::json!({ "soul_id": soul_name }),
+                )
+                .await
+                .ok(); // Best effort
+                tracing::info!("  Repaired soul '{soul_name}' on AgentRoute {route_id}");
             }
-        })
-    });
-
-    if let Some(route_id) = existing_fallback_route_id {
-        odata_post(
-            client,
-            &format!("{api_url}/tdata/AgentRoutes('{route_id}')/Paw.Channel.Update"),
-            tenant,
-            api_key,
-            serde_json::json!({
-                "agent_config": agent_config,
-                "soul_id": soul_name,
-            }),
-        )
-        .await?;
-        tracing::info!("  Refreshed fallback AgentRoute {route_id} for soul '{soul_name}'");
-        return Ok(());
-    }
-
-    let route_resp = odata_post(
-        client,
-        &format!("{api_url}/tdata/AgentRoutes"),
-        tenant,
-        api_key,
-        serde_json::json!({}),
-    )
-    .await?;
-    let route_id = route_resp["entity_id"]
-        .as_str()
-        .or_else(|| route_resp["fields"]["Id"].as_str())
-        .or_else(|| route_resp["Id"].as_str())
-        .context("AgentRoute creation did not return Id")?;
-    odata_post(
-        client,
-        &format!("{api_url}/tdata/AgentRoutes('{route_id}')/Paw.Channel.Register"),
-        tenant,
-        api_key,
-        serde_json::json!({
-            "binding_tier": "channel",
-            "channel_id": "",
-            "guild_id": "",
-            "match_pattern": "",
-            "agent_config": agent_config,
-            "soul_id": soul_name,
-        }),
-    )
-    .await?;
-    tracing::info!("  Created fallback AgentRoute {route_id} for soul '{soul_name}'");
-    Ok(())
-}
-
-fn load_seed_json(path: &str) -> Result<String> {
-    let content = std::fs::read_to_string(path)
-        .with_context(|| format!("Failed to read seed JSON: {path}"))?;
-    let parsed: serde_json::Value =
-        serde_json::from_str(&content).with_context(|| format!("Invalid seed JSON: {path}"))?;
-    serde_json::to_string(&parsed).context("Failed to serialize seed JSON")
-}
-
-async fn seed_runtime_secrets(
-    state: &PlatformState,
-    config: &Config,
-    tenant: &str,
-    port: u16,
-) -> Result<()> {
-    let Some(vault) = state.server.secrets_vault.as_ref() else {
-        anyhow::bail!("secrets vault was not initialized");
-    };
-
-    let api_url = format!("http://127.0.0.1:{port}");
-    let blob_endpoint =
-        std::env::var("BLOB_ENDPOINT").unwrap_or_else(|_| format!("{api_url}/_internal/blobs"));
-    let blob_bucket = std::env::var("BLOB_BUCKET").unwrap_or_else(|_| "temper-fs".into());
-    let _ = vault.cache_secret("default", "temper_api_url", api_url.clone());
-    let _ = vault.cache_secret("default", "blob_endpoint", blob_endpoint.clone());
-    let _ = vault.cache_secret("default", "blob_bucket", blob_bucket.clone());
-    if tenant != "default" {
-        let _ = vault.cache_secret(tenant, "temper_api_url", api_url.clone());
-        let _ = vault.cache_secret(tenant, "blob_endpoint", blob_endpoint);
-        let _ = vault.cache_secret(tenant, "blob_bucket", blob_bucket);
-    }
-
-    let explicit_sandbox_url = std::env::var("SANDBOX_URL").ok();
-    let local_sandbox_url = format!("http://127.0.0.1:{}", port + 10);
-    let default_sandbox_url = explicit_sandbox_url.or_else(|| {
-        if config.e2b_api_key.is_some() {
-            tracing::info!(
-                "E2B_API_KEY is configured; leaving sandbox_url unset so provisioning can use E2B by default"
-            );
-            None
-        } else {
-            Some(local_sandbox_url)
-        }
-    });
-
-    if let Some(sandbox_url) = default_sandbox_url {
-        if is_local_sandbox_url(&sandbox_url) {
-            // This subprocess is only for local development. Production agent execution
-            // should use E2B sandboxes provisioned by the sandbox_provisioner module.
-            ensure_local_sandbox(&sandbox_url).await?;
-        }
-        let _ = vault.cache_secret("default", "sandbox_url", sandbox_url.clone());
-        if tenant != "default" {
-            let _ = vault.cache_secret(tenant, "sandbox_url", sandbox_url);
         }
     }
 
     Ok(())
-}
-
-fn is_local_sandbox_url(url: &str) -> bool {
-    url.contains("127.0.0.1") || url.contains("localhost")
-}
-
-async fn ensure_local_sandbox(url: &str) -> Result<()> {
-    if local_sandbox_healthy(url).await {
-        tracing::info!("Local sandbox already healthy at {url}");
-        return Ok(());
-    }
-
-    let sandbox_script = Path::new("os-apps/paw-agent/sandbox/local_sandbox.py");
-    if !sandbox_script.exists() {
-        anyhow::bail!(
-            "Local sandbox requested at {url}, but {} is missing",
-            sandbox_script.display()
-        );
-    }
-
-    let sandbox_port = url
-        .rsplit(':')
-        .next()
-        .and_then(|value| value.parse::<u16>().ok())
-        .context("Local sandbox URL is missing a valid port")?;
-    std::fs::create_dir_all(LOCAL_SANDBOX_WORKDIR).with_context(|| {
-        format!("Failed to create local sandbox workdir: {LOCAL_SANDBOX_WORKDIR}")
-    })?;
-
-    let child = std::process::Command::new("python3")
-        .arg(sandbox_script)
-        .arg("--port")
-        .arg(sandbox_port.to_string())
-        .arg("--workdir")
-        .arg(LOCAL_SANDBOX_WORKDIR)
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .with_context(|| format!("Failed to start local sandbox at {url}"))?;
-    tracing::info!(
-        pid = child.id(),
-        workdir = LOCAL_SANDBOX_WORKDIR,
-        "Started local sandbox dev server at {url}"
-    );
-
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
-    loop {
-        if local_sandbox_healthy(url).await {
-            tracing::info!("Local sandbox passed health check at {url}");
-            return Ok(());
-        }
-        if tokio::time::Instant::now() >= deadline {
-            anyhow::bail!("Local sandbox did not become healthy within 5s at {url}");
-        }
-        tokio::time::sleep(Duration::from_millis(200)).await;
-    }
-}
-
-async fn local_sandbox_healthy(url: &str) -> bool {
-    let health_url = format!("{url}/health");
-    match reqwest::Client::builder()
-        .timeout(Duration::from_millis(500))
-        .build()
-    {
-        Ok(client) => client
-            .get(&health_url)
-            .send()
-            .await
-            .map(|response| response.status().is_success())
-            .unwrap_or(false),
-        Err(_) => false,
-    }
 }
 
 /// OData GET helper with tenant + admin auth headers.

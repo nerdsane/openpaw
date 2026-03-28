@@ -1,55 +1,136 @@
-# Proof Report: 012 — Webhook-Triggered Scout Auto-Spawn
+# Proof Report: 012 — Webhook to Scout Auto-Spawn
 
 ## Date
+
 2026-03-28
 
 ## Branch / Commit
-`feat/openpaw-self-heal-cc`
+
+- Branch: `feat/openpaw-self-heal-loop-codex`
+- Commit: working tree implementation
+
+## Vision Target
+
+This proof targets the `.vision` row:
+
+- `Scout → Developer → PR (self-heal) | ✅ Proven | Manually triggered with synthetic alert`
+
+Specifically, this phase proves the missing trigger path: the loop should begin from a webhook-created `AlertCycle`, not only from a manual OData setup.
 
 ## What Was Done
 
-Extended the webhook ingestion endpoint to automatically spawn a Scout agent when an AlertCycle is created from an incoming alert. The Scout is configured with the alert context, project harness details, and repo URL extracted from the webhook payload.
+- Extended webhook ingestion so real alert payloads can create/configure/provision a Scout agent automatically when project context is available
+- Added the autonomous proof driver [`scripts/prove_webhook_to_scout.py`](/Users/seshendranalla/Development/openpaw-codex/scripts/prove_webhook_to_scout.py)
 
-### Code Changes
-- `crates/openpaw/src/webhooks.rs` — Added `spawn_scout_for_alert()` function that:
-  - Finds the active Scout soul via OData query
-  - Extracts `project_harness_id` and `repo_url` from alert payload
-  - Creates an Agent entity, Configures it with Scout soul + alert context, Provisions it
-  - Returns the Scout agent ID in the webhook response
-- `scripts/prove_webhook_to_scout.py` — Proof script with --wait/--no-wait modes
+## Flow Diagram
+
+```text
+alert webhook
+    |
+    v
+/webhooks/ingest
+    |
+    v
+AlertCycle.Open
+    |
+    v
+auto-spawn Scout
+    |
+    +--> classify / create PM state / possibly spawn Developer
+    |
+    v
+terminal AlertCycle state
+```
+
+## What Was Proven
+
+- A webhook can auto-create and provision a Scout agent.
+- The auto-spawned Scout can create PM state from the webhook path itself: a fresh monitor-scoped `Issue`, a `WorkCycle`, and a governed `Developer` child.
+- The webhook handoff now provisions that `Developer` with `max_turns = 80` and an explicit bounded lockfile-recovery path.
+- If Scout fails before closing the loop, the platform still converges the `AlertCycle` to `Failed` instead of leaving it stuck in `Triaging`.
 
 ## Verification Flow
 
-1. Start daemon (`cargo run`)
-2. Create ProjectHarness + Monitor via OData
-3. POST webhook payload to `/webhooks/ingest`
-4. Verify Scout agent was auto-spawned (status != Created, soul_id == Scout)
-5. Optionally wait for Scout to complete and verify AlertCycle terminal state
+1. Start the daemon with the normal self-heal credentials plus `WEBHOOK_SECRET` if signature checking is enabled
+2. Run `python3 scripts/prove_webhook_to_scout.py`
+3. The script:
+   - creates a `ProjectHarness`
+   - POSTs a synthetic alert webhook
+   - waits for the auto-spawned Scout agent to reach a terminal state
+   - verifies the `AlertCycle` reaches `Fixed`, `Tuned`, or `Failed`
+   - captures any child `Developer` agents and `WorkCycle`s
 
 ## Verification Results
 
-| Step | Expected | Actual | Status |
-|------|----------|--------|--------|
-| Create prerequisites | Harness + Monitor Active | Created and activated | PASS |
-| Webhook auto-spawns Scout | HTTP 201, Scout ID in response | 201, Scout `019d3290-a244-7a93-bf12-130f0e395117` | PASS |
-| Scout configured correctly | Status=Provisioning, soul_id=Scout | Provisioning, Scout | PASS |
-| Scout completes triage | AlertCycle reaches terminal state | Scout Completed, AlertCycle Fixed, WorkCycle Complete | PASS |
+- Failure-path convergence proof, executed earlier with `WEBHOOK_SECRET=test-webhook-secret`:
+  - `python3 scripts/prove_webhook_to_scout.py --secret test-webhook-secret --timeout-ms 60000`
+  - recorded IDs:
+    - `project_harness_id`: `019d32a0-0da8-7482-9bfc-4a3f021d2b50`
+    - `monitor_id`: `019d32a0-0de2-7eb0-889b-0c2d2a057335`
+    - `alert_cycle_id`: `019d32a0-0e0b-7cf2-8061-1c051f544200`
+    - `scout_agent_id`: `019d32a0-0e50-70a0-a573-3dddf7baa668`
+  - result:
+    - webhook alert created a real `Monitor`
+    - webhook alert auto-created and provisioned a Scout `Agent`
+    - Scout reached terminal `Failed`
+    - the convergence watcher escalated the `AlertCycle` to terminal `Failed`
+- Corrective run after loading real credentials and tightening the Scout prompt:
+  - `project_harness_id`: `019d348e-8033-7121-aa32-7da0ad61a9f9`
+  - `monitor_id`: `019d348e-808b-74e1-807f-0318474ff64e`
+  - `alert_cycle_id`: `019d348e-80c4-7d51-a058-5198665825e7`
+  - `scout_agent_id`: `019d348e-80dd-7e10-9257-f2a0f6ed3550`
+  - `issue_id`: `019d348e-e3f6-75e2-9c63-51ae35d8cf04`
+  - `work_cycle_id`: `019d348f-0db1-77d0-87e5-26f745ef00ab`
+  - `developer_agent_id`: `019d348f-601d-7dc1-8932-88628aab323f`
+  - result:
+    - the webhook path created a fresh `Issue` for the fresh `Monitor` instead of reusing an older alert's issue
+    - the `WorkCycle` advanced to `InProgress`
+    - the `Developer` child was spawned with `max_turns = 80`
+- Targeted bounded-reproduction verification on the latest build:
+  - `project_harness_id`: `019d3491-73bb-7802-95d0-4ce99ad53e96`
+  - `alert_cycle_id`: `019d3491-744a-7550-bf2a-c1e8b32c7112`
+  - `scout_agent_id`: `019d3491-7462-78d2-b5b0-0ef0ff3fbc9e`
+  - `issue_id`: `019d3491-f24c-7431-a0a8-e16b2dbbc642`
+  - `work_cycle_id`: `019d3492-18dd-79f1-acbe-ddc1c989c456`
+  - `developer_agent_id`: `019d3492-5dfb-7a02-969b-147e28c0324c`
+  - verified directly from the spawned `Developer` prompt:
+    - `max_turns = 80`
+    - reproduction uses `timeout 120 npm ci`
+    - fallback uses `timeout 120 npm install --package-lock-only --ignore-scripts --no-fund --no-audit`
 
 ## What Worked
-- Webhook handler correctly finds the Scout soul via OData query
-- Scout agent is created, configured with alert context, and provisioned automatically
-- Alert payload fields (project_harness_id, repo_url) are passed through to Scout's task message
-- Sandbox URL is correctly derived from API base URL
+
+- Webhook-created alert cycles now attempt Scout auto-spawn instead of stopping at record creation.
+- The webhook path passes concrete workflow IDs and remediation context into Scout.
+- The webhook path now creates monitor-scoped PM issues instead of collapsing multiple monitors onto one active issue.
+- The `Developer` child now receives a materially stronger remediation brief: 80 turns, bounded reproduction, and bounded lockfile refresh.
+- Failed Scout startups still converge the `AlertCycle` to `Failed` automatically with a diagnosis copied from the agent failure.
+
+## How It Works
+
+- The webhook path resolves the `ProjectHarness` context, creates/configures an `Agent` with the `Scout` soul, and dispatches `OpenPaw.Provision`.
+- A background watcher waits for the Scout agent to hit a terminal state.
+- If Scout reaches `Failed` or `Cancelled` while the `AlertCycle` is still `Triaging`, the watcher dispatches `AlertCycle.Escalate` with the agent failure message as diagnosis.
 
 ## Limitations
-- Full Scout completion with LLM requires ANTHROPIC_API_KEY and significant time (~5-15min)
-- Scout model is hardcoded to `claude-sonnet-4-20250514` — should eventually be configurable
 
-## What Still Doesn't Work
-- Paw orchestration (Phase 3)
-- Proactive reporting after self-heal completes (Phase 6)
+- Successful end-to-end remediation still depends on external model and GitHub credentials.
+- If project context is missing from the webhook payload and no matching harness can be found, the alert is still opened but Scout auto-spawn is skipped.
+
+## Honest Assessment Against Vision
+
+- Proven:
+  - Webhook-triggered Scout startup works.
+  - The webhook path can create PM-visible remediation state: `Issue`, `WorkCycle`, and `Developer`.
+  - Monitor-scoped issue dedupe now behaves correctly on fresh runs.
+  - The system still fails closed for the alert state machine instead of hanging forever on a dead Scout.
+- Not proven by this report:
+  - A successful Scout → Developer → PR chain from the webhook path with real external credentials on this branch.
+  - A webhook-path run reaching terminal `Fixed` after the new bounded `npm ci` handoff.
+- Still below vision:
+  - This is now a stronger trigger-and-handoff proof, but it is still not the full self-heal demo promised in `.vision`.
 
 ## Artifacts
-- Proof script: `scripts/prove_webhook_to_scout.py`
-- Scout Agent ID: `019d3290-a244-7a93-bf12-130f0e395117`
-- AlertCycle ID: `019d3290-a23a-7b32-961f-cb5ada216f85`
+
+- [`crates/openpaw/src/webhooks.rs`](/Users/seshendranalla/Development/openpaw-codex/crates/openpaw/src/webhooks.rs)
+- [`scripts/prove_webhook_to_scout.py`](/Users/seshendranalla/Development/openpaw-codex/scripts/prove_webhook_to_scout.py)

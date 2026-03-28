@@ -187,8 +187,13 @@ def build_scout_message(
     project_harness_id: str,
     monitor_id: str,
     alert_cycle_id: str,
-    developer_sandbox_url: str,
+    developer_sandbox_url: str | None,
 ) -> str:
+    sandbox_instruction = (
+        f"- `sandbox_url = {developer_sandbox_url}`"
+        if developer_sandbox_url
+        else "- do not set `sandbox_url`; let platform provisioning use the configured default sandbox"
+    )
     return f"""
 You are handling a real self-healing remediation for deep-sci-fi.
 
@@ -211,7 +216,7 @@ Follow this exact workflow:
 3. Spawn exactly one Developer child agent with:
    - soul_id = Developer
    - tools = read,write,edit,bash,temper_get,temper_list,temper_action,read_entity
-   - sandbox_url = {developer_sandbox_url}
+   {sandbox_instruction}
    - workdir = /tmp/deep-sci-fi-self-heal
    - max_turns = 80
    - background = false
@@ -253,8 +258,19 @@ def main() -> int:
     parser.add_argument("--model", default=DEFAULT_MODEL)
     parser.add_argument("--timeout-ms", type=int, default=15 * 60 * 1000)
     parser.add_argument("--sandbox-url", default=os.getenv("OPENPAW_SANDBOX_URL"))
+    parser.add_argument(
+        "--sandbox-mode",
+        choices=("auto", "local", "e2b"),
+        default="auto",
+        help="auto/local use the local sandbox URL unless explicitly overridden; e2b leaves sandbox_url unset so provisioning can use E2B",
+    )
     args = parser.parse_args()
-    sandbox_url = args.sandbox_url or derive_local_sandbox_url(args.base_url)
+    if args.sandbox_url:
+        sandbox_url = args.sandbox_url
+    elif args.sandbox_mode == "e2b":
+        sandbox_url = ""
+    else:
+        sandbox_url = derive_local_sandbox_url(args.base_url)
 
     client = ODataClient(
         base_url=args.base_url,
@@ -313,6 +329,7 @@ def main() -> int:
     print(f"ALERT_CYCLE_ID={alert_cycle_id}", flush=True)
     alert_payload = build_alert_payload(args.repo_url, project_id)
     print(f"SANDBOX_URL={sandbox_url}", flush=True)
+    print(f"SANDBOX_MODE={args.sandbox_mode}", flush=True)
 
     scout = client.create("Agents", {})
     scout_id = agent_entity_id(scout)
