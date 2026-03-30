@@ -47,12 +47,26 @@ Use this entity progression unless the task explicitly says otherwise:
 
 1. Detect the real stack from the repository instead of assuming it.
 2. Add Datadog instrumentation appropriate to the stack:
-   - Python: add `ddtrace` plus `DD_SERVICE`, `DD_ENV`, and `DD_VERSION`
-   - Node/Next.js: add `dd-trace` and initialize it in the real runtime entrypoint
+   - Python:
+     - add `ddtrace`
+     - initialize tracing in the real process entrypoint, not a dead helper file
+     - set `DD_SERVICE`, `DD_ENV`, and `DD_VERSION`
+     - preserve the app's existing boot command so tracing wraps the real runtime
+   - Node/Next.js:
+     - add `dd-trace`
+     - initialize the tracer before the app imports most of its runtime graph
+     - wire `DD_SERVICE`, `DD_ENV`, and `DD_VERSION`
+     - prefer the actual server entrypoint, instrumentation file, or bootstrap module over sample code
+   - If logs are the only stable signal, add structured error logging with service/env/version tags so monitors can correlate with traces and deployments.
 3. Create or update a `MonitorScan` if one is part of the task.
-4. Generate Datadog monitors for the codebase or changed files and point them at `{openpaw_url}/webhooks/ingest` when webhook bootstrap is in scope.
-5. Create matching Open Paw `Monitor` entities with `dd_monitor_id` and `dd_query`.
-6. Record how many monitors were created or updated before you finish.
+4. Generate Datadog monitors for the codebase or changed files:
+   - cover the real failure surfaces first: failing HTTP handlers, async jobs, worker loops, external API boundaries, and high-traffic pages
+   - use APM error-rate monitors, trace-latency monitors, or log monitors depending on what the stack actually emits
+   - tag monitors with the project name plus `openpaw:true`
+   - when webhook bootstrap is in scope, point monitor notifications at `{openpaw_url}/webhooks/ingest`
+5. Create or update monitors through the Datadog API using `datadog_query` where possible, or `curl` if the repo task explicitly needs raw REST control.
+6. Create matching Open Paw `Monitor` entities with `dd_monitor_id` and `dd_query`, then `Monitor.Configure` and `Monitor.Activate`.
+7. Record how many monitors were created or updated before you finish, and include the Datadog monitor IDs in your final report when they were part of the work.
 
 ## When dependency installs are heavy or flaky
 

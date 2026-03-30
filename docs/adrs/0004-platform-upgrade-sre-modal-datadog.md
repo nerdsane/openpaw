@@ -9,7 +9,7 @@ Accepted
 OpenPaw's self-healing path has outgrown the original demo assumptions. The current branch already proves governed agent loops, webhook ingestion, and PM linkage, but the platform narrative and implementation still mix old terminology and earlier infrastructure choices:
 
 - the monitoring persona is still described inconsistently across the repo
-- the historical sandbox story still points at E2B instead of the desired platform-governed Modal path
+- the historical sandbox story still points at a retired sandbox provider instead of the desired platform-governed Modal path
 - monitoring references have drifted across multiple observability backends
 - project bootstrap does not yet model automated monitor generation as a first-class entity
 - `AlertCycle` stops too early for the full PR -> merge -> deploy -> verify story
@@ -60,7 +60,7 @@ This keeps the self-healing loop aligned with the real operator expectation: not
 The long-term remote sandbox provider is Modal. The architectural direction is:
 
 - sandbox provisioning remains inside the governed WASM path
-- the agent runtime should talk to Modal from WASM via Connect/gRPC-compatible calls rather than through an out-of-band Python bridge
+- the agent runtime should provision Modal sandboxes through a small local bridge and then speak the standard sandbox HTTP API directly to the resulting sandbox URL
 - provider credentials live in the OpenPaw config/vault surface, not in ad hoc script state
 
 This preserves Cedar-governed control over who can provision a sandbox and under which project context.

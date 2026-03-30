@@ -76,7 +76,6 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         let temper_api_url = resolve_temper_api_url(&ctx, &fields);
 
         let tenant = &ctx.tenant;
-        let e2b = sandbox_url.contains("e2b.app") || sandbox_url.contains("e2b.dev");
 
         // Read manifest from TemperFS
         let manifest = read_manifest(&ctx, &temper_api_url, tenant, file_manifest_id)?;
@@ -100,11 +99,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             };
 
             // Write file to sandbox
-            let write_result = if e2b {
-                write_file_e2b(&ctx, sandbox_url, path, &content)
-            } else {
-                write_file_local(&ctx, sandbox_url, path, &content)
-            };
+            let write_result = write_file_local(&ctx, sandbox_url, path, &content);
 
             match write_result {
                 Ok(_) => restored += 1,
@@ -208,31 +203,6 @@ fn write_file_local(
         Ok(())
     } else {
         Err(format!("write failed (HTTP {})", resp.status))
-    }
-}
-
-/// Write file to E2B sandbox via POST /files multipart.
-fn write_file_e2b(
-    ctx: &Context,
-    sandbox_url: &str,
-    full_path: &str,
-    content: &str,
-) -> Result<(), String> {
-    let url = format!("{sandbox_url}/files?path={}", url_encode(full_path));
-    let boundary = "----TemperWasmBoundary7MA4YWxkTrZu0gW";
-    let body = format!(
-        "--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"{full_path}\"\r\nContent-Type: application/octet-stream\r\n\r\n{content}\r\n--{boundary}--\r\n"
-    );
-
-    let headers = vec![(
-        "content-type".to_string(),
-        format!("multipart/form-data; boundary={boundary}"),
-    )];
-    let resp = ctx.http_call("POST", &url, &headers, &body)?;
-    if resp.status >= 200 && resp.status < 300 {
-        Ok(())
-    } else {
-        Err(format!("E2B write failed (HTTP {})", resp.status))
     }
 }
 

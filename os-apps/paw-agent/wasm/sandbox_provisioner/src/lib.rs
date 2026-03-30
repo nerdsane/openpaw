@@ -1,13 +1,13 @@
 //! Sandbox Provisioner — WASM module for provisioning sandboxes.
 //!
-//! Provisions a sandbox (static URL from config, or E2B REST API) and returns
+//! Provisions a sandbox (static URL from config, or Modal bridge) and returns
 //! the sandbox connection details. Also creates a TemperFS Workspace and File
 //! for conversation storage (content-addressable, versioned, Cedar-governed).
 //!
 //! Priority order:
 //! 1. sandbox_url from entity state (set via Configure — for local dev)
 //! 2. sandbox_url from integration config (default local sandbox)
-//! 3. E2B REST API (for deployed/Railway — requires e2b_api_key secret)
+//! 3. Modal bridge API (for remote Modal sandboxes)
 //!
 //! Build: `cargo build --target wasm32-unknown-unknown --release`
 
@@ -130,7 +130,8 @@ fn resolve_temper_api_url(ctx: &Context, fields: &Value) -> String {
 
 /// Provision a sandbox. Priority order:
 /// 1. sandbox_url from entity state (set via Configure action) or integration config
-/// 2. E2B REST API (requires e2b_api_key in integration config)
+/// 2. Modal bridge API
+/// 3. Fail with setup guidance
 fn provision_sandbox(ctx: &Context) -> Result<SandboxResult, String> {
     let fields = ctx.entity_state.get("fields").cloned().unwrap_or(json!({}));
 
@@ -164,92 +165,65 @@ fn provision_sandbox(ctx: &Context) -> Result<SandboxResult, String> {
         });
     }
 
-    // Priority 2: E2B REST API (requires e2b_api_key).
-    let e2b_api_key = ctx.config.get("e2b_api_key").cloned().unwrap_or_default();
-
-    if e2b_api_key.is_empty() || e2b_api_key.contains("{secret:") {
-        return Err("no sandbox_url configured and no e2b_api_key available — \
-             set sandbox_url via Configure or store e2b_api_key secret"
-            .to_string());
+    // Priority 2: Modal sandbox bridge (local HTTP API that provisions a Modal-hosted
+    // local_sandbox.py instance and returns its tunnel URL).
+    let modal_bridge_url = ctx
+        .config
+        .get("modal_bridge_url")
+        .cloned()
+        .unwrap_or_else(|| "http://127.0.0.1:3478".to_string());
+    let bridge_health = ctx.http_get(&format!("{modal_bridge_url}/health"));
+    let bridge_ready = bridge_health.as_ref().map_or(false, |response| {
+        response.status == 200 && response.body.contains("\"provider\": \"modal\"")
+    });
+    if !bridge_ready {
+        return Err(format!(
+            "no sandbox_url configured and Modal bridge is unavailable at {modal_bridge_url} — \
+             start it with `python3 scripts/openpaw_modal_sandbox.py --port {}` or set sandbox_url explicitly",
+            modal_bridge_url
+                .rsplit(':')
+                .next()
+                .and_then(|value| value.parse::<u16>().ok())
+                .unwrap_or(3478)
+        ));
     }
 
-    ctx.log("info", "sandbox_provisioner: provisioning via E2B API");
-
-    let e2b_api_url = ctx
-        .config
-        .get("e2b_api_url")
-        .cloned()
-        .unwrap_or_else(|| "https://api.e2b.dev".to_string());
-
-    let template_id = ctx
-        .config
-        .get("e2b_template_id")
-        .cloned()
-        .unwrap_or_else(|| "base".to_string());
-
-    // Create sandbox via E2B REST API
-    let create_url = format!("{e2b_api_url}/sandboxes");
-    let headers = vec![
-        ("x-api-key".to_string(), e2b_api_key.clone()),
-        ("content-type".to_string(), "application/json".to_string()),
-    ];
-
+    ctx.log("info", "sandbox_provisioner: provisioning via Modal bridge");
+    let create_url = format!("{modal_bridge_url}/v1/sandboxes");
+    let headers = vec![("content-type".to_string(), "application/json".to_string())];
     let body = json!({
-        "templateID": template_id,
-        "timeout": 600,
-        // Open Paw talks directly to the envd URL today; disable secure mode
-        // until we plumb the access token through the agent/tool state.
-        "secure": false,
+        "timeout_secs": 3600,
+        "workdir": "/workspace",
     });
-
     let resp = ctx.http_call("POST", &create_url, &headers, &body.to_string())?;
-
     if resp.status < 200 || resp.status >= 300 {
         return Err(format!(
-            "E2B sandbox creation failed (HTTP {}): {}",
+            "Modal bridge sandbox creation failed (HTTP {}): {}",
             resp.status,
             &resp.body[..resp.body.len().min(500)]
         ));
     }
 
     let parsed: Value = serde_json::from_str(&resp.body)
-        .map_err(|e| format!("failed to parse E2B response: {e}"))?;
-
+        .map_err(|e| format!("failed to parse Modal bridge response: {e}"))?;
     let sandbox_id = parsed
-        .get("sandboxID")
-        .or_else(|| parsed.get("sandbox_id"))
+        .get("sandbox_id")
         .and_then(|v| v.as_str())
-        .unwrap_or("unknown")
+        .unwrap_or("modal-sandbox")
         .to_string();
-
-    let client_id = parsed
-        .get("clientID")
-        .or_else(|| parsed.get("client_id"))
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
-
-    // E2B sandbox URL: envd daemon on port 49983 at domain e2b.app.
-    // URL format: https://{port}-{sandbox_id}.{domain} (port comes FIRST).
-    // File ops (read/write) are plain HTTP on this endpoint.
     let sandbox_url = parsed
         .get("sandbox_url")
-        .or_else(|| parsed.get("url"))
         .and_then(|v| v.as_str())
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| format!("https://49983-{sandbox_id}.e2b.app"));
+        .filter(|value| !value.is_empty())
+        .ok_or("Modal bridge response missing sandbox_url")?
+        .to_string();
 
     ctx.log(
         "info",
-        &format!(
-            "sandbox_provisioner: E2B sandbox created: id={sandbox_id}, client={client_id}, url={sandbox_url}"
-        ),
+        &format!("sandbox_provisioner: Modal sandbox created: id={sandbox_id}, url={sandbox_url}"),
     );
 
-    Ok(SandboxResult {
-        sandbox_url,
-        sandbox_id,
-    })
+    Ok(SandboxResult { sandbox_url, sandbox_id })
 }
 
 /// Create a TemperFS Workspace, conversation File, manifest File, and session file.

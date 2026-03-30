@@ -21,9 +21,6 @@ pub struct Config {
     /// Modal token secret for remote sandbox provisioning.
     pub modal_token_secret: Option<String>,
 
-    /// E2B API key for sandbox provisioning.
-    pub e2b_api_key: Option<String>,
-
     /// GitHub token for repo cloning and PR flows.
     pub github_token: Option<String>,
 
@@ -34,7 +31,7 @@ pub struct Config {
     pub dd_app_key: Option<String>,
 
     /// Datadog site suffix, for example `datadoghq.com`.
-    pub dd_site: Option<String>,
+    pub dd_site: String,
 
     /// Bearer token for Temper API authentication.
     pub temper_api_key: Option<String>,
@@ -68,11 +65,10 @@ impl Config {
             anthropic_api_key: optional_env("ANTHROPIC_API_KEY"),
             modal_token_id: optional_env("MODAL_TOKEN_ID"),
             modal_token_secret: optional_env("MODAL_TOKEN_SECRET"),
-            e2b_api_key: optional_env("E2B_API_KEY"),
             github_token: optional_env("GITHUB_TOKEN"),
             dd_api_key: optional_env("DD_API_KEY"),
             dd_app_key: optional_env("DD_APP_KEY"),
-            dd_site: optional_env("DD_SITE").or_else(|| Some("datadoghq.com".to_string())),
+            dd_site: std::env::var("DD_SITE").unwrap_or_else(|_| "datadoghq.com".to_string()),
             temper_api_key: optional_env("TEMPER_API_KEY"),
             vault_key: optional_env("TEMPER_VAULT_KEY"),
             fly_api_token: optional_env("FLY_API_TOKEN"),

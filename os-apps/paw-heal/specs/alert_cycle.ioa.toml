@@ -93,7 +93,7 @@ hint = "Record the deployment target that should be verified after merge."
 [[action]]
 name = "AlertResolved"
 kind = "input"
-from = ["Fixed", "Verifying"]
+from = ["Fixed", "Deploying", "Verifying"]
 to = "Resolved"
 params = ["diagnosis"]
 hint = "Mark the alert resolved after post-deploy verification succeeds."
@@ -101,7 +101,7 @@ hint = "Mark the alert resolved after post-deploy verification succeeds."
 [[action]]
 name = "AlertPersists"
 kind = "input"
-from = ["Fixed", "Verifying"]
+from = ["Fixed", "Merging", "Deploying", "Verifying"]
 to = "Failed"
 params = ["diagnosis"]
 hint = "Mark the alert failed after deployment when the signal still persists."

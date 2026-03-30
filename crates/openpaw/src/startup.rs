@@ -146,13 +146,6 @@ pub async fn run(config: Config) -> Result<()> {
             }
         }
 
-        if let Some(ref key) = config.e2b_api_key {
-            let _ = vault.cache_secret("default", "e2b_api_key", key.clone());
-            if tenant != "default" {
-                let _ = vault.cache_secret(&tenant, "e2b_api_key", key.clone());
-            }
-        }
-
         if let Some(ref token) = config.github_token {
             let _ = vault.cache_secret("default", "github_token", token.clone());
             if tenant != "default" {
@@ -174,10 +167,10 @@ pub async fn run(config: Config) -> Result<()> {
             }
         }
 
-        if let Some(ref token) = config.dd_site {
-            let _ = vault.cache_secret("default", "dd_site", token.clone());
+        {
+            let _ = vault.cache_secret("default", "dd_site", config.dd_site.clone());
             if tenant != "default" {
-                let _ = vault.cache_secret(&tenant, "dd_site", token.clone());
+                let _ = vault.cache_secret(&tenant, "dd_site", config.dd_site.clone());
             }
         }
 
@@ -189,9 +182,27 @@ pub async fn run(config: Config) -> Result<()> {
 
         let explicit_sandbox_url = std::env::var("SANDBOX_URL").ok();
         let sandbox_port = port + 10;
-        let default_sandbox_url = explicit_sandbox_url
-            .or_else(|| launch_modal_sandbox_url(&config, sandbox_port))
-            .or_else(|| launch_local_sandbox_url(sandbox_port));
+        let local_sandbox_url = launch_local_sandbox_url(sandbox_port);
+        let modal_bridge_port = port + 11;
+        let modal_bridge_url = launch_modal_bridge_url(&config, modal_bridge_port);
+
+        if let Some(bridge_url) = modal_bridge_url.clone() {
+            let _ = vault.cache_secret("default", "modal_bridge_url", bridge_url.clone());
+            if tenant != "default" {
+                let _ = vault.cache_secret(&tenant, "modal_bridge_url", bridge_url);
+            }
+        }
+
+        let default_sandbox_url = explicit_sandbox_url.or_else(|| {
+            if modal_bridge_url.is_some() {
+                tracing::info!(
+                    "Modal bridge is configured; sandbox_provisioner will create sandboxes on demand"
+                );
+                None
+            } else {
+                local_sandbox_url.clone()
+            }
+        });
 
         if let Some(sandbox_url) = default_sandbox_url {
             let _ = vault.cache_secret("default", "sandbox_url", sandbox_url.clone());
@@ -306,6 +317,10 @@ pub async fn run(config: Config) -> Result<()> {
             tenant.clone(),
             config.temper_api_key.clone(),
             config.webhook_secret.clone(),
+            config.github_token.clone(),
+            config.dd_api_key.clone(),
+            config.dd_app_key.clone(),
+            config.dd_site.clone(),
         ),
     ));
 
@@ -331,7 +346,7 @@ pub async fn run(config: Config) -> Result<()> {
     Ok(())
 }
 
-fn launch_modal_sandbox_url(config: &Config, sandbox_port: u16) -> Option<String> {
+fn launch_modal_bridge_url(config: &Config, bridge_port: u16) -> Option<String> {
     let token_id = config
         .modal_token_id
         .as_deref()
@@ -350,11 +365,7 @@ fn launch_modal_sandbox_url(config: &Config, sandbox_port: u16) -> Option<String
     let output = std::process::Command::new("python3")
         .arg(helper)
         .arg("--port")
-        .arg(sandbox_port.to_string())
-        .arg("--workdir")
-        .arg("/workspace")
-        .arg("--name")
-        .arg("openpaw-default")
+        .arg(bridge_port.to_string())
         .arg("--print-url")
         .env("MODAL_TOKEN_ID", token_id)
         .env("MODAL_TOKEN_SECRET", token_secret)
@@ -366,7 +377,7 @@ fn launch_modal_sandbox_url(config: &Config, sandbox_port: u16) -> Option<String
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         tracing::warn!(
-            "Modal sandbox helper failed with status {:?}: {}",
+            "Modal bridge helper failed with status {:?}: {}",
             output.status.code(),
             stderr.trim()
         );
@@ -381,11 +392,11 @@ fn launch_modal_sandbox_url(config: &Config, sandbox_port: u16) -> Option<String
         .map(str::trim)
         .unwrap_or("");
     if sandbox_url.is_empty() {
-        tracing::warn!("Modal sandbox helper returned an empty URL");
+        tracing::warn!("Modal bridge helper returned an empty URL");
         return None;
     }
 
-    tracing::info!("Modal sandbox: {sandbox_url}");
+    tracing::info!("Modal bridge: {sandbox_url}");
     Some(sandbox_url.to_string())
 }
 

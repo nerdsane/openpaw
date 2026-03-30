@@ -29,6 +29,10 @@ const DEFAULT_DEVELOPER_WORKDIR: &str = "/tmp/openpaw-self-heal";
 pub struct WebhookState {
     odata: ODataClient,
     webhook_secret: Option<String>,
+    github_token: Option<String>,
+    dd_api_key: Option<String>,
+    dd_app_key: Option<String>,
+    dd_site: String,
 }
 
 impl WebhookState {
@@ -37,10 +41,18 @@ impl WebhookState {
         tenant: String,
         api_key: Option<String>,
         webhook_secret: Option<String>,
+        github_token: Option<String>,
+        dd_api_key: Option<String>,
+        dd_app_key: Option<String>,
+        dd_site: String,
     ) -> Self {
         Self {
             odata: ODataClient::new(reqwest::Client::new(), base_url, tenant, api_key),
             webhook_secret,
+            github_token,
+            dd_api_key,
+            dd_app_key,
+            dd_site,
         }
     }
 }
@@ -510,16 +522,580 @@ async fn handle_github_merge(
         _ => "work_cycle_ignored",
     };
 
+    let mut related_alert_cycle_id = None;
+    if !pr_url.is_empty() && !extract_string(&envelope.payload, &["pull_request.merge_commit_sha", "merge_commit_sha"]).unwrap_or("").is_empty() {
+        let merge_sha = extract_string(&envelope.payload, &["pull_request.merge_commit_sha", "merge_commit_sha"])
+            .unwrap_or("")
+            .to_string();
+        let filter = format!(
+            "pr_url eq '{}' and (Status eq 'Fixed' or Status eq 'Merging')",
+            escape_odata_string(&pr_url)
+        );
+        let related_cycles = state
+            .odata
+            .query_entities("AlertCycles", Some(&filter), Some("sequence_nr desc"), Some(10))
+            .await
+            .unwrap_or_default();
+        for cycle in related_cycles {
+            let Some(alert_cycle_id) = entity_id(&cycle).map(ToOwned::to_owned) else {
+                continue;
+            };
+            related_alert_cycle_id.get_or_insert_with(|| alert_cycle_id.clone());
+            if matches!(entity_status(&cycle).as_deref(), Some("Fixed")) {
+                let _ = state
+                    .odata
+                    .dispatch_action(
+                        "AlertCycles",
+                        &alert_cycle_id,
+                        "OpenPaw.Heal.BeginMerge",
+                        json!({ "pr_url": pr_url }),
+                    )
+                    .await;
+            }
+            let _ = state
+                .odata
+                .dispatch_action(
+                    "AlertCycles",
+                    &alert_cycle_id,
+                    "OpenPaw.Heal.MergeComplete",
+                    json!({ "merge_sha": merge_sha.clone() }),
+                )
+                .await;
+            let state_clone = state.clone();
+            let alert_cycle_id_clone = alert_cycle_id.clone();
+            let pr_url_clone = pr_url.clone();
+            let merge_sha_clone = merge_sha.clone();
+            tokio::spawn(async move {
+                if let Err(error) = track_deployment_and_verify(
+                    &state_clone,
+                    &alert_cycle_id_clone,
+                    &pr_url_clone,
+                    &merge_sha_clone,
+                )
+                .await
+                {
+                    tracing::warn!(%error, alert_cycle_id = alert_cycle_id_clone, "failed to track deployment after GitHub merge webhook");
+                }
+            });
+        }
+    }
+
     Ok(WebhookIngestResponse {
         accepted: true,
         outcome: outcome.to_string(),
         message: format!("GitHub merged PR processed for WorkCycle {work_cycle_id}"),
         duplicate: false,
         monitor_id: None,
-        alert_cycle_id: None,
+        alert_cycle_id: related_alert_cycle_id,
         sre_agent_id: None,
         work_cycle_id: Some(work_cycle_id),
     })
+}
+
+#[derive(Clone, Debug)]
+struct GitHubPrRef {
+    owner: String,
+    repo: String,
+    number: String,
+}
+
+async fn maybe_start_cicd_closure(state: &WebhookState, alert_cycle_id: &str) -> Result<()> {
+    let alert_cycle = state
+        .odata
+        .get_entity("AlertCycles", alert_cycle_id)
+        .await?;
+    if !matches!(entity_status(&alert_cycle).as_deref(), Some("Fixed")) {
+        return Ok(());
+    }
+    let Some(pr_url) = entity_field_str(&alert_cycle, &["pr_url", "PrUrl"]) else {
+        return Ok(());
+    };
+    if pr_url.is_empty() {
+        return Ok(());
+    }
+    start_cicd_closure(state, alert_cycle_id, pr_url).await
+}
+
+async fn start_cicd_closure(
+    state: &WebhookState,
+    alert_cycle_id: &str,
+    pr_url: &str,
+) -> Result<()> {
+    let Some(github_token) = state
+        .github_token
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    else {
+        tracing::warn!(alert_cycle_id, pr_url, "skipping CI/CD closure because GITHUB_TOKEN is not configured");
+        return Ok(());
+    };
+    let pr_ref = parse_github_pr_url(pr_url)?;
+    state
+        .odata
+        .dispatch_action(
+            "AlertCycles",
+            alert_cycle_id,
+            "OpenPaw.Heal.BeginMerge",
+            json!({ "pr_url": pr_url }),
+        )
+        .await?;
+
+    let github = reqwest::Client::new();
+    if let Err(error) = wait_for_pr_ready_for_merge(&github, github_token, &pr_ref).await {
+        state
+            .odata
+            .dispatch_action(
+                "AlertCycles",
+                alert_cycle_id,
+                "OpenPaw.Heal.AlertPersists",
+                json!({
+                    "diagnosis": format!("PR {pr_url} never became merge-ready: {error:#}")
+                }),
+            )
+            .await?;
+        return Ok(());
+    }
+
+    let merge_sha = match squash_merge_pull_request(&github, github_token, &pr_ref).await {
+        Ok(merge_sha) => merge_sha,
+        Err(error) => {
+            state
+                .odata
+                .dispatch_action(
+                    "AlertCycles",
+                    alert_cycle_id,
+                    "OpenPaw.Heal.AlertPersists",
+                    json!({
+                        "diagnosis": format!("Failed to squash-merge PR {pr_url}: {error:#}")
+                    }),
+                )
+                .await?;
+            return Ok(());
+        }
+    };
+
+    state
+        .odata
+        .dispatch_action(
+            "AlertCycles",
+            alert_cycle_id,
+            "OpenPaw.Heal.MergeComplete",
+            json!({ "merge_sha": merge_sha.clone() }),
+        )
+        .await?;
+
+    track_deployment_and_verify(state, alert_cycle_id, pr_url, &merge_sha).await
+}
+
+async fn track_deployment_and_verify(
+    state: &WebhookState,
+    alert_cycle_id: &str,
+    pr_url: &str,
+    merge_sha: &str,
+) -> Result<()> {
+    let Some(github_token) = state
+        .github_token
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    else {
+        tracing::warn!(alert_cycle_id, merge_sha, "skipping deployment tracking because GITHUB_TOKEN is not configured");
+        return Ok(());
+    };
+    let pr_ref = parse_github_pr_url(pr_url)?;
+    let github = reqwest::Client::new();
+    match wait_for_successful_deployment(&github, github_token, &pr_ref, merge_sha).await {
+        Ok(deployment_url) => {
+            state
+                .odata
+                .dispatch_action(
+                    "AlertCycles",
+                    alert_cycle_id,
+                    "OpenPaw.Heal.DeployDetected",
+                    json!({ "deployment_url": deployment_url }),
+                )
+                .await?;
+            let alert_cycle = state
+                .odata
+                .get_entity("AlertCycles", alert_cycle_id)
+                .await?;
+            let monitor_id = entity_field_str(&alert_cycle, &["monitor_id", "MonitorId"])
+                .unwrap_or("")
+                .to_string();
+            verify_alert_resolved_via_dd(state, alert_cycle_id, &monitor_id).await?;
+        }
+        Err(error) => {
+            state
+                .odata
+                .dispatch_action(
+                    "AlertCycles",
+                    alert_cycle_id,
+                    "OpenPaw.Heal.AlertPersists",
+                    json!({
+                        "diagnosis": format!("Deployment tracking failed for merge {merge_sha}: {error:#}")
+                    }),
+                )
+                .await?;
+        }
+    }
+    Ok(())
+}
+
+fn parse_github_pr_url(pr_url: &str) -> Result<GitHubPrRef> {
+    let parts = pr_url
+        .trim_end_matches('/')
+        .split('/')
+        .collect::<Vec<_>>();
+    if parts.len() < 7 || parts[parts.len() - 2] != "pull" {
+        bail!("unsupported GitHub PR URL: {pr_url}");
+    }
+    Ok(GitHubPrRef {
+        owner: parts[parts.len() - 4].to_string(),
+        repo: parts[parts.len() - 3].to_string(),
+        number: parts[parts.len() - 1].to_string(),
+    })
+}
+
+async fn wait_for_pr_ready_for_merge(
+    github: &reqwest::Client,
+    github_token: &str,
+    pr_ref: &GitHubPrRef,
+) -> Result<()> {
+    for _ in 0..40 {
+        let pr = github_get_json(
+            github,
+            github_token,
+            &format!(
+                "https://api.github.com/repos/{}/{}/pulls/{}",
+                pr_ref.owner, pr_ref.repo, pr_ref.number
+            ),
+        )
+        .await?;
+        let mergeable = pr.get("mergeable").and_then(Value::as_bool);
+        let mergeable_state = pr
+            .get("mergeable_state")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        let head_sha = pr
+            .get("head")
+            .and_then(|value| value.get("sha"))
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        if head_sha.is_empty() || mergeable.is_none() {
+            sleep(Duration::from_secs(5)).await;
+            continue;
+        }
+
+        let checks_ok = github_check_runs_green(github, github_token, pr_ref, head_sha).await?;
+        let status_ok = github_combined_status_green(github, github_token, pr_ref, head_sha).await?;
+        let mergeable_ok = mergeable == Some(true)
+            && matches!(mergeable_state, "clean" | "unstable" | "has_hooks");
+        if mergeable_ok && checks_ok && status_ok {
+            return Ok(());
+        }
+        sleep(Duration::from_secs(15)).await;
+    }
+    bail!("timed out waiting for PR checks to pass")
+}
+
+async fn github_check_runs_green(
+    github: &reqwest::Client,
+    github_token: &str,
+    pr_ref: &GitHubPrRef,
+    head_sha: &str,
+) -> Result<bool> {
+    let body = github_get_json(
+        github,
+        github_token,
+        &format!(
+            "https://api.github.com/repos/{}/{}/commits/{}/check-runs?per_page=100",
+            pr_ref.owner, pr_ref.repo, head_sha
+        ),
+    )
+    .await?;
+    let Some(check_runs) = body.get("check_runs").and_then(Value::as_array) else {
+        return Ok(true);
+    };
+    if check_runs.is_empty() {
+        return Ok(true);
+    }
+    Ok(check_runs.iter().all(|run| {
+        let status = run.get("status").and_then(Value::as_str).unwrap_or("");
+        let conclusion = run.get("conclusion").and_then(Value::as_str).unwrap_or("");
+        status == "completed" && matches!(conclusion, "success" | "neutral" | "skipped")
+    }))
+}
+
+async fn github_combined_status_green(
+    github: &reqwest::Client,
+    github_token: &str,
+    pr_ref: &GitHubPrRef,
+    head_sha: &str,
+) -> Result<bool> {
+    let body = github_get_json(
+        github,
+        github_token,
+        &format!(
+            "https://api.github.com/repos/{}/{}/commits/{}/status",
+            pr_ref.owner, pr_ref.repo, head_sha
+        ),
+    )
+    .await?;
+    Ok(matches!(
+        body.get("state").and_then(Value::as_str).unwrap_or("success"),
+        "success" | ""
+    ))
+}
+
+async fn squash_merge_pull_request(
+    github: &reqwest::Client,
+    github_token: &str,
+    pr_ref: &GitHubPrRef,
+) -> Result<String> {
+    let response = github
+        .put(format!(
+            "https://api.github.com/repos/{}/{}/pulls/{}/merge",
+            pr_ref.owner, pr_ref.repo, pr_ref.number
+        ))
+        .header("authorization", format!("Bearer {github_token}"))
+        .header("accept", "application/vnd.github+json")
+        .header("x-github-api-version", "2022-11-28")
+        .header("user-agent", "openpaw")
+        .json(&json!({ "merge_method": "squash" }))
+        .send()
+        .await
+        .context("failed to call GitHub merge API")?;
+    let status = response.status();
+    let text = response.text().await.context("failed to read GitHub merge response")?;
+    if !status.is_success() {
+        bail!("GitHub merge API returned {status}: {text}");
+    }
+    let body: Value = serde_json::from_str(&text).context("failed to parse GitHub merge JSON")?;
+    body.get("sha")
+        .and_then(Value::as_str)
+        .map(ToOwned::to_owned)
+        .context("GitHub merge response did not include sha")
+}
+
+async fn wait_for_successful_deployment(
+    github: &reqwest::Client,
+    github_token: &str,
+    pr_ref: &GitHubPrRef,
+    merge_sha: &str,
+) -> Result<String> {
+    let mut last_failure = None::<String>;
+    for _ in 0..40 {
+        let deployments = github_get_json(
+            github,
+            github_token,
+            &format!(
+                "https://api.github.com/repos/{}/{}/deployments?sha={}&per_page=20",
+                pr_ref.owner, pr_ref.repo, merge_sha
+            ),
+        )
+        .await?;
+        let Some(items) = deployments.as_array() else {
+            sleep(Duration::from_secs(15)).await;
+            continue;
+        };
+        for deployment in items {
+            let Some(statuses_url) = deployment
+                .get("statuses_url")
+                .and_then(Value::as_str)
+                .filter(|value| !value.is_empty())
+            else {
+                continue;
+            };
+            let statuses = github_get_json(github, github_token, statuses_url).await?;
+            let Some(status_items) = statuses.as_array() else {
+                continue;
+            };
+            for status in status_items {
+                match status.get("state").and_then(Value::as_str).unwrap_or("") {
+                    "success" => {
+                        return Ok(
+                            extract_string(status, &["environment_url", "target_url", "log_url"])
+                                .unwrap_or(merge_sha)
+                                .to_string(),
+                        );
+                    }
+                    "failure" | "error" | "inactive" => {
+                        last_failure = Some(status.to_string());
+                    }
+                    _ => {}
+                }
+            }
+        }
+        sleep(Duration::from_secs(15)).await;
+    }
+    bail!(
+        "timed out waiting for successful deployment status{}",
+        last_failure
+            .as_deref()
+            .map(|value| format!("; last failure={value}"))
+            .unwrap_or_default()
+    )
+}
+
+async fn verify_alert_resolved_via_dd(
+    state: &WebhookState,
+    alert_cycle_id: &str,
+    monitor_id: &str,
+) -> Result<()> {
+    if monitor_id.is_empty() {
+        state
+            .odata
+            .dispatch_action(
+                "AlertCycles",
+                alert_cycle_id,
+                "OpenPaw.Heal.AlertResolved",
+                json!({
+                    "diagnosis": "No monitor_id on AlertCycle after deployment; resolved without Datadog verification"
+                }),
+            )
+            .await?;
+        return Ok(());
+    }
+
+    let monitor = state.odata.get_entity("Monitors", monitor_id).await?;
+    let dd_monitor_id = entity_field_str(&monitor, &["dd_monitor_id", "DdMonitorId"])
+        .unwrap_or("")
+        .to_string();
+    if dd_monitor_id.is_empty() {
+        state
+            .odata
+            .dispatch_action(
+                "AlertCycles",
+                alert_cycle_id,
+                "OpenPaw.Heal.AlertResolved",
+                json!({
+                    "diagnosis": format!("Monitor {monitor_id} has no Datadog monitor id; resolved after deployment")
+                }),
+            )
+            .await?;
+        return Ok(());
+    }
+
+    let Some(dd_api_key) = state
+        .dd_api_key
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    else {
+        state
+            .odata
+            .dispatch_action(
+                "AlertCycles",
+                alert_cycle_id,
+                "OpenPaw.Heal.AlertPersists",
+                json!({
+                    "diagnosis": format!("Datadog verification unavailable for monitor {dd_monitor_id}: DD_API_KEY is missing")
+                }),
+            )
+            .await?;
+        return Ok(());
+    };
+    let Some(dd_app_key) = state
+        .dd_app_key
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    else {
+        state
+            .odata
+            .dispatch_action(
+                "AlertCycles",
+                alert_cycle_id,
+                "OpenPaw.Heal.AlertPersists",
+                json!({
+                    "diagnosis": format!("Datadog verification unavailable for monitor {dd_monitor_id}: DD_APP_KEY is missing")
+                }),
+            )
+            .await?;
+        return Ok(());
+    };
+
+    sleep(Duration::from_secs(120)).await;
+
+    let datadog = reqwest::Client::new();
+    for _ in 0..5 {
+        let response = datadog
+            .get(format!(
+                "https://api.{}/api/v1/monitor/{}",
+                state.dd_site, dd_monitor_id
+            ))
+            .header("DD-API-KEY", dd_api_key)
+            .header("DD-APPLICATION-KEY", dd_app_key)
+            .header("accept", "application/json")
+            .send()
+            .await;
+        match response {
+            Ok(response) if response.status().is_success() => {
+                let body: Value = response
+                    .json()
+                    .await
+                    .context("failed to parse Datadog monitor response")?;
+                let overall_state = body
+                    .get("overall_state")
+                    .and_then(Value::as_str)
+                    .unwrap_or("Unknown");
+                let action = if matches!(overall_state, "OK" | "No Data") {
+                    "OpenPaw.Heal.AlertResolved"
+                } else {
+                    "OpenPaw.Heal.AlertPersists"
+                };
+                let diagnosis = format!(
+                    "Datadog monitor {dd_monitor_id} post-deploy state={overall_state}"
+                );
+                state
+                    .odata
+                    .dispatch_action(
+                        "AlertCycles",
+                        alert_cycle_id,
+                        action,
+                        json!({ "diagnosis": diagnosis }),
+                    )
+                    .await?;
+                return Ok(());
+            }
+            Ok(_) | Err(_) => sleep(Duration::from_secs(30)).await,
+        }
+    }
+
+    state
+        .odata
+        .dispatch_action(
+            "AlertCycles",
+            alert_cycle_id,
+            "OpenPaw.Heal.AlertPersists",
+            json!({
+                "diagnosis": format!("Datadog verification failed repeatedly for monitor {dd_monitor_id} after deployment")
+            }),
+        )
+        .await?;
+    Ok(())
+}
+
+async fn github_get_json(
+    github: &reqwest::Client,
+    github_token: &str,
+    url: &str,
+) -> Result<Value> {
+    let response = github
+        .get(url)
+        .header("authorization", format!("Bearer {github_token}"))
+        .header("accept", "application/vnd.github+json")
+        .header("x-github-api-version", "2022-11-28")
+        .header("user-agent", "openpaw")
+        .send()
+        .await
+        .with_context(|| format!("GET {url} failed"))?;
+    let status = response.status();
+    let text = response.text().await.context("failed reading GitHub response body")?;
+    if !status.is_success() {
+        bail!("GET {url} returned {status}: {text}");
+    }
+    if text.trim().is_empty() {
+        return Ok(Value::Null);
+    }
+    serde_json::from_str(&text).context("failed to parse GitHub JSON response")
 }
 
 async fn resolve_or_create_monitor(
@@ -775,6 +1351,7 @@ fn spawn_sre_completion_watcher(
                 .odata
                 .wait_for_agent_terminal(&sre_agent_id, Duration::from_secs(20 * 60))
                 .await?;
+            let sre_status = entity_status(&sre_terminal);
             converge_alert_cycle_after_sre_terminal(
                 &state,
                 &alert_cycle_id,
@@ -782,6 +1359,9 @@ fn spawn_sre_completion_watcher(
                 &sre_terminal,
             )
             .await?;
+            if matches!(sre_status.as_deref(), Some("Completed")) {
+                maybe_start_cicd_closure(&state, &alert_cycle_id).await?;
+            }
             let Some(report_target) = report_target.as_ref() else {
                 return Ok::<(), anyhow::Error>(());
             };
@@ -864,7 +1444,14 @@ async fn wait_for_alert_cycle_terminal(
             .get_entity("AlertCycles", alert_cycle_id)
             .await?;
         match entity_status(&alert_cycle).as_deref() {
-            Some("Fixed" | "Resolved" | "Tuned" | "Failed") => return Ok(alert_cycle),
+            Some("Resolved" | "Tuned" | "Failed") => return Ok(alert_cycle),
+            Some("Fixed")
+                if entity_field_str(&alert_cycle, &["pr_url", "PrUrl"])
+                    .unwrap_or("")
+                    .is_empty() =>
+            {
+                return Ok(alert_cycle)
+            }
             _ => sleep(Duration::from_secs(5)).await,
         }
     }
@@ -1228,41 +1815,41 @@ async fn resolve_recovered_alert_cycle(
         )
         .await?;
 
-    let Some(active_cycle) = candidates.into_iter().find(|candidate| {
-        matches!(
-            entity_status(candidate).as_deref(),
-            Some("Triaging" | "Fixed" | "Merging" | "Deploying" | "Verifying")
-        )
-    }) else {
+    if candidates.is_empty() {
         return Ok("recovery_without_active_cycle".to_string());
-    };
-
-    let alert_cycle_id = entity_id(&active_cycle)
-        .context("active recovered AlertCycle missing entity id")?
-        .to_string();
-    let status = entity_status(&active_cycle).unwrap_or_default();
+    }
     let diagnosis = format!(
         "Datadog monitor recovered: {}",
         extract_string(payload, &["text", "title", "event_title"])
             .unwrap_or("monitor returned to normal")
     );
 
-    let Some(action) = (match status.as_str() {
-        "Fixed" | "Verifying" => Some("OpenPaw.Heal.AlertResolved"),
-        _ => None,
-    }) else {
+    let recoverable_cycles = candidates
+        .iter()
+        .filter(|candidate| {
+            matches!(
+                entity_status(candidate).as_deref(),
+                Some("Fixed" | "Deploying" | "Verifying")
+            )
+        })
+        .filter_map(|candidate| entity_id(candidate).map(ToOwned::to_owned))
+        .collect::<Vec<_>>();
+    if recoverable_cycles.is_empty() {
         return Ok("recovery_waiting_for_verification".to_string());
-    };
-    state
-        .odata
-        .dispatch_action(
-            "AlertCycles",
-            &alert_cycle_id,
-            action,
-            json!({ "diagnosis": diagnosis }),
-        )
-        .await?;
-    Ok("alert_resolved".to_string())
+    }
+
+    for alert_cycle_id in &recoverable_cycles {
+        state
+            .odata
+            .dispatch_action(
+                "AlertCycles",
+                alert_cycle_id,
+                "OpenPaw.Heal.AlertResolved",
+                json!({ "diagnosis": diagnosis }),
+            )
+            .await?;
+    }
+    Ok(format!("alert_resolved:{}" , recoverable_cycles.len()))
 }
 
 fn entity_id(value: &Value) -> Option<&str> {

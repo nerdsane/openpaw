@@ -260,14 +260,14 @@ def main() -> int:
     parser.add_argument("--sandbox-url", default=os.getenv("OPENPAW_SANDBOX_URL"))
     parser.add_argument(
         "--sandbox-mode",
-        choices=("auto", "local", "e2b"),
+        choices=("auto", "local", "managed"),
         default="auto",
-        help="auto/local use the local sandbox URL unless explicitly overridden; e2b leaves sandbox_url unset so provisioning can use E2B",
+        help="auto/local use the local sandbox URL unless explicitly overridden; managed leaves sandbox_url unset so provisioning can use the configured bridge",
     )
     args = parser.parse_args()
     if args.sandbox_url:
         sandbox_url = args.sandbox_url
-    elif args.sandbox_mode == "e2b":
+    elif args.sandbox_mode == "managed":
         sandbox_url = ""
     else:
         sandbox_url = derive_local_sandbox_url(args.base_url)
