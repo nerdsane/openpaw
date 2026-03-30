@@ -1,6 +1,6 @@
 # Memory — Cross-session persistent knowledge.
 #
-# Memories persist ACROSS agent runs, scoped to a soul_id.
+# Memories persist ACROSS agent runs, scoped to an agent_id (the persistent entity that learns).
 # Types: user, feedback, project, reference (matching Claude Code taxonomy).
 # Content stored inline (memories are small).
 
@@ -25,12 +25,12 @@ type = "string"
 initial = "project"
 
 [[state]]
-name = "soul_id"
+name = "agent_id"
 type = "string"
 initial = ""
 
 [[state]]
-name = "author_agent_id"
+name = "soul_id"
 type = "string"
 initial = ""
 
@@ -38,7 +38,7 @@ initial = ""
 name = "Save"
 kind = "input"
 from = ["Active"]
-params = ["key", "content", "memory_type", "soul_id", "author_agent_id"]
+params = ["key", "content", "memory_type", "agent_id", "soul_id"]
 hint = "Save or initialize a memory entry."
 
 [[action]]

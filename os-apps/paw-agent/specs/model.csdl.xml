@@ -78,8 +78,8 @@
         <Property Name="Key" Type="Edm.String"/>
         <Property Name="Content" Type="Edm.String"/>
         <Property Name="MemoryType" Type="Edm.String"/>
+        <Property Name="AgentId" Type="Edm.String"/>
         <Property Name="SoulId" Type="Edm.String"/>
-        <Property Name="AuthorAgentId" Type="Edm.String"/>
       </EntityType>
 
       <EntityType Name="ToolHook">
@@ -341,8 +341,8 @@
         <Parameter Name="key" Type="Edm.String" Nullable="false"/>
         <Parameter Name="content" Type="Edm.String" Nullable="false"/>
         <Parameter Name="memory_type" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="agent_id" Type="Edm.String" Nullable="true"/>
         <Parameter Name="soul_id" Type="Edm.String" Nullable="true"/>
-        <Parameter Name="author_agent_id" Type="Edm.String" Nullable="true"/>
         <ReturnType Type="OpenPaw.Memory"/>
       </Action>
 

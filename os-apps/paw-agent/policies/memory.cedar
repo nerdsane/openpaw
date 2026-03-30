@@ -16,13 +16,13 @@ permit(
   ["system", "supervisor", "human"].contains(principal.agent_type)
 };
 
-// Agents can save, update, and recall memories scoped to their own soul_id
+// Agents can save, update, and recall memories scoped to their own agent identity
 permit(
   principal,
   action in [Action::"create", Action::"Save", Action::"Update", Action::"Recall"],
   resource is Memory
 ) when {
-  principal.agent_type == "agent" && resource.SoulId == principal.soul_id
+  principal.agent_type == "agent" && resource.AgentId == principal.id
 };
 
 // Supervisors and humans can archive any memory

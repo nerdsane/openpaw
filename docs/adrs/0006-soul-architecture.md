@@ -93,3 +93,7 @@ A new `file_upload` tool allows agents to create TemperFS files with generated c
 - Existing Soul entity spec unchanged (single `content_file_id`) — no migration needed
 - Cedar policies unchanged — WASM calls already run as admin
 - The `project-lead/SCHEMA.md` is guidance, not enforcement — Paw can deviate if the situation warrants
+
+## Amendments
+
+- **ADR-0007** corrects memory scoping: memory is scoped to `agent_id` (the persistent learning entity), not `soul_id` (the optional personality overlay). See ADR-0007 for rationale.
