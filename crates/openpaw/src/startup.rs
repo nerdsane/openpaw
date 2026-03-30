@@ -330,7 +330,14 @@ pub async fn run(config: Config) -> Result<()> {
 
     // Phase 9: Bind + start transports + serve
     tracing::info!("Phase 9: Starting server...");
-    let router = build_platform_router(state.clone());
+    let webhook_state = crate::webhooks::WebhookState::new(
+        format!("http://127.0.0.1:{port}"),
+        tenant.clone(),
+        config.temper_api_key.clone(),
+        config.webhook_secret.clone(),
+    );
+    let router = build_platform_router(state.clone())
+        .merge(crate::webhooks::build_webhook_router(webhook_state));
     let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{port}"))
         .await
         .with_context(|| format!("Failed to bind to port {port}"))?;
