@@ -209,6 +209,13 @@ pub async fn run(config: Config) -> Result<()> {
             if tenant != "default" {
                 let _ = vault.cache_secret(&tenant, "sandbox_url", sandbox_url);
             }
+        } else if modal_bridge_url.is_some() {
+            // Clear any persisted default sandbox URL so the provisioner cannot
+            // accidentally short-circuit into an old local bridge/static value.
+            let _ = vault.cache_secret("default", "sandbox_url", String::new());
+            if tenant != "default" {
+                let _ = vault.cache_secret(&tenant, "sandbox_url", String::new());
+            }
         }
 
         // Local blob store for TemperFS content uploads/downloads.

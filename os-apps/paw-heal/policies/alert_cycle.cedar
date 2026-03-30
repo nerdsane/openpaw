@@ -6,6 +6,11 @@ permit(
     Action::"list",
     Action::"Open",
     Action::"HealComplete",
+    Action::"BeginMerge",
+    Action::"MergeComplete",
+    Action::"DeployDetected",
+    Action::"AlertResolved",
+    Action::"AlertPersists",
     Action::"TuneComplete",
     Action::"Escalate"
   ],
@@ -20,6 +25,11 @@ permit(
     Action::"list",
     Action::"Open",
     Action::"HealComplete",
+    Action::"BeginMerge",
+    Action::"MergeComplete",
+    Action::"DeployDetected",
+    Action::"AlertResolved",
+    Action::"AlertPersists",
     Action::"TuneComplete",
     Action::"Escalate"
   ],

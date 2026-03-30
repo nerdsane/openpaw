@@ -144,7 +144,7 @@ These agent-created apps are what the Evolution Agent watches and improves.
    │           │
    ▼           ▼
 ┌──────────┐  ┌──────────────────────┐
-│Datadog/  │  │Sandboxes (E2B/Fly)   │
+│Datadog/  │  │Sandboxes (Modal/Fly) │
 │Datadog   │  │Per-agent, governed   │
 │Monitors  │  │Isolated computers    │
 └──────────┘  └──────────────────────┘
@@ -175,13 +175,13 @@ The first demonstration of the full system:
 | OData API for all entities | ✅ Done | None |
 | Discord transport | ⚠️ Wired | Not re-proven end-to-end on this branch |
 | Paw orchestrates full flow via Discord | ❌ Not proven | Paw exists but hasn't driven the full loop |
-| Developer clones repo in E2B sandbox | ✅ Proven | Only clone milestone, not full remediation |
+| Developer clones repo in governed sandbox | ✅ Proven | Only clone milestone, not full remediation |
 | SRE → Developer → PR (self-heal) | ✅ Proven | Manually triggered with synthetic alert |
 | Webhook alert ingestion | ✅ Implemented | Native Datadog + GitHub merge webhook paths exist; needs fresh end-to-end proof |
 | Datadog monitor integration | ⚠️ Partial | Datadog-backed monitor/query path exists, but monitor bootstrap and post-deploy verification are incomplete |
 | Monitor generation (bootstrap + per-PR) | ⚠️ Partial | `MonitorScan` spec exists, but full bootstrap automation is not yet proven |
 | Harness as Cedar-enforced policy | ⚠️ Partial | Entities work, Cedar policies are broad |
-| Persistent governed sandbox (Fly/E2B) | ❌ Specs only | No Computer WASM modules |
+| Persistent governed sandbox (Modal/Fly) | ❌ Specs only | No Computer WASM modules |
 | Computer governance (network, creds) | ❌ Not implemented | Cedar + sandbox config needed |
 | Autonomous slider | ❌ Not implemented | Cedar policy adjustment mechanism needed |
 | PM integration (Issues from alerts) | ⚠️ Partial | PM app exists, not wired into alert flow |
