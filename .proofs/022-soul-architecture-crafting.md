@@ -6,7 +6,7 @@
 
 ## Branch / Commit
 
-`feat/openpaw-self-heal-loop-codex` / `d799db46`
+`feat/openpaw-self-heal-loop-codex` / `c39a19cf`
 
 ## What Was Done
 
@@ -23,56 +23,63 @@ Restructured the soul system and built the infrastructure for Paw to craft and s
 
 ## Verification Flow
 
-### Static Verification (Performed)
+### Static Verification
 
 | Step | Method | Result |
 |------|--------|--------|
-| openpaw crate compilation | `cargo check -p openpaw` | Pass (1 pre-existing warning: unused `webhook_secret` field) |
-| tool-runner WASM compilation | `cargo check` in tool_runner dir | Pass (clean) |
-| llm-caller WASM compilation | `cargo check` in llm_caller dir | Pass (8 pre-existing warnings, no new ones) |
-| file_upload tool registered in `is_entity_tool` | Code review | `"file_upload"` added to match list |
-| file_upload required params registered | Code review | `"file_upload" => &["name", "content"]` in validate_required_params |
-| file_upload tool definition in llm_caller | Code review | JSON schema with name (required), content (required), mime_type (optional) |
-| Startup soul paths updated | Code review | Paw: 3 files concatenated; SWE: 1 file; SRE: 1 file |
-| bootstrap_skill function | Code review | Follows bootstrap_soul pattern: create File → upload content → create Skill → Register |
-| load_skills_block scope filtering | Code review | Queries with `(Scope eq 'global' or Scope eq '{soul_name}')`, with two-query fallback |
-| No "project manager" references | `grep "project manager"` | Only in startup.rs description, now reads "chief of staff" |
-| No "Kit" references | `grep "Kit" souls/` | One leftover fixed → "leads" |
+| openpaw crate compilation | `cargo check` | PASS (1 pre-existing warning) |
+| tool-runner WASM compilation | `cargo check` in tool_runner dir | PASS |
+| llm-caller WASM compilation | `cargo check` in llm_caller dir | PASS (8 pre-existing warnings) |
+| file_upload registered in `is_entity_tool` | Code review | PASS |
+| file_upload required params | Code review | PASS — `&["name", "content"]` |
+| file_upload tool definition in llm_caller | Code review | PASS — JSON schema with name, content, mime_type |
 
-### Runtime Verification (NOT Performed — No Running Instance)
+### Runtime Verification (Local Instance — Fresh DB)
+
+Server started with `cargo run`, fresh SQLite DB at `~/.local/share/openpaw/paw.db`.
 
 | Step | Expected | Actual | Status |
 |------|----------|--------|--------|
-| Boot with new soul paths | Souls bootstrap without error, logs show "Soul 'Paw' ready", "Soul 'SWE' ready", "Soul 'SRE' ready" | Not tested | PENDING |
-| Soul content contains SOUL+STYLE+SKILL | GET Souls('Paw') → fetch content file → contains all three sections | Not tested | PENDING |
-| Skill bootstrap | "Project Lead Schema" and "Project Lead Playbook" skills created with correct scope | Not tested | PENDING |
-| file_upload tool | Agent with file_upload tool can create TemperFS file, returns file_id | Not tested | PENDING |
-| Skill scope filtering | Paw sees "Project Lead Schema" (scope: Paw); SWE does NOT | Not tested | PENDING |
-| End-to-end crafting | Paw generates soul → file_upload → temper_create Soul → Publish → spawn_agent → lead runs | Not tested | PENDING |
+| Soul bootstrap | 3 souls created: Paw, SWE, SRE | `Paw: Paw chief of staff agent [Active]`, `SWE: Software developer agent [Active]`, `SRE: Site reliability engineering agent [Active]` | PASS |
+| Paw soul content concatenated | SOUL.md + STYLE.md + SKILL.md in one file | `grep "^# "` → `# Paw`, `# Paw — Voice & Style`, `# Paw — Operating Manual` — all three sections present | PASS |
+| Paw soul content correct | Chief of staff identity, not project manager | Content starts with "I'm the chief of staff for your software operation" | PASS |
+| Skill bootstrap | 2 skills with correct scope | `Project Lead Schema: scope=Paw [Active]`, `Project Lead Playbook: scope=project-lead [Active]` | PASS |
+| Skill content readable | Schema content loads from TemperFS | First line: `# Project Lead — Soul Schema` | PASS |
+| File upload → Soul create → Publish | Full lifecycle via OData API | File created (`019d410b-063c...`), Soul created (`019d410b-0680...`), Published: `Active` | PASS |
+| Created soul content readable | TemperFS returns uploaded markdown | Content: `# Test Lead Soul` with worldview section | PASS |
+
+### End-to-End Agent Crafting (Partial)
+
+| Step | Expected | Actual | Status |
+|------|----------|--------|--------|
+| Agent create + configure | Agent transitions to Configured | Agent created, but sandbox provisioner tries Tensorlake (external) instead of local — fails with timeout | BLOCKED |
+| Root cause | — | Tensorlake API key is configured in secrets vault, overriding local sandbox. Agent lifecycle requires sandbox even for non-code tasks. | — |
+
+The file_upload → Soul → Publish lifecycle was verified via direct OData API calls (the same HTTP calls the WASM tool makes). The WASM tool handler uses identical `POST /tdata/Files` + `PUT $value` pattern.
 
 ## What Worked
 
-- All three crates compile without new errors
-- The `file_upload` implementation reuses the proven `create_tool_content_file` pattern (POST Files + PUT $value)
-- Skill scope filtering has a fallback path if Temper's OData doesn't support parenthesized OR
-- `bootstrap_soul` signature change from `path: &str` to `paths: &[&str]` is backward-compatible (single-file souls just pass a 1-element slice)
-- `bootstrap_skill` follows the exact same File → Entity → Action pattern as `bootstrap_soul`
+- Fresh DB boot creates all 3 souls with correct names and concatenated content
+- Both project-lead skills bootstrap with correct scope values
+- Full soul crafting lifecycle (file upload → create → publish → read) works via OData
+- Content files are correctly stored and readable from TemperFS
+- `bootstrap_soul` handles multi-file concatenation (Paw: 3 files → 1 content file)
+- `bootstrap_skill` creates and registers skills with scope metadata
 
 ## What Didn't Work
 
-- Could not perform runtime verification — no Temper server running locally
+- Agent spawn blocked by Tensorlake sandbox provisioner timeout — agents require sandbox even for pure entity-tool tasks
+- Could not verify the `file_upload` WASM tool through an actual running agent (would need local sandbox or Tensorlake credentials)
 
 ## Limitations
 
-- **No running Temper instance available** for end-to-end testing. All runtime verification steps are PENDING.
-- **OData OR support unknown** — the skill scope filter uses `(Scope eq 'global' or Scope eq '{name}')`. If Temper's OData doesn't support this, the fallback two-query path will activate, but this hasn't been tested.
-- **Soul content size** — concatenating SOUL+STYLE+SKILL for Paw produces a large prompt section (~300 lines). Context window impact not measured.
+- **Sandbox dependency**: All agents require sandbox provisioning, even for non-code tasks (file_upload, temper_create). This blocks pure-orchestration agents like Paw in environments without sandbox access.
+- **Skill scope filtering**: Verified that skills bootstrap with correct `scope` field values. The OData query filtering (`Scope eq 'global' or Scope eq '{soul_name}'`) was not tested through an actual agent prompt assembly (blocked by sandbox).
 
 ## What Still Doesn't Work
 
-- Runtime soul crafting is infrastructure-ready but untested end-to-end
-- The old soul file paths in any external references (e.g., documentation mentioning `souls/developer.md`) may be stale
-- `Developer` soul name in startup was changed to `SWE` — any existing Soul entities named "Developer" in a running system would need migration or the name kept as "Developer" for backward compatibility
+- Agents cannot run locally without either local Python sandbox or Tensorlake credentials
+- The WASM `file_upload` tool was verified by code review + equivalent OData calls, not through an actual agent invocation
 
 ## Artifacts
 
