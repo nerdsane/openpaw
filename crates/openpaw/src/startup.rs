@@ -496,17 +496,25 @@ fn spawn_soul_bootstrap(port: u16, tenant: String, api_key: Option<String>) {
         let api_url = format!("http://127.0.0.1:{port}");
         let client = reqwest::Client::new();
 
-        let souls = [
-            ("Paw", "Paw project manager agent", "souls/paw.md"),
+        let souls: &[(&str, &str, &[&str])] = &[
             (
-                "Developer",
-                "Software developer agent",
-                "souls/developer.md",
+                "Paw",
+                "Paw chief of staff agent",
+                &[
+                    "souls/paw/SOUL.md",
+                    "souls/paw/STYLE.md",
+                    "souls/paw/SKILL.md",
+                ],
             ),
-            ("SRE", "Site reliability engineering agent", "souls/sre.md"),
+            ("SWE", "Software developer agent", &["souls/swe/SKILL.md"]),
+            (
+                "SRE",
+                "Site reliability engineering agent",
+                &["souls/sre/SKILL.md"],
+            ),
         ];
 
-        for (name, description, path) in &souls {
+        for (name, description, paths) in souls {
             match bootstrap_soul(
                 &client,
                 &api_url,
@@ -514,12 +522,37 @@ fn spawn_soul_bootstrap(port: u16, tenant: String, api_key: Option<String>) {
                 &api_key,
                 name,
                 description,
-                path,
+                paths,
             )
             .await
             {
                 Ok(soul_id) => tracing::info!("  Soul '{name}' ready: {soul_id}"),
                 Err(e) => tracing::error!("  Failed to bootstrap soul '{name}': {e}"),
+            }
+        }
+
+        // Bootstrap project-lead reference skills
+        let skills: &[(&str, &str, &str, &str)] = &[
+            (
+                "Project Lead Schema",
+                "Dimensions Paw fills when crafting a project lead soul",
+                "souls/project-lead/SCHEMA.md",
+                "Paw",
+            ),
+            (
+                "Project Lead Playbook",
+                "Shared operational playbook for all project leads",
+                "souls/project-lead/SKILL.md",
+                "project-lead",
+            ),
+        ];
+
+        for (name, description, path, scope) in skills {
+            match bootstrap_skill(&client, &api_url, &tenant, &api_key, name, description, path, scope)
+                .await
+            {
+                Ok(skill_id) => tracing::info!("  Skill '{name}' ready: {skill_id}"),
+                Err(e) => tracing::error!("  Failed to bootstrap skill '{name}': {e}"),
             }
         }
 
@@ -529,7 +562,9 @@ fn spawn_soul_bootstrap(port: u16, tenant: String, api_key: Option<String>) {
     });
 }
 
-/// Create or find a Soul entity for the given soul file.
+/// Create or find a Soul entity for the given soul files.
+///
+/// Multiple paths are concatenated with `\n\n` separators (e.g. SOUL.md + STYLE.md + SKILL.md).
 async fn bootstrap_soul(
     client: &reqwest::Client,
     api_url: &str,
@@ -537,10 +572,16 @@ async fn bootstrap_soul(
     api_key: &Option<String>,
     name: &str,
     description: &str,
-    path: &str,
+    paths: &[&str],
 ) -> Result<String> {
-    let content = std::fs::read_to_string(path)
-        .with_context(|| format!("Failed to read soul file: {path}"))?;
+    let content = paths
+        .iter()
+        .map(|p| {
+            std::fs::read_to_string(p)
+                .with_context(|| format!("Failed to read soul file: {p}"))
+        })
+        .collect::<Result<Vec<_>>>()?
+        .join("\n\n");
 
     let filter = format!("Name eq '{name}'");
     let list_url = format!("{api_url}/tdata/Souls?$filter={filter}");
@@ -627,6 +668,115 @@ async fn bootstrap_soul(
     .await?;
 
     Ok(soul_id)
+}
+
+/// Create or find a Skill entity for a reference file.
+async fn bootstrap_skill(
+    client: &reqwest::Client,
+    api_url: &str,
+    tenant: &str,
+    api_key: &Option<String>,
+    name: &str,
+    description: &str,
+    path: &str,
+    scope: &str,
+) -> Result<String> {
+    let content = std::fs::read_to_string(path)
+        .with_context(|| format!("Failed to read skill file: {path}"))?;
+
+    // Check if skill already exists by name
+    let filter = format!("Name eq '{name}'");
+    let list_url = format!("{api_url}/tdata/Skills?$filter={filter}");
+    let resp = odata_get(client, &list_url, tenant, api_key).await?;
+    let items = resp["value"].as_array();
+
+    if let Some(items) = items {
+        if let Some(existing) = items.first() {
+            let id = entity_id_from_json(existing).unwrap_or("unknown");
+            if let Some(file_id) = entity_field_str(existing, &["ContentFileId", "content_file_id"])
+            {
+                let upload_url = format!("{api_url}/tdata/Files('{file_id}')/$value");
+                odata_put_bytes(
+                    client,
+                    &upload_url,
+                    tenant,
+                    api_key,
+                    "text/markdown",
+                    content.into_bytes(),
+                )
+                .await
+                .with_context(|| {
+                    format!("Failed to refresh existing skill content for '{name}'")
+                })?;
+            }
+            tracing::info!("  Skill '{name}' already exists: {id}");
+            return Ok(id.to_string());
+        }
+    }
+
+    // Create TemperFS file
+    let file_resp = odata_post(
+        client,
+        &format!("{api_url}/tdata/Files"),
+        tenant,
+        api_key,
+        serde_json::json!({
+            "Name": format!("{}.skill.md", name.to_lowercase().replace(' ', "-")),
+            "MimeType": "text/markdown"
+        }),
+    )
+    .await?;
+    let file_id = file_resp["entity_id"]
+        .as_str()
+        .or_else(|| file_resp["fields"]["Id"].as_str())
+        .or_else(|| file_resp["Id"].as_str())
+        .context("File creation did not return Id")?
+        .to_string();
+
+    let upload_url = format!("{api_url}/tdata/Files('{file_id}')/$value");
+    odata_put_bytes(
+        client,
+        &upload_url,
+        tenant,
+        api_key,
+        "text/markdown",
+        content.into_bytes(),
+    )
+    .await?;
+
+    // Create Skill entity
+    let skill_resp = odata_post(
+        client,
+        &format!("{api_url}/tdata/Skills"),
+        tenant,
+        api_key,
+        serde_json::json!({}),
+    )
+    .await?;
+    let skill_id = skill_resp["entity_id"]
+        .as_str()
+        .or_else(|| skill_resp["fields"]["Id"].as_str())
+        .or_else(|| skill_resp["Id"].as_str())
+        .context("Skill creation did not return Id")?
+        .to_string();
+
+    // Register the skill with metadata
+    odata_post(
+        client,
+        &format!("{api_url}/tdata/Skills('{skill_id}')/OpenPaw.Register"),
+        tenant,
+        api_key,
+        serde_json::json!({
+            "name": name,
+            "description": description,
+            "content_file_id": file_id,
+            "scope": scope,
+            "agent_filter": ""
+        }),
+    )
+    .await?;
+
+    Ok(skill_id)
 }
 
 /// Set the Paw soul as the default on any existing AgentRoute.

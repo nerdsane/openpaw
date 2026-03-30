@@ -1017,6 +1017,7 @@ fn validate_tool_input(tool_name: &str, input: &Value) -> Result<(), String> {
         "abort_agent" => &["agent_id"],
         "steer_agent" => &["agent_id", "message"],
         "read_entity" => &["file_id"],
+        "file_upload" => &["name", "content"],
         "temper_create" => &["entity_set"],
         "temper_get" => &["entity_set", "entity_id"],
         "temper_list" => &["entity_set"],

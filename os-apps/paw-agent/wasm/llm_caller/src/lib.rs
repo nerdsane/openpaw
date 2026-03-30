@@ -1933,6 +1933,22 @@ fn build_tool_definitions(tools_enabled: &str, sandbox_url: &str, workdir: &str)
         }));
     }
 
+    if enabled.contains(&"file_upload") {
+        tools.push(json!({
+            "name": "file_upload",
+            "description": "Upload text content to TemperFS and return a file_id. Use for creating soul content, skill content, or any entity-backed file.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "name": { "type": "string", "description": "File name (e.g., 'my-lead.soul.md')" },
+                    "content": { "type": "string", "description": "File content to upload" },
+                    "mime_type": { "type": "string", "description": "MIME type (default: text/markdown)" }
+                },
+                "required": ["name", "content"]
+            }
+        }));
+    }
+
     if enabled.contains(&"temper_create") {
         tools.push(json!({
             "name": "temper_create",
@@ -2442,9 +2458,9 @@ fn assemble_system_prompt(
         parts.push(system_prompt_override.to_string());
     }
 
-    // 3. Available skills
+    // 3. Available skills (filtered by scope: global + soul-specific)
     if !soul_id.is_empty() {
-        match load_skills_block(ctx, temper_api_url, tenant) {
+        match load_skills_block(ctx, temper_api_url, tenant, soul_id) {
             Ok(block) if !block.is_empty() => parts.push(block),
             Ok(_) => {}
             Err(e) => ctx.log(
@@ -2536,23 +2552,82 @@ fn resolve_soul_entity(
 }
 
 /// Load active skills as an XML block for the system prompt.
-fn load_skills_block(ctx: &Context, temper_api_url: &str, tenant: &str) -> Result<String, String> {
-    let url = format!("{temper_api_url}/tdata/Skills?$filter=Status eq 'Active'");
+fn load_skills_block(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+    soul_id: &str,
+) -> Result<String, String> {
     let headers = vec![
         ("x-tenant-id".to_string(), tenant.to_string()),
         ("x-temper-principal-kind".to_string(), "admin".to_string()),
         ("accept".to_string(), "application/json".to_string()),
     ];
+
+    // Resolve the soul name for scope matching
+    let soul_name = if !soul_id.is_empty() {
+        match resolve_soul_entity(ctx, temper_api_url, tenant, soul_id) {
+            Ok(soul) => entity_field_str(&soul, &["Name"])
+                .unwrap_or(soul_id)
+                .to_string(),
+            Err(_) => soul_id.to_string(),
+        }
+    } else {
+        String::new()
+    };
+
+    // Query: global skills + skills scoped to this soul name
+    let filter = if soul_name.is_empty() {
+        "Status eq 'Active' and Scope eq 'global'".to_string()
+    } else {
+        let escaped = soul_name.replace('\'', "''");
+        format!(
+            "Status eq 'Active' and (Scope eq 'global' or Scope eq '{escaped}')"
+        )
+    };
+    let url = format!("{temper_api_url}/tdata/Skills?$filter={filter}");
     let resp = ctx.http_call("GET", &url, &headers, "")?;
-    if resp.status != 200 {
-        return Ok(String::new());
-    }
-    let parsed: Value = serde_json::from_str(&resp.body).unwrap_or(json!({}));
-    let skills = parsed
-        .get("value")
-        .and_then(|v| v.as_array())
-        .cloned()
-        .unwrap_or_default();
+
+    // If parenthesized OR isn't supported, fall back to two queries
+    let skills = if resp.status == 200 {
+        let parsed: Value = serde_json::from_str(&resp.body).unwrap_or(json!({}));
+        parsed
+            .get("value")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default()
+    } else if !soul_name.is_empty() {
+        // Fallback: two separate queries merged client-side
+        let mut merged = Vec::new();
+        let global_url =
+            format!("{temper_api_url}/tdata/Skills?$filter=Status eq 'Active' and Scope eq 'global'");
+        if let Ok(gr) = ctx.http_call("GET", &global_url, &headers, "") {
+            if gr.status == 200 {
+                if let Ok(gp) = serde_json::from_str::<Value>(&gr.body) {
+                    if let Some(arr) = gp.get("value").and_then(|v| v.as_array()) {
+                        merged.extend(arr.iter().cloned());
+                    }
+                }
+            }
+        }
+        let escaped = soul_name.replace('\'', "''");
+        let scoped_url = format!(
+            "{temper_api_url}/tdata/Skills?$filter=Status eq 'Active' and Scope eq '{escaped}'"
+        );
+        if let Ok(sr) = ctx.http_call("GET", &scoped_url, &headers, "") {
+            if sr.status == 200 {
+                if let Ok(sp) = serde_json::from_str::<Value>(&sr.body) {
+                    if let Some(arr) = sp.get("value").and_then(|v| v.as_array()) {
+                        merged.extend(arr.iter().cloned());
+                    }
+                }
+            }
+        }
+        merged
+    } else {
+        Vec::new()
+    };
+
     if skills.is_empty() {
         return Ok(String::new());
     }

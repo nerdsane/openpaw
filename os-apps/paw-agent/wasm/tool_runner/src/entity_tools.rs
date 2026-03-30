@@ -14,6 +14,7 @@ pub(crate) fn is_entity_tool(name: &str) -> bool {
             | "abort_agent"
             | "steer_agent"
             | "read_entity"
+            | "file_upload"
             | "temper_create"
             | "temper_get"
             | "temper_list"
@@ -389,6 +390,64 @@ pub(crate) fn execute(
             } else {
                 Err(format!("read_entity failed (HTTP {})", resp.status))
             }
+        }
+        "file_upload" => {
+            let name = input
+                .get("name")
+                .and_then(|v| v.as_str())
+                .ok_or("file_upload: missing 'name'")?;
+            let content = input
+                .get("content")
+                .and_then(|v| v.as_str())
+                .ok_or("file_upload: missing 'content'")?;
+            let mime_type = input
+                .get("mime_type")
+                .and_then(|v| v.as_str())
+                .unwrap_or("text/markdown");
+
+            // Create File entity
+            let file_body = json!({
+                "Name": name,
+                "MimeType": mime_type
+            });
+            let file_url = format!("{temper_api_url}/tdata/Files");
+            let file_resp =
+                ctx.http_call("POST", &file_url, &odata_headers(tenant), &file_body.to_string())?;
+            if file_resp.status < 200 || file_resp.status >= 300 {
+                return Err(format!(
+                    "file_upload: File creation failed (HTTP {}): {}",
+                    file_resp.status,
+                    &file_resp.body[..file_resp.body.len().min(300)]
+                ));
+            }
+            let file_parsed: Value =
+                serde_json::from_str(&file_resp.body).unwrap_or(json!({}));
+            let file_id = file_parsed
+                .get("entity_id")
+                .or_else(|| file_parsed.get("Id"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            if file_id.is_empty() {
+                return Err("file_upload: File created but no Id returned".to_string());
+            }
+
+            // Upload content
+            let value_url = format!("{temper_api_url}/tdata/Files('{file_id}')/$value");
+            let value_headers = vec![
+                ("content-type".to_string(), mime_type.to_string()),
+                ("x-tenant-id".to_string(), tenant.to_string()),
+                ("x-temper-principal-kind".to_string(), "admin".to_string()),
+            ];
+            let value_resp = ctx.http_call("PUT", &value_url, &value_headers, content)?;
+            if value_resp.status < 200 || value_resp.status >= 300 {
+                return Err(format!(
+                    "file_upload: content write failed (HTTP {})",
+                    value_resp.status
+                ));
+            }
+
+            Ok(json!({ "file_id": file_id }).to_string())
         }
         "temper_create" => {
             let entity_set = input
