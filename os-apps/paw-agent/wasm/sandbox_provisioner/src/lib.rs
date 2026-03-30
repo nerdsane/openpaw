@@ -1,13 +1,13 @@
 //! Sandbox Provisioner — WASM module for provisioning sandboxes.
 //!
-//! Provisions a sandbox (static URL from config, or E2B REST API) and returns
-//! the sandbox connection details. Also creates a TemperFS Workspace and File
-//! for conversation storage (content-addressable, versioned, Cedar-governed).
+//! Provisions a sandbox (static URL, Modal gRPC API, or local fallback)
+//! and returns the sandbox connection details. Also creates a TemperFS
+//! Workspace and File for conversation storage.
 //!
 //! Priority order:
 //! 1. sandbox_url from entity state (set via Configure — for local dev)
 //! 2. sandbox_url from integration config (default local sandbox)
-//! 3. E2B REST API (for deployed/Railway — requires e2b_api_key secret)
+//! 3. Modal gRPC API via Connect protocol (requires modal_token_id + modal_token_secret)
 //!
 //! Build: `cargo build --target wasm32-unknown-unknown --release`
 
@@ -130,7 +130,7 @@ fn resolve_temper_api_url(ctx: &Context, fields: &Value) -> String {
 
 /// Provision a sandbox. Priority order:
 /// 1. sandbox_url from entity state (set via Configure action) or integration config
-/// 2. E2B REST API (requires e2b_api_key in integration config)
+/// 2. Modal gRPC API via Connect protocol (requires modal_token_id + modal_token_secret)
 fn provision_sandbox(ctx: &Context) -> Result<SandboxResult, String> {
     let fields = ctx.entity_state.get("fields").cloned().unwrap_or(json!({}));
 
@@ -164,92 +164,205 @@ fn provision_sandbox(ctx: &Context) -> Result<SandboxResult, String> {
         });
     }
 
-    // Priority 2: E2B REST API (requires e2b_api_key).
-    let e2b_api_key = ctx.config.get("e2b_api_key").cloned().unwrap_or_default();
+    // Priority 2: Modal gRPC API (requires modal_token_id + modal_token_secret).
+    let modal_token_id = ctx.config.get("modal_token_id").cloned().unwrap_or_default();
+    let modal_token_secret = ctx
+        .config
+        .get("modal_token_secret")
+        .cloned()
+        .unwrap_or_default();
 
-    if e2b_api_key.is_empty() || e2b_api_key.contains("{secret:") {
-        return Err("no sandbox_url configured and no e2b_api_key available — \
-             set sandbox_url via Configure or store e2b_api_key secret"
-            .to_string());
+    if modal_token_id.is_empty()
+        || modal_token_id.contains("{secret:")
+        || modal_token_secret.is_empty()
+        || modal_token_secret.contains("{secret:")
+    {
+        return Err(
+            "no sandbox_url configured and no Modal credentials available — \
+             set sandbox_url via Configure or store modal_token_id + modal_token_secret secrets"
+                .to_string(),
+        );
     }
 
-    ctx.log("info", "sandbox_provisioner: provisioning via E2B API");
+    ctx.log("info", "sandbox_provisioner: provisioning via Modal API");
 
-    let e2b_api_url = ctx
+    let modal_api_url = ctx
         .config
-        .get("e2b_api_url")
+        .get("modal_api_url")
         .cloned()
-        .unwrap_or_else(|| "https://api.e2b.dev".to_string());
+        .unwrap_or_else(|| "https://api.modal.com".to_string());
 
-    let template_id = ctx
-        .config
-        .get("e2b_template_id")
-        .cloned()
-        .unwrap_or_else(|| "base".to_string());
+    // Modal uses gRPC. We attempt the Connect protocol (gRPC-over-HTTP/1.1 with JSON).
+    // The RPC path is: /modal.client.ModalClient/SandboxCreateV2
+    // Auth: Bearer token using "Token {token_id}:{token_secret}" format.
+    let auth_token = format!("Token {modal_token_id}:{modal_token_secret}");
+    let rpc_url = format!("{modal_api_url}/modal.client.ModalClient/SandboxCreateV2");
 
-    // Create sandbox via E2B REST API
-    let create_url = format!("{e2b_api_url}/sandboxes");
     let headers = vec![
-        ("x-api-key".to_string(), e2b_api_key.clone()),
+        ("authorization".to_string(), format!("Bearer {auth_token}")),
         ("content-type".to_string(), "application/json".to_string()),
     ];
 
-    let body = json!({
-        "templateID": template_id,
-        "timeout": 600,
-        // Open Paw talks directly to the envd URL today; disable secure mode
-        // until we plumb the access token through the agent/tool state.
-        "secure": false,
+    // SandboxCreateV2Request: define the sandbox with Ubuntu base image,
+    // network access, and a 1-hour timeout.
+    let create_body = json!({
+        "definition": {
+            "image_id": "",
+            "entrypoint_args": [],
+            "timeout_secs": 3600,
+            "workdir": "/workspace",
+            "network_access": true,
+            "enable_snapshot": false,
+            "idle_timeout_secs": 600
+        }
     });
 
-    let resp = ctx.http_call("POST", &create_url, &headers, &body.to_string())?;
+    // Try Connect protocol first (HTTP/1.1 + JSON POST to gRPC path).
+    let resp = ctx.http_call("POST", &rpc_url, &headers, &create_body.to_string());
 
+    match resp {
+        Ok(resp) if resp.status >= 200 && resp.status < 300 => {
+            let parsed: Value = serde_json::from_str(&resp.body)
+                .map_err(|e| format!("failed to parse Modal response: {e}"))?;
+
+            let sandbox_id = parsed
+                .get("sandbox_id")
+                .or_else(|| parsed.get("sandboxId"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown")
+                .to_string();
+
+            let task_id = parsed
+                .get("task_id")
+                .or_else(|| parsed.get("taskId"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+
+            // Get the sandbox tunnel URL for HTTP access.
+            // Modal sandbox tunnels expose ports as HTTPS endpoints.
+            let sandbox_url = if let Some(tunnels) = parsed.get("tunnels").and_then(Value::as_array)
+            {
+                tunnels
+                    .iter()
+                    .find_map(|t| t.get("url").and_then(Value::as_str))
+                    .map(|s| s.to_string())
+                    .unwrap_or_default()
+            } else {
+                // If no tunnel in create response, request one via GetTunnels.
+                get_modal_tunnel_url(ctx, &modal_api_url, &auth_token, &sandbox_id)
+                    .unwrap_or_default()
+            };
+
+            if sandbox_url.is_empty() {
+                // Fall back: create a connect token for HTTP access.
+                let connect_url = create_modal_connect_token(
+                    ctx,
+                    &modal_api_url,
+                    &auth_token,
+                    &sandbox_id,
+                );
+                if let Ok(url) = connect_url {
+                    ctx.log(
+                        "info",
+                        &format!(
+                            "sandbox_provisioner: Modal sandbox created via connect token: id={sandbox_id}, task={task_id}"
+                        ),
+                    );
+                    return Ok(SandboxResult {
+                        sandbox_url: url,
+                        sandbox_id,
+                    });
+                }
+                return Err(format!(
+                    "Modal sandbox created (id={sandbox_id}) but no tunnel URL or connect token available"
+                ));
+            }
+
+            ctx.log(
+                "info",
+                &format!(
+                    "sandbox_provisioner: Modal sandbox created: id={sandbox_id}, task={task_id}, url={sandbox_url}"
+                ),
+            );
+
+            Ok(SandboxResult {
+                sandbox_url,
+                sandbox_id,
+            })
+        }
+        Ok(resp) => {
+            // Connect protocol may not be supported — Modal might require native gRPC.
+            // Log the error with enough detail to diagnose.
+            Err(format!(
+                "Modal sandbox creation failed (HTTP {}). \
+                 This may indicate Modal's API does not support Connect protocol. \
+                 Consider adding native gRPC support to the Temper WASM host. \
+                 Response: {}",
+                resp.status,
+                &resp.body[..resp.body.len().min(500)]
+            ))
+        }
+        Err(e) => Err(format!("Modal API call failed: {e}")),
+    }
+}
+
+/// Get a Modal sandbox tunnel URL via the GetTunnels RPC.
+fn get_modal_tunnel_url(
+    ctx: &Context,
+    modal_api_url: &str,
+    auth_token: &str,
+    sandbox_id: &str,
+) -> Result<String, String> {
+    let url = format!("{modal_api_url}/modal.client.ModalClient/SandboxGetTunnels");
+    let headers = vec![
+        ("authorization".to_string(), format!("Bearer {auth_token}")),
+        ("content-type".to_string(), "application/json".to_string()),
+    ];
+    let body = json!({ "sandbox_id": sandbox_id, "timeout": 30.0 });
+
+    let resp = ctx.http_call("POST", &url, &headers, &body.to_string())?;
     if resp.status < 200 || resp.status >= 300 {
-        return Err(format!(
-            "E2B sandbox creation failed (HTTP {}): {}",
-            resp.status,
-            &resp.body[..resp.body.len().min(500)]
-        ));
+        return Err(format!("GetTunnels failed (HTTP {})", resp.status));
     }
 
-    let parsed: Value = serde_json::from_str(&resp.body)
-        .map_err(|e| format!("failed to parse E2B response: {e}"))?;
-
-    let sandbox_id = parsed
-        .get("sandboxID")
-        .or_else(|| parsed.get("sandbox_id"))
-        .and_then(|v| v.as_str())
-        .unwrap_or("unknown")
-        .to_string();
-
-    let client_id = parsed
-        .get("clientID")
-        .or_else(|| parsed.get("client_id"))
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
-
-    // E2B sandbox URL: envd daemon on port 49983 at domain e2b.app.
-    // URL format: https://{port}-{sandbox_id}.{domain} (port comes FIRST).
-    // File ops (read/write) are plain HTTP on this endpoint.
-    let sandbox_url = parsed
-        .get("sandbox_url")
-        .or_else(|| parsed.get("url"))
-        .and_then(|v| v.as_str())
+    let parsed: Value =
+        serde_json::from_str(&resp.body).map_err(|e| format!("parse tunnels: {e}"))?;
+    parsed
+        .get("tunnels")
+        .and_then(Value::as_array)
+        .and_then(|arr| arr.first())
+        .and_then(|t| t.get("url").and_then(Value::as_str))
         .map(|s| s.to_string())
-        .unwrap_or_else(|| format!("https://49983-{sandbox_id}.e2b.app"));
+        .ok_or_else(|| "no tunnel URL in response".to_string())
+}
 
-    ctx.log(
-        "info",
-        &format!(
-            "sandbox_provisioner: E2B sandbox created: id={sandbox_id}, client={client_id}, url={sandbox_url}"
-        ),
-    );
+/// Create a Modal sandbox connect token for authenticated HTTP access.
+fn create_modal_connect_token(
+    ctx: &Context,
+    modal_api_url: &str,
+    auth_token: &str,
+    sandbox_id: &str,
+) -> Result<String, String> {
+    let url = format!("{modal_api_url}/modal.client.ModalClient/SandboxCreateConnectToken");
+    let headers = vec![
+        ("authorization".to_string(), format!("Bearer {auth_token}")),
+        ("content-type".to_string(), "application/json".to_string()),
+    ];
+    let body = json!({ "sandbox_id": sandbox_id });
 
-    Ok(SandboxResult {
-        sandbox_url,
-        sandbox_id,
-    })
+    let resp = ctx.http_call("POST", &url, &headers, &body.to_string())?;
+    if resp.status < 200 || resp.status >= 300 {
+        return Err(format!("CreateConnectToken failed (HTTP {})", resp.status));
+    }
+
+    let parsed: Value =
+        serde_json::from_str(&resp.body).map_err(|e| format!("parse connect token: {e}"))?;
+    parsed
+        .get("url")
+        .and_then(Value::as_str)
+        .map(|s| s.to_string())
+        .ok_or_else(|| "no url in connect token response".to_string())
 }
 
 /// Create a TemperFS Workspace, conversation File, manifest File, and session file.
