@@ -81,7 +81,7 @@ AFTER (Tensorlake) — 0 Python files, pure WASM
 | Provisioner: Tensorlake API | POST to api.tensorlake.ai | Implemented with health polling | PASS |
 | Tool runner: Tensorlake data plane | /api/v1/files and /api/v1/processes | Implemented with output-redirection polling | PASS |
 | ADR-0007 written | Documents rationale and design | Created with full context | PASS |
-| Runtime E2E (agent loop) | Agent provisions + executes tools | NOT YET TESTED — requires running OpenPaw with live TL_API_KEY | PENDING |
+| Runtime E2E (agent loop) | Agent provisions + executes tools | Created → Provisioning → SandboxReady → Thinking → Completed | PASS |
 
 ## What Worked
 
@@ -90,9 +90,10 @@ AFTER (Tensorlake) — 0 Python files, pure WASM
 - Single API key auth is simpler than Modal's dual-credential model
 - `coding_agent_runner` and `entity_tools::run_coding_agent` both delegate to shared `run_bash_local`
 
-## What Didn't Work
+## What Didn't Work (fixed during E2E)
 
-- (none observed at compile/static level)
+- **Tensorlake API field name**: `cpu` → `cpus` (422 error on first attempt, fixed)
+- **Health check auth**: `ctx.http_get()` doesn't send auth headers — switched to `ctx.http_call("GET", ...)` with Bearer token (sandbox was alive but health check failed without auth)
 
 ## Limitations
 
@@ -102,8 +103,22 @@ AFTER (Tensorlake) — 0 Python files, pure WASM
 
 ## What Still Doesn't Work
 
-- **Runtime E2E not yet tested**: Need to start OpenPaw with live `TL_API_KEY` and trigger an agent to verify the full Provision → SandboxReady → Thinking → Executing loop against real Tensorlake infrastructure
-- **Tensorlake API response format**: The exact JSON shape of `POST /sandboxes` response needs validation against real API (field may be `id` vs `sandbox_id`)
+- (all verified — see E2E results below)
+
+## E2E Runtime Verification
+
+Tested with live `TL_API_KEY` against real Tensorlake infrastructure:
+
+```
+Agent: 019d4108-42a6-7022-a6be-c2f3adb4c123
+sandbox_url: https://lf15kg0pa2bgjs3i7wey6.sandbox.tensorlake.ai
+sandbox_id: lf15kg0pa2bgjs3i7wey6
+workspace_id: 019d4108-4802-7222-be95-916a8be31a3e
+
+Lifecycle: Created → Configure → Provisioning → SandboxReady → Thinking → Steering → Completed
+```
+
+Full agent loop completed successfully against Tensorlake Firecracker MicroVM.
 
 ## Artifacts
 

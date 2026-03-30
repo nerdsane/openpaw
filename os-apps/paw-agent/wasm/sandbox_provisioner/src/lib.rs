@@ -215,7 +215,7 @@ fn provision_sandbox(ctx: &Context) -> Result<SandboxResult, String> {
     ];
     let body = json!({
         "resources": {
-            "cpu": 2,
+            "cpus": 2,
             "memory_mb": 4096
         },
         "timeout_seconds": 3600,
@@ -255,7 +255,7 @@ fn provision_sandbox(ctx: &Context) -> Result<SandboxResult, String> {
     let health_url = format!("{sandbox_url}/api/v1/files/list?path=/");
     let mut ready = false;
     for attempt in 0..120 {
-        match ctx.http_get(&health_url) {
+        match ctx.http_call("GET", &health_url, &health_headers, "") {
             Ok(r) if r.status >= 200 && r.status < 300 => {
                 ready = true;
                 break;
