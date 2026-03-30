@@ -27,7 +27,7 @@
         <Property Name="AlertPayload" Type="Edm.String"/>
         <Property Name="Diagnosis" Type="Edm.String"/>
         <Property Name="PrUrl" Type="Edm.String"/>
-        <Property Name="ScoutAgentId" Type="Edm.String"/>
+        <Property Name="SreAgentId" Type="Edm.String"/>
         <Property Name="DeveloperAgentId" Type="Edm.String"/>
         <Property Name="TuningNotes" Type="Edm.String"/>
         <Annotation Term="Paw.Vocab.AuthZ.CedarPolicy" String="policies/alert_cycle.cedar"/>
@@ -75,7 +75,7 @@
         <Parameter Name="bindingParameter" Type="OpenPaw.Heal.AlertCycle"/>
         <Parameter Name="monitor_id" Type="Edm.String" Nullable="false"/>
         <Parameter Name="alert_payload" Type="Edm.String" Nullable="false"/>
-        <Parameter Name="scout_agent_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="sre_agent_id" Type="Edm.String" Nullable="true"/>
         <ReturnType Type="OpenPaw.Heal.AlertCycle"/>
       </Action>
 

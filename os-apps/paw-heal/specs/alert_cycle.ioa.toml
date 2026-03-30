@@ -26,7 +26,7 @@ type = "string"
 initial = ""
 
 [[state]]
-name = "scout_agent_id"
+name = "sre_agent_id"
 type = "string"
 initial = ""
 
@@ -45,8 +45,8 @@ name = "Open"
 kind = "input"
 from = ["Created"]
 to = "Triaging"
-params = ["monitor_id", "alert_payload", "scout_agent_id"]
-hint = "Open a triage cycle and optionally attach the scout agent responsible for diagnosis."
+params = ["monitor_id", "alert_payload", "sre_agent_id"]
+hint = "Open a triage cycle and optionally attach the SRE agent responsible for diagnosis."
 
 [[action]]
 name = "HealComplete"

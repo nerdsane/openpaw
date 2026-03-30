@@ -46,7 +46,7 @@ Developer agents get persistent Linux VMs via Fly.io Sprites. The Computer entit
 
 ### 5. Souls as TemperFS files
 
-Agent personalities (Paw, Developer, Scout) are system prompt markdown files in `souls/`. At boot, the daemon reads them from disk, creates TemperFS File entities, and registers Soul entities. Runtime uses the entity system — disk files are seed data only.
+Agent personalities (Paw, Developer, SRE) are system prompt markdown files in `souls/`. At boot, the daemon reads them from disk, creates TemperFS File entities, and registers Soul entities. Runtime uses the entity system — disk files are seed data only.
 
 ### 6. Turso storage
 
@@ -54,7 +54,7 @@ Default storage backend is Turso (cloud SQLite via libSQL). Lightest option for 
 
 ### 7. Ramp Inspect-style self-healing (post-MVP)
 
-The paw-heal OS app implements webhook-driven monitoring: auto-generated Datadog monitors fire alerts, scout agents triage (real issue or noise), developer agents fix or tune. Follows Ramp's pattern of 1 monitor per ~75 lines of code.
+The paw-heal OS app implements webhook-driven monitoring: auto-generated Datadog monitors fire alerts, sre agents triage (real issue or noise), developer agents fix or tune. Follows Ramp's pattern of 1 monitor per ~75 lines of code.
 
 ## Consequences
 

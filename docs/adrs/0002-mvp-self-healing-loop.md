@@ -6,7 +6,7 @@ Accepted
 
 ## Context
 
-Open Paw already boots as an embedded Temper-based daemon, but the MVP needs a fully governed self-healing loop on a real repository. The loop starts from a Paw-controlled channel interaction, provisions developer execution on a sandbox, observes real Logfire alerts, triages them with Scout, and drives code changes through GitHub pull requests.
+Open Paw already boots as an embedded Temper-based daemon, but the MVP needs a fully governed self-healing loop on a real repository. The loop starts from a Paw-controlled channel interaction, provisions developer execution on a sandbox, observes real Logfire alerts, triages them with SRE, and drives code changes through GitHub pull requests.
 
 The existing model still uses `Agent`-era names and ad hoc environment handling, which makes the API shape inconsistent with the product language in the MVP plan and harder to verify across parallel worktree implementations.
 

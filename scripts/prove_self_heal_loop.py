@@ -2,8 +2,8 @@
 """Run a curl-equivalent self-heal proof against a live Open Paw daemon.
 
 This driver creates a deep-sci-fi ProjectHarness + Monitor, opens a synthetic
-AlertCycle for a real repo issue, provisions a Scout agent, and waits for the
-Scout -> Developer remediation loop to finish.
+AlertCycle for a real repo issue, provisions a SRE agent, and waits for the
+SRE -> Developer remediation loop to finish.
 """
 
 from __future__ import annotations
@@ -181,7 +181,7 @@ def build_alert_payload(repo_url: str, project_harness_id: str) -> str:
     return json.dumps(payload, separators=(",", ":"))
 
 
-def build_scout_message(
+def build_sre_message(
     *,
     repo_url: str,
     project_harness_id: str,
@@ -231,7 +231,7 @@ Follow this exact workflow:
 6. If the fix succeeded, call:
    - WorkCycle.BeginTesting
    - WorkCycle.PassTests with a short test summary covering `npm ci` and the additional validation command
-   - WorkCycle.Approve with your scout agent ID as approver_id and the PR URL
+   - WorkCycle.Approve with your sre agent ID as approver_id and the PR URL
    - AlertCycle.HealComplete with a diagnosis, PR URL, and the developer agent ID
 7. If the fix did not succeed, call:
    - WorkCycle.Fail with the error_message
@@ -314,10 +314,10 @@ def main() -> int:
     alert_payload = build_alert_payload(args.repo_url, project_id)
     print(f"SANDBOX_URL={sandbox_url}", flush=True)
 
-    scout = client.create("Agents", {})
-    scout_id = agent_entity_id(scout)
-    print(f"SCOUT_AGENT_ID={scout_id}", flush=True)
-    scout_message = build_scout_message(
+    sre = client.create("Agents", {})
+    sre_id = agent_entity_id(sre)
+    print(f"SRE_AGENT_ID={sre_id}", flush=True)
+    sre_message = build_sre_message(
         repo_url=args.repo_url,
         project_harness_id=project_id,
         monitor_id=monitor_id,
@@ -326,7 +326,7 @@ def main() -> int:
     )
     client.action(
         "Agents",
-        scout_id,
+        sre_id,
         "OpenPaw.Configure",
         {
             "model": args.model,
@@ -334,9 +334,9 @@ def main() -> int:
             "max_turns": "60",
             "tools_enabled": "temper_get,temper_list,temper_action,temper_create,spawn_agent,read_entity",
             "sandbox_url": sandbox_url,
-            "workdir": "/tmp/openpaw-scout-self-heal",
-            "soul_id": "Scout",
-            "user_message": scout_message,
+            "workdir": "/tmp/openpaw-sre-self-heal",
+            "soul_id": "SRE",
+            "user_message": sre_message,
         },
     )
 
@@ -347,15 +347,15 @@ def main() -> int:
         {
             "monitor_id": monitor_id,
             "alert_payload": alert_payload,
-            "scout_agent_id": scout_id,
+            "sre_agent_id": sre_id,
         },
     )
 
     client.action("Monitors", monitor_id, "OpenPaw.Heal.AlertFired", {"last_alert_payload": alert_payload})
-    client.action("Agents", scout_id, "OpenPaw.Provision")
-    print("SCOUT_STATUS=Provisioned", flush=True)
+    client.action("Agents", sre_id, "OpenPaw.Provision")
+    print("SRE_STATUS=Provisioned", flush=True)
 
-    scout_wait = client.wait_for_agent(scout_id, args.timeout_ms)
+    sre_wait = client.wait_for_agent(sre_id, args.timeout_ms)
     alert_cycle_state = client.get("AlertCycles", alert_cycle_id)
     work_cycles = client.list(
         "WorkCycles",
@@ -365,7 +365,7 @@ def main() -> int:
     )
     child_agents = client.list(
         "Agents",
-        filter_expr=f"parent_agent_id eq '{scout_id}'",
+        filter_expr=f"parent_agent_id eq '{sre_id}'",
         orderby="sequence_nr desc",
         top=5,
     )
@@ -374,8 +374,8 @@ def main() -> int:
         "project_harness_id": project_id,
         "monitor_id": monitor_id,
         "alert_cycle_id": alert_cycle_id,
-        "scout_agent_id": scout_id,
-        "scout_wait": scout_wait,
+        "sre_agent_id": sre_id,
+        "sre_wait": sre_wait,
         "alert_cycle": alert_cycle_state,
         "work_cycles": work_cycles,
         "child_agents": child_agents,

@@ -40,4 +40,4 @@ Open Paw follows the Temper OS app pattern — all agent logic is modeled as IOA
 Agent personalities are defined in `souls/` and seeded into the entity system at boot:
 - `paw.md` — Project manager agent
 - `developer.md` — Software developer agent
-- `scout.md` — Monitoring and triage agent
+- `sre.md` — SRE monitoring and triage agent

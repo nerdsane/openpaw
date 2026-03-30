@@ -414,7 +414,7 @@ fn spawn_soul_bootstrap(port: u16, tenant: String, api_key: Option<String>) {
                 "Software developer agent",
                 "souls/developer.md",
             ),
-            ("Scout", "Monitoring and triage agent", "souls/scout.md"),
+            ("SRE", "SRE monitoring and triage agent", "souls/sre.md"),
         ];
 
         for (name, description, path) in &souls {
