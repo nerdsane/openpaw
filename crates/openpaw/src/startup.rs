@@ -133,17 +133,10 @@ pub async fn run(config: Config) -> Result<()> {
             }
         }
 
-        if let Some(ref key) = config.modal_token_id {
-            let _ = vault.cache_secret("default", "modal_token_id", key.clone());
+        if let Some(ref key) = config.tensorlake_api_key {
+            let _ = vault.cache_secret("default", "tensorlake_api_key", key.clone());
             if tenant != "default" {
-                let _ = vault.cache_secret(&tenant, "modal_token_id", key.clone());
-            }
-        }
-
-        if let Some(ref key) = config.modal_token_secret {
-            let _ = vault.cache_secret("default", "modal_token_secret", key.clone());
-            if tenant != "default" {
-                let _ = vault.cache_secret(&tenant, "modal_token_secret", key.clone());
+                let _ = vault.cache_secret(&tenant, "tensorlake_api_key", key.clone());
             }
         }
 
@@ -181,42 +174,18 @@ pub async fn run(config: Config) -> Result<()> {
             let _ = vault.cache_secret(&tenant, "temper_api_url", api_url);
         }
 
-        let explicit_sandbox_url = std::env::var("SANDBOX_URL").ok();
-        let sandbox_port = port + 10;
-        let local_sandbox_url = launch_local_sandbox_url(sandbox_port);
-        let modal_bridge_port = port + 11;
-        let modal_bridge_url = launch_modal_bridge_url(&config, modal_bridge_port);
-
-        if let Some(bridge_url) = modal_bridge_url.clone() {
-            let _ = vault.cache_secret("default", "modal_bridge_url", bridge_url.clone());
-            if tenant != "default" {
-                let _ = vault.cache_secret(&tenant, "modal_bridge_url", bridge_url);
-            }
-        }
-
-        let default_sandbox_url = explicit_sandbox_url.or_else(|| {
-            if modal_bridge_url.is_some() {
-                tracing::info!(
-                    "Modal bridge is configured; sandbox_provisioner will create sandboxes on demand"
-                );
-                None
-            } else {
-                local_sandbox_url.clone()
-            }
-        });
-
-        if let Some(sandbox_url) = default_sandbox_url {
+        // Sandbox URL: explicit override for testing, otherwise Tensorlake provisions on demand.
+        if let Some(sandbox_url) = std::env::var("SANDBOX_URL").ok().filter(|s| !s.is_empty()) {
             let _ = vault.cache_secret("default", "sandbox_url", sandbox_url.clone());
             if tenant != "default" {
                 let _ = vault.cache_secret(&tenant, "sandbox_url", sandbox_url);
             }
-        } else if modal_bridge_url.is_some() {
-            // Clear any persisted default sandbox URL so the provisioner cannot
-            // accidentally short-circuit into an old local bridge/static value.
-            let _ = vault.cache_secret("default", "sandbox_url", String::new());
-            if tenant != "default" {
-                let _ = vault.cache_secret(&tenant, "sandbox_url", String::new());
-            }
+        } else if config.tensorlake_api_key.is_some() {
+            tracing::info!(
+                "Tensorlake API key configured; sandbox_provisioner will create sandboxes on demand"
+            );
+        } else {
+            tracing::warn!("No TL_API_KEY or SANDBOX_URL — agent sandbox provisioning will fail");
         }
 
         // Local blob store for TemperFS content uploads/downloads.
@@ -346,89 +315,6 @@ pub async fn run(config: Config) -> Result<()> {
     Ok(())
 }
 
-fn launch_modal_bridge_url(config: &Config, bridge_port: u16) -> Option<String> {
-    let token_id = config
-        .modal_token_id
-        .as_deref()
-        .filter(|value| !value.trim().is_empty())?;
-    let token_secret = config
-        .modal_token_secret
-        .as_deref()
-        .filter(|value| !value.trim().is_empty())?;
-
-    let helper = Path::new("scripts/openpaw_modal_sandbox.py");
-    if !helper.exists() {
-        tracing::warn!("Modal helper script missing at {}", helper.display());
-        return None;
-    }
-
-    let output = std::process::Command::new("python3")
-        .arg(helper)
-        .arg("--port")
-        .arg(bridge_port.to_string())
-        .arg("--print-url")
-        .env("MODAL_TOKEN_ID", token_id)
-        .env("MODAL_TOKEN_SECRET", token_secret)
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .output()
-        .ok()?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        tracing::warn!(
-            "Modal bridge helper failed with status {:?}: {}",
-            output.status.code(),
-            stderr.trim()
-        );
-        return None;
-    }
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let sandbox_url = stdout
-        .lines()
-        .rev()
-        .find(|line| !line.trim().is_empty())
-        .map(str::trim)
-        .unwrap_or("");
-    if sandbox_url.is_empty() {
-        tracing::warn!("Modal bridge helper returned an empty URL");
-        return None;
-    }
-
-    tracing::info!("Modal bridge: {sandbox_url}");
-    Some(sandbox_url.to_string())
-}
-
-fn launch_local_sandbox_url(sandbox_port: u16) -> Option<String> {
-    let sandbox_script = Path::new("os-apps/paw-agent/sandbox/local_sandbox.py");
-    if !sandbox_script.exists() {
-        return None;
-    }
-
-    let _ = std::fs::create_dir_all("/tmp/paw-sandbox");
-    let _ = std::fs::create_dir_all("/workspace");
-    let url = format!("http://127.0.0.1:{sandbox_port}");
-    match std::process::Command::new("python3")
-        .arg(sandbox_script)
-        .arg("--port")
-        .arg(sandbox_port.to_string())
-        .arg("--workdir")
-        .arg("/tmp/paw-sandbox")
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-    {
-        Ok(_) => {
-            tracing::info!("Local sandbox: {url} (auto-started)");
-            Some(url)
-        }
-        Err(error) => {
-            tracing::warn!("Failed to start local sandbox: {error}");
-            None
-        }
-    }
-}
 
 async fn persist_os_app_verification(
     state: &PlatformState,

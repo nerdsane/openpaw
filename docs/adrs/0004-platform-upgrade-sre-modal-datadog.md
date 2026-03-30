@@ -57,6 +57,8 @@ This keeps the self-healing loop aligned with the real operator expectation: not
 
 ### 5. Target Modal for governed remote sandboxes
 
+> **Superseded by [ADR-0007](0007-tensorlake-sandbox-migration.md)**: Modal has been replaced by Tensorlake. The WASM provisioner now calls Tensorlake's REST API directly, eliminating the Python bridge.
+
 The long-term remote sandbox provider is Modal. The architectural direction is:
 
 - sandbox provisioning remains inside the governed WASM path

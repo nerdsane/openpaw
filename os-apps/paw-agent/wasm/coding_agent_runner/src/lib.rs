@@ -40,38 +40,8 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
 
         ctx.log("info", &format!("coding_agent_runner: running {agent_type}: {}", &command[..command.len().min(100)]));
 
-        // Execute via sandbox bash API
-        let url = format!("{sandbox_url}/v1/processes/run");
-        let body = serde_json::to_string(&json!({
-            "command": command,
-            "workdir": task_workdir,
-        })).unwrap_or_default();
-
-        let headers = vec![("content-type".to_string(), "application/json".to_string())];
-        let resp = ctx.http_call("POST", &url, &headers, &body)?;
-
-        let output = if resp.status >= 200 && resp.status < 300 {
-            if let Ok(parsed) = serde_json::from_str::<Value>(&resp.body) {
-                let stdout = parsed.get("stdout").and_then(|v| v.as_str()).unwrap_or("");
-                let stderr = parsed.get("stderr").and_then(|v| v.as_str()).unwrap_or("");
-                let exit_code = parsed.get("exit_code").and_then(|v| v.as_i64()).unwrap_or(-1);
-                let mut out = String::new();
-                if !stdout.is_empty() { out.push_str(stdout); }
-                if !stderr.is_empty() {
-                    if !out.is_empty() { out.push('\n'); }
-                    out.push_str("STDERR: ");
-                    out.push_str(stderr);
-                }
-                if exit_code != 0 {
-                    out.push_str(&format!("\n(exit code: {exit_code})"));
-                }
-                out
-            } else {
-                resp.body
-            }
-        } else {
-            format!("Error (HTTP {}): {}", resp.status, &resp.body[..resp.body.len().min(500)])
-        };
+        // Execute via Tensorlake sandbox data plane API using output-redirection polling.
+        let output = run_bash_tensorlake(&ctx, sandbox_url, &command, task_workdir)?;
 
         // Return the output as a tool result
         set_success_result("HandleToolResults", &json!({
@@ -93,4 +63,106 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
 
 fn escape_single_quotes(s: &str) -> String {
     s.replace('\'', "'\\''")
+}
+
+/// Run bash command via Tensorlake sandbox data plane with output-redirection polling.
+fn run_bash_tensorlake(
+    ctx: &Context,
+    sandbox_url: &str,
+    command: &str,
+    workdir: &str,
+) -> Result<String, String> {
+    let api_key = ctx
+        .config
+        .get("tensorlake_api_key")
+        .filter(|s| !s.is_empty() && !s.contains("{secret:"))
+        .cloned()
+        .unwrap_or_default();
+
+    use core::sync::atomic::{AtomicU32, Ordering};
+    static COUNTER: AtomicU32 = AtomicU32::new(0);
+    let run_id = format!("{:08x}", COUNTER.fetch_add(1, Ordering::Relaxed));
+
+    let out_path = format!("/tmp/.paw-out-{run_id}");
+    let err_path = format!("/tmp/.paw-err-{run_id}");
+    let rc_path = format!("/tmp/.paw-rc-{run_id}");
+
+    let wrapped = format!(
+        "({command}) > {out_path} 2> {err_path}; echo $? > {rc_path}",
+    );
+
+    // Start process
+    let start_url = format!("{sandbox_url}/api/v1/processes");
+    let mut headers = vec![("content-type".to_string(), "application/json".to_string())];
+    if !api_key.is_empty() {
+        headers.push(("authorization".to_string(), format!("Bearer {api_key}")));
+    }
+    let body = json!({ "cmd": ["bash", "-c", &wrapped], "cwd": workdir });
+    let resp = ctx.http_call("POST", &start_url, &headers, &body.to_string())?;
+    if resp.status < 200 || resp.status >= 300 {
+        return Err(format!("process start failed (HTTP {}): {}", resp.status, resp.body));
+    }
+
+    // Poll for exit code file
+    let rc_url = format!("{sandbox_url}/api/v1/files?path={}", url_encode(&rc_path));
+    let mut read_headers = Vec::new();
+    if !api_key.is_empty() {
+        read_headers.push(("authorization".to_string(), format!("Bearer {api_key}")));
+    }
+    let mut exit_code: i64 = -1;
+    let mut found = false;
+    for _ in 0..600 {
+        if let Ok(r) = ctx.http_call("GET", &rc_url, &read_headers, "") {
+            if r.status >= 200 && r.status < 300 {
+                exit_code = r.body.trim().parse::<i64>().unwrap_or(-1);
+                found = true;
+                break;
+            }
+        }
+    }
+
+    if !found {
+        return Err("process timed out after ~300s".to_string());
+    }
+
+    // Read output
+    let out_url = format!("{sandbox_url}/api/v1/files?path={}", url_encode(&out_path));
+    let err_url = format!("{sandbox_url}/api/v1/files?path={}", url_encode(&err_path));
+    let stdout = ctx.http_call("GET", &out_url, &read_headers, "")
+        .map(|r| r.body).unwrap_or_default();
+    let stderr = ctx.http_call("GET", &err_url, &read_headers, "")
+        .map(|r| r.body).unwrap_or_default();
+
+    // Cleanup (best effort)
+    for path in [&out_path, &err_path, &rc_path] {
+        let del_url = format!("{sandbox_url}/api/v1/files?path={}", url_encode(path));
+        let _ = ctx.http_call("DELETE", &del_url, &read_headers, "");
+    }
+
+    let mut output = String::new();
+    if !stdout.is_empty() { output.push_str(&stdout); }
+    if !stderr.is_empty() {
+        if !output.is_empty() { output.push('\n'); }
+        output.push_str("STDERR: ");
+        output.push_str(&stderr);
+    }
+    if exit_code != 0 {
+        output.push_str(&format!("\n(exit code: {exit_code})"));
+    }
+    Ok(output)
+}
+
+fn url_encode(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() * 2);
+    for b in s.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'/' => {
+                out.push(b as char);
+            }
+            _ => {
+                out.push_str(&format!("%{b:02X}"));
+            }
+        }
+    }
+    out
 }

@@ -8,6 +8,7 @@
 //! Build: `cargo build --target wasm32-unknown-unknown --release`
 
 use temper_wasm_sdk::prelude::*;
+use wasm_helpers::runtime_headers;
 
 /// Entry point.
 #[unsafe(no_mangle)]
@@ -130,6 +131,20 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
     0
 }
 
+fn agent_headers(
+    ctx: &Context,
+    tenant: &str,
+    content_type: Option<&str>,
+    accept: Option<&str>,
+) -> Vec<(String, String)> {
+    let fields = ctx
+        .entity_state
+        .get("fields")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    runtime_headers(ctx, tenant, &fields, content_type, accept)
+}
+
 /// Read the file manifest from TemperFS.
 /// Returns a map of sandbox path → TemperFS file entity ID.
 fn read_manifest(
@@ -139,11 +154,7 @@ fn read_manifest(
     manifest_file_id: &str,
 ) -> Result<Vec<(String, String)>, String> {
     let url = format!("{temper_api_url}/tdata/Files('{manifest_file_id}')/$value");
-    let headers = vec![
-        ("x-tenant-id".to_string(), tenant.to_string()),
-        ("x-temper-principal-kind".to_string(), "admin".to_string()),
-        ("accept".to_string(), "application/json".to_string()),
-    ];
+    let headers = agent_headers(ctx, tenant, None, Some("application/json"));
 
     let resp = ctx.http_call("GET", &url, &headers, "")?;
     if resp.status != 200 {
@@ -176,10 +187,7 @@ fn read_file_from_temperfs(
     file_id: &str,
 ) -> Result<String, String> {
     let url = format!("{temper_api_url}/tdata/Files('{file_id}')/$value");
-    let headers = vec![
-        ("x-tenant-id".to_string(), tenant.to_string()),
-        ("x-temper-principal-kind".to_string(), "admin".to_string()),
-    ];
+    let headers = agent_headers(ctx, tenant, None, None);
 
     let resp = ctx.http_call("GET", &url, &headers, "")?;
     if resp.status != 200 {
@@ -189,15 +197,24 @@ fn read_file_from_temperfs(
     Ok(resp.body)
 }
 
-/// Write file to local sandbox via PUT /v1/fs/file.
+/// Write file to sandbox via Tensorlake data plane API.
 fn write_file_local(
     ctx: &Context,
     sandbox_url: &str,
     full_path: &str,
     content: &str,
 ) -> Result<(), String> {
-    let url = format!("{sandbox_url}/v1/fs/file?path={}", url_encode(full_path));
-    let headers = vec![("content-type".to_string(), "text/plain".to_string())];
+    let api_key = ctx
+        .config
+        .get("tensorlake_api_key")
+        .filter(|s| !s.is_empty() && !s.contains("{secret:"))
+        .cloned()
+        .unwrap_or_default();
+    let url = format!("{sandbox_url}/api/v1/files?path={}", url_encode(full_path));
+    let mut headers = vec![("content-type".to_string(), "application/octet-stream".to_string())];
+    if !api_key.is_empty() {
+        headers.push(("authorization".to_string(), format!("Bearer {api_key}")));
+    }
     let resp = ctx.http_call("PUT", &url, &headers, content)?;
     if resp.status >= 200 && resp.status < 300 {
         Ok(())

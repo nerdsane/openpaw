@@ -15,11 +15,8 @@ pub struct Config {
     /// Anthropic API key for LLM calls.
     pub anthropic_api_key: Option<String>,
 
-    /// Modal token ID for remote sandbox provisioning.
-    pub modal_token_id: Option<String>,
-
-    /// Modal token secret for remote sandbox provisioning.
-    pub modal_token_secret: Option<String>,
+    /// Tensorlake API key for remote sandbox provisioning.
+    pub tensorlake_api_key: Option<String>,
 
     /// GitHub token for repo cloning and PR flows.
     pub github_token: Option<String>,
@@ -63,8 +60,7 @@ impl Config {
             turso_url: optional_env("TURSO_URL"),
             turso_auth_token: optional_env("TURSO_AUTH_TOKEN"),
             anthropic_api_key: optional_env("ANTHROPIC_API_KEY"),
-            modal_token_id: optional_env("MODAL_TOKEN_ID"),
-            modal_token_secret: optional_env("MODAL_TOKEN_SECRET"),
+            tensorlake_api_key: optional_env("TL_API_KEY"),
             github_token: optional_env("GITHUB_TOKEN"),
             dd_api_key: optional_env("DD_API_KEY"),
             dd_app_key: optional_env("DD_APP_KEY"),

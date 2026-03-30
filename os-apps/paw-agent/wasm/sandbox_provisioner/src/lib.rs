@@ -1,17 +1,18 @@
-//! Sandbox Provisioner — WASM module for provisioning sandboxes.
+//! Sandbox Provisioner — WASM module for provisioning Tensorlake sandboxes.
 //!
-//! Provisions a sandbox (static URL from config, or Modal bridge) and returns
-//! the sandbox connection details. Also creates a TemperFS Workspace and File
-//! for conversation storage (content-addressable, versioned, Cedar-governed).
+//! Provisions a Tensorlake sandbox via REST API and returns the sandbox
+//! connection details. Also creates a TemperFS Workspace and File for
+//! conversation storage (content-addressable, versioned, Cedar-governed).
 //!
 //! Priority order:
-//! 1. sandbox_url from entity state (set via Configure — for local dev)
-//! 2. sandbox_url from integration config (default local sandbox)
-//! 3. Modal bridge API (for remote Modal sandboxes)
+//! 1. sandbox_url from entity state (set via Configure — testing override)
+//! 2. sandbox_url from integration config (explicit override)
+//! 3. Tensorlake REST API (production path)
 //!
 //! Build: `cargo build --target wasm32-unknown-unknown --release`
 
 use temper_wasm_sdk::prelude::*;
+use wasm_helpers::{runtime_headers, runtime_headers_for_workspace};
 
 /// Entry point.
 #[unsafe(no_mangle)]
@@ -111,6 +112,30 @@ struct SandboxResult {
     sandbox_id: String,
 }
 
+fn agent_headers(
+    ctx: &Context,
+    tenant: &str,
+    content_type: Option<&str>,
+    accept: Option<&str>,
+) -> Vec<(String, String)> {
+    let fields = ctx
+        .entity_state
+        .get("fields")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    runtime_headers(ctx, tenant, &fields, content_type, accept)
+}
+
+fn workspace_headers(
+    ctx: &Context,
+    tenant: &str,
+    workspace_id: &str,
+    content_type: Option<&str>,
+    accept: Option<&str>,
+) -> Vec<(String, String)> {
+    runtime_headers_for_workspace(ctx, tenant, &json!({}), workspace_id, content_type, accept)
+}
+
 fn resolve_temper_api_url(ctx: &Context, fields: &Value) -> String {
     fields
         .get("temper_api_url")
@@ -130,7 +155,7 @@ fn resolve_temper_api_url(ctx: &Context, fields: &Value) -> String {
 
 /// Provision a sandbox. Priority order:
 /// 1. sandbox_url from entity state (set via Configure action) or integration config
-/// 2. Modal bridge API
+/// 2. Tensorlake REST API
 /// 3. Fail with setup guidance
 fn provision_sandbox(ctx: &Context) -> Result<SandboxResult, String> {
     let fields = ctx.entity_state.get("fields").cloned().unwrap_or(json!({}));
@@ -165,62 +190,95 @@ fn provision_sandbox(ctx: &Context) -> Result<SandboxResult, String> {
         });
     }
 
-    // Priority 2: Modal sandbox bridge (local HTTP API that provisions a Modal-hosted
-    // local_sandbox.py instance and returns its tunnel URL).
-    let modal_bridge_url = ctx
+    // Priority 2: Tensorlake REST API — create a Firecracker MicroVM sandbox.
+    let api_key = ctx
         .config
-        .get("modal_bridge_url")
-        .cloned()
-        .unwrap_or_else(|| "http://127.0.0.1:3478".to_string());
-    let bridge_health = ctx.http_get(&format!("{modal_bridge_url}/health"));
-    let bridge_ready = bridge_health.as_ref().map_or(false, |response| {
-        response.status == 200 && response.body.contains("\"provider\": \"modal\"")
-    });
-    if !bridge_ready {
-        return Err(format!(
-            "no sandbox_url configured and Modal bridge is unavailable at {modal_bridge_url} — \
-             start it with `python3 scripts/openpaw_modal_sandbox.py --port {}` or set sandbox_url explicitly",
-            modal_bridge_url
-                .rsplit(':')
-                .next()
-                .and_then(|value| value.parse::<u16>().ok())
-                .unwrap_or(3478)
-        ));
-    }
+        .get("tensorlake_api_key")
+        .filter(|s| !s.is_empty() && !s.contains("{secret:"))
+        .cloned();
+    let api_key = match api_key {
+        Some(key) => key,
+        None => {
+            return Err(
+                "no sandbox_url configured and TL_API_KEY is not set — \
+                 set TL_API_KEY in .env for Tensorlake sandbox provisioning"
+                    .to_string(),
+            );
+        }
+    };
 
-    ctx.log("info", "sandbox_provisioner: provisioning via Modal bridge");
-    let create_url = format!("{modal_bridge_url}/v1/sandboxes");
-    let headers = vec![("content-type".to_string(), "application/json".to_string())];
+    ctx.log("info", "sandbox_provisioner: provisioning via Tensorlake API");
+    let create_url = "https://api.tensorlake.ai/sandboxes";
+    let headers = vec![
+        ("authorization".to_string(), format!("Bearer {api_key}")),
+        ("content-type".to_string(), "application/json".to_string()),
+    ];
     let body = json!({
-        "timeout_secs": 3600,
-        "workdir": "/workspace",
+        "resources": {
+            "cpu": 2,
+            "memory_mb": 4096
+        },
+        "timeout_seconds": 3600,
+        "internet_access": true
     });
-    let resp = ctx.http_call("POST", &create_url, &headers, &body.to_string())?;
+    let resp = ctx.http_call("POST", create_url, &headers, &body.to_string())?;
     if resp.status < 200 || resp.status >= 300 {
         return Err(format!(
-            "Modal bridge sandbox creation failed (HTTP {}): {}",
+            "Tensorlake sandbox creation failed (HTTP {}): {}",
             resp.status,
             &resp.body[..resp.body.len().min(500)]
         ));
     }
 
     let parsed: Value = serde_json::from_str(&resp.body)
-        .map_err(|e| format!("failed to parse Modal bridge response: {e}"))?;
+        .map_err(|e| format!("failed to parse Tensorlake response: {e}"))?;
     let sandbox_id = parsed
         .get("sandbox_id")
         .and_then(|v| v.as_str())
-        .unwrap_or("modal-sandbox")
+        .unwrap_or_else(|| {
+            parsed
+                .get("id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("tensorlake-sandbox")
+        })
         .to_string();
-    let sandbox_url = parsed
-        .get("sandbox_url")
-        .and_then(|v| v.as_str())
-        .filter(|value| !value.is_empty())
-        .ok_or("Modal bridge response missing sandbox_url")?
-        .to_string();
+    let sandbox_url = format!("https://{sandbox_id}.sandbox.tensorlake.ai");
+
+    // Wait for sandbox to become ready by polling the files list endpoint.
+    ctx.log(
+        "info",
+        &format!("sandbox_provisioner: waiting for sandbox {sandbox_id} to become ready..."),
+    );
+    let health_headers = vec![
+        ("authorization".to_string(), format!("Bearer {api_key}")),
+    ];
+    let health_url = format!("{sandbox_url}/api/v1/files/list?path=/");
+    let mut ready = false;
+    for attempt in 0..120 {
+        match ctx.http_get(&health_url) {
+            Ok(r) if r.status >= 200 && r.status < 300 => {
+                ready = true;
+                break;
+            }
+            _ => {
+                if attempt % 10 == 0 && attempt > 0 {
+                    ctx.log(
+                        "info",
+                        &format!("sandbox_provisioner: still waiting... (attempt {attempt})"),
+                    );
+                }
+            }
+        }
+    }
+    if !ready {
+        return Err(format!(
+            "Tensorlake sandbox {sandbox_id} did not become ready within timeout"
+        ));
+    }
 
     ctx.log(
         "info",
-        &format!("sandbox_provisioner: Modal sandbox created: id={sandbox_id}, url={sandbox_url}"),
+        &format!("sandbox_provisioner: Tensorlake sandbox ready: id={sandbox_id}, url={sandbox_url}"),
     );
 
     Ok(SandboxResult { sandbox_url, sandbox_id })
@@ -235,11 +293,7 @@ fn create_conversation_storage(
     agent_id: &str,
     user_message: &str,
 ) -> Result<(String, String, String, String, String), String> {
-    let headers = vec![
-        ("content-type".to_string(), "application/json".to_string()),
-        ("x-tenant-id".to_string(), tenant.to_string()),
-        ("x-temper-principal-kind".to_string(), "admin".to_string()),
-    ];
+    let headers = agent_headers(ctx, tenant, Some("application/json"), None);
 
     // 1. Create Workspace
     let ws_body = json!({
@@ -283,7 +337,8 @@ fn create_conversation_storage(
     });
 
     let file_url = format!("{temper_api_url}/tdata/Files");
-    let file_resp = ctx.http_call("POST", &file_url, &headers, &file_body.to_string())?;
+    let file_headers = workspace_headers(ctx, tenant, &workspace_id, Some("application/json"), None);
+    let file_resp = ctx.http_call("POST", &file_url, &file_headers, &file_body.to_string())?;
 
     if file_resp.status < 200 || file_resp.status >= 300 {
         return Err(format!(
@@ -309,11 +364,8 @@ fn create_conversation_storage(
     // 3. Write initial empty conversation
     let init_conv = json!({"messages": []}).to_string();
     let value_url = format!("{temper_api_url}/tdata/Files('{file_id}')/$value");
-    let value_headers = vec![
-        ("content-type".to_string(), "application/json".to_string()),
-        ("x-tenant-id".to_string(), tenant.to_string()),
-        ("x-temper-principal-kind".to_string(), "admin".to_string()),
-    ];
+    let value_headers =
+        workspace_headers(ctx, tenant, &workspace_id, Some("application/json"), None);
     let value_resp = ctx.http_call("PUT", &value_url, &value_headers, &init_conv)?;
 
     if value_resp.status < 200 || value_resp.status >= 300 {
@@ -335,7 +387,7 @@ fn create_conversation_storage(
         "path": "/file_manifest.json"
     });
 
-    let manifest_resp = ctx.http_call("POST", &file_url, &headers, &manifest_body.to_string())?;
+    let manifest_resp = ctx.http_call("POST", &file_url, &file_headers, &manifest_body.to_string())?;
 
     if manifest_resp.status < 200 || manifest_resp.status >= 300 {
         return Err(format!(
@@ -402,11 +454,7 @@ fn create_session_tree(
     agent_id: &str,
     user_message: &str,
 ) -> (String, String) {
-    let headers = vec![
-        ("content-type".to_string(), "application/json".to_string()),
-        ("x-tenant-id".to_string(), tenant.to_string()),
-        ("x-temper-principal-kind".to_string(), "admin".to_string()),
-    ];
+    let headers = workspace_headers(ctx, tenant, workspace_id, Some("application/json"), None);
 
     // Create session JSONL file in TemperFS
     let session_file_body = json!({
@@ -452,11 +500,8 @@ fn create_session_tree(
     }
 
     // Create a TemperFS file for the first user message content.
-    let content_file_headers = vec![
-        ("content-type".to_string(), "application/json".to_string()),
-        ("x-tenant-id".to_string(), tenant.to_string()),
-        ("x-temper-principal-kind".to_string(), "admin".to_string()),
-    ];
+    let content_file_headers =
+        workspace_headers(ctx, tenant, workspace_id, Some("application/json"), None);
     let content_file_body = json!({
         "workspace_id": workspace_id,
         "name": format!("msg-u-{agent_id}-0.txt"),
@@ -480,11 +525,8 @@ fn create_session_tree(
             if !file_id.is_empty() {
                 let content_write_url =
                     format!("{temper_api_url}/tdata/Files('{file_id}')/$value");
-                let content_write_headers = vec![
-                    ("content-type".to_string(), "text/plain".to_string()),
-                    ("x-tenant-id".to_string(), tenant.to_string()),
-                    ("x-temper-principal-kind".to_string(), "admin".to_string()),
-                ];
+                let content_write_headers =
+                    workspace_headers(ctx, tenant, workspace_id, Some("text/plain"), None);
                 match ctx.http_call("PUT", &content_write_url, &content_write_headers, user_message)
                 {
                     Ok(write_resp) if write_resp.status >= 200 && write_resp.status < 300 => {
@@ -534,11 +576,7 @@ fn create_session_tree(
     let initial_jsonl = format!("{header_line}\n{user_line}");
 
     let write_url = format!("{temper_api_url}/tdata/Files('{session_file_id}')/$value");
-    let write_headers = vec![
-        ("content-type".to_string(), "text/plain".to_string()),
-        ("x-tenant-id".to_string(), tenant.to_string()),
-        ("x-temper-principal-kind".to_string(), "admin".to_string()),
-    ];
+    let write_headers = workspace_headers(ctx, tenant, workspace_id, Some("text/plain"), None);
     match ctx.http_call("PUT", &write_url, &write_headers, &initial_jsonl) {
         Ok(resp) if resp.status >= 200 && resp.status < 300 => {
             ctx.log("info", "sandbox_provisioner: session tree initialized");

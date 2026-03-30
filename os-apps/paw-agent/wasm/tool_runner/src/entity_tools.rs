@@ -59,7 +59,7 @@ pub(crate) fn execute(
             let resp = ctx.http_call(
                 "POST",
                 &url,
-                &odata_headers(tenant),
+                &crate::odata_headers(ctx, tenant),
                 &serde_json::to_string(&body).unwrap_or_default(),
             )?;
             if resp.status >= 200 && resp.status < 300 {
@@ -72,7 +72,7 @@ pub(crate) fn execute(
                 if !entity_id.is_empty() {
                     let action_url =
                         format!("{temper_api_url}/tdata/Memories('{entity_id}')/OpenPaw.Save");
-                    let _ = ctx.http_call("POST", &action_url, &odata_headers(tenant), "{}");
+                    let _ = ctx.http_call("POST", &action_url, &crate::odata_headers(ctx, tenant), "{}");
                 }
                 Ok(format!("Memory saved: key={key}, type={memory_type}"))
             } else {
@@ -90,7 +90,7 @@ pub(crate) fn execute(
                 .ok_or("recall_memory: missing 'query'")?;
             let soul_id = fields.get("soul_id").and_then(|v| v.as_str()).unwrap_or("");
             let url = format!("{temper_api_url}/tdata/Memories");
-            let resp = ctx.http_call("GET", &url, &odata_headers(tenant), "")?;
+            let resp = ctx.http_call("GET", &url, &crate::odata_headers(ctx, tenant), "")?;
             if resp.status == 200 {
                 let parsed: Value = serde_json::from_str(&resp.body).unwrap_or(json!({}));
                 let memories = parsed
@@ -231,12 +231,16 @@ pub(crate) fn execute(
             }
 
             let url = format!("{temper_api_url}/tdata/Agents");
-            let create_body = if requested_id.is_empty() {
-                "{}".to_string()
-            } else {
-                json!({ "Id": requested_id }).to_string()
-            };
-            let resp = ctx.http_call("POST", &url, &odata_headers(tenant), &create_body)?;
+            let mut create_body = json!({ "ParentAgentId": parent_id });
+            if !requested_id.is_empty() {
+                create_body["Id"] = Value::String(requested_id.to_string());
+            }
+            let resp = ctx.http_call(
+                "POST",
+                &url,
+                &crate::odata_headers(ctx, tenant),
+                &create_body.to_string(),
+            )?;
             if resp.status < 200 || resp.status >= 300 {
                 return Err(format!("spawn_agent: create failed (HTTP {})", resp.status));
             }
@@ -262,7 +266,7 @@ pub(crate) fn execute(
             let resp2 = ctx.http_call(
                 "POST",
                 &config_url,
-                &odata_headers(tenant),
+                &crate::odata_headers(ctx, tenant),
                 &serde_json::to_string(&config_body).unwrap_or_default(),
             )?;
             if resp2.status < 200 || resp2.status >= 300 {
@@ -273,7 +277,7 @@ pub(crate) fn execute(
             }
 
             let prov_url = format!("{temper_api_url}/tdata/Agents('{child_id}')/OpenPaw.Provision");
-            let resp3 = ctx.http_call("POST", &prov_url, &odata_headers(tenant), "{}")?;
+            let resp3 = ctx.http_call("POST", &prov_url, &crate::odata_headers(ctx, tenant), "{}")?;
             if resp3.status < 200 || resp3.status >= 300 {
                 return Err(format!(
                     "spawn_agent: provision failed (HTTP {})",
@@ -329,7 +333,7 @@ pub(crate) fn execute(
                 .unwrap_or_else(|| agent_id.to_string());
             let url =
                 format!("{temper_api_url}/tdata/Agents('{resolved_agent_id}')/OpenPaw.Cancel");
-            let resp = ctx.http_call("POST", &url, &odata_headers(tenant), "{}")?;
+            let resp = ctx.http_call("POST", &url, &crate::odata_headers(ctx, tenant), "{}")?;
             if resp.status >= 200 && resp.status < 300 {
                 Ok(format!("Agent {resolved_agent_id} cancelled."))
             } else {
@@ -362,7 +366,7 @@ pub(crate) fn execute(
             let resp = ctx.http_call(
                 "POST",
                 &url,
-                &odata_headers(tenant),
+                &crate::odata_headers(ctx, tenant),
                 &serde_json::to_string(&body).unwrap_or_default(),
             )?;
             if resp.status >= 200 && resp.status < 300 {
@@ -380,10 +384,7 @@ pub(crate) fn execute(
                 .and_then(|v| v.as_str())
                 .ok_or("read_entity: missing 'file_id'")?;
             let url = format!("{temper_api_url}/tdata/Files('{file_id}')/$value");
-            let headers = vec![
-                ("x-tenant-id".to_string(), tenant.to_string()),
-                ("x-temper-principal-kind".to_string(), "admin".to_string()),
-            ];
+            let headers = crate::file_headers(ctx, tenant, None, None);
             let resp = ctx.http_call("GET", &url, &headers, "")?;
             if resp.status == 200 {
                 Ok(resp.body)
@@ -412,7 +413,7 @@ pub(crate) fn execute(
             });
             let file_url = format!("{temper_api_url}/tdata/Files");
             let file_resp =
-                ctx.http_call("POST", &file_url, &odata_headers(tenant), &file_body.to_string())?;
+                ctx.http_call("POST", &file_url, &crate::odata_headers(ctx, tenant), &file_body.to_string())?;
             if file_resp.status < 200 || file_resp.status >= 300 {
                 return Err(format!(
                     "file_upload: File creation failed (HTTP {}): {}",
@@ -434,11 +435,7 @@ pub(crate) fn execute(
 
             // Upload content
             let value_url = format!("{temper_api_url}/tdata/Files('{file_id}')/$value");
-            let value_headers = vec![
-                ("content-type".to_string(), mime_type.to_string()),
-                ("x-tenant-id".to_string(), tenant.to_string()),
-                ("x-temper-principal-kind".to_string(), "admin".to_string()),
-            ];
+            let value_headers = crate::file_headers(ctx, tenant, Some(mime_type), None);
             let value_resp = ctx.http_call("PUT", &value_url, &value_headers, content)?;
             if value_resp.status < 200 || value_resp.status >= 300 {
                 return Err(format!(
@@ -456,7 +453,7 @@ pub(crate) fn execute(
                 .ok_or("temper_create: missing 'entity_set'")?;
             let body = input.get("body").cloned().unwrap_or_else(|| json!({}));
             let url = format!("{temper_api_url}/tdata/{entity_set}");
-            let resp = ctx.http_call("POST", &url, &odata_headers(tenant), &body.to_string())?;
+            let resp = ctx.http_call("POST", &url, &crate::odata_headers(ctx, tenant), &body.to_string())?;
             if resp.status >= 200 && resp.status < 300 {
                 Ok(resp.body)
             } else {
@@ -492,7 +489,7 @@ pub(crate) fn execute(
                 url.push('?');
                 url.push_str(&query.join("&"));
             }
-            let resp = ctx.http_call("GET", &url, &odata_headers(tenant), "")?;
+            let resp = ctx.http_call("GET", &url, &crate::odata_headers(ctx, tenant), "")?;
             if resp.status == 200 {
                 Ok(resp.body)
             } else {
@@ -534,7 +531,7 @@ pub(crate) fn execute(
                 url.push('?');
                 url.push_str(&query.join("&"));
             }
-            let resp = ctx.http_call("GET", &url, &odata_headers(tenant), "")?;
+            let resp = ctx.http_call("GET", &url, &crate::odata_headers(ctx, tenant), "")?;
             if resp.status == 200 {
                 Ok(resp.body)
             } else {
@@ -561,7 +558,7 @@ pub(crate) fn execute(
             let body = input.get("body").cloned().unwrap_or_else(|| json!({}));
             let bound_action = resolve_bound_action_name(entity_set, action);
             let url = format!("{temper_api_url}/tdata/{entity_set}('{entity_id}')/{bound_action}");
-            let resp = ctx.http_call("POST", &url, &odata_headers(tenant), &body.to_string())?;
+            let resp = ctx.http_call("POST", &url, &crate::odata_headers(ctx, tenant), &body.to_string())?;
             if resp.status >= 200 && resp.status < 300 {
                 Ok(resp.body)
             } else {
@@ -618,45 +615,12 @@ pub(crate) fn execute(
             } else {
                 command
             };
-            let url = format!("{sandbox_url}/v1/processes/run");
-            let body = json!({ "command": final_cmd, "workdir": agent_workdir });
-            let headers = vec![("content-type".to_string(), "application/json".to_string())];
-            let resp = ctx.http_call(
-                "POST",
-                &url,
-                &headers,
-                &serde_json::to_string(&body).unwrap_or_default(),
-            )?;
-            if resp.status >= 200 && resp.status < 300 {
-                let parsed: Value = serde_json::from_str(&resp.body).unwrap_or(json!({}));
-                let stdout = parsed.get("stdout").and_then(|v| v.as_str()).unwrap_or("");
-                let stderr = parsed.get("stderr").and_then(|v| v.as_str()).unwrap_or("");
-                let exit_code = parsed
-                    .get("exit_code")
-                    .and_then(|v| v.as_i64())
-                    .unwrap_or(-1);
-                if exit_code != 0 && !stderr.is_empty() {
-                    Ok(format!(
-                        "Command: {final_cmd}\nExit code: {exit_code}\nstdout: {stdout}\nstderr: {stderr}"
-                    ))
-                } else {
-                    Ok(format!("Command: {final_cmd}\n{stdout}"))
-                }
-            } else {
-                Err(format!("sandbox process failed (HTTP {})", resp.status))
-            }
+            // Use the shared run_bash_local which handles Tensorlake async process API.
+            let output = crate::run_bash_local(ctx, sandbox_url, &final_cmd, agent_workdir)?;
+            Ok(format!("Command: {final_cmd}\n{output}"))
         }
         _ => Err(format!("unknown entity tool: {tool_name}")),
     }
-}
-
-fn odata_headers(tenant: &str) -> Vec<(String, String)> {
-    vec![
-        ("x-tenant-id".to_string(), tenant.to_string()),
-        ("x-temper-principal-kind".to_string(), "admin".to_string()),
-        ("content-type".to_string(), "application/json".to_string()),
-        ("accept".to_string(), "application/json".to_string()),
-    ]
 }
 
 fn agent_status(value: &Value) -> &str {
@@ -681,7 +645,7 @@ fn wait_for_child_agent_terminal_state(
     let wait_url = format!(
         "{temper_api_url}/observe/entities/Agent/{child_id}/wait?statuses=Completed,Failed,Cancelled&timeout_ms={wait_timeout_ms}&poll_ms=250"
     );
-    let resp = ctx.http_call("GET", &wait_url, &odata_headers(tenant), "")?;
+    let resp = ctx.http_call("GET", &wait_url, &crate::odata_headers(ctx, tenant), "")?;
     if resp.status < 200 || resp.status >= 300 {
         return Err(format!(
             "spawn_agent: wait failed for child {child_id} (HTTP {})",
@@ -737,7 +701,7 @@ fn list_temper_agents(
     tenant: &str,
 ) -> Result<Vec<Value>, String> {
     let url = format!("{temper_api_url}/tdata/Agents");
-    let resp = ctx.http_call("GET", &url, &odata_headers(tenant), "")?;
+    let resp = ctx.http_call("GET", &url, &crate::odata_headers(ctx, tenant), "")?;
     if resp.status != 200 {
         return Err(format!(
             "temper agent listing failed (HTTP {})",
@@ -777,7 +741,7 @@ fn normalize_soul_ref(
     }
 
     let by_id_url = format!("{temper_api_url}/tdata/Souls('{soul_ref}')");
-    if let Ok(by_id_resp) = ctx.http_call("GET", &by_id_url, &odata_headers(tenant), "") {
+    if let Ok(by_id_resp) = ctx.http_call("GET", &by_id_url, &crate::odata_headers(ctx, tenant), "") {
         if by_id_resp.status == 200 {
             let parsed: Value =
                 serde_json::from_str(&by_id_resp.body).unwrap_or_else(|_| json!({}));
@@ -788,7 +752,7 @@ fn normalize_soul_ref(
     let escaped = soul_ref.replace('\'', "''");
     let by_name_url =
         format!("{temper_api_url}/tdata/Souls?$filter=Name eq '{escaped}' and Status eq 'Active'");
-    if let Ok(by_name_resp) = ctx.http_call("GET", &by_name_url, &odata_headers(tenant), "") {
+    if let Ok(by_name_resp) = ctx.http_call("GET", &by_name_url, &crate::odata_headers(ctx, tenant), "") {
         if by_name_resp.status != 200 {
             return None;
         }

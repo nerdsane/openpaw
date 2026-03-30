@@ -7,6 +7,7 @@
 
 use std::collections::BTreeMap;
 use temper_wasm_sdk::prelude::*;
+use wasm_helpers::{create_content_file, runtime_headers};
 
 mod datadog;
 mod entity_tools;
@@ -220,11 +221,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             let updated_conversation = serde_json::to_string(&messages).unwrap_or_default();
             let body = format!("{{\"messages\":{updated_conversation}}}");
             let url = format!("{temper_api_url}/tdata/Files('{conversation_file_id}')/$value");
-            let headers = vec![
-                ("content-type".to_string(), "application/json".to_string()),
-                ("x-tenant-id".to_string(), tenant.to_string()),
-                ("x-temper-principal-kind".to_string(), "admin".to_string()),
-            ];
+            let headers = file_headers(&ctx, tenant, Some("application/json"), None);
             match ctx.http_call("PUT", &url, &headers, &body) {
                 Ok(resp) if resp.status >= 200 && resp.status < 300 => {
                     ctx.log(
@@ -320,7 +317,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
 
 /// Execute a single tool call against the sandbox API.
 /// Every sandbox target must implement the local sandbox HTTP API
-/// (`/v1/fs/file`, `/v1/processes/run`), whether the URL is local or remote.
+/// (`/api/v1/files`, `/api/v1/processes`), whether the URL is local or remote.
 fn execute_tool(
     ctx: &Context,
     sandbox_url: &str,
@@ -393,28 +390,52 @@ fn execute_tool(
     }
 }
 
-// --- Local sandbox API (our custom HTTP server) ---
+// --- Tensorlake sandbox API ---
 
-/// Read file via local sandbox API.
+/// Get the Tensorlake API key from integration config (empty string if not set).
+fn tensorlake_api_key(ctx: &Context) -> String {
+    ctx.config
+        .get("tensorlake_api_key")
+        .filter(|s| !s.is_empty() && !s.contains("{secret:"))
+        .cloned()
+        .unwrap_or_default()
+}
+
+/// Build sandbox request headers with optional Bearer auth.
+fn sandbox_headers(api_key: &str, content_type: Option<&str>) -> Vec<(String, String)> {
+    let mut headers = Vec::new();
+    if !api_key.is_empty() {
+        headers.push(("authorization".to_string(), format!("Bearer {api_key}")));
+    }
+    if let Some(ct) = content_type {
+        headers.push(("content-type".to_string(), ct.to_string()));
+    }
+    headers
+}
+
+/// Read file via Tensorlake sandbox data plane API.
 fn read_file_local(ctx: &Context, sandbox_url: &str, full_path: &str) -> Result<String, String> {
-    let url = format!("{sandbox_url}/v1/fs/file?path={}", url_encode(full_path));
-    let resp = ctx.http_get(&url)?;
-    if resp.status == 200 {
+    let api_key = tensorlake_api_key(ctx);
+    let url = format!("{sandbox_url}/api/v1/files?path={}", url_encode(full_path));
+    let headers = sandbox_headers(&api_key, None);
+    let resp = ctx.http_call("GET", &url, &headers, "")?;
+    if resp.status >= 200 && resp.status < 300 {
         Ok(resp.body)
     } else {
         Err(format!("read failed (HTTP {}): {}", resp.status, resp.body))
     }
 }
 
-/// Write file via local sandbox API.
+/// Write file via Tensorlake sandbox data plane API.
 fn write_file_local(
     ctx: &Context,
     sandbox_url: &str,
     full_path: &str,
     content: &str,
 ) -> Result<String, String> {
-    let url = format!("{sandbox_url}/v1/fs/file?path={}", url_encode(full_path));
-    let headers = vec![("content-type".to_string(), "text/plain".to_string())];
+    let api_key = tensorlake_api_key(ctx);
+    let url = format!("{sandbox_url}/api/v1/files?path={}", url_encode(full_path));
+    let headers = sandbox_headers(&api_key, Some("application/octet-stream"));
     let resp = ctx.http_call("PUT", &url, &headers, content)?;
     if resp.status >= 200 && resp.status < 300 {
         Ok(format!("File written: {full_path}"))
@@ -426,56 +447,126 @@ fn write_file_local(
     }
 }
 
-/// Run bash command via local sandbox API.
-fn run_bash_local(
+/// Delete file via Tensorlake sandbox data plane API (best-effort).
+fn delete_file_sandbox(ctx: &Context, sandbox_url: &str, path: &str) {
+    let api_key = tensorlake_api_key(ctx);
+    let url = format!("{sandbox_url}/api/v1/files?path={}", url_encode(path));
+    let headers = sandbox_headers(&api_key, None);
+    let _ = ctx.http_call("DELETE", &url, &headers, "");
+}
+
+/// Generate a short hex run ID for output-redirection polling.
+fn short_run_id() -> String {
+    // Use a simple counter-like approach from entity state hash.
+    // In WASM we don't have time or random — use a static counter.
+    use core::sync::atomic::{AtomicU32, Ordering};
+    static COUNTER: AtomicU32 = AtomicU32::new(0);
+    let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+    format!("{n:08x}")
+}
+
+/// Run bash command via Tensorlake sandbox data plane API.
+///
+/// Tensorlake processes are async (POST to start, then poll). Since WASM has
+/// no SSE support or sleep(), we use output-redirection: wrap the command to
+/// redirect stdout/stderr to temp files, then poll for the exit code file.
+pub(crate) fn run_bash_local(
     ctx: &Context,
     sandbox_url: &str,
     command: &str,
     workdir: &str,
 ) -> Result<String, String> {
+    let api_key = tensorlake_api_key(ctx);
     let command = prepare_bash_command(command);
-    let url = format!("{sandbox_url}/v1/processes/run");
+    let run_id = short_run_id();
+    let out_path = format!("/tmp/.paw-out-{run_id}");
+    let err_path = format!("/tmp/.paw-err-{run_id}");
+    let rc_path = format!("/tmp/.paw-rc-{run_id}");
+
+    // Wrap command: redirect stdout/stderr to files, write exit code to sentinel.
+    let wrapped = format!(
+        "({command}) > {out_path} 2> {err_path}; echo $? > {rc_path}",
+    );
+
     let env = sandbox_env(ctx);
-    let body = serde_json::to_string(&json!({
-        "command": command,
-        "workdir": workdir,
-        "env": env,
-    }))
-    .unwrap_or_default();
-
-    let headers = vec![("content-type".to_string(), "application/json".to_string())];
-    let resp = ctx.http_call("POST", &url, &headers, &body)?;
-
-    if resp.status >= 200 && resp.status < 300 {
-        if let Ok(parsed) = serde_json::from_str::<Value>(&resp.body) {
-            let stdout = parsed.get("stdout").and_then(|v| v.as_str()).unwrap_or("");
-            let stderr = parsed.get("stderr").and_then(|v| v.as_str()).unwrap_or("");
-            let exit_code = parsed
-                .get("exit_code")
-                .and_then(|v| v.as_i64())
-                .unwrap_or(-1);
-
-            let mut output = String::new();
-            if !stdout.is_empty() {
-                output.push_str(stdout);
-            }
-            if !stderr.is_empty() {
-                if !output.is_empty() {
-                    output.push('\n');
-                }
-                output.push_str("STDERR: ");
-                output.push_str(stderr);
-            }
-            if exit_code != 0 {
-                output.push_str(&format!("\n(exit code: {exit_code})"));
-            }
-            Ok(output)
-        } else {
-            Ok(resp.body)
-        }
-    } else {
-        Err(format!("bash failed (HTTP {}): {}", resp.status, resp.body))
+    let mut env_list: Vec<String> = Vec::new();
+    for (k, v) in &env {
+        env_list.push(format!("{k}={v}"));
     }
+
+    // Start process via Tensorlake API.
+    let start_url = format!("{sandbox_url}/api/v1/processes");
+    let headers = sandbox_headers(&api_key, Some("application/json"));
+    let body = json!({
+        "cmd": ["bash", "-c", &wrapped],
+        "cwd": workdir,
+        "env": env,
+    });
+    let resp = ctx.http_call("POST", &start_url, &headers, &body.to_string())?;
+    if resp.status < 200 || resp.status >= 300 {
+        return Err(format!(
+            "process start failed (HTTP {}): {}",
+            resp.status, resp.body
+        ));
+    }
+
+    // Poll for exit code file. Network latency provides ~50-200ms natural backoff.
+    let rc_url = format!("{sandbox_url}/api/v1/files?path={}", url_encode(&rc_path));
+    let read_headers = sandbox_headers(&api_key, None);
+    let mut exit_code: i64 = -1;
+    let mut found = false;
+    for attempt in 0..600 {
+        let rc_resp = ctx.http_call("GET", &rc_url, &read_headers, "");
+        match rc_resp {
+            Ok(r) if r.status >= 200 && r.status < 300 => {
+                exit_code = r.body.trim().parse::<i64>().unwrap_or(-1);
+                found = true;
+                break;
+            }
+            _ => {
+                if attempt % 50 == 0 && attempt > 0 {
+                    ctx.log(
+                        "info",
+                        &format!("run_bash: still waiting for process (attempt {attempt})..."),
+                    );
+                }
+            }
+        }
+    }
+
+    if !found {
+        // Cleanup temp files even on timeout.
+        delete_file_sandbox(ctx, sandbox_url, &out_path);
+        delete_file_sandbox(ctx, sandbox_url, &err_path);
+        delete_file_sandbox(ctx, sandbox_url, &rc_path);
+        return Err("process timed out after ~300s".to_string());
+    }
+
+    // Read stdout and stderr.
+    let stdout = read_file_local(ctx, sandbox_url, &out_path).unwrap_or_default();
+    let stderr = read_file_local(ctx, sandbox_url, &err_path).unwrap_or_default();
+
+    // Cleanup temp files (best effort).
+    delete_file_sandbox(ctx, sandbox_url, &out_path);
+    delete_file_sandbox(ctx, sandbox_url, &err_path);
+    delete_file_sandbox(ctx, sandbox_url, &rc_path);
+
+    // Format output same as before.
+    let mut output = String::new();
+    if !stdout.is_empty() {
+        output.push_str(&stdout);
+    }
+    if !stderr.is_empty() {
+        if !output.is_empty() {
+            output.push('\n');
+        }
+        output.push_str("STDERR: ");
+        output.push_str(&stderr);
+    }
+    if exit_code != 0 {
+        output.push_str(&format!("\n(exit code: {exit_code})"));
+    }
+    Ok(output)
 }
 
 fn ensure_local_workdir(ctx: &Context, sandbox_url: &str, workdir: &str) -> Result<(), String> {
@@ -483,37 +574,17 @@ fn ensure_local_workdir(ctx: &Context, sandbox_url: &str, workdir: &str) -> Resu
         return Ok(());
     }
 
-    let url = format!("{sandbox_url}/v1/processes/run");
-    let body = serde_json::to_string(&json!({
-        "command": format!("mkdir -p -- {}", shell_quote(workdir)),
-        "workdir": "/",
-    }))
-    .unwrap_or_default();
-    let headers = vec![("content-type".to_string(), "application/json".to_string())];
-    let resp = ctx.http_call("POST", &url, &headers, &body)?;
-    if resp.status < 200 || resp.status >= 300 {
-        return Err(format!(
-            "failed to prepare local workdir {workdir} (HTTP {}): {}",
-            resp.status, resp.body
-        ));
-    }
+    // Use run_bash_local which handles the Tensorlake async process pattern.
+    let result = run_bash_local(
+        ctx,
+        sandbox_url,
+        &format!("mkdir -p -- {}", shell_quote(workdir)),
+        "/",
+    )?;
 
-    let parsed: Value = serde_json::from_str(&resp.body).unwrap_or_else(|_| json!({}));
-    let exit_code = parsed
-        .get("exit_code")
-        .and_then(Value::as_i64)
-        .unwrap_or(-1);
-    if exit_code != 0 {
-        let stderr = parsed.get("stderr").and_then(Value::as_str).unwrap_or("");
-        let stdout = parsed.get("stdout").and_then(Value::as_str).unwrap_or("");
-        let detail = if stderr.trim().is_empty() {
-            stdout.trim()
-        } else {
-            stderr.trim()
-        };
-        return Err(format!(
-            "failed to prepare local workdir {workdir}: mkdir exited with code {exit_code}: {detail}"
-        ));
+    // Check if there was an error in the output.
+    if result.contains("(exit code:") && !result.contains("(exit code: 0)") {
+        return Err(format!("failed to prepare workdir {workdir}: {result}"));
     }
 
     Ok(())
@@ -602,11 +673,7 @@ fn read_conversation_from_temperfs(
     file_id: &str,
 ) -> Result<Vec<Value>, String> {
     let url = format!("{temper_api_url}/tdata/Files('{file_id}')/$value");
-    let headers = vec![
-        ("x-tenant-id".to_string(), tenant.to_string()),
-        ("x-temper-principal-kind".to_string(), "admin".to_string()),
-        ("accept".to_string(), "application/json".to_string()),
-    ];
+    let headers = file_headers(ctx, tenant, None, Some("application/json"));
 
     let resp = ctx
         .http_call("GET", &url, &headers, "")
@@ -655,6 +722,35 @@ pub(crate) fn url_encode(s: &str) -> String {
     out
 }
 
+pub(crate) fn odata_headers(ctx: &Context, tenant: &str) -> Vec<(String, String)> {
+    let fields = ctx
+        .entity_state
+        .get("fields")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    runtime_headers(
+        ctx,
+        tenant,
+        &fields,
+        Some("application/json"),
+        Some("application/json"),
+    )
+}
+
+pub(crate) fn file_headers(
+    ctx: &Context,
+    tenant: &str,
+    content_type: Option<&str>,
+    accept: Option<&str>,
+) -> Vec<(String, String)> {
+    let fields = ctx
+        .entity_state
+        .get("fields")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    runtime_headers(ctx, tenant, &fields, content_type, accept)
+}
+
 // --- Sandbox Fsync to TemperFS ---
 
 /// File metadata from sandbox `find` + `stat`.
@@ -678,7 +774,7 @@ fn enumerate_sandbox_files(
     workdir: &str,
     exclude: &str,
 ) -> Result<BTreeMap<String, FileEntry>, String> {
-    // Use Python for portable enumeration across localhost and Modal-backed sandboxes.
+    // Use Python for portable enumeration across Tensorlake sandboxes.
     let command = format!(
         "WORKDIR={} EXCLUDE={} python3 - <<'PY'\n\
 import json\n\
@@ -743,11 +839,7 @@ fn read_manifest(
     manifest_file_id: &str,
 ) -> Result<BTreeMap<String, ManifestEntry>, String> {
     let url = format!("{temper_api_url}/tdata/Files('{manifest_file_id}')/$value");
-    let headers = vec![
-        ("x-tenant-id".to_string(), tenant.to_string()),
-        ("x-temper-principal-kind".to_string(), "admin".to_string()),
-        ("accept".to_string(), "application/json".to_string()),
-    ];
+    let headers = file_headers(ctx, tenant, None, Some("application/json"));
 
     let resp = ctx.http_call("GET", &url, &headers, "")?;
     if resp.status != 200 {
@@ -824,11 +916,7 @@ fn sync_files_to_temperfs(
     // 2. Read previous manifest from TemperFS
     let old_manifest = read_manifest(ctx, temper_api_url, tenant, manifest_file_id)?;
 
-    let headers = vec![
-        ("content-type".to_string(), "application/json".to_string()),
-        ("x-tenant-id".to_string(), tenant.to_string()),
-        ("x-temper-principal-kind".to_string(), "admin".to_string()),
-    ];
+    let headers = file_headers(ctx, tenant, Some("application/json"), None);
 
     let file_url = format!("{temper_api_url}/tdata/Files");
     let mut new_manifest: BTreeMap<String, Value> = old_manifest
@@ -983,22 +1071,13 @@ fn emit_progress_ignore(ctx: &Context, payload: Value) {
     let _ = (ctx, payload);
 }
 
-pub(crate) fn odata_headers(tenant: &str) -> Vec<(String, String)> {
-    vec![
-        ("x-tenant-id".to_string(), tenant.to_string()),
-        ("x-temper-principal-kind".to_string(), "admin".to_string()),
-        ("content-type".to_string(), "application/json".to_string()),
-        ("accept".to_string(), "application/json".to_string()),
-    ]
-}
-
 fn send_heartbeat(ctx: &Context, temper_api_url: &str, tenant: &str) -> Result<(), String> {
     let url = format!(
         "{temper_api_url}/tdata/Agents('{}')/OpenPaw.Heartbeat",
         ctx.entity_id
     );
     let body = json!({ "last_heartbeat_at": "alive" });
-    let _ = ctx.http_call("POST", &url, &odata_headers(tenant), &body.to_string())?;
+    let _ = ctx.http_call("POST", &url, &odata_headers(ctx, tenant), &body.to_string())?;
     Ok(())
 }
 
@@ -1106,7 +1185,7 @@ fn load_matching_hooks(
     tool_name: &str,
 ) -> Result<Vec<Value>, String> {
     let url = format!("{temper_api_url}/tdata/ToolHooks");
-    let resp = ctx.http_call("GET", &url, &odata_headers(tenant), "")?;
+    let resp = ctx.http_call("GET", &url, &odata_headers(ctx, tenant), "")?;
     if resp.status != 200 {
         return Ok(Vec::new());
     }
@@ -1187,10 +1266,7 @@ fn read_session_from_temperfs(
     file_id: &str,
 ) -> Result<String, String> {
     let url = format!("{temper_api_url}/tdata/Files('{file_id}')/$value");
-    let headers = vec![
-        ("x-tenant-id".to_string(), tenant.to_string()),
-        ("x-temper-principal-kind".to_string(), "admin".to_string()),
-    ];
+    let headers = file_headers(ctx, tenant, None, None);
     let resp = ctx.http_call("GET", &url, &headers, "")?;
     if resp.status == 200 {
         Ok(resp.body)
@@ -1213,11 +1289,7 @@ fn write_session_to_temperfs(
     jsonl: &str,
 ) -> Result<(), String> {
     let url = format!("{temper_api_url}/tdata/Files('{file_id}')/$value");
-    let headers = vec![
-        ("content-type".to_string(), "text/plain".to_string()),
-        ("x-tenant-id".to_string(), tenant.to_string()),
-        ("x-temper-principal-kind".to_string(), "admin".to_string()),
-    ];
+    let headers = file_headers(ctx, tenant, Some("text/plain"), None);
     let resp = ctx.http_call("PUT", &url, &headers, jsonl)?;
     if resp.status >= 200 && resp.status < 300 {
         Ok(())
@@ -1237,56 +1309,6 @@ fn create_tool_content_file(
     entry_id: &str,
     content: &str,
 ) -> Result<String, String> {
-    let headers = vec![
-        ("content-type".to_string(), "application/json".to_string()),
-        ("x-tenant-id".to_string(), tenant.to_string()),
-        ("x-temper-principal-kind".to_string(), "admin".to_string()),
-    ];
-
     let file_name = format!("msg-{entry_id}.txt");
-    let file_body = json!({
-        "workspace_id": workspace_id,
-        "name": &file_name,
-        "mime_type": "text/plain",
-        "path": format!("/{file_name}")
-    });
-    let file_url = format!("{temper_api_url}/tdata/Files");
-    let file_resp = ctx.http_call("POST", &file_url, &headers, &file_body.to_string())?;
-
-    if file_resp.status < 200 || file_resp.status >= 300 {
-        return Err(format!(
-            "Content file creation failed (HTTP {}): {}",
-            file_resp.status,
-            &file_resp.body[..file_resp.body.len().min(300)]
-        ));
-    }
-
-    let file_parsed: Value = serde_json::from_str(&file_resp.body)
-        .map_err(|e| format!("parse content file response: {e}"))?;
-    let file_id = file_parsed
-        .get("entity_id")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
-
-    if file_id.is_empty() {
-        return Err("Content file created but entity_id missing".to_string());
-    }
-
-    let value_url = format!("{temper_api_url}/tdata/Files('{file_id}')/$value");
-    let value_headers = vec![
-        ("content-type".to_string(), "text/plain".to_string()),
-        ("x-tenant-id".to_string(), tenant.to_string()),
-        ("x-temper-principal-kind".to_string(), "admin".to_string()),
-    ];
-    let value_resp = ctx.http_call("PUT", &value_url, &value_headers, content)?;
-
-    if value_resp.status < 200 || value_resp.status >= 300 {
-        return Err(format!(
-            "Content file $value write failed (HTTP {})",
-            value_resp.status
-        ));
-    }
-
-    Ok(file_id)
+    create_content_file(ctx, temper_api_url, tenant, workspace_id, &file_name, content)
 }
