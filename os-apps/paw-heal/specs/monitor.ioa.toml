@@ -1,4 +1,4 @@
-# Monitor — Logfire-backed watch for a self-healing target.
+# Monitor — Datadog-backed watch for a self-healing target.
 
 [automaton]
 name = "Monitor"
@@ -6,7 +6,7 @@ states = ["Created", "Active", "Paused", "Archived"]
 initial = "Created"
 
 [[state]]
-name = "logfire_query"
+name = "dd_query"
 type = "string"
 initial = ""
 
@@ -34,8 +34,8 @@ initial = "0"
 name = "Configure"
 kind = "input"
 from = ["Created", "Paused"]
-params = ["logfire_query", "threshold", "dd_monitor_id"]
-hint = "Configure the query and threshold used to detect incidents."
+params = ["dd_query", "threshold", "dd_monitor_id"]
+hint = "Configure the Datadog query and threshold used to detect incidents."
 
 [[action]]
 name = "Activate"
@@ -57,7 +57,7 @@ name = "Tune"
 kind = "input"
 from = ["Active", "Paused"]
 to = "Active"
-params = ["logfire_query", "threshold", "dd_monitor_id"]
+params = ["dd_query", "threshold", "dd_monitor_id"]
 hint = "Adjust query or threshold after an alert cycle completes."
 
 [[action]]

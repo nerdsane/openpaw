@@ -132,10 +132,17 @@ pub async fn run(config: Config) -> Result<()> {
             }
         }
 
-        if let Some(ref key) = config.e2b_api_key {
-            let _ = vault.cache_secret("default", "e2b_api_key", key.clone());
+        if let Some(ref id) = config.modal_token_id {
+            let _ = vault.cache_secret("default", "modal_token_id", id.clone());
             if tenant != "default" {
-                let _ = vault.cache_secret(&tenant, "e2b_api_key", key.clone());
+                let _ = vault.cache_secret(&tenant, "modal_token_id", id.clone());
+            }
+        }
+
+        if let Some(ref secret) = config.modal_token_secret {
+            let _ = vault.cache_secret("default", "modal_token_secret", secret.clone());
+            if tenant != "default" {
+                let _ = vault.cache_secret(&tenant, "modal_token_secret", secret.clone());
             }
         }
 
@@ -146,17 +153,31 @@ pub async fn run(config: Config) -> Result<()> {
             }
         }
 
-        if let Some(ref token) = config.logfire_read_token {
-            let _ = vault.cache_secret("default", "logfire_read_token", token.clone());
+        if let Some(ref key) = config.dd_api_key {
+            let _ = vault.cache_secret("default", "dd_api_key", key.clone());
             if tenant != "default" {
-                let _ = vault.cache_secret(&tenant, "logfire_read_token", token.clone());
+                let _ = vault.cache_secret(&tenant, "dd_api_key", key.clone());
             }
         }
 
-        if let Some(ref token) = config.logfire_write_token {
-            let _ = vault.cache_secret("default", "logfire_write_token", token.clone());
+        if let Some(ref key) = config.dd_app_key {
+            let _ = vault.cache_secret("default", "dd_app_key", key.clone());
             if tenant != "default" {
-                let _ = vault.cache_secret(&tenant, "logfire_write_token", token.clone());
+                let _ = vault.cache_secret(&tenant, "dd_app_key", key.clone());
+            }
+        }
+
+        {
+            let _ = vault.cache_secret("default", "dd_site", config.dd_site.clone());
+            if tenant != "default" {
+                let _ = vault.cache_secret(&tenant, "dd_site", config.dd_site.clone());
+            }
+        }
+
+        if let Some(ref secret) = config.webhook_secret {
+            let _ = vault.cache_secret("default", "webhook_secret", secret.clone());
+            if tenant != "default" {
+                let _ = vault.cache_secret(&tenant, "webhook_secret", secret.clone());
             }
         }
 
@@ -168,7 +189,7 @@ pub async fn run(config: Config) -> Result<()> {
 
         // Local sandbox (auto-start if script exists). Keep it available for
         // explicit Configure overrides, but do not force it as the default when
-        // E2B is configured and no SANDBOX_URL override was provided.
+        // Modal is configured and no SANDBOX_URL override was provided.
         let explicit_sandbox_url = std::env::var("SANDBOX_URL").ok();
         let sandbox_port = port + 10;
         let local_sandbox_url = {
@@ -195,9 +216,9 @@ pub async fn run(config: Config) -> Result<()> {
         };
 
         let default_sandbox_url = explicit_sandbox_url.or_else(|| {
-            if config.e2b_api_key.is_some() {
+            if config.modal_token_id.is_some() {
                 tracing::info!(
-                    "E2B_API_KEY is configured; leaving sandbox_url unset so provisioning can use E2B by default"
+                    "MODAL_TOKEN_ID is configured; leaving sandbox_url unset so provisioning can use Modal by default"
                 );
                 None
             } else {

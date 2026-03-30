@@ -11,12 +11,12 @@
         <Key><PropertyRef Name="Id"/></Key>
         <Property Name="Id" Type="Edm.String" Nullable="false"/>
         <Property Name="Status" Type="Edm.String"/>
-        <Property Name="LogfireQuery" Type="Edm.String"/>
+        <Property Name="DdQuery" Type="Edm.String"/>
         <Property Name="Threshold" Type="Edm.String"/>
         <Property Name="DdMonitorId" Type="Edm.String"/>
         <Property Name="LastAlertPayload" Type="Edm.String"/>
         <Property Name="AlertCount" Type="Edm.Int64"/>
-        <Annotation Term="Paw.Vocab.Agent.Hint" String="Represents a live Logfire-backed watch for self-healing."/>
+        <Annotation Term="Paw.Vocab.Agent.Hint" String="Represents a live Datadog-backed watch for self-healing."/>
       </EntityType>
 
       <EntityType Name="AlertCycle">
@@ -36,7 +36,7 @@
 
       <Action Name="Configure" IsBound="true">
         <Parameter Name="bindingParameter" Type="OpenPaw.Heal.Monitor"/>
-        <Parameter Name="logfire_query" Type="Edm.String" Nullable="false"/>
+        <Parameter Name="dd_query" Type="Edm.String" Nullable="false"/>
         <Parameter Name="threshold" Type="Edm.String" Nullable="true"/>
         <Parameter Name="dd_monitor_id" Type="Edm.String" Nullable="true"/>
         <ReturnType Type="OpenPaw.Heal.Monitor"/>
@@ -55,7 +55,7 @@
 
       <Action Name="Tune" IsBound="true">
         <Parameter Name="bindingParameter" Type="OpenPaw.Heal.Monitor"/>
-        <Parameter Name="logfire_query" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="dd_query" Type="Edm.String" Nullable="true"/>
         <Parameter Name="threshold" Type="Edm.String" Nullable="true"/>
         <Parameter Name="dd_monitor_id" Type="Edm.String" Nullable="true"/>
         <ReturnType Type="OpenPaw.Heal.Monitor"/>

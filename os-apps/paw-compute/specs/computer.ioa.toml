@@ -1,7 +1,7 @@
-# Computer — Persistent cloud VM for developer agents.
+# Computer — Persistent cloud sandbox for developer agents.
 #
-# A Computer represents a long-lived Linux VM (e.g., Fly.io Sprite)
-# that an agent uses as its development environment. The VM persists
+# A Computer represents a long-lived Linux sandbox (e.g., Modal Sandbox)
+# that an agent uses as its development environment. The sandbox persists
 # across agent runs — code, dependencies, and state survive restarts.
 #
 # Lifecycle: Created → Provisioning → Ready ↔ Sleeping → Destroyed
@@ -24,7 +24,7 @@ Destroyed = { final = true }
 [state_variables]
 name = { type = "String", default = "" }
 description = { type = "String", default = "" }
-provider = { type = "String", default = "sprites" }  # sprites, e2b, ssh
+provider = { type = "String", default = "modal" }  # modal, ssh
 
 # Machine identity
 machine_id = { type = "String", default = "" }

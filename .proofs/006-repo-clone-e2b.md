@@ -1,4 +1,4 @@
-# Proof Report: 006 — Developer Clone on E2B
+# Proof Report: 006 — Developer Clone on Modal
 
 ## Date
 2026-03-26
@@ -7,10 +7,10 @@
 `feat/openpaw-self-heal-loop-codex` @ `26b78156b03fde205e316b5c181fd0fa55ae706a` (verified from a dirty worktree)
 
 ## What Was Done
-Patched the Open Paw agent loop so a real E2B-backed Developer agent can shallow-clone the private `deep-sci-fi` repository and complete normally.
+Patched the Open Paw agent loop so a real Modal-backed Developer agent can shallow-clone the private `deep-sci-fi` repository and complete normally.
 
 Implemented fixes:
-- Fixed Connect/envd request handling earlier in the turn so E2B process execution works end-to-end.
+- Fixed Connect/envd request handling earlier in the turn so Modal process execution works end-to-end.
 - Stopped large tool results from being copied into Agent entity state during session-tree runs; the full result stays in TemperFS and the entity now stores a compact marker.
 - Injected `github_token` into bash tool execution as `GITHUB_TOKEN` and `GH_TOKEN`, and added an automatic `GIT_ASKPASS` bootstrap so plain HTTPS `git clone` can authenticate inside the sandbox.
 - Added `timeout_secs = "120"` to the `run_tools` integration.
@@ -22,7 +22,7 @@ Implemented fixes:
 2. Restarted the daemon from this worktree so the updated Agent spec and WASM modules were registered.
 3. Created a fresh Agent through the OData API.
 4. Configured the Agent with the Developer soul and a single-task prompt: clone `https://github.com/arni-labs/deep-sci-fi.git` into `/home/user/deep-sci-fi`, verify `.git` exists, print `CLONE_OK`, then answer with exactly `CLONE_OK`.
-5. Provisioned the Agent so it used a real E2B sandbox.
+5. Provisioned the Agent so it used a real Modal sandbox.
 6. Polled the Agent entity until it reached a terminal state.
 7. Retrieved the file manifest from TemperFS to confirm repo files were synced back from the sandbox workspace.
 
@@ -30,13 +30,13 @@ Implemented fixes:
 | Step | Expected | Actual | Status |
 |------|----------|--------|--------|
 | Daemon restart | New Agent spec + WASM modules loaded from this worktree | `tool_runner` hash `7319ce32f1c433fd944bd95e8d4b76b406c48ff9b08155ba6e4512ef6a76f734` registered; server listening on `http://localhost:3467/tdata` | PASS |
-| E2B sandbox provision | Developer agent provisions on E2B | Sandbox `ipdwduuuahq8ol6pmudcp` created | PASS |
-| Real repo clone | Agent clones `deep-sci-fi` with bash on E2B | Agent `019d2bbd-8c3a-7b92-947d-c44a064b8b62` reached `Completed` with result `CLONE_OK` | PASS |
+| Modal sandbox provision | Developer agent provisions on Modal | Sandbox `ipdwduuuahq8ol6pmudcp` created | PASS |
+| Real repo clone | Agent clones `deep-sci-fi` with bash on Modal | Agent `019d2bbd-8c3a-7b92-947d-c44a064b8b62` reached `Completed` with result `CLONE_OK` | PASS |
 | Post-tool LLM turn | Follow-up turn should not fail with oversized invocation context | `pending_tool_calls` field stored compact marker instead of giant payload; agent completed normally | PASS |
 | Workspace sync evidence | TemperFS should contain synced repo files | Manifest file `019d2bbd-8d59-76d2-a32f-4e7563c37e7f` contains cloned repo paths including `README.md`, `CLAUDE.md`, and app/backend sources | PASS |
 
 ## What Worked
-- Real E2B process execution for bash tools.
+- Real Modal process execution for bash tools.
 - GitHub HTTPS cloning with tenant `github_token`.
 - Session-tree continuation after tool execution without hitting the SDK context ceiling.
 - Limited repo fsync finished within the longer `run_tools` budget.
@@ -49,7 +49,7 @@ Implemented fixes:
 The current fsync behavior intentionally caps uploads to the first 64 enumerated files and skips common large build directories. This keeps repo-scale tool runs tractable, but it does not guarantee a complete mirror of every cloned file in TemperFS after a single turn.
 
 ## What Still Doesn't Work
-The full Step 6 self-healing loop is not yet proven here. This report verifies the repo-clone milestone on E2B, not the later Logfire alert -> SRE diagnosis -> fix -> PR flow.
+The full Step 6 self-healing loop is not yet proven here. This report verifies the repo-clone milestone on Modal, not the later Datadog alert -> SRE diagnosis -> fix -> PR flow.
 
 ## Artifacts
 - Successful agent id: `019d2bbd-8c3a-7b92-947d-c44a064b8b62`
@@ -89,7 +89,7 @@ The full Step 6 self-healing loop is not yet proven here. This report verifies t
 curl -> Open Paw OData API
      -> Agent.Configure / Agent.Provision
      -> sandbox_provisioner (WASM)
-     -> E2B sandbox created
+     -> Modal sandbox created
      -> llm_caller (WASM)
      -> tool_runner (WASM, Connect/envd bash, GitHub auth injected)
      -> git clone deep-sci-fi in /home/user/deep-sci-fi

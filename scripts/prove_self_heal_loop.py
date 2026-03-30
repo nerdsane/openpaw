@@ -298,7 +298,7 @@ def main() -> int:
         monitor_id,
         "OpenPaw.Heal.Configure",
         {
-            "logfire_query": "synthetic:deep-sci-fi:npm-ci-lockfile-drift",
+            "datadog_query": "synthetic:deep-sci-fi:npm-ci-lockfile-drift",
             "threshold": "1",
             "dd_monitor_id": f"synthetic-{run_suffix}",
         },

@@ -463,7 +463,8 @@ on_failure = "Fail"
 [integration.config]
 temper_api_url = "{secret:temper_api_url}"
 sandbox_url = "{secret:sandbox_url}"
-e2b_api_key = "{secret:e2b_api_key}"
+modal_token_id = "{secret:modal_token_id}"
+modal_token_secret = "{secret:modal_token_secret}"
 
 [[integration]]
 name = "call_llm"
@@ -499,8 +500,9 @@ spawn_agent_wait_timeout_ms = "840000"
 max_sync_file_bytes = "61440"
 max_sync_files = "64"
 sync_exclude = "__pycache__,node_modules,.git,.next,dist,build,target,coverage,venv,.venv"
-logfire_read_token = "{secret:logfire_read_token}"
-logfire_api_base = "https://logfire-us.pydantic.dev"
+dd_api_key = "{secret:dd_api_key}"
+dd_app_key = "{secret:dd_app_key}"
+dd_site = "{secret:dd_site}"
 
 [[integration]]
 name = "compact_context"

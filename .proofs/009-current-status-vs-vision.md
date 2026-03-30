@@ -21,11 +21,11 @@ This report is based on:
 - the current code on this branch
 
 ## Executive Summary
-Open Paw is real and usable today as a Temper-backed daemon with governed entities, Cedar policies, hot-loadable WASM integrations, agent souls, a curl-style channel/session flow, local-sandbox remediation, and one proven E2B clone flow.
+Open Paw is real and usable today as a Temper-backed daemon with governed entities, Cedar policies, hot-loadable WASM integrations, agent souls, a curl-style channel/session flow, local-sandbox remediation, and one proven Modal clone flow.
 
 The strongest proven path today is:
 
-`curl/OData -> Channel/AgentRoute/ChannelSession or direct Agent API -> SRE/Developer agent loop -> local sandbox or E2B clone path -> repo work -> PR -> WorkCycle/AlertCycle updates`
+`curl/OData -> Channel/AgentRoute/ChannelSession or direct Agent API -> SRE/Developer agent loop -> local sandbox or Modal clone path -> repo work -> PR -> WorkCycle/AlertCycle updates`
 
 The biggest gap versus the vision is that the fully automatic observability-driven loop is not actually autonomous yet. The proof used a synthetic alert payload and manual OData actions to open the cycle. Real external webhook ingestion is still a placeholder, `MonitorScan` is missing, and the `paw-compute` persistent computer story is still spec-only.
 
@@ -34,7 +34,7 @@ The biggest gap versus the vision is that the fully automatic observability-driv
 | Area | Status | Evidence | Notes |
 |---|---|---|---|
 | Open Paw daemon boots and serves the OData API | `PROVEN` | Proofs 006-008 all ran against `http://localhost:3467/tdata` | This includes OS-app installation, soul bootstrap, and WASM loading as part of the running daemon used for proofs. |
-| Developer agent can provision a real E2B sandbox and clone `deep-sci-fi` | `PROVEN` | [.proofs/006-repo-clone-e2b.md](/Users/seshendranalla/Development/openpaw-codex/.proofs/006-repo-clone-e2b.md) | This specifically proved E2B clone, not the full SRE -> Developer repair loop on E2B. |
+| Developer agent can provision a real Modal sandbox and clone `deep-sci-fi` | `PROVEN` | [.proofs/006-repo-clone-e2b.md](/Users/seshendranalla/Development/openpaw-codex/.proofs/006-repo-clone-e2b.md) | This specifically proved Modal clone, not the full SRE -> Developer repair loop on Modal. |
 | Agent session tree survives tool execution without oversized context failure | `PROVEN` | Proof 006 | The compact marker stays on the entity; the full tool results stay in the session tree. |
 | File sync from sandbox to Paw/Temper FS works in bounded form | `PROVEN` | Proof 006 | It is deliberately partial and best-effort; see limitations below. |
 | Curl-style continuing conversation works through Channel + ChannelSession | `PROVEN` | [.proofs/008-channel-continuation.md](/Users/seshendranalla/Development/openpaw-codex/.proofs/008-channel-continuation.md) | Same thread did not start from blank context. A continuation agent reused the same session tree. |
@@ -47,17 +47,17 @@ The biggest gap versus the vision is that the fully automatic observability-driv
 | Area | Status | Why it is not marked proven |
 |---|---|---|
 | Discord transport startup | `WIRED BUT NOT RE-PROVEN` | Startup will spawn Discord if `DISCORD_BOT_TOKEN` is present, but the proof path intentionally avoided Discord and used curl/webhook-style channels instead. |
-| Logfire query tool inside agent tool runner | `WIRED BUT NOT RE-PROVEN` | `logfire_query` exists and reads `logfire_read_token`, but this branch does not include a direct proof that an agent successfully queried real Logfire data and used it in a repair loop. |
+| Datadog query tool inside agent tool runner | `WIRED BUT NOT RE-PROVEN` | `datadog_query` exists and reads `dd_api_key`, but this branch does not include a direct proof that an agent successfully queried real Datadog data and used it in a repair loop. |
 | Agent compaction flow | `WIRED BUT NOT RE-PROVEN` | The `Compacting` state and `context_compactor` module exist, but I do not have a proof artifact here showing a long context actually compacted and resumed correctly. |
 | Restart recovery of policies/WASM/specs/souls | `WIRED BUT NOT RE-PROVEN` | Startup restores registry data from Turso, reloads WASM, recovers Cedar policies, and refreshes souls, but there is no dedicated proof here of a crash/reboot with an in-flight workflow resuming correctly. |
-| E2B sandbox use for more than clone | `WIRED BUT NOT RE-PROVEN` | E2B process execution is proven for clone, but not for the full SRE -> Developer -> validate -> push -> PR path. |
+| Modal sandbox use for more than clone | `WIRED BUT NOT RE-PROVEN` | Modal process execution is proven for clone, but not for the full SRE -> Developer -> validate -> push -> PR path. |
 
 ## What Is Not Implemented Or Still Vision-Only
 
 | Area | Status | Evidence |
 |---|---|---|
 | Real external webhook ingestion for alerts and GitHub events | `NOT IMPLEMENTED` | [webhooks.rs](/Users/seshendranalla/Development/openpaw-codex/crates/openpaw/src/webhooks.rs) is still a placeholder. |
-| Automatic Logfire/Datadog alert intake that opens cycles without manual OData actions | `NOT IMPLEMENTED` | Proof 007 manually called `Monitor.AlertFired` and `AlertCycle.Open` from the script. |
+| Automatic Datadog/Datadog alert intake that opens cycles without manual OData actions | `NOT IMPLEMENTED` | Proof 007 manually called `Monitor.AlertFired` and `AlertCycle.Open` from the script. |
 | `MonitorScan` entity mentioned in the architecture | `NOT IMPLEMENTED` | It appears in the docs, but there is no `MonitorScan` spec under `os-apps/paw-heal/specs/`. |
 | Persistent Fly Sprite / cloud computer provisioning for developer agents | `NOT IMPLEMENTED` | `paw-compute` has only specs and policy files; there are no compute WASM modules in `os-apps/paw-compute/`. |
 | Full autonomous CI/CD loop after PR creation | `NOT IMPLEMENTED` | There is no proof of PR merge, deploy, post-deploy verification, rollback, or GitHub webhook-driven closure. |
@@ -68,10 +68,10 @@ The biggest gap versus the vision is that the fully automatic observability-driv
 ## What You Need
 You need a gitignored `.env` with some subset of these variables:
 - `ANTHROPIC_API_KEY`
-- `E2B_API_KEY`
+- `Modal_API_KEY`
 - `GITHUB_TOKEN`
-- `LOGFIRE_READ_TOKEN`
-- `LOGFIRE_WRITE_TOKEN`
+- `DD_API_KEY`
+- `DD_APP_KEY`
 - `DISCORD_BOT_TOKEN`
 - `FLY_API_TOKEN`
 - `TEMPER_API_KEY`
@@ -182,16 +182,16 @@ Important limitation:
 - it uses the host filesystem and host shell
 - command timeout is 60 seconds in the local sandbox implementation
 
-## E2B Sandbox
-The E2B path is defined by [sandbox_provisioner/src/lib.rs](/Users/seshendranalla/Development/openpaw-codex/os-apps/paw-agent/wasm/sandbox_provisioner/src/lib.rs).
+## Modal Sandbox
+The Modal path is defined by [sandbox_provisioner/src/lib.rs](/Users/seshendranalla/Development/openpaw-codex/os-apps/paw-agent/wasm/sandbox_provisioner/src/lib.rs).
 
 Current behavior:
 - if `sandbox_url` is explicitly provided, use it
 - else if a configured sandbox URL exists, use that
-- else if `e2b_api_key` exists, create an E2B sandbox through the REST API
+- else if `e2b_api_key` exists, create an Modal sandbox through the REST API
 
 Important details:
-- it currently requests E2B with `"secure": false`
+- it currently requests Modal with `"secure": false`
 - Open Paw then talks directly to the envd URL
 - this path was proven for clone in Proof 006
 
@@ -204,7 +204,7 @@ If the relevant tools are enabled, the agent can use:
 - entity tools like `temper_get`, `temper_list`, `temper_action`, `temper_create`
 - `spawn_agent`
 - `read_entity`
-- `logfire_query`
+- `datadog_query`
 
 This is powerful, but it is not yet a strongly sandboxed or tightly capability-scoped developer computer.
 
@@ -339,7 +339,7 @@ This is real enough to claim:
 
 ## What Does Not Work Automatically Yet
 This exact flow was not proven and should not be claimed:
-1. Real Logfire alert fires on its own
+1. Real Datadog alert fires on its own
 2. Open Paw automatically ingests that webhook/event
 3. Open Paw automatically opens the `AlertCycle`
 4. Open Paw automatically spawns the SRE from that external alert
@@ -362,8 +362,8 @@ It is not yet:
 ## Important Gaps Compared To The Vision
 - `webhooks.rs` is still a placeholder.
 - `MonitorScan` is referenced in docs but does not exist in `paw-heal`.
-- `dd_monitor_id` is still named for Datadog even though the narrative talks about Logfire.
-- The proof used a synthetic alert query string, not a real live Logfire incident.
+- `dd_monitor_id` is still named for Datadog even though the narrative talks about Datadog.
+- The proof used a synthetic alert query string, not a real live Datadog incident.
 
 ## Continuing Conversation: What Is Actually True
 The curl-style conversation proof showed that same-thread follow-up messages do not start from blank context.
@@ -396,7 +396,7 @@ not as:
 ## Sandbox / Compute Limitations
 - The proven self-heal flow used the local sandbox, which is not isolated.
 - The local sandbox is host shell execution, not a VM.
-- The full self-heal flow was not re-proved on E2B.
+- The full self-heal flow was not re-proved on Modal.
 - The `Computer`/Fly Sprite persistent machine story is not implemented.
 
 ## FS / Persistence Limitations

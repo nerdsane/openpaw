@@ -6,7 +6,7 @@ Accepted
 
 ## Context
 
-Open Paw already boots as an embedded Temper-based daemon, but the MVP needs a fully governed self-healing loop on a real repository. The loop starts from a Paw-controlled channel interaction, provisions developer execution on a sandbox, observes real Logfire alerts, triages them with SRE, and drives code changes through GitHub pull requests.
+Open Paw already boots as an embedded Temper-based daemon, but the MVP needs a fully governed self-healing loop on a real repository. The loop starts from a Paw-controlled channel interaction, provisions developer execution on a sandbox, observes real Datadog alerts, triages them with SRE, and drives code changes through GitHub pull requests.
 
 The existing model still uses `Agent`-era names and ad hoc environment handling, which makes the API shape inconsistent with the product language in the MVP plan and harder to verify across parallel worktree implementations.
 
@@ -18,7 +18,7 @@ The agent app will expose `Agent`, `Soul`, `Memory`, and `Skill` entities in the
 
 ### 2. Load operator credentials from `.env`
 
-The daemon reads local credentials from a gitignored `.env` file via `dotenv`. Supported MVP secrets include Anthropic, Discord, E2B, GitHub, and Logfire tokens. Startup seeds those values into the Temper secrets vault for both the default tenant and the active tenant.
+The daemon reads local credentials from a gitignored `.env` file via `dotenv`. Supported MVP secrets include Anthropic, Discord, Modal, GitHub, and Datadog tokens. Startup seeds those values into the Temper secrets vault for both the default tenant and the active tenant.
 
 ### 3. Model the workflow as OS apps
 

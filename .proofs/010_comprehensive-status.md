@@ -24,13 +24,13 @@
 - Startup bootstraps 3 souls: `Paw`, `Developer`, `SRE`
 - **VERIFIED**: Proofs 006-008 all ran successfully against `http://localhost:3467/tdata`
 
-### 2. Developer agent can provision a real E2B sandbox and run a real clone flow
-- `sandbox_provisioner` can provision through the E2B API when `E2B_API_KEY` is set
-- `tool_runner` can execute bash in the E2B sandbox
+### 2. Developer agent can provision a real Modal sandbox and run a real clone flow
+- `sandbox_provisioner` can provision through the Modal API when `Modal_API_KEY` is set
+- `tool_runner` can execute bash in the Modal sandbox
 - GitHub token injection works for HTTPS clone
 - Session-tree continuation after tool execution works without the old oversized-context failure
 - **VERIFIED**: [.proofs/006-repo-clone-e2b.md](/Users/seshendranalla/Development/openpaw-codex/.proofs/006-repo-clone-e2b.md)
-- **Artifact**: Developer cloned `deep-sci-fi` in E2B and returned `CLONE_OK`
+- **Artifact**: Developer cloned `deep-sci-fi` in Modal and returned `CLONE_OK`
 
 ### 3. Curl-style continuing conversation works
 - `Channel.ReceiveMessage` creates or resumes a `ChannelSession`
@@ -53,7 +53,7 @@
 - The remediation proof did not stop at diagnosis
 - It pushed a branch and created a real GitHub pull request
 - **VERIFIED**: Proof 007
-- **Important qualifier**: This was proven in the local sandbox path, not in E2B
+- **Important qualifier**: This was proven in the local sandbox path, not in Modal
 
 ### 6. Bounded sandbox -> Paw FS / TemperFS sync works
 - Agent provisioning creates conversation/session/workspace storage
@@ -71,7 +71,7 @@
 - **Important qualifier**: some policies are still broad/permissive; see limitations below
 
 ### 8. Local sandbox execution works as the main developer fallback
-- Local sandbox auto-starts when the script exists and no explicit E2B-only default is forced
+- Local sandbox auto-starts when the script exists and no explicit Modal-only default is forced
 - Supports:
   - file read
   - file write
@@ -131,12 +131,12 @@
 - **Current**: Discord is wired
 - **Not current**: a documented DM -> agent -> reply proof on this branch
 
-### 7. Full E2B self-heal loop
+### 7. Full Modal self-heal loop
 - **Status**: NOT PROVEN
-- E2B clone is proven
-- Full SRE -> Developer -> validate -> push -> PR on E2B is not separately proven here
-- **Current**: E2B is good enough for clone and basic bash execution
-- **Not current**: confidence that the whole remediation path is solid on E2B
+- Modal clone is proven
+- Full SRE -> Developer -> validate -> push -> PR on Modal is not separately proven here
+- **Current**: Modal is good enough for clone and basic bash execution
+- **Not current**: confidence that the whole remediation path is solid on Modal
 
 ### 8. Crash/restart resilience for in-flight work
 - **Status**: NOT PROVEN
@@ -175,10 +175,10 @@
 The current code reads these from `.env` if present:
 ```env
 ANTHROPIC_API_KEY=
-E2B_API_KEY=
+Modal_API_KEY=
 GITHUB_TOKEN=
-LOGFIRE_READ_TOKEN=
-LOGFIRE_WRITE_TOKEN=
+DD_API_KEY=
+DD_APP_KEY=
 DISCORD_BOT_TOKEN=
 FLY_API_TOKEN=
 TEMPER_API_KEY=
@@ -233,13 +233,13 @@ PAW_TENANT=default
 - It is not isolated
 - It is a Python HTTP server exposing host file operations and host shell execution
 
-### Current E2B sandbox
+### Current Modal sandbox
 - Provisioned by [sandbox_provisioner/src/lib.rs](/Users/seshendranalla/Development/openpaw-codex/os-apps/paw-agent/wasm/sandbox_provisioner/src/lib.rs)
 - Priority order:
   - explicit `sandbox_url`
   - configured `sandbox_url`
-  - E2B API using `e2b_api_key`
-- Current E2B create request uses `"secure": false`
+  - Modal API using `e2b_api_key`
+- Current Modal create request uses `"secure": false`
 - Open Paw then talks directly to the envd URL
 
 ### What the agent actually receives
@@ -257,7 +257,7 @@ That is the real contract today.
 
 ### Vision vs reality
 - **Vision**: persistent cloud developer computer with checkpoint/sleep/wake and project-aware setup
-- **Reality**: local host-backed sandbox for the proven repair loop, plus one proven E2B clone path
+- **Reality**: local host-backed sandbox for the proven repair loop, plus one proven Modal clone path
 
 ---
 
@@ -406,13 +406,13 @@ Relevant policy areas include:
 | Daemon boots | ✅ | ✅ Works | None |
 | OS-app install + soul bootstrap | ✅ | ✅ Works | None |
 | Curl/thread continuity | ✅ | ✅ Proven | None |
-| E2B clone flow | ✅ | ✅ Proven | None for clone milestone |
+| Modal clone flow | ✅ | ✅ Proven | None for clone milestone |
 | Local sandbox remediation | ✅ | ✅ Proven | No isolation |
 | SRE -> Developer -> PR | ✅ | ✅ Proven with synthetic trigger | Still manually triggered |
-| Git push + PR | ✅ | ✅ Proven in local sandbox | E2B remediation not proven |
+| Git push + PR | ✅ | ✅ Proven in local sandbox | Modal remediation not proven |
 | Paw FS session persistence | ✅ | ✅ Proven in bounded form | Partial fsync only |
 | Discord connected | ✅ | ⚠️ Wired, not re-proven | Needs direct DM proof |
-| Real Logfire query in healing loop | ✅ | ⚠️ Tool exists, not proven in loop | Need real query proof |
+| Real Datadog query in healing loop | ✅ | ⚠️ Tool exists, not proven in loop | Need real query proof |
 | Webhook alert ingestion | ✅ | ❌ Not implemented | Need real webhook path |
 | `MonitorScan` | ✅ | ❌ Missing | Need spec + implementation |
 | Persistent `Computer` entity for Developer | ✅ | ❌ Spec-only | Need compute WASM + proof |
