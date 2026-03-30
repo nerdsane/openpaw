@@ -69,15 +69,26 @@ Comprehensive verification of the platform upgrade: Scout → SRE rename, Logfir
 ## What Is NOT Proven (honest gaps)
 
 ### 1. Modal sandbox provisioning
-**Status**: WASM code written but NOT proven against real Modal API.
-**Why**: The sandbox_provisioner attempts Modal's gRPC API via HTTP/1.1 Connect protocol. Modal's API at `api.modal.com` uses native gRPC (HTTP/2 + protobuf), and it is unknown whether it supports Connect protocol. The provisioner will log a clear error if Connect fails, pointing to native gRPC as the upgrade path.
-**What happens today**: The daemon falls back to the local sandbox (auto-started at port 3477) when Modal provisioning fails. The local sandbox was used in the proven webhook test.
-**What's needed**: Either confirm Modal supports Connect protocol, or add a `grpc_call` host function to Temper's WASM host that handles native HTTP/2 gRPC.
+**Status**: PROVEN — Modal sandboxes work via Python SDK bridge.
+**Finding**: Modal's API is gRPC-only (no REST/Connect protocol — returns `grpc-status: 2` on HTTP calls). Solution: `modal_sandbox.py` bridge that uses Modal Python SDK and exposes the same HTTP interface as `local_sandbox.py`.
+**Verified**:
+- Sandbox created: `sb-c7tY0TqtWThBFTLlGQUhrO`
+- Command execution: git, node, bash all work in `/workspace`
+- Tunnel URL provided: `https://...modal.host`
+- WASM provisioner detects bridge via `/health` (checks `provider: modal`)
+- SRE agent provisioned via bridge → entered `Executing` state → completed
+**Remaining gap**: Developer child agents spawned by the SRE also need sandbox provisioning. Currently the SRE doesn't pass sandbox_url to its children, so they fall back to the default provisioner path. This needs the SRE soul instructions to pass through the sandbox config.
 
 ### 2. Full SRE → Developer → PR remediation loop
-**Status**: WIRED but not re-proven on this branch.
-**Why**: The SRE agent is spawned and provisioned automatically from the webhook, but the full LLM-driven triage → Developer spawn → fix → PR flow requires the agent to actually run (costs Anthropic API credits) and a real repo issue to fix. The previous branch (feat/openpaw-self-heal-loop-codex) proved this flow with a synthetic alert in .proofs/007-self-heal-loop.md, but that proof used the Scout soul name.
-**What happens today**: The SRE agent is created, configured with the SRE soul, and provisioned. The sandbox_provisioner WASM runs. If provisioning succeeds (local or Modal), the agent enters the Thinking state and the LLM is invoked.
+**Status**: PARTIALLY PROVEN — SRE completes, Developer child fails to provision.
+**What was proven**:
+- DD webhook → Monitor → AlertCycle → SRE agent auto-spawned (autonomous, zero manual OData)
+- SRE agent provisioned via Modal bridge sandbox
+- SRE agent entered Thinking → Executing → Completed (LLM ran, tools were called)
+- SRE created a WorkCycle entity for the remediation
+- SRE spawned a Developer child agent
+**What failed**: The Developer child agent failed during provisioning. It appears the child agent tried to provision its own sandbox but didn't get the Modal bridge URL passed through.
+**What's needed**: Update the SRE soul or webhook handler to pass `sandbox_url` (the Modal bridge URL) to Developer child agents. This is a configuration passthrough issue, not a fundamental architecture problem.
 
 ### 3. CI/CD closure (merge → deploy → verify)
 **Status**: Code written but NOT proven end-to-end.
@@ -127,6 +138,8 @@ This is a multi-minute flow that depends on external services. The code paths ar
 - DD instrumentation on deep-sci-fi
 
 ### Honest assessment
-The platform upgrade successfully renamed, rewired, and restructured the system. The webhook handler is the biggest new capability and it works end-to-end against a running daemon. The main gap is that the full autonomous loop (alert → triage → fix → PR → merge → deploy → verify → resolve) has not been proven as a single uninterrupted flow on this branch. The individual pieces work, but the chain has not been exercised.
+The platform upgrade successfully renamed, rewired, and restructured the system. The webhook handler and Modal sandbox provisioning both work. The SRE agent runs autonomously from a DD webhook and completes its triage work.
 
-The most critical unknown is Modal sandbox provisioning — if Modal's API doesn't support Connect protocol, a native gRPC host function needs to be added to Temper.
+The main remaining gap is the Developer child agent provisioning — the SRE spawns a Developer but doesn't pass the sandbox configuration, so the Developer fails at provisioning. This is a configuration passthrough fix, not an architecture issue. Once fixed, the full loop should work.
+
+The CI/CD closure chain (merge → deploy → verify) and DD instrumentation setup on deep-sci-fi remain untested but the code paths are in place.

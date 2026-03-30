@@ -633,8 +633,37 @@ async fn spawn_sre_agent(
         .unwrap_or("")
         .to_string();
 
+    // Resolve sandbox URL for the SRE and its children.
+    // Prefer the Modal bridge if available, otherwise local sandbox.
+    let sandbox_url = std::env::var("SANDBOX_URL").ok()
+        .or_else(|| {
+            let bridge_port = std::env::var("PORT").ok()
+                .and_then(|p| p.parse::<u16>().ok())
+                .unwrap_or(3467) + 11;
+            let bridge_url = format!("http://127.0.0.1:{bridge_port}");
+            // Check if Modal bridge is running
+            if reqwest::blocking::Client::new()
+                .get(format!("{bridge_url}/health"))
+                .timeout(std::time::Duration::from_secs(2))
+                .send()
+                .ok()
+                .and_then(|r| r.text().ok())
+                .map_or(false, |b| b.contains("modal"))
+            {
+                Some(bridge_url)
+            } else {
+                None
+            }
+        })
+        .unwrap_or_else(|| {
+            let port = std::env::var("PORT").ok()
+                .and_then(|p| p.parse::<u16>().ok())
+                .unwrap_or(3467);
+            format!("http://127.0.0.1:{}", port + 10)
+        });
+
     // Build SRE task message
-    let sre_message = build_sre_message(monitor_id, alert_cycle_id, project_harness_id, repo_url, payload);
+    let sre_message = build_sre_message(monitor_id, alert_cycle_id, project_harness_id, repo_url, &sandbox_url, payload);
 
     // Configure the agent
     state.odata.action("Agents", &agent_id, "Configure", &json!({
@@ -644,6 +673,7 @@ async fn spawn_sre_agent(
         "max_turns": 60,
         "tools_enabled": "temper_get,temper_list,temper_action,temper_create,spawn_agent,read_entity,datadog_query",
         "workdir": DEFAULT_SRE_WORKDIR,
+        "sandbox_url": sandbox_url,
     })).await?;
 
     // Provision the agent
@@ -659,6 +689,7 @@ fn build_sre_message(
     alert_cycle_id: &str,
     project_harness_id: &str,
     repo_url: &str,
+    sandbox_url: &str,
     payload: &Value,
 ) -> String {
     let alert_title = payload.get("title")
@@ -698,13 +729,17 @@ fn build_sre_message(
     }
 
     msg.push_str(&format!(
-        "\n## Instructions\n\n\
+        "\n## Sandbox\n\n\
+         **sandbox_url**: {sandbox_url}\n\
+         Pass this sandbox_url to any Developer agent you spawn so it uses the same sandbox provider.\n\n\
+         ## Instructions\n\n\
          1. Read the Monitor and AlertCycle entities to understand the context\n\
          2. Use `datadog_query` to investigate the alert in Datadog\n\
          3. Triage: Is this a real issue or noise?\n\
          4. If real: Create an Issue, WorkCycle, spawn a Developer to fix it\n\
-         5. If noise: Tune the monitor and mark the AlertCycle as tuned\n\
-         6. Close the loop with the appropriate AlertCycle action\n"
+         5. When spawning a Developer, include `sandbox_url={sandbox_url}` and `workdir=/tmp/openpaw-self-heal` in the configuration\n\
+         6. If noise: Tune the monitor and mark the AlertCycle as tuned\n\
+         7. Close the loop with the appropriate AlertCycle action\n"
     ));
 
     msg
