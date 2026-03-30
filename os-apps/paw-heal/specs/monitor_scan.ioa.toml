@@ -1,0 +1,81 @@
+# MonitorScan — Automated Datadog monitor generation for a project.
+#
+# When a Developer agent takes ownership of a project, it creates a
+# MonitorScan with scan_type=bootstrap to generate granular DD monitors
+# across the codebase (~1 per 75 lines). On each PR, a scan_type=pr_delta
+# scan generates monitors only for changed files.
+
+[automaton]
+name = "MonitorScan"
+states = ["Created", "Scanning", "Complete", "Failed"]
+initial = "Created"
+
+[[state]]
+name = "project_harness_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "scan_type"
+type = "string"
+initial = "bootstrap"
+
+[[state]]
+name = "commit_sha"
+type = "string"
+initial = ""
+
+[[state]]
+name = "monitors_created"
+type = "counter"
+initial = "0"
+
+[[state]]
+name = "monitors_updated"
+type = "counter"
+initial = "0"
+
+[[state]]
+name = "error_message"
+type = "string"
+initial = ""
+
+[[action]]
+name = "Configure"
+kind = "input"
+from = ["Created"]
+params = ["project_harness_id", "scan_type", "commit_sha"]
+hint = "Set the project, scan type (bootstrap or pr_delta), and commit SHA."
+
+[[action]]
+name = "StartScan"
+kind = "input"
+from = ["Created"]
+to = "Scanning"
+hint = "Begin scanning the codebase to generate Datadog monitors."
+
+[[action]]
+name = "ScanComplete"
+kind = "input"
+from = ["Scanning"]
+to = "Complete"
+params = ["monitors_created", "monitors_updated"]
+hint = "Record successful scan results."
+
+[[action]]
+name = "ScanFailed"
+kind = "input"
+from = ["Scanning"]
+to = "Failed"
+params = ["error_message"]
+hint = "Record scan failure."
+
+[[invariant]]
+name = "CompleteIsFinal"
+when = ["Complete"]
+assert = "no_further_transitions"
+
+[[invariant]]
+name = "FailedIsFinal"
+when = ["Failed"]
+assert = "no_further_transitions"

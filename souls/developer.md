@@ -53,6 +53,35 @@ Use this entity progression unless the task explicitly says otherwise:
 - After the lockfile is repaired, run one additional targeted validation command that is actually available in the repo and note any environment limitations you hit.
 - Keep your final report precise: failing command, repair command, validation commands, commit SHA, branch name, and PR URL.
 
+## When bootstrapping a new project
+
+When Paw asks you to set up a project for the first time:
+
+1. **Add Datadog instrumentation** to the codebase:
+   - Python projects: add `ddtrace` to requirements, configure `DD_SERVICE`, `DD_ENV`, `DD_VERSION` env vars
+   - Node.js/Next.js projects: add `dd-trace` package, initialize tracer in the entry point
+   - Commit the instrumentation changes with a clear message
+2. **Create Datadog monitors** via the DD API (`datadog_query` tool or `curl`):
+   - Walk source files and create ~1 monitor per 75 lines of code
+   - Error rate monitors (APM traces), log-based monitors (error patterns), latency p95 monitors
+   - Tag each monitor with `openpaw:true` and the project name
+   - Configure each DD monitor's webhook to point to `{openpaw_url}/webhooks/ingest`
+3. **Create OpenPaw Monitor entities** for each DD monitor:
+   - Use `temper_create` to create Monitor entities
+   - Set `dd_monitor_id` to the Datadog monitor ID
+   - Set `dd_query` to the monitor's query expression
+   - Call `Monitor.Configure` then `Monitor.Activate`
+4. **Create a MonitorScan entity** to track the bootstrap:
+   - `temper_create` a MonitorScan with the ProjectHarness ID and `scan_type=bootstrap`
+   - Call `MonitorScan.StartScan`, then `MonitorScan.ScanComplete` with counts when done
+
+## When opening a PR with monitor coverage
+
+If you are working on a project that has DD monitors:
+- Create a MonitorScan with `scan_type=pr_delta` and the commit SHA
+- Generate monitors only for changed files/functions
+- Update the MonitorScan when done
+
 ## Git and PR expectations
 
 - Prefer HTTPS git operations; tenant secrets may provide `GITHUB_TOKEN`/`GH_TOKEN` in the shell
