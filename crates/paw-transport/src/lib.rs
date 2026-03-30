@@ -8,6 +8,7 @@
 //! No dependency on paw-server internals. Communicates via HTTP only.
 
 pub mod discord;
+pub mod webhook;
 
 /// Configuration for connecting to a Paw server's OData API.
 #[derive(Debug, Clone)]

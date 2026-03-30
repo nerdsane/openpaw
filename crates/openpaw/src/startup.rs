@@ -33,6 +33,7 @@ const PAW_OS_APPS: &[&str] = &[
     "paw-compute",
     "paw-harness",
     "paw-heal",
+    "paw-ingest",
 ];
 
 /// Run the Open Paw daemon.
@@ -318,18 +319,10 @@ pub async fn run(config: Config) -> Result<()> {
         .with_context(|| format!("Failed to bind to port {port}"))?;
     let actual_port = listener.local_addr()?.port();
     let _ = state.server.listen_port.set(actual_port);
-    let router = build_platform_router(state.clone()).merge(crate::webhooks::build_webhook_router(
-        crate::webhooks::WebhookState::new(
-            format!("http://127.0.0.1:{actual_port}"),
-            tenant.clone(),
-            config.temper_api_key.clone(),
-            config.webhook_secret.clone(),
-            config.github_token.clone(),
-            config.dd_api_key.clone(),
-            config.dd_app_key.clone(),
-            config.dd_site.clone(),
-        ),
-    ));
+    let router = build_platform_router(state.clone());
+
+    // Spawn webhook trigger (ONE entity, ONE action per request).
+    spawn_webhook_trigger(&tenant, actual_port, config.temper_api_key.clone());
 
     if let Some(ref token) = config.discord_bot_token {
         spawn_discord_transport(
@@ -1003,6 +996,35 @@ fn find_wasm_binary(module_dir: &Path, module_name: &str) -> Option<PathBuf> {
     ];
 
     candidates.into_iter().find(|path| path.is_file())
+}
+
+/// Spawn the webhook trigger (HTTP endpoint for external webhooks).
+///
+/// Listens on port+12 for POST /triggers/webhook/{route_key}.
+/// ONE entity, ONE action — everything else is WASM integrations.
+fn spawn_webhook_trigger(tenant: &str, port: u16, api_key: Option<String>) {
+    use paw_transport::PawApiConfig;
+    use paw_transport::webhook::{WebhookTrigger, WebhookTriggerConfig};
+
+    let tenant = tenant.to_string();
+    let api_url = format!("http://127.0.0.1:{port}");
+    let trigger_port = port + 12;
+    tracing::info!("Webhook trigger: listening on port {trigger_port} (tenant={tenant})");
+
+    tokio::spawn(async move {
+        let api = paw_transport::PawApiClient::new(PawApiConfig {
+            base_url: api_url,
+            tenant,
+            api_key,
+        });
+        let config = WebhookTriggerConfig {
+            port: trigger_port,
+        };
+        let trigger = WebhookTrigger::new(config, api);
+        if let Err(e) = trigger.run().await {
+            tracing::error!("Webhook trigger fatal error: {e}");
+        }
+    });
 }
 
 /// Spawn the Discord channel transport.

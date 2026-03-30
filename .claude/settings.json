@@ -1,0 +1,10 @@
+{
+  "hooks": {
+    "PreCommit": [
+      {
+        "command": "scripts/check-temper-native.sh",
+        "description": "Architect Reviewer — Temper-native compliance check"
+      }
+    ]
+  }
+}

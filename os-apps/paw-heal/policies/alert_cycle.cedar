@@ -12,7 +12,10 @@ permit(
     Action::"AlertResolved",
     Action::"AlertPersists",
     Action::"TuneComplete",
-    Action::"Escalate"
+    Action::"Escalate",
+    Action::"CheckMergeReady",
+    Action::"CheckDeployment",
+    Action::"CheckAlertResolution"
   ],
   resource is AlertCycle
 );
@@ -31,7 +34,10 @@ permit(
     Action::"AlertResolved",
     Action::"AlertPersists",
     Action::"TuneComplete",
-    Action::"Escalate"
+    Action::"Escalate",
+    Action::"CheckMergeReady",
+    Action::"CheckDeployment",
+    Action::"CheckAlertResolution"
   ],
   resource is AlertCycle
 );

@@ -5,7 +5,6 @@
 
 mod config;
 mod startup;
-mod webhooks;
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> anyhow::Result<()> {

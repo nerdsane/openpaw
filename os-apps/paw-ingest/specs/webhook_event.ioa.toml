@@ -1,0 +1,162 @@
+# WebhookEvent — Ingest, validate, route, and process an incoming webhook.
+#
+# Each event flows: Created → Validating → Routing → Processing → Processed.
+# Failure at any stage transitions to Rejected.
+
+[automaton]
+name = "WebhookEvent"
+states = ["Created", "Validating", "Routing", "Processing", "Processed", "Rejected"]
+initial = "Created"
+
+[[state]]
+name = "route_key"
+type = "string"
+initial = ""
+
+[[state]]
+name = "raw_payload"
+type = "string"
+initial = ""
+
+[[state]]
+name = "raw_headers"
+type = "string"
+initial = ""
+
+[[state]]
+name = "source_type"
+type = "string"
+initial = ""
+
+[[state]]
+name = "normalized_payload"
+type = "string"
+initial = ""
+
+[[state]]
+name = "hmac_verified"
+type = "string"
+initial = ""
+
+[[state]]
+name = "target_entity_type"
+type = "string"
+initial = ""
+
+[[state]]
+name = "target_entity_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "target_action"
+type = "string"
+initial = ""
+
+[[state]]
+name = "webhook_route_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "validation_error"
+type = "string"
+initial = ""
+
+[[action]]
+name = "Received"
+kind = "input"
+from = ["Created"]
+to = "Validating"
+params = ["raw_payload", "raw_headers", "route_key"]
+hint = "Accept a webhook payload and begin validation."
+effect = [{ type = "trigger", name = "validate_webhook" }]
+
+[[action]]
+name = "Validated"
+kind = "input"
+from = ["Validating"]
+to = "Routing"
+params = ["source_type", "hmac_verified", "normalized_payload"]
+hint = "Payload validated and source identified. Begin routing."
+effect = [{ type = "trigger", name = "route_webhook" }]
+
+[[action]]
+name = "Routed"
+kind = "input"
+from = ["Routing"]
+to = "Processing"
+params = ["target_entity_type", "target_entity_id", "target_action", "webhook_route_id"]
+hint = "Route resolved. Begin processing the webhook against the target entity."
+effect = [{ type = "trigger", name = "process_webhook" }]
+
+[[action]]
+name = "Processed"
+kind = "input"
+from = ["Processing"]
+to = "Processed"
+hint = "Webhook processing completed successfully."
+
+[[action]]
+name = "ValidationFailed"
+kind = "input"
+from = ["Validating"]
+to = "Rejected"
+params = ["validation_error"]
+hint = "Webhook validation failed (bad HMAC, malformed payload, etc.)."
+
+[[action]]
+name = "RouteFailed"
+kind = "input"
+from = ["Routing"]
+to = "Rejected"
+params = ["validation_error"]
+hint = "No matching route found or routing logic failed."
+
+[[action]]
+name = "ProcessFailed"
+kind = "input"
+from = ["Processing"]
+to = "Rejected"
+params = ["validation_error"]
+hint = "Target entity action dispatch failed."
+
+[[invariant]]
+name = "ProcessedIsFinal"
+when = ["Processed"]
+assert = "no_further_transitions"
+
+[[invariant]]
+name = "RejectedIsFinal"
+when = ["Rejected"]
+assert = "no_further_transitions"
+
+[[integration]]
+name = "validate_webhook"
+trigger = "validate_webhook"
+type = "wasm"
+module = "validate_webhook"
+on_failure = "ValidationFailed"
+
+[integration.config]
+temper_api_url = "{secret:temper_api_url}"
+
+[[integration]]
+name = "route_webhook"
+trigger = "route_webhook"
+type = "wasm"
+module = "route_webhook"
+on_failure = "RouteFailed"
+
+[integration.config]
+temper_api_url = "{secret:temper_api_url}"
+
+[[integration]]
+name = "process_webhook"
+trigger = "process_webhook"
+type = "wasm"
+module = "process_webhook"
+on_failure = "ProcessFailed"
+
+[integration.config]
+temper_api_url = "{secret:temper_api_url}"

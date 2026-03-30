@@ -1,0 +1,137 @@
+<?xml version="1.0" encoding="utf-8"?>
+<edmx:Edmx Version="4.0" xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx">
+  <edmx:DataServices>
+    <Schema Namespace="Paw.Vocab" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+      <Term Name="AuthZ.CedarPolicy" Type="Edm.String" AppliesTo="EntityType Action Function"/>
+      <Term Name="Agent.Hint" Type="Edm.String" AppliesTo="Action Function EntityType"/>
+    </Schema>
+
+    <Schema Namespace="OpenPaw.Ingest" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+      <EntityType Name="WebhookEvent">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.String" Nullable="false"/>
+        <Property Name="Status" Type="Edm.String"/>
+        <Property Name="RouteKey" Type="Edm.String"/>
+        <Property Name="RawPayload" Type="Edm.String"/>
+        <Property Name="RawHeaders" Type="Edm.String"/>
+        <Property Name="SourceType" Type="Edm.String"/>
+        <Property Name="NormalizedPayload" Type="Edm.String"/>
+        <Property Name="HmacVerified" Type="Edm.String"/>
+        <Property Name="TargetEntityType" Type="Edm.String"/>
+        <Property Name="TargetEntityId" Type="Edm.String"/>
+        <Property Name="TargetAction" Type="Edm.String"/>
+        <Property Name="WebhookRouteId" Type="Edm.String"/>
+        <Property Name="ValidationError" Type="Edm.String"/>
+        <Annotation Term="Paw.Vocab.AuthZ.CedarPolicy" String="policies/webhook.cedar"/>
+        <Annotation Term="Paw.Vocab.Agent.Hint" String="Tracks the lifecycle of a single inbound webhook from receipt through processing."/>
+      </EntityType>
+
+      <EntityType Name="WebhookRoute">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.String" Nullable="false"/>
+        <Property Name="Status" Type="Edm.String"/>
+        <Property Name="RouteKey" Type="Edm.String"/>
+        <Property Name="SourceType" Type="Edm.String"/>
+        <Property Name="EventFilter" Type="Edm.String"/>
+        <Property Name="TargetEntityType" Type="Edm.String"/>
+        <Property Name="TargetAction" Type="Edm.String"/>
+        <Property Name="WebhookSecret" Type="Edm.String"/>
+        <Property Name="MonitorResolutionEnabled" Type="Edm.String"/>
+        <Property Name="DedupEnabled" Type="Edm.String"/>
+        <Property Name="DedupWindowMinutes" Type="Edm.String"/>
+        <Annotation Term="Paw.Vocab.AuthZ.CedarPolicy" String="policies/webhook.cedar"/>
+        <Annotation Term="Paw.Vocab.Agent.Hint" String="Configuration mapping a route key to validation rules and a target entity action."/>
+      </EntityType>
+
+      <!-- WebhookEvent actions -->
+      <Action Name="Received" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Ingest.WebhookEvent"/>
+        <Parameter Name="raw_payload" Type="Edm.String" Nullable="false"/>
+        <Parameter Name="raw_headers" Type="Edm.String" Nullable="false"/>
+        <Parameter Name="route_key" Type="Edm.String" Nullable="false"/>
+        <ReturnType Type="OpenPaw.Ingest.WebhookEvent"/>
+      </Action>
+
+      <Action Name="Validated" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Ingest.WebhookEvent"/>
+        <Parameter Name="source_type" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="hmac_verified" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="normalized_payload" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="OpenPaw.Ingest.WebhookEvent"/>
+      </Action>
+
+      <Action Name="Routed" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Ingest.WebhookEvent"/>
+        <Parameter Name="target_entity_type" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="target_entity_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="target_action" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="webhook_route_id" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="OpenPaw.Ingest.WebhookEvent"/>
+      </Action>
+
+      <Action Name="Processed" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Ingest.WebhookEvent"/>
+        <ReturnType Type="OpenPaw.Ingest.WebhookEvent"/>
+      </Action>
+
+      <Action Name="ValidationFailed" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Ingest.WebhookEvent"/>
+        <Parameter Name="validation_error" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="OpenPaw.Ingest.WebhookEvent"/>
+      </Action>
+
+      <Action Name="RouteFailed" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Ingest.WebhookEvent"/>
+        <Parameter Name="validation_error" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="OpenPaw.Ingest.WebhookEvent"/>
+      </Action>
+
+      <Action Name="ProcessFailed" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Ingest.WebhookEvent"/>
+        <Parameter Name="validation_error" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="OpenPaw.Ingest.WebhookEvent"/>
+      </Action>
+
+      <!-- WebhookRoute actions -->
+      <Action Name="Register" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Ingest.WebhookRoute"/>
+        <Parameter Name="route_key" Type="Edm.String" Nullable="false"/>
+        <Parameter Name="source_type" Type="Edm.String" Nullable="false"/>
+        <Parameter Name="event_filter" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="target_entity_type" Type="Edm.String" Nullable="false"/>
+        <Parameter Name="target_action" Type="Edm.String" Nullable="false"/>
+        <Parameter Name="webhook_secret" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="monitor_resolution_enabled" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="dedup_enabled" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="dedup_window_minutes" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="OpenPaw.Ingest.WebhookRoute"/>
+      </Action>
+
+      <Action Name="Update" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Ingest.WebhookRoute"/>
+        <Parameter Name="event_filter" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="target_action" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="webhook_secret" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="monitor_resolution_enabled" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="dedup_enabled" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="dedup_window_minutes" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="OpenPaw.Ingest.WebhookRoute"/>
+      </Action>
+
+      <Action Name="Disable" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Ingest.WebhookRoute"/>
+        <ReturnType Type="OpenPaw.Ingest.WebhookRoute"/>
+      </Action>
+
+      <Action Name="Enable" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Ingest.WebhookRoute"/>
+        <ReturnType Type="OpenPaw.Ingest.WebhookRoute"/>
+      </Action>
+
+      <EntityContainer Name="Service">
+        <EntitySet Name="WebhookEvents" EntityType="OpenPaw.Ingest.WebhookEvent"/>
+        <EntitySet Name="WebhookRoutes" EntityType="OpenPaw.Ingest.WebhookRoute"/>
+      </EntityContainer>
+    </Schema>
+  </edmx:DataServices>
+</edmx:Edmx>
