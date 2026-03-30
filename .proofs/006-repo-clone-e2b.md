@@ -49,7 +49,7 @@ Implemented fixes:
 The current fsync behavior intentionally caps uploads to the first 64 enumerated files and skips common large build directories. This keeps repo-scale tool runs tractable, but it does not guarantee a complete mirror of every cloned file in TemperFS after a single turn.
 
 ## What Still Doesn't Work
-The full Step 6 self-healing loop is not yet proven here. This report verifies the repo-clone milestone on E2B, not the later Logfire alert -> Scout diagnosis -> fix -> PR flow.
+The full Step 6 self-healing loop is not yet proven here. This report verifies the repo-clone milestone on E2B, not the later Datadog alert -> SRE diagnosis -> fix -> PR flow.
 
 ## Artifacts
 - Successful agent id: `019d2bbd-8c3a-7b92-947d-c44a064b8b62`

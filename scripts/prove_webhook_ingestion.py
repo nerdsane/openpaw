@@ -52,7 +52,7 @@ def create_monitor(client: ODataClient, run_suffix: str, external_monitor_id: st
         monitor_id,
         "OpenPaw.Heal.Configure",
         {
-            "logfire_query": f"synthetic:webhook:{run_suffix}",
+            "dd_query": f"synthetic:webhook:{run_suffix}",
             "threshold": "1",
             "dd_monitor_id": external_monitor_id,
         },
@@ -114,7 +114,7 @@ def main() -> int:
     monitor_id = create_monitor(client, run_suffix, external_monitor_id)
 
     alert_body = {
-        "source": "logfire",
+        "source": "datadog",
         "event_type": "alert_fired",
         "payload": {
             "monitor_id": external_monitor_id,

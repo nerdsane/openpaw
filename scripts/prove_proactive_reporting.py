@@ -111,7 +111,7 @@ def main() -> int:
 
         external_monitor_id = f"heal-report-monitor-{run_suffix}"
         body = {
-            "source": "logfire",
+            "source": "datadog",
             "event_type": "alert_fired",
             "payload": {
                 "monitor_id": external_monitor_id,

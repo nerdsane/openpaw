@@ -13,7 +13,7 @@
 
 This proof targets the `.vision` gap:
 
-- `Scout → Developer → PR (self-heal) | ✅ Proven | Manually triggered with synthetic alert`
+- `SRE → Developer → PR (self-heal) | ✅ Proven | Manually triggered with synthetic alert`
 
 The missing proof is the sandbox environment itself: the loop needs to work in E2B, not just on the local sandbox.
 
@@ -28,7 +28,7 @@ The missing proof is the sandbox environment itself: the loop needs to work in E
 synthetic alert
     |
     v
-Scout agent
+SRE agent
     |
     v
 Developer child agent
@@ -59,8 +59,8 @@ clone -> reproduce -> patch -> validate -> push -> PR
   - `ProjectHarness`: `019d347d-0422-74d2-a5a7-cfbeb594262e`
   - `Monitor`: `019d347d-043d-7ec1-a7bd-11c44ff9210c`
   - `AlertCycle`: `019d347d-044e-7601-970f-37edeb479296`
-  - `Scout` agent: `019d347d-0454-72d2-a6e1-66807cbe667c`
-  - Scout sandbox URL: `https://49983-ir2lu0fg10p37ieaysloe.e2b.app`
+  - `SRE` agent: `019d347d-0454-72d2-a6e1-66807cbe667c`
+  - SRE sandbox URL: `https://49983-ir2lu0fg10p37ieaysloe.e2b.app`
   - `WorkCycle`: `019d347d-3f1f-7d13-9582-3f582144781e`
   - `Developer` child agent: `019d347d-7cde-7102-b862-a7916b0a2303`
 - The `WorkCycle` wrote a concrete remediation plan and moved to `InProgress`.
@@ -81,7 +81,7 @@ clone -> reproduce -> patch -> validate -> push -> PR
   - The self-heal proof can now be forced into E2B mode instead of only local mode.
 - Proven by execution:
   - E2B provisioning succeeds with real credentials on this branch.
-  - Both Scout and Developer can execute against real E2B sandbox URLs while the `AlertCycle` and `WorkCycle` move through governed state.
+  - Both SRE and Developer can execute against real E2B sandbox URLs while the `AlertCycle` and `WorkCycle` move through governed state.
   - Failure handling in E2B is real: at least one run escalated with a recorded remediation failure instead of silently stalling.
 - Not proven by this report:
   - That a fresh PR was opened from an E2B-backed remediation run on the current branch tip.

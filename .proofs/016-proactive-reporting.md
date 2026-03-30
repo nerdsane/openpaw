@@ -19,7 +19,7 @@ The specific claim is that the system should not only remediate or fail internal
 
 ## What Was Done
 
-- Added a background proactive-reporting path in [`crates/openpaw/src/webhooks.rs`](/Users/seshendranalla/Development/openpaw-codex/crates/openpaw/src/webhooks.rs) that waits for Scout completion and dispatches `Paw.Channel.SendReply`
+- Added a background proactive-reporting path in [`crates/openpaw/src/webhooks.rs`](/Users/seshendranalla/Development/openpaw-codex/crates/openpaw/src/webhooks.rs) that waits for SRE completion and dispatches `Paw.Channel.SendReply`
 - Added the proof driver [`scripts/prove_proactive_reporting.py`](/Users/seshendranalla/Development/openpaw-codex/scripts/prove_proactive_reporting.py)
 
 ## Flow Diagram
@@ -28,7 +28,7 @@ The specific claim is that the system should not only remediate or fail internal
 alert webhook with reply routing
     |
     v
-Scout auto-spawn
+SRE auto-spawn
     |
     v
 terminal AlertCycle state
@@ -68,20 +68,20 @@ webhook-backed proof collector receives summary
     - `route_id`: `019d32a0-2b1f-7171-b89d-6cdb3dd167ad`
     - `alert_cycle_id`: `019d32a0-2b47-7a52-8a14-20c5ca000a6c`
   - result:
-    - webhook alert triggered a Scout auto-spawn
-    - Scout failed immediately because `ANTHROPIC_API_KEY` was unresolved in that environment
+    - webhook alert triggered a SRE auto-spawn
+    - SRE failed immediately because `ANTHROPIC_API_KEY` was unresolved in that environment
     - the alert convergence watcher escalated the `AlertCycle` to `Failed`
     - a proactive channel reply was still delivered back through `Paw.Channel.SendReply`
   - reply excerpt:
     - `Open Paw self-heal update`
     - `AlertCycle: 019d32a0-2b47-7a52-8a14-20c5ca000a6c (Failed)`
-    - `Diagnosis: Scout agent 019d32a0-2b4b-71c0-bca4-1f1414cdbcd7 ended in Failed: provider=anthropic api key is unresolved secret template: '{secret:anthropic_api_key}'. set tenant secret and retry`
+    - `Diagnosis: SRE agent 019d32a0-2b4b-71c0-bca4-1f1414cdbcd7 ended in Failed: provider=anthropic api key is unresolved secret template: '{secret:anthropic_api_key}'. set tenant secret and retry`
 - Corrective run after loading real credentials and tightening monitor-scoped dedupe:
   - `channel_id`: `019d348e-803b-7f80-a66a-0265548a1052`
   - `project_harness_id`: `019d348e-8151-7eb2-91a2-87348f7aaecf`
   - `monitor_id`: `019d348e-8162-7a02-ad4e-df8316b11443`
   - `alert_cycle_id`: `019d348e-816f-7001-b483-c583d6e1f421`
-  - `scout_agent_id`: `019d348e-8173-7261-9f6c-5d63089a2294`
+  - `sre_agent_id`: `019d348e-8173-7261-9f6c-5d63089a2294`
   - `issue_id`: `019d348e-f0c3-7b02-bc94-6cad5c0d4c4b`
   - `work_cycle_id`: `019d348f-0f21-7303-9ef4-6cb979b09479`
   - `developer_agent_id`: `019d348f-56a2-7dd3-9ac2-cf7aaf8ce8a8`
@@ -93,7 +93,7 @@ webhook-backed proof collector receives summary
 ## How It Works
 
 - The webhook handler resolves a `ReportTarget` from explicit payload fields such as `reply_channel_entity_id` and `reply_thread_id`.
-- After Scout reaches a terminal state, the watcher reads the final `AlertCycle`, latest `WorkCycle`, and latest linked `Issue`.
+- After SRE reaches a terminal state, the watcher reads the final `AlertCycle`, latest `WorkCycle`, and latest linked `Issue`.
 - It composes a plain-text summary and dispatches `Paw.Channel.SendReply` so the message exits through the same governed channel surface that Discord will later use.
 
 ## Honest Assessment Against Vision

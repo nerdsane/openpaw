@@ -16,7 +16,7 @@ This is the capstone proof against the full `.vision/001_openpaw_target_vision.m
 - Human says: `Manage deep-sci-fi for me`
 - Paw sets up the project
 - monitors fire
-- Scout triages
+- SRE triages
 - Developer fixes and opens a PR
 - Paw reports back proactively
 
@@ -25,7 +25,7 @@ This is the capstone proof against the full `.vision/001_openpaw_target_vision.m
 - Implemented the code and proof harnesses needed for the full demo chain:
   - Paw-managed project setup
   - webhook alert ingress
-  - Scout auto-spawn
+  - SRE auto-spawn
   - PM issue creation
   - Developer remediation flow
   - proactive channel reporting
@@ -43,7 +43,7 @@ Paw
 synthetic or real alert
     |
     v
-Scout
+SRE
     |
     v
 Developer
@@ -66,7 +66,7 @@ Paw proactive report to human
 1. Start the daemon with all demo credentials
 2. Send “manage deep-sci-fi” through Discord
 3. Trigger a synthetic alert webhook for the managed project
-4. Wait for Scout -> Developer -> PR completion
+4. Wait for SRE -> Developer -> PR completion
 5. Verify the proactive summary arrives back through Discord
 
 ## Verification Results
@@ -78,7 +78,7 @@ Paw proactive report to human
 
 - Proven by earlier subsystem work:
   - Webhook ingress exists.
-  - Scout auto-spawn exists.
+  - SRE auto-spawn exists.
   - PM issue creation path exists.
   - Proactive channel replies exist.
 - Not proven by this report:
@@ -92,6 +92,6 @@ Paw proactive report to human
 - [`docs/adrs/0003-demo-vision-implementation.md`](/Users/seshendranalla/Development/openpaw-codex/docs/adrs/0003-demo-vision-implementation.md)
 - [`crates/openpaw/src/webhooks.rs`](/Users/seshendranalla/Development/openpaw-codex/crates/openpaw/src/webhooks.rs)
 - [`scripts/prove_paw_orchestration.py`](/Users/seshendranalla/Development/openpaw-codex/scripts/prove_paw_orchestration.py)
-- [`scripts/prove_webhook_to_scout.py`](/Users/seshendranalla/Development/openpaw-codex/scripts/prove_webhook_to_scout.py)
+- [`scripts/prove_webhook_to_sre.py`](/Users/seshendranalla/Development/openpaw-codex/scripts/prove_webhook_to_sre.py)
 - [`scripts/prove_pm_integration.py`](/Users/seshendranalla/Development/openpaw-codex/scripts/prove_pm_integration.py)
 - [`scripts/prove_proactive_reporting.py`](/Users/seshendranalla/Development/openpaw-codex/scripts/prove_proactive_reporting.py)

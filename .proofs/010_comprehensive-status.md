@@ -21,7 +21,7 @@
   - `paw-harness`
   - `paw-heal`
 - Startup restores specs from Turso, reloads WASM modules, and recovers Cedar policies
-- Startup bootstraps 3 souls: `Paw`, `Developer`, `Scout`
+- Startup bootstraps 3 souls: `Paw`, `Developer`, `SRE`
 - **VERIFIED**: Proofs 006-008 all ran successfully against `http://localhost:3467/tdata`
 
 ### 2. Developer agent can provision a real E2B sandbox and run a real clone flow
@@ -40,9 +40,9 @@
 - **VERIFIED**: [.proofs/008-channel-continuation.md](/Users/seshendranalla/Development/openpaw-codex/.proofs/008-channel-continuation.md)
 - **Artifact**: Second message correctly recalled `moon-biscuit-42`
 
-### 4. Scout -> Developer self-heal loop works in a manually-triggered form
+### 4. SRE -> Developer self-heal loop works in a manually-triggered form
 - `ProjectHarness`, `Monitor`, `AlertCycle`, and `WorkCycle` all exist as working entities
-- A `Scout` agent can read the workflow entities, spawn one `Developer` child, wait for it, and close the loop
+- A `SRE` agent can read the workflow entities, spawn one `Developer` child, wait for it, and close the loop
 - The `Developer` child can clone, edit, validate, push, and open a PR
 - `WorkCycle` reaches `Complete`
 - `AlertCycle` reaches `Fixed`
@@ -76,7 +76,7 @@
   - file read
   - file write
   - shell command execution
-- **VERIFIED**: Proof 007 used local sandbox end to end for Scout and Developer
+- **VERIFIED**: Proof 007 used local sandbox end to end for SRE and Developer
 
 ---
 
@@ -134,7 +134,7 @@
 ### 7. Full E2B self-heal loop
 - **Status**: NOT PROVEN
 - E2B clone is proven
-- Full Scout -> Developer -> validate -> push -> PR on E2B is not separately proven here
+- Full SRE -> Developer -> validate -> push -> PR on E2B is not separately proven here
 - **Current**: E2B is good enough for clone and basic bash execution
 - **Not current**: confidence that the whole remediation path is solid on E2B
 
@@ -157,7 +157,7 @@
 - But the proven artifacts on this branch focus on:
   - direct Agent API
   - channel continuation with a custom proof prompt
-  - Scout/Developer self-heal
+  - SRE/Developer self-heal
 - **Current**: `Paw` exists and is wired
 - **Not current**: a full proof showing Paw itself creates the harness/heal workflow and kicks off the repair
 
@@ -199,7 +199,7 @@ PAW_TENANT=default
 - local WASM build/register if needed
 - Cedar recovery
 - skill restore
-- soul bootstrap for `Paw`, `Developer`, `Scout`
+- soul bootstrap for `Paw`, `Developer`, `SRE`
 - optional Discord startup
 
 ### What is still rough
@@ -381,7 +381,7 @@ Relevant policy areas include:
 
 ### What works
 - `Monitor` and `AlertCycle` entities exist and work
-- `Scout` can triage and spawn a `Developer`
+- `SRE` can triage and spawn a `Developer`
 - `Developer` can fix code, validate, push, and open a PR
 - `WorkCycle` and `AlertCycle` can be brought to successful terminal states
 - **VERIFIED**: Proof 007
@@ -394,8 +394,8 @@ Relevant policy areas include:
 - no proven GitHub-event-based closeout loop
 
 ### The honest current state
-- **Vision**: observability system fires -> Scout triages -> Developer fixes -> PR -> human merge -> deploy -> monitoring updates and confirms recovery
-- **Reality**: synthetic alert + manual OData kick-off -> Scout -> Developer -> PR
+- **Vision**: observability system fires -> SRE triages -> Developer fixes -> PR -> human merge -> deploy -> monitoring updates and confirms recovery
+- **Reality**: synthetic alert + manual OData kick-off -> SRE -> Developer -> PR
 
 ---
 
@@ -408,11 +408,11 @@ Relevant policy areas include:
 | Curl/thread continuity | ✅ | ✅ Proven | None |
 | E2B clone flow | ✅ | ✅ Proven | None for clone milestone |
 | Local sandbox remediation | ✅ | ✅ Proven | No isolation |
-| Scout -> Developer -> PR | ✅ | ✅ Proven with synthetic trigger | Still manually triggered |
+| SRE -> Developer -> PR | ✅ | ✅ Proven with synthetic trigger | Still manually triggered |
 | Git push + PR | ✅ | ✅ Proven in local sandbox | E2B remediation not proven |
 | Paw FS session persistence | ✅ | ✅ Proven in bounded form | Partial fsync only |
 | Discord connected | ✅ | ⚠️ Wired, not re-proven | Needs direct DM proof |
-| Real Logfire query in healing loop | ✅ | ⚠️ Tool exists, not proven in loop | Need real query proof |
+| Real Datadog query in healing loop | ✅ | ⚠️ Tool exists, not proven in loop | Need real query proof |
 | Webhook alert ingestion | ✅ | ❌ Not implemented | Need real webhook path |
 | `MonitorScan` | ✅ | ❌ Missing | Need spec + implementation |
 | Persistent `Computer` entity for Developer | ✅ | ❌ Spec-only | Need compute WASM + proof |

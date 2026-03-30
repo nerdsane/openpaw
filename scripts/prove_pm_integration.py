@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prove Scout creates a PM Issue for a real alert."""
+"""Prove SRE creates a PM Issue for a real alert."""
 
 from __future__ import annotations
 
@@ -120,14 +120,14 @@ def main() -> int:
 
     external_monitor_id = f"pm-monitor-{run_suffix}"
     body = {
-        "source": "logfire",
+        "source": "datadog",
         "event_type": "alert_fired",
         "payload": {
             "monitor_id": external_monitor_id,
             "project_harness_id": harness_id,
             "repo_url": args.repo_url,
             "severity": "high",
-            "summary": "Scout should create a PM issue for this alert",
+            "summary": "SRE should create a PM issue for this alert",
             "reproduction": {
                 "command": "npm ci",
                 "failure": "package-lock drift detected during PM integration proof",
@@ -137,15 +137,15 @@ def main() -> int:
     status, response = webhook_post(args.base_url, body, secret=args.secret)
     require(status == 200, f"unexpected webhook response {status}: {response}")
     alert_cycle_id = str(response.get("alert_cycle_id") or "")
-    scout_agent_id = str(response.get("scout_agent_id") or "")
+    sre_agent_id = str(response.get("sre_agent_id") or "")
     require(alert_cycle_id, f"missing alert_cycle_id: {response}")
-    require(scout_agent_id, f"missing scout_agent_id: {response}")
+    require(sre_agent_id, f"missing sre_agent_id: {response}")
 
     issue = wait_for_issue(client, alert_cycle_id, args.timeout_ms / 1000)
     work_cycle = wait_for_work_cycle(client, harness_id, args.timeout_ms / 1000)
-    developer_agent = wait_for_child_agent(client, scout_agent_id, min(args.timeout_ms / 1000, 120))
+    developer_agent = wait_for_child_agent(client, sre_agent_id, min(args.timeout_ms / 1000, 120))
     alert_cycle = client.get("AlertCycles", alert_cycle_id)
-    scout_agent = client.get("Agents", scout_agent_id)
+    sre_agent = client.get("Agents", sre_agent_id)
     description = str(
         issue.get("fields", {}).get("Description")
         or issue.get("fields", {}).get("description")
@@ -160,8 +160,8 @@ def main() -> int:
         "project_harness_id": harness_id,
         "alert_cycle_id": alert_cycle_id,
         "alert_cycle": alert_cycle,
-        "scout_agent_id": scout_agent_id,
-        "scout_agent": scout_agent,
+        "sre_agent_id": sre_agent_id,
+        "sre_agent": sre_agent,
         "work_cycle": work_cycle,
         "developer_agent": developer_agent,
         "issue": issue,

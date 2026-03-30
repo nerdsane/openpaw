@@ -13,7 +13,7 @@
 
 This proof targets the `.vision` gap:
 
-- `Webhook alert ingestion | ❌ Placeholder | webhooks.rs is empty`
+- `Webhook alert ingestion | ✅ Implemented | Datadog + GitHub webhook normalization exists`
 
 The concrete claim being tested is: OpenPaw can accept a real external webhook, translate it into governed Temper state, and do so safely with signature checks and duplicate suppression.
 
@@ -117,7 +117,7 @@ Exact script summary:
   - Webhook ingress is no longer a placeholder.
   - The ingress path writes real governed state and enforces basic safety checks.
 - Not proven here:
-  - A live Logfire or GitHub sender reaching the endpoint over the public internet.
+  - A live Datadog or GitHub sender reaching the endpoint over the public internet.
   - End-to-end remediation after ingestion. That belongs to later proofs.
 - Known limitation:
   - This proof uses synthetic payloads, so it proves the platform contract, not third-party webhook compatibility edge cases.
@@ -132,7 +132,7 @@ Exact script summary:
 ## Limitations
 
 - GitHub merge handling assumes the webhook provides a `work_cycle_id` or a resolvable PR URL.
-- The proof uses synthetic payloads, not a live Logfire or GitHub webhook sender.
+- The proof uses synthetic payloads, not a live Datadog or GitHub webhook sender.
 
 ## Artifacts
 
