@@ -52,7 +52,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
 
         let temper_api_url = resolve_api_url(&ctx);
         let tenant = &ctx.tenant;
-        let headers = odata_headers(tenant);
+        let headers = odata_headers(&ctx, tenant);
 
         // Build action params from the normalized payload
         let action_params = build_action_params(target_action, normalized_payload, route_key);
@@ -107,11 +107,13 @@ fn resolve_api_url(ctx: &Context) -> String {
 }
 
 /// Build standard OData request headers.
-fn odata_headers(tenant: &str) -> Vec<(String, String)> {
+fn odata_headers(ctx: &Context, tenant: &str) -> Vec<(String, String)> {
     vec![
         ("content-type".to_string(), "application/json".to_string()),
         ("x-tenant-id".to_string(), tenant.to_string()),
-        ("x-temper-principal-kind".to_string(), "admin".to_string()),
+        ("x-temper-principal-kind".to_string(), "agent".to_string()),
+        ("x-temper-principal-id".to_string(), ctx.entity_id.clone()),
+        ("x-temper-agent-type".to_string(), "system".to_string()),
     ]
 }
 
@@ -120,8 +122,9 @@ fn odata_headers(tenant: &str) -> Vec<(String, String)> {
 /// For other actions: pass the full normalized payload as alert_payload.
 fn build_action_params(target_action: &str, normalized_payload: &str, _route_key: &str) -> Value {
     let payload: Value = serde_json::from_str(normalized_payload).unwrap_or(json!({}));
+    let action_name = target_action.rsplit('.').next().unwrap_or(target_action);
 
-    match target_action {
+    match action_name {
         "Open" => {
             // AlertCycle.Open expects monitor_id and alert_payload
             let monitor_id = payload

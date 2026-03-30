@@ -37,6 +37,19 @@ def derive_local_sandbox_url(base_url: str) -> str:
     return f"{scheme}://{host}:{port + 10}"
 
 
+def derive_webhook_trigger_url(base_url: str) -> str:
+    parsed = urllib.parse.urlparse(base_url)
+    scheme = parsed.scheme or "http"
+    host = parsed.hostname or "127.0.0.1"
+    if parsed.port is not None:
+        port = parsed.port
+    elif scheme == "https":
+        port = 443
+    else:
+        port = 80
+    return f"{scheme}://{host}:{port + 12}"
+
+
 def pick_free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind(("127.0.0.1", 0))
@@ -191,6 +204,44 @@ class ODataClient:
                 return payload
 
 
+def register_webhook_route(
+    client: ODataClient,
+    *,
+    route_key: str,
+    source_type: str,
+    target_entity_type: str,
+    target_action: str,
+    webhook_secret: str = "",
+    event_filter: str = "",
+    monitor_resolution_enabled: bool = False,
+    dedup_enabled: bool = False,
+    dedup_window_minutes: int = 60,
+) -> dict[str, Any]:
+    route = client.create(
+        "WebhookRoutes",
+        {"Id": f"webhook-route-{route_key}"},
+    )
+    route_id = entity_id(route)
+    require(route_id, f"failed to create WebhookRoute for {route_key}")
+    client.action(
+        "WebhookRoutes",
+        route_id,
+        "OpenPaw.Ingest.Register",
+        {
+            "route_key": route_key,
+            "source_type": source_type,
+            "event_filter": event_filter,
+            "target_entity_type": target_entity_type,
+            "target_action": target_action,
+            "webhook_secret": webhook_secret,
+            "monitor_resolution_enabled": "true" if monitor_resolution_enabled else "false",
+            "dedup_enabled": "true" if dedup_enabled else "false",
+            "dedup_window_minutes": str(dedup_window_minutes),
+        },
+    )
+    return route
+
+
 class ReplyCollector:
     def __init__(self) -> None:
         self._queue: "queue.Queue[dict[str, Any]]" = queue.Queue()
@@ -250,6 +301,8 @@ def webhook_post(
     base_url: str,
     body: dict[str, Any],
     *,
+    route_key: str,
+    source_type: str = "generic",
     secret: str | None = None,
     tamper_signature: bool = False,
 ) -> tuple[int, Any]:
@@ -262,10 +315,17 @@ def webhook_post(
         digest = hmac.new(secret.encode("utf-8"), raw, hashlib.sha256).hexdigest()
         if tamper_signature:
             digest = "0" * len(digest)
-        headers["X-Webhook-Signature"] = f"sha256={digest}"
+        header_name = {
+            "datadog": "X-Datadog-Signature",
+            "github": "X-Hub-Signature-256",
+        }.get(source_type, "X-Webhook-Signature")
+        headers[header_name] = f"sha256={digest}"
 
     req = urllib.request.Request(
-        f"{base_url.rstrip('/')}/webhooks/ingest",
+        (
+            f"{derive_webhook_trigger_url(base_url).rstrip('/')}"
+            f"/triggers/webhook/{urllib.parse.quote(route_key, safe='')}"
+        ),
         data=raw,
         method="POST",
         headers=headers,

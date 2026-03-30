@@ -1,5 +1,5 @@
 use temper_wasm_sdk::prelude::*;
-use wasm_helpers::resolve_temper_api_url;
+use wasm_helpers::{resolve_temper_api_url, runtime_headers};
 
 #[unsafe(no_mangle)]
 pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
@@ -13,12 +13,13 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             .unwrap_or(60)
             .clamp(1, 300);
         let base_url = resolve_temper_api_url(&ctx, &fields);
-        let headers = vec![
-            ("x-tenant-id".to_string(), ctx.tenant.clone()),
-            ("x-temper-principal-kind".to_string(), "admin".to_string()),
-            ("accept".to_string(), "application/json".to_string()),
-            ("content-type".to_string(), "application/json".to_string()),
-        ];
+        let headers = runtime_headers(
+            &ctx,
+            &ctx.tenant,
+            &fields,
+            Some("application/json"),
+            Some("application/json"),
+        );
 
         let wait_url = format!(
             "{base_url}/observe/entities/{}/{}/wait?statuses=__never__&timeout_ms={}&poll_ms=250",
@@ -45,4 +46,3 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
     }
     0
 }
-

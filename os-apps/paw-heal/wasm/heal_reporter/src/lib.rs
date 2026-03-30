@@ -32,7 +32,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 "info",
                 "heal_reporter: no report_channel_entity_id, skipping report",
             );
-            set_success_result("Noop", &json!({}));
+            set_success_result("", &json!({ "status": "skipped" }));
             return Ok(());
         }
 
@@ -91,7 +91,9 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         let api_headers = vec![
             ("content-type".to_string(), "application/json".to_string()),
             ("x-tenant-id".to_string(), tenant.to_string()),
-            ("x-temper-principal-kind".to_string(), "admin".to_string()),
+            ("x-temper-principal-kind".to_string(), "agent".to_string()),
+            ("x-temper-principal-id".to_string(), ctx.entity_id.clone()),
+            ("x-temper-agent-type".to_string(), "system".to_string()),
         ];
 
         // Try to fetch related WorkCycle and Issue for richer context
@@ -212,7 +214,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         }
 
         // Terminal state — no callback action needed
-        set_success_result("Noop", &json!({}));
+        set_success_result("", &json!({ "status": "reported" }));
 
         Ok(())
     })();

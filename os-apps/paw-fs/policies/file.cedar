@@ -6,7 +6,7 @@ permit(
     action in [Action::"StreamUpdated", Action::"Create", Action::"Lock", Action::"Unlock"],
     resource is File
 ) when {
-    resource.workspaceId == principal.workspaceId
+    resource.workspaceId == principal.workspaceid
 };
 
 // Locked files reject StreamUpdated (defense in depth — transition table also rejects)
@@ -24,5 +24,5 @@ permit(
     action == Action::"FileArchive",
     resource is File
 ) when {
-    principal in Group::"WorkspaceAdmins" && resource.workspaceId == principal.workspaceId
+    principal in Group::"WorkspaceAdmins" && resource.workspaceId == principal.workspaceid
 };

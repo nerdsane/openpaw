@@ -13,7 +13,7 @@ permit(
     action in [Action::"IncrementUsage", Action::"DecrementUsage", Action::"UpdateQuota"],
     resource is Workspace
 ) when {
-    resource.id == principal.workspaceId
+    resource.id == principal.workspaceid
 };
 
 // Only workspace admins can freeze, thaw, or archive
@@ -22,5 +22,5 @@ permit(
     action in [Action::"Freeze", Action::"Thaw", Action::"WorkspaceArchive"],
     resource is Workspace
 ) when {
-    principal in Group::"WorkspaceAdmins" && resource.id == principal.workspaceId
+    principal in Group::"WorkspaceAdmins" && resource.id == principal.workspaceid
 };

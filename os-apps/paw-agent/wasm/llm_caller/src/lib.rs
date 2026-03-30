@@ -18,6 +18,7 @@
 use session_tree_lib::{EntryType, SessionTree};
 use std::collections::BTreeSet;
 use temper_wasm_sdk::prelude::*;
+use wasm_helpers::{create_content_file, runtime_headers};
 
 /// Entry point — NOT using `temper_module!` because we need dynamic callback actions.
 #[unsafe(no_mangle)]
@@ -1424,17 +1425,27 @@ fn emit_progress_ignore(ctx: &Context, payload: Value) {
     let _ = (ctx, payload);
 }
 
+fn agent_headers(
+    ctx: &Context,
+    tenant: &str,
+    content_type: Option<&str>,
+    accept: Option<&str>,
+) -> Vec<(String, String)> {
+    let fields = ctx
+        .entity_state
+        .get("fields")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    runtime_headers(ctx, tenant, &fields, content_type, accept)
+}
+
 fn send_heartbeat(ctx: &Context, temper_api_url: &str, tenant: &str) -> Result<(), String> {
     let url = format!(
         "{temper_api_url}/tdata/Agents('{}')/OpenPaw.Heartbeat",
         ctx.entity_id
     );
     let body = json!({ "last_heartbeat_at": "alive" });
-    let headers = vec![
-        ("content-type".to_string(), "application/json".to_string()),
-        ("x-tenant-id".to_string(), tenant.to_string()),
-        ("x-temper-principal-kind".to_string(), "admin".to_string()),
-    ];
+    let headers = agent_headers(ctx, tenant, Some("application/json"), None);
     let _ = ctx.http_call("POST", &url, &headers, &body.to_string())?;
     Ok(())
 }
@@ -1463,11 +1474,7 @@ fn simulate_mock_hang(ctx: &Context) -> Result<(), String> {
         "{base_url}/observe/entities/{}/{}/wait?statuses=__never__&timeout_ms=10000&poll_ms=250",
         ctx.entity_type, ctx.entity_id
     );
-    let headers = vec![
-        ("x-tenant-id".to_string(), ctx.tenant.clone()),
-        ("x-temper-principal-kind".to_string(), "admin".to_string()),
-        ("accept".to_string(), "application/json".to_string()),
-    ];
+    let headers = agent_headers(ctx, &ctx.tenant, None, Some("application/json"));
     let _ = ctx.http_call("GET", &url, &headers, "")?;
     Ok(())
 }
@@ -2019,7 +2026,7 @@ fn build_tool_definitions(tools_enabled: &str, sandbox_url: &str, workdir: &str)
     if enabled.contains(&"save_memory") {
         tools.push(json!({
             "name": "save_memory",
-            "description": "Persist a memory entry scoped to the agent soul.",
+            "description": "Persist a memory entry scoped to this agent.",
             "input_schema": {
                 "type": "object",
                 "properties": {
@@ -2295,11 +2302,7 @@ fn read_conversation_from_temperfs(
     user_message: &str,
 ) -> Result<Vec<Value>, String> {
     let url = format!("{temper_api_url}/tdata/Files('{file_id}')/$value");
-    let headers = vec![
-        ("x-tenant-id".to_string(), tenant.to_string()),
-        ("x-temper-principal-kind".to_string(), "admin".to_string()),
-        ("accept".to_string(), "application/json".to_string()),
-    ];
+    let headers = agent_headers(ctx, tenant, None, Some("application/json"));
 
     match ctx.http_call("GET", &url, &headers, "") {
         Ok(resp) if resp.status == 200 => {
@@ -2353,11 +2356,7 @@ fn write_conversation_to_temperfs(
     conversation_json: &str,
 ) -> Result<(), String> {
     let url = format!("{temper_api_url}/tdata/Files('{file_id}')/$value");
-    let headers = vec![
-        ("content-type".to_string(), "application/json".to_string()),
-        ("x-tenant-id".to_string(), tenant.to_string()),
-        ("x-temper-principal-kind".to_string(), "admin".to_string()),
-    ];
+    let headers = agent_headers(ctx, tenant, Some("application/json"), None);
 
     // Wrap messages array in the TemperFS conversation format
     let body = format!("{{\"messages\":{conversation_json}}}");
@@ -2389,10 +2388,7 @@ fn read_session_from_temperfs(
     file_id: &str,
 ) -> Result<String, String> {
     let url = format!("{temper_api_url}/tdata/Files('{file_id}')/$value");
-    let headers = vec![
-        ("x-tenant-id".to_string(), tenant.to_string()),
-        ("x-temper-principal-kind".to_string(), "admin".to_string()),
-    ];
+    let headers = agent_headers(ctx, tenant, None, None);
     let resp = ctx.http_call("GET", &url, &headers, "")?;
     if resp.status == 200 {
         Ok(resp.body)
@@ -2415,11 +2411,7 @@ fn write_session_to_temperfs(
     jsonl: &str,
 ) -> Result<(), String> {
     let url = format!("{temper_api_url}/tdata/Files('{file_id}')/$value");
-    let headers = vec![
-        ("content-type".to_string(), "text/plain".to_string()),
-        ("x-tenant-id".to_string(), tenant.to_string()),
-        ("x-temper-principal-kind".to_string(), "admin".to_string()),
-    ];
+    let headers = agent_headers(ctx, tenant, Some("text/plain"), None);
     let resp = ctx.http_call("PUT", &url, &headers, jsonl)?;
     if resp.status >= 200 && resp.status < 300 {
         Ok(())
@@ -2470,9 +2462,10 @@ fn assemble_system_prompt(
         }
     }
 
-    // 4. Memory context
-    if !soul_id.is_empty() {
-        match load_memory_block(ctx, temper_api_url, tenant, soul_id) {
+    // 4. Memory context — scoped to agent, not soul (ADR-0007)
+    {
+        let entity_id = ctx.entity_state.get("entity_id").and_then(|v| v.as_str()).unwrap_or("");
+        match load_memory_block(ctx, temper_api_url, tenant, entity_id) {
             Ok(block) if !block.is_empty() => parts.push(block),
             Ok(_) => {}
             Err(e) => ctx.log(
@@ -2503,11 +2496,7 @@ fn load_soul_content(
         return Ok(String::new());
     }
     // Read from TemperFS
-    let headers = vec![
-        ("x-tenant-id".to_string(), tenant.to_string()),
-        ("x-temper-principal-kind".to_string(), "admin".to_string()),
-        ("accept".to_string(), "application/json".to_string()),
-    ];
+    let headers = agent_headers(ctx, tenant, None, Some("application/json"));
     let file_url = format!("{temper_api_url}/tdata/Files('{content_file_id}')/$value");
     let resp = ctx.http_call("GET", &file_url, &headers, "")?;
     if resp.status == 200 {
@@ -2523,11 +2512,7 @@ fn resolve_soul_entity(
     tenant: &str,
     soul_ref: &str,
 ) -> Result<Value, String> {
-    let headers = vec![
-        ("x-tenant-id".to_string(), tenant.to_string()),
-        ("x-temper-principal-kind".to_string(), "admin".to_string()),
-        ("accept".to_string(), "application/json".to_string()),
-    ];
+    let headers = agent_headers(ctx, tenant, None, Some("application/json"));
     let url = format!("{temper_api_url}/tdata/Souls('{soul_ref}')");
     let resp = ctx.http_call("GET", &url, &headers, "")?;
     if resp.status == 200 {
@@ -2558,11 +2543,7 @@ fn load_skills_block(
     tenant: &str,
     soul_id: &str,
 ) -> Result<String, String> {
-    let headers = vec![
-        ("x-tenant-id".to_string(), tenant.to_string()),
-        ("x-temper-principal-kind".to_string(), "admin".to_string()),
-        ("accept".to_string(), "application/json".to_string()),
-    ];
+    let headers = agent_headers(ctx, tenant, None, Some("application/json"));
 
     // Resolve the soul name for scope matching
     let soul_name = if !soul_id.is_empty() {
@@ -2649,17 +2630,13 @@ fn load_memory_block(
     ctx: &Context,
     temper_api_url: &str,
     tenant: &str,
-    soul_id: &str,
+    entity_id: &str,
 ) -> Result<String, String> {
     let url = format!(
-        "{temper_api_url}/tdata/Memories?$filter=SoulId eq '{}' and Status eq 'Active'",
-        soul_id
+        "{temper_api_url}/tdata/Memories?$filter=AgentId eq '{}' and Status eq 'Active'",
+        entity_id
     );
-    let headers = vec![
-        ("x-tenant-id".to_string(), tenant.to_string()),
-        ("x-temper-principal-kind".to_string(), "admin".to_string()),
-        ("accept".to_string(), "application/json".to_string()),
-    ];
+    let headers = agent_headers(ctx, tenant, None, Some("application/json"));
     let resp = ctx.http_call("GET", &url, &headers, "")?;
     if resp.status != 200 {
         return Ok(String::new());
@@ -2761,10 +2738,7 @@ fn read_content_file_raw(
     file_id: &str,
 ) -> Result<String, String> {
     let url = format!("{temper_api_url}/tdata/Files('{file_id}')/$value");
-    let headers = vec![
-        ("x-tenant-id".to_string(), tenant.to_string()),
-        ("x-temper-principal-kind".to_string(), "admin".to_string()),
-    ];
+    let headers = agent_headers(ctx, tenant, None, None);
     let resp = ctx.http_call("GET", &url, &headers, "")?;
     if resp.status == 200 {
         Ok(resp.body)
@@ -2783,58 +2757,8 @@ fn create_content_file_for_entry(
     entry_id: &str,
     content: &str,
 ) -> Result<String, String> {
-    let headers = vec![
-        ("content-type".to_string(), "application/json".to_string()),
-        ("x-tenant-id".to_string(), tenant.to_string()),
-        ("x-temper-principal-kind".to_string(), "admin".to_string()),
-    ];
-
     let file_name = format!("msg-{entry_id}.txt");
-    let file_body = json!({
-        "workspace_id": workspace_id,
-        "name": &file_name,
-        "mime_type": "text/plain",
-        "path": format!("/{file_name}")
-    });
-    let file_url = format!("{temper_api_url}/tdata/Files");
-    let file_resp = ctx.http_call("POST", &file_url, &headers, &file_body.to_string())?;
-
-    if file_resp.status < 200 || file_resp.status >= 300 {
-        return Err(format!(
-            "Content file creation failed (HTTP {}): {}",
-            file_resp.status,
-            &file_resp.body[..file_resp.body.len().min(300)]
-        ));
-    }
-
-    let file_parsed: Value = serde_json::from_str(&file_resp.body)
-        .map_err(|e| format!("parse content file response: {e}"))?;
-    let file_id = file_parsed
-        .get("entity_id")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
-
-    if file_id.is_empty() {
-        return Err("Content file created but entity_id missing".to_string());
-    }
-
-    let value_url = format!("{temper_api_url}/tdata/Files('{file_id}')/$value");
-    let value_headers = vec![
-        ("content-type".to_string(), "text/plain".to_string()),
-        ("x-tenant-id".to_string(), tenant.to_string()),
-        ("x-temper-principal-kind".to_string(), "admin".to_string()),
-    ];
-    let value_resp = ctx.http_call("PUT", &value_url, &value_headers, content)?;
-
-    if value_resp.status < 200 || value_resp.status >= 300 {
-        return Err(format!(
-            "Content file $value write failed (HTTP {})",
-            value_resp.status
-        ));
-    }
-
-    Ok(file_id)
+    create_content_file(ctx, temper_api_url, tenant, workspace_id, &file_name, content)
 }
 
 fn resolve_temper_api_url(ctx: &Context, fields: &Value) -> String {

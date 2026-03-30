@@ -44,7 +44,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         let temper_api_url = resolve_api_url(&ctx);
 
         let tenant = &ctx.tenant;
-        let headers = odata_headers(tenant);
+        let headers = odata_headers(&ctx, tenant);
 
         // Query WebhookRoutes by route_key and Active status
         let filter = format!(
@@ -136,11 +136,13 @@ fn resolve_api_url(ctx: &Context) -> String {
 }
 
 /// Build standard OData request headers.
-fn odata_headers(tenant: &str) -> Vec<(String, String)> {
+fn odata_headers(ctx: &Context, tenant: &str) -> Vec<(String, String)> {
     vec![
         ("content-type".to_string(), "application/json".to_string()),
         ("x-tenant-id".to_string(), tenant.to_string()),
-        ("x-temper-principal-kind".to_string(), "admin".to_string()),
+        ("x-temper-principal-kind".to_string(), "agent".to_string()),
+        ("x-temper-principal-id".to_string(), ctx.entity_id.clone()),
+        ("x-temper-agent-type".to_string(), "system".to_string()),
     ]
 }
 

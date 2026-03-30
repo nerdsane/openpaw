@@ -51,7 +51,8 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             .unwrap_or("");
 
         // 1. Read session tree from TemperFS
-        let session_jsonl = read_session_from_temperfs(&ctx, &temper_api_url, tenant, session_file_id)?;
+        let session_jsonl =
+            read_session_from_temperfs(&ctx, &temper_api_url, tenant, &fields, session_file_id)?;
         let mut tree = SessionTree::from_jsonl(&session_jsonl);
 
         ctx.log("info", &format!(
@@ -135,7 +136,14 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
 
         // 6. Write updated session tree back to TemperFS
         let updated_jsonl = tree.to_jsonl();
-        write_session_to_temperfs(&ctx, &temper_api_url, tenant, session_file_id, &updated_jsonl)?;
+        write_session_to_temperfs(
+            &ctx,
+            &temper_api_url,
+            tenant,
+            &fields,
+            session_file_id,
+            &updated_jsonl,
+        )?;
 
         // 7. Return CompactionComplete with new leaf pointing after compaction
         let new_token_estimate = tree.estimate_tokens(&compaction_id);
@@ -165,7 +173,7 @@ fn resolve_context_refs_for_compaction(
         match ctx_ref.entry_type {
             session_tree_lib::EntryType::Compaction => {
                 let summary = if let Some(ref file_id) = ctx_ref.content_file_id {
-                    read_content_file(ctx, temper_api_url, tenant, file_id)
+                    read_content_file(ctx, temper_api_url, tenant, &json!({}), file_id)
                         .unwrap_or_else(|_| ctx_ref.inline_summary.clone().unwrap_or_default())
                 } else {
                     ctx_ref.inline_summary.clone().unwrap_or_default()
@@ -179,7 +187,9 @@ fn resolve_context_refs_for_compaction(
             }
             session_tree_lib::EntryType::Message | session_tree_lib::EntryType::Steering => {
                 if let Some(ref file_id) = ctx_ref.content_file_id {
-                    if let Ok(raw) = read_content_file(ctx, temper_api_url, tenant, file_id) {
+                    if let Ok(raw) =
+                        read_content_file(ctx, temper_api_url, tenant, &json!({}), file_id)
+                    {
                         if !raw.is_empty() {
                             let content: Value = serde_json::from_str(&raw).unwrap_or(json!(raw));
                             messages.push(json!({

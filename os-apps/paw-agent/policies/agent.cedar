@@ -4,7 +4,7 @@
 // Callback actions are permitted for system agents to enable the dispatch pipeline loop.
 // Steering is permitted for supervisors, humans, and parent agents.
 
-// --- Creation and Configuration: admins, supervisors and humans ---
+// --- Creation and Configuration: admins, supervisors, humans, and runtime agents ---
 
 permit(
   principal is Admin,
@@ -14,10 +14,20 @@ permit(
 
 permit(
   principal,
-  action in [Action::"create", Action::"Configure", Action::"Provision", Action::"Resume"],
+  action in [Action::"create"],
   resource is Agent
 ) when {
-  ["supervisor", "human"].contains(principal.agent_type)
+  ["supervisor", "human", "system", "agent"].contains(principal.agent_type)
+};
+
+permit(
+  principal,
+  action in [Action::"Configure", Action::"Provision", Action::"Resume"],
+  resource is Agent
+) when {
+  ["supervisor", "human", "system"].contains(principal.agent_type) ||
+  principal == resource ||
+  context.parent_agent_id == principal.id
 };
 
 // --- Read and List: any authenticated agent ---
@@ -35,7 +45,9 @@ permit(
   action in [Action::"Steer"],
   resource is Agent
 ) when {
-  ["supervisor", "human", "system"].contains(principal.agent_type)
+  ["supervisor", "human", "system"].contains(principal.agent_type) ||
+  principal == resource ||
+  context.parent_agent_id == principal.id
 };
 
 // --- Dispatch pipeline callbacks: system agents ---
@@ -58,7 +70,8 @@ permit(
   ],
   resource is Agent
 ) when {
-  principal.agent_type == "system"
+  principal.agent_type == "system" ||
+  principal == resource
 };
 
 // --- WASM module HTTP call authorization ---
@@ -68,7 +81,7 @@ permit(
   action == Action::"http_call",
   resource is HttpEndpoint
 ) when {
-  ["sandbox_provisioner", "llm_caller", "tool_runner", "workspace_restorer", "context_compactor", "steering_checker", "heartbeat_scan", "heartbeat_scheduler", "cron_trigger", "cron_scheduler_check", "cron_scheduler_heartbeat"].contains(context.module)
+  ["agent_reply", "sandbox_provisioner", "llm_caller", "tool_runner", "workspace_restorer", "context_compactor", "steering_checker", "heartbeat_scan", "heartbeat_scheduler", "cron_trigger", "cron_scheduler_check", "cron_scheduler_heartbeat"].contains(context.module)
 };
 
 // Allow agent WASM modules to access secrets
@@ -88,6 +101,6 @@ permit(
   resource is Agent
 ) when {
   principal.agent_type == "system" ||
-  principal.id == resource.ParentAgentId ||
-  principal.id == resource.Id
+  context.parent_agent_id == principal.id ||
+  principal == resource
 };

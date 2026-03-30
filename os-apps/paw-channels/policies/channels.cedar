@@ -47,6 +47,15 @@ permit(
 
 permit(
   principal,
+  action == Action::"SendReply",
+  resource is Channel
+) when {
+  principal is Agent &&
+  principal.agent_type == "agent"
+};
+
+permit(
+  principal,
   action in [Action::"create", Action::"Create", Action::"Resume", Action::"Expire"],
   resource is ChannelSession
 ) when {

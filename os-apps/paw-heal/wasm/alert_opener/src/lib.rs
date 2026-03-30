@@ -66,7 +66,9 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         let headers = vec![
             ("content-type".to_string(), "application/json".to_string()),
             ("x-tenant-id".to_string(), tenant.to_string()),
-            ("x-temper-principal-kind".to_string(), "admin".to_string()),
+            ("x-temper-principal-kind".to_string(), "agent".to_string()),
+            ("x-temper-principal-id".to_string(), ctx.entity_id.clone()),
+            ("x-temper-agent-type".to_string(), "system".to_string()),
         ];
 
         // 3. Query Monitor entity
@@ -304,7 +306,7 @@ ISSUE_ID=<id or empty>"
         }
 
         // 10. Success — SRE agent will self-report via the AlertCycle state machine
-        set_success_result("Noop", &json!({}));
+        set_success_result("", &json!({ "sre_agent_id": agent_id }));
 
         ctx.log("info", &format!("alert_opener: done, SRE agent={agent_id}"));
         Ok(())

@@ -69,7 +69,13 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
 
             // If session tree mode, inject into session tree
             if !session_file_id.is_empty() && !session_leaf_id.is_empty() {
-                let session_jsonl = read_session_from_temperfs(&ctx, &temper_api_url, tenant, session_file_id)?;
+                let session_jsonl = read_session_from_temperfs(
+                    &ctx,
+                    &temper_api_url,
+                    tenant,
+                    &fields,
+                    session_file_id,
+                )?;
                 let mut tree = SessionTree::from_jsonl(&session_jsonl);
                 let workspace_id = fields
                     .get("workspace_id")
@@ -118,7 +124,14 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
 
                 // Write back
                 let updated_jsonl = tree.to_jsonl();
-                write_session_to_temperfs(&ctx, &temper_api_url, tenant, session_file_id, &updated_jsonl)?;
+                write_session_to_temperfs(
+                    &ctx,
+                    &temper_api_url,
+                    tenant,
+                    &fields,
+                    session_file_id,
+                    &updated_jsonl,
+                )?;
 
                 // Update steering_messages in entity state (remove dequeued message)
                 let updated_queue =
@@ -185,7 +198,8 @@ fn extract_last_result(
     session_leaf_id: &str,
 ) -> Result<String, String> {
     if !session_file_id.is_empty() && !session_leaf_id.is_empty() {
-        let session_jsonl = read_session_from_temperfs(ctx, temper_api_url, tenant, session_file_id)?;
+        let session_jsonl =
+            read_session_from_temperfs(ctx, temper_api_url, tenant, fields, session_file_id)?;
         let tree = SessionTree::from_jsonl(&session_jsonl);
         let refs = tree.build_context_refs(session_leaf_id);
 
@@ -194,7 +208,7 @@ fn extract_last_result(
                 continue;
             }
             if let Some(ref file_id) = msg_ref.content_file_id {
-                if let Ok(raw) = read_content_file(ctx, temper_api_url, tenant, file_id) {
+                if let Ok(raw) = read_content_file(ctx, temper_api_url, tenant, fields, file_id) {
                     if !raw.is_empty() {
                         let content: Value = serde_json::from_str(&raw).unwrap_or(json!(raw));
                         return Ok(extract_text_from_content(Some(&content)));

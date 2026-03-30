@@ -45,15 +45,15 @@ pub(crate) fn execute(
                 .get("memory_type")
                 .and_then(|v| v.as_str())
                 .unwrap_or("reference");
-            let soul_id = fields.get("soul_id").and_then(|v| v.as_str()).unwrap_or("");
             let agent_id = ctx
                 .entity_state
                 .get("entity_id")
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
+            let soul_id = fields.get("soul_id").and_then(|v| v.as_str()).unwrap_or("");
             let body = json!({
                 "Key": key, "Content": content, "MemoryType": memory_type,
-                "SoulId": soul_id, "AuthorAgentId": agent_id,
+                "AgentId": agent_id, "SoulId": soul_id,
             });
             let url = format!("{temper_api_url}/tdata/Memories");
             let resp = ctx.http_call(
@@ -88,7 +88,11 @@ pub(crate) fn execute(
                 .get("query")
                 .and_then(|v| v.as_str())
                 .ok_or("recall_memory: missing 'query'")?;
-            let soul_id = fields.get("soul_id").and_then(|v| v.as_str()).unwrap_or("");
+            let entity_id = ctx
+                .entity_state
+                .get("entity_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             let url = format!("{temper_api_url}/tdata/Memories");
             let resp = ctx.http_call("GET", &url, &crate::odata_headers(ctx, tenant), "")?;
             if resp.status == 200 {
@@ -101,7 +105,7 @@ pub(crate) fn execute(
                     .into_iter()
                     .filter(|mem| {
                         crate::entity_field_str(mem, &["Status"]) == Some("Active")
-                            && crate::entity_field_str(mem, &["SoulId"]).unwrap_or("") == soul_id
+                            && crate::entity_field_str(mem, &["AgentId"]).unwrap_or("") == entity_id
                             && (crate::entity_field_str(mem, &["Key"])
                                 .unwrap_or("")
                                 .contains(query)

@@ -27,13 +27,11 @@ pub fn read_session_from_temperfs(
     ctx: &Context,
     temper_api_url: &str,
     tenant: &str,
+    fields: &Value,
     file_id: &str,
 ) -> Result<String, String> {
     let url = format!("{temper_api_url}/tdata/Files('{file_id}')/$value");
-    let headers = vec![
-        ("x-tenant-id".to_string(), tenant.to_string()),
-        ("x-temper-principal-kind".to_string(), "admin".to_string()),
-    ];
+    let headers = runtime_headers(ctx, tenant, fields, None, None);
 
     let resp = ctx.http_call("GET", &url, &headers, "")?;
     if resp.status == 200 {
@@ -50,15 +48,12 @@ pub fn write_session_to_temperfs(
     ctx: &Context,
     temper_api_url: &str,
     tenant: &str,
+    fields: &Value,
     file_id: &str,
     jsonl: &str,
 ) -> Result<(), String> {
     let url = format!("{temper_api_url}/tdata/Files('{file_id}')/$value");
-    let headers = vec![
-        ("content-type".to_string(), "text/plain".to_string()),
-        ("x-tenant-id".to_string(), tenant.to_string()),
-        ("x-temper-principal-kind".to_string(), "admin".to_string()),
-    ];
+    let headers = runtime_headers(ctx, tenant, fields, Some("text/plain"), None);
 
     let resp = ctx.http_call("PUT", &url, &headers, jsonl)?;
     if resp.status >= 200 && resp.status < 300 {
@@ -73,13 +68,11 @@ pub fn read_content_file(
     ctx: &Context,
     temper_api_url: &str,
     tenant: &str,
+    fields: &Value,
     file_id: &str,
 ) -> Result<String, String> {
     let url = format!("{temper_api_url}/tdata/Files('{file_id}')/$value");
-    let headers = vec![
-        ("x-tenant-id".to_string(), tenant.to_string()),
-        ("x-temper-principal-kind".to_string(), "admin".to_string()),
-    ];
+    let headers = runtime_headers(ctx, tenant, fields, None, None);
 
     let resp = ctx.http_call("GET", &url, &headers, "")?;
     if resp.status == 200 {
@@ -103,11 +96,15 @@ pub fn create_content_file(
     file_name: &str,
     content: &str,
 ) -> Result<String, String> {
-    let headers = vec![
-        ("content-type".to_string(), "application/json".to_string()),
-        ("x-tenant-id".to_string(), tenant.to_string()),
-        ("x-temper-principal-kind".to_string(), "admin".to_string()),
-    ];
+    let headers = runtime_headers_with_workspace(
+        ctx,
+        tenant,
+        &serde_json::json!({}),
+        Some(workspace_id),
+        None,
+        Some("application/json"),
+        None,
+    );
 
     let file_body = serde_json::json!({
         "workspace_id": workspace_id,
@@ -139,11 +136,15 @@ pub fn create_content_file(
     }
 
     let value_url = format!("{temper_api_url}/tdata/Files('{file_id}')/$value");
-    let value_headers = vec![
-        ("content-type".to_string(), "text/plain".to_string()),
-        ("x-tenant-id".to_string(), tenant.to_string()),
-        ("x-temper-principal-kind".to_string(), "admin".to_string()),
-    ];
+    let value_headers = runtime_headers_with_workspace(
+        ctx,
+        tenant,
+        &serde_json::json!({}),
+        Some(workspace_id),
+        None,
+        Some("text/plain"),
+        None,
+    );
     let value_resp = ctx.http_call("PUT", &value_url, &value_headers, content)?;
 
     if value_resp.status < 200 || value_resp.status >= 300 {
@@ -157,13 +158,129 @@ pub fn create_content_file(
 }
 
 /// Build standard OData headers for tenant-scoped requests.
-pub fn odata_headers(tenant: &str) -> Vec<(String, String)> {
-    vec![
-        ("x-tenant-id".to_string(), tenant.to_string()),
-        ("x-temper-principal-kind".to_string(), "admin".to_string()),
-        ("content-type".to_string(), "application/json".to_string()),
-        ("accept".to_string(), "application/json".to_string()),
-    ]
+pub fn odata_headers(ctx: &Context, tenant: &str, fields: &Value) -> Vec<(String, String)> {
+    runtime_headers(
+        ctx,
+        tenant,
+        fields,
+        Some("application/json"),
+        Some("application/json"),
+    )
+}
+
+/// Build tenant-scoped runtime headers with an entity-derived principal.
+pub fn runtime_headers(
+    ctx: &Context,
+    tenant: &str,
+    fields: &Value,
+    content_type: Option<&str>,
+    accept: Option<&str>,
+) -> Vec<(String, String)> {
+    runtime_headers_with_workspace(
+        ctx,
+        tenant,
+        fields,
+        None,
+        None,
+        content_type,
+        accept,
+    )
+}
+
+/// Build runtime headers while overriding the logical agent type.
+pub fn runtime_headers_as(
+    ctx: &Context,
+    tenant: &str,
+    fields: &Value,
+    agent_type: &str,
+    content_type: Option<&str>,
+    accept: Option<&str>,
+) -> Vec<(String, String)> {
+    runtime_headers_with_workspace(
+        ctx,
+        tenant,
+        fields,
+        None,
+        Some(agent_type),
+        content_type,
+        accept,
+    )
+}
+
+/// Build runtime headers while explicitly supplying the workspace context.
+pub fn runtime_headers_for_workspace(
+    ctx: &Context,
+    tenant: &str,
+    fields: &Value,
+    workspace_id: &str,
+    content_type: Option<&str>,
+    accept: Option<&str>,
+) -> Vec<(String, String)> {
+    runtime_headers_with_workspace(
+        ctx,
+        tenant,
+        fields,
+        Some(workspace_id),
+        None,
+        content_type,
+        accept,
+    )
+}
+
+fn runtime_headers_with_workspace(
+    ctx: &Context,
+    tenant: &str,
+    fields: &Value,
+    workspace_id_override: Option<&str>,
+    agent_type_override: Option<&str>,
+    content_type: Option<&str>,
+    accept: Option<&str>,
+) -> Vec<(String, String)> {
+    let mut headers = Vec::new();
+    headers.push(("x-tenant-id".to_string(), tenant.to_string()));
+    headers.push(("x-temper-principal-kind".to_string(), "agent".to_string()));
+    headers.push(("x-temper-principal-id".to_string(), ctx.entity_id.clone()));
+    headers.push((
+        "x-temper-agent-type".to_string(),
+        agent_type_override
+            .unwrap_or_else(|| default_agent_type(ctx))
+            .to_string(),
+    ));
+
+    if let Some(content_type) = content_type {
+        headers.push(("content-type".to_string(), content_type.to_string()));
+    }
+    if let Some(accept) = accept {
+        headers.push(("accept".to_string(), accept.to_string()));
+    }
+
+    if let Some(soul_id) = entity_field_str(fields, &["soul_id", "SoulId"]).filter(|v| !v.is_empty())
+    {
+        headers.push(("x-temper-attr-soul_id".to_string(), soul_id.to_string()));
+    }
+
+    let workspace_id = workspace_id_override
+        .filter(|value| !value.is_empty())
+        .or_else(|| {
+            entity_field_str(fields, &["workspace_id", "WorkspaceId"]).filter(|value| !value.is_empty())
+        });
+    if let Some(workspace_id) = workspace_id {
+        headers.push((
+            "x-temper-attr-workspaceid".to_string(),
+            workspace_id.to_string(),
+        ));
+    }
+
+    headers
+}
+
+fn default_agent_type(ctx: &Context) -> &'static str {
+    if ctx.entity_type.eq_ignore_ascii_case("Agent") || ctx.entity_type.eq_ignore_ascii_case("Agents")
+    {
+        "agent"
+    } else {
+        "system"
+    }
 }
 
 /// Look up a string field directly on a JSON value, trying multiple key names.

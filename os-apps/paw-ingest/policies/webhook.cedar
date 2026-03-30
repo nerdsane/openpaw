@@ -47,6 +47,14 @@ permit(
 );
 
 permit(
+  principal is Agent,
+  action == Action::"http_call",
+  resource is HttpEndpoint
+) when {
+  ["validate_webhook", "route_webhook", "process_webhook"].contains(context.module)
+};
+
+permit(
   principal,
   action in [
     Action::"create",

@@ -78,7 +78,9 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         let api_headers = vec![
             ("content-type".to_string(), "application/json".to_string()),
             ("x-tenant-id".to_string(), tenant.to_string()),
-            ("x-temper-principal-kind".to_string(), "admin".to_string()),
+            ("x-temper-principal-kind".to_string(), "agent".to_string()),
+            ("x-temper-principal-id".to_string(), ctx.entity_id.clone()),
+            ("x-temper-agent-type".to_string(), "system".to_string()),
         ];
 
         let monitor_url = format!("{temper_api_url}/tdata/Monitors('{monitor_id}')");

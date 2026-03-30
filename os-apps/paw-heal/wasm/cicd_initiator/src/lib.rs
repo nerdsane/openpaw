@@ -23,9 +23,9 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             .unwrap_or("");
 
         if pr_url.is_empty() {
-            // No PR — nothing to merge. Return no-op callback.
+            // No PR — nothing to merge. Succeed without dispatching a follow-up action.
             ctx.log("info", "cicd_initiator: no pr_url, skipping CI/CD");
-            set_success_result("Noop", &json!({}));
+            set_success_result("", &json!({ "status": "skipped" }));
             return Ok(());
         }
 

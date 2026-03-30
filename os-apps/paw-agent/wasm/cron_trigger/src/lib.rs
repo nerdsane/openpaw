@@ -4,7 +4,7 @@
 //! including template variable substitution.
 
 use temper_wasm_sdk::prelude::*;
-use wasm_helpers::resolve_temper_api_url;
+use wasm_helpers::{resolve_temper_api_url, runtime_headers};
 
 #[unsafe(no_mangle)]
 pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
@@ -36,11 +36,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
 
         ctx.log("info", &format!("cron_trigger: creating agent for run #{}", run_count));
 
-        let headers = vec![
-            ("content-type".to_string(), "application/json".to_string()),
-            ("x-tenant-id".to_string(), tenant.to_string()),
-            ("x-temper-principal-kind".to_string(), "admin".to_string()),
-        ];
+        let headers = runtime_headers(&ctx, tenant, &fields, Some("application/json"), None);
 
         // 1. Create Agent entity
         let create_url = format!("{temper_api_url}/tdata/Agents");

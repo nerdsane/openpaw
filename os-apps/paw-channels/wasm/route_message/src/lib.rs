@@ -1,6 +1,6 @@
 use session_tree_lib::SessionTree;
 use temper_wasm_sdk::prelude::*;
-use wasm_helpers::create_content_file;
+use wasm_helpers::{create_content_file, runtime_headers, runtime_headers_for_workspace};
 
 #[unsafe(no_mangle)]
 pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
@@ -171,12 +171,15 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             agent_id
         };
 
-        let result_text = wait_for_agent(&ctx, &temper_api_url, &ctx.tenant, &agent_id)?;
+        ctx.log(
+            "info",
+            &format!("route_message: routed thread {thread_id} to agent {agent_id}"),
+        );
         set_success_result(
-            "SendReply",
+            "",
             &json!({
+                "status": "routed",
                 "thread_id": thread_id,
-                "content": result_text,
                 "agent_entity_id": agent_id,
             }),
         );
@@ -204,17 +207,37 @@ fn resolve_temper_api_url(ctx: &Context, fields: &Value) -> String {
         .unwrap_or_else(|| "http://127.0.0.1:3467".to_string())
 }
 
-fn odata_headers(tenant: &str) -> Vec<(String, String)> {
-    vec![
-        ("x-tenant-id".to_string(), tenant.to_string()),
-        ("x-temper-principal-kind".to_string(), "admin".to_string()),
-        ("content-type".to_string(), "application/json".to_string()),
-        ("accept".to_string(), "application/json".to_string()),
-    ]
+fn odata_headers(ctx: &Context, tenant: &str) -> Vec<(String, String)> {
+    let fields = ctx
+        .entity_state
+        .get("fields")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    runtime_headers(
+        ctx,
+        tenant,
+        &fields,
+        Some("application/json"),
+        Some("application/json"),
+    )
+}
+
+fn file_headers(
+    ctx: &Context,
+    tenant: &str,
+    workspace_id: &str,
+    content_type: Option<&str>,
+    accept: Option<&str>,
+) -> Vec<(String, String)> {
+    if workspace_id.is_empty() {
+        runtime_headers(ctx, tenant, &json!({}), content_type, accept)
+    } else {
+        runtime_headers_for_workspace(ctx, tenant, &json!({}), workspace_id, content_type, accept)
+    }
 }
 
 fn list_entities(ctx: &Context, url: &str, tenant: &str) -> Result<Vec<Value>, String> {
-    let resp = ctx.http_call("GET", url, &odata_headers(tenant), "")?;
+    let resp = ctx.http_call("GET", url, &odata_headers(ctx, tenant), "")?;
     if resp.status != 200 {
         return Err(format!("GET {url} failed (HTTP {})", resp.status));
     }
@@ -256,7 +279,7 @@ fn resume_session(
     let _ = ctx.http_call(
         "POST",
         &url,
-        &odata_headers(tenant),
+        &odata_headers(ctx, tenant),
         r#"{"last_message_at":"resumed"}"#,
     )?;
     Ok(())
@@ -269,7 +292,7 @@ fn expire_session(
     session_id: &str,
 ) -> Result<(), String> {
     let url = format!("{temper_api_url}/tdata/ChannelSessions('{session_id}')/Paw.Channel.Expire");
-    let _ = ctx.http_call("POST", &url, &odata_headers(tenant), "{}")?;
+    let _ = ctx.http_call("POST", &url, &odata_headers(ctx, tenant), "{}")?;
     Ok(())
 }
 
@@ -334,7 +357,7 @@ fn create_agent_from_route(
     let create_resp = ctx.http_call(
         "POST",
         &format!("{temper_api_url}/tdata/Agents"),
-        &odata_headers(tenant),
+        &odata_headers(ctx, tenant),
         &create_body,
     )?;
     if !(200..300).contains(&create_resp.status) {
@@ -379,7 +402,7 @@ fn create_agent_from_route(
     let configure_resp = ctx.http_call(
         "POST",
         &configure_url,
-        &odata_headers(tenant),
+        &odata_headers(ctx, tenant),
         &configure_body.to_string(),
     )?;
     if !(200..300).contains(&configure_resp.status) {
@@ -390,7 +413,7 @@ fn create_agent_from_route(
     }
 
     let provision_url = format!("{temper_api_url}/tdata/Agents('{agent_id}')/OpenPaw.Provision");
-    let provision_resp = ctx.http_call("POST", &provision_url, &odata_headers(tenant), "{}")?;
+    let provision_resp = ctx.http_call("POST", &provision_url, &odata_headers(ctx, tenant), "{}")?;
     if !(200..300).contains(&provision_resp.status) {
         return Err(format!(
             "provision Agent failed (HTTP {})",
@@ -445,6 +468,7 @@ fn continue_session(
             ctx,
             temper_api_url,
             tenant,
+            &workspace_id,
             conversation_file_id,
             user_message,
         )?;
@@ -502,7 +526,7 @@ fn create_blank_agent(ctx: &Context, temper_api_url: &str, tenant: &str) -> Resu
     let create_resp = ctx.http_call(
         "POST",
         &format!("{temper_api_url}/tdata/Agents"),
-        &odata_headers(tenant),
+        &odata_headers(ctx, tenant),
         &create_body,
     )?;
     if !(200..300).contains(&create_resp.status) {
@@ -573,7 +597,7 @@ fn configure_agent_from_prior(
     let configure_resp = ctx.http_call(
         "POST",
         &configure_url,
-        &odata_headers(tenant),
+        &odata_headers(ctx, tenant),
         &configure_body.to_string(),
     )?;
     if !(200..300).contains(&configure_resp.status) {
@@ -606,7 +630,7 @@ fn resume_agent_from_prior(
     let resume_resp = ctx.http_call(
         "POST",
         &resume_url,
-        &odata_headers(tenant),
+        &odata_headers(ctx, tenant),
         &resume_body.to_string(),
     )?;
     if !(200..300).contains(&resume_resp.status) {
@@ -634,7 +658,7 @@ fn update_session_agent_binding(
         "agent_entity_id": agent_id,
         "last_message_at": "continued",
     });
-    let resp = ctx.http_call("POST", &url, &odata_headers(tenant), &body.to_string())?;
+    let resp = ctx.http_call("POST", &url, &odata_headers(ctx, tenant), &body.to_string())?;
     if !(200..300).contains(&resp.status) {
         return Err(format!(
             "ChannelSession.Create continuation update failed (HTTP {})",
@@ -653,7 +677,7 @@ fn append_user_message_to_session(
     session_leaf_id: &str,
     user_message: &str,
 ) -> Result<String, String> {
-    let session_jsonl = read_file_value(ctx, temper_api_url, tenant, session_file_id)?;
+    let session_jsonl = read_file_value(ctx, temper_api_url, tenant, workspace_id, session_file_id)?;
     let mut tree = SessionTree::from_jsonl(&session_jsonl);
     let mut parent_id = if !session_leaf_id.is_empty() {
         session_leaf_id.to_string()
@@ -698,6 +722,7 @@ fn append_user_message_to_session(
         ctx,
         temper_api_url,
         tenant,
+        workspace_id,
         session_file_id,
         &tree.to_jsonl(),
     )?;
@@ -708,10 +733,11 @@ fn append_user_message_to_conversation(
     ctx: &Context,
     temper_api_url: &str,
     tenant: &str,
+    workspace_id: &str,
     conversation_file_id: &str,
     user_message: &str,
 ) -> Result<(), String> {
-    let raw = read_file_value(ctx, temper_api_url, tenant, conversation_file_id)?;
+    let raw = read_file_value(ctx, temper_api_url, tenant, workspace_id, conversation_file_id)?;
     let parsed: Value = serde_json::from_str(&raw).unwrap_or_else(|_| json!({ "messages": [] }));
     let mut messages = parsed
         .get("messages")
@@ -720,7 +746,14 @@ fn append_user_message_to_conversation(
         .unwrap_or_default();
     messages.push(json!({ "role": "user", "content": user_message }));
     let updated = json!({ "messages": messages }).to_string();
-    write_file_value(ctx, temper_api_url, tenant, conversation_file_id, &updated)
+    write_file_value(
+        ctx,
+        temper_api_url,
+        tenant,
+        workspace_id,
+        conversation_file_id,
+        &updated,
+    )
 }
 
 fn resolve_workspace_id_for_session(
@@ -752,13 +785,11 @@ fn read_file_value(
     ctx: &Context,
     temper_api_url: &str,
     tenant: &str,
+    workspace_id: &str,
     file_id: &str,
 ) -> Result<String, String> {
     let url = format!("{temper_api_url}/tdata/Files('{file_id}')/$value");
-    let headers = vec![
-        ("x-tenant-id".to_string(), tenant.to_string()),
-        ("x-temper-principal-kind".to_string(), "admin".to_string()),
-    ];
+    let headers = file_headers(ctx, tenant, workspace_id, None, None);
     let resp = ctx.http_call("GET", &url, &headers, "")?;
     if resp.status == 200 {
         Ok(resp.body)
@@ -771,15 +802,12 @@ fn write_file_value(
     ctx: &Context,
     temper_api_url: &str,
     tenant: &str,
+    workspace_id: &str,
     file_id: &str,
     body: &str,
 ) -> Result<(), String> {
     let url = format!("{temper_api_url}/tdata/Files('{file_id}')/$value");
-    let headers = vec![
-        ("x-tenant-id".to_string(), tenant.to_string()),
-        ("x-temper-principal-kind".to_string(), "admin".to_string()),
-        ("content-type".to_string(), "text/plain".to_string()),
-    ];
+    let headers = file_headers(ctx, tenant, workspace_id, Some("text/plain"), None);
     let resp = ctx.http_call("PUT", &url, &headers, body)?;
     if (200..300).contains(&resp.status) {
         Ok(())
@@ -789,7 +817,7 @@ fn write_file_value(
 }
 
 fn fetch_entity(ctx: &Context, url: &str, tenant: &str) -> Result<Value, String> {
-    let resp = ctx.http_call("GET", url, &odata_headers(tenant), "")?;
+    let resp = ctx.http_call("GET", url, &odata_headers(ctx, tenant), "")?;
     if resp.status != 200 {
         return Err(format!("GET {url} failed (HTTP {})", resp.status));
     }
@@ -893,7 +921,7 @@ fn create_session(
     let create_resp = ctx.http_call(
         "POST",
         &format!("{temper_api_url}/tdata/ChannelSessions"),
-        &odata_headers(tenant),
+        &odata_headers(ctx, tenant),
         "{}",
     )?;
     if !(200..300).contains(&create_resp.status) {
@@ -924,7 +952,7 @@ fn create_session(
     let resp = ctx.http_call(
         "POST",
         &create_url,
-        &odata_headers(tenant),
+        &odata_headers(ctx, tenant),
         &body.to_string(),
     )?;
     if !(200..300).contains(&resp.status) {
@@ -944,7 +972,7 @@ fn steer_existing_agent(
     message: &str,
 ) -> Result<(), String> {
     let agent_url = format!("{temper_api_url}/tdata/Agents('{agent_id}')");
-    let agent_resp = ctx.http_call("GET", &agent_url, &odata_headers(tenant), "")?;
+    let agent_resp = ctx.http_call("GET", &agent_url, &odata_headers(ctx, tenant), "")?;
     let mut queue = if agent_resp.status == 200 {
         let parsed: Value = serde_json::from_str(&agent_resp.body).unwrap_or_else(|_| json!({}));
         serde_json::from_str::<Vec<Value>>(
@@ -962,65 +990,13 @@ fn steer_existing_agent(
     let resp = ctx.http_call(
         "POST",
         &steer_url,
-        &odata_headers(tenant),
+        &odata_headers(ctx, tenant),
         &body.to_string(),
     )?;
     if !(200..300).contains(&resp.status) {
         return Err(format!("steer agent failed (HTTP {})", resp.status));
     }
     Ok(())
-}
-
-fn wait_for_agent(
-    ctx: &Context,
-    temper_api_url: &str,
-    tenant: &str,
-    agent_id: &str,
-) -> Result<String, String> {
-    let wait_url = format!(
-        "{temper_api_url}/observe/entities/Agent/{agent_id}/wait?statuses=Completed,Failed,Cancelled&timeout_ms=300000&poll_ms=250"
-    );
-    let wait_headers = vec![
-        ("x-tenant-id".to_string(), tenant.to_string()),
-        ("x-temper-principal-kind".to_string(), "admin".to_string()),
-        ("accept".to_string(), "application/json".to_string()),
-    ];
-    let wait_resp = ctx.http_call("GET", &wait_url, &wait_headers, "")?;
-    if wait_resp.status == 200 {
-        let agent: Value = serde_json::from_str(&wait_resp.body)
-            .map_err(|e| format!("failed to parse observe wait response: {e}"))?;
-        let status = nested_str_field(&agent, &["Status", "status"]).unwrap_or("");
-        let timed_out = agent
-            .get("timed_out")
-            .and_then(Value::as_bool)
-            .unwrap_or(false);
-        let result = agent
-            .get("fields")
-            .and_then(|v| v.get("result"))
-            .or_else(|| agent.get("fields").and_then(|v| v.get("Result")))
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_string();
-        if status == "Completed" {
-            return Ok(result);
-        }
-        if timed_out && !matches!(status, "Failed" | "Cancelled") {
-            return Ok(format!("Agent still running (status={status})"));
-        }
-        let error = agent
-            .get("fields")
-            .and_then(|v| v.get("error_message"))
-            .or_else(|| agent.get("fields").and_then(|v| v.get("ErrorMessage")))
-            .or_else(|| agent.get("fields").and_then(|v| v.get("error")))
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_string();
-        if !error.is_empty() {
-            return Ok(error);
-        }
-        return Ok(format!("Agent ended with status={status}"));
-    }
-    Err(format!("wait_for_agent failed (HTTP {})", wait_resp.status))
 }
 
 fn str_field<'a>(value: &'a Value, keys: &[&str]) -> Option<&'a str> {

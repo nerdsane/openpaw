@@ -41,3 +41,18 @@ permit(
   ],
   resource is AlertCycle
 );
+
+permit(
+  principal is Agent,
+  action == Action::"http_call",
+  resource is HttpEndpoint
+) when {
+  [
+    "alert_opener",
+    "alert_verifier",
+    "heal_reporter",
+    "cicd_initiator",
+    "cicd_merger",
+    "deployment_tracker"
+  ].contains(context.module)
+};

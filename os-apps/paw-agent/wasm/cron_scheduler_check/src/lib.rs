@@ -3,7 +3,7 @@
 //! Queries active CronJobs where NextRunAt <= now and fires Trigger on each.
 
 use temper_wasm_sdk::prelude::*;
-use wasm_helpers::{entity_field_str, resolve_temper_api_url};
+use wasm_helpers::{entity_field_str, resolve_temper_api_url, runtime_headers};
 
 #[unsafe(no_mangle)]
 pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
@@ -15,12 +15,13 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         let temper_api_url = resolve_temper_api_url(&ctx, &fields);
         let tenant = &ctx.tenant;
 
-        let headers = vec![
-            ("content-type".to_string(), "application/json".to_string()),
-            ("x-tenant-id".to_string(), tenant.to_string()),
-            ("x-temper-principal-kind".to_string(), "admin".to_string()),
-            ("accept".to_string(), "application/json".to_string()),
-        ];
+        let headers = runtime_headers(
+            &ctx,
+            tenant,
+            &fields,
+            Some("application/json"),
+            Some("application/json"),
+        );
 
         // Query active cron jobs
         let url = format!("{temper_api_url}/tdata/CronJobs?$filter=Status eq 'Active'");

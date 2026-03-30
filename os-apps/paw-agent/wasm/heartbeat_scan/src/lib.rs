@@ -4,7 +4,9 @@
 //! and fires TimeoutFail on stale ones.
 
 use temper_wasm_sdk::prelude::*;
-use wasm_helpers::{entity_field_str, parse_iso8601_to_epoch_secs, resolve_temper_api_url};
+use wasm_helpers::{
+    entity_field_str, parse_iso8601_to_epoch_secs, resolve_temper_api_url, runtime_headers,
+};
 
 #[unsafe(no_mangle)]
 pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
@@ -23,11 +25,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             .unwrap_or("");
         let now_secs = parse_iso8601_to_epoch_secs(scan_started_at).unwrap_or(0);
 
-        let headers = vec![
-            ("x-tenant-id".to_string(), tenant.to_string()),
-            ("x-temper-principal-kind".to_string(), "admin".to_string()),
-            ("accept".to_string(), "application/json".to_string()),
-        ];
+        let headers = runtime_headers(&ctx, tenant, &fields, None, Some("application/json"));
 
         // Query agents in non-terminal states
         let filter = "$filter=Status ne 'Completed' and Status ne 'Failed' and Status ne 'Cancelled' and Status ne 'Created'";
