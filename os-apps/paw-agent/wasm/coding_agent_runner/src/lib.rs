@@ -97,7 +97,7 @@ fn run_bash_tensorlake(
     if !api_key.is_empty() {
         headers.push(("authorization".to_string(), format!("Bearer {api_key}")));
     }
-    let body = json!({ "cmd": ["bash", "-c", &wrapped], "cwd": workdir });
+    let body = json!({ "command": "bash", "args": ["-c", &wrapped], "cwd": workdir });
     let resp = ctx.http_call("POST", &start_url, &headers, &body.to_string())?;
     if resp.status < 200 || resp.status >= 300 {
         return Err(format!("process start failed (HTTP {}): {}", resp.status, resp.body));

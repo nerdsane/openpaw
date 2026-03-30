@@ -94,6 +94,7 @@ AFTER (Tensorlake) — 0 Python files, pure WASM
 
 - **Tensorlake API field name**: `cpu` → `cpus` (422 error on first attempt, fixed)
 - **Health check auth**: `ctx.http_get()` doesn't send auth headers — switched to `ctx.http_call("GET", ...)` with Bearer token (sandbox was alive but health check failed without auth)
+- **Process API format**: Tensorlake uses `{"command": "bash", "args": ["-c", "..."]}` not `{"cmd": ["bash", "-c", "..."]}` — all sandbox tools returned 422 until fixed
 
 ## Limitations
 
@@ -107,18 +108,30 @@ AFTER (Tensorlake) — 0 Python files, pure WASM
 
 ## E2E Runtime Verification
 
-Tested with live `TL_API_KEY` against real Tensorlake infrastructure:
+Tested with live `TL_API_KEY` against real Tensorlake Firecracker MicroVMs.
 
+### Run 1: Provisioning (sandbox creation + health check)
 ```
 Agent: 019d4108-42a6-7022-a6be-c2f3adb4c123
 sandbox_url: https://lf15kg0pa2bgjs3i7wey6.sandbox.tensorlake.ai
-sandbox_id: lf15kg0pa2bgjs3i7wey6
-workspace_id: 019d4108-4802-7222-be95-916a8be31a3e
-
-Lifecycle: Created → Configure → Provisioning → SandboxReady → Thinking → Steering → Completed
+Lifecycle: Created → Provisioning → SandboxReady → Thinking → Completed
 ```
 
-Full agent loop completed successfully against Tensorlake Firecracker MicroVM.
+### Run 2: Sandbox tool execution (write, bash, read) + TemperFS sync
+```
+Agent: 019d410e-ec43-7442-82fd-302ddcf1cefb
+sandbox_url: https://lw8n7njby1v03ymmitdxb.sandbox.tensorlake.ai
+workspace_id: 019d410e-f19b-7740-9760-2e4a7340f2d5
+turn_count: 3
+
+Tool results (from TemperFS session tree):
+  msg-t-3.txt: [OK] File written: /workspace/hello.txt     (write tool → PUT /api/v1/files)
+  msg-t-5.txt: [OK] Hello Tensorlake                       (bash tool → POST /api/v1/processes + poll)
+  msg-t-7.txt: [OK] Hello Tensorlake                       (read tool → GET /api/v1/files)
+```
+
+All three sandbox tool types verified end-to-end against live Tensorlake infrastructure.
+Tool results persisted to TemperFS via session tree (17 files in workspace).
 
 ## Artifacts
 

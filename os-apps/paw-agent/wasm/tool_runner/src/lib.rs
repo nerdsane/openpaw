@@ -498,7 +498,8 @@ pub(crate) fn run_bash_local(
     let start_url = format!("{sandbox_url}/api/v1/processes");
     let headers = sandbox_headers(&api_key, Some("application/json"));
     let body = json!({
-        "cmd": ["bash", "-c", &wrapped],
+        "command": "bash",
+        "args": ["-c", &wrapped],
         "cwd": workdir,
         "env": env,
     });
