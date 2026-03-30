@@ -1,8 +1,11 @@
 # AlertCycle — One self-healing attempt opened from a monitor alert.
+#
+# Full lifecycle: Created → Triaging → Fixed → Merging → Deploying → Verifying → Resolved
+# Alternate terminal states: Tuned (noise), Failed (unrecoverable)
 
 [automaton]
 name = "AlertCycle"
-states = ["Created", "Triaging", "Fixed", "Tuned", "Failed"]
+states = ["Created", "Triaging", "Fixed", "Merging", "Deploying", "Verifying", "Resolved", "Tuned", "Failed"]
 initial = "Created"
 
 [[state]]
@@ -40,6 +43,18 @@ name = "tuning_notes"
 type = "string"
 initial = ""
 
+[[state]]
+name = "merge_sha"
+type = "string"
+initial = ""
+
+[[state]]
+name = "deployment_url"
+type = "string"
+initial = ""
+
+# --- Triage phase ---
+
 [[action]]
 name = "Open"
 kind = "input"
@@ -72,9 +87,53 @@ to = "Failed"
 params = ["diagnosis"]
 hint = "Escalate when the loop cannot safely remediate the issue."
 
+# --- CI/CD closure phase ---
+
+[[action]]
+name = "BeginMerge"
+kind = "input"
+from = ["Fixed"]
+to = "Merging"
+params = ["pr_url"]
+hint = "Begin the merge process after CI checks pass on the remediation PR."
+
+[[action]]
+name = "MergeComplete"
+kind = "input"
+from = ["Merging"]
+to = "Deploying"
+params = ["merge_sha"]
+hint = "Record the merge commit SHA after the PR is merged."
+
+[[action]]
+name = "DeployDetected"
+kind = "input"
+from = ["Deploying"]
+to = "Verifying"
+params = ["deployment_url"]
+hint = "Record that the deployment has been detected (Vercel, Railway, etc.)."
+
+[[action]]
+name = "AlertResolved"
+kind = "input"
+from = ["Verifying"]
+to = "Resolved"
+params = ["diagnosis"]
+hint = "The Datadog monitor confirms the alert is resolved post-deploy."
+
+[[action]]
+name = "AlertPersists"
+kind = "input"
+from = ["Verifying"]
+to = "Failed"
+params = ["diagnosis"]
+hint = "The alert persists after deployment — the fix did not resolve the issue."
+
+# --- Terminal state invariants ---
+
 [[invariant]]
-name = "FixedIsFinal"
-when = ["Fixed"]
+name = "ResolvedIsFinal"
+when = ["Resolved"]
 assert = "no_further_transitions"
 
 [[invariant]]

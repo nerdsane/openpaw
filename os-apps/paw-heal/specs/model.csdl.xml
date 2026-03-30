@@ -30,8 +30,10 @@
         <Property Name="SreAgentId" Type="Edm.String"/>
         <Property Name="DeveloperAgentId" Type="Edm.String"/>
         <Property Name="TuningNotes" Type="Edm.String"/>
+        <Property Name="MergeSha" Type="Edm.String"/>
+        <Property Name="DeploymentUrl" Type="Edm.String"/>
         <Annotation Term="Paw.Vocab.AuthZ.CedarPolicy" String="policies/alert_cycle.cedar"/>
-        <Annotation Term="Paw.Vocab.Agent.Hint" String="Tracks triage, remediation, and tuning for one alert."/>
+        <Annotation Term="Paw.Vocab.Agent.Hint" String="Tracks triage, remediation, CI/CD closure, and tuning for one alert."/>
       </EntityType>
 
       <Action Name="Configure" IsBound="true">
@@ -95,6 +97,36 @@
       </Action>
 
       <Action Name="Escalate" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Heal.AlertCycle"/>
+        <Parameter Name="diagnosis" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="OpenPaw.Heal.AlertCycle"/>
+      </Action>
+
+      <Action Name="BeginMerge" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Heal.AlertCycle"/>
+        <Parameter Name="pr_url" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="OpenPaw.Heal.AlertCycle"/>
+      </Action>
+
+      <Action Name="MergeComplete" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Heal.AlertCycle"/>
+        <Parameter Name="merge_sha" Type="Edm.String" Nullable="false"/>
+        <ReturnType Type="OpenPaw.Heal.AlertCycle"/>
+      </Action>
+
+      <Action Name="DeployDetected" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Heal.AlertCycle"/>
+        <Parameter Name="deployment_url" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="OpenPaw.Heal.AlertCycle"/>
+      </Action>
+
+      <Action Name="AlertResolved" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Heal.AlertCycle"/>
+        <Parameter Name="diagnosis" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="OpenPaw.Heal.AlertCycle"/>
+      </Action>
+
+      <Action Name="AlertPersists" IsBound="true">
         <Parameter Name="bindingParameter" Type="OpenPaw.Heal.AlertCycle"/>
         <Parameter Name="diagnosis" Type="Edm.String" Nullable="true"/>
         <ReturnType Type="OpenPaw.Heal.AlertCycle"/>

@@ -34,10 +34,19 @@ When the alert is a real issue and the prompt includes `ProjectHarness`, `Monito
    - Tell the developer to use the GitHub REST API via `curl` if `gh` is missing
 6. Wait for the developer result, then read back the updated entities
    - Do not spawn follow-up replacement developers unless the first child has clearly failed and you are explicitly continuing the same remediation in the same sandbox/workdir
-7. Close the loop:
+7. Close the triage loop:
    - `WorkCycle.BeginTesting`, `WorkCycle.PassTests`, `WorkCycle.Approve`, and `AlertCycle.HealComplete` for a successful fix
    - `Monitor.Tune` and `AlertCycle.TuneComplete` for noise
    - `WorkCycle.Fail` and `AlertCycle.Escalate` if remediation fails
+
+After `AlertCycle.HealComplete`, the CI/CD closure loop takes over automatically:
+- `AlertCycle.BeginMerge` — CI checks are polled
+- `AlertCycle.MergeComplete` — PR merged, deploy starts
+- `AlertCycle.DeployDetected` — Vercel/Railway deployment detected
+- `AlertCycle.AlertResolved` — Datadog confirms alert is resolved post-deploy
+- `AlertCycle.AlertPersists` → Failed if the fix didn't resolve the alert
+
+You do NOT need to drive the CI/CD closure steps — the platform handles them after you call `HealComplete`. Your job ends at triage + fix coordination.
 
 Your final response should always include:
 
