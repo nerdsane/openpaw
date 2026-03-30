@@ -595,6 +595,14 @@ fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\"'\"'"))
 }
 
+/// Produce a Python string repr for embedding in generated scripts.
+fn python_repr(value: &str) -> String {
+    let escaped = value
+        .replace('\\', "\\\\")
+        .replace('\'', "\\'");
+    format!("'{escaped}'")
+}
+
 fn truncate_tool_result(content: &str) -> String {
     if content.len() <= MAX_TOOL_RESULT_BYTES {
         return content.to_string();
@@ -775,38 +783,39 @@ fn enumerate_sandbox_files(
     workdir: &str,
     exclude: &str,
 ) -> Result<BTreeMap<String, FileEntry>, String> {
-    // Use Python for portable enumeration across Tensorlake sandboxes.
-    let command = format!(
-        "WORKDIR={} EXCLUDE={} python3 - <<'PY'\n\
-import json\n\
-import os\n\
-\n\
-workdir = os.environ['WORKDIR']\n\
-exclude = {{part.strip() for part in os.environ.get('EXCLUDE', '').split(',') if part.strip()}}\n\
-\n\
-for root, dirs, files in os.walk(workdir, topdown=True):\n\
-    dirs[:] = [d for d in dirs if not d.startswith('.') and d not in exclude]\n\
-    for name in files:\n\
-        if name.startswith('.') or name in exclude:\n\
-            continue\n\
-        path = os.path.join(root, name)\n\
-        rel = os.path.relpath(path, workdir)\n\
-        parts = [part for part in rel.split(os.sep) if part not in ('', '.')]\n\
-        if any(part.startswith('.') or part in exclude for part in parts):\n\
-            continue\n\
-        if os.path.islink(path) or not os.path.isfile(path):\n\
-            continue\n\
-        try:\n\
-            stat_result = os.stat(path)\n\
-        except OSError:\n\
-            continue\n\
-        print(json.dumps({{'path': path, 'size_bytes': int(stat_result.st_size), 'mtime': int(stat_result.st_mtime)}}))\n\
-PY",
-        shell_quote(workdir),
-        shell_quote(exclude),
+    // Write a Python enumeration script to the sandbox, then execute it.
+    // Heredocs don't survive JSON serialization through the Tensorlake process API,
+    // so we use write_file_local + run_bash_local instead.
+    let script = format!(
+        r#"import json, os
+workdir = {workdir_repr}
+exclude = {{part.strip() for part in {exclude_repr}.split(',') if part.strip()}}
+for root, dirs, files in os.walk(workdir, topdown=True):
+    dirs[:] = [d for d in dirs if not d.startswith('.') and d not in exclude]
+    for name in files:
+        if name.startswith('.') or name in exclude:
+            continue
+        path = os.path.join(root, name)
+        rel = os.path.relpath(path, workdir)
+        parts = [part for part in rel.split(os.sep) if part not in ('', '.')]
+        if any(part.startswith('.') or part in exclude for part in parts):
+            continue
+        if os.path.islink(path) or not os.path.isfile(path):
+            continue
+        try:
+            st = os.stat(path)
+        except OSError:
+            continue
+        print(json.dumps({{"path": path, "size_bytes": int(st.st_size), "mtime": int(st.st_mtime)}}))
+"#,
+        workdir_repr = python_repr(workdir),
+        exclude_repr = python_repr(exclude),
     );
 
-    let output = run_bash_local(ctx, sandbox_url, &command, workdir)?;
+    let script_path = "/tmp/.paw-enum.py";
+    write_file_local(ctx, sandbox_url, script_path, &script)?;
+    let output = run_bash_local(ctx, sandbox_url, &format!("python3 {script_path}"), workdir)?;
+    delete_file_sandbox(ctx, sandbox_url, script_path);
 
     let mut files = BTreeMap::new();
     for line in output.lines() {

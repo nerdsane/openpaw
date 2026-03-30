@@ -95,6 +95,7 @@ AFTER (Tensorlake) — 0 Python files, pure WASM
 - **Tensorlake API field name**: `cpu` → `cpus` (422 error on first attempt, fixed)
 - **Health check auth**: `ctx.http_get()` doesn't send auth headers — switched to `ctx.http_call("GET", ...)` with Bearer token (sandbox was alive but health check failed without auth)
 - **Process API format**: Tensorlake uses `{"command": "bash", "args": ["-c", "..."]}` not `{"cmd": ["bash", "-c", "..."]}` — all sandbox tools returned 422 until fixed
+- **Heredoc in JSON args**: Newlines in JSON string args are passed as literal `\n` by Tensorlake, breaking heredocs. Fixed `enumerate_sandbox_files` to write Python script to a file first, then execute it
 
 ## Limitations
 
@@ -131,7 +132,22 @@ Tool results (from TemperFS session tree):
 ```
 
 All three sandbox tool types verified end-to-end against live Tensorlake infrastructure.
-Tool results persisted to TemperFS via session tree (17 files in workspace).
+Tool results persisted to TemperFS via session tree.
+
+### Run 3: Fsync — sandbox files synced back to TemperFS
+```
+Agent: 019d4114-1001-7cd3-9638-685864674459
+Manifest after fsync:
+  /workspace/proof.txt: file_id=wsf-ca46c901f80ae603, size=27, mtime=1774913331
+
+TemperFS workspace files (8 total):
+  conversation.json, file_manifest.json, session.jsonl,
+  msg-u-*.txt, msg-a-2.txt, msg-t-3.txt, msg-a-4.txt,
+  proof.txt  ← fsynced from Tensorlake sandbox
+```
+
+Fsync enumerated sandbox files via Python os.walk (written as script file),
+detected proof.txt, created TemperFS File entity, and recorded in manifest.
 
 ## Artifacts
 
