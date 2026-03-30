@@ -215,10 +215,46 @@ pub async fn run(config: Config) -> Result<()> {
             url
         };
 
+        // Auto-start Modal sandbox bridge if Modal tokens are present.
+        let modal_bridge_port = port + 11;
+        if config.modal_token_id.is_some() && config.modal_token_secret.is_some() {
+            let modal_bridge_script = Path::new("os-apps/paw-agent/sandbox/modal_sandbox.py");
+            if modal_bridge_script.exists() {
+                // Use the venv if it exists, otherwise try system python
+                let python = if Path::new("/tmp/modal-env/bin/python3").exists() {
+                    "/tmp/modal-env/bin/python3"
+                } else {
+                    "python3"
+                };
+                match std::process::Command::new(python)
+                    .arg(modal_bridge_script)
+                    .arg("--port")
+                    .arg(modal_bridge_port.to_string())
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::piped())
+                    .spawn()
+                {
+                    Ok(_) => tracing::info!(
+                        "Modal sandbox bridge: http://127.0.0.1:{modal_bridge_port} (auto-started)"
+                    ),
+                    Err(e) => tracing::warn!("Failed to start Modal bridge: {e}"),
+                }
+            }
+        }
+
+        // Seed Modal bridge URL for sandbox provisioner
+        if config.modal_token_id.is_some() {
+            let bridge_url = format!("http://127.0.0.1:{modal_bridge_port}");
+            let _ = vault.cache_secret("default", "modal_bridge_url", bridge_url.clone());
+            if tenant != "default" {
+                let _ = vault.cache_secret(&tenant, "modal_bridge_url", bridge_url);
+            }
+        }
+
         let default_sandbox_url = explicit_sandbox_url.or_else(|| {
             if config.modal_token_id.is_some() {
                 tracing::info!(
-                    "MODAL_TOKEN_ID is configured; leaving sandbox_url unset so provisioning can use Modal by default"
+                    "MODAL_TOKEN_ID is configured; sandbox_provisioner will use Modal bridge"
                 );
                 None
             } else {

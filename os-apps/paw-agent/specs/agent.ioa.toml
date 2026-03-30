@@ -465,6 +465,7 @@ temper_api_url = "{secret:temper_api_url}"
 sandbox_url = "{secret:sandbox_url}"
 modal_token_id = "{secret:modal_token_id}"
 modal_token_secret = "{secret:modal_token_secret}"
+modal_bridge_url = "{secret:modal_bridge_url}"
 
 [[integration]]
 name = "call_llm"

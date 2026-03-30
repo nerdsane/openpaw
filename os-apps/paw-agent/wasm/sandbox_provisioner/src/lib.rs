@@ -130,7 +130,8 @@ fn resolve_temper_api_url(ctx: &Context, fields: &Value) -> String {
 
 /// Provision a sandbox. Priority order:
 /// 1. sandbox_url from entity state (set via Configure action) or integration config
-/// 2. Modal gRPC API via Connect protocol (requires modal_token_id + modal_token_secret)
+/// 2. Modal sandbox bridge (auto-started, requires Modal SDK + credentials)
+/// 3. Local sandbox fallback
 fn provision_sandbox(ctx: &Context) -> Result<SandboxResult, String> {
     let fields = ctx.entity_state.get("fields").cloned().unwrap_or(json!({}));
 
@@ -164,205 +165,88 @@ fn provision_sandbox(ctx: &Context) -> Result<SandboxResult, String> {
         });
     }
 
-    // Priority 2: Modal gRPC API (requires modal_token_id + modal_token_secret).
-    let modal_token_id = ctx.config.get("modal_token_id").cloned().unwrap_or_default();
-    let modal_token_secret = ctx
+    // Priority 2: Modal sandbox bridge (Python SDK wrapper exposing HTTP API).
+    // The bridge runs at a configured URL (default: http://127.0.0.1:3478).
+    // It creates Modal sandboxes via the Python SDK and proxies file/exec
+    // operations, keeping the same HTTP interface as local_sandbox.py.
+    let modal_bridge_url = ctx
         .config
-        .get("modal_token_secret")
+        .get("modal_bridge_url")
         .cloned()
-        .unwrap_or_default();
+        .unwrap_or_else(|| "http://127.0.0.1:3478".to_string());
 
-    if modal_token_id.is_empty()
-        || modal_token_id.contains("{secret:")
-        || modal_token_secret.is_empty()
-        || modal_token_secret.contains("{secret:")
-    {
-        return Err(
-            "no sandbox_url configured and no Modal credentials available — \
-             set sandbox_url via Configure or store modal_token_id + modal_token_secret secrets"
-                .to_string(),
-        );
-    }
-
-    ctx.log("info", "sandbox_provisioner: provisioning via Modal API");
-
-    let modal_api_url = ctx
-        .config
-        .get("modal_api_url")
-        .cloned()
-        .unwrap_or_else(|| "https://api.modal.com".to_string());
-
-    // Modal uses gRPC. We attempt the Connect protocol (gRPC-over-HTTP/1.1 with JSON).
-    // The RPC path is: /modal.client.ModalClient/SandboxCreateV2
-    // Auth: Bearer token using "Token {token_id}:{token_secret}" format.
-    let auth_token = format!("Token {modal_token_id}:{modal_token_secret}");
-    let rpc_url = format!("{modal_api_url}/modal.client.ModalClient/SandboxCreateV2");
-
-    let headers = vec![
-        ("authorization".to_string(), format!("Bearer {auth_token}")),
-        ("content-type".to_string(), "application/json".to_string()),
-    ];
-
-    // SandboxCreateV2Request: define the sandbox with Ubuntu base image,
-    // network access, and a 1-hour timeout.
-    let create_body = json!({
-        "definition": {
-            "image_id": "",
-            "entrypoint_args": [],
-            "timeout_secs": 3600,
-            "workdir": "/workspace",
-            "network_access": true,
-            "enable_snapshot": false,
-            "idle_timeout_secs": 600
-        }
+    // Check if the Modal bridge is running by hitting /health.
+    // The bridge returns {"provider": "modal"} — distinguish from local sandbox.
+    let health_resp = ctx.http_get(&format!("{modal_bridge_url}/health"));
+    let is_modal_bridge = health_resp.as_ref().map_or(false, |r| {
+        r.status == 200 && r.body.contains("modal")
     });
 
-    // Try Connect protocol first (HTTP/1.1 + JSON POST to gRPC path).
-    let resp = ctx.http_call("POST", &rpc_url, &headers, &create_body.to_string());
+    if is_modal_bridge {
+            ctx.log("info", "sandbox_provisioner: Modal bridge detected, creating sandbox");
 
-    match resp {
-        Ok(resp) if resp.status >= 200 && resp.status < 300 => {
-            let parsed: Value = serde_json::from_str(&resp.body)
-                .map_err(|e| format!("failed to parse Modal response: {e}"))?;
+            // Ask the bridge to create a sandbox.
+            let create_url = format!("{modal_bridge_url}/v1/sandboxes");
+            let create_body = json!({ "timeout_secs": 3600 });
+            let headers = vec![
+                ("content-type".to_string(), "application/json".to_string()),
+            ];
 
-            let sandbox_id = parsed
-                .get("sandbox_id")
-                .or_else(|| parsed.get("sandboxId"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("unknown")
-                .to_string();
+            let create_resp = ctx.http_call(
+                "POST",
+                &create_url,
+                &headers,
+                &create_body.to_string(),
+            )?;
 
-            let task_id = parsed
-                .get("task_id")
-                .or_else(|| parsed.get("taskId"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
+            if create_resp.status >= 200 && create_resp.status < 300 {
+                let parsed: Value = serde_json::from_str(&create_resp.body)
+                    .map_err(|e| format!("failed to parse Modal bridge response: {e}"))?;
 
-            // Get the sandbox tunnel URL for HTTP access.
-            // Modal sandbox tunnels expose ports as HTTPS endpoints.
-            let sandbox_url = if let Some(tunnels) = parsed.get("tunnels").and_then(Value::as_array)
-            {
-                tunnels
-                    .iter()
-                    .find_map(|t| t.get("url").and_then(Value::as_str))
-                    .map(|s| s.to_string())
-                    .unwrap_or_default()
-            } else {
-                // If no tunnel in create response, request one via GetTunnels.
-                get_modal_tunnel_url(ctx, &modal_api_url, &auth_token, &sandbox_id)
-                    .unwrap_or_default()
-            };
+                let sandbox_id = parsed
+                    .get("sandbox_id")
+                    .and_then(Value::as_str)
+                    .unwrap_or("modal-sandbox")
+                    .to_string();
 
-            if sandbox_url.is_empty() {
-                // Fall back: create a connect token for HTTP access.
-                let connect_url = create_modal_connect_token(
-                    ctx,
-                    &modal_api_url,
-                    &auth_token,
-                    &sandbox_id,
+                // The bridge itself is the sandbox URL — it proxies all file/exec ops
+                // to the Modal sandbox.
+                let sandbox_url = parsed
+                    .get("sandbox_url")
+                    .and_then(Value::as_str)
+                    .unwrap_or(&modal_bridge_url)
+                    .to_string();
+
+                ctx.log(
+                    "info",
+                    &format!(
+                        "sandbox_provisioner: Modal sandbox created via bridge: id={sandbox_id}, url={sandbox_url}"
+                    ),
                 );
-                if let Ok(url) = connect_url {
-                    ctx.log(
-                        "info",
-                        &format!(
-                            "sandbox_provisioner: Modal sandbox created via connect token: id={sandbox_id}, task={task_id}"
-                        ),
-                    );
-                    return Ok(SandboxResult {
-                        sandbox_url: url,
-                        sandbox_id,
-                    });
-                }
-                return Err(format!(
-                    "Modal sandbox created (id={sandbox_id}) but no tunnel URL or connect token available"
-                ));
+
+                return Ok(SandboxResult {
+                    sandbox_url,
+                    sandbox_id,
+                });
+            } else {
+                ctx.log(
+                    "warn",
+                    &format!(
+                        "sandbox_provisioner: Modal bridge sandbox creation failed (HTTP {}): {}",
+                        create_resp.status,
+                        &create_resp.body[..create_resp.body.len().min(500)]
+                    ),
+                );
             }
-
-            ctx.log(
-                "info",
-                &format!(
-                    "sandbox_provisioner: Modal sandbox created: id={sandbox_id}, task={task_id}, url={sandbox_url}"
-                ),
-            );
-
-            Ok(SandboxResult {
-                sandbox_url,
-                sandbox_id,
-            })
-        }
-        Ok(resp) => {
-            // Connect protocol may not be supported — Modal might require native gRPC.
-            // Log the error with enough detail to diagnose.
-            Err(format!(
-                "Modal sandbox creation failed (HTTP {}). \
-                 This may indicate Modal's API does not support Connect protocol. \
-                 Consider adding native gRPC support to the Temper WASM host. \
-                 Response: {}",
-                resp.status,
-                &resp.body[..resp.body.len().min(500)]
-            ))
-        }
-        Err(e) => Err(format!("Modal API call failed: {e}")),
-    }
-}
-
-/// Get a Modal sandbox tunnel URL via the GetTunnels RPC.
-fn get_modal_tunnel_url(
-    ctx: &Context,
-    modal_api_url: &str,
-    auth_token: &str,
-    sandbox_id: &str,
-) -> Result<String, String> {
-    let url = format!("{modal_api_url}/modal.client.ModalClient/SandboxGetTunnels");
-    let headers = vec![
-        ("authorization".to_string(), format!("Bearer {auth_token}")),
-        ("content-type".to_string(), "application/json".to_string()),
-    ];
-    let body = json!({ "sandbox_id": sandbox_id, "timeout": 30.0 });
-
-    let resp = ctx.http_call("POST", &url, &headers, &body.to_string())?;
-    if resp.status < 200 || resp.status >= 300 {
-        return Err(format!("GetTunnels failed (HTTP {})", resp.status));
     }
 
-    let parsed: Value =
-        serde_json::from_str(&resp.body).map_err(|e| format!("parse tunnels: {e}"))?;
-    parsed
-        .get("tunnels")
-        .and_then(Value::as_array)
-        .and_then(|arr| arr.first())
-        .and_then(|t| t.get("url").and_then(Value::as_str))
-        .map(|s| s.to_string())
-        .ok_or_else(|| "no tunnel URL in response".to_string())
-}
-
-/// Create a Modal sandbox connect token for authenticated HTTP access.
-fn create_modal_connect_token(
-    ctx: &Context,
-    modal_api_url: &str,
-    auth_token: &str,
-    sandbox_id: &str,
-) -> Result<String, String> {
-    let url = format!("{modal_api_url}/modal.client.ModalClient/SandboxCreateConnectToken");
-    let headers = vec![
-        ("authorization".to_string(), format!("Bearer {auth_token}")),
-        ("content-type".to_string(), "application/json".to_string()),
-    ];
-    let body = json!({ "sandbox_id": sandbox_id });
-
-    let resp = ctx.http_call("POST", &url, &headers, &body.to_string())?;
-    if resp.status < 200 || resp.status >= 300 {
-        return Err(format!("CreateConnectToken failed (HTTP {})", resp.status));
-    }
-
-    let parsed: Value =
-        serde_json::from_str(&resp.body).map_err(|e| format!("parse connect token: {e}"))?;
-    parsed
-        .get("url")
-        .and_then(Value::as_str)
-        .map(|s| s.to_string())
-        .ok_or_else(|| "no url in connect token response".to_string())
+    // No static URL and no Modal bridge — fail with guidance.
+    Err(
+        "no sandbox_url configured and Modal bridge not available at {modal_bridge_url} — \
+         either set sandbox_url via Configure, or start the Modal bridge: \
+         python3 os-apps/paw-agent/sandbox/modal_sandbox.py --port 3478"
+            .to_string(),
+    )
 }
 
 /// Create a TemperFS Workspace, conversation File, manifest File, and session file.
