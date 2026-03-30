@@ -11,12 +11,25 @@
         <Key><PropertyRef Name="Id"/></Key>
         <Property Name="Id" Type="Edm.String" Nullable="false"/>
         <Property Name="Status" Type="Edm.String"/>
-        <Property Name="LogfireQuery" Type="Edm.String"/>
+        <Property Name="DdQuery" Type="Edm.String"/>
         <Property Name="Threshold" Type="Edm.String"/>
         <Property Name="DdMonitorId" Type="Edm.String"/>
         <Property Name="LastAlertPayload" Type="Edm.String"/>
         <Property Name="AlertCount" Type="Edm.Int64"/>
-        <Annotation Term="Paw.Vocab.Agent.Hint" String="Represents a live Logfire-backed watch for self-healing."/>
+        <Annotation Term="Paw.Vocab.Agent.Hint" String="Represents a live Datadog-backed watch for self-healing."/>
+      </EntityType>
+
+      <EntityType Name="MonitorScan">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.String" Nullable="false"/>
+        <Property Name="Status" Type="Edm.String"/>
+        <Property Name="ProjectHarnessId" Type="Edm.String"/>
+        <Property Name="ScanType" Type="Edm.String"/>
+        <Property Name="CommitSha" Type="Edm.String"/>
+        <Property Name="MonitorsCreated" Type="Edm.Int64"/>
+        <Property Name="MonitorsUpdated" Type="Edm.Int64"/>
+        <Property Name="ErrorMessage" Type="Edm.String"/>
+        <Annotation Term="Paw.Vocab.Agent.Hint" String="Tracks a monitor bootstrap or PR-delta scan for one project."/>
       </EntityType>
 
       <EntityType Name="AlertCycle">
@@ -27,16 +40,18 @@
         <Property Name="AlertPayload" Type="Edm.String"/>
         <Property Name="Diagnosis" Type="Edm.String"/>
         <Property Name="PrUrl" Type="Edm.String"/>
-        <Property Name="ScoutAgentId" Type="Edm.String"/>
+        <Property Name="SreAgentId" Type="Edm.String"/>
         <Property Name="DeveloperAgentId" Type="Edm.String"/>
         <Property Name="TuningNotes" Type="Edm.String"/>
+        <Property Name="MergeSha" Type="Edm.String"/>
+        <Property Name="DeploymentUrl" Type="Edm.String"/>
         <Annotation Term="Paw.Vocab.AuthZ.CedarPolicy" String="policies/alert_cycle.cedar"/>
         <Annotation Term="Paw.Vocab.Agent.Hint" String="Tracks triage, remediation, and tuning for one alert."/>
       </EntityType>
 
       <Action Name="Configure" IsBound="true">
         <Parameter Name="bindingParameter" Type="OpenPaw.Heal.Monitor"/>
-        <Parameter Name="logfire_query" Type="Edm.String" Nullable="false"/>
+        <Parameter Name="dd_query" Type="Edm.String" Nullable="false"/>
         <Parameter Name="threshold" Type="Edm.String" Nullable="true"/>
         <Parameter Name="dd_monitor_id" Type="Edm.String" Nullable="true"/>
         <ReturnType Type="OpenPaw.Heal.Monitor"/>
@@ -55,10 +70,36 @@
 
       <Action Name="Tune" IsBound="true">
         <Parameter Name="bindingParameter" Type="OpenPaw.Heal.Monitor"/>
-        <Parameter Name="logfire_query" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="dd_query" Type="Edm.String" Nullable="true"/>
         <Parameter Name="threshold" Type="Edm.String" Nullable="true"/>
         <Parameter Name="dd_monitor_id" Type="Edm.String" Nullable="true"/>
         <ReturnType Type="OpenPaw.Heal.Monitor"/>
+      </Action>
+
+      <Action Name="Configure" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Heal.MonitorScan"/>
+        <Parameter Name="project_harness_id" Type="Edm.String" Nullable="false"/>
+        <Parameter Name="scan_type" Type="Edm.String" Nullable="false"/>
+        <Parameter Name="commit_sha" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="OpenPaw.Heal.MonitorScan"/>
+      </Action>
+
+      <Action Name="StartScan" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Heal.MonitorScan"/>
+        <ReturnType Type="OpenPaw.Heal.MonitorScan"/>
+      </Action>
+
+      <Action Name="ScanComplete" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Heal.MonitorScan"/>
+        <Parameter Name="monitors_created" Type="Edm.Int64" Nullable="false"/>
+        <Parameter Name="monitors_updated" Type="Edm.Int64" Nullable="false"/>
+        <ReturnType Type="OpenPaw.Heal.MonitorScan"/>
+      </Action>
+
+      <Action Name="ScanFailed" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Heal.MonitorScan"/>
+        <Parameter Name="error_message" Type="Edm.String" Nullable="false"/>
+        <ReturnType Type="OpenPaw.Heal.MonitorScan"/>
       </Action>
 
       <Action Name="Pause" IsBound="true">
@@ -75,7 +116,7 @@
         <Parameter Name="bindingParameter" Type="OpenPaw.Heal.AlertCycle"/>
         <Parameter Name="monitor_id" Type="Edm.String" Nullable="false"/>
         <Parameter Name="alert_payload" Type="Edm.String" Nullable="false"/>
-        <Parameter Name="scout_agent_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="sre_agent_id" Type="Edm.String" Nullable="true"/>
         <ReturnType Type="OpenPaw.Heal.AlertCycle"/>
       </Action>
 
@@ -84,6 +125,36 @@
         <Parameter Name="diagnosis" Type="Edm.String" Nullable="true"/>
         <Parameter Name="pr_url" Type="Edm.String" Nullable="true"/>
         <Parameter Name="developer_agent_id" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="OpenPaw.Heal.AlertCycle"/>
+      </Action>
+
+      <Action Name="BeginMerge" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Heal.AlertCycle"/>
+        <Parameter Name="pr_url" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="OpenPaw.Heal.AlertCycle"/>
+      </Action>
+
+      <Action Name="MergeComplete" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Heal.AlertCycle"/>
+        <Parameter Name="merge_sha" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="OpenPaw.Heal.AlertCycle"/>
+      </Action>
+
+      <Action Name="DeployDetected" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Heal.AlertCycle"/>
+        <Parameter Name="deployment_url" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="OpenPaw.Heal.AlertCycle"/>
+      </Action>
+
+      <Action Name="AlertResolved" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Heal.AlertCycle"/>
+        <Parameter Name="diagnosis" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="OpenPaw.Heal.AlertCycle"/>
+      </Action>
+
+      <Action Name="AlertPersists" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Heal.AlertCycle"/>
+        <Parameter Name="diagnosis" Type="Edm.String" Nullable="true"/>
         <ReturnType Type="OpenPaw.Heal.AlertCycle"/>
       </Action>
 
@@ -102,6 +173,7 @@
 
       <EntityContainer Name="Service">
         <EntitySet Name="Monitors" EntityType="OpenPaw.Heal.Monitor"/>
+        <EntitySet Name="MonitorScans" EntityType="OpenPaw.Heal.MonitorScan"/>
         <EntitySet Name="AlertCycles" EntityType="OpenPaw.Heal.AlertCycle"/>
       </EntityContainer>
     </Schema>

@@ -13,6 +13,12 @@ export ANTHROPIC_API_KEY=...
 export TEMPER_API_KEY=...        # Bearer token for API auth
 export TEMPER_VAULT_KEY=...      # 32-byte base64 key for secrets encryption
 export FLY_API_TOKEN=...         # For Sprites computer provisioning
+export MODAL_TOKEN_ID=...        # Modal sandbox token id
+export MODAL_TOKEN_SECRET=...    # Modal sandbox token secret
+export DD_API_KEY=...            # Datadog monitor/events API key
+export DD_APP_KEY=...            # Datadog application key
+export DD_SITE=datadoghq.com     # Optional Datadog site suffix
+export WEBHOOK_SECRET=...        # Optional HMAC secret for webhook ingress
 export TURSO_URL=...             # Database URL (default: local SQLite)
 
 # Run
@@ -40,4 +46,4 @@ Open Paw follows the Temper OS app pattern — all agent logic is modeled as IOA
 Agent personalities are defined in `souls/` and seeded into the entity system at boot:
 - `paw.md` — Project manager agent
 - `developer.md` — Software developer agent
-- `scout.md` — Monitoring and triage agent
+- `sre.md` — Monitoring and triage agent

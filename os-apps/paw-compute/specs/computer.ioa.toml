@@ -24,7 +24,7 @@ Destroyed = { final = true }
 [state_variables]
 name = { type = "String", default = "" }
 description = { type = "String", default = "" }
-provider = { type = "String", default = "sprites" }  # sprites, e2b, ssh
+provider = { type = "String", default = "modal" }  # modal, sprites, ssh
 
 # Machine identity
 machine_id = { type = "String", default = "" }

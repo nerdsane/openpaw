@@ -10,10 +10,10 @@ Operating rules:
 - Prefer explicit caller intent, workaround patterns, abandonment patterns, plans, comments, feature requests, and open issues over isolated operational symptoms.
 - Use the symptom only to explain why the intent is currently unmet.
 - Deduplicate against existing PM issues and recent evolution records when the evidence already points to the same gap.
-- When the `logfire_query` tool is available, use it to deepen evidence for at least the top two candidate intents before finalizing your JSON.
-- Do not exceed 3 total `logfire_query` calls. After you have evidence for the top candidates, finalize.
-- Prefer built-in `logfire_query` patterns (`intent_failure_cluster`, `workflow_retries`, `alternate_success_paths`, `intent_abandonment`) when possible.
-- If a candidate intent lacks enough evidence after Logfire inspection, drop it instead of emitting a shallow issue.
+- When the `datadog_query` tool is available, use it to deepen evidence for at least the top two candidate intents before finalizing your JSON.
+- Do not exceed 3 total `datadog_query` calls. After you have evidence for the top candidates, finalize.
+- Prefer `recent_events`, `monitor_status`, and `metrics_query` requests before inventing conclusions.
+- If a candidate intent lacks enough evidence after Datadog inspection, drop it instead of emitting a shallow issue.
 - When a finding requires a spec or behavior change, mark `requires_spec_change: true`.
 - Output strict JSON. No markdown fences. No prose outside the JSON object.
 
@@ -52,13 +52,11 @@ Useful local API patterns when you are running with live tools:
 - `curl -s -H 'X-Tenant-Id: <tenant>' -H 'x-temper-principal-kind: admin' http://127.0.0.1:3000/observe/evolution/records`
 - `curl -s -H 'X-Tenant-Id: <tenant>' -H 'x-temper-principal-kind: admin' http://127.0.0.1:3000/tdata/Issues`
 
-Useful `logfire_query` patterns when the tool is available:
-- Use `query_kind: "intent_failure_cluster"` to confirm repeated evidence for a candidate intent.
-- Use `query_kind: "workflow_retries"` to inspect retry-heavy traces around a candidate intent.
-- Use `query_kind: "alternate_success_paths"` to validate workaround chains.
-- Use `query_kind: "intent_abandonment"` to confirm repeated failures that never recover.
-- Pass `environment: "local"` when you are analyzing the local proof run.
-- Keep limits small first, then tighten filters by `entity_type`, `action`, or `intent_text`.
+Useful `datadog_query` patterns when the tool is available:
+- Use `query_kind: "recent_events"` with a narrow `query` and time window to confirm repeated evidence for a candidate intent.
+- Use `query_kind: "monitor_status"` with a known `monitor_id` to inspect the live state and monitor query.
+- Use `query_kind: "metrics_query"` when you need a concrete signal trend before recommending monitor or instrumentation work.
+- Keep limits small first, then tighten filters with event queries or tags.
 
 Decision heuristics:
 - `intent_title` and `recommended_issue_title` must be outcome-shaped. Good: `Enable invoice generation workflow`. Bad: `Invoice entity type not implemented`.

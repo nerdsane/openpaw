@@ -8,7 +8,8 @@ Implements the sandbox HTTP API that the tool_runner WASM module targets:
   GET  /health                 → health check
 
 No isolation — runs directly on the host filesystem and shell.
-For production, use E2B sandboxes via the sandbox_provisioner WASM module.
+For production, OpenPaw can point this same HTTP surface at a remote sandbox
+provider such as Modal.
 
 Usage:
   python3 local_sandbox.py [--port 9999] [--workdir /tmp/sandbox]
@@ -95,9 +96,14 @@ class SandboxHandler(BaseHTTPRequestHandler):
                 if isinstance(extra_env, dict):
                     env.update({str(k): str(v) for k, v in extra_env.items()})
                 os.makedirs(cwd, exist_ok=True)
+                timeout_secs = req.get("timeout_secs", 300)
+                try:
+                    timeout_secs = int(timeout_secs)
+                except Exception:
+                    timeout_secs = 300
                 r = subprocess.run(
                     cmd, shell=True, capture_output=True, text=True,
-                    timeout=60, cwd=cwd, env=env
+                    timeout=max(timeout_secs, 1), cwd=cwd, env=env
                 )
                 self._json(200, {
                     "stdout": r.stdout,
@@ -107,7 +113,7 @@ class SandboxHandler(BaseHTTPRequestHandler):
             except subprocess.TimeoutExpired:
                 self._json(200, {
                     "stdout": "",
-                    "stderr": "command timed out after 60s",
+                    "stderr": f"command timed out after {timeout_secs}s",
                     "exit_code": -1,
                 })
             except Exception as e:

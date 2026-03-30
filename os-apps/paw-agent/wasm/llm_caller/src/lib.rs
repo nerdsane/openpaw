@@ -2103,26 +2103,21 @@ fn build_tool_definitions(tools_enabled: &str, sandbox_url: &str, workdir: &str)
         }));
     }
 
-    if enabled.contains(&"logfire_query") {
+    if enabled.contains(&"datadog_query") {
         tools.push(json!({
-            "name": "logfire_query",
-            "description": "Query Logfire observability data with either raw SQL or built-in intent-analysis patterns. Use this to inspect failure clusters, retries, alternate success paths, and abandonment evidence before producing final findings.",
+            "name": "datadog_query",
+            "description": "Query Datadog monitors, events, and metric series. Use this to inspect live monitor status, recent alert events, and post-deploy verification signals.",
             "input_schema": {
                 "type": "object",
                 "properties": {
-                    "sql": { "type": "string", "description": "Raw SQL query to run against Logfire records or metrics tables. Optional when query_kind is provided." },
-                    "query_kind": { "type": "string", "description": "Optional built-in pattern query: recent_events, intent_failure_cluster, workflow_retries, alternate_success_paths, intent_abandonment" },
-                    "service_name": { "type": "string", "description": "Optional service filter. Defaults to temper-platform." },
-                    "environment": { "type": "string", "description": "Optional deployment_environment filter, e.g. local" },
-                    "entity_type": { "type": "string", "description": "Optional entity/resource filter for built-in query kinds" },
-                    "action": { "type": "string", "description": "Optional action filter for built-in query kinds" },
-                    "intent_text": { "type": "string", "description": "Optional intent text filter for built-in query kinds" },
-                    "agent_id": { "type": "string", "description": "Optional agent identifier filter for built-in query kinds" },
-                    "lookback_minutes": { "type": "integer", "description": "Optional recency window for built-in query kinds. Defaults to 240." },
-                    "min_timestamp": { "type": "string", "description": "Optional ISO timestamp lower bound" },
-                    "max_timestamp": { "type": "string", "description": "Optional ISO timestamp upper bound" },
-                    "limit": { "type": "integer", "description": "Optional row limit, clamped to 200" },
-                    "row_oriented": { "type": "boolean", "description": "Return JSON rows instead of columns. Defaults to true." }
+                    "query_kind": { "type": "string", "description": "Datadog query mode: monitor_status, recent_events, or metrics_query." },
+                    "monitor_id": { "type": "string", "description": "Required for monitor_status." },
+                    "query": { "type": "string", "description": "Search query for recent_events or Datadog metric query for metrics_query." },
+                    "from_ts": { "type": "integer", "description": "Unix timestamp lower bound for recent_events or metrics_query." },
+                    "to_ts": { "type": "integer", "description": "Unix timestamp upper bound for recent_events or metrics_query." },
+                    "priority": { "type": "string", "description": "Optional Datadog event priority filter." },
+                    "tags": { "type": "string", "description": "Optional Datadog event tag filter." },
+                    "limit": { "type": "integer", "description": "Optional summary limit, clamped to 100." }
                 },
                 "required": []
             }

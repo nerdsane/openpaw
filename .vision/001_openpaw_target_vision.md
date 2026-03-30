@@ -20,7 +20,7 @@ This is not a scripted CI/CD pipeline. The agents are intelligent. They make dec
    - Reports back to the human on Discord
 5. From then on, the system runs autonomously:
    - Monitors fire when something goes wrong in production
-   - Scout triages each alert (real issue or noise?)
+   - SRE triages each alert (real issue or noise?)
    - Developer fixes real issues, opens PRs
    - Paw proactively reports to the human: "Found 3 bugs overnight, here's what we did"
    - Human reviews and approves PRs on Discord (or wherever they prefer)
@@ -33,7 +33,7 @@ This is not a scripted CI/CD pipeline. The agents are intelligent. They make dec
 Every agent is modeled as a human equivalent:
 - **Paw** — The manager. Talks to the human, delegates work, reports progress. Does not write code.
 - **Developer** — A software engineer. Gets assigned to a project, gets a computer, maintains the codebase. Sets up its own harness. Writes code, runs tests, opens PRs, deploys.
-- **Scout** — A monitoring/triage specialist. Wakes up when alerts fire, diagnoses issues, hands real problems to Developer.
+- **SRE** — A monitoring/triage specialist. Wakes up when alerts fire, diagnoses issues, hands real problems to Developer.
 - **Evolution Agent** — A platform/tools engineer. Watches how other agents use their tools, identifies unmet intents (roundabout workarounds, missing capabilities, inefficiencies), and improves the tools and apps agents use.
 
 When a developer gets "hired," it's like a new employee getting a laptop, credentials, and project assignment. Everything is governed: what the computer can access, what credentials it has, what it's allowed to do.
@@ -55,11 +55,11 @@ Inspired by [Ramp's self-maintaining Sheets system](https://engineering.ramp.com
 2. **Ongoing monitor generation**: On every PR or change (by the agent or by human developers), new monitors are generated for the changed code. This is part of the harness — it's how the project stays covered.
 3. **Alert → Triage → Fix loop**:
    - Monitor fires → webhook hits OpenPaw → AlertCycle entity created
-   - Scout session wakes up, reads alert context, investigates
-   - If real issue: Scout creates a WorkCycle + PM Issue, Developer session picks it up, reproduces in sandbox, fixes, opens PR
-   - If noise: Scout tunes or deletes the monitor
+   - SRE session wakes up, reads alert context, investigates
+   - If real issue: SRE creates a WorkCycle + PM Issue, Developer session picks it up, reproduces in sandbox, fixes, opens PR
+   - If noise: SRE tunes or deletes the monitor
    - Dedup: If an active Issue already exists for this monitor, add context instead of duplicating
-4. **Observability platforms**: Logfire first (OpenTelemetry-native, developer-friendly), Datadog after (industry standard). Both support webhook-triggered alerts, so the integration pattern is the same.
+4. **Observability platforms**: Datadog first (OpenTelemetry-native, developer-friendly), Datadog after (industry standard). Both support webhook-triggered alerts, so the integration pattern is the same.
 
 ### Governed Shared State (Temper)
 
@@ -79,7 +79,7 @@ Per-agent, per-project, as granular as it gets. Examples:
 
 - "Developer on deep-sci-fi can open PRs without asking, but must ask before merging"
 - "Developer on deep-sci-fi can merge fixes for monitor-detected bugs, but must ask for feature work"
-- "Scout can tune monitors freely, but must notify me when escalating"
+- "SRE can tune monitors freely, but must notify me when escalating"
 
 This is Cedar policy under the hood. The slider adjusts what actions are auto-permitted vs. require human approval via Discord.
 
@@ -129,7 +129,7 @@ These agent-created apps are what the Evolution Agent watches and improves.
    │            │            │
    ▼            ▼            ▼
 ┌──────┐  ┌──────────┐  ┌──────────────┐
-│Scout │  │Developer  │  │Evolution     │
+│SRE │  │Developer  │  │Evolution     │
 │      │  │(per proj) │  │Agent         │
 │Triage│  │Code, test │  │Improve tools │
 │alerts│  │deploy, PR │  │Fix friction  │
@@ -144,7 +144,7 @@ These agent-created apps are what the Evolution Agent watches and improves.
    │           │
    ▼           ▼
 ┌──────────┐  ┌──────────────────────┐
-│Logfire/  │  │Sandboxes (E2B/Fly)   │
+│Datadog/  │  │Sandboxes (E2B/Fly)   │
 │Datadog   │  │Per-agent, governed   │
 │Monitors  │  │Isolated computers    │
 └──────────┘  └──────────────────────┘
@@ -157,13 +157,13 @@ The first demonstration of the full system:
 1. Human on Discord: "Manage deep-sci-fi for me"
 2. Paw creates a Developer agent, provisions sandbox, clones `arni-labs/deep-sci-fi`
 3. Developer bootstraps harness (Next.js frontend + Python backend conventions), human approves on Discord
-4. Developer bootstraps Logfire monitors across the codebase
+4. Developer bootstraps Datadog monitors across the codebase
 5. A real alert fires (or a human developer pushes a bad change)
-6. Scout wakes up, triages, creates Issue + WorkCycle
+6. SRE wakes up, triages, creates Issue + WorkCycle
 7. Developer reproduces the bug in sandbox, fixes it, opens PR
 8. Paw reports to human on Discord: "Found a bug, here's the PR"
 9. Human approves, Developer merges and monitors the deploy
-10. Scout confirms the alert is resolved, closes the AlertCycle
+10. SRE confirms the alert is resolved, closes the AlertCycle
 
 ## What Exists Today vs. Vision
 
@@ -171,15 +171,15 @@ The first demonstration of the full system:
 |---|---|---|
 | Single binary deploys to Railway | ✅ Done | None |
 | OS apps install at boot (7 apps) | ✅ Done | None |
-| Paw, Developer, Scout souls | ✅ Done | Evolution Agent soul missing |
+| Paw, Developer, SRE souls | ✅ Done | Evolution Agent soul missing |
 | OData API for all entities | ✅ Done | None |
 | Discord transport | ⚠️ Wired | Not re-proven end-to-end on this branch |
 | Paw orchestrates full flow via Discord | ❌ Not proven | Paw exists but hasn't driven the full loop |
 | Developer clones repo in E2B sandbox | ✅ Proven | Only clone milestone, not full remediation |
-| Scout → Developer → PR (self-heal) | ✅ Proven | Manually triggered with synthetic alert |
-| Webhook alert ingestion | ❌ Placeholder | `webhooks.rs` is empty |
-| Logfire monitor integration | ❌ Not implemented | Tool exists but not wired into alert loop |
-| Monitor generation (bootstrap + per-PR) | ❌ Not implemented | No MonitorScan spec or WASM |
+| SRE → Developer → PR (self-heal) | ✅ Proven | Manually triggered with synthetic alert |
+| Webhook alert ingestion | ✅ Implemented | Native Datadog + GitHub merge webhook paths exist; needs fresh end-to-end proof |
+| Datadog monitor integration | ⚠️ Partial | Datadog-backed monitor/query path exists, but monitor bootstrap and post-deploy verification are incomplete |
+| Monitor generation (bootstrap + per-PR) | ⚠️ Partial | `MonitorScan` spec exists, but full bootstrap automation is not yet proven |
 | Harness as Cedar-enforced policy | ⚠️ Partial | Entities work, Cedar policies are broad |
 | Persistent governed sandbox (Fly/E2B) | ❌ Specs only | No Computer WASM modules |
 | Computer governance (network, creds) | ❌ Not implemented | Cedar + sandbox config needed |
@@ -198,9 +198,9 @@ Ordered by what unblocks the demo scenario:
 1. **Discord end-to-end** — Prove Paw talks to human, human says "manage deep-sci-fi", flow starts
 2. **Paw orchestration** — Paw creates Developer, provisions sandbox, bootstraps project
 3. **Webhook ingestion** — Real `POST /webhooks/ingest` that creates AlertCycle entities
-4. **Logfire monitor bootstrap** — Developer generates monitors for existing codebase
-5. **Logfire alert → webhook** — Monitor fires, webhook hits OpenPaw, Scout triages
-6. **Scout → Developer → PR in E2B** — Full remediation in real sandbox (not local)
+4. **Datadog monitor bootstrap** — Developer generates monitors for existing codebase
+5. **Datadog alert → webhook** — Monitor fires, webhook hits OpenPaw, SRE triages
+6. **SRE → Developer → PR in a governed cloud sandbox** — Full remediation in a real remote sandbox (not local)
 7. **PM integration** — Alert triage creates Issues, visible in PM
 8. **Harness enforcement** — Cedar policies that actually block non-compliant actions
 9. **Paw proactive reporting** — Paw messages human on Discord with status updates
@@ -211,5 +211,5 @@ Post-demo priorities:
 - Agent-created Temper apps
 - Full CI/CD closure (merge → deploy → verify)
 - Persistent governed sandbox (Fly Sprites)
-- Datadog integration (after Logfire)
+- Modal sandbox integration
 - Multi-project management

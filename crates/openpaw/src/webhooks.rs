@@ -22,7 +22,7 @@ use tokio::time::sleep;
 type HmacSha256 = Hmac<Sha256>;
 
 const DEFAULT_AGENT_MODEL: &str = "claude-sonnet-4-20250514";
-const DEFAULT_SCOUT_WORKDIR: &str = "/tmp/openpaw-scout-webhook";
+const DEFAULT_SRE_WORKDIR: &str = "/tmp/openpaw-sre-webhook";
 const DEFAULT_DEVELOPER_WORKDIR: &str = "/tmp/openpaw-self-heal";
 
 #[derive(Clone, Debug)]
@@ -66,7 +66,7 @@ struct WebhookIngestResponse {
     duplicate: bool,
     monitor_id: Option<String>,
     alert_cycle_id: Option<String>,
-    scout_agent_id: Option<String>,
+    sre_agent_id: Option<String>,
     work_cycle_id: Option<String>,
 }
 
@@ -313,8 +313,7 @@ async fn ingest_webhook(
             .map_err(|error| ApiError::unauthorized(error.to_string()))?;
     }
 
-    let envelope: WebhookPayload = serde_json::from_slice(&body)
-        .map_err(|error| ApiError::bad_request(format!("invalid webhook JSON: {error}")))?;
+    let envelope = normalize_webhook_envelope(&headers, &body)?;
 
     let response = match envelope.event_type.as_str() {
         "pull_request.merged" => handle_github_merge(&state, &envelope).await,
@@ -344,14 +343,28 @@ async fn handle_alert_ingest(
         .context("monitor create/query did not return an entity id")?
         .to_string();
 
+    if is_datadog_recovery_payload(envelope) {
+        let outcome = resolve_recovered_alert_cycle(state, &monitor_id, &envelope.payload).await?;
+        return Ok(WebhookIngestResponse {
+            accepted: true,
+            outcome,
+            message: "Datadog recovery payload processed".to_string(),
+            duplicate: false,
+            monitor_id: Some(monitor_id),
+            alert_cycle_id: None,
+            sre_agent_id: None,
+            work_cycle_id: None,
+        });
+    }
+
     if let Some(existing) =
         find_duplicate_alert_cycle(state, &monitor_id, &canonical_payload).await?
     {
         let alert_cycle_id = entity_id(&existing)
             .context("duplicate alert cycle missing entity id")?
             .to_string();
-        let scout_agent_id =
-            entity_field_str(&existing, &["scout_agent_id", "ScoutAgentId"]).map(ToOwned::to_owned);
+        let sre_agent_id =
+            entity_field_str(&existing, &["sre_agent_id", "SreAgentId"]).map(ToOwned::to_owned);
         return Ok(WebhookIngestResponse {
             accepted: true,
             outcome: "duplicate_alert".to_string(),
@@ -359,7 +372,7 @@ async fn handle_alert_ingest(
             duplicate: true,
             monitor_id: Some(monitor_id),
             alert_cycle_id: Some(alert_cycle_id),
-            scout_agent_id,
+            sre_agent_id,
             work_cycle_id: None,
         });
     }
@@ -369,7 +382,7 @@ async fn handle_alert_ingest(
         .context("alert cycle creation did not return an entity id")?
         .to_string();
     let alert_context = resolve_alert_context(state, &envelope.payload).await?;
-    let scout_agent_id = match spawn_scout_agent(
+    let sre_agent_id = match spawn_sre_agent(
         state,
         &monitor_id,
         &alert_cycle_id,
@@ -380,7 +393,7 @@ async fn handle_alert_ingest(
     {
         Ok(agent_id) => agent_id,
         Err(error) => {
-            tracing::warn!(%error, monitor_id, alert_cycle_id, "webhook alert will remain open without auto-spawned scout");
+            tracing::warn!(%error, monitor_id, alert_cycle_id, "webhook alert will remain open without auto-spawned SRE");
             None
         }
     };
@@ -404,20 +417,20 @@ async fn handle_alert_ingest(
             json!({
                 "monitor_id": monitor_id,
                 "alert_payload": canonical_payload,
-                "scout_agent_id": scout_agent_id.clone().unwrap_or_default(),
+                "sre_agent_id": sre_agent_id.clone().unwrap_or_default(),
             }),
         )
         .await?;
 
-    if let Some(scout_agent_id) = scout_agent_id.clone() {
+    if let Some(sre_agent_id) = sre_agent_id.clone() {
         state
             .odata
-            .dispatch_action("Agents", &scout_agent_id, "OpenPaw.Provision", json!({}))
+            .dispatch_action("Agents", &sre_agent_id, "OpenPaw.Provision", json!({}))
             .await?;
-        spawn_scout_completion_watcher(
+        spawn_sre_completion_watcher(
             state.clone(),
             alert_cycle_id.clone(),
-            scout_agent_id.clone(),
+            sre_agent_id.clone(),
             alert_context.project_harness_id.clone(),
             alert_context.repo_url.clone(),
             alert_context.report_target.clone(),
@@ -431,7 +444,7 @@ async fn handle_alert_ingest(
         duplicate: false,
         monitor_id: Some(monitor_id),
         alert_cycle_id: Some(alert_cycle_id),
-        scout_agent_id,
+        sre_agent_id,
         work_cycle_id: None,
     })
 }
@@ -504,7 +517,7 @@ async fn handle_github_merge(
         duplicate: false,
         monitor_id: None,
         alert_cycle_id: None,
-        scout_agent_id: None,
+        sre_agent_id: None,
         work_cycle_id: Some(work_cycle_id),
     })
 }
@@ -534,7 +547,7 @@ async fn resolve_or_create_monitor(
                     &monitor_id,
                     "OpenPaw.Heal.Configure",
                     json!({
-                        "logfire_query": extract_string(payload, &["logfire_query", "query"]).unwrap_or(monitor_key),
+                        "dd_query": extract_string(payload, &["dd_query", "query"]).unwrap_or(monitor_key),
                         "threshold": extract_string(payload, &["threshold"]).unwrap_or("1"),
                         "dd_monitor_id": monitor_key,
                     }),
@@ -560,7 +573,7 @@ async fn resolve_or_create_monitor(
             &monitor_id,
             "OpenPaw.Heal.Configure",
             json!({
-                "logfire_query": extract_string(payload, &["logfire_query", "query"]).unwrap_or(monitor_key),
+                "dd_query": extract_string(payload, &["dd_query", "query"]).unwrap_or(monitor_key),
                 "threshold": extract_string(payload, &["threshold"]).unwrap_or("1"),
                 "dd_monitor_id": monitor_key,
             }),
@@ -636,15 +649,18 @@ async fn resolve_alert_context(state: &WebhookState, payload: &Value) -> Result<
         developer_workdir: extract_string(payload, &["developer_workdir", "workdir"])
             .unwrap_or(DEFAULT_DEVELOPER_WORKDIR)
             .to_string(),
-        severity: extract_string(payload, &["severity"]).map(ToOwned::to_owned),
-        summary: extract_string(payload, &["summary", "title"]).map(ToOwned::to_owned),
+        severity: extract_string(payload, &["severity", "priority"]).map(ToOwned::to_owned),
+        summary: extract_string(payload, &["summary", "title", "name", "event_title"])
+            .map(ToOwned::to_owned),
         failure: extract_string(
             payload,
             &[
                 "reproduction.failure",
                 "failure",
                 "error.message",
+                "body",
                 "message",
+                "text",
             ],
         )
         .map(ToOwned::to_owned),
@@ -687,7 +703,7 @@ async fn find_project_harness(
         .next())
 }
 
-async fn spawn_scout_agent(
+async fn spawn_sre_agent(
     state: &WebhookState,
     monitor_id: &str,
     alert_cycle_id: &str,
@@ -698,17 +714,17 @@ async fn spawn_scout_agent(
         return Ok(None);
     };
 
-    let active_scout = state
+    let active_sre = state
         .odata
         .query_entities(
             "Souls",
-            Some("Name eq 'Scout' and Status eq 'Active'"),
+            Some("Name eq 'SRE' and Status eq 'Active'"),
             Some("sequence_nr desc"),
             Some(1),
         )
         .await?;
-    if active_scout.is_empty() {
-        bail!("Scout soul is not active yet");
+    if active_sre.is_empty() {
+        bail!("SRE soul is not active yet");
     }
 
     let agent = state.odata.create_entity("Agents", json!({})).await?;
@@ -716,7 +732,7 @@ async fn spawn_scout_agent(
         .context("agent creation did not return an entity id")?
         .to_string();
 
-    let scout_message = build_scout_message(
+    let sre_message = build_sre_message(
         project_harness_id,
         monitor_id,
         alert_cycle_id,
@@ -734,10 +750,10 @@ async fn spawn_scout_agent(
                 "provider": "anthropic",
                 "max_turns": "80",
                 "tools_enabled": "temper_get,temper_list,temper_action,temper_create,spawn_agent,read_entity",
-                "workdir": DEFAULT_SCOUT_WORKDIR,
-                "soul_id": "Scout",
+                "workdir": DEFAULT_SRE_WORKDIR,
+                "soul_id": "SRE",
                 "temper_api_url": state.odata.base_url.clone(),
-                "user_message": scout_message,
+                "user_message": sre_message,
             }),
         )
         .await?;
@@ -745,25 +761,25 @@ async fn spawn_scout_agent(
     Ok(Some(agent_id))
 }
 
-fn spawn_scout_completion_watcher(
+fn spawn_sre_completion_watcher(
     state: WebhookState,
     alert_cycle_id: String,
-    scout_agent_id: String,
+    sre_agent_id: String,
     project_harness_id: Option<String>,
     repo_url: Option<String>,
     report_target: Option<ReportTarget>,
 ) {
     tokio::spawn(async move {
         let run = async {
-            let scout_terminal = state
+            let sre_terminal = state
                 .odata
-                .wait_for_agent_terminal(&scout_agent_id, Duration::from_secs(20 * 60))
+                .wait_for_agent_terminal(&sre_agent_id, Duration::from_secs(20 * 60))
                 .await?;
-            converge_alert_cycle_after_scout_terminal(
+            converge_alert_cycle_after_sre_terminal(
                 &state,
                 &alert_cycle_id,
-                &scout_agent_id,
-                &scout_terminal,
+                &sre_agent_id,
+                &sre_terminal,
             )
             .await?;
             let Some(report_target) = report_target.as_ref() else {
@@ -778,7 +794,7 @@ fn spawn_scout_completion_watcher(
             let issue = find_latest_issue_for_alert(&state, &alert_cycle_id).await?;
             let content = build_proactive_summary(
                 &alert_cycle_id,
-                &scout_agent_id,
+                &sre_agent_id,
                 repo_url.as_deref(),
                 &alert_cycle,
                 work_cycle.as_ref(),
@@ -793,7 +809,7 @@ fn spawn_scout_completion_watcher(
                     json!({
                         "thread_id": report_target.thread_id,
                         "content": content,
-                        "agent_entity_id": scout_agent_id,
+                        "agent_entity_id": sre_agent_id,
                     }),
                 )
                 .await?;
@@ -801,19 +817,19 @@ fn spawn_scout_completion_watcher(
         };
 
         if let Err(error) = run.await {
-            tracing::warn!(%error, alert_cycle_id, scout_agent_id, "failed to converge scout-driven alert cycle");
+            tracing::warn!(%error, alert_cycle_id, sre_agent_id, "failed to converge sre-driven alert cycle");
         }
     });
 }
 
-async fn converge_alert_cycle_after_scout_terminal(
+async fn converge_alert_cycle_after_sre_terminal(
     state: &WebhookState,
     alert_cycle_id: &str,
-    scout_agent_id: &str,
-    scout_terminal: &Value,
+    sre_agent_id: &str,
+    sre_terminal: &Value,
 ) -> Result<()> {
-    let scout_status = entity_status(scout_terminal);
-    if !matches!(scout_status.as_deref(), Some("Failed" | "Cancelled")) {
+    let sre_status = entity_status(sre_terminal);
+    if !matches!(sre_status.as_deref(), Some("Failed" | "Cancelled")) {
         return Ok(());
     }
 
@@ -825,7 +841,7 @@ async fn converge_alert_cycle_after_scout_terminal(
         return Ok(());
     }
 
-    let diagnosis = build_scout_failure_diagnosis(scout_terminal, scout_agent_id);
+    let diagnosis = build_sre_failure_diagnosis(sre_terminal, sre_agent_id);
     state
         .odata
         .dispatch_action(
@@ -848,21 +864,21 @@ async fn wait_for_alert_cycle_terminal(
             .get_entity("AlertCycles", alert_cycle_id)
             .await?;
         match entity_status(&alert_cycle).as_deref() {
-            Some("Fixed" | "Tuned" | "Failed") => return Ok(alert_cycle),
+            Some("Fixed" | "Resolved" | "Tuned" | "Failed") => return Ok(alert_cycle),
             _ => sleep(Duration::from_secs(5)).await,
         }
     }
     state.odata.get_entity("AlertCycles", alert_cycle_id).await
 }
 
-fn build_scout_failure_diagnosis(scout_terminal: &Value, scout_agent_id: &str) -> String {
-    let scout_status = entity_status(scout_terminal).unwrap_or_else(|| "Unknown".to_string());
+fn build_sre_failure_diagnosis(sre_terminal: &Value, sre_agent_id: &str) -> String {
+    let sre_status = entity_status(sre_terminal).unwrap_or_else(|| "Unknown".to_string());
     let error = entity_field_str(
-        scout_terminal,
+        sre_terminal,
         &["error_message", "ErrorMessage", "error", "Error"],
     )
-    .unwrap_or("Scout agent terminated before it could classify or remediate the alert.");
-    format!("Scout agent {scout_agent_id} ended in {scout_status}: {error}")
+    .unwrap_or("SRE agent terminated before it could classify or remediate the alert.");
+    format!("SRE agent {sre_agent_id} ended in {sre_status}: {error}")
 }
 
 async fn latest_work_cycle(
@@ -976,7 +992,7 @@ async fn resolve_channel_entity_id(
         .and_then(|channel| entity_id(&channel).map(ToOwned::to_owned)))
 }
 
-fn build_scout_message(
+fn build_sre_message(
     project_harness_id: &str,
     monitor_id: &str,
     alert_cycle_placeholder: &str,
@@ -991,7 +1007,7 @@ fn build_scout_message(
     {
         format!("- pass `sandbox_url = {sandbox_url}` through to the Developer child agent")
     } else {
-        "- do not invent a sandbox URL; let platform provisioning use the configured default (local or E2B)".to_string()
+        "- do not invent a sandbox URL; let platform provisioning use the configured default sandbox".to_string()
     };
     let priority_hint = match context.severity.as_deref() {
         Some("critical" | "sev0" | "sev1") => "1",
@@ -1034,8 +1050,9 @@ Required workflow:\n\
 6. Give the Developer a precise remediation task:\n\
 - clone {repo_url}\n\
 - reproduce the issue from the alert payload with a bounded command such as `timeout 120 npm ci` when the failing command is `npm ci`\n\
-- apply the smallest safe fix\n\
+- after the first failed reproduction, move directly to the smallest safe fix; do not spend turns on lockfile greps, git history, or broad package surveys when the missing packages are already listed in the alert\n\
 - if the issue looks like dependency or lockfile drift and a full install hangs, times out, or is killed, do not loop on it; instead remove `node_modules` and use a bounded lockfile refresh such as `timeout 120 npm install --package-lock-only --ignore-scripts --no-fund --no-audit`\n\
+- when the alert already identifies the missing packages, treat that as the working diagnosis and repair the lockfile directly on the next step; prefer the bounded lockfile refresh command above or a bounded install of the named packages, and do not spend turns on `git log`, lockfile grep, broad package surveys, or history archaeology unless that direct repair attempt fails\n\
    - run at least one concrete validation command\n\
    - commit, push, and open a PR if code changed\n\
    - use the GitHub REST API via `curl` if `gh` is unavailable\n\
@@ -1060,7 +1077,7 @@ ISSUE_ID=<id or empty>\n",
 
 fn build_proactive_summary(
     alert_cycle_id: &str,
-    scout_agent_id: &str,
+    sre_agent_id: &str,
     repo_url: Option<&str>,
     alert_cycle: &Value,
     work_cycle: Option<&Value>,
@@ -1089,7 +1106,7 @@ fn build_proactive_summary(
     let mut lines = vec![
         "Open Paw self-heal update".to_string(),
         format!("AlertCycle: {alert_cycle_id} ({alert_status})"),
-        format!("Scout: {scout_agent_id}"),
+        format!("SRE: {sre_agent_id}"),
         work_cycle_line,
         issue_line,
     ];
@@ -1129,6 +1146,125 @@ fn map_handler_error(error: anyhow::Error) -> ApiError {
     }
 }
 
+fn normalize_webhook_envelope(headers: &HeaderMap, body: &[u8]) -> Result<WebhookPayload, ApiError> {
+    let raw: Value = serde_json::from_slice(body)
+        .map_err(|error| ApiError::bad_request(format!("invalid webhook JSON: {error}")))?;
+
+    if raw.get("source").is_some() && raw.get("event_type").is_some() && raw.get("payload").is_some()
+    {
+        return serde_json::from_value(raw)
+            .map_err(|error| ApiError::bad_request(format!("invalid webhook envelope: {error}")));
+    }
+
+    if is_datadog_payload(&raw) {
+        return Ok(WebhookPayload {
+            source: "datadog".to_string(),
+            event_type: if is_datadog_recovered_value(&raw) {
+                "alert_recovered".to_string()
+            } else {
+                "alert_fired".to_string()
+            },
+            payload: raw,
+        });
+    }
+
+    if headers
+        .get("x-github-event")
+        .and_then(|value| value.to_str().ok())
+        == Some("pull_request")
+        && raw
+            .get("action")
+            .and_then(Value::as_str)
+            .is_some_and(|value| value == "closed")
+        && raw
+            .get("pull_request")
+            .and_then(|value| value.get("merged"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+    {
+        return Ok(WebhookPayload {
+            source: "github".to_string(),
+            event_type: "pull_request.merged".to_string(),
+            payload: raw,
+        });
+    }
+
+    Err(ApiError::bad_request(
+        "invalid webhook payload: expected an Open Paw envelope or a supported Datadog/GitHub webhook body",
+    ))
+}
+
+fn is_datadog_payload(value: &Value) -> bool {
+    value.get("org").and_then(|org| org.get("id")).is_some()
+        || value.get("alert_transition").is_some()
+        || value.get("alert_type").is_some()
+}
+
+fn is_datadog_recovered_value(value: &Value) -> bool {
+    extract_string(value, &["alert_transition"])
+        .map(|transition| transition.eq_ignore_ascii_case("Recovered"))
+        .unwrap_or(false)
+}
+
+fn is_datadog_recovery_payload(envelope: &WebhookPayload) -> bool {
+    envelope.source.eq_ignore_ascii_case("datadog")
+        && (envelope.event_type.eq_ignore_ascii_case("alert_recovered")
+            || is_datadog_recovered_value(&envelope.payload))
+}
+
+async fn resolve_recovered_alert_cycle(
+    state: &WebhookState,
+    monitor_id: &str,
+    payload: &Value,
+) -> Result<String> {
+    let filter = format!("monitor_id eq '{}'", escape_odata_string(monitor_id));
+    let candidates = state
+        .odata
+        .query_entities(
+            "AlertCycles",
+            Some(&filter),
+            Some("sequence_nr desc"),
+            Some(25),
+        )
+        .await?;
+
+    let Some(active_cycle) = candidates.into_iter().find(|candidate| {
+        matches!(
+            entity_status(candidate).as_deref(),
+            Some("Triaging" | "Fixed" | "Merging" | "Deploying" | "Verifying")
+        )
+    }) else {
+        return Ok("recovery_without_active_cycle".to_string());
+    };
+
+    let alert_cycle_id = entity_id(&active_cycle)
+        .context("active recovered AlertCycle missing entity id")?
+        .to_string();
+    let status = entity_status(&active_cycle).unwrap_or_default();
+    let diagnosis = format!(
+        "Datadog monitor recovered: {}",
+        extract_string(payload, &["text", "title", "event_title"])
+            .unwrap_or("monitor returned to normal")
+    );
+
+    let Some(action) = (match status.as_str() {
+        "Fixed" | "Verifying" => Some("OpenPaw.Heal.AlertResolved"),
+        _ => None,
+    }) else {
+        return Ok("recovery_waiting_for_verification".to_string());
+    };
+    state
+        .odata
+        .dispatch_action(
+            "AlertCycles",
+            &alert_cycle_id,
+            action,
+            json!({ "diagnosis": diagnosis }),
+        )
+        .await?;
+    Ok("alert_resolved".to_string())
+}
+
 fn entity_id(value: &Value) -> Option<&str> {
     value
         .get("entity_id")
@@ -1161,6 +1297,7 @@ fn extract_monitor_key(payload: &Value) -> Option<String> {
     extract_string(
         payload,
         &[
+            "id",
             "monitor_id",
             "dd_monitor_id",
             "monitor.id",

@@ -2,7 +2,7 @@
 
 [automaton]
 name = "AlertCycle"
-states = ["Created", "Triaging", "Fixed", "Tuned", "Failed"]
+states = ["Created", "Triaging", "Fixed", "Merging", "Deploying", "Verifying", "Resolved", "Tuned", "Failed"]
 initial = "Created"
 
 [[state]]
@@ -26,7 +26,7 @@ type = "string"
 initial = ""
 
 [[state]]
-name = "scout_agent_id"
+name = "sre_agent_id"
 type = "string"
 initial = ""
 
@@ -40,13 +40,23 @@ name = "tuning_notes"
 type = "string"
 initial = ""
 
+[[state]]
+name = "merge_sha"
+type = "string"
+initial = ""
+
+[[state]]
+name = "deployment_url"
+type = "string"
+initial = ""
+
 [[action]]
 name = "Open"
 kind = "input"
 from = ["Created"]
 to = "Triaging"
-params = ["monitor_id", "alert_payload", "scout_agent_id"]
-hint = "Open a triage cycle and optionally attach the scout agent responsible for diagnosis."
+params = ["monitor_id", "alert_payload", "sre_agent_id"]
+hint = "Open a triage cycle and optionally attach the SRE agent responsible for diagnosis."
 
 [[action]]
 name = "HealComplete"
@@ -55,6 +65,46 @@ from = ["Triaging"]
 to = "Fixed"
 params = ["diagnosis", "pr_url", "developer_agent_id"]
 hint = "Mark the alert as fixed and record the remediation PR."
+
+[[action]]
+name = "BeginMerge"
+kind = "input"
+from = ["Fixed"]
+to = "Merging"
+params = ["pr_url"]
+hint = "Begin the merge phase after a fix PR is ready."
+
+[[action]]
+name = "MergeComplete"
+kind = "input"
+from = ["Merging"]
+to = "Deploying"
+params = ["merge_sha"]
+hint = "Record the merge SHA and transition into deployment tracking."
+
+[[action]]
+name = "DeployDetected"
+kind = "input"
+from = ["Deploying"]
+to = "Verifying"
+params = ["deployment_url"]
+hint = "Record the deployment target that should be verified after merge."
+
+[[action]]
+name = "AlertResolved"
+kind = "input"
+from = ["Fixed", "Verifying"]
+to = "Resolved"
+params = ["diagnosis"]
+hint = "Mark the alert resolved after post-deploy verification succeeds."
+
+[[action]]
+name = "AlertPersists"
+kind = "input"
+from = ["Fixed", "Verifying"]
+to = "Failed"
+params = ["diagnosis"]
+hint = "Mark the alert failed after deployment when the signal still persists."
 
 [[action]]
 name = "TuneComplete"
@@ -73,8 +123,8 @@ params = ["diagnosis"]
 hint = "Escalate when the loop cannot safely remediate the issue."
 
 [[invariant]]
-name = "FixedIsFinal"
-when = ["Fixed"]
+name = "ResolvedIsFinal"
+when = ["Resolved"]
 assert = "no_further_transitions"
 
 [[invariant]]
