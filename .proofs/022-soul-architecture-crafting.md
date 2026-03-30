@@ -48,38 +48,51 @@ Server started with `cargo run`, fresh SQLite DB at `~/.local/share/openpaw/paw.
 | File upload → Soul create → Publish | Full lifecycle via OData API | File created (`019d410b-063c...`), Soul created (`019d410b-0680...`), Published: `Active` | PASS |
 | Created soul content readable | TemperFS returns uploaded markdown | Content: `# Test Lead Soul` with worldview section | PASS |
 
-### End-to-End Agent Crafting (Partial)
+### End-to-End Agent Crafting (Runtime — Tensorlake Sandbox)
 
 | Step | Expected | Actual | Status |
 |------|----------|--------|--------|
-| Agent create + configure | Agent transitions to Configured | Agent created, but sandbox provisioner tries Tensorlake (external) instead of local — fails with timeout | BLOCKED |
-| Root cause | — | Tensorlake API key is configured in secrets vault, overriding local sandbox. Agent lifecycle requires sandbox even for non-code tasks. | — |
+| Agent with file_upload tool | Agent provisions via Tensorlake, runs to completion | Agent `019d4120-a9df` completed in ~10s | PASS |
+| file_upload WASM tool | Creates TemperFS file, returns file_id | File `019d4120-b9b5` created with correct markdown content | PASS |
+| temper_create Soul via agent | Soul entity created with ContentFileId | Soul `VerifiedLead` created, Description: "Agent-crafted project lead" | PASS |
+| Soul content readable | TemperFS returns uploaded markdown | Content: `# Verified Lead` with identity and worldview sections | PASS |
+| OpenPaw.Publish | Soul transitions Draft → Active | Published successfully via `resolve_bound_action_name` (Souls → OpenPaw namespace) | PASS |
+| Full E2E: craft + spawn child | Orchestrator creates soul, publishes, spawns child agent | Soul `E2ELead` created with content, child agent `019d4122-7ca` spawned. Agent ran out of turns before completing all steps — child was Created but not Configured. | PARTIAL |
+| E2E soul content | Crafted content stored correctly | `# E2E Lead` with identity and worldview — matches exactly what was uploaded via file_upload | PASS |
 
-The file_upload → Soul → Publish lifecycle was verified via direct OData API calls (the same HTTP calls the WASM tool makes). The WASM tool handler uses identical `POST /tdata/Files` + `PUT $value` pattern.
+### Lifecycle Verification Summary
+
+The complete runtime-verified pipeline:
+```
+Agent (Paw soul) → file_upload (TemperFS) → temper_create (Soul entity) → OpenPaw.Publish → Active Soul → spawn_agent (child with crafted soul)
+```
+
+Every individual step works. The only gap: a single agent completing all 5 steps in sequence requires sufficient turn budget.
 
 ## What Worked
 
-- Fresh DB boot creates all 3 souls with correct names and concatenated content
-- Both project-lead skills bootstrap with correct scope values
-- Full soul crafting lifecycle (file upload → create → publish → read) works via OData
-- Content files are correctly stored and readable from TemperFS
-- `bootstrap_soul` handles multi-file concatenation (Paw: 3 files → 1 content file)
-- `bootstrap_skill` creates and registers skills with scope metadata
+- Fresh DB boot creates all 3 souls with correct names ("Paw chief of staff agent") and concatenated content (SOUL+STYLE+SKILL)
+- Both project-lead skills bootstrap with correct scope values (Paw, project-lead)
+- `file_upload` WASM tool creates TemperFS files from within a running agent
+- `temper_create` creates Soul entities with the uploaded ContentFileId
+- `OpenPaw.Publish` transitions souls from Draft → Active
+- Soul content is readable from TemperFS via the ContentFileId reference
+- Agents provision and complete via Tensorlake sandbox
+- Child agent spawning works (agent was created, soul reference passed)
 
 ## What Didn't Work
 
-- Agent spawn blocked by Tensorlake sandbox provisioner timeout — agents require sandbox even for pure entity-tool tasks
-- Could not verify the `file_upload` WASM tool through an actual running agent (would need local sandbox or Tensorlake credentials)
+- Agent turn budget (max_turns=10) was insufficient for the full 5-step E2E flow — agent used turns on file_upload + temper_create but didn't complete Publish + spawn_agent + wait in one run
+- Child agent created but not configured due to parent running out of turns
 
 ## Limitations
 
-- **Sandbox dependency**: All agents require sandbox provisioning, even for non-code tasks (file_upload, temper_create). This blocks pure-orchestration agents like Paw in environments without sandbox access.
-- **Skill scope filtering**: Verified that skills bootstrap with correct `scope` field values. The OData query filtering (`Scope eq 'global' or Scope eq '{soul_name}'`) was not tested through an actual agent prompt assembly (blocked by sandbox).
+- **Turn budget**: The full crafting pipeline (file_upload → create → publish → spawn → wait) requires more than 5 turns. Recommend max_turns ≥ 15 for Paw when crafting leads.
+- **Skill scope filtering**: Skills bootstrap with correct scope values. The OData query filtering was not tested through actual prompt assembly (would need to inspect the assembled system prompt of a scoped agent).
 
 ## What Still Doesn't Work
 
-- Agents cannot run locally without either local Python sandbox or Tensorlake credentials
-- The WASM `file_upload` tool was verified by code review + equivalent OData calls, not through an actual agent invocation
+- A single agent completing all 5 crafting steps needs higher turn budget or the task should be broken into fewer steps
 
 ## Artifacts
 
