@@ -112,7 +112,17 @@ impl ODataClient {
     }
 
     async fn action(&self, entity_set: &str, id: &str, action: &str, body: &Value) -> anyhow::Result<Value> {
-        let path = format!("{entity_set}('{id}')/{action}");
+        // OData bound actions require the fully qualified namespace.
+        // Map entity set → namespace prefix.
+        let ns = match entity_set {
+            "Monitors" | "AlertCycles" | "MonitorScans" => "OpenPaw.Heal",
+            "ProjectHarnesses" | "WorkCycles" => "OpenPaw.Harness",
+            "Agents" | "Souls" => "OpenPaw",
+            "Issues" | "Plans" => "Paw.PM",
+            "Channels" | "AgentRoutes" | "ChannelSessions" => "Paw.Channel",
+            _ => "OpenPaw",
+        };
+        let path = format!("{entity_set}('{id}')/{ns}.{action}");
         let resp = self.build_request(reqwest::Method::POST, &path)
             .json(body)
             .send()
@@ -637,7 +647,7 @@ async fn spawn_sre_agent(
     })).await?;
 
     // Provision the agent
-    state.odata.action("Agents", &agent_id, "OpenPaw.Provision", &json!({})).await?;
+    state.odata.action("Agents", &agent_id, "Provision", &json!({})).await?;
 
     tracing::info!("SRE agent {agent_id} spawned for AlertCycle {alert_cycle_id}");
     Ok(agent_id)
