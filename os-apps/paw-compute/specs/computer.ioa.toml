@@ -1,0 +1,157 @@
+# Computer — Persistent cloud VM for developer agents.
+#
+# A Computer represents a long-lived Linux VM (e.g., Fly.io Sprite)
+# that an agent uses as its development environment. The VM persists
+# across agent runs — code, dependencies, and state survive restarts.
+#
+# Lifecycle: Created → Provisioning → Ready ↔ Sleeping → Destroyed
+#            Ready → Checkpointing → Ready (checkpoint in place)
+
+[automaton]
+name = "Computer"
+initial_state = "Created"
+
+[states]
+Created = {}
+Provisioning = {}
+Ready = {}
+Checkpointing = {}
+Sleeping = {}
+Destroyed = { final = true }
+
+# -- State variables ----------------------------------------------------------
+
+[state_variables]
+name = { type = "String", default = "" }
+description = { type = "String", default = "" }
+provider = { type = "String", default = "tensorlake" }  # tensorlake, sprites, ssh
+
+# Machine identity
+machine_id = { type = "String", default = "" }
+sandbox_url = { type = "String", default = "" }
+ssh_host = { type = "String", default = "" }
+
+# Spec
+cpu_cores = { type = "Int32", default = 2 }
+memory_gb = { type = "Int32", default = 4 }
+storage_gb = { type = "Int32", default = 100 }
+base_image = { type = "String", default = "ubuntu-24.04" }
+setup_script = { type = "String", default = "" }
+
+# Lifecycle tracking
+last_checkpoint_at = { type = "String", default = "" }
+provisioned_at = { type = "String", default = "" }
+error_message = { type = "String", default = "" }
+
+# -- Actions -------------------------------------------------------------------
+
+[[action]]
+name = "Configure"
+from = ["Created"]
+to = "Created"
+params = [
+    { name = "name", type = "String" },
+    { name = "description", type = "String", optional = true },
+    { name = "provider", type = "String", optional = true },
+    { name = "cpu_cores", type = "Int32", optional = true },
+    { name = "memory_gb", type = "Int32", optional = true },
+    { name = "storage_gb", type = "Int32", optional = true },
+    { name = "base_image", type = "String", optional = true },
+    { name = "setup_script", type = "String", optional = true },
+]
+effects = [
+    "name := params.name",
+    "description := params.description ?? state.description",
+    "provider := params.provider ?? state.provider",
+    "cpu_cores := params.cpu_cores ?? state.cpu_cores",
+    "memory_gb := params.memory_gb ?? state.memory_gb",
+    "storage_gb := params.storage_gb ?? state.storage_gb",
+    "base_image := params.base_image ?? state.base_image",
+    "setup_script := params.setup_script ?? state.setup_script",
+]
+
+[[action]]
+name = "Provision"
+from = ["Created"]
+to = "Provisioning"
+params = []
+
+[action.integration]
+type = "wasm"
+module = "provision_computer"
+
+[[action]]
+name = "ProvisionComplete"
+from = ["Provisioning"]
+to = "Ready"
+params = [
+    { name = "machine_id", type = "String" },
+    { name = "sandbox_url", type = "String" },
+    { name = "ssh_host", type = "String", optional = true },
+]
+effects = [
+    "machine_id := params.machine_id",
+    "sandbox_url := params.sandbox_url",
+    "ssh_host := params.ssh_host ?? state.ssh_host",
+    "provisioned_at := now()",
+]
+
+[[action]]
+name = "ProvisionFailed"
+from = ["Provisioning"]
+to = "Created"
+params = [
+    { name = "error_message", type = "String" },
+]
+effects = [
+    "error_message := params.error_message",
+]
+
+[[action]]
+name = "Checkpoint"
+from = ["Ready"]
+to = "Checkpointing"
+params = []
+
+[action.integration]
+type = "wasm"
+module = "checkpoint_computer"
+
+[[action]]
+name = "CheckpointComplete"
+from = ["Checkpointing"]
+to = "Ready"
+params = []
+effects = [
+    "last_checkpoint_at := now()",
+]
+
+[[action]]
+name = "Sleep"
+from = ["Ready"]
+to = "Sleeping"
+params = []
+
+[action.integration]
+type = "wasm"
+module = "sleep_computer"
+
+[[action]]
+name = "Wake"
+from = ["Sleeping"]
+to = "Provisioning"
+params = []
+
+[action.integration]
+type = "wasm"
+module = "wake_computer"
+
+[[action]]
+name = "Destroy"
+from = ["Ready", "Sleeping", "Created"]
+to = "Destroyed"
+params = []
+
+[action.integration]
+type = "wasm"
+module = "destroy_computer"

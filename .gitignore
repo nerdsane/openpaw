@@ -1,0 +1,10 @@
+/target
+**/target/
+Cargo.lock
+**/Cargo.lock
+**/__pycache__/
+os-apps/**/*.wasm
+.env
+*.swp
+*.swo
+.DS_Store

@@ -1,0 +1,82 @@
+# WebhookRoute — Configuration entity mapping route keys to target entities.
+#
+# Each route defines how a specific webhook source is validated and
+# which entity + action receives the normalized payload.
+
+[automaton]
+name = "WebhookRoute"
+states = ["Active", "Disabled"]
+initial = "Active"
+
+[[state]]
+name = "route_key"
+type = "string"
+initial = ""
+
+[[state]]
+name = "source_type"
+type = "string"
+initial = ""
+
+[[state]]
+name = "event_filter"
+type = "string"
+initial = ""
+
+[[state]]
+name = "target_entity_type"
+type = "string"
+initial = ""
+
+[[state]]
+name = "target_action"
+type = "string"
+initial = ""
+
+[[state]]
+name = "webhook_secret"
+type = "string"
+initial = ""
+
+[[state]]
+name = "monitor_resolution_enabled"
+type = "string"
+initial = "false"
+
+[[state]]
+name = "dedup_enabled"
+type = "string"
+initial = "false"
+
+[[state]]
+name = "dedup_window_minutes"
+type = "string"
+initial = "60"
+
+[[action]]
+name = "Register"
+kind = "input"
+from = ["Active"]
+params = ["route_key", "source_type", "event_filter", "target_entity_type", "target_action", "webhook_secret", "monitor_resolution_enabled", "dedup_enabled", "dedup_window_minutes"]
+hint = "Register or fully configure a webhook route."
+
+[[action]]
+name = "Update"
+kind = "input"
+from = ["Active"]
+params = ["event_filter", "target_action", "webhook_secret", "monitor_resolution_enabled", "dedup_enabled", "dedup_window_minutes"]
+hint = "Update mutable fields on an active route."
+
+[[action]]
+name = "Disable"
+kind = "input"
+from = ["Active"]
+to = "Disabled"
+hint = "Disable the route so incoming webhooks are no longer matched."
+
+[[action]]
+name = "Enable"
+kind = "input"
+from = ["Disabled"]
+to = "Active"
+hint = "Re-enable a previously disabled route."
