@@ -63,6 +63,22 @@ impl PawApiClient {
             .map_err(|e| format!("parse response: {e}"))
     }
 
+    /// GET an arbitrary URL with tenant/auth headers.
+    pub async fn raw_get(
+        &self,
+        url: &str,
+    ) -> Result<serde_json::Value, String> {
+        let resp = self
+            .build_request(reqwest::Method::GET, url)
+            .send()
+            .await
+            .map_err(|e| format!("GET {url} failed: {e}"))?;
+
+        resp.json()
+            .await
+            .map_err(|e| format!("parse response: {e}"))
+    }
+
     /// Dispatch a bound action on an entity via OData.
     ///
     /// `action_path` should be the full OData action path including namespace,

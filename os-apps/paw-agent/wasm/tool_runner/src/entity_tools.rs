@@ -691,24 +691,24 @@ fn wait_for_child_agent_terminal_state(
     ))
 }
 
-/// Handle a Cedar 403 denial by creating a PendingApproval entity and
-/// returning immediately. Does NOT block or poll.
+/// Handle a Cedar 403 denial by pausing the agent cleanly.
 ///
-/// The flow is event-driven:
-/// 1. This creates a PendingApproval and dispatches Request (→ Discord buttons)
-/// 2. Returns Ok with a message — the LLM sees this as a tool result
-/// 3. When the human clicks Approve, the `approval_granted` WASM fires,
-///    executes the action with system identity, and notifies via Discord
+/// Dispatches Agent.PauseForApproval which:
+/// 1. Transitions the agent to WaitingForApproval (stops all execution)
+/// 2. Triggers notify_approval_needed WASM → sends Discord buttons
+/// 3. Agent stays frozen until human clicks Approve in Discord
+/// 4. Approval adds a permanent Cedar policy via the platform's decisions API
+/// 5. Agent resumes via ResumeAfterApproval → retries the same tool calls
 fn handle_cedar_denial(
     ctx: &Context,
     temper_api_url: &str,
     tenant: &str,
     _fields: &Value,
-    original_url: &str,
+    _original_url: &str,
     entity_set: &str,
     target_entity_id: &str,
     action: &str,
-    body: &Value,
+    _body: &Value,
     resp_body: &str,
 ) -> Result<String, String> {
     let decision_id = parse_decision_id(resp_body);
@@ -716,72 +716,46 @@ fn handle_cedar_denial(
 
     ctx.log(
         "info",
-        &format!("Cedar denied: {action_desc} — requesting human approval"),
+        &format!("Cedar denied: {action_desc} — pausing for approval ({decision_id})"),
     );
 
-    // Create PendingApproval entity
-    let create_url = format!("{temper_api_url}/tdata/PendingApprovals");
-    let create_resp = ctx.http_call(
-        "POST",
-        &create_url,
-        &crate::odata_headers(ctx, tenant),
-        "{}",
-    )?;
-    if create_resp.status < 200 || create_resp.status >= 300 {
-        return Err(format!(
-            "Failed to create PendingApproval (HTTP {}): {}. Original denial: {action_desc}",
-            create_resp.status,
-            &create_resp.body[..create_resp.body.len().min(200)]
-        ));
-    }
-    let parsed: Value =
-        serde_json::from_str(&create_resp.body).unwrap_or_else(|_| json!({}));
-    let approval_id = parsed
-        .get("entity_id")
-        .or_else(|| parsed.get("Id"))
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
-    if approval_id.is_empty() {
-        return Err(format!(
-            "PendingApproval created but has no ID. Original denial: {action_desc}"
-        ));
-    }
-
-    // Dispatch Request action (triggers request_approval WASM → Discord buttons)
-    let request_body = json!({
-        "agent_entity_id": ctx.entity_state.get("entity_id")
-            .and_then(|v| v.as_str()).unwrap_or(""),
+    // Store context and pause the agent.
+    // The pending_tool_calls are already in the agent's state from ProcessToolCalls,
+    // so when the agent resumes (ResumeAfterApproval → run_tools), it re-executes them.
+    let tool_context = json!({
         "action_description": action_desc,
         "entity_set": entity_set,
         "target_entity_id": target_entity_id,
         "target_action": action,
-        "target_body": body.to_string(),
-        "target_url": original_url,
-        "decision_id": decision_id,
     });
-    let request_url = format!(
-        "{temper_api_url}/tdata/PendingApprovals('{approval_id}')/OpenPaw.Request"
+
+    let pause_url = format!(
+        "{temper_api_url}/tdata/Agents('{}')/OpenPaw.PauseForApproval",
+        ctx.entity_id
     );
-    let req_resp = ctx.http_call(
+    let pause_body = json!({
+        "pending_decision_id": decision_id,
+        "pending_tool_context": tool_context.to_string(),
+    });
+    let resp = ctx.http_call(
         "POST",
-        &request_url,
+        &pause_url,
         &crate::odata_headers(ctx, tenant),
-        &serde_json::to_string(&request_body).unwrap_or_default(),
+        &serde_json::to_string(&pause_body).unwrap_or_default(),
     )?;
-    if req_resp.status < 200 || req_resp.status >= 300 {
+
+    if resp.status < 200 || resp.status >= 300 {
         return Err(format!(
-            "PendingApproval.Request failed (HTTP {}). Original denial: {action_desc}",
-            req_resp.status,
+            "PauseForApproval failed (HTTP {}): {}. Original denial: {action_desc}",
+            resp.status,
+            &resp.body[..resp.body.len().min(200)]
         ));
     }
 
-    // Return immediately — don't block. The approval_granted WASM will
-    // execute the action when the human clicks Approve in Discord.
-    Ok(format!(
-        "Authorization required. A human has been asked to approve: {action_desc}. \
-         PendingApproval:{approval_id}. The action will be executed automatically \
-         when approved. You do not need to retry — just inform the user that \
-         approval is pending."
+    // Return error to stop the current tool execution.
+    // The agent is now in WaitingForApproval — it won't process more tools.
+    Err(format!(
+        "Agent paused for Cedar approval: {action_desc} (decision: {decision_id})"
     ))
 }
 

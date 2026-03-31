@@ -556,17 +556,13 @@ impl DiscordTransport {
                 })));
             }
 
-            let (action, approval_id) = (parts[0], parts[1]);
-            let action_name = match action {
-                "approve" => "OpenPaw.Approve",
-                "deny" => "OpenPaw.Deny",
-                _ => {
-                    return (axum::http::StatusCode::OK, axum::Json(serde_json::json!({
-                        "type": 4,
-                        "data": { "content": "Unknown action.", "flags": 64 }
-                    })));
-                }
-            };
+            let (action, decision_id) = (parts[0], parts[1]);
+            if action != "approve" && action != "deny" {
+                return (axum::http::StatusCode::OK, axum::Json(serde_json::json!({
+                    "type": 4,
+                    "data": { "content": "Unknown action.", "flags": 64 }
+                })));
+            }
 
             // Extract reviewer info
             let reviewer_id = payload
@@ -584,44 +580,121 @@ impl DiscordTransport {
                 .unwrap_or("unknown")
                 .to_string();
 
-            let display_action = if action == "approve" {
-                "Approved"
-            } else {
-                "Denied"
-            };
-
             println!(
-                "  [discord] Interaction: {action} on PendingApproval {approval_id} by {reviewer_id}"
+                "  [discord] Interaction: {action} decision {decision_id} by {reviewer_id}"
             );
 
-            // Dispatch the action to Temper asynchronously
+            // Process via Temper's native decisions API asynchronously
             let api = state.api.clone();
-            let approval_id_owned = approval_id.to_string();
+            let decision_id_owned = decision_id.to_string();
             let reviewer_id_owned = reviewer_id.clone();
+            let is_approve = action == "approve";
             let token = payload.token.clone();
             let app_id = payload
                 .application_id
                 .clone()
                 .unwrap_or_default();
             let http = state.http.clone();
-            let _bot_token = state.bot_token.clone();
 
             tokio::spawn(async move {
-                let body = serde_json::json!({ "reviewer_id": reviewer_id_owned });
-                let url = format!(
-                    "{}/tdata/PendingApprovals('{}')/{}",
-                    api.config().base_url,
-                    approval_id_owned,
-                    action_name
-                );
-                let result = api.raw_post(&url, body).await;
+                let base_url = api.config().base_url.clone();
+                let tenant = api.config().tenant.clone();
 
-                // Send follow-up message via interaction webhook
-                let follow_up_content = match result {
-                    Ok(_) => format!("**{display_action}** by <@{reviewer_id_owned}>"),
-                    Err(ref e) => format!("Failed to process: {e}"),
+                let (success, message) = if is_approve {
+                    // Call the platform's decisions API to add a Cedar policy
+                    let approve_url = format!(
+                        "{base_url}/api/tenants/{tenant}/decisions/{decision_id_owned}/approve"
+                    );
+                    let scope = serde_json::json!({
+                        "scope": {
+                            "principal": "ThisAgent",
+                            "action": "ThisAction",
+                            "resource": "AnyOfType",
+                            "duration": "Always"
+                        },
+                        "decided_by": format!("discord:{reviewer_id_owned}")
+                    });
+                    match api.raw_post(&approve_url, scope).await {
+                        Ok(_) => (true, format!("**Approved** by <@{reviewer_id_owned}>")),
+                        Err(e) => (false, format!("Approval failed: {e}")),
+                    }
+                } else {
+                    // Deny the decision
+                    let deny_url = format!(
+                        "{base_url}/api/tenants/{tenant}/decisions/{decision_id_owned}/deny"
+                    );
+                    let deny_body = serde_json::json!({
+                        "decided_by": format!("discord:{reviewer_id_owned}")
+                    });
+                    match api.raw_post(&deny_url, deny_body).await {
+                        Ok(_) => (true, format!("**Denied** by <@{reviewer_id_owned}>")),
+                        Err(e) => (false, format!("Deny failed: {e}")),
+                    }
                 };
 
+                // After approve: find the agent waiting on this decision and resume it
+                if is_approve && success {
+                    // Find the agent with pending_decision_id matching this decision
+                    let filter = format!(
+                        "pending_decision_id eq '{decision_id_owned}' and Status eq 'WaitingForApproval'"
+                    );
+                    let agents_url = format!(
+                        "{base_url}/tdata/Agents?$filter={filter}&$top=1"
+                    );
+                    if let Ok(agents_resp) = api.raw_get(&agents_url).await {
+                        if let Some(agent) = agents_resp
+                            .get("value")
+                            .and_then(|v| v.as_array())
+                            .and_then(|arr| arr.first())
+                        {
+                            let agent_id = agent
+                                .get("entity_id")
+                                .or_else(|| agent.get("fields").and_then(|f| f.get("Id")))
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("");
+                            if !agent_id.is_empty() {
+                                let resume_url = format!(
+                                    "{base_url}/tdata/Agents('{agent_id}')/OpenPaw.ResumeAfterApproval"
+                                );
+                                match api.raw_post(&resume_url, serde_json::json!({})).await {
+                                    Ok(_) => println!("  [discord] Resumed agent {agent_id} after approval"),
+                                    Err(e) => eprintln!("  [discord] Failed to resume agent {agent_id}: {e}"),
+                                }
+                            }
+                        }
+                    }
+                } else if !is_approve && success {
+                    // After deny: fail the agent
+                    let filter = format!(
+                        "pending_decision_id eq '{decision_id_owned}' and Status eq 'WaitingForApproval'"
+                    );
+                    let agents_url = format!(
+                        "{base_url}/tdata/Agents?$filter={filter}&$top=1"
+                    );
+                    if let Ok(agents_resp) = api.raw_get(&agents_url).await {
+                        if let Some(agent) = agents_resp
+                            .get("value")
+                            .and_then(|v| v.as_array())
+                            .and_then(|arr| arr.first())
+                        {
+                            let agent_id = agent
+                                .get("entity_id")
+                                .or_else(|| agent.get("fields").and_then(|f| f.get("Id")))
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("");
+                            if !agent_id.is_empty() {
+                                let fail_url = format!(
+                                    "{base_url}/tdata/Agents('{agent_id}')/OpenPaw.Fail"
+                                );
+                                let _ = api.raw_post(&fail_url, serde_json::json!({
+                                    "error_message": "Action denied by human reviewer via Discord"
+                                })).await;
+                            }
+                        }
+                    }
+                }
+
+                // Edit the Discord message to show result
                 if !app_id.is_empty() && !token.is_empty() {
                     let follow_up_url = format!(
                         "https://discord.com/api/v10/webhooks/{app_id}/{token}/messages/@original"
@@ -630,7 +703,7 @@ impl DiscordTransport {
                         .patch(&follow_up_url)
                         .header("Content-Type", "application/json")
                         .json(&serde_json::json!({
-                            "content": follow_up_content,
+                            "content": message,
                             "components": []
                         }))
                         .send()

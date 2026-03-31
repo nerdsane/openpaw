@@ -134,52 +134,6 @@
         <Property Name="JobsTriggered" Type="Edm.Int64"/>
       </EntityType>
 
-      <EntityType Name="PendingApproval">
-        <Key><PropertyRef Name="Id"/></Key>
-        <Property Name="Id" Type="Edm.String" Nullable="false"/>
-        <Property Name="Status" Type="Edm.String"/>
-        <Property Name="AgentEntityId" Type="Edm.String"/>
-        <Property Name="ActionDescription" Type="Edm.String"/>
-        <Property Name="EntitySet" Type="Edm.String"/>
-        <Property Name="TargetEntityId" Type="Edm.String"/>
-        <Property Name="TargetAction" Type="Edm.String"/>
-        <Property Name="TargetBody" Type="Edm.String"/>
-        <Property Name="TargetUrl" Type="Edm.String"/>
-        <Property Name="DecisionId" Type="Edm.String"/>
-        <Property Name="ReviewerId" Type="Edm.String"/>
-        <Property Name="Result" Type="Edm.String"/>
-      </EntityType>
-
-      <Action Name="Request" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.PendingApproval"/>
-        <Parameter Name="agent_entity_id" Type="Edm.String" Nullable="true"/>
-        <Parameter Name="action_description" Type="Edm.String" Nullable="true"/>
-        <Parameter Name="entity_set" Type="Edm.String" Nullable="true"/>
-        <Parameter Name="target_entity_id" Type="Edm.String" Nullable="true"/>
-        <Parameter Name="target_action" Type="Edm.String" Nullable="true"/>
-        <Parameter Name="target_body" Type="Edm.String" Nullable="true"/>
-        <Parameter Name="target_url" Type="Edm.String" Nullable="true"/>
-        <Parameter Name="decision_id" Type="Edm.String" Nullable="true"/>
-        <ReturnType Type="OpenPaw.PendingApproval"/>
-      </Action>
-
-      <Action Name="Approve" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.PendingApproval"/>
-        <Parameter Name="reviewer_id" Type="Edm.String" Nullable="true"/>
-        <ReturnType Type="OpenPaw.PendingApproval"/>
-      </Action>
-
-      <Action Name="Deny" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.PendingApproval"/>
-        <Parameter Name="reviewer_id" Type="Edm.String" Nullable="true"/>
-        <ReturnType Type="OpenPaw.PendingApproval"/>
-      </Action>
-
-      <Action Name="Expire" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.PendingApproval"/>
-        <ReturnType Type="OpenPaw.PendingApproval"/>
-      </Action>
-
       <Action Name="Configure" IsBound="true">
         <Parameter Name="bindingParameter" Type="OpenPaw.Agent"/>
         <Parameter Name="system_prompt" Type="Edm.String" Nullable="false"/>
@@ -281,6 +235,18 @@
       <Action Name="Steer" IsBound="true">
         <Parameter Name="bindingParameter" Type="OpenPaw.Agent"/>
         <Parameter Name="steering_messages" Type="Edm.String" Nullable="false"/>
+        <ReturnType Type="OpenPaw.Agent"/>
+      </Action>
+
+      <Action Name="PauseForApproval" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Agent"/>
+        <Parameter Name="pending_decision_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="pending_tool_context" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="OpenPaw.Agent"/>
+      </Action>
+
+      <Action Name="ResumeAfterApproval" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Agent"/>
         <ReturnType Type="OpenPaw.Agent"/>
       </Action>
 
@@ -551,7 +517,7 @@
         <EntitySet Name="HeartbeatMonitors" EntityType="OpenPaw.HeartbeatMonitor"/>
         <EntitySet Name="CronJobs" EntityType="OpenPaw.CronJob"/>
         <EntitySet Name="CronSchedulers" EntityType="OpenPaw.CronScheduler"/>
-        <EntitySet Name="PendingApprovals" EntityType="OpenPaw.PendingApproval"/>
+
       </EntityContainer>
 
     </Schema>

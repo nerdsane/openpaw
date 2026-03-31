@@ -19,7 +19,7 @@
 
 [automaton]
 name = "Agent"
-states = ["Created", "Provisioning", "Thinking", "Executing", "Compacting", "Steering", "Completed", "Failed", "Cancelled"]
+states = ["Created", "Provisioning", "Thinking", "Executing", "Compacting", "Steering", "WaitingForApproval", "Completed", "Failed", "Cancelled"]
 initial = "Created"
 
 # --- State Variables: Core ---
@@ -233,6 +233,18 @@ name = "heartbeat_timeout_seconds"
 type = "string"
 initial = "300"
 
+# --- State Variables: Cedar Approval ---
+
+[[state]]
+name = "pending_decision_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "pending_tool_context"
+type = "string"
+initial = ""
+
 # --- Actions: Core Agent Loop ---
 
 [[action]]
@@ -357,9 +369,28 @@ effect = [
 [[action]]
 name = "Steer"
 kind = "input"
-from = ["Thinking", "Executing", "Steering", "Compacting"]
+from = ["Thinking", "Executing", "Steering", "Compacting", "WaitingForApproval"]
 params = ["steering_messages"]
 hint = "Queue a steering message for mid-run injection. External callers append messages while agent runs. Self-loop — does not change state."
+
+# --- Actions: Cedar Approval Pause-Resume ---
+
+[[action]]
+name = "PauseForApproval"
+kind = "input"
+from = ["Executing"]
+to = "WaitingForApproval"
+params = ["pending_decision_id", "pending_tool_context"]
+hint = "Cedar denied a tool call. Agent pauses cleanly until human approves via Discord."
+effect = [{ type = "trigger", name = "notify_approval_needed" }]
+
+[[action]]
+name = "ResumeAfterApproval"
+kind = "input"
+from = ["WaitingForApproval"]
+to = "Executing"
+hint = "Human approved the Cedar decision. Resume tool execution with same pending_tool_calls."
+effect = [{ type = "trigger", name = "run_tools" }]
 
 # --- Actions: Legacy direct completion (backward compat for max_follow_ups=0) ---
 
@@ -382,7 +413,7 @@ effect = [
 [[action]]
 name = "Heartbeat"
 kind = "input"
-from = ["Thinking", "Executing", "Steering", "Compacting"]
+from = ["Thinking", "Executing", "Steering", "Compacting", "WaitingForApproval"]
 params = ["last_heartbeat_at"]
 hint = "Record agent liveness. Called by WASM modules during long operations. Self-loop."
 
@@ -400,7 +431,7 @@ effect = [{ type = "trigger", name = "deliver_reply" }]
 [[action]]
 name = "Fail"
 kind = "input"
-from = ["Created", "Provisioning", "Thinking", "Executing", "Compacting", "Steering"]
+from = ["Created", "Provisioning", "Thinking", "Executing", "Compacting", "Steering", "WaitingForApproval"]
 to = "Failed"
 params = ["error_message"]
 hint = "Mark agent run as failed."
@@ -409,7 +440,7 @@ effect = [{ type = "trigger", name = "deliver_reply" }]
 [[action]]
 name = "Cancel"
 kind = "input"
-from = ["Created", "Provisioning", "Thinking", "Executing", "Compacting", "Steering"]
+from = ["Created", "Provisioning", "Thinking", "Executing", "Compacting", "Steering", "WaitingForApproval"]
 to = "Cancelled"
 hint = "Cancel agent execution."
 effect = [{ type = "trigger", name = "deliver_reply" }]
@@ -447,7 +478,7 @@ assert = "no_further_transitions"
 
 [[invariant]]
 name = "TurnCountNonNegative"
-when = ["Created", "Provisioning", "Thinking", "Executing", "Compacting", "Steering", "Completed", "Failed", "Cancelled"]
+when = ["Created", "Provisioning", "Thinking", "Executing", "Compacting", "Steering", "WaitingForApproval", "Completed", "Failed", "Cancelled"]
 assert = "turn_count >= 0"
 
 # --- Integrations ---
@@ -541,6 +572,15 @@ name = "deliver_reply"
 trigger = "deliver_reply"
 type = "wasm"
 module = "agent_reply"
+
+[integration.config]
+temper_api_url = "{secret:temper_api_url}"
+
+[[integration]]
+name = "notify_approval_needed"
+trigger = "notify_approval_needed"
+type = "wasm"
+module = "request_approval"
 
 [integration.config]
 temper_api_url = "{secret:temper_api_url}"

@@ -1,9 +1,15 @@
 {
   "hooks": {
-    "PreCommit": [
+    "Stop": [
       {
-        "command": "scripts/check-temper-native.sh",
-        "description": "Architect Reviewer — Temper-native compliance check"
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "scripts/check-temper-native.sh",
+            "description": "Architect Reviewer — Temper-native compliance check"
+          }
+        ]
       }
     ]
   }

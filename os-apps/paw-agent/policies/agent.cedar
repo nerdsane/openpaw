@@ -66,12 +66,23 @@ permit(
     Action::"ContinueWithSteering",
     Action::"FinalizeResult",
     Action::"Heartbeat",
-    Action::"TimeoutFail"
+    Action::"TimeoutFail",
+    Action::"PauseForApproval"
   ],
   resource is Agent
 ) when {
   principal.agent_type == "system" ||
   principal == resource
+};
+
+// --- Cedar approval resume: human/supervisor only ---
+// Dispatched by Discord interaction handler after human clicks Approve.
+permit(
+  principal,
+  action in [Action::"ResumeAfterApproval"],
+  resource is Agent
+) when {
+  ["supervisor", "human", "system"].contains(principal.agent_type)
 };
 
 // --- WASM module HTTP call authorization ---
@@ -81,7 +92,7 @@ permit(
   action == Action::"http_call",
   resource is HttpEndpoint
 ) when {
-  ["agent_reply", "sandbox_provisioner", "llm_caller", "tool_runner", "workspace_restorer", "context_compactor", "steering_checker", "heartbeat_scan", "heartbeat_scheduler", "cron_trigger", "cron_scheduler_check", "cron_scheduler_heartbeat", "request_approval", "approval_granted"].contains(context.module)
+  ["agent_reply", "sandbox_provisioner", "llm_caller", "tool_runner", "workspace_restorer", "context_compactor", "steering_checker", "heartbeat_scan", "heartbeat_scheduler", "cron_trigger", "cron_scheduler_check", "cron_scheduler_heartbeat", "request_approval"].contains(context.module)
 };
 
 // Allow agent WASM modules to access secrets
