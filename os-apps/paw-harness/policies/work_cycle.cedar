@@ -10,7 +10,13 @@ permit(
     Action::"BeginTesting",
     Action::"PassTests",
     Action::"Approve",
-    Action::"Fail"
+    Action::"Fail",
+    Action::"ReportMigrations",
+    Action::"ReportTypecheck",
+    Action::"ReportUnitTests",
+    Action::"ReportDst",
+    Action::"ReportPolicyGates",
+    Action::"ReportE2e"
   ],
   resource is WorkCycle
 );
@@ -25,7 +31,13 @@ permit(
     Action::"WritePlan",
     Action::"StartWork",
     Action::"BeginTesting",
-    Action::"PassTests"
+    Action::"PassTests",
+    Action::"ReportMigrations",
+    Action::"ReportTypecheck",
+    Action::"ReportUnitTests",
+    Action::"ReportDst",
+    Action::"ReportPolicyGates",
+    Action::"ReportE2e"
   ],
   resource is WorkCycle
 );

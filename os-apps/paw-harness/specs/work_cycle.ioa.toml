@@ -55,6 +55,38 @@ name = "tests_passed"
 type = "bool"
 initial = "false"
 
+# --- Gate fields (bool for is_true guards) ---
+
+[[state]]
+name = "migrations_ok"
+type = "bool"
+initial = "false"
+
+[[state]]
+name = "typecheck_ok"
+type = "bool"
+initial = "false"
+
+[[state]]
+name = "unit_tests_ok"
+type = "bool"
+initial = "false"
+
+[[state]]
+name = "dst_ok"
+type = "bool"
+initial = "false"
+
+[[state]]
+name = "policy_gates_ok"
+type = "bool"
+initial = "false"
+
+[[state]]
+name = "e2e_ok"
+type = "bool"
+initial = "false"
+
 [[action]]
 name = "Configure"
 kind = "input"
@@ -80,11 +112,58 @@ guard = "is_true has_plan"
 hint = "Start implementation only after a plan exists."
 
 [[action]]
+name = "ReportMigrations"
+kind = "input"
+from = ["InProgress"]
+effect = "set migrations_ok true"
+hint = "Self-loop: record that migrations passed."
+
+[[action]]
+name = "ReportTypecheck"
+kind = "input"
+from = ["InProgress"]
+effect = "set typecheck_ok true"
+hint = "Self-loop: record that typechecking passed."
+
+[[action]]
+name = "ReportUnitTests"
+kind = "input"
+from = ["InProgress"]
+effect = "set unit_tests_ok true"
+hint = "Self-loop: record that unit tests passed."
+
+[[action]]
+name = "ReportDst"
+kind = "input"
+from = ["InProgress"]
+effect = "set dst_ok true"
+hint = "Self-loop: record that DST checks passed."
+
+[[action]]
+name = "ReportPolicyGates"
+kind = "input"
+from = ["InProgress"]
+effect = "set policy_gates_ok true"
+hint = "Self-loop: record that policy gates passed."
+
+[[action]]
+name = "ReportE2e"
+kind = "input"
+from = ["InProgress"]
+effect = "set e2e_ok true"
+hint = "Self-loop: record that end-to-end tests passed."
+
+[[action]]
 name = "BeginTesting"
 kind = "input"
 from = ["InProgress"]
 to = "Testing"
-hint = "Move implementation into test execution."
+guard = [
+  { type = "is_true", var = "migrations_ok" },
+  { type = "is_true", var = "typecheck_ok" },
+  { type = "is_true", var = "unit_tests_ok" }
+]
+hint = "Move implementation into test execution. Requires migrations, typecheck, and unit tests to pass."
 
 [[action]]
 name = "PassTests"
@@ -93,7 +172,11 @@ from = ["Testing"]
 to = "Reviewing"
 params = ["test_summary"]
 effect = "set tests_passed true"
-hint = "Only passing work should enter review."
+guard = [
+  { type = "is_true", var = "dst_ok" },
+  { type = "is_true", var = "policy_gates_ok" }
+]
+hint = "Only passing work should enter review. Requires DST and policy gates to pass."
 
 [[action]]
 name = "Approve"

@@ -32,6 +32,12 @@
         <Property Name="ErrorMessage" Type="Edm.String"/>
         <Property Name="HasPlan" Type="Edm.Boolean"/>
         <Property Name="TestsPassed" Type="Edm.Boolean"/>
+        <Property Name="MigrationsOk" Type="Edm.Boolean"/>
+        <Property Name="TypecheckOk" Type="Edm.Boolean"/>
+        <Property Name="UnitTestsOk" Type="Edm.Boolean"/>
+        <Property Name="DstOk" Type="Edm.Boolean"/>
+        <Property Name="PolicyGatesOk" Type="Edm.Boolean"/>
+        <Property Name="E2eOk" Type="Edm.Boolean"/>
         <Annotation Term="Paw.Vocab.AuthZ.CedarPolicy" String="policies/work_cycle.cedar"/>
         <Annotation Term="Paw.Vocab.Agent.Hint" String="Tracks plan, implementation, testing, and review for one change."/>
       </EntityType>
@@ -71,6 +77,36 @@
       </Action>
 
       <Action Name="StartWork" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Harness.WorkCycle"/>
+        <ReturnType Type="OpenPaw.Harness.WorkCycle"/>
+      </Action>
+
+      <Action Name="ReportMigrations" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Harness.WorkCycle"/>
+        <ReturnType Type="OpenPaw.Harness.WorkCycle"/>
+      </Action>
+
+      <Action Name="ReportTypecheck" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Harness.WorkCycle"/>
+        <ReturnType Type="OpenPaw.Harness.WorkCycle"/>
+      </Action>
+
+      <Action Name="ReportUnitTests" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Harness.WorkCycle"/>
+        <ReturnType Type="OpenPaw.Harness.WorkCycle"/>
+      </Action>
+
+      <Action Name="ReportDst" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Harness.WorkCycle"/>
+        <ReturnType Type="OpenPaw.Harness.WorkCycle"/>
+      </Action>
+
+      <Action Name="ReportPolicyGates" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Harness.WorkCycle"/>
+        <ReturnType Type="OpenPaw.Harness.WorkCycle"/>
+      </Action>
+
+      <Action Name="ReportE2e" IsBound="true">
         <Parameter Name="bindingParameter" Type="OpenPaw.Harness.WorkCycle"/>
         <ReturnType Type="OpenPaw.Harness.WorkCycle"/>
       </Action>
