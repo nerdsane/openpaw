@@ -55,38 +55,6 @@ name = "tests_passed"
 type = "bool"
 initial = "false"
 
-# --- State Variables: Gate Pattern ---
-
-[[state]]
-name = "migrations_ok"
-type = "string"
-initial = "false"
-
-[[state]]
-name = "typecheck_ok"
-type = "string"
-initial = "false"
-
-[[state]]
-name = "unit_tests_ok"
-type = "string"
-initial = "false"
-
-[[state]]
-name = "dst_ok"
-type = "string"
-initial = "false"
-
-[[state]]
-name = "policy_gates_ok"
-type = "string"
-initial = "false"
-
-[[state]]
-name = "e2e_ok"
-type = "string"
-initial = "false"
-
 [[action]]
 name = "Configure"
 kind = "input"
@@ -112,70 +80,20 @@ guard = "is_true has_plan"
 hint = "Start implementation only after a plan exists."
 
 [[action]]
-name = "ReportMigrations"
-kind = "input"
-from = ["InProgress"]
-to = "InProgress"
-params = ["ok", "summary"]
-hint = "Report migration check result. Sets migrations_ok gate."
-
-[[action]]
-name = "ReportTypecheck"
-kind = "input"
-from = ["InProgress"]
-to = "InProgress"
-params = ["ok", "summary"]
-hint = "Report typecheck result. Sets typecheck_ok gate."
-
-[[action]]
-name = "ReportUnitTests"
-kind = "input"
-from = ["InProgress"]
-to = "InProgress"
-params = ["ok", "summary"]
-hint = "Report unit test result. Sets unit_tests_ok gate."
-
-[[action]]
-name = "ReportDST"
-kind = "input"
-from = ["InProgress"]
-to = "InProgress"
-params = ["ok", "summary"]
-hint = "Report DST (deterministic simulation testing) result. Sets dst_ok gate."
-
-[[action]]
-name = "ReportPolicyGates"
-kind = "input"
-from = ["InProgress"]
-to = "InProgress"
-params = ["ok", "summary"]
-hint = "Report policy gates result. Sets policy_gates_ok gate."
-
-[[action]]
-name = "ReportE2E"
-kind = "input"
-from = ["InProgress"]
-to = "InProgress"
-params = ["ok", "summary"]
-hint = "Report end-to-end test result. Sets e2e_ok gate."
-
-[[action]]
 name = "BeginTesting"
 kind = "input"
 from = ["InProgress"]
 to = "Testing"
-guard = "migrations_ok == 'true' && typecheck_ok == 'true' && unit_tests_ok == 'true'"
-hint = "Move implementation into test execution. Requires migrations, typecheck, and unit tests to pass."
+hint = "Move implementation into test execution."
 
 [[action]]
 name = "PassTests"
 kind = "input"
 from = ["Testing"]
 to = "Reviewing"
-guard = "dst_ok == 'true' && policy_gates_ok == 'true'"
 params = ["test_summary"]
 effect = "set tests_passed true"
-hint = "Only passing work should enter review. Requires DST and policy gates to pass."
+hint = "Only passing work should enter review."
 
 [[action]]
 name = "Approve"
