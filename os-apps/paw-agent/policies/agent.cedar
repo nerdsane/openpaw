@@ -75,14 +75,14 @@ permit(
   principal == resource
 };
 
-// --- Cedar approval resume: human/supervisor only ---
+// --- Cedar approval resume: any privileged principal ---
 // Dispatched by Discord interaction handler after human clicks Approve.
 permit(
   principal,
   action in [Action::"ResumeAfterApproval"],
   resource is Agent
 ) when {
-  ["supervisor", "human", "system"].contains(principal.agent_type)
+  ["supervisor", "human", "system", "admin"].contains(principal.agent_type)
 };
 
 // --- WASM module HTTP call authorization ---

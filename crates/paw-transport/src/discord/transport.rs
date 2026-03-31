@@ -607,10 +607,10 @@ impl DiscordTransport {
                     );
                     let scope = serde_json::json!({
                         "scope": {
-                            "principal": "ThisAgent",
-                            "action": "ThisAction",
-                            "resource": "AnyOfType",
-                            "duration": "Always"
+                            "principal": "this_agent",
+                            "action": "this_action",
+                            "resource": "any_of_type",
+                            "duration": "always"
                         },
                         "decided_by": format!("discord:{reviewer_id_owned}")
                     });
