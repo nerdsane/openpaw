@@ -8,7 +8,9 @@
 
 use temper_wasm_sdk::prelude::*;
 
-// Verify Monty is importable — this is the compilation canary.
+mod dispatch;
+
+// Monty Python interpreter — used for REPL execution.
 use monty::{MontyRun, LimitedTracker, ResourceLimits, RunProgress, PrintWriter};
 
 /// Entry point — invoked by the Temper WASM engine on the `run_tools` trigger.
