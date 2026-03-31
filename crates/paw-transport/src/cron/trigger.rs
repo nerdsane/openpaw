@@ -46,17 +46,20 @@ impl CronTrigger {
                         .as_secs();
 
                     for job in &jobs {
-                        let next_run = self.parse_next_run_at(job);
-                        if next_run > 0 && next_run <= now {
-                            let job_id = job
-                                .get("entity_id")
-                                .or_else(|| job.get("Id"))
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("");
-                            if !job_id.is_empty() {
-                                if let Err(e) = self.trigger_job(job_id).await {
-                                    eprintln!("  [cron] Failed to trigger job {job_id}: {e}");
-                                }
+                        let job_id = job
+                            .get("entity_id")
+                            .or_else(|| job.get("Id"))
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("");
+                        if job_id.is_empty() {
+                            continue;
+                        }
+
+                        let should_trigger = self.should_trigger(job, now);
+                        if should_trigger {
+                            println!("  [cron] Triggering job {job_id}");
+                            if let Err(e) = self.trigger_job(job_id).await {
+                                eprintln!("  [cron] Failed to trigger job {job_id}: {e}");
                             }
                         }
                     }
@@ -85,6 +88,58 @@ impl CronTrigger {
             .dispatch_action("CronJobs", job_id, "OpenPaw.Trigger", json!({}))
             .await
             .map(|_| ())
+    }
+
+    /// Determine if a CronJob should be triggered now.
+    ///
+    /// Strategy:
+    /// 1. If `next_run_at` is set and <= now → trigger
+    /// 2. If `next_run_at` is empty but `schedule` exists:
+    ///    a. Parse schedule as simple interval (e.g. "*/5 * * * *" → every 5 min)
+    ///    b. If `last_run_at` is empty → trigger (first run)
+    ///    c. If `last_run_at` + interval <= now → trigger
+    fn should_trigger(&self, job: &serde_json::Value, now: u64) -> bool {
+        let fields = job.get("fields").unwrap_or(job);
+
+        // Check next_run_at first
+        let next_run = self.parse_next_run_at(job);
+        if next_run > 0 && next_run <= now {
+            return true;
+        }
+
+        // Fallback: use schedule field with last_run_at
+        let schedule = fields
+            .get("schedule")
+            .or_else(|| fields.get("Schedule"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        if schedule.is_empty() {
+            return false;
+        }
+
+        let last_run = fields
+            .get("last_run_at")
+            .or_else(|| fields.get("LastRunAt"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+
+        // If never run, trigger immediately
+        if last_run.is_empty() {
+            return true;
+        }
+
+        // Parse last_run_at and compute interval from schedule
+        let last_run_secs = parse_iso8601_to_unix(last_run).unwrap_or(0);
+        if last_run_secs == 0 {
+            return true; // Can't parse last run, trigger
+        }
+
+        let interval_secs = parse_cron_interval(schedule);
+        if interval_secs == 0 {
+            return false; // Can't parse schedule
+        }
+
+        last_run_secs + interval_secs <= now
     }
 
     /// Parse the `next_run_at` field from a CronJob entity as unix seconds.
@@ -117,6 +172,57 @@ impl CronTrigger {
 
         0
     }
+}
+
+/// Simple cron interval parser — extracts a repeat interval in seconds.
+///
+/// Supports common patterns:
+/// - `* * * * *` → every 60s (every minute)
+/// - `*/5 * * * *` → every 300s (every 5 minutes)
+/// - `0 * * * *` → every 3600s (every hour)
+/// - `0 */2 * * *` → every 7200s (every 2 hours)
+/// - `0 */6 * * *` → every 21600s (every 6 hours)
+/// - `0 0 * * *` → every 86400s (every day)
+///
+/// Returns 0 if the expression can't be parsed into a simple interval.
+fn parse_cron_interval(schedule: &str) -> u64 {
+    let parts: Vec<&str> = schedule.split_whitespace().collect();
+    if parts.len() != 5 {
+        return 0;
+    }
+
+    let (minute, hour, _dom, _month, _dow) = (parts[0], parts[1], parts[2], parts[3], parts[4]);
+
+    // Every N minutes: */N * * * *
+    if let Some(n) = minute.strip_prefix("*/") {
+        if let Ok(n) = n.parse::<u64>() {
+            return n * 60;
+        }
+    }
+
+    // Every minute: * * * * *
+    if minute == "*" && hour == "*" {
+        return 60;
+    }
+
+    // Every N hours: 0 */N * * *
+    if minute == "0" {
+        if let Some(n) = hour.strip_prefix("*/") {
+            if let Ok(n) = n.parse::<u64>() {
+                return n * 3600;
+            }
+        }
+        // Every hour: 0 * * * *
+        if hour == "*" {
+            return 3600;
+        }
+        // Every day: 0 0 * * *
+        if hour == "0" {
+            return 86400;
+        }
+    }
+
+    0
 }
 
 /// Minimal ISO 8601 parser — converts a UTC timestamp to unix seconds.
