@@ -13,6 +13,7 @@
 //! - `host_cache_from_stream`: cache bytes from a stream
 //! - `host_http_call_stream`: HTTP with stream-based body/response
 //! - `host_get_secret`: read secrets (blob_access_key, blob_secret_key)
+//! - `host_get_time`: get current UTC time for Sig V4 signing
 //! - `host_get_context`: read invocation context
 //! - `host_set_result`: return result to host
 //! - `host_log`: structured logging
@@ -20,6 +21,10 @@
 //! Build: `cargo build --target wasm32-unknown-unknown --release`
 
 use core::ptr::addr_of;
+use hmac::{Hmac, Mac};
+use sha2::{Sha256, Digest};
+
+type HmacSha256 = Hmac<Sha256>;
 
 // ---- Host function imports ----
 
@@ -28,6 +33,9 @@ unsafe extern "C" {
     fn host_get_context(buf_ptr: i32, buf_len: i32) -> i32;
     fn host_set_result(ptr: i32, len: i32);
     fn host_get_secret(key_ptr: i32, key_len: i32, buf_ptr: i32, buf_len: i32) -> i32;
+
+    /// Get current UTC time as "YYYYMMDDTHHMMSSz". Returns bytes written, -1 on error.
+    fn host_get_time(buf_ptr: i32, buf_len: i32) -> i32;
 
     /// HTTP with stream-based body/response. Returns HTTP status code, -1 on error.
     fn host_http_call_stream(
@@ -78,10 +86,12 @@ unsafe extern "C" {
 const CTX_BUF_LEN: usize = 131072; // 128KB — large enough for session-backed entity state
 const SECRET_BUF_LEN: usize = 1024;
 const HASH_BUF_LEN: usize = 256;
+const TIME_BUF_LEN: usize = 32;
 
 static mut CTX_BUF: [u8; CTX_BUF_LEN] = [0u8; CTX_BUF_LEN];
 static mut SECRET_BUF: [u8; SECRET_BUF_LEN] = [0u8; SECRET_BUF_LEN];
 static mut HASH_BUF: [u8; HASH_BUF_LEN] = [0u8; HASH_BUF_LEN];
+static mut TIME_BUF: [u8; TIME_BUF_LEN] = [0u8; TIME_BUF_LEN];
 
 // ---- Entry point ----
 
@@ -150,8 +160,8 @@ fn handle_upload(ctx_json: &str) -> i32 {
     let url = format!("{endpoint}/{bucket}/{content_hash}");
 
     // 5. Upload — bytes flow from StreamRegistry via host, never through WASM memory
-    let headers_json = "[]"; // Simplified: real impl would compute S3 Sig V4
-    let status = call_http_stream("PUT", &url, headers_json, &stream_id, "");
+    let headers_json = sign_request("PUT", &url, "UNSIGNED-PAYLOAD");
+    let status = call_http_stream("PUT", &url, &headers_json, &stream_id, "");
 
     if status < 200 || status >= 300 {
         set_error_result(&format!("upload failed with HTTP {status}"));
@@ -218,8 +228,8 @@ fn handle_download(ctx_json: &str) -> i32 {
     let url = format!("{endpoint}/{bucket}/{content_hash}");
 
     // 4. Download — bytes go to StreamRegistry via host
-    let headers_json = "[]";
-    let status = call_http_stream("GET", &url, headers_json, "", &response_stream_id);
+    let headers_json = sign_request("GET", &url, "UNSIGNED-PAYLOAD");
+    let status = call_http_stream("GET", &url, &headers_json, "", &response_stream_id);
 
     if status < 200 || status >= 300 {
         set_error_result(&format!("download failed with HTTP {status}"));
@@ -366,6 +376,151 @@ fn read_secret_or(key: &str, default: &str) -> String {
         let slice = core::slice::from_raw_parts(ptr, len as usize);
         String::from_utf8_lossy(slice).to_string()
     }
+}
+
+fn get_utc_now() -> String {
+    unsafe {
+        let ptr = addr_of!(TIME_BUF) as *const u8;
+        let len = host_get_time(ptr as i32, TIME_BUF_LEN as i32);
+        if len <= 0 {
+            return String::new();
+        }
+        let slice = core::slice::from_raw_parts(ptr, len as usize);
+        String::from_utf8_lossy(slice).to_string()
+    }
+}
+
+// ---- AWS Signature V4 (for GCS S3-compatible XML API) ----
+
+/// Sign an HTTP request using AWS Signature V4.
+/// Returns headers as `[["name","value"],...]` JSON for `host_http_call_stream`.
+/// If no access key is configured, returns `"[]"` (unsigned — for local dev).
+fn sign_request(method: &str, url: &str, payload_hash: &str) -> String {
+    let access_key = read_secret_or("blob_access_key", "");
+    if access_key.is_empty() {
+        return "[]".to_string();
+    }
+    let secret_key = read_secret_or("blob_secret_key", "");
+    if secret_key.is_empty() {
+        log("warn", "blob_adapter: blob_access_key set but blob_secret_key missing, sending unsigned");
+        return "[]".to_string();
+    }
+    let datetime = get_utc_now();
+    if datetime.is_empty() {
+        log("warn", "blob_adapter: host_get_time failed, sending unsigned");
+        return "[]".to_string();
+    }
+    // date = first 8 chars of datetime (YYYYMMDD)
+    let date = &datetime[..8];
+
+    let (host, path) = parse_url_host_path(url);
+    let canonical_uri = uri_encode_path(path);
+
+    let region = "auto";
+    let service = "s3";
+    let scope = format!("{date}/{region}/{service}/aws4_request");
+
+    // Canonical headers (sorted by name)
+    let canonical_headers = format!(
+        "host:{host}\nx-amz-content-sha256:{payload_hash}\nx-amz-date:{datetime}\n"
+    );
+    let signed_headers = "host;x-amz-content-sha256;x-amz-date";
+
+    // Canonical request
+    let canonical_request = format!(
+        "{method}\n{canonical_uri}\n\n{canonical_headers}\n{signed_headers}\n{payload_hash}"
+    );
+
+    log("debug", &format!("blob_adapter: canonical_request=\n{canonical_request}"));
+
+    let canonical_request_hash = sha256_hex(canonical_request.as_bytes());
+
+    // String to sign
+    let string_to_sign = format!(
+        "AWS4-HMAC-SHA256\n{datetime}\n{scope}\n{canonical_request_hash}"
+    );
+
+    // Derive signing key and compute signature
+    let signing_key = derive_signing_key(&secret_key, date, region, service);
+    let signature = hex_encode(&hmac_sha256(&signing_key, string_to_sign.as_bytes()));
+
+    let authorization = format!(
+        "AWS4-HMAC-SHA256 Credential={access_key}/{scope},SignedHeaders={signed_headers},Signature={signature}"
+    );
+
+    format!(
+        r#"[["Authorization","{}"],["x-amz-date","{}"],["x-amz-content-sha256","{}"],["Host","{}"]]"#,
+        escape_json(&authorization),
+        escape_json(&datetime),
+        escape_json(payload_hash),
+        escape_json(host),
+    )
+}
+
+/// Derive the Sig V4 signing key via 4-step HMAC chain.
+fn derive_signing_key(secret_key: &str, date: &str, region: &str, service: &str) -> Vec<u8> {
+    let k_secret = format!("AWS4{secret_key}");
+    let k_date = hmac_sha256(k_secret.as_bytes(), date.as_bytes());
+    let k_region = hmac_sha256(&k_date, region.as_bytes());
+    let k_service = hmac_sha256(&k_region, service.as_bytes());
+    hmac_sha256(&k_service, b"aws4_request")
+}
+
+// ---- Crypto helpers ----
+
+fn sha256_hex(data: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(data);
+    hex_encode(&hasher.finalize())
+}
+
+fn hmac_sha256(key: &[u8], data: &[u8]) -> Vec<u8> {
+    let mut mac = HmacSha256::new_from_slice(key).expect("HMAC accepts any key length");
+    mac.update(data);
+    mac.finalize().into_bytes().to_vec()
+}
+
+fn hex_encode(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for &b in bytes {
+        out.push(HEX[(b >> 4) as usize] as char);
+        out.push(HEX[(b & 0x0f) as usize] as char);
+    }
+    out
+}
+
+/// Split a URL into (host, path). Path includes the leading `/`.
+fn parse_url_host_path(url: &str) -> (&str, &str) {
+    let after_scheme = if let Some(pos) = url.find("://") {
+        &url[pos + 3..]
+    } else {
+        url
+    };
+    if let Some(slash) = after_scheme.find('/') {
+        (&after_scheme[..slash], &after_scheme[slash..])
+    } else {
+        (after_scheme, "/")
+    }
+}
+
+/// Percent-encode path for S3 canonical URI.
+/// Encodes `:` as `%3A` (needed for `sha256:abc123` content hash keys).
+/// Leaves `/`, alphanumerics, `-`, `_`, `.`, `~` unencoded per RFC 3986.
+fn uri_encode_path(path: &str) -> String {
+    let mut out = String::with_capacity(path.len() + 16);
+    for b in path.bytes() {
+        match b {
+            b'/' | b'-' | b'_' | b'.' | b'~' => out.push(b as char),
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' => out.push(b as char),
+            _ => {
+                out.push('%');
+                out.push(b"0123456789ABCDEF"[(b >> 4) as usize] as char);
+                out.push(b"0123456789ABCDEF"[(b & 0x0f) as usize] as char);
+            }
+        }
+    }
+    out
 }
 
 // ---- Minimal JSON helpers (no serde in WASM guest) ----

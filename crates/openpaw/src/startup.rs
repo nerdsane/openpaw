@@ -221,6 +221,20 @@ pub async fn run(config: Config) -> Result<()> {
             let _ = vault.cache_secret(&tenant, "blob_bucket", blob_bucket);
         }
 
+        // HMAC credentials for GCS (or any S3-compatible blob store).
+        if let Ok(key) = std::env::var("BLOB_ACCESS_KEY") {
+            let _ = vault.cache_secret("default", "blob_access_key", key.clone());
+            if tenant != "default" {
+                let _ = vault.cache_secret(&tenant, "blob_access_key", key);
+            }
+        }
+        if let Ok(key) = std::env::var("BLOB_SECRET_KEY") {
+            let _ = vault.cache_secret("default", "blob_secret_key", key.clone());
+            if tenant != "default" {
+                let _ = vault.cache_secret(&tenant, "blob_secret_key", key);
+            }
+        }
+
         if let Some(ref token) = config.discord_bot_token {
             let _ = vault.cache_secret("default", "discord_bot_token", token.clone());
             if tenant != "default" {
@@ -296,6 +310,7 @@ pub async fn run(config: Config) -> Result<()> {
     if let Some(ref token) = config.discord_bot_token {
         spawn_discord_transport(
             token.clone(),
+            config.discord_public_key.clone().unwrap_or_default(),
             &tenant,
             actual_port,
             config.temper_api_key.clone(),
@@ -305,7 +320,7 @@ pub async fn run(config: Config) -> Result<()> {
     }
 
     // Spawn background loops
-    // TODO: spawn_optimization_loop, spawn_actor_passivation_loop
+    state.server.spawn_runtime_metrics_loop();
 
     spawn_soul_bootstrap(actual_port, tenant.clone(), config.temper_api_key.clone());
 
@@ -710,10 +725,12 @@ async fn set_default_soul(
     )
     .await?;
 
+    let mut has_global_route = false;
     if let Some(routes) = routes_resp["value"].as_array() {
         for route in routes {
             let route_id = entity_id_from_json(route).unwrap_or("");
             let current_soul = entity_field_str(route, &["SoulId", "soul_id"]).unwrap_or("");
+            let channel_id = entity_field_str(route, &["ChannelId", "channel_id"]).unwrap_or("");
             let needs_repair = current_soul.is_empty() || !known_refs.contains(current_soul);
             if needs_repair && !route_id.is_empty() {
                 odata_post(
@@ -726,6 +743,53 @@ async fn set_default_soul(
                 .await
                 .ok();
                 tracing::info!("  Repaired soul '{soul_name}' on AgentRoute {route_id}");
+            }
+            if channel_id.is_empty() {
+                has_global_route = true;
+            }
+        }
+    }
+
+    // Ensure a global fallback AgentRoute exists so Discord (and any other
+    // channel) gets routed to the Paw soul with the full tool set.
+    if !has_global_route {
+        tracing::info!("  No global AgentRoute found — creating one with soul '{soul_name}'");
+        let create_resp = odata_post(
+            client,
+            &format!("{api_url}/tdata/AgentRoutes"),
+            tenant,
+            api_key,
+            serde_json::json!({}),
+        )
+        .await;
+        if let Ok(created) = create_resp {
+            let route_id = entity_id_from_json(&created).unwrap_or("");
+            if !route_id.is_empty() {
+                let agent_config = serde_json::json!({
+                    "model": "claude-sonnet-4-20250514",
+                    "provider": "anthropic",
+                    "tools_enabled": "temper_create,temper_get,temper_list,temper_action,read_entity,save_memory,spawn_agent",
+                    "max_turns": "24",
+                    "temper_api_url": api_url,
+                    "max_follow_ups": "8",
+                });
+                odata_post(
+                    client,
+                    &format!("{api_url}/tdata/AgentRoutes('{route_id}')/Paw.Channel.Register"),
+                    tenant,
+                    api_key,
+                    serde_json::json!({
+                        "binding_tier": "global",
+                        "channel_id": "",
+                        "guild_id": "",
+                        "match_pattern": "",
+                        "agent_config": agent_config.to_string(),
+                        "soul_id": soul_name,
+                    }),
+                )
+                .await
+                .ok();
+                tracing::info!("  Created global AgentRoute {route_id} with soul '{soul_name}'");
             }
         }
     }
@@ -1106,7 +1170,7 @@ fn spawn_webhook_trigger(tenant: &str, port: u16, api_key: Option<String>) {
 }
 
 /// Spawn the Discord channel transport.
-fn spawn_discord_transport(bot_token: String, tenant: &str, port: u16, api_key: Option<String>) {
+fn spawn_discord_transport(bot_token: String, public_key: String, tenant: &str, port: u16, api_key: Option<String>) {
     use paw_transport::PawApiConfig;
     use paw_transport::discord::types::intents;
     use paw_transport::discord::{DiscordConfig, DiscordTransport};
@@ -1123,8 +1187,9 @@ fn spawn_discord_transport(bot_token: String, tenant: &str, port: u16, api_key: 
         });
         let config = DiscordConfig {
             bot_token,
+            public_key,
             intents: intents::DEFAULT,
-            webhook_port: 0,
+            webhook_port: 3488,
         };
         let transport = DiscordTransport::new(config, api);
         if let Err(e) = transport.run().await {
