@@ -600,7 +600,23 @@ impl DiscordTransport {
                 let base_url = api.config().base_url.clone();
                 let tenant = api.config().tenant.clone();
 
-                let (success, message) = if is_approve {
+                // Read the original message content so we can preserve it
+                let original_content = {
+                    let msg_url = format!(
+                        "https://discord.com/api/v10/webhooks/{app_id}/{token}/messages/@original"
+                    );
+                    match http.get(&msg_url).send().await {
+                        Ok(resp) => resp
+                            .json::<serde_json::Value>()
+                            .await
+                            .ok()
+                            .and_then(|v| v.get("content").and_then(|c| c.as_str()).map(String::from))
+                            .unwrap_or_default(),
+                        Err(_) => String::new(),
+                    }
+                };
+
+                let (success, status_line) = if is_approve {
                     // Call the platform's decisions API to add a Cedar policy
                     let approve_url = format!(
                         "{base_url}/api/tenants/{tenant}/decisions/{decision_id_owned}/approve"
@@ -615,7 +631,7 @@ impl DiscordTransport {
                         "decided_by": format!("discord:{reviewer_id_owned}")
                     });
                     match api.raw_post(&approve_url, scope).await {
-                        Ok(_) => (true, format!("**Approved** by <@{reviewer_id_owned}>")),
+                        Ok(_) => (true, format!("Approved by <@{reviewer_id_owned}>")),
                         Err(e) => (false, format!("Approval failed: {e}")),
                     }
                 } else {
@@ -627,9 +643,23 @@ impl DiscordTransport {
                         "decided_by": format!("discord:{reviewer_id_owned}")
                     });
                     match api.raw_post(&deny_url, deny_body).await {
-                        Ok(_) => (true, format!("**Denied** by <@{reviewer_id_owned}>")),
+                        Ok(_) => (true, format!("Denied by <@{reviewer_id_owned}>")),
                         Err(e) => (false, format!("Deny failed: {e}")),
                     }
+                };
+
+                // Build the updated message: original context + decision result
+                let message = if original_content.is_empty() {
+                    status_line
+                } else {
+                    // Replace "Permission Required" header with the result
+                    let updated = original_content
+                        .replace("**Permission Required**", &format!("~~Permission Required~~ **{status_line}**"));
+                    // Remove the "Click a button" instruction line if present
+                    updated.lines()
+                        .filter(|l| !l.contains("Click a button"))
+                        .collect::<Vec<_>>()
+                        .join("\n")
                 };
 
                 // After approve: find the agent waiting on this decision and resume it

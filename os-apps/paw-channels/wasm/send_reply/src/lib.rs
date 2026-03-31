@@ -5,23 +5,11 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
     let result = (|| -> Result<(), String> {
         let ctx = Context::from_host()?;
         let fields = ctx.entity_state.get("fields").cloned().unwrap_or_else(|| json!({}));
-
-        // webhook_url is a persistent Channel field — read from entity state
         let webhook_url = str_field(&fields, &["webhook_url", "WebhookUrl"]).unwrap_or("");
-
-        // thread_id, content, agent_entity_id are transient action params —
-        // read from trigger_params first (the SendReply action body),
-        // falling back to entity state for backward compatibility.
-        let thread_id = str_field(&ctx.trigger_params, &["thread_id", "ThreadId"])
-            .or_else(|| str_field(&fields, &["thread_id", "ThreadId"]))
-            .unwrap_or("");
-        let content = str_field(&ctx.trigger_params, &["content", "Content"])
-            .or_else(|| str_field(&fields, &["content", "Content"]))
-            .unwrap_or("");
+        let thread_id = str_field(&fields, &["thread_id", "ThreadId"]).unwrap_or("");
+        let content = str_field(&fields, &["content", "Content"]).unwrap_or("");
         let agent_entity_id =
-            str_field(&ctx.trigger_params, &["agent_entity_id", "AgentEntityId"])
-                .or_else(|| str_field(&fields, &["agent_entity_id", "AgentEntityId"]))
-                .unwrap_or("");
+            str_field(&fields, &["agent_entity_id", "AgentEntityId"]).unwrap_or("");
 
         if webhook_url.is_empty() {
             return Err("send_reply: webhook_url is empty".to_string());
