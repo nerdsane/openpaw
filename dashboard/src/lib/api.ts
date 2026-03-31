@@ -15,7 +15,15 @@ function flattenEntity(raw: Record<string, unknown>): Record<string, unknown> {
   const fields = (raw.fields ?? {}) as Record<string, unknown>;
   const counters = (raw.counters ?? {}) as Record<string, unknown>;
   const booleans = (raw.booleans ?? {}) as Record<string, unknown>;
-  return { ...fields, ...counters, ...booleans };
+  return {
+    _entity_type: raw.entity_type,
+    _entity_id: raw.entity_id,
+    _events: raw.events ?? [],
+    _sequence_nr: raw.sequence_nr,
+    ...fields,
+    ...counters,
+    ...booleans,
+  };
 }
 
 export async function queryEntities(

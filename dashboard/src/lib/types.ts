@@ -1,3 +1,12 @@
+/** An entity event from the OData events array. */
+export interface EntityEvent {
+  action: string;
+  from_status: string;
+  to_status: string;
+  timestamp: string;
+  params?: Record<string, unknown>;
+}
+
 export interface Agent {
   Id: string;
   Status: string;
@@ -20,6 +29,10 @@ export interface Agent {
   error_message: string;
   user_message: string;
   tools_enabled: string;
+  _entity_type?: string;
+  _entity_id?: string;
+  _events?: EntityEvent[];
+  _sequence_nr?: number;
 }
 
 export interface WorkCycle {

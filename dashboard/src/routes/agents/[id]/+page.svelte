@@ -2,7 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { slide, fade } from 'svelte/transition';
   import { page } from '$app/stores';
-  import type { Agent, WorkCycle } from '$lib/types';
+  import type { Agent, WorkCycle, EntityEvent } from '$lib/types';
   import { getEntity, queryEntities } from '$lib/api';
   import { connectSSE, disconnectSSE, events, type StateChangeEvent } from '$lib/sse';
   import StatusBadge from '$lib/components/StatusBadge.svelte';
@@ -17,7 +17,7 @@
   let loaded = $state(false);
   let error = $state<string | null>(null);
 
-  let transitions = $state<Array<{ event: StateChangeEvent; snapshot?: Agent }>>([]);
+  let transitions = $state<Array<{ event: StateChangeEvent; snapshot?: Agent; timestamp?: string; fromStatus?: string }>>([]);
 
   let childIds = $derived.by((): string[] => {
     if (!agent?.child_agent_ids) return [];
@@ -68,6 +68,28 @@
           workcycle = wcs[0] as unknown as WorkCycle;
         }
       } catch { /* ignore */ }
+    // Populate transitions from historical events
+      if (agent?._events && agent._events.length > 0) {
+        // Filter out noisy Heartbeat events, show meaningful transitions
+        const meaningful = agent._events.filter(
+          (e: EntityEvent) => e.action !== 'Heartbeat'
+        );
+        transitions = meaningful
+          .reverse()
+          .map((e: EntityEvent) => ({
+            event: {
+              seq: 0,
+              entity_type: 'Agent',
+              entity_id: agentId,
+              action: e.action,
+              status: e.to_status,
+              tenant: 'default',
+            } as StateChangeEvent,
+            snapshot: undefined,
+            timestamp: e.timestamp,
+            fromStatus: e.from_status,
+          }));
+      }
     } catch {
       error = 'Could not load agent';
     }
@@ -205,8 +227,8 @@
           </div>
         {:else}
           <div class="stream-list">
-            {#each transitions as t (t.event.seq)}
-              <StateTransition event={t.event} agentSnapshot={t.snapshot} />
+            {#each transitions as t, i (t.timestamp ?? t.event.seq ?? i)}
+              <StateTransition event={t.event} agentSnapshot={t.snapshot} timestamp={t.timestamp} fromStatus={t.fromStatus} />
             {/each}
           </div>
         {/if}

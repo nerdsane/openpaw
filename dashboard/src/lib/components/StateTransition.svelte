@@ -7,10 +7,21 @@
   let {
     event,
     agentSnapshot,
+    timestamp,
+    fromStatus,
   }: {
     event: StateChangeEvent;
     agentSnapshot?: Agent;
+    timestamp?: string;
+    fromStatus?: string;
   } = $props();
+
+  let timeDisplay = $derived.by(() => {
+    if (!timestamp) return event.seq ? `#${event.seq}` : '';
+    const d = new Date(timestamp);
+    if (isNaN(d.getTime())) return '';
+    return d.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  });
 
   let expanded = $state(false);
 
@@ -40,8 +51,10 @@
   <div class="transition__header">
     <StatusBadge status={event.status} />
     <span class="transition__action">{event.action}</span>
-    <code class="transition__id">{shortId}</code>
-    <span class="transition__seq">#{event.seq}</span>
+    {#if fromStatus}
+      <span class="transition__flow">{fromStatus} &rarr; {event.status}</span>
+    {/if}
+    <span class="transition__time">{timeDisplay}</span>
   </div>
 
   {#if turnDelta !== null || tokenInfo !== null}
@@ -96,7 +109,12 @@
     color: var(--text-tertiary);
   }
 
-  .transition__seq {
+  .transition__flow {
+    font-size: var(--text-xs);
+    color: var(--text-tertiary);
+  }
+
+  .transition__time {
     font-family: var(--font-mono);
     font-size: var(--text-xs);
     color: var(--text-tertiary);
