@@ -49,9 +49,12 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             channel_id.to_string(),
         ));
 
-        let parent_agent_id =
-            entity_field_str(&fields, &["parent_agent_id", "ParentAgentId"]).unwrap_or("");
-        let is_child = !parent_agent_id.is_empty();
+        // Only treat as a child agent if agent_depth > 0 (explicitly spawned).
+        // Session-resumed agents have parent_agent_id set but aren't children.
+        let agent_depth = entity_field_str(&fields, &["agent_depth", "AgentDepth"])
+            .and_then(|v| v.parse::<i64>().ok())
+            .unwrap_or(0);
+        let is_child = agent_depth > 0;
 
         // For child agents, send an embed directly to the webhook (bypasses
         // Channel.SendReply which doesn't support embeds in its IOA fields).
