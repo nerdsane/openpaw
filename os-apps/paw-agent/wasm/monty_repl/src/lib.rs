@@ -16,6 +16,7 @@ use temper_wasm_sdk::prelude::*;
 
 mod convert;
 mod dispatch;
+mod session;
 
 use monty::{
     DictPairs, ExcType, ExtFunctionResult, LimitedTracker, MontyException, MontyObject, MontyRepl,
@@ -121,17 +122,20 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         // Save REPL state
         let saved_state = save_repl_state(&repl)?;
 
-        let results_json = serde_json::to_string(&tool_results)
-            .map_err(|e| format!("failed to serialize tool results: {e}"))?;
+        // Heartbeat
+        session::send_heartbeat(&ctx, &temper_api_url, tenant);
 
-        set_success_result(
-            "HandleToolResults",
-            &json!({
-                "pending_tool_calls": "[]",
-                "conversation": results_json,
-                "repl_state": saved_state,
-            }),
-        );
+        // Persist results to session tree / conversation file / inline
+        let params = session::persist_results(
+            &ctx,
+            &temper_api_url,
+            tenant,
+            &fields,
+            &tool_results,
+            &saved_state,
+        )?;
+
+        set_success_result("HandleToolResults", &params);
         Ok(())
     })();
 
