@@ -94,6 +94,13 @@ params = ["thread_id", "content", "agent_entity_id"]
 hint = "Reply delivery finished successfully."
 
 [[action]]
+name = "UpdateConfig"
+kind = "input"
+from = ["Connected", "Disconnected"]
+params = ["default_agent_config"]
+hint = "Update channel configuration on a live or disconnected channel."
+
+[[action]]
 name = "Disconnect"
 kind = "input"
 from = ["Connected"]
