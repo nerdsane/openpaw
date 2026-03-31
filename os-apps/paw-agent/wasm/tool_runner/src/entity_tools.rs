@@ -154,10 +154,6 @@ pub(crate) fn execute(
                         .and_then(|v| v.as_str())
                         .unwrap_or("anthropic")
                 });
-            let max_turns = input
-                .get("max_turns")
-                .and_then(|v| v.as_i64())
-                .unwrap_or(20);
             let tools = input
                 .get("tools")
                 .and_then(|v| v.as_str())
@@ -261,7 +257,7 @@ pub(crate) fn execute(
 
             let config_body = json!({
                 "system_prompt": input.get("system_prompt").and_then(Value::as_str).unwrap_or(""),
-                "model": model, "provider": provider, "max_turns": max_turns.to_string(), "tools_enabled": tools,
+                "model": model, "provider": provider, "tools_enabled": tools,
                 "soul_id": normalized_soul_id, "user_message": task, "parent_agent_id": parent_id,
                 "sandbox_url": child_sandbox_url, "workdir": child_workdir, "agent_depth": current_depth + 1,
             });

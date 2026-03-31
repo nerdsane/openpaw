@@ -18,7 +18,7 @@
 use session_tree_lib::{EntryType, SessionTree};
 use std::collections::BTreeSet;
 use temper_wasm_sdk::prelude::*;
-use wasm_helpers::{create_content_file, runtime_headers};
+use wasm_helpers::{create_content_file, dd_submit_metric, runtime_headers};
 
 /// Entry point — NOT using `temper_module!` because we need dynamic callback actions.
 #[unsafe(no_mangle)]
@@ -35,19 +35,6 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             .get("turn_count")
             .and_then(|v| v.as_i64())
             .unwrap_or(0);
-        let max_turns = fields
-            .get("max_turns")
-            .and_then(|v| v.as_str())
-            .and_then(|s| s.parse::<i64>().ok())
-            .unwrap_or(20);
-
-        if turn_count >= max_turns {
-            set_success_result(
-                "Fail",
-                &json!({ "error_message": format!("turn budget exhausted ({turn_count}/{max_turns})") }),
-            );
-            return Ok(());
-        }
 
         // Read configuration
         let model = fields
@@ -324,6 +311,26 @@ anthropic_api_key (or api_key) for anthropic, openrouter_api_key (or api_key) fo
                 response.stop_reason
             ),
         );
+
+        // Emit token metrics to Datadog
+        let model_tag = format!("model:{}", model);
+        let agent_tag = format!("agent_id:{}", ctx.entity_id);
+        dd_submit_metric(
+            &ctx,
+            "openpaw.agent.tokens.input",
+            response.input_tokens as f64,
+            "count",
+            &[&model_tag, &agent_tag],
+        );
+        dd_submit_metric(
+            &ctx,
+            "openpaw.agent.tokens.output",
+            response.output_tokens as f64,
+            "count",
+            &[&model_tag, &agent_tag],
+        );
+        dd_submit_metric(&ctx, "openpaw.agent.turn", 1.0, "count", &[&model_tag, &agent_tag]);
+
         emit_progress_ignore(
             &ctx,
             json!({
@@ -2064,7 +2071,6 @@ fn build_tool_definitions(tools_enabled: &str, sandbox_url: &str, workdir: &str)
                     "task": { "type": "string" },
                     "model": { "type": "string" },
                     "provider": { "type": "string" },
-                    "max_turns": { "type": "integer" },
                     "tools": { "type": "string" },
                     "soul_id": { "type": "string" },
                     "sandbox_url": { "type": "string" },
@@ -2188,7 +2194,6 @@ fn build_tool_definitions(tools_enabled: &str, sandbox_url: &str, workdir: &str)
                     "task": { "type": "string", "description": "The task for the child agent" },
                     "model": { "type": "string", "description": "LLM model to use (optional, defaults to parent's model)" },
                     "provider": { "type": "string", "description": "LLM provider to use (optional, defaults to parent's provider)" },
-                    "max_turns": { "type": "integer", "description": "Maximum turns for the child (optional, default 20)" },
                     "tools": { "type": "string", "description": "Comma-separated tools to enable (optional, defaults to parent's tools)" },
                     "soul_id": { "type": "string", "description": "Soul name or entity ID to use (optional, defaults to parent's soul)" },
                     "sandbox_url": { "type": "string", "description": "Optional sandbox endpoint to use for the child. When omitted, the child inherits the parent's sandbox unless inherit_sandbox=false." },

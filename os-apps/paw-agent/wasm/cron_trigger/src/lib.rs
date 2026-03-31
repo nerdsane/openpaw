@@ -24,7 +24,6 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         let provider = fields.get("provider").and_then(|v| v.as_str()).unwrap_or("anthropic");
         let tools_enabled = fields.get("tools_enabled").and_then(|v| v.as_str()).unwrap_or("read,write,edit,bash");
         let sandbox_url = fields.get("sandbox_url").and_then(|v| v.as_str()).unwrap_or("");
-        let max_turns = fields.get("max_turns").and_then(|v| v.as_str()).unwrap_or("20");
         let run_count = fields.get("run_count").and_then(|v| v.as_i64()).unwrap_or(0);
         let last_result = fields.get("last_result").and_then(|v| v.as_str()).unwrap_or("");
 
@@ -67,7 +66,6 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             "provider": provider,
             "tools_enabled": tools_enabled,
             "sandbox_url": sandbox_url,
-            "max_turns": max_turns,
             "soul_id": soul_id,
         });
         let configure_resp = ctx.http_call("POST", &configure_url, &headers, &configure_body.to_string())?;
