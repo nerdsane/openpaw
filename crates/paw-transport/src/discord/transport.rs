@@ -27,6 +27,8 @@ pub struct DiscordConfig {
     /// Port for the webhook listener (receives replies from send_reply WASM).
     /// Defaults to 0 (auto-assign).
     pub webhook_port: u16,
+    /// Discord application public key (hex) for interaction signature verification.
+    pub public_key: String,
 }
 
 /// Discord channel transport.
@@ -385,21 +387,27 @@ impl DiscordTransport {
     }
 
     /// Start a webhook HTTP listener that receives reply callbacks from
-    /// the `send_reply` WASM module. Returns the bound port.
+    /// the `send_reply` WASM module and interaction callbacks from Discord.
+    /// Returns the bound port.
     ///
-    /// When `send_reply` WASM POSTs to `{webhook_url}/reply`, this listener
-    /// extracts `thread_id` + `content`, maps thread_id to a Discord DM
-    /// channel, and delivers the reply via Discord REST API.
+    /// Routes:
+    /// - POST /reply — receives reply callbacks from send_reply/request_approval WASM
+    /// - POST /interaction — receives Discord button click interactions
     async fn spawn_webhook_listener(&self) -> Result<u16, String> {
         use axum::{Router, extract::State, routing::post};
+        use super::types::*;
 
         #[derive(Clone)]
         struct WebhookState {
             http: reqwest::Client,
             bot_token: String,
             dm_channels: Arc<RwLock<BTreeMap<String, String>>>,
+            api: crate::PawApiClient,
+            public_key: String,
         }
 
+        /// Handle reply callbacks from send_reply and request_approval WASM.
+        /// Supports optional `components` field for button messages.
         async fn handle_reply(
             State(state): State<WebhookState>,
             axum::Json(body): axum::Json<serde_json::Value>,
@@ -419,29 +427,225 @@ impl DiscordTransport {
                 return axum::http::StatusCode::NOT_FOUND;
             };
 
-            println!(
-                "  [discord] Delivering reply via webhook ({} chars to {})",
-                content.len(),
-                thread_id
-            );
+            // Check if the reply includes interactive components (buttons).
+            let has_components = body.get("components").and_then(|v| v.as_array()).is_some();
 
-            match send_discord_message(&state.http, &state.bot_token, &channel_id, content).await {
-                Ok(()) => axum::http::StatusCode::OK,
-                Err(e) => {
-                    eprintln!("  [discord] Reply delivery failed: {e}");
-                    axum::http::StatusCode::INTERNAL_SERVER_ERROR
+            if has_components {
+                let components: Vec<ActionRow> =
+                    serde_json::from_value(body["components"].clone()).unwrap_or_default();
+
+                println!(
+                    "  [discord] Delivering reply with buttons ({} chars to {})",
+                    content.len(),
+                    thread_id
+                );
+
+                match send_discord_message_with_components(
+                    &state.http,
+                    &state.bot_token,
+                    &channel_id,
+                    content,
+                    &components,
+                )
+                .await
+                {
+                    Ok(_msg) => axum::http::StatusCode::OK,
+                    Err(e) => {
+                        eprintln!("  [discord] Button reply delivery failed: {e}");
+                        axum::http::StatusCode::INTERNAL_SERVER_ERROR
+                    }
+                }
+            } else {
+                println!(
+                    "  [discord] Delivering reply via webhook ({} chars to {})",
+                    content.len(),
+                    thread_id
+                );
+
+                match send_discord_message(&state.http, &state.bot_token, &channel_id, content)
+                    .await
+                {
+                    Ok(()) => axum::http::StatusCode::OK,
+                    Err(e) => {
+                        eprintln!("  [discord] Reply delivery failed: {e}");
+                        axum::http::StatusCode::INTERNAL_SERVER_ERROR
+                    }
                 }
             }
+        }
+
+        /// Handle Discord interaction webhooks (button clicks).
+        ///
+        /// Discord sends INTERACTION_CREATE when a user clicks a button.
+        /// We verify the Ed25519 signature, respond with a deferred ack,
+        /// then dispatch the Temper action asynchronously.
+        async fn handle_interaction(
+            State(state): State<WebhookState>,
+            headers: axum::http::HeaderMap,
+            body: axum::body::Bytes,
+        ) -> (axum::http::StatusCode, axum::Json<serde_json::Value>) {
+            // Verify Ed25519 signature
+            if !state.public_key.is_empty() {
+                let signature = headers
+                    .get("x-signature-ed25519")
+                    .and_then(|v| v.to_str().ok())
+                    .unwrap_or("");
+                let timestamp = headers
+                    .get("x-signature-timestamp")
+                    .and_then(|v| v.to_str().ok())
+                    .unwrap_or("");
+
+                if !verify_discord_signature(&state.public_key, signature, timestamp, &body) {
+                    eprintln!("  [discord] Interaction signature verification failed");
+                    return (
+                        axum::http::StatusCode::UNAUTHORIZED,
+                        axum::Json(serde_json::json!({"error": "invalid signature"})),
+                    );
+                }
+            }
+
+            let payload: InteractionPayload = match serde_json::from_slice(&body) {
+                Ok(p) => p,
+                Err(e) => {
+                    eprintln!("  [discord] Failed to parse interaction: {e}");
+                    return (
+                        axum::http::StatusCode::BAD_REQUEST,
+                        axum::Json(serde_json::json!({"error": "invalid payload"})),
+                    );
+                }
+            };
+
+            // Type 1 = PING (Discord verification handshake)
+            if payload.interaction_type == 1 {
+                println!("  [discord] Responding to PING verification");
+                return (
+                    axum::http::StatusCode::OK,
+                    axum::Json(serde_json::json!({ "type": 1 })),
+                );
+            }
+
+            // Type 3 = MESSAGE_COMPONENT (button click)
+            if payload.interaction_type != 3 {
+                return (axum::http::StatusCode::OK, axum::Json(serde_json::json!({
+                    "type": 4,
+                    "data": { "content": "Unsupported interaction type.", "flags": 64 }
+                })));
+            }
+
+            let Some(ref data) = payload.data else {
+                return (axum::http::StatusCode::OK, axum::Json(serde_json::json!({
+                    "type": 4,
+                    "data": { "content": "No interaction data.", "flags": 64 }
+                })));
+            };
+
+            let custom_id = &data.custom_id;
+            let parts: Vec<&str> = custom_id.splitn(2, ':').collect();
+            if parts.len() != 2 {
+                return (axum::http::StatusCode::OK, axum::Json(serde_json::json!({
+                    "type": 4,
+                    "data": { "content": "Invalid button ID.", "flags": 64 }
+                })));
+            }
+
+            let (action, approval_id) = (parts[0], parts[1]);
+            let action_name = match action {
+                "approve" => "OpenPaw.Approve",
+                "deny" => "OpenPaw.Deny",
+                _ => {
+                    return (axum::http::StatusCode::OK, axum::Json(serde_json::json!({
+                        "type": 4,
+                        "data": { "content": "Unknown action.", "flags": 64 }
+                    })));
+                }
+            };
+
+            // Extract reviewer info
+            let reviewer_id = payload
+                .user
+                .as_ref()
+                .map(|u| u.id.as_str())
+                .or_else(|| {
+                    payload
+                        .member
+                        .as_ref()
+                        .and_then(|m| m.get("user"))
+                        .and_then(|u| u.get("id"))
+                        .and_then(|id| id.as_str())
+                })
+                .unwrap_or("unknown")
+                .to_string();
+
+            let display_action = if action == "approve" {
+                "Approved"
+            } else {
+                "Denied"
+            };
+
+            println!(
+                "  [discord] Interaction: {action} on PendingApproval {approval_id} by {reviewer_id}"
+            );
+
+            // Dispatch the action to Temper asynchronously
+            let api = state.api.clone();
+            let approval_id_owned = approval_id.to_string();
+            let reviewer_id_owned = reviewer_id.clone();
+            let token = payload.token.clone();
+            let app_id = payload
+                .application_id
+                .clone()
+                .unwrap_or_default();
+            let http = state.http.clone();
+            let _bot_token = state.bot_token.clone();
+
+            tokio::spawn(async move {
+                let body = serde_json::json!({ "reviewer_id": reviewer_id_owned });
+                let url = format!(
+                    "{}/tdata/PendingApprovals('{}')/{}",
+                    api.config().base_url,
+                    approval_id_owned,
+                    action_name
+                );
+                let result = api.raw_post(&url, body).await;
+
+                // Send follow-up message via interaction webhook
+                let follow_up_content = match result {
+                    Ok(_) => format!("**{display_action}** by <@{reviewer_id_owned}>"),
+                    Err(ref e) => format!("Failed to process: {e}"),
+                };
+
+                if !app_id.is_empty() && !token.is_empty() {
+                    let follow_up_url = format!(
+                        "https://discord.com/api/v10/webhooks/{app_id}/{token}/messages/@original"
+                    );
+                    let _ = http
+                        .patch(&follow_up_url)
+                        .header("Content-Type", "application/json")
+                        .json(&serde_json::json!({
+                            "content": follow_up_content,
+                            "components": []
+                        }))
+                        .send()
+                        .await;
+                }
+            });
+
+            // Respond with deferred update (type 6 = DEFERRED_UPDATE_MESSAGE)
+            // This removes the "thinking" state and we'll edit the message in the spawn above.
+            (axum::http::StatusCode::OK, axum::Json(serde_json::json!({ "type": 6 })))
         }
 
         let webhook_state = WebhookState {
             http: self.http.clone(),
             bot_token: self.config.bot_token.clone(),
             dm_channels: self.dm_channels.clone(),
+            api: self.api.clone(),
+            public_key: self.config.public_key.clone(),
         };
 
         let app = Router::new()
             .route("/reply", post(handle_reply))
+            .route("/interaction", post(handle_interaction))
             .with_state(webhook_state);
 
         let port = self.config.webhook_port;
@@ -461,6 +665,45 @@ impl DiscordTransport {
 
         Ok(actual_port)
     }
+}
+
+/// Verify a Discord interaction signature using Ed25519.
+///
+/// Discord sends X-Signature-Ed25519 and X-Signature-Timestamp headers.
+/// The signed message is: timestamp + body.
+fn verify_discord_signature(
+    public_key_hex: &str,
+    signature_hex: &str,
+    timestamp: &str,
+    body: &[u8],
+) -> bool {
+    use ed25519_dalek::{Signature, VerifyingKey, Verifier};
+
+    let Ok(pk_bytes) = hex::decode(public_key_hex) else {
+        return false;
+    };
+    let pk_bytes: [u8; 32] = match pk_bytes.try_into() {
+        Ok(b) => b,
+        Err(_) => return false,
+    };
+    let Ok(verifying_key) = VerifyingKey::from_bytes(&pk_bytes) else {
+        return false;
+    };
+
+    let Ok(sig_bytes) = hex::decode(signature_hex) else {
+        return false;
+    };
+    let sig_bytes: [u8; 64] = match sig_bytes.try_into() {
+        Ok(b) => b,
+        Err(_) => return false,
+    };
+    let signature = Signature::from_bytes(&sig_bytes);
+
+    let mut message = Vec::with_capacity(timestamp.len() + body.len());
+    message.extend_from_slice(timestamp.as_bytes());
+    message.extend_from_slice(body);
+
+    verifying_key.verify(&message, &signature).is_ok()
 }
 
 /// Read one Gateway payload from the WebSocket with timeout.

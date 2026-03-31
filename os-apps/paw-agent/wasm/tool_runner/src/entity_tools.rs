@@ -269,7 +269,12 @@ pub(crate) fn execute(
                 &crate::odata_headers(ctx, tenant),
                 &serde_json::to_string(&config_body).unwrap_or_default(),
             )?;
-            if resp2.status < 200 || resp2.status >= 300 {
+            if resp2.status == 403 {
+                handle_cedar_denial(
+                    ctx, temper_api_url, tenant, fields,
+                    &config_url, "Agents", &child_id, "Configure", &config_body, &resp2.body,
+                )?;
+            } else if resp2.status < 200 || resp2.status >= 300 {
                 return Err(format!(
                     "spawn_agent: configure failed (HTTP {})",
                     resp2.status
@@ -278,7 +283,12 @@ pub(crate) fn execute(
 
             let prov_url = format!("{temper_api_url}/tdata/Agents('{child_id}')/OpenPaw.Provision");
             let resp3 = ctx.http_call("POST", &prov_url, &crate::odata_headers(ctx, tenant), "{}")?;
-            if resp3.status < 200 || resp3.status >= 300 {
+            if resp3.status == 403 {
+                handle_cedar_denial(
+                    ctx, temper_api_url, tenant, fields,
+                    &prov_url, "Agents", &child_id, "Provision", &json!({}), &resp3.body,
+                )?;
+            } else if resp3.status < 200 || resp3.status >= 300 {
                 return Err(format!(
                     "spawn_agent: provision failed (HTTP {})",
                     resp3.status
@@ -456,6 +466,11 @@ pub(crate) fn execute(
             let resp = ctx.http_call("POST", &url, &crate::odata_headers(ctx, tenant), &body.to_string())?;
             if resp.status >= 200 && resp.status < 300 {
                 Ok(resp.body)
+            } else if resp.status == 403 {
+                handle_cedar_denial(
+                    ctx, temper_api_url, tenant, fields,
+                    &url, entity_set, "", "create", &body, &resp.body,
+                )
             } else {
                 Err(format!(
                     "temper_create failed (HTTP {}): {}",
@@ -561,6 +576,11 @@ pub(crate) fn execute(
             let resp = ctx.http_call("POST", &url, &crate::odata_headers(ctx, tenant), &body.to_string())?;
             if resp.status >= 200 && resp.status < 300 {
                 Ok(resp.body)
+            } else if resp.status == 403 {
+                handle_cedar_denial(
+                    ctx, temper_api_url, tenant, fields,
+                    &url, entity_set, entity_id, action, &body, &resp.body,
+                )
             } else {
                 Err(format!(
                     "temper_action failed (HTTP {}): {}",
@@ -671,11 +691,118 @@ fn wait_for_child_agent_terminal_state(
     ))
 }
 
+/// Handle a Cedar 403 denial by creating a PendingApproval entity and
+/// returning immediately. Does NOT block or poll.
+///
+/// The flow is event-driven:
+/// 1. This creates a PendingApproval and dispatches Request (→ Discord buttons)
+/// 2. Returns Ok with a message — the LLM sees this as a tool result
+/// 3. When the human clicks Approve, the `approval_granted` WASM fires,
+///    executes the action with system identity, and notifies via Discord
+fn handle_cedar_denial(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+    _fields: &Value,
+    original_url: &str,
+    entity_set: &str,
+    target_entity_id: &str,
+    action: &str,
+    body: &Value,
+    resp_body: &str,
+) -> Result<String, String> {
+    let decision_id = parse_decision_id(resp_body);
+    let action_desc = format!("{action} on {entity_set}('{target_entity_id}')");
+
+    ctx.log(
+        "info",
+        &format!("Cedar denied: {action_desc} — requesting human approval"),
+    );
+
+    // Create PendingApproval entity
+    let create_url = format!("{temper_api_url}/tdata/PendingApprovals");
+    let create_resp = ctx.http_call(
+        "POST",
+        &create_url,
+        &crate::odata_headers(ctx, tenant),
+        "{}",
+    )?;
+    if create_resp.status < 200 || create_resp.status >= 300 {
+        return Err(format!(
+            "Failed to create PendingApproval (HTTP {}): {}. Original denial: {action_desc}",
+            create_resp.status,
+            &create_resp.body[..create_resp.body.len().min(200)]
+        ));
+    }
+    let parsed: Value =
+        serde_json::from_str(&create_resp.body).unwrap_or_else(|_| json!({}));
+    let approval_id = parsed
+        .get("entity_id")
+        .or_else(|| parsed.get("Id"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    if approval_id.is_empty() {
+        return Err(format!(
+            "PendingApproval created but has no ID. Original denial: {action_desc}"
+        ));
+    }
+
+    // Dispatch Request action (triggers request_approval WASM → Discord buttons)
+    let request_body = json!({
+        "agent_entity_id": ctx.entity_state.get("entity_id")
+            .and_then(|v| v.as_str()).unwrap_or(""),
+        "action_description": action_desc,
+        "entity_set": entity_set,
+        "target_entity_id": target_entity_id,
+        "target_action": action,
+        "target_body": body.to_string(),
+        "target_url": original_url,
+        "decision_id": decision_id,
+    });
+    let request_url = format!(
+        "{temper_api_url}/tdata/PendingApprovals('{approval_id}')/OpenPaw.Request"
+    );
+    let req_resp = ctx.http_call(
+        "POST",
+        &request_url,
+        &crate::odata_headers(ctx, tenant),
+        &serde_json::to_string(&request_body).unwrap_or_default(),
+    )?;
+    if req_resp.status < 200 || req_resp.status >= 300 {
+        return Err(format!(
+            "PendingApproval.Request failed (HTTP {}). Original denial: {action_desc}",
+            req_resp.status,
+        ));
+    }
+
+    // Return immediately — don't block. The approval_granted WASM will
+    // execute the action when the human clicks Approve in Discord.
+    Ok(format!(
+        "Authorization required. A human has been asked to approve: {action_desc}. \
+         PendingApproval:{approval_id}. The action will be executed automatically \
+         when approved. You do not need to retry — just inform the user that \
+         approval is pending."
+    ))
+}
+
+/// Extract the Cedar decision ID from a 403 response body.
+/// Expected format: `{"error":{"code":"AuthorizationDenied","message":"... (decision: PD-...)"}}`
+fn parse_decision_id(body: &str) -> String {
+    if let Some(start) = body.find("PD-") {
+        let rest = &body[start..];
+        let end = rest
+            .find(|c: char| c == ')' || c == '"' || c == '}' || c.is_whitespace())
+            .unwrap_or(rest.len());
+        return rest[..end].to_string();
+    }
+    String::new()
+}
+
 fn resolve_bound_action_name(entity_set: &str, action: &str) -> String {
     let ns = match entity_set {
         "Monitors" | "AlertCycles" | "MonitorScans" => "OpenPaw.Heal",
         "ProjectHarnesses" | "WorkCycles" => "OpenPaw.Harness",
-        "Agents" | "Souls" => "OpenPaw",
+        "Agents" | "Souls" | "PendingApprovals" => "OpenPaw",
         "Issues" | "Plans" => "Paw.PM",
         "Channels" | "AgentRoutes" | "ChannelSessions" => "Paw.Channel",
         _ => "OpenPaw",

@@ -213,6 +213,74 @@ pub async fn send_discord_message(
     Ok(())
 }
 
+/// Send a message with interactive components (buttons) to a Discord channel.
+/// Returns the full message response JSON (includes message ID for later edits).
+pub async fn send_discord_message_with_components(
+    http: &reqwest::Client,
+    bot_token: &str,
+    channel_id: &str,
+    content: &str,
+    components: &[super::types::ActionRow],
+) -> Result<serde_json::Value, String> {
+    let body = super::types::CreateMessageWithComponents {
+        content: content.to_string(),
+        components: components.to_vec(),
+    };
+
+    let resp = http
+        .post(format!("{DISCORD_API_BASE}/channels/{channel_id}/messages"))
+        .header("Authorization", format!("Bot {bot_token}"))
+        .header("Content-Type", "application/json")
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("Discord API error: {e}"))?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        return Err(format!("Discord API returned {status}: {body}"));
+    }
+
+    resp.json::<serde_json::Value>()
+        .await
+        .map_err(|e| format!("Failed to parse Discord message response: {e}"))
+}
+
+/// Edit a Discord message to update content and/or remove components.
+pub async fn edit_discord_message(
+    http: &reqwest::Client,
+    bot_token: &str,
+    channel_id: &str,
+    message_id: &str,
+    content: &str,
+    components: &[super::types::ActionRow],
+) -> Result<(), String> {
+    let body = serde_json::json!({
+        "content": content,
+        "components": components,
+    });
+
+    let resp = http
+        .patch(format!(
+            "{DISCORD_API_BASE}/channels/{channel_id}/messages/{message_id}"
+        ))
+        .header("Authorization", format!("Bot {bot_token}"))
+        .header("Content-Type", "application/json")
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("Discord edit error: {e}"))?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        return Err(format!("Discord edit returned {status}: {body}"));
+    }
+
+    Ok(())
+}
+
 /// Send typing indicator.
 pub(crate) async fn send_typing(http: &reqwest::Client, bot_token: &str, channel_id: &str) {
     let _ = http

@@ -5,6 +5,9 @@ pub struct Config {
     /// Discord bot token for the Paw agent.
     pub discord_bot_token: Option<String>,
 
+    /// Discord application public key for interaction signature verification.
+    pub discord_public_key: Option<String>,
+
     /// Turso database URL (local file or cloud).
     /// Default: ~/.local/share/openpaw/paw.db
     pub turso_url: Option<String>,
@@ -43,6 +46,12 @@ pub struct Config {
     /// Shared secret used to validate webhook request signatures.
     pub webhook_secret: Option<String>,
 
+    /// Enable OpenTelemetry export to Datadog Agent via OTLP.
+    pub otel_enabled: bool,
+
+    /// OTLP gRPC endpoint (Datadog Agent).
+    pub otel_endpoint: String,
+
     /// HTTP port for the OData API + webhook listener.
     pub port: u16,
 
@@ -57,6 +66,7 @@ impl Config {
 
         Ok(Self {
             discord_bot_token: optional_env("DISCORD_BOT_TOKEN"),
+            discord_public_key: optional_env("DISCORD_PUBLIC_KEY"),
             turso_url: optional_env("TURSO_URL"),
             turso_auth_token: optional_env("TURSO_AUTH_TOKEN"),
             anthropic_api_key: optional_env("ANTHROPIC_API_KEY"),
@@ -69,6 +79,11 @@ impl Config {
             vault_key: optional_env("TEMPER_VAULT_KEY"),
             fly_api_token: optional_env("FLY_API_TOKEN"),
             webhook_secret: optional_env("WEBHOOK_SECRET"),
+            otel_enabled: std::env::var("OTEL_ENABLED")
+                .map(|v| v != "false" && v != "0")
+                .unwrap_or(true),
+            otel_endpoint: std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT")
+                .unwrap_or_else(|_| "http://localhost:4317".to_string()),
             port: std::env::var("PORT")
                 .ok()
                 .and_then(|p| p.parse().ok())

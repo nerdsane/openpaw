@@ -12,5 +12,5 @@ pub mod types;
 mod gateway;
 mod transport;
 
-pub use gateway::send_discord_message;
+pub use gateway::{edit_discord_message, send_discord_message, send_discord_message_with_components};
 pub use transport::{DiscordConfig, DiscordTransport};

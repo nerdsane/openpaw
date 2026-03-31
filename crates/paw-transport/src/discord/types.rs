@@ -204,6 +204,125 @@ pub struct CreateMessageRequest {
     pub content: String,
 }
 
+// ── Message Components (buttons, action rows) ───────────────────────
+
+/// POST /channels/{channel_id}/messages request body with components.
+#[derive(Debug, Serialize)]
+pub struct CreateMessageWithComponents {
+    pub content: String,
+    pub components: Vec<ActionRow>,
+}
+
+/// An action row containing interactive components (buttons, selects).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ActionRow {
+    /// Always 1 for action rows.
+    #[serde(rename = "type")]
+    pub component_type: u8,
+    pub components: Vec<Button>,
+}
+
+/// A clickable button component.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Button {
+    /// Always 2 for buttons.
+    #[serde(rename = "type")]
+    pub component_type: u8,
+    /// 1=Primary (blurple), 2=Secondary (grey), 3=Success (green), 4=Danger (red).
+    pub style: u8,
+    pub label: String,
+    pub custom_id: String,
+}
+
+impl Button {
+    /// Create a green "Approve" button.
+    pub fn approve(approval_id: &str) -> Self {
+        Self {
+            component_type: 2,
+            style: 3,
+            label: "Approve".to_string(),
+            custom_id: format!("approve:{approval_id}"),
+        }
+    }
+
+    /// Create a red "Deny" button.
+    pub fn deny(approval_id: &str) -> Self {
+        Self {
+            component_type: 2,
+            style: 4,
+            label: "Deny".to_string(),
+            custom_id: format!("deny:{approval_id}"),
+        }
+    }
+}
+
+impl ActionRow {
+    /// Create an action row with approval buttons.
+    pub fn approval_buttons(approval_id: &str) -> Self {
+        Self {
+            component_type: 1,
+            components: vec![Button::approve(approval_id), Button::deny(approval_id)],
+        }
+    }
+}
+
+// ── Discord Interactions (button clicks) ─────────────────────────────
+
+/// Incoming interaction payload from Discord (button click, etc.).
+#[derive(Debug, Deserialize)]
+pub struct InteractionPayload {
+    /// Interaction ID.
+    pub id: String,
+    /// Interaction type: 1=PING, 2=APPLICATION_COMMAND, 3=MESSAGE_COMPONENT.
+    #[serde(rename = "type")]
+    pub interaction_type: u8,
+    /// Component interaction data (present for type 3).
+    pub data: Option<InteractionData>,
+    /// Interaction token for follow-up messages.
+    pub token: String,
+    /// The user who triggered the interaction.
+    #[serde(default)]
+    pub member: Option<serde_json::Value>,
+    #[serde(default)]
+    pub user: Option<DiscordUser>,
+    /// Application ID.
+    #[serde(default)]
+    pub application_id: Option<String>,
+}
+
+/// Component interaction data.
+#[derive(Debug, Deserialize)]
+pub struct InteractionData {
+    /// The custom_id of the clicked component.
+    pub custom_id: String,
+    /// Component type (2 = button).
+    pub component_type: u8,
+}
+
+/// Response to a Discord interaction.
+#[derive(Debug, Serialize)]
+pub struct InteractionResponse {
+    /// 1=PONG, 4=CHANNEL_MESSAGE_WITH_SOURCE, 5=DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE, 6=DEFERRED_UPDATE_MESSAGE.
+    #[serde(rename = "type")]
+    pub response_type: u8,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data: Option<InteractionCallbackData>,
+}
+
+/// Optional data for an interaction response.
+#[derive(Debug, Serialize)]
+pub struct InteractionCallbackData {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub components: Option<Vec<ActionRow>>,
+    /// 64 = EPHEMERAL (only visible to the user who clicked).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub flags: Option<u32>,
+}
+
+// ── REST API types (other) ───────────────────────────────────────────
+
 /// GET /gateway/bot response.
 #[derive(Debug, Deserialize)]
 pub struct GatewayBotResponse {
