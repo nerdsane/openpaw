@@ -519,7 +519,7 @@ anthropic_auth_mode = "auto"
 openrouter_site_url = ""
 openrouter_app_name = "openpaw-agent"
 temper_api_url = "{secret:temper_api_url}"
-timeout_secs = "300"
+timeout_secs = "600"
 max_response_bytes = "4194304"
 
 [[integration]]
