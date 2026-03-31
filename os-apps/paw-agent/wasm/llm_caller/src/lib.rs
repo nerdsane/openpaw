@@ -2485,10 +2485,9 @@ fn assemble_system_prompt(
 
     // 2b. Project harness conventions (auto-injected like CLAUDE.md)
     {
-        let project_harness_id = ctx
-            .entity_state
-            .get("fields")
-            .and_then(|f| f.get("ProjectHarnessId"))
+        let fields_val = ctx.entity_state.get("fields");
+        let project_harness_id = fields_val
+            .and_then(|f| f.get("project_harness_id").or_else(|| f.get("ProjectHarnessId")))
             .and_then(|v| v.as_str())
             .unwrap_or("");
         match load_harness_block(ctx, temper_api_url, tenant, project_harness_id) {
