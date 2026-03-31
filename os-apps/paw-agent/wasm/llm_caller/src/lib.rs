@@ -18,7 +18,7 @@
 use session_tree_lib::{EntryType, SessionTree};
 use std::collections::BTreeSet;
 use temper_wasm_sdk::prelude::*;
-use wasm_helpers::{create_content_file, dd_submit_metric, runtime_headers};
+use wasm_helpers::{create_content_file, runtime_headers, send_typing_indicator};
 
 /// Entry point — NOT using `temper_module!` because we need dynamic callback actions.
 #[unsafe(no_mangle)]
@@ -277,6 +277,9 @@ anthropic_api_key (or api_key) for anthropic, openrouter_api_key (or api_key) fo
             }),
         );
 
+        // Send typing indicator to Discord before LLM call
+        send_typing_indicator(&ctx, &temper_api_url, tenant, &ctx.entity_id);
+
         // Call LLM API
         let response = match provider.as_str() {
             "mock" => call_mock(&ctx, &messages, &assembled_system_prompt, &tools)?,
@@ -311,25 +314,6 @@ anthropic_api_key (or api_key) for anthropic, openrouter_api_key (or api_key) fo
                 response.stop_reason
             ),
         );
-
-        // Emit token metrics to Datadog
-        let model_tag = format!("model:{}", model);
-        let agent_tag = format!("agent_id:{}", ctx.entity_id);
-        dd_submit_metric(
-            &ctx,
-            "openpaw.agent.tokens.input",
-            response.input_tokens as f64,
-            "count",
-            &[&model_tag, &agent_tag],
-        );
-        dd_submit_metric(
-            &ctx,
-            "openpaw.agent.tokens.output",
-            response.output_tokens as f64,
-            "count",
-            &[&model_tag, &agent_tag],
-        );
-        dd_submit_metric(&ctx, "openpaw.agent.turn", 1.0, "count", &[&model_tag, &agent_tag]);
 
         emit_progress_ignore(
             &ctx,

@@ -49,6 +49,63 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             channel_id.to_string(),
         ));
 
+        let parent_agent_id =
+            entity_field_str(&fields, &["parent_agent_id", "ParentAgentId"]).unwrap_or("");
+        let is_child = !parent_agent_id.is_empty();
+
+        // For child agents, send an embed directly to the webhook (bypasses
+        // Channel.SendReply which doesn't support embeds in its IOA fields).
+        // For parent agents, use the normal Channel.SendReply flow.
+        if is_child {
+            let soul_id = entity_field_str(&fields, &["soul_id", "SoulId"]).unwrap_or("");
+            let soul_name = if !soul_id.is_empty() {
+                resolve_soul_name(&ctx, &temper_api_url, tenant, soul_id)
+                    .unwrap_or_else(|| soul_id.to_string())
+            } else {
+                "Agent".to_string()
+            };
+            let desc = if reply_text.len() > 4000 {
+                format!("{}...", &reply_text[..reply_text.floor_char_boundary(4000)])
+            } else {
+                reply_text.clone()
+            };
+            let color = if status == "Completed" { 0x57F287u32 } else { 0xED4245u32 };
+
+            // Get webhook_url from the Channel entity
+            let webhook_url =
+                entity_field_str(&channel, &["webhook_url", "WebhookUrl"]).unwrap_or("");
+            if !webhook_url.is_empty() {
+                let embed_body = json!({
+                    "thread_id": thread_id,
+                    "content": "",
+                    "agent_entity_id": agent_id,
+                    "embeds": [{
+                        "title": soul_name,
+                        "description": desc,
+                        "color": color,
+                        "footer": {"text": format!("Agent:{}", &agent_id[..agent_id.len().min(12)])}
+                    }]
+                });
+                let wh_headers = vec![
+                    ("content-type".to_string(), "application/json".to_string()),
+                    ("x-tenant-id".to_string(), tenant.to_string()),
+                ];
+                let resp = ctx.http_call("POST", webhook_url, &wh_headers, &embed_body.to_string())?;
+                if !(200..300).contains(&resp.status) {
+                    return Err(format!(
+                        "agent_reply: embed webhook POST failed (HTTP {})",
+                        resp.status
+                    ));
+                }
+                ctx.log(
+                    "info",
+                    &format!("agent_reply: sent embed reply for child agent {agent_id} ({soul_name})"),
+                );
+                set_success_result("", &json!({"status": "replied_embed", "agent_entity_id": agent_id}));
+                return Ok(());
+            }
+        }
+
         let body = json!({
             "thread_id": thread_id,
             "content": reply_text,
@@ -164,6 +221,53 @@ fn list_entities(ctx: &Context, url: &str, tenant: &str) -> Result<Vec<Value>, S
 
 fn escape_odata(value: &str) -> String {
     value.replace('\'', "''")
+}
+
+fn resolve_soul_name(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+    soul_ref: &str,
+) -> Option<String> {
+    if soul_ref.is_empty() {
+        return None;
+    }
+    let fields = ctx
+        .entity_state
+        .get("fields")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    let headers = runtime_headers(ctx, tenant, &fields, None, Some("application/json"));
+
+    // Try by ID first
+    let url = format!("{temper_api_url}/tdata/Souls('{soul_ref}')");
+    if let Ok(resp) = ctx.http_call("GET", &url, &headers, "") {
+        if resp.status == 200 {
+            let parsed: Value = serde_json::from_str(&resp.body).unwrap_or_default();
+            if let Some(name) = entity_field_str(&parsed, &["Name", "name"]) {
+                return Some(name.to_string());
+            }
+        }
+    }
+
+    // Try by name filter
+    let escaped = soul_ref.replace('\'', "''");
+    let url = format!(
+        "{temper_api_url}/tdata/Souls?$filter=Name eq '{escaped}' and Status eq 'Active'&$top=1"
+    );
+    if let Ok(resp) = ctx.http_call("GET", &url, &headers, "") {
+        if resp.status == 200 {
+            let parsed: Value = serde_json::from_str(&resp.body).unwrap_or_default();
+            if let Some(soul) = parsed.get("value").and_then(Value::as_array).and_then(|a| a.first()) {
+                if let Some(name) = entity_field_str(soul, &["Name", "name"]) {
+                    return Some(name.to_string());
+                }
+            }
+        }
+    }
+
+    // soul_ref itself might be the name
+    Some(soul_ref.to_string())
 }
 
 fn truncate_body(body: &str) -> String {

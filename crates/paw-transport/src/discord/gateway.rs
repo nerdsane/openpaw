@@ -213,7 +213,7 @@ pub async fn send_discord_message(
     Ok(())
 }
 
-/// Send a message with interactive components (buttons) to a Discord channel.
+/// Send a message with interactive components and/or embeds to a Discord channel.
 /// Returns the full message response JSON (includes message ID for later edits).
 pub async fn send_discord_message_with_components(
     http: &reqwest::Client,
@@ -221,10 +221,12 @@ pub async fn send_discord_message_with_components(
     channel_id: &str,
     content: &str,
     components: &[super::types::ActionRow],
+    embeds: &[super::types::Embed],
 ) -> Result<serde_json::Value, String> {
     let body = super::types::CreateMessageWithComponents {
         content: content.to_string(),
         components: components.to_vec(),
+        embeds: embeds.to_vec(),
     };
 
     let resp = http

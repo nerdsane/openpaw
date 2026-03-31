@@ -204,13 +204,61 @@ pub struct CreateMessageRequest {
     pub content: String,
 }
 
-// ── Message Components (buttons, action rows) ───────────────────────
+// ── Message Components (buttons, action rows, embeds) ────────────────
 
-/// POST /channels/{channel_id}/messages request body with components.
+/// POST /channels/{channel_id}/messages request body with components and embeds.
 #[derive(Debug, Serialize)]
 pub struct CreateMessageWithComponents {
     pub content: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub components: Vec<ActionRow>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub embeds: Vec<Embed>,
+}
+
+// ── Discord Embeds ───────────────────────────────────────────────────
+
+/// A rich embed card in a Discord message.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct Embed {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// Decimal RGB color for the left sidebar. See `embed_colors`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub color: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fields: Option<Vec<EmbedField>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub footer: Option<EmbedFooter>,
+}
+
+/// A field within an embed.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EmbedField {
+    pub name: String,
+    pub value: String,
+    #[serde(default)]
+    pub inline: bool,
+}
+
+/// Footer text at the bottom of an embed.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EmbedFooter {
+    pub text: String,
+}
+
+/// Standard embed colors for agent messages.
+pub mod embed_colors {
+    /// Green — success, approved.
+    pub const SUCCESS: u32 = 0x57F287;
+    /// Red — error, denied.
+    pub const ERROR: u32 = 0xED4245;
+    /// Blurple — agent activity, info.
+    pub const INFO: u32 = 0x5865F2;
+    /// Yellow — warning, pending.
+    pub const WARNING: u32 = 0xFEE75C;
 }
 
 /// An action row containing interactive components (buttons, selects).

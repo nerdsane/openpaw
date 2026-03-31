@@ -394,3 +394,88 @@ mod tests {
         assert_eq!(entity_field_str(&val, &["Status"]), Some("Active"));
     }
 }
+
+/// Send a typing indicator to Discord for the given agent.
+/// Best-effort: silently ignores all errors.
+///
+/// Looks up ChannelSession → Channel → webhook_url, then POSTs to /typing.
+pub fn send_typing_indicator(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+    agent_entity_id: &str,
+) {
+    let _ = send_typing_indicator_inner(ctx, temper_api_url, tenant, agent_entity_id);
+}
+
+fn send_typing_indicator_inner(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+    agent_entity_id: &str,
+) -> Result<(), String> {
+    if agent_entity_id.is_empty() {
+        return Ok(());
+    }
+
+    let fields = ctx
+        .entity_state
+        .get("fields")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    let headers = runtime_headers(ctx, tenant, &fields, None, Some("application/json"));
+
+    // Find ChannelSession for this agent
+    let escaped = agent_entity_id.replace('\'', "''");
+    let session_url = format!(
+        "{temper_api_url}/tdata/ChannelSessions?$filter=agent_entity_id eq '{escaped}'&$top=1"
+    );
+    let session_resp = ctx.http_call("GET", &session_url, &headers, "")?;
+    if session_resp.status != 200 {
+        return Ok(());
+    }
+    let sessions: Value =
+        serde_json::from_str(&session_resp.body).unwrap_or_else(|_| json!({"value": []}));
+    let session = sessions
+        .get("value")
+        .and_then(Value::as_array)
+        .and_then(|arr| arr.first())
+        .ok_or("no session")?;
+
+    let channel_id = entity_field_str(session, &["ChannelId", "channel_id"]).unwrap_or("");
+    let thread_id = entity_field_str(session, &["ThreadId", "thread_id"]).unwrap_or("");
+    if channel_id.is_empty() || thread_id.is_empty() {
+        return Ok(());
+    }
+
+    // Find Channel to get webhook_url
+    let escaped_ch = channel_id.replace('\'', "''");
+    let channel_url = format!(
+        "{temper_api_url}/tdata/Channels?$filter=Status eq 'Connected' and channel_id eq '{escaped_ch}'&$top=1"
+    );
+    let ch_resp = ctx.http_call("GET", &channel_url, &headers, "")?;
+    if ch_resp.status != 200 {
+        return Ok(());
+    }
+    let channels: Value =
+        serde_json::from_str(&ch_resp.body).unwrap_or_else(|_| json!({"value": []}));
+    let channel = channels
+        .get("value")
+        .and_then(Value::as_array)
+        .and_then(|arr| arr.first())
+        .ok_or("no channel")?;
+
+    let webhook_url = entity_field_str(channel, &["webhook_url", "WebhookUrl"]).unwrap_or("");
+    if webhook_url.is_empty() {
+        return Ok(());
+    }
+
+    // POST to /typing endpoint
+    let typing_url = format!("{}/typing", webhook_url.trim_end_matches('/').trim_end_matches("/reply"));
+    let body = json!({"thread_id": thread_id});
+    let wh_headers = vec![
+        ("content-type".to_string(), "application/json".to_string()),
+    ];
+    let _ = ctx.http_call("POST", &typing_url, &wh_headers, &body.to_string());
+    Ok(())
+}

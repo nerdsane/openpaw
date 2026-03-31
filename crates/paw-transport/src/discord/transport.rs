@@ -427,16 +427,23 @@ impl DiscordTransport {
                 return axum::http::StatusCode::NOT_FOUND;
             };
 
-            // Check if the reply includes interactive components (buttons).
-            let has_components = body.get("components").and_then(|v| v.as_array()).is_some();
+            // Check for rich content (components, embeds).
+            let components: Vec<ActionRow> = body
+                .get("components")
+                .and_then(|v| serde_json::from_value(v.clone()).ok())
+                .unwrap_or_default();
+            let embeds: Vec<Embed> = body
+                .get("embeds")
+                .and_then(|v| serde_json::from_value(v.clone()).ok())
+                .unwrap_or_default();
+            let has_rich_content = !components.is_empty() || !embeds.is_empty();
 
-            if has_components {
-                let components: Vec<ActionRow> =
-                    serde_json::from_value(body["components"].clone()).unwrap_or_default();
-
+            if has_rich_content {
                 println!(
-                    "  [discord] Delivering reply with buttons ({} chars to {})",
+                    "  [discord] Delivering rich reply ({} chars, {} components, {} embeds to {})",
                     content.len(),
+                    components.len(),
+                    embeds.len(),
                     thread_id
                 );
 
@@ -446,12 +453,13 @@ impl DiscordTransport {
                     &channel_id,
                     content,
                     &components,
+                    &embeds,
                 )
                 .await
                 {
                     Ok(_msg) => axum::http::StatusCode::OK,
                     Err(e) => {
-                        eprintln!("  [discord] Button reply delivery failed: {e}");
+                        eprintln!("  [discord] Rich reply delivery failed: {e}");
                         axum::http::StatusCode::INTERNAL_SERVER_ERROR
                     }
                 }
@@ -643,9 +651,27 @@ impl DiscordTransport {
             public_key: self.config.public_key.clone(),
         };
 
+        /// Handle typing indicator requests from WASM modules.
+        async fn handle_typing(
+            State(state): State<WebhookState>,
+            axum::Json(body): axum::Json<serde_json::Value>,
+        ) -> axum::http::StatusCode {
+            let thread_id = body.get("thread_id").and_then(|v| v.as_str()).unwrap_or("");
+            if thread_id.is_empty() {
+                return axum::http::StatusCode::BAD_REQUEST;
+            }
+            let channel_id = state.dm_channels.read().await.get(thread_id).cloned();
+            let Some(channel_id) = channel_id else {
+                return axum::http::StatusCode::NOT_FOUND;
+            };
+            send_typing(&state.http, &state.bot_token, &channel_id).await;
+            axum::http::StatusCode::OK
+        }
+
         let app = Router::new()
             .route("/reply", post(handle_reply))
             .route("/interaction", post(handle_interaction))
+            .route("/typing", post(handle_typing))
             .with_state(webhook_state);
 
         let port = self.config.webhook_port;
