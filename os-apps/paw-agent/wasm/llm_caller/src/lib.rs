@@ -1100,7 +1100,7 @@ fn call_anthropic(
 
     let mut body = json!({
         "model": model,
-        "max_tokens": 4096,
+        "max_tokens": 16384,
         "messages": effective_messages,
     });
 
@@ -1246,7 +1246,7 @@ fn call_openrouter(
     let mut body = json!({
         "model": model,
         "messages": or_messages,
-        "max_tokens": 4096,
+        "max_tokens": 16384,
     });
     if !openai_tools.is_empty() {
         body["tools"] = json!(openai_tools);
