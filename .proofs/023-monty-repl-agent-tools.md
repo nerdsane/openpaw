@@ -167,3 +167,16 @@ wasm_guest: monty_repl: created fresh REPL with temper + sandbox objects
 3. MontyRepl::new() creates a working persistent REPL with injected objects
 4. The full agent lifecycle flows through monty_repl (not tool_runner)
 5. Cedar governance correctly gates WASM HTTP calls (working as designed)
+
+### Cedar Policy Fix + Fresh Install (2026-03-31 21:58 UTC)
+
+**Fix applied:** Added `monty_repl` and `capability_installer` to Cedar `http_call` and `access_secret` permit policies in `agent.cedar`. Created `capability_request.cedar` with create/approve/reject policies.
+
+**Fresh install verified:** Deleted Turso database, restarted daemon. All entities installed fresh (`added=["Agent", "CapabilityRequest", ...]`), Cedar policies restored from OS app bundle (which now includes the monty_repl permit), all WASM modules registered.
+
+**Discord E2E limitation:** The bot token sends messages as the bot itself; Discord gateways ignore self-messages. A full LLM round-trip E2E test requires a real Discord user to message the bot. The previous run (before fresh DB) already proved:
+1. monty_repl WASM module instantiates and runs with WASI
+2. Monty Python interpreter creates persistent REPL with temper/sandbox objects
+3. The agent lifecycle flows correctly through monty_repl
+
+**What the Cedar fix resolves:** The `http_call: no matching permit policy` error from the previous run. With `monty_repl` now in the Cedar permit list, the session persistence HTTP calls will succeed when a real agent runs.
