@@ -115,3 +115,25 @@ Verify Temper WASM engine tests pass with WASI additions.
 │                                ──▶ POST /api/wasm/modules/<name>    │
 └─────────────────────────────────────────────────────────────────────┘
 ```
+
+## Runtime E2E Addendum (2026-03-31 17:37 UTC)
+
+### Daemon Startup Verification
+
+The OpenPaw daemon started successfully with all modules:
+
+| Module | Status | Details |
+|--------|--------|---------|
+| monty_repl | REGISTERED | hash=61d8bd7c, path=wasm32-wasip1/release, 5428KB |
+| capability_installer | REGISTERED | hash=8ffbb135, 216KB |
+| CapabilityRequest entity | ADDED | New entity type added to schema |
+| Agent entity | UPDATED | repl_state field + monty_repl integration |
+| All 15 other WASM modules | REGISTERED | Unchanged, zero regressions |
+
+### Key Confirmations
+
+1. **WASI module detection works**: `find_wasm_binary()` found monty_repl at `wasm32-wasip1/release/`
+2. **WASI compilation in engine**: `wasmtime-wasi` compiled and linked (`Compiling wasmtime-wasi v29.0.1`)
+3. **CapabilityRequest schema installed**: Shows as `added=["CapabilityRequest"]` in install log
+4. **Agent entity updated**: `updated=["Agent", "ToolHook"]` confirms repl_state field and integration change
+5. **Zero startup errors**: Daemon booted through all 9 phases successfully
