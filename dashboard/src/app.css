@@ -1,0 +1,284 @@
+/* ============================================================
+   Open Paw Design System — Foundation Tokens & Reset
+   Neo-editorial operations floor aesthetic.
+   ============================================================ */
+
+:root {
+  /* Surfaces */
+  --surface-base: #FAFAF9;
+  --surface-raised: #F0EFED;
+  --surface-overlay: #E6E5E3;
+
+  /* Text */
+  --text-primary: #1A1A1A;
+  --text-secondary: #6B6B6B;
+  --text-tertiary: #9A9A9A;
+
+  /* Chrome */
+  --border: #E0DFDD;
+  --accent: #1A1A1A;
+
+  /* Status — geometric indicators only, no emoji */
+  --status-active: #2D2D2D;
+  --status-success: #3D7A3D;
+  --status-error: #8B3A3A;
+  --status-warning: #8B7A3A;
+  --status-idle: #B0B0B0;
+
+  /* Brand */
+  --brand-subtle: rgba(26, 26, 26, 0.06);
+
+  /* Typography stacks */
+  --font-serif: 'Source Serif 4', 'Georgia', serif;
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', 'Menlo', 'Consolas', monospace;
+
+  /* Spacing scale (8px base) */
+  --space-1: 8px;
+  --space-2: 16px;
+  --space-3: 24px;
+  --space-4: 32px;
+  --space-6: 48px;
+  --space-8: 64px;
+
+  /* Type scale */
+  --text-xs: 0.75rem;
+  --text-sm: 0.8125rem;
+  --text-base: 1rem;
+  --text-lg: 1.25rem;
+  --text-xl: 1.5625rem;
+  --text-2xl: 2rem;
+  --text-3xl: 2.5rem;
+
+  /* Radii */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+
+  /* Motion */
+  --duration-instant: 100ms;
+  --duration-fast: 200ms;
+  --duration-base: 300ms;
+  --duration-slow: 500ms;
+  --ease: cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* Layout */
+  --sidebar-width: 200px;
+  --content-max: 1200px;
+}
+
+/* ---- Dark mode (default) ---- */
+[data-theme="dark"] {
+  --surface-base: #0E0E0E;
+  --surface-raised: #1A1A1A;
+  --surface-overlay: #262626;
+  --text-primary: #EDEDED;
+  --text-secondary: #8A8A8A;
+  --text-tertiary: #5A5A5A;
+  --border: #2A2A2A;
+  --accent: #EDEDED;
+  --status-active: #EDEDED;
+  --status-success: #6BC46B;
+  --status-error: #D46B6B;
+  --status-warning: #D4B96B;
+  --status-idle: #4A4A4A;
+  --brand-subtle: rgba(237, 237, 237, 0.04);
+}
+
+/* ============================================================
+   Reset
+   ============================================================ */
+
+*, *::before, *::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html {
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  color: var(--text-primary);
+  background: var(--surface-base);
+  min-height: 100vh;
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+img, svg {
+  display: block;
+  max-width: 100%;
+}
+
+button {
+  font-family: inherit;
+  font-size: inherit;
+  cursor: pointer;
+  border: none;
+  background: none;
+  color: inherit;
+}
+
+input, select, textarea {
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+  background: transparent;
+}
+
+ul, ol {
+  list-style: none;
+}
+
+/* ============================================================
+   Typography
+   ============================================================ */
+
+h1, h2, h3 {
+  font-family: var(--font-serif);
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+}
+
+h1 { font-size: var(--text-2xl); }
+h2 { font-size: var(--text-xl); }
+h3 { font-size: var(--text-lg); }
+
+code, pre {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+pre {
+  background: var(--surface-raised);
+  padding: var(--space-2);
+  border-radius: var(--radius-md);
+  overflow-x: auto;
+}
+
+/* ============================================================
+   Cards — surface elevation, NOT borders
+   ============================================================ */
+
+.card {
+  background: var(--surface-raised);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+}
+
+.card-overlay {
+  background: var(--surface-overlay);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+}
+
+/* ============================================================
+   Status indicators — geometric, no emoji
+   ============================================================ */
+
+.status-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--status-idle);
+  flex-shrink: 0;
+}
+
+.status-dot[data-status="active"],
+.status-dot[data-status="Running"] {
+  background: var(--status-active);
+}
+
+.status-dot[data-status="success"],
+.status-dot[data-status="Completed"] {
+  background: var(--status-success);
+}
+
+.status-dot[data-status="error"],
+.status-dot[data-status="Failed"] {
+  background: var(--status-error);
+}
+
+.status-dot[data-status="warning"],
+.status-dot[data-status="AwaitingApproval"] {
+  background: var(--status-warning);
+}
+
+.status-dot[data-status="idle"],
+.status-dot[data-status="Idle"],
+.status-dot[data-status="Cancelled"] {
+  background: var(--status-idle);
+}
+
+/* Hollow variant */
+.status-ring {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 1.5px solid var(--status-idle);
+  flex-shrink: 0;
+}
+
+/* ============================================================
+   Utility classes
+   ============================================================ */
+
+.text-xs     { font-size: var(--text-xs); }
+.text-sm     { font-size: var(--text-sm); }
+.text-base   { font-size: var(--text-base); }
+.text-lg     { font-size: var(--text-lg); }
+.text-xl     { font-size: var(--text-xl); }
+.text-2xl    { font-size: var(--text-2xl); }
+.text-3xl    { font-size: var(--text-3xl); }
+
+.text-primary   { color: var(--text-primary); }
+.text-secondary { color: var(--text-secondary); }
+.text-tertiary  { color: var(--text-tertiary); }
+
+.font-serif  { font-family: var(--font-serif); }
+.font-sans   { font-family: var(--font-sans); }
+.font-mono   { font-family: var(--font-mono); }
+
+.mono { font-family: var(--font-mono); font-size: var(--text-xs); }
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+}
+
+/* ============================================================
+   Motion — respect prefers-reduced-motion
+   ============================================================ */
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

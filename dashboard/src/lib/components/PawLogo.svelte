@@ -1,0 +1,21 @@
+<script lang="ts">
+  let { size = 22 }: { size?: number } = $props();
+</script>
+
+<svg
+  width={size}
+  height={size}
+  viewBox="0 0 64 64"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2.5"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+  aria-hidden="true"
+>
+  <ellipse cx="32" cy="40" rx="12" ry="10" />
+  <circle cx="18" cy="26" r="5" />
+  <circle cx="29" cy="18" r="5" />
+  <circle cx="41" cy="20" r="5" />
+  <circle cx="48" cy="30" r="5" />
+</svg>

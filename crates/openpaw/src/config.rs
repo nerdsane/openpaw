@@ -8,6 +8,15 @@ pub struct Config {
     /// Discord application public key for interaction signature verification.
     pub discord_public_key: Option<String>,
 
+    /// Discord guild (server) ID for observability channels.
+    pub discord_guild_id: Option<String>,
+
+    /// Discord text channel ID for the #feed stream.
+    pub discord_feed_channel_id: Option<String>,
+
+    /// Discord forum channel ID for per-agent threads.
+    pub discord_forum_channel_id: Option<String>,
+
     /// Turso database URL (local file or cloud).
     /// Default: ~/.local/share/openpaw/paw.db
     pub turso_url: Option<String>,
@@ -73,6 +82,9 @@ impl Config {
         Ok(Self {
             discord_bot_token: optional_env("DISCORD_BOT_TOKEN"),
             discord_public_key: optional_env("DISCORD_PUBLIC_KEY"),
+            discord_guild_id: optional_env("DISCORD_GUILD_ID"),
+            discord_feed_channel_id: optional_env("DISCORD_FEED_CHANNEL_ID"),
+            discord_forum_channel_id: optional_env("DISCORD_FORUM_CHANNEL_ID"),
             turso_url: optional_env("TURSO_URL"),
             turso_auth_token: optional_env("TURSO_AUTH_TOKEN"),
             anthropic_api_key: optional_env("ANTHROPIC_API_KEY"),

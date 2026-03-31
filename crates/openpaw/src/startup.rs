@@ -318,6 +318,14 @@ pub async fn run(config: Config) -> Result<()> {
     let _ = state.server.listen_port.set(actual_port);
     let router = build_platform_router(state.clone());
 
+    // Serve the dashboard SPA from dashboard/build if available.
+    let router = if std::path::Path::new("dashboard/build").exists() {
+        use tower_http::services::ServeDir;
+        router.nest_service("/dashboard", ServeDir::new("dashboard/build"))
+    } else {
+        router
+    };
+
     // Spawn webhook trigger (ONE entity, ONE action per request).
     spawn_webhook_trigger(&tenant, actual_port, config.temper_api_key.clone());
 
@@ -328,6 +336,9 @@ pub async fn run(config: Config) -> Result<()> {
         spawn_discord_transport(
             token.clone(),
             config.discord_public_key.clone().unwrap_or_default(),
+            config.discord_guild_id.clone(),
+            config.discord_feed_channel_id.clone(),
+            config.discord_forum_channel_id.clone(),
             &tenant,
             actual_port,
             config.temper_api_key.clone(),
@@ -1215,7 +1226,16 @@ fn spawn_cron_trigger(tenant: &str, port: u16, api_key: Option<String>) {
 }
 
 /// Spawn the Discord channel transport.
-fn spawn_discord_transport(bot_token: String, public_key: String, tenant: &str, port: u16, api_key: Option<String>) {
+fn spawn_discord_transport(
+    bot_token: String,
+    public_key: String,
+    guild_id: Option<String>,
+    feed_channel_id: Option<String>,
+    forum_channel_id: Option<String>,
+    tenant: &str,
+    port: u16,
+    api_key: Option<String>,
+) {
     use paw_transport::PawApiConfig;
     use paw_transport::discord::types::intents;
     use paw_transport::discord::{DiscordConfig, DiscordTransport};
@@ -1235,6 +1255,9 @@ fn spawn_discord_transport(bot_token: String, public_key: String, tenant: &str, 
             public_key,
             intents: intents::DEFAULT,
             webhook_port: 3488,
+            guild_id,
+            feed_channel_id,
+            forum_channel_id,
         };
         let transport = DiscordTransport::new(config, api);
         if let Err(e) = transport.run().await {
