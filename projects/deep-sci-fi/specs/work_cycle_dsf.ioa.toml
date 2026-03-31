@@ -1,9 +1,13 @@
-# WorkCycle — Governed implementation loop for one planned change.
+# WorkCycleDSF — Deep-sci-fi enriched WorkCycle with gate fields.
+# Extends the base WorkCycle with Report* actions and gate guards
+# that enforce the 3-level harness at the state machine level.
 
 [automaton]
-name = "WorkCycle"
+name = "WorkCycleDSF"
 states = ["Planning", "Planned", "InProgress", "Testing", "Reviewing", "Complete", "Failed"]
 initial = "Planning"
+
+# --- Existing fields ---
 
 [[state]]
 name = "project_harness_id"
@@ -45,8 +49,40 @@ name = "error_message"
 type = "string"
 initial = ""
 
+# --- Gate fields (boolean strings) ---
+
 [[state]]
 name = "has_plan"
+type = "bool"
+initial = "false"
+
+[[state]]
+name = "migrations_ok"
+type = "bool"
+initial = "false"
+
+[[state]]
+name = "typecheck_ok"
+type = "bool"
+initial = "false"
+
+[[state]]
+name = "unit_tests_ok"
+type = "bool"
+initial = "false"
+
+[[state]]
+name = "dst_ok"
+type = "bool"
+initial = "false"
+
+[[state]]
+name = "policy_gates_ok"
+type = "bool"
+initial = "false"
+
+[[state]]
+name = "e2e_ok"
 type = "bool"
 initial = "false"
 
@@ -55,37 +91,41 @@ name = "tests_passed"
 type = "bool"
 initial = "false"
 
-# --- State Variables: Gate Pattern ---
+# --- Summary fields for gate reports ---
 
 [[state]]
-name = "migrations_ok"
+name = "migrations_summary"
 type = "string"
-initial = "false"
+initial = ""
 
 [[state]]
-name = "typecheck_ok"
+name = "typecheck_summary"
 type = "string"
-initial = "false"
+initial = ""
 
 [[state]]
-name = "unit_tests_ok"
+name = "unit_tests_summary"
 type = "string"
-initial = "false"
+initial = ""
 
 [[state]]
-name = "dst_ok"
+name = "dst_summary"
 type = "string"
-initial = "false"
+initial = ""
 
 [[state]]
-name = "policy_gates_ok"
+name = "policy_gates_summary"
 type = "string"
-initial = "false"
+initial = ""
 
 [[state]]
-name = "e2e_ok"
+name = "e2e_summary"
 type = "string"
-initial = "false"
+initial = ""
+
+# ============================================================
+# Actions
+# ============================================================
 
 [[action]]
 name = "Configure"
@@ -111,71 +151,75 @@ to = "InProgress"
 guard = "is_true has_plan"
 hint = "Start implementation only after a plan exists."
 
+# --- Report actions: self-loops in InProgress ---
+
 [[action]]
 name = "ReportMigrations"
 kind = "input"
 from = ["InProgress"]
 to = "InProgress"
-params = ["ok", "summary"]
-hint = "Report migration check result. Sets migrations_ok gate."
+params = ["migrations_ok", "migrations_summary"]
+hint = "Report whether Alembic migration check passed or failed."
 
 [[action]]
 name = "ReportTypecheck"
 kind = "input"
 from = ["InProgress"]
 to = "InProgress"
-params = ["ok", "summary"]
-hint = "Report typecheck result. Sets typecheck_ok gate."
+params = ["typecheck_ok", "typecheck_summary"]
+hint = "Report whether TypeScript/Python type check passed or failed."
 
 [[action]]
 name = "ReportUnitTests"
 kind = "input"
 from = ["InProgress"]
 to = "InProgress"
-params = ["ok", "summary"]
-hint = "Report unit test result. Sets unit_tests_ok gate."
+params = ["unit_tests_ok", "unit_tests_summary"]
+hint = "Report whether pytest + vitest unit tests passed or failed."
 
 [[action]]
 name = "ReportDST"
 kind = "input"
 from = ["InProgress"]
 to = "InProgress"
-params = ["ok", "summary"]
-hint = "Report DST (deterministic simulation testing) result. Sets dst_ok gate."
+params = ["dst_ok", "dst_summary"]
+hint = "Report whether Hypothesis DST simulation tests passed or failed."
 
 [[action]]
 name = "ReportPolicyGates"
 kind = "input"
 from = ["InProgress"]
 to = "InProgress"
-params = ["ok", "summary"]
-hint = "Report policy gates result. Sets policy_gates_ok gate."
+params = ["policy_gates_ok", "policy_gates_summary"]
+hint = "Report whether all Level 1 + Level 2 policy gate checks passed or failed."
 
 [[action]]
 name = "ReportE2E"
 kind = "input"
 from = ["InProgress"]
 to = "InProgress"
-params = ["ok", "summary"]
-hint = "Report end-to-end test result. Sets e2e_ok gate."
+params = ["e2e_ok", "e2e_summary"]
+hint = "Report whether Playwright E2E tests passed or failed. Optional gate."
+
+# --- Transition actions with gate guards ---
 
 [[action]]
 name = "BeginTesting"
 kind = "input"
 from = ["InProgress"]
 to = "Testing"
-guard = "migrations_ok == 'true' && typecheck_ok == 'true' && unit_tests_ok == 'true'"
-hint = "Move implementation into test execution. Requires migrations, typecheck, and unit tests to pass."
+guard = "is_true migrations_ok && is_true typecheck_ok && is_true unit_tests_ok"
+hint = "Move to testing only after migrations, typecheck, and unit tests are green."
 
 [[action]]
 name = "PassTests"
 kind = "input"
 from = ["Testing"]
 to = "Reviewing"
-guard = "dst_ok == 'true' && policy_gates_ok == 'true'"
 params = ["test_summary"]
+guard = "is_true dst_ok && is_true policy_gates_ok"
 effect = "set tests_passed true"
-hint = "Only passing work should enter review. Requires DST and policy gates to pass."
+hint = "Only passing work should enter review. DST and policy gates must be green."
 
 [[action]]
 name = "Approve"
@@ -184,7 +228,7 @@ from = ["Reviewing"]
 to = "Complete"
 guard = "is_true tests_passed"
 params = ["approver_id", "pr_url"]
-hint = "Approve the reviewed change after tests have passed."
+hint = "Approve the reviewed change after all tests have passed."
 
 [[action]]
 name = "Fail"
@@ -194,10 +238,24 @@ to = "Failed"
 params = ["error_message"]
 hint = "Record a failed work cycle with the reason for failure."
 
+# ============================================================
+# Invariants
+# ============================================================
+
 [[invariant]]
 name = "PlannedWorkHasPlan"
 when = ["Planned", "InProgress", "Testing", "Reviewing", "Complete"]
 assert = "has_plan"
+
+[[invariant]]
+name = "TestingRequiresBaseGates"
+when = ["Testing", "Reviewing", "Complete"]
+assert = "migrations_ok && typecheck_ok && unit_tests_ok"
+
+[[invariant]]
+name = "ReviewRequiresDSTAndPolicy"
+when = ["Reviewing", "Complete"]
+assert = "dst_ok && policy_gates_ok"
 
 [[invariant]]
 name = "ReviewedWorkPassedTests"

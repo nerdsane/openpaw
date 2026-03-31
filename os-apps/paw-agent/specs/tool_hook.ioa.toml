@@ -38,11 +38,26 @@ name = "priority"
 type = "counter"
 initial = "0"
 
+[[state]]
+name = "cedar_enabled"
+type = "string"
+initial = "false"
+
+[[state]]
+name = "command_pattern"
+type = "string"
+initial = ""
+
+[[state]]
+name = "project_scope"
+type = "string"
+initial = ""
+
 [[action]]
 name = "Register"
 kind = "input"
 from = ["Active"]
-params = ["name", "hook_type", "tool_pattern", "hook_action", "soul_id", "priority"]
+params = ["name", "hook_type", "tool_pattern", "hook_action", "soul_id", "priority", "cedar_enabled", "command_pattern", "project_scope"]
 hint = "Register a tool hook with pattern and action."
 
 [[action]]

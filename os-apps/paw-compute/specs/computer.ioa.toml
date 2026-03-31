@@ -43,6 +43,12 @@ last_checkpoint_at = { type = "String", default = "" }
 provisioned_at = { type = "String", default = "" }
 error_message = { type = "String", default = "" }
 
+# Governance
+tools_installed = { type = "String", default = "" }
+credentials_scoped = { type = "String", default = "" }
+network_allow = { type = "String", default = "" }
+project_harness_id = { type = "String", default = "" }
+
 # -- Actions -------------------------------------------------------------------
 
 [[action]]
@@ -58,6 +64,10 @@ params = [
     { name = "storage_gb", type = "Int32", optional = true },
     { name = "base_image", type = "String", optional = true },
     { name = "setup_script", type = "String", optional = true },
+    { name = "tools_installed", type = "String", optional = true },
+    { name = "credentials_scoped", type = "String", optional = true },
+    { name = "network_allow", type = "String", optional = true },
+    { name = "project_harness_id", type = "String", optional = true },
 ]
 effects = [
     "name := params.name",
@@ -68,6 +78,10 @@ effects = [
     "storage_gb := params.storage_gb ?? state.storage_gb",
     "base_image := params.base_image ?? state.base_image",
     "setup_script := params.setup_script ?? state.setup_script",
+    "tools_installed := params.tools_installed ?? state.tools_installed",
+    "credentials_scoped := params.credentials_scoped ?? state.credentials_scoped",
+    "network_allow := params.network_allow ?? state.network_allow",
+    "project_harness_id := params.project_harness_id ?? state.project_harness_id",
 ]
 
 [[action]]

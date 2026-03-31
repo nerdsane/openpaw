@@ -248,6 +248,20 @@ pub async fn run(config: Config) -> Result<()> {
                 let _ = vault.cache_secret(&tenant, "fly_api_token", token.clone());
             }
         }
+
+        if let Some(ref token) = config.railway_token {
+            let _ = vault.cache_secret("default", "railway_token", token.clone());
+            if tenant != "default" {
+                let _ = vault.cache_secret(&tenant, "railway_token", token.clone());
+            }
+        }
+
+        if let Some(ref token) = config.vercel_token {
+            let _ = vault.cache_secret("default", "vercel_token", token.clone());
+            if tenant != "default" {
+                let _ = vault.cache_secret(&tenant, "vercel_token", token.clone());
+            }
+        }
     }
 
     // Phase 6: Install Paw OS apps
@@ -306,6 +320,9 @@ pub async fn run(config: Config) -> Result<()> {
 
     // Spawn webhook trigger (ONE entity, ONE action per request).
     spawn_webhook_trigger(&tenant, actual_port, config.temper_api_key.clone());
+
+    // Spawn cron trigger (polls CronJobs, dispatches Trigger action on due jobs).
+    spawn_cron_trigger(&tenant, actual_port, config.temper_api_key.clone());
 
     if let Some(ref token) = config.discord_bot_token {
         spawn_discord_transport(
@@ -1165,6 +1182,34 @@ fn spawn_webhook_trigger(tenant: &str, port: u16, api_key: Option<String>) {
         let trigger = WebhookTrigger::new(config, api);
         if let Err(e) = trigger.run().await {
             tracing::error!("Webhook trigger fatal error: {e}");
+        }
+    });
+}
+
+/// Spawn the cron trigger as a background task.
+///
+/// Polls active CronJob entities and dispatches `OpenPaw.Trigger` when due.
+/// ONE entity, ONE action — everything else is WASM integrations.
+fn spawn_cron_trigger(tenant: &str, port: u16, api_key: Option<String>) {
+    use paw_transport::PawApiConfig;
+    use paw_transport::cron::{CronTrigger, CronTriggerConfig};
+
+    let tenant = tenant.to_string();
+    let api_url = format!("http://127.0.0.1:{port}");
+    tracing::info!("Cron trigger: polling every 60s (tenant={tenant})");
+
+    tokio::spawn(async move {
+        let api = paw_transport::PawApiClient::new(PawApiConfig {
+            base_url: api_url,
+            tenant,
+            api_key,
+        });
+        let config = CronTriggerConfig {
+            check_interval_secs: 60,
+        };
+        let trigger = CronTrigger::new(config, api);
+        if let Err(e) = trigger.run().await {
+            tracing::error!("Cron trigger fatal error: {e}");
         }
     });
 }

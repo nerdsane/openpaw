@@ -257,6 +257,7 @@ ISSUE_ID=<id or empty>"
             "soul_id": "SRE",
             "temper_api_url": temper_api_url,
             "user_message": sre_message,
+            "project_harness_id": project_harness_id,
         });
         let configure_resp =
             ctx.http_call("POST", &configure_url, &headers, &configure_body.to_string())?;

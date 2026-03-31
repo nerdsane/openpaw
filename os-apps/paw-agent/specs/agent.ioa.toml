@@ -245,13 +245,20 @@ name = "pending_tool_context"
 type = "string"
 initial = ""
 
+# --- State Variables: Project Harness ---
+
+[[state]]
+name = "project_harness_id"
+type = "string"
+initial = ""
+
 # --- Actions: Core Agent Loop ---
 
 [[action]]
 name = "Configure"
 kind = "input"
 from = ["Created"]
-params = ["system_prompt", "user_message", "model", "provider", "max_turns", "tools_enabled", "workdir", "sandbox_url", "temper_api_url", "soul_id", "parent_agent_id", "agent_depth", "max_follow_ups", "hook_policy", "reserve_tokens", "keep_recent_tokens", "compaction_model", "heartbeat_timeout_seconds"]
+params = ["system_prompt", "user_message", "model", "provider", "max_turns", "tools_enabled", "workdir", "sandbox_url", "temper_api_url", "soul_id", "parent_agent_id", "agent_depth", "max_follow_ups", "hook_policy", "reserve_tokens", "keep_recent_tokens", "compaction_model", "heartbeat_timeout_seconds", "project_harness_id"]
 hint = "Configure agent with system prompt, user message, model, tools, soul, and optional overrides."
 
 [[action]]

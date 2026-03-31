@@ -43,6 +43,12 @@ pub struct Config {
     /// Fly.io API token for Sprites provisioning.
     pub fly_api_token: Option<String>,
 
+    /// Railway API token for deployment integrations.
+    pub railway_token: Option<String>,
+
+    /// Vercel API token for deployment integrations.
+    pub vercel_token: Option<String>,
+
     /// Shared secret used to validate webhook request signatures.
     pub webhook_secret: Option<String>,
 
@@ -78,6 +84,8 @@ impl Config {
             temper_api_key: optional_env("TEMPER_API_KEY"),
             vault_key: optional_env("TEMPER_VAULT_KEY"),
             fly_api_token: optional_env("FLY_API_TOKEN"),
+            railway_token: optional_env("RAILWAY_TOKEN"),
+            vercel_token: optional_env("VERCEL_TOKEN"),
             webhook_secret: optional_env("WEBHOOK_SECRET"),
             otel_enabled: std::env::var("OTEL_ENABLED")
                 .map(|v| v != "false" && v != "0")
