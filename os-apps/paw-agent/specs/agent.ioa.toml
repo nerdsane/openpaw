@@ -483,8 +483,6 @@ openrouter_app_name = "openpaw-agent"
 temper_api_url = "{secret:temper_api_url}"
 timeout_secs = "300"
 max_response_bytes = "4194304"
-dd_api_key = "{secret:dd_api_key}"
-dd_site = "{secret:dd_site}"
 
 [[integration]]
 name = "run_tools"

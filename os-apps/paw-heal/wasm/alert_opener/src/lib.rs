@@ -7,7 +7,6 @@
 //! Build: `cargo build --target wasm32-unknown-unknown --release`
 
 use temper_wasm_sdk::prelude::*;
-use wasm_helpers::dd_submit_metric;
 
 /// Entry point.
 #[unsafe(no_mangle)]
@@ -304,12 +303,7 @@ ISSUE_ID=<id or empty>"
             );
         }
 
-        // 10. Emit metric
-        let sev_tag = format!("severity:{severity}");
-        let monitor_tag = format!("monitor_id:{monitor_id}");
-        dd_submit_metric(&ctx, "openpaw.heal.alert_opened", 1.0, "count", &[&sev_tag, &monitor_tag]);
-
-        // 11. Success — SRE agent will self-report via the AlertCycle state machine
+        // 10. Success — SRE agent will self-report via the AlertCycle state machine
         set_success_result("", &json!({ "sre_agent_id": agent_id }));
 
         ctx.log("info", &format!("alert_opener: done, SRE agent={agent_id}"));

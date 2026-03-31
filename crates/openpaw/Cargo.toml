@@ -32,9 +32,13 @@ serde_json = { workspace = true }
 # HTTP server
 axum = { workspace = true }
 
-# Logging
+# Logging & Observability
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+opentelemetry = { workspace = true }
+opentelemetry_sdk = { workspace = true }
+opentelemetry-otlp = { workspace = true }
+tracing-opentelemetry = { workspace = true }
 
 # Error handling
 anyhow = { workspace = true }
