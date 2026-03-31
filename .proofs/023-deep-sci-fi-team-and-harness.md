@@ -27,7 +27,7 @@ Ran the OpenPaw daemon from the worktree and verified features via OData API.
 | 1. Daemon starts | All 8 apps load | 7 of 8 load (paw-compute skips — pre-existing issue) | PARTIAL |
 | 2. ProjectHarness created | Active with full conventions | Active, repo_url + tech_stack + conventions populated | PASS |
 | 3. Agent with project_harness_id | Field stored on entity | `project_harness_id: 019d45a9-...` confirmed | PASS |
-| 4. Harness auto-injection | Conventions in assembled prompt | Code in place, compiles. Cannot verify end-to-end without sandbox (TL_API_KEY not set) | BLOCKED |
+| 4. Harness auto-injection | Conventions in assembled prompt | Agent completed but did NOT see harness conventions. WASM entity_state may not pass project_harness_id to llm_caller, or internal HTTP call fails silently. Needs WASM trace logging. | FAIL |
 | 5. WorkCycle gates | Report* actions + guard enforcement | Reverted — IOA TOML guard format needs investigation | GAP |
 | 6. Cedar ToolHook | `gh pr merge` blocked for SWE | Code in place, compiles. Cannot verify without running agent | BLOCKED |
 | 7. Railway API tool | Governed deployment query | Code in place, compiles. Cannot verify without RAILWAY_TOKEN | BLOCKED |
@@ -50,6 +50,7 @@ Ran the OpenPaw daemon from the worktree and verified features via OData API.
 - paw-harness: WorkCycle spec loads and updates successfully (without gate additions)
 
 ## What Didn't Work
+- **Harness auto-injection**: Code is structurally correct (load_harness_block fetches ProjectHarness, formats XML, inserts into prompt). But end-to-end test shows agents don't see the conventions. Tested with fresh DB (Agent spec registered with project_harness_id field), sandbox provisioned, agent completed — but LLM response shows no harness context. Root cause: either WASM entity_state doesn't include project_harness_id field, or the internal HTTP call from WASM to OData API fails silently. Needs WASM trace logging (not available via daemon stdout).
 - WorkCycle gate pattern: The `is_true` guard only accepts a single field. Compound guards (`a == 'true' && b == 'true'`) are not supported by Temper's IOA parser. Need to investigate how to express multi-field guards.
 - paw-compute bundle: Skipped on startup (pre-existing issue, not caused by our changes)
 
