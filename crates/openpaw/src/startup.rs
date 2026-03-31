@@ -815,7 +815,7 @@ async fn set_default_soul(
             let route_id = entity_id_from_json(&created).unwrap_or("");
             if !route_id.is_empty() {
                 let agent_config = serde_json::json!({
-                    "model": "claude-sonnet-4-20250514",
+                    "model": "claude-sonnet-4-6",
                     "provider": "anthropic",
                     "tools_enabled": "temper_create,temper_get,temper_list,temper_action,read_entity,save_memory,spawn_agent",
                     "max_turns": "24",

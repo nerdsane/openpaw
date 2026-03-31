@@ -80,7 +80,7 @@ Artifact:
 - `AgentRoute` `019d2d93-1f63-7343-8370-14eb7d19d582`
 - `soul_id = "Paw"`
 - `agent_config` includes:
-  - `model = claude-sonnet-4-20250514`
+  - `model = claude-sonnet-4-6`
   - `provider = anthropic`
   - `tools_enabled = temper_create,temper_get,temper_list,temper_action,spawn_agent,save_memory,read_entity`
 

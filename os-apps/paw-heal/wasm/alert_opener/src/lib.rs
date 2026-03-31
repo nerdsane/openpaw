@@ -50,7 +50,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             .config
             .get("default_agent_model")
             .cloned()
-            .unwrap_or_else(|| "claude-sonnet-4-20250514".to_string());
+            .unwrap_or_else(|| "claude-sonnet-4-6".to_string());
         let default_sre_workdir = ctx
             .config
             .get("default_sre_workdir")

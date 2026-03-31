@@ -25,7 +25,9 @@
             soulName = name;
           }
         } catch {
-          // Soul not found — leave null
+          // Soul entity not found by ID — soul_id might be a name string (e.g. "SWE")
+          soulName = agent.soul_id;
+          soulCache.set(agent.soul_id, agent.soul_id);
         }
       }
     }
@@ -46,8 +48,10 @@
 
   let relativeTime = $derived.by(() => {
     if (!agent.last_heartbeat_at) return null;
-    const now = Date.now();
+    // Handle non-ISO values like "alive"
     const then = new Date(agent.last_heartbeat_at).getTime();
+    if (isNaN(then)) return agent.last_heartbeat_at; // Show raw value if not a date
+    const now = Date.now();
     const diff = Math.max(0, now - then);
     const seconds = Math.floor(diff / 1000);
     if (seconds < 60) return `${seconds}s ago`;

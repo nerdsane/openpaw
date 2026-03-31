@@ -5,8 +5,24 @@ export default defineConfig({
 	plugins: [sveltekit()],
 	server: {
 		proxy: {
-			'/tdata': 'http://localhost:3467',
-			'/observe': 'http://localhost:3467'
+			'/tdata': {
+				target: 'http://localhost:3467',
+				configure: (proxy) => {
+					proxy.on('proxyReq', (proxyReq) => {
+						proxyReq.setHeader('x-tenant-id', 'default');
+						proxyReq.setHeader('x-temper-principal-kind', 'admin');
+					});
+				}
+			},
+			'/observe': {
+				target: 'http://localhost:3467',
+				configure: (proxy) => {
+					proxy.on('proxyReq', (proxyReq) => {
+						proxyReq.setHeader('x-tenant-id', 'default');
+						proxyReq.setHeader('x-temper-principal-kind', 'admin');
+					});
+				}
+			}
 		}
 	}
 });

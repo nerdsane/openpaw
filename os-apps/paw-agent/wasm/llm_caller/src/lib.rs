@@ -40,7 +40,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         let model = fields
             .get("model")
             .and_then(|v| v.as_str())
-            .unwrap_or("claude-sonnet-4-20250514");
+            .unwrap_or("claude-sonnet-4-6");
         let provider_raw = fields
             .get("provider")
             .and_then(|v| v.as_str())

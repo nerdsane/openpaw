@@ -381,7 +381,7 @@ fn create_agent_from_route(
     let configure_body = json!({
         "system_prompt": config.get("system_prompt").and_then(Value::as_str).unwrap_or(""),
         "user_message": user_message,
-        "model": config.get("model").and_then(Value::as_str).unwrap_or("claude-sonnet-4-20250514"),
+        "model": config.get("model").and_then(Value::as_str).unwrap_or("claude-sonnet-4-6"),
         "provider": config.get("provider").and_then(Value::as_str).unwrap_or("anthropic"),
         "tools_enabled": config.get("tools_enabled").and_then(Value::as_str).unwrap_or("read_entity"),
         "workdir": config.get("workdir").and_then(Value::as_str).unwrap_or("/tmp/workspace"),
@@ -571,7 +571,7 @@ fn configure_agent_from_prior(
     let configure_body = json!({
         "system_prompt": str_field(fields, &["system_prompt", "SystemPrompt"]).unwrap_or(""),
         "user_message": user_message,
-        "model": str_field(fields, &["model", "Model"]).unwrap_or("claude-sonnet-4-20250514"),
+        "model": str_field(fields, &["model", "Model"]).unwrap_or("claude-sonnet-4-6"),
         "provider": str_field(fields, &["provider", "Provider"]).unwrap_or("anthropic"),
         "tools_enabled": str_field(fields, &["tools_enabled", "ToolsEnabled"]).unwrap_or("read,write,edit,bash"),
         "workdir": str_field(fields, &["workdir", "Workdir"]).unwrap_or("/workspace"),

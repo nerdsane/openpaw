@@ -29,7 +29,7 @@ from typing import Any
 
 DEFAULT_BASE_URL = "http://127.0.0.1:3467"
 DEFAULT_TENANT = "default"
-DEFAULT_MODEL = "claude-sonnet-4-20250514"
+DEFAULT_MODEL = "claude-sonnet-4-6"
 
 
 def derive_local_sandbox_url(base_url: str) -> str:

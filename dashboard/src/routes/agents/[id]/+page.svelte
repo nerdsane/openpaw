@@ -55,7 +55,10 @@
         try {
           const soul = await getEntity('Souls', agent.soul_id);
           soulName = (soul as { name?: string }).name ?? null;
-        } catch { /* ignore */ }
+        } catch {
+          // soul_id might be a name string (e.g. "SWE"), not an entity ID
+          soulName = agent.soul_id;
+        }
       }
 
       // Try to find linked work cycle
