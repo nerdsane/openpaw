@@ -49,6 +49,57 @@ export async function queryEntities(
   return raw.map(flattenEntity);
 }
 
+export async function fetchDecisions(status?: string): Promise<DecisionsResponse> {
+  let url = `${BASE}/api/tenants/default/decisions`;
+  if (status) url += `?status=${status}`;
+  const res = await fetch(url, { headers: HEADERS });
+  if (!res.ok) return { decisions: [], total: 0, pending_count: 0, approved_count: 0, denied_count: 0 };
+  return res.json();
+}
+
+export async function fetchPolicies(): Promise<PolicyEntry[]> {
+  const res = await fetch(`${BASE}/api/tenants/default/policies`, { headers: HEADERS });
+  if (!res.ok) return [];
+  const data = await res.json();
+  return Array.isArray(data) ? data : (data.policies ?? data.value ?? []);
+}
+
+export interface DecisionsResponse {
+  decisions: PendingDecision[];
+  total: number;
+  pending_count: number;
+  approved_count: number;
+  denied_count: number;
+}
+
+export interface PendingDecision {
+  id: string;
+  tenant: string;
+  agent_id: string;
+  action: string;
+  resource_type: string;
+  resource_id: string;
+  resource_attrs?: Record<string, unknown>;
+  denial_reason: string;
+  module_name?: string;
+  agent_type?: string;
+  created_at: string;
+  status: string;
+  decided_by?: string;
+  decided_at?: string;
+  generated_policy?: string;
+}
+
+export interface PolicyEntry {
+  policy_id: string;
+  tenant: string;
+  cedar_text: string;
+  enabled: boolean;
+  created_at?: string;
+  created_by?: string;
+  source?: string;
+}
+
 export async function getEntity(
   entitySet: string,
   id: string
