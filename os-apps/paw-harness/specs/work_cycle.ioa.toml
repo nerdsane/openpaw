@@ -135,23 +135,23 @@ hint = "Self-loop: record that unit tests passed."
 [[action]]
 name = "ReportDst"
 kind = "input"
-from = ["InProgress"]
+from = ["InProgress", "Testing"]
 effect = "set dst_ok true"
-hint = "Self-loop: record that DST checks passed."
+hint = "Record that DST checks passed. Allowed in InProgress or Testing."
 
 [[action]]
 name = "ReportPolicyGates"
 kind = "input"
-from = ["InProgress"]
+from = ["InProgress", "Testing"]
 effect = "set policy_gates_ok true"
-hint = "Self-loop: record that policy gates passed."
+hint = "Record that policy gates passed. Allowed in InProgress or Testing."
 
 [[action]]
 name = "ReportE2e"
 kind = "input"
-from = ["InProgress"]
+from = ["InProgress", "Testing"]
 effect = "set e2e_ok true"
-hint = "Self-loop: record that end-to-end tests passed."
+hint = "Record that end-to-end tests passed. Allowed in InProgress or Testing."
 
 [[action]]
 name = "BeginTesting"
