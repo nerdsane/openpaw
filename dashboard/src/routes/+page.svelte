@@ -1,7 +1,11 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
-  import { loadAgents, agents } from '$lib/stores/agents';
-  import { connectSSE, disconnectSSE } from '$lib/sse';
+  import { fade } from 'svelte/transition';
+  import { loadAgents, agents, activeAgents } from '$lib/stores/agents';
+  import { connectSSE, disconnectSSE, events } from '$lib/sse';
+  import { refreshAgent } from '$lib/stores/agents';
+  import AgentCard from '$lib/components/AgentCard.svelte';
+  import PawLogo from '$lib/components/PawLogo.svelte';
 
   let loaded = $state(false);
   let error = $state<string | null>(null);
@@ -10,7 +14,6 @@
     try {
       await loadAgents();
     } catch {
-      // Server may not be running — show empty state gracefully
       error = 'Could not reach the API server';
     }
     loaded = true;
@@ -21,7 +24,26 @@
     disconnectSSE();
   });
 
-  let hasAgents = $derived($agents.length > 0);
+  // SSE reactivity: refresh agent on state_change
+  let lastSeq = $state(0);
+  $effect(() => {
+    const evts = $events;
+    if (evts.length === 0) return;
+    const latest = evts[0];
+    if (latest.seq <= lastSeq) return;
+    lastSeq = latest.seq;
+    if (latest.entity_type === 'Agent') {
+      refreshAgent(latest.entity_id);
+    }
+  });
+
+  let completedAgents = $derived(
+    $agents.filter((a) => ['Completed', 'Failed', 'Cancelled'].includes(a.Status))
+  );
+
+  let hasActive = $derived($activeAgents.length > 0);
+  let hasCompleted = $derived(completedAgents.length > 0);
+  let hasAny = $derived($agents.length > 0);
 </script>
 
 <div class="floor">
@@ -31,39 +53,51 @@
   </header>
 
   {#if !loaded}
-    <div class="floor-empty">
+    <div class="floor-empty" transition:fade={{ duration: 200 }}>
       <p class="floor-empty-text">Loading...</p>
     </div>
   {:else if error}
-    <div class="floor-empty">
+    <div class="floor-empty" transition:fade={{ duration: 200 }}>
       <div class="floor-watermark">
-        <svg width="80" height="80" viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.12">
-          <ellipse cx="32" cy="40" rx="12" ry="10" />
-          <circle cx="18" cy="26" r="5" />
-          <circle cx="29" cy="18" r="5" />
-          <circle cx="41" cy="20" r="5" />
-          <circle cx="48" cy="30" r="5" />
-        </svg>
+        <PawLogo size={80} />
       </div>
       <p class="floor-empty-text">{error}</p>
     </div>
-  {:else if !hasAgents}
-    <div class="floor-empty">
+  {:else if !hasAny}
+    <div class="floor-empty" transition:fade={{ duration: 200 }}>
       <div class="floor-watermark">
-        <svg width="80" height="80" viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.12">
-          <ellipse cx="32" cy="40" rx="12" ry="10" />
-          <circle cx="18" cy="26" r="5" />
-          <circle cx="29" cy="18" r="5" />
-          <circle cx="41" cy="20" r="5" />
-          <circle cx="48" cy="30" r="5" />
-        </svg>
+        <PawLogo size={80} />
       </div>
       <p class="floor-empty-text">No active agents</p>
     </div>
   {:else}
-    <div class="floor-grid">
-      <!-- Agent cards will be rendered here in Phase 2 -->
-    </div>
+    {#if hasActive}
+      <section class="floor-section">
+        <div class="floor-grid">
+          {#each $activeAgents as agent (agent.Id)}
+            <AgentCard {agent} />
+          {/each}
+        </div>
+      </section>
+    {:else}
+      <div class="floor-empty" transition:fade={{ duration: 200 }}>
+        <div class="floor-watermark">
+          <PawLogo size={80} />
+        </div>
+        <p class="floor-empty-text">No active agents</p>
+      </div>
+    {/if}
+
+    {#if hasCompleted}
+      <section class="floor-section floor-section--recent">
+        <h2 class="floor-section-title">Recent</h2>
+        <div class="floor-grid floor-grid--dimmed">
+          {#each completedAgents as agent (agent.Id)}
+            <AgentCard {agent} />
+          {/each}
+        </div>
+      </section>
+    {/if}
   {/if}
 </div>
 
@@ -96,6 +130,7 @@
 
   .floor-watermark {
     color: var(--text-tertiary);
+    opacity: 0.12;
     margin-bottom: var(--space-1);
   }
 
@@ -104,9 +139,34 @@
     font-size: var(--text-sm);
   }
 
+  .floor-section {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  .floor-section--recent {
+    margin-top: var(--space-4);
+  }
+
+  .floor-section-title {
+    font-size: var(--text-lg);
+    color: var(--text-secondary);
+  }
+
   .floor-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
     gap: var(--space-2);
+  }
+
+  .floor-grid--dimmed {
+    opacity: 0.6;
+  }
+
+  @media (max-width: 700px) {
+    .floor-grid {
+      grid-template-columns: 1fr;
+    }
   }
 </style>

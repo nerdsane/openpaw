@@ -347,6 +347,27 @@ pub async fn run(config: Config) -> Result<()> {
         tracing::warn!("No DISCORD_BOT_TOKEN — Discord transport not started");
     }
 
+    // Spawn Discord observer (SSE → Discord feed/forum).
+    if config.discord_feed_channel_id.is_some() || config.discord_forum_channel_id.is_some() {
+        let observer_api = paw_transport::PawApiClient::new(paw_transport::PawApiConfig {
+            base_url: format!("http://127.0.0.1:{actual_port}"),
+            tenant: tenant.clone(),
+            api_key: config.temper_api_key.clone(),
+        });
+        let observer_config = paw_transport::discord::ObserverConfig {
+            bot_token: config.discord_bot_token.clone().unwrap_or_default(),
+            feed_channel_id: config.discord_feed_channel_id.clone(),
+            forum_channel_id: config.discord_forum_channel_id.clone(),
+        };
+        tokio::spawn(async move {
+            // Give the server a moment to start accepting connections.
+            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            if let Err(e) = paw_transport::discord::run_observer(observer_api, observer_config).await {
+                tracing::error!("Discord observer failed: {e}");
+            }
+        });
+    }
+
     // Spawn background loops
     state.server.spawn_runtime_metrics_loop();
 
