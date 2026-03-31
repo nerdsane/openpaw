@@ -279,8 +279,7 @@ kind = "input"
 from = ["Executing"]
 to = "Thinking"
 params = ["pending_tool_calls", "conversation", "session_leaf_id"]
-guard = "turn_count < 100"
-hint = "Tool results received. Increment turn, transition to Thinking, and call LLM again. Static safety ceiling at 100 turns prevents runaway loops at the platform level."
+hint = "Tool results received. Increment turn, transition to Thinking, and call LLM again."
 effect = [
   { type = "increment", var = "turn_count" },
   { type = "trigger", name = "call_llm" }
