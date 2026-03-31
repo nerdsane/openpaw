@@ -1185,10 +1185,17 @@ fn find_wasm_binary(module_dir: &Path, module_name: &str) -> Option<PathBuf> {
         return None;
     }
 
+    // Check both wasm32-unknown-unknown and wasm32-wasip1 targets.
+    // WASI modules (e.g., monty_repl) compile to wasip1; all others
+    // use unknown-unknown. The Temper WASM engine auto-detects which
+    // linker to use based on the module's imports.
     let release_dir = module_dir.join("target/wasm32-unknown-unknown/release");
+    let wasi_release_dir = module_dir.join("target/wasm32-wasip1/release");
     let candidates = [
         release_dir.join(format!("{module_name}.wasm")),
         release_dir.join(format!("{}.wasm", module_name.replace('_', "-"))),
+        wasi_release_dir.join(format!("{module_name}.wasm")),
+        wasi_release_dir.join(format!("{}.wasm", module_name.replace('_', "-"))),
         module_dir.join(format!("{module_name}.wasm")),
         module_dir.join(format!("{}.wasm", module_name.replace('_', "-"))),
     ];
