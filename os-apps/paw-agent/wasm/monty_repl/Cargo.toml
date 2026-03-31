@@ -14,3 +14,4 @@ session-tree-lib = { path = "../session-tree-lib" }
 wasm-helpers = { path = "../wasm-helpers" }
 monty = { git = "https://github.com/pydantic/monty.git", package = "monty", rev = "bf7c7ef" }
 serde_json = "1"
+base64 = "0.22"
