@@ -116,6 +116,38 @@ name = "tests_passed"
 type = "bool"
 initial = "false"
 
+# --- Gate summary fields (records WHAT was checked and WHY it passed/failed) ---
+
+[[state]]
+name = "migrations_notes"
+type = "string"
+initial = ""
+
+[[state]]
+name = "typecheck_notes"
+type = "string"
+initial = ""
+
+[[state]]
+name = "unit_tests_notes"
+type = "string"
+initial = ""
+
+[[state]]
+name = "dst_notes"
+type = "string"
+initial = ""
+
+[[state]]
+name = "policy_gates_notes"
+type = "string"
+initial = ""
+
+[[state]]
+name = "e2e_notes"
+type = "string"
+initial = ""
+
 # --- Harness setup actions ---
 
 [[action]]
@@ -168,21 +200,25 @@ name = "UpdateSandbox"
 kind = "input"
 from = ["InProgress"]
 params = ["sandbox_url"]
-hint = "Record SWE sandbox URL."
+hint = "Record SWE sandbox URL for gate_verifier."
 
 # --- Gate report actions (self-loops) ---
+# Each sets a boolean AND accepts a notes param for the summary.
+# Param names differ from state field names to avoid collision.
 
 [[action]]
 name = "ReportMigrations"
 kind = "input"
 from = ["InProgress"]
+params = ["notes"]
 effect = "set migrations_ok true"
-hint = "Record that migrations passed."
+hint = "Record that migrations passed. Notes recorded in migrations_notes."
 
 [[action]]
 name = "ReportTypecheck"
 kind = "input"
 from = ["InProgress"]
+params = ["notes"]
 effect = "set typecheck_ok true"
 hint = "Record that typecheck passed."
 
@@ -190,6 +226,7 @@ hint = "Record that typecheck passed."
 name = "ReportUnitTests"
 kind = "input"
 from = ["InProgress"]
+params = ["notes"]
 effect = "set unit_tests_ok true"
 hint = "Record that unit tests passed."
 
@@ -197,6 +234,7 @@ hint = "Record that unit tests passed."
 name = "ReportDst"
 kind = "input"
 from = ["InProgress", "Testing"]
+params = ["notes"]
 effect = "set dst_ok true"
 hint = "Record that DST passed."
 
@@ -204,6 +242,7 @@ hint = "Record that DST passed."
 name = "ReportPolicyGates"
 kind = "input"
 from = ["InProgress", "Testing"]
+params = ["notes"]
 effect = "set policy_gates_ok true"
 hint = "Record that policy gates passed."
 
@@ -211,10 +250,13 @@ hint = "Record that policy gates passed."
 name = "ReportE2e"
 kind = "input"
 from = ["InProgress", "Testing"]
+params = ["notes"]
 effect = "set e2e_ok true"
 hint = "Record that E2E tests passed."
 
-# --- Transitions ---
+# --- Transitions with trigger effects ---
+# BeginTesting: guards check L1 gates, trigger fires gate_verifier for platform verification.
+# PassTests: guards check L2 gates, trigger fires gate_verifier, sets tests_passed.
 
 [[action]]
 name = "BeginTesting"
@@ -226,7 +268,8 @@ guard = [
   { type = "is_true", var = "typecheck_ok" },
   { type = "is_true", var = "unit_tests_ok" }
 ]
-hint = "Move to testing. Requires L1 gates."
+effect = "trigger verify_level1_gates"
+hint = "Move to testing. Guards check L1 gates. Trigger fires gate_verifier."
 
 [[action]]
 name = "PassTests"
@@ -234,12 +277,15 @@ kind = "input"
 from = ["Testing"]
 to = "Reviewing"
 params = ["test_summary"]
-effect = "set tests_passed true"
 guard = [
   { type = "is_true", var = "dst_ok" },
   { type = "is_true", var = "policy_gates_ok" }
 ]
-hint = "Enter review. Requires L2 gates."
+effect = [
+  { type = "set_bool", var = "tests_passed", value = true },
+  { type = "trigger", name = "verify_level2_gates" }
+]
+hint = "Enter review. Guards check L2 gates. Trigger fires gate_verifier."
 
 [[action]]
 name = "Approve"
@@ -291,8 +337,8 @@ assert = "no_further_transitions"
 
 # --- Integrations ---
 # gate_verifier runs check commands in the SWE's sandbox.
-# Wired as standalone triggers (BeginTesting and PassTests guards
-# prevent inline effects on the same action).
+# Triggered by effect = "trigger verify_level1_gates" on BeginTesting
+# and effect = { type = "trigger", name = "verify_level2_gates" } on PassTests.
 
 [[integration]]
 name = "verify_level1_gates"
