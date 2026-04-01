@@ -61,13 +61,20 @@ pub async fn run(config: Config) -> Result<()> {
     tracing::info!("Phase 2: Building spec registry...");
     let registry = temper_server::SpecRegistry::new();
 
-    // Phase 3: Set OS apps directory
+    // Phase 3: Set OS apps directory + reference apps
     tracing::info!("Phase 3: Loading OS apps from ./os-apps/...");
     let os_apps_dir = PathBuf::from("os-apps");
     if os_apps_dir.exists() {
         temper_platform::os_apps::set_os_apps_dir(os_apps_dir.clone());
     } else {
         tracing::warn!("os-apps/ directory not found — OS apps will not be available");
+    }
+
+    // Register reference apps (available for install_app() but NOT auto-installed)
+    let reference_apps_dir = PathBuf::from("reference-apps");
+    if reference_apps_dir.exists() {
+        temper_platform::os_apps::add_os_apps_dir(reference_apps_dir);
+        tracing::info!("  Reference apps directory registered (available for install)");
     }
 
     // Phase 4: Assemble PlatformState
