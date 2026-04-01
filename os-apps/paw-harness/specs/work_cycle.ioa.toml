@@ -6,7 +6,7 @@ states = ["Planning", "Planned", "InProgress", "Testing", "Reviewing", "Complete
 initial = "Planning"
 
 [[state]]
-name = "project_harness_id"
+name = "harness_id"
 type = "string"
 initial = ""
 
@@ -101,7 +101,7 @@ initial = ""
 name = "Configure"
 kind = "input"
 from = ["Planning"]
-params = ["project_harness_id", "task_summary", "planner_id"]
+params = ["harness_id", "task_summary", "planner_id"]
 hint = "Attach the work cycle to a harness and identify the planner for the change."
 
 [[action]]

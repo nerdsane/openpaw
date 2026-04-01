@@ -4,8 +4,8 @@
   import { loadAgents, agents, activeAgents } from '$lib/stores/agents';
   import { connectSSE, disconnectSSE, events } from '$lib/sse';
   import { refreshAgent } from '$lib/stores/agents';
-  import { queryEntities, fetchFileContent } from '$lib/api';
-  import type { ProjectHarness, Soul, WorkCycle, Skill } from '$lib/types';
+  import { queryEntities, queryWorkCyclesForHarness, fetchFileContent } from '$lib/api';
+  import type { Harness, Soul, WorkCycle, Skill } from '$lib/types';
   import AgentCard from '$lib/components/AgentCard.svelte';
   import GatePipeline from '$lib/components/GatePipeline.svelte';
   import StatusBadge from '$lib/components/StatusBadge.svelte';
@@ -14,7 +14,7 @@
   let loaded = $state(false);
   let error = $state<string | null>(null);
 
-  let projects = $state<ProjectHarness[]>([]);
+  let projects = $state<Harness[]>([]);
   let souls = $state<Soul[]>([]);
   let workcycles = $state<WorkCycle[]>([]);
   let skills = $state<Skill[]>([]);
@@ -29,14 +29,29 @@
     connectSSE();
 
     // Load project context (non-blocking)
-    try { projects = (await queryEntities('ProjectHarnesses', undefined, undefined, 10)) as unknown as ProjectHarness[]; } catch { /* may not exist */ }
-    try { souls = (await queryEntities('Souls', undefined, undefined, 20)) as unknown as Soul[]; } catch { /* may not exist */ }
     try {
-      const [wcs, dwcs] = await Promise.all([
-        queryEntities('WorkCycles', undefined, 'SequenceNr desc', 20).catch(() => []),
-        queryEntities('DsfWorkCycles', undefined, 'SequenceNr desc', 20).catch(() => []),
-      ]);
-      workcycles = [...wcs, ...dwcs] as unknown as WorkCycle[];
+      projects = (await queryEntities('Harnesses', undefined, undefined, 10).catch(() =>
+        queryEntities('ProjectHarnesses', undefined, undefined, 10)
+      )) as unknown as Harness[];
+    } catch { /* may not exist */ }
+    try { souls = (await queryEntities('Souls', undefined, undefined, 20)) as unknown as Soul[]; } catch { /* may not exist */ }
+    // Load work cycles from each harness's work_cycle_type entity set
+    try {
+      const allWcs: WorkCycle[] = [];
+      for (const h of projects) {
+        try {
+          const hWcs = await queryWorkCyclesForHarness(h as unknown as Record<string, unknown>, 'SequenceNr desc', 20);
+          allWcs.push(...(hWcs as unknown as WorkCycle[]));
+        } catch { /* entity set may not exist */ }
+      }
+      // If no harnesses, try generic WorkCycles as fallback
+      if (projects.length === 0) {
+        try {
+          const fallback = await queryEntities('WorkCycles', undefined, 'SequenceNr desc', 20);
+          allWcs.push(...(fallback as unknown as WorkCycle[]));
+        } catch { /* ignore */ }
+      }
+      workcycles = allWcs;
     } catch { /* may not exist */ }
     try { skills = (await queryEntities('Skills', undefined, undefined, 20)) as unknown as Skill[]; } catch { /* may not exist */ }
   });
@@ -117,12 +132,12 @@
           <h2 class="context-heading">Project</h2>
           {#each projects as project (project.Id)}
             <div class="project-card card">
-              <div class="project-card__name">{project.project_name || project.Id}</div>
+              <div class="project-card__name">{typeof project.project_name === 'object' ? JSON.stringify(project.project_name) : (project.project_name || project.Id)}</div>
               {#if project.repo_url}
-                <code class="project-card__url">{project.repo_url}</code>
+                <code class="project-card__url">{typeof project.repo_url === 'object' ? JSON.stringify(project.repo_url) : project.repo_url}</code>
               {/if}
               {#if project.tech_stack}
-                <span class="project-card__stack">{project.tech_stack}</span>
+                <span class="project-card__stack">{typeof project.tech_stack === 'object' ? JSON.stringify(project.tech_stack) : project.tech_stack}</span>
               {/if}
               <div class="project-card__status">
                 <StatusBadge status={project.Status} />
@@ -140,7 +155,7 @@
               <div class="team-member">
                 <span class="team-member__name">{soul.name || soul.Id}</span>
                 {#if soul.description}
-                  <span class="team-member__desc">{soul.description}</span>
+                  <span class="team-member__desc">{typeof soul.description === 'object' ? JSON.stringify(soul.description) : soul.description}</span>
                 {/if}
               </div>
             {/each}
@@ -160,11 +175,11 @@
                     <div class="skill-card__header" onclick={() => toggleSkillContent(skill)} role="button" tabindex="0" onkeydown={(e) => { if (e.key === 'Enter') toggleSkillContent(skill); }}>
                       <span class="skill-card__name">{skill.name || skill.Name || skill.Id}</span>
                       {#if skill.agent_filter}
-                        <span class="skill-card__filter">{skill.agent_filter}</span>
+                        <span class="skill-card__filter">{typeof skill.agent_filter === 'object' ? JSON.stringify(skill.agent_filter) : skill.agent_filter}</span>
                       {/if}
                     </div>
                     {#if skill.description || skill.Description}
-                      <span class="skill-card__desc">{skill.description || skill.Description}</span>
+                      <span class="skill-card__desc">{typeof (skill.description || skill.Description) === 'object' ? JSON.stringify(skill.description || skill.Description) : (skill.description || skill.Description)}</span>
                     {/if}
                     {#if skill.content_file_id}
                       <button class="skill-card__toggle" onclick={() => toggleSkillContent(skill)}>
@@ -187,16 +202,16 @@
           <h2 class="context-heading">Active Work Cycles</h2>
           <div class="workcycle-list">
             {#each activeWorkCycles as wc (wc.Id)}
-              <a href="/entities/WorkCycle/{wc.Id}" class="workcycle-row card">
+              <a href="/entities/{(wc as unknown as Record<string, unknown>)._entity_type || 'WorkCycle'}/{wc.Id}" class="workcycle-row card">
                 <div class="workcycle-row__top">
-                  <span class="workcycle-row__task">{wc.task_summary || 'Untitled cycle'}</span>
+                  <span class="workcycle-row__task">{typeof wc.task_summary === 'object' ? JSON.stringify(wc.task_summary) : (wc.task_summary || 'Untitled cycle')}</span>
                   <StatusBadge status={wc.Status} />
                 </div>
                 <div class="workcycle-row__gates">
                   <GatePipeline workcycle={wc} />
                 </div>
                 {#if wc.pr_url}
-                  <code class="workcycle-row__pr">{wc.pr_url}</code>
+                  <code class="workcycle-row__pr">{typeof wc.pr_url === 'object' ? JSON.stringify(wc.pr_url) : wc.pr_url}</code>
                 {/if}
               </a>
             {/each}
@@ -209,9 +224,9 @@
           <h2 class="context-heading">Recent Work Cycles</h2>
           <div class="workcycle-list">
             {#each recentWorkCycles as wc (wc.Id)}
-              <a href="/entities/WorkCycle/{wc.Id}" class="workcycle-row workcycle-row--dimmed card">
+              <a href="/entities/{(wc as unknown as Record<string, unknown>)._entity_type || 'WorkCycle'}/{wc.Id}" class="workcycle-row workcycle-row--dimmed card">
                 <div class="workcycle-row__top">
-                  <span class="workcycle-row__task">{wc.task_summary || 'Untitled cycle'}</span>
+                  <span class="workcycle-row__task">{typeof wc.task_summary === 'object' ? JSON.stringify(wc.task_summary) : (wc.task_summary || 'Untitled cycle')}</span>
                   <StatusBadge status={wc.Status} />
                 </div>
                 <div class="workcycle-row__gates">

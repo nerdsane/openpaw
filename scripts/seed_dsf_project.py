@@ -4,7 +4,7 @@
 Installs reference apps and creates all entity instances:
 - Ren's Soul (with SOUL.md + STYLE.md content uploaded to TemperFS)
 - 6 Skills (with markdown content uploaded to TemperFS)
-- ProjectHarness (with full conventions)
+- Harness (with full conventions)
 - ToolHooks (Cedar-backed command governance)
 
 Idempotent: safe to run multiple times. Existing entities are detected
@@ -241,11 +241,11 @@ def main() -> int:
         print(f"  {skill_name}: created (skill={sk_id}, file={file_id})")
 
     # ------------------------------------------------------------------
-    # Step 4: Create ProjectHarness
+    # Step 4: Create Harness
     # ------------------------------------------------------------------
-    print("\nStep 4: Creating ProjectHarness...")
+    print("\nStep 4: Creating Harness...")
     repo_url = "https://github.com/arni-labs/deep-sci-fi.git"
-    existing_harnesses = client.list("ProjectHarnesses", filter_expr=f"repo_url eq '{repo_url}'")
+    existing_harnesses = client.list("Harnesses", filter_expr=f"repo_url eq '{repo_url}'")
     if existing_harnesses:
         harness_id = entity_id(existing_harnesses[0])
         print(f"  Harness already exists: {harness_id}")
@@ -266,16 +266,17 @@ def main() -> int:
             "Vercel (frontend), Railway + Docker (backend), GitHub Actions CI/CD"
         )
 
-        h = client.create("ProjectHarnesses")
+        h = client.create("Harnesses")
         harness_id = entity_id(h)
-        require(bool(harness_id), "failed to create ProjectHarness")
+        require(bool(harness_id), "failed to create Harness")
 
-        client.action("ProjectHarnesses", harness_id, "OpenPaw.Harness.Configure", {
+        client.action("Harnesses", harness_id, "OpenPaw.Harness.Configure", {
             "repo_url": repo_url,
             "tech_stack": tech_stack,
             "conventions": conventions,
+            "work_cycle_type": "DsfWorkCycles",
         })
-        client.action("ProjectHarnesses", harness_id, "OpenPaw.Harness.Activate", {
+        client.action("Harnesses", harness_id, "OpenPaw.Harness.Activate", {
             "last_activated_at": now_utc(),
         })
         print(f"  Created and activated harness: {harness_id}")

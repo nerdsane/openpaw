@@ -21,11 +21,11 @@ from openpaw_proof_support import (
 
 
 def create_harness(client: ODataClient, repo_url: str, run_suffix: str) -> str:
-    harness = client.create("ProjectHarnesses", {"Id": f"webhook-harness-{run_suffix}"})
+    harness = client.create("Harnesses", {"Id": f"webhook-harness-{run_suffix}"})
     harness_id = entity_id(harness)
-    require(harness_id, "failed to create ProjectHarness")
+    require(harness_id, "failed to create Harness")
     client.action(
-        "ProjectHarnesses",
+        "Harnesses",
         harness_id,
         "OpenPaw.Harness.Configure",
         {
@@ -35,7 +35,7 @@ def create_harness(client: ODataClient, repo_url: str, run_suffix: str) -> str:
         },
     )
     client.action(
-        "ProjectHarnesses",
+        "Harnesses",
         harness_id,
         "OpenPaw.Harness.Activate",
         {"last_activated_at": now_utc()},

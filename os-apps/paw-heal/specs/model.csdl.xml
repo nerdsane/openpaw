@@ -23,7 +23,7 @@
         <Key><PropertyRef Name="Id"/></Key>
         <Property Name="Id" Type="Edm.String" Nullable="false"/>
         <Property Name="Status" Type="Edm.String"/>
-        <Property Name="ProjectHarnessId" Type="Edm.String"/>
+        <Property Name="HarnessId" Type="Edm.String"/>
         <Property Name="ScanType" Type="Edm.String"/>
         <Property Name="CommitSha" Type="Edm.String"/>
         <Property Name="MonitorsCreated" Type="Edm.Int64"/>
@@ -78,7 +78,7 @@
 
       <Action Name="Configure" IsBound="true">
         <Parameter Name="bindingParameter" Type="OpenPaw.Heal.MonitorScan"/>
-        <Parameter Name="project_harness_id" Type="Edm.String" Nullable="false"/>
+        <Parameter Name="harness_id" Type="Edm.String" Nullable="false"/>
         <Parameter Name="scan_type" Type="Edm.String" Nullable="false"/>
         <Parameter Name="commit_sha" Type="Edm.String" Nullable="true"/>
         <ReturnType Type="OpenPaw.Heal.MonitorScan"/>

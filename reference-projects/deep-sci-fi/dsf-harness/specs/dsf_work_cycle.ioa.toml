@@ -1,29 +1,15 @@
-# DsfWorkCycle — Merged harness + work cycle for deep-sci-fi development governance.
+# DsfWorkCycle — Work cycle for deep-sci-fi development governance.
+# Linked to a parent Harness entity via harness_id.
 
 [automaton]
 name = "DsfWorkCycle"
-states = ["Created", "Configured", "Active", "Planning", "Planned", "InProgress", "Testing", "Reviewing", "Complete", "Failed"]
-initial = "Created"
+states = ["Planning", "Planned", "InProgress", "Testing", "Reviewing", "Complete", "Failed"]
+initial = "Planning"
 
-# --- Harness fields ---
-
-[[state]]
-name = "repo_url"
-type = "string"
-initial = ""
+# --- Link to parent Harness ---
 
 [[state]]
-name = "tech_stack"
-type = "string"
-initial = ""
-
-[[state]]
-name = "conventions"
-type = "string"
-initial = ""
-
-[[state]]
-name = "last_activated_at"
+name = "harness_id"
 type = "string"
 initial = ""
 
@@ -148,33 +134,15 @@ name = "e2e_notes"
 type = "string"
 initial = ""
 
-# --- Harness setup actions ---
+# --- Configure (sets harness link + task context, stays in Planning) ---
 
 [[action]]
 name = "Configure"
 kind = "input"
-from = ["Created", "Configured"]
-to = "Configured"
-params = ["repo_url", "tech_stack", "conventions"]
-hint = "Attach repository metadata and working conventions."
-
-[[action]]
-name = "Activate"
-kind = "input"
-from = ["Configured"]
-to = "Active"
-params = ["last_activated_at"]
-hint = "Turn on the harness."
-
-# --- Work cycle start ---
-
-[[action]]
-name = "CreateWorkCycle"
-kind = "input"
-from = ["Active"]
+from = ["Planning"]
 to = "Planning"
-params = ["task_summary", "planner_id"]
-hint = "Start a work cycle within the active harness."
+params = ["harness_id", "task_summary", "planner_id"]
+hint = "Set the parent harness link, task summary, and planner for this work cycle."
 
 # --- Planning ---
 

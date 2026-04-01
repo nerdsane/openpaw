@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Run a curl-equivalent self-heal proof against a live Open Paw daemon.
 
-This driver creates a deep-sci-fi ProjectHarness + Monitor, opens a synthetic
+This driver creates a deep-sci-fi Harness + Monitor, opens a synthetic
 AlertCycle for a real repo issue, provisions a SRE agent, and waits for the
 SRE -> Developer remediation loop to finish.
 """
@@ -198,7 +198,7 @@ def build_sre_message(
 You are handling a real self-healing remediation for deep-sci-fi.
 
 Workflow entity IDs:
-- ProjectHarness: {project_harness_id}
+- Harness: {project_harness_id}
 - Monitor: {monitor_id}
 - AlertCycle: {alert_cycle_id}
 - Repository: {repo_url}
@@ -211,8 +211,8 @@ The issue is concrete and reproducible:
 - Missing packages reported locally include `@types/d3`, `d3`, `react-markdown`, and `remark-gfm`.
 
 Follow this exact workflow:
-1. Read the ProjectHarness, Monitor, and AlertCycle.
-2. Create one WorkCycle tied to the ProjectHarness with a task summary about fixing deep-sci-fi platform lockfile drift.
+1. Read the Harness, Monitor, and AlertCycle.
+2. Create one WorkCycle tied to the Harness with a task summary about fixing deep-sci-fi platform lockfile drift.
 3. Spawn exactly one Developer child agent with:
    - soul_id = Developer
    - tools = read,write,edit,bash,temper_get,temper_list,temper_action,read_entity
@@ -281,13 +281,13 @@ def main() -> int:
     run_suffix = suffix()
 
     project = client.create(
-        "ProjectHarnesses",
+        "Harnesses",
         {"Id": f"deep-sci-fi-harness-{run_suffix}"},
     )
     project_id = agent_entity_id(project)
     print(f"PROJECT_HARNESS_ID={project_id}", flush=True)
     client.action(
-        "ProjectHarnesses",
+        "Harnesses",
         project_id,
         "OpenPaw.Harness.Configure",
         {
@@ -297,7 +297,7 @@ def main() -> int:
         },
     )
     client.action(
-        "ProjectHarnesses",
+        "Harnesses",
         project_id,
         "OpenPaw.Harness.Activate",
         {"last_activated_at": now_utc()},

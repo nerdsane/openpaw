@@ -12,11 +12,8 @@
         <Property Name="Id" Type="Edm.String" Nullable="false"/>
         <Property Name="Status" Type="Edm.String"/>
 
-        <!-- Harness fields -->
-        <Property Name="RepoUrl" Type="Edm.String"/>
-        <Property Name="TechStack" Type="Edm.String"/>
-        <Property Name="Conventions" Type="Edm.String"/>
-        <Property Name="LastActivatedAt" Type="Edm.String"/>
+        <!-- Link to parent Harness -->
+        <Property Name="HarnessId" Type="Edm.String"/>
 
         <!-- Work cycle fields -->
         <Property Name="TaskSummary" Type="Edm.String"/>
@@ -40,28 +37,15 @@
         <Property Name="TestsPassed" Type="Edm.Boolean"/>
 
         <Annotation Term="Paw.Vocab.AuthZ.CedarPolicy" String="policies/dsf_harness.cedar"/>
-        <Annotation Term="Paw.Vocab.Agent.Hint" String="Merged harness + work cycle for deep-sci-fi development governance. Configure the repo contract, activate, then run governed work cycles with gate verification."/>
+        <Annotation Term="Paw.Vocab.Agent.Hint" String="Work cycle for deep-sci-fi development governance. Linked to a parent Harness entity via HarnessId. Tracks plan, implementation, testing, and review for one change."/>
       </EntityType>
 
-      <!-- Harness setup actions -->
+      <!-- Configure (sets harness link + task context) -->
 
       <Action Name="Configure" IsBound="true">
         <Parameter Name="bindingParameter" Type="DSF.Harness.DsfWorkCycle"/>
-        <Parameter Name="repo_url" Type="Edm.String" Nullable="false"/>
-        <Parameter Name="tech_stack" Type="Edm.String" Nullable="true"/>
-        <Parameter Name="conventions" Type="Edm.String" Nullable="true"/>
-        <ReturnType Type="DSF.Harness.DsfWorkCycle"/>
-      </Action>
-
-      <Action Name="Activate" IsBound="true">
-        <Parameter Name="bindingParameter" Type="DSF.Harness.DsfWorkCycle"/>
-        <Parameter Name="last_activated_at" Type="Edm.String" Nullable="true"/>
-        <ReturnType Type="DSF.Harness.DsfWorkCycle"/>
-      </Action>
-
-      <Action Name="CreateWorkCycle" IsBound="true">
-        <Parameter Name="bindingParameter" Type="DSF.Harness.DsfWorkCycle"/>
-        <Parameter Name="task_summary" Type="Edm.String" Nullable="false"/>
+        <Parameter Name="harness_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="task_summary" Type="Edm.String" Nullable="true"/>
         <Parameter Name="planner_id" Type="Edm.String" Nullable="true"/>
         <ReturnType Type="DSF.Harness.DsfWorkCycle"/>
       </Action>

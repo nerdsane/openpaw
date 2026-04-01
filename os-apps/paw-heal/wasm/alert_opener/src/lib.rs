@@ -1,7 +1,7 @@
 //! Alert Opener — WASM module for the AlertCycle.Open (spawn_sre) integration.
 //!
 //! Spawns an SRE agent to triage and remediate a monitor alert. Queries the
-//! Monitor and ProjectHarness entities for context, creates a new Agent, and
+//! Monitor and Harness entities for context, creates a new Agent, and
 //! dispatches Configure + Provision actions on it.
 //!
 //! Build: `cargo build --target wasm32-unknown-unknown --release`
@@ -99,7 +99,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             .and_then(|v| v.as_str())
             .unwrap_or("");
 
-        // 4. Query ProjectHarness entities looking for one matching the alert repo
+        // 4. Query Harness entities looking for one matching the alert repo
         let alert_json: Value =
             serde_json::from_str(alert_payload).unwrap_or_else(|_| json!({}));
         let alert_repo = alert_json
@@ -114,7 +114,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
 
         if !alert_repo.is_empty() {
             let harness_url = format!(
-                "{temper_api_url}/tdata/ProjectHarnesses?$filter=repo_url eq '{}'&$top=1",
+                "{temper_api_url}/tdata/Harnesses?$filter=repo_url eq '{}'&$top=1",
                 alert_repo.replace('\'', "''")
             );
             let harness_resp = ctx.http_call("GET", &harness_url, &headers, "");
@@ -136,7 +136,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                                 .or_else(|| harness.get("name").and_then(|v| v.as_str()))
                                 .unwrap_or("unknown");
                             harness_info = format!(
-                                "- ProjectHarness: {project_harness_id} (name={harness_name}, repo={alert_repo})"
+                                "- Harness: {project_harness_id} (name={harness_name}, repo={alert_repo})"
                             );
                         }
                     }
@@ -169,7 +169,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         };
 
         let harness_section = if harness_info.is_empty() {
-            "- ProjectHarness: not found (no matching repo in alert payload)".to_string()
+            "- Harness: not found (no matching repo in alert payload)".to_string()
         } else {
             harness_info
         };
@@ -188,7 +188,7 @@ Alert context:\n\
 - Raw alert payload JSON: {alert_payload}\n\n\
 Treat this as a real issue unless the payload clearly proves it is monitor noise.\n\n\
 Required workflow:\n\
-1. Read the ProjectHarness, Monitor, and AlertCycle first.\n\
+1. Read the Harness, Monitor, and AlertCycle first.\n\
 2. Record a concrete diagnosis in your own reasoning based on the failing symptom.\n\
 3. For a confirmed real issue, create or reuse exactly one PM Issue before spawning a Developer:\n\
    - look for an existing non-final Issue only if it already covers this exact Monitor ID\n\
@@ -197,7 +197,7 @@ Required workflow:\n\
    - set a description that includes the Monitor ID, AlertCycle ID, and later the WorkCycle ID once it exists\n\
    - set priority level {priority_hint}\n\
    - move the Issue into Triage so it is visible as active work\n\
-4. Create or reuse exactly one WorkCycle tied to the ProjectHarness for the remediation.\n\
+4. Create or reuse exactly one WorkCycle tied to the Harness for the remediation.\n\
 5. Spawn exactly one Developer child agent with:\n\
    - `soul_id = Developer`\n\
    - tools including `read,write,edit,bash,temper_get,temper_list,temper_action,read_entity`\n\
@@ -257,7 +257,7 @@ ISSUE_ID=<id or empty>"
             "soul_id": "SRE",
             "temper_api_url": temper_api_url,
             "user_message": sre_message,
-            "project_harness_id": project_harness_id,
+            "harness_id": project_harness_id,
         });
         let configure_resp =
             ctx.http_call("POST", &configure_url, &headers, &configure_body.to_string())?;

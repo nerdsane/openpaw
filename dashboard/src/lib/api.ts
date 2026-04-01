@@ -169,3 +169,19 @@ export async function fetchFileContent(fileId: string): Promise<string> {
   if (!res.ok) return '';
   return res.text();
 }
+
+/**
+ * Query work cycles for a given harness. Reads `work_cycle_type` from the
+ * harness to determine which entity set to query, then filters by harness_id.
+ * Falls back to "WorkCycles" if work_cycle_type is not set.
+ */
+export async function queryWorkCyclesForHarness(
+  harness: Record<string, unknown>,
+  orderby?: string,
+  top?: number
+): Promise<Record<string, unknown>[]> {
+  const harnessId = (harness.Id ?? harness._entity_id ?? '') as string;
+  const entitySet = ((harness.work_cycle_type as string) || 'WorkCycles');
+  const filter = `harness_id eq '${harnessId}'`;
+  return queryEntities(entitySet, filter, orderby, top);
+}

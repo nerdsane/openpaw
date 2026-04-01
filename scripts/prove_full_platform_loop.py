@@ -34,7 +34,7 @@ def wait_for_setup(
     deadline = time.time() + timeout_secs
     while time.time() < deadline:
         harnesses = client.list(
-            "ProjectHarnesses",
+            "Harnesses",
             filter_expr=f"repo_url eq '{repo_url}'",
             orderby="sequence_nr desc",
             top=5,
@@ -219,7 +219,7 @@ def main() -> int:
         )
         paw_agent = client.get("Agents", paw_agent_id)
         harness_id = entity_id(harness)
-        require(harness_id, "missing ProjectHarness id")
+        require(harness_id, "missing Harness id")
 
         external_monitor_id = f"dd-proof-{suffix()}"
         alert_body = {

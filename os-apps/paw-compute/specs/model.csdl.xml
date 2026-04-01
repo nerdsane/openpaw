@@ -26,7 +26,7 @@
         <Property Name="ToolsInstalled" Type="Edm.String" />
         <Property Name="CredentialsScoped" Type="Edm.String" />
         <Property Name="NetworkAllow" Type="Edm.String" />
-        <Property Name="ProjectHarnessId" Type="Edm.String" />
+        <Property Name="HarnessId" Type="Edm.String" />
 
         <Action Name="Configure" IsBound="true">
           <Parameter Name="bindingParameter" Type="Paw.Compute.Computer" />
@@ -41,7 +41,7 @@
           <Parameter Name="tools_installed" Type="Edm.String" />
           <Parameter Name="credentials_scoped" Type="Edm.String" />
           <Parameter Name="network_allow" Type="Edm.String" />
-          <Parameter Name="project_harness_id" Type="Edm.String" />
+          <Parameter Name="harness_id" Type="Edm.String" />
         </Action>
 
         <Action Name="Provision" IsBound="true">
