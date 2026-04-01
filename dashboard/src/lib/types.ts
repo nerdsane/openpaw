@@ -71,3 +71,15 @@ export interface Skill {
   name: string;
   description: string;
 }
+
+export interface ToolCall {
+  name: string;
+  input: Record<string, unknown>;
+}
+
+export interface AgentTurn {
+  number: number;
+  timestamp: string;
+  toolCalls: ToolCall[];
+  authz?: { allowed: boolean; denied_resource?: string };
+}

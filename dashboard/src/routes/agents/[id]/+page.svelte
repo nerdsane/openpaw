@@ -2,12 +2,13 @@
   import { onMount, onDestroy } from 'svelte';
   import { fade } from 'svelte/transition';
   import { page } from '$app/stores';
-  import type { Agent, WorkCycle, EntityEvent } from '$lib/types';
+  import type { Agent, WorkCycle, AgentTurn } from '$lib/types';
   import { getEntity, queryEntities, fetchAgentHistory } from '$lib/api';
-  import { connectSSE, disconnectSSE, events, type StateChangeEvent } from '$lib/sse';
+  import { connectSSE, disconnectSSE, events } from '$lib/sse';
+  import { eventsToTurns } from '$lib/parse';
   import StatusBadge from '$lib/components/StatusBadge.svelte';
   import GatePipeline from '$lib/components/GatePipeline.svelte';
-  import StateTransition from '$lib/components/StateTransition.svelte';
+  import TerminalFeed from '$lib/components/TerminalFeed.svelte';
 
   let agentId = $derived($page.params.id);
 
@@ -18,7 +19,7 @@
   let error = $state<string | null>(null);
   let taskExpanded = $state(false);
 
-  let transitions = $state<Array<{ event: StateChangeEvent; snapshot?: Agent; timestamp?: string; fromStatus?: string; authz?: { allowed: boolean; denied_resource?: string } }>>([]);
+  let turns = $state<AgentTurn[]>([]);
 
   let childIds = $derived.by((): string[] => {
     if (!agent?.child_agent_ids) return [];
@@ -41,10 +42,6 @@
     if (c === 0) return '--';
     return `$${(c / 100).toFixed(4)}`;
   });
-
-  let totalEventCount = $derived(agent?._total_event_count ?? 0);
-  let displayedEventCount = $derived(transitions.length);
-  let rawEventCount = $derived(agent?._events?.length ?? 0);
 
   let isTerminal = $derived(
     agent ? ['Completed', 'Failed', 'Cancelled'].includes(agent.Status) : false
@@ -78,48 +75,23 @@
         }
       } catch { /* ignore */ }
 
-      // Populate transitions from historical events
+      // Parse events into terminal turns
       if (agent?._events && agent._events.length > 0) {
-        // Filter out noisy Heartbeat events, show meaningful transitions
-        const meaningful = agent._events.filter(
-          (e: EntityEvent) => e.action !== 'Heartbeat'
-        );
-        transitions = meaningful
-          .reverse()
-          .map((e: EntityEvent) => ({
-            event: {
-              seq: 0,
-              entity_type: 'Agent',
-              entity_id: agentId,
-              action: e.action,
-              status: e.to_status,
-              tenant: 'default',
-            } as StateChangeEvent,
-            snapshot: undefined,
-            timestamp: e.timestamp,
-            fromStatus: e.from_status,
-          }));
-      }
-      // Fetch trajectory history for authorization context
-      const history = await fetchAgentHistory(agentId, 'Agent', 200);
+        const rawTurns = eventsToTurns(agent._events);
 
-      // Merge authz data into transitions by matching action + timestamp proximity
-      for (const t of transitions) {
-        const eventAction = t.event.action;
-        const eventTime = t.timestamp ? new Date(t.timestamp).getTime() : 0;
-
-        // Find matching trajectory entry (same action, within 5 seconds)
-        const match = history.find(h =>
-          h.action === eventAction &&
-          Math.abs(new Date(h.timestamp).getTime() - eventTime) < 5000
-        );
-
-        if (match) {
-          t.authz = {
-            allowed: !match.authz_denied,
-            denied_resource: match.denied_resource ?? undefined,
-          };
+        // Merge authz data from trajectory history
+        const history = await fetchAgentHistory(agentId, 'Agent', 200);
+        for (const turn of rawTurns) {
+          const match = history.find(h =>
+            h.action === 'ProcessToolCalls' &&
+            Math.abs(new Date(h.timestamp).getTime() - new Date(turn.timestamp).getTime()) < 5000
+          );
+          if (match) {
+            turn.authz = { allowed: !match.authz_denied, denied_resource: match.denied_resource ?? undefined };
+          }
         }
+
+        turns = rawTurns;
       }
     } catch {
       error = 'Could not load agent';
@@ -133,7 +105,7 @@
     disconnectSSE();
   });
 
-  // SSE reactivity
+  // SSE reactivity — re-fetch and rebuild turns on new events
   let lastSeq = $state(0);
   $effect(() => {
     const evts = $events;
@@ -142,12 +114,11 @@
     if (latest.seq <= lastSeq) return;
     lastSeq = latest.seq;
 
-    // Re-fetch agent on any event
+    // Re-fetch agent on any event and rebuild turns
     fetchAgent().then(() => {
-      transitions = [
-        { event: latest, snapshot: agent ?? undefined },
-        ...transitions,
-      ].slice(0, 500);
+      if (agent?._events && agent._events.length > 0) {
+        turns = eventsToTurns(agent._events);
+      }
     });
   });
 </script>
@@ -285,34 +256,15 @@
         {/if}
       </aside>
 
-      <!-- Right Panel: Event History -->
+      <!-- Right Panel: Execution Feed -->
       <section class="desk-stream">
         <div class="stream-header">
-          <h2 class="stream-title">Event History</h2>
-          {#if totalEventCount > 0}
-            <span class="stream-count">
-              Showing {displayedEventCount} of {totalEventCount} total events (heartbeats filtered)
-            </span>
-          {:else if rawEventCount > 0}
-            <span class="stream-count">
-              {displayedEventCount} events (heartbeats filtered)
-            </span>
+          <h2 class="stream-title">Execution</h2>
+          {#if turns.length > 0}
+            <span class="stream-count">{turns.length} turns</span>
           {/if}
         </div>
-
-        {#if transitions.length === 0}
-          <div class="stream-empty">
-            <p class="stream-empty-text">Waiting for activity...</p>
-          </div>
-        {:else}
-          <div class="stream-list">
-            {#each transitions as t, i (t.timestamp ?? t.event.seq ?? i)}
-              <div style:animation-delay="{i * 20}ms" class="transition-enter">
-                <StateTransition event={t.event} agentSnapshot={t.snapshot} timestamp={t.timestamp} fromStatus={t.fromStatus} authz={t.authz} />
-              </div>
-            {/each}
-          </div>
-        {/if}
+        <TerminalFeed {turns} />
       </section>
     </div>
   {/if}
@@ -558,8 +510,8 @@
   }
 
   .stream-title {
-    font-family: var(--font-sans);
-    font-size: var(--text-base);
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
     font-weight: 500;
     color: var(--text-secondary);
   }
@@ -570,36 +522,8 @@
     color: var(--text-tertiary);
   }
 
-  .stream-empty {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: var(--space-6) 0;
-  }
-
-  .stream-empty-text {
-    color: var(--text-tertiary);
-    font-size: var(--text-sm);
-  }
-
-  .stream-list {
-    display: flex;
-    flex-direction: column;
-  }
-
   .mono {
     font-family: var(--font-mono);
-  }
-
-  .transition-enter {
-    animation: row-in 120ms var(--ease-out-quart) both;
-  }
-
-  @keyframes row-in {
-    from {
-      opacity: 0;
-      transform: translateX(-4px);
-    }
   }
 
   /* ---- Tablet ---- */
