@@ -111,50 +111,86 @@
     soulFileId: string;
   }
 
+  // Filter skills to only project-scoped ones (exclude platform bootstrap skills like "Project Lead Schema")
+  let projectSkills = $derived(
+    skills.filter((sk) => {
+      const scope = field(sk, 'scope');
+      // Include skills scoped to a project (non-empty, not a soul name like "Paw")
+      // Exclude platform-level skills (scope = soul name or empty)
+      return scope && !souls.some(s => field(s, 'Name') === scope);
+    })
+  );
+
   let teamRoles = $derived.by((): TeamRole[] => {
     const roles: TeamRole[] = [];
     const matchedSkillIds = new Set<string>();
 
-    for (const soul of souls) {
-      const soulName = field(soul, 'Name') || field(soul, 'name') || field(soul, 'Id');
-      const soulId = field(soul, 'Id');
-      const matchingSkills = skills.filter((sk) => {
-        const filter = field(sk, 'agent_filter');
-        if (!filter) return false;
-        return filter.includes(soulName) || filter.includes(soulId);
-      });
-      for (const sk of matchingSkills) {
+    // First: find skills with agent_filter → these define roles
+    // Group by agent_filter to discover roles
+    const rolesByFilter = new Map<string, Record<string, unknown>[]>();
+    for (const sk of projectSkills) {
+      const filter = field(sk, 'agent_filter');
+      if (filter) {
+        if (!rolesByFilter.has(filter)) rolesByFilter.set(filter, []);
+        rolesByFilter.get(filter)!.push(sk);
         matchedSkillIds.add(field(sk, 'Id'));
       }
+    }
+
+    // For each role, check if there's a matching Soul
+    for (const [roleName, roleSkills] of rolesByFilter) {
+      const matchingSoul = souls.find(s => {
+        const name = field(s, 'Name') || field(s, 'name');
+        return name === roleName;
+      });
       roles.push({
-        name: soulName,
-        description: field(soul, 'Description') || field(soul, 'description') || '',
-        soul,
-        skills: matchingSkills,
-        soulFileId: field(soul, 'ContentFileId') || field(soul, 'content_file_id'),
+        name: roleName,
+        description: matchingSoul
+          ? (field(matchingSoul, 'Description') || field(matchingSoul, 'description') || '')
+          : (field(roleSkills[0], 'Description') || field(roleSkills[0], 'description') || ''),
+        soul: matchingSoul ?? null,
+        skills: roleSkills,
+        soulFileId: matchingSoul ? (field(matchingSoul, 'ContentFileId') || field(matchingSoul, 'content_file_id')) : '',
       });
     }
 
-    const unmatchedFilteredSkills = skills.filter((sk) => {
-      const filter = field(sk, 'agent_filter');
-      return filter && !matchedSkillIds.has(field(sk, 'Id'));
-    });
-    for (const sk of unmatchedFilteredSkills) {
-      matchedSkillIds.add(field(sk, 'Id'));
-      roles.push({
-        name: field(sk, 'Name') || field(sk, 'name') || field(sk, 'Id'),
-        description: field(sk, 'Description') || field(sk, 'description') || '',
-        soul: null,
-        skills: [sk],
-        soulFileId: '',
+    // Check for souls that have project skills but aren't matched by agent_filter
+    // (e.g., Ren has skills scoped to deep-sci-fi but with empty agent_filter)
+    for (const soul of souls) {
+      const soulName = field(soul, 'Name') || field(soul, 'name');
+      // Skip if already a role, or if it's a platform soul without project skills
+      if (roles.some(r => r.name === soulName)) continue;
+      // Check if this soul has any project-scoped skills assigned to it
+      const soulSkills = projectSkills.filter(sk => {
+        const filter = field(sk, 'agent_filter');
+        return filter && (filter.includes(soulName) || filter === soulName);
       });
+      // Also check if the soul itself appears to be project-relevant
+      // (e.g., Ren is project-relevant, Paw is not)
+      const hasProjectSkills = soulSkills.length > 0;
+      const isProjectSoul = projectSkills.some(sk => field(sk, 'scope') && soulName !== 'Paw');
+      // Only include if the soul has a bespoke description (not generic bootstrap)
+      const desc = field(soul, 'Description') || field(soul, 'description') || '';
+      const isCustomSoul = desc.length > 30; // Generic bootstrap souls have short descriptions
+      if (hasProjectSkills || isCustomSoul) {
+        for (const sk of soulSkills) matchedSkillIds.add(field(sk, 'Id'));
+        if (!roles.some(r => r.name === soulName)) {
+          roles.push({
+            name: soulName,
+            description: desc,
+            soul,
+            skills: soulSkills,
+            soulFileId: field(soul, 'ContentFileId') || field(soul, 'content_file_id'),
+          });
+        }
+      }
     }
 
     return roles;
   });
 
   let sharedSkills = $derived(
-    skills.filter((sk) => !field(sk, 'agent_filter'))
+    projectSkills.filter((sk) => !field(sk, 'agent_filter'))
   );
 
   // ---------- Harness Flow Diagram (per-harness, generic) ----------
