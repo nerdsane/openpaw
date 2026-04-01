@@ -1,6 +1,5 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { slide } from 'svelte/transition';
   import { fetchDecisions, fetchPolicies, queryEntities, type PendingDecision, type PolicyEntry } from '$lib/api';
   import StatusBadge from '$lib/components/StatusBadge.svelte';
   import GatePipeline from '$lib/components/GatePipeline.svelte';
@@ -93,7 +92,7 @@
             </div>
 
             {#if expandedHarness === harnessId}
-              <div class="list-detail" transition:slide={{ duration: 150 }}>
+              <div class="list-detail">
                 <div class="detail-grid">
                   <span class="detail-label">Harness ID</span>
                   <code class="detail-value">{harnessId}</code>
@@ -140,7 +139,7 @@
               </div>
 
               {#if expandedSoul === soulId}
-                <div class="list-detail" transition:slide={{ duration: 150 }}>
+                <div class="list-detail">
                   <div class="detail-grid">
                     <span class="detail-label">Soul ID</span>
                     <code class="detail-value">{soulId}</code>
@@ -212,7 +211,7 @@
               </div>
 
               {#if expandedSkill === skillId}
-                <div class="list-detail" transition:slide={{ duration: 150 }}>
+                <div class="list-detail">
                   <div class="detail-grid">
                     <span class="detail-label">Skill ID</span>
                     <code class="detail-value">{skillId}</code>
@@ -295,7 +294,7 @@
                 <span class="list-meta" style="margin-left:auto">{policy.enabled ? 'enabled' : 'disabled'}</span>
               </div>
               {#if expandedPolicy === policy.policy_id}
-                <div class="list-detail" transition:slide={{ duration: 150 }}>
+                <div class="list-detail">
                   <pre class="detail-pre">{policy.cedar_text}</pre>
                 </div>
               {/if}
@@ -389,6 +388,11 @@
   .list-detail {
     padding: 10px var(--space-2); background: var(--surface-raised);
     margin-bottom: 4px;
+    animation: detail-in 150ms var(--ease-out-quart);
+  }
+
+  @keyframes detail-in {
+    from { opacity: 0; transform: translateY(-4px); }
   }
   .detail-grid { display: grid; grid-template-columns: 120px 1fr; gap: 6px var(--space-2); align-items: baseline; }
   .detail-label { font-size: 0.625rem; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.05em; }

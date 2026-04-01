@@ -184,8 +184,10 @@
       <section class="floor-section">
         <h2 class="floor-section-title">Active Agents</h2>
         <div class="floor-grid">
-          {#each $activeAgents as agent (agent.Id)}
-            <AgentCard {agent} />
+          {#each $activeAgents as agent, i (agent.Id)}
+            <div style:animation-delay="{i * 30}ms" class="card-enter">
+              <AgentCard {agent} />
+            </div>
           {/each}
         </div>
       </section>
@@ -202,8 +204,10 @@
       <section class="floor-section floor-section--recent">
         <h2 class="floor-section-title">Recent</h2>
         <div class="floor-grid floor-grid--dimmed">
-          {#each completedAgents as agent (agent.Id)}
-            <AgentCard {agent} />
+          {#each completedAgents as agent, i (agent.Id)}
+            <div style:animation-delay="{i * 30}ms" class="card-enter">
+              <AgentCard {agent} />
+            </div>
           {/each}
         </div>
       </section>
@@ -272,6 +276,17 @@
 
   .floor-grid--dimmed {
     opacity: 0.6;
+  }
+
+  .card-enter {
+    animation: card-in 150ms var(--ease-out-quart) both;
+  }
+
+  @keyframes card-in {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
   }
 
   /* Project Context */

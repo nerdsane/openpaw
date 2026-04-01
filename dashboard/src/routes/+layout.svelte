@@ -85,13 +85,16 @@
     font-size: var(--text-sm);
     color: var(--text-secondary);
     text-decoration: none;
-    transition: color var(--duration-fast) var(--ease),
+    border-left: 2px solid transparent;
+    transition: border-color var(--duration-fast) var(--ease),
+                color var(--duration-fast) var(--ease),
                 background var(--duration-fast) var(--ease);
   }
 
   .nav-link:hover {
     color: var(--text-primary);
     background: var(--brand-subtle);
+    border-left-color: var(--text-tertiary);
     text-decoration: none;
   }
 

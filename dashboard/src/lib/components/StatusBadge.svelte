@@ -1,6 +1,10 @@
 <script lang="ts">
   let { status }: { status: string } = $props();
 
+  const isActive = $derived(
+    ['Thinking', 'Executing', 'InProgress', 'Triaging', 'Planning', 'Running'].includes(status)
+  );
+
   const statusColor = $derived.by(() => {
     switch (status) {
       case 'Completed':
@@ -30,7 +34,7 @@
 </script>
 
 <span class="status-badge">
-  <span class="dot" style:background={statusColor}></span>
+  <span class="dot" class:dot--active={isActive} style:background={statusColor}></span>
   <span class="label">{status}</span>
 </span>
 
@@ -52,5 +56,14 @@
   .label {
     font-size: var(--text-xs);
     color: var(--text-secondary);
+  }
+
+  .dot--active {
+    animation: status-pulse 2s ease-in-out infinite;
+  }
+
+  @keyframes status-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
   }
 </style>

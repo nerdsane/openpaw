@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { slide } from 'svelte/transition';
   import type { StateChangeEvent } from '$lib/sse';
   import type { Agent } from '$lib/types';
   import StatusBadge from './StatusBadge.svelte';
@@ -52,7 +51,7 @@
   });
 </script>
 
-<div class="transition" transition:slide={{ duration: 200 }}>
+<div class="transition">
   <div class="transition__header">
     <StatusBadge status={event.status} />
     <span class="transition__action">{event.action}</span>
@@ -89,9 +88,9 @@
     >
       {expanded ? 'Hide' : 'Show'} tool calls
     </button>
-    {#if expanded}
-      <pre class="transition__tools" transition:slide={{ duration: 150 }}>{agentSnapshot?.pending_tool_calls}</pre>
-    {/if}
+    <div class="transition__tools-wrapper" class:transition__tools-wrapper--open={expanded}>
+      <pre class="transition__tools">{agentSnapshot?.pending_tool_calls}</pre>
+    </div>
   {/if}
 </div>
 
@@ -155,6 +154,16 @@
 
   .transition__expand:hover {
     color: var(--text-primary);
+  }
+
+  .transition__tools-wrapper {
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height var(--duration-base) var(--ease);
+  }
+
+  .transition__tools-wrapper--open {
+    max-height: 200px;
   }
 
   .transition__tools {

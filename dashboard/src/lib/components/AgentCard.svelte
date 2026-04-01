@@ -116,13 +116,15 @@
     padding: 10px;
     text-decoration: none;
     color: inherit;
-    transition: background var(--duration-fast) var(--ease);
+    transition: background var(--duration-fast) var(--ease),
+                transform var(--duration-fast) var(--ease);
     position: relative;
   }
 
   .agent-card:hover {
     text-decoration: none;
     background: var(--surface-overlay);
+    transform: translateY(-1px);
   }
 
   .agent-card__header {

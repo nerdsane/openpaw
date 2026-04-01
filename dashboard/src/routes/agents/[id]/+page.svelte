@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
-  import { slide, fade } from 'svelte/transition';
+  import { fade } from 'svelte/transition';
   import { page } from '$app/stores';
   import type { Agent, WorkCycle, EntityEvent } from '$lib/types';
   import { getEntity, queryEntities, fetchAgentHistory } from '$lib/api';
@@ -307,7 +307,9 @@
         {:else}
           <div class="stream-list">
             {#each transitions as t, i (t.timestamp ?? t.event.seq ?? i)}
-              <StateTransition event={t.event} agentSnapshot={t.snapshot} timestamp={t.timestamp} fromStatus={t.fromStatus} authz={t.authz} />
+              <div style:animation-delay="{i * 20}ms" class="transition-enter">
+                <StateTransition event={t.event} agentSnapshot={t.snapshot} timestamp={t.timestamp} fromStatus={t.fromStatus} authz={t.authz} />
+              </div>
             {/each}
           </div>
         {/if}
@@ -587,6 +589,17 @@
 
   .mono {
     font-family: var(--font-mono);
+  }
+
+  .transition-enter {
+    animation: row-in 120ms var(--ease-out-quart) both;
+  }
+
+  @keyframes row-in {
+    from {
+      opacity: 0;
+      transform: translateX(-4px);
+    }
   }
 
   @media (max-width: 800px) {
