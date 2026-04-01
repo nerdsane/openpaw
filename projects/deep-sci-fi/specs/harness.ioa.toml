@@ -65,4 +65,13 @@ conventions = """
 - Frontend: Vercel (auto-deploy on push to main/staging)
 - Backend: Railway (Docker, migrations run pre-deploy)
 - Staging: staging.deep-sci-fi.world / api-staging.deep-sci-fi.world
-- Production: deep-sci-fi.world / api.deep-sci-fi.world"""
+- Production: deep-sci-fi.world / api.deep-sci-fi.world
+
+## WorkCycle Gate Commands (MANDATORY)
+When reporting WorkCycle gates, you MUST run these exact commands and include ACTUAL output:
+- ReportMigrations: verify no models.py changes need Alembic migration, or create one
+- ReportTypecheck: run `cd platform && bun run typecheck` or `mypy` for backend-only changes
+- ReportUnitTests: run `cd platform/backend && pytest tests/ -x -q --ignore=tests/simulation`
+- ReportDst: run `cd platform/backend && pytest tests/simulation/ -x --hypothesis-seed=0` (NOT a script dry-run)
+- ReportPolicyGates: run `scripts/check_response_model_coverage.py`, `scripts/check_api_test_coverage.py`, etc.
+Do NOT fabricate gate results. Report actual command output."""

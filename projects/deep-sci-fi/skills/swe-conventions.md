@@ -129,28 +129,36 @@ Always use the appropriate prefix. PRs with non-conventional commit messages wil
 6. Request review from Ren (product lead)
 7. Do NOT merge — only Ren or the human can merge PRs
 
-## WorkCycle Integration
+## WorkCycle Gate Protocol
 
-When working on a task tracked by a WorkCycle entity, report gate results as you go:
+When working on a task tracked by a WorkCycle, you MUST run specific commands for each gate and report the ACTUAL output. Do not fabricate results. Do not report a gate as ok unless you ran the command and it succeeded.
 
-```
-# After running migrations check
-→ ReportMigrations(ok="true", summary="Alembic migration 0042 created for new column")
+### Level 1 Gates (report from InProgress, required before BeginTesting)
 
-# After typecheck passes
-→ ReportTypecheck(ok="true", summary="bun run typecheck clean, 0 errors")
+**ReportMigrations** — Run: `cd platform/backend && python -c "from alembic.config import Config; from alembic import command; command.check(Config('alembic.ini'))"` or verify no models.py changes need migrations. Include the actual command output in summary.
 
-# After unit tests pass
-→ ReportUnitTests(ok="true", summary="pytest 47 passed, 0 failed")
+**ReportTypecheck** — Run: `cd platform && bun run typecheck` (TypeScript check). Include the actual exit code and error count in summary. If your changes are backend-only, run `cd platform/backend && mypy main.py observability.py --ignore-missing-imports` instead.
 
-# After DST passes
-→ ReportDST(ok="true", summary="Hypothesis DST 200 examples, 0 failures")
+**ReportUnitTests** — Run: `cd platform/backend && pytest tests/ -x -q --ignore=tests/simulation`. Include the actual pass/fail/skip counts from pytest output in summary.
 
-# After all policy gates pass
-→ ReportPolicyGates(ok="true", summary="All Level 1 + Level 2 gates green")
+### BeginTesting (transition to Testing state)
 
-# After E2E (if applicable)
-→ ReportE2E(ok="true", summary="Playwright 12/12 specs passed")
-```
+Only call after all 3 Level 1 gates are ok. The platform will reject if any are missing.
 
-If any gate fails, report `ok="false"` with a description of the failure. The WorkCycle will not allow transition to Testing until the required gates are green.
+### Level 2 Gates (report from Testing, required before PassTests)
+
+**ReportDst** — Run: `cd platform/backend && pytest tests/simulation/ -x --hypothesis-seed=0`. This is Hypothesis Deterministic Simulation Testing — NOT a dry run of a script. Include actual Hypothesis output. If tests/simulation/ has no relevant tests for your change, report ok with summary explaining why (e.g. "no state-mutating endpoint changes").
+
+**ReportPolicyGates** — Run ALL of these:
+  - `python scripts/check_response_model_coverage.py --check` (if you changed API files)
+  - `python scripts/check_api_test_coverage.py --check` (if you changed API modules)
+  - `python scripts/check_frontend_e2e_mapping.py --check` (if you changed frontend files)
+Include actual output of each script. If no scripts apply to your change, explain which you checked and why they don't apply.
+
+### PassTests (transition to Reviewing state)
+
+Only call after both Level 2 gates are ok. Include a test_summary with aggregated results.
+
+### If a gate fails
+
+Report `ok="false"` with the actual error output. Fix the issue, re-run, and report again. The WorkCycle stays in its current state — you can report the same gate multiple times until it passes.
