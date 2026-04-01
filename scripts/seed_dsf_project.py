@@ -178,7 +178,7 @@ def main() -> int:
     # Step 2: Create Ren's Soul
     # ------------------------------------------------------------------
     print("\nStep 2: Creating Ren's Soul...")
-    existing_souls = client.list("Souls", filter_expr="name eq 'Ren'")
+    existing_souls = client.list("Souls", filter_expr="Name eq 'Ren'")
     if existing_souls:
         soul_id = entity_id(existing_souls[0])
         print(f"  Ren already exists: {soul_id}")
@@ -193,18 +193,14 @@ def main() -> int:
         # Upload combined content to TemperFS
         file_id = upload_file(client, "ren-soul.md", combined)
 
-        # Create Soul entity (starts in Draft)
-        soul_entity = client.create("Souls")
+        # Create Soul with fields in POST body (matches bootstrap_soul pattern)
+        soul_entity = client.create("Souls", {
+            "Name": "Ren",
+            "Description": "Product lead for Deep Sci-Fi (INTP)",
+            "ContentFileId": file_id,
+        })
         soul_id = entity_id(soul_entity)
         require(bool(soul_id), "failed to create Soul entity")
-
-        # Initialize via Create action (Draft -> Draft)
-        client.action("Souls", soul_id, "OpenPaw.Create", {
-            "name": "Ren",
-            "description": "Product lead for Deep Sci-Fi",
-            "content_file_id": file_id,
-            "author_id": "seed-script",
-        })
 
         # Publish (Draft -> Active)
         client.action("Souls", soul_id, "OpenPaw.Publish", {})
