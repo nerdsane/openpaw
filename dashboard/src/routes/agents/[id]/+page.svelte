@@ -3,7 +3,7 @@
   import { slide, fade } from 'svelte/transition';
   import { page } from '$app/stores';
   import type { Agent, WorkCycle, EntityEvent } from '$lib/types';
-  import { getEntity, queryEntities } from '$lib/api';
+  import { getEntity, queryEntities, fetchAgentHistory } from '$lib/api';
   import { connectSSE, disconnectSSE, events, type StateChangeEvent } from '$lib/sse';
   import StatusBadge from '$lib/components/StatusBadge.svelte';
   import GatePipeline from '$lib/components/GatePipeline.svelte';
@@ -18,7 +18,7 @@
   let error = $state<string | null>(null);
   let taskExpanded = $state(false);
 
-  let transitions = $state<Array<{ event: StateChangeEvent; snapshot?: Agent; timestamp?: string; fromStatus?: string }>>([]);
+  let transitions = $state<Array<{ event: StateChangeEvent; snapshot?: Agent; timestamp?: string; fromStatus?: string; authz?: { allowed: boolean; denied_resource?: string } }>>([]);
 
   let childIds = $derived.by((): string[] => {
     if (!agent?.child_agent_ids) return [];
@@ -99,6 +99,27 @@
             timestamp: e.timestamp,
             fromStatus: e.from_status,
           }));
+      }
+      // Fetch trajectory history for authorization context
+      const history = await fetchAgentHistory(agentId, 'Agent', 200);
+
+      // Merge authz data into transitions by matching action + timestamp proximity
+      for (const t of transitions) {
+        const eventAction = t.event.action;
+        const eventTime = t.timestamp ? new Date(t.timestamp).getTime() : 0;
+
+        // Find matching trajectory entry (same action, within 5 seconds)
+        const match = history.find(h =>
+          h.action === eventAction &&
+          Math.abs(new Date(h.timestamp).getTime() - eventTime) < 5000
+        );
+
+        if (match) {
+          t.authz = {
+            allowed: !match.authz_denied,
+            denied_resource: match.denied_resource ?? undefined,
+          };
+        }
       }
     } catch {
       error = 'Could not load agent';
@@ -286,7 +307,7 @@
         {:else}
           <div class="stream-list">
             {#each transitions as t, i (t.timestamp ?? t.event.seq ?? i)}
-              <StateTransition event={t.event} agentSnapshot={t.snapshot} timestamp={t.timestamp} fromStatus={t.fromStatus} />
+              <StateTransition event={t.event} agentSnapshot={t.snapshot} timestamp={t.timestamp} fromStatus={t.fromStatus} authz={t.authz} />
             {/each}
           </div>
         {/if}

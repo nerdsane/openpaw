@@ -101,6 +101,39 @@ export interface PolicyEntry {
   source?: string;
 }
 
+export interface AgentHistoryEntry {
+  timestamp: string;
+  tenant: string;
+  entity_type: string;
+  entity_id: string;
+  action: string;
+  success: boolean;
+  from_status: string;
+  to_status: string;
+  error: string | null;
+  authz_denied: boolean;
+  denied_resource: string | null;
+}
+
+export async function fetchAgentHistory(
+  entityId: string,
+  entityType: string = 'Agent',
+  limit: number = 200
+): Promise<AgentHistoryEntry[]> {
+  const params = new URLSearchParams();
+  if (entityType) params.set('entity_type', entityType);
+  params.set('limit', limit.toString());
+  const url = `${BASE}/observe/agents/system/history?${params.toString()}`;
+  const res = await fetch(url, { headers: HEADERS });
+  if (!res.ok) return [];
+  const data = await res.json();
+  const history = data.history ?? data ?? [];
+  // Filter to only events for this specific entity
+  return (Array.isArray(history) ? history : []).filter(
+    (e: AgentHistoryEntry) => e.entity_id === entityId
+  );
+}
+
 export async function getEntity(
   entitySet: string,
   id: string

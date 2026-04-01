@@ -9,11 +9,16 @@
     agentSnapshot,
     timestamp,
     fromStatus,
+    authz,
   }: {
     event: StateChangeEvent;
     agentSnapshot?: Agent;
     timestamp?: string;
     fromStatus?: string;
+    authz?: {
+      allowed: boolean;
+      denied_resource?: string;
+    };
   } = $props();
 
   let timeDisplay = $derived.by(() => {
@@ -53,6 +58,14 @@
     <span class="transition__action">{event.action}</span>
     {#if fromStatus}
       <span class="transition__flow">{fromStatus} &rarr; {event.status}</span>
+    {/if}
+    {#if authz}
+      <span class="authz-badge" class:authz-badge--allowed={authz.allowed} class:authz-badge--denied={!authz.allowed}>
+        {authz.allowed ? 'Allowed' : 'Denied'}
+      </span>
+      {#if authz.denied_resource}
+        <code class="authz-resource">{authz.denied_resource}</code>
+      {/if}
     {/if}
     <span class="transition__time">{timeDisplay}</span>
   </div>
@@ -150,5 +163,26 @@
     overflow: auto;
     white-space: pre-wrap;
     word-break: break-all;
+  }
+
+  .authz-badge {
+    font-size: 0.625rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    padding: 1px 5px;
+    border-radius: var(--radius-sm);
+  }
+  .authz-badge--allowed {
+    color: var(--status-success);
+    background: rgba(61, 122, 61, 0.1);
+  }
+  .authz-badge--denied {
+    color: var(--status-error);
+    background: rgba(139, 58, 58, 0.1);
+  }
+  .authz-resource {
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    color: var(--status-error);
   }
 </style>

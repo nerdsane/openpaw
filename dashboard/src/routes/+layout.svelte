@@ -2,10 +2,7 @@
   import '../app.css';
   import PawLogo from '$lib/components/PawLogo.svelte';
   import ThemeToggle from '$lib/components/ThemeToggle.svelte';
-  import { activeAgents } from '$lib/stores/agents';
-
   let { children } = $props();
-  let agentCount = $derived($activeAgents.length);
 </script>
 
 <div class="shell">
@@ -20,24 +17,11 @@
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
         Floor
       </a>
-      <a href="/permissions" class="nav-link">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-        Permissions
+      <a href="/project" class="nav-link">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+        Project
       </a>
     </nav>
-
-    <div class="sidebar-roster">
-      <div class="roster-label">Agents</div>
-      <div class="roster-count">
-        {#if agentCount > 0}
-          <span class="status-dot" data-status="active"></span>
-          <span>{agentCount} active</span>
-        {:else}
-          <span class="status-dot" data-status="idle"></span>
-          <span>idle</span>
-        {/if}
-      </div>
-    </div>
 
     <div class="sidebar-footer">
       <ThemeToggle />
@@ -111,29 +95,8 @@
     text-decoration: none;
   }
 
-  .sidebar-roster {
-    margin-top: auto;
-    padding: var(--space-2) 0;
-    border-top: 1px solid var(--border);
-  }
-
-  .roster-label {
-    font-size: var(--text-xs);
-    color: var(--text-tertiary);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    margin-bottom: 4px;
-  }
-
-  .roster-count {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: var(--text-sm);
-    color: var(--text-secondary);
-  }
-
   .sidebar-footer {
+    margin-top: auto;
     padding-top: var(--space-1);
   }
 
