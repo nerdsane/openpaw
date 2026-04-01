@@ -31,7 +31,13 @@
     // Load project context (non-blocking)
     try { projects = (await queryEntities('ProjectHarnesses', undefined, undefined, 10)) as unknown as ProjectHarness[]; } catch { /* may not exist */ }
     try { souls = (await queryEntities('Souls', undefined, undefined, 20)) as unknown as Soul[]; } catch { /* may not exist */ }
-    try { workcycles = (await queryEntities('WorkCycles', undefined, 'SequenceNr desc', 20)) as unknown as WorkCycle[]; } catch { /* may not exist */ }
+    try {
+      const [wcs, dwcs] = await Promise.all([
+        queryEntities('WorkCycles', undefined, 'SequenceNr desc', 20).catch(() => []),
+        queryEntities('DsfWorkCycles', undefined, 'SequenceNr desc', 20).catch(() => []),
+      ]);
+      workcycles = [...wcs, ...dwcs] as unknown as WorkCycle[];
+    } catch { /* may not exist */ }
     try { skills = (await queryEntities('Skills', undefined, undefined, 20)) as unknown as Skill[]; } catch { /* may not exist */ }
   });
 

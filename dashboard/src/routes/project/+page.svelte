@@ -38,7 +38,10 @@
       queryEntities('ProjectHarnesses').catch(() => []),
       queryEntities('Souls').catch(() => []),
       queryEntities('Skills').catch(() => []),
-      queryEntities('WorkCycles').catch(() => []),
+      Promise.all([
+        queryEntities('WorkCycles').catch(() => []),
+        queryEntities('DsfWorkCycles').catch(() => []),
+      ]).then(([a, b]) => [...a, ...b]),
       fetchDecisions().then(r => r.decisions).catch(() => []),
       fetchPolicies().catch(() => []),
     ]);

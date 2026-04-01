@@ -94,9 +94,13 @@
 
       // Try to find linked work cycle
       try {
-        const wcs = await queryEntities('WorkCycles', `planner_id eq '${agentId}'`, undefined, 1);
-        if (wcs.length > 0) {
-          workcycle = wcs[0] as unknown as WorkCycle;
+        const [wcs, dwcs] = await Promise.all([
+          queryEntities('WorkCycles', `planner_id eq '${agentId}'`, undefined, 1).catch(() => []),
+          queryEntities('DsfWorkCycles', `planner_id eq '${agentId}'`, undefined, 1).catch(() => []),
+        ]);
+        const allWcs = [...wcs, ...dwcs];
+        if (allWcs.length > 0) {
+          workcycle = allWcs[0] as unknown as WorkCycle;
         }
       } catch { /* ignore */ }
 
