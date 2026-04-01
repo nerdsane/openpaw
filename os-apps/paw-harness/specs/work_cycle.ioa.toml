@@ -242,40 +242,8 @@ when = ["Failed"]
 assert = "no_further_transitions"
 
 # --- Integrations ---
-# NOTE: BeginTesting has guards but the IOA format does not support both guards
-# and trigger effects on the same action. The gate_verifier integrations are
-# wired here as standalone triggers; the runtime invokes them on the transition
-# to Testing state rather than as an inline effect of BeginTesting.
-
-[[integration]]
-name = "verify_level1_gates"
-trigger = "verify_level1_gates"
-type = "wasm"
-module = "gate_verifier"
-on_failure = "Fail"
-
-[integration.config]
-temper_api_url = "{secret:temper_api_url}"
-gate_level = "1"
-
-[[integration]]
-name = "verify_level2_gates"
-trigger = "verify_level2_gates"
-type = "wasm"
-module = "gate_verifier"
-on_failure = "Fail"
-
-[integration.config]
-temper_api_url = "{secret:temper_api_url}"
-gate_level = "2"
-
-[[integration]]
-name = "spawn_reviewers"
-trigger = "spawn_reviewers"
-type = "wasm"
-module = "spawn_reviewers"
-on_failure = "Fail"
-
-[integration.config]
-temper_api_url = "{secret:temper_api_url}"
-default_agent_model = "claude-sonnet-4-6"
+# Gate verification and reviewer spawning are PROJECT-SPECIFIC, not platform.
+# Each project's reference config (e.g. projects/deep-sci-fi/) defines its own
+# gate_verifier WASM and reviewer agent configuration.
+# The WorkCycle spec provides the state machine and actions; projects wire
+# their own integrations via the entity configuration at runtime.
