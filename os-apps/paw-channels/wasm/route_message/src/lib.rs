@@ -350,13 +350,13 @@ fn create_agent_from_route(
     ctx.log(
         "info",
         &format!(
-            "route_message: creating routed agent via {temper_api_url}/tdata/Agents with {} bytes",
+            "route_message: creating routed agent via {temper_api_url}/tdata/Sessions with {} bytes",
             create_body.len()
         ),
     );
     let create_resp = ctx.http_call(
         "POST",
-        &format!("{temper_api_url}/tdata/Agents"),
+        &format!("{temper_api_url}/tdata/Sessions"),
         &odata_headers(ctx, tenant),
         &create_body,
     )?;
@@ -388,8 +388,8 @@ fn create_agent_from_route(
         "sandbox_url": config.get("sandbox_url").and_then(Value::as_str).unwrap_or(""),
         "temper_api_url": config.get("temper_api_url").and_then(Value::as_str).unwrap_or(""),
         "soul_id": normalized_soul_ref,
-        "parent_agent_id": config.get("parent_agent_id").and_then(Value::as_str).unwrap_or(""),
-        "agent_depth": config.get("agent_depth").and_then(Value::as_str).unwrap_or("0"),
+        "parent_session_id": config.get("parent_session_id").and_then(Value::as_str).unwrap_or(""),
+        "session_depth": config.get("session_depth").and_then(Value::as_str).unwrap_or("0"),
         "max_follow_ups": config.get("max_follow_ups").and_then(Value::as_str).unwrap_or("5"),
         "hook_policy": config.get("hook_policy").and_then(Value::as_str).unwrap_or("none"),
         "reserve_tokens": config.get("reserve_tokens").and_then(Value::as_str).unwrap_or("20000"),
@@ -397,7 +397,7 @@ fn create_agent_from_route(
         "compaction_model": config.get("compaction_model").and_then(Value::as_str).unwrap_or(""),
         "heartbeat_timeout_seconds": config.get("heartbeat_timeout_seconds").and_then(Value::as_str).unwrap_or("300"),
     });
-    let configure_url = format!("{temper_api_url}/tdata/Agents('{agent_id}')/OpenPaw.Configure");
+    let configure_url = format!("{temper_api_url}/tdata/Sessions('{agent_id}')/OpenPaw.Configure");
     let configure_resp = ctx.http_call(
         "POST",
         &configure_url,
@@ -411,7 +411,7 @@ fn create_agent_from_route(
         ));
     }
 
-    let provision_url = format!("{temper_api_url}/tdata/Agents('{agent_id}')/OpenPaw.Provision");
+    let provision_url = format!("{temper_api_url}/tdata/Sessions('{agent_id}')/OpenPaw.Provision");
     let provision_resp = ctx.http_call("POST", &provision_url, &odata_headers(ctx, tenant), "{}")?;
     if !(200..300).contains(&provision_resp.status) {
         return Err(format!(
@@ -518,13 +518,13 @@ fn create_blank_agent(ctx: &Context, temper_api_url: &str, tenant: &str) -> Resu
     ctx.log(
         "info",
         &format!(
-            "route_message: creating continuation agent via {temper_api_url}/tdata/Agents with {} bytes",
+            "route_message: creating continuation agent via {temper_api_url}/tdata/Sessions with {} bytes",
             create_body.len()
         ),
     );
     let create_resp = ctx.http_call(
         "POST",
-        &format!("{temper_api_url}/tdata/Agents"),
+        &format!("{temper_api_url}/tdata/Sessions"),
         &odata_headers(ctx, tenant),
         &create_body,
     )?;
@@ -578,12 +578,12 @@ fn configure_agent_from_prior(
         "sandbox_url": str_field(fields, &["sandbox_url", "SandboxUrl"]).unwrap_or(""),
         "temper_api_url": str_field(fields, &["temper_api_url", "TemperApiUrl"]).unwrap_or(""),
         "soul_id": soul_ref,
-        "parent_agent_id": if prior_agent_id.is_empty() {
-            str_field(fields, &["parent_agent_id", "ParentAgentId"]).unwrap_or("")
+        "parent_session_id": if prior_agent_id.is_empty() {
+            str_field(fields, &["parent_session_id", "ParentSessionId"]).unwrap_or("")
         } else {
             prior_agent_id
         },
-        "agent_depth": str_field(fields, &["agent_depth", "AgentDepth"]).unwrap_or("0"),
+        "session_depth": str_field(fields, &["session_depth", "SessionDepth"]).unwrap_or("0"),
         "max_follow_ups": str_field(fields, &["max_follow_ups", "MaxFollowUps"]).unwrap_or("5"),
         "hook_policy": str_field(fields, &["hook_policy", "HookPolicy"]).unwrap_or("none"),
         "reserve_tokens": str_field(fields, &["reserve_tokens", "ReserveTokens"]).unwrap_or("20000"),
@@ -591,7 +591,7 @@ fn configure_agent_from_prior(
         "compaction_model": str_field(fields, &["compaction_model", "CompactionModel"]).unwrap_or(""),
         "heartbeat_timeout_seconds": str_field(fields, &["heartbeat_timeout_seconds", "HeartbeatTimeoutSeconds"]).unwrap_or("300"),
     });
-    let configure_url = format!("{temper_api_url}/tdata/Agents('{agent_id}')/OpenPaw.Configure");
+    let configure_url = format!("{temper_api_url}/tdata/Sessions('{agent_id}')/OpenPaw.Configure");
     let configure_resp = ctx.http_call(
         "POST",
         &configure_url,
@@ -624,7 +624,7 @@ fn resume_agent_from_prior(
         "session_file_id": str_field(fields, &["session_file_id", "SessionFileId"]).unwrap_or(""),
         "session_leaf_id": session_leaf_id,
     });
-    let resume_url = format!("{temper_api_url}/tdata/Agents('{agent_id}')/OpenPaw.Resume");
+    let resume_url = format!("{temper_api_url}/tdata/Sessions('{agent_id}')/OpenPaw.Resume");
     let resume_resp = ctx.http_call(
         "POST",
         &resume_url,
@@ -892,7 +892,7 @@ fn interrupted_tool_results_for_leaf(tree: &SessionTree, leaf_id: &str) -> Optio
 }
 
 fn agent_entity_url(temper_api_url: &str, agent_id: &str) -> String {
-    format!("{temper_api_url}/tdata/Agents('{agent_id}')")
+    format!("{temper_api_url}/tdata/Sessions('{agent_id}')")
 }
 
 fn is_terminal_status(status: &str) -> bool {
@@ -969,7 +969,7 @@ fn steer_existing_agent(
     agent_id: &str,
     message: &str,
 ) -> Result<(), String> {
-    let agent_url = format!("{temper_api_url}/tdata/Agents('{agent_id}')");
+    let agent_url = format!("{temper_api_url}/tdata/Sessions('{agent_id}')");
     let agent_resp = ctx.http_call("GET", &agent_url, &odata_headers(ctx, tenant), "")?;
     let mut queue = if agent_resp.status == 200 {
         let parsed: Value = serde_json::from_str(&agent_resp.body).unwrap_or_else(|_| json!({}));
@@ -981,7 +981,7 @@ fn steer_existing_agent(
         Vec::new()
     };
     queue.push(json!({ "content": message }));
-    let steer_url = format!("{temper_api_url}/tdata/Agents('{agent_id}')/OpenPaw.Steer");
+    let steer_url = format!("{temper_api_url}/tdata/Sessions('{agent_id}')/OpenPaw.Steer");
     let body = json!({
         "steering_messages": serde_json::to_string(&queue).unwrap_or_else(|_| "[]".to_string()),
     });

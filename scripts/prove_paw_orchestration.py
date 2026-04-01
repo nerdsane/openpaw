@@ -43,7 +43,7 @@ def main() -> int:
     collector.start()
     before_harnesses = len(client.list("ProjectHarnesses"))
     before_monitors = len(client.list("Monitors"))
-    before_agents = len(client.list("Agents"))
+    before_agents = len(client.list("Sessions"))
     channel_name = f"paw-orchestration-{int(time.time())}"
     thread_id = f"thread-{int(time.time())}"
 
@@ -125,14 +125,14 @@ def main() -> int:
                 top=5,
             )
             monitors = client.list("Monitors", orderby="sequence_nr desc", top=20)
-            agents = client.list("Agents", orderby="sequence_nr desc", top=50)
+            agents = client.list("Sessions", orderby="sequence_nr desc", top=50)
             harness = next(iter(harnesses), None)
             developer_agent = next(
                 (
                     agent
                     for agent in agents
                     if nested_str(agent, ["soul_id", "SoulId"]) == "Developer"
-                    and nested_str(agent, ["parent_agent_id", "ParentAgentId"]) == paw_agent_id
+                    and nested_str(agent, ["parent_session_id", "ParentSessionId"]) == paw_agent_id
                 ),
                 None,
             )
@@ -146,7 +146,7 @@ def main() -> int:
             "ProjectHarness count did not change during Paw orchestration proof",
         )
         require(
-            len(client.list("Agents")) > before_agents,
+            len(client.list("Sessions")) > before_agents,
             "Agent count did not change during Paw orchestration proof",
         )
         require(

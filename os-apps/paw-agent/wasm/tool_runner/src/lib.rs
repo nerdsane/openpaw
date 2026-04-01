@@ -1093,7 +1093,7 @@ fn emit_progress_ignore(ctx: &Context, payload: Value) {
 
 fn send_heartbeat(ctx: &Context, temper_api_url: &str, tenant: &str) -> Result<(), String> {
     let url = format!(
-        "{temper_api_url}/tdata/Agents('{}')/OpenPaw.Heartbeat",
+        "{temper_api_url}/tdata/Sessions('{}')/OpenPaw.Heartbeat",
         ctx.entity_id
     );
     let body = json!({ "last_heartbeat_at": "alive" });
@@ -1112,9 +1112,9 @@ fn validate_tool_input(tool_name: &str, input: &Value) -> Result<(), String> {
         "bash" => &["command"],
         "save_memory" => &["key", "content"],
         "recall_memory" => &["query"],
-        "spawn_agent" => &["task"],
-        "abort_agent" => &["agent_id"],
-        "steer_agent" => &["agent_id", "message"],
+        "spawn_session" => &["task"],
+        "abort_session" => &["agent_id"],
+        "steer_session" => &["agent_id", "message"],
         "read_entity" => &["file_id"],
         "file_upload" => &["name", "content"],
         "temper_create" => &["entity_set"],

@@ -275,7 +275,7 @@ fn runtime_headers_with_workspace(
 }
 
 fn default_agent_type(ctx: &Context) -> &'static str {
-    if ctx.entity_type.eq_ignore_ascii_case("Agent") || ctx.entity_type.eq_ignore_ascii_case("Agents")
+    if ctx.entity_type.eq_ignore_ascii_case("Session") || ctx.entity_type.eq_ignore_ascii_case("Sessions")
     {
         "agent"
     } else {

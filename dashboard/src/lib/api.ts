@@ -101,7 +101,7 @@ export interface PolicyEntry {
   source?: string;
 }
 
-export interface AgentHistoryEntry {
+export interface SessionHistoryEntry {
   timestamp: string;
   tenant: string;
   entity_type: string;
@@ -115,11 +115,11 @@ export interface AgentHistoryEntry {
   denied_resource: string | null;
 }
 
-export async function fetchAgentHistory(
+export async function fetchSessionHistory(
   entityId: string,
-  entityType: string = 'Agent',
+  entityType: string = 'Session',
   limit: number = 200
-): Promise<AgentHistoryEntry[]> {
+): Promise<SessionHistoryEntry[]> {
   const params = new URLSearchParams();
   if (entityType) params.set('entity_type', entityType);
   params.set('limit', limit.toString());
@@ -130,8 +130,16 @@ export async function fetchAgentHistory(
   const history = data.history ?? data ?? [];
   // Filter to only events for this specific entity
   return (Array.isArray(history) ? history : []).filter(
-    (e: AgentHistoryEntry) => e.entity_id === entityId
+    (e: SessionHistoryEntry) => e.entity_id === entityId
   );
+}
+
+export async function queryTeams(): Promise<Record<string, unknown>[]> {
+  return queryEntities('Teams');
+}
+
+export async function queryAgentsForTeam(teamId: string): Promise<Record<string, unknown>[]> {
+  return queryEntities('Agents', `team_id eq '${teamId}'`);
 }
 
 export async function getEntity(

@@ -2,7 +2,7 @@
 
 // Agents can create, update, lock, and unlock files in their own workspace
 permit(
-    principal is Agent,
+    principal is Session,
     action in [Action::"StreamUpdated", Action::"Create", Action::"Lock", Action::"Unlock"],
     resource is File
 ) when {
@@ -20,7 +20,7 @@ forbid(
 
 // Archive requires workspace admin
 permit(
-    principal is Agent,
+    principal is Session,
     action == Action::"FileArchive",
     resource is File
 ) when {

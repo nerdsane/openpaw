@@ -226,7 +226,7 @@ ISSUE_ID=<id or empty>"
         );
 
         // 6. Create Agent entity
-        let agent_url = format!("{temper_api_url}/tdata/Agents");
+        let agent_url = format!("{temper_api_url}/tdata/Sessions");
         let agent_body = json!({});
         let agent_resp = ctx.http_call("POST", &agent_url, &headers, &agent_body.to_string())?;
         if agent_resp.status < 200 || agent_resp.status >= 300 {
@@ -247,7 +247,7 @@ ISSUE_ID=<id or empty>"
 
         // 7. Dispatch Agents.OpenPaw.Configure
         let configure_url = format!(
-            "{temper_api_url}/tdata/Agents('{agent_id}')/OpenPaw.Configure"
+            "{temper_api_url}/tdata/Sessions('{agent_id}')/OpenPaw.Configure"
         );
         let configure_body = json!({
             "model": default_agent_model,
@@ -272,7 +272,7 @@ ISSUE_ID=<id or empty>"
 
         // 8. Dispatch Agents.OpenPaw.Provision
         let provision_url = format!(
-            "{temper_api_url}/tdata/Agents('{agent_id}')/OpenPaw.Provision"
+            "{temper_api_url}/tdata/Sessions('{agent_id}')/OpenPaw.Provision"
         );
         let provision_body = json!({});
         let provision_resp =

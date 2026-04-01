@@ -1,6 +1,6 @@
-//! Cron Trigger — WASM module for firing scheduled agent runs.
+//! Cron Trigger — WASM module for firing scheduled session runs.
 //!
-//! Creates a new Agent entity with the cron job's configuration,
+//! Creates a new Session entity with the cron job's configuration,
 //! including template variable substitution.
 
 use temper_wasm_sdk::prelude::*;
@@ -38,7 +38,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         let headers = runtime_headers(&ctx, tenant, &fields, Some("application/json"), None);
 
         // 1. Create Agent entity
-        let create_url = format!("{temper_api_url}/tdata/Agents");
+        let create_url = format!("{temper_api_url}/tdata/Sessions");
         let create_resp = ctx.http_call("POST", &create_url, &headers, "{}")?;
         if create_resp.status < 200 || create_resp.status >= 300 {
             return Err(format!("Failed to create agent (HTTP {}): {}", create_resp.status, &create_resp.body[..create_resp.body.len().min(200)]));
@@ -57,7 +57,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
 
         // 2. Configure the agent
         let configure_url = format!(
-            "{temper_api_url}/tdata/Agents('{agent_id}')/OpenPaw.Configure"
+            "{temper_api_url}/tdata/Sessions('{agent_id}')/OpenPaw.Configure"
         );
         let configure_body = json!({
             "system_prompt": system_prompt,
@@ -75,7 +75,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
 
         // 3. Provision the agent
         let provision_url = format!(
-            "{temper_api_url}/tdata/Agents('{agent_id}')/OpenPaw.Provision"
+            "{temper_api_url}/tdata/Sessions('{agent_id}')/OpenPaw.Provision"
         );
         let provision_resp = ctx.http_call("POST", &provision_url, &headers, "{}")?;
         if provision_resp.status < 200 || provision_resp.status >= 300 {
@@ -85,7 +85,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         ctx.log("info", &format!("cron_trigger: agent {} created and provisioned", agent_id));
 
         set_success_result("TriggerComplete", &json!({
-            "last_agent_id": agent_id,
+            "last_session_id": agent_id,
             "last_result": "",
         }));
 

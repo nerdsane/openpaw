@@ -1,0 +1,48 @@
+# Team — Group of agents working on a project.
+
+[automaton]
+name = "Team"
+states = ["Created", "Active", "Archived"]
+initial = "Created"
+
+[[state]]
+name = "name"
+type = "string"
+initial = ""
+
+[[state]]
+name = "description"
+type = "string"
+initial = ""
+
+[[state]]
+name = "harness_id"
+type = "string"
+initial = ""
+
+[[action]]
+name = "Configure"
+kind = "input"
+from = ["Created"]
+to = "Active"
+params = ["name", "description", "harness_id"]
+hint = "Set up the team and link to a harness."
+
+[[action]]
+name = "Update"
+kind = "input"
+from = ["Active"]
+params = ["name", "description"]
+hint = "Update team details."
+
+[[action]]
+name = "Archive"
+kind = "input"
+from = ["Active"]
+to = "Archived"
+hint = "Archive this team."
+
+[[invariant]]
+name = "ArchivedIsFinal"
+when = ["Archived"]
+assert = "no_further_transitions"

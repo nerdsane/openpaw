@@ -1,6 +1,6 @@
-//! Heartbeat Scanner — WASM module for detecting stale agents.
+//! Heartbeat Scanner — WASM module for detecting stale sessions.
 //!
-//! Queries Agent entities in non-terminal states, checks heartbeat freshness,
+//! Queries Session entities in non-terminal states, checks heartbeat freshness,
 //! and fires TimeoutFail on stale ones.
 
 use temper_wasm_sdk::prelude::*;
@@ -27,9 +27,9 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
 
         let headers = runtime_headers(&ctx, tenant, &fields, None, Some("application/json"));
 
-        // Query agents in non-terminal states
+        // Query sessions in non-terminal states
         let filter = "$filter=Status ne 'Completed' and Status ne 'Failed' and Status ne 'Cancelled' and Status ne 'Created'";
-        let url = format!("{temper_api_url}/tdata/Agents?{filter}");
+        let url = format!("{temper_api_url}/tdata/Sessions?{filter}");
         let resp = ctx.http_call("GET", &url, &headers, "")?;
 
         let mut stale_count: i64 = 0;
@@ -83,7 +83,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
 
                 if is_stale {
                     let fail_url = format!(
-                        "{temper_api_url}/tdata/Agents('{agent_id}')/OpenPaw.TimeoutFail"
+                        "{temper_api_url}/tdata/Sessions('{agent_id}')/OpenPaw.TimeoutFail"
                     );
                     let elapsed_msg = if last_heartbeat.is_empty() {
                         "no heartbeat observed".to_string()
@@ -135,7 +135,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         // Return scan complete
         set_success_result("ScanComplete", &json!({
             "last_scan_at": "scan-complete",
-            "stale_agents_found": stale_count,
+            "stale_sessions_found": stale_count,
         }));
 
         Ok(())

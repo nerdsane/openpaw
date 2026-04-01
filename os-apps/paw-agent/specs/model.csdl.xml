@@ -3,7 +3,7 @@
   <edmx:DataServices>
     <Schema Namespace="OpenPaw" xmlns="http://docs.oasis-open.org/odata/ns/edm">
 
-      <EntityType Name="Agent">
+      <EntityType Name="Session">
         <Key><PropertyRef Name="Id"/></Key>
         <Property Name="Id" Type="Edm.String" Nullable="false"/>
         <Property Name="Status" Type="Edm.String"/>
@@ -42,9 +42,10 @@
         <Property Name="MaxFollowUps" Type="Edm.String"/>
         <Property Name="SoulId" Type="Edm.String"/>
         <Property Name="HookPolicy" Type="Edm.String"/>
-        <Property Name="ParentAgentId" Type="Edm.String"/>
-        <Property Name="ChildAgentIds" Type="Edm.String"/>
-        <Property Name="AgentDepth" Type="Edm.Int64"/>
+        <Property Name="ParentSessionId" Type="Edm.String"/>
+        <Property Name="ChildSessionIds" Type="Edm.String"/>
+        <Property Name="SessionDepth" Type="Edm.Int64"/>
+        <Property Name="AgentId" Type="Edm.String"/>
         <Property Name="LastHeartbeatAt" Type="Edm.String"/>
         <Property Name="HeartbeatTimeoutSeconds" Type="Edm.String"/>
       </EntityType>
@@ -100,7 +101,7 @@
         <Property Name="Status" Type="Edm.String"/>
         <Property Name="ScanIntervalSeconds" Type="Edm.String"/>
         <Property Name="LastScanAt" Type="Edm.String"/>
-        <Property Name="StaleAgentsFound" Type="Edm.Int64"/>
+        <Property Name="StaleSessionsFound" Type="Edm.Int64"/>
       </EntityType>
 
       <EntityType Name="CronJob">
@@ -121,7 +122,7 @@
         <Property Name="NextRunAt" Type="Edm.String"/>
         <Property Name="RunCount" Type="Edm.Int64"/>
         <Property Name="MaxRuns" Type="Edm.String"/>
-        <Property Name="LastAgentId" Type="Edm.String"/>
+        <Property Name="LastSessionId" Type="Edm.String"/>
         <Property Name="LastResult" Type="Edm.String"/>
       </EntityType>
 
@@ -135,7 +136,7 @@
       </EntityType>
 
       <Action Name="Configure" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.Agent"/>
+        <Parameter Name="bindingParameter" Type="OpenPaw.Session"/>
         <Parameter Name="system_prompt" Type="Edm.String" Nullable="false"/>
         <Parameter Name="user_message" Type="Edm.String" Nullable="false"/>
         <Parameter Name="model" Type="Edm.String" Nullable="true"/>
@@ -146,24 +147,24 @@
         <Parameter Name="sandbox_url" Type="Edm.String" Nullable="true"/>
         <Parameter Name="temper_api_url" Type="Edm.String" Nullable="true"/>
         <Parameter Name="soul_id" Type="Edm.String" Nullable="true"/>
-        <Parameter Name="parent_agent_id" Type="Edm.String" Nullable="true"/>
-        <Parameter Name="agent_depth" Type="Edm.Int64" Nullable="true"/>
+        <Parameter Name="parent_session_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="session_depth" Type="Edm.Int64" Nullable="true"/>
         <Parameter Name="max_follow_ups" Type="Edm.String" Nullable="true"/>
         <Parameter Name="hook_policy" Type="Edm.String" Nullable="true"/>
         <Parameter Name="reserve_tokens" Type="Edm.String" Nullable="true"/>
         <Parameter Name="keep_recent_tokens" Type="Edm.String" Nullable="true"/>
         <Parameter Name="compaction_model" Type="Edm.String" Nullable="true"/>
         <Parameter Name="heartbeat_timeout_seconds" Type="Edm.String" Nullable="true"/>
-        <ReturnType Type="OpenPaw.Agent"/>
+        <ReturnType Type="OpenPaw.Session"/>
       </Action>
 
       <Action Name="Provision" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.Agent"/>
-        <ReturnType Type="OpenPaw.Agent"/>
+        <Parameter Name="bindingParameter" Type="OpenPaw.Session"/>
+        <ReturnType Type="OpenPaw.Session"/>
       </Action>
 
       <Action Name="SandboxReady" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.Agent"/>
+        <Parameter Name="bindingParameter" Type="OpenPaw.Session"/>
         <Parameter Name="sandbox_url" Type="Edm.String" Nullable="false"/>
         <Parameter Name="sandbox_id" Type="Edm.String" Nullable="false"/>
         <Parameter Name="workspace_id" Type="Edm.String" Nullable="true"/>
@@ -171,109 +172,109 @@
         <Parameter Name="file_manifest_id" Type="Edm.String" Nullable="true"/>
         <Parameter Name="session_file_id" Type="Edm.String" Nullable="true"/>
         <Parameter Name="session_leaf_id" Type="Edm.String" Nullable="true"/>
-        <ReturnType Type="OpenPaw.Agent"/>
+        <ReturnType Type="OpenPaw.Session"/>
       </Action>
 
       <Action Name="ProcessToolCalls" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.Agent"/>
+        <Parameter Name="bindingParameter" Type="OpenPaw.Session"/>
         <Parameter Name="pending_tool_calls" Type="Edm.String" Nullable="false"/>
         <Parameter Name="conversation" Type="Edm.String" Nullable="true"/>
         <Parameter Name="input_tokens" Type="Edm.Int64" Nullable="true"/>
         <Parameter Name="output_tokens" Type="Edm.Int64" Nullable="true"/>
         <Parameter Name="session_leaf_id" Type="Edm.String" Nullable="true"/>
         <Parameter Name="context_tokens" Type="Edm.Int64" Nullable="true"/>
-        <ReturnType Type="OpenPaw.Agent"/>
+        <ReturnType Type="OpenPaw.Session"/>
       </Action>
 
       <Action Name="HandleToolResults" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.Agent"/>
+        <Parameter Name="bindingParameter" Type="OpenPaw.Session"/>
         <Parameter Name="pending_tool_calls" Type="Edm.String" Nullable="false"/>
         <Parameter Name="conversation" Type="Edm.String" Nullable="true"/>
         <Parameter Name="session_leaf_id" Type="Edm.String" Nullable="true"/>
-        <ReturnType Type="OpenPaw.Agent"/>
+        <ReturnType Type="OpenPaw.Session"/>
       </Action>
 
       <Action Name="NeedsCompaction" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.Agent"/>
+        <Parameter Name="bindingParameter" Type="OpenPaw.Session"/>
         <Parameter Name="input_tokens" Type="Edm.Int64" Nullable="true"/>
         <Parameter Name="output_tokens" Type="Edm.Int64" Nullable="true"/>
-        <ReturnType Type="OpenPaw.Agent"/>
+        <ReturnType Type="OpenPaw.Session"/>
       </Action>
 
       <Action Name="CompactionComplete" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.Agent"/>
+        <Parameter Name="bindingParameter" Type="OpenPaw.Session"/>
         <Parameter Name="session_leaf_id" Type="Edm.String" Nullable="true"/>
         <Parameter Name="context_tokens" Type="Edm.Int64" Nullable="true"/>
-        <ReturnType Type="OpenPaw.Agent"/>
+        <ReturnType Type="OpenPaw.Session"/>
       </Action>
 
       <Action Name="CheckSteering" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.Agent"/>
+        <Parameter Name="bindingParameter" Type="OpenPaw.Session"/>
         <Parameter Name="input_tokens" Type="Edm.Int64" Nullable="true"/>
         <Parameter Name="output_tokens" Type="Edm.Int64" Nullable="true"/>
         <Parameter Name="session_leaf_id" Type="Edm.String" Nullable="true"/>
         <Parameter Name="context_tokens" Type="Edm.Int64" Nullable="true"/>
-        <ReturnType Type="OpenPaw.Agent"/>
+        <ReturnType Type="OpenPaw.Session"/>
       </Action>
 
       <Action Name="ContinueWithSteering" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.Agent"/>
+        <Parameter Name="bindingParameter" Type="OpenPaw.Session"/>
         <Parameter Name="session_leaf_id" Type="Edm.String" Nullable="true"/>
         <Parameter Name="steering_messages" Type="Edm.String" Nullable="true"/>
         <Parameter Name="conversation" Type="Edm.String" Nullable="true"/>
-        <ReturnType Type="OpenPaw.Agent"/>
+        <ReturnType Type="OpenPaw.Session"/>
       </Action>
 
       <Action Name="FinalizeResult" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.Agent"/>
+        <Parameter Name="bindingParameter" Type="OpenPaw.Session"/>
         <Parameter Name="result" Type="Edm.String" Nullable="false"/>
         <Parameter Name="conversation" Type="Edm.String" Nullable="true"/>
         <Parameter Name="session_leaf_id" Type="Edm.String" Nullable="true"/>
-        <ReturnType Type="OpenPaw.Agent"/>
+        <ReturnType Type="OpenPaw.Session"/>
       </Action>
 
       <Action Name="Steer" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.Agent"/>
+        <Parameter Name="bindingParameter" Type="OpenPaw.Session"/>
         <Parameter Name="steering_messages" Type="Edm.String" Nullable="false"/>
-        <ReturnType Type="OpenPaw.Agent"/>
+        <ReturnType Type="OpenPaw.Session"/>
       </Action>
 
       <Action Name="PauseForApproval" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.Agent"/>
+        <Parameter Name="bindingParameter" Type="OpenPaw.Session"/>
         <Parameter Name="pending_decision_id" Type="Edm.String" Nullable="true"/>
         <Parameter Name="pending_tool_context" Type="Edm.String" Nullable="true"/>
-        <ReturnType Type="OpenPaw.Agent"/>
+        <ReturnType Type="OpenPaw.Session"/>
       </Action>
 
       <Action Name="ResumeAfterApproval" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.Agent"/>
-        <ReturnType Type="OpenPaw.Agent"/>
+        <Parameter Name="bindingParameter" Type="OpenPaw.Session"/>
+        <ReturnType Type="OpenPaw.Session"/>
       </Action>
 
       <Action Name="RecordResult" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.Agent"/>
+        <Parameter Name="bindingParameter" Type="OpenPaw.Session"/>
         <Parameter Name="result" Type="Edm.String" Nullable="false"/>
         <Parameter Name="conversation" Type="Edm.String" Nullable="true"/>
         <Parameter Name="input_tokens" Type="Edm.Int64" Nullable="true"/>
         <Parameter Name="output_tokens" Type="Edm.Int64" Nullable="true"/>
         <Parameter Name="session_leaf_id" Type="Edm.String" Nullable="true"/>
-        <ReturnType Type="OpenPaw.Agent"/>
+        <ReturnType Type="OpenPaw.Session"/>
       </Action>
 
       <Action Name="Heartbeat" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.Agent"/>
+        <Parameter Name="bindingParameter" Type="OpenPaw.Session"/>
         <Parameter Name="last_heartbeat_at" Type="Edm.String" Nullable="false"/>
-        <ReturnType Type="OpenPaw.Agent"/>
+        <ReturnType Type="OpenPaw.Session"/>
       </Action>
 
       <Action Name="TimeoutFail" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.Agent"/>
+        <Parameter Name="bindingParameter" Type="OpenPaw.Session"/>
         <Parameter Name="error_message" Type="Edm.String" Nullable="false"/>
-        <ReturnType Type="OpenPaw.Agent"/>
+        <ReturnType Type="OpenPaw.Session"/>
       </Action>
 
       <Action Name="Resume" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.Agent"/>
+        <Parameter Name="bindingParameter" Type="OpenPaw.Session"/>
         <Parameter Name="sandbox_url" Type="Edm.String" Nullable="false"/>
         <Parameter Name="sandbox_id" Type="Edm.String" Nullable="false"/>
         <Parameter Name="workspace_id" Type="Edm.String" Nullable="false"/>
@@ -281,18 +282,18 @@
         <Parameter Name="file_manifest_id" Type="Edm.String" Nullable="false"/>
         <Parameter Name="session_file_id" Type="Edm.String" Nullable="true"/>
         <Parameter Name="session_leaf_id" Type="Edm.String" Nullable="true"/>
-        <ReturnType Type="OpenPaw.Agent"/>
+        <ReturnType Type="OpenPaw.Session"/>
       </Action>
 
       <Action Name="Fail" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.Agent"/>
+        <Parameter Name="bindingParameter" Type="OpenPaw.Session"/>
         <Parameter Name="error_message" Type="Edm.String" Nullable="false"/>
-        <ReturnType Type="OpenPaw.Agent"/>
+        <ReturnType Type="OpenPaw.Session"/>
       </Action>
 
       <Action Name="Cancel" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.Agent"/>
-        <ReturnType Type="OpenPaw.Agent"/>
+        <Parameter Name="bindingParameter" Type="OpenPaw.Session"/>
+        <ReturnType Type="OpenPaw.Session"/>
       </Action>
 
       <Action Name="Create" IsBound="true">
@@ -403,7 +404,7 @@
       <Action Name="ScanComplete" IsBound="true">
         <Parameter Name="bindingParameter" Type="OpenPaw.HeartbeatMonitor"/>
         <Parameter Name="last_scan_at" Type="Edm.String" Nullable="true"/>
-        <Parameter Name="stale_agents_found" Type="Edm.Int64" Nullable="true"/>
+        <Parameter Name="stale_sessions_found" Type="Edm.Int64" Nullable="true"/>
         <ReturnType Type="OpenPaw.HeartbeatMonitor"/>
       </Action>
 
@@ -463,7 +464,7 @@
 
       <Action Name="TriggerComplete" IsBound="true">
         <Parameter Name="bindingParameter" Type="OpenPaw.CronJob"/>
-        <Parameter Name="last_agent_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="last_session_id" Type="Edm.String" Nullable="true"/>
         <Parameter Name="last_result" Type="Edm.String" Nullable="true"/>
         <ReturnType Type="OpenPaw.CronJob"/>
       </Action>
@@ -508,8 +509,70 @@
         <ReturnType Type="OpenPaw.CronScheduler"/>
       </Action>
 
+      <!-- Agent — persistent team member identity -->
+      <EntityType Name="Agent">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.String" Nullable="false"/>
+        <Property Name="Status" Type="Edm.String"/>
+        <Property Name="Name" Type="Edm.String"/>
+        <Property Name="Role" Type="Edm.String"/>
+        <Property Name="Description" Type="Edm.String"/>
+        <Property Name="SoulId" Type="Edm.String"/>
+        <Property Name="TeamId" Type="Edm.String"/>
+        <Property Name="Model" Type="Edm.String"/>
+        <Property Name="Provider" Type="Edm.String"/>
+        <Property Name="ToolsEnabled" Type="Edm.String"/>
+        <Property Name="MaxTurns" Type="Edm.String"/>
+        <Property Name="SkillIds" Type="Edm.String"/>
+      </EntityType>
+
+      <Action Name="Configure" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Agent"/>
+        <Parameter Name="name" Type="Edm.String"/>
+        <Parameter Name="role" Type="Edm.String"/>
+        <Parameter Name="description" Type="Edm.String"/>
+        <Parameter Name="soul_id" Type="Edm.String"/>
+        <Parameter Name="team_id" Type="Edm.String"/>
+        <Parameter Name="model" Type="Edm.String"/>
+        <Parameter Name="provider" Type="Edm.String"/>
+        <Parameter Name="tools_enabled" Type="Edm.String"/>
+        <Parameter Name="max_turns" Type="Edm.String"/>
+        <Parameter Name="skill_ids" Type="Edm.String"/>
+        <ReturnType Type="OpenPaw.Agent"/>
+      </Action>
+
+      <Action Name="Archive" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Agent"/>
+        <ReturnType Type="OpenPaw.Agent"/>
+      </Action>
+
+      <!-- Team — group of agents for a project -->
+      <EntityType Name="Team">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.String" Nullable="false"/>
+        <Property Name="Status" Type="Edm.String"/>
+        <Property Name="Name" Type="Edm.String"/>
+        <Property Name="Description" Type="Edm.String"/>
+        <Property Name="HarnessId" Type="Edm.String"/>
+      </EntityType>
+
+      <Action Name="Configure" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Team"/>
+        <Parameter Name="name" Type="Edm.String"/>
+        <Parameter Name="description" Type="Edm.String"/>
+        <Parameter Name="harness_id" Type="Edm.String"/>
+        <ReturnType Type="OpenPaw.Team"/>
+      </Action>
+
+      <Action Name="Archive" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Team"/>
+        <ReturnType Type="OpenPaw.Team"/>
+      </Action>
+
       <EntityContainer Name="Service">
+        <EntitySet Name="Sessions" EntityType="OpenPaw.Session"/>
         <EntitySet Name="Agents" EntityType="OpenPaw.Agent"/>
+        <EntitySet Name="Teams" EntityType="OpenPaw.Team"/>
         <EntitySet Name="Souls" EntityType="OpenPaw.Soul"/>
         <EntitySet Name="Skills" EntityType="OpenPaw.Skill"/>
         <EntitySet Name="Memories" EntityType="OpenPaw.Memory"/>

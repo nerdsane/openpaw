@@ -1,12 +1,12 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { fade } from 'svelte/transition';
-  import { loadAgents, agents, activeAgents } from '$lib/stores/agents';
+  import { loadSessions, sessions, activeSessions } from '$lib/stores/sessions';
   import { connectSSE, disconnectSSE, events } from '$lib/sse';
-  import { refreshAgent } from '$lib/stores/agents';
+  import { refreshSession } from '$lib/stores/sessions';
   import { queryEntities, fetchFileContent } from '$lib/api';
   import type { ProjectHarness, Soul, WorkCycle, Skill } from '$lib/types';
-  import AgentCard from '$lib/components/AgentCard.svelte';
+  import SessionCard from '$lib/components/SessionCard.svelte';
   import GatePipeline from '$lib/components/GatePipeline.svelte';
   import StatusBadge from '$lib/components/StatusBadge.svelte';
   import PawLogo from '$lib/components/PawLogo.svelte';

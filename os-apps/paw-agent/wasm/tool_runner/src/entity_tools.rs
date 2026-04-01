@@ -9,10 +9,10 @@ pub(crate) fn is_entity_tool(name: &str) -> bool {
         name,
         "save_memory"
             | "recall_memory"
-            | "spawn_agent"
-            | "list_agents"
-            | "abort_agent"
-            | "steer_agent"
+            | "spawn_session"
+            | "list_sessions"
+            | "abort_session"
+            | "steer_session"
             | "read_entity"
             | "file_upload"
             | "temper_create"
@@ -130,11 +130,11 @@ pub(crate) fn execute(
                 Err(format!("recall_memory failed (HTTP {})", resp.status))
             }
         }
-        "spawn_agent" => {
+        "spawn_session" => {
             let task = input
                 .get("task")
                 .and_then(|v| v.as_str())
-                .ok_or("spawn_agent: missing 'task'")?;
+                .ok_or("spawn_session: missing 'task'")?;
             let requested_id = input.get("agent_id").and_then(|v| v.as_str()).unwrap_or("");
             let model = input
                 .get("model")
@@ -217,21 +217,21 @@ pub(crate) fn execute(
                 .and_then(|v| v.as_i64())
                 .or_else(|| {
                     ctx.config
-                        .get("spawn_agent_wait_timeout_ms")
+                        .get("spawn_session_wait_timeout_ms")
                         .and_then(|v| v.parse::<i64>().ok())
                 })
                 .unwrap_or(default_wait_timeout_ms)
                 .max(1_000);
             let current_depth = fields
-                .get("agent_depth")
+                .get("session_depth")
                 .and_then(|v| v.as_i64())
                 .unwrap_or(0);
             if current_depth >= 5 {
-                return Err("spawn_agent: agent_depth guard hit (max depth 5)".to_string());
+                return Err("spawn_session: agent_depth guard hit (max depth 5)".to_string());
             }
 
-            let url = format!("{temper_api_url}/tdata/Agents");
-            let mut create_body = json!({ "ParentAgentId": parent_id });
+            let url = format!("{temper_api_url}/tdata/Sessions");
+            let mut create_body = json!({ "ParentSessionId": parent_id });
             if !requested_id.is_empty() {
                 create_body["Id"] = Value::String(requested_id.to_string());
             }
@@ -242,7 +242,7 @@ pub(crate) fn execute(
                 &create_body.to_string(),
             )?;
             if resp.status < 200 || resp.status >= 300 {
-                return Err(format!("spawn_agent: create failed (HTTP {})", resp.status));
+                return Err(format!("spawn_session: create failed (HTTP {})", resp.status));
             }
             let parsed: Value = serde_json::from_str(&resp.body).unwrap_or(json!({}));
             let child_id = parsed
@@ -252,17 +252,17 @@ pub(crate) fn execute(
                 .unwrap_or("")
                 .to_string();
             if child_id.is_empty() {
-                return Err("spawn_agent: created entity has no Id".to_string());
+                return Err("spawn_session: created entity has no Id".to_string());
             }
 
             let config_body = json!({
                 "system_prompt": input.get("system_prompt").and_then(Value::as_str).unwrap_or(""),
                 "model": model, "provider": provider, "tools_enabled": tools,
-                "soul_id": normalized_soul_id, "user_message": task, "parent_agent_id": parent_id,
-                "sandbox_url": child_sandbox_url, "workdir": child_workdir, "agent_depth": current_depth + 1,
+                "soul_id": normalized_soul_id, "user_message": task, "parent_session_id": parent_id,
+                "sandbox_url": child_sandbox_url, "workdir": child_workdir, "session_depth": current_depth + 1,
             });
             let config_url =
-                format!("{temper_api_url}/tdata/Agents('{child_id}')/OpenPaw.Configure");
+                format!("{temper_api_url}/tdata/Sessions('{child_id}')/OpenPaw.Configure");
             let resp2 = ctx.http_call(
                 "POST",
                 &config_url,
@@ -276,12 +276,12 @@ pub(crate) fn execute(
                 )?;
             } else if resp2.status < 200 || resp2.status >= 300 {
                 return Err(format!(
-                    "spawn_agent: configure failed (HTTP {})",
+                    "spawn_session: configure failed (HTTP {})",
                     resp2.status
                 ));
             }
 
-            let prov_url = format!("{temper_api_url}/tdata/Agents('{child_id}')/OpenPaw.Provision");
+            let prov_url = format!("{temper_api_url}/tdata/Sessions('{child_id}')/OpenPaw.Provision");
             let resp3 = ctx.http_call("POST", &prov_url, &crate::odata_headers(ctx, tenant), "{}")?;
             if resp3.status == 403 {
                 handle_cedar_denial(
@@ -290,7 +290,7 @@ pub(crate) fn execute(
                 )?;
             } else if resp3.status < 200 || resp3.status >= 300 {
                 return Err(format!(
-                    "spawn_agent: provision failed (HTTP {})",
+                    "spawn_session: provision failed (HTTP {})",
                     resp3.status
                 ));
             }
@@ -308,7 +308,7 @@ pub(crate) fn execute(
                 "Child agent {child_id} finished with status={status}. Result: {agent_result}"
             ))
         }
-        "list_agents" => {
+        "list_sessions" => {
             let parent_id = ctx
                 .entity_state
                 .get("entity_id")
@@ -318,7 +318,7 @@ pub(crate) fn execute(
             let child_agents = agents
                 .into_iter()
                 .filter(|agent| {
-                    crate::entity_field_str(agent, &["ParentAgentId"]).unwrap_or("") == parent_id
+                    crate::entity_field_str(agent, &["ParentSessionId"]).unwrap_or("") == parent_id
                 })
                 .collect::<Vec<_>>();
             if child_agents.is_empty() {
@@ -333,35 +333,35 @@ pub(crate) fn execute(
                 Ok(result)
             }
         }
-        "abort_agent" => {
+        "abort_session" => {
             let agent_id = input
                 .get("agent_id")
                 .and_then(|v| v.as_str())
-                .ok_or("abort_agent: missing 'agent_id'")?;
+                .ok_or("abort_session: missing 'agent_id'")?;
             let resolved_agent_id = resolve_agent_reference(ctx, temper_api_url, tenant, agent_id)?
                 .map(|agent| agent_entity_id(&agent).to_string())
                 .unwrap_or_else(|| agent_id.to_string());
             let url =
-                format!("{temper_api_url}/tdata/Agents('{resolved_agent_id}')/OpenPaw.Cancel");
+                format!("{temper_api_url}/tdata/Sessions('{resolved_agent_id}')/OpenPaw.Cancel");
             let resp = ctx.http_call("POST", &url, &crate::odata_headers(ctx, tenant), "{}")?;
             if resp.status >= 200 && resp.status < 300 {
                 Ok(format!("Agent {resolved_agent_id} cancelled."))
             } else {
-                Err(format!("cancel_agent failed (HTTP {})", resp.status))
+                Err(format!("cancel_session failed (HTTP {})", resp.status))
             }
         }
-        "steer_agent" => {
+        "steer_session" => {
             let agent_id = input
                 .get("agent_id")
                 .and_then(|v| v.as_str())
-                .ok_or("steer_agent: missing 'agent_id'")?;
+                .ok_or("steer_session: missing 'agent_id'")?;
             let message = input
                 .get("message")
                 .and_then(|v| v.as_str())
-                .ok_or("steer_agent: missing 'message'")?;
+                .ok_or("steer_session: missing 'message'")?;
             let Some(agent) = resolve_agent_reference(ctx, temper_api_url, tenant, agent_id)?
             else {
-                return Err(format!("steer_agent: agent '{agent_id}' not found"));
+                return Err(format!("steer_session: session '{agent_id}' not found"));
             };
             let resolved_agent_id = agent_entity_id(&agent);
             let existing = crate::entity_field_str(&agent, &["SteeringMessages"])
@@ -372,7 +372,7 @@ pub(crate) fn execute(
             let body = json!({
                 "steering_messages": serde_json::to_string(&queue).unwrap_or_else(|_| "[]".to_string())
             });
-            let url = format!("{temper_api_url}/tdata/Agents('{resolved_agent_id}')/OpenPaw.Steer");
+            let url = format!("{temper_api_url}/tdata/Sessions('{resolved_agent_id}')/OpenPaw.Steer");
             let resp = ctx.http_call(
                 "POST",
                 &url,
@@ -385,7 +385,7 @@ pub(crate) fn execute(
                     agent_display_id(&agent)
                 ))
             } else {
-                Err(format!("steer_agent failed (HTTP {})", resp.status))
+                Err(format!("steer_session failed (HTTP {})", resp.status))
             }
         }
         "read_entity" => {
@@ -668,7 +668,7 @@ fn wait_for_child_agent_terminal_state(
     let resp = ctx.http_call("GET", &wait_url, &crate::odata_headers(ctx, tenant), "")?;
     if resp.status < 200 || resp.status >= 300 {
         return Err(format!(
-            "spawn_agent: wait failed for child {child_id} (HTTP {})",
+            "spawn_session: wait failed for child {child_id} (HTTP {})",
             resp.status
         ));
     }
@@ -683,11 +683,11 @@ fn wait_for_child_agent_terminal_state(
         .unwrap_or(false);
     if !timed_out {
         return Err(format!(
-            "spawn_agent: child {child_id} returned non-terminal status={status}"
+            "spawn_session: child {child_id} returned non-terminal status={status}"
         ));
     }
     Err(format!(
-        "spawn_agent: child {child_id} did not reach a terminal state within {wait_timeout_ms}ms; last status={status}"
+        "spawn_session: child {child_id} did not reach a terminal state within {wait_timeout_ms}ms; last status={status}"
     ))
 }
 
@@ -730,7 +730,7 @@ fn handle_cedar_denial(
     });
 
     let pause_url = format!(
-        "{temper_api_url}/tdata/Agents('{}')/OpenPaw.PauseForApproval",
+        "{temper_api_url}/tdata/Sessions('{}')/OpenPaw.PauseForApproval",
         ctx.entity_id
     );
     let pause_body = json!({
@@ -801,7 +801,7 @@ fn list_temper_agents(
     temper_api_url: &str,
     tenant: &str,
 ) -> Result<Vec<Value>, String> {
-    let url = format!("{temper_api_url}/tdata/Agents");
+    let url = format!("{temper_api_url}/tdata/Sessions");
     let resp = ctx.http_call("GET", &url, &crate::odata_headers(ctx, tenant), "")?;
     if resp.status != 200 {
         return Err(format!(

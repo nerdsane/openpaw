@@ -1432,7 +1432,7 @@ fn agent_headers(
 
 fn send_heartbeat(ctx: &Context, temper_api_url: &str, tenant: &str) -> Result<(), String> {
     let url = format!(
-        "{temper_api_url}/tdata/Agents('{}')/OpenPaw.Heartbeat",
+        "{temper_api_url}/tdata/Sessions('{}')/OpenPaw.Heartbeat",
         ctx.entity_id
     );
     let body = json!({ "last_heartbeat_at": "alive" });
@@ -1950,7 +1950,7 @@ fn build_tool_definitions(tools_enabled: &str, sandbox_url: &str, workdir: &str)
     if enabled.contains(&"temper_create") {
         tools.push(json!({
             "name": "temper_create",
-            "description": "Create an Open Paw entity through the OData API. Use entity sets like ProjectHarnesses, WorkCycles, Monitors, AlertCycles, Issues, Agents, Channels, and AgentRoutes.",
+            "description": "Create an Open Paw entity through the OData API. Use entity sets like ProjectHarnesses, WorkCycles, Monitors, AlertCycles, Issues, Sessions, Agents, Channels, and AgentRoutes.",
             "input_schema": {
                 "type": "object",
                 "properties": {
@@ -2044,10 +2044,10 @@ fn build_tool_definitions(tools_enabled: &str, sandbox_url: &str, workdir: &str)
         }));
     }
 
-    if enabled.contains(&"spawn_agent") {
+    if enabled.contains(&"spawn_session") {
         tools.push(json!({
-            "name": "spawn_agent",
-            "description": "Create, configure, and provision a child Agent. By default the child inherits the current sandbox when one is already attached to the parent; pass sandbox_url to override or set inherit_sandbox=false to provision a fresh sandbox.",
+            "name": "spawn_session",
+            "description": "Create, configure, and provision a child Session. By default the child inherits the current sandbox when one is already attached to the parent; pass sandbox_url to override or set inherit_sandbox=false to provision a fresh sandbox.",
             "input_schema": {
                 "type": "object",
                 "properties": {
@@ -2066,8 +2066,8 @@ fn build_tool_definitions(tools_enabled: &str, sandbox_url: &str, workdir: &str)
             }
         }));
         tools.push(json!({
-            "name": "list_agents",
-            "description": "List child agents spawned by this agent.",
+            "name": "list_sessions",
+            "description": "List child sessions spawned by this session.",
             "input_schema": {
                 "type": "object",
                 "properties": {},
@@ -2075,8 +2075,8 @@ fn build_tool_definitions(tools_enabled: &str, sandbox_url: &str, workdir: &str)
             }
         }));
         tools.push(json!({
-            "name": "abort_agent",
-            "description": "Cancel a child agent by ID.",
+            "name": "abort_session",
+            "description": "Cancel a child session by ID.",
             "input_schema": {
                 "type": "object",
                 "properties": {
@@ -2086,8 +2086,8 @@ fn build_tool_definitions(tools_enabled: &str, sandbox_url: &str, workdir: &str)
             }
         }));
         tools.push(json!({
-            "name": "steer_agent",
-            "description": "Queue a steering message for a child agent.",
+            "name": "steer_session",
+            "description": "Queue a steering message for a child session.",
             "input_schema": {
                 "type": "object",
                 "properties": {
@@ -2167,10 +2167,10 @@ fn build_tool_definitions(tools_enabled: &str, sandbox_url: &str, workdir: &str)
         }));
     }
 
-    if enabled.contains(&"spawn_agent") {
+    if enabled.contains(&"spawn_session") {
         tools.push(json!({
-            "name": "spawn_agent",
-            "description": "Spawn a child Agent to handle a subtask. The child runs autonomously and returns its result. By default it inherits the current sandbox when one is already attached to the parent; pass sandbox_url to override or set inherit_sandbox=false to provision a fresh sandbox.",
+            "name": "spawn_session",
+            "description": "Spawn a child Session to handle a subtask. The child runs autonomously and returns its result. By default it inherits the current sandbox when one is already attached to the parent; pass sandbox_url to override or set inherit_sandbox=false to provision a fresh sandbox.",
             "input_schema": {
                 "type": "object",
                 "properties": {
@@ -2191,10 +2191,10 @@ fn build_tool_definitions(tools_enabled: &str, sandbox_url: &str, workdir: &str)
         }));
     }
 
-    if enabled.contains(&"list_agents") {
+    if enabled.contains(&"list_sessions") {
         tools.push(json!({
-            "name": "list_agents",
-            "description": "List child agents spawned by this agent and their status.",
+            "name": "list_sessions",
+            "description": "List child sessions spawned by this session and their status.",
             "input_schema": {
                 "type": "object",
                 "properties": {},
@@ -2203,10 +2203,10 @@ fn build_tool_definitions(tools_enabled: &str, sandbox_url: &str, workdir: &str)
         }));
     }
 
-    if enabled.contains(&"steer_agent") {
+    if enabled.contains(&"steer_session") {
         tools.push(json!({
-            "name": "steer_agent",
-            "description": "Send a follow-up message to a child agent mid-run.",
+            "name": "steer_session",
+            "description": "Send a follow-up message to a child session mid-run.",
             "input_schema": {
                 "type": "object",
                 "properties": {
@@ -2218,10 +2218,10 @@ fn build_tool_definitions(tools_enabled: &str, sandbox_url: &str, workdir: &str)
         }));
     }
 
-    if enabled.contains(&"abort_agent") {
+    if enabled.contains(&"abort_session") {
         tools.push(json!({
-            "name": "abort_agent",
-            "description": "Cancel a running child agent.",
+            "name": "abort_session",
+            "description": "Cancel a running child session.",
             "input_schema": {
                 "type": "object",
                 "properties": {

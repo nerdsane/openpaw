@@ -1,20 +1,26 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { slide } from 'svelte/transition';
-  import { fetchDecisions, fetchPolicies, queryEntities, fetchFileContent, type PendingDecision, type PolicyEntry } from '$lib/api';
+  import { fetchDecisions, fetchPolicies, queryEntities, queryTeams, queryAgentsForTeam, fetchFileContent, type PendingDecision, type PolicyEntry } from '$lib/api';
   import StatusBadge from '$lib/components/StatusBadge.svelte';
   import GatePipeline from '$lib/components/GatePipeline.svelte';
-  import type { WorkCycle } from '$lib/types';
+  import type { WorkCycle, Agent, Team, Session } from '$lib/types';
 
   let loaded = $state(false);
 
   // Data
   let harnesses = $state<Record<string, unknown>[]>([]);
+  let teams = $state<Team[]>([]);
+  let teamAgents = $state<Record<string, Agent[]>>({});
   let souls = $state<Record<string, unknown>[]>([]);
   let skills = $state<Record<string, unknown>[]>([]);
   let workCycles = $state<Record<string, unknown>[]>([]);
   let decisions = $state<PendingDecision[]>([]);
   let policies = $state<PolicyEntry[]>([]);
+
+  // Agent sessions (loaded on click)
+  let expandedAgentSessions = $state<string | null>(null);
+  let agentSessionsCache = $state<Record<string, Session[]>>({});
 
   // Expandable
   let expandedHarness = $state<string | null>(null);
@@ -39,9 +45,26 @@
     }
   }
 
+  async function toggleAgentSessions(agentId: string) {
+    if (expandedAgentSessions === agentId) {
+      expandedAgentSessions = null;
+      return;
+    }
+    expandedAgentSessions = agentId;
+    if (!agentSessionsCache[agentId]) {
+      try {
+        const data = await queryEntities('Sessions', `agent_id eq '${agentId}'`, 'SequenceNr desc', 20);
+        agentSessionsCache = { ...agentSessionsCache, [agentId]: data as unknown as Session[] };
+      } catch {
+        agentSessionsCache = { ...agentSessionsCache, [agentId]: [] };
+      }
+    }
+  }
+
   onMount(async () => {
-    const [ha, so, sk, wc, dec, pol] = await Promise.all([
+    const [ha, tm, so, sk, wc, dec, pol] = await Promise.all([
       queryEntities('ProjectHarnesses').catch(() => []),
+      queryTeams().catch(() => []),
       queryEntities('Souls').catch(() => []),
       queryEntities('Skills').catch(() => []),
       queryEntities('WorkCycles').catch(() => []),
@@ -49,11 +72,25 @@
       fetchPolicies().catch(() => []),
     ]);
     harnesses = ha;
+    teams = tm as unknown as Team[];
     souls = so;
     skills = sk;
     workCycles = wc;
     decisions = dec;
     policies = pol;
+
+    // Load agents for each team
+    const agentMap: Record<string, Agent[]> = {};
+    await Promise.all(teams.map(async (team) => {
+      try {
+        const agents = await queryAgentsForTeam(team.Id);
+        agentMap[team.Id] = agents as unknown as Agent[];
+      } catch {
+        agentMap[team.Id] = [];
+      }
+    }));
+    teamAgents = agentMap;
+
     loaded = true;
   });
 
@@ -125,9 +162,93 @@
       {/if}
     </section>
 
-    <!-- TEAM -->
+    <!-- TEAMS & AGENTS -->
     <section class="section">
-      <h2 class="section-title">Team</h2>
+      <h2 class="section-title">Teams</h2>
+      <p class="section-desc">Teams and their persistent agent members</p>
+      {#if teams.length === 0}
+        <p class="empty-text">No teams configured</p>
+      {:else}
+        {#each teams as team (team.Id)}
+          <div class="team-block">
+            <div class="team-header">
+              <span class="card-dot" style:background={statusColor(team.Status)}></span>
+              <span class="team-name">{team.name || 'Unnamed Team'}</span>
+              <StatusBadge status={team.Status} />
+            </div>
+            {#if team.description}
+              <p class="team-desc">{team.description}</p>
+            {/if}
+
+            {@const agents = teamAgents[team.Id] ?? []}
+            {#if agents.length === 0}
+              <p class="empty-text">No agents in this team</p>
+            {:else}
+              <div class="card-grid">
+                {#each agents as agent (agent.Id)}
+                  <div class="card agent-member-card">
+                    <div class="card-header">
+                      <span class="card-dot" style:background={statusColor(agent.Status)}></span>
+                      <span class="card-name">{agent.name || 'Unnamed'}</span>
+                      <code class="card-id">{shortId(agent.Id)}</code>
+                    </div>
+                    {#if agent.role}
+                      <span class="agent-role">{agent.role}</span>
+                    {/if}
+                    {#if agent.description}
+                      <p class="card-desc">{agent.description}</p>
+                    {/if}
+                    <div class="card-meta-row">
+                      {#if agent.model}
+                        <span class="meta-tag">{agent.model}</span>
+                      {/if}
+                      {#if agent.provider}
+                        <span class="meta-tag">{agent.provider}</span>
+                      {/if}
+                      {#if agent.soul_id}
+                        <span class="meta-tag">soul: {agent.soul_id}</span>
+                      {/if}
+                      {#if agent.tools_enabled}
+                        <span class="meta-tag">tools: {agent.tools_enabled}</span>
+                      {/if}
+                      {#if agent.skill_ids}
+                        <span class="meta-tag">skills: {agent.skill_ids}</span>
+                      {/if}
+                    </div>
+                    <StatusBadge status={agent.Status} />
+                    <button class="view-btn" onclick={() => toggleAgentSessions(agent.Id)}>
+                      {expandedAgentSessions === agent.Id ? 'Hide Sessions' : 'View Sessions'}
+                    </button>
+                    {#if expandedAgentSessions === agent.Id}
+                      <div class="agent-sessions" transition:slide={{ duration: 150 }}>
+                        {@const agentSessions = agentSessionsCache[agent.Id] ?? []}
+                        {#if agentSessions.length === 0}
+                          <p class="empty-text">No sessions for this agent</p>
+                        {:else}
+                          {#each agentSessions as sess (sess.Id)}
+                            <a href="/sessions/{sess.Id}" class="agent-session-row">
+                              <span class="agent-session-id">{sess.Id.slice(0, 8)}</span>
+                              <StatusBadge status={sess.Status} />
+                              {#if sess.user_message}
+                                <span class="agent-session-task">{sess.user_message.length > 60 ? sess.user_message.slice(0, 60) + '...' : sess.user_message}</span>
+                              {/if}
+                            </a>
+                          {/each}
+                        {/if}
+                      </div>
+                    {/if}
+                  </div>
+                {/each}
+              </div>
+            {/if}
+          </div>
+        {/each}
+      {/if}
+    </section>
+
+    <!-- SOULS -->
+    <section class="section">
+      <h2 class="section-title">Souls</h2>
       <p class="section-desc">Souls define agent identities and what roles they can take</p>
       {#if souls.length === 0}
         <p class="empty-text">No souls configured</p>
@@ -362,6 +483,35 @@
   .wc-detail { padding: 0 0 var(--space-1) var(--space-2); }
   .wc-meta { display: flex; gap: var(--space-2); font-size: var(--text-xs); color: var(--text-tertiary); margin-top: 6px; }
   .wc-meta code { font-family: var(--font-mono); }
+
+  /* Team blocks */
+  .team-block {
+    display: flex; flex-direction: column; gap: var(--space-2);
+    padding: var(--space-2) 0; border-bottom: 1px solid var(--border);
+  }
+  .team-header { display: flex; align-items: center; gap: var(--space-1); }
+  .team-name { font-size: var(--text-sm); font-weight: 600; color: var(--text-primary); }
+  .team-desc { font-size: var(--text-xs); color: var(--text-secondary); }
+  .agent-role {
+    font-family: var(--font-mono); font-size: 0.625rem; color: var(--text-secondary);
+    background: var(--surface-overlay); padding: 1px 6px; border-radius: var(--radius-sm); width: fit-content;
+  }
+  .agent-member-card { cursor: default; }
+
+  /* Agent sessions expandable */
+  .agent-sessions {
+    display: flex; flex-direction: column; gap: 4px;
+    padding-top: var(--space-1);
+  }
+  .agent-session-row {
+    display: flex; align-items: center; gap: var(--space-1);
+    padding: 4px var(--space-1); background: var(--surface-overlay); border-radius: var(--radius-sm);
+    text-decoration: none; color: inherit; font-size: var(--text-xs);
+    transition: background var(--duration-fast) var(--ease);
+  }
+  .agent-session-row:hover { background: var(--brand-subtle); text-decoration: none; }
+  .agent-session-id { font-family: var(--font-mono); color: var(--text-tertiary); }
+  .agent-session-task { color: var(--text-secondary); }
 
   @media (max-width: 800px) {
     .card-grid { grid-template-columns: 1fr; }

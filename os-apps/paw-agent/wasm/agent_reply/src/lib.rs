@@ -51,7 +51,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
 
         // Only treat as a child agent if agent_depth > 0 (explicitly spawned).
         // Session-resumed agents have parent_agent_id set but aren't children.
-        let agent_depth = entity_field_str(&fields, &["agent_depth", "AgentDepth"])
+        let agent_depth = entity_field_str(&fields, &["session_depth", "SessionDepth"])
             .and_then(|v| v.parse::<i64>().ok())
             .unwrap_or(0);
         let is_child = agent_depth > 0;
