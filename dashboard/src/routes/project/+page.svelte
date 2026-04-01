@@ -137,20 +137,21 @@
       }
     }
 
-    // For each role, check if there's a matching Soul
+    // For each role from agent_filter, find matching Soul (if any) and attach
     for (const [roleName, roleSkills] of rolesByFilter) {
       const matchingSoul = souls.find(s => {
         const name = field(s, 'Name') || field(s, 'name');
         return name === roleName;
       });
+      const soulFileId = matchingSoul ? (field(matchingSoul, 'ContentFileId') || field(matchingSoul, 'content_file_id')) : '';
       roles.push({
         name: roleName,
         description: matchingSoul
           ? (field(matchingSoul, 'Description') || field(matchingSoul, 'description') || '')
           : (field(roleSkills[0], 'Description') || field(roleSkills[0], 'description') || ''),
-        soul: matchingSoul ?? null,
+        soul: (matchingSoul && soulFileId) ? matchingSoul : null,
         skills: roleSkills,
-        soulFileId: matchingSoul ? (field(matchingSoul, 'ContentFileId') || field(matchingSoul, 'content_file_id')) : '',
+        soulFileId,
       });
     }
 
@@ -169,10 +170,14 @@
       // (e.g., Ren is project-relevant, Paw is not)
       const hasProjectSkills = soulSkills.length > 0;
       const isProjectSoul = projectSkills.some(sk => field(sk, 'scope') && soulName !== 'Paw');
-      // Only include if the soul has a bespoke description (not generic bootstrap)
+      // Only include souls that are clearly project-specific (not bootstrap like Paw/SWE/SRE).
+      // A soul is project-specific if its description references a specific project or domain,
+      // not generic bootstrap descriptions like "Software developer agent".
       const desc = field(soul, 'Description') || field(soul, 'description') || '';
-      const isCustomSoul = desc.length > 30; // Generic bootstrap souls have short descriptions
-      if (hasProjectSkills || isCustomSoul) {
+      // A soul is bootstrap if it already appears as an agent_filter on a project skill
+      // (meaning the role was already created as skill-only above)
+      const isAlreadySkillRole = rolesByFilter.has(soulName);
+      if (!isAlreadySkillRole && (hasProjectSkills || desc.length > 30)) {
         for (const sk of soulSkills) matchedSkillIds.add(field(sk, 'Id'));
         if (!roles.some(r => r.name === soulName)) {
           roles.push({
@@ -235,11 +240,20 @@
     gates?: HarnessGate[];
   }
 
+  // Default gate template (used when no work cycle exists to derive gates from)
+  const DEFAULT_GATES: HarnessGate[] = [
+    { key: 'has_plan', label: 'Plan', passed: false },
+    { key: 'migrations_ok', label: 'Migrations', passed: false },
+    { key: 'typecheck_ok', label: 'Typecheck', passed: false },
+    { key: 'unit_tests_ok', label: 'Unit Tests', passed: false },
+    { key: 'dst_ok', label: 'DST', passed: false },
+    { key: 'policy_gates_ok', label: 'Policy Gates', passed: false },
+  ];
+
   function buildHarnessFlow(harnessId: string): FlowStep[] {
     const activeWc = getActiveWorkCycle(harnessId);
-    if (!activeWc) return [];
-    const currentStatus = field(activeWc, 'Status');
-    const gates = extractGates(activeWc);
+    const currentStatus = activeWc ? field(activeWc, 'Status') : '';
+    const gates = activeWc ? extractGates(activeWc) : DEFAULT_GATES;
 
     const midpoint = Math.ceil(gates.length / 2);
     const level1Gates = gates.slice(0, midpoint);
