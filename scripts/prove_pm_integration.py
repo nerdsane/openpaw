@@ -72,8 +72,8 @@ def wait_for_child_agent(
     deadline = time.time() + timeout_secs
     while time.time() < deadline:
         children = client.list(
-            "Agents",
-            filter_expr=f"parent_agent_id eq '{parent_agent_id}'",
+            "Sessions",
+            filter_expr=f"parent_session_id eq '{parent_agent_id}'",
             orderby="sequence_nr desc",
             top=5,
         )
@@ -145,7 +145,7 @@ def main() -> int:
     work_cycle = wait_for_work_cycle(client, harness_id, args.timeout_ms / 1000)
     developer_agent = wait_for_child_agent(client, sre_agent_id, min(args.timeout_ms / 1000, 120))
     alert_cycle = client.get("AlertCycles", alert_cycle_id)
-    sre_agent = client.get("Agents", sre_agent_id)
+    sre_agent = client.get("Sessions", sre_agent_id)
     description = str(
         issue.get("fields", {}).get("Description")
         or issue.get("fields", {}).get("description")

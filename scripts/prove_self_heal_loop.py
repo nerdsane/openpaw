@@ -125,7 +125,7 @@ class ODataClient:
             # request timeout so the proof driver does not time out first.
             chunk_ms = min(remaining_ms, 300_000)
             path = (
-                "/observe/entities/Agent/"
+                "/observe/entities/Session/"
                 f"{agent_id}/wait?statuses=Completed,Failed,Cancelled"
                 f"&timeout_ms={chunk_ms}&poll_ms=500"
             )
@@ -331,7 +331,7 @@ def main() -> int:
     print(f"SANDBOX_URL={sandbox_url}", flush=True)
     print(f"SANDBOX_MODE={args.sandbox_mode}", flush=True)
 
-    sre = client.create("Agents", {})
+    sre = client.create("Sessions", {})
     sre_id = agent_entity_id(sre)
     print(f"SRE_AGENT_ID={sre_id}", flush=True)
     sre_message = build_sre_message(
@@ -342,14 +342,14 @@ def main() -> int:
         developer_sandbox_url=sandbox_url,
     )
     client.action(
-        "Agents",
+        "Sessions",
         sre_id,
         "OpenPaw.Configure",
         {
             "model": args.model,
             "provider": "anthropic",
             "max_turns": "60",
-            "tools_enabled": "temper_get,temper_list,temper_action,temper_create,spawn_agent,read_entity",
+            "tools_enabled": "temper_get,temper_list,temper_action,temper_create,spawn_session,read_entity",
             "sandbox_url": sandbox_url,
             "workdir": "/tmp/openpaw-sre-self-heal",
             "soul_id": "SRE",
@@ -369,7 +369,7 @@ def main() -> int:
     )
 
     client.action("Monitors", monitor_id, "OpenPaw.Heal.AlertFired", {"last_alert_payload": alert_payload})
-    client.action("Agents", sre_id, "OpenPaw.Provision")
+    client.action("Sessions", sre_id, "OpenPaw.Provision")
     print("SRE_STATUS=Provisioned", flush=True)
 
     sre_wait = client.wait_for_agent(sre_id, args.timeout_ms)
@@ -381,8 +381,8 @@ def main() -> int:
         top=5,
     )
     child_agents = client.list(
-        "Agents",
-        filter_expr=f"parent_agent_id eq '{sre_id}'",
+        "Sessions",
+        filter_expr=f"parent_session_id eq '{sre_id}'",
         orderby="sequence_nr desc",
         top=5,
     )

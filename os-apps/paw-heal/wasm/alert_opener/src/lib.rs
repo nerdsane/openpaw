@@ -252,7 +252,7 @@ ISSUE_ID=<id or empty>"
         let configure_body = json!({
             "model": default_agent_model,
             "provider": "anthropic",
-            "tools_enabled": "temper_get,temper_list,temper_action,temper_create,spawn_agent,read_entity",
+            "tools_enabled": "temper_get,temper_list,temper_action,temper_create,spawn_session,read_entity",
             "workdir": default_sre_workdir,
             "soul_id": "SRE",
             "temper_api_url": temper_api_url,

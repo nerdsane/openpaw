@@ -675,7 +675,7 @@ impl DiscordTransport {
                         "pending_decision_id eq '{decision_id_owned}' and Status eq 'WaitingForApproval'"
                     );
                     let agents_url = format!(
-                        "{base_url}/tdata/Agents?$filter={filter}&$top=1"
+                        "{base_url}/tdata/Sessions?$filter={filter}&$top=1"
                     );
                     if let Ok(agents_resp) = api.raw_get(&agents_url).await {
                         if let Some(agent) = agents_resp
@@ -690,7 +690,7 @@ impl DiscordTransport {
                                 .unwrap_or("");
                             if !agent_id.is_empty() {
                                 let resume_url = format!(
-                                    "{base_url}/tdata/Agents('{agent_id}')/OpenPaw.ResumeAfterApproval"
+                                    "{base_url}/tdata/Sessions('{agent_id}')/OpenPaw.ResumeAfterApproval"
                                 );
                                 match api.raw_post(&resume_url, serde_json::json!({})).await {
                                     Ok(_) => println!("  [discord] Resumed agent {agent_id} after approval"),
@@ -705,7 +705,7 @@ impl DiscordTransport {
                         "pending_decision_id eq '{decision_id_owned}' and Status eq 'WaitingForApproval'"
                     );
                     let agents_url = format!(
-                        "{base_url}/tdata/Agents?$filter={filter}&$top=1"
+                        "{base_url}/tdata/Sessions?$filter={filter}&$top=1"
                     );
                     if let Ok(agents_resp) = api.raw_get(&agents_url).await {
                         if let Some(agent) = agents_resp
@@ -720,7 +720,7 @@ impl DiscordTransport {
                                 .unwrap_or("");
                             if !agent_id.is_empty() {
                                 let fail_url = format!(
-                                    "{base_url}/tdata/Agents('{agent_id}')/OpenPaw.Fail"
+                                    "{base_url}/tdata/Sessions('{agent_id}')/OpenPaw.Fail"
                                 );
                                 let _ = api.raw_post(&fail_url, serde_json::json!({
                                     "error_message": "Action denied by human reviewer via Discord"

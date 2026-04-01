@@ -180,12 +180,11 @@
               <p class="team-desc">{team.description}</p>
             {/if}
 
-            {@const agents = teamAgents[team.Id] ?? []}
-            {#if agents.length === 0}
+            {#if (teamAgents[team.Id] ?? []).length === 0}
               <p class="empty-text">No agents in this team</p>
             {:else}
               <div class="card-grid">
-                {#each agents as agent (agent.Id)}
+                {#each teamAgents[team.Id] ?? [] as agent (agent.Id)}
                   <div class="card agent-member-card">
                     <div class="card-header">
                       <span class="card-dot" style:background={statusColor(agent.Status)}></span>
@@ -221,11 +220,10 @@
                     </button>
                     {#if expandedAgentSessions === agent.Id}
                       <div class="agent-sessions" transition:slide={{ duration: 150 }}>
-                        {@const agentSessions = agentSessionsCache[agent.Id] ?? []}
-                        {#if agentSessions.length === 0}
+                        {#if (agentSessionsCache[agent.Id] ?? []).length === 0}
                           <p class="empty-text">No sessions for this agent</p>
                         {:else}
-                          {#each agentSessions as sess (sess.Id)}
+                          {#each agentSessionsCache[agent.Id] ?? [] as sess (sess.Id)}
                             <a href="/sessions/{sess.Id}" class="agent-session-row">
                               <span class="agent-session-id">{sess.Id.slice(0, 8)}</span>
                               <StatusBadge status={sess.Status} />

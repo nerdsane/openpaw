@@ -121,7 +121,7 @@ def seed_team(client: ODataClient) -> str:
 
     team = client.create("Teams")
     tid = entity_id(team)
-    client.action("Teams", tid, "Configure", {
+    client.action("Teams", tid, "OpenPaw.Configure", {
         "name": "Deep Sci-Fi Team",
         "description": "AI agent team for the Deep Sci-Fi social platform. Seven roles: Lead, SWE, SRE, Design, Librarian, CodeReviewer, DSTReviewer.",
         "harness_id": "",  # Link to ProjectHarness once created
@@ -133,16 +133,16 @@ def seed_team(client: ODataClient) -> str:
 def seed_agent(client: ODataClient, team_id: str, agent_def: dict) -> str:
     """Create or find an Agent entity. Returns its entity ID."""
     name = agent_def["name"]
-    existing = find_by_name(client, "AgentIdentities", name)
+    existing = find_by_name(client, "Agents", name)
     if existing:
         aid = entity_id(existing)
         status = nested_str(existing, ["Status", "status"])
         print(f"  [exists] Agent '{name}' ({aid}) — {status}")
         return aid
 
-    agent = client.create("AgentIdentities")
+    agent = client.create("Agents")
     aid = entity_id(agent)
-    client.action("AgentIdentities", aid, "Configure", {
+    client.action("Agents", aid, "OpenPaw.Configure", {
         "name": name,
         "role": agent_def["role"],
         "description": agent_def["description"],

@@ -21,7 +21,7 @@
 
   onMount(async () => {
     try {
-      await loadAgents();
+      await loadSessions();
     } catch {
       error = 'Could not reach the API server';
     }
@@ -47,18 +47,18 @@
     const latest = evts[0];
     if (latest.seq <= lastSeq) return;
     lastSeq = latest.seq;
-    if (latest.entity_type === 'Agent') {
-      refreshAgent(latest.entity_id);
+    if (latest.entity_type === 'Session') {
+      refreshSession(latest.entity_id);
     }
   });
 
-  let completedAgents = $derived(
-    $agents.filter((a) => ['Completed', 'Failed', 'Cancelled'].includes(a.Status))
+  let completedSessions = $derived(
+    $sessions.filter((a) => ['Completed', 'Failed', 'Cancelled'].includes(a.Status))
   );
 
-  let hasActive = $derived($activeAgents.length > 0);
-  let hasCompleted = $derived(completedAgents.length > 0);
-  let hasAny = $derived($agents.length > 0);
+  let hasActive = $derived($activeSessions.length > 0);
+  let hasCompleted = $derived(completedSessions.length > 0);
+  let hasAny = $derived($sessions.length > 0);
   let hasContext = $derived(projects.length > 0 || souls.length > 0 || workcycles.length > 0 || skills.length > 0);
 
   // Expandable skill content on the floor page
@@ -90,7 +90,7 @@
 <div class="floor">
   <header class="floor-header">
     <h1>Operations Floor</h1>
-    <p class="floor-subtitle">All agents across projects</p>
+    <p class="floor-subtitle">All sessions across projects</p>
   </header>
 
   {#if hasContext}
@@ -219,15 +219,15 @@
       <div class="floor-watermark">
         <PawLogo size={80} />
       </div>
-      <p class="floor-empty-text">No active agents</p>
+      <p class="floor-empty-text">No active sessions</p>
     </div>
   {:else}
     {#if hasActive}
       <section class="floor-section">
-        <h2 class="floor-section-title">Active Agents</h2>
+        <h2 class="floor-section-title">Active Sessions</h2>
         <div class="floor-grid">
-          {#each $activeAgents as agent (agent.Id)}
-            <AgentCard {agent} />
+          {#each $activeSessions as session (session.Id)}
+            <SessionCard {session} />
           {/each}
         </div>
       </section>
@@ -236,7 +236,7 @@
         <div class="floor-watermark">
           <PawLogo size={80} />
         </div>
-        <p class="floor-empty-text">No active agents</p>
+        <p class="floor-empty-text">No active sessions</p>
       </div>
     {/if}
 
@@ -244,8 +244,8 @@
       <section class="floor-section floor-section--recent">
         <h2 class="floor-section-title">Recent</h2>
         <div class="floor-grid floor-grid--dimmed">
-          {#each completedAgents as agent (agent.Id)}
-            <AgentCard {agent} />
+          {#each completedSessions as session (session.Id)}
+            <SessionCard {session} />
           {/each}
         </div>
       </section>

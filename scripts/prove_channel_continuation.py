@@ -329,7 +329,7 @@ def main() -> int:
         session_id = entity_id(sessions[0])
         require(session_id, "active ChannelSession missing entity_id")
 
-        first_agent = client.get("Agents", first_agent_id)
+        first_agent = client.get("Sessions", first_agent_id)
         first_session_file_id = nested_str(first_agent, ["session_file_id", "SessionFileId"])
         require(first_session_file_id, "first agent missing session_file_id")
 
@@ -350,8 +350,8 @@ def main() -> int:
         require(second_agent_id, f"missing second agent id in reply: {second_reply}")
         require(second_agent_id != first_agent_id, "expected continuation to create a new agent after terminal first turn")
 
-        second_agent = client.get("Agents", second_agent_id)
-        second_parent_agent_id = nested_str(second_agent, ["parent_agent_id", "ParentAgentId"])
+        second_agent = client.get("Sessions", second_agent_id)
+        second_parent_agent_id = nested_str(second_agent, ["parent_session_id", "ParentSessionId"])
         second_session_file_id = nested_str(second_agent, ["session_file_id", "SessionFileId"])
         require(second_parent_agent_id == first_agent_id, "second agent parent_agent_id did not point at first agent")
         require(second_session_file_id == first_session_file_id, "continuation did not reuse the same session tree")
