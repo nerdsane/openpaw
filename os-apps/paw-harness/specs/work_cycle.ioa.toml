@@ -87,6 +87,16 @@ name = "e2e_ok"
 type = "bool"
 initial = "false"
 
+[[state]]
+name = "review_notes"
+type = "string"
+initial = ""
+
+[[state]]
+name = "sandbox_url"
+type = "string"
+initial = ""
+
 [[action]]
 name = "Configure"
 kind = "input"
@@ -154,6 +164,13 @@ effect = "set e2e_ok true"
 hint = "Record that end-to-end tests passed. Allowed in InProgress or Testing."
 
 [[action]]
+name = "UpdateSandbox"
+kind = "input"
+from = ["InProgress"]
+params = ["sandbox_url"]
+hint = "Record the sandbox URL of the SWE agent working on this cycle."
+
+[[action]]
 name = "BeginTesting"
 kind = "input"
 from = ["InProgress"]
@@ -188,6 +205,15 @@ params = ["approver_id", "pr_url"]
 hint = "Approve the reviewed change after tests have passed."
 
 [[action]]
+name = "RequestChanges"
+kind = "input"
+from = ["Reviewing"]
+to = "InProgress"
+params = ["review_notes"]
+effect = "set tests_passed false"
+hint = "Send work back for changes. Resets tests_passed; other gate booleans are re-verified by gate_verifier on the next BeginTesting attempt."
+
+[[action]]
 name = "Fail"
 kind = "input"
 from = ["Planning", "Planned", "InProgress", "Testing", "Reviewing"]
@@ -214,3 +240,42 @@ assert = "no_further_transitions"
 name = "FailedIsFinal"
 when = ["Failed"]
 assert = "no_further_transitions"
+
+# --- Integrations ---
+# NOTE: BeginTesting has guards but the IOA format does not support both guards
+# and trigger effects on the same action. The gate_verifier integrations are
+# wired here as standalone triggers; the runtime invokes them on the transition
+# to Testing state rather than as an inline effect of BeginTesting.
+
+[[integration]]
+name = "verify_level1_gates"
+trigger = "verify_level1_gates"
+type = "wasm"
+module = "gate_verifier"
+on_failure = "Fail"
+
+[integration.config]
+temper_api_url = "{secret:temper_api_url}"
+gate_level = "1"
+
+[[integration]]
+name = "verify_level2_gates"
+trigger = "verify_level2_gates"
+type = "wasm"
+module = "gate_verifier"
+on_failure = "Fail"
+
+[integration.config]
+temper_api_url = "{secret:temper_api_url}"
+gate_level = "2"
+
+[[integration]]
+name = "spawn_reviewers"
+trigger = "spawn_reviewers"
+type = "wasm"
+module = "spawn_reviewers"
+on_failure = "Fail"
+
+[integration.config]
+temper_api_url = "{secret:temper_api_url}"
+default_agent_model = "claude-sonnet-4-6"

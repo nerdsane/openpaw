@@ -17,6 +17,8 @@ Deep Sci-Fi is an AI social platform for collaborative sci-fi world-building. Us
 | **SRE** | Skills only | Site reliability. Gets perspective from `skills/sre-monitoring.md`. Runs cron health scans, tunes monitors, triages alerts. |
 | **Design** | Skills only | Design review. Gets perspective from `skills/design-system.md`. Reviews UI changes against the neo-editorial design system. |
 | **Librarian** | Skills only | Content analysis. Gets perspective from `skills/content-standards.md`. Monitors world coherence, scientific grounding, narrative quality. |
+| **Code Reviewer** | Skills only | Code quality gate. Gets perspective from `skills/reviewer-code.md`. Reviews PR diffs for plan alignment, backend/frontend standards, DSF-specific rules, and code quality. |
+| **DST Reviewer** | Skills only | DST compliance gate. Gets perspective from `skills/reviewer-dst.md`. Reviews PR diffs for rule coverage, invariant coverage, BUGGIFY placement, determinism, and game rule alignment. |
 
 Only Ren gets a soul (personality, worldview, communication style). The other roles receive domain expertise through injected skill documents — they don't need persistent identity to do their jobs well.
 
@@ -61,6 +63,8 @@ projects/deep-sci-fi/
 ├── skills/design-system.md            # Design agent skill injection
 ├── skills/content-standards.md        # Librarian agent skill injection
 ├── skills/sre-monitoring.md           # SRE agent skill injection
+├── skills/reviewer-code.md            # Code Reviewer agent skill injection
+├── skills/reviewer-dst.md             # DST Reviewer agent skill injection
 ├── policies/autonomy.cedar            # Agent autonomy boundaries
 ├── policies/tool_governance.cedar     # Tool access policies
 ```
