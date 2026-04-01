@@ -1950,11 +1950,11 @@ fn build_tool_definitions(tools_enabled: &str, sandbox_url: &str, workdir: &str)
     if enabled.contains(&"temper_create") {
         tools.push(json!({
             "name": "temper_create",
-            "description": "Create an Open Paw entity through the OData API. Use entity sets like ProjectHarnesses, WorkCycles, Monitors, AlertCycles, Issues, Agents, Channels, and AgentRoutes.",
+            "description": "Create an Open Paw entity through the OData API. Use entity sets like Harnesses, WorkCycles, Monitors, AlertCycles, Issues, Agents, Channels, and AgentRoutes.",
             "input_schema": {
                 "type": "object",
                 "properties": {
-                    "entity_set": { "type": "string", "description": "OData entity set name, for example ProjectHarnesses or AlertCycles" },
+                    "entity_set": { "type": "string", "description": "OData entity set name, for example Harnesses or AlertCycles" },
                     "body": { "type": "object", "description": "JSON body to POST using OData field names" }
                 },
                 "required": ["entity_set"]
@@ -2425,7 +2425,7 @@ fn load_harness_block(
     }
     let headers = agent_headers(ctx, tenant, None, Some("application/json"));
     let url = format!(
-        "{temper_api_url}/tdata/ProjectHarnesses('{project_harness_id}')"
+        "{temper_api_url}/tdata/Harnesses('{project_harness_id}')"
     );
     let resp = ctx.http_call("GET", &url, &headers, "")?;
     if resp.status != 200 {
@@ -2487,7 +2487,7 @@ fn assemble_system_prompt(
     {
         let fields_val = ctx.entity_state.get("fields");
         let project_harness_id = fields_val
-            .and_then(|f| f.get("project_harness_id").or_else(|| f.get("ProjectHarnessId")))
+            .and_then(|f| f.get("harness_id").or_else(|| f.get("HarnessId")).or_else(|| f.get("project_harness_id")))
             .and_then(|v| v.as_str())
             .unwrap_or("");
         match load_harness_block(ctx, temper_api_url, tenant, project_harness_id) {

@@ -8,7 +8,7 @@ permit(
     Action::"Activate",
     Action::"Archive"
   ],
-  resource is ProjectHarness
+  resource is Harness
 );
 
 permit(
@@ -20,13 +20,13 @@ permit(
     Action::"Configure",
     Action::"Activate"
   ],
-  resource is ProjectHarness
+  resource is Harness
 );
 
 permit(
   principal,
   action == Action::"Archive",
-  resource is ProjectHarness
+  resource is Harness
 ) when {
   principal.agent_type == "system"
 };

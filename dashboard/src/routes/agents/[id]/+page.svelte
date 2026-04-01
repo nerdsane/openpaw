@@ -3,7 +3,7 @@
   import { slide, fade } from 'svelte/transition';
   import { page } from '$app/stores';
   import type { Agent, WorkCycle, EntityEvent, Skill } from '$lib/types';
-  import { getEntity, queryEntities, fetchAgentHistory, fetchFileContent } from '$lib/api';
+  import { getEntity, queryEntities, queryWorkCyclesForHarness, fetchAgentHistory, fetchFileContent } from '$lib/api';
   import { connectSSE, disconnectSSE, events, type StateChangeEvent } from '$lib/sse';
   import StatusBadge from '$lib/components/StatusBadge.svelte';
   import GatePipeline from '$lib/components/GatePipeline.svelte';
@@ -92,11 +92,32 @@
         }) as unknown as Skill[];
       } catch { /* skills may not exist */ }
 
-      // Try to find linked work cycle
+      // Try to find linked work cycle via harness-driven entity sets
       try {
-        const wcs = await queryEntities('WorkCycles', `planner_id eq '${agentId}'`, undefined, 1);
-        if (wcs.length > 0) {
-          workcycle = wcs[0] as unknown as WorkCycle;
+        let allWcs: Record<string, unknown>[] = [];
+        // First, discover all harnesses and their work_cycle_type entity sets
+        const harnesses = await queryEntities('Harnesses').catch(() =>
+          queryEntities('ProjectHarnesses').catch(() => [])
+        );
+        const triedSets = new Set<string>();
+        for (const h of harnesses) {
+          const wcType = ((h as Record<string, unknown>).work_cycle_type as string) || 'WorkCycles';
+          if (triedSets.has(wcType)) continue;
+          triedSets.add(wcType);
+          try {
+            const wcs = await queryEntities(wcType, `planner_id eq '${agentId}'`, undefined, 1);
+            allWcs.push(...wcs);
+          } catch { /* entity set may not exist */ }
+        }
+        // Always try generic WorkCycles if not already tried
+        if (!triedSets.has('WorkCycles')) {
+          try {
+            const wcs = await queryEntities('WorkCycles', `planner_id eq '${agentId}'`, undefined, 1);
+            allWcs.push(...wcs);
+          } catch { /* ignore */ }
+        }
+        if (allWcs.length > 0) {
+          workcycle = allWcs[0] as unknown as WorkCycle;
         }
       } catch { /* ignore */ }
 
@@ -200,22 +221,22 @@
         {#if isTerminal && agent.result}
           <div class="context-section context-section--result">
             <span class="context-label">Result</span>
-            <p class="context-result">{agent.result}</p>
+            <p class="context-result">{typeof agent.result === 'object' ? JSON.stringify(agent.result, null, 2) : agent.result}</p>
           </div>
         {/if}
 
         {#if isTerminal && agent.error_message}
           <div class="context-section context-section--error">
             <span class="context-label">Error</span>
-            <p class="context-error">{agent.error_message}</p>
+            <p class="context-error">{typeof agent.error_message === 'object' ? JSON.stringify(agent.error_message, null, 2) : agent.error_message}</p>
           </div>
         {/if}
 
         {#if workcycle}
           <div class="context-section context-section--workcycle">
             <span class="context-label">Work Cycle</span>
-            <a href="/entities/WorkCycle/{workcycle.Id}" class="workcycle-card">
-              <span class="workcycle-card__task">{workcycle.task_summary || 'Untitled'}</span>
+            <a href="/entities/{(workcycle as unknown as Record<string, unknown>)._entity_type || 'WorkCycle'}/{workcycle.Id}" class="workcycle-card">
+              <span class="workcycle-card__task">{typeof workcycle.task_summary === 'object' ? JSON.stringify(workcycle.task_summary) : (workcycle.task_summary || 'Untitled')}</span>
               <div class="workcycle-card__status">
                 <StatusBadge status={workcycle.Status} />
               </div>
@@ -226,7 +247,7 @@
                 <code class="workcycle-card__pr">{workcycle.pr_url}</code>
               {/if}
               {#if workcycle.plan_summary}
-                <p class="workcycle-card__plan">{workcycle.plan_summary}</p>
+                <p class="workcycle-card__plan">{typeof workcycle.plan_summary === 'object' ? JSON.stringify(workcycle.plan_summary) : workcycle.plan_summary}</p>
               {/if}
             </a>
           </div>
@@ -348,7 +369,7 @@
         {#if agent.Status === 'WaitingForApproval' && agent.pending_tool_context}
           <div class="context-section context-section--approval">
             <span class="context-label">Pending Approval</span>
-            <pre class="context-pre">{agent.pending_tool_context}</pre>
+            <pre class="context-pre">{typeof agent.pending_tool_context === 'object' ? JSON.stringify(agent.pending_tool_context, null, 2) : agent.pending_tool_context}</pre>
           </div>
         {/if}
 

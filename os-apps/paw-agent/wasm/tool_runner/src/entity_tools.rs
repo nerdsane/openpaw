@@ -775,7 +775,7 @@ fn parse_decision_id(body: &str) -> String {
 fn resolve_bound_action_name(entity_set: &str, action: &str) -> String {
     let ns = match entity_set {
         "Monitors" | "AlertCycles" | "MonitorScans" => "OpenPaw.Heal",
-        "ProjectHarnesses" | "WorkCycles" => "OpenPaw.Harness",
+        "Harnesses" | "WorkCycles" => "OpenPaw.Harness",
         "Agents" | "Souls" | "PendingApprovals" => "OpenPaw",
         "Issues" | "Plans" => "Paw.PM",
         "Channels" | "AgentRoutes" | "ChannelSessions" => "Paw.Channel",

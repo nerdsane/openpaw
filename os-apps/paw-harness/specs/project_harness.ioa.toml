@@ -1,9 +1,14 @@
-# ProjectHarness — Development workflow contract for a target repository.
+# Harness — Development workflow contract for a target repository.
 
 [automaton]
-name = "ProjectHarness"
+name = "Harness"
 states = ["Created", "Configured", "Active", "Archived"]
 initial = "Created"
+
+[[state]]
+name = "work_cycle_type"
+type = "string"
+initial = "WorkCycles"
 
 [[state]]
 name = "repo_url"
@@ -30,7 +35,7 @@ name = "Configure"
 kind = "input"
 from = ["Created", "Configured"]
 to = "Configured"
-params = ["repo_url", "tech_stack", "conventions"]
+params = ["repo_url", "tech_stack", "conventions", "work_cycle_type"]
 hint = "Attach repository metadata and working conventions before the harness goes live."
 
 [[action]]

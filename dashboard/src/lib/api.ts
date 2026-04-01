@@ -120,18 +120,33 @@ export async function fetchAgentHistory(
   entityType: string = 'Agent',
   limit: number = 200
 ): Promise<AgentHistoryEntry[]> {
+  // Try multiple possible endpoints — the observe history endpoint may not exist.
   const params = new URLSearchParams();
   if (entityType) params.set('entity_type', entityType);
   params.set('limit', limit.toString());
-  const url = `${BASE}/observe/agents/system/history?${params.toString()}`;
-  const res = await fetch(url, { headers: HEADERS });
-  if (!res.ok) return [];
-  const data = await res.json();
-  const history = data.history ?? data ?? [];
-  // Filter to only events for this specific entity
-  return (Array.isArray(history) ? history : []).filter(
-    (e: AgentHistoryEntry) => e.entity_id === entityId
-  );
+
+  const endpoints = [
+    `${BASE}/observe/agents/${entityId}/history?${params.toString()}`,
+    `${BASE}/observe/agents/system/history?${params.toString()}`,
+    `${BASE}/observe/history?${params.toString()}`,
+  ];
+
+  for (const url of endpoints) {
+    try {
+      const res = await fetch(url, { headers: HEADERS });
+      if (!res.ok) continue;
+      const data = await res.json();
+      const history = data.history ?? data ?? [];
+      const filtered = (Array.isArray(history) ? history : []).filter(
+        (e: AgentHistoryEntry) => e.entity_id === entityId
+      );
+      return filtered;
+    } catch {
+      // endpoint unavailable, try next
+    }
+  }
+  // All endpoints failed — gracefully return empty
+  return [];
 }
 
 export async function getEntity(
@@ -153,4 +168,20 @@ export async function fetchFileContent(fileId: string): Promise<string> {
   const res = await fetch(`${BASE}/tdata/Files('${fileId}')/$value`, { headers: HEADERS });
   if (!res.ok) return '';
   return res.text();
+}
+
+/**
+ * Query work cycles for a given harness. Reads `work_cycle_type` from the
+ * harness to determine which entity set to query, then filters by harness_id.
+ * Falls back to "WorkCycles" if work_cycle_type is not set.
+ */
+export async function queryWorkCyclesForHarness(
+  harness: Record<string, unknown>,
+  orderby?: string,
+  top?: number
+): Promise<Record<string, unknown>[]> {
+  const harnessId = (harness.Id ?? harness._entity_id ?? '') as string;
+  const entitySet = ((harness.work_cycle_type as string) || 'WorkCycles');
+  const filter = `harness_id eq '${harnessId}'`;
+  return queryEntities(entitySet, filter, orderby, top);
 }

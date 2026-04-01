@@ -38,6 +38,44 @@
     agentSnapshot.pending_tool_calls !== ''
   );
 
+  /** Safely format pending_tool_calls for display — handles strings, objects, and arrays. */
+  function formatToolCalls(raw: unknown): string {
+    if (raw === null || raw === undefined || raw === '') return '';
+    if (typeof raw === 'object') return JSON.stringify(raw, null, 2);
+    if (typeof raw === 'string') {
+      const trimmed = raw.trim();
+      if ((trimmed.startsWith('{') && trimmed.endsWith('}')) ||
+          (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
+        try { return JSON.stringify(JSON.parse(trimmed), null, 2); } catch { return raw; }
+      }
+      return raw;
+    }
+    return String(raw);
+  }
+
+  /** Parse tool calls into structured entries when possible. */
+  interface ToolCallEntry { name: string; input: unknown }
+  function parseToolCalls(raw: unknown): ToolCallEntry[] | null {
+    let parsed: unknown;
+    if (typeof raw === 'string') {
+      try { parsed = JSON.parse(raw); } catch { return null; }
+    } else {
+      parsed = raw;
+    }
+    if (!Array.isArray(parsed)) return null;
+    // Check if every element looks like a tool call with a name
+    if (parsed.length === 0) return null;
+    if (parsed.every((item: unknown) => typeof item === 'object' && item !== null && 'name' in (item as Record<string, unknown>))) {
+      return parsed.map((item: Record<string, unknown>) => ({
+        name: String(item.name ?? 'unknown'),
+        input: item.input ?? item.arguments ?? item,
+      }));
+    }
+    return null;
+  }
+
+  let toolCallEntries = $derived(agentSnapshot ? parseToolCalls(agentSnapshot.pending_tool_calls) : null);
+
   let turnDelta = $derived.by(() => {
     if (!agentSnapshot) return null;
     return agentSnapshot.turn_count;
@@ -90,8 +128,28 @@
       {expanded ? 'Hide' : 'Show'} tool calls
     </button>
     {#if expanded}
-      <pre class="transition__tools" transition:slide={{ duration: 150 }}>{agentSnapshot?.pending_tool_calls}</pre>
+      {#if toolCallEntries}
+        <div class="transition__tool-list" transition:slide={{ duration: 150 }}>
+          {#each toolCallEntries as tc}
+            <div class="tool-call-entry">
+              <span class="tool-call-name">Tool: {tc.name}</span>
+              <pre class="tool-call-input">{typeof tc.input === 'object' ? JSON.stringify(tc.input, null, 2) : String(tc.input)}</pre>
+            </div>
+          {/each}
+        </div>
+      {:else}
+        <pre class="transition__tools" transition:slide={{ duration: 150 }}>{formatToolCalls(agentSnapshot?.pending_tool_calls)}</pre>
+      {/if}
     {/if}
+  {/if}
+
+  {#if authz && !authz.allowed}
+    <div class="transition__denied">
+      <span class="denied-badge">DENIED</span>
+      {#if authz.denied_resource}
+        <span class="denied-detail">Resource: <code>{authz.denied_resource}</code></span>
+      {/if}
+    </div>
   {/if}
 </div>
 
@@ -183,6 +241,68 @@
   .authz-resource {
     font-family: var(--font-mono);
     font-size: var(--text-xs);
+    color: var(--status-error);
+  }
+
+  .transition__tool-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .tool-call-entry {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: var(--space-1);
+    background: var(--surface-raised);
+    border-radius: var(--radius-sm);
+  }
+
+  .tool-call-name {
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  .tool-call-input {
+    font-size: var(--text-xs);
+    max-height: 150px;
+    overflow: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+    margin: 0;
+    padding: var(--space-1);
+  }
+
+  .transition__denied {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    padding: 4px var(--space-1);
+    background: rgba(139, 58, 58, 0.1);
+    border-radius: var(--radius-sm);
+  }
+
+  .denied-badge {
+    font-size: 0.625rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--status-error);
+    background: rgba(139, 58, 58, 0.15);
+    padding: 1px 6px;
+    border-radius: var(--radius-sm);
+  }
+
+  .denied-detail {
+    font-size: var(--text-xs);
+    color: var(--text-secondary);
+  }
+
+  .denied-detail code {
+    font-family: var(--font-mono);
     color: var(--status-error);
   }
 </style>

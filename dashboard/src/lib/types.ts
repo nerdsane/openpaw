@@ -48,33 +48,46 @@ export interface WorkCycle {
   has_plan: boolean;
   tests_passed: boolean;
   project_harness_id: string;
+  harness_id: string;
 }
 
 export interface Soul {
   Id: string;
   Status: string;
+  /** Lowercase variant — populated by flattenEntity from the `fields` bag. */
   name: string;
+  /** PascalCase variant — some Temper schemas use this form. Keep both for compatibility. */
   Name: string;
+  /** Lowercase variant — populated by flattenEntity from the `fields` bag. */
   description: string;
+  /** PascalCase variant — some Temper schemas use this form. Keep both for compatibility. */
   Description: string;
   ContentFileId: string;
 }
 
-export interface ProjectHarness {
+export interface Harness {
   Id: string;
   Status: string;
   repo_url: string;
   tech_stack: string;
   project_name: string;
   conventions: string;
+  work_cycle_type: string;
 }
+
+/** @deprecated Use Harness instead */
+export type ProjectHarness = Harness;
 
 export interface Skill {
   Id: string;
   Status: string;
+  /** Lowercase variant — populated by flattenEntity from the `fields` bag. */
   name: string;
+  /** PascalCase variant — some Temper schemas use this form. Keep both for compatibility. */
   Name: string;
+  /** Lowercase variant — populated by flattenEntity from the `fields` bag. */
   description: string;
+  /** PascalCase variant — some Temper schemas use this form. Keep both for compatibility. */
   Description: string;
   content_file_id: string;
   scope: string;

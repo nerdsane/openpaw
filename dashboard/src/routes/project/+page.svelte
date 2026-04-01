@@ -1,10 +1,10 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { slide } from 'svelte/transition';
-  import { fetchDecisions, fetchPolicies, queryEntities, fetchFileContent, type PendingDecision, type PolicyEntry } from '$lib/api';
+  import { fetchDecisions, fetchPolicies, queryEntities, queryWorkCyclesForHarness, fetchFileContent, type PendingDecision, type PolicyEntry } from '$lib/api';
   import StatusBadge from '$lib/components/StatusBadge.svelte';
   import GatePipeline from '$lib/components/GatePipeline.svelte';
-  import type { WorkCycle } from '$lib/types';
+  import type { WorkCycle, Soul, Skill } from '$lib/types';
 
   let loaded = $state(false);
 
@@ -12,27 +12,22 @@
   let harnesses = $state<Record<string, unknown>[]>([]);
   let souls = $state<Record<string, unknown>[]>([]);
   let skills = $state<Record<string, unknown>[]>([]);
-  let workCycles = $state<Record<string, unknown>[]>([]);
+  /** Map of harnessId -> work cycles loaded from the harness's work_cycle_type entity set */
+  let workCyclesByHarness = $state<Record<string, Record<string, unknown>[]>>({});
   let decisions = $state<PendingDecision[]>([]);
   let policies = $state<PolicyEntry[]>([]);
 
   // Expandable
   let expandedHarness = $state<string | null>(null);
   let expandedPolicy = $state<string | null>(null);
-  let expandedSoul = $state<string | null>(null);
-  let expandedSkill = $state<string | null>(null);
+  let expandedRoleSoul = $state<string | null>(null);
+  let expandedRoleSkill = $state<string | null>(null);
+  let conventionsExpandedMap = $state<Record<string, boolean>>({});
 
   // File content cache for souls and skills
   let fileContentCache = $state<Record<string, string>>({});
 
-  async function toggleFileContent(id: string, fileId: string, setter: 'soul' | 'skill') {
-    if (setter === 'soul') {
-      if (expandedSoul === id) { expandedSoul = null; return; }
-      expandedSoul = id;
-    } else {
-      if (expandedSkill === id) { expandedSkill = null; return; }
-      expandedSkill = id;
-    }
+  async function loadFileContent(id: string, fileId: string): Promise<void> {
     if (fileId && !fileContentCache[id]) {
       const content = await fetchFileContent(fileId);
       fileContentCache = { ...fileContentCache, [id]: content };
@@ -40,25 +35,58 @@
   }
 
   onMount(async () => {
-    const [ha, so, sk, wc, dec, pol] = await Promise.all([
-      queryEntities('ProjectHarnesses').catch(() => []),
+    const [ha, so, sk, dec, pol] = await Promise.all([
+      queryEntities('Harnesses').catch(() => queryEntities('ProjectHarnesses').catch(() => [])),
       queryEntities('Souls').catch(() => []),
       queryEntities('Skills').catch(() => []),
-      queryEntities('WorkCycles').catch(() => []),
       fetchDecisions().then(r => r.decisions).catch(() => []),
       fetchPolicies().catch(() => []),
     ]);
     harnesses = ha;
     souls = so;
     skills = sk;
-    workCycles = wc;
     decisions = dec;
     policies = pol;
+
+    // Load work cycles per harness using work_cycle_type
+    const wcMap: Record<string, Record<string, unknown>[]> = {};
+    await Promise.all(harnesses.map(async (h) => {
+      const hId = field(h, 'Id');
+      try {
+        wcMap[hId] = await queryWorkCyclesForHarness(h, 'SequenceNr desc');
+      } catch {
+        // Fallback: try generic WorkCycles filtered by harness_id
+        try {
+          wcMap[hId] = await queryEntities('WorkCycles', `harness_id eq '${hId}'`);
+        } catch {
+          wcMap[hId] = [];
+        }
+      }
+    }));
+    workCyclesByHarness = wcMap;
+
     loaded = true;
   });
 
+  /** All work cycles across all harnesses (for team role matching etc) */
+  let allWorkCycles = $derived(
+    Object.values(workCyclesByHarness).flat()
+  );
+
   function field(entity: Record<string, unknown>, key: string): string {
-    return (entity[key] ?? entity[key.charAt(0).toUpperCase() + key.slice(1)] ?? '') as string;
+    const val = entity[key] ?? entity[key.charAt(0).toUpperCase() + key.slice(1)] ?? '';
+    if (typeof val === 'object' && val !== null) {
+      try { return JSON.stringify(val); } catch { return String(val); }
+    }
+    return String(val);
+  }
+
+  function safeDisplay(value: unknown): string {
+    if (value === null || value === undefined) return '';
+    if (typeof value === 'object') {
+      try { return JSON.stringify(value); } catch { return String(value); }
+    }
+    return String(value);
   }
 
   function shortId(id: string): string {
@@ -72,6 +100,184 @@
     if (['Thinking', 'Executing', 'InProgress', 'Planning'].includes(status)) return 'var(--status-active)';
     return 'var(--status-idle)';
   }
+
+  // ---------- Team Roles (derived, generic) ----------
+
+  interface TeamRole {
+    name: string;
+    description: string;
+    soul: Record<string, unknown> | null;
+    skills: Record<string, unknown>[];
+    soulFileId: string;
+  }
+
+  // Filter skills to only project-scoped ones (exclude platform bootstrap skills like "Project Lead Schema")
+  let projectSkills = $derived(
+    skills.filter((sk) => {
+      const scope = field(sk, 'scope');
+      // Include skills scoped to a project (non-empty, not a soul name like "Paw")
+      // Exclude platform-level skills (scope = soul name or empty)
+      return scope && !souls.some(s => field(s, 'Name') === scope);
+    })
+  );
+
+  let teamRoles = $derived.by((): TeamRole[] => {
+    const roles: TeamRole[] = [];
+    const matchedSkillIds = new Set<string>();
+
+    // First: find skills with agent_filter → these define roles
+    // Group by agent_filter to discover roles
+    const rolesByFilter = new Map<string, Record<string, unknown>[]>();
+    for (const sk of projectSkills) {
+      const filter = field(sk, 'agent_filter');
+      if (filter) {
+        if (!rolesByFilter.has(filter)) rolesByFilter.set(filter, []);
+        rolesByFilter.get(filter)!.push(sk);
+        matchedSkillIds.add(field(sk, 'Id'));
+      }
+    }
+
+    // For each role, check if there's a matching Soul
+    for (const [roleName, roleSkills] of rolesByFilter) {
+      const matchingSoul = souls.find(s => {
+        const name = field(s, 'Name') || field(s, 'name');
+        return name === roleName;
+      });
+      roles.push({
+        name: roleName,
+        description: matchingSoul
+          ? (field(matchingSoul, 'Description') || field(matchingSoul, 'description') || '')
+          : (field(roleSkills[0], 'Description') || field(roleSkills[0], 'description') || ''),
+        soul: matchingSoul ?? null,
+        skills: roleSkills,
+        soulFileId: matchingSoul ? (field(matchingSoul, 'ContentFileId') || field(matchingSoul, 'content_file_id')) : '',
+      });
+    }
+
+    // Check for souls that have project skills but aren't matched by agent_filter
+    // (e.g., Ren has skills scoped to deep-sci-fi but with empty agent_filter)
+    for (const soul of souls) {
+      const soulName = field(soul, 'Name') || field(soul, 'name');
+      // Skip if already a role, or if it's a platform soul without project skills
+      if (roles.some(r => r.name === soulName)) continue;
+      // Check if this soul has any project-scoped skills assigned to it
+      const soulSkills = projectSkills.filter(sk => {
+        const filter = field(sk, 'agent_filter');
+        return filter && (filter.includes(soulName) || filter === soulName);
+      });
+      // Also check if the soul itself appears to be project-relevant
+      // (e.g., Ren is project-relevant, Paw is not)
+      const hasProjectSkills = soulSkills.length > 0;
+      const isProjectSoul = projectSkills.some(sk => field(sk, 'scope') && soulName !== 'Paw');
+      // Only include if the soul has a bespoke description (not generic bootstrap)
+      const desc = field(soul, 'Description') || field(soul, 'description') || '';
+      const isCustomSoul = desc.length > 30; // Generic bootstrap souls have short descriptions
+      if (hasProjectSkills || isCustomSoul) {
+        for (const sk of soulSkills) matchedSkillIds.add(field(sk, 'Id'));
+        if (!roles.some(r => r.name === soulName)) {
+          roles.push({
+            name: soulName,
+            description: desc,
+            soul,
+            skills: soulSkills,
+            soulFileId: field(soul, 'ContentFileId') || field(soul, 'content_file_id'),
+          });
+        }
+      }
+    }
+
+    return roles;
+  });
+
+  let sharedSkills = $derived(
+    projectSkills.filter((sk) => !field(sk, 'agent_filter'))
+  );
+
+  // ---------- Harness Flow Diagram (per-harness, generic) ----------
+
+  const KNOWN_STATE_ORDER = ['Planning', 'Planned', 'InProgress', 'Testing', 'Reviewing', 'Complete', 'Completed', 'Failed', 'Cancelled'];
+
+  function getActiveWorkCycle(harnessId: string): Record<string, unknown> | null {
+    const wcs = workCyclesByHarness[harnessId] ?? [];
+    const active = wcs.find(
+      (wc) => !['Completed', 'Complete', 'Failed', 'Cancelled'].includes(field(wc, 'Status'))
+    );
+    return active ?? (wcs.length > 0 ? wcs[0] : null);
+  }
+
+  interface HarnessGate {
+    key: string;
+    label: string;
+    passed: boolean;
+  }
+
+  function extractGates(wc: Record<string, unknown>): HarnessGate[] {
+    const result: HarnessGate[] = [];
+    for (const [key, val] of Object.entries(wc)) {
+      if (key.startsWith('_') || key === 'Id' || key === 'Status') continue;
+      if (typeof val === 'boolean' && (key.endsWith('_ok') || key.endsWith('_passed') || key.startsWith('has_'))) {
+        const label = key
+          .replace(/_ok$/, '')
+          .replace(/_passed$/, '')
+          .replace(/^has_/, '')
+          .replace(/_/g, ' ')
+          .replace(/\b\w/g, (c) => c.toUpperCase());
+        result.push({ key, label, passed: !!val });
+      }
+    }
+    return result;
+  }
+
+  interface FlowStep {
+    type: 'state' | 'gates';
+    label: string;
+    active: boolean;
+    gates?: HarnessGate[];
+  }
+
+  function buildHarnessFlow(harnessId: string): FlowStep[] {
+    const activeWc = getActiveWorkCycle(harnessId);
+    if (!activeWc) return [];
+    const currentStatus = field(activeWc, 'Status');
+    const gates = extractGates(activeWc);
+
+    const midpoint = Math.ceil(gates.length / 2);
+    const level1Gates = gates.slice(0, midpoint);
+    const level2Gates = gates.slice(midpoint);
+
+    const steps: FlowStep[] = [];
+    const flowStates = ['Planning', 'Planned', 'InProgress'];
+
+    for (const s of flowStates) {
+      steps.push({ type: 'state', label: s, active: currentStatus === s });
+    }
+
+    if (level1Gates.length > 0) {
+      steps.push({ type: 'gates', label: 'Level 1 Gates', active: false, gates: level1Gates });
+    }
+
+    steps.push({ type: 'state', label: 'Testing', active: currentStatus === 'Testing' });
+
+    if (level2Gates.length > 0) {
+      steps.push({ type: 'gates', label: 'Level 2 Gates', active: false, gates: level2Gates });
+    }
+
+    steps.push({ type: 'state', label: 'Reviewing', active: currentStatus === 'Reviewing' });
+    steps.push({ type: 'state', label: 'Complete', active: currentStatus === 'Complete' || currentStatus === 'Completed' });
+
+    return steps;
+  }
+
+  // Skills grouped by agent_filter for display
+  let skillsByFilter = $derived.by((): Map<string, Record<string, unknown>[]> => {
+    const map = new Map<string, Record<string, unknown>[]>();
+    for (const sk of skills) {
+      const filter = field(sk, 'agent_filter') || 'shared';
+      if (!map.has(filter)) map.set(filter, []);
+      map.get(filter)!.push(sk);
+    }
+    return map;
+  });
 </script>
 
 <div class="page">
@@ -84,148 +290,234 @@
     <div class="empty"><p class="empty-text">Loading...</p></div>
   {:else}
 
-    <!-- HARNESS -->
-    <section class="section">
-      <h2 class="section-title">Harness</h2>
-      <p class="section-desc">Project harnesses govern what agents can do within a repository</p>
-      {#if harnesses.length === 0}
-        <p class="empty-text">No harnesses configured</p>
-      {:else}
-        {#each harnesses as harness (field(harness, 'Id'))}
-          {@const harnessId = field(harness, 'Id')}
-          <div class="list-row">
-            <div class="list-header" onclick={() => expandedHarness = expandedHarness === harnessId ? null : harnessId}>
-              <span class="list-dot" style:background={statusColor(field(harness, 'Status'))}></span>
-              <span class="list-name">{field(harness, 'repo_url').replace('https://github.com/', '') || 'Unnamed'}</span>
+    {#if harnesses.length === 0}
+      <p class="empty-text">No harnesses configured</p>
+    {:else}
+      {#each harnesses as harness (field(harness, 'Id'))}
+        {@const harnessId = field(harness, 'Id')}
+        {@const harnessWcs = workCyclesByHarness[harnessId] ?? []}
+        {@const activeWc = getActiveWorkCycle(harnessId)}
+        {@const flow = buildHarnessFlow(harnessId)}
+        {@const conventionsText = field(harness, 'conventions')}
+        {@const workCycleType = field(harness, 'work_cycle_type') || 'WorkCycles'}
+
+        <section class="harness-section">
+          <!-- HARNESS HEADER -->
+          <div class="harness-header">
+            <div class="harness-header__top">
+              <h2 class="harness-header__name">{field(harness, 'project_name') || field(harness, 'repo_url').replace('https://github.com/', '') || 'Unnamed Project'}</h2>
               <StatusBadge status={field(harness, 'Status')} />
-              <span class="list-meta">{field(harness, 'tech_stack')}</span>
             </div>
+            <div class="harness-header__meta">
+              {#if field(harness, 'repo_url')}
+                <code class="harness-header__url">{field(harness, 'repo_url')}</code>
+              {/if}
+              {#if field(harness, 'tech_stack')}
+                <span class="harness-header__stack">{safeDisplay(harness.tech_stack)}</span>
+              {/if}
+              <span class="harness-header__type">Cycles: {workCycleType}</span>
+            </div>
+          </div>
 
-            {#if expandedHarness === harnessId}
-              <div class="list-detail" transition:slide={{ duration: 150 }}>
-                <div class="detail-grid">
-                  <span class="detail-label">Harness ID</span>
-                  <code class="detail-value">{harnessId}</code>
+          <!-- TEAM COMPOSITION -->
+          {#if teamRoles.length > 0 || sharedSkills.length > 0}
+            <div class="harness-block">
+              <h3 class="harness-block__title">Team</h3>
+              <p class="harness-block__desc">Roles derived from souls and their associated skills</p>
+              <div class="role-grid">
+                {#each teamRoles as role}
+                  <div class="role-card">
+                    <div class="role-card__header">
+                      <span class="role-card__name">{role.name}</span>
+                      {#if role.soul}
+                        <span class="role-badge role-badge--soul">Soul</span>
+                      {:else}
+                        <span class="role-badge role-badge--skill">Skill-only</span>
+                      {/if}
+                    </div>
+                    {#if role.description}
+                      <p class="role-card__desc">{role.description}</p>
+                    {/if}
 
-                  <span class="detail-label">Repository</span>
-                  <span class="detail-value">{field(harness, 'repo_url')}</span>
+                    {#if role.skills.length > 0}
+                      <div class="role-card__skills">
+                        {#each role.skills as sk}
+                          <span class="skill-tag">{field(sk, 'Name') || field(sk, 'name') || field(sk, 'Id')}</span>
+                        {/each}
+                      </div>
+                    {/if}
 
-                  <span class="detail-label">Tech Stack</span>
-                  <span class="detail-value">{field(harness, 'tech_stack')}</span>
+                    <div class="role-card__actions">
+                      {#if role.soulFileId}
+                        <button class="view-btn" onclick={async () => {
+                          const soulId = field(role.soul!, 'Id');
+                          if (expandedRoleSoul === soulId) { expandedRoleSoul = null; return; }
+                          expandedRoleSoul = soulId;
+                          await loadFileContent(soulId, role.soulFileId);
+                        }}>
+                          {expandedRoleSoul === (role.soul ? field(role.soul, 'Id') : '') ? 'Hide soul' : 'View soul'}
+                        </button>
+                      {/if}
+                      {#each role.skills as sk}
+                        {@const skId = field(sk, 'Id')}
+                        {@const skFileId = field(sk, 'content_file_id') || field(sk, 'ContentFileId')}
+                        {#if skFileId}
+                          <button class="view-btn" onclick={async () => {
+                            if (expandedRoleSkill === skId) { expandedRoleSkill = null; return; }
+                            expandedRoleSkill = skId;
+                            await loadFileContent(skId, skFileId);
+                          }}>
+                            {expandedRoleSkill === skId ? `Hide ${field(sk, 'name') || field(sk, 'Name') || 'skill'}` : `View ${field(sk, 'name') || field(sk, 'Name') || 'skill'}`}
+                          </button>
+                        {/if}
+                      {/each}
+                    </div>
 
-                  {#if field(harness, 'conventions')}
-                    <span class="detail-label">Conventions</span>
-                    <pre class="detail-pre">{field(harness, 'conventions')}</pre>
-                  {/if}
+                    {#if role.soul && expandedRoleSoul === field(role.soul, 'Id') && fileContentCache[field(role.soul, 'Id')]}
+                      <pre class="file-content" transition:slide={{ duration: 150 }}>{fileContentCache[field(role.soul, 'Id')]}</pre>
+                    {/if}
+                    {#each role.skills as sk}
+                      {@const skId = field(sk, 'Id')}
+                      {#if expandedRoleSkill === skId && fileContentCache[skId]}
+                        <pre class="file-content" transition:slide={{ duration: 150 }}>{fileContentCache[skId]}</pre>
+                      {/if}
+                    {/each}
+                  </div>
+                {/each}
+              </div>
+            </div>
+          {/if}
+
+          <!-- HARNESS FLOW DIAGRAM -->
+          {#if activeWc && flow.length > 0}
+            <div class="harness-block">
+              <h3 class="harness-block__title">Harness Flow</h3>
+              <p class="harness-block__desc">Current work cycle state progression with gate enforcement</p>
+
+              <div class="harness-flow-wrapper">
+                <div class="harness-flow">
+                  {#each flow as step, i}
+                    {#if step.type === 'state'}
+                      <div class="flow-state" class:flow-state--active={step.active}>
+                        <span class="flow-state__label">{step.label}</span>
+                      </div>
+                    {:else if step.type === 'gates' && step.gates}
+                      <div class="flow-gates">
+                        <span class="flow-gates__label">{step.label}</span>
+                        <div class="flow-gates__badges">
+                          {#each step.gates as gate}
+                            <span class="gate-badge" class:gate-badge--passed={gate.passed} class:gate-badge--pending={!gate.passed}>
+                              {#if gate.passed}
+                                <span class="gate-icon gate-icon--check">&#10003;</span>
+                              {:else}
+                                <span class="gate-icon gate-icon--pending">&#9679;</span>
+                              {/if}
+                              {gate.label}
+                            </span>
+                          {/each}
+                        </div>
+                      </div>
+                    {/if}
+                    {#if i < flow.length - 1}
+                      <span class="flow-arrow">&rarr;</span>
+                    {/if}
+                  {/each}
                 </div>
+              </div>
+
+              <div class="harness-meta">
+                <span class="harness-meta__item">
+                  <strong>Cycle:</strong> {field(activeWc, 'task_summary') || shortId(field(activeWc, 'Id'))}
+                </span>
+                <StatusBadge status={field(activeWc, 'Status')} />
+              </div>
+
+              {#if conventionsText}
+                <button class="expand-toggle" onclick={() => conventionsExpandedMap = { ...conventionsExpandedMap, [harnessId]: !conventionsExpandedMap[harnessId] }}>
+                  {conventionsExpandedMap[harnessId] ? 'Hide' : 'Show'} harness conventions
+                </button>
+                {#if conventionsExpandedMap[harnessId]}
+                  <pre class="conventions-pre" transition:slide={{ duration: 150 }}>{conventionsText}</pre>
+                {/if}
+              {/if}
+            </div>
+          {/if}
+
+          <!-- ACTIVE WORK CYCLES -->
+          <div class="harness-block">
+            <h3 class="harness-block__title">Work Cycles</h3>
+            <p class="harness-block__desc">Governed implementation loops with gate enforcement ({workCycleType})</p>
+            {#if harnessWcs.length === 0}
+              <p class="empty-text">No work cycles for this harness</p>
+            {:else}
+              <div class="list">
+                {#each harnessWcs as wc (field(wc, 'Id'))}
+                  <div class="list-row">
+                    <div class="list-header">
+                      <span class="list-dot" style:background={statusColor(field(wc, 'Status'))}></span>
+                      <span class="list-name">{field(wc, 'task_summary') || 'Untitled'}</span>
+                      <StatusBadge status={field(wc, 'Status')} />
+                    </div>
+                    <div class="wc-detail">
+                      <GatePipeline workcycle={wc as unknown as WorkCycle} />
+                      <div class="wc-meta">
+                        <span>planner: <code>{field(wc, 'planner_id') || '--'}</code></span>
+                        {#if field(wc, 'pr_url')}
+                          <span>PR: <code>{field(wc, 'pr_url')}</code></span>
+                        {/if}
+                      </div>
+                    </div>
+                  </div>
+                {/each}
               </div>
             {/if}
           </div>
-        {/each}
-      {/if}
-    </section>
 
-    <!-- TEAM -->
-    <section class="section">
-      <h2 class="section-title">Team</h2>
-      <p class="section-desc">Souls define agent identities and what roles they can take</p>
-      {#if souls.length === 0}
-        <p class="empty-text">No souls configured</p>
-      {:else}
-        <div class="card-grid">
-          {#each souls as soul (field(soul, 'Id'))}
-            {@const soulId = field(soul, 'Id')}
-            {@const soulFileId = field(soul, 'ContentFileId') || field(soul, 'content_file_id')}
-            <div class="card">
-              <div class="card-header">
-                <span class="card-dot" style:background={statusColor(field(soul, 'Status'))}></span>
-                <span class="card-name">{field(soul, 'Name') || field(soul, 'name') || 'Unnamed'}</span>
-                <code class="card-id">{shortId(soulId)}</code>
-              </div>
-              <p class="card-desc">{field(soul, 'Description') || field(soul, 'description') || '--'}</p>
-              <StatusBadge status={field(soul, 'Status')} />
-              {#if soulFileId}
-                <button class="view-btn" onclick={() => toggleFileContent(soulId, soulFileId, 'soul')}>
-                  {expandedSoul === soulId ? 'Hide Soul' : 'View Soul'}
-                </button>
-              {/if}
-              {#if expandedSoul === soulId && fileContentCache[soulId]}
-                <pre class="file-content" transition:slide={{ duration: 150 }}>{fileContentCache[soulId]}</pre>
-              {/if}
-            </div>
-          {/each}
-        </div>
-      {/if}
-    </section>
-
-    <!-- SKILLS -->
-    <section class="section">
-      <h2 class="section-title">Skills</h2>
-      <p class="section-desc">Capabilities available to agents</p>
-      {#if skills.length === 0}
-        <p class="empty-text">No skills configured</p>
-      {:else}
-        <div class="card-grid">
-          {#each skills as skill (field(skill, 'Id'))}
-            {@const skillId = field(skill, 'Id')}
-            {@const skillFileId = field(skill, 'content_file_id') || field(skill, 'ContentFileId')}
-            <div class="card">
-              <div class="card-header">
-                <span class="card-dot" style:background="var(--status-active)"></span>
-                <span class="card-name">{field(skill, 'Name') || field(skill, 'name') || 'Unnamed'}</span>
-              </div>
-              <p class="card-desc">{field(skill, 'Description') || field(skill, 'description') || '--'}</p>
-              <div class="card-meta-row">
-                {#if field(skill, 'scope')}
-                  <span class="meta-tag">scope: {field(skill, 'scope')}</span>
-                {/if}
-                {#if field(skill, 'agent_filter')}
-                  <span class="meta-tag">filter: {field(skill, 'agent_filter')}</span>
-                {/if}
-              </div>
-              {#if skillFileId}
-                <button class="view-btn" onclick={() => toggleFileContent(skillId, skillFileId, 'skill')}>
-                  {expandedSkill === skillId ? 'Hide Content' : 'View Content'}
-                </button>
-              {/if}
-              {#if expandedSkill === skillId && fileContentCache[skillId]}
-                <pre class="file-content" transition:slide={{ duration: 150 }}>{fileContentCache[skillId]}</pre>
-              {/if}
-            </div>
-          {/each}
-        </div>
-      {/if}
-    </section>
-
-    <!-- WORK CYCLES -->
-    <section class="section">
-      <h2 class="section-title">Work Cycles</h2>
-      <p class="section-desc">Governed implementation loops with gate enforcement</p>
-      {#if workCycles.length === 0}
-        <p class="empty-text">No work cycles</p>
-      {:else}
-        <div class="list">
-          {#each workCycles as wc (field(wc, 'Id'))}
-            <div class="list-row">
-              <div class="list-header">
-                <span class="list-dot" style:background={statusColor(field(wc, 'Status'))}></span>
-                <span class="list-name">{field(wc, 'task_summary') || 'Untitled'}</span>
-                <StatusBadge status={field(wc, 'Status')} />
-              </div>
-              <div class="wc-detail">
-                <GatePipeline workcycle={wc as unknown as WorkCycle} />
-                <div class="wc-meta">
-                  <span>planner: <code>{field(wc, 'planner_id') || '--'}</code></span>
-                  {#if field(wc, 'pr_url')}
-                    <span>PR: <code>{field(wc, 'pr_url')}</code></span>
-                  {/if}
+          <!-- SKILLS (grouped by agent_filter) -->
+          {#if skills.length > 0}
+            <div class="harness-block">
+              <h3 class="harness-block__title">Skills</h3>
+              <p class="harness-block__desc">Grouped by agent filter</p>
+              {#each [...skillsByFilter.entries()] as [filterLabel, filterSkills]}
+                <div class="skills-scope-group">
+                  <span class="skills-scope-label">{filterLabel}</span>
+                  <div class="shared-skills-grid">
+                    {#each filterSkills as sk}
+                      {@const skId = field(sk, 'Id')}
+                      {@const skFileId = field(sk, 'content_file_id') || field(sk, 'ContentFileId')}
+                      <div class="shared-skill-card">
+                        <div class="shared-skill-card__header">
+                          <span class="shared-skill-card__name">{field(sk, 'Name') || field(sk, 'name') || field(sk, 'Id')}</span>
+                          {#if field(sk, 'scope')}
+                            <span class="scope-badge">{safeDisplay(sk.scope)}</span>
+                          {/if}
+                        </div>
+                        {#if field(sk, 'Description') || field(sk, 'description')}
+                          <p class="shared-skill-card__desc">{field(sk, 'Description') || field(sk, 'description')}</p>
+                        {/if}
+                        {#if skFileId}
+                          <button class="view-btn" onclick={async () => {
+                            if (expandedRoleSkill === skId) { expandedRoleSkill = null; return; }
+                            expandedRoleSkill = skId;
+                            await loadFileContent(skId, skFileId);
+                          }}>
+                            {expandedRoleSkill === skId ? 'Hide content' : 'View content'}
+                          </button>
+                        {/if}
+                        {#if expandedRoleSkill === skId && fileContentCache[skId]}
+                          <pre class="file-content" transition:slide={{ duration: 150 }}>{fileContentCache[skId]}</pre>
+                        {/if}
+                      </div>
+                    {/each}
+                  </div>
                 </div>
-              </div>
+              {/each}
             </div>
-          {/each}
-        </div>
-      {/if}
-    </section>
+          {/if}
+
+        </section>
+      {/each}
+    {/if}
 
     <!-- CEDAR POLICIES -->
     <section class="section">
@@ -240,8 +532,8 @@
               <div class="list-header" onclick={() => expandedPolicy = expandedPolicy === policy.policy_id ? null : policy.policy_id}>
                 <span class="list-dot" style:background={policy.enabled ? 'var(--status-success)' : 'var(--status-idle)'}></span>
                 <code class="list-name">{policy.policy_id}</code>
-                {#if policy.source}<span class="tool-tag">{policy.source}</span>{/if}
-                {#if policy.created_by}<span class="list-meta">by {policy.created_by}</span>{/if}
+                {#if policy.source}<span class="tool-tag">{safeDisplay(policy.source)}</span>{/if}
+                {#if policy.created_by}<span class="list-meta">by {safeDisplay(policy.created_by)}</span>{/if}
                 <span class="list-meta" style="margin-left:auto">{policy.enabled ? 'enabled' : 'disabled'}</span>
               </div>
               {#if expandedPolicy === policy.policy_id}
@@ -267,12 +559,12 @@
             <div class="list-row">
               <div class="list-header">
                 <span class="list-dot" style:background={statusColor(decision.status)}></span>
-                <span class="list-meta">{decision.status}</span>
-                <span class="list-name">{decision.action}</span>
-                <span class="list-meta">on {decision.resource_type}:{shortId(decision.resource_id)}</span>
-                <span class="list-meta" style="margin-left:auto">by <code>{shortId(decision.agent_id)}</code></span>
+                <span class="list-meta">{safeDisplay(decision.status)}</span>
+                <span class="list-name">{safeDisplay(decision.action)}</span>
+                <span class="list-meta">on {safeDisplay(decision.resource_type)}:{shortId(safeDisplay(decision.resource_id))}</span>
+                <span class="list-meta" style="margin-left:auto">by <code>{shortId(safeDisplay(decision.agent_id))}</code></span>
                 {#if decision.decided_by}
-                  <span class="list-meta">decided by {decision.decided_by}</span>
+                  <span class="list-meta">decided by {safeDisplay(decision.decided_by)}</span>
                 {/if}
               </div>
             </div>
@@ -296,22 +588,348 @@
   .empty-text { color: var(--text-tertiary); font-size: var(--text-sm); }
   .empty-inline { color: var(--text-tertiary); font-size: var(--text-xs); font-style: italic; }
 
-  /* Cards grid (for souls, skills) */
-  .card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: var(--space-2); }
-  .card {
-    display: flex; flex-direction: column; gap: 6px;
-    padding: var(--space-2); background: var(--surface-raised); border-radius: var(--radius-md);
+  /* ---- Harness Section ---- */
+  .harness-section {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    padding: var(--space-3);
+    background: var(--surface-base);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
   }
-  .card-header { display: flex; align-items: center; gap: var(--space-1); }
-  .card-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-  .card-name { font-size: var(--text-sm); font-weight: 600; color: var(--text-primary); }
-  .card-id { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-tertiary); }
-  .card-desc { font-size: var(--text-xs); color: var(--text-secondary); line-height: 1.4; }
-  .card-meta-row { display: flex; flex-wrap: wrap; gap: 6px; }
-  .meta-tag {
-    font-family: var(--font-mono); font-size: 0.625rem; color: var(--text-secondary);
-    background: var(--surface-overlay); padding: 1px 6px; border-radius: var(--radius-sm);
+
+  .harness-header__top {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
   }
+
+  .harness-header__name {
+    font-size: var(--text-lg);
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  .harness-header__meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+    margin-top: 4px;
+  }
+
+  .harness-header__url {
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    color: var(--text-tertiary);
+    word-break: break-all;
+  }
+
+  .harness-header__stack {
+    font-size: var(--text-xs);
+    color: var(--text-secondary);
+  }
+
+  .harness-header__type {
+    font-family: var(--font-mono);
+    font-size: 0.625rem;
+    color: var(--text-tertiary);
+    background: var(--surface-overlay);
+    padding: 1px 6px;
+    border-radius: var(--radius-sm);
+  }
+
+  .harness-block {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    padding-top: var(--space-2);
+    border-top: 1px solid var(--border);
+  }
+
+  .harness-block__title {
+    font-size: var(--text-base);
+    font-weight: 500;
+    color: var(--text-secondary);
+  }
+
+  .harness-block__desc {
+    font-size: var(--text-xs);
+    color: var(--text-tertiary);
+    margin-bottom: var(--space-1);
+  }
+
+  /* ---- Role Grid (Team Composition) ---- */
+  .role-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: var(--space-2);
+  }
+
+  .role-card {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: var(--space-2);
+    background: var(--surface-raised);
+    border-radius: var(--radius-md);
+  }
+
+  .role-card__header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+  }
+
+  .role-card__name {
+    font-size: var(--text-sm);
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  .role-badge {
+    font-size: 0.625rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    padding: 1px 6px;
+    border-radius: var(--radius-sm);
+  }
+
+  .role-badge--soul {
+    color: var(--status-active);
+    background: var(--brand-subtle);
+  }
+
+  .role-badge--skill {
+    color: var(--text-tertiary);
+    background: var(--surface-overlay);
+  }
+
+  .role-card__desc {
+    font-size: var(--text-xs);
+    color: var(--text-secondary);
+    line-height: 1.4;
+  }
+
+  .role-card__skills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .skill-tag {
+    font-family: var(--font-mono);
+    font-size: 0.625rem;
+    color: var(--text-secondary);
+    background: var(--surface-overlay);
+    padding: 2px 8px;
+    border-radius: var(--radius-sm);
+  }
+
+  .role-card__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  /* ---- Skills grouped ---- */
+  .skills-scope-group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    margin-top: var(--space-1);
+  }
+
+  .skills-scope-label {
+    font-family: var(--font-mono);
+    font-size: 0.625rem;
+    color: var(--text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding-left: 2px;
+  }
+
+  .shared-skills-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: var(--space-2);
+  }
+
+  .shared-skill-card {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: var(--space-2);
+    background: var(--surface-raised);
+    border-radius: var(--radius-sm);
+  }
+
+  .shared-skill-card__header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+  }
+
+  .shared-skill-card__name {
+    font-size: var(--text-sm);
+    font-weight: 500;
+    color: var(--text-primary);
+  }
+
+  .scope-badge {
+    font-family: var(--font-mono);
+    font-size: 0.625rem;
+    color: var(--text-secondary);
+    background: var(--surface-overlay);
+    padding: 1px 6px;
+    border-radius: var(--radius-sm);
+  }
+
+  .shared-skill-card__desc {
+    font-size: var(--text-xs);
+    color: var(--text-tertiary);
+  }
+
+  /* ---- Harness Flow Diagram ---- */
+  .harness-flow-wrapper {
+    overflow-x: auto;
+    padding: var(--space-2) 0;
+  }
+
+  .harness-flow {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    min-width: max-content;
+  }
+
+  .flow-state {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px 16px;
+    background: var(--surface-raised);
+    border: 1.5px solid var(--border);
+    border-radius: var(--radius-md);
+    min-width: 90px;
+    text-align: center;
+  }
+
+  .flow-state--active {
+    background: var(--surface-overlay);
+    border-color: var(--status-active);
+    box-shadow: 0 0 0 2px var(--brand-subtle);
+  }
+
+  .flow-state__label {
+    font-size: var(--text-xs);
+    font-weight: 500;
+    color: var(--text-primary);
+  }
+
+  .flow-arrow {
+    color: var(--text-tertiary);
+    font-size: var(--text-sm);
+    padding: 0 6px;
+    flex-shrink: 0;
+  }
+
+  .flow-gates {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    padding: 6px 10px;
+    background: var(--surface-overlay);
+    border-radius: var(--radius-md);
+    border: 1px dashed var(--border);
+  }
+
+  .flow-gates__label {
+    font-size: 0.625rem;
+    color: var(--text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  .flow-gates__badges {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+  }
+
+  .gate-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    font-size: 0.625rem;
+    padding: 2px 6px;
+    border-radius: var(--radius-sm);
+    white-space: nowrap;
+  }
+
+  .gate-badge--passed {
+    color: #4ade80;
+    background: rgba(74, 222, 128, 0.1);
+  }
+
+  .gate-badge--pending {
+    color: #6b7280;
+    background: rgba(107, 114, 128, 0.1);
+  }
+
+  .gate-icon {
+    font-size: 0.5rem;
+    line-height: 1;
+  }
+
+  .gate-icon--check { color: #4ade80; }
+  .gate-icon--pending { color: #6b7280; }
+
+  .harness-meta {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: var(--text-xs);
+    color: var(--text-secondary);
+  }
+
+  .harness-meta__item strong {
+    color: var(--text-tertiary);
+    font-weight: 500;
+    text-transform: uppercase;
+    font-size: 0.625rem;
+    letter-spacing: 0.03em;
+  }
+
+  .expand-toggle {
+    font-size: var(--text-xs);
+    color: var(--text-secondary);
+    padding: 2px 0;
+    text-align: left;
+    width: fit-content;
+    cursor: pointer;
+    background: none;
+    border: none;
+  }
+
+  .expand-toggle:hover { color: var(--text-primary); }
+
+  .conventions-pre {
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    color: var(--text-secondary);
+    background: var(--surface-overlay);
+    padding: var(--space-2);
+    border-radius: var(--radius-sm);
+    white-space: pre-wrap;
+    overflow-x: auto;
+    max-height: 400px;
+    overflow-y: auto;
+  }
+
+  /* ---- Reused card / list styles ---- */
   .view-btn {
     font-size: var(--text-xs); color: var(--text-secondary); padding: 2px 0;
     text-align: left; width: fit-content; cursor: pointer;
@@ -343,9 +961,6 @@
     padding: var(--space-2) var(--space-3); background: var(--surface-raised);
     border-radius: var(--radius-md); margin-bottom: var(--space-1);
   }
-  .detail-grid { display: grid; grid-template-columns: 120px 1fr; gap: 6px var(--space-2); align-items: baseline; }
-  .detail-label { font-size: 0.625rem; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.05em; }
-  .detail-value { font-size: var(--text-sm); color: var(--text-primary); word-break: break-all; }
   .detail-pre {
     font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-secondary);
     background: var(--surface-overlay); padding: var(--space-2); border-radius: var(--radius-sm);
@@ -364,7 +979,8 @@
   .wc-meta code { font-family: var(--font-mono); }
 
   @media (max-width: 800px) {
-    .card-grid { grid-template-columns: 1fr; }
-    .detail-grid { grid-template-columns: 1fr; }
+    .role-grid { grid-template-columns: 1fr; }
+    .shared-skills-grid { grid-template-columns: 1fr; }
+    .harness-flow { flex-wrap: wrap; }
   }
 </style>

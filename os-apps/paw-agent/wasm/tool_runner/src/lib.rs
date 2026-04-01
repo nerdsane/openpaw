@@ -48,7 +48,8 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             .unwrap_or("none");
         let soul_id = fields.get("soul_id").and_then(|v| v.as_str()).unwrap_or("");
         let project_harness_id = fields
-            .get("project_harness_id")
+            .get("harness_id")
+            .or_else(|| fields.get("project_harness_id"))
             .and_then(|v| v.as_str())
             .unwrap_or("");
         let _ = send_heartbeat(&ctx, &temper_api_url, tenant);

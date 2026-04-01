@@ -41,9 +41,13 @@
 
   let truncatedMessage = $derived.by(() => {
     if (!agent.user_message) return null;
-    return agent.user_message.length > 80
-      ? agent.user_message.slice(0, 80) + '...'
-      : agent.user_message;
+    // Guard against object values that would render as [object Object]
+    const msg = typeof agent.user_message === 'object'
+      ? JSON.stringify(agent.user_message)
+      : String(agent.user_message);
+    return msg.length > 80
+      ? msg.slice(0, 80) + '...'
+      : msg;
   });
 
   let relativeTime = $derived.by(() => {

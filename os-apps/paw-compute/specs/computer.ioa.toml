@@ -102,7 +102,7 @@ type = "string"
 initial = ""
 
 [[state]]
-name = "project_harness_id"
+name = "harness_id"
 type = "string"
 initial = ""
 
@@ -113,7 +113,7 @@ name = "Configure"
 kind = "input"
 from = ["Created"]
 to = "Created"
-params = ["name", "description", "provider", "cpu_cores", "memory_gb", "storage_gb", "base_image", "setup_script", "tools_installed", "credentials_scoped", "network_allow", "project_harness_id"]
+params = ["name", "description", "provider", "cpu_cores", "memory_gb", "storage_gb", "base_image", "setup_script", "tools_installed", "credentials_scoped", "network_allow", "harness_id"]
 hint = "Set up the computer specification before provisioning."
 
 [[action]]

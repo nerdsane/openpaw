@@ -6,7 +6,7 @@ states = ["Created", "Scanning", "Complete", "Failed"]
 initial = "Created"
 
 [[state]]
-name = "project_harness_id"
+name = "harness_id"
 type = "string"
 initial = ""
 
@@ -39,8 +39,8 @@ initial = ""
 name = "Configure"
 kind = "input"
 from = ["Created"]
-params = ["project_harness_id", "scan_type", "commit_sha"]
-hint = "Attach the monitor scan to a project harness and declare the scan scope."
+params = ["harness_id", "scan_type", "commit_sha"]
+hint = "Attach the monitor scan to a harness and declare the scan scope."
 
 [[action]]
 name = "StartScan"

@@ -100,7 +100,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         let mut work_cycle_line = "WorkCycle: n/a".to_string();
         let mut issue_line = "Issue: n/a".to_string();
 
-        // Query WorkCycles related to this AlertCycle's ProjectHarness
+        // Query WorkCycles related to this AlertCycle's Harness
         // (best-effort; non-fatal if it fails)
         if !sre_agent_id.is_empty() {
             let wc_url = format!(
