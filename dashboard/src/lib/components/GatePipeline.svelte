@@ -94,4 +94,11 @@
     text-transform: uppercase;
     letter-spacing: 0.04em;
   }
+
+  /* ---- Mobile: shrink connecting lines ---- */
+  @media (max-width: 768px) {
+    .gate-line {
+      width: 20px;
+    }
+  }
 </style>

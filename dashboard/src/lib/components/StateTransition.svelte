@@ -194,4 +194,16 @@
     font-size: var(--text-xs);
     color: var(--status-error);
   }
+
+  /* ---- Mobile ---- */
+  @media (max-width: 768px) {
+    .transition__header {
+      flex-wrap: wrap;
+    }
+
+    .transition__time {
+      margin-left: 0;
+      width: 100%;
+    }
+  }
 </style>

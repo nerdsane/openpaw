@@ -76,7 +76,7 @@
 
 <div class="floor">
   <header class="floor-header">
-    <h1>Operations Floor</h1>
+    <h1>Factory Floor</h1>
     <p class="floor-subtitle">All agents across projects</p>
   </header>
 
@@ -414,9 +414,34 @@
     word-break: break-all;
   }
 
-  @media (max-width: 700px) {
+  /* ---- Tablet ---- */
+  @media (max-width: 1024px) {
+    .floor-grid {
+      grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+    }
+  }
+
+  /* ---- Mobile ---- */
+  @media (max-width: 768px) {
     .floor-grid {
       grid-template-columns: 1fr;
+    }
+
+    .floor-header h1 {
+      font-size: var(--text-xl);
+    }
+
+    .team-roster {
+      gap: 4px;
+    }
+
+    .team-member {
+      font-size: var(--text-xs);
+      padding: 4px 8px;
+    }
+
+    .workcycle-row__top {
+      flex-wrap: wrap;
     }
   }
 </style>

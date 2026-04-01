@@ -277,6 +277,14 @@ pre {
    Motion — respect prefers-reduced-motion
    ============================================================ */
 
+/* ============================================================
+   Responsive — prevent horizontal overflow on all views
+   ============================================================ */
+
+html, body {
+  overflow-x: hidden;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;

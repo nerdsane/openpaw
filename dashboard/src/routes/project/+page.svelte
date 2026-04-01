@@ -418,4 +418,20 @@
     .card-grid { grid-template-columns: 1fr; }
     .detail-grid { grid-template-columns: 1fr; }
   }
+
+  /* ---- Mobile ---- */
+  @media (max-width: 768px) {
+    .page h1 {
+      font-size: var(--text-xl);
+    }
+
+    .list-header {
+      flex-wrap: wrap;
+      gap: 4px var(--space-1);
+    }
+
+    .wc-meta {
+      flex-wrap: wrap;
+    }
+  }
 </style>

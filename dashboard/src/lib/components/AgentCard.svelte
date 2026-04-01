@@ -179,4 +179,15 @@
     font-size: var(--text-xs);
     color: var(--text-tertiary);
   }
+
+  /* ---- Mobile ---- */
+  @media (max-width: 768px) {
+    .agent-card {
+      padding: 12px;
+    }
+
+    .agent-card__stats {
+      flex-wrap: wrap;
+    }
+  }
 </style>

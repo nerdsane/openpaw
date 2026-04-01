@@ -602,13 +602,29 @@
     }
   }
 
-  @media (max-width: 800px) {
+  /* ---- Tablet ---- */
+  @media (max-width: 1024px) {
+    .desk-context {
+      width: 240px;
+    }
+  }
+
+  /* ---- Mobile ---- */
+  @media (max-width: 768px) {
     .desk-layout {
       flex-direction: column;
     }
 
     .desk-context {
       width: 100%;
+    }
+
+    .desk-stream {
+      min-height: 300px;
+    }
+
+    .context-name {
+      font-size: var(--text-lg);
     }
   }
 </style>
