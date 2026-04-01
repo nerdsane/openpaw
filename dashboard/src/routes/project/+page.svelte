@@ -13,19 +13,23 @@
   let souls = $state<Record<string, unknown>[]>([]);
   let skills = $state<Record<string, unknown>[]>([]);
   let workCycles = $state<Record<string, unknown>[]>([]);
+  let agents = $state<Record<string, unknown>[]>([]);
   let decisions = $state<PendingDecision[]>([]);
   let policies = $state<PolicyEntry[]>([]);
 
   // Expandable
   let expandedHarness = $state<string | null>(null);
+  let expandedSoul = $state<string | null>(null);
+  let expandedSkill = $state<string | null>(null);
   let expandedPolicy = $state<string | null>(null);
 
   onMount(async () => {
-    const [ha, so, sk, wc, dec, pol] = await Promise.all([
+    const [ha, so, sk, wc, ag, dec, pol] = await Promise.all([
       queryEntities('ProjectHarnesses').catch(() => []),
       queryEntities('Souls').catch(() => []),
       queryEntities('Skills').catch(() => []),
       queryEntities('WorkCycles').catch(() => []),
+      queryEntities('Agents', undefined, 'SequenceNr desc', 50).catch(() => []),
       fetchDecisions().then(r => r.decisions).catch(() => []),
       fetchPolicies().catch(() => []),
     ]);
@@ -33,10 +37,16 @@
     souls = so;
     skills = sk;
     workCycles = wc;
+    agents = ag;
     decisions = dec;
     policies = pol;
     loaded = true;
   });
+
+  /** Get agents that used a given soul_id (by name or ID). */
+  function agentsForSoul(soulName: string, soulId: string): Record<string, unknown>[] {
+    return agents.filter(a => field(a, 'soul_id') === soulName || field(a, 'soul_id') === soulId);
+  }
 
   function field(entity: Record<string, unknown>, key: string): string {
     return (entity[key] ?? entity[key.charAt(0).toUpperCase() + key.slice(1)] ?? '') as string;
@@ -113,15 +123,68 @@
       {#if souls.length === 0}
         <p class="empty-text">No souls configured</p>
       {:else}
-        <div class="card-grid">
+        <div class="list">
           {#each souls as soul (field(soul, 'Id'))}
-            <div class="card">
-              <div class="card-header">
-                <span class="card-dot" style:background="var(--status-success)"></span>
-                <span class="card-name">{field(soul, 'Name') || field(soul, 'name') || 'Unnamed'}</span>
-                <code class="card-id">{shortId(field(soul, 'Id'))}</code>
+            {@const soulId = field(soul, 'Id')}
+            {@const soulName = field(soul, 'Name') || field(soul, 'name') || 'Unnamed'}
+            {@const soulAgents = agentsForSoul(soulName, soulId)}
+            <div class="list-row">
+              <div class="list-header" onclick={() => expandedSoul = expandedSoul === soulId ? null : soulId}>
+                <span class="list-dot" style:background="var(--status-success)"></span>
+                <span class="list-name">{soulName}</span>
+                <code class="list-id">{shortId(soulId)}</code>
+                <StatusBadge status={field(soul, 'Status')} />
+                {#if soulAgents.length > 0}
+                  <span class="list-meta">{soulAgents.length} agent{soulAgents.length !== 1 ? 's' : ''}</span>
+                {/if}
               </div>
-              <p class="card-desc">{field(soul, 'Description') || field(soul, 'description') || '--'}</p>
+
+              {#if expandedSoul === soulId}
+                <div class="list-detail" transition:slide={{ duration: 150 }}>
+                  <div class="detail-grid">
+                    <span class="detail-label">Soul ID</span>
+                    <code class="detail-value">{soulId}</code>
+
+                    <span class="detail-label">Name</span>
+                    <span class="detail-value">{soulName}</span>
+
+                    <span class="detail-label">Description</span>
+                    <span class="detail-value">{field(soul, 'Description') || field(soul, 'description') || '--'}</span>
+
+                    <span class="detail-label">Status</span>
+                    <span class="detail-value">{field(soul, 'Status')}</span>
+
+                    <span class="detail-label">Version</span>
+                    <span class="detail-value">{soul.version ?? '--'}</span>
+
+                    {#if field(soul, 'ContentFileId')}
+                      <span class="detail-label">Content File</span>
+                      <code class="detail-value">{field(soul, 'ContentFileId')}</code>
+                    {/if}
+                  </div>
+
+                  {#if soulAgents.length > 0}
+                    <div class="sub-section">
+                      <span class="detail-label">Agents using this role</span>
+                      <div class="agent-links">
+                        {#each soulAgents as agent}
+                          <a href="/agents/{field(agent, 'Id')}" class="agent-link">
+                            <span class="list-dot" style:background={statusColor(field(agent, 'Status'))}></span>
+                            <code>{shortId(field(agent, 'Id'))}</code>
+                            <StatusBadge status={field(agent, 'Status')} />
+                            <span class="list-meta">{field(agent, 'model') || '--'}</span>
+                          </a>
+                        {/each}
+                      </div>
+                    </div>
+                  {:else}
+                    <div class="sub-section">
+                      <span class="detail-label">Agents using this role</span>
+                      <span class="empty-inline">No agents have used this role yet</span>
+                    </div>
+                  {/if}
+                </div>
+              {/if}
             </div>
           {/each}
         </div>
@@ -135,14 +198,49 @@
       {#if skills.length === 0}
         <p class="empty-text">No skills configured</p>
       {:else}
-        <div class="card-grid">
+        <div class="list">
           {#each skills as skill (field(skill, 'Id'))}
-            <div class="card">
-              <div class="card-header">
-                <span class="card-dot" style:background="var(--status-active)"></span>
-                <span class="card-name">{field(skill, 'Name') || field(skill, 'name') || 'Unnamed'}</span>
+            {@const skillId = field(skill, 'Id')}
+            <div class="list-row">
+              <div class="list-header" onclick={() => expandedSkill = expandedSkill === skillId ? null : skillId}>
+                <span class="list-dot" style:background="var(--status-active)"></span>
+                <span class="list-name">{field(skill, 'Name') || field(skill, 'name') || 'Unnamed'}</span>
+                {#if field(skill, 'scope')}
+                  <span class="tool-tag">{field(skill, 'scope')}</span>
+                {/if}
+                <StatusBadge status={field(skill, 'Status')} />
               </div>
-              <p class="card-desc">{field(skill, 'Description') || field(skill, 'description') || '--'}</p>
+
+              {#if expandedSkill === skillId}
+                <div class="list-detail" transition:slide={{ duration: 150 }}>
+                  <div class="detail-grid">
+                    <span class="detail-label">Skill ID</span>
+                    <code class="detail-value">{skillId}</code>
+
+                    <span class="detail-label">Name</span>
+                    <span class="detail-value">{field(skill, 'Name') || field(skill, 'name')}</span>
+
+                    <span class="detail-label">Description</span>
+                    <span class="detail-value">{field(skill, 'Description') || field(skill, 'description') || '--'}</span>
+
+                    <span class="detail-label">Scope</span>
+                    <span class="detail-value">{field(skill, 'scope') || 'global'}</span>
+
+                    {#if field(skill, 'agent_filter')}
+                      <span class="detail-label">Agent Filter</span>
+                      <code class="detail-value">{field(skill, 'agent_filter')}</code>
+                    {/if}
+
+                    <span class="detail-label">Status</span>
+                    <span class="detail-value">{field(skill, 'Status')}</span>
+
+                    {#if field(skill, 'content_file_id') || field(skill, 'ContentFileId')}
+                      <span class="detail-label">Content File</span>
+                      <code class="detail-value">{field(skill, 'content_file_id') || field(skill, 'ContentFileId')}</code>
+                    {/if}
+                  </div>
+                </div>
+              {/if}
             </div>
           {/each}
         </div>
@@ -272,7 +370,20 @@
   .list-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
   .list-name { font-size: var(--text-sm); font-weight: 500; color: var(--text-primary); }
   .list-meta { font-size: var(--text-xs); color: var(--text-tertiary); }
+  .list-id { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-tertiary); }
   .list-meta code { font-family: var(--font-mono); }
+
+  /* Sub-sections within expanded details */
+  .sub-section { margin-top: var(--space-2); padding-top: var(--space-2); border-top: 1px solid var(--border); }
+  .agent-links { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
+  .agent-link {
+    display: flex; align-items: center; gap: var(--space-1);
+    padding: 4px var(--space-1); border-radius: var(--radius-sm);
+    text-decoration: none; color: inherit;
+    transition: background var(--duration-fast) var(--ease);
+  }
+  .agent-link:hover { background: var(--surface-overlay); text-decoration: none; }
+  .agent-link code { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-primary); }
 
   /* Detail panels */
   .list-detail {
