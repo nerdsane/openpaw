@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { slide } from 'svelte/transition';
-  import { fetchDecisions, fetchPolicies, queryEntities, type PendingDecision, type PolicyEntry } from '$lib/api';
+  import { fetchDecisions, fetchPolicies, queryEntities, fetchFileContent, type PendingDecision, type PolicyEntry } from '$lib/api';
   import StatusBadge from '$lib/components/StatusBadge.svelte';
   import GatePipeline from '$lib/components/GatePipeline.svelte';
   import type { WorkCycle } from '$lib/types';
@@ -19,6 +19,25 @@
   // Expandable
   let expandedHarness = $state<string | null>(null);
   let expandedPolicy = $state<string | null>(null);
+  let expandedSoul = $state<string | null>(null);
+  let expandedSkill = $state<string | null>(null);
+
+  // File content cache for souls and skills
+  let fileContentCache = $state<Record<string, string>>({});
+
+  async function toggleFileContent(id: string, fileId: string, setter: 'soul' | 'skill') {
+    if (setter === 'soul') {
+      if (expandedSoul === id) { expandedSoul = null; return; }
+      expandedSoul = id;
+    } else {
+      if (expandedSkill === id) { expandedSkill = null; return; }
+      expandedSkill = id;
+    }
+    if (fileId && !fileContentCache[id]) {
+      const content = await fetchFileContent(fileId);
+      fileContentCache = { ...fileContentCache, [id]: content };
+    }
+  }
 
   onMount(async () => {
     const [ha, so, sk, wc, dec, pol] = await Promise.all([
@@ -115,13 +134,24 @@
       {:else}
         <div class="card-grid">
           {#each souls as soul (field(soul, 'Id'))}
+            {@const soulId = field(soul, 'Id')}
+            {@const soulFileId = field(soul, 'ContentFileId') || field(soul, 'content_file_id')}
             <div class="card">
               <div class="card-header">
-                <span class="card-dot" style:background="var(--status-success)"></span>
+                <span class="card-dot" style:background={statusColor(field(soul, 'Status'))}></span>
                 <span class="card-name">{field(soul, 'Name') || field(soul, 'name') || 'Unnamed'}</span>
-                <code class="card-id">{shortId(field(soul, 'Id'))}</code>
+                <code class="card-id">{shortId(soulId)}</code>
               </div>
               <p class="card-desc">{field(soul, 'Description') || field(soul, 'description') || '--'}</p>
+              <StatusBadge status={field(soul, 'Status')} />
+              {#if soulFileId}
+                <button class="view-btn" onclick={() => toggleFileContent(soulId, soulFileId, 'soul')}>
+                  {expandedSoul === soulId ? 'Hide Soul' : 'View Soul'}
+                </button>
+              {/if}
+              {#if expandedSoul === soulId && fileContentCache[soulId]}
+                <pre class="file-content" transition:slide={{ duration: 150 }}>{fileContentCache[soulId]}</pre>
+              {/if}
             </div>
           {/each}
         </div>
@@ -137,12 +167,30 @@
       {:else}
         <div class="card-grid">
           {#each skills as skill (field(skill, 'Id'))}
+            {@const skillId = field(skill, 'Id')}
+            {@const skillFileId = field(skill, 'content_file_id') || field(skill, 'ContentFileId')}
             <div class="card">
               <div class="card-header">
                 <span class="card-dot" style:background="var(--status-active)"></span>
                 <span class="card-name">{field(skill, 'Name') || field(skill, 'name') || 'Unnamed'}</span>
               </div>
               <p class="card-desc">{field(skill, 'Description') || field(skill, 'description') || '--'}</p>
+              <div class="card-meta-row">
+                {#if field(skill, 'scope')}
+                  <span class="meta-tag">scope: {field(skill, 'scope')}</span>
+                {/if}
+                {#if field(skill, 'agent_filter')}
+                  <span class="meta-tag">filter: {field(skill, 'agent_filter')}</span>
+                {/if}
+              </div>
+              {#if skillFileId}
+                <button class="view-btn" onclick={() => toggleFileContent(skillId, skillFileId, 'skill')}>
+                  {expandedSkill === skillId ? 'Hide Content' : 'View Content'}
+                </button>
+              {/if}
+              {#if expandedSkill === skillId && fileContentCache[skillId]}
+                <pre class="file-content" transition:slide={{ duration: 150 }}>{fileContentCache[skillId]}</pre>
+              {/if}
             </div>
           {/each}
         </div>
@@ -259,6 +307,22 @@
   .card-name { font-size: var(--text-sm); font-weight: 600; color: var(--text-primary); }
   .card-id { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-tertiary); }
   .card-desc { font-size: var(--text-xs); color: var(--text-secondary); line-height: 1.4; }
+  .card-meta-row { display: flex; flex-wrap: wrap; gap: 6px; }
+  .meta-tag {
+    font-family: var(--font-mono); font-size: 0.625rem; color: var(--text-secondary);
+    background: var(--surface-overlay); padding: 1px 6px; border-radius: var(--radius-sm);
+  }
+  .view-btn {
+    font-size: var(--text-xs); color: var(--text-secondary); padding: 2px 0;
+    text-align: left; width: fit-content; cursor: pointer;
+    background: none; border: none;
+  }
+  .view-btn:hover { color: var(--text-primary); }
+  .file-content {
+    font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-secondary);
+    background: var(--surface-overlay); padding: var(--space-2); border-radius: var(--radius-sm);
+    white-space: pre-wrap; overflow-x: auto; max-height: 400px; overflow-y: auto;
+  }
 
   /* List rows */
   .list { display: flex; flex-direction: column; }

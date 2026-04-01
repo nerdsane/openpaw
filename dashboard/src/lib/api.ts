@@ -145,3 +145,12 @@ export async function getEntity(
   const raw = await res.json();
   return flattenEntity(raw);
 }
+
+/**
+ * Fetch raw file content by file ID (e.g. soul markdown, skill markdown).
+ */
+export async function fetchFileContent(fileId: string): Promise<string> {
+  const res = await fetch(`${BASE}/tdata/Files('${fileId}')/$value`, { headers: HEADERS });
+  if (!res.ok) return '';
+  return res.text();
+}

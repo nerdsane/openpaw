@@ -2,8 +2,8 @@
   import { onMount, onDestroy } from 'svelte';
   import { slide, fade } from 'svelte/transition';
   import { page } from '$app/stores';
-  import type { Agent, WorkCycle, EntityEvent } from '$lib/types';
-  import { getEntity, queryEntities, fetchAgentHistory } from '$lib/api';
+  import type { Agent, WorkCycle, EntityEvent, Skill } from '$lib/types';
+  import { getEntity, queryEntities, fetchAgentHistory, fetchFileContent } from '$lib/api';
   import { connectSSE, disconnectSSE, events, type StateChangeEvent } from '$lib/sse';
   import StatusBadge from '$lib/components/StatusBadge.svelte';
   import GatePipeline from '$lib/components/GatePipeline.svelte';
@@ -13,6 +13,12 @@
 
   let agent = $state<Agent | null>(null);
   let soulName = $state<string | null>(null);
+  let soulEntity = $state<Record<string, unknown> | null>(null);
+  let soulContentExpanded = $state(false);
+  let soulContent = $state<string | null>(null);
+  let agentSkills = $state<Skill[]>([]);
+  let expandedSkillId = $state<string | null>(null);
+  let skillContentCache = $state<Record<string, string>>({});
   let workcycle = $state<WorkCycle | null>(null);
   let loaded = $state(false);
   let error = $state<string | null>(null);
@@ -59,16 +65,32 @@
     try {
       await fetchAgent();
 
-      // Fetch soul name
+      // Fetch soul name and entity
       if (agent?.soul_id) {
         try {
           const soul = await getEntity('Souls', agent.soul_id);
-          soulName = (soul as { name?: string }).name ?? null;
+          soulEntity = soul;
+          soulName = (soul as { name?: string; Name?: string }).name ?? (soul as { Name?: string }).Name ?? null;
         } catch {
           // soul_id might be a name string (e.g. "SWE"), not an entity ID
           soulName = agent.soul_id;
         }
       }
+
+      // Fetch skills relevant to this agent
+      try {
+        const allSkills = await queryEntities('Skills');
+        // Show skills that match: global scope, or scope matching agent's project harness
+        agentSkills = allSkills.filter((s: Record<string, unknown>) => {
+          const scope = ((s as { scope?: string }).scope ?? '') as string;
+          const filter = ((s as { agent_filter?: string }).agent_filter ?? '') as string;
+          // Show all skills; if agent_filter is set, only show if it matches agent's soul
+          if (filter && agent?.soul_id && !filter.includes(agent.soul_id) && !filter.includes(soulName ?? '')) {
+            return false;
+          }
+          return true;
+        }) as unknown as Skill[];
+      } catch { /* skills may not exist */ }
 
       // Try to find linked work cycle
       try {
@@ -207,6 +229,68 @@
                 <p class="workcycle-card__plan">{workcycle.plan_summary}</p>
               {/if}
             </a>
+          </div>
+        {/if}
+
+        {#if soulEntity}
+          {@const soulFileId = (soulEntity as Record<string, unknown>).ContentFileId ?? (soulEntity as Record<string, unknown>).content_file_id}
+          <div class="context-section">
+            <span class="context-label">Soul</span>
+            <span class="context-value">{soulName ?? agent.soul_id}</span>
+            {#if soulFileId}
+              <button class="expand-btn" onclick={async () => {
+                soulContentExpanded = !soulContentExpanded;
+                if (soulContentExpanded && !soulContent) {
+                  soulContent = await fetchFileContent(soulFileId as string);
+                }
+              }}>
+                {soulContentExpanded ? 'Hide soul content' : 'View soul content'}
+              </button>
+              {#if soulContentExpanded && soulContent}
+                <pre class="context-pre" transition:slide={{ duration: 150 }}>{soulContent}</pre>
+              {/if}
+            {/if}
+          </div>
+        {:else if agent.soul_id}
+          <div class="context-section">
+            <span class="context-label">Soul</span>
+            <span class="context-value">{soulName ?? agent.soul_id}</span>
+          </div>
+        {/if}
+
+        {#if agentSkills.length > 0}
+          <div class="context-section">
+            <span class="context-label">Skills ({agentSkills.length})</span>
+            <div class="agent-skills">
+              {#each agentSkills as skill (skill.Id)}
+                <div class="agent-skill">
+                  <div class="agent-skill__header">
+                    <span class="agent-skill__name">{skill.name || skill.Name || skill.Id}</span>
+                    {#if skill.scope}
+                      <span class="agent-skill__scope">{skill.scope}</span>
+                    {/if}
+                  </div>
+                  {#if skill.description || skill.Description}
+                    <span class="agent-skill__desc">{skill.description || skill.Description}</span>
+                  {/if}
+                  {#if skill.content_file_id}
+                    <button class="expand-btn" onclick={async () => {
+                      if (expandedSkillId === skill.Id) { expandedSkillId = null; return; }
+                      expandedSkillId = skill.Id;
+                      if (!skillContentCache[skill.Id]) {
+                        const content = await fetchFileContent(skill.content_file_id);
+                        skillContentCache = { ...skillContentCache, [skill.Id]: content };
+                      }
+                    }}>
+                      {expandedSkillId === skill.Id ? 'Hide' : 'View content'}
+                    </button>
+                    {#if expandedSkillId === skill.Id && skillContentCache[skill.Id]}
+                      <pre class="context-pre" transition:slide={{ duration: 150 }}>{skillContentCache[skill.Id]}</pre>
+                    {/if}
+                  {/if}
+                </div>
+              {/each}
+            </div>
           </div>
         {/if}
 
@@ -587,6 +671,47 @@
   .stream-list {
     display: flex;
     flex-direction: column;
+  }
+
+  .agent-skills {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .agent-skill {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding: var(--space-1) var(--space-2);
+    background: var(--surface-raised);
+    border-radius: var(--radius-sm);
+  }
+
+  .agent-skill__header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+  }
+
+  .agent-skill__name {
+    font-size: var(--text-xs);
+    font-weight: 500;
+    color: var(--text-primary);
+  }
+
+  .agent-skill__scope {
+    font-family: var(--font-mono);
+    font-size: 0.625rem;
+    color: var(--text-secondary);
+    background: var(--surface-overlay);
+    padding: 1px 5px;
+    border-radius: var(--radius-sm);
+  }
+
+  .agent-skill__desc {
+    font-size: var(--text-xs);
+    color: var(--text-tertiary);
   }
 
   .mono {
