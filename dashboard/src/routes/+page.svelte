@@ -1,6 +1,5 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
-  import { fade } from 'svelte/transition';
   import { loadAgents, agents, activeAgents } from '$lib/stores/agents';
   import { connectSSE, disconnectSSE, events } from '$lib/sse';
   import { refreshAgent } from '$lib/stores/agents';
@@ -28,11 +27,17 @@
     loaded = true;
     connectSSE();
 
-    // Load project context (non-blocking)
-    try { projects = (await queryEntities('ProjectHarnesses', undefined, undefined, 10)) as unknown as ProjectHarness[]; } catch { /* may not exist */ }
-    try { souls = (await queryEntities('Souls', undefined, undefined, 20)) as unknown as Soul[]; } catch { /* may not exist */ }
-    try { workcycles = (await queryEntities('WorkCycles', undefined, 'SequenceNr desc', 20)) as unknown as WorkCycle[]; } catch { /* may not exist */ }
-    try { skills = (await queryEntities('Skills', undefined, undefined, 20)) as unknown as Skill[]; } catch { /* may not exist */ }
+    // Load project context in parallel (non-blocking)
+    const [p, s, w, sk] = await Promise.all([
+      queryEntities('ProjectHarnesses', undefined, undefined, 10).catch(() => []),
+      queryEntities('Souls', undefined, undefined, 20).catch(() => []),
+      queryEntities('WorkCycles', undefined, 'SequenceNr desc', 20).catch(() => []),
+      queryEntities('Skills', undefined, undefined, 20).catch(() => []),
+    ]);
+    projects = p as unknown as ProjectHarness[];
+    souls = s as unknown as Soul[];
+    workcycles = w as unknown as WorkCycle[];
+    skills = sk as unknown as Skill[];
   });
 
   onDestroy(() => {
@@ -157,18 +162,18 @@
   {/if}
 
   {#if !loaded}
-    <div class="floor-empty" transition:fade={{ duration: 200 }}>
+    <div class="floor-empty" >
       <p class="floor-empty-text">Loading...</p>
     </div>
   {:else if error}
-    <div class="floor-empty" transition:fade={{ duration: 200 }}>
+    <div class="floor-empty" >
       <div class="floor-watermark">
         <PawLogo size={80} />
       </div>
       <p class="floor-empty-text">{error}</p>
     </div>
   {:else if !hasAny}
-    <div class="floor-empty" transition:fade={{ duration: 200 }}>
+    <div class="floor-empty" >
       <div class="floor-watermark">
         <PawLogo size={80} />
       </div>
@@ -185,7 +190,7 @@
         </div>
       </section>
     {:else}
-      <div class="floor-empty" transition:fade={{ duration: 200 }}>
+      <div class="floor-empty" >
         <div class="floor-watermark">
           <PawLogo size={80} />
         </div>

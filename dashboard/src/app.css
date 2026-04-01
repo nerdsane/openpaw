@@ -109,6 +109,7 @@ body {
   color: var(--text-primary);
   background: var(--surface-base);
   min-height: 100vh;
+  overflow-y: scroll; /* prevent CLS from scrollbar appearance */
 }
 
 a {
