@@ -71,7 +71,7 @@ pub async fn run(config: Config) -> Result<()> {
     }
 
     // Register reference apps (available for install_app() but NOT auto-installed)
-    let reference_apps_dir = PathBuf::from("reference-apps");
+    let reference_apps_dir = PathBuf::from("reference-projects/deep-sci-fi");
     if reference_apps_dir.exists() {
         temper_platform::os_apps::add_os_apps_dir(reference_apps_dir);
         tracing::info!("  Reference apps directory registered (available for install)");
