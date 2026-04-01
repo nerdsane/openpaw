@@ -20,6 +20,7 @@ function flattenEntity(raw: Record<string, unknown>): Record<string, unknown> {
     _entity_id: raw.entity_id,
     _events: raw.events ?? [],
     _sequence_nr: raw.sequence_nr,
+    _total_event_count: raw.total_event_count,
     ...fields,
     ...counters,
     ...booleans,

@@ -33,6 +33,7 @@ export interface Agent {
   _entity_id?: string;
   _events?: EntityEvent[];
   _sequence_nr?: number;
+  _total_event_count?: number;
 }
 
 export interface WorkCycle {
@@ -50,6 +51,21 @@ export interface WorkCycle {
 }
 
 export interface Soul {
+  Id: string;
+  Status: string;
+  name: string;
+  description: string;
+}
+
+export interface ProjectHarness {
+  Id: string;
+  Status: string;
+  repo_url: string;
+  tech_stack: string;
+  project_name: string;
+}
+
+export interface Skill {
   Id: string;
   Status: string;
   name: string;

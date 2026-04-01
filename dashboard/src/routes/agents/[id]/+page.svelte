@@ -16,6 +16,7 @@
   let workcycle = $state<WorkCycle | null>(null);
   let loaded = $state(false);
   let error = $state<string | null>(null);
+  let taskExpanded = $state(false);
 
   let transitions = $state<Array<{ event: StateChangeEvent; snapshot?: Agent; timestamp?: string; fromStatus?: string }>>([]);
 
@@ -40,6 +41,14 @@
     if (c === 0) return '--';
     return `$${(c / 100).toFixed(4)}`;
   });
+
+  let totalEventCount = $derived(agent?._total_event_count ?? 0);
+  let displayedEventCount = $derived(transitions.length);
+  let rawEventCount = $derived(agent?._events?.length ?? 0);
+
+  let isTerminal = $derived(
+    agent ? ['Completed', 'Failed', 'Cancelled'].includes(agent.Status) : false
+  );
 
   async function fetchAgent() {
     const data = await getEntity('Agents', agentId);
@@ -68,7 +77,8 @@
           workcycle = wcs[0] as unknown as WorkCycle;
         }
       } catch { /* ignore */ }
-    // Populate transitions from historical events
+
+      // Populate transitions from historical events
       if (agent?._events && agent._events.length > 0) {
         // Filter out noisy Heartbeat events, show meaningful transitions
         const meaningful = agent._events.filter(
@@ -116,7 +126,7 @@
       transitions = [
         { event: latest, snapshot: agent ?? undefined },
         ...transitions,
-      ].slice(0, 200);
+      ].slice(0, 500);
     });
   });
 </script>
@@ -143,6 +153,41 @@
             <StatusBadge status={agent.Status} />
           </div>
         </div>
+
+        {#if isTerminal && agent.result}
+          <div class="context-section context-section--result">
+            <span class="context-label">Result</span>
+            <p class="context-result">{agent.result}</p>
+          </div>
+        {/if}
+
+        {#if isTerminal && agent.error_message}
+          <div class="context-section context-section--error">
+            <span class="context-label">Error</span>
+            <p class="context-error">{agent.error_message}</p>
+          </div>
+        {/if}
+
+        {#if workcycle}
+          <div class="context-section context-section--workcycle">
+            <span class="context-label">Work Cycle</span>
+            <a href="/entities/WorkCycle/{workcycle.Id}" class="workcycle-card">
+              <span class="workcycle-card__task">{workcycle.task_summary || 'Untitled'}</span>
+              <div class="workcycle-card__status">
+                <StatusBadge status={workcycle.Status} />
+              </div>
+              <div class="workcycle-card__gates">
+                <GatePipeline {workcycle} />
+              </div>
+              {#if workcycle.pr_url}
+                <code class="workcycle-card__pr">{workcycle.pr_url}</code>
+              {/if}
+              {#if workcycle.plan_summary}
+                <p class="workcycle-card__plan">{workcycle.plan_summary}</p>
+              {/if}
+            </a>
+          </div>
+        {/if}
 
         <div class="context-section">
           <span class="context-label">Model</span>
@@ -175,13 +220,6 @@
           <span class="context-value mono">{costDisplay}</span>
         </div>
 
-        {#if workcycle}
-          <div class="context-section">
-            <span class="context-label">Work Cycle</span>
-            <GatePipeline {workcycle} />
-          </div>
-        {/if}
-
         {#if agent.parent_agent_id}
           <div class="context-section">
             <span class="context-label">Parent</span>
@@ -212,14 +250,34 @@
         {#if agent.user_message}
           <div class="context-section">
             <span class="context-label">Task</span>
-            <p class="context-task">{agent.user_message}</p>
+            {#if agent.user_message.length > 200}
+              <p class="context-task">
+                {taskExpanded ? agent.user_message : agent.user_message.slice(0, 200) + '...'}
+              </p>
+              <button class="expand-btn" onclick={() => taskExpanded = !taskExpanded}>
+                {taskExpanded ? 'Show less' : 'Show full task'}
+              </button>
+            {:else}
+              <p class="context-task">{agent.user_message}</p>
+            {/if}
           </div>
         {/if}
       </aside>
 
-      <!-- Right Panel: Live Stream -->
+      <!-- Right Panel: Event History -->
       <section class="desk-stream">
-        <h2 class="stream-title">Live Stream</h2>
+        <div class="stream-header">
+          <h2 class="stream-title">Event History</h2>
+          {#if totalEventCount > 0}
+            <span class="stream-count">
+              Showing {displayedEventCount} of {totalEventCount} total events (heartbeats filtered)
+            </span>
+          {:else if rawEventCount > 0}
+            <span class="stream-count">
+              {displayedEventCount} events (heartbeats filtered)
+            </span>
+          {/if}
+        </div>
 
         {#if transitions.length === 0}
           <div class="stream-empty">
@@ -308,6 +366,25 @@
     gap: 4px;
   }
 
+  .context-section--result {
+    background: var(--surface-raised);
+    padding: var(--space-2);
+    border-radius: var(--radius-md);
+    border-left: 3px solid var(--status-success);
+  }
+
+  .context-section--error {
+    background: var(--surface-raised);
+    padding: var(--space-2);
+    border-radius: var(--radius-md);
+    border-left: 3px solid var(--status-error);
+  }
+
+  .context-section--workcycle {
+    padding-bottom: var(--space-2);
+    border-bottom: 1px solid var(--border);
+  }
+
   .context-section--approval {
     background: var(--surface-raised);
     padding: var(--space-2);
@@ -330,6 +407,20 @@
     font-family: var(--font-mono);
     font-size: var(--text-xs);
     color: var(--text-tertiary);
+  }
+
+  .context-result {
+    font-size: var(--text-sm);
+    color: var(--text-primary);
+    line-height: 1.5;
+    white-space: pre-wrap;
+  }
+
+  .context-error {
+    font-size: var(--text-sm);
+    color: var(--status-error);
+    line-height: 1.5;
+    white-space: pre-wrap;
   }
 
   .context-link {
@@ -360,6 +451,63 @@
     font-size: var(--text-sm);
     color: var(--text-secondary);
     line-height: 1.5;
+    white-space: pre-wrap;
+  }
+
+  .expand-btn {
+    font-size: var(--text-xs);
+    color: var(--text-tertiary);
+    padding: 2px 0;
+    text-align: left;
+    width: fit-content;
+    transition: color var(--duration-fast) var(--ease);
+  }
+
+  .expand-btn:hover {
+    color: var(--text-primary);
+  }
+
+  .workcycle-card {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: var(--space-1) var(--space-2);
+    background: var(--surface-raised);
+    border-radius: var(--radius-sm);
+    text-decoration: none;
+    color: inherit;
+    transition: background var(--duration-fast) var(--ease);
+  }
+
+  .workcycle-card:hover {
+    text-decoration: none;
+    background: var(--surface-overlay);
+  }
+
+  .workcycle-card__task {
+    font-size: var(--text-sm);
+    color: var(--text-primary);
+  }
+
+  .workcycle-card__status {
+    margin-top: 2px;
+  }
+
+  .workcycle-card__gates {
+    margin-top: 2px;
+  }
+
+  .workcycle-card__pr {
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    color: var(--text-tertiary);
+    word-break: break-all;
+  }
+
+  .workcycle-card__plan {
+    font-size: var(--text-xs);
+    color: var(--text-secondary);
+    line-height: 1.4;
   }
 
   .progress-bar {
@@ -384,11 +532,23 @@
     min-width: 0;
   }
 
+  .stream-header {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
   .stream-title {
     font-family: var(--font-sans);
     font-size: var(--text-base);
     font-weight: 500;
     color: var(--text-secondary);
+  }
+
+  .stream-count {
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    color: var(--text-tertiary);
   }
 
   .stream-empty {

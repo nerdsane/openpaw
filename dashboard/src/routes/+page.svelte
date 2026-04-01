@@ -4,11 +4,20 @@
   import { loadAgents, agents, activeAgents } from '$lib/stores/agents';
   import { connectSSE, disconnectSSE, events } from '$lib/sse';
   import { refreshAgent } from '$lib/stores/agents';
+  import { queryEntities } from '$lib/api';
+  import type { ProjectHarness, Soul, WorkCycle, Skill } from '$lib/types';
   import AgentCard from '$lib/components/AgentCard.svelte';
+  import GatePipeline from '$lib/components/GatePipeline.svelte';
+  import StatusBadge from '$lib/components/StatusBadge.svelte';
   import PawLogo from '$lib/components/PawLogo.svelte';
 
   let loaded = $state(false);
   let error = $state<string | null>(null);
+
+  let projects = $state<ProjectHarness[]>([]);
+  let souls = $state<Soul[]>([]);
+  let workcycles = $state<WorkCycle[]>([]);
+  let skills = $state<Skill[]>([]);
 
   onMount(async () => {
     try {
@@ -18,6 +27,12 @@
     }
     loaded = true;
     connectSSE();
+
+    // Load project context (non-blocking)
+    try { projects = (await queryEntities('ProjectHarnesses', undefined, undefined, 10)) as unknown as ProjectHarness[]; } catch { /* may not exist */ }
+    try { souls = (await queryEntities('Souls', undefined, undefined, 20)) as unknown as Soul[]; } catch { /* may not exist */ }
+    try { workcycles = (await queryEntities('WorkCycles', undefined, 'SequenceNr desc', 20)) as unknown as WorkCycle[]; } catch { /* may not exist */ }
+    try { skills = (await queryEntities('Skills', undefined, undefined, 20)) as unknown as Skill[]; } catch { /* may not exist */ }
   });
 
   onDestroy(() => {
@@ -44,6 +59,14 @@
   let hasActive = $derived($activeAgents.length > 0);
   let hasCompleted = $derived(completedAgents.length > 0);
   let hasAny = $derived($agents.length > 0);
+  let hasContext = $derived(projects.length > 0 || souls.length > 0 || workcycles.length > 0);
+
+  let activeWorkCycles = $derived(
+    workcycles.filter((w) => !['Completed', 'Failed', 'Cancelled'].includes(w.Status))
+  );
+  let recentWorkCycles = $derived(
+    workcycles.filter((w) => ['Completed', 'Failed', 'Cancelled'].includes(w.Status)).slice(0, 5)
+  );
 </script>
 
 <div class="floor">
@@ -51,6 +74,87 @@
     <h1>Operations Floor</h1>
     <p class="floor-subtitle">All agents across projects</p>
   </header>
+
+  {#if hasContext}
+    <section class="project-context">
+      {#if projects.length > 0}
+        <div class="context-block">
+          <h2 class="context-heading">Project</h2>
+          {#each projects as project (project.Id)}
+            <div class="project-card card">
+              <div class="project-card__name">{project.project_name || project.Id}</div>
+              {#if project.repo_url}
+                <code class="project-card__url">{project.repo_url}</code>
+              {/if}
+              {#if project.tech_stack}
+                <span class="project-card__stack">{project.tech_stack}</span>
+              {/if}
+              <div class="project-card__status">
+                <StatusBadge status={project.Status} />
+              </div>
+            </div>
+          {/each}
+        </div>
+      {/if}
+
+      {#if souls.length > 0}
+        <div class="context-block">
+          <h2 class="context-heading">Team</h2>
+          <div class="team-roster">
+            {#each souls as soul (soul.Id)}
+              <div class="team-member">
+                <span class="team-member__name">{soul.name || soul.Id}</span>
+                {#if soul.description}
+                  <span class="team-member__desc">{soul.description}</span>
+                {/if}
+              </div>
+            {/each}
+          </div>
+        </div>
+      {/if}
+
+      {#if activeWorkCycles.length > 0}
+        <div class="context-block">
+          <h2 class="context-heading">Active Work Cycles</h2>
+          <div class="workcycle-list">
+            {#each activeWorkCycles as wc (wc.Id)}
+              <a href="/entities/WorkCycle/{wc.Id}" class="workcycle-row card">
+                <div class="workcycle-row__top">
+                  <span class="workcycle-row__task">{wc.task_summary || 'Untitled cycle'}</span>
+                  <StatusBadge status={wc.Status} />
+                </div>
+                <div class="workcycle-row__gates">
+                  <GatePipeline workcycle={wc} />
+                </div>
+                {#if wc.pr_url}
+                  <code class="workcycle-row__pr">{wc.pr_url}</code>
+                {/if}
+              </a>
+            {/each}
+          </div>
+        </div>
+      {/if}
+
+      {#if recentWorkCycles.length > 0}
+        <div class="context-block">
+          <h2 class="context-heading">Recent Work Cycles</h2>
+          <div class="workcycle-list">
+            {#each recentWorkCycles as wc (wc.Id)}
+              <a href="/entities/WorkCycle/{wc.Id}" class="workcycle-row workcycle-row--dimmed card">
+                <div class="workcycle-row__top">
+                  <span class="workcycle-row__task">{wc.task_summary || 'Untitled cycle'}</span>
+                  <StatusBadge status={wc.Status} />
+                </div>
+                <div class="workcycle-row__gates">
+                  <GatePipeline workcycle={wc} />
+                </div>
+              </a>
+            {/each}
+          </div>
+        </div>
+      {/if}
+    </section>
+  {/if}
 
   {#if !loaded}
     <div class="floor-empty" transition:fade={{ duration: 200 }}>
@@ -73,6 +177,7 @@
   {:else}
     {#if hasActive}
       <section class="floor-section">
+        <h2 class="floor-section-title">Active Agents</h2>
         <div class="floor-grid">
           {#each $activeAgents as agent (agent.Id)}
             <AgentCard {agent} />
@@ -162,6 +267,132 @@
 
   .floor-grid--dimmed {
     opacity: 0.6;
+  }
+
+  /* Project Context */
+  .project-context {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+    padding-bottom: var(--space-4);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .context-block {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  .context-heading {
+    font-family: var(--font-serif);
+    font-size: var(--text-base);
+    font-weight: 500;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-size: 0.6875rem;
+  }
+
+  .project-card {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .project-card__name {
+    font-size: var(--text-sm);
+    font-weight: 500;
+    color: var(--text-primary);
+  }
+
+  .project-card__url {
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    color: var(--text-tertiary);
+    word-break: break-all;
+  }
+
+  .project-card__stack {
+    font-size: var(--text-xs);
+    color: var(--text-secondary);
+  }
+
+  .project-card__status {
+    margin-top: 2px;
+  }
+
+  .team-roster {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+  }
+
+  .team-member {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: var(--space-1) var(--space-2);
+    background: var(--surface-raised);
+    border-radius: var(--radius-sm);
+  }
+
+  .team-member__name {
+    font-size: var(--text-sm);
+    color: var(--text-primary);
+    font-weight: 500;
+  }
+
+  .team-member__desc {
+    font-size: var(--text-xs);
+    color: var(--text-tertiary);
+  }
+
+  .workcycle-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+
+  .workcycle-row {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    text-decoration: none;
+    color: inherit;
+    transition: transform var(--duration-fast) var(--ease);
+  }
+
+  .workcycle-row:hover {
+    text-decoration: none;
+    transform: translateY(-1px);
+  }
+
+  .workcycle-row--dimmed {
+    opacity: 0.6;
+  }
+
+  .workcycle-row__top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+  }
+
+  .workcycle-row__task {
+    font-size: var(--text-sm);
+    color: var(--text-primary);
+  }
+
+  .workcycle-row__gates {
+    margin-top: 2px;
+  }
+
+  .workcycle-row__pr {
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    color: var(--text-tertiary);
+    word-break: break-all;
   }
 
   @media (max-width: 700px) {
