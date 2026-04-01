@@ -44,7 +44,7 @@
     flex-shrink: 0;
     display: flex;
     flex-direction: column;
-    padding: var(--space-3) var(--space-2);
+    padding: var(--space-2) var(--space-2);
     border-right: 1px solid var(--border);
     background: var(--surface-base);
     position: fixed;
@@ -58,7 +58,7 @@
     display: flex;
     align-items: center;
     gap: var(--space-1);
-    padding-bottom: var(--space-3);
+    padding-bottom: var(--space-2);
     color: var(--text-primary);
   }
 
@@ -104,6 +104,6 @@
     flex: 1;
     margin-left: var(--sidebar-width);
     max-width: var(--content-max);
-    padding: var(--space-6) var(--space-4);
+    padding: var(--space-4) var(--space-3);
   }
 </style>

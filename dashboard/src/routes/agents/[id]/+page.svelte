@@ -348,15 +348,15 @@
 
   .desk-layout {
     display: flex;
-    gap: var(--space-4);
+    gap: var(--space-3);
   }
 
   .desk-context {
-    width: 320px;
+    width: 300px;
     flex-shrink: 0;
     display: flex;
     flex-direction: column;
-    gap: var(--space-2);
+    gap: 10px;
   }
 
   .context-header {
@@ -388,17 +388,13 @@
   }
 
   .context-section--result {
-    background: var(--surface-raised);
+    background: rgba(61, 122, 61, 0.06);
     padding: var(--space-2);
-    border-radius: var(--radius-md);
-    border-left: 3px solid var(--status-success);
   }
 
   .context-section--error {
-    background: var(--surface-raised);
+    background: rgba(139, 58, 58, 0.06);
     padding: var(--space-2);
-    border-radius: var(--radius-md);
-    border-left: 3px solid var(--status-error);
   }
 
   .context-section--workcycle {

@@ -335,10 +335,10 @@
 </div>
 
 <style>
-  .page { display: flex; flex-direction: column; gap: var(--space-4); }
+  .page { display: flex; flex-direction: column; gap: var(--space-3); }
   .subtitle { color: var(--text-secondary); font-size: var(--text-sm); }
 
-  .section { display: flex; flex-direction: column; gap: var(--space-2); }
+  .section { display: flex; flex-direction: column; gap: 8px; }
   .section-title { font-size: var(--text-lg); }
   .section-desc { font-size: var(--text-xs); color: var(--text-tertiary); margin-bottom: var(--space-1); }
 
@@ -350,7 +350,7 @@
   .card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: var(--space-2); }
   .card {
     display: flex; flex-direction: column; gap: 6px;
-    padding: var(--space-2); background: var(--surface-raised); border-radius: var(--radius-md);
+    padding: 10px; background: var(--surface-raised);
   }
   .card-header { display: flex; align-items: center; gap: var(--space-1); }
   .card-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
@@ -363,7 +363,7 @@
   .list-row { border-bottom: 1px solid var(--border); }
   .list-header {
     display: flex; align-items: center; gap: var(--space-1);
-    padding: var(--space-2) 0; cursor: pointer;
+    padding: 8px 0; cursor: pointer;
     transition: background var(--duration-fast) var(--ease);
   }
   .list-header:hover { background: var(--brand-subtle); }
@@ -378,7 +378,7 @@
   .agent-links { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
   .agent-link {
     display: flex; align-items: center; gap: var(--space-1);
-    padding: 4px var(--space-1); border-radius: var(--radius-sm);
+    padding: 4px var(--space-1);
     text-decoration: none; color: inherit;
     transition: background var(--duration-fast) var(--ease);
   }
@@ -387,22 +387,22 @@
 
   /* Detail panels */
   .list-detail {
-    padding: var(--space-2) var(--space-3); background: var(--surface-raised);
-    border-radius: var(--radius-md); margin-bottom: var(--space-1);
+    padding: 10px var(--space-2); background: var(--surface-raised);
+    margin-bottom: 4px;
   }
   .detail-grid { display: grid; grid-template-columns: 120px 1fr; gap: 6px var(--space-2); align-items: baseline; }
   .detail-label { font-size: 0.625rem; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.05em; }
   .detail-value { font-size: var(--text-sm); color: var(--text-primary); word-break: break-all; }
   .detail-pre {
     font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-secondary);
-    background: var(--surface-overlay); padding: var(--space-2); border-radius: var(--radius-sm);
+    background: var(--surface-overlay); padding: 10px;
     white-space: pre-wrap; overflow-x: auto; max-height: 300px; overflow-y: auto; grid-column: 1 / -1;
   }
 
   /* Tool tags */
   .tool-tag {
     font-family: var(--font-mono); font-size: 0.625rem; color: var(--text-secondary);
-    background: var(--surface-overlay); padding: 1px 6px; border-radius: var(--radius-sm);
+    background: var(--surface-overlay); padding: 1px 6px;
   }
 
   /* WorkCycle inline */

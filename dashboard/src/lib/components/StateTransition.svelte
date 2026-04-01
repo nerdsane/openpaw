@@ -99,8 +99,8 @@
   .transition {
     display: flex;
     flex-direction: column;
-    gap: 6px;
-    padding: var(--space-2) 0;
+    gap: 4px;
+    padding: 8px 0;
     border-bottom: 1px solid var(--border);
   }
 

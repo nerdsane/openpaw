@@ -210,7 +210,7 @@
   .floor {
     display: flex;
     flex-direction: column;
-    gap: var(--space-4);
+    gap: var(--space-3);
   }
 
   .floor-header {
@@ -251,7 +251,7 @@
   }
 
   .floor-section--recent {
-    margin-top: var(--space-4);
+    margin-top: var(--space-3);
   }
 
   .floor-section-title {
@@ -261,8 +261,8 @@
 
   .floor-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-    gap: var(--space-2);
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 8px;
   }
 
   .floor-grid--dimmed {
@@ -273,15 +273,15 @@
   .project-context {
     display: flex;
     flex-direction: column;
-    gap: var(--space-4);
-    padding-bottom: var(--space-4);
+    gap: var(--space-3);
+    padding-bottom: var(--space-3);
     border-bottom: 1px solid var(--border);
   }
 
   .context-block {
     display: flex;
     flex-direction: column;
-    gap: var(--space-2);
+    gap: 8px;
   }
 
   .context-heading {
@@ -325,16 +325,15 @@
   .team-roster {
     display: flex;
     flex-wrap: wrap;
-    gap: var(--space-2);
+    gap: 8px;
   }
 
   .team-member {
     display: flex;
     flex-direction: column;
     gap: 2px;
-    padding: var(--space-1) var(--space-2);
+    padding: 6px 10px;
     background: var(--surface-raised);
-    border-radius: var(--radius-sm);
   }
 
   .team-member__name {

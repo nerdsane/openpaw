@@ -112,54 +112,17 @@
   .agent-card {
     display: flex;
     flex-direction: column;
-    gap: var(--space-1);
+    gap: 6px;
+    padding: 10px;
     text-decoration: none;
     color: inherit;
-    transition: box-shadow var(--duration-fast) var(--ease),
-                transform var(--duration-fast) var(--ease);
+    transition: background var(--duration-fast) var(--ease);
     position: relative;
-    overflow: hidden;
   }
 
   .agent-card:hover {
     text-decoration: none;
-    transform: translateY(-1px);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
-  }
-
-  .agent-card--active::before {
-    content: '';
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    width: 120%;
-    height: 120%;
-    transform: translate(-50%, -50%);
-    border-radius: 50%;
-    background: radial-gradient(
-      circle,
-      var(--status-active) 0%,
-      transparent 70%
-    );
-    opacity: 0;
-    animation: pulse-glow 3s ease-in-out infinite;
-    pointer-events: none;
-  }
-
-  @keyframes pulse-glow {
-    0%, 100% {
-      opacity: 0;
-    }
-    50% {
-      opacity: 0.04;
-    }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .agent-card--active::before {
-      animation: none;
-      opacity: 0.02;
-    }
+    background: var(--surface-overlay);
   }
 
   .agent-card__header {
@@ -183,13 +146,12 @@
     font-size: var(--text-sm);
     color: var(--text-secondary);
     line-height: 1.5;
-    margin-top: 4px;
   }
 
   .agent-card__stats {
     display: flex;
     gap: var(--space-2);
-    margin-top: var(--space-1);
+    margin-top: 2px;
   }
 
   .stat {
@@ -214,6 +176,5 @@
   .agent-card__time {
     font-size: var(--text-xs);
     color: var(--text-tertiary);
-    margin-top: 4px;
   }
 </style>
