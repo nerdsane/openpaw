@@ -89,7 +89,9 @@
         <div class="field-row">
           <span class="field-key">{key}</span>
           <div class="field-value">
-            {#if isJsonLike(value)}
+            {#if typeof value === 'object' && value !== null}
+              <pre class="field-json">{JSON.stringify(value, null, 2)}</pre>
+            {:else if isJsonLike(value)}
               <pre class="field-json">{formatJson(value as string)}</pre>
             {:else if isLongString(value) && !expandedFields.has(key)}
               <span class="field-text">{(value as string).slice(0, 120)}...</span>

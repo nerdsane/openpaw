@@ -11,11 +11,28 @@
     passed: boolean;
   }
 
+  /**
+   * Derive gates GENERICALLY from any boolean field ending in _ok, _passed,
+   * or matching known gate patterns like has_plan. No hardcoded gate names.
+   */
   let gates = $derived.by((): Gate[] => {
-    return [
-      { key: 'has_plan', label: 'Plan', passed: !!workcycle.has_plan },
-      { key: 'tests_passed', label: 'Tests', passed: !!workcycle.tests_passed },
-    ];
+    const wc = workcycle as unknown as Record<string, unknown>;
+    const result: Gate[] = [];
+    for (const [key, val] of Object.entries(wc)) {
+      if (key.startsWith('_') || key === 'Id' || key === 'Status') continue;
+      // Match boolean gate fields: *_ok, *_passed, has_*
+      if (typeof val === 'boolean' && (key.endsWith('_ok') || key.endsWith('_passed') || key.startsWith('has_'))) {
+        // Derive a human-readable label from the key
+        const label = key
+          .replace(/_ok$/, '')
+          .replace(/_passed$/, '')
+          .replace(/^has_/, '')
+          .replace(/_/g, ' ')
+          .replace(/\b\w/g, (c) => c.toUpperCase());
+        result.push({ key, label, passed: !!val });
+      }
+    }
+    return result;
   });
 </script>
 
@@ -62,11 +79,11 @@
   }
 
   .gate-dot--passed {
-    background: var(--status-success);
+    background: #4ade80;
   }
 
   .gate-dot--failed {
-    background: var(--status-error);
+    background: #f87171;
   }
 
   .gate-ring {
@@ -74,18 +91,18 @@
     width: 10px;
     height: 10px;
     border-radius: 50%;
-    border: 1.5px solid var(--status-idle);
+    border: 1.5px solid #6b7280;
   }
 
   .gate-line {
     width: 32px;
     height: 1.5px;
-    background: var(--status-idle);
+    background: #6b7280;
     margin-bottom: 18px; /* align with the dot, not the label */
   }
 
   .gate-line--passed {
-    background: var(--status-success);
+    background: #4ade80;
   }
 
   .gate-label {

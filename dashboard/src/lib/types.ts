@@ -53,9 +53,13 @@ export interface WorkCycle {
 export interface Soul {
   Id: string;
   Status: string;
+  /** Lowercase variant — populated by flattenEntity from the `fields` bag. */
   name: string;
+  /** PascalCase variant — some Temper schemas use this form. Keep both for compatibility. */
   Name: string;
+  /** Lowercase variant — populated by flattenEntity from the `fields` bag. */
   description: string;
+  /** PascalCase variant — some Temper schemas use this form. Keep both for compatibility. */
   Description: string;
   ContentFileId: string;
 }
@@ -72,9 +76,13 @@ export interface ProjectHarness {
 export interface Skill {
   Id: string;
   Status: string;
+  /** Lowercase variant — populated by flattenEntity from the `fields` bag. */
   name: string;
+  /** PascalCase variant — some Temper schemas use this form. Keep both for compatibility. */
   Name: string;
+  /** Lowercase variant — populated by flattenEntity from the `fields` bag. */
   description: string;
+  /** PascalCase variant — some Temper schemas use this form. Keep both for compatibility. */
   Description: string;
   content_file_id: string;
   scope: string;

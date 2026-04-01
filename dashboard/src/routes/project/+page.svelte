@@ -4,7 +4,7 @@
   import { fetchDecisions, fetchPolicies, queryEntities, fetchFileContent, type PendingDecision, type PolicyEntry } from '$lib/api';
   import StatusBadge from '$lib/components/StatusBadge.svelte';
   import GatePipeline from '$lib/components/GatePipeline.svelte';
-  import type { WorkCycle } from '$lib/types';
+  import type { WorkCycle, Soul, Skill } from '$lib/types';
 
   let loaded = $state(false);
 
@@ -19,20 +19,14 @@
   // Expandable
   let expandedHarness = $state<string | null>(null);
   let expandedPolicy = $state<string | null>(null);
-  let expandedSoul = $state<string | null>(null);
-  let expandedSkill = $state<string | null>(null);
+  let expandedRoleSoul = $state<string | null>(null);
+  let expandedRoleSkill = $state<string | null>(null);
+  let harnessConventionsExpanded = $state(false);
 
   // File content cache for souls and skills
   let fileContentCache = $state<Record<string, string>>({});
 
-  async function toggleFileContent(id: string, fileId: string, setter: 'soul' | 'skill') {
-    if (setter === 'soul') {
-      if (expandedSoul === id) { expandedSoul = null; return; }
-      expandedSoul = id;
-    } else {
-      if (expandedSkill === id) { expandedSkill = null; return; }
-      expandedSkill = id;
-    }
+  async function loadFileContent(id: string, fileId: string): Promise<void> {
     if (fileId && !fileContentCache[id]) {
       const content = await fetchFileContent(fileId);
       fileContentCache = { ...fileContentCache, [id]: content };
@@ -72,6 +66,152 @@
     if (['Thinking', 'Executing', 'InProgress', 'Planning'].includes(status)) return 'var(--status-active)';
     return 'var(--status-idle)';
   }
+
+  // ---------- Team Roles (derived, generic) ----------
+
+  interface TeamRole {
+    name: string;
+    description: string;
+    soul: Record<string, unknown> | null;
+    skills: Record<string, unknown>[];
+    soulFileId: string;
+  }
+
+  let teamRoles = $derived.by((): TeamRole[] => {
+    const roles: TeamRole[] = [];
+    const matchedSkillIds = new Set<string>();
+
+    // For each Soul: create a role entry and attach matching skills
+    for (const soul of souls) {
+      const soulName = field(soul, 'Name') || field(soul, 'name') || field(soul, 'Id');
+      const soulId = field(soul, 'Id');
+      const matchingSkills = skills.filter((sk) => {
+        const filter = field(sk, 'agent_filter');
+        if (!filter) return false;
+        // Match if filter contains soul name or soul id
+        return filter.includes(soulName) || filter.includes(soulId);
+      });
+      for (const sk of matchingSkills) {
+        matchedSkillIds.add(field(sk, 'Id'));
+      }
+      roles.push({
+        name: soulName,
+        description: field(soul, 'Description') || field(soul, 'description') || '',
+        soul,
+        skills: matchingSkills,
+        soulFileId: field(soul, 'ContentFileId') || field(soul, 'content_file_id'),
+      });
+    }
+
+    // Skills with an agent_filter that didn't match any Soul
+    const unmatchedFilteredSkills = skills.filter((sk) => {
+      const filter = field(sk, 'agent_filter');
+      return filter && !matchedSkillIds.has(field(sk, 'Id'));
+    });
+    for (const sk of unmatchedFilteredSkills) {
+      matchedSkillIds.add(field(sk, 'Id'));
+      roles.push({
+        name: field(sk, 'Name') || field(sk, 'name') || field(sk, 'Id'),
+        description: field(sk, 'Description') || field(sk, 'description') || '',
+        soul: null,
+        skills: [sk],
+        soulFileId: '',
+      });
+    }
+
+    return roles;
+  });
+
+  // Global skills (empty agent_filter)
+  let sharedSkills = $derived(
+    skills.filter((sk) => !field(sk, 'agent_filter'))
+  );
+
+  // ---------- Harness Flow Diagram (derived, generic) ----------
+
+  /** All known WorkCycle states in order. Derived from actual status values observed. */
+  const KNOWN_STATE_ORDER = ['Planning', 'Planned', 'InProgress', 'Testing', 'Reviewing', 'Complete', 'Completed', 'Failed', 'Cancelled'];
+
+  let activeWorkCycle = $derived.by((): Record<string, unknown> | null => {
+    // Most recent non-terminal work cycle
+    const active = workCycles.find(
+      (wc) => !['Completed', 'Complete', 'Failed', 'Cancelled'].includes(field(wc, 'Status'))
+    );
+    return active ?? (workCycles.length > 0 ? workCycles[0] : null);
+  });
+
+  interface HarnessGate {
+    key: string;
+    label: string;
+    passed: boolean;
+  }
+
+  /** Extract gate fields generically from any boolean fields ending in _ok, _passed, or starting with has_ */
+  function extractGates(wc: Record<string, unknown>): HarnessGate[] {
+    const result: HarnessGate[] = [];
+    for (const [key, val] of Object.entries(wc)) {
+      if (key.startsWith('_') || key === 'Id' || key === 'Status') continue;
+      if (typeof val === 'boolean' && (key.endsWith('_ok') || key.endsWith('_passed') || key.startsWith('has_'))) {
+        const label = key
+          .replace(/_ok$/, '')
+          .replace(/_passed$/, '')
+          .replace(/^has_/, '')
+          .replace(/_/g, ' ')
+          .replace(/\b\w/g, (c) => c.toUpperCase());
+        result.push({ key, label, passed: !!val });
+      }
+    }
+    return result;
+  }
+
+  let harnessGates = $derived(activeWorkCycle ? extractGates(activeWorkCycle) : []);
+
+  /** Build the state flow steps. Split gates into level 1 (before Testing) and level 2 (before Reviewing). */
+  interface FlowStep {
+    type: 'state' | 'gates';
+    label: string;
+    active: boolean;
+    gates?: HarnessGate[];
+  }
+
+  let harnessFlow = $derived.by((): FlowStep[] => {
+    if (!activeWorkCycle) return [];
+    const currentStatus = field(activeWorkCycle, 'Status');
+    const statusIdx = KNOWN_STATE_ORDER.indexOf(currentStatus);
+
+    // Split gates into two levels based on position
+    const midpoint = Math.ceil(harnessGates.length / 2);
+    const level1Gates = harnessGates.slice(0, midpoint);
+    const level2Gates = harnessGates.slice(midpoint);
+
+    const steps: FlowStep[] = [];
+    const flowStates = ['Planning', 'Planned', 'InProgress'];
+
+    for (const s of flowStates) {
+      steps.push({ type: 'state', label: s, active: currentStatus === s });
+    }
+
+    if (level1Gates.length > 0) {
+      steps.push({ type: 'gates', label: 'Level 1 Gates', active: false, gates: level1Gates });
+    }
+
+    steps.push({ type: 'state', label: 'Testing', active: currentStatus === 'Testing' });
+
+    if (level2Gates.length > 0) {
+      steps.push({ type: 'gates', label: 'Level 2 Gates', active: false, gates: level2Gates });
+    }
+
+    steps.push({ type: 'state', label: 'Reviewing', active: currentStatus === 'Reviewing' });
+    steps.push({ type: 'state', label: 'Complete', active: currentStatus === 'Complete' || currentStatus === 'Completed' });
+
+    return steps;
+  });
+
+  // Conventions text from the harness
+  let conventionsText = $derived.by((): string => {
+    if (harnesses.length === 0) return '';
+    return field(harnesses[0], 'conventions') || '';
+  });
 </script>
 
 <div class="page">
@@ -125,75 +265,165 @@
       {/if}
     </section>
 
-    <!-- TEAM -->
-    <section class="section">
-      <h2 class="section-title">Team</h2>
-      <p class="section-desc">Souls define agent identities and what roles they can take</p>
-      {#if souls.length === 0}
-        <p class="empty-text">No souls configured</p>
-      {:else}
-        <div class="card-grid">
-          {#each souls as soul (field(soul, 'Id'))}
-            {@const soulId = field(soul, 'Id')}
-            {@const soulFileId = field(soul, 'ContentFileId') || field(soul, 'content_file_id')}
-            <div class="card">
-              <div class="card-header">
-                <span class="card-dot" style:background={statusColor(field(soul, 'Status'))}></span>
-                <span class="card-name">{field(soul, 'Name') || field(soul, 'name') || 'Unnamed'}</span>
-                <code class="card-id">{shortId(soulId)}</code>
-              </div>
-              <p class="card-desc">{field(soul, 'Description') || field(soul, 'description') || '--'}</p>
-              <StatusBadge status={field(soul, 'Status')} />
-              {#if soulFileId}
-                <button class="view-btn" onclick={() => toggleFileContent(soulId, soulFileId, 'soul')}>
-                  {expandedSoul === soulId ? 'Hide Soul' : 'View Soul'}
-                </button>
-              {/if}
-              {#if expandedSoul === soulId && fileContentCache[soulId]}
-                <pre class="file-content" transition:slide={{ duration: 150 }}>{fileContentCache[soulId]}</pre>
-              {/if}
-            </div>
-          {/each}
-        </div>
-      {/if}
-    </section>
+    <!-- HARNESS FLOW DIAGRAM -->
+    {#if activeWorkCycle}
+      <section class="section">
+        <h2 class="section-title">Harness Flow</h2>
+        <p class="section-desc">Current work cycle state progression with gate enforcement</p>
 
-    <!-- SKILLS -->
+        <div class="harness-flow-wrapper">
+          <div class="harness-flow">
+            {#each harnessFlow as step, i}
+              {#if step.type === 'state'}
+                <div class="flow-state" class:flow-state--active={step.active}>
+                  <span class="flow-state__label">{step.label}</span>
+                </div>
+              {:else if step.type === 'gates' && step.gates}
+                <div class="flow-gates">
+                  <span class="flow-gates__label">{step.label}</span>
+                  <div class="flow-gates__badges">
+                    {#each step.gates as gate}
+                      <span class="gate-badge" class:gate-badge--passed={gate.passed} class:gate-badge--pending={!gate.passed}>
+                        {#if gate.passed}
+                          <span class="gate-icon gate-icon--check">&#10003;</span>
+                        {:else}
+                          <span class="gate-icon gate-icon--pending">&#9679;</span>
+                        {/if}
+                        {gate.label}
+                      </span>
+                    {/each}
+                  </div>
+                </div>
+              {/if}
+              {#if i < harnessFlow.length - 1}
+                <span class="flow-arrow">&rarr;</span>
+              {/if}
+            {/each}
+          </div>
+        </div>
+
+        <div class="harness-meta">
+          <span class="harness-meta__item">
+            <strong>Cycle:</strong> {field(activeWorkCycle, 'task_summary') || shortId(field(activeWorkCycle, 'Id'))}
+          </span>
+          <StatusBadge status={field(activeWorkCycle, 'Status')} />
+        </div>
+
+        {#if conventionsText}
+          <button class="expand-toggle" onclick={() => harnessConventionsExpanded = !harnessConventionsExpanded}>
+            {harnessConventionsExpanded ? 'Hide' : 'Show'} harness conventions
+          </button>
+          {#if harnessConventionsExpanded}
+            <pre class="conventions-pre" transition:slide={{ duration: 150 }}>{conventionsText}</pre>
+          {/if}
+        {/if}
+      </section>
+    {/if}
+
+    <!-- TEAM COMPOSITION -->
     <section class="section">
-      <h2 class="section-title">Skills</h2>
-      <p class="section-desc">Capabilities available to agents</p>
-      {#if skills.length === 0}
-        <p class="empty-text">No skills configured</p>
+      <h2 class="section-title">Team Composition</h2>
+      <p class="section-desc">Roles derived from souls and their associated skills</p>
+      {#if teamRoles.length === 0 && sharedSkills.length === 0}
+        <p class="empty-text">No team roles configured</p>
       {:else}
-        <div class="card-grid">
-          {#each skills as skill (field(skill, 'Id'))}
-            {@const skillId = field(skill, 'Id')}
-            {@const skillFileId = field(skill, 'content_file_id') || field(skill, 'ContentFileId')}
-            <div class="card">
-              <div class="card-header">
-                <span class="card-dot" style:background="var(--status-active)"></span>
-                <span class="card-name">{field(skill, 'Name') || field(skill, 'name') || 'Unnamed'}</span>
-              </div>
-              <p class="card-desc">{field(skill, 'Description') || field(skill, 'description') || '--'}</p>
-              <div class="card-meta-row">
-                {#if field(skill, 'scope')}
-                  <span class="meta-tag">scope: {field(skill, 'scope')}</span>
-                {/if}
-                {#if field(skill, 'agent_filter')}
-                  <span class="meta-tag">filter: {field(skill, 'agent_filter')}</span>
+        <div class="role-grid">
+          {#each teamRoles as role}
+            <div class="role-card">
+              <div class="role-card__header">
+                <span class="role-card__name">{role.name}</span>
+                {#if role.soul}
+                  <span class="role-badge role-badge--soul">Soul</span>
+                {:else}
+                  <span class="role-badge role-badge--skill">Skill-only</span>
                 {/if}
               </div>
-              {#if skillFileId}
-                <button class="view-btn" onclick={() => toggleFileContent(skillId, skillFileId, 'skill')}>
-                  {expandedSkill === skillId ? 'Hide Content' : 'View Content'}
-                </button>
+              {#if role.description}
+                <p class="role-card__desc">{role.description}</p>
               {/if}
-              {#if expandedSkill === skillId && fileContentCache[skillId]}
-                <pre class="file-content" transition:slide={{ duration: 150 }}>{fileContentCache[skillId]}</pre>
+
+              {#if role.skills.length > 0}
+                <div class="role-card__skills">
+                  {#each role.skills as sk}
+                    <span class="skill-tag">{field(sk, 'Name') || field(sk, 'name') || field(sk, 'Id')}</span>
+                  {/each}
+                </div>
               {/if}
+
+              <div class="role-card__actions">
+                {#if role.soulFileId}
+                  <button class="view-btn" onclick={async () => {
+                    const soulId = field(role.soul!, 'Id');
+                    if (expandedRoleSoul === soulId) { expandedRoleSoul = null; return; }
+                    expandedRoleSoul = soulId;
+                    await loadFileContent(soulId, role.soulFileId);
+                  }}>
+                    {expandedRoleSoul === (role.soul ? field(role.soul, 'Id') : '') ? 'Hide soul' : 'View soul'}
+                  </button>
+                {/if}
+                {#each role.skills as sk}
+                  {@const skId = field(sk, 'Id')}
+                  {@const skFileId = field(sk, 'content_file_id') || field(sk, 'ContentFileId')}
+                  {#if skFileId}
+                    <button class="view-btn" onclick={async () => {
+                      if (expandedRoleSkill === skId) { expandedRoleSkill = null; return; }
+                      expandedRoleSkill = skId;
+                      await loadFileContent(skId, skFileId);
+                    }}>
+                      {expandedRoleSkill === skId ? `Hide ${field(sk, 'name') || field(sk, 'Name') || 'skill'}` : `View ${field(sk, 'name') || field(sk, 'Name') || 'skill'}`}
+                    </button>
+                  {/if}
+                {/each}
+              </div>
+
+              {#if role.soul && expandedRoleSoul === field(role.soul, 'Id') && fileContentCache[field(role.soul, 'Id')]}
+                <pre class="file-content" transition:slide={{ duration: 150 }}>{fileContentCache[field(role.soul, 'Id')]}</pre>
+              {/if}
+              {#each role.skills as sk}
+                {@const skId = field(sk, 'Id')}
+                {#if expandedRoleSkill === skId && fileContentCache[skId]}
+                  <pre class="file-content" transition:slide={{ duration: 150 }}>{fileContentCache[skId]}</pre>
+                {/if}
+              {/each}
             </div>
           {/each}
         </div>
+
+        {#if sharedSkills.length > 0}
+          <div class="shared-skills-section">
+            <h3 class="shared-skills-title">Shared Skills</h3>
+            <p class="section-desc">Available to all agents (no agent_filter)</p>
+            <div class="shared-skills-grid">
+              {#each sharedSkills as sk}
+                {@const skId = field(sk, 'Id')}
+                {@const skFileId = field(sk, 'content_file_id') || field(sk, 'ContentFileId')}
+                <div class="shared-skill-card">
+                  <div class="shared-skill-card__header">
+                    <span class="shared-skill-card__name">{field(sk, 'Name') || field(sk, 'name') || field(sk, 'Id')}</span>
+                    {#if field(sk, 'scope')}
+                      <span class="scope-badge">{field(sk, 'scope')}</span>
+                    {/if}
+                  </div>
+                  {#if field(sk, 'Description') || field(sk, 'description')}
+                    <p class="shared-skill-card__desc">{field(sk, 'Description') || field(sk, 'description')}</p>
+                  {/if}
+                  {#if skFileId}
+                    <button class="view-btn" onclick={async () => {
+                      if (expandedRoleSkill === skId) { expandedRoleSkill = null; return; }
+                      expandedRoleSkill = skId;
+                      await loadFileContent(skId, skFileId);
+                    }}>
+                      {expandedRoleSkill === skId ? 'Hide content' : 'View content'}
+                    </button>
+                  {/if}
+                  {#if expandedRoleSkill === skId && fileContentCache[skId]}
+                    <pre class="file-content" transition:slide={{ duration: 150 }}>{fileContentCache[skId]}</pre>
+                  {/if}
+                </div>
+              {/each}
+            </div>
+          </div>
+        {/if}
       {/if}
     </section>
 
@@ -296,22 +526,272 @@
   .empty-text { color: var(--text-tertiary); font-size: var(--text-sm); }
   .empty-inline { color: var(--text-tertiary); font-size: var(--text-xs); font-style: italic; }
 
-  /* Cards grid (for souls, skills) */
-  .card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: var(--space-2); }
-  .card {
-    display: flex; flex-direction: column; gap: 6px;
-    padding: var(--space-2); background: var(--surface-raised); border-radius: var(--radius-md);
+  /* ---- Role Grid (Team Composition) ---- */
+  .role-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: var(--space-2);
   }
-  .card-header { display: flex; align-items: center; gap: var(--space-1); }
-  .card-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-  .card-name { font-size: var(--text-sm); font-weight: 600; color: var(--text-primary); }
-  .card-id { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-tertiary); }
-  .card-desc { font-size: var(--text-xs); color: var(--text-secondary); line-height: 1.4; }
-  .card-meta-row { display: flex; flex-wrap: wrap; gap: 6px; }
-  .meta-tag {
-    font-family: var(--font-mono); font-size: 0.625rem; color: var(--text-secondary);
-    background: var(--surface-overlay); padding: 1px 6px; border-radius: var(--radius-sm);
+
+  .role-card {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: var(--space-2);
+    background: var(--surface-raised);
+    border-radius: var(--radius-md);
   }
+
+  .role-card__header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+  }
+
+  .role-card__name {
+    font-size: var(--text-sm);
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  .role-badge {
+    font-size: 0.625rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    padding: 1px 6px;
+    border-radius: var(--radius-sm);
+  }
+
+  .role-badge--soul {
+    color: var(--status-active);
+    background: var(--brand-subtle);
+  }
+
+  .role-badge--skill {
+    color: var(--text-tertiary);
+    background: var(--surface-overlay);
+  }
+
+  .role-card__desc {
+    font-size: var(--text-xs);
+    color: var(--text-secondary);
+    line-height: 1.4;
+  }
+
+  .role-card__skills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .skill-tag {
+    font-family: var(--font-mono);
+    font-size: 0.625rem;
+    color: var(--text-secondary);
+    background: var(--surface-overlay);
+    padding: 2px 8px;
+    border-radius: var(--radius-sm);
+  }
+
+  .role-card__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  /* ---- Shared Skills ---- */
+  .shared-skills-section {
+    margin-top: var(--space-2);
+    padding-top: var(--space-2);
+    border-top: 1px solid var(--border);
+  }
+
+  .shared-skills-title {
+    font-size: var(--text-base);
+    color: var(--text-secondary);
+    margin-bottom: 4px;
+  }
+
+  .shared-skills-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: var(--space-2);
+  }
+
+  .shared-skill-card {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: var(--space-2);
+    background: var(--surface-raised);
+    border-radius: var(--radius-sm);
+  }
+
+  .shared-skill-card__header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+  }
+
+  .shared-skill-card__name {
+    font-size: var(--text-sm);
+    font-weight: 500;
+    color: var(--text-primary);
+  }
+
+  .scope-badge {
+    font-family: var(--font-mono);
+    font-size: 0.625rem;
+    color: var(--text-secondary);
+    background: var(--surface-overlay);
+    padding: 1px 6px;
+    border-radius: var(--radius-sm);
+  }
+
+  .shared-skill-card__desc {
+    font-size: var(--text-xs);
+    color: var(--text-tertiary);
+  }
+
+  /* ---- Harness Flow Diagram ---- */
+  .harness-flow-wrapper {
+    overflow-x: auto;
+    padding: var(--space-2) 0;
+  }
+
+  .harness-flow {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    min-width: max-content;
+  }
+
+  .flow-state {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px 16px;
+    background: var(--surface-raised);
+    border: 1.5px solid var(--border);
+    border-radius: var(--radius-md);
+    min-width: 90px;
+    text-align: center;
+  }
+
+  .flow-state--active {
+    background: var(--surface-overlay);
+    border-color: var(--status-active);
+    box-shadow: 0 0 0 2px var(--brand-subtle);
+  }
+
+  .flow-state__label {
+    font-size: var(--text-xs);
+    font-weight: 500;
+    color: var(--text-primary);
+  }
+
+  .flow-arrow {
+    color: var(--text-tertiary);
+    font-size: var(--text-sm);
+    padding: 0 6px;
+    flex-shrink: 0;
+  }
+
+  .flow-gates {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    padding: 6px 10px;
+    background: var(--surface-overlay);
+    border-radius: var(--radius-md);
+    border: 1px dashed var(--border);
+  }
+
+  .flow-gates__label {
+    font-size: 0.625rem;
+    color: var(--text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  .flow-gates__badges {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+  }
+
+  .gate-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    font-size: 0.625rem;
+    padding: 2px 6px;
+    border-radius: var(--radius-sm);
+    white-space: nowrap;
+  }
+
+  .gate-badge--passed {
+    color: #4ade80;
+    background: rgba(74, 222, 128, 0.1);
+  }
+
+  .gate-badge--pending {
+    color: #6b7280;
+    background: rgba(107, 114, 128, 0.1);
+  }
+
+  .gate-icon {
+    font-size: 0.5rem;
+    line-height: 1;
+  }
+
+  .gate-icon--check { color: #4ade80; }
+  .gate-icon--pending { color: #6b7280; }
+
+  .harness-meta {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: var(--text-xs);
+    color: var(--text-secondary);
+  }
+
+  .harness-meta__item strong {
+    color: var(--text-tertiary);
+    font-weight: 500;
+    text-transform: uppercase;
+    font-size: 0.625rem;
+    letter-spacing: 0.03em;
+  }
+
+  .expand-toggle {
+    font-size: var(--text-xs);
+    color: var(--text-secondary);
+    padding: 2px 0;
+    text-align: left;
+    width: fit-content;
+    cursor: pointer;
+    background: none;
+    border: none;
+  }
+
+  .expand-toggle:hover { color: var(--text-primary); }
+
+  .conventions-pre {
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    color: var(--text-secondary);
+    background: var(--surface-overlay);
+    padding: var(--space-2);
+    border-radius: var(--radius-sm);
+    white-space: pre-wrap;
+    overflow-x: auto;
+    max-height: 400px;
+    overflow-y: auto;
+  }
+
+  /* ---- Reused card / list styles ---- */
   .view-btn {
     font-size: var(--text-xs); color: var(--text-secondary); padding: 2px 0;
     text-align: left; width: fit-content; cursor: pointer;
@@ -364,7 +844,9 @@
   .wc-meta code { font-family: var(--font-mono); }
 
   @media (max-width: 800px) {
-    .card-grid { grid-template-columns: 1fr; }
+    .role-grid { grid-template-columns: 1fr; }
+    .shared-skills-grid { grid-template-columns: 1fr; }
     .detail-grid { grid-template-columns: 1fr; }
+    .harness-flow { flex-wrap: wrap; }
   }
 </style>

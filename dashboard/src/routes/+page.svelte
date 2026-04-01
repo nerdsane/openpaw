@@ -79,6 +79,17 @@
     }
   }
 
+  // Group skills by scope for display
+  let skillsByScope = $derived.by((): Map<string, Skill[]> => {
+    const map = new Map<string, Skill[]>();
+    for (const sk of skills) {
+      const scope = sk.scope || 'global';
+      if (!map.has(scope)) map.set(scope, []);
+      map.get(scope)!.push(sk);
+    }
+    return map;
+  });
+
   let activeWorkCycles = $derived(
     workcycles.filter((w) => !['Completed', 'Failed', 'Cancelled'].includes(w.Status))
   );
@@ -134,29 +145,34 @@
       {#if skills.length > 0}
         <div class="context-block">
           <h2 class="context-heading">Skills</h2>
-          <div class="skills-grid">
-            {#each skills as skill (skill.Id)}
-              <div class="skill-card">
-                <div class="skill-card__header" onclick={() => toggleSkillContent(skill)} role="button" tabindex="0" onkeydown={(e) => { if (e.key === 'Enter') toggleSkillContent(skill); }}>
-                  <span class="skill-card__name">{skill.name || skill.Name || skill.Id}</span>
-                  {#if skill.scope}
-                    <span class="skill-card__scope">{skill.scope}</span>
-                  {/if}
-                </div>
-                {#if skill.description || skill.Description}
-                  <span class="skill-card__desc">{skill.description || skill.Description}</span>
-                {/if}
-                {#if skill.content_file_id}
-                  <button class="skill-card__toggle" onclick={() => toggleSkillContent(skill)}>
-                    {expandedSkillId === skill.Id ? 'Hide content' : 'View content'}
-                  </button>
-                {/if}
-                {#if expandedSkillId === skill.Id && skillContentCache[skill.Id]}
-                  <pre class="skill-card__content">{skillContentCache[skill.Id]}</pre>
-                {/if}
+          {#each [...skillsByScope.entries()] as [scope, scopeSkills]}
+            <div class="skills-scope-group">
+              <span class="skills-scope-label">{scope}</span>
+              <div class="skills-grid">
+                {#each scopeSkills as skill (skill.Id)}
+                  <div class="skill-card">
+                    <div class="skill-card__header" onclick={() => toggleSkillContent(skill)} role="button" tabindex="0" onkeydown={(e) => { if (e.key === 'Enter') toggleSkillContent(skill); }}>
+                      <span class="skill-card__name">{skill.name || skill.Name || skill.Id}</span>
+                      {#if skill.agent_filter}
+                        <span class="skill-card__filter">{skill.agent_filter}</span>
+                      {/if}
+                    </div>
+                    {#if skill.description || skill.Description}
+                      <span class="skill-card__desc">{skill.description || skill.Description}</span>
+                    {/if}
+                    {#if skill.content_file_id}
+                      <button class="skill-card__toggle" onclick={() => toggleSkillContent(skill)}>
+                        {expandedSkillId === skill.Id ? 'Hide content' : 'View content'}
+                      </button>
+                    {/if}
+                    {#if expandedSkillId === skill.Id && skillContentCache[skill.Id]}
+                      <pre class="skill-card__content">{skillContentCache[skill.Id]}</pre>
+                    {/if}
+                  </div>
+                {/each}
               </div>
-            {/each}
-          </div>
+            </div>
+          {/each}
         </div>
       {/if}
 
@@ -213,6 +229,13 @@
         <PawLogo size={80} />
       </div>
       <p class="floor-empty-text">{error}</p>
+    </div>
+  {:else if !hasAny && !hasContext}
+    <div class="floor-empty" transition:fade={{ duration: 200 }}>
+      <div class="floor-watermark">
+        <PawLogo size={80} />
+      </div>
+      <p class="floor-empty-text">No data -- install the DSF apps to get started</p>
     </div>
   {:else if !hasAny}
     <div class="floor-empty" transition:fade={{ duration: 200 }}>
@@ -430,6 +453,30 @@
     background: var(--surface-overlay);
     padding: 1px 6px;
     border-radius: var(--radius-sm);
+  }
+
+  .skill-card__filter {
+    font-family: var(--font-mono);
+    font-size: 0.625rem;
+    color: var(--status-active);
+    background: var(--brand-subtle);
+    padding: 1px 6px;
+    border-radius: var(--radius-sm);
+  }
+
+  .skills-scope-group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+
+  .skills-scope-label {
+    font-family: var(--font-mono);
+    font-size: 0.625rem;
+    color: var(--text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding-left: 2px;
   }
 
   .skill-card__desc {
