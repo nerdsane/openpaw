@@ -23,6 +23,10 @@
         <Property Name="LastCheckpointAt" Type="Edm.String" />
         <Property Name="ProvisionedAt" Type="Edm.String" />
         <Property Name="ErrorMessage" Type="Edm.String" />
+        <Property Name="ToolsInstalled" Type="Edm.String" />
+        <Property Name="CredentialsScoped" Type="Edm.String" />
+        <Property Name="NetworkAllow" Type="Edm.String" />
+        <Property Name="ProjectHarnessId" Type="Edm.String" />
 
         <Action Name="Configure" IsBound="true">
           <Parameter Name="bindingParameter" Type="Paw.Compute.Computer" />
@@ -34,6 +38,10 @@
           <Parameter Name="storage_gb" Type="Edm.Int32" />
           <Parameter Name="base_image" Type="Edm.String" />
           <Parameter Name="setup_script" Type="Edm.String" />
+          <Parameter Name="tools_installed" Type="Edm.String" />
+          <Parameter Name="credentials_scoped" Type="Edm.String" />
+          <Parameter Name="network_allow" Type="Edm.String" />
+          <Parameter Name="project_harness_id" Type="Edm.String" />
         </Action>
 
         <Action Name="Provision" IsBound="true">

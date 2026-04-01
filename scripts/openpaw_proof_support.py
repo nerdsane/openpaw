@@ -20,7 +20,7 @@ from typing import Any
 
 DEFAULT_BASE_URL = "http://127.0.0.1:3467"
 DEFAULT_TENANT = "default"
-DEFAULT_MODEL = "claude-sonnet-4-20250514"
+DEFAULT_MODEL = "claude-sonnet-4-6"
 DEFAULT_REPO_URL = "https://github.com/arni-labs/deep-sci-fi.git"
 
 

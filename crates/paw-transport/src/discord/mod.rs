@@ -10,7 +10,12 @@
 pub mod types;
 
 mod gateway;
+mod observer;
 mod transport;
 
-pub use gateway::{edit_discord_message, send_discord_message, send_discord_message_with_components};
+pub use gateway::{
+    create_forum_post, edit_discord_message, edit_message, send_channel_message,
+    send_discord_message, send_discord_message_with_components, send_thread_message,
+};
+pub use observer::{ObserverConfig, run_observer};
 pub use transport::{DiscordConfig, DiscordTransport};

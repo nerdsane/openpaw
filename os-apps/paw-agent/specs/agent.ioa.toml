@@ -27,7 +27,7 @@ initial = "Created"
 [[state]]
 name = "model"
 type = "string"
-initial = "claude-sonnet-4-20250514"
+initial = "claude-sonnet-4-6"
 
 [[state]]
 name = "provider"
@@ -245,13 +245,20 @@ name = "pending_tool_context"
 type = "string"
 initial = ""
 
+# --- State Variables: Project Harness ---
+
+[[state]]
+name = "project_harness_id"
+type = "string"
+initial = ""
+
 # --- Actions: Core Agent Loop ---
 
 [[action]]
 name = "Configure"
 kind = "input"
 from = ["Created"]
-params = ["system_prompt", "user_message", "model", "provider", "max_turns", "tools_enabled", "workdir", "sandbox_url", "temper_api_url", "soul_id", "parent_agent_id", "agent_depth", "max_follow_ups", "hook_policy", "reserve_tokens", "keep_recent_tokens", "compaction_model", "heartbeat_timeout_seconds"]
+params = ["system_prompt", "user_message", "model", "provider", "max_turns", "tools_enabled", "workdir", "sandbox_url", "temper_api_url", "soul_id", "parent_agent_id", "agent_depth", "max_follow_ups", "hook_policy", "reserve_tokens", "keep_recent_tokens", "compaction_model", "heartbeat_timeout_seconds", "project_harness_id"]
 hint = "Configure agent with system prompt, user message, model, tools, soul, and optional overrides."
 
 [[action]]
@@ -512,7 +519,7 @@ anthropic_auth_mode = "auto"
 openrouter_site_url = ""
 openrouter_app_name = "openpaw-agent"
 temper_api_url = "{secret:temper_api_url}"
-timeout_secs = "300"
+timeout_secs = "600"
 max_response_bytes = "4194304"
 
 [[integration]]

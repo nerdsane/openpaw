@@ -50,7 +50,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             .config
             .get("default_agent_model")
             .cloned()
-            .unwrap_or_else(|| "claude-sonnet-4-20250514".to_string());
+            .unwrap_or_else(|| "claude-sonnet-4-6".to_string());
         let default_sre_workdir = ctx
             .config
             .get("default_sre_workdir")
@@ -257,6 +257,7 @@ ISSUE_ID=<id or empty>"
             "soul_id": "SRE",
             "temper_api_url": temper_api_url,
             "user_message": sre_message,
+            "project_harness_id": project_harness_id,
         });
         let configure_resp =
             ctx.http_call("POST", &configure_url, &headers, &configure_body.to_string())?;

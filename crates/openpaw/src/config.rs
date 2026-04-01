@@ -8,6 +8,15 @@ pub struct Config {
     /// Discord application public key for interaction signature verification.
     pub discord_public_key: Option<String>,
 
+    /// Discord guild (server) ID for observability channels.
+    pub discord_guild_id: Option<String>,
+
+    /// Discord text channel ID for the #feed stream.
+    pub discord_feed_channel_id: Option<String>,
+
+    /// Discord forum channel ID for per-agent threads.
+    pub discord_forum_channel_id: Option<String>,
+
     /// Turso database URL (local file or cloud).
     /// Default: ~/.local/share/openpaw/paw.db
     pub turso_url: Option<String>,
@@ -43,6 +52,12 @@ pub struct Config {
     /// Fly.io API token for Sprites provisioning.
     pub fly_api_token: Option<String>,
 
+    /// Railway API token for deployment integrations.
+    pub railway_token: Option<String>,
+
+    /// Vercel API token for deployment integrations.
+    pub vercel_token: Option<String>,
+
     /// Shared secret used to validate webhook request signatures.
     pub webhook_secret: Option<String>,
 
@@ -67,6 +82,9 @@ impl Config {
         Ok(Self {
             discord_bot_token: optional_env("DISCORD_BOT_TOKEN"),
             discord_public_key: optional_env("DISCORD_PUBLIC_KEY"),
+            discord_guild_id: optional_env("DISCORD_GUILD_ID"),
+            discord_feed_channel_id: optional_env("DISCORD_FEED_CHANNEL_ID"),
+            discord_forum_channel_id: optional_env("DISCORD_FORUM_CHANNEL_ID"),
             turso_url: optional_env("TURSO_URL"),
             turso_auth_token: optional_env("TURSO_AUTH_TOKEN"),
             anthropic_api_key: optional_env("ANTHROPIC_API_KEY"),
@@ -78,6 +96,8 @@ impl Config {
             temper_api_key: optional_env("TEMPER_API_KEY"),
             vault_key: optional_env("TEMPER_VAULT_KEY"),
             fly_api_token: optional_env("FLY_API_TOKEN"),
+            railway_token: optional_env("RAILWAY_TOKEN"),
+            vercel_token: optional_env("VERCEL_TOKEN"),
             webhook_secret: optional_env("WEBHOOK_SECRET"),
             otel_enabled: std::env::var("OTEL_ENABLED")
                 .map(|v| v != "false" && v != "0")

@@ -29,6 +29,12 @@ pub struct DiscordConfig {
     pub webhook_port: u16,
     /// Discord application public key (hex) for interaction signature verification.
     pub public_key: String,
+    /// Discord guild (server) ID for observability channels.
+    pub guild_id: Option<String>,
+    /// Discord text channel ID for the #feed stream.
+    pub feed_channel_id: Option<String>,
+    /// Discord forum channel ID for per-agent threads.
+    pub forum_channel_id: Option<String>,
 }
 
 /// Discord channel transport.

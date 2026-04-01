@@ -143,7 +143,7 @@ pub(crate) fn execute(
                     fields
                         .get("model")
                         .and_then(|v| v.as_str())
-                        .unwrap_or("claude-sonnet-4-20250514")
+                        .unwrap_or("claude-sonnet-4-6")
                 });
             let provider = input
                 .get("provider")

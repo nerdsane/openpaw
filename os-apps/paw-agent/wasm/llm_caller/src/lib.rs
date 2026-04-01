@@ -40,7 +40,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         let model = fields
             .get("model")
             .and_then(|v| v.as_str())
-            .unwrap_or("claude-sonnet-4-20250514");
+            .unwrap_or("claude-sonnet-4-6");
         let provider_raw = fields
             .get("provider")
             .and_then(|v| v.as_str())
@@ -1100,7 +1100,7 @@ fn call_anthropic(
 
     let mut body = json!({
         "model": model,
-        "max_tokens": 4096,
+        "max_tokens": 16384,
         "messages": effective_messages,
     });
 
@@ -1246,7 +1246,7 @@ fn call_openrouter(
     let mut body = json!({
         "model": model,
         "messages": or_messages,
-        "max_tokens": 4096,
+        "max_tokens": 16384,
     });
     if !openai_tools.is_empty() {
         body["tools"] = json!(openai_tools);
@@ -2412,7 +2412,51 @@ fn write_session_to_temperfs(
     }
 }
 
-/// Assemble the full system prompt from soul + override + skills + memory.
+/// Load project harness conventions as a context block for the system prompt.
+/// Acts like CLAUDE.md for Claude Code — auto-injected tech stack and conventions.
+fn load_harness_block(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+    project_harness_id: &str,
+) -> Result<String, String> {
+    if project_harness_id.is_empty() {
+        return Ok(String::new());
+    }
+    let headers = agent_headers(ctx, tenant, None, Some("application/json"));
+    let url = format!(
+        "{temper_api_url}/tdata/ProjectHarnesses('{project_harness_id}')"
+    );
+    let resp = ctx.http_call("GET", &url, &headers, "")?;
+    if resp.status != 200 {
+        ctx.log(
+            "warn",
+            &format!(
+                "load_harness_block: failed to fetch harness {project_harness_id} (HTTP {})",
+                resp.status
+            ),
+        );
+        return Ok(String::new());
+    }
+    let parsed: Value = serde_json::from_str(&resp.body).unwrap_or(json!({}));
+    let tech_stack = entity_field_str(&parsed, &["TechStack", "tech_stack"]).unwrap_or("");
+    let conventions = entity_field_str(&parsed, &["Conventions", "conventions"]).unwrap_or("");
+    if tech_stack.is_empty() && conventions.is_empty() {
+        return Ok(String::new());
+    }
+    let id_attr = entity_field_str(&parsed, &["Id", "id"]).unwrap_or(project_harness_id);
+    let mut block = format!("<project_harness id=\"{id_attr}\">\n");
+    if !tech_stack.is_empty() {
+        block.push_str(&format!("<tech_stack>\n{tech_stack}\n</tech_stack>\n"));
+    }
+    if !conventions.is_empty() {
+        block.push_str(&format!("<conventions>\n{conventions}\n</conventions>\n"));
+    }
+    block.push_str("</project_harness>");
+    Ok(block)
+}
+
+/// Assemble the full system prompt from soul + override + harness + skills + memory.
 fn assemble_system_prompt(
     ctx: &Context,
     temper_api_url: &str,
@@ -2437,6 +2481,23 @@ fn assemble_system_prompt(
     // 2. System prompt override
     if !system_prompt_override.is_empty() {
         parts.push(system_prompt_override.to_string());
+    }
+
+    // 2b. Project harness conventions (auto-injected like CLAUDE.md)
+    {
+        let fields_val = ctx.entity_state.get("fields");
+        let project_harness_id = fields_val
+            .and_then(|f| f.get("project_harness_id").or_else(|| f.get("ProjectHarnessId")))
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        match load_harness_block(ctx, temper_api_url, tenant, project_harness_id) {
+            Ok(block) if !block.is_empty() => parts.push(block),
+            Ok(_) => {}
+            Err(e) => ctx.log(
+                "warn",
+                &format!("assemble_system_prompt: failed to load harness: {e}"),
+            ),
+        }
     }
 
     // 3. Available skills (filtered by scope: global + soul-specific)

@@ -1,0 +1,77 @@
+# Deep-Sci-Fi ProjectHarness instance data.
+# Applied via: POST /tdata/ProjectHarnesses → Configure → Activate
+
+[instance]
+id = "deep-sci-fi"
+entity_type = "ProjectHarness"
+
+[fields]
+repo_url = "https://github.com/arni-labs/deep-sci-fi.git"
+tech_stack = """
+Frontend: Next.js 14 App Router + TypeScript + Tailwind + Drizzle ORM (Bun, Vercel)
+Backend: FastAPI + async SQLAlchemy + Alembic + PostgreSQL 15 + pgvector (Railway/Docker)
+Testing: pytest + Hypothesis DST (backend), Vitest (frontend unit), Playwright (E2E)
+Observability: Logfire (FastAPI, SQLAlchemy, asyncpg, httpx instrumentation)
+CI/CD: 5 GitHub Actions workflows (deploy, review, post-deploy-verify, feedback-fix, feedback-triage)"""
+conventions = """
+## Repository Layout
+- platform/ — Next.js frontend (App Router, RSC, Bun)
+- platform/backend/ — FastAPI backend (async SQLAlchemy, Alembic)
+- platform/e2e/ — Playwright E2E test suites (12 specs)
+- platform/backend/tests/ — pytest unit tests
+- platform/backend/tests/simulation/ — Hypothesis DST (property-based stateful tests)
+- scripts/ — Harness enforcement scripts (hooks, policy checks, verification)
+- .github/workflows/ — CI/CD pipelines
+
+## Level 1: Pre-Commit Gates
+- Migration check: models.py changes require Alembic migration
+- Review markers: code-reviewed + dst-reviewed markers required
+- Skill.md sync: API endpoint tables must match actual routes
+- DST coverage: state-mutating endpoints must have simulation tests
+- Response model coverage: changed API files must declare response_model
+- API test coverage: changed API modules must have route-prefix tests
+- Frontend→E2E mapping: changed frontend files must have E2E specs
+
+## Level 2: Pre-Push Gates
+- All Level 1 checks re-run against branch diff
+- DST simulation test with seed=0 must pass
+- DST coverage gate: fails if uncovered state-mutating endpoints detected
+
+## Level 3: CI + Post-Deploy Gates (GitHub Actions)
+- review.yml: TypeScript check, ESLint, vitest, pytest, DST (200 examples), Alembic check, Playwright E2E, schema drift detection, all policy gates
+- deploy.yml: DST tests → Alembic migrations → Vercel deploy
+- post-deploy-verify.yml: backend health, frontend health, smoke tests (7 endpoints), schema health, Logfire 500 monitoring
+- Release blocker: failed post-deploy creates GitHub issue that BLOCKS all PRs to main
+
+## Database Migrations
+- Always use Alembic: alembic revision --autogenerate -m "description"
+- PostgreSQL ENUMs must be UPPERCASE, use postgresql.ENUM with create_type=False
+- Idempotent migrations with existence checks
+
+## Testing Commands
+- Backend: cd platform/backend && pytest tests/ -x -q
+- DST: cd platform/backend && pytest tests/simulation/ -x
+- Frontend: cd platform && bun run test:run
+- E2E: cd platform && bun run test:e2e
+- Typecheck: cd platform && bun run typecheck
+
+## Commit & PR Rules
+- Conventional commits (feat:, fix:, refactor:, docs:, chore:)
+- PR against arni-labs/deep-sci-fi
+- All CI checks must pass before merge
+- Post-deploy verification must succeed or release blocker is created
+
+## Deployment
+- Frontend: Vercel (auto-deploy on push to main/staging)
+- Backend: Railway (Docker, migrations run pre-deploy)
+- Staging: staging.deep-sci-fi.world / api-staging.deep-sci-fi.world
+- Production: deep-sci-fi.world / api.deep-sci-fi.world
+
+## WorkCycle Gate Commands (MANDATORY)
+When reporting WorkCycle gates, you MUST run these exact commands and include ACTUAL output:
+- ReportMigrations: verify no models.py changes need Alembic migration, or create one
+- ReportTypecheck: run `cd platform && bun run typecheck` or `mypy` for backend-only changes
+- ReportUnitTests: run `cd platform/backend && pytest tests/ -x -q --ignore=tests/simulation`
+- ReportDst: run `cd platform/backend && pytest tests/simulation/ -x --hypothesis-seed=0` (NOT a script dry-run)
+- ReportPolicyGates: run `scripts/check_response_model_coverage.py`, `scripts/check_api_test_coverage.py`, etc.
+Do NOT fabricate gate results. Report actual command output."""

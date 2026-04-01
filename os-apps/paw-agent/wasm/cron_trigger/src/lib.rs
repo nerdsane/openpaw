@@ -20,7 +20,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         let soul_id = fields.get("soul_id").and_then(|v| v.as_str()).unwrap_or("");
         let system_prompt = fields.get("system_prompt").and_then(|v| v.as_str()).unwrap_or("");
         let user_message_template = fields.get("user_message_template").and_then(|v| v.as_str()).unwrap_or("");
-        let model = fields.get("model").and_then(|v| v.as_str()).unwrap_or("claude-sonnet-4-20250514");
+        let model = fields.get("model").and_then(|v| v.as_str()).unwrap_or("claude-sonnet-4-6");
         let provider = fields.get("provider").and_then(|v| v.as_str()).unwrap_or("anthropic");
         let tools_enabled = fields.get("tools_enabled").and_then(|v| v.as_str()).unwrap_or("read,write,edit,bash");
         let sandbox_url = fields.get("sandbox_url").and_then(|v| v.as_str()).unwrap_or("");

@@ -329,6 +329,162 @@ fn split_message(content: &str, max_len: usize) -> Vec<&str> {
     chunks
 }
 
+/// Send a message to a guild channel (for #feed).
+///
+/// Posts a message with optional embeds to a Discord text channel.
+pub async fn send_channel_message(
+    http: &reqwest::Client,
+    bot_token: &str,
+    channel_id: &str,
+    content: &str,
+    embeds: Vec<super::types::Embed>,
+) -> Result<serde_json::Value, String> {
+    let body = serde_json::json!({
+        "content": content,
+        "embeds": embeds,
+    });
+
+    let resp = http
+        .post(format!("{DISCORD_API_BASE}/channels/{channel_id}/messages"))
+        .header("Authorization", format!("Bot {bot_token}"))
+        .header("Content-Type", "application/json")
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("Discord API error: {e}"))?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        return Err(format!("Discord API returned {status}: {body}"));
+    }
+
+    resp.json::<serde_json::Value>()
+        .await
+        .map_err(|e| format!("Failed to parse Discord message response: {e}"))
+}
+
+/// Create a forum post (thread with initial message).
+///
+/// Posts to a Discord forum channel, creating a new thread with the given
+/// name, initial message content, embeds, and optional tag IDs.
+pub async fn create_forum_post(
+    http: &reqwest::Client,
+    bot_token: &str,
+    forum_channel_id: &str,
+    name: &str,
+    content: &str,
+    embeds: Vec<super::types::Embed>,
+    applied_tags: Vec<String>,
+) -> Result<super::types::ForumThreadResponse, String> {
+    let body = serde_json::json!({
+        "name": name,
+        "message": {
+            "content": content,
+            "embeds": embeds,
+        },
+        "applied_tags": applied_tags,
+    });
+
+    let resp = http
+        .post(format!("{DISCORD_API_BASE}/channels/{forum_channel_id}/threads"))
+        .header("Authorization", format!("Bot {bot_token}"))
+        .header("Content-Type", "application/json")
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("Discord API error: {e}"))?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        return Err(format!("Discord API returned {status}: {body}"));
+    }
+
+    resp.json::<super::types::ForumThreadResponse>()
+        .await
+        .map_err(|e| format!("Failed to parse forum thread response: {e}"))
+}
+
+/// Send a message to an existing thread.
+///
+/// Threads in Discord are channels, so this posts to the thread's channel ID.
+pub async fn send_thread_message(
+    http: &reqwest::Client,
+    bot_token: &str,
+    thread_id: &str,
+    content: &str,
+    embeds: Vec<super::types::Embed>,
+) -> Result<serde_json::Value, String> {
+    let body = serde_json::json!({
+        "content": content,
+        "embeds": embeds,
+    });
+
+    let resp = http
+        .post(format!("{DISCORD_API_BASE}/channels/{thread_id}/messages"))
+        .header("Authorization", format!("Bot {bot_token}"))
+        .header("Content-Type", "application/json")
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("Discord API error: {e}"))?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        return Err(format!("Discord API returned {status}: {body}"));
+    }
+
+    resp.json::<serde_json::Value>()
+        .await
+        .map_err(|e| format!("Failed to parse Discord message response: {e}"))
+}
+
+/// Edit an existing message (for updating forum post top embed).
+///
+/// Patches a message's content and/or embeds. Fields set to `None` are left unchanged.
+pub async fn edit_message(
+    http: &reqwest::Client,
+    bot_token: &str,
+    channel_id: &str,
+    message_id: &str,
+    content: Option<&str>,
+    embeds: Option<Vec<super::types::Embed>>,
+) -> Result<serde_json::Value, String> {
+    let mut body = serde_json::Map::new();
+    if let Some(c) = content {
+        body.insert("content".to_string(), serde_json::Value::String(c.to_string()));
+    }
+    if let Some(e) = embeds {
+        body.insert(
+            "embeds".to_string(),
+            serde_json::to_value(e).unwrap_or_default(),
+        );
+    }
+
+    let resp = http
+        .patch(format!(
+            "{DISCORD_API_BASE}/channels/{channel_id}/messages/{message_id}"
+        ))
+        .header("Authorization", format!("Bot {bot_token}"))
+        .header("Content-Type", "application/json")
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("Discord edit error: {e}"))?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        return Err(format!("Discord edit returned {status}: {body}"));
+    }
+
+    resp.json::<serde_json::Value>()
+        .await
+        .map_err(|e| format!("Failed to parse Discord edit response: {e}"))
+}
+
 /// Log a truncated message from a user.
 pub(crate) fn log_message(username: &str, content: &str) {
     println!(

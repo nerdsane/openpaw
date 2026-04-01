@@ -248,6 +248,20 @@ pub async fn run(config: Config) -> Result<()> {
                 let _ = vault.cache_secret(&tenant, "fly_api_token", token.clone());
             }
         }
+
+        if let Some(ref token) = config.railway_token {
+            let _ = vault.cache_secret("default", "railway_token", token.clone());
+            if tenant != "default" {
+                let _ = vault.cache_secret(&tenant, "railway_token", token.clone());
+            }
+        }
+
+        if let Some(ref token) = config.vercel_token {
+            let _ = vault.cache_secret("default", "vercel_token", token.clone());
+            if tenant != "default" {
+                let _ = vault.cache_secret(&tenant, "vercel_token", token.clone());
+            }
+        }
     }
 
     // Phase 6: Install Paw OS apps
@@ -304,19 +318,54 @@ pub async fn run(config: Config) -> Result<()> {
     let _ = state.server.listen_port.set(actual_port);
     let router = build_platform_router(state.clone());
 
+    // Serve the dashboard SPA from dashboard/build if available.
+    let router = if std::path::Path::new("dashboard/build").exists() {
+        use tower_http::services::ServeDir;
+        router.nest_service("/dashboard", ServeDir::new("dashboard/build"))
+    } else {
+        router
+    };
+
     // Spawn webhook trigger (ONE entity, ONE action per request).
     spawn_webhook_trigger(&tenant, actual_port, config.temper_api_key.clone());
+
+    // Spawn cron trigger (polls CronJobs, dispatches Trigger action on due jobs).
+    spawn_cron_trigger(&tenant, actual_port, config.temper_api_key.clone());
 
     if let Some(ref token) = config.discord_bot_token {
         spawn_discord_transport(
             token.clone(),
             config.discord_public_key.clone().unwrap_or_default(),
+            config.discord_guild_id.clone(),
+            config.discord_feed_channel_id.clone(),
+            config.discord_forum_channel_id.clone(),
             &tenant,
             actual_port,
             config.temper_api_key.clone(),
         );
     } else {
         tracing::warn!("No DISCORD_BOT_TOKEN — Discord transport not started");
+    }
+
+    // Spawn Discord observer (SSE → Discord feed/forum).
+    if config.discord_feed_channel_id.is_some() || config.discord_forum_channel_id.is_some() {
+        let observer_api = paw_transport::PawApiClient::new(paw_transport::PawApiConfig {
+            base_url: format!("http://127.0.0.1:{actual_port}"),
+            tenant: tenant.clone(),
+            api_key: config.temper_api_key.clone(),
+        });
+        let observer_config = paw_transport::discord::ObserverConfig {
+            bot_token: config.discord_bot_token.clone().unwrap_or_default(),
+            feed_channel_id: config.discord_feed_channel_id.clone(),
+            forum_channel_id: config.discord_forum_channel_id.clone(),
+        };
+        tokio::spawn(async move {
+            // Give the server a moment to start accepting connections.
+            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            if let Err(e) = paw_transport::discord::run_observer(observer_api, observer_config).await {
+                tracing::error!("Discord observer failed: {e}");
+            }
+        });
     }
 
     // Spawn background loops
@@ -766,7 +815,7 @@ async fn set_default_soul(
             let route_id = entity_id_from_json(&created).unwrap_or("");
             if !route_id.is_empty() {
                 let agent_config = serde_json::json!({
-                    "model": "claude-sonnet-4-20250514",
+                    "model": "claude-sonnet-4-6",
                     "provider": "anthropic",
                     "tools_enabled": "temper_create,temper_get,temper_list,temper_action,read_entity,save_memory,spawn_agent",
                     "max_turns": "24",
@@ -1169,8 +1218,45 @@ fn spawn_webhook_trigger(tenant: &str, port: u16, api_key: Option<String>) {
     });
 }
 
+/// Spawn the cron trigger as a background task.
+///
+/// Polls active CronJob entities and dispatches `OpenPaw.Trigger` when due.
+/// ONE entity, ONE action — everything else is WASM integrations.
+fn spawn_cron_trigger(tenant: &str, port: u16, api_key: Option<String>) {
+    use paw_transport::PawApiConfig;
+    use paw_transport::cron::{CronTrigger, CronTriggerConfig};
+
+    let tenant = tenant.to_string();
+    let api_url = format!("http://127.0.0.1:{port}");
+    tracing::info!("Cron trigger: polling every 60s (tenant={tenant})");
+
+    tokio::spawn(async move {
+        let api = paw_transport::PawApiClient::new(PawApiConfig {
+            base_url: api_url,
+            tenant,
+            api_key,
+        });
+        let config = CronTriggerConfig {
+            check_interval_secs: 60,
+        };
+        let trigger = CronTrigger::new(config, api);
+        if let Err(e) = trigger.run().await {
+            tracing::error!("Cron trigger fatal error: {e}");
+        }
+    });
+}
+
 /// Spawn the Discord channel transport.
-fn spawn_discord_transport(bot_token: String, public_key: String, tenant: &str, port: u16, api_key: Option<String>) {
+fn spawn_discord_transport(
+    bot_token: String,
+    public_key: String,
+    guild_id: Option<String>,
+    feed_channel_id: Option<String>,
+    forum_channel_id: Option<String>,
+    tenant: &str,
+    port: u16,
+    api_key: Option<String>,
+) {
     use paw_transport::PawApiConfig;
     use paw_transport::discord::types::intents;
     use paw_transport::discord::{DiscordConfig, DiscordTransport};
@@ -1190,6 +1276,9 @@ fn spawn_discord_transport(bot_token: String, public_key: String, tenant: &str, 
             public_key,
             intents: intents::DEFAULT,
             webhook_port: 3488,
+            guild_id,
+            feed_channel_id,
+            forum_channel_id,
         };
         let transport = DiscordTransport::new(config, api);
         if let Err(e) = transport.run().await {

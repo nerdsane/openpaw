@@ -11,6 +11,8 @@ use wasm_helpers::{create_content_file, runtime_headers};
 
 mod datadog;
 mod entity_tools;
+mod railway;
+mod vercel;
 
 const MAX_TOOL_RESULT_BYTES: usize = 16 * 1024;
 
@@ -45,6 +47,10 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             .and_then(|v| v.as_str())
             .unwrap_or("none");
         let soul_id = fields.get("soul_id").and_then(|v| v.as_str()).unwrap_or("");
+        let project_harness_id = fields
+            .get("project_harness_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
         let _ = send_heartbeat(&ctx, &temper_api_url, tenant);
 
         // Read pending tool calls from trigger params
@@ -96,6 +102,8 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 soul_id,
                 hook_policy,
                 tool_name,
+                &input,
+                project_harness_id,
             )? {
                 Err(error)
             } else if entity_tools::is_entity_tool(tool_name) {
@@ -386,6 +394,8 @@ fn execute_tool(
             run_bash_local(ctx, sandbox_url, command, workdir)
         }
         "datadog_query" => datadog::execute(ctx, input),
+        "railway_api" => railway::execute(ctx, input),
+        "vercel_api" => vercel::execute(ctx, input),
         unknown => Err(format!("unknown tool: {unknown}")),
     }
 }
@@ -1112,6 +1122,8 @@ fn validate_tool_input(tool_name: &str, input: &Value) -> Result<(), String> {
         "temper_list" => &["entity_set"],
         "temper_action" => &["entity_set", "entity_id", "action"],
         "run_coding_agent" => &["agent_type", "task"],
+        "railway_api" => &["action"],
+        "vercel_api" => &["action"],
         _ => &[],
     };
     for key in required {
@@ -1132,6 +1144,8 @@ fn evaluate_before_hooks(
     soul_id: &str,
     hook_policy: &str,
     tool_name: &str,
+    input: &Value,
+    project_harness_id: &str,
 ) -> Result<Option<String>, String> {
     if hook_policy == "none" || soul_id.is_empty() {
         return Ok(None);
@@ -1140,6 +1154,49 @@ fn evaluate_before_hooks(
     for hook in hooks {
         let action = entity_field_str(&hook, &["HookAction"]).unwrap_or("log");
         let name = entity_field_str(&hook, &["Name"]).unwrap_or("hook");
+        let cedar_enabled = entity_field_str(&hook, &["CedarEnabled", "cedar_enabled"])
+            .unwrap_or("false");
+
+        if cedar_enabled == "true" {
+            // Cedar-backed authorization hook
+            let command_content = if tool_name == "bash" {
+                input.get("command").and_then(|v| v.as_str()).unwrap_or("")
+            } else {
+                ""
+            };
+
+            // Check command against hook's command_pattern (simple contains check)
+            let pattern =
+                entity_field_str(&hook, &["CommandPattern", "command_pattern"]).unwrap_or("");
+            if !pattern.is_empty() && !command_content.contains(pattern) {
+                continue; // Pattern doesn't match, skip this hook
+            }
+
+            // Check project scope
+            let hook_project =
+                entity_field_str(&hook, &["ProjectScope", "project_scope"]).unwrap_or("");
+            if !hook_project.is_empty() && hook_project != project_harness_id {
+                continue; // Wrong project, skip
+            }
+
+            // Cedar policy matched — apply the hook action
+            ctx.log(
+                "info",
+                &format!(
+                    "tool_runner: cedar hook '{name}' matched tool '{tool_name}' (pattern='{pattern}')"
+                ),
+            );
+            if action == "block" {
+                return Ok(Some(format!(
+                    "tool '{}' blocked by Cedar policy '{}' (command matched pattern '{}')",
+                    tool_name, name, pattern
+                )));
+            }
+            // For non-block cedar hooks (e.g. "log"), continue evaluation
+            continue;
+        }
+
+        // Non-cedar hooks: original logic
         match action {
             "block" => {
                 return Ok(Some(format!(

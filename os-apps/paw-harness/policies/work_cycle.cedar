@@ -10,7 +10,15 @@ permit(
     Action::"BeginTesting",
     Action::"PassTests",
     Action::"Approve",
-    Action::"Fail"
+    Action::"Fail",
+    Action::"ReportMigrations",
+    Action::"ReportTypecheck",
+    Action::"ReportUnitTests",
+    Action::"ReportDst",
+    Action::"ReportPolicyGates",
+    Action::"ReportE2e",
+    Action::"RequestChanges",
+    Action::"UpdateSandbox"
   ],
   resource is WorkCycle
 );
@@ -25,7 +33,14 @@ permit(
     Action::"WritePlan",
     Action::"StartWork",
     Action::"BeginTesting",
-    Action::"PassTests"
+    Action::"PassTests",
+    Action::"ReportMigrations",
+    Action::"ReportTypecheck",
+    Action::"ReportUnitTests",
+    Action::"ReportDst",
+    Action::"ReportPolicyGates",
+    Action::"ReportE2e",
+    Action::"UpdateSandbox"
   ],
   resource is WorkCycle
 );
@@ -33,6 +48,14 @@ permit(
 permit(
   principal,
   action == Action::"Approve",
+  resource is WorkCycle
+) when {
+  principal.id != resource.PlannerId
+};
+
+permit(
+  principal,
+  action == Action::"RequestChanges",
   resource is WorkCycle
 ) when {
   principal.id != resource.PlannerId

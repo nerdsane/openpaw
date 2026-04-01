@@ -42,6 +42,10 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             ),
         );
 
+        // Run post-provisioning setup: install tools declared in Computer spec
+        // or project harness. For now, always install gh CLI if not present.
+        run_sandbox_setup(&ctx, &sandbox_result.sandbox_url, &fields);
+
         // Create TemperFS Workspace + File for conversation storage.
         // Prefer per-run override from Configure state, then integration config.
         let temper_api_url = resolve_temper_api_url(&ctx, &fields);
@@ -593,4 +597,73 @@ fn create_session_tree(
     }
 
     (session_file_id, session_leaf_id)
+}
+
+/// Run post-provisioning setup on the sandbox.
+///
+/// Installs tools declared in the agent's project configuration.
+/// Currently: always attempts to install `gh` CLI if available.
+/// Non-fatal: logs warnings on failure but doesn't block provisioning.
+fn run_sandbox_setup(ctx: &Context, sandbox_url: &str, fields: &Value) {
+    if sandbox_url.is_empty() || sandbox_url == "static-sandbox" {
+        return;
+    }
+
+    // Install gh CLI (GitHub CLI) — needed for governed PR operations
+    let gh_setup = r#"
+if ! command -v gh &>/dev/null; then
+  (type -p wget >/dev/null || (apt-get update && apt-get install wget -y)) && \
+  mkdir -p -m 755 /etc/apt/keyrings && \
+  out=$(mktemp) && wget -nv -O"$out" https://cli.github.com/packages/githubcli-archive-keyring.gpg && \
+  cat "$out" | tee /etc/apt/keyrings/githubcli-archive-keyring.gpg > /dev/null && \
+  chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg && \
+  echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null && \
+  apt-get update && apt-get install gh -y
+fi
+gh --version 2>/dev/null || echo 'gh: not installed'
+"#;
+
+    let headers = vec![
+        ("content-type".to_string(), "application/json".to_string()),
+    ];
+    let body = json!({
+        "command": gh_setup,
+        "timeout": 120
+    });
+    let url = format!("{sandbox_url}/commands");
+
+    match ctx.http_call("POST", &url, &headers, &body.to_string()) {
+        Ok(resp) if resp.status >= 200 && resp.status < 300 => {
+            ctx.log("info", "sandbox_provisioner: gh CLI setup completed");
+        }
+        Ok(resp) => {
+            ctx.log(
+                "warn",
+                &format!(
+                    "sandbox_provisioner: gh CLI setup failed (HTTP {}): {}",
+                    resp.status,
+                    &resp.body[..resp.body.len().min(200)]
+                ),
+            );
+        }
+        Err(e) => {
+            ctx.log(
+                "warn",
+                &format!("sandbox_provisioner: gh CLI setup request failed: {e}"),
+            );
+        }
+    }
+
+    // If tools_installed is set on the agent's fields, log what was requested
+    let tools = fields
+        .get("tools_installed")
+        .or_else(|| fields.get("ToolsInstalled"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    if !tools.is_empty() {
+        ctx.log(
+            "info",
+            &format!("sandbox_provisioner: requested tools: {tools} (custom tool installation TBD)"),
+        );
+    }
 }

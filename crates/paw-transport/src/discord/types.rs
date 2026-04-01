@@ -259,6 +259,8 @@ pub mod embed_colors {
     pub const INFO: u32 = 0x5865F2;
     /// Yellow — warning, pending.
     pub const WARNING: u32 = 0xFEE75C;
+    /// Grey — idle, inactive.
+    pub const IDLE: u32 = 0x99AAB5;
 }
 
 /// An action row containing interactive components (buttons, selects).
@@ -377,4 +379,11 @@ pub struct GatewayBotResponse {
     pub url: String,
     #[serde(default)]
     pub shards: u32,
+}
+
+/// Response from creating a forum post thread.
+#[derive(Debug, Deserialize)]
+pub struct ForumThreadResponse {
+    /// The thread (channel) ID.
+    pub id: String,
 }

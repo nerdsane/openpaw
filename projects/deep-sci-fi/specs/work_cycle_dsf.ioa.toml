@@ -1,0 +1,273 @@
+# WorkCycleDSF — Deep-sci-fi enriched WorkCycle with gate fields.
+# Extends the base WorkCycle with Report* actions and gate guards
+# that enforce the 3-level harness at the state machine level.
+
+[automaton]
+name = "WorkCycleDSF"
+states = ["Planning", "Planned", "InProgress", "Testing", "Reviewing", "Complete", "Failed"]
+initial = "Planning"
+
+# --- Existing fields ---
+
+[[state]]
+name = "project_harness_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "task_summary"
+type = "string"
+initial = ""
+
+[[state]]
+name = "planner_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "approver_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "plan_summary"
+type = "string"
+initial = ""
+
+[[state]]
+name = "test_summary"
+type = "string"
+initial = ""
+
+[[state]]
+name = "pr_url"
+type = "string"
+initial = ""
+
+[[state]]
+name = "error_message"
+type = "string"
+initial = ""
+
+# --- Gate fields (boolean strings) ---
+
+[[state]]
+name = "has_plan"
+type = "bool"
+initial = "false"
+
+[[state]]
+name = "migrations_ok"
+type = "bool"
+initial = "false"
+
+[[state]]
+name = "typecheck_ok"
+type = "bool"
+initial = "false"
+
+[[state]]
+name = "unit_tests_ok"
+type = "bool"
+initial = "false"
+
+[[state]]
+name = "dst_ok"
+type = "bool"
+initial = "false"
+
+[[state]]
+name = "policy_gates_ok"
+type = "bool"
+initial = "false"
+
+[[state]]
+name = "e2e_ok"
+type = "bool"
+initial = "false"
+
+[[state]]
+name = "tests_passed"
+type = "bool"
+initial = "false"
+
+# --- Summary fields for gate reports ---
+
+[[state]]
+name = "migrations_summary"
+type = "string"
+initial = ""
+
+[[state]]
+name = "typecheck_summary"
+type = "string"
+initial = ""
+
+[[state]]
+name = "unit_tests_summary"
+type = "string"
+initial = ""
+
+[[state]]
+name = "dst_summary"
+type = "string"
+initial = ""
+
+[[state]]
+name = "policy_gates_summary"
+type = "string"
+initial = ""
+
+[[state]]
+name = "e2e_summary"
+type = "string"
+initial = ""
+
+# ============================================================
+# Actions
+# ============================================================
+
+[[action]]
+name = "Configure"
+kind = "input"
+from = ["Planning"]
+params = ["project_harness_id", "task_summary", "planner_id"]
+hint = "Attach the work cycle to a harness and identify the planner for the change."
+
+[[action]]
+name = "WritePlan"
+kind = "input"
+from = ["Planning"]
+to = "Planned"
+params = ["plan_summary", "planner_id"]
+effect = "set has_plan true"
+hint = "Draft the plan before implementation can begin."
+
+[[action]]
+name = "StartWork"
+kind = "input"
+from = ["Planned"]
+to = "InProgress"
+guard = "is_true has_plan"
+hint = "Start implementation only after a plan exists."
+
+# --- Report actions: self-loops in InProgress ---
+
+[[action]]
+name = "ReportMigrations"
+kind = "input"
+from = ["InProgress"]
+to = "InProgress"
+params = ["migrations_ok", "migrations_summary"]
+hint = "Report whether Alembic migration check passed or failed."
+
+[[action]]
+name = "ReportTypecheck"
+kind = "input"
+from = ["InProgress"]
+to = "InProgress"
+params = ["typecheck_ok", "typecheck_summary"]
+hint = "Report whether TypeScript/Python type check passed or failed."
+
+[[action]]
+name = "ReportUnitTests"
+kind = "input"
+from = ["InProgress"]
+to = "InProgress"
+params = ["unit_tests_ok", "unit_tests_summary"]
+hint = "Report whether pytest + vitest unit tests passed or failed."
+
+[[action]]
+name = "ReportDST"
+kind = "input"
+from = ["InProgress"]
+to = "InProgress"
+params = ["dst_ok", "dst_summary"]
+hint = "Report whether Hypothesis DST simulation tests passed or failed."
+
+[[action]]
+name = "ReportPolicyGates"
+kind = "input"
+from = ["InProgress"]
+to = "InProgress"
+params = ["policy_gates_ok", "policy_gates_summary"]
+hint = "Report whether all Level 1 + Level 2 policy gate checks passed or failed."
+
+[[action]]
+name = "ReportE2E"
+kind = "input"
+from = ["InProgress"]
+to = "InProgress"
+params = ["e2e_ok", "e2e_summary"]
+hint = "Report whether Playwright E2E tests passed or failed. Optional gate."
+
+# --- Transition actions with gate guards ---
+
+[[action]]
+name = "BeginTesting"
+kind = "input"
+from = ["InProgress"]
+to = "Testing"
+guard = "is_true migrations_ok && is_true typecheck_ok && is_true unit_tests_ok"
+hint = "Move to testing only after migrations, typecheck, and unit tests are green."
+
+[[action]]
+name = "PassTests"
+kind = "input"
+from = ["Testing"]
+to = "Reviewing"
+params = ["test_summary"]
+guard = "is_true dst_ok && is_true policy_gates_ok"
+effect = "set tests_passed true"
+hint = "Only passing work should enter review. DST and policy gates must be green."
+
+[[action]]
+name = "Approve"
+kind = "input"
+from = ["Reviewing"]
+to = "Complete"
+guard = "is_true tests_passed"
+params = ["approver_id", "pr_url"]
+hint = "Approve the reviewed change after all tests have passed."
+
+[[action]]
+name = "Fail"
+kind = "input"
+from = ["Planning", "Planned", "InProgress", "Testing", "Reviewing"]
+to = "Failed"
+params = ["error_message"]
+hint = "Record a failed work cycle with the reason for failure."
+
+# ============================================================
+# Invariants
+# ============================================================
+
+[[invariant]]
+name = "PlannedWorkHasPlan"
+when = ["Planned", "InProgress", "Testing", "Reviewing", "Complete"]
+assert = "has_plan"
+
+[[invariant]]
+name = "TestingRequiresBaseGates"
+when = ["Testing", "Reviewing", "Complete"]
+assert = "migrations_ok && typecheck_ok && unit_tests_ok"
+
+[[invariant]]
+name = "ReviewRequiresDSTAndPolicy"
+when = ["Reviewing", "Complete"]
+assert = "dst_ok && policy_gates_ok"
+
+[[invariant]]
+name = "ReviewedWorkPassedTests"
+when = ["Reviewing", "Complete"]
+assert = "tests_passed"
+
+[[invariant]]
+name = "CompleteIsFinal"
+when = ["Complete"]
+assert = "no_further_transitions"
+
+[[invariant]]
+name = "FailedIsFinal"
+when = ["Failed"]
+assert = "no_further_transitions"
