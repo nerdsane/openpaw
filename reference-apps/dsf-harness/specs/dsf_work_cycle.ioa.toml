@@ -1,18 +1,39 @@
-# WorkCycleDSF — Deep-sci-fi enriched WorkCycle with gate fields.
-# Extends the base WorkCycle with Report* actions and gate guards
-# that enforce the 3-level harness at the state machine level.
+# DsfWorkCycle — Merged harness + work cycle for deep-sci-fi development governance.
+# Combines ProjectHarness setup (Configure, Activate) with a governed implementation
+# loop (CreateWorkCycle → Planning → ... → Complete) and 3-level gate verification.
 
 [automaton]
-name = "WorkCycleDSF"
-states = ["Planning", "Planned", "InProgress", "Testing", "Reviewing", "Complete", "Failed"]
-initial = "Planning"
+name = "DsfWorkCycle"
+states = ["Created", "Configured", "Active", "Planning", "Planned", "InProgress", "Testing", "Reviewing", "Complete", "Failed"]
+initial = "Created"
 
-# --- Existing fields ---
+# ============================================================
+# Harness fields
+# ============================================================
 
 [[state]]
-name = "project_harness_id"
+name = "repo_url"
 type = "string"
 initial = ""
+
+[[state]]
+name = "tech_stack"
+type = "string"
+initial = ""
+
+[[state]]
+name = "conventions"
+type = "string"
+initial = ""
+
+[[state]]
+name = "last_activated_at"
+type = "string"
+initial = ""
+
+# ============================================================
+# Work cycle fields
+# ============================================================
 
 [[state]]
 name = "task_summary"
@@ -49,7 +70,19 @@ name = "error_message"
 type = "string"
 initial = ""
 
-# --- Gate fields (boolean strings) ---
+[[state]]
+name = "sandbox_url"
+type = "string"
+initial = ""
+
+[[state]]
+name = "review_notes"
+type = "string"
+initial = ""
+
+# ============================================================
+# Gate fields (boolean)
+# ============================================================
 
 [[state]]
 name = "has_plan"
@@ -91,7 +124,9 @@ name = "tests_passed"
 type = "bool"
 initial = "false"
 
-# --- Summary fields for gate reports ---
+# ============================================================
+# Gate report summary fields
+# ============================================================
 
 [[state]]
 name = "migrations_summary"
@@ -124,15 +159,40 @@ type = "string"
 initial = ""
 
 # ============================================================
-# Actions
+# Harness setup actions
 # ============================================================
 
 [[action]]
 name = "Configure"
 kind = "input"
-from = ["Planning"]
-params = ["project_harness_id", "task_summary", "planner_id"]
-hint = "Attach the work cycle to a harness and identify the planner for the change."
+from = ["Created", "Configured"]
+to = "Configured"
+params = ["repo_url", "tech_stack", "conventions"]
+hint = "Attach repository metadata and working conventions before the harness goes live."
+
+[[action]]
+name = "Activate"
+kind = "input"
+from = ["Configured"]
+to = "Active"
+params = ["last_activated_at"]
+hint = "Turn on the harness after the repository contract is configured."
+
+# ============================================================
+# Work cycle initiation
+# ============================================================
+
+[[action]]
+name = "CreateWorkCycle"
+kind = "input"
+from = ["Active"]
+to = "Planning"
+params = ["task_summary", "planner_id"]
+hint = "Start a new work cycle within the active harness. Sets the task and planner."
+
+# ============================================================
+# Planning and implementation actions
+# ============================================================
 
 [[action]]
 name = "WritePlan"
@@ -151,13 +211,21 @@ to = "InProgress"
 guard = "is_true has_plan"
 hint = "Start implementation only after a plan exists."
 
-# --- Report actions: self-loops in InProgress ---
+[[action]]
+name = "UpdateSandbox"
+kind = "input"
+from = ["InProgress"]
+params = ["sandbox_url"]
+hint = "Record the sandbox URL of the SWE agent working on this cycle."
+
+# ============================================================
+# Gate report actions (self-loops in InProgress)
+# ============================================================
 
 [[action]]
 name = "ReportMigrations"
 kind = "input"
 from = ["InProgress"]
-to = "InProgress"
 params = ["migrations_ok", "migrations_summary"]
 hint = "Report whether Alembic migration check passed or failed."
 
@@ -165,7 +233,6 @@ hint = "Report whether Alembic migration check passed or failed."
 name = "ReportTypecheck"
 kind = "input"
 from = ["InProgress"]
-to = "InProgress"
 params = ["typecheck_ok", "typecheck_summary"]
 hint = "Report whether TypeScript/Python type check passed or failed."
 
@@ -173,43 +240,51 @@ hint = "Report whether TypeScript/Python type check passed or failed."
 name = "ReportUnitTests"
 kind = "input"
 from = ["InProgress"]
-to = "InProgress"
 params = ["unit_tests_ok", "unit_tests_summary"]
 hint = "Report whether pytest + vitest unit tests passed or failed."
 
 [[action]]
-name = "ReportDST"
+name = "ReportDst"
 kind = "input"
-from = ["InProgress"]
-to = "InProgress"
+from = ["InProgress", "Testing"]
 params = ["dst_ok", "dst_summary"]
 hint = "Report whether Hypothesis DST simulation tests passed or failed."
 
 [[action]]
 name = "ReportPolicyGates"
 kind = "input"
-from = ["InProgress"]
-to = "InProgress"
+from = ["InProgress", "Testing"]
 params = ["policy_gates_ok", "policy_gates_summary"]
 hint = "Report whether all Level 1 + Level 2 policy gate checks passed or failed."
 
 [[action]]
-name = "ReportE2E"
+name = "ReportE2e"
 kind = "input"
-from = ["InProgress"]
-to = "InProgress"
+from = ["InProgress", "Testing"]
 params = ["e2e_ok", "e2e_summary"]
 hint = "Report whether Playwright E2E tests passed or failed. Optional gate."
 
-# --- Transition actions with gate guards ---
+# ============================================================
+# Testing and review transition actions
+# ============================================================
 
 [[action]]
 name = "BeginTesting"
 kind = "input"
 from = ["InProgress"]
 to = "Testing"
-guard = "is_true migrations_ok && is_true typecheck_ok && is_true unit_tests_ok"
+guard = [
+  { type = "is_true", var = "migrations_ok" },
+  { type = "is_true", var = "typecheck_ok" },
+  { type = "is_true", var = "unit_tests_ok" }
+]
 hint = "Move to testing only after migrations, typecheck, and unit tests are green."
+
+  [[action.integration]]
+  wasm = "wasm/gate_verifier"
+  on = "effect"
+  config = { gate_level = "1" }
+  on_failure = "Fail"
 
 [[action]]
 name = "PassTests"
@@ -217,9 +292,18 @@ kind = "input"
 from = ["Testing"]
 to = "Reviewing"
 params = ["test_summary"]
-guard = "is_true dst_ok && is_true policy_gates_ok"
 effect = "set tests_passed true"
+guard = [
+  { type = "is_true", var = "dst_ok" },
+  { type = "is_true", var = "policy_gates_ok" }
+]
 hint = "Only passing work should enter review. DST and policy gates must be green."
+
+  [[action.integration]]
+  wasm = "wasm/gate_verifier"
+  on = "effect"
+  config = { gate_level = "2" }
+  on_failure = "Fail"
 
 [[action]]
 name = "Approve"
@@ -229,6 +313,15 @@ to = "Complete"
 guard = "is_true tests_passed"
 params = ["approver_id", "pr_url"]
 hint = "Approve the reviewed change after all tests have passed."
+
+[[action]]
+name = "RequestChanges"
+kind = "input"
+from = ["Reviewing"]
+to = "Planning"
+params = ["review_notes"]
+effect = "set tests_passed false"
+hint = "Send work back for changes. Resets tests_passed so gates must be re-verified."
 
 [[action]]
 name = "Fail"
