@@ -4,7 +4,7 @@
   import { loadAgents, agents, activeAgents } from '$lib/stores/agents';
   import { connectSSE, disconnectSSE, events } from '$lib/sse';
   import { refreshAgent } from '$lib/stores/agents';
-  import { queryEntities } from '$lib/api';
+  import { queryEntities, fetchFileContent } from '$lib/api';
   import type { ProjectHarness, Soul, WorkCycle, Skill } from '$lib/types';
   import AgentCard from '$lib/components/AgentCard.svelte';
   import GatePipeline from '$lib/components/GatePipeline.svelte';
@@ -59,7 +59,25 @@
   let hasActive = $derived($activeAgents.length > 0);
   let hasCompleted = $derived(completedAgents.length > 0);
   let hasAny = $derived($agents.length > 0);
-  let hasContext = $derived(projects.length > 0 || souls.length > 0 || workcycles.length > 0);
+  let hasContext = $derived(projects.length > 0 || souls.length > 0 || workcycles.length > 0 || skills.length > 0);
+
+  // Expandable skill content on the floor page
+  let expandedSkillId = $state<string | null>(null);
+  let skillContentCache = $state<Record<string, string>>({});
+
+  async function toggleSkillContent(skill: Skill) {
+    const id = skill.Id;
+    if (expandedSkillId === id) {
+      expandedSkillId = null;
+      return;
+    }
+    expandedSkillId = id;
+    const fileId = skill.content_file_id;
+    if (fileId && !skillContentCache[id]) {
+      const content = await fetchFileContent(fileId);
+      skillContentCache = { ...skillContentCache, [id]: content };
+    }
+  }
 
   let activeWorkCycles = $derived(
     workcycles.filter((w) => !['Completed', 'Failed', 'Cancelled'].includes(w.Status))
@@ -106,6 +124,35 @@
                 <span class="team-member__name">{soul.name || soul.Id}</span>
                 {#if soul.description}
                   <span class="team-member__desc">{soul.description}</span>
+                {/if}
+              </div>
+            {/each}
+          </div>
+        </div>
+      {/if}
+
+      {#if skills.length > 0}
+        <div class="context-block">
+          <h2 class="context-heading">Skills</h2>
+          <div class="skills-grid">
+            {#each skills as skill (skill.Id)}
+              <div class="skill-card">
+                <div class="skill-card__header" onclick={() => toggleSkillContent(skill)} role="button" tabindex="0" onkeydown={(e) => { if (e.key === 'Enter') toggleSkillContent(skill); }}>
+                  <span class="skill-card__name">{skill.name || skill.Name || skill.Id}</span>
+                  {#if skill.scope}
+                    <span class="skill-card__scope">{skill.scope}</span>
+                  {/if}
+                </div>
+                {#if skill.description || skill.Description}
+                  <span class="skill-card__desc">{skill.description || skill.Description}</span>
+                {/if}
+                {#if skill.content_file_id}
+                  <button class="skill-card__toggle" onclick={() => toggleSkillContent(skill)}>
+                    {expandedSkillId === skill.Id ? 'Hide content' : 'View content'}
+                  </button>
+                {/if}
+                {#if expandedSkillId === skill.Id && skillContentCache[skill.Id]}
+                  <pre class="skill-card__content">{skillContentCache[skill.Id]}</pre>
                 {/if}
               </div>
             {/each}
@@ -346,6 +393,76 @@
   .team-member__desc {
     font-size: var(--text-xs);
     color: var(--text-tertiary);
+  }
+
+  .skills-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: var(--space-2);
+  }
+
+  .skill-card {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: var(--space-2);
+    background: var(--surface-raised);
+    border-radius: var(--radius-sm);
+  }
+
+  .skill-card__header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    cursor: pointer;
+  }
+
+  .skill-card__name {
+    font-size: var(--text-sm);
+    color: var(--text-primary);
+    font-weight: 500;
+  }
+
+  .skill-card__scope {
+    font-family: var(--font-mono);
+    font-size: 0.625rem;
+    color: var(--text-secondary);
+    background: var(--surface-overlay);
+    padding: 1px 6px;
+    border-radius: var(--radius-sm);
+  }
+
+  .skill-card__desc {
+    font-size: var(--text-xs);
+    color: var(--text-tertiary);
+  }
+
+  .skill-card__toggle {
+    font-size: var(--text-xs);
+    color: var(--text-secondary);
+    padding: 2px 0;
+    text-align: left;
+    width: fit-content;
+    cursor: pointer;
+    background: none;
+    border: none;
+  }
+
+  .skill-card__toggle:hover {
+    color: var(--text-primary);
+  }
+
+  .skill-card__content {
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    color: var(--text-secondary);
+    background: var(--surface-overlay);
+    padding: var(--space-2);
+    border-radius: var(--radius-sm);
+    white-space: pre-wrap;
+    overflow-x: auto;
+    max-height: 300px;
+    overflow-y: auto;
   }
 
   .workcycle-list {

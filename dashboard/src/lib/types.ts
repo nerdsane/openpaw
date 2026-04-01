@@ -54,7 +54,10 @@ export interface Soul {
   Id: string;
   Status: string;
   name: string;
+  Name: string;
   description: string;
+  Description: string;
+  ContentFileId: string;
 }
 
 export interface ProjectHarness {
@@ -63,11 +66,17 @@ export interface ProjectHarness {
   repo_url: string;
   tech_stack: string;
   project_name: string;
+  conventions: string;
 }
 
 export interface Skill {
   Id: string;
   Status: string;
   name: string;
+  Name: string;
   description: string;
+  Description: string;
+  content_file_id: string;
+  scope: string;
+  agent_filter: string;
 }
