@@ -2590,7 +2590,7 @@ fn build_sdk_reference(tools_enabled: &str, sandbox_url: &str, workdir: &str) ->
             || enabled.contains(&"edit")
             || enabled.contains(&"bash"));
     let has_entity = enabled.iter().any(|t| t.starts_with("temper_"));
-    let has_spawn = enabled.contains(&"spawn_agent");
+    let has_spawn = enabled.contains(&"spawn_session");
 
     let mut sections = Vec::new();
 

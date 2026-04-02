@@ -65,7 +65,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 resolve_soul_name(&ctx, &temper_api_url, tenant, soul_id)
                     .unwrap_or_else(|| soul_id.to_string())
             } else {
-                "Agent".to_string()
+                "Session".to_string()
             };
             let desc = if reply_text.len() > 4000 {
                 format!("{}...", &reply_text[..reply_text.floor_char_boundary(4000)])
