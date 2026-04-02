@@ -2164,89 +2164,178 @@ fn build_sdk_reference(tools_enabled: &str, sandbox_url: &str, workdir: &str) ->
 
     let mut sections = Vec::new();
 
-    sections.push(
+    // --- Execution Environment overview ---
+    let mut env_desc = String::from(
         "<temper_sdk>\n\
-         You have one tool: execute. Write Python code using the `temper` and `sandbox` objects.\n\
-         Variables persist across calls."
-            .to_string(),
+         ## Execution Environment\n\n\
+         You have ONE tool: `execute`. It runs Python code in a sandboxed REPL.\n\n\
+         Available objects:\n\
+         - `temper` — Temper platform API (entity CRUD, session management, memory, specs)\n",
     );
+    if has_sandbox {
+        env_desc.push_str(
+            "- `sandbox` — Remote sandbox operations (bash, file read/write/edit)\n",
+        );
+    }
+    env_desc.push_str(
+        "\nIMPORTANT:\n\
+         - No pip packages available (no requests, httpx, numpy, pandas, etc.)\n\
+         - No network access from Python — use sandbox.bash(\"curl ...\") for HTTP calls\n\
+         - No filesystem access from Python — use sandbox.read/write/edit for files\n\
+         - Variables persist across execute calls within the same session\n\
+         - Write substantial code blocks, not one-liners. Multiple operations in one execute call.",
+    );
+    sections.push(env_desc);
+
+    // --- Examples ---
+    let mut examples = String::from("## Examples\n");
+    if has_sandbox {
+        examples.push_str(
+            "\n### Clone a repo and read a file\n\
+             ```python\n\
+             sandbox.bash(\"git clone https://github.com/org/repo.git /workspace/repo\")\n\
+             content = sandbox.read(\"/workspace/repo/README.md\")\n\
+             print(content[:500])\n\
+             ```\n\
+             \n### Edit a file\n\
+             ```python\n\
+             sandbox.edit(\"/workspace/repo/src/main.py\",\n\
+                 old=\"def hello():\",\n\
+                 new=\"def hello(name='World'):\")\n\
+             ```\n\
+             \n### Run tests\n\
+             ```python\n\
+             result = sandbox.bash(\"cd /workspace/repo && pytest tests/ -x -q\")\n\
+             print(result)\n\
+             ```\n",
+        );
+    }
+    if has_entity {
+        examples.push_str(
+            "\n### Create an entity and act on it\n\
+             ```python\n\
+             issue = temper.create(\"Issues\", {\"description\": \"Fix login bug\"})\n\
+             issue_id = issue[\"entity_id\"]\n\
+             temper.action(\"Issues\", issue_id, \"OpenPaw.PM.SetPriority\", {\"level\": \"2\"})\n\
+             temper.action(\"Issues\", issue_id, \"OpenPaw.PM.MoveToTriage\", {})\n\
+             ```\n",
+        );
+    }
+    examples.push_str(
+        "\n### Save and recall memory\n\
+         ```python\n\
+         temper.save_memory(\"test_results\", \"pytest: 47 passed, 0 failed\", \"project\")\n\
+         memories = temper.recall_memory(\"test results\")\n\
+         ```\n",
+    );
+    if has_sandbox {
+        examples.push_str(
+            "\n### Commit and push\n\
+             ```python\n\
+             sandbox.bash(\"\"\"\n\
+             cd /workspace/repo\n\
+             git add -A\n\
+             git commit -m \"feat: add version endpoint\"\n\
+             git push -u origin feat/version-endpoint\n\
+             \"\"\")\n\
+             ```\n\
+             \n### Open a PR\n\
+             ```python\n\
+             sandbox.bash(\"cd /workspace/repo && gh pr create --title 'feat: version endpoint' --body 'Adds /version endpoint' --repo org/repo\")\n\
+             ```\n",
+        );
+    }
+    sections.push(examples);
+
+    // --- Method Signatures ---
 
     if has_entity {
-        sections.push(format!(
+        sections.push(
             "## Entity Operations\n\
-             result = await temper.create(\"EntitySet\", {{\"Field\": \"value\"}})\n\
-             entity = await temper.get(\"EntitySet\", \"entity-id\")\n\
-             entities = await temper.list(\"EntitySet\", \"Status eq 'Open'\")\n\
-             result = await temper.action(\"EntitySet\", \"entity-id\", \"ActionName\", {{\"param\": \"value\"}})\n\
-             result = await temper.patch(\"EntitySet\", \"entity-id\", {{\"Field\": \"new_value\"}})"
-        ));
+             result = temper.create(entity_set, fields_dict) -> {\"entity_id\": str, ...}\n\
+             entity = temper.get(entity_set, entity_id) -> dict\n\
+             entities = temper.list(entity_set, filter_str) -> [{...}, ...]\n\
+             result = temper.action(entity_set, entity_id, action_name, params_dict) -> dict\n\
+             result = temper.patch(entity_set, entity_id, fields_dict) -> dict"
+                .to_string(),
+        );
     }
 
     if has_sandbox {
         sections.push(format!(
             "## Sandbox (working dir: {workdir})\n\
-             content = await sandbox.read(\"src/main.rs\")\n\
-             await sandbox.write(\"src/main.rs\", content)\n\
-             await sandbox.edit(\"src/main.rs\", \"old text\", \"new text\")\n\
-             output = await sandbox.bash(\"git status\")"
+             content = sandbox.read(path) -> str\n\
+             sandbox.write(path, content) -> None\n\
+             sandbox.edit(path, old=str, new=str) -> None\n\
+             output = sandbox.bash(command) -> str"
         ));
     }
 
     // Platform ops always shown — Cedar governs access
     sections.push(
         "## Specs & Platform\n\
-         result = await temper.submit_specs({\"Entity.ioa.toml\": ioa_content, \"model.csdl.xml\": csdl})\n\
-         spec = await temper.show_spec(\"Agent\")\n\
-         await temper.install_app(\"app-name\", \"reason for install\")\n\
-         await temper.upload_wasm(\"module_name\", wasm_base64)"
+         result = temper.submit_specs(files_dict) -> dict\n\
+         spec = temper.show_spec(entity_name) -> dict\n\
+         temper.install_app(app_name, reason) -> None\n\
+         temper.upload_wasm(module_name, wasm_base64) -> dict"
             .to_string(),
     );
 
     if has_spawn {
         sections.push(
             "## Session Management\n\
-             result = await temper.spawn_session(task, soul_id=None, model=None, tools=None, workdir=None, sandbox_url=None, max_turns=None, background=False, timeout_ms=None)\n\
-             sessions = await temper.list_sessions(filter=None, top=50)\n\
-             await temper.abort_session(session_id)\n\
-             await temper.steer_session(session_id, message)"
+             result = temper.spawn_session(task, soul_id=None, model=None, tools=None, workdir=None, sandbox_url=None, max_turns=None, background=False, timeout_ms=None) -> dict\n\
+             sessions = temper.list_sessions(filter=None, top=50) -> [dict]\n\
+             temper.abort_session(session_id) -> None\n\
+             temper.steer_session(session_id, message) -> dict"
                 .to_string(),
         );
     }
 
     sections.push(
         "## Memory\n\
-         await temper.save_memory(key, content, memory_type=\"project\")\n\
-         memories = await temper.recall_memory(query)"
+         temper.save_memory(key, content, memory_type=\"project\") -> None\n\
+         memories = temper.recall_memory(query) -> [dict]"
             .to_string(),
     );
 
     sections.push(
         "## File Operations\n\
-         file_id = await temper.file_upload(name, content)\n\
-         content = await temper.read_entity(file_id)"
+         file_id = temper.file_upload(name, content) -> str\n\
+         content = temper.read_entity(file_id) -> str"
             .to_string(),
     );
 
     sections.push(
         "## External APIs\n\
-         result = await temper.datadog_query(query_kind, monitor_id=None, query=None, from_ts=None, to_ts=None, tags=None, limit=25)\n\
-         result = await temper.railway(action, project_id=None, service_id=None, deployment_id=None, environment_id=None)\n\
-         result = await temper.vercel(action, deployment_id=None, project_id=None, limit=10, target=\"production\")"
+         result = temper.datadog_query(query_kind, monitor_id=None, query=None, from_ts=None, to_ts=None, tags=None, limit=25) -> dict\n\
+         result = temper.railway(action, project_id=None, service_id=None, deployment_id=None, environment_id=None) -> dict\n\
+         result = temper.vercel(action, deployment_id=None, project_id=None, limit=10, target=\"production\") -> dict"
             .to_string(),
     );
 
     sections.push(
         "## Coding Agent\n\
-         result = await temper.run_coding_agent(agent_type, task)"
+         result = temper.run_coding_agent(agent_type, task) -> dict"
             .to_string(),
     );
 
     sections.push(
         "## Evolution & Governance\n\
-         trajectories = await temper.get_trajectories(\"Agent\", True, 10)\n\
-         insights = await temper.get_insights()\n\
-         decisions = await temper.get_decisions()\n\
-         decision = await temper.poll_decision(\"PD-xxx\")"
+         trajectories = temper.get_trajectories(entity_type, include_actions, limit=10) -> [dict]\n\
+         insights = temper.get_insights() -> [dict]\n\
+         decisions = temper.get_decisions() -> [dict]\n\
+         decision = temper.poll_decision(decision_id) -> dict"
+            .to_string(),
+    );
+
+    // --- Efficiency note ---
+    sections.push(
+        "## Efficiency\n\n\
+         Write complete workflows in a single execute call when possible.\n\
+         BAD: 5 separate execute calls for 5 one-line operations\n\
+         GOOD: 1 execute call with a multi-line script doing all 5 operations\n\n\
+         Each execute call is an LLM turn. Fewer turns = faster completion."
             .to_string(),
     );
 
