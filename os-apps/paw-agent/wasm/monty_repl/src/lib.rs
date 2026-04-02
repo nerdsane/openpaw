@@ -15,8 +15,12 @@ use std::time::Duration;
 use temper_wasm_sdk::prelude::*;
 
 mod convert;
+mod datadog;
 mod dispatch;
+mod entity_ops;
+mod railway;
 mod session;
+mod vercel;
 
 use monty::{
     DictPairs, ExcType, ExtFunctionResult, LimitedTracker, MontyException, MontyObject, MontyRepl,
