@@ -7,7 +7,8 @@
   import { connectSSE, disconnectSSE, events, type StateChangeEvent } from '$lib/sse';
   import StatusBadge from '$lib/components/StatusBadge.svelte';
   import GatePipeline from '$lib/components/GatePipeline.svelte';
-  import StateTransition from '$lib/components/StateTransition.svelte';
+  import TerminalFeed from '$lib/components/TerminalFeed.svelte';
+  import { eventsToTurns, type SessionTurn } from '$lib/parse';
 
   let sessionId = $derived($page.params.id);
 
@@ -25,6 +26,7 @@
   let taskExpanded = $state(false);
 
   let transitions = $state<Array<{ event: StateChangeEvent; snapshot?: Session; timestamp?: string; fromStatus?: string; authz?: { allowed: boolean; denied_resource?: string } }>>([]);
+  let turns = $state<SessionTurn[]>([]);
 
   let childIds = $derived.by((): string[] => {
     if (!session?.child_session_ids) return [];
@@ -121,8 +123,27 @@
             fromStatus: e.from_status,
           }));
       }
+      // Parse events into terminal turns
+      if (session?._events && session._events.length > 0) {
+        turns = eventsToTurns(session._events);
+      }
+
       // Fetch trajectory history for authorization context
       const history = await fetchSessionHistory(sessionId, 'Session', 200);
+
+      // Merge authz data into turns
+      for (const turn of turns) {
+        const match = history.find(h =>
+          h.action === 'ProcessToolCalls' &&
+          Math.abs(new Date(h.timestamp).getTime() - new Date(turn.timestamp).getTime()) < 5000
+        );
+        if (match) {
+          turn.authz = {
+            allowed: !match.authz_denied,
+            denied_resource: match.denied_resource ?? undefined,
+          };
+        }
+      }
 
       // Merge authz data into transitions by matching action + timestamp proximity
       for (const t of transitions) {
@@ -368,32 +389,16 @@
         {/if}
       </aside>
 
-      <!-- Right Panel: Event History -->
+      <!-- Right Panel: Execution -->
       <section class="desk-stream">
         <div class="stream-header">
-          <h2 class="stream-title">Event History</h2>
-          {#if totalEventCount > 0}
-            <span class="stream-count">
-              Showing {displayedEventCount} of {totalEventCount} total events (heartbeats filtered)
-            </span>
-          {:else if rawEventCount > 0}
-            <span class="stream-count">
-              {displayedEventCount} events (heartbeats filtered)
-            </span>
+          <h2 class="stream-title">Execution</h2>
+          {#if turns.length > 0}
+            <span class="stream-count">{turns.length} turns</span>
           {/if}
         </div>
 
-        {#if transitions.length === 0}
-          <div class="stream-empty">
-            <p class="stream-empty-text">Waiting for activity...</p>
-          </div>
-        {:else}
-          <div class="stream-list">
-            {#each transitions as t, i (t.timestamp ?? t.event.seq ?? i)}
-              <StateTransition event={t.event} agentSnapshot={t.snapshot} timestamp={t.timestamp} fromStatus={t.fromStatus} authz={t.authz} />
-            {/each}
-          </div>
-        {/if}
+        <TerminalFeed {turns} />
       </section>
     </div>
   {/if}
@@ -643,8 +648,8 @@
   }
 
   .stream-title {
-    font-family: var(--font-sans);
-    font-size: var(--text-base);
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
     font-weight: 500;
     color: var(--text-secondary);
   }
