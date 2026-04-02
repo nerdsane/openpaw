@@ -10,9 +10,9 @@ export const activeSessions = derived(sessions, ($sessions) =>
 
 export async function loadSessions(): Promise<void> {
   const data = await queryEntities('Sessions', undefined, 'SequenceNr desc', 50);
-  // Filter out orphan test sessions with no identity or task
+  // Only show sessions that belong to a team agent or soul
   const meaningful = (data as unknown as Session[]).filter(
-    (s) => s.agent_id || s.soul_id || s.user_message
+    (s) => s.agent_id || s.soul_id
   );
   sessions.set(meaningful);
 }
