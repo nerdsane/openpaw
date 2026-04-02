@@ -1,7 +1,7 @@
 <script lang="ts">
   import { slide } from 'svelte/transition';
   import type { StateChangeEvent } from '$lib/sse';
-  import type { Agent } from '$lib/types';
+  import type { Session } from '$lib/types';
   import StatusBadge from './StatusBadge.svelte';
 
   let {
@@ -12,7 +12,7 @@
     authz,
   }: {
     event: StateChangeEvent;
-    agentSnapshot?: Agent;
+    agentSnapshot?: Session;
     timestamp?: string;
     fromStatus?: string;
     authz?: {

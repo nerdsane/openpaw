@@ -50,7 +50,7 @@ permit(
   action == Action::"SendReply",
   resource is Channel
 ) when {
-  principal is Agent &&
+  principal is Session &&
   principal.agent_type == "agent"
 };
 
@@ -82,7 +82,7 @@ permit(
 );
 
 permit(
-  principal is Agent,
+  principal is Session,
   action == Action::"http_call",
   resource is HttpEndpoint
 ) when {

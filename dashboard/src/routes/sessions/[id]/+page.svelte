@@ -2,21 +2,21 @@
   import { onMount, onDestroy } from 'svelte';
   import { slide, fade } from 'svelte/transition';
   import { page } from '$app/stores';
-  import type { Agent, WorkCycle, EntityEvent, Skill } from '$lib/types';
-  import { getEntity, queryEntities, fetchAgentHistory, fetchFileContent } from '$lib/api';
+  import type { Session, WorkCycle, EntityEvent, Skill } from '$lib/types';
+  import { getEntity, queryEntities, fetchSessionHistory, fetchFileContent } from '$lib/api';
   import { connectSSE, disconnectSSE, events, type StateChangeEvent } from '$lib/sse';
   import StatusBadge from '$lib/components/StatusBadge.svelte';
   import GatePipeline from '$lib/components/GatePipeline.svelte';
   import StateTransition from '$lib/components/StateTransition.svelte';
 
-  let agentId = $derived($page.params.id);
+  let sessionId = $derived($page.params.id);
 
-  let agent = $state<Agent | null>(null);
+  let session = $state<Session | null>(null);
   let soulName = $state<string | null>(null);
   let soulEntity = $state<Record<string, unknown> | null>(null);
   let soulContentExpanded = $state(false);
   let soulContent = $state<string | null>(null);
-  let agentSkills = $state<Skill[]>([]);
+  let sessionSkills = $state<Skill[]>([]);
   let expandedSkillId = $state<string | null>(null);
   let skillContentCache = $state<Record<string, string>>({});
   let workcycle = $state<WorkCycle | null>(null);
@@ -24,68 +24,67 @@
   let error = $state<string | null>(null);
   let taskExpanded = $state(false);
 
-  let transitions = $state<Array<{ event: StateChangeEvent; snapshot?: Agent; timestamp?: string; fromStatus?: string; authz?: { allowed: boolean; denied_resource?: string } }>>([]);
+  let transitions = $state<Array<{ event: StateChangeEvent; snapshot?: Session; timestamp?: string; fromStatus?: string; authz?: { allowed: boolean; denied_resource?: string } }>>([]);
 
   let childIds = $derived.by((): string[] => {
-    if (!agent?.child_agent_ids) return [];
+    if (!session?.child_session_ids) return [];
     try {
-      return JSON.parse(agent.child_agent_ids);
+      return JSON.parse(session.child_session_ids);
     } catch {
       return [];
     }
   });
 
-  let maxTurns = $derived(parseInt(agent?.max_turns || '0', 10) || 0);
+  let maxTurns = $derived(parseInt(session?.max_turns || '0', 10) || 0);
   let turnProgress = $derived.by(() => {
-    if (!agent || maxTurns === 0) return 0;
-    return Math.min(100, (agent.turn_count / maxTurns) * 100);
+    if (!session || maxTurns === 0) return 0;
+    return Math.min(100, (session.turn_count / maxTurns) * 100);
   });
 
-  let totalTokens = $derived((agent?.input_tokens ?? 0) + (agent?.output_tokens ?? 0));
+  let totalTokens = $derived((session?.input_tokens ?? 0) + (session?.output_tokens ?? 0));
   let costDisplay = $derived.by(() => {
-    const c = parseFloat(agent?.cost_cents || '0');
+    const c = parseFloat(session?.cost_cents || '0');
     if (c === 0) return '--';
     return `$${(c / 100).toFixed(4)}`;
   });
 
-  let totalEventCount = $derived(agent?._total_event_count ?? 0);
+  let totalEventCount = $derived(session?._total_event_count ?? 0);
   let displayedEventCount = $derived(transitions.length);
-  let rawEventCount = $derived(agent?._events?.length ?? 0);
+  let rawEventCount = $derived(session?._events?.length ?? 0);
 
   let isTerminal = $derived(
-    agent ? ['Completed', 'Failed', 'Cancelled'].includes(agent.Status) : false
+    session ? ['Completed', 'Failed', 'Cancelled'].includes(session.Status) : false
   );
 
-  async function fetchAgent() {
-    const data = await getEntity('Agents', agentId);
-    agent = data as unknown as Agent;
+  async function fetchSession() {
+    const data = await getEntity('Sessions', sessionId);
+    session = data as unknown as Session;
   }
 
   onMount(async () => {
     try {
-      await fetchAgent();
+      await fetchSession();
 
       // Fetch soul name and entity
-      if (agent?.soul_id) {
+      if (session?.soul_id) {
         try {
-          const soul = await getEntity('Souls', agent.soul_id);
+          const soul = await getEntity('Souls', session.soul_id);
           soulEntity = soul;
           soulName = (soul as { name?: string; Name?: string }).name ?? (soul as { Name?: string }).Name ?? null;
         } catch {
           // soul_id might be a name string (e.g. "SWE"), not an entity ID
-          soulName = agent.soul_id;
+          soulName = session.soul_id;
         }
       }
 
-      // Fetch skills relevant to this agent
+      // Fetch skills relevant to this session
       try {
         const allSkills = await queryEntities('Skills');
-        // Show skills that match: global scope, or scope matching agent's project harness
-        agentSkills = allSkills.filter((s: Record<string, unknown>) => {
-          const scope = ((s as { scope?: string }).scope ?? '') as string;
+        // Show skills that match: global scope, or scope matching session's project harness
+        sessionSkills = allSkills.filter((s: Record<string, unknown>) => {
           const filter = ((s as { agent_filter?: string }).agent_filter ?? '') as string;
-          // Show all skills; if agent_filter is set, only show if it matches agent's soul
-          if (filter && agent?.soul_id && !filter.includes(agent.soul_id) && !filter.includes(soulName ?? '')) {
+          // Show all skills; if agent_filter is set, only show if it matches session's soul
+          if (filter && session?.soul_id && !filter.includes(session.soul_id) && !filter.includes(soulName ?? '')) {
             return false;
           }
           return true;
@@ -94,16 +93,16 @@
 
       // Try to find linked work cycle
       try {
-        const wcs = await queryEntities('WorkCycles', `planner_id eq '${agentId}'`, undefined, 1);
+        const wcs = await queryEntities('WorkCycles', `planner_id eq '${sessionId}'`, undefined, 1);
         if (wcs.length > 0) {
           workcycle = wcs[0] as unknown as WorkCycle;
         }
       } catch { /* ignore */ }
 
       // Populate transitions from historical events
-      if (agent?._events && agent._events.length > 0) {
+      if (session?._events && session._events.length > 0) {
         // Filter out noisy Heartbeat events, show meaningful transitions
-        const meaningful = agent._events.filter(
+        const meaningful = session._events.filter(
           (e: EntityEvent) => e.action !== 'Heartbeat'
         );
         transitions = meaningful
@@ -111,8 +110,8 @@
           .map((e: EntityEvent) => ({
             event: {
               seq: 0,
-              entity_type: 'Agent',
-              entity_id: agentId,
+              entity_type: 'Session',
+              entity_id: sessionId,
               action: e.action,
               status: e.to_status,
               tenant: 'default',
@@ -123,7 +122,7 @@
           }));
       }
       // Fetch trajectory history for authorization context
-      const history = await fetchAgentHistory(agentId, 'Agent', 200);
+      const history = await fetchSessionHistory(sessionId, 'Session', 200);
 
       // Merge authz data into transitions by matching action + timestamp proximity
       for (const t of transitions) {
@@ -144,11 +143,11 @@
         }
       }
     } catch {
-      error = 'Could not load agent';
+      error = 'Could not load session';
     }
     loaded = true;
 
-    connectSSE('Agent', agentId);
+    connectSSE('Session', sessionId);
   });
 
   onDestroy(() => {
@@ -164,10 +163,10 @@
     if (latest.seq <= lastSeq) return;
     lastSeq = latest.seq;
 
-    // Re-fetch agent on any event
-    fetchAgent().then(() => {
+    // Re-fetch session on any event
+    fetchSession().then(() => {
       transitions = [
-        { event: latest, snapshot: agent ?? undefined },
+        { event: latest, snapshot: session ?? undefined },
         ...transitions,
       ].slice(0, 500);
     });
@@ -181,33 +180,33 @@
     <div class="desk-empty" transition:fade={{ duration: 200 }}>
       <p class="desk-empty-text">Loading...</p>
     </div>
-  {:else if error || !agent}
+  {:else if error || !session}
     <div class="desk-empty" transition:fade={{ duration: 200 }}>
-      <p class="desk-empty-text">{error ?? 'Agent not found'}</p>
+      <p class="desk-empty-text">{error ?? 'Session not found'}</p>
     </div>
   {:else}
     <div class="desk-layout">
       <!-- Left Panel: Context -->
       <aside class="desk-context">
         <div class="context-header">
-          <h1 class="context-name">{soulName ?? 'Agent'}</h1>
-          <code class="context-id">{agent.Id?.slice(0, 12)}</code>
+          <h1 class="context-name">{soulName ?? 'Session'}</h1>
+          <code class="context-id">{session.Id?.slice(0, 12)}</code>
           <div class="context-status">
-            <StatusBadge status={agent.Status} />
+            <StatusBadge status={session.Status} />
           </div>
         </div>
 
-        {#if isTerminal && agent.result}
+        {#if isTerminal && session.result}
           <div class="context-section context-section--result">
             <span class="context-label">Result</span>
-            <p class="context-result">{agent.result}</p>
+            <p class="context-result">{session.result}</p>
           </div>
         {/if}
 
-        {#if isTerminal && agent.error_message}
+        {#if isTerminal && session.error_message}
           <div class="context-section context-section--error">
             <span class="context-label">Error</span>
-            <p class="context-error">{agent.error_message}</p>
+            <p class="context-error">{session.error_message}</p>
           </div>
         {/if}
 
@@ -236,7 +235,7 @@
           {@const soulFileId = (soulEntity as Record<string, unknown>).ContentFileId ?? (soulEntity as Record<string, unknown>).content_file_id}
           <div class="context-section">
             <span class="context-label">Soul</span>
-            <span class="context-value">{soulName ?? agent.soul_id}</span>
+            <span class="context-value">{soulName ?? session.soul_id}</span>
             {#if soulFileId}
               <button class="expand-btn" onclick={async () => {
                 soulContentExpanded = !soulContentExpanded;
@@ -251,27 +250,27 @@
               {/if}
             {/if}
           </div>
-        {:else if agent.soul_id}
+        {:else if session.soul_id}
           <div class="context-section">
             <span class="context-label">Soul</span>
-            <span class="context-value">{soulName ?? agent.soul_id}</span>
+            <span class="context-value">{soulName ?? session.soul_id}</span>
           </div>
         {/if}
 
-        {#if agentSkills.length > 0}
+        {#if sessionSkills.length > 0}
           <div class="context-section">
-            <span class="context-label">Skills ({agentSkills.length})</span>
-            <div class="agent-skills">
-              {#each agentSkills as skill (skill.Id)}
-                <div class="agent-skill">
-                  <div class="agent-skill__header">
-                    <span class="agent-skill__name">{skill.name || skill.Name || skill.Id}</span>
+            <span class="context-label">Skills ({sessionSkills.length})</span>
+            <div class="session-skills">
+              {#each sessionSkills as skill (skill.Id)}
+                <div class="session-skill">
+                  <div class="session-skill__header">
+                    <span class="session-skill__name">{skill.name || skill.Name || skill.Id}</span>
                     {#if skill.scope}
-                      <span class="agent-skill__scope">{skill.scope}</span>
+                      <span class="session-skill__scope">{skill.scope}</span>
                     {/if}
                   </div>
                   {#if skill.description || skill.Description}
-                    <span class="agent-skill__desc">{skill.description || skill.Description}</span>
+                    <span class="session-skill__desc">{skill.description || skill.Description}</span>
                   {/if}
                   {#if skill.content_file_id}
                     <button class="expand-btn" onclick={async () => {
@@ -296,13 +295,13 @@
 
         <div class="context-section">
           <span class="context-label">Model</span>
-          <span class="context-value">{agent.model || '--'}</span>
+          <span class="context-value">{session.model || '--'}</span>
         </div>
 
-        {#if agent.provider}
+        {#if session.provider}
           <div class="context-section">
             <span class="context-label">Provider</span>
-            <span class="context-value">{agent.provider}</span>
+            <span class="context-value">{session.provider}</span>
           </div>
         {/if}
 
@@ -311,13 +310,13 @@
           <div class="progress-bar">
             <div class="progress-fill" style:width="{turnProgress}%"></div>
           </div>
-          <span class="context-detail">{agent.turn_count ?? 0}{maxTurns > 0 ? ` / ${maxTurns}` : ''}</span>
+          <span class="context-detail">{session.turn_count ?? 0}{maxTurns > 0 ? ` / ${maxTurns}` : ''}</span>
         </div>
 
         <div class="context-section">
           <span class="context-label">Tokens</span>
           <span class="context-value mono">{totalTokens.toLocaleString()}</span>
-          <span class="context-detail">in: {(agent.input_tokens ?? 0).toLocaleString()} / out: {(agent.output_tokens ?? 0).toLocaleString()}</span>
+          <span class="context-detail">in: {(session.input_tokens ?? 0).toLocaleString()} / out: {(session.output_tokens ?? 0).toLocaleString()}</span>
         </div>
 
         <div class="context-section">
@@ -325,11 +324,11 @@
           <span class="context-value mono">{costDisplay}</span>
         </div>
 
-        {#if agent.parent_agent_id}
+        {#if session.parent_session_id}
           <div class="context-section">
             <span class="context-label">Parent</span>
-            <a href="/agents/{agent.parent_agent_id}" class="context-link mono">
-              {agent.parent_agent_id.slice(0, 8)}
+            <a href="/sessions/{session.parent_session_id}" class="context-link mono">
+              {session.parent_session_id.slice(0, 8)}
             </a>
           </div>
         {/if}
@@ -339,31 +338,31 @@
             <span class="context-label">Children</span>
             <div class="context-children">
               {#each childIds as childId}
-                <a href="/agents/{childId}" class="context-link mono">{childId.slice(0, 8)}</a>
+                <a href="/sessions/{childId}" class="context-link mono">{childId.slice(0, 8)}</a>
               {/each}
             </div>
           </div>
         {/if}
 
-        {#if agent.Status === 'WaitingForApproval' && agent.pending_tool_context}
+        {#if session.Status === 'WaitingForApproval' && session.pending_tool_context}
           <div class="context-section context-section--approval">
             <span class="context-label">Pending Approval</span>
-            <pre class="context-pre">{agent.pending_tool_context}</pre>
+            <pre class="context-pre">{session.pending_tool_context}</pre>
           </div>
         {/if}
 
-        {#if agent.user_message}
+        {#if session.user_message}
           <div class="context-section">
             <span class="context-label">Task</span>
-            {#if agent.user_message.length > 200}
+            {#if session.user_message.length > 200}
               <p class="context-task">
-                {taskExpanded ? agent.user_message : agent.user_message.slice(0, 200) + '...'}
+                {taskExpanded ? session.user_message : session.user_message.slice(0, 200) + '...'}
               </p>
               <button class="expand-btn" onclick={() => taskExpanded = !taskExpanded}>
                 {taskExpanded ? 'Show less' : 'Show full task'}
               </button>
             {:else}
-              <p class="context-task">{agent.user_message}</p>
+              <p class="context-task">{session.user_message}</p>
             {/if}
           </div>
         {/if}
@@ -673,13 +672,13 @@
     flex-direction: column;
   }
 
-  .agent-skills {
+  .session-skills {
     display: flex;
     flex-direction: column;
     gap: 6px;
   }
 
-  .agent-skill {
+  .session-skill {
     display: flex;
     flex-direction: column;
     gap: 3px;
@@ -688,19 +687,19 @@
     border-radius: var(--radius-sm);
   }
 
-  .agent-skill__header {
+  .session-skill__header {
     display: flex;
     align-items: center;
     gap: var(--space-1);
   }
 
-  .agent-skill__name {
+  .session-skill__name {
     font-size: var(--text-xs);
     font-weight: 500;
     color: var(--text-primary);
   }
 
-  .agent-skill__scope {
+  .session-skill__scope {
     font-family: var(--font-mono);
     font-size: 0.625rem;
     color: var(--text-secondary);
@@ -709,7 +708,7 @@
     border-radius: var(--radius-sm);
   }
 
-  .agent-skill__desc {
+  .session-skill__desc {
     font-size: var(--text-xs);
     color: var(--text-tertiary);
   }

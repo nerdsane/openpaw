@@ -1,38 +1,23 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { fade } from 'svelte/transition';
-  import { loadAgents, agents, activeAgents } from '$lib/stores/agents';
+  import { loadSessions, sessions, activeSessions } from '$lib/stores/sessions';
   import { connectSSE, disconnectSSE, events } from '$lib/sse';
-  import { refreshAgent } from '$lib/stores/agents';
-  import { queryEntities, fetchFileContent } from '$lib/api';
-  import type { ProjectHarness, Soul, WorkCycle, Skill } from '$lib/types';
-  import AgentCard from '$lib/components/AgentCard.svelte';
-  import GatePipeline from '$lib/components/GatePipeline.svelte';
-  import StatusBadge from '$lib/components/StatusBadge.svelte';
+  import { refreshSession } from '$lib/stores/sessions';
+  import SessionCard from '$lib/components/SessionCard.svelte';
   import PawLogo from '$lib/components/PawLogo.svelte';
 
   let loaded = $state(false);
   let error = $state<string | null>(null);
 
-  let projects = $state<ProjectHarness[]>([]);
-  let souls = $state<Soul[]>([]);
-  let workcycles = $state<WorkCycle[]>([]);
-  let skills = $state<Skill[]>([]);
-
   onMount(async () => {
     try {
-      await loadAgents();
+      await loadSessions();
     } catch {
       error = 'Could not reach the API server';
     }
     loaded = true;
     connectSSE();
-
-    // Load project context (non-blocking)
-    try { projects = (await queryEntities('ProjectHarnesses', undefined, undefined, 10)) as unknown as ProjectHarness[]; } catch { /* may not exist */ }
-    try { souls = (await queryEntities('Souls', undefined, undefined, 20)) as unknown as Soul[]; } catch { /* may not exist */ }
-    try { workcycles = (await queryEntities('WorkCycles', undefined, 'SequenceNr desc', 20)) as unknown as WorkCycle[]; } catch { /* may not exist */ }
-    try { skills = (await queryEntities('Skills', undefined, undefined, 20)) as unknown as Skill[]; } catch { /* may not exist */ }
   });
 
   onDestroy(() => {
@@ -47,161 +32,25 @@
     const latest = evts[0];
     if (latest.seq <= lastSeq) return;
     lastSeq = latest.seq;
-    if (latest.entity_type === 'Agent') {
-      refreshAgent(latest.entity_id);
+    if (latest.entity_type === 'Session') {
+      refreshSession(latest.entity_id);
     }
   });
 
-  let completedAgents = $derived(
-    $agents.filter((a) => ['Completed', 'Failed', 'Cancelled'].includes(a.Status))
+  let completedSessions = $derived(
+    $sessions.filter((a) => ['Completed', 'Failed', 'Cancelled'].includes(a.Status))
   );
 
-  let hasActive = $derived($activeAgents.length > 0);
-  let hasCompleted = $derived(completedAgents.length > 0);
-  let hasAny = $derived($agents.length > 0);
-  let hasContext = $derived(projects.length > 0 || souls.length > 0 || workcycles.length > 0 || skills.length > 0);
-
-  // Expandable skill content on the floor page
-  let expandedSkillId = $state<string | null>(null);
-  let skillContentCache = $state<Record<string, string>>({});
-
-  async function toggleSkillContent(skill: Skill) {
-    const id = skill.Id;
-    if (expandedSkillId === id) {
-      expandedSkillId = null;
-      return;
-    }
-    expandedSkillId = id;
-    const fileId = skill.content_file_id;
-    if (fileId && !skillContentCache[id]) {
-      const content = await fetchFileContent(fileId);
-      skillContentCache = { ...skillContentCache, [id]: content };
-    }
-  }
-
-  let activeWorkCycles = $derived(
-    workcycles.filter((w) => !['Completed', 'Failed', 'Cancelled'].includes(w.Status))
-  );
-  let recentWorkCycles = $derived(
-    workcycles.filter((w) => ['Completed', 'Failed', 'Cancelled'].includes(w.Status)).slice(0, 5)
-  );
+  let hasActive = $derived($activeSessions.length > 0);
+  let hasCompleted = $derived(completedSessions.length > 0);
+  let hasAny = $derived($sessions.length > 0);
 </script>
 
 <div class="floor">
   <header class="floor-header">
-    <h1>Operations Floor</h1>
-    <p class="floor-subtitle">All agents across projects</p>
+    <h1>Factory Floor</h1>
+    <p class="floor-subtitle">Active work across all projects</p>
   </header>
-
-  {#if hasContext}
-    <section class="project-context">
-      {#if projects.length > 0}
-        <div class="context-block">
-          <h2 class="context-heading">Project</h2>
-          {#each projects as project (project.Id)}
-            <div class="project-card card">
-              <div class="project-card__name">{project.project_name || project.Id}</div>
-              {#if project.repo_url}
-                <code class="project-card__url">{project.repo_url}</code>
-              {/if}
-              {#if project.tech_stack}
-                <span class="project-card__stack">{project.tech_stack}</span>
-              {/if}
-              <div class="project-card__status">
-                <StatusBadge status={project.Status} />
-              </div>
-            </div>
-          {/each}
-        </div>
-      {/if}
-
-      {#if souls.length > 0}
-        <div class="context-block">
-          <h2 class="context-heading">Team</h2>
-          <div class="team-roster">
-            {#each souls as soul (soul.Id)}
-              <div class="team-member">
-                <span class="team-member__name">{soul.name || soul.Id}</span>
-                {#if soul.description}
-                  <span class="team-member__desc">{soul.description}</span>
-                {/if}
-              </div>
-            {/each}
-          </div>
-        </div>
-      {/if}
-
-      {#if skills.length > 0}
-        <div class="context-block">
-          <h2 class="context-heading">Skills</h2>
-          <div class="skills-grid">
-            {#each skills as skill (skill.Id)}
-              <div class="skill-card">
-                <div class="skill-card__header" onclick={() => toggleSkillContent(skill)} role="button" tabindex="0" onkeydown={(e) => { if (e.key === 'Enter') toggleSkillContent(skill); }}>
-                  <span class="skill-card__name">{skill.name || skill.Name || skill.Id}</span>
-                  {#if skill.scope}
-                    <span class="skill-card__scope">{skill.scope}</span>
-                  {/if}
-                </div>
-                {#if skill.description || skill.Description}
-                  <span class="skill-card__desc">{skill.description || skill.Description}</span>
-                {/if}
-                {#if skill.content_file_id}
-                  <button class="skill-card__toggle" onclick={() => toggleSkillContent(skill)}>
-                    {expandedSkillId === skill.Id ? 'Hide content' : 'View content'}
-                  </button>
-                {/if}
-                {#if expandedSkillId === skill.Id && skillContentCache[skill.Id]}
-                  <pre class="skill-card__content">{skillContentCache[skill.Id]}</pre>
-                {/if}
-              </div>
-            {/each}
-          </div>
-        </div>
-      {/if}
-
-      {#if activeWorkCycles.length > 0}
-        <div class="context-block">
-          <h2 class="context-heading">Active Work Cycles</h2>
-          <div class="workcycle-list">
-            {#each activeWorkCycles as wc (wc.Id)}
-              <a href="/entities/WorkCycle/{wc.Id}" class="workcycle-row card">
-                <div class="workcycle-row__top">
-                  <span class="workcycle-row__task">{wc.task_summary || 'Untitled cycle'}</span>
-                  <StatusBadge status={wc.Status} />
-                </div>
-                <div class="workcycle-row__gates">
-                  <GatePipeline workcycle={wc} />
-                </div>
-                {#if wc.pr_url}
-                  <code class="workcycle-row__pr">{wc.pr_url}</code>
-                {/if}
-              </a>
-            {/each}
-          </div>
-        </div>
-      {/if}
-
-      {#if recentWorkCycles.length > 0}
-        <div class="context-block">
-          <h2 class="context-heading">Recent Work Cycles</h2>
-          <div class="workcycle-list">
-            {#each recentWorkCycles as wc (wc.Id)}
-              <a href="/entities/WorkCycle/{wc.Id}" class="workcycle-row workcycle-row--dimmed card">
-                <div class="workcycle-row__top">
-                  <span class="workcycle-row__task">{wc.task_summary || 'Untitled cycle'}</span>
-                  <StatusBadge status={wc.Status} />
-                </div>
-                <div class="workcycle-row__gates">
-                  <GatePipeline workcycle={wc} />
-                </div>
-              </a>
-            {/each}
-          </div>
-        </div>
-      {/if}
-    </section>
-  {/if}
 
   {#if !loaded}
     <div class="floor-empty" transition:fade={{ duration: 200 }}>
@@ -219,15 +68,15 @@
       <div class="floor-watermark">
         <PawLogo size={80} />
       </div>
-      <p class="floor-empty-text">No active agents</p>
+      <p class="floor-empty-text">No active sessions</p>
     </div>
   {:else}
     {#if hasActive}
       <section class="floor-section">
-        <h2 class="floor-section-title">Active Agents</h2>
+        <h2 class="floor-section-title">Active Sessions</h2>
         <div class="floor-grid">
-          {#each $activeAgents as agent (agent.Id)}
-            <AgentCard {agent} />
+          {#each $activeSessions as session (session.Id)}
+            <SessionCard {session} />
           {/each}
         </div>
       </section>
@@ -236,7 +85,7 @@
         <div class="floor-watermark">
           <PawLogo size={80} />
         </div>
-        <p class="floor-empty-text">No active agents</p>
+        <p class="floor-empty-text">No active sessions</p>
       </div>
     {/if}
 
@@ -244,8 +93,8 @@
       <section class="floor-section floor-section--recent">
         <h2 class="floor-section-title">Recent</h2>
         <div class="floor-grid floor-grid--dimmed">
-          {#each completedAgents as agent (agent.Id)}
-            <AgentCard {agent} />
+          {#each completedSessions as session (session.Id)}
+            <SessionCard {session} />
           {/each}
         </div>
       </section>

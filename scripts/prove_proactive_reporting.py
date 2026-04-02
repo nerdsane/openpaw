@@ -79,7 +79,7 @@ def main() -> int:
                     {
                         "model": args.model,
                         "provider": "anthropic",
-                        "tools_enabled": "temper_create,temper_get,temper_list,temper_action,spawn_agent,read_entity,save_memory",
+                        "tools_enabled": "temper_create,temper_get,temper_list,temper_action,spawn_session,read_entity,save_memory",
                         "max_turns": "12",
                         "workdir": "/tmp/proactive-report-proof",
                     },

@@ -1,7 +1,7 @@
 //! Alert Opener — WASM module for the AlertCycle.Open (spawn_sre) integration.
 //!
 //! Spawns an SRE agent to triage and remediate a monitor alert. Queries the
-//! Monitor and ProjectHarness entities for context, creates a new Agent, and
+//! Monitor and ProjectHarness entities for context, creates a new Session, and
 //! dispatches Configure + Provision actions on it.
 //!
 //! Build: `cargo build --target wasm32-unknown-unknown --release`
@@ -225,34 +225,34 @@ DEVELOPER_AGENT_ID=<id or empty>\n\
 ISSUE_ID=<id or empty>"
         );
 
-        // 6. Create Agent entity
-        let agent_url = format!("{temper_api_url}/tdata/Agents");
+        // 6. Create Session entity
+        let agent_url = format!("{temper_api_url}/tdata/Sessions");
         let agent_body = json!({});
         let agent_resp = ctx.http_call("POST", &agent_url, &headers, &agent_body.to_string())?;
         if agent_resp.status < 200 || agent_resp.status >= 300 {
             return Err(format!(
-                "alert_opener: failed to create Agent (HTTP {}): {}",
+                "alert_opener: failed to create Session (HTTP {}): {}",
                 agent_resp.status,
                 &agent_resp.body[..agent_resp.body.len().min(300)]
             ));
         }
         let agent_parsed: Value = serde_json::from_str(&agent_resp.body)
-            .map_err(|e| format!("alert_opener: failed to parse Agent response: {e}"))?;
+            .map_err(|e| format!("alert_opener: failed to parse Session response: {e}"))?;
         let agent_id = agent_parsed
             .get("entity_id")
             .and_then(|v| v.as_str())
-            .ok_or("alert_opener: Agent creation did not return entity_id")?;
+            .ok_or("alert_opener: Session creation did not return entity_id")?;
 
-        ctx.log("info", &format!("alert_opener: created Agent {agent_id}"));
+        ctx.log("info", &format!("alert_opener: created Session {agent_id}"));
 
-        // 7. Dispatch Agents.OpenPaw.Configure
+        // 7. Dispatch Sessions.OpenPaw.Configure
         let configure_url = format!(
-            "{temper_api_url}/tdata/Agents('{agent_id}')/OpenPaw.Configure"
+            "{temper_api_url}/tdata/Sessions('{agent_id}')/OpenPaw.Configure"
         );
         let configure_body = json!({
             "model": default_agent_model,
             "provider": "anthropic",
-            "tools_enabled": "temper_get,temper_list,temper_action,temper_create,spawn_agent,read_entity",
+            "tools_enabled": "temper_get,temper_list,temper_action,temper_create,spawn_session,read_entity",
             "workdir": default_sre_workdir,
             "soul_id": "SRE",
             "temper_api_url": temper_api_url,
@@ -268,11 +268,11 @@ ISSUE_ID=<id or empty>"
                 &configure_resp.body[..configure_resp.body.len().min(300)]
             ));
         }
-        ctx.log("info", &format!("alert_opener: configured Agent {agent_id}"));
+        ctx.log("info", &format!("alert_opener: configured Session {agent_id}"));
 
-        // 8. Dispatch Agents.OpenPaw.Provision
+        // 8. Dispatch Sessions.OpenPaw.Provision
         let provision_url = format!(
-            "{temper_api_url}/tdata/Agents('{agent_id}')/OpenPaw.Provision"
+            "{temper_api_url}/tdata/Sessions('{agent_id}')/OpenPaw.Provision"
         );
         let provision_body = json!({});
         let provision_resp =
@@ -286,7 +286,7 @@ ISSUE_ID=<id or empty>"
                 ),
             );
         }
-        ctx.log("info", &format!("alert_opener: provisioned Agent {agent_id}"));
+        ctx.log("info", &format!("alert_opener: provisioned Session {agent_id}"));
 
         // 9. PATCH AlertCycle to set sre_agent_id
         let patch_url = format!(

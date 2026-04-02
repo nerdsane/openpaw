@@ -217,7 +217,7 @@ def main() -> int:
             repo_url=args.repo_url,
             timeout_secs=args.setup_timeout_secs,
         )
-        paw_agent = client.get("Agents", paw_agent_id)
+        paw_agent = client.get("Sessions", paw_agent_id)
         harness_id = entity_id(harness)
         require(harness_id, "missing ProjectHarness id")
 
@@ -269,7 +269,7 @@ def main() -> int:
         require(monitor_id, f"missing monitor_id in {webhook_response}")
 
         sre_wait = client.wait_for_agent(sre_agent_id, int(args.alert_timeout_secs * 1000))
-        sre_agent = client.get("Agents", sre_agent_id)
+        sre_agent = client.get("Sessions", sre_agent_id)
         alert_cycle = wait_for_alert_cycle_terminal(
             client,
             alert_cycle_id,
@@ -282,8 +282,8 @@ def main() -> int:
             monitor_id=monitor_id,
         )
         sre_child_agents = client.list(
-            "Agents",
-            filter_expr=f"parent_agent_id eq '{sre_agent_id}'",
+            "Sessions",
+            filter_expr=f"parent_session_id eq '{sre_agent_id}'",
             orderby="sequence_nr desc",
             top=10,
         )

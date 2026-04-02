@@ -1,11 +1,11 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { fade } from 'svelte/transition';
-  import type { Agent } from '$lib/types';
+  import type { Session } from '$lib/types';
   import { getEntity } from '$lib/api';
   import StatusBadge from './StatusBadge.svelte';
 
-  let { agent }: { agent: Agent } = $props();
+  let { session }: { session: Session } = $props();
 
   let soulName = $state<string | null>(null);
 
@@ -13,44 +13,44 @@
   const soulCache = new Map<string, string>();
 
   onMount(async () => {
-    if (agent.soul_id) {
-      if (soulCache.has(agent.soul_id)) {
-        soulName = soulCache.get(agent.soul_id) ?? null;
+    if (session.soul_id) {
+      if (soulCache.has(session.soul_id)) {
+        soulName = soulCache.get(session.soul_id) ?? null;
       } else {
         try {
-          const soul = await getEntity('Souls', agent.soul_id);
+          const soul = await getEntity('Souls', session.soul_id);
           const name = (soul as { name?: string }).name ?? null;
           if (name) {
-            soulCache.set(agent.soul_id, name);
+            soulCache.set(session.soul_id, name);
             soulName = name;
           }
         } catch {
           // Soul entity not found by ID — soul_id might be a name string (e.g. "SWE")
-          soulName = agent.soul_id;
-          soulCache.set(agent.soul_id, agent.soul_id);
+          soulName = session.soul_id;
+          soulCache.set(session.soul_id, session.soul_id);
         }
       }
     }
   });
 
-  let shortId = $derived(agent.Id?.slice(0, 8) ?? '');
+  let shortId = $derived(session.Id?.slice(0, 8) ?? '');
 
   let isActive = $derived(
-    !['Completed', 'Failed', 'Cancelled'].includes(agent.Status)
+    !['Completed', 'Failed', 'Cancelled'].includes(session.Status)
   );
 
   let truncatedMessage = $derived.by(() => {
-    if (!agent.user_message) return null;
-    return agent.user_message.length > 80
-      ? agent.user_message.slice(0, 80) + '...'
-      : agent.user_message;
+    if (!session.user_message) return null;
+    return session.user_message.length > 80
+      ? session.user_message.slice(0, 80) + '...'
+      : session.user_message;
   });
 
   let relativeTime = $derived.by(() => {
-    if (!agent.last_heartbeat_at) return null;
+    if (!session.last_heartbeat_at) return null;
     // Handle non-ISO values like "alive"
-    const then = new Date(agent.last_heartbeat_at).getTime();
-    if (isNaN(then)) return agent.last_heartbeat_at; // Show raw value if not a date
+    const then = new Date(session.last_heartbeat_at).getTime();
+    if (isNaN(then)) return session.last_heartbeat_at; // Show raw value if not a date
     const now = Date.now();
     const diff = Math.max(0, now - then);
     const seconds = Math.floor(diff / 1000);
@@ -63,35 +63,35 @@
     return `${days}d ago`;
   });
 
-  let totalTokens = $derived((agent.input_tokens ?? 0) + (agent.output_tokens ?? 0));
+  let totalTokens = $derived((session.input_tokens ?? 0) + (session.output_tokens ?? 0));
   let costDisplay = $derived.by(() => {
-    const c = parseFloat(agent.cost_cents || '0');
+    const c = parseFloat(session.cost_cents || '0');
     if (c === 0) return '--';
     return `$${(c / 100).toFixed(4)}`;
   });
 </script>
 
 <a
-  href="/agents/{agent.Id}"
-  class="agent-card card"
-  class:agent-card--active={isActive}
+  href="/sessions/{session.Id}"
+  class="session-card card"
+  class:session-card--active={isActive}
   transition:fade={{ duration: 200 }}
 >
-  <div class="agent-card__header">
-    <h3 class="agent-card__name">{soulName ?? 'Agent'}</h3>
-    <code class="agent-card__id">{shortId}</code>
+  <div class="session-card__header">
+    <h3 class="session-card__name">{soulName ?? 'Session'}</h3>
+    <code class="session-card__id">{shortId}</code>
   </div>
 
-  <StatusBadge status={agent.Status} />
+  <StatusBadge status={session.Status} />
 
   {#if truncatedMessage}
-    <p class="agent-card__task">{truncatedMessage}</p>
+    <p class="session-card__task">{truncatedMessage}</p>
   {/if}
 
-  <div class="agent-card__stats">
+  <div class="session-card__stats">
     <span class="stat">
       <span class="stat-label">turns</span>
-      <span class="stat-value">{agent.turn_count ?? 0}</span>
+      <span class="stat-value">{session.turn_count ?? 0}</span>
     </span>
     <span class="stat">
       <span class="stat-label">tokens</span>
@@ -104,12 +104,12 @@
   </div>
 
   {#if relativeTime}
-    <div class="agent-card__time">{relativeTime}</div>
+    <div class="session-card__time">{relativeTime}</div>
   {/if}
 </a>
 
 <style>
-  .agent-card {
+  .session-card {
     display: flex;
     flex-direction: column;
     gap: var(--space-1);
@@ -121,13 +121,13 @@
     overflow: hidden;
   }
 
-  .agent-card:hover {
+  .session-card:hover {
     text-decoration: none;
     transform: translateY(-1px);
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
   }
 
-  .agent-card--active::before {
+  .session-card--active::before {
     content: '';
     position: absolute;
     top: 50%;
@@ -156,37 +156,37 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .agent-card--active::before {
+    .session-card--active::before {
       animation: none;
       opacity: 0.02;
     }
   }
 
-  .agent-card__header {
+  .session-card__header {
     display: flex;
     align-items: baseline;
     gap: var(--space-1);
   }
 
-  .agent-card__name {
+  .session-card__name {
     font-size: var(--text-base);
     font-weight: 600;
   }
 
-  .agent-card__id {
+  .session-card__id {
     font-family: var(--font-mono);
     font-size: var(--text-xs);
     color: var(--text-tertiary);
   }
 
-  .agent-card__task {
+  .session-card__task {
     font-size: var(--text-sm);
     color: var(--text-secondary);
     line-height: 1.5;
     margin-top: 4px;
   }
 
-  .agent-card__stats {
+  .session-card__stats {
     display: flex;
     gap: var(--space-2);
     margin-top: var(--space-1);
@@ -211,7 +211,7 @@
     color: var(--text-secondary);
   }
 
-  .agent-card__time {
+  .session-card__time {
     font-size: var(--text-xs);
     color: var(--text-tertiary);
     margin-top: 4px;

@@ -41,7 +41,7 @@ curl -sf -X POST "$SANDBOX/v1/processes/run" \
 
 # 1. Create and configure agent
 echo "Step 1: Creating agent..."
-AGENT_RESULT=$(curl -sf -X POST "$SERVER/tdata/Agents" \
+AGENT_RESULT=$(curl -sf -X POST "$SERVER/tdata/Sessions" \
   -H "content-type: application/json" \
   -H "x-tenant-id: $TENANT" \
   -H "x-temper-principal-kind: admin" \
@@ -50,7 +50,7 @@ AGENT_ID=$(echo "$AGENT_RESULT" | python3 -c "import sys,json; print(json.load(s
 echo "  Agent ID: $AGENT_ID"
 
 echo "Step 2: Configuring agent..."
-curl -sf -X POST "$SERVER/tdata/Agents('${AGENT_ID}')/OpenPaw.Configure" \
+curl -sf -X POST "$SERVER/tdata/Sessions('${AGENT_ID}')/OpenPaw.Configure" \
   -H "content-type: application/json" \
   -H "x-tenant-id: $TENANT" \
   -H "x-temper-principal-kind: admin" \
@@ -65,7 +65,7 @@ curl -sf -X POST "$SERVER/tdata/Agents('${AGENT_ID}')/OpenPaw.Configure" \
 
 # 3. Provision (triggers sandbox_provisioner → creates workspace + manifest)
 echo "Step 3: Provisioning..."
-curl -sf -X POST "$SERVER/tdata/Agents('${AGENT_ID}')/OpenPaw.Provision" \
+curl -sf -X POST "$SERVER/tdata/Sessions('${AGENT_ID}')/OpenPaw.Provision" \
   -H "content-type: application/json" \
   -H "x-tenant-id: $TENANT" \
   -H "x-temper-principal-kind: admin" \
@@ -74,7 +74,7 @@ curl -sf -X POST "$SERVER/tdata/Agents('${AGENT_ID}')/OpenPaw.Provision" \
 # 4. Poll until completion
 echo "Step 4: Polling for completion..."
 for i in $(seq 1 60); do
-  ENTITY=$(curl -sf "$SERVER/tdata/Agents" \
+  ENTITY=$(curl -sf "$SERVER/tdata/Sessions" \
     -H "x-tenant-id: $TENANT" \
     -H "x-temper-principal-kind: admin" | python3 -c "
 import sys, json

@@ -189,7 +189,7 @@ class ODataClient:
         while True:
             chunk_ms = min(remaining_ms, 300_000)
             path = (
-                "/observe/entities/Agent/"
+                "/observe/entities/Session/"
                 f"{agent_id}/wait?statuses=Completed,Failed,Cancelled"
                 f"&timeout_ms={chunk_ms}&poll_ms=500"
             )

@@ -7,8 +7,8 @@ export type { StateChangeEvent };
 
 export const recentEvents = derived(events, ($events) => $events.slice(0, 100));
 
-export const agentEvents = derived(events, ($events) =>
-  $events.filter((e) => e.entity_type === 'Agent')
+export const sessionEvents = derived(events, ($events) =>
+  $events.filter((e) => e.entity_type === 'Session')
 );
 
 export const workCycleEvents = derived(events, ($events) =>

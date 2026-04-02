@@ -1,7 +1,7 @@
-# HeartbeatMonitor — Periodic scanner for stale agents.
+# HeartbeatMonitor — Periodic scanner for stale sessions.
 #
 # One per tenant. Self-scheduling via HeartbeatRun pattern.
-# Scans agents in non-terminal states and fires TimeoutFail on stale ones.
+# Scans sessions in non-terminal states and fires TimeoutFail on stale ones.
 
 [automaton]
 name = "HeartbeatMonitor"
@@ -19,7 +19,7 @@ type = "string"
 initial = ""
 
 [[state]]
-name = "stale_agents_found"
+name = "stale_sessions_found"
 type = "counter"
 initial = "0"
 
@@ -28,7 +28,7 @@ name = "Start"
 kind = "input"
 from = ["Idle"]
 to = "Scanning"
-hint = "Begin scanning for stale agents."
+hint = "Begin scanning for stale sessions."
 effect = [{ type = "trigger", name = "scan_agents" }]
 
 [[action]]
@@ -36,9 +36,9 @@ name = "ScanComplete"
 kind = "input"
 from = ["Scanning"]
 to = "Idle"
-params = ["last_scan_at", "stale_agents_found"]
+params = ["last_scan_at", "stale_sessions_found"]
 hint = "Scan finished. Schedule next scan."
-effect = [{ type = "increment", var = "stale_agents_found" }, { type = "trigger", name = "schedule_next_scan" }]
+effect = [{ type = "increment", var = "stale_sessions_found" }, { type = "trigger", name = "schedule_next_scan" }]
 
 [[action]]
 name = "ScheduledScan"

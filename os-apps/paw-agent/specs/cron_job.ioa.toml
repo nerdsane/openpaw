@@ -79,7 +79,7 @@ type = "string"
 initial = "0"
 
 [[state]]
-name = "last_agent_id"
+name = "last_session_id"
 type = "string"
 initial = ""
 
@@ -121,15 +121,15 @@ name = "Trigger"
 kind = "input"
 from = ["Active"]
 params = ["last_run_at"]
-hint = "Fire the cron job — creates and provisions a Agent."
+hint = "Fire the cron job — creates and provisions a Session."
 effect = [{ type = "increment", var = "run_count" }, { type = "trigger", name = "cron_trigger" }]
 
 [[action]]
 name = "TriggerComplete"
 kind = "input"
 from = ["Active"]
-params = ["last_agent_id", "last_result"]
-hint = "Callback after agent creation. Updates tracking fields."
+params = ["last_session_id", "last_result"]
+hint = "Callback after session creation. Updates tracking fields."
 
 [[action]]
 name = "TriggerFailed"

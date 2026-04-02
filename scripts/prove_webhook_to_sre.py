@@ -70,13 +70,13 @@ def wait_for_agent_progress(
     deadline = time.time() + timeout_secs
     latest: dict[str, object] | None = None
     while time.time() < deadline:
-        latest = client.get("Agents", agent_id)
+        latest = client.get("Sessions", agent_id)
         status = nested_str(latest, ["status", "Status"])
         if status and status != "Created":
             return latest
         time.sleep(1)
     if latest is None:
-        raise TimeoutError(f"timed out waiting for Agent {agent_id} to appear")
+        raise TimeoutError(f"timed out waiting for Session {agent_id} to appear")
     return latest
 
 
@@ -172,8 +172,8 @@ def main() -> int:
         top=5,
     )
     child_agents = client.list(
-        "Agents",
-        filter_expr=f"parent_agent_id eq '{sre_agent_id}'",
+        "Sessions",
+        filter_expr=f"parent_session_id eq '{sre_agent_id}'",
         orderby="sequence_nr desc",
         top=5,
     )

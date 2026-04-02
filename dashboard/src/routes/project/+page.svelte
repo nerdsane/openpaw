@@ -1,20 +1,26 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { slide } from 'svelte/transition';
-  import { fetchDecisions, fetchPolicies, queryEntities, fetchFileContent, type PendingDecision, type PolicyEntry } from '$lib/api';
+  import { fetchDecisions, fetchPolicies, queryEntities, queryTeams, queryAgentsForTeam, fetchFileContent, type PendingDecision, type PolicyEntry } from '$lib/api';
   import StatusBadge from '$lib/components/StatusBadge.svelte';
   import GatePipeline from '$lib/components/GatePipeline.svelte';
-  import type { WorkCycle } from '$lib/types';
+  import type { WorkCycle, Agent, Team, Session } from '$lib/types';
 
   let loaded = $state(false);
 
   // Data
   let harnesses = $state<Record<string, unknown>[]>([]);
+  let teams = $state<Team[]>([]);
+  let teamAgents = $state<Record<string, Agent[]>>({});
   let souls = $state<Record<string, unknown>[]>([]);
   let skills = $state<Record<string, unknown>[]>([]);
   let workCycles = $state<Record<string, unknown>[]>([]);
   let decisions = $state<PendingDecision[]>([]);
   let policies = $state<PolicyEntry[]>([]);
+
+  // Agent sessions (loaded on click)
+  let expandedAgentSessions = $state<string | null>(null);
+  let agentSessionsCache = $state<Record<string, Session[]>>({});
 
   // Expandable
   let expandedHarness = $state<string | null>(null);
@@ -39,9 +45,26 @@
     }
   }
 
+  async function toggleAgentSessions(agentId: string) {
+    if (expandedAgentSessions === agentId) {
+      expandedAgentSessions = null;
+      return;
+    }
+    expandedAgentSessions = agentId;
+    if (!agentSessionsCache[agentId]) {
+      try {
+        const data = await queryEntities('Sessions', `agent_id eq '${agentId}'`, 'SequenceNr desc', 20);
+        agentSessionsCache = { ...agentSessionsCache, [agentId]: data as unknown as Session[] };
+      } catch {
+        agentSessionsCache = { ...agentSessionsCache, [agentId]: [] };
+      }
+    }
+  }
+
   onMount(async () => {
-    const [ha, so, sk, wc, dec, pol] = await Promise.all([
+    const [ha, tm, so, sk, wc, dec, pol] = await Promise.all([
       queryEntities('ProjectHarnesses').catch(() => []),
+      queryTeams().catch(() => []),
       queryEntities('Souls').catch(() => []),
       queryEntities('Skills').catch(() => []),
       queryEntities('WorkCycles').catch(() => []),
@@ -49,11 +72,25 @@
       fetchPolicies().catch(() => []),
     ]);
     harnesses = ha;
+    teams = tm as unknown as Team[];
     souls = so;
     skills = sk;
     workCycles = wc;
     decisions = dec;
     policies = pol;
+
+    // Load agents for each team
+    const agentMap: Record<string, Agent[]> = {};
+    await Promise.all(teams.map(async (team) => {
+      try {
+        const agents = await queryAgentsForTeam(team.Id);
+        agentMap[team.Id] = agents as unknown as Agent[];
+      } catch {
+        agentMap[team.Id] = [];
+      }
+    }));
+    teamAgents = agentMap;
+
     loaded = true;
   });
 
@@ -120,41 +157,120 @@
                 </div>
               </div>
             {/if}
+
+            <!-- Flow diagram inline under this harness -->
+            <div class="harness-flow">
+              <div class="flow-row">
+                <div class="flow-state">Planning</div>
+                <span class="flow-arrow">→</span>
+                <div class="flow-state">Planned</div>
+                <span class="flow-arrow">→</span>
+                <div class="flow-state">InProgress</div>
+                <span class="flow-arrow">→</span>
+                <div class="flow-gates">
+                  <span class="flow-gates-label">Level 1 Gates</span>
+                  <div class="flow-gate">Migrations</div>
+                  <div class="flow-gate">Typecheck</div>
+                  <div class="flow-gate">Unit Tests</div>
+                </div>
+                <span class="flow-arrow">→</span>
+                <div class="flow-state">Testing</div>
+                <span class="flow-arrow">→</span>
+                <div class="flow-gates">
+                  <span class="flow-gates-label">Level 2 Gates</span>
+                  <div class="flow-gate">DST</div>
+                  <div class="flow-gate">Policy Gates</div>
+                </div>
+                <span class="flow-arrow">→</span>
+                <div class="flow-state">Reviewing</div>
+                <span class="flow-arrow">→</span>
+                <div class="flow-state flow-state--final">Complete</div>
+              </div>
+            </div>
           </div>
         {/each}
       {/if}
     </section>
 
-    <!-- TEAM -->
+    <!-- TEAMS & AGENTS -->
     <section class="section">
       <h2 class="section-title">Team</h2>
-      <p class="section-desc">Souls define agent identities and what roles they can take</p>
-      {#if souls.length === 0}
-        <p class="empty-text">No souls configured</p>
+      <p class="section-desc">Persistent agent members for this project</p>
+      {#if teams.length === 0}
+        <p class="empty-text">No team configured</p>
       {:else}
-        <div class="card-grid">
-          {#each souls as soul (field(soul, 'Id'))}
-            {@const soulId = field(soul, 'Id')}
-            {@const soulFileId = field(soul, 'ContentFileId') || field(soul, 'content_file_id')}
-            <div class="card">
-              <div class="card-header">
-                <span class="card-dot" style:background={statusColor(field(soul, 'Status'))}></span>
-                <span class="card-name">{field(soul, 'Name') || field(soul, 'name') || 'Unnamed'}</span>
-                <code class="card-id">{shortId(soulId)}</code>
-              </div>
-              <p class="card-desc">{field(soul, 'Description') || field(soul, 'description') || '--'}</p>
-              <StatusBadge status={field(soul, 'Status')} />
-              {#if soulFileId}
-                <button class="view-btn" onclick={() => toggleFileContent(soulId, soulFileId, 'soul')}>
-                  {expandedSoul === soulId ? 'Hide Soul' : 'View Soul'}
-                </button>
-              {/if}
-              {#if expandedSoul === soulId && fileContentCache[soulId]}
-                <pre class="file-content" transition:slide={{ duration: 150 }}>{fileContentCache[soulId]}</pre>
-              {/if}
+        {#each teams as team (team.Id)}
+          <div class="team-block">
+            <div class="team-header">
+              <span class="card-dot" style:background={statusColor(team.Status)}></span>
+              <span class="team-name">{team.name || 'Unnamed Team'}</span>
+              <StatusBadge status={team.Status} />
             </div>
-          {/each}
-        </div>
+            {#if team.description}
+              <p class="team-desc">{team.description}</p>
+            {/if}
+
+            {#if (teamAgents[team.Id] ?? []).length === 0}
+              <p class="empty-text">No agents in this team</p>
+            {:else}
+              <div class="card-grid">
+                {#each teamAgents[team.Id] ?? [] as agent (agent.Id)}
+                  <div class="card agent-member-card">
+                    <div class="card-header">
+                      <span class="card-dot" style:background={statusColor(agent.Status)}></span>
+                      <span class="card-name">{agent.name || 'Unnamed'}</span>
+                      <code class="card-id">{shortId(agent.Id)}</code>
+                    </div>
+                    {#if agent.role}
+                      <span class="agent-role">{agent.role}</span>
+                    {/if}
+                    {#if agent.description}
+                      <p class="card-desc">{agent.description}</p>
+                    {/if}
+                    <div class="card-meta-row">
+                      {#if agent.model}
+                        <span class="meta-tag">{agent.model}</span>
+                      {/if}
+                      {#if agent.provider}
+                        <span class="meta-tag">{agent.provider}</span>
+                      {/if}
+                      {#if agent.soul_id}
+                        <span class="meta-tag">soul: {agent.soul_id}</span>
+                      {/if}
+                      {#if agent.tools_enabled}
+                        <span class="meta-tag">tools: {agent.tools_enabled}</span>
+                      {/if}
+                      {#if agent.skill_ids}
+                        <span class="meta-tag">skills: {agent.skill_ids}</span>
+                      {/if}
+                    </div>
+                    <StatusBadge status={agent.Status} />
+                    <button class="view-btn" onclick={() => toggleAgentSessions(agent.Id)}>
+                      {expandedAgentSessions === agent.Id ? 'Hide Sessions' : 'View Sessions'}
+                    </button>
+                    {#if expandedAgentSessions === agent.Id}
+                      <div class="agent-sessions" transition:slide={{ duration: 150 }}>
+                        {#if (agentSessionsCache[agent.Id] ?? []).length === 0}
+                          <p class="empty-text">No sessions for this agent</p>
+                        {:else}
+                          {#each agentSessionsCache[agent.Id] ?? [] as sess (sess.Id)}
+                            <a href="/sessions/{sess.Id}" class="agent-session-row">
+                              <span class="agent-session-id">{sess.Id.slice(0, 8)}</span>
+                              <StatusBadge status={sess.Status} />
+                              {#if sess.user_message}
+                                <span class="agent-session-task">{sess.user_message.length > 60 ? sess.user_message.slice(0, 60) + '...' : sess.user_message}</span>
+                              {/if}
+                            </a>
+                          {/each}
+                        {/if}
+                      </div>
+                    {/if}
+                  </div>
+                {/each}
+              </div>
+            {/if}
+          </div>
+        {/each}
       {/if}
     </section>
 
@@ -197,89 +313,6 @@
       {/if}
     </section>
 
-    <!-- WORK CYCLES -->
-    <section class="section">
-      <h2 class="section-title">Work Cycles</h2>
-      <p class="section-desc">Governed implementation loops with gate enforcement</p>
-      {#if workCycles.length === 0}
-        <p class="empty-text">No work cycles</p>
-      {:else}
-        <div class="list">
-          {#each workCycles as wc (field(wc, 'Id'))}
-            <div class="list-row">
-              <div class="list-header">
-                <span class="list-dot" style:background={statusColor(field(wc, 'Status'))}></span>
-                <span class="list-name">{field(wc, 'task_summary') || 'Untitled'}</span>
-                <StatusBadge status={field(wc, 'Status')} />
-              </div>
-              <div class="wc-detail">
-                <GatePipeline workcycle={wc as unknown as WorkCycle} />
-                <div class="wc-meta">
-                  <span>planner: <code>{field(wc, 'planner_id') || '--'}</code></span>
-                  {#if field(wc, 'pr_url')}
-                    <span>PR: <code>{field(wc, 'pr_url')}</code></span>
-                  {/if}
-                </div>
-              </div>
-            </div>
-          {/each}
-        </div>
-      {/if}
-    </section>
-
-    <!-- CEDAR POLICIES -->
-    <section class="section">
-      <h2 class="section-title">Cedar Policies</h2>
-      <p class="section-desc">Active authorization policies governing agent actions</p>
-      {#if policies.length === 0}
-        <p class="empty-inline">No runtime Cedar policies loaded</p>
-      {:else}
-        <div class="list">
-          {#each policies as policy (policy.policy_id)}
-            <div class="list-row">
-              <div class="list-header" onclick={() => expandedPolicy = expandedPolicy === policy.policy_id ? null : policy.policy_id}>
-                <span class="list-dot" style:background={policy.enabled ? 'var(--status-success)' : 'var(--status-idle)'}></span>
-                <code class="list-name">{policy.policy_id}</code>
-                {#if policy.source}<span class="tool-tag">{policy.source}</span>{/if}
-                {#if policy.created_by}<span class="list-meta">by {policy.created_by}</span>{/if}
-                <span class="list-meta" style="margin-left:auto">{policy.enabled ? 'enabled' : 'disabled'}</span>
-              </div>
-              {#if expandedPolicy === policy.policy_id}
-                <div class="list-detail" transition:slide={{ duration: 150 }}>
-                  <pre class="detail-pre">{policy.cedar_text}</pre>
-                </div>
-              {/if}
-            </div>
-          {/each}
-        </div>
-      {/if}
-    </section>
-
-    <!-- AUTHORIZATION DECISIONS -->
-    <section class="section">
-      <h2 class="section-title">Authorization Decisions</h2>
-      <p class="section-desc">Cedar policy evaluations -- what was requested, who granted or denied</p>
-      {#if decisions.length === 0}
-        <p class="empty-inline">No authorization decisions yet</p>
-      {:else}
-        <div class="list">
-          {#each decisions as decision (decision.id)}
-            <div class="list-row">
-              <div class="list-header">
-                <span class="list-dot" style:background={statusColor(decision.status)}></span>
-                <span class="list-meta">{decision.status}</span>
-                <span class="list-name">{decision.action}</span>
-                <span class="list-meta">on {decision.resource_type}:{shortId(decision.resource_id)}</span>
-                <span class="list-meta" style="margin-left:auto">by <code>{shortId(decision.agent_id)}</code></span>
-                {#if decision.decided_by}
-                  <span class="list-meta">decided by {decision.decided_by}</span>
-                {/if}
-              </div>
-            </div>
-          {/each}
-        </div>
-      {/if}
-    </section>
 
   {/if}
 </div>
@@ -363,8 +396,79 @@
   .wc-meta { display: flex; gap: var(--space-2); font-size: var(--text-xs); color: var(--text-tertiary); margin-top: 6px; }
   .wc-meta code { font-family: var(--font-mono); }
 
+  /* Team blocks */
+  .team-block {
+    display: flex; flex-direction: column; gap: var(--space-2);
+    padding: var(--space-2) 0; border-bottom: 1px solid var(--border);
+  }
+  .team-header { display: flex; align-items: center; gap: var(--space-1); }
+  .team-name { font-size: var(--text-sm); font-weight: 600; color: var(--text-primary); }
+  .team-desc { font-size: var(--text-xs); color: var(--text-secondary); }
+  .agent-role {
+    font-family: var(--font-mono); font-size: 0.625rem; color: var(--text-secondary);
+    background: var(--surface-overlay); padding: 1px 6px; border-radius: var(--radius-sm); width: fit-content;
+  }
+  .agent-member-card { cursor: default; }
+
+  /* Agent sessions expandable */
+  .agent-sessions {
+    display: flex; flex-direction: column; gap: 4px;
+    padding-top: var(--space-1);
+  }
+  .agent-session-row {
+    display: flex; align-items: center; gap: var(--space-1);
+    padding: 4px var(--space-1); background: var(--surface-overlay); border-radius: var(--radius-sm);
+    text-decoration: none; color: inherit; font-size: var(--text-xs);
+    transition: background var(--duration-fast) var(--ease);
+  }
+  .agent-session-row:hover { background: var(--brand-subtle); text-decoration: none; }
+  .agent-session-id { font-family: var(--font-mono); color: var(--text-tertiary); }
+  .agent-session-task { color: var(--text-secondary); }
+
+  /* Harness flow diagram */
+  .harness-flow {
+    background: var(--surface-raised); border-radius: var(--radius-md);
+    padding: var(--space-3); overflow-x: auto;
+  }
+  .flow-row {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    min-width: max-content;
+  }
+  .flow-state {
+    padding: 6px 14px; border-radius: var(--radius-sm);
+    background: var(--surface-overlay); color: var(--text-primary);
+    font-size: var(--text-sm); font-weight: 500; white-space: nowrap;
+  }
+  .flow-state--final {
+    background: var(--status-success); color: #000; font-weight: 600;
+  }
+  .flow-arrow { color: var(--text-tertiary); font-size: var(--text-sm); }
+  .flow-gates {
+    display: flex; flex-direction: column; gap: 4px; align-items: center;
+    padding: 8px 12px; border: 1px dashed var(--border-subtle); border-radius: var(--radius-sm);
+  }
+  .flow-gates-label {
+    font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.05em;
+    color: var(--text-tertiary); margin-bottom: 2px;
+  }
+  .flow-gate {
+    font-size: var(--text-xs); padding: 2px 8px; border-radius: 10px;
+    background: var(--surface-overlay); color: var(--text-secondary);
+  }
+  .flow-note {
+    font-size: var(--text-xs); color: var(--text-tertiary); font-style: italic;
+    margin-top: var(--space-2);
+  }
+  .conventions-detail {
+    margin-top: var(--space-2);
+  }
+  .conventions-detail summary {
+    font-size: var(--text-xs); color: var(--text-secondary); cursor: pointer;
+  }
+
   @media (max-width: 800px) {
     .card-grid { grid-template-columns: 1fr; }
     .detail-grid { grid-template-columns: 1fr; }
+    .flow-row { flex-direction: column; align-items: flex-start; }
   }
 </style>
