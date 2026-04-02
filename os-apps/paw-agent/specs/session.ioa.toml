@@ -531,7 +531,7 @@ max_response_bytes = "4194304"
 name = "run_tools"
 trigger = "run_tools"
 type = "wasm"
-module = "tool_runner"
+module = "monty_repl"
 on_failure = "Fail"
 
 [integration.config]

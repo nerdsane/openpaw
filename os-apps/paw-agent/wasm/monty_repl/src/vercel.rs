@@ -1,22 +1,31 @@
-use temper_wasm_sdk::prelude::*;
+//! Vercel API tool ported from tool_runner/vercel.rs.
+//!
+//! Dispatched as `temper.vercel(...)` from Monty code.
 
-/// Vercel API tool — governed access to Vercel's REST API.
-///
-/// Operations: deployment_status, list_deployments, redeploy, build_logs, env_vars, promote.
-/// Auth: VERCEL_TOKEN from secrets vault.
-pub(crate) fn execute(ctx: &Context, input: &Value) -> Result<String, String> {
+use serde_json::{Value, json};
+use temper_wasm_sdk::context::Context;
+
+pub fn vercel(ctx: &Context, args: &[Value]) -> Result<Value, String> {
+    let input = args
+        .first()
+        .filter(|v| v.is_object())
+        .cloned()
+        .unwrap_or(json!({}));
+
     let action = input
         .get("action")
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|s| !s.is_empty())
-        .ok_or("vercel_api: 'action' is required")?;
+        .ok_or("vercel: 'action' is required")?;
 
     let token = ctx
-        .get_secret("vercel_token")
-        .map_err(|_| "vercel_api: missing VERCEL_TOKEN; configure vercel_token secret")?;
+        .config
+        .get("vercel_token")
+        .cloned()
+        .unwrap_or_default();
     if token.trim().is_empty() || token.contains("{secret:") {
-        return Err("vercel_api: VERCEL_TOKEN is empty or unresolved".to_string());
+        return Err("vercel: missing VERCEL_TOKEN; configure vercel_token secret".into());
     }
 
     let headers = vec![
@@ -27,13 +36,13 @@ pub(crate) fn execute(ctx: &Context, input: &Value) -> Result<String, String> {
 
     match action {
         "deployment_status" => {
-            let deployment_id = require_str(input, "deployment_id")?;
+            let deployment_id = require_str(&input, "deployment_id")?;
             let url = format!("{base}/v13/deployments/{deployment_id}");
             let resp = ctx.http_call("GET", &url, &headers, "")?;
             check_response("deployment_status", &resp)
         }
         "list_deployments" => {
-            let project_id = require_str(input, "project_id")?;
+            let project_id = require_str(&input, "project_id")?;
             let limit = input
                 .get("limit")
                 .and_then(Value::as_u64)
@@ -44,12 +53,12 @@ pub(crate) fn execute(ctx: &Context, input: &Value) -> Result<String, String> {
             check_response("list_deployments", &resp)
         }
         "redeploy" => {
-            let deployment_id = require_str(input, "deployment_id")?;
+            let deployment_id = require_str(&input, "deployment_id")?;
             let target = input
                 .get("target")
                 .and_then(Value::as_str)
                 .unwrap_or("production");
-            let body = serde_json::json!({
+            let body = json!({
                 "deploymentId": deployment_id,
                 "target": target
             });
@@ -60,26 +69,26 @@ pub(crate) fn execute(ctx: &Context, input: &Value) -> Result<String, String> {
             check_response("redeploy", &resp)
         }
         "build_logs" => {
-            let deployment_id = require_str(input, "deployment_id")?;
+            let deployment_id = require_str(&input, "deployment_id")?;
             let url = format!("{base}/v2/deployments/{deployment_id}/events");
             let resp = ctx.http_call("GET", &url, &headers, "")?;
             check_response("build_logs", &resp)
         }
         "env_vars" => {
-            let project_id = require_str(input, "project_id")?;
+            let project_id = require_str(&input, "project_id")?;
             let url = format!("{base}/v10/projects/{project_id}/env");
             let resp = ctx.http_call("GET", &url, &headers, "")?;
             check_response("env_vars", &resp)
         }
         "promote" => {
-            let project_id = require_str(input, "project_id")?;
-            let deployment_id = require_str(input, "deployment_id")?;
+            let project_id = require_str(&input, "project_id")?;
+            let deployment_id = require_str(&input, "deployment_id")?;
             let url = format!("{base}/v10/projects/{project_id}/promote/{deployment_id}");
             let resp = ctx.http_call("POST", &url, &headers, "")?;
             check_response("promote", &resp)
         }
         _ => Err(format!(
-            "vercel_api: unknown action '{action}'. Valid: deployment_status, list_deployments, redeploy, build_logs, env_vars, promote"
+            "vercel: unknown action '{action}'. Valid: deployment_status, list_deployments, redeploy, build_logs, env_vars, promote"
         )),
     }
 }
@@ -89,15 +98,16 @@ fn require_str<'a>(input: &'a Value, key: &str) -> Result<&'a str, String> {
         .get(key)
         .and_then(Value::as_str)
         .filter(|s| !s.is_empty())
-        .ok_or_else(|| format!("vercel_api: '{key}' is required"))
+        .ok_or_else(|| format!("vercel: '{key}' is required"))
 }
 
-fn check_response(action: &str, resp: &HttpResponse) -> Result<String, String> {
+fn check_response(action: &str, resp: &temper_wasm_sdk::context::HttpResponse) -> Result<Value, String> {
     if resp.status >= 200 && resp.status < 300 {
-        Ok(resp.body.clone())
+        serde_json::from_str(&resp.body)
+            .map_err(|e| format!("vercel {action}: failed to parse response: {e}"))
     } else {
         Err(format!(
-            "vercel_api {action}: HTTP {} — {}",
+            "vercel {action}: HTTP {} -- {}",
             resp.status,
             &resp.body[..resp.body.len().min(500)]
         ))

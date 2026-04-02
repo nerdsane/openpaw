@@ -27,7 +27,7 @@ pub fn dispatch(
     args: &[Value],
 ) -> Result<Value, String> {
     match obj_name {
-        "temper" => dispatch_temper(ctx, temper_api_url, tenant, method, args),
+        "temper" => dispatch_temper(ctx, temper_api_url, tenant, sandbox_url, workdir, method, args),
         "sandbox" => dispatch_sandbox(ctx, sandbox_url, workdir, method, args),
         _ => Err(format!("unknown object: {obj_name}")),
     }
@@ -41,6 +41,8 @@ fn dispatch_temper(
     ctx: &Context,
     api_url: &str,
     tenant: &str,
+    sandbox_url: &str,
+    workdir: &str,
     method: &str,
     args: &[Value],
 ) -> Result<Value, String> {
@@ -80,6 +82,22 @@ fn dispatch_temper(
             Ok(json!(agent_id))
         }
 
+        // Entity operations (ported from tool_runner)
+        "spawn_session" => super::entity_ops::spawn_session(ctx, api_url, tenant, sandbox_url, workdir, args),
+        "list_sessions" => super::entity_ops::list_sessions(ctx, api_url, tenant, args),
+        "abort_session" => super::entity_ops::abort_session(ctx, api_url, tenant, args),
+        "steer_session" => super::entity_ops::steer_session(ctx, api_url, tenant, args),
+        "save_memory" => super::entity_ops::save_memory(ctx, api_url, tenant, args),
+        "recall_memory" => super::entity_ops::recall_memory(ctx, api_url, tenant, args),
+        "file_upload" => super::entity_ops::file_upload(ctx, api_url, tenant, args),
+        "read_entity" => super::entity_ops::read_entity(ctx, api_url, tenant, args),
+        "run_coding_agent" => super::entity_ops::run_coding_agent(ctx, api_url, tenant, sandbox_url, workdir, args),
+
+        // External service integrations (ported from tool_runner)
+        "datadog_query" => super::datadog::datadog_query(ctx, args),
+        "railway" => super::railway::railway(ctx, args),
+        "vercel" => super::vercel::vercel(ctx, args),
+
         // Blocked
         "approve_decision" | "deny_decision" | "set_policy" => Err(format!(
             "temper.{method}() is not available to agents. \
@@ -91,7 +109,9 @@ fn dispatch_temper(
              list, get, create, action, patch, submit_specs, show_spec, \
              upload_wasm, get_trajectories, get_insights, \
              get_decisions, poll_decision, install_app, list_apps, \
-             get_agent_id"
+             get_agent_id, spawn_session, list_sessions, abort_session, \
+             steer_session, save_memory, recall_memory, file_upload, \
+             read_entity, run_coding_agent, datadog_query, railway, vercel"
         )),
     }
 }

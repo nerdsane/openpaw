@@ -1,6 +1,17 @@
-use temper_wasm_sdk::prelude::*;
+//! Datadog API tool ported from tool_runner/datadog.rs.
+//!
+//! Dispatched as `temper.datadog_query(...)` from Monty code.
 
-pub(crate) fn execute(ctx: &Context, input: &Value) -> Result<String, String> {
+use serde_json::{Value, json};
+use temper_wasm_sdk::context::Context;
+
+pub fn datadog_query(ctx: &Context, args: &[Value]) -> Result<Value, String> {
+    let input = args
+        .first()
+        .filter(|v| v.is_object())
+        .cloned()
+        .unwrap_or(json!({}));
+
     let query_kind = input
         .get("query_kind")
         .and_then(Value::as_str)
@@ -22,7 +33,7 @@ pub(crate) fn execute(ctx: &Context, input: &Value) -> Result<String, String> {
     {
         return Err(
             "datadog_query: missing Datadog credentials; configure dd_api_key and dd_app_key secrets"
-                .to_string(),
+                .into(),
         );
     }
 
@@ -38,7 +49,7 @@ pub(crate) fn execute(ctx: &Context, input: &Value) -> Result<String, String> {
         ("accept".to_string(), "application/json".to_string()),
     ];
 
-    let (url, body) = match query_kind {
+    let url = match query_kind {
         "monitor_status" => {
             let monitor_id = input
                 .get("monitor_id")
@@ -49,7 +60,7 @@ pub(crate) fn execute(ctx: &Context, input: &Value) -> Result<String, String> {
                         .or_else(|| value.as_i64().map(|v| v.to_string()))
                 })
                 .ok_or("datadog_query: monitor_status requires monitor_id")?;
-            (format!("{base_url}/api/v1/monitor/{monitor_id}"), String::new())
+            format!("{base_url}/api/v1/monitor/{monitor_id}")
         }
         "recent_events" => {
             let query = input.get("query").and_then(Value::as_str).unwrap_or("");
@@ -58,24 +69,19 @@ pub(crate) fn execute(ctx: &Context, input: &Value) -> Result<String, String> {
                 .get("to_ts")
                 .and_then(Value::as_i64)
                 .unwrap_or(4_102_444_800);
-            let priority = input.get("priority").and_then(Value::as_str).unwrap_or("");
             let tags = input.get("tags").and_then(Value::as_str).unwrap_or("");
-            let mut url = format!(
+            let mut u = format!(
                 "{base_url}/api/v1/events?start={start}&end={end}&unparsed=true"
             );
             if !query.trim().is_empty() {
-                url.push_str("&query=");
-                url.push_str(&crate::url_encode(query));
-            }
-            if !priority.trim().is_empty() {
-                url.push_str("&priority=");
-                url.push_str(&crate::url_encode(priority));
+                u.push_str("&query=");
+                u.push_str(&urlenc(query));
             }
             if !tags.trim().is_empty() {
-                url.push_str("&tags=");
-                url.push_str(&crate::url_encode(tags));
+                u.push_str("&tags=");
+                u.push_str(&urlenc(tags));
             }
-            (url, String::new())
+            u
         }
         "metrics_query" => {
             let query = input
@@ -88,12 +94,9 @@ pub(crate) fn execute(ctx: &Context, input: &Value) -> Result<String, String> {
                 .get("to_ts")
                 .and_then(Value::as_i64)
                 .unwrap_or(4_102_444_800);
-            (
-                format!(
-                    "{base_url}/api/v1/query?from={from}&to={to}&query={}",
-                    crate::url_encode(query)
-                ),
-                String::new(),
+            format!(
+                "{base_url}/api/v1/query?from={from}&to={to}&query={}",
+                urlenc(query)
             )
         }
         other => return Err(format!("datadog_query: unsupported query_kind '{other}'")),
@@ -101,20 +104,22 @@ pub(crate) fn execute(ctx: &Context, input: &Value) -> Result<String, String> {
 
     ctx.log(
         "info",
-        &format!("tool_runner: querying Datadog, query_kind={query_kind}, limit={limit}"),
+        &format!("monty_repl: querying Datadog, query_kind={query_kind}, limit={limit}"),
     );
 
-    let resp = ctx.http_call("GET", &url, &headers, &body)?;
+    let resp = ctx.http_call("GET", &url, &headers, "")?;
     if resp.status < 200 || resp.status >= 300 {
         return Err(format!(
             "datadog_query failed (HTTP {}): {}",
             resp.status,
-            truncate_tool_output(&resp.body, 1200)
+            truncate(&resp.body, 1200)
         ));
     }
 
     let summarized = summarize_datadog_response(query_kind, &resp.body, limit);
-    Ok(truncate_tool_output(&summarized, 6_000))
+    let output = truncate(&summarized, 6_000);
+    // Return as JSON value (string content)
+    Ok(json!(output))
 }
 
 fn datadog_base_url(site: &str) -> String {
@@ -128,13 +133,13 @@ fn datadog_base_url(site: &str) -> String {
     }
 }
 
-fn truncate_tool_output(body: &str, max_chars: usize) -> String {
+fn truncate(body: &str, max_chars: usize) -> String {
     if body.chars().count() <= max_chars {
         return body.to_string();
     }
     let truncated: String = body.chars().take(max_chars).collect();
     format!(
-        "{truncated}\n\n[truncated {} chars; refine the query with a tighter filter or lower limit]",
+        "{truncated}\n\n[truncated {} chars]",
         body.chars().count().saturating_sub(max_chars)
     )
 }
@@ -213,4 +218,14 @@ fn summarize_datadog_response(query_kind: &str, body: &str, limit: usize) -> Str
     }
 
     parsed.to_string()
+}
+
+fn urlenc(s: &str) -> String {
+    s.replace('%', "%25")
+        .replace(' ', "%20")
+        .replace('&', "%26")
+        .replace('=', "%3D")
+        .replace('?', "%3F")
+        .replace('#', "%23")
+        .replace('\'', "%27")
 }

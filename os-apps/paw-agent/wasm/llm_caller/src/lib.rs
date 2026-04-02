@@ -1858,7 +1858,7 @@ fn convert_tools_to_openrouter(tools: &[Value]) -> Vec<Value> {
 /// Returns a single `execute` tool for the Monty REPL. Agents write Python
 /// code using `temper.*` and `sandbox.*` objects. The available commands are
 /// documented in the system prompt via `build_sdk_reference()`.
-fn build_tool_definitions(tools_enabled: &str, sandbox_url: &str, workdir: &str) -> Vec<Value> {
+fn build_tool_definitions(_tools_enabled: &str, _sandbox_url: &str, _workdir: &str) -> Vec<Value> {
     // Single execute tool — replaces 19 individual tools
     return vec![json!({
         "name": "execute",
@@ -1871,436 +1871,6 @@ fn build_tool_definitions(tools_enabled: &str, sandbox_url: &str, workdir: &str)
             "required": ["code"]
         }
     })];
-
-    // Legacy tool definitions below — kept for reference during migration,
-    // unreachable due to early return above.
-    #[allow(unreachable_code)]
-    let enabled: Vec<&str> = tools_enabled.split(',').map(str::trim).collect();
-    #[allow(unreachable_code)]
-    let mut tools = Vec::new();
-
-    if enabled.contains(&"read") {
-        tools.push(json!({
-            "name": "read",
-            "description": format!("Read a file from the sandbox at {sandbox_url}. Working directory: {workdir}"),
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "path": { "type": "string", "description": "File path to read" }
-                },
-                "required": ["path"]
-            }
-        }));
-    }
-
-    if enabled.contains(&"write") {
-        tools.push(json!({
-            "name": "write",
-            "description": format!("Write a file to the sandbox at {sandbox_url}. Working directory: {workdir}"),
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "path": { "type": "string", "description": "File path to write" },
-                    "content": { "type": "string", "description": "File content" }
-                },
-                "required": ["path", "content"]
-            }
-        }));
-    }
-
-    if enabled.contains(&"edit") {
-        tools.push(json!({
-            "name": "edit",
-            "description": format!("Edit a file in the sandbox at {sandbox_url} using search-and-replace. Working directory: {workdir}"),
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "path": { "type": "string", "description": "File path to edit" },
-                    "old_string": { "type": "string", "description": "Text to find" },
-                    "new_string": { "type": "string", "description": "Text to replace with" }
-                },
-                "required": ["path", "old_string", "new_string"]
-            }
-        }));
-    }
-
-    if enabled.contains(&"bash") {
-        tools.push(json!({
-            "name": "bash",
-            "description": format!("Run a bash command in the sandbox at {sandbox_url}. Working directory: {workdir}. GitHub HTTPS commands automatically receive Git auth when tenant secrets provide github_token; GITHUB_TOKEN and GH_TOKEN are available in the shell."),
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "command": { "type": "string", "description": "Bash command to execute" }
-                },
-                "required": ["command"]
-            }
-        }));
-    }
-
-    if enabled.contains(&"read_entity") {
-        tools.push(json!({
-            "name": "read_entity",
-            "description": "Read a TemperFS-backed entity content file by file_id.",
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "file_id": { "type": "string", "description": "TemperFS File entity ID" }
-                },
-                "required": ["file_id"]
-            }
-        }));
-    }
-
-    if enabled.contains(&"file_upload") {
-        tools.push(json!({
-            "name": "file_upload",
-            "description": "Upload text content to TemperFS and return a file_id. Use for creating soul content, skill content, or any entity-backed file.",
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "name": { "type": "string", "description": "File name (e.g., 'my-lead.soul.md')" },
-                    "content": { "type": "string", "description": "File content to upload" },
-                    "mime_type": { "type": "string", "description": "MIME type (default: text/markdown)" }
-                },
-                "required": ["name", "content"]
-            }
-        }));
-    }
-
-    if enabled.contains(&"temper_create") {
-        tools.push(json!({
-            "name": "temper_create",
-            "description": "Create an Open Paw entity through the OData API. Use entity sets like ProjectHarnesses, WorkCycles, Monitors, AlertCycles, Issues, Sessions, Agents, Channels, and AgentRoutes.",
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "entity_set": { "type": "string", "description": "OData entity set name, for example ProjectHarnesses or AlertCycles" },
-                    "body": { "type": "object", "description": "JSON body to POST using OData field names" }
-                },
-                "required": ["entity_set"]
-            }
-        }));
-    }
-
-    if enabled.contains(&"temper_get") {
-        tools.push(json!({
-            "name": "temper_get",
-            "description": "Fetch a single Open Paw entity by entity set and ID.",
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "entity_set": { "type": "string", "description": "OData entity set name" },
-                    "entity_id": { "type": "string", "description": "Entity ID" },
-                    "select": { "type": "string", "description": "Optional comma-separated $select projection" },
-                    "expand": { "type": "string", "description": "Optional $expand clause" }
-                },
-                "required": ["entity_set", "entity_id"]
-            }
-        }));
-    }
-
-    if enabled.contains(&"temper_list") {
-        tools.push(json!({
-            "name": "temper_list",
-            "description": "List Open Paw entities from an OData entity set with optional filter, projection, sort, and limit.",
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "entity_set": { "type": "string", "description": "OData entity set name" },
-                    "filter": { "type": "string", "description": "Optional OData $filter clause" },
-                    "select": { "type": "string", "description": "Optional comma-separated $select projection" },
-                    "orderby": { "type": "string", "description": "Optional OData $orderby clause" },
-                    "top": { "type": "integer", "description": "Optional row limit" }
-                },
-                "required": ["entity_set"]
-            }
-        }));
-    }
-
-    if enabled.contains(&"temper_action") {
-        tools.push(json!({
-            "name": "temper_action",
-            "description": "Dispatch a bound OData action on an entity. Pass simple action names like Configure, Activate, Open, HealComplete, WritePlan, or Approve and the tool will resolve the correct namespace for the entity set. You may also pass a fully-qualified action name like OpenPaw.Harness.Configure or Paw.Channel.Create.",
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "entity_set": { "type": "string", "description": "OData entity set name" },
-                    "entity_id": { "type": "string", "description": "Entity ID" },
-                    "action": { "type": "string", "description": "Bound action name. Prefer simple names like Configure, Activate, Open, HealComplete, WritePlan, or Approve unless you need to force a fully-qualified namespace." },
-                    "body": { "type": "object", "description": "Optional JSON action payload" }
-                },
-                "required": ["entity_set", "entity_id", "action"]
-            }
-        }));
-    }
-
-    if enabled.contains(&"save_memory") {
-        tools.push(json!({
-            "name": "save_memory",
-            "description": "Persist a memory entry scoped to this agent.",
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "key": { "type": "string" },
-                    "content": { "type": "string" },
-                    "memory_type": { "type": "string" }
-                },
-                "required": ["key", "content"]
-            }
-        }));
-    }
-
-    if enabled.contains(&"recall_memory") {
-        tools.push(json!({
-            "name": "recall_memory",
-            "description": "Recall memories matching a key or content substring.",
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "query": { "type": "string" }
-                },
-                "required": ["query"]
-            }
-        }));
-    }
-
-    if enabled.contains(&"spawn_session") {
-        tools.push(json!({
-            "name": "spawn_session",
-            "description": "Create, configure, and provision a child Session. By default the child inherits the current sandbox when one is already attached to the parent; pass sandbox_url to override or set inherit_sandbox=false to provision a fresh sandbox.",
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "agent_id": { "type": "string" },
-                    "task": { "type": "string" },
-                    "model": { "type": "string" },
-                    "provider": { "type": "string" },
-                    "tools": { "type": "string" },
-                    "soul_id": { "type": "string" },
-                    "sandbox_url": { "type": "string" },
-                    "inherit_sandbox": { "type": "boolean" },
-                    "workdir": { "type": "string" },
-                    "background": { "type": "boolean" }
-                },
-                "required": ["task"]
-            }
-        }));
-        tools.push(json!({
-            "name": "list_sessions",
-            "description": "List child sessions spawned by this session.",
-            "input_schema": {
-                "type": "object",
-                "properties": {},
-                "required": []
-            }
-        }));
-        tools.push(json!({
-            "name": "abort_session",
-            "description": "Cancel a child session by ID.",
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "agent_id": { "type": "string" }
-                },
-                "required": ["agent_id"]
-            }
-        }));
-        tools.push(json!({
-            "name": "steer_session",
-            "description": "Queue a steering message for a child session.",
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "agent_id": { "type": "string" },
-                    "message": { "type": "string" }
-                },
-                "required": ["agent_id", "message"]
-            }
-        }));
-    }
-
-    if enabled.contains(&"run_coding_agent") {
-        tools.push(json!({
-            "name": "run_coding_agent",
-            "description": "Run a coding agent CLI command inside the sandbox.",
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "agent_type": { "type": "string" },
-                    "task": { "type": "string" },
-                    "workdir": { "type": "string" },
-                    "background": { "type": "boolean" }
-                },
-                "required": ["agent_type", "task"]
-            }
-        }));
-    }
-
-    if enabled.contains(&"datadog_query") {
-        tools.push(json!({
-            "name": "datadog_query",
-            "description": "Query Datadog monitors, events, and metric series. Use this to inspect live monitor status, recent alert events, and post-deploy verification signals.",
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "query_kind": { "type": "string", "description": "Datadog query mode: monitor_status, recent_events, or metrics_query." },
-                    "monitor_id": { "type": "string", "description": "Required for monitor_status." },
-                    "query": { "type": "string", "description": "Search query for recent_events or Datadog metric query for metrics_query." },
-                    "from_ts": { "type": "integer", "description": "Unix timestamp lower bound for recent_events or metrics_query." },
-                    "to_ts": { "type": "integer", "description": "Unix timestamp upper bound for recent_events or metrics_query." },
-                    "priority": { "type": "string", "description": "Optional Datadog event priority filter." },
-                    "tags": { "type": "string", "description": "Optional Datadog event tag filter." },
-                    "limit": { "type": "integer", "description": "Optional summary limit, clamped to 100." }
-                },
-                "required": []
-            }
-        }));
-    }
-
-    if enabled.contains(&"save_memory") {
-        tools.push(json!({
-            "name": "save_memory",
-            "description": "Save a memory for future agent sessions. Memories persist across runs.",
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "key": { "type": "string", "description": "Unique key for this memory" },
-                    "content": { "type": "string", "description": "Memory content (markdown)" },
-                    "memory_type": { "type": "string", "enum": ["user", "feedback", "project", "reference"], "description": "Type of memory" }
-                },
-                "required": ["key", "content", "memory_type"]
-            }
-        }));
-    }
-
-    if enabled.contains(&"recall_memory") {
-        tools.push(json!({
-            "name": "recall_memory",
-            "description": "Search and recall memories from previous sessions.",
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "query": { "type": "string", "description": "Search query to find relevant memories" }
-                },
-                "required": ["query"]
-            }
-        }));
-    }
-
-    if enabled.contains(&"spawn_session") {
-        tools.push(json!({
-            "name": "spawn_session",
-            "description": "Spawn a child Session to handle a subtask. The child runs autonomously and returns its result. By default it inherits the current sandbox when one is already attached to the parent; pass sandbox_url to override or set inherit_sandbox=false to provision a fresh sandbox.",
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "agent_id": { "type": "string", "description": "Optional deterministic child agent ID" },
-                    "task": { "type": "string", "description": "The task for the child agent" },
-                    "model": { "type": "string", "description": "LLM model to use (optional, defaults to parent's model)" },
-                    "provider": { "type": "string", "description": "LLM provider to use (optional, defaults to parent's provider)" },
-                    "tools": { "type": "string", "description": "Comma-separated tools to enable (optional, defaults to parent's tools)" },
-                    "soul_id": { "type": "string", "description": "Soul name or entity ID to use (optional, defaults to parent's soul)" },
-                    "sandbox_url": { "type": "string", "description": "Optional sandbox endpoint to use for the child. When omitted, the child inherits the parent's sandbox unless inherit_sandbox=false." },
-                    "inherit_sandbox": { "type": "boolean", "description": "Defaults to true. Set false to provision a fresh sandbox instead of inheriting the parent's sandbox." },
-                    "workdir": { "type": "string", "description": "Optional working directory override for the child agent" },
-                    "background": { "type": "boolean", "description": "If true, return after provisioning without waiting for completion" },
-                    "timeout_ms": { "type": "integer", "description": "Optional wait timeout for non-background child runs. Defaults to slightly less than the run_tools budget." }
-                },
-                "required": ["task"]
-            }
-        }));
-    }
-
-    if enabled.contains(&"list_sessions") {
-        tools.push(json!({
-            "name": "list_sessions",
-            "description": "List child sessions spawned by this session and their status.",
-            "input_schema": {
-                "type": "object",
-                "properties": {},
-                "required": []
-            }
-        }));
-    }
-
-    if enabled.contains(&"steer_session") {
-        tools.push(json!({
-            "name": "steer_session",
-            "description": "Send a follow-up message to a child session mid-run.",
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "agent_id": { "type": "string", "description": "The child agent entity ID" },
-                    "message": { "type": "string", "description": "The steering message to inject" }
-                },
-                "required": ["agent_id", "message"]
-            }
-        }));
-    }
-
-    if enabled.contains(&"abort_session") {
-        tools.push(json!({
-            "name": "abort_session",
-            "description": "Cancel a running child session.",
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "agent_id": { "type": "string", "description": "The child agent entity ID to cancel" }
-                },
-                "required": ["agent_id"]
-            }
-        }));
-    }
-
-    if enabled.contains(&"read_entity") {
-        tools.push(json!({
-            "name": "read_entity",
-            "description": "Read a TemperFS file by ID. Use this to load skill content, soul documents, or any other entity-backed file.",
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "file_id": { "type": "string", "description": "The TemperFS File entity ID to read" }
-                },
-                "required": ["file_id"]
-            }
-        }));
-    }
-
-    if enabled.contains(&"run_coding_agent") {
-        tools.push(json!({
-            "name": "run_coding_agent",
-            "description": "Spawn a coding agent CLI process (Claude Code, Codex, Pi, OpenCode) in the sandbox.",
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "agent_type": { "type": "string", "enum": ["claude-code", "codex", "pi", "opencode"], "description": "Which coding agent CLI to use" },
-                    "task": { "type": "string", "description": "The task for the coding agent" },
-                    "workdir": { "type": "string", "description": "Working directory in the sandbox (optional)" },
-                    "background": { "type": "boolean", "description": "Run in background (default: false)" }
-                },
-                "required": ["agent_type", "task"]
-            }
-        }));
-    }
-
-    dedupe_tools_by_name(tools)
-}
-
-fn dedupe_tools_by_name(tools: Vec<Value>) -> Vec<Value> {
-    let mut seen = BTreeSet::new();
-    let mut deduped = Vec::new();
-    for tool in tools {
-        let name = tool
-            .get("name")
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_string();
-        if name.is_empty() || seen.insert(name) {
-            deduped.push(tool);
-        }
-    }
-    deduped
 }
 
 /// Read conversation messages from TemperFS File entity via $value endpoint.
@@ -2634,19 +2204,40 @@ fn build_sdk_reference(tools_enabled: &str, sandbox_url: &str, workdir: &str) ->
 
     if has_spawn {
         sections.push(
-            "## Agent Management\n\
-             agent = await temper.create(\"Agents\", {\"task\": \"...\"})\n\
-             await temper.action(\"Agents\", agent[\"id\"], \"Configure\", {\"model\": \"claude-sonnet-4\"})\n\
-             await temper.action(\"Agents\", agent[\"id\"], \"Provision\")\n\
-             agents = await temper.list(\"Agents\", \"ParentAgentId eq 'self'\")"
+            "## Session Management\n\
+             result = await temper.spawn_session(task, soul_id=None, model=None, tools=None, workdir=None, sandbox_url=None, max_turns=None, background=False, timeout_ms=None)\n\
+             sessions = await temper.list_sessions(filter=None, top=50)\n\
+             await temper.abort_session(session_id)\n\
+             await temper.steer_session(session_id, message)"
                 .to_string(),
         );
     }
 
     sections.push(
         "## Memory\n\
-         await temper.create(\"Memories\", {\"Key\": \"k\", \"Content\": \"...\", \"MemoryType\": \"reference\"})\n\
-         memories = await temper.list(\"Memories\", \"contains(Content,'query')\")"
+         await temper.save_memory(key, content, memory_type=\"project\")\n\
+         memories = await temper.recall_memory(query)"
+            .to_string(),
+    );
+
+    sections.push(
+        "## File Operations\n\
+         file_id = await temper.file_upload(name, content)\n\
+         content = await temper.read_entity(file_id)"
+            .to_string(),
+    );
+
+    sections.push(
+        "## External APIs\n\
+         result = await temper.datadog_query(query_kind, monitor_id=None, query=None, from_ts=None, to_ts=None, tags=None, limit=25)\n\
+         result = await temper.railway(action, project_id=None, service_id=None, deployment_id=None, environment_id=None)\n\
+         result = await temper.vercel(action, deployment_id=None, project_id=None, limit=10, target=\"production\")"
+            .to_string(),
+    );
+
+    sections.push(
+        "## Coding Agent\n\
+         result = await temper.run_coding_agent(agent_type, task)"
             .to_string(),
     );
 
