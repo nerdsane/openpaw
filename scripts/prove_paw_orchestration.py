@@ -41,7 +41,7 @@ def main() -> int:
 
     collector = ReplyCollector()
     collector.start()
-    before_harnesses = len(client.list("ProjectHarnesses"))
+    before_harnesses = len(client.list("Harnesses"))
     before_monitors = len(client.list("Monitors"))
     before_agents = len(client.list("Sessions"))
     channel_name = f"paw-orchestration-{int(time.time())}"
@@ -119,7 +119,7 @@ def main() -> int:
         monitors = []
         while time.time() < deadline:
             harnesses = client.list(
-                "ProjectHarnesses",
+                "Harnesses",
                 filter_expr=f"repo_url eq '{args.repo_url}'",
                 orderby="sequence_nr desc",
                 top=5,
@@ -140,10 +140,10 @@ def main() -> int:
                 break
             time.sleep(2)
 
-        require(harness is not None, "Paw did not create or reuse the deep-sci-fi ProjectHarness")
+        require(harness is not None, "Paw did not create or reuse the deep-sci-fi Harness")
         require(
-            len(client.list("ProjectHarnesses")) > before_harnesses,
-            "ProjectHarness count did not change during Paw orchestration proof",
+            len(client.list("Harnesses")) > before_harnesses,
+            "Harness count did not change during Paw orchestration proof",
         )
         require(
             len(client.list("Sessions")) > before_agents,

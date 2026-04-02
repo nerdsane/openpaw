@@ -124,7 +124,7 @@ def seed_team(client: ODataClient) -> str:
     client.action("Teams", tid, "OpenPaw.Configure", {
         "name": "Deep Sci-Fi Team",
         "description": "AI agent team for the Deep Sci-Fi social platform. Seven roles: Lead, SWE, SRE, Design, Librarian, CodeReviewer, DSTReviewer.",
-        "harness_id": "",  # Link to ProjectHarness once created
+        "harness_id": "",  # Link to Harness once created
     })
     print(f"  [created] Team 'Deep Sci-Fi Team' ({tid})")
     return tid

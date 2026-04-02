@@ -1,6 +1,6 @@
 # SWE Conventions — Deep Sci-Fi
 
-This skill document is auto-injected into SWE agent prompts via the ProjectHarness. It contains everything an SWE agent needs to work in the deep-sci-fi codebase.
+This skill document is auto-injected into SWE agent prompts via the Harness. It contains everything an SWE agent needs to work in the deep-sci-fi codebase.
 
 ## Repository Layout
 

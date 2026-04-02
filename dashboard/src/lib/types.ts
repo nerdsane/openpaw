@@ -84,14 +84,18 @@ export interface Soul {
   ContentFileId: string;
 }
 
-export interface ProjectHarness {
+export interface Harness {
   Id: string;
   Status: string;
   repo_url: string;
   tech_stack: string;
   project_name: string;
   conventions: string;
+  work_cycle_type: string;
 }
+
+/** @deprecated Use Harness instead */
+export type ProjectHarness = Harness;
 
 export interface Skill {
   Id: string;

@@ -1,6 +1,6 @@
 # SRE Monitoring — Deep Sci-Fi
 
-This skill document is auto-injected into SRE agent prompts via the ProjectHarness. It covers Datadog monitoring patterns, alert triage, and health scan workflows for the deep-sci-fi platform.
+This skill document is auto-injected into SRE agent prompts via the Harness. It covers Datadog monitoring patterns, alert triage, and health scan workflows for the deep-sci-fi platform.
 
 ## Datadog Monitoring Patterns
 

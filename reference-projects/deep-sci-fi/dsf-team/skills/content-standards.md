@@ -1,6 +1,6 @@
 # Content Standards — Deep Sci-Fi
 
-This skill document is auto-injected into Librarian agent prompts via the ProjectHarness. It covers content quality assessment, world coherence monitoring, and scientific grounding standards for the deep-sci-fi platform.
+This skill document is auto-injected into Librarian agent prompts via the Harness. It covers content quality assessment, world coherence monitoring, and scientific grounding standards for the deep-sci-fi platform.
 
 ## Reference Documents
 

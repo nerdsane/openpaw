@@ -7,13 +7,14 @@
     </Schema>
 
     <Schema Namespace="OpenPaw.Harness" xmlns="http://docs.oasis-open.org/odata/ns/edm">
-      <EntityType Name="ProjectHarness">
+      <EntityType Name="Harness">
         <Key><PropertyRef Name="Id"/></Key>
         <Property Name="Id" Type="Edm.String" Nullable="false"/>
         <Property Name="Status" Type="Edm.String"/>
         <Property Name="RepoUrl" Type="Edm.String"/>
         <Property Name="TechStack" Type="Edm.String"/>
         <Property Name="Conventions" Type="Edm.String"/>
+        <Property Name="WorkCycleType" Type="Edm.String"/>
         <Property Name="LastActivatedAt" Type="Edm.String"/>
         <Annotation Term="Paw.Vocab.Agent.Hint" String="Repository contract for a governed development loop."/>
       </EntityType>
@@ -45,22 +46,23 @@
       </EntityType>
 
       <Action Name="Configure" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.Harness.ProjectHarness"/>
+        <Parameter Name="bindingParameter" Type="OpenPaw.Harness.Harness"/>
         <Parameter Name="repo_url" Type="Edm.String" Nullable="false"/>
         <Parameter Name="tech_stack" Type="Edm.String" Nullable="true"/>
         <Parameter Name="conventions" Type="Edm.String" Nullable="true"/>
-        <ReturnType Type="OpenPaw.Harness.ProjectHarness"/>
+        <Parameter Name="work_cycle_type" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="OpenPaw.Harness.Harness"/>
       </Action>
 
       <Action Name="Activate" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.Harness.ProjectHarness"/>
+        <Parameter Name="bindingParameter" Type="OpenPaw.Harness.Harness"/>
         <Parameter Name="last_activated_at" Type="Edm.String" Nullable="true"/>
-        <ReturnType Type="OpenPaw.Harness.ProjectHarness"/>
+        <ReturnType Type="OpenPaw.Harness.Harness"/>
       </Action>
 
       <Action Name="Archive" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.Harness.ProjectHarness"/>
-        <ReturnType Type="OpenPaw.Harness.ProjectHarness"/>
+        <Parameter Name="bindingParameter" Type="OpenPaw.Harness.Harness"/>
+        <ReturnType Type="OpenPaw.Harness.Harness"/>
       </Action>
 
       <Action Name="Configure" IsBound="true">
@@ -150,7 +152,7 @@
       </Action>
 
       <EntityContainer Name="Service">
-        <EntitySet Name="ProjectHarnesses" EntityType="OpenPaw.Harness.ProjectHarness"/>
+        <EntitySet Name="Harnesses" EntityType="OpenPaw.Harness.Harness"/>
         <EntitySet Name="WorkCycles" EntityType="OpenPaw.Harness.WorkCycle"/>
       </EntityContainer>
     </Schema>

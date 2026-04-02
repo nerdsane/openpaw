@@ -2016,7 +2016,7 @@ fn load_harness_block(
     }
     let headers = agent_headers(ctx, tenant, None, Some("application/json"));
     let url = format!(
-        "{temper_api_url}/tdata/ProjectHarnesses('{project_harness_id}')"
+        "{temper_api_url}/tdata/Harnesses('{project_harness_id}')"
     );
     let resp = ctx.http_call("GET", &url, &headers, "")?;
     if resp.status != 200 {

@@ -63,7 +63,7 @@
 
   onMount(async () => {
     const [ha, tm, so, sk, wc, dec, pol] = await Promise.all([
-      queryEntities('ProjectHarnesses').catch(() => []),
+      queryEntities('Harnesses').catch(() => queryEntities('ProjectHarnesses').catch(() => [])),
       queryTeams().catch(() => []),
       queryEntities('Souls').catch(() => []),
       queryEntities('Skills').catch(() => []),
