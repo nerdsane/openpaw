@@ -1856,13 +1856,47 @@ fn convert_tools_to_openrouter(tools: &[Value]) -> Vec<Value> {
 /// Build tool definitions for the LLM.
 ///
 /// Returns a single `execute` tool for the Monty REPL. Agents write Python
-/// code using `temper.*` and `sandbox.*` objects. The available commands are
-/// documented in the system prompt via `build_sdk_reference()`.
+/// code using `temper.*` and `sandbox.*` objects. The method listing is
+/// inline in the tool description so agents see it immediately.
 fn build_tool_definitions(_tools_enabled: &str, _sandbox_url: &str, _workdir: &str) -> Vec<Value> {
-    // Single execute tool — replaces 19 individual tools
+    // Single execute tool — method listing here (not in system prompt) so agents see it when choosing the tool.
     return vec![json!({
         "name": "execute",
-        "description": "Execute Python code in the Temper REPL. You have `temper` and `sandbox` objects. Variables persist across calls. See system prompt for available methods.",
+        "description": concat!(
+            "Execute Python code in the Temper REPL. Variables persist across calls.\n\n",
+            "Available methods:\n",
+            "- sandbox.bash(command) → run shell command, returns stdout\n",
+            "- sandbox.read(path) → read file content\n",
+            "- sandbox.write(path, content) → write file\n",
+            "- sandbox.edit(path, old, new) → search-replace in file\n",
+            "- temper.create(entity_set, fields_dict) → create entity, returns dict with entity_id\n",
+            "- temper.get(entity_set, entity_id) → get entity by id\n",
+            "- temper.list(entity_set, filter_str) → list entities with OData $filter\n",
+            "- temper.action(entity_set, entity_id, action_name, params_dict) → dispatch action\n",
+            "- temper.patch(entity_set, entity_id, fields_dict) → partial update\n",
+            "- temper.spawn_session(task, soul_id=None, model=None, tools=None, workdir=None, sandbox_url=None, max_turns=None, background=False) → spawn sub-session\n",
+            "- temper.list_sessions(filter=None, top=50) → list sessions\n",
+            "- temper.abort_session(session_id) → cancel session\n",
+            "- temper.steer_session(session_id, message) → inject message\n",
+            "- temper.save_memory(key, content, memory_type='project') → persist memory\n",
+            "- temper.recall_memory(query) → search memories, returns list\n",
+            "- temper.file_upload(name, content) → upload to TemperFS, returns file_id\n",
+            "- temper.read_entity(file_id) → read TemperFS file content\n",
+            "- temper.run_coding_agent(agent_type, task) → spawn coding session\n",
+            "- temper.submit_specs(files_dict) → load specs into Temper\n",
+            "- temper.show_spec(entity_name) → inspect entity spec\n",
+            "- temper.install_app(app_name, reason) → install capability\n",
+            "- temper.upload_wasm(module_name, wasm_base64) → upload WASM module\n",
+            "- temper.get_trajectories(entity_type, include_actions, limit=10) → evolution data\n",
+            "- temper.get_insights() → evolution insights\n",
+            "- temper.get_decisions() → pending governance decisions\n",
+            "- temper.poll_decision(decision_id) → wait for decision\n",
+            "- temper.datadog_query(query_kind, monitor_id=None, query=None, ...) → Datadog API\n",
+            "- temper.railway(action, project_id=None, ...) → Railway API\n",
+            "- temper.vercel(action, deployment_id=None, ...) → Vercel API\n\n",
+            "IMPORTANT: No pip packages available (no requests, httpx, subprocess, os). ",
+            "Use sandbox.bash() for ALL shell commands. Write complete multi-step scripts, not one-liners."
+        ),
         "input_schema": {
             "type": "object",
             "properties": {
@@ -2147,11 +2181,10 @@ fn assemble_system_prompt(
     Ok(parts.join("\n\n"))
 }
 
-/// Build the Temper SDK reference block for the system prompt.
+/// Build the Temper SDK usage guide for the system prompt.
 ///
-/// Documents available `temper.*` and `sandbox.*` methods based on
-/// which tools are enabled. Injected into every LLM call so the agent
-/// knows what it can do through the `execute` tool.
+/// Contains examples and constraints only — method signatures live in the
+/// `execute` tool description so agents see them immediately.
 fn build_sdk_reference(tools_enabled: &str, sandbox_url: &str, workdir: &str) -> String {
     let enabled: Vec<&str> = tools_enabled.split(',').map(str::trim).collect();
     let has_sandbox = !sandbox_url.is_empty()
@@ -2159,177 +2192,58 @@ fn build_sdk_reference(tools_enabled: &str, sandbox_url: &str, workdir: &str) ->
             || enabled.contains(&"write")
             || enabled.contains(&"edit")
             || enabled.contains(&"bash"));
-    let has_entity = enabled.iter().any(|t| t.starts_with("temper_"));
-    let has_spawn = enabled.contains(&"spawn_session");
 
     let mut sections = Vec::new();
 
-    // --- Execution Environment overview ---
-    let mut env_desc = String::from(
+    sections.push(format!(
         "<temper_sdk>\n\
          ## Execution Environment\n\n\
-         You have ONE tool: `execute`. It runs Python code in a sandboxed REPL.\n\n\
-         Available objects:\n\
-         - `temper` — Temper platform API (entity CRUD, session management, memory, specs)\n",
-    );
-    if has_sandbox {
-        env_desc.push_str(
-            "- `sandbox` — Remote sandbox operations (bash, file read/write/edit)\n",
-        );
-    }
-    env_desc.push_str(
-        "\nIMPORTANT:\n\
-         - No pip packages available (no requests, httpx, numpy, pandas, etc.)\n\
-         - No network access from Python — use sandbox.bash(\"curl ...\") for HTTP calls\n\
-         - No filesystem access from Python — use sandbox.read/write/edit for files\n\
+         Your `execute` tool runs Python in a sandboxed REPL.{sandbox_note}\n\n\
+         Constraints:\n\
+         - No pip packages (no requests, httpx, numpy, pandas, etc.)\n\
+         - No network access from Python — use sandbox.bash(\"curl ...\") for HTTP\n\
+         - No filesystem access from Python — use sandbox.read/write/edit\n\
          - Variables persist across execute calls within the same session\n\
-         - Write substantial code blocks, not one-liners. Multiple operations in one execute call.",
-    );
-    sections.push(env_desc);
+         - Write substantial code blocks, not one-liners\n\
+         - Sandbox working directory: {workdir}",
+        sandbox_note = if has_sandbox {
+            " Two objects available: `temper` (platform API) and `sandbox` (remote shell/files)."
+        } else {
+            " One object available: `temper` (platform API)."
+        },
+    ));
 
     // --- Examples ---
     let mut examples = String::from("## Examples\n");
     if has_sandbox {
         examples.push_str(
-            "\n### Clone a repo and read a file\n\
+            "\n### Clone and explore\n\
              ```python\n\
              sandbox.bash(\"git clone https://github.com/org/repo.git /workspace/repo\")\n\
              content = sandbox.read(\"/workspace/repo/README.md\")\n\
              print(content[:500])\n\
              ```\n\
-             \n### Edit a file\n\
+             \n### Edit + test + commit\n\
              ```python\n\
              sandbox.edit(\"/workspace/repo/src/main.py\",\n\
                  old=\"def hello():\",\n\
                  new=\"def hello(name='World'):\")\n\
-             ```\n\
-             \n### Run tests\n\
-             ```python\n\
              result = sandbox.bash(\"cd /workspace/repo && pytest tests/ -x -q\")\n\
              print(result)\n\
-             ```\n",
-        );
-    }
-    if has_entity {
-        examples.push_str(
-            "\n### Create an entity and act on it\n\
-             ```python\n\
-             issue = temper.create(\"Issues\", {\"description\": \"Fix login bug\"})\n\
-             issue_id = issue[\"entity_id\"]\n\
-             temper.action(\"Issues\", issue_id, \"OpenPaw.PM.SetPriority\", {\"level\": \"2\"})\n\
-             temper.action(\"Issues\", issue_id, \"OpenPaw.PM.MoveToTriage\", {})\n\
+             sandbox.bash(\"cd /workspace/repo && git add -A && git commit -m 'fix: greet by name'\")\n\
              ```\n",
         );
     }
     examples.push_str(
-        "\n### Save and recall memory\n\
+        "\n### Entity CRUD + memory\n\
          ```python\n\
+         issue = temper.create(\"Issues\", {\"description\": \"Fix login bug\"})\n\
+         temper.action(\"Issues\", issue[\"entity_id\"], \"OpenPaw.PM.MoveToTriage\", {})\n\
          temper.save_memory(\"test_results\", \"pytest: 47 passed, 0 failed\", \"project\")\n\
-         memories = temper.recall_memory(\"test results\")\n\
          ```\n",
     );
-    if has_sandbox {
-        examples.push_str(
-            "\n### Commit and push\n\
-             ```python\n\
-             sandbox.bash(\"\"\"\n\
-             cd /workspace/repo\n\
-             git add -A\n\
-             git commit -m \"feat: add version endpoint\"\n\
-             git push -u origin feat/version-endpoint\n\
-             \"\"\")\n\
-             ```\n\
-             \n### Open a PR\n\
-             ```python\n\
-             sandbox.bash(\"cd /workspace/repo && gh pr create --title 'feat: version endpoint' --body 'Adds /version endpoint' --repo org/repo\")\n\
-             ```\n",
-        );
-    }
     sections.push(examples);
 
-    // --- Method Signatures ---
-
-    if has_entity {
-        sections.push(
-            "## Entity Operations\n\
-             result = temper.create(entity_set, fields_dict) -> {\"entity_id\": str, ...}\n\
-             entity = temper.get(entity_set, entity_id) -> dict\n\
-             entities = temper.list(entity_set, filter_str) -> [{...}, ...]\n\
-             result = temper.action(entity_set, entity_id, action_name, params_dict) -> dict\n\
-             result = temper.patch(entity_set, entity_id, fields_dict) -> dict"
-                .to_string(),
-        );
-    }
-
-    if has_sandbox {
-        sections.push(format!(
-            "## Sandbox (working dir: {workdir})\n\
-             content = sandbox.read(path) -> str\n\
-             sandbox.write(path, content) -> None\n\
-             sandbox.edit(path, old=str, new=str) -> None\n\
-             output = sandbox.bash(command) -> str"
-        ));
-    }
-
-    // Platform ops always shown — Cedar governs access
-    sections.push(
-        "## Specs & Platform\n\
-         result = temper.submit_specs(files_dict) -> dict\n\
-         spec = temper.show_spec(entity_name) -> dict\n\
-         temper.install_app(app_name, reason) -> None\n\
-         temper.upload_wasm(module_name, wasm_base64) -> dict"
-            .to_string(),
-    );
-
-    if has_spawn {
-        sections.push(
-            "## Session Management\n\
-             result = temper.spawn_session(task, soul_id=None, model=None, tools=None, workdir=None, sandbox_url=None, max_turns=None, background=False, timeout_ms=None) -> dict\n\
-             sessions = temper.list_sessions(filter=None, top=50) -> [dict]\n\
-             temper.abort_session(session_id) -> None\n\
-             temper.steer_session(session_id, message) -> dict"
-                .to_string(),
-        );
-    }
-
-    sections.push(
-        "## Memory\n\
-         temper.save_memory(key, content, memory_type=\"project\") -> None\n\
-         memories = temper.recall_memory(query) -> [dict]"
-            .to_string(),
-    );
-
-    sections.push(
-        "## File Operations\n\
-         file_id = temper.file_upload(name, content) -> str\n\
-         content = temper.read_entity(file_id) -> str"
-            .to_string(),
-    );
-
-    sections.push(
-        "## External APIs\n\
-         result = temper.datadog_query(query_kind, monitor_id=None, query=None, from_ts=None, to_ts=None, tags=None, limit=25) -> dict\n\
-         result = temper.railway(action, project_id=None, service_id=None, deployment_id=None, environment_id=None) -> dict\n\
-         result = temper.vercel(action, deployment_id=None, project_id=None, limit=10, target=\"production\") -> dict"
-            .to_string(),
-    );
-
-    sections.push(
-        "## Coding Agent\n\
-         result = temper.run_coding_agent(agent_type, task) -> dict"
-            .to_string(),
-    );
-
-    sections.push(
-        "## Evolution & Governance\n\
-         trajectories = temper.get_trajectories(entity_type, include_actions, limit=10) -> [dict]\n\
-         insights = temper.get_insights() -> [dict]\n\
-         decisions = temper.get_decisions() -> [dict]\n\
-         decision = temper.poll_decision(decision_id) -> dict"
-            .to_string(),
-    );
-
-    // --- Efficiency note ---
     sections.push(
         "## Efficiency\n\n\
          Write complete workflows in a single execute call when possible.\n\

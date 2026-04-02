@@ -92,8 +92,8 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             // Wrap code in async function
             let wrapped = wrap_user_code(code);
 
-            // Execute via REPL start() — consumes repl, returns ReplProgress
-            let mut print = PrintWriter::Disabled;
+            // Execute via REPL start() — use Collect to capture print() output.
+            let mut print = PrintWriter::Collect(String::new());
             let progress = match repl.start(&wrapped, &mut print) {
                 Ok(p) => p,
                 Err(e) => {
@@ -103,21 +103,48 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                     continue;
                 }
             };
+            // Recover print buffer from start() call
+            let start_output = match print {
+                PrintWriter::Collect(buf) => buf,
+                _ => String::new(),
+            };
 
-            // Drive the event loop
-            let (result, returned_repl) = drive_repl_loop(
+            // Drive the event loop (continues collecting print output)
+            let (result, returned_repl, printed) = drive_repl_loop(
                 &ctx,
                 &temper_api_url,
                 tenant,
                 sandbox_url,
                 workdir,
                 progress,
+                start_output,
             );
             repl = returned_repl;
 
+            // Combine print output + expression value
             let (content, is_error) = match result {
-                Ok(output) => (truncate_output(&output), false),
-                Err(e) => (e, true),
+                Ok(expr_val) => {
+                    let mut combined = printed;
+                    // Append expression value if it's not null/None
+                    if expr_val != "null" && !expr_val.is_empty() {
+                        if !combined.is_empty() {
+                            combined.push('\n');
+                        }
+                        combined.push_str(&expr_val);
+                    }
+                    if combined.is_empty() {
+                        combined.push_str("(no output)");
+                    }
+                    (truncate_output(&combined), false)
+                }
+                Err(e) => {
+                    let mut combined = printed;
+                    if !combined.is_empty() {
+                        combined.push('\n');
+                    }
+                    combined.push_str(&e);
+                    (combined, true)
+                }
             };
 
             tool_results.push(make_tool_result(tool_id, &content, is_error));
@@ -210,6 +237,12 @@ fn save_repl_state(repl: &MontyRepl<LimitedTracker>) -> Result<String, String> {
 }
 
 /// Drive the Monty REPL event loop to completion.
+///
+/// Accepts a print buffer (from the initial `start()` call) and continues
+/// collecting `print()` output throughout execution. Returns:
+/// - expression result (Ok/Err)
+/// - the repl (for state persistence)
+/// - accumulated print output string
 fn drive_repl_loop(
     ctx: &Context,
     temper_api_url: &str,
@@ -217,7 +250,8 @@ fn drive_repl_loop(
     sandbox_url: &str,
     workdir: &str,
     mut progress: ReplProgress<LimitedTracker>,
-) -> (Result<String, String>, MontyRepl<LimitedTracker>) {
+    mut print_buf: String,
+) -> (Result<String, String>, MontyRepl<LimitedTracker>, String) {
     let mut pending_results: BTreeMap<u32, ExtFunctionResult> = BTreeMap::new();
 
     loop {
@@ -226,27 +260,29 @@ fn drive_repl_loop(
                 let json_value = convert::monty_object_to_json(&value);
                 let result = serde_json::to_string(&json_value)
                     .map_err(|e| format!("failed to serialize result: {e}"));
-                return (result, repl);
+                return (result, repl, print_buf);
             }
 
             ReplProgress::FunctionCall(call) => {
                 if !call.method_call {
-                    // Can't use into_repl at bf7c7ef — abandon via ReplProgress::into_complete
-                    // For non-method calls, we error but lose the repl state.
-                    // Create a fresh repl as fallback.
                     let msg = format!(
                         "sandbox denied function call '{}'. Only temper.<method> and sandbox.<method> calls are allowed.",
                         call.function_name
                     );
-                    // Resume with error to let Monty handle it, recovering the repl
                     let ext_result = ExtFunctionResult::Error(MontyException::new(
                         ExcType::RuntimeError,
                         Some(msg.clone()),
                     ));
-                    let mut print = PrintWriter::Disabled;
+                    let mut print = PrintWriter::Collect(std::mem::take(&mut print_buf));
                     match call.resume(ext_result, &mut print) {
-                        Ok(p) => { progress = p; continue; }
-                        Err(e) => return (Err(msg), e.repl),
+                        Ok(p) => {
+                            if let PrintWriter::Collect(s) = print { print_buf = s; }
+                            progress = p; continue;
+                        }
+                        Err(e) => {
+                            if let PrintWriter::Collect(s) = print { print_buf = s; }
+                            return (Err(msg), e.repl, print_buf);
+                        }
                     }
                 }
 
@@ -283,10 +319,10 @@ fn drive_repl_loop(
                 };
 
                 pending_results.insert(call_id, ext_result);
-                let mut print = PrintWriter::Disabled;
+                let mut print = PrintWriter::Collect(std::mem::take(&mut print_buf));
                 match call.resume_pending(&mut print) {
-                    Ok(p) => progress = p,
-                    Err(e) => return (Err(format_monty_exception(&e.error)), e.repl),
+                    Ok(p) => { if let PrintWriter::Collect(s) = print { print_buf = s; } progress = p; }
+                    Err(e) => { if let PrintWriter::Collect(s) = print { print_buf = s; } return (Err(format_monty_exception(&e.error)), e.repl, print_buf); }
                 }
             }
 
@@ -298,41 +334,30 @@ fn drive_repl_loop(
                     }
                 }
 
-                if ready.is_empty() {
-                    // Can't resolve — resume with empty to let Monty error
-                    let mut print = PrintWriter::Disabled;
-                    match state.resume(ready, &mut print) {
-                        Ok(p) => progress = p,
-                        Err(e) => return (Err(format_monty_exception(&e.error)), e.repl),
-                    }
-                    continue;
-                }
-
-                let mut print = PrintWriter::Disabled;
+                let mut print = PrintWriter::Collect(std::mem::take(&mut print_buf));
                 match state.resume(ready, &mut print) {
-                    Ok(p) => progress = p,
-                    Err(e) => return (Err(format_monty_exception(&e.error)), e.repl),
+                    Ok(p) => { if let PrintWriter::Collect(s) = print { print_buf = s; } progress = p; }
+                    Err(e) => { if let PrintWriter::Collect(s) = print { print_buf = s; } return (Err(format_monty_exception(&e.error)), e.repl, print_buf); }
                 }
             }
 
             ReplProgress::NameLookup(lookup) => {
-                let mut print = PrintWriter::Disabled;
+                let mut print = PrintWriter::Collect(std::mem::take(&mut print_buf));
                 match lookup.resume(monty::NameLookupResult::Undefined, &mut print) {
-                    Ok(p) => progress = p,
-                    Err(e) => return (Err(format_monty_exception(&e.error)), e.repl),
+                    Ok(p) => { if let PrintWriter::Collect(s) = print { print_buf = s; } progress = p; }
+                    Err(e) => { if let PrintWriter::Collect(s) = print { print_buf = s; } return (Err(format_monty_exception(&e.error)), e.repl, print_buf); }
                 }
             }
 
             ReplProgress::OsCall(os_call) => {
-                // Resume with error — OS calls are blocked
                 let ext_result = ExtFunctionResult::Error(MontyException::new(
                     ExcType::RuntimeError,
                     Some("sandbox blocked OS access. Use sandbox.bash() for shell commands.".into()),
                 ));
-                let mut print = PrintWriter::Disabled;
+                let mut print = PrintWriter::Collect(std::mem::take(&mut print_buf));
                 match os_call.resume(ext_result, &mut print) {
-                    Ok(p) => progress = p,
-                    Err(e) => return (Err(format_monty_exception(&e.error)), e.repl),
+                    Ok(p) => { if let PrintWriter::Collect(s) = print { print_buf = s; } progress = p; }
+                    Err(e) => { if let PrintWriter::Collect(s) = print { print_buf = s; } return (Err(format_monty_exception(&e.error)), e.repl, print_buf); }
                 }
             }
         }
