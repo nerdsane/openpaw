@@ -1853,9 +1853,30 @@ fn convert_tools_to_openrouter(tools: &[Value]) -> Vec<Value> {
     out
 }
 
-/// Build tool definitions for the LLM based on enabled tools.
+/// Build tool definitions for the LLM.
+///
+/// Returns a single `execute` tool for the Monty REPL. Agents write Python
+/// code using `temper.*` and `sandbox.*` objects. The available commands are
+/// documented in the system prompt via `build_sdk_reference()`.
 fn build_tool_definitions(tools_enabled: &str, sandbox_url: &str, workdir: &str) -> Vec<Value> {
+    // Single execute tool — replaces 19 individual tools
+    return vec![json!({
+        "name": "execute",
+        "description": "Execute Python code in the Temper REPL. You have `temper` and `sandbox` objects. Variables persist across calls. See system prompt for available methods.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "code": { "type": "string", "description": "Python code to execute" }
+            },
+            "required": ["code"]
+        }
+    })];
+
+    // Legacy tool definitions below — kept for reference during migration,
+    // unreachable due to early return above.
+    #[allow(unreachable_code)]
     let enabled: Vec<&str> = tools_enabled.split(',').map(str::trim).collect();
+    #[allow(unreachable_code)]
     let mut tools = Vec::new();
 
     if enabled.contains(&"read") {
@@ -2525,12 +2546,122 @@ fn assemble_system_prompt(
         }
     }
 
+    // 5. Temper SDK reference (available REPL commands)
+    {
+        let tools_enabled = ctx
+            .entity_state
+            .get("fields")
+            .and_then(|f| f.get("tools_enabled"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("read,write,edit,bash");
+        let sandbox_url = ctx
+            .entity_state
+            .get("fields")
+            .and_then(|f| f.get("sandbox_url"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let workdir = ctx
+            .entity_state
+            .get("fields")
+            .and_then(|f| f.get("workdir"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("/workspace");
+        parts.push(build_sdk_reference(tools_enabled, sandbox_url, workdir));
+    }
+
     // Fall back to bare system_prompt if nothing loaded
     if parts.is_empty() {
         return Ok(system_prompt_override.to_string());
     }
 
     Ok(parts.join("\n\n"))
+}
+
+/// Build the Temper SDK reference block for the system prompt.
+///
+/// Documents available `temper.*` and `sandbox.*` methods based on
+/// which tools are enabled. Injected into every LLM call so the agent
+/// knows what it can do through the `execute` tool.
+fn build_sdk_reference(tools_enabled: &str, sandbox_url: &str, workdir: &str) -> String {
+    let enabled: Vec<&str> = tools_enabled.split(',').map(str::trim).collect();
+    let has_sandbox = !sandbox_url.is_empty()
+        && (enabled.contains(&"read")
+            || enabled.contains(&"write")
+            || enabled.contains(&"edit")
+            || enabled.contains(&"bash"));
+    let has_entity = enabled.iter().any(|t| t.starts_with("temper_"));
+    let has_spawn = enabled.contains(&"spawn_agent");
+
+    let mut sections = Vec::new();
+
+    sections.push(
+        "<temper_sdk>\n\
+         You have one tool: execute. Write Python code using the `temper` and `sandbox` objects.\n\
+         Variables persist across calls."
+            .to_string(),
+    );
+
+    if has_entity {
+        sections.push(format!(
+            "## Entity Operations\n\
+             result = await temper.create(\"EntitySet\", {{\"Field\": \"value\"}})\n\
+             entity = await temper.get(\"EntitySet\", \"entity-id\")\n\
+             entities = await temper.list(\"EntitySet\", \"Status eq 'Open'\")\n\
+             result = await temper.action(\"EntitySet\", \"entity-id\", \"ActionName\", {{\"param\": \"value\"}})\n\
+             result = await temper.patch(\"EntitySet\", \"entity-id\", {{\"Field\": \"new_value\"}})"
+        ));
+    }
+
+    if has_sandbox {
+        sections.push(format!(
+            "## Sandbox (working dir: {workdir})\n\
+             content = await sandbox.read(\"src/main.rs\")\n\
+             await sandbox.write(\"src/main.rs\", content)\n\
+             await sandbox.edit(\"src/main.rs\", \"old text\", \"new text\")\n\
+             output = await sandbox.bash(\"git status\")"
+        ));
+    }
+
+    // Platform ops always shown — Cedar governs access
+    sections.push(
+        "## Specs & Platform\n\
+         result = await temper.submit_specs({\"Entity.ioa.toml\": ioa_content, \"model.csdl.xml\": csdl})\n\
+         spec = await temper.show_spec(\"Agent\")\n\
+         await temper.install_app(\"app-name\", \"reason for install\")\n\
+         await temper.upload_wasm(\"module_name\", wasm_base64)"
+            .to_string(),
+    );
+
+    if has_spawn {
+        sections.push(
+            "## Agent Management\n\
+             agent = await temper.create(\"Agents\", {\"task\": \"...\"})\n\
+             await temper.action(\"Agents\", agent[\"id\"], \"Configure\", {\"model\": \"claude-sonnet-4\"})\n\
+             await temper.action(\"Agents\", agent[\"id\"], \"Provision\")\n\
+             agents = await temper.list(\"Agents\", \"ParentAgentId eq 'self'\")"
+                .to_string(),
+        );
+    }
+
+    sections.push(
+        "## Memory\n\
+         await temper.create(\"Memories\", {\"Key\": \"k\", \"Content\": \"...\", \"MemoryType\": \"reference\"})\n\
+         memories = await temper.list(\"Memories\", \"contains(Content,'query')\")"
+            .to_string(),
+    );
+
+    sections.push(
+        "## Evolution & Governance\n\
+         trajectories = await temper.get_trajectories(\"Agent\", True, 10)\n\
+         insights = await temper.get_insights()\n\
+         decisions = await temper.get_decisions()\n\
+         decision = await temper.poll_decision(\"PD-xxx\")"
+            .to_string(),
+    );
+
+    sections.push("</temper_sdk>".to_string());
+
+    sections.join("\n\n")
 }
 
 /// Load soul content from Soul entity.

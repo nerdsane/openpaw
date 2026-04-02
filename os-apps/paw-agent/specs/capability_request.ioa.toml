@@ -1,0 +1,108 @@
+# CapabilityRequest — Cedar-governed agent self-provisioning.
+#
+# When an agent needs a capability it doesn't have (e.g., GitHub access,
+# a new OS app, custom specs), it creates a CapabilityRequest entity.
+# Cedar policies determine whether the request auto-approves or requires
+# human approval via Discord/Observe UI.
+#
+# On approval, the capability_installer WASM integration calls the
+# appropriate Temper platform API (install_app, load-inline specs,
+# upload WASM module, or provision a secret).
+
+[automaton]
+name = "CapabilityRequest"
+states = ["Requested", "Approved", "Installing", "Installed", "Rejected", "Failed"]
+initial = "Requested"
+
+# --- State Variables ---
+
+[[state]]
+name = "capability_type"
+type = "string"
+initial = ""
+
+[[state]]
+name = "capability_name"
+type = "string"
+initial = ""
+
+[[state]]
+name = "reason"
+type = "string"
+initial = ""
+
+[[state]]
+name = "requesting_agent_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "payload"
+type = "string"
+initial = ""
+
+[[state]]
+name = "error_message"
+type = "string"
+initial = ""
+
+# --- Actions ---
+
+[[action]]
+name = "Approve"
+kind = "input"
+from = ["Requested"]
+to = "Installing"
+hint = "Human or Cedar policy approves the capability request. Triggers installation."
+effect = [{ type = "trigger", name = "install_capability" }]
+
+[[action]]
+name = "Reject"
+kind = "input"
+from = ["Requested"]
+to = "Rejected"
+hint = "Human or Cedar policy rejects the capability request."
+
+[[action]]
+name = "InstallComplete"
+kind = "input"
+from = ["Installing"]
+to = "Installed"
+hint = "Capability installed successfully."
+
+[[action]]
+name = "InstallFailed"
+kind = "input"
+from = ["Installing"]
+to = "Failed"
+params = ["error_message"]
+hint = "Installation failed. Error stored in error_message."
+
+# --- Invariants ---
+
+[[invariant]]
+name = "InstalledIsFinal"
+when = ["Installed"]
+assert = "no_further_transitions"
+
+[[invariant]]
+name = "RejectedIsFinal"
+when = ["Rejected"]
+assert = "no_further_transitions"
+
+[[invariant]]
+name = "FailedIsFinal"
+when = ["Failed"]
+assert = "no_further_transitions"
+
+# --- Integration ---
+
+[[integration]]
+name = "install_capability"
+trigger = "install_capability"
+type = "wasm"
+module = "capability_installer"
+on_failure = "InstallFailed"
+
+[integration.config]
+temper_api_url = "{secret:temper_api_url}"
