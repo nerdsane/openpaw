@@ -298,13 +298,14 @@ fn temper_install_app(ctx: &Context, api_url: &str, tenant: &str, args: &[Value]
         .and_then(|v| v.as_str())
         .unwrap_or("");
 
-    // Create a CapabilityRequest entity (Cedar-governed)
+    // Create a CapabilityRequest entity (Cedar-governed).
+    // Use snake_case keys to match IOA state variable names.
     let body = json!({
-        "CapabilityType": cap_type,
-        "CapabilityName": app_name,
-        "Reason": reason,
-        "RequestingAgentId": agent_id,
-        "Payload": payload,
+        "capability_type": cap_type,
+        "capability_name": app_name,
+        "reason": reason,
+        "requesting_agent_id": agent_id,
+        "payload": payload,
     });
     http_post(ctx, api_url, tenant, "/tdata/CapabilityRequests", &body)
 }

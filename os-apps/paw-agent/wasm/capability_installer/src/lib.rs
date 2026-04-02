@@ -25,16 +25,17 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         let tenant = &ctx.tenant;
 
         let fields = ctx.entity_state.get("fields").cloned().unwrap_or(json!({}));
-        let capability_type = fields
-            .get("capability_type")
+        // Try both snake_case (IOA field names) and PascalCase (OData convention)
+        let capability_type = fields.get("capability_type")
+            .or_else(|| fields.get("CapabilityType"))
             .and_then(|v| v.as_str())
             .unwrap_or("");
-        let capability_name = fields
-            .get("capability_name")
+        let capability_name = fields.get("capability_name")
+            .or_else(|| fields.get("CapabilityName"))
             .and_then(|v| v.as_str())
             .unwrap_or("");
-        let payload = fields
-            .get("payload")
+        let payload = fields.get("payload")
+            .or_else(|| fields.get("Payload"))
             .and_then(|v| v.as_str())
             .unwrap_or("");
 
@@ -45,9 +46,11 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             ),
         );
 
+        // Use admin principal for installation — the human already approved via Approve action.
         let headers = vec![
             ("Content-Type".to_string(), "application/json".to_string()),
             ("X-Tenant-Id".to_string(), tenant.to_string()),
+            ("X-Temper-Principal-Kind".to_string(), "admin".to_string()),
         ];
 
         match capability_type {

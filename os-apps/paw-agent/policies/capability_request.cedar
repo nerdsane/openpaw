@@ -3,6 +3,13 @@
 // Controls who can create, approve, and reject capability requests.
 // Agents can create requests; approval requires human/admin principal.
 
+// Admins can do everything on capability requests
+permit(
+  principal is Admin,
+  action,
+  resource is CapabilityRequest
+);
+
 // Any agent can create capability requests
 permit(
   principal,
