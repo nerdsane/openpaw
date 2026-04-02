@@ -7,27 +7,48 @@
 
   let { session }: { session: Session } = $props();
 
-  let soulName = $state<string | null>(null);
+  let agentLabel = $state<string | null>(null);
 
-  // Simple in-memory soul cache
-  const soulCache = new Map<string, string>();
+  // Simple in-memory cache for agent/soul name resolution
+  const nameCache = new Map<string, string>();
 
   onMount(async () => {
-    if (session.soul_id) {
-      if (soulCache.has(session.soul_id)) {
-        soulName = soulCache.get(session.soul_id) ?? null;
+    // Prefer agent_id (shows role like "SWE"), fall back to soul_id
+    if (session.agent_id) {
+      const cacheKey = `agent:${session.agent_id}`;
+      if (nameCache.has(cacheKey)) {
+        agentLabel = nameCache.get(cacheKey) ?? null;
+      } else {
+        try {
+          const agent = await getEntity('Agents', session.agent_id);
+          const f = (agent as Record<string, unknown>);
+          const name = (f.name ?? f.role ?? null) as string | null;
+          if (name) {
+            nameCache.set(cacheKey, name);
+            agentLabel = name;
+          }
+        } catch {
+          // Agent not found — use soul_id fallback below
+        }
+      }
+    }
+    if (!agentLabel && session.soul_id) {
+      const cacheKey = `soul:${session.soul_id}`;
+      if (nameCache.has(cacheKey)) {
+        agentLabel = nameCache.get(cacheKey) ?? null;
       } else {
         try {
           const soul = await getEntity('Souls', session.soul_id);
-          const name = (soul as { name?: string }).name ?? null;
+          const name = (soul as { name?: string; Name?: string }).name
+            ?? (soul as { Name?: string }).Name ?? null;
           if (name) {
-            soulCache.set(session.soul_id, name);
-            soulName = name;
+            nameCache.set(cacheKey, name);
+            agentLabel = name;
           }
         } catch {
-          // Soul entity not found by ID — soul_id might be a name string (e.g. "SWE")
-          soulName = session.soul_id;
-          soulCache.set(session.soul_id, session.soul_id);
+          // Soul entity not found — soul_id might be a name string (e.g. "SWE")
+          agentLabel = session.soul_id;
+          nameCache.set(cacheKey, session.soul_id);
         }
       }
     }
@@ -78,7 +99,7 @@
   transition:fade={{ duration: 200 }}
 >
   <div class="session-card__header">
-    <h3 class="session-card__name">{soulName ?? 'Session'}</h3>
+    <h3 class="session-card__name">{agentLabel ?? 'Session'}</h3>
     <code class="session-card__id">{shortId}</code>
   </div>
 
