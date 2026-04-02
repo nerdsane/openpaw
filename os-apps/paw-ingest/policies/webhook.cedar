@@ -47,7 +47,7 @@ permit(
 );
 
 permit(
-  principal is Session,
+  principal is Agent,
   action == Action::"http_call",
   resource is HttpEndpoint
 ) when {

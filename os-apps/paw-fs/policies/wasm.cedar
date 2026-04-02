@@ -2,7 +2,7 @@
 
 // Allow blob_adapter to make HTTP calls (blob storage upload/download)
 permit(
-    principal is Session,
+    principal is Agent,
     action == Action::"http_call",
     resource is HttpEndpoint
 ) when {
@@ -11,7 +11,7 @@ permit(
 
 // Allow blob_adapter to access secrets (blob_endpoint, blob_bucket)
 permit(
-    principal is Session,
+    principal is Agent,
     action == Action::"access_secret",
     resource is Secret
 ) when {

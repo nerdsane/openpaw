@@ -88,7 +88,7 @@ permit(
 // --- WASM module HTTP call authorization ---
 
 permit(
-  principal is Session,
+  principal is Agent,
   action == Action::"http_call",
   resource is HttpEndpoint
 ) when {
@@ -97,7 +97,7 @@ permit(
 
 // Allow agent WASM modules to access secrets
 permit(
-  principal is Session,
+  principal is Agent,
   action == Action::"access_secret",
   resource is Secret
 ) when {

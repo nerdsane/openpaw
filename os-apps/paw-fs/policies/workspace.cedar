@@ -2,14 +2,14 @@
 
 // Agents can create workspaces
 permit(
-    principal is Session,
+    principal is Agent,
     action == Action::"Create",
     resource is Workspace
 );
 
 // Workspace members can read and use their workspace
 permit(
-    principal is Session,
+    principal is Agent,
     action in [Action::"IncrementUsage", Action::"DecrementUsage", Action::"UpdateQuota"],
     resource is Workspace
 ) when {
@@ -18,7 +18,7 @@ permit(
 
 // Only workspace admins can freeze, thaw, or archive
 permit(
-    principal is Session,
+    principal is Agent,
     action in [Action::"Freeze", Action::"Thaw", Action::"WorkspaceArchive"],
     resource is Workspace
 ) when {
