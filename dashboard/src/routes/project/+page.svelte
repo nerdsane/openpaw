@@ -157,6 +157,36 @@
                 </div>
               </div>
             {/if}
+
+            <!-- Flow diagram inline under this harness -->
+            <div class="harness-flow">
+              <div class="flow-row">
+                <div class="flow-state">Planning</div>
+                <span class="flow-arrow">→</span>
+                <div class="flow-state">Planned</div>
+                <span class="flow-arrow">→</span>
+                <div class="flow-state">InProgress</div>
+                <span class="flow-arrow">→</span>
+                <div class="flow-gates">
+                  <span class="flow-gates-label">Level 1 Gates</span>
+                  <div class="flow-gate">Migrations</div>
+                  <div class="flow-gate">Typecheck</div>
+                  <div class="flow-gate">Unit Tests</div>
+                </div>
+                <span class="flow-arrow">→</span>
+                <div class="flow-state">Testing</div>
+                <span class="flow-arrow">→</span>
+                <div class="flow-gates">
+                  <span class="flow-gates-label">Level 2 Gates</span>
+                  <div class="flow-gate">DST</div>
+                  <div class="flow-gate">Policy Gates</div>
+                </div>
+                <span class="flow-arrow">→</span>
+                <div class="flow-state">Reviewing</div>
+                <span class="flow-arrow">→</span>
+                <div class="flow-state flow-state--final">Complete</div>
+              </div>
+            </div>
           </div>
         {/each}
       {/if}
@@ -164,10 +194,10 @@
 
     <!-- TEAMS & AGENTS -->
     <section class="section">
-      <h2 class="section-title">Teams</h2>
-      <p class="section-desc">Teams and their persistent agent members</p>
+      <h2 class="section-title">Team</h2>
+      <p class="section-desc">Persistent agent members for this project</p>
       {#if teams.length === 0}
-        <p class="empty-text">No teams configured</p>
+        <p class="empty-text">No team configured</p>
       {:else}
         {#each teams as team (team.Id)}
           <div class="team-block">
@@ -241,54 +271,6 @@
             {/if}
           </div>
         {/each}
-      {/if}
-    </section>
-
-    <!-- HARNESS FLOW DIAGRAM -->
-    <section class="section">
-      <h2 class="section-title">Harness Flow</h2>
-      <p class="section-desc">Development governance — gate sequence that every work cycle follows</p>
-      {#if harnesses.length > 0}
-        {@const h = harnesses[0]}
-        <div class="harness-flow">
-          <div class="flow-row">
-            <div class="flow-state">Planning</div>
-            <span class="flow-arrow">→</span>
-            <div class="flow-state">Planned</div>
-            <span class="flow-arrow">→</span>
-            <div class="flow-state">InProgress</div>
-            <span class="flow-arrow">→</span>
-            <div class="flow-gates">
-              <span class="flow-gates-label">Level 1 Gates</span>
-              <div class="flow-gate">Migrations</div>
-              <div class="flow-gate">Typecheck</div>
-              <div class="flow-gate">Unit Tests</div>
-            </div>
-            <span class="flow-arrow">→</span>
-            <div class="flow-state">Testing</div>
-            <span class="flow-arrow">→</span>
-            <div class="flow-gates">
-              <span class="flow-gates-label">Level 2 Gates</span>
-              <div class="flow-gate">DST</div>
-              <div class="flow-gate">Policy Gates</div>
-            </div>
-            <span class="flow-arrow">→</span>
-            <div class="flow-state">Reviewing</div>
-            <span class="flow-arrow">→</span>
-            <div class="flow-state flow-state--final">Complete</div>
-          </div>
-          <div class="flow-note">
-            gate_verifier integration runs checks in sandbox at each transition — platform-verified, not self-reported
-          </div>
-        </div>
-        {#if field(h, 'conventions')}
-          <details class="conventions-detail">
-            <summary>Harness Conventions</summary>
-            <pre class="detail-pre">{field(h, 'conventions')}</pre>
-          </details>
-        {/if}
-      {:else}
-        <p class="empty-text">No harness configured — install a harness app to define the development flow</p>
       {/if}
     </section>
 
