@@ -1,7 +1,8 @@
 //! Cron Trigger — WASM module for firing scheduled session runs.
 //!
 //! Creates a new Session entity with the cron job's configuration,
-//! including template variable substitution.
+//! including template variable substitution. Also computes the next
+//! `next_run_at` for self-scheduling via the platform's schedule_at effect.
 
 use temper_wasm_sdk::prelude::*;
 use wasm_helpers::{resolve_temper_api_url, runtime_headers};
@@ -31,7 +32,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         let user_message = user_message_template
             .replace("{{run_count}}", &run_count.to_string())
             .replace("{{last_result}}", last_result)
-            .replace("{{now}}", ""); // timestamp injected by cron_scheduler before trigger
+            .replace("{{now}}", "");
 
         ctx.log("info", &format!("cron_trigger: creating agent for run #{}", run_count));
 
@@ -84,9 +85,27 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
 
         ctx.log("info", &format!("cron_trigger: agent {} created and provisioned", agent_id));
 
+        // Compute next_run_at for self-scheduling
+        let schedule = fields.get("schedule").and_then(|v| v.as_str()).unwrap_or("");
+        let next_run_at = if !schedule.is_empty() {
+            let interval = parse_cron_interval(schedule);
+            if interval > 0 {
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0);
+                unix_to_iso8601(now + interval)
+            } else {
+                String::new()
+            }
+        } else {
+            String::new()
+        };
+
         set_success_result("TriggerComplete", &json!({
             "last_session_id": agent_id,
             "last_result": "",
+            "next_run_at": next_run_at,
         }));
 
         Ok(())
@@ -96,4 +115,68 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         set_error_result(&e);
     }
     0
+}
+
+/// Simple cron interval parser — extracts a repeat interval in seconds.
+fn parse_cron_interval(schedule: &str) -> u64 {
+    let parts: Vec<&str> = schedule.split_whitespace().collect();
+    if parts.len() != 5 {
+        return 0;
+    }
+    let (minute, hour) = (parts[0], parts[1]);
+
+    if let Some(n) = minute.strip_prefix("*/") {
+        if let Ok(n) = n.parse::<u64>() {
+            return n * 60;
+        }
+    }
+    if minute == "*" && hour == "*" {
+        return 60;
+    }
+    if minute == "0" {
+        if let Some(n) = hour.strip_prefix("*/") {
+            if let Ok(n) = n.parse::<u64>() {
+                return n * 3600;
+            }
+        }
+        if hour == "*" {
+            return 3600;
+        }
+        if hour == "0" {
+            return 86400;
+        }
+    }
+    0
+}
+
+/// Convert unix seconds to ISO 8601 UTC string.
+fn unix_to_iso8601(secs: u64) -> String {
+    let mut days = (secs / 86400) as i64;
+    let day_secs = secs % 86400;
+    let hour = day_secs / 3600;
+    let minute = (day_secs % 3600) / 60;
+    let second = day_secs % 60;
+
+    let mut year = 1970i64;
+    loop {
+        let ydays = if year % 4 == 0 && (year % 100 != 0 || year % 400 == 0) { 366 } else { 365 };
+        if days < ydays {
+            break;
+        }
+        days -= ydays;
+        year += 1;
+    }
+
+    let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+    let mdays = [31, if leap { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    let mut month = 0usize;
+    for (i, &md) in mdays.iter().enumerate() {
+        if days < md as i64 {
+            month = i;
+            break;
+        }
+        days -= md as i64;
+    }
+
+    format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z", year, month + 1, days + 1, hour, minute, second)
 }

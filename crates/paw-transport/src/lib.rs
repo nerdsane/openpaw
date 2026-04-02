@@ -7,7 +7,6 @@
 //!
 //! No dependency on paw-server internals. Communicates via HTTP only.
 
-pub mod cron;
 pub mod discord;
 pub mod webhook;
 

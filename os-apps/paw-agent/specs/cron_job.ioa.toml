@@ -1,6 +1,7 @@
 # CronJob — Scheduled agent runs.
 #
-# Creates and tracks Agent entities on a schedule.
+# Self-scheduling via schedule_at effect. Each TriggerComplete computes the
+# next run time from the cron expression and the platform enqueues the timer.
 # Template substitution supports {{now}}, {{run_count}}, {{last_result}}.
 
 [automaton]
@@ -100,7 +101,23 @@ name = "Activate"
 kind = "input"
 from = ["Created"]
 to = "Active"
-hint = "Start the cron schedule."
+hint = "Start the cron schedule — computes first next_run_at."
+effect = [{ type = "trigger", name = "cron_activate" }]
+
+[[action]]
+name = "ActivateComplete"
+kind = "input"
+from = ["Active"]
+params = ["next_run_at"]
+hint = "First next_run_at computed. Schedule initial trigger."
+effect = [{ type = "schedule_at", field = "next_run_at", action = "Trigger" }]
+
+[[action]]
+name = "ActivateFailed"
+kind = "input"
+from = ["Active"]
+params = ["error_message"]
+hint = "Activation WASM failed. Entity stays Active but unscheduled."
 
 [[action]]
 name = "Pause"
@@ -114,7 +131,8 @@ name = "Resume"
 kind = "input"
 from = ["Paused"]
 to = "Active"
-hint = "Resume the cron schedule."
+hint = "Resume the cron schedule — recomputes next_run_at."
+effect = [{ type = "trigger", name = "cron_activate" }]
 
 [[action]]
 name = "Trigger"
@@ -128,8 +146,9 @@ effect = [{ type = "increment", var = "run_count" }, { type = "trigger", name = 
 name = "TriggerComplete"
 kind = "input"
 from = ["Active"]
-params = ["last_session_id", "last_result"]
-hint = "Callback after session creation. Updates tracking fields."
+params = ["last_session_id", "last_result", "next_run_at"]
+hint = "Session created. Schedule next run."
+effect = [{ type = "schedule_at", field = "next_run_at", action = "Trigger" }]
 
 [[action]]
 name = "TriggerFailed"
@@ -149,6 +168,16 @@ hint = "Max runs reached or manually expired."
 name = "ExpiredIsFinal"
 when = ["Expired"]
 assert = "no_further_transitions"
+
+[[integration]]
+name = "cron_activate"
+trigger = "cron_activate"
+type = "wasm"
+module = "cron_activate"
+on_failure = "ActivateFailed"
+
+[integration.config]
+temper_api_url = "{secret:temper_api_url}"
 
 [[integration]]
 name = "cron_trigger"
