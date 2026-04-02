@@ -10,7 +10,11 @@ export const activeSessions = derived(sessions, ($sessions) =>
 
 export async function loadSessions(): Promise<void> {
   const data = await queryEntities('Sessions', undefined, 'SequenceNr desc', 50);
-  sessions.set(data as unknown as Session[]);
+  // Filter out orphan test sessions with no identity or task
+  const meaningful = (data as unknown as Session[]).filter(
+    (s) => s.agent_id || s.soul_id || s.user_message
+  );
+  sessions.set(meaningful);
 }
 
 export async function refreshSession(id: string): Promise<void> {
