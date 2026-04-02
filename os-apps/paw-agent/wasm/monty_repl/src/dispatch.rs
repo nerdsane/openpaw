@@ -66,9 +66,18 @@ fn dispatch_temper(
         "get_trajectories" => temper_get_trajectories(ctx, api_url, tenant, args),
         "get_insights" => temper_get_insights(ctx, api_url, tenant),
 
-        // Governance
+        // Governance — decisions
         "get_decisions" => temper_get_decisions(ctx, api_url, tenant),
         "poll_decision" => temper_poll_decision(ctx, api_url, tenant, args),
+        "approve_decision" => temper_approve_decision(ctx, api_url, tenant, args),
+        "deny_decision" => temper_deny_decision(ctx, api_url, tenant, args),
+
+        // Governance — Cedar policies (all Cedar-gated by platform)
+        "submit_policy" => temper_submit_policy(ctx, api_url, tenant, args),
+        "list_policies" => temper_list_policies(ctx, api_url, tenant),
+        "get_policy" => temper_get_policy(ctx, api_url, tenant, args),
+        "update_policy" => temper_update_policy(ctx, api_url, tenant, args),
+        "delete_policy" => temper_delete_policy(ctx, api_url, tenant, args),
 
         // Apps
         "install_app" => temper_install_app(ctx, api_url, tenant, args),
@@ -98,20 +107,16 @@ fn dispatch_temper(
         "railway" => super::railway::railway(ctx, args),
         "vercel" => super::vercel::vercel(ctx, args),
 
-        // Blocked
-        "approve_decision" | "deny_decision" | "set_policy" => Err(format!(
-            "temper.{method}() is not available to agents. \
-             Governance writes require human approval via Observe UI."
-        )),
-
         _ => Err(format!(
             "unknown temper method '{method}'. Available: \
              list, get, create, action, patch, submit_specs, show_spec, \
              upload_wasm, get_trajectories, get_insights, \
-             get_decisions, poll_decision, install_app, list_apps, \
-             get_agent_id, spawn_session, list_sessions, abort_session, \
-             steer_session, save_memory, recall_memory, file_upload, \
-             read_entity, run_coding_agent, datadog_query, railway, vercel"
+             get_decisions, poll_decision, approve_decision, deny_decision, \
+             submit_policy, list_policies, get_policy, update_policy, delete_policy, \
+             install_app, list_apps, get_agent_id, \
+             spawn_session, list_sessions, abort_session, steer_session, \
+             save_memory, recall_memory, file_upload, read_entity, \
+             run_coding_agent, datadog_query, railway, vercel"
         )),
     }
 }
@@ -221,21 +226,85 @@ fn temper_poll_decision(ctx: &Context, api_url: &str, tenant: &str, args: &[Valu
     http_get(ctx, api_url, tenant, &format!("/api/decisions/{decision_id}"))
 }
 
+// --- Cedar Policy Management (all Cedar-gated by platform) ---
+
+fn temper_submit_policy(ctx: &Context, api_url: &str, tenant: &str, args: &[Value]) -> Result<Value, String> {
+    let policy_id = str_arg(args, 0, "policy_id", "submit_policy")?;
+    let cedar_text = str_arg(args, 1, "cedar_text", "submit_policy")?;
+    let body = json!({ "policy_id": policy_id, "cedar_text": cedar_text });
+    http_post(ctx, api_url, tenant, &format!("/api/tenants/{tenant}/policies/create"), &body)
+}
+
+fn temper_list_policies(ctx: &Context, api_url: &str, tenant: &str) -> Result<Value, String> {
+    http_get(ctx, api_url, tenant, &format!("/api/tenants/{tenant}/policies/list"))
+}
+
+fn temper_get_policy(ctx: &Context, api_url: &str, tenant: &str, args: &[Value]) -> Result<Value, String> {
+    let policy_id = str_arg(args, 0, "policy_id", "get_policy")?;
+    // List all and filter — no single-policy GET endpoint
+    let all = http_get(ctx, api_url, tenant, &format!("/api/tenants/{tenant}/policies/list"))?;
+    let policies = all.get("policies").and_then(|v| v.as_array());
+    if let Some(list) = policies {
+        for p in list {
+            if p.get("policy_id").and_then(|v| v.as_str()) == Some(&policy_id) {
+                return Ok(p.clone());
+            }
+        }
+    }
+    Err(format!("policy '{policy_id}' not found"))
+}
+
+fn temper_update_policy(ctx: &Context, api_url: &str, tenant: &str, args: &[Value]) -> Result<Value, String> {
+    let policy_id = str_arg(args, 0, "policy_id", "update_policy")?;
+    let cedar_text = str_arg(args, 1, "cedar_text", "update_policy")?;
+    let body = json!({ "cedar_text": cedar_text });
+    http_patch(ctx, api_url, tenant, &format!("/api/tenants/{tenant}/policies/entry/{policy_id}"), &body)
+}
+
+fn temper_delete_policy(ctx: &Context, api_url: &str, tenant: &str, args: &[Value]) -> Result<Value, String> {
+    let policy_id = str_arg(args, 0, "policy_id", "delete_policy")?;
+    http_delete(ctx, api_url, tenant, &format!("/api/tenants/{tenant}/policies/entry/{policy_id}"))
+}
+
+// --- Decision Management (Cedar-gated by platform) ---
+
+fn temper_approve_decision(ctx: &Context, api_url: &str, tenant: &str, args: &[Value]) -> Result<Value, String> {
+    let decision_id = str_arg(args, 0, "decision_id", "approve_decision")?;
+    let scope = obj_arg(args, 1, "scope", "approve_decision")?;
+    let agent_id = ctx.entity_state.get("entity_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("agent");
+    let body = json!({ "scope": scope, "decided_by": format!("agent:{agent_id}") });
+    http_post(ctx, api_url, tenant, &format!("/api/tenants/{tenant}/decisions/{decision_id}/approve"), &body)
+}
+
+fn temper_deny_decision(ctx: &Context, api_url: &str, tenant: &str, args: &[Value]) -> Result<Value, String> {
+    let decision_id = str_arg(args, 0, "decision_id", "deny_decision")?;
+    let agent_id = ctx.entity_state.get("entity_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("agent");
+    let body = json!({ "decided_by": format!("agent:{agent_id}") });
+    http_post(ctx, api_url, tenant, &format!("/api/tenants/{tenant}/decisions/{decision_id}/deny"), &body)
+}
+
 // --- Apps ---
 
 fn temper_install_app(ctx: &Context, api_url: &str, tenant: &str, args: &[Value]) -> Result<Value, String> {
     let app_name = str_arg(args, 0, "app_name", "install_app")?;
     let reason = opt_str_arg(args, 1).unwrap_or_default();
+    let payload = opt_str_arg(args, 2).unwrap_or_default();
+    let cap_type = opt_str_arg(args, 3).unwrap_or_else(|| "os_app".to_string());
     let agent_id = ctx.entity_state.get("entity_id")
         .and_then(|v| v.as_str())
         .unwrap_or("");
 
     // Create a CapabilityRequest entity (Cedar-governed)
     let body = json!({
-        "CapabilityType": "os_app",
+        "CapabilityType": cap_type,
         "CapabilityName": app_name,
         "Reason": reason,
         "RequestingAgentId": agent_id,
+        "Payload": payload,
     });
     http_post(ctx, api_url, tenant, "/tdata/CapabilityRequests", &body)
 }
@@ -469,6 +538,20 @@ fn http_patch(ctx: &Context, api_url: &str, tenant: &str, path: &str, body: &Val
     let resp = ctx.http_call("PATCH", &url, &headers, &body.to_string())?;
     if resp.status >= 400 {
         return Err(format!("HTTP PATCH {path}: {} {}", resp.status, resp.body));
+    }
+    if resp.body.is_empty() {
+        return Ok(json!({"ok": true}));
+    }
+    serde_json::from_str(&resp.body)
+        .map_err(|e| format!("failed to parse response from {path}: {e}"))
+}
+
+fn http_delete(ctx: &Context, api_url: &str, tenant: &str, path: &str) -> Result<Value, String> {
+    let url = format!("{api_url}{path}");
+    let headers = runtime_headers(tenant);
+    let resp = ctx.http_call("DELETE", &url, &headers, "")?;
+    if resp.status >= 400 {
+        return Err(format!("HTTP DELETE {path}: {} {}", resp.status, resp.body));
     }
     if resp.body.is_empty() {
         return Ok(json!({"ok": true}));

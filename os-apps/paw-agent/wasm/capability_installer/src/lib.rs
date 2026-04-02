@@ -140,9 +140,108 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 );
             }
 
+            "cedar_policy" => {
+                // Create a Cedar policy entry
+                if payload.is_empty() {
+                    return Err("cedar_policy capability requires payload with Cedar policy text".into());
+                }
+                let body = json!({
+                    "policy_id": capability_name,
+                    "cedar_text": payload,
+                });
+                let resp = ctx.http_call(
+                    "POST",
+                    &format!("{temper_api_url}/api/tenants/{tenant}/policies/create"),
+                    &headers,
+                    &body.to_string(),
+                )?;
+                if resp.status >= 400 {
+                    return Err(format!(
+                        "failed to create Cedar policy '{}': {} {}",
+                        capability_name, resp.status, resp.body
+                    ));
+                }
+                ctx.log(
+                    "info",
+                    &format!("capability_installer: Cedar policy '{capability_name}' created"),
+                );
+            }
+
+            "app" => {
+                // Bundled app: specs + WASM modules + Cedar policies in one payload.
+                // Payload is JSON: { "specs": {...}, "wasm_modules": {...}, "policies": {...} }
+                if payload.is_empty() {
+                    return Err("app capability requires payload with specs/wasm_modules/policies".into());
+                }
+                let bundle: Value = serde_json::from_str(payload)
+                    .map_err(|e| format!("invalid app bundle JSON: {e}"))?;
+
+                // 1. Specs
+                if let Some(specs) = bundle.get("specs").filter(|v| v.is_object()) {
+                    let body = json!({ "tenant": tenant, "specs": specs });
+                    let resp = ctx.http_call(
+                        "POST",
+                        &format!("{temper_api_url}/api/specs/load-inline"),
+                        &headers,
+                        &body.to_string(),
+                    )?;
+                    if resp.status >= 400 {
+                        return Err(format!(
+                            "app bundle: failed to load specs: {} {}",
+                            resp.status, resp.body
+                        ));
+                    }
+                    ctx.log("info", "capability_installer: app bundle specs loaded");
+                }
+
+                // 2. WASM modules
+                if let Some(modules) = bundle.get("wasm_modules").and_then(|v| v.as_object()) {
+                    for (name, b64) in modules {
+                        let wasm_b64 = b64.as_str().unwrap_or("");
+                        let body = json!({ "wasm_base64": wasm_b64 });
+                        let resp = ctx.http_call(
+                            "POST",
+                            &format!("{temper_api_url}/api/wasm/modules/{name}"),
+                            &headers,
+                            &body.to_string(),
+                        )?;
+                        if resp.status >= 400 {
+                            return Err(format!(
+                                "app bundle: failed to upload WASM '{}': {} {}",
+                                name, resp.status, resp.body
+                            ));
+                        }
+                        ctx.log("info", &format!("capability_installer: app bundle WASM '{name}' uploaded"));
+                    }
+                }
+
+                // 3. Cedar policies
+                if let Some(policies) = bundle.get("policies").and_then(|v| v.as_object()) {
+                    for (pid, text) in policies {
+                        let cedar_text = text.as_str().unwrap_or("");
+                        let body = json!({ "policy_id": pid, "cedar_text": cedar_text });
+                        let resp = ctx.http_call(
+                            "POST",
+                            &format!("{temper_api_url}/api/tenants/{tenant}/policies/create"),
+                            &headers,
+                            &body.to_string(),
+                        )?;
+                        if resp.status >= 400 {
+                            return Err(format!(
+                                "app bundle: failed to create policy '{}': {} {}",
+                                pid, resp.status, resp.body
+                            ));
+                        }
+                        ctx.log("info", &format!("capability_installer: app bundle policy '{pid}' created"));
+                    }
+                }
+
+                ctx.log("info", &format!("capability_installer: app bundle '{capability_name}' installed"));
+            }
+
             _ => {
                 return Err(format!(
-                    "unknown capability_type: '{}'. Expected: os_app, specs, wasm, secret",
+                    "unknown capability_type: '{}'. Expected: os_app, specs, wasm, secret, cedar_policy, app",
                     capability_type
                 ));
             }
