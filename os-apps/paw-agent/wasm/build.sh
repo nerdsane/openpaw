@@ -8,7 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # Standard modules (wasm32-unknown-unknown)
 # Build failures are non-fatal — some modules may not compile on all targets.
 FAILED_MODULES=""
-for module in llm_caller sandbox_provisioner context_compactor steering_checker coding_agent_runner heartbeat_scan heartbeat_scheduler cron_activate cron_trigger cron_scheduler_check cron_scheduler_heartbeat workspace_restorer agent_reply request_approval capability_installer; do
+for module in llm_caller sandbox_provisioner context_compactor steering_checker coding_agent_runner heartbeat_scan heartbeat_scheduler cron_compute_next cron_scheduler_check cron_scheduler_heartbeat workspace_restorer agent_reply request_approval capability_installer; do
     echo "Building $module..."
     if (cd "$SCRIPT_DIR/$module" && cargo build --target wasm32-unknown-unknown --release 2>&1); then
         echo "  -> $module built successfully"
@@ -36,7 +36,7 @@ fi
 
 echo ""
 echo "All WASM modules built. Binaries at:"
-for module in llm_caller sandbox_provisioner context_compactor steering_checker coding_agent_runner heartbeat_scan heartbeat_scheduler cron_activate cron_trigger cron_scheduler_check cron_scheduler_heartbeat workspace_restorer agent_reply request_approval capability_installer; do
+for module in llm_caller sandbox_provisioner context_compactor steering_checker coding_agent_runner heartbeat_scan heartbeat_scheduler cron_compute_next cron_scheduler_check cron_scheduler_heartbeat workspace_restorer agent_reply request_approval capability_installer; do
     wasm_file="$SCRIPT_DIR/$module/target/wasm32-unknown-unknown/release/${module/-/_}.wasm"
     if [ -f "$wasm_file" ]; then
         size=$(wc -c < "$wasm_file" | tr -d ' ')
