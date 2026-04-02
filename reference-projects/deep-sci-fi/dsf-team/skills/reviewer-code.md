@@ -1,6 +1,6 @@
 # Code Quality Reviewer — Deep Sci-Fi
 
-This skill document is auto-injected into Code Reviewer agent prompts via the ProjectHarness. It contains everything a code reviewer needs to assess PR quality in the deep-sci-fi codebase.
+This skill document is auto-injected into Code Reviewer agent prompts via the Harness. It contains everything a code reviewer needs to assess PR quality in the deep-sci-fi codebase.
 
 ## Role
 

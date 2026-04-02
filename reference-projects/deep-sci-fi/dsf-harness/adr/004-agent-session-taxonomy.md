@@ -39,7 +39,7 @@ Agents have a simple lifecycle: Created -> Active -> Archived. Sessions are spaw
 A new **Team** entity groups agents working on a project. It carries:
 
 - Identity: name, description
-- Project link: harness_id (links to a ProjectHarness for convention injection)
+- Project link: harness_id (links to a Harness for convention injection)
 
 Teams have the same lifecycle as Agents: Created -> Active -> Archived.
 

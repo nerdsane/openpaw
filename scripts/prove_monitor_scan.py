@@ -33,11 +33,11 @@ def main() -> int:
     )
     run_suffix = suffix()
 
-    harness = client.create("ProjectHarnesses", {"Id": f"monitor-scan-harness-{run_suffix}"})
+    harness = client.create("Harnesses", {"Id": f"monitor-scan-harness-{run_suffix}"})
     harness_id = entity_id(harness)
-    require(harness_id, "failed to create ProjectHarness")
+    require(harness_id, "failed to create Harness")
     client.action(
-        "ProjectHarnesses",
+        "Harnesses",
         harness_id,
         "OpenPaw.Harness.Configure",
         {
@@ -47,7 +47,7 @@ def main() -> int:
         },
     )
     client.action(
-        "ProjectHarnesses",
+        "Harnesses",
         harness_id,
         "OpenPaw.Harness.Activate",
         {"last_activated_at": now_utc()},

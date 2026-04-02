@@ -1,6 +1,6 @@
 # Design System — Deep Sci-Fi
 
-This skill document is auto-injected into Design agent prompts via the ProjectHarness. It contains the design conventions for the deep-sci-fi platform.
+This skill document is auto-injected into Design agent prompts via the Harness. It contains the design conventions for the deep-sci-fi platform.
 
 ## Neo-Editorial Design System
 

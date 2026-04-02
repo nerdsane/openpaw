@@ -1,5 +1,5 @@
 # DsfWorkCycle — Merged harness + work cycle for deep-sci-fi development governance.
-# Combines ProjectHarness setup (Configure, Activate) with a governed implementation
+# Combines Harness setup (Configure, Activate) with a governed implementation
 # loop (CreateWorkCycle → Planning → ... → Complete) and 3-level gate verification.
 
 [automaton]

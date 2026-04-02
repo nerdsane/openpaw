@@ -94,6 +94,27 @@ pub async fn run(config: Config) -> Result<()> {
         }
     }
 
+    // Phase 4b: Bootstrap system + agent specs (GovernanceDecision, Agent, Plan, etc.)
+    // Required for Cedar authorization to work — temper-system needs GovernanceDecision.
+    {
+        let sys_cache = turso_store
+            .load_verification_cache("temper-system")
+            .await
+            .unwrap_or_default();
+        let sys_hashes =
+            temper_platform::bootstrap_system_tenant(&state, &sys_cache);
+        temper_platform::persist_system_verification(&turso_store, &sys_hashes).await;
+
+        let agent_cache = turso_store
+            .load_verification_cache(&tenant)
+            .await
+            .unwrap_or_default();
+        let agent_hashes =
+            temper_platform::bootstrap_agent_specs(&state, &tenant, true, &agent_cache);
+        temper_platform::persist_agent_verification(&turso_store, &tenant, &agent_hashes).await;
+        tracing::info!("Bootstrapped system + agent specs for temper-system and {tenant}");
+    }
+
     // Phase 5: Secrets vault
     tracing::info!("Phase 5: Configuring secrets vault...");
     {

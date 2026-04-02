@@ -51,7 +51,7 @@ Setting up. This directory contains the reference specifications for the team, h
 projects/deep-sci-fi/
 ├── README.md                          # This file
 ├── adr/001-team-and-harness-design.md # Architecture decision record
-├── specs/harness.ioa.toml             # ProjectHarness instance data
+├── specs/harness.ioa.toml             # Harness instance data
 ├── specs/work_cycle_dsf.ioa.toml      # WorkCycleDSF state machine spec
 ├── specs/computer.ioa.toml            # Computer instance data (dev sandbox)
 ├── specs/webhook_routes.ioa.toml      # Datadog webhook routing

@@ -61,7 +61,7 @@ def wait_for_work_cycle(
         if work_cycles:
             return work_cycles[0]
         time.sleep(2)
-    raise TimeoutError(f"timed out waiting for WorkCycle tied to ProjectHarness {project_harness_id}")
+    raise TimeoutError(f"timed out waiting for WorkCycle tied to Harness {project_harness_id}")
 
 
 def wait_for_child_agent(
@@ -98,11 +98,11 @@ def main() -> int:
         api_key=os.getenv("TEMPER_API_KEY") or None,
     )
     run_suffix = suffix()
-    harness = client.create("ProjectHarnesses", {"Id": f"pm-harness-{run_suffix}"})
+    harness = client.create("Harnesses", {"Id": f"pm-harness-{run_suffix}"})
     harness_id = entity_id(harness)
-    require(harness_id, "failed to create ProjectHarness")
+    require(harness_id, "failed to create Harness")
     client.action(
-        "ProjectHarnesses",
+        "Harnesses",
         harness_id,
         "OpenPaw.Harness.Configure",
         {
@@ -112,7 +112,7 @@ def main() -> int:
         },
     )
     client.action(
-        "ProjectHarnesses",
+        "Harnesses",
         harness_id,
         "OpenPaw.Harness.Activate",
         {"last_activated_at": now_utc()},

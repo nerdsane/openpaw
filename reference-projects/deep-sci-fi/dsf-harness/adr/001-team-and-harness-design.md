@@ -44,11 +44,11 @@ Agents report gate results via `Report*` actions (self-loops in InProgress state
 
 ## Decision 3: Auto-Injection of Harness Conventions
 
-Agent entities carry a `project_harness_id` field pointing to a `ProjectHarness` entity. The `load_harness_block()` function in the LLM caller fetches the harness conventions and injects them into the agent's system prompt — similar to how CLAUDE.md works for Claude Code.
+Agent entities carry a `project_harness_id` field pointing to a `Harness` entity. The `load_harness_block()` function in the LLM caller fetches the harness conventions and injects them into the agent's system prompt — similar to how CLAUDE.md works for Claude Code.
 
 This means:
 - Agents don't need to be told about repo layout, testing commands, or migration rules — they receive it automatically.
-- Changing conventions in one place (the ProjectHarness entity) updates all agents on next invocation.
+- Changing conventions in one place (the Harness entity) updates all agents on next invocation.
 - Different projects can have completely different harness conventions.
 
 **Rationale:** Convention injection is more reliable than training agents to remember rules. It's also more maintainable than updating multiple agent configurations when conventions change.

@@ -1,6 +1,6 @@
 # DST Compliance Reviewer — Deep Sci-Fi
 
-This skill document is auto-injected into DST Reviewer agent prompts via the ProjectHarness. It contains everything a DST reviewer needs to verify deterministic simulation testing integrity in the deep-sci-fi codebase.
+This skill document is auto-injected into DST Reviewer agent prompts via the Harness. It contains everything a DST reviewer needs to verify deterministic simulation testing integrity in the deep-sci-fi codebase.
 
 ## Role
 
