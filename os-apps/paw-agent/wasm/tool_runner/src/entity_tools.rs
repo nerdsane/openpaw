@@ -272,7 +272,7 @@ pub(crate) fn execute(
             if resp2.status == 403 {
                 handle_cedar_denial(
                     ctx, temper_api_url, tenant, fields,
-                    &config_url, "Agents", &child_id, "Configure", &config_body, &resp2.body,
+                    &config_url, "Sessions", &child_id, "Configure", &config_body, &resp2.body,
                 )?;
             } else if resp2.status < 200 || resp2.status >= 300 {
                 return Err(format!(
@@ -286,7 +286,7 @@ pub(crate) fn execute(
             if resp3.status == 403 {
                 handle_cedar_denial(
                     ctx, temper_api_url, tenant, fields,
-                    &prov_url, "Agents", &child_id, "Provision", &json!({}), &resp3.body,
+                    &prov_url, "Sessions", &child_id, "Provision", &json!({}), &resp3.body,
                 )?;
             } else if resp3.status < 200 || resp3.status >= 300 {
                 return Err(format!(
@@ -345,7 +345,7 @@ pub(crate) fn execute(
                 format!("{temper_api_url}/tdata/Sessions('{resolved_agent_id}')/OpenPaw.Cancel");
             let resp = ctx.http_call("POST", &url, &crate::odata_headers(ctx, tenant), "{}")?;
             if resp.status >= 200 && resp.status < 300 {
-                Ok(format!("Agent {resolved_agent_id} cancelled."))
+                Ok(format!("Session {resolved_agent_id} cancelled."))
             } else {
                 Err(format!("cancel_session failed (HTTP {})", resp.status))
             }
@@ -663,7 +663,7 @@ fn wait_for_child_agent_terminal_state(
     wait_timeout_ms: i64,
 ) -> Result<Value, String> {
     let wait_url = format!(
-        "{temper_api_url}/observe/entities/Agent/{child_id}/wait?statuses=Completed,Failed,Cancelled&timeout_ms={wait_timeout_ms}&poll_ms=250"
+        "{temper_api_url}/observe/entities/Session/{child_id}/wait?statuses=Completed,Failed,Cancelled&timeout_ms={wait_timeout_ms}&poll_ms=250"
     );
     let resp = ctx.http_call("GET", &wait_url, &crate::odata_headers(ctx, tenant), "")?;
     if resp.status < 200 || resp.status >= 300 {
@@ -776,7 +776,7 @@ fn resolve_bound_action_name(entity_set: &str, action: &str) -> String {
     let ns = match entity_set {
         "Monitors" | "AlertCycles" | "MonitorScans" => "OpenPaw.Heal",
         "ProjectHarnesses" | "WorkCycles" => "OpenPaw.Harness",
-        "Agents" | "Souls" | "PendingApprovals" => "OpenPaw",
+        "Sessions" | "Agents" | "Souls" | "PendingApprovals" => "OpenPaw",
         "Issues" | "Plans" => "Paw.PM",
         "Channels" | "AgentRoutes" | "ChannelSessions" => "Paw.Channel",
         _ => "OpenPaw",

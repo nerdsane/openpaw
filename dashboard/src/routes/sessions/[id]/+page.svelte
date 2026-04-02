@@ -27,9 +27,9 @@
   let transitions = $state<Array<{ event: StateChangeEvent; snapshot?: Session; timestamp?: string; fromStatus?: string; authz?: { allowed: boolean; denied_resource?: string } }>>([]);
 
   let childIds = $derived.by((): string[] => {
-    if (!session?.child_agent_ids) return [];
+    if (!session?.child_session_ids) return [];
     try {
-      return JSON.parse(session.child_agent_ids);
+      return JSON.parse(session.child_session_ids);
     } catch {
       return [];
     }
@@ -324,11 +324,11 @@
           <span class="context-value mono">{costDisplay}</span>
         </div>
 
-        {#if session.parent_agent_id}
+        {#if session.parent_session_id}
           <div class="context-section">
             <span class="context-label">Parent</span>
-            <a href="/sessions/{session.parent_agent_id}" class="context-link mono">
-              {session.parent_agent_id.slice(0, 8)}
+            <a href="/sessions/{session.parent_session_id}" class="context-link mono">
+              {session.parent_session_id.slice(0, 8)}
             </a>
           </div>
         {/if}

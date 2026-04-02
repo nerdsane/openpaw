@@ -19,9 +19,9 @@ export interface Session {
   input_tokens: number;
   output_tokens: number;
   cost_cents: string;
-  parent_agent_id: string;
-  child_agent_ids: string;
-  agent_depth: number;
+  parent_session_id: string;
+  child_session_ids: string;
+  session_depth: number;
   last_heartbeat_at: string;
   pending_decision_id: string;
   pending_tool_calls: string;

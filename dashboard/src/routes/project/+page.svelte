@@ -244,36 +244,51 @@
       {/if}
     </section>
 
-    <!-- SOULS -->
+    <!-- HARNESS FLOW DIAGRAM -->
     <section class="section">
-      <h2 class="section-title">Souls</h2>
-      <p class="section-desc">Souls define agent identities and what roles they can take</p>
-      {#if souls.length === 0}
-        <p class="empty-text">No souls configured</p>
-      {:else}
-        <div class="card-grid">
-          {#each souls as soul (field(soul, 'Id'))}
-            {@const soulId = field(soul, 'Id')}
-            {@const soulFileId = field(soul, 'ContentFileId') || field(soul, 'content_file_id')}
-            <div class="card">
-              <div class="card-header">
-                <span class="card-dot" style:background={statusColor(field(soul, 'Status'))}></span>
-                <span class="card-name">{field(soul, 'Name') || field(soul, 'name') || 'Unnamed'}</span>
-                <code class="card-id">{shortId(soulId)}</code>
-              </div>
-              <p class="card-desc">{field(soul, 'Description') || field(soul, 'description') || '--'}</p>
-              <StatusBadge status={field(soul, 'Status')} />
-              {#if soulFileId}
-                <button class="view-btn" onclick={() => toggleFileContent(soulId, soulFileId, 'soul')}>
-                  {expandedSoul === soulId ? 'Hide Soul' : 'View Soul'}
-                </button>
-              {/if}
-              {#if expandedSoul === soulId && fileContentCache[soulId]}
-                <pre class="file-content" transition:slide={{ duration: 150 }}>{fileContentCache[soulId]}</pre>
-              {/if}
+      <h2 class="section-title">Harness Flow</h2>
+      <p class="section-desc">Development governance — gate sequence that every work cycle follows</p>
+      {#if harnesses.length > 0}
+        {@const h = harnesses[0]}
+        <div class="harness-flow">
+          <div class="flow-row">
+            <div class="flow-state">Planning</div>
+            <span class="flow-arrow">→</span>
+            <div class="flow-state">Planned</div>
+            <span class="flow-arrow">→</span>
+            <div class="flow-state">InProgress</div>
+            <span class="flow-arrow">→</span>
+            <div class="flow-gates">
+              <span class="flow-gates-label">Level 1 Gates</span>
+              <div class="flow-gate">Migrations</div>
+              <div class="flow-gate">Typecheck</div>
+              <div class="flow-gate">Unit Tests</div>
             </div>
-          {/each}
+            <span class="flow-arrow">→</span>
+            <div class="flow-state">Testing</div>
+            <span class="flow-arrow">→</span>
+            <div class="flow-gates">
+              <span class="flow-gates-label">Level 2 Gates</span>
+              <div class="flow-gate">DST</div>
+              <div class="flow-gate">Policy Gates</div>
+            </div>
+            <span class="flow-arrow">→</span>
+            <div class="flow-state">Reviewing</div>
+            <span class="flow-arrow">→</span>
+            <div class="flow-state flow-state--final">Complete</div>
+          </div>
+          <div class="flow-note">
+            gate_verifier integration runs checks in sandbox at each transition — platform-verified, not self-reported
+          </div>
         </div>
+        {#if field(h, 'conventions')}
+          <details class="conventions-detail">
+            <summary>Harness Conventions</summary>
+            <pre class="detail-pre">{field(h, 'conventions')}</pre>
+          </details>
+        {/if}
+      {:else}
+        <p class="empty-text">No harness configured — install a harness app to define the development flow</p>
       {/if}
     </section>
 
@@ -511,8 +526,50 @@
   .agent-session-id { font-family: var(--font-mono); color: var(--text-tertiary); }
   .agent-session-task { color: var(--text-secondary); }
 
+  /* Harness flow diagram */
+  .harness-flow {
+    background: var(--surface-raised); border-radius: var(--radius-md);
+    padding: var(--space-3); overflow-x: auto;
+  }
+  .flow-row {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    min-width: max-content;
+  }
+  .flow-state {
+    padding: 6px 14px; border-radius: var(--radius-sm);
+    background: var(--surface-overlay); color: var(--text-primary);
+    font-size: var(--text-sm); font-weight: 500; white-space: nowrap;
+  }
+  .flow-state--final {
+    background: var(--status-success); color: #000; font-weight: 600;
+  }
+  .flow-arrow { color: var(--text-tertiary); font-size: var(--text-sm); }
+  .flow-gates {
+    display: flex; flex-direction: column; gap: 4px; align-items: center;
+    padding: 8px 12px; border: 1px dashed var(--border-subtle); border-radius: var(--radius-sm);
+  }
+  .flow-gates-label {
+    font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.05em;
+    color: var(--text-tertiary); margin-bottom: 2px;
+  }
+  .flow-gate {
+    font-size: var(--text-xs); padding: 2px 8px; border-radius: 10px;
+    background: var(--surface-overlay); color: var(--text-secondary);
+  }
+  .flow-note {
+    font-size: var(--text-xs); color: var(--text-tertiary); font-style: italic;
+    margin-top: var(--space-2);
+  }
+  .conventions-detail {
+    margin-top: var(--space-2);
+  }
+  .conventions-detail summary {
+    font-size: var(--text-xs); color: var(--text-secondary); cursor: pointer;
+  }
+
   @media (max-width: 800px) {
     .card-grid { grid-template-columns: 1fr; }
     .detail-grid { grid-template-columns: 1fr; }
+    .flow-row { flex-direction: column; align-items: flex-start; }
   }
 </style>
