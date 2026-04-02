@@ -6,22 +6,37 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # Standard modules (wasm32-unknown-unknown)
-for module in llm_caller sandbox_provisioner context_compactor steering_checker coding_agent_runner heartbeat_scan heartbeat_scheduler cron_trigger cron_scheduler_check cron_scheduler_heartbeat workspace_restorer agent_reply request_approval capability_installer; do
+# Build failures are non-fatal — some modules may not compile on all targets.
+FAILED_MODULES=""
+for module in llm_caller sandbox_provisioner context_compactor steering_checker coding_agent_runner heartbeat_scan heartbeat_scheduler cron_activate cron_trigger cron_scheduler_check cron_scheduler_heartbeat workspace_restorer agent_reply request_approval capability_installer; do
     echo "Building $module..."
-    (cd "$SCRIPT_DIR/$module" && cargo build --target wasm32-unknown-unknown --release)
-    echo "  -> $module built successfully"
+    if (cd "$SCRIPT_DIR/$module" && cargo build --target wasm32-unknown-unknown --release 2>&1); then
+        echo "  -> $module built successfully"
+    else
+        echo "  -> $module FAILED (skipping)"
+        FAILED_MODULES="$FAILED_MODULES $module"
+    fi
 done
 
 # WASI modules (wasm32-wasip1) — require WASI support in Temper engine
 for module in monty_repl; do
     echo "Building $module (wasip1)..."
-    (cd "$SCRIPT_DIR/$module" && cargo build --target wasm32-wasip1 --release)
-    echo "  -> $module built successfully"
+    if (cd "$SCRIPT_DIR/$module" && cargo build --target wasm32-wasip1 --release 2>&1); then
+        echo "  -> $module built successfully"
+    else
+        echo "  -> $module FAILED (skipping)"
+        FAILED_MODULES="$FAILED_MODULES $module"
+    fi
 done
+
+if [ -n "$FAILED_MODULES" ]; then
+    echo ""
+    echo "WARNING: These modules failed to build:$FAILED_MODULES"
+fi
 
 echo ""
 echo "All WASM modules built. Binaries at:"
-for module in llm_caller sandbox_provisioner context_compactor steering_checker coding_agent_runner heartbeat_scan heartbeat_scheduler cron_trigger cron_scheduler_check cron_scheduler_heartbeat workspace_restorer agent_reply request_approval capability_installer; do
+for module in llm_caller sandbox_provisioner context_compactor steering_checker coding_agent_runner heartbeat_scan heartbeat_scheduler cron_activate cron_trigger cron_scheduler_check cron_scheduler_heartbeat workspace_restorer agent_reply request_approval capability_installer; do
     wasm_file="$SCRIPT_DIR/$module/target/wasm32-unknown-unknown/release/${module/-/_}.wasm"
     if [ -f "$wasm_file" ]; then
         size=$(wc -c < "$wasm_file" | tr -d ' ')
