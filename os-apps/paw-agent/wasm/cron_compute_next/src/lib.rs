@@ -1,7 +1,13 @@
-//! Cron Activate — computes the first `next_run_at` from a cron schedule.
+//! Cron Compute Next — single WASM module for cron schedule computation.
 //!
-//! Parses the `schedule` field (cron expression) and computes the next
-//! fire time as an ISO 8601 timestamp. Called on Activate and Resume.
+//! Handles both Activate and Trigger modes:
+//! - **activate**: Parses `schedule` field, computes first `next_run_at`,
+//!   returns `ActivateComplete { next_run_at }`.
+//! - **trigger**: Same schedule parsing, plus template substitution on
+//!   `user_message_template` (replacing `{{run_count}}`, `{{last_result}}`,
+//!   `{{now}}`), returns `TriggerComplete { next_run_at, user_message }`.
+//!
+//! Mode is determined by the `mode` key in integration config.
 
 use temper_wasm_sdk::prelude::*;
 
@@ -9,14 +15,17 @@ use temper_wasm_sdk::prelude::*;
 pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
     let result = (|| -> Result<(), String> {
         let ctx = Context::from_host()?;
-        ctx.log("info", "cron_activate: computing first next_run_at");
 
         let fields = ctx.entity_state.get("fields").cloned().unwrap_or(json!({}));
+        let mode = ctx.config.get("mode").map(|s| s.as_str()).unwrap_or("activate");
+
+        ctx.log("info", &format!("cron_compute_next: mode={mode}"));
+
+        // Parse schedule → interval → next_run_at
         let schedule = fields
             .get("schedule")
             .and_then(|v| v.as_str())
             .unwrap_or("");
-
         if schedule.is_empty() {
             return Err("No schedule configured on CronJob".to_string());
         }
@@ -28,23 +37,62 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             ));
         }
 
-        // Compute next_run_at = now + interval
-        let now_secs = current_unix_secs();
+        let now_millis = Context::get_time_millis();
+        let now_secs = (now_millis / 1000) as u64;
         let next_secs = now_secs + interval_secs;
         let next_run_at = unix_to_iso8601(next_secs);
 
         ctx.log(
             "info",
             &format!(
-                "cron_activate: schedule='{}' interval={}s next_run_at={}",
+                "cron_compute_next: schedule='{}' interval={}s next_run_at={}",
                 schedule, interval_secs, next_run_at
             ),
         );
 
-        set_success_result(
-            "ActivateComplete",
-            &json!({ "next_run_at": next_run_at }),
-        );
+        match mode {
+            "trigger" => {
+                // Template substitution for user_message
+                let template = fields
+                    .get("user_message_template")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                let run_count = fields
+                    .get("run_count")
+                    .and_then(|v| v.as_i64())
+                    .unwrap_or(0);
+                let last_result = fields
+                    .get("last_result")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                let now_str = unix_to_iso8601(now_secs);
+
+                let user_message = template
+                    .replace("{{run_count}}", &run_count.to_string())
+                    .replace("{{last_result}}", last_result)
+                    .replace("{{now}}", &now_str);
+
+                ctx.log(
+                    "info",
+                    &format!("cron_compute_next: user_message length={}", user_message.len()),
+                );
+
+                set_success_result(
+                    "TriggerComplete",
+                    &json!({
+                        "next_run_at": next_run_at,
+                        "user_message": user_message,
+                    }),
+                );
+            }
+            _ => {
+                // activate mode (default)
+                set_success_result(
+                    "ActivateComplete",
+                    &json!({ "next_run_at": next_run_at }),
+                );
+            }
+        }
 
         Ok(())
     })();
@@ -105,15 +153,6 @@ fn parse_cron_interval(schedule: &str) -> u64 {
     }
 
     0
-}
-
-/// Get current time as unix seconds.
-fn current_unix_secs() -> u64 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
 }
 
 /// Convert unix seconds to ISO 8601 UTC string.

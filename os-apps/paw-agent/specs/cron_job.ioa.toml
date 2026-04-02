@@ -1,7 +1,9 @@
-# CronJob — Scheduled agent runs.
+# CronJob — Scheduled agent runs (declarative spawn).
 #
-# Self-scheduling via schedule_at effect. Each TriggerComplete computes the
-# next run time from the cron expression and the platform enqueues the timer.
+# Self-scheduling via schedule_at effect. Trigger increments run_count and
+# fires cron_compute_next WASM (cron parsing + template substitution).
+# TriggerComplete declaratively spawns a Session via the platform's spawn
+# effect with copy_fields, then schedules the next Trigger via schedule_at.
 # Template substitution supports {{now}}, {{run_count}}, {{last_result}}.
 
 [automaton]
@@ -31,6 +33,11 @@ initial = ""
 
 [[state]]
 name = "user_message_template"
+type = "string"
+initial = ""
+
+[[state]]
+name = "user_message"
 type = "string"
 initial = ""
 
@@ -139,16 +146,19 @@ name = "Trigger"
 kind = "input"
 from = ["Active"]
 params = ["last_run_at"]
-hint = "Fire the cron job — creates and provisions a Session."
-effect = [{ type = "increment", var = "run_count" }, { type = "trigger", name = "cron_trigger" }]
+hint = "Fire the cron job — increments run count and computes next schedule + user message."
+effect = [{ type = "increment", var = "run_count" }, { type = "trigger", name = "cron_compute_next" }]
 
 [[action]]
 name = "TriggerComplete"
 kind = "input"
 from = ["Active"]
-params = ["last_session_id", "last_result", "next_run_at"]
-hint = "Session created. Schedule next run."
-effect = [{ type = "schedule_at", field = "next_run_at", action = "Trigger" }]
+params = ["next_run_at", "user_message"]
+hint = "Cron computation complete. Spawn Session with copied fields, schedule next run."
+effect = [
+  { type = "spawn", entity_type = "Session", entity_id_source = "{uuid}", initial_action = "Configure", store_id_in = "last_session_id", copy_fields = "system_prompt,user_message,model,provider,tools_enabled,soul_id,sandbox_url,max_turns" },
+  { type = "schedule_at", field = "next_run_at", action = "Trigger" },
+]
 
 [[action]]
 name = "TriggerFailed"
@@ -173,18 +183,18 @@ assert = "no_further_transitions"
 name = "cron_activate"
 trigger = "cron_activate"
 type = "wasm"
-module = "cron_activate"
+module = "cron_compute_next"
 on_failure = "ActivateFailed"
 
 [integration.config]
-temper_api_url = "{secret:temper_api_url}"
+mode = "activate"
 
 [[integration]]
-name = "cron_trigger"
-trigger = "cron_trigger"
+name = "cron_compute_next"
+trigger = "cron_compute_next"
 type = "wasm"
-module = "cron_trigger"
+module = "cron_compute_next"
 on_failure = "TriggerFailed"
 
 [integration.config]
-temper_api_url = "{secret:temper_api_url}"
+mode = "trigger"

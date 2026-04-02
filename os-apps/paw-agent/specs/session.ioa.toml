@@ -264,7 +264,8 @@ name = "Configure"
 kind = "input"
 from = ["Created"]
 params = ["system_prompt", "user_message", "model", "provider", "max_turns", "tools_enabled", "workdir", "sandbox_url", "temper_api_url", "soul_id", "parent_session_id", "session_depth", "max_follow_ups", "hook_policy", "reserve_tokens", "keep_recent_tokens", "compaction_model", "heartbeat_timeout_seconds", "project_harness_id"]
-hint = "Configure session with system prompt, user message, model, tools, soul, and optional overrides."
+hint = "Configure session. Auto-provisions after configuration."
+effect = [{ type = "schedule", action = "Provision", delay_seconds = 0 }]
 
 [[action]]
 name = "Provision"
