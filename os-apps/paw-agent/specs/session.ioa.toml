@@ -202,6 +202,13 @@ name = "soul_id"
 type = "string"
 initial = ""
 
+# --- State Variables: REPL State (externalized to TemperFS) ---
+
+[[state]]
+name = "repl_file_id"
+type = "string"
+initial = ""
+
 # --- State Variables: Tool Hooks (Phase 6) ---
 
 [[state]]
@@ -303,7 +310,7 @@ name = "HandleToolResults"
 kind = "input"
 from = ["Executing"]
 to = "Thinking"
-params = ["pending_tool_calls", "conversation", "session_leaf_id"]
+params = ["pending_tool_calls", "conversation", "session_leaf_id", "repl_file_id"]
 hint = "Tool results received. Increment turn, transition to Thinking, and call LLM again."
 effect = [
   { type = "increment", var = "turn_count" },

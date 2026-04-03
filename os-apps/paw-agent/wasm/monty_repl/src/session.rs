@@ -15,7 +15,7 @@ pub fn persist_results(
     tenant: &str,
     fields: &Value,
     tool_results: &[Value],
-    repl_state: &str,
+    repl_file_id: &str,
 ) -> Result<Value, String> {
     let conversation_file_id = field_str(fields, "conversation_file_id");
     let session_file_id = field_str(fields, "session_file_id");
@@ -23,9 +23,10 @@ pub fn persist_results(
     let workspace_id = field_str(fields, "workspace_id");
 
     let results_json = serde_json::to_string(tool_results).unwrap_or_default();
+    // Store repl_file_id (pointer to TemperFS file), not the full repl_state blob
     let mut params = json!({
         "pending_tool_calls": results_json,
-        "repl_state": repl_state,
+        "repl_file_id": repl_file_id,
     });
 
     if !session_file_id.is_empty() && !session_leaf_id.is_empty() {
@@ -105,6 +106,80 @@ pub fn send_heartbeat(ctx: &Context, temper_api_url: &str, tenant: &str) {
     let body = json!({ "last_heartbeat_at": "alive" });
     let headers = odata_headers(tenant);
     let _ = ctx.http_call("POST", &url, &headers, &body.to_string());
+}
+
+/// Save REPL state to a TemperFS file. Creates the file on first call,
+/// overwrites on subsequent calls. Returns the file ID.
+pub fn save_repl_to_file(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+    workspace_id: &str,
+    existing_file_id: &str,
+    repl_state_b64: &str,
+) -> Result<String, String> {
+    if workspace_id.is_empty() {
+        // No workspace — fall back to storing nothing (fresh REPL each turn)
+        return Ok(String::new());
+    }
+
+    let file_id = if existing_file_id.is_empty() {
+        // Create a new file
+        let body = json!({
+            "Name": "repl_state.b64",
+            "path": "/repl_state.b64",
+            "WorkspaceId": workspace_id,
+        });
+        let url = format!("{temper_api_url}/tdata/Files");
+        let headers = file_headers(tenant);
+        let resp = ctx.http_call("POST", &url, &headers, &body.to_string())?;
+        if resp.status >= 400 {
+            return Err(format!("failed to create REPL state file: {}", resp.body));
+        }
+        let created: Value = serde_json::from_str(&resp.body)
+            .map_err(|e| format!("failed to parse file create response: {e}"))?;
+        created.get("entity_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string()
+    } else {
+        existing_file_id.to_string()
+    };
+
+    if file_id.is_empty() {
+        return Ok(String::new());
+    }
+
+    // Write REPL state to file
+    let url = format!("{temper_api_url}/tdata/Files('{file_id}')/$value");
+    let headers = workspace_headers(tenant, workspace_id);
+    let resp = ctx.http_call("PUT", &url, &headers, repl_state_b64)?;
+    if resp.status >= 400 {
+        return Err(format!("failed to write REPL state file: {}", resp.body));
+    }
+
+    Ok(file_id)
+}
+
+/// Read a TemperFS file safely (returns empty string on error).
+pub fn read_temperfs_file_safe(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+    file_id: &str,
+) -> Result<String, String> {
+    if file_id.is_empty() {
+        return Ok(String::new());
+    }
+    read_temperfs_file(ctx, temper_api_url, tenant, file_id)
+}
+
+fn workspace_headers(tenant: &str, workspace_id: &str) -> Vec<(String, String)> {
+    vec![
+        ("Content-Type".to_string(), "text/plain".to_string()),
+        ("X-Tenant-Id".to_string(), tenant.to_string()),
+        ("X-Workspace-Id".to_string(), workspace_id.to_string()),
+    ]
 }
 
 /// Evaluate before-hooks for a tool/op name. Returns error string if blocked.

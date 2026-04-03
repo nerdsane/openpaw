@@ -68,13 +68,25 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             &format!("monty_repl: executing {} tool calls", tool_calls.len()),
         );
 
-        // Load or create persistent REPL
-        let repl_state_b64 = fields
-            .get("repl_state")
+        // Load REPL state from TemperFS file (not from entity fields — avoids
+        // context JSON bloat that causes WASM memory exhaustion after ~26 turns).
+        let workspace_id = fields
+            .get("workspace_id")
             .and_then(|v| v.as_str())
             .unwrap_or("");
+        let repl_file_id = fields
+            .get("repl_file_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let repl_state_b64 = if !repl_file_id.is_empty() {
+            session::read_temperfs_file_safe(&ctx, &temper_api_url, tenant, repl_file_id)
+                .unwrap_or_default()
+        } else {
+            // Fallback: check entity field for backward compatibility
+            fields.get("repl_state").and_then(|v| v.as_str()).unwrap_or("").to_string()
+        };
 
-        let mut repl = load_or_create_repl(repl_state_b64, &ctx)?;
+        let mut repl = load_or_create_repl(&repl_state_b64, &ctx)?;
 
         // Execute each tool call
         let mut tool_results: Vec<Value> = Vec::new();
@@ -150,20 +162,28 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             tool_results.push(make_tool_result(tool_id, &content, is_error));
         }
 
-        // Save REPL state
+        // Save REPL state to TemperFS file (not entity field)
         let saved_state = save_repl_state(&repl)?;
+        let repl_file_id = session::save_repl_to_file(
+            &ctx,
+            &temper_api_url,
+            tenant,
+            workspace_id,
+            repl_file_id,
+            &saved_state,
+        )?;
 
         // Heartbeat
         session::send_heartbeat(&ctx, &temper_api_url, tenant);
 
-        // Persist results to session tree / conversation file / inline
+        // Persist results (without repl_state in entity params)
         let params = session::persist_results(
             &ctx,
             &temper_api_url,
             tenant,
             &fields,
             &tool_results,
-            &saved_state,
+            &repl_file_id,
         )?;
 
         set_success_result("HandleToolResults", &params);
