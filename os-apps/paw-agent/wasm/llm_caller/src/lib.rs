@@ -1902,7 +1902,9 @@ fn build_tool_definitions(_tools_enabled: &str, _sandbox_url: &str, _workdir: &s
             "- temper.deny_decision(decision_id) → deny governance decision (Cedar-gated)\n",
             "- temper.datadog_query(query_kind, monitor_id=None, query=None, ...) → Datadog API\n",
             "- temper.railway(action, project_id=None, ...) → Railway API\n",
-            "- temper.vercel(action, deployment_id=None, ...) → Vercel API\n\n",
+            "- temper.vercel(action, deployment_id=None, ...) → Vercel API\n",
+            "- temper.web_search(query) → search the web via Exa, returns list of {title, url, text}\n",
+            "- temper.web_fetch(url) → fetch a URL, returns text content (HTML tags stripped)\n\n",
             "IMPORTANT: No pip packages available (no requests, httpx, subprocess, os). ",
             "Use sandbox.bash() for ALL shell commands. Write complete multi-step scripts, not one-liners."
         ),

@@ -17,6 +17,15 @@ pub struct Config {
     /// Discord forum channel ID for per-agent threads.
     pub discord_forum_channel_id: Option<String>,
 
+    /// Slack App-Level Token (xapp-...) for Socket Mode connection.
+    pub slack_app_token: Option<String>,
+
+    /// Slack Bot Token (xoxb-...) for Web API calls.
+    pub slack_bot_token: Option<String>,
+
+    /// Slack Signing Secret for webhook signature verification.
+    pub slack_signing_secret: Option<String>,
+
     /// Turso database URL (local file or cloud).
     /// Default: ~/.local/share/openpaw/paw.db
     pub turso_url: Option<String>,
@@ -58,6 +67,9 @@ pub struct Config {
     /// Vercel API token for deployment integrations.
     pub vercel_token: Option<String>,
 
+    /// Exa API key for web search.
+    pub exa_api_key: Option<String>,
+
     /// Shared secret used to validate webhook request signatures.
     pub webhook_secret: Option<String>,
 
@@ -85,6 +97,9 @@ impl Config {
             discord_guild_id: optional_env("DISCORD_GUILD_ID"),
             discord_feed_channel_id: optional_env("DISCORD_FEED_CHANNEL_ID"),
             discord_forum_channel_id: optional_env("DISCORD_FORUM_CHANNEL_ID"),
+            slack_app_token: optional_env("SLACK_APP_TOKEN"),
+            slack_bot_token: optional_env("SLACK_BOT_TOKEN"),
+            slack_signing_secret: optional_env("SLACK_SIGNING_SECRET"),
             turso_url: optional_env("TURSO_URL"),
             turso_auth_token: optional_env("TURSO_AUTH_TOKEN"),
             anthropic_api_key: optional_env("ANTHROPIC_API_KEY"),
@@ -98,6 +113,7 @@ impl Config {
             fly_api_token: optional_env("FLY_API_TOKEN"),
             railway_token: optional_env("RAILWAY_TOKEN"),
             vercel_token: optional_env("VERCEL_TOKEN"),
+            exa_api_key: optional_env("EXA_API_KEY"),
             webhook_secret: optional_env("WEBHOOK_SECRET"),
             otel_enabled: std::env::var("OTEL_ENABLED")
                 .map(|v| v != "false" && v != "0")

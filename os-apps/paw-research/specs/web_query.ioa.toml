@@ -1,0 +1,108 @@
+# WebQuery — Execute web search or URL fetch as a governed, auditable entity.
+#
+# One entity type, two WASM modules:
+#   - web_search: Exa API search (triggered by Execute when query_type = "search")
+#   - web_fetch:  URL fetch + HTML stripping (triggered by Execute when query_type = "fetch")
+#
+# Agent usage (via dispatch wrappers):
+#   temper.web_search("rust async patterns")
+#   temper.web_fetch("https://docs.rs/serde_json/latest/serde_json/")
+
+[automaton]
+name = "WebQuery"
+states = ["Created", "Executing", "Complete", "Failed"]
+initial = "Created"
+
+# --- State Variables ---
+
+[[state]]
+name = "query_type"
+type = "string"
+initial = ""
+
+[[state]]
+name = "query"
+type = "string"
+initial = ""
+
+[[state]]
+name = "url"
+type = "string"
+initial = ""
+
+[[state]]
+name = "results"
+type = "string"
+initial = ""
+
+[[state]]
+name = "error"
+type = "string"
+initial = ""
+
+# --- Actions ---
+
+[[action]]
+name = "ExecuteSearch"
+kind = "input"
+from = ["Created"]
+to = "Executing"
+params = ["query"]
+hint = "Begin a web search query via Exa API."
+effect = [{ type = "trigger", name = "execute_search" }]
+
+[[action]]
+name = "ExecuteFetch"
+kind = "input"
+from = ["Created"]
+to = "Executing"
+params = ["url"]
+hint = "Begin fetching a URL and extracting text content."
+effect = [{ type = "trigger", name = "execute_fetch" }]
+
+[[action]]
+name = "RecordResults"
+kind = "input"
+from = ["Executing"]
+to = "Complete"
+params = ["results"]
+hint = "WASM module completed successfully; store results."
+
+[[action]]
+name = "RecordError"
+kind = "input"
+from = ["Executing"]
+to = "Failed"
+params = ["error"]
+hint = "WASM module encountered an error."
+
+# --- Invariants ---
+
+[[invariant]]
+name = "CompleteIsFinal"
+when = ["Complete"]
+assert = "no_further_transitions"
+
+[[invariant]]
+name = "FailedIsFinal"
+when = ["Failed"]
+assert = "no_further_transitions"
+
+# --- Integrations ---
+
+[[integration]]
+name = "web_search"
+trigger = "execute_search"
+type = "wasm"
+module = "web_search"
+on_failure = "RecordError"
+
+[integration.config]
+exa_api_key = "{secret:exa_api_key}"
+
+[[integration]]
+name = "web_fetch"
+trigger = "execute_fetch"
+type = "wasm"
+module = "web_fetch"
+on_failure = "RecordError"

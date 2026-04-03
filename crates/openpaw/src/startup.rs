@@ -34,6 +34,7 @@ const PAW_OS_APPS: &[&str] = &[
     "paw-harness",
     "paw-heal",
     "paw-ingest",
+    "paw-research",
 ];
 
 /// Run the Open Paw daemon.
@@ -196,6 +197,13 @@ pub async fn run(config: Config) -> Result<()> {
             }
         }
 
+        if let Some(ref key) = config.exa_api_key {
+            let _ = vault.cache_secret("default", "exa_api_key", key.clone());
+            if tenant != "default" {
+                let _ = vault.cache_secret(&tenant, "exa_api_key", key.clone());
+            }
+        }
+
         let api_url = format!("http://127.0.0.1:{port}");
         let _ = vault.cache_secret("default", "temper_api_url", api_url.clone());
         if tenant != "default" {
@@ -267,6 +275,19 @@ pub async fn run(config: Config) -> Result<()> {
             let _ = vault.cache_secret("default", "discord_bot_token", token.clone());
             if tenant != "default" {
                 let _ = vault.cache_secret(&tenant, "discord_bot_token", token.clone());
+            }
+        }
+
+        if let Some(ref token) = config.slack_bot_token {
+            let _ = vault.cache_secret("default", "slack_bot_token", token.clone());
+            if tenant != "default" {
+                let _ = vault.cache_secret(&tenant, "slack_bot_token", token.clone());
+            }
+        }
+        if let Some(ref token) = config.slack_app_token {
+            let _ = vault.cache_secret("default", "slack_app_token", token.clone());
+            if tenant != "default" {
+                let _ = vault.cache_secret(&tenant, "slack_app_token", token.clone());
             }
         }
 
@@ -373,6 +394,21 @@ pub async fn run(config: Config) -> Result<()> {
         );
     } else {
         tracing::warn!("No DISCORD_BOT_TOKEN — Discord transport not started");
+    }
+
+    if let (Some(app_token), Some(bot_token)) =
+        (&config.slack_app_token, &config.slack_bot_token)
+    {
+        spawn_slack_transport(
+            app_token.clone(),
+            bot_token.clone(),
+            config.slack_signing_secret.clone().unwrap_or_default(),
+            &tenant,
+            actual_port,
+            config.temper_api_key.clone(),
+        );
+    } else {
+        tracing::warn!("No SLACK_APP_TOKEN/SLACK_BOT_TOKEN — Slack transport not started");
     }
 
     // Spawn Discord observer (SSE → Discord feed/forum).
@@ -1290,6 +1326,41 @@ fn spawn_discord_transport(
         let transport = DiscordTransport::new(config, api);
         if let Err(e) = transport.run().await {
             tracing::error!("Discord transport fatal error: {e}");
+        }
+    });
+}
+
+/// Spawn the Slack channel transport.
+fn spawn_slack_transport(
+    app_token: String,
+    bot_token: String,
+    signing_secret: String,
+    tenant: &str,
+    port: u16,
+    api_key: Option<String>,
+) {
+    use paw_transport::PawApiConfig;
+    use paw_transport::slack::{SlackConfig, SlackTransport};
+
+    let tenant = tenant.to_string();
+    let api_url = format!("http://127.0.0.1:{port}");
+    tracing::info!("Slack transport: connecting (tenant={tenant})...");
+
+    tokio::spawn(async move {
+        let api = paw_transport::PawApiClient::new(PawApiConfig {
+            base_url: api_url,
+            tenant,
+            api_key,
+        });
+        let config = SlackConfig {
+            app_token,
+            bot_token,
+            webhook_port: 3489,
+            signing_secret,
+        };
+        let transport = SlackTransport::new(config, api);
+        if let Err(e) = transport.run().await {
+            tracing::error!("Slack transport fatal error: {e}");
         }
     });
 }
