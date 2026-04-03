@@ -105,6 +105,9 @@ fn dispatch_temper(
         "read_entity" => super::entity_ops::read_entity(ctx, api_url, tenant, args),
         "run_coding_agent" => super::entity_ops::run_coding_agent(ctx, api_url, tenant, sandbox_url, workdir, args),
 
+        // Secrets (Cedar-gated via access_secret on Secret resource)
+        "get_secret" => temper_get_secret(ctx, args),
+
         // External service integrations (ported from tool_runner)
         "datadog_query" => super::datadog::datadog_query(ctx, args),
         "railway" => super::railway::railway(ctx, args),
@@ -116,7 +119,7 @@ fn dispatch_temper(
              upload_wasm, get_trajectories, get_insights, \
              get_decisions, poll_decision, approve_decision, deny_decision, \
              submit_policy, list_policies, get_policy, update_policy, delete_policy, \
-             install_app, list_apps, get_agent_id, \
+             get_secret, install_app, list_apps, get_agent_id, \
              spawn_session, list_sessions, abort_session, steer_session, \
              save_memory, recall_memory, file_upload, read_entity, \
              run_coding_agent, datadog_query, railway, vercel"
@@ -227,6 +230,14 @@ fn temper_poll_decision(ctx: &Context, api_url: &str, tenant: &str, args: &[Valu
     // Poll once — the agent can call repeatedly if needed.
     // Full blocking poll would exceed WASM execution budget.
     http_get(ctx, api_url, tenant, &format!("/api/decisions/{decision_id}"))
+}
+
+// --- Secrets (Cedar-gated via access_secret on Secret resource) ---
+
+fn temper_get_secret(ctx: &Context, args: &[Value]) -> Result<Value, String> {
+    let key = str_arg(args, 0, "key", "get_secret")?;
+    let value = ctx.get_secret(&key)?;
+    Ok(json!(value))
 }
 
 // --- Cedar Policy Management (all Cedar-gated by platform) ---

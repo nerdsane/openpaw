@@ -1887,6 +1887,7 @@ fn build_tool_definitions(_tools_enabled: &str, _sandbox_url: &str, _workdir: &s
             "- temper.show_spec(entity_name) → inspect entity spec\n",
             "- temper.install_app(app_name, reason, payload=None, capability_type='os_app') → request capability install\n",
             "- temper.upload_wasm(module_name, wasm_base64) → upload WASM module\n",
+            "- temper.get_secret(key) → read secret from vault (Cedar-gated)\n",
             "- temper.submit_policy(policy_id, cedar_text) → create Cedar policy (Cedar-gated)\n",
             "- temper.list_policies() → list all Cedar policies\n",
             "- temper.get_policy(policy_id) → read a specific Cedar policy\n",
