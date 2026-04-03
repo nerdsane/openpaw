@@ -130,6 +130,10 @@ fn dispatch_temper(
         "railway" => super::railway::railway(ctx, args),
         "vercel" => super::vercel::vercel(ctx, args),
 
+        // Web research (backed by standalone WASM modules via WebQuery entity)
+        "web_search" => temper_web_search(ctx, api_url, tenant, args),
+        "web_fetch" => temper_web_fetch(ctx, api_url, tenant, args),
+
         _ => Err(format!(
             "unknown temper method '{method}'. Available: \
              list, get, create, action, patch, submit_specs, show_spec, \
@@ -139,7 +143,8 @@ fn dispatch_temper(
              get_secret, done, install_app, list_apps, get_agent_id, \
              spawn_session, list_sessions, abort_session, steer_session, \
              save_memory, recall_memory, file_upload, read_entity, \
-             run_coding_agent, datadog_query, railway, vercel"
+             run_coding_agent, datadog_query, railway, vercel, \
+             web_search, web_fetch"
         )),
     }
 }
@@ -247,6 +252,95 @@ fn temper_poll_decision(ctx: &Context, api_url: &str, tenant: &str, args: &[Valu
     // Poll once — the agent can call repeatedly if needed.
     // Full blocking poll would exceed WASM execution budget.
     http_get(ctx, api_url, tenant, &format!("/api/decisions/{decision_id}"))
+}
+
+// --- Web research (dispatch wrappers for standalone WASM modules) ---
+
+/// Search the web via WebQuery entity + web_search WASM module.
+/// Creates a WebQuery, dispatches ExecuteSearch, reads results.
+fn temper_web_search(ctx: &Context, api_url: &str, tenant: &str, args: &[Value]) -> Result<Value, String> {
+    let query = str_arg(args, 0, "query", "web_search")?;
+    web_query_dispatch(ctx, api_url, tenant, "search", &query, "")
+}
+
+/// Fetch a URL via WebQuery entity + web_fetch WASM module.
+/// Creates a WebQuery, dispatches ExecuteFetch, reads results.
+fn temper_web_fetch(ctx: &Context, api_url: &str, tenant: &str, args: &[Value]) -> Result<Value, String> {
+    let url = str_arg(args, 0, "url", "web_fetch")?;
+    web_query_dispatch(ctx, api_url, tenant, "fetch", "", &url)
+}
+
+/// Shared implementation: create WebQuery entity, dispatch action, return results.
+fn web_query_dispatch(
+    ctx: &Context,
+    api_url: &str,
+    tenant: &str,
+    query_type: &str,
+    query: &str,
+    url: &str,
+) -> Result<Value, String> {
+    // 1. Create WebQuery entity
+    let body = json!({
+        "QueryType": query_type,
+        "Query": query,
+        "Url": url,
+    });
+    let entity = http_post(ctx, api_url, tenant, "/tdata/WebQueries", &body)?;
+
+    let entity_id = entity
+        .get("entity_id")
+        .or_else(|| entity.get("EntityId"))
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| "web_query: failed to get entity_id from created WebQuery".to_string())?;
+
+    // 2. Dispatch the appropriate Execute action
+    let action_name = if query_type == "search" {
+        "ExecuteSearch"
+    } else {
+        "ExecuteFetch"
+    };
+    let action_params = if query_type == "search" {
+        json!({"query": query})
+    } else {
+        json!({"url": url})
+    };
+    let key = escape_odata_key(entity_id);
+    let _ = http_post(
+        ctx,
+        api_url,
+        tenant,
+        &format!("/tdata/WebQueries('{key}')/Temper.{action_name}"),
+        &action_params,
+    );
+
+    // 3. Read the entity back — WASM integration has run by this point
+    let result = http_get(ctx, api_url, tenant, &format!("/tdata/WebQueries('{key}')"))?;
+    let result_fields = result.get("fields").cloned().unwrap_or(result.clone());
+
+    let status = result_fields
+        .get("Status")
+        .or_else(|| result_fields.get("status"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+
+    if status == "Failed" {
+        let error = result_fields
+            .get("error")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown error");
+        return Err(format!("web_{query_type}: {error}"));
+    }
+
+    let results_raw = result_fields
+        .get("results")
+        .and_then(|v| v.as_str())
+        .unwrap_or("[]");
+
+    // Try to parse as JSON array; if not, return as plain text
+    match serde_json::from_str::<Value>(results_raw) {
+        Ok(parsed) => Ok(parsed),
+        Err(_) => Ok(json!(results_raw)),
+    }
 }
 
 // --- Session completion ---

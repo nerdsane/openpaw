@@ -217,7 +217,7 @@ fn resolve_context_refs_for_compaction(
 fn build_mock_summary(conversation_text: &str) -> String {
     let truncated: String = conversation_text.chars().take(600).collect();
     format!(
-        "## Goal\nPreserve the active task.\n\n## Constraints & Preferences\nStay within the current workspace and existing agent context.\n\n## Progress\n- Done: Earlier conversation was compacted.\n- In Progress: Continue the active task with the remaining context.\n- Blocked: None.\n\n## Key Decisions\nUse the deterministic mock compaction path when no real model is configured.\n\n## Next Steps\nResume the agent loop after compaction.\n\n## Critical Context\n{}",
+        "## Active Goal\nContinue the active task.\n\n## Episodes\n\n### Episode: Prior conversation\n- **Goal:** Earlier conversation context\n- **Worked:** Conversation compacted using mock path\n- **Failed:** None recorded\n- **Discoveries:** No real model configured for compaction\n- **Artifacts:** None\n\n## Current State\n- **Where we are:** Resuming after compaction\n- **Next:** Continue the active task\n- **Open questions:** None\n\n---\nRaw context tail:\n{}",
         truncated
     )
 }
@@ -262,7 +262,7 @@ fn call_compaction_llm(
     model: &str,
     conversation_text: &str,
 ) -> Result<String, String> {
-    let system_prompt = "You are a conversation compactor. Summarize the following conversation into a structured summary. Be concise but preserve all important context, decisions, and progress. Output the summary in this exact format:\n\n## Goal\n<what the user is trying to accomplish>\n\n## Constraints & Preferences\n<any stated constraints or preferences>\n\n## Progress\n- Done: <completed items>\n- In Progress: <current work>\n- Blocked: <blockers if any>\n\n## Key Decisions\n<important decisions made>\n\n## Next Steps\n<what should happen next>\n\n## Critical Context\n<anything that must not be forgotten>";
+    let system_prompt = "You are a conversation compactor. Extract distinct episodes from this conversation — each a coherent task or sub-task the agent attempted. Be concise but preserve the trajectory: what was tried, what worked, what failed, and why.\n\nOutput the summary in this exact format:\n\n## Active Goal\n<the current overarching objective>\n\n## Episodes\n\n### Episode: <short title>\n- **Goal:** <what was attempted>\n- **Worked:** <actions that succeeded and why>\n- **Failed:** <approaches tried and abandoned, what went wrong>\n- **Discoveries:** <facts learned, decisions made>\n- **Artifacts:** <files changed, entities created, useful outputs>\n\n(Repeat chronologically for each distinct episode)\n\n## Current State\n- **Where we are:** <what just completed or is in progress>\n- **Next:** <immediate next steps>\n- **Open questions:** <unresolved issues>\n\nIMPORTANT: Preserve the trajectory. A future model reading this needs to know which approaches were already tried and failed, not just what worked. This prevents repeating failed approaches.";
 
     let body = json!({
         "model": model,
