@@ -176,6 +176,9 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         // Heartbeat
         session::send_heartbeat(&ctx, &temper_api_url, tenant);
 
+        // Check if agent signaled completion via temper.done(result)
+        let done_result = dispatch::take_done_result();
+
         // Persist results (without repl_state in entity params)
         let params = session::persist_results(
             &ctx,
@@ -186,7 +189,14 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             &repl_file_id,
         )?;
 
-        set_success_result("HandleToolResults", &params);
+        if let Some(result_text) = done_result {
+            // Agent called temper.done() — complete the session
+            let mut done_params = params.clone();
+            done_params["result"] = json!(result_text);
+            set_success_result("RecordResult", &done_params);
+        } else {
+            set_success_result("HandleToolResults", &params);
+        }
         Ok(())
     })();
 

@@ -417,10 +417,10 @@ effect = [{ type = "trigger", name = "run_tools" }]
 [[action]]
 name = "RecordResult"
 kind = "input"
-from = ["Thinking"]
+from = ["Thinking", "Executing"]
 to = "Completed"
-params = ["result", "conversation", "input_tokens", "output_tokens", "session_leaf_id"]
-hint = "LLM returned end_turn in non-steering mode (max_follow_ups=0). Record token usage, set result, and complete."
+params = ["result", "conversation", "input_tokens", "output_tokens", "session_leaf_id", "repl_file_id"]
+hint = "Session complete. Triggered by LLM end_turn or agent calling temper.done(result)."
 effect = [
   { type = "increment", var = "input_tokens" },
   { type = "increment", var = "output_tokens" },
@@ -553,6 +553,8 @@ sync_exclude = "__pycache__,node_modules,.git,.next,dist,build,target,coverage,v
 dd_api_key = "{secret:dd_api_key}"
 dd_app_key = "{secret:dd_app_key}"
 dd_site = "{secret:dd_site}"
+railway_token = "{secret:railway_token}"
+vercel_token = "{secret:vercel_token}"
 
 [[integration]]
 name = "compact_context"

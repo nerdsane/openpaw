@@ -8,8 +8,22 @@
 //! Mirrors the method signatures from `temper-sandbox/src/dispatch.rs`
 //! so agents see the exact same Python interface as `mcp__temper__execute`.
 
+use std::cell::RefCell;
 use serde_json::{Value, json};
 use temper_wasm_sdk::context::Context;
+
+// Thread-local storage for the done signal. When an agent calls
+// temper.done(result), the result is stored here. After all tool
+// calls finish, lib.rs checks this and returns RecordResult instead
+// of HandleToolResults, completing the session.
+thread_local! {
+    static DONE_RESULT: RefCell<Option<String>> = RefCell::new(None);
+}
+
+/// Take the done result (if set). Clears it after reading.
+pub fn take_done_result() -> Option<String> {
+    DONE_RESULT.with(|cell| cell.borrow_mut().take())
+}
 
 /// Dispatch a `temper.<method>()` or `sandbox.<method>()` call.
 ///
@@ -108,6 +122,9 @@ fn dispatch_temper(
         // Secrets (Cedar-gated via access_secret on Secret resource)
         "get_secret" => temper_get_secret(ctx, args),
 
+        // Session completion — agent signals "I'm done"
+        "done" => temper_done(args),
+
         // External service integrations (ported from tool_runner)
         "datadog_query" => super::datadog::datadog_query(ctx, args),
         "railway" => super::railway::railway(ctx, args),
@@ -119,7 +136,7 @@ fn dispatch_temper(
              upload_wasm, get_trajectories, get_insights, \
              get_decisions, poll_decision, approve_decision, deny_decision, \
              submit_policy, list_policies, get_policy, update_policy, delete_policy, \
-             get_secret, install_app, list_apps, get_agent_id, \
+             get_secret, done, install_app, list_apps, get_agent_id, \
              spawn_session, list_sessions, abort_session, steer_session, \
              save_memory, recall_memory, file_upload, read_entity, \
              run_coding_agent, datadog_query, railway, vercel"
@@ -230,6 +247,20 @@ fn temper_poll_decision(ctx: &Context, api_url: &str, tenant: &str, args: &[Valu
     // Poll once — the agent can call repeatedly if needed.
     // Full blocking poll would exceed WASM execution budget.
     http_get(ctx, api_url, tenant, &format!("/api/decisions/{decision_id}"))
+}
+
+// --- Session completion ---
+
+fn temper_done(args: &[Value]) -> Result<Value, String> {
+    let result = args
+        .first()
+        .and_then(|v| v.as_str())
+        .unwrap_or("(done)")
+        .to_string();
+    DONE_RESULT.with(|cell| {
+        *cell.borrow_mut() = Some(result);
+    });
+    Ok(json!({"done": true}))
 }
 
 // --- Secrets (Cedar-gated via access_secret on Secret resource) ---
