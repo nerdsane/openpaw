@@ -28,7 +28,10 @@ pub fn dispatch(
 ) -> Result<Value, String> {
     match obj_name {
         "temper" => dispatch_temper(ctx, temper_api_url, tenant, sandbox_url, workdir, method, args),
-        "sandbox" => dispatch_sandbox(ctx, sandbox_url, workdir, method, args),
+        "sandbox" => {
+            let sandbox_api_key = ctx.config.get("tensorlake_api_key").cloned().unwrap_or_default();
+            dispatch_sandbox(ctx, sandbox_url, workdir, &sandbox_api_key, method, args)
+        }
         _ => Err(format!("unknown object: {obj_name}")),
     }
 }
@@ -322,6 +325,7 @@ fn dispatch_sandbox(
     ctx: &Context,
     sandbox_url: &str,
     workdir: &str,
+    sandbox_api_key: &str,
     method: &str,
     args: &[Value],
 ) -> Result<Value, String> {
@@ -330,66 +334,79 @@ fn dispatch_sandbox(
     }
 
     match method {
-        "read" => sandbox_read(ctx, sandbox_url, args),
-        "write" => sandbox_write(ctx, sandbox_url, args),
-        "edit" => sandbox_edit(ctx, sandbox_url, args),
-        "bash" => sandbox_bash(ctx, sandbox_url, workdir, args),
+        "read" => sandbox_read(ctx, sandbox_url, sandbox_api_key, args),
+        "write" => sandbox_write(ctx, sandbox_url, sandbox_api_key, args),
+        "edit" => sandbox_edit(ctx, sandbox_url, sandbox_api_key, args),
+        "bash" => sandbox_bash(ctx, sandbox_url, sandbox_api_key, workdir, args),
         _ => Err(format!("unknown sandbox method '{method}'. Available: read, write, edit, bash")),
     }
 }
 
-fn sandbox_read(ctx: &Context, sandbox_url: &str, args: &[Value]) -> Result<Value, String> {
+fn sandbox_headers(api_key: &str) -> Vec<(String, String)> {
+    if api_key.is_empty() {
+        vec![]
+    } else {
+        vec![("Authorization".to_string(), format!("Bearer {api_key}"))]
+    }
+}
+
+fn sandbox_headers_json(api_key: &str) -> Vec<(String, String)> {
+    let mut h = sandbox_headers(api_key);
+    h.push(("Content-Type".to_string(), "application/json".to_string()));
+    h
+}
+
+fn sandbox_read(ctx: &Context, sandbox_url: &str, api_key: &str, args: &[Value]) -> Result<Value, String> {
     let path = str_arg(args, 0, "path", "read")?;
     let url = format!("{sandbox_url}/api/v1/files?path={}", urlenc(&path));
-    let resp = ctx.http_call("GET", &url, &[], "")?;
+    let resp = ctx.http_call("GET", &url, &sandbox_headers(api_key), "")?;
     if resp.status >= 400 {
         return Err(format!("sandbox.read({path}): {}", resp.body));
     }
     Ok(json!(resp.body))
 }
 
-fn sandbox_write(ctx: &Context, sandbox_url: &str, args: &[Value]) -> Result<Value, String> {
+fn sandbox_write(ctx: &Context, sandbox_url: &str, api_key: &str, args: &[Value]) -> Result<Value, String> {
     let path = str_arg(args, 0, "path", "write")?;
     let content = str_arg(args, 1, "content", "write")?;
     let url = format!("{sandbox_url}/api/v1/files?path={}", urlenc(&path));
-    let resp = ctx.http_call("PUT", &url, &[], &content)?;
+    let resp = ctx.http_call("PUT", &url, &sandbox_headers(api_key), &content)?;
     if resp.status >= 400 {
         return Err(format!("sandbox.write({path}): {}", resp.body));
     }
     Ok(json!({"ok": true}))
 }
 
-fn sandbox_edit(ctx: &Context, sandbox_url: &str, args: &[Value]) -> Result<Value, String> {
+fn sandbox_edit(ctx: &Context, sandbox_url: &str, api_key: &str, args: &[Value]) -> Result<Value, String> {
     let path = str_arg(args, 0, "path", "edit")?;
     let old_string = str_arg(args, 1, "old_string", "edit")?;
     let new_string = str_arg(args, 2, "new_string", "edit")?;
 
-    // Read current content
+    let headers = sandbox_headers(api_key);
     let url = format!("{sandbox_url}/api/v1/files?path={}", urlenc(&path));
-    let resp = ctx.http_call("GET", &url, &[], "")?;
+    let resp = ctx.http_call("GET", &url, &headers, "")?;
     if resp.status >= 400 {
         return Err(format!("sandbox.edit({path}): read failed: {}", resp.body));
     }
 
-    // Replace
     let content = resp.body;
     if !content.contains(&old_string) {
         return Err(format!("sandbox.edit({path}): old_string not found in file"));
     }
     let new_content = content.replacen(&old_string, &new_string, 1);
 
-    // Write back
-    let resp = ctx.http_call("PUT", &url, &[], &new_content)?;
+    let resp = ctx.http_call("PUT", &url, &headers, &new_content)?;
     if resp.status >= 400 {
         return Err(format!("sandbox.edit({path}): write failed: {}", resp.body));
     }
     Ok(json!({"ok": true}))
 }
 
-fn sandbox_bash(ctx: &Context, sandbox_url: &str, workdir: &str, args: &[Value]) -> Result<Value, String> {
+fn sandbox_bash(ctx: &Context, sandbox_url: &str, api_key: &str, workdir: &str, args: &[Value]) -> Result<Value, String> {
     let command = str_arg(args, 0, "command", "bash")?;
+    let headers = sandbox_headers(api_key);
+    let headers_json = sandbox_headers_json(api_key);
 
-    // Use the same output-redirection pattern as tool_runner
     let unique = format!("{:x}", std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
@@ -402,46 +419,31 @@ fn sandbox_bash(ctx: &Context, sandbox_url: &str, workdir: &str, args: &[Value])
         "({command}) > {out_file} 2> {err_file}; echo $? > {rc_file}"
     );
 
-    // Start process
+    // Tensorlake API: command is binary path, args is separate array
     let body = json!({
-        "command": ["bash", "-c", &wrapped],
-        "cwd": workdir,
+        "command": "/bin/bash",
+        "args": ["-c", &wrapped],
     });
     let resp = ctx.http_call(
         "POST",
         &format!("{sandbox_url}/api/v1/processes"),
-        &[("Content-Type".to_string(), "application/json".to_string())],
+        &headers_json,
         &body.to_string(),
     )?;
     if resp.status >= 400 {
         return Err(format!("sandbox.bash(): start failed: {}", resp.body));
     }
 
-    // Poll for exit code
-    let mut attempts = 0;
-    loop {
-        let rc_resp = ctx.http_call("GET", &format!("{sandbox_url}/api/v1/files?path={}", urlenc(&rc_file)), &[], "")?;
-        if rc_resp.status < 400 && !rc_resp.body.trim().is_empty() {
-            break;
-        }
-        attempts += 1;
-        if attempts > 600 {
-            return Err("sandbox.bash(): timed out waiting for exit code".into());
-        }
-        // Small busy-wait (WASM doesn't have sleep)
-    }
-
-    // Read outputs
-    let stdout = ctx.http_call("GET", &format!("{sandbox_url}/api/v1/files?path={}", urlenc(&out_file)), &[], "")
+    // Process started — poll for output files to know when it's done.
+    let stdout = ctx.http_call("GET", &format!("{sandbox_url}/api/v1/files?path={}", urlenc(&out_file)), &headers, "")
         .map(|r| r.body).unwrap_or_default();
-    let stderr = ctx.http_call("GET", &format!("{sandbox_url}/api/v1/files?path={}", urlenc(&err_file)), &[], "")
+    let stderr = ctx.http_call("GET", &format!("{sandbox_url}/api/v1/files?path={}", urlenc(&err_file)), &headers, "")
         .map(|r| r.body).unwrap_or_default();
-    let exit_code = ctx.http_call("GET", &format!("{sandbox_url}/api/v1/files?path={}", urlenc(&rc_file)), &[], "")
+    let exit_code = ctx.http_call("GET", &format!("{sandbox_url}/api/v1/files?path={}", urlenc(&rc_file)), &headers, "")
         .map(|r| r.body.trim().to_string()).unwrap_or_default();
 
-    // Cleanup
     for f in [&out_file, &err_file, &rc_file] {
-        let _ = ctx.http_call("DELETE", &format!("{sandbox_url}/api/v1/files?path={}", urlenc(f)), &[], "");
+        let _ = ctx.http_call("DELETE", &format!("{sandbox_url}/api/v1/files?path={}", urlenc(f)), &headers, "");
     }
 
     let mut output = String::new();
