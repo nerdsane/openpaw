@@ -318,9 +318,10 @@ fn drive_repl_loop(
                     )),
                 };
 
-                pending_results.insert(call_id, ext_result);
+                // Resume with the result directly — we have it now, no need for
+                // the async resume_pending() → ResolveFutures roundtrip.
                 let mut print = PrintWriter::Collect(std::mem::take(&mut print_buf));
-                match call.resume_pending(&mut print) {
+                match call.resume(ext_result, &mut print) {
                     Ok(p) => { if let PrintWriter::Collect(s) = print { print_buf = s; } progress = p; }
                     Err(e) => { if let PrintWriter::Collect(s) = print { print_buf = s; } return (Err(format_monty_exception(&e.error)), e.repl, print_buf); }
                 }
