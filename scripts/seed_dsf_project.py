@@ -29,46 +29,42 @@ REFERENCE_DIR = os.path.join(
 # Skill definitions — the six DSF skills
 # ---------------------------------------------------------------------------
 
+# Skills: scope = soul name that receives this skill (used by LLM caller filter).
+# agent_filter = legacy field, value copied to scope at registration time.
 SKILLS = [
     {
         "name": "swe-conventions",
         "description": "SWE coding conventions for the deep-sci-fi codebase.",
-        "scope": "soul",
         "agent_filter": "SWE",
         "file": "dsf-team/skills/swe-conventions.md",
     },
     {
         "name": "sre-monitoring",
         "description": "SRE monitoring, alert triage, and health-scan workflows.",
-        "scope": "soul",
         "agent_filter": "SRE",
         "file": "dsf-team/skills/sre-monitoring.md",
     },
     {
         "name": "reviewer-code",
         "description": "Code review conventions and quality checklist.",
-        "scope": "soul",
         "agent_filter": "CodeReviewer",
         "file": "dsf-team/skills/reviewer-code.md",
     },
     {
         "name": "reviewer-dst",
         "description": "Deterministic simulation testing review checklist.",
-        "scope": "soul",
         "agent_filter": "DSTReviewer",
         "file": "dsf-team/skills/reviewer-dst.md",
     },
     {
         "name": "design-system",
         "description": "Neo-editorial design system conventions and tokens.",
-        "scope": "soul",
         "agent_filter": "Design",
         "file": "dsf-team/skills/design-system.md",
     },
     {
         "name": "content-standards",
         "description": "Content quality, world coherence, and scientific grounding.",
-        "scope": "soul",
         "agent_filter": "Librarian",
         "file": "dsf-team/skills/content-standards.md",
     },
@@ -219,7 +215,9 @@ def seed_skill(client: ODataClient, skill_def: dict) -> str:
         {
             "name": name,
             "description": skill_def["description"],
-            "scope": skill_def["scope"],
+            # scope = soul name that should receive this skill.
+            # The LLM caller queries: Scope eq 'global' or Scope eq '{soul_name}'
+            "scope": skill_def["agent_filter"] if skill_def.get("agent_filter") else "global",
             "agent_filter": skill_def["agent_filter"],
             "content_file_id": file_id,
         },

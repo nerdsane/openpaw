@@ -35,9 +35,20 @@
       queryEntities('Skills').catch(() => []),
     ]);
     souls = so;
-    skills = sk;
+    // Filter out ghost skills (no name — artifacts of failed Register actions)
+    skills = sk.filter(s => {
+      const name = (s.Name ?? s.name ?? '') as string;
+      return name.length > 0;
+    });
     loaded = true;
   });
+
+  function humanScope(entity: Record<string, unknown>): string {
+    const scope = ((entity.scope ?? entity.Scope ?? '') as string).trim();
+    if (!scope || scope === 'global') return 'ALL AGENTS';
+    if (scope === 'soul') return 'BROKEN (scope="soul")';
+    return scope.toUpperCase();
+  }
 </script>
 
 <div class="page">
@@ -92,9 +103,7 @@
             </div>
             <p class="card-desc">{field(skill, 'Description') || field(skill, 'description') || '--'}</p>
             <div class="card-meta-row">
-              {#if field(skill, 'scope')}
-                <span class="meta-tag">SCOPE: {field(skill, 'scope')}</span>
-              {/if}
+              <span class="meta-tag">{humanScope(skill)}</span>
             </div>
             {#if skillFileId}
               <button class="view-btn" onclick={() => toggleContent(skillId, skillFileId, 'skill')}>

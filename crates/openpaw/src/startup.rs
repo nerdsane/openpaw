@@ -578,10 +578,100 @@ fn spawn_soul_bootstrap(port: u16, tenant: String, api_key: Option<String>) {
             }
         }
 
+        // ── Skill scope migration ──────────────────────────────────────
+        // Fix skills with scope="soul" — these are invisible to agents because
+        // the LLM caller queries by soul name, not the literal "soul" string.
+        // Migrate: scope = agent_filter when scope == "soul" and agent_filter is set.
+        migrate_skill_scopes(&client, &api_url, &tenant, &api_key).await;
+
         if let Err(e) = set_default_soul(&client, &api_url, &tenant, &api_key, "Paw").await {
             tracing::warn!("Could not set default soul on AgentRoute: {e}");
         }
     });
+}
+
+/// Migrate broken skill scopes and clean up ghost skills.
+///
+/// - Skills with `scope="soul"` and a non-empty `agent_filter` get their scope
+///   updated to the `agent_filter` value (the actual soul name the LLM caller
+///   uses for filtering).
+/// - Skills with no name are logged as ghosts (artifacts of failed Register actions).
+async fn migrate_skill_scopes(
+    client: &reqwest::Client,
+    api_url: &str,
+    tenant: &str,
+    api_key: &Option<String>,
+) {
+    // Query all skills
+    let url = format!("{api_url}/tdata/Skills");
+    let resp = match odata_get(client, &url, tenant, api_key).await {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::warn!("skill scope migration: failed to list skills: {e}");
+            return;
+        }
+    };
+
+    let items = match resp["value"].as_array() {
+        Some(arr) => arr.clone(),
+        None => return,
+    };
+
+    for item in &items {
+        let id = entity_id_from_json(item).unwrap_or("unknown");
+        let name = entity_field_str(item, &["Name", "name"]).unwrap_or("");
+        let scope = entity_field_str(item, &["Scope", "scope"]).unwrap_or("");
+        let agent_filter = entity_field_str(item, &["agent_filter"]).unwrap_or("");
+
+        // Ghost skill: no name — log warning
+        if name.is_empty() {
+            tracing::warn!(
+                skill_id = id,
+                "skill scope migration: ghost skill with no name (failed Register?)"
+            );
+            continue;
+        }
+
+        // Fix broken scope: "soul" → agent_filter value
+        if scope == "soul" && !agent_filter.is_empty() {
+            tracing::info!(
+                skill_id = id,
+                name,
+                old_scope = scope,
+                new_scope = agent_filter,
+                "skill scope migration: fixing scope"
+            );
+            // Use Register action to update scope (Register is idempotent on Active skills)
+            let content_file_id = entity_field_str(item, &["ContentFileId", "content_file_id"])
+                .unwrap_or("")
+                .to_string();
+            let description = entity_field_str(item, &["Description", "description"])
+                .unwrap_or("")
+                .to_string();
+            if let Err(e) = odata_post(
+                client,
+                &format!("{api_url}/tdata/Skills('{id}')/OpenPaw.Register"),
+                tenant,
+                api_key,
+                serde_json::json!({
+                    "name": name,
+                    "description": description,
+                    "content_file_id": content_file_id,
+                    "scope": agent_filter,
+                    "agent_filter": agent_filter,
+                }),
+            )
+            .await
+            {
+                tracing::warn!(
+                    skill_id = id,
+                    name,
+                    error = %e,
+                    "skill scope migration: failed to update scope"
+                );
+            }
+        }
+    }
 }
 
 /// Create or find a Soul entity for the given soul files.
