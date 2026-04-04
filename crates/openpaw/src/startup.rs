@@ -529,6 +529,11 @@ fn spawn_soul_bootstrap(port: u16, tenant: String, api_key: Option<String>) {
                 "Site reliability engineering agent",
                 &["souls/sre/SKILL.md"],
             ),
+            (
+                "Probe",
+                "Foresight probe agent for projecting product futures",
+                &["souls/probe.md"],
+            ),
         ];
 
         for (name, description, paths) in souls {
