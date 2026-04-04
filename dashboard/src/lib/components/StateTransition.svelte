@@ -30,7 +30,7 @@
 
   let expanded = $state(false);
 
-  let shortId = $derived(event.entity_id?.slice(0, 8) ?? '');
+  let shortId = $derived(event.entity_id ?? '');
 
   let hasToolCalls = $derived(
     !!agentSnapshot?.pending_tool_calls &&
@@ -61,7 +61,7 @@
     {/if}
     {#if authz}
       <span class="authz-badge" class:authz-badge--allowed={authz.allowed} class:authz-badge--denied={!authz.allowed}>
-        {authz.allowed ? 'Allowed' : 'Denied'}
+        {authz.allowed ? 'ALLOWED' : 'DENIED'}
       </span>
       {#if authz.denied_resource}
         <code class="authz-resource">{authz.denied_resource}</code>
@@ -73,11 +73,11 @@
   {#if turnDelta !== null || tokenInfo !== null}
     <div class="transition__counters">
       {#if turnDelta !== null}
-        <span class="counter">turns: {turnDelta}</span>
+        <span class="counter">TURNS: {turnDelta}</span>
       {/if}
       {#if tokenInfo}
-        <span class="counter">in: {tokenInfo.input.toLocaleString()}</span>
-        <span class="counter">out: {tokenInfo.output.toLocaleString()}</span>
+        <span class="counter">IN: {tokenInfo.input.toLocaleString()}</span>
+        <span class="counter">OUT: {tokenInfo.output.toLocaleString()}</span>
       {/if}
     </div>
   {/if}
@@ -87,7 +87,7 @@
       class="transition__expand"
       onclick={() => expanded = !expanded}
     >
-      {expanded ? 'Hide' : 'Show'} tool calls
+      {expanded ? '[-] HIDE' : '[+] SHOW'} TOOL CALLS
     </button>
     {#if expanded}
       <pre class="transition__tools" transition:slide={{ duration: 150 }}>{agentSnapshot?.pending_tool_calls}</pre>
@@ -100,89 +100,94 @@
     display: flex;
     flex-direction: column;
     gap: 6px;
-    padding: var(--space-2) 0;
+    padding: var(--space-md) 0;
     border-bottom: 1px solid var(--border);
   }
 
   .transition__header {
     display: flex;
     align-items: center;
-    gap: var(--space-1);
+    gap: var(--space-sm);
   }
 
   .transition__action {
-    font-size: var(--text-sm);
+    font-family: var(--font-body);
+    font-size: var(--body-sm);
     color: var(--text-primary);
     font-weight: 500;
   }
 
-  .transition__id {
-    font-family: var(--font-mono);
-    font-size: var(--text-xs);
-    color: var(--text-tertiary);
-  }
-
   .transition__flow {
-    font-size: var(--text-xs);
-    color: var(--text-tertiary);
+    font-family: var(--font-mono);
+    font-size: var(--label);
+    color: var(--text-disabled);
+    letter-spacing: 0.04em;
   }
 
   .transition__time {
     font-family: var(--font-mono);
-    font-size: var(--text-xs);
-    color: var(--text-tertiary);
+    font-size: var(--label);
+    color: var(--text-disabled);
     margin-left: auto;
   }
 
   .transition__counters {
     display: flex;
-    gap: var(--space-2);
+    gap: var(--space-md);
   }
 
   .counter {
     font-family: var(--font-mono);
-    font-size: var(--text-xs);
-    color: var(--text-tertiary);
+    font-size: var(--label);
+    letter-spacing: 0.06em;
+    color: var(--text-disabled);
   }
 
   .transition__expand {
-    font-size: var(--text-xs);
+    font-family: var(--font-mono);
+    font-size: var(--label);
+    letter-spacing: 0.06em;
     color: var(--text-secondary);
-    padding: 2px 0;
+    padding: var(--space-2xs) 0;
     text-align: left;
     width: fit-content;
   }
 
   .transition__expand:hover {
-    color: var(--text-primary);
+    color: var(--text-display);
   }
 
   .transition__tools {
-    font-size: var(--text-xs);
+    font-size: var(--label);
     max-height: 200px;
     overflow: auto;
     white-space: pre-wrap;
     word-break: break-all;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    padding: var(--space-sm);
+    border-radius: var(--radius-sm);
   }
 
   .authz-badge {
-    font-size: 0.625rem;
+    font-family: var(--font-mono);
+    font-size: var(--label);
     text-transform: uppercase;
-    letter-spacing: 0.03em;
-    padding: 1px 5px;
+    letter-spacing: 0.06em;
+    padding: 1px 8px;
     border-radius: var(--radius-sm);
   }
   .authz-badge--allowed {
     color: var(--status-success);
-    background: rgba(61, 122, 61, 0.1);
+    background: var(--accent-subtle);
   }
   .authz-badge--denied {
     color: var(--status-error);
-    background: rgba(139, 58, 58, 0.1);
+    background: rgba(232, 91, 129, 0.1);
   }
   .authz-resource {
     font-family: var(--font-mono);
-    font-size: var(--text-xs);
+    font-size: var(--label);
     color: var(--status-error);
   }
 </style>

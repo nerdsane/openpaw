@@ -22,6 +22,15 @@ export default defineConfig({
 						proxyReq.setHeader('x-temper-principal-kind', 'admin');
 					});
 				}
+			},
+			'/api': {
+				target: 'http://localhost:3467',
+				configure: (proxy) => {
+					proxy.on('proxyReq', (proxyReq) => {
+						proxyReq.setHeader('x-tenant-id', 'default');
+						proxyReq.setHeader('x-temper-principal-kind', 'admin');
+					});
+				}
 			}
 		}
 	}

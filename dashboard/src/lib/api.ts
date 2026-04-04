@@ -51,7 +51,8 @@ export async function queryEntities(
 }
 
 export async function fetchDecisions(status?: string): Promise<DecisionsResponse> {
-  let url = `${BASE}/api/tenants/default/decisions`;
+  // Temper platform serves decisions at /api/decisions (global, not tenant-scoped)
+  let url = `${BASE}/api/decisions`;
   if (status) url += `?status=${status}`;
   const res = await fetch(url, { headers: HEADERS });
   if (!res.ok) return { decisions: [], total: 0, pending_count: 0, approved_count: 0, denied_count: 0 };
@@ -59,7 +60,8 @@ export async function fetchDecisions(status?: string): Promise<DecisionsResponse
 }
 
 export async function fetchPolicies(): Promise<PolicyEntry[]> {
-  const res = await fetch(`${BASE}/api/tenants/default/policies`, { headers: HEADERS });
+  // Temper platform uses /policies/list and returns { policies: [...] }
+  const res = await fetch(`${BASE}/api/tenants/default/policies/list`, { headers: HEADERS });
   if (!res.ok) return [];
   const data = await res.json();
   return Array.isArray(data) ? data : (data.policies ?? data.value ?? []);
@@ -113,6 +115,9 @@ export interface SessionHistoryEntry {
   error: string | null;
   authz_denied: boolean;
   denied_resource: string | null;
+  /** Cedar policy IDs that contributed to the authorization decision (allow or deny).
+   *  Available after Temper ADR-0039 (authz policy traceability). */
+  matched_policy_ids: string[] | null;
 }
 
 export async function fetchSessionHistory(
