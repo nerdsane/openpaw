@@ -1,0 +1,184 @@
+# Direction — Proposed product direction with validation depth.
+#
+# Directions emerge from escalated observations. They capture the reasoning,
+# grounding in ProductModel signals, and supporting observations. Directions
+# pass through peer review (blind feedback via DirectionFeedback), optional
+# cross-model agreement, and implementation before a human can Select them.
+#
+# The reasoning field is free-form text — the model organizes its thinking
+# however it wants (chain-of-thought, structured analysis, etc.).
+
+[automaton]
+name = "Direction"
+states = ["Proposed", "UnderReview", "Implementing", "Implemented", "Selected", "Archived"]
+initial = "Proposed"
+
+# --- State Variables ---
+
+[[state]]
+name = "title"
+type = "string"
+initial = ""
+
+[[state]]
+name = "proposer_agent_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "projection_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "reasoning"
+type = "string"
+initial = ""
+
+[[state]]
+name = "grounding"
+type = "string"
+initial = "[]"
+
+[[state]]
+name = "observation_ids"
+type = "string"
+initial = "[]"
+
+[[state]]
+name = "counterfactual_summary"
+type = "string"
+initial = ""
+
+[[state]]
+name = "confirmation_count"
+type = "counter"
+initial = "0"
+
+[[state]]
+name = "review_count"
+type = "counter"
+initial = "0"
+
+[[state]]
+name = "cross_model_agreement"
+type = "bool"
+initial = "false"
+
+[[state]]
+name = "branch_name"
+type = "string"
+initial = ""
+
+[[state]]
+name = "pr_url"
+type = "string"
+initial = ""
+
+[[state]]
+name = "artifact_file_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "archive_reason"
+type = "string"
+initial = ""
+
+[[state]]
+name = "error_message"
+type = "string"
+initial = ""
+
+# --- Actions ---
+
+[[action]]
+name = "Propose"
+kind = "input"
+from = ["Proposed"]
+params = ["title", "proposer_agent_id", "projection_id", "reasoning", "grounding", "observation_ids", "counterfactual_summary"]
+hint = "Fill in the direction proposal. Self-loop on Proposed."
+
+[[action]]
+name = "SubmitForReview"
+kind = "input"
+from = ["Proposed"]
+to = "UnderReview"
+params = []
+hint = "Submit the direction for peer review."
+
+[[action]]
+name = "RecordReview"
+kind = "input"
+from = ["UnderReview"]
+params = []
+hint = "Record a peer review. Increments review_count. Self-loop on UnderReview."
+effect = [{ type = "increment", var = "review_count" }]
+
+[[action]]
+name = "RecordConfirmation"
+kind = "input"
+from = ["UnderReview"]
+params = []
+hint = "Record a confirmation from a reviewing agent. Increments confirmation_count."
+effect = [{ type = "increment", var = "confirmation_count" }]
+
+[[action]]
+name = "MarkCrossModelAgreement"
+kind = "input"
+from = ["UnderReview"]
+params = []
+hint = "Mark that multiple independent models agree on this direction."
+effect = [{ type = "set_bool", var = "cross_model_agreement", value = "true" }]
+
+[[action]]
+name = "BeginImplementation"
+kind = "input"
+from = ["UnderReview"]
+to = "Implementing"
+params = ["branch_name"]
+hint = "Begin implementing the direction on a feature branch."
+
+[[action]]
+name = "ImplementationComplete"
+kind = "input"
+from = ["Implementing"]
+to = "Implemented"
+params = ["pr_url", "artifact_file_id"]
+hint = "Implementation finished. Record the PR and any artifacts."
+
+[[action]]
+name = "Select"
+kind = "input"
+from = ["Implemented"]
+to = "Selected"
+params = []
+hint = "Human selects this direction for the product roadmap."
+
+[[action]]
+name = "Archive"
+kind = "input"
+from = ["Proposed", "UnderReview", "Implementing", "Implemented"]
+to = "Archived"
+params = ["archive_reason"]
+hint = "Archive a direction at any pre-selected stage."
+
+[[action]]
+name = "Fail"
+kind = "input"
+from = ["Implementing"]
+to = "Archived"
+params = ["error_message"]
+hint = "Implementation failed. Archive with error details."
+
+# --- Invariants ---
+
+[[invariant]]
+name = "SelectedIsFinal"
+when = ["Selected"]
+assert = "no_further_transitions"
+
+[[invariant]]
+name = "ArchivedIsFinal"
+when = ["Archived"]
+assert = "no_further_transitions"

@@ -1,0 +1,119 @@
+# Observation — Gate 1 (free) and Gate 2 (peer confirmation).
+#
+# Probe agents record observations during projection steps. Each observation
+# captures what was noticed, its importance, supporting signals from the
+# ProductModel, and a counterfactual (what would happen if ignored).
+#
+# Gate 1: Any probe can Record an observation (free).
+# Gate 2: A *different* probe must Confirm it (Cedar enforces confirmer != creator).
+# Confirmed observations can be Escalated into a Direction.
+# Observations that lose relevance Fade.
+#
+# No WASM integrations — all transitions are human/agent-driven input actions.
+
+[automaton]
+name = "Observation"
+states = ["Created", "Confirmed", "Escalated", "Faded"]
+initial = "Created"
+
+# --- State Variables ---
+
+[[state]]
+name = "probe_agent_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "projection_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "step_at"
+type = "string"
+initial = ""
+
+[[state]]
+name = "content"
+type = "string"
+initial = ""
+
+[[state]]
+name = "importance"
+type = "string"
+initial = ""
+
+[[state]]
+name = "signal_refs"
+type = "string"
+initial = "[]"
+
+[[state]]
+name = "counterfactual"
+type = "string"
+initial = ""
+
+[[state]]
+name = "confirmer_agent_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "confirmation_note"
+type = "string"
+initial = ""
+
+[[state]]
+name = "direction_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "fade_reason"
+type = "string"
+initial = ""
+
+# --- Actions ---
+
+[[action]]
+name = "Record"
+kind = "input"
+from = ["Created"]
+params = ["probe_agent_id", "projection_id", "step_at", "content", "importance", "signal_refs", "counterfactual"]
+hint = "Gate 1: Record a free-form observation during a projection step. Self-loop on Created."
+
+[[action]]
+name = "Confirm"
+kind = "input"
+from = ["Created"]
+to = "Confirmed"
+params = ["confirmer_agent_id", "confirmation_note"]
+hint = "Gate 2: A different probe confirms this observation. Cedar policy enforces confirmer != creator."
+
+[[action]]
+name = "Escalate"
+kind = "input"
+from = ["Confirmed"]
+to = "Escalated"
+params = ["direction_id"]
+hint = "Promote a confirmed observation into a Direction for deeper exploration."
+
+[[action]]
+name = "Fade"
+kind = "input"
+from = ["Created", "Confirmed"]
+to = "Faded"
+params = ["fade_reason"]
+hint = "Mark an observation as faded when it loses relevance or is superseded."
+
+# --- Invariants ---
+
+[[invariant]]
+name = "EscalatedIsFinal"
+when = ["Escalated"]
+assert = "no_further_transitions"
+
+[[invariant]]
+name = "FadedIsFinal"
+when = ["Faded"]
+assert = "no_further_transitions"

@@ -1,0 +1,287 @@
+<?xml version="1.0" encoding="utf-8"?>
+<edmx:Edmx Version="4.0" xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx">
+  <edmx:DataServices>
+    <Schema Namespace="OpenPaw.Foresight" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+
+      <EntityType Name="ProductModel">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.String" Nullable="false"/>
+        <Property Name="Status" Type="Edm.String"/>
+        <Property Name="ProjectHarnessId" Type="Edm.String"/>
+        <Property Name="RepoUrl" Type="Edm.String"/>
+        <Property Name="SignalSourceConfig" Type="Edm.String"/>
+        <Property Name="ModelSnapshotFileId" Type="Edm.String"/>
+        <Property Name="LastSignalRefresh" Type="Edm.String"/>
+        <Property Name="SignalCount" Type="Edm.String"/>
+        <Property Name="ErrorMessage" Type="Edm.String"/>
+      </EntityType>
+
+      <EntityType Name="Projection">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.String" Nullable="false"/>
+        <Property Name="Status" Type="Edm.String"/>
+        <Property Name="ProductModelId" Type="Edm.String"/>
+        <Property Name="Horizon" Type="Edm.String"/>
+        <Property Name="CurrentStep" Type="Edm.Int64"/>
+        <Property Name="MaxSteps" Type="Edm.String"/>
+        <Property Name="StepSchedule" Type="Edm.String"/>
+        <Property Name="ProjectedStateFileId" Type="Edm.String"/>
+        <Property Name="ParentProjectionId" Type="Edm.String"/>
+        <Property Name="BranchReason" Type="Edm.String"/>
+        <Property Name="ProbeConfig" Type="Edm.String"/>
+        <Property Name="ProbeAgentIds" Type="Edm.String"/>
+        <Property Name="ObservationCount" Type="Edm.Int64"/>
+        <Property Name="DirectionCount" Type="Edm.Int64"/>
+        <Property Name="ErrorMessage" Type="Edm.String"/>
+      </EntityType>
+
+      <EntityType Name="Observation">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.String" Nullable="false"/>
+        <Property Name="Status" Type="Edm.String"/>
+        <Property Name="ProbeAgentId" Type="Edm.String"/>
+        <Property Name="ProjectionId" Type="Edm.String"/>
+        <Property Name="StepAt" Type="Edm.String"/>
+        <Property Name="Content" Type="Edm.String"/>
+        <Property Name="Importance" Type="Edm.String"/>
+        <Property Name="SignalRefs" Type="Edm.String"/>
+        <Property Name="Counterfactual" Type="Edm.String"/>
+        <Property Name="ConfirmerAgentId" Type="Edm.String"/>
+        <Property Name="ConfirmationNote" Type="Edm.String"/>
+        <Property Name="DirectionId" Type="Edm.String"/>
+        <Property Name="FadeReason" Type="Edm.String"/>
+      </EntityType>
+
+      <EntityType Name="Direction">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.String" Nullable="false"/>
+        <Property Name="Status" Type="Edm.String"/>
+        <Property Name="Title" Type="Edm.String"/>
+        <Property Name="ProposerAgentId" Type="Edm.String"/>
+        <Property Name="ProjectionId" Type="Edm.String"/>
+        <Property Name="Reasoning" Type="Edm.String"/>
+        <Property Name="Grounding" Type="Edm.String"/>
+        <Property Name="ObservationIds" Type="Edm.String"/>
+        <Property Name="CounterfactualSummary" Type="Edm.String"/>
+        <Property Name="ConfirmationCount" Type="Edm.Int64"/>
+        <Property Name="ReviewCount" Type="Edm.Int64"/>
+        <Property Name="CrossModelAgreement" Type="Edm.Boolean"/>
+        <Property Name="BranchName" Type="Edm.String"/>
+        <Property Name="PrUrl" Type="Edm.String"/>
+        <Property Name="ArtifactFileId" Type="Edm.String"/>
+        <Property Name="ArchiveReason" Type="Edm.String"/>
+        <Property Name="ErrorMessage" Type="Edm.String"/>
+      </EntityType>
+
+      <EntityType Name="DirectionFeedback">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.String" Nullable="false"/>
+        <Property Name="Status" Type="Edm.String"/>
+        <Property Name="DirectionId" Type="Edm.String"/>
+        <Property Name="ReviewerProbeId" Type="Edm.String"/>
+        <Property Name="Category" Type="Edm.String"/>
+        <Property Name="Severity" Type="Edm.String"/>
+        <Property Name="Description" Type="Edm.String"/>
+        <Property Name="Response" Type="Edm.String"/>
+        <Property Name="ResolutionNote" Type="Edm.String"/>
+      </EntityType>
+
+      <!-- Bound Actions: ProductModel -->
+      <Action Name="Seed" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Foresight.ProductModel"/>
+        <Parameter Name="project_harness_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="repo_url" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="signal_source_config" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="OpenPaw.Foresight.ProductModel"/>
+      </Action>
+      <Action Name="SeedComplete" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Foresight.ProductModel"/>
+        <Parameter Name="model_snapshot_file_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="signal_count" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="last_signal_refresh" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="OpenPaw.Foresight.ProductModel"/>
+      </Action>
+      <Action Name="SeedFailed" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Foresight.ProductModel"/>
+        <Parameter Name="error_message" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="OpenPaw.Foresight.ProductModel"/>
+      </Action>
+      <Action Name="RefreshSignals" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Foresight.ProductModel"/>
+        <ReturnType Type="OpenPaw.Foresight.ProductModel"/>
+      </Action>
+      <Action Name="RefreshComplete" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Foresight.ProductModel"/>
+        <Parameter Name="model_snapshot_file_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="signal_count" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="last_signal_refresh" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="OpenPaw.Foresight.ProductModel"/>
+      </Action>
+      <Action Name="MarkStale" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Foresight.ProductModel"/>
+        <ReturnType Type="OpenPaw.Foresight.ProductModel"/>
+      </Action>
+      <Action Name="Reactivate" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Foresight.ProductModel"/>
+        <ReturnType Type="OpenPaw.Foresight.ProductModel"/>
+      </Action>
+
+      <!-- Bound Actions: Projection -->
+      <Action Name="Configure" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Foresight.Projection"/>
+        <Parameter Name="product_model_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="horizon" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="max_steps" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="step_schedule" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="probe_config" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="parent_projection_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="branch_reason" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="OpenPaw.Foresight.Projection"/>
+      </Action>
+      <Action Name="Start" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Foresight.Projection"/>
+        <ReturnType Type="OpenPaw.Foresight.Projection"/>
+      </Action>
+      <Action Name="ProbesReady" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Foresight.Projection"/>
+        <Parameter Name="probe_agent_ids" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="OpenPaw.Foresight.Projection"/>
+      </Action>
+      <Action Name="StepComplete" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Foresight.Projection"/>
+        <Parameter Name="projected_state_file_id" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="OpenPaw.Foresight.Projection"/>
+      </Action>
+      <Action Name="Complete" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Foresight.Projection"/>
+        <ReturnType Type="OpenPaw.Foresight.Projection"/>
+      </Action>
+      <Action Name="Branch" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Foresight.Projection"/>
+        <ReturnType Type="OpenPaw.Foresight.Projection"/>
+      </Action>
+      <Action Name="Fail" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Foresight.Projection"/>
+        <Parameter Name="error_message" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="OpenPaw.Foresight.Projection"/>
+      </Action>
+
+      <!-- Bound Actions: Observation -->
+      <Action Name="Record" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Foresight.Observation"/>
+        <Parameter Name="probe_agent_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="projection_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="step_at" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="content" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="importance" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="signal_refs" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="counterfactual" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="OpenPaw.Foresight.Observation"/>
+      </Action>
+      <Action Name="Confirm" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Foresight.Observation"/>
+        <Parameter Name="confirmer_agent_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="confirmation_note" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="OpenPaw.Foresight.Observation"/>
+      </Action>
+      <Action Name="Escalate" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Foresight.Observation"/>
+        <Parameter Name="direction_id" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="OpenPaw.Foresight.Observation"/>
+      </Action>
+      <Action Name="Fade" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Foresight.Observation"/>
+        <Parameter Name="fade_reason" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="OpenPaw.Foresight.Observation"/>
+      </Action>
+
+      <!-- Bound Actions: Direction -->
+      <Action Name="Propose" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Foresight.Direction"/>
+        <Parameter Name="title" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="proposer_agent_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="projection_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="reasoning" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="grounding" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="observation_ids" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="counterfactual_summary" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="OpenPaw.Foresight.Direction"/>
+      </Action>
+      <Action Name="SubmitForReview" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Foresight.Direction"/>
+        <ReturnType Type="OpenPaw.Foresight.Direction"/>
+      </Action>
+      <Action Name="RecordReview" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Foresight.Direction"/>
+        <ReturnType Type="OpenPaw.Foresight.Direction"/>
+      </Action>
+      <Action Name="RecordConfirmation" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Foresight.Direction"/>
+        <ReturnType Type="OpenPaw.Foresight.Direction"/>
+      </Action>
+      <Action Name="MarkCrossModelAgreement" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Foresight.Direction"/>
+        <ReturnType Type="OpenPaw.Foresight.Direction"/>
+      </Action>
+      <Action Name="BeginImplementation" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Foresight.Direction"/>
+        <Parameter Name="branch_name" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="OpenPaw.Foresight.Direction"/>
+      </Action>
+      <Action Name="ImplementationComplete" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Foresight.Direction"/>
+        <Parameter Name="pr_url" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="artifact_file_id" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="OpenPaw.Foresight.Direction"/>
+      </Action>
+      <Action Name="Select" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Foresight.Direction"/>
+        <ReturnType Type="OpenPaw.Foresight.Direction"/>
+      </Action>
+      <Action Name="Archive" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Foresight.Direction"/>
+        <Parameter Name="archive_reason" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="OpenPaw.Foresight.Direction"/>
+      </Action>
+
+      <!-- Bound Actions: DirectionFeedback -->
+      <Action Name="Submit" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Foresight.DirectionFeedback"/>
+        <Parameter Name="direction_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="reviewer_probe_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="category" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="severity" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="description" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="OpenPaw.Foresight.DirectionFeedback"/>
+      </Action>
+      <Action Name="Address" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Foresight.DirectionFeedback"/>
+        <Parameter Name="response" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="OpenPaw.Foresight.DirectionFeedback"/>
+      </Action>
+      <Action Name="Resolve" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Foresight.DirectionFeedback"/>
+        <Parameter Name="resolution_note" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="OpenPaw.Foresight.DirectionFeedback"/>
+      </Action>
+      <Action Name="Reopen" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Foresight.DirectionFeedback"/>
+        <Parameter Name="description" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="OpenPaw.Foresight.DirectionFeedback"/>
+      </Action>
+      <Action Name="ReAddress" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Foresight.DirectionFeedback"/>
+        <Parameter Name="response" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="OpenPaw.Foresight.DirectionFeedback"/>
+      </Action>
+
+      <EntityContainer Name="Service">
+        <EntitySet Name="ProductModels" EntityType="OpenPaw.Foresight.ProductModel"/>
+        <EntitySet Name="Projections" EntityType="OpenPaw.Foresight.Projection"/>
+        <EntitySet Name="Observations" EntityType="OpenPaw.Foresight.Observation"/>
+        <EntitySet Name="Directions" EntityType="OpenPaw.Foresight.Direction"/>
+        <EntitySet Name="DirectionFeedbacks" EntityType="OpenPaw.Foresight.DirectionFeedback"/>
+      </EntityContainer>
+    </Schema>
+  </edmx:DataServices>
+</edmx:Edmx>

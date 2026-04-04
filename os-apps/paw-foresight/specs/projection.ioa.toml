@@ -1,0 +1,189 @@
+# Projection — Temporal clock that advances through adaptive time steps.
+#
+# A projection simulates a product's future by stepping through a schedule of
+# day offsets. At each step, probe agents observe the projected state and record
+# observations. Projections can branch to explore alternative futures.
+#
+# The step loop is driven by WASM integration chaining:
+#   Start → (spawn_probes) → ProbesReady → (advance_step) →
+#   StepComplete → AdvanceStep → (advance_step) → ... → Complete
+
+[automaton]
+name = "Projection"
+states = ["Created", "Running", "Complete", "Branched", "Failed"]
+initial = "Created"
+
+# --- State Variables ---
+
+[[state]]
+name = "product_model_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "horizon"
+type = "string"
+initial = ""
+
+[[state]]
+name = "current_step"
+type = "counter"
+initial = "0"
+
+[[state]]
+name = "max_steps"
+type = "string"
+initial = ""
+
+[[state]]
+name = "step_schedule"
+type = "string"
+initial = "[]"
+
+[[state]]
+name = "projected_state_file_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "parent_projection_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "branch_reason"
+type = "string"
+initial = ""
+
+[[state]]
+name = "probe_config"
+type = "string"
+initial = ""
+
+[[state]]
+name = "probe_agent_ids"
+type = "string"
+initial = "[]"
+
+[[state]]
+name = "observation_count"
+type = "counter"
+initial = "0"
+
+[[state]]
+name = "direction_count"
+type = "counter"
+initial = "0"
+
+[[state]]
+name = "error_message"
+type = "string"
+initial = ""
+
+# --- Actions ---
+
+[[action]]
+name = "Configure"
+kind = "input"
+from = ["Created"]
+params = ["product_model_id", "horizon", "max_steps", "step_schedule", "probe_config", "parent_projection_id", "branch_reason"]
+hint = "Configure projection parameters. Self-loop on Created."
+
+[[action]]
+name = "Start"
+kind = "input"
+from = ["Created"]
+to = "Running"
+params = []
+hint = "Begin the projection. Spawns probe agents for the configured model."
+effect = [{ type = "trigger", name = "spawn_probes" }]
+
+[[action]]
+name = "ProbesReady"
+kind = "input"
+from = ["Running"]
+params = ["probe_agent_ids"]
+hint = "Callback after probe agents are spawned. Records agent IDs and starts first step."
+effect = [{ type = "trigger", name = "advance_step" }]
+
+[[action]]
+name = "AdvanceStep"
+kind = "internal"
+from = ["Running"]
+params = []
+hint = "Internal action: increment step counter and trigger the advance_step WASM module."
+effect = [
+  { type = "increment", var = "current_step" },
+  { type = "trigger", name = "advance_step" },
+]
+
+[[action]]
+name = "StepComplete"
+kind = "input"
+from = ["Running"]
+params = ["projected_state_file_id"]
+hint = "Callback from advance_step WASM. Records the projected state snapshot for this step."
+
+[[action]]
+name = "Complete"
+kind = "input"
+from = ["Running"]
+to = "Complete"
+params = []
+hint = "All steps finished. Mark the projection as complete."
+
+[[action]]
+name = "Branch"
+kind = "input"
+from = ["Running"]
+to = "Branched"
+params = []
+hint = "Mark this projection as branched. A child projection continues from this point."
+
+[[action]]
+name = "Fail"
+kind = "input"
+from = ["Created", "Running"]
+to = "Failed"
+params = ["error_message"]
+hint = "Mark projection as failed due to an unrecoverable error."
+
+# --- Invariants ---
+
+[[invariant]]
+name = "CompleteIsFinal"
+when = ["Complete"]
+assert = "no_further_transitions"
+
+[[invariant]]
+name = "BranchedIsFinal"
+when = ["Branched"]
+assert = "no_further_transitions"
+
+[[invariant]]
+name = "FailedIsFinal"
+when = ["Failed"]
+assert = "no_further_transitions"
+
+# --- Integrations ---
+
+[[integration]]
+name = "spawn_probes"
+trigger = "spawn_probes"
+type = "wasm"
+module = "spawn_probes"
+on_failure = "Fail"
+
+[integration.config]
+temper_api_url = "{secret:temper_api_url}"
+anthropic_api_key = "{secret:anthropic_api_key}"
+
+[[integration]]
+name = "advance_step"
+trigger = "advance_step"
+type = "wasm"
+module = "advance_step"
+on_failure = "Fail"
+
+[integration.config]
+temper_api_url = "{secret:temper_api_url}"

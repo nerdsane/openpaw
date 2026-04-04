@@ -35,6 +35,7 @@ const PAW_OS_APPS: &[&str] = &[
     "paw-heal",
     "paw-ingest",
     "paw-research",
+    "paw-foresight",
 ];
 
 /// Run the Open Paw daemon.
@@ -438,6 +439,8 @@ pub async fn run(config: Config) -> Result<()> {
     spawn_soul_bootstrap(actual_port, tenant.clone(), config.temper_api_key.clone());
 
     tracing::info!("Open Paw listening on port {actual_port}");
+
+
     axum::serve(listener, router).await?;
 
     Ok(())

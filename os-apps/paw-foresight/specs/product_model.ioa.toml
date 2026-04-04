@@ -1,0 +1,126 @@
+# ProductModel — Living knowledge graph of a product. One per project.
+#
+# Aggregates signals from repo activity, monitoring, and external sources into
+# a queryable model snapshot stored in TemperFS. The seed_model WASM module
+# crawls configured signal sources and builds the initial graph; subsequent
+# RefreshSignals calls incrementally update it.
+
+[automaton]
+name = "ProductModel"
+states = ["Created", "Seeding", "Active", "Stale"]
+initial = "Created"
+
+[[state]]
+name = "project_harness_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "repo_url"
+type = "string"
+initial = ""
+
+[[state]]
+name = "signal_source_config"
+type = "string"
+initial = ""
+
+[[state]]
+name = "model_snapshot_file_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "last_signal_refresh"
+type = "string"
+initial = ""
+
+[[state]]
+name = "signal_count"
+type = "string"
+initial = "0"
+
+[[state]]
+name = "error_message"
+type = "string"
+initial = ""
+
+# --- Actions ---
+
+[[action]]
+name = "Seed"
+kind = "input"
+from = ["Created"]
+to = "Seeding"
+params = ["project_harness_id", "repo_url", "signal_source_config"]
+hint = "Begin initial model seeding from configured signal sources."
+effect = [{ type = "trigger", name = "seed_model" }]
+
+[[action]]
+name = "SeedComplete"
+kind = "input"
+from = ["Seeding"]
+to = "Active"
+params = ["model_snapshot_file_id", "signal_count", "last_signal_refresh"]
+hint = "Callback from seed_model WASM. Records the snapshot and activates the model."
+
+[[action]]
+name = "SeedFailed"
+kind = "input"
+from = ["Seeding"]
+to = "Created"
+params = ["error_message"]
+hint = "Seed failed. Return to Created so operator can retry."
+
+[[action]]
+name = "RefreshSignals"
+kind = "input"
+from = ["Active"]
+params = []
+hint = "Trigger an incremental signal refresh on an active model."
+effect = [{ type = "trigger", name = "seed_model" }]
+
+[[action]]
+name = "RefreshComplete"
+kind = "input"
+from = ["Active"]
+params = ["model_snapshot_file_id", "signal_count", "last_signal_refresh"]
+hint = "Callback after incremental refresh completes."
+
+[[action]]
+name = "MarkStale"
+kind = "input"
+from = ["Active"]
+to = "Stale"
+params = []
+hint = "Mark the model as stale when signals have not been refreshed within threshold."
+
+[[action]]
+name = "Reactivate"
+kind = "input"
+from = ["Stale"]
+to = "Seeding"
+params = []
+hint = "Re-seed a stale model to bring it back to Active."
+effect = [{ type = "trigger", name = "seed_model" }]
+
+# --- Invariants ---
+
+# Note: Stale is not truly final — Reactivate transitions out.
+# The action definitions enforce this (only Reactivate has from=["Stale"]).
+
+# --- Integrations ---
+
+[[integration]]
+name = "seed_model"
+trigger = "seed_model"
+type = "wasm"
+module = "seed_model"
+on_failure = "SeedFailed"
+
+[integration.config]
+temper_api_url = "{secret:temper_api_url}"
+github_token = "{secret:github_token}"
+dd_api_key = "{secret:dd_api_key}"
+dd_app_key = "{secret:dd_app_key}"
+dd_site = "{secret:dd_site}"

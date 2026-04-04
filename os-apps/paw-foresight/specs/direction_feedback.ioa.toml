@@ -1,0 +1,98 @@
+# DirectionFeedback — Blind review feedback on Directions.
+#
+# Probe agents submit structured feedback on proposed Directions. Cedar policy
+# enforces that the reviewer cannot be the direction's proposer (blind review).
+# Feedback categories cover signal weakness, feasibility, integration risk,
+# scope creep, and missing signals.
+#
+# No WASM integrations — all transitions are agent/human-driven input actions.
+
+[automaton]
+name = "DirectionFeedback"
+states = ["Open", "Addressed", "Resolved", "Reopened"]
+initial = "Open"
+
+# --- State Variables ---
+
+[[state]]
+name = "direction_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "reviewer_probe_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "category"
+type = "string"
+initial = ""
+
+[[state]]
+name = "severity"
+type = "string"
+initial = ""
+
+[[state]]
+name = "description"
+type = "string"
+initial = ""
+
+[[state]]
+name = "response"
+type = "string"
+initial = ""
+
+[[state]]
+name = "resolution_note"
+type = "string"
+initial = ""
+
+# --- Actions ---
+
+[[action]]
+name = "Submit"
+kind = "input"
+from = ["Open"]
+params = ["direction_id", "reviewer_probe_id", "category", "severity", "description"]
+hint = "Submit blind review feedback. Cedar enforces reviewer != direction proposer. Self-loop on Open."
+
+[[action]]
+name = "Address"
+kind = "input"
+from = ["Open"]
+to = "Addressed"
+params = ["response"]
+hint = "The direction proposer addresses the feedback."
+
+[[action]]
+name = "Resolve"
+kind = "input"
+from = ["Addressed"]
+to = "Resolved"
+params = ["resolution_note"]
+hint = "Mark feedback as resolved after the response satisfies the reviewer."
+
+[[action]]
+name = "Reopen"
+kind = "input"
+from = ["Addressed"]
+to = "Reopened"
+params = ["description"]
+hint = "Reopen feedback if the response is insufficient."
+
+[[action]]
+name = "ReAddress"
+kind = "input"
+from = ["Reopened"]
+to = "Addressed"
+params = ["response"]
+hint = "Address reopened feedback with an updated response."
+
+# --- Invariants ---
+
+[[invariant]]
+name = "ResolvedIsFinal"
+when = ["Resolved"]
+assert = "no_further_transitions"
