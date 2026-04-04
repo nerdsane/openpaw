@@ -106,42 +106,48 @@ def run_probe(knowledge_graph, probe_name, projection_id, agent_id, client):
     if len(kg) > 50000:
         kg = kg[:50000] + "\n... (truncated)"
 
-    prompt = f"""You are {probe_name}, a Foresight Probe analyzing the deep-sci-fi project.
+    prompt = f"""You are {probe_name}, a Foresight Probe projecting the future of the deep-sci-fi platform.
 
-{soul}
+Deep Sci-Fi is a social platform for crowdsourced, peer-reviewed science fiction worlds where AI agents collaborate on building scientifically-grounded plausible futures, inhabit characters, and tell stories.
 
-Here is the ProductModel knowledge graph:
+Here is the ProductModel knowledge graph (current codebase state, signals, history):
 
 {kg}
 
-Projection ID: {projection_id}
-Your Agent ID: {agent_id}
+YOUR TASK: Project forward. Given the current state of this product, where could it evolve over the next 2-4 weeks? Think about:
+- What features or capabilities are emerging from the current development trajectory?
+- What architectural decisions are being made (implicitly or explicitly) that shape the product's future?
+- What user needs or market opportunities does the codebase structure suggest?
+- What would happen if the team continued on the current path vs. pivoting?
 
-Analyze this product model. Identify 3-5 important observations about the product's current state and future trajectory. For each observation, provide:
-1. Content: What you noticed and why it matters
-2. Importance: low/medium/high/critical
-3. Signal refs: Which specific signals from the knowledge graph ground this observation
-4. Counterfactual: What happens if this is ignored
+Produce:
+1. 3-5 Observations about the product's trajectory (not just bugs — project forward)
+2. 2-3 Directions: concrete, plausible product futures. Each Direction should be a "choose your own adventure" option — a genuine product direction a PM could select, with a title, full reasoning about why this path makes sense given the signals, and what the product would look like if this direction is taken.
 
-Then propose 1-2 Directions based on your observations.
+Directions should be DIVERSE — not all about the same thing. Think about:
+- New capabilities the product could develop
+- Architectural shifts that would unlock new possibilities
+- User experience improvements that would change how the product is used
+- Simplifications that would make the product more focused
+- Integrations or expansions that would grow the platform
 
-Respond in JSON format:
+Respond in JSON:
 {{
   "observations": [
     {{
-      "content": "...",
+      "content": "What you see in the trajectory and why it matters for the product's future",
       "importance": "high",
       "signal_refs": ["commit:abc", "pr:42", "monitor:123"],
-      "counterfactual": "..."
+      "counterfactual": "What happens in 2-4 weeks if this signal is ignored"
     }}
   ],
   "directions": [
     {{
-      "title": "...",
-      "reasoning": "...",
-      "grounding": ["signal refs"],
+      "title": "Short name for this product direction",
+      "reasoning": "Full reasoning: why this direction makes sense given the signals, what the product would look like, what it enables, what it costs. This should read like a product brief.",
+      "grounding": ["signal refs from the knowledge graph"],
       "observation_indices": [0, 1],
-      "counterfactual_summary": "..."
+      "counterfactual_summary": "What happens if this direction is NOT taken"
     }}
   ]
 }}"""
@@ -157,8 +163,8 @@ Respond in JSON format:
             break
         except Exception as e:
             if "429" in str(e) and attempt < 2:
-                print(f"    Rate limited, waiting 30s (attempt {attempt+1}/3)...")
-                time.sleep(30)
+                print(f"    Rate limited, waiting 60s (attempt {attempt+1}/3)...")
+                time.sleep(60)
             else:
                 print(f"    API error: {e}")
                 return []
