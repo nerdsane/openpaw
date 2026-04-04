@@ -147,11 +147,21 @@ Respond in JSON format:
 }}"""
 
     print(f"  Running {probe_name}...")
-    response = anthropic_client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=4096,
-        messages=[{"role": "user", "content": prompt}],
-    )
+    for attempt in range(3):
+        try:
+            response = anthropic_client.messages.create(
+                model="claude-haiku-4-5-20251001",
+                max_tokens=4096,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            break
+        except Exception as e:
+            if "429" in str(e) and attempt < 2:
+                print(f"    Rate limited, waiting 30s (attempt {attempt+1}/3)...")
+                time.sleep(30)
+            else:
+                print(f"    API error: {e}")
+                return []
 
     text = response.content[0].text
     # Extract JSON from response

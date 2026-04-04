@@ -207,13 +207,10 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             );
             let configure_body = json!({
                 "model": probe_model,
-                "provider": "anthropic",
                 "soul_id": "Probe",
-                "tools_enabled": "temper_get,temper_list,temper_action,temper_create,read_entity",
+                "tools_enabled": "temper_get,temper_list,temper_action,temper_create",
                 "max_turns": "50",
-                "user_message": user_message,
-                "temper_api_url": temper_api_url,
-                "workdir": "/workspace"
+                "user_message": user_message
             });
             let configure_resp = ctx.http_call(
                 "POST",
@@ -237,33 +234,6 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 "info",
                 &format!("spawn_probes: configured Session {session_id}"),
             );
-
-            // 3d. Explicitly dispatch Provision (matching alert_opener pattern)
-            let provision_url = format!(
-                "{temper_api_url}/tdata/Sessions('{session_id}')/OpenPaw.Provision"
-            );
-            let provision_resp = ctx.http_call(
-                "POST",
-                &provision_url,
-                &headers,
-                &json!({}).to_string(),
-            )?;
-            if provision_resp.status < 200 || provision_resp.status >= 300 {
-                ctx.log(
-                    "warn",
-                    &format!(
-                        "spawn_probes: Provision failed for Session {} (HTTP {}): {}",
-                        session_id,
-                        provision_resp.status,
-                        &provision_resp.body[..provision_resp.body.len().min(300)]
-                    ),
-                );
-            } else {
-                ctx.log(
-                    "info",
-                    &format!("spawn_probes: provisioned Session {session_id}"),
-                );
-            }
 
             probe_agent_ids.push(agent_id.to_string());
         }
