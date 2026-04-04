@@ -18,3 +18,5 @@ axum = { workspace = true }
 tracing = { workspace = true }
 ed25519-dalek = { version = "2", features = ["std"] }
 hex = "0.4"
+hmac = "0.12"
+sha2 = "0.10"

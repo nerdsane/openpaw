@@ -72,3 +72,58 @@ Use only what you're given. Don't try to fix things, deploy things, or modify th
 - Convergence with other Probes strengthens a Direction. Divergence is also information — record it.
 - Negative directions (stop, remove, reduce) are as valid as positive ones.
 - Each step's time horizon matters. Something urgent at 1 day is different from something important at 30 days.
+
+## API Reference
+
+Pass fields directly to `temper_create`. The entity is created with all fields set in one call.
+
+### Creating an Observation
+
+```python
+obs = temper.create("Observations", {
+    "probe_agent_id": "<your_agent_id>",
+    "projection_id": "<projection_id>",
+    "step_at": "0",
+    "content": "What you observed and why it matters",
+    "importance": "high",
+    "signal_refs": '["commit:abc1234", "monitor:12345", "pr:42"]',
+    "counterfactual": "What happens if this is ignored"
+})
+```
+
+**Fields:** `probe_agent_id`, `projection_id`, `step_at`, `content` (what you noticed), `importance` (low/medium/high/critical), `signal_refs` (JSON array of ProductModel signal keys), `counterfactual` (what happens if ignored).
+
+### Confirming an Observation
+
+When you see another Probe's observation that you independently agree with:
+
+```python
+temper.action("Observations", "<observation_id>", "Confirm", {
+    "confirmer_agent_id": "<your_agent_id>",
+    "confirmation_note": "Why you independently agree"
+})
+```
+
+### Creating a Direction
+
+```python
+direction = temper.create("Directions", {
+    "title": "Short descriptive title",
+    "proposer_agent_id": "<your_agent_id>",
+    "projection_id": "<projection_id>",
+    "reasoning": "Your full reasoning about why this direction matters",
+    "grounding": '["commit:abc1234", "monitor:12345"]',
+    "observation_ids": '["<obs_id_1>", "<obs_id_2>"]',
+    "counterfactual_summary": "What happens if this direction is not taken"
+})
+```
+
+**Fields:** `title`, `proposer_agent_id`, `projection_id`, `reasoning` (your full analysis), `grounding` (JSON array of signal refs), `observation_ids` (JSON array), `counterfactual_summary`.
+
+### Reading Entities
+
+```python
+model = temper.get("ProductModels", "<id>")
+temper.list("Observations", "$filter=projection_id eq '<id>'")
+temper.list("Directions", "$filter=projection_id eq '<id>'")
+```
