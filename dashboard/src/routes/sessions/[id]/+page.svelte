@@ -3,16 +3,21 @@
   import { slide, fade } from 'svelte/transition';
   import { page } from '$app/stores';
   import type { Session, WorkCycle, EntityEvent, Skill } from '$lib/types';
-  import { getEntity, queryEntities, fetchSessionHistory, fetchFileContent } from '$lib/api';
+  import { getEntity, queryEntities, fetchSessionHistory, fetchFileContent, fetchPolicies, type PolicyEntry } from '$lib/api';
   import { connectSSE, disconnectSSE, events, type StateChangeEvent } from '$lib/sse';
   import StatusBadge from '$lib/components/StatusBadge.svelte';
+  import AuthzBadge from '$lib/components/AuthzBadge.svelte';
+  import TerminalChrome from '$lib/components/TerminalChrome.svelte';
+  import SessionTree from '$lib/components/SessionTree.svelte';
   import GatePipeline from '$lib/components/GatePipeline.svelte';
   import TerminalFeed from '$lib/components/TerminalFeed.svelte';
-  import { eventsToTurns, type SessionTurn } from '$lib/parse';
+  import { eventsToTurns, computeMetrics, type SessionTurn, type SessionMetrics } from '$lib/parse';
+  import { resolveAgentName } from '$lib/stores/agents';
 
   let sessionId = $derived($page.params.id);
 
   let session = $state<Session | null>(null);
+  let agentName = $state<string>('Session');
   let soulName = $state<string | null>(null);
   let soulEntity = $state<Record<string, unknown> | null>(null);
   let soulContentExpanded = $state(false);
@@ -24,39 +29,45 @@
   let loaded = $state(false);
   let error = $state<string | null>(null);
   let taskExpanded = $state(false);
+  let identityExpanded = $state(false);
 
   let transitions = $state<Array<{ event: StateChangeEvent; snapshot?: Session; timestamp?: string; fromStatus?: string; authz?: { allowed: boolean; denied_resource?: string } }>>([]);
   let turns = $state<SessionTurn[]>([]);
+  let authzAllowed = $state(0);
+  let authzDenied = $state(0);
+  let sessionPolicies = $state<PolicyEntry[]>([]);
+  let metrics = $state<SessionMetrics>({ turns: 0, inputTokens: 0, outputTokens: 0, totalOutputTokens: 0 });
 
   let childIds = $derived.by((): string[] => {
     if (!session?.child_session_ids) return [];
-    try {
-      return JSON.parse(session.child_session_ids);
-    } catch {
-      return [];
-    }
+    try { return JSON.parse(session.child_session_ids); } catch { return []; }
   });
 
   let maxTurns = $derived(parseInt(session?.max_turns || '0', 10) || 0);
   let turnProgress = $derived.by(() => {
     if (!session || maxTurns === 0) return 0;
-    return Math.min(100, (session.turn_count / maxTurns) * 100);
+    return Math.min(100, (metrics.turns / maxTurns) * 100);
   });
-
-  let totalTokens = $derived((session?.input_tokens ?? 0) + (session?.output_tokens ?? 0));
-  let costDisplay = $derived.by(() => {
-    const c = parseFloat(session?.cost_cents || '0');
-    if (c === 0) return '--';
-    return `$${(c / 100).toFixed(4)}`;
-  });
-
-  let totalEventCount = $derived(session?._total_event_count ?? 0);
-  let displayedEventCount = $derived(transitions.length);
-  let rawEventCount = $derived(session?._events?.length ?? 0);
 
   let isTerminal = $derived(
     session ? ['Completed', 'Failed', 'Cancelled'].includes(session.Status) : false
   );
+
+  let isActive = $derived(
+    session ? !['Completed', 'Failed', 'Cancelled'].includes(session.Status) : false
+  );
+
+  let stateTransitions = $derived.by(() => {
+    if (!transitions.length) return [];
+    return transitions
+      .filter(t => t.timestamp)
+      .map(t => ({
+        action: t.event.action,
+        from: t.fromStatus ?? '',
+        to: t.event.status,
+        timestamp: t.timestamp!,
+      }));
+  });
 
   async function fetchSession() {
     const data = await getEntity('Sessions', sessionId);
@@ -67,115 +78,80 @@
     try {
       await fetchSession();
 
-      // Fetch soul name and entity
+      // Resolve agent name
+      if (session) {
+        agentName = await resolveAgentName(session);
+      }
+
       if (session?.soul_id) {
         try {
           const soul = await getEntity('Souls', session.soul_id);
           soulEntity = soul;
           soulName = (soul as { name?: string; Name?: string }).name ?? (soul as { Name?: string }).Name ?? null;
-        } catch {
-          // soul_id might be a name string (e.g. "SWE"), not an entity ID
-          soulName = session.soul_id;
-        }
+        } catch { soulName = session.soul_id; }
       }
 
-      // Fetch skills relevant to this session
       try {
         const allSkills = await queryEntities('Skills');
-        // Show skills that match: global scope, or scope matching session's project harness
         sessionSkills = allSkills.filter((s: Record<string, unknown>) => {
           const filter = ((s as { agent_filter?: string }).agent_filter ?? '') as string;
-          // Show all skills; if agent_filter is set, only show if it matches session's soul
-          if (filter && session?.soul_id && !filter.includes(session.soul_id) && !filter.includes(soulName ?? '')) {
-            return false;
-          }
+          if (filter && session?.soul_id && !filter.includes(session.soul_id) && !filter.includes(soulName ?? '')) return false;
           return true;
         }) as unknown as Skill[];
-      } catch { /* skills may not exist */ }
+      } catch {}
 
-      // Try to find linked work cycle
       try {
         const wcs = await queryEntities('WorkCycles', `planner_id eq '${sessionId}'`, undefined, 1);
-        if (wcs.length > 0) {
-          workcycle = wcs[0] as unknown as WorkCycle;
-        }
-      } catch { /* ignore */ }
+        if (wcs.length > 0) workcycle = wcs[0] as unknown as WorkCycle;
+      } catch {}
 
-      // Populate transitions from historical events
       if (session?._events && session._events.length > 0) {
-        // Filter out noisy Heartbeat events, show meaningful transitions
-        const meaningful = session._events.filter(
-          (e: EntityEvent) => e.action !== 'Heartbeat'
-        );
-        transitions = meaningful
-          .reverse()
-          .map((e: EntityEvent) => ({
-            event: {
-              seq: 0,
-              entity_type: 'Session',
-              entity_id: sessionId,
-              action: e.action,
-              status: e.to_status,
-              tenant: 'default',
-            } as StateChangeEvent,
-            snapshot: undefined,
-            timestamp: e.timestamp,
-            fromStatus: e.from_status,
-          }));
+        const meaningful = session._events.filter((e: EntityEvent) => e.action !== 'Heartbeat');
+        transitions = meaningful.reverse().map((e: EntityEvent) => ({
+          event: { seq: 0, entity_type: 'Session', entity_id: sessionId, action: e.action, status: e.to_status, tenant: 'default' } as StateChangeEvent,
+          snapshot: undefined,
+          timestamp: e.timestamp,
+          fromStatus: e.from_status,
+        }));
       }
-      // Parse events into terminal turns
       if (session?._events && session._events.length > 0) {
-        turns = eventsToTurns(session._events);
+        turns = eventsToTurns(session._events).reverse(); // latest first
+        metrics = computeMetrics(session._events);
       }
 
-      // Fetch trajectory history for authorization context
       const history = await fetchSessionHistory(sessionId, 'Session', 200);
 
-      // Merge authz data into turns
+      // Count authz stats
+      authzAllowed = history.filter(h => !h.authz_denied).length;
+      authzDenied = history.filter(h => h.authz_denied).length;
+
       for (const turn of turns) {
         const match = history.find(h =>
           h.action === 'ProcessToolCalls' &&
           Math.abs(new Date(h.timestamp).getTime() - new Date(turn.timestamp).getTime()) < 5000
         );
         if (match) {
-          turn.authz = {
-            allowed: !match.authz_denied,
-            denied_resource: match.denied_resource ?? undefined,
-          };
+          turn.authz = { allowed: !match.authz_denied, denied_resource: match.denied_resource ?? undefined };
         }
       }
 
-      // Merge authz data into transitions by matching action + timestamp proximity
       for (const t of transitions) {
         const eventAction = t.event.action;
         const eventTime = t.timestamp ? new Date(t.timestamp).getTime() : 0;
-
-        // Find matching trajectory entry (same action, within 5 seconds)
-        const match = history.find(h =>
-          h.action === eventAction &&
-          Math.abs(new Date(h.timestamp).getTime() - eventTime) < 5000
-        );
-
+        const match = history.find(h => h.action === eventAction && Math.abs(new Date(h.timestamp).getTime() - eventTime) < 5000);
         if (match) {
-          t.authz = {
-            allowed: !match.authz_denied,
-            denied_resource: match.denied_resource ?? undefined,
-          };
+          t.authz = { allowed: !match.authz_denied, denied_resource: match.denied_resource ?? undefined };
         }
       }
-    } catch {
-      error = 'Could not load session';
-    }
+      // Load policies for authz drill-down
+      try { sessionPolicies = await fetchPolicies(); } catch {}
+    } catch { error = 'Could not load session'; }
     loaded = true;
-
     connectSSE('Session', sessionId);
   });
 
-  onDestroy(() => {
-    disconnectSSE();
-  });
+  onDestroy(() => { disconnectSSE(); });
 
-  // SSE reactivity
   let lastSeq = $state(0);
   $effect(() => {
     const evts = $events;
@@ -183,205 +159,160 @@
     const latest = evts[0];
     if (latest.seq <= lastSeq) return;
     lastSeq = latest.seq;
-
-    // Re-fetch session on any event
     fetchSession().then(() => {
-      transitions = [
-        { event: latest, snapshot: session ?? undefined },
-        ...transitions,
-      ].slice(0, 500);
+      transitions = [{ event: latest, snapshot: session ?? undefined }, ...transitions].slice(0, 500);
     });
   });
 </script>
 
 <div class="desk">
-  <a href="/" class="desk-back">&larr; Floor</a>
+  <a href="/" class="desk-back">&larr; FLOOR</a>
 
   {#if !loaded}
     <div class="desk-empty" transition:fade={{ duration: 200 }}>
-      <p class="desk-empty-text">Loading...</p>
+      <span class="desk-loading">[LOADING...]</span>
     </div>
   {:else if error || !session}
     <div class="desk-empty" transition:fade={{ duration: 200 }}>
-      <p class="desk-empty-text">{error ?? 'Session not found'}</p>
+      <span class="desk-loading">[ERROR: {error ?? 'Session not found'}]</span>
     </div>
   {:else}
     <div class="desk-layout">
       <!-- Left Panel: Context -->
       <aside class="desk-context">
-        <div class="context-header">
-          <h1 class="context-name">{soulName ?? 'Session'}</h1>
-          <code class="context-id">{session.Id?.slice(0, 12)}</code>
-          <div class="context-status">
-            <StatusBadge status={session.Status} />
-          </div>
+        <!-- Agent link -->
+        <div class="context-section">
+          <span class="context-label">AGENT</span>
+          <a href="/agents" class="agent-link">{agentName}</a>
+          {#if session.model}
+            <span class="context-meta">{session.model}</span>
+          {/if}
+        </div>
+
+        <!-- Session tree -->
+        <SessionTree
+          parentId={session.parent_session_id || null}
+          currentId={session.Id}
+          childIds={childIds}
+        />
+
+        <!-- Status -->
+        <div class="context-section">
+          <span class="context-label">STATUS</span>
+          <StatusBadge status={session.Status} />
         </div>
 
         {#if isTerminal && session.result}
           <div class="context-section context-section--result">
-            <span class="context-label">Result</span>
+            <span class="context-label">RESULT</span>
             <p class="context-result">{session.result}</p>
           </div>
         {/if}
 
         {#if isTerminal && session.error_message}
           <div class="context-section context-section--error">
-            <span class="context-label">Error</span>
+            <span class="context-label">ERROR</span>
             <p class="context-error">{session.error_message}</p>
           </div>
         {/if}
 
-        {#if workcycle}
-          <div class="context-section context-section--workcycle">
-            <span class="context-label">Work Cycle</span>
-            <a href="/entities/WorkCycle/{workcycle.Id}" class="workcycle-card">
-              <span class="workcycle-card__task">{workcycle.task_summary || 'Untitled'}</span>
-              <div class="workcycle-card__status">
-                <StatusBadge status={workcycle.Status} />
-              </div>
-              <div class="workcycle-card__gates">
-                <GatePipeline {workcycle} />
-              </div>
-              {#if workcycle.pr_url}
-                <code class="workcycle-card__pr">{workcycle.pr_url}</code>
-              {/if}
-              {#if workcycle.plan_summary}
-                <p class="workcycle-card__plan">{workcycle.plan_summary}</p>
-              {/if}
-            </a>
-          </div>
-        {/if}
-
-        {#if soulEntity}
-          {@const soulFileId = (soulEntity as Record<string, unknown>).ContentFileId ?? (soulEntity as Record<string, unknown>).content_file_id}
-          <div class="context-section">
-            <span class="context-label">Soul</span>
-            <span class="context-value">{soulName ?? session.soul_id}</span>
-            {#if soulFileId}
-              <button class="expand-btn" onclick={async () => {
-                soulContentExpanded = !soulContentExpanded;
-                if (soulContentExpanded && !soulContent) {
-                  soulContent = await fetchFileContent(soulFileId as string);
-                }
-              }}>
-                {soulContentExpanded ? 'Hide soul content' : 'View soul content'}
-              </button>
-              {#if soulContentExpanded && soulContent}
-                <pre class="context-pre" transition:slide={{ duration: 150 }}>{soulContent}</pre>
-              {/if}
+        <!-- Authz summary -->
+        <div class="context-section">
+          <span class="context-label">AUTHORIZATION</span>
+          <div class="authz-summary">
+            <span class="authz-stat authz-stat--ok">{authzAllowed} ALLOWED</span>
+            {#if authzDenied > 0}
+              <span class="authz-stat authz-stat--denied">{authzDenied} DENIED</span>
+            {:else}
+              <span class="authz-stat">{authzDenied} DENIED</span>
             {/if}
           </div>
-        {:else if session.soul_id}
-          <div class="context-section">
-            <span class="context-label">Soul</span>
-            <span class="context-value">{soulName ?? session.soul_id}</span>
-          </div>
-        {/if}
+        </div>
 
-        {#if sessionSkills.length > 0}
-          <div class="context-section">
-            <span class="context-label">Skills ({sessionSkills.length})</span>
-            <div class="session-skills">
-              {#each sessionSkills as skill (skill.Id)}
-                <div class="session-skill">
-                  <div class="session-skill__header">
-                    <span class="session-skill__name">{skill.name || skill.Name || skill.Id}</span>
-                    {#if skill.scope}
-                      <span class="session-skill__scope">{skill.scope}</span>
-                    {/if}
-                  </div>
-                  {#if skill.description || skill.Description}
-                    <span class="session-skill__desc">{skill.description || skill.Description}</span>
-                  {/if}
-                  {#if skill.content_file_id}
-                    <button class="expand-btn" onclick={async () => {
-                      if (expandedSkillId === skill.Id) { expandedSkillId = null; return; }
-                      expandedSkillId = skill.Id;
-                      if (!skillContentCache[skill.Id]) {
-                        const content = await fetchFileContent(skill.content_file_id);
-                        skillContentCache = { ...skillContentCache, [skill.Id]: content };
-                      }
-                    }}>
-                      {expandedSkillId === skill.Id ? 'Hide' : 'View content'}
+        <!-- Metrics (computed from events, not entity counters) -->
+        <div class="context-section">
+          <span class="context-label">METRICS</span>
+          <div class="metrics-grid">
+            <div class="metric">
+              <span class="metric-label">TURNS</span>
+              <span class="metric-value">{metrics.turns}{maxTurns > 0 ? ` / ${maxTurns}` : ''}</span>
+              {#if maxTurns > 0}
+                <div class="progress-bar"><div class="progress-fill" style:width="{turnProgress}%"></div></div>
+              {/if}
+            </div>
+            <div class="metric">
+              <span class="metric-label">CONTEXT TOKENS</span>
+              <span class="metric-value">{metrics.inputTokens.toLocaleString()}</span>
+              <span class="metric-detail">Current context window size</span>
+            </div>
+            <div class="metric">
+              <span class="metric-label">OUTPUT TOKENS</span>
+              <span class="metric-value">{metrics.totalOutputTokens.toLocaleString()}</span>
+              <span class="metric-detail">Total generated across all turns</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Identity (collapsible) -->
+        <div class="context-section">
+          <button class="section-toggle" onclick={() => identityExpanded = !identityExpanded}>
+            <span class="context-label">IDENTITY</span>
+            <span class="toggle-icon">{identityExpanded ? '[-]' : '[+]'}</span>
+          </button>
+          {#if identityExpanded}
+            <div class="identity-content" transition:slide={{ duration: 150 }}>
+              {#if soulEntity}
+                {@const soulFileId = (soulEntity as Record<string, unknown>).ContentFileId ?? (soulEntity as Record<string, unknown>).content_file_id}
+                <div class="identity-item">
+                  <span class="identity-key">SOUL</span>
+                  <span class="identity-val">{soulName ?? session.soul_id}</span>
+                  {#if soulFileId}
+                    <button class="expand-btn" onclick={async () => { soulContentExpanded = !soulContentExpanded; if (soulContentExpanded && !soulContent) soulContent = await fetchFileContent(soulFileId as string); }}>
+                      {soulContentExpanded ? '[-] HIDE' : '[+] VIEW'}
                     </button>
-                    {#if expandedSkillId === skill.Id && skillContentCache[skill.Id]}
-                      <pre class="context-pre" transition:slide={{ duration: 150 }}>{skillContentCache[skill.Id]}</pre>
+                    {#if soulContentExpanded && soulContent}
+                      <pre class="context-pre" transition:slide={{ duration: 150 }}>{soulContent}</pre>
                     {/if}
                   {/if}
                 </div>
-              {/each}
+              {/if}
+              {#if sessionSkills.length > 0}
+                <div class="identity-item">
+                  <span class="identity-key">SKILLS ({sessionSkills.length})</span>
+                  {#each sessionSkills as skill (skill.Id)}
+                    <span class="skill-tag">{skill.name || skill.Name || skill.Id}</span>
+                  {/each}
+                </div>
+              {/if}
+              {#if session.provider}
+                <div class="identity-item">
+                  <span class="identity-key">PROVIDER</span>
+                  <span class="identity-val">{session.provider}</span>
+                </div>
+              {/if}
             </div>
-          </div>
-        {/if}
-
-        <div class="context-section">
-          <span class="context-label">Model</span>
-          <span class="context-value">{session.model || '--'}</span>
+          {/if}
         </div>
 
-        {#if session.provider}
+        <!-- Work Cycle -->
+        {#if workcycle}
           <div class="context-section">
-            <span class="context-label">Provider</span>
-            <span class="context-value">{session.provider}</span>
-          </div>
-        {/if}
-
-        <div class="context-section">
-          <span class="context-label">Turns</span>
-          <div class="progress-bar">
-            <div class="progress-fill" style:width="{turnProgress}%"></div>
-          </div>
-          <span class="context-detail">{session.turn_count ?? 0}{maxTurns > 0 ? ` / ${maxTurns}` : ''}</span>
-        </div>
-
-        <div class="context-section">
-          <span class="context-label">Tokens</span>
-          <span class="context-value mono">{totalTokens.toLocaleString()}</span>
-          <span class="context-detail">in: {(session.input_tokens ?? 0).toLocaleString()} / out: {(session.output_tokens ?? 0).toLocaleString()}</span>
-        </div>
-
-        <div class="context-section">
-          <span class="context-label">Cost</span>
-          <span class="context-value mono">{costDisplay}</span>
-        </div>
-
-        {#if session.parent_session_id}
-          <div class="context-section">
-            <span class="context-label">Parent</span>
-            <a href="/sessions/{session.parent_session_id}" class="context-link mono">
-              {session.parent_session_id.slice(0, 8)}
+            <span class="context-label">WORK CYCLE</span>
+            <a href="/entities/WorkCycle/{workcycle.Id}" class="workcycle-link">
+              <span>{workcycle.task_summary || 'Untitled'}</span>
+              <StatusBadge status={workcycle.Status} />
+              <GatePipeline {workcycle} />
             </a>
           </div>
         {/if}
 
-        {#if childIds.length > 0}
-          <div class="context-section">
-            <span class="context-label">Children</span>
-            <div class="context-children">
-              {#each childIds as childId}
-                <a href="/sessions/{childId}" class="context-link mono">{childId.slice(0, 8)}</a>
-              {/each}
-            </div>
-          </div>
-        {/if}
-
-        {#if session.Status === 'WaitingForApproval' && session.pending_tool_context}
-          <div class="context-section context-section--approval">
-            <span class="context-label">Pending Approval</span>
-            <pre class="context-pre">{session.pending_tool_context}</pre>
-          </div>
-        {/if}
-
+        <!-- Task -->
         {#if session.user_message}
           <div class="context-section">
-            <span class="context-label">Task</span>
+            <span class="context-label">TASK</span>
             {#if session.user_message.length > 200}
-              <p class="context-task">
-                {taskExpanded ? session.user_message : session.user_message.slice(0, 200) + '...'}
-              </p>
-              <button class="expand-btn" onclick={() => taskExpanded = !taskExpanded}>
-                {taskExpanded ? 'Show less' : 'Show full task'}
-              </button>
+              <p class="context-task">{taskExpanded ? session.user_message : session.user_message.slice(0, 200) + '...'}</p>
+              <button class="expand-btn" onclick={() => taskExpanded = !taskExpanded}>{taskExpanded ? '[-] LESS' : '[+] FULL'}</button>
             {:else}
               <p class="context-task">{session.user_message}</p>
             {/if}
@@ -389,16 +320,20 @@
         {/if}
       </aside>
 
-      <!-- Right Panel: Execution -->
+      <!-- Right Panel: Terminal -->
       <section class="desk-stream">
-        <div class="stream-header">
-          <h2 class="stream-title">Execution</h2>
-          {#if turns.length > 0}
-            <span class="stream-count">{turns.length} turns</span>
-          {/if}
-        </div>
-
-        <TerminalFeed {turns} />
+        <TerminalChrome
+          name={agentName}
+          id={session.Id}
+          status={session.Status}
+          active={isActive}
+        />
+        <TerminalFeed
+          {turns}
+          userMessage={session.user_message}
+          {stateTransitions}
+          policies={sessionPolicies}
+        />
       </section>
     </div>
   {/if}
@@ -408,35 +343,37 @@
   .desk {
     display: flex;
     flex-direction: column;
-    gap: var(--space-3);
+    gap: var(--space-lg);
   }
 
   .desk-back {
-    font-size: var(--text-sm);
-    color: var(--text-secondary);
+    font-family: var(--font-mono);
+    font-size: var(--label);
+    letter-spacing: 0.08em;
+    color: var(--terminal-dim);
     text-decoration: none;
     width: fit-content;
   }
 
-  .desk-back:hover {
-    color: var(--text-primary);
-  }
+  .desk-back:hover { color: var(--terminal-text); }
 
   .desk-empty {
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: var(--space-8) 0;
+    padding: var(--space-4xl) 0;
   }
 
-  .desk-empty-text {
-    color: var(--text-tertiary);
-    font-size: var(--text-sm);
+  .desk-loading {
+    font-family: var(--font-mono);
+    font-size: var(--caption);
+    color: var(--terminal-dim);
+    letter-spacing: 0.06em;
   }
 
   .desk-layout {
     display: flex;
-    gap: var(--space-4);
+    gap: var(--space-xl);
   }
 
   .desk-context {
@@ -444,291 +381,231 @@
     flex-shrink: 0;
     display: flex;
     flex-direction: column;
-    gap: var(--space-2);
-  }
-
-  .context-header {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    padding-bottom: var(--space-2);
-    border-bottom: 1px solid var(--border);
-  }
-
-  .context-name {
-    font-size: var(--text-xl);
-  }
-
-  .context-id {
-    font-family: var(--font-mono);
-    font-size: var(--text-xs);
-    color: var(--text-tertiary);
-  }
-
-  .context-status {
-    margin-top: 4px;
+    gap: var(--space-md);
   }
 
   .context-section {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: var(--space-xs);
   }
 
   .context-section--result {
-    background: var(--surface-raised);
-    padding: var(--space-2);
+    background: var(--terminal-bg);
+    padding: var(--space-md);
     border-radius: var(--radius-md);
-    border-left: 3px solid var(--status-success);
+    border-left: 2px solid var(--status-success);
   }
 
   .context-section--error {
-    background: var(--surface-raised);
-    padding: var(--space-2);
+    background: var(--terminal-bg);
+    padding: var(--space-md);
     border-radius: var(--radius-md);
-    border-left: 3px solid var(--status-error);
-  }
-
-  .context-section--workcycle {
-    padding-bottom: var(--space-2);
-    border-bottom: 1px solid var(--border);
-  }
-
-  .context-section--approval {
-    background: var(--surface-raised);
-    padding: var(--space-2);
-    border-radius: var(--radius-md);
+    border-left: 2px solid var(--status-error);
   }
 
   .context-label {
-    font-size: 0.625rem;
-    color: var(--text-tertiary);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-  }
-
-  .context-value {
-    font-size: var(--text-sm);
-    color: var(--text-primary);
-  }
-
-  .context-detail {
     font-family: var(--font-mono);
-    font-size: var(--text-xs);
-    color: var(--text-tertiary);
+    font-size: var(--label);
+    letter-spacing: 0.08em;
+    color: var(--terminal-dim);
+  }
+
+  .agent-link {
+    font-family: var(--font-mono);
+    font-size: var(--body);
+    font-weight: 500;
+    color: var(--terminal-text);
+    text-decoration: none;
+  }
+
+  .agent-link:hover { text-decoration: underline; }
+
+  .context-meta {
+    font-family: var(--font-mono);
+    font-size: var(--label);
+    color: var(--text-disabled);
   }
 
   .context-result {
-    font-size: var(--text-sm);
+    font-size: var(--body-sm);
     color: var(--text-primary);
     line-height: 1.5;
     white-space: pre-wrap;
   }
 
   .context-error {
-    font-size: var(--text-sm);
+    font-size: var(--body-sm);
     color: var(--status-error);
     line-height: 1.5;
     white-space: pre-wrap;
   }
 
-  .context-link {
-    font-size: var(--text-xs);
-    color: var(--text-secondary);
-    text-decoration: none;
-  }
-
-  .context-link:hover {
-    color: var(--text-primary);
-  }
-
-  .context-children {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-  }
-
-  .context-pre {
-    font-size: var(--text-xs);
-    white-space: pre-wrap;
-    word-break: break-all;
-    max-height: 150px;
-    overflow: auto;
-  }
-
   .context-task {
-    font-size: var(--text-sm);
+    font-size: var(--body-sm);
     color: var(--text-secondary);
     line-height: 1.5;
     white-space: pre-wrap;
   }
 
-  .expand-btn {
-    font-size: var(--text-xs);
-    color: var(--text-tertiary);
-    padding: 2px 0;
-    text-align: left;
-    width: fit-content;
-    transition: color var(--duration-fast) var(--ease);
+  .authz-summary {
+    display: flex;
+    gap: var(--space-md);
   }
 
-  .expand-btn:hover {
-    color: var(--text-primary);
+  .authz-stat {
+    font-family: var(--font-mono);
+    font-size: var(--label);
+    letter-spacing: 0.06em;
+    color: var(--text-disabled);
   }
 
-  .workcycle-card {
+  .authz-stat--ok { color: var(--accent); }
+  .authz-stat--denied { color: var(--status-error); }
+
+  .metrics-grid {
     display: flex;
     flex-direction: column;
-    gap: 6px;
-    padding: var(--space-1) var(--space-2);
-    background: var(--surface-raised);
-    border-radius: var(--radius-sm);
-    text-decoration: none;
-    color: inherit;
-    transition: background var(--duration-fast) var(--ease);
+    gap: var(--space-sm);
   }
 
-  .workcycle-card:hover {
-    text-decoration: none;
-    background: var(--surface-overlay);
+  .metric {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2xs);
   }
 
-  .workcycle-card__task {
-    font-size: var(--text-sm);
+  .metric-label {
+    font-family: var(--font-mono);
+    font-size: var(--label);
+    letter-spacing: 0.08em;
+    color: var(--terminal-dim);
+  }
+
+  .metric-value {
+    font-family: var(--font-mono);
+    font-size: var(--caption);
     color: var(--text-primary);
   }
 
-  .workcycle-card__status {
-    margin-top: 2px;
-  }
-
-  .workcycle-card__gates {
-    margin-top: 2px;
-  }
-
-  .workcycle-card__pr {
+  .metric-detail {
     font-family: var(--font-mono);
-    font-size: var(--text-xs);
-    color: var(--text-tertiary);
-    word-break: break-all;
-  }
-
-  .workcycle-card__plan {
-    font-size: var(--text-xs);
-    color: var(--text-secondary);
-    line-height: 1.4;
+    font-size: var(--label);
+    color: var(--text-disabled);
   }
 
   .progress-bar {
-    height: 4px;
-    background: var(--surface-overlay);
-    border-radius: 2px;
+    height: 3px;
+    background: var(--terminal-border);
+    border-radius: 0;
     overflow: hidden;
   }
 
   .progress-fill {
     height: 100%;
-    background: var(--status-active);
-    border-radius: 2px;
-    transition: width var(--duration-base) var(--ease);
+    background: var(--accent);
+    transition: width var(--duration-fast) var(--ease);
   }
+
+  .section-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    padding: 0;
+    cursor: pointer;
+  }
+
+  .toggle-icon {
+    font-family: var(--font-mono);
+    font-size: var(--label);
+    color: var(--terminal-dim);
+  }
+
+  .identity-content {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+    padding-top: var(--space-xs);
+  }
+
+  .identity-item {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2xs);
+  }
+
+  .identity-key {
+    font-family: var(--font-mono);
+    font-size: var(--label);
+    letter-spacing: 0.06em;
+    color: var(--terminal-dim);
+  }
+
+  .identity-val {
+    font-size: var(--caption);
+    color: var(--text-primary);
+  }
+
+  .skill-tag {
+    font-family: var(--font-mono);
+    font-size: var(--label);
+    color: var(--text-secondary);
+    background: var(--terminal-bg);
+    border: 1px solid var(--terminal-border);
+    padding: 1px 8px;
+    border-radius: var(--radius-sm);
+    display: inline-block;
+  }
+
+  .expand-btn {
+    font-family: var(--font-mono);
+    font-size: var(--label);
+    letter-spacing: 0.06em;
+    color: var(--terminal-dim);
+    padding: var(--space-2xs) 0;
+    text-align: left;
+    width: fit-content;
+  }
+
+  .expand-btn:hover { color: var(--terminal-text); }
+
+  .context-pre {
+    font-size: var(--label);
+    white-space: pre-wrap;
+    word-break: break-all;
+    max-height: 150px;
+    overflow: auto;
+    background: var(--terminal-bg);
+    border: 1px solid var(--terminal-border);
+    padding: var(--space-sm);
+    border-radius: var(--radius-sm);
+  }
+
+  .workcycle-link {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: var(--space-sm) var(--space-md);
+    background: var(--terminal-bg);
+    border: 1px solid var(--terminal-border);
+    border-radius: var(--radius-sm);
+    text-decoration: none;
+    color: var(--text-primary);
+    font-size: var(--body-sm);
+  }
+
+  .workcycle-link:hover { border-color: var(--border-visible); }
 
   .desk-stream {
     flex: 1;
     display: flex;
     flex-direction: column;
-    gap: var(--space-2);
     min-width: 0;
   }
 
-  .stream-header {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-
-  .stream-title {
-    font-family: var(--font-mono);
-    font-size: var(--text-sm);
-    font-weight: 500;
-    color: var(--text-secondary);
-  }
-
-  .stream-count {
-    font-family: var(--font-mono);
-    font-size: var(--text-xs);
-    color: var(--text-tertiary);
-  }
-
-  .stream-empty {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: var(--space-6) 0;
-  }
-
-  .stream-empty-text {
-    color: var(--text-tertiary);
-    font-size: var(--text-sm);
-  }
-
-  .stream-list {
-    display: flex;
-    flex-direction: column;
-  }
-
-  .session-skills {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-
-  .session-skill {
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-    padding: var(--space-1) var(--space-2);
-    background: var(--surface-raised);
-    border-radius: var(--radius-sm);
-  }
-
-  .session-skill__header {
-    display: flex;
-    align-items: center;
-    gap: var(--space-1);
-  }
-
-  .session-skill__name {
-    font-size: var(--text-xs);
-    font-weight: 500;
-    color: var(--text-primary);
-  }
-
-  .session-skill__scope {
-    font-family: var(--font-mono);
-    font-size: 0.625rem;
-    color: var(--text-secondary);
-    background: var(--surface-overlay);
-    padding: 1px 5px;
-    border-radius: var(--radius-sm);
-  }
-
-  .session-skill__desc {
-    font-size: var(--text-xs);
-    color: var(--text-tertiary);
-  }
-
-  .mono {
-    font-family: var(--font-mono);
-  }
-
   @media (max-width: 800px) {
-    .desk-layout {
-      flex-direction: column;
-    }
-
-    .desk-context {
-      width: 100%;
-    }
+    .desk-layout { flex-direction: column; }
+    .desk-context { width: 100%; }
   }
 </style>

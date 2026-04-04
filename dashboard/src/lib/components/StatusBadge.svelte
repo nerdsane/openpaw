@@ -43,14 +43,17 @@
 
   .dot {
     display: inline-block;
-    width: 8px;
-    height: 8px;
+    width: 6px;
+    height: 6px;
     border-radius: 50%;
     flex-shrink: 0;
   }
 
   .label {
-    font-size: var(--text-xs);
+    font-family: var(--font-mono);
+    font-size: var(--label);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
     color: var(--text-secondary);
   }
 </style>

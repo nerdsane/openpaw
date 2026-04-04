@@ -13,8 +13,8 @@
 
   let gates = $derived.by((): Gate[] => {
     return [
-      { key: 'has_plan', label: 'Plan', passed: !!workcycle.has_plan },
-      { key: 'tests_passed', label: 'Tests', passed: !!workcycle.tests_passed },
+      { key: 'has_plan', label: 'PLAN', passed: !!workcycle.has_plan },
+      { key: 'tests_passed', label: 'TESTS', passed: !!workcycle.tests_passed },
     ];
   });
 </script>
@@ -23,11 +23,11 @@
   {#each gates as gate, i}
     <div class="gate">
       {#if gate.passed}
-        <span class="gate-dot gate-dot--passed"></span>
+        <span class="gate-block gate-block--passed"></span>
       {:else if isFailed}
-        <span class="gate-dot gate-dot--failed"></span>
+        <span class="gate-block gate-block--failed"></span>
       {:else}
-        <span class="gate-ring"></span>
+        <span class="gate-block gate-block--empty"></span>
       {/if}
       <span class="gate-label">{gate.label}</span>
     </div>
@@ -51,37 +51,33 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 4px;
+    gap: var(--space-xs);
   }
 
-  .gate-dot {
+  .gate-block {
     display: inline-block;
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
+    width: 24px;
+    height: 6px;
+    border-radius: 0;
   }
 
-  .gate-dot--passed {
+  .gate-block--passed {
     background: var(--status-success);
   }
 
-  .gate-dot--failed {
+  .gate-block--failed {
     background: var(--status-error);
   }
 
-  .gate-ring {
-    display: inline-block;
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-    border: 1.5px solid var(--status-idle);
+  .gate-block--empty {
+    background: var(--border);
   }
 
   .gate-line {
-    width: 32px;
-    height: 1.5px;
-    background: var(--status-idle);
-    margin-bottom: 18px; /* align with the dot, not the label */
+    width: 24px;
+    height: 1px;
+    background: var(--border);
+    margin-bottom: 18px;
   }
 
   .gate-line--passed {
@@ -89,9 +85,9 @@
   }
 
   .gate-label {
-    font-size: 0.625rem;
-    color: var(--text-tertiary);
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
+    font-family: var(--font-mono);
+    font-size: var(--label);
+    letter-spacing: 0.08em;
+    color: var(--text-disabled);
   }
 </style>

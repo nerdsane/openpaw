@@ -54,7 +54,7 @@
     }
   });
 
-  let shortId = $derived(session.Id?.slice(0, 8) ?? '');
+  let shortId = $derived(session.Id ?? '');
 
   let isActive = $derived(
     !['Completed', 'Failed', 'Cancelled'].includes(session.Status)
@@ -69,9 +69,8 @@
 
   let relativeTime = $derived.by(() => {
     if (!session.last_heartbeat_at) return null;
-    // Handle non-ISO values like "alive"
     const then = new Date(session.last_heartbeat_at).getTime();
-    if (isNaN(then)) return session.last_heartbeat_at; // Show raw value if not a date
+    if (isNaN(then)) return session.last_heartbeat_at;
     const now = Date.now();
     const diff = Math.max(0, now - then);
     const seconds = Math.floor(diff / 1000);
@@ -94,7 +93,7 @@
 
 <a
   href="/sessions/{session.Id}"
-  class="session-card card"
+  class="session-card"
   class:session-card--active={isActive}
   transition:fade={{ duration: 200 }}
 >
@@ -111,15 +110,15 @@
 
   <div class="session-card__stats">
     <span class="stat">
-      <span class="stat-label">turns</span>
+      <span class="stat-label">TURNS</span>
       <span class="stat-value">{session.turn_count ?? 0}</span>
     </span>
     <span class="stat">
-      <span class="stat-label">tokens</span>
+      <span class="stat-label">TOKENS</span>
       <span class="stat-value">{totalTokens.toLocaleString()}</span>
     </span>
     <span class="stat">
-      <span class="stat-label">cost</span>
+      <span class="stat-label">COST</span>
       <span class="stat-value">{costDisplay}</span>
     </span>
   </div>
@@ -133,108 +132,108 @@
   .session-card {
     display: flex;
     flex-direction: column;
-    gap: var(--space-1);
+    gap: var(--space-sm);
+    padding: var(--space-lg);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
     text-decoration: none;
     color: inherit;
-    transition: box-shadow var(--duration-fast) var(--ease),
-                transform var(--duration-fast) var(--ease);
+    transition: border-color var(--duration-fast) var(--ease);
     position: relative;
-    overflow: hidden;
   }
 
   .session-card:hover {
     text-decoration: none;
-    transform: translateY(-1px);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+    border-color: var(--border-visible);
   }
 
-  .session-card--active::before {
+  .session-card--active {
+    border-color: var(--border-visible);
+  }
+
+  .session-card--active::after {
     content: '';
     position: absolute;
-    top: 50%;
-    left: 50%;
-    width: 120%;
-    height: 120%;
-    transform: translate(-50%, -50%);
+    top: var(--space-md);
+    right: var(--space-md);
+    width: 6px;
+    height: 6px;
     border-radius: 50%;
-    background: radial-gradient(
-      circle,
-      var(--status-active) 0%,
-      transparent 70%
-    );
-    opacity: 0;
-    animation: pulse-glow 3s ease-in-out infinite;
-    pointer-events: none;
+    background: var(--accent);
+    animation: pulse 2s ease-in-out infinite;
   }
 
-  @keyframes pulse-glow {
-    0%, 100% {
-      opacity: 0;
-    }
-    50% {
-      opacity: 0.04;
-    }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .session-card--active::before {
+    .session-card--active::after {
       animation: none;
-      opacity: 0.02;
     }
   }
 
   .session-card__header {
     display: flex;
     align-items: baseline;
-    gap: var(--space-1);
+    gap: var(--space-sm);
   }
 
   .session-card__name {
-    font-size: var(--text-base);
-    font-weight: 600;
+    font-family: var(--font-body);
+    font-size: var(--body);
+    font-weight: 500;
+    color: var(--text-display);
   }
 
   .session-card__id {
     font-family: var(--font-mono);
-    font-size: var(--text-xs);
-    color: var(--text-tertiary);
+    font-size: var(--label);
+    color: var(--text-disabled);
+    letter-spacing: 0.02em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .session-card__task {
-    font-size: var(--text-sm);
+    font-size: var(--body-sm);
     color: var(--text-secondary);
     line-height: 1.5;
-    margin-top: 4px;
   }
 
   .session-card__stats {
     display: flex;
-    gap: var(--space-2);
-    margin-top: var(--space-1);
+    gap: var(--space-lg);
+    margin-top: var(--space-xs);
   }
 
   .stat {
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: var(--space-2xs);
   }
 
   .stat-label {
-    font-size: 0.625rem;
-    color: var(--text-tertiary);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
+    font-family: var(--font-mono);
+    font-size: var(--label);
+    letter-spacing: 0.08em;
+    color: var(--text-disabled);
   }
 
   .stat-value {
     font-family: var(--font-mono);
-    font-size: var(--text-xs);
-    color: var(--text-secondary);
+    font-size: var(--caption);
+    color: var(--text-primary);
   }
 
   .session-card__time {
-    font-size: var(--text-xs);
-    color: var(--text-tertiary);
-    margin-top: 4px;
+    font-family: var(--font-mono);
+    font-size: var(--label);
+    color: var(--text-disabled);
+    letter-spacing: 0.04em;
+    margin-top: var(--space-xs);
   }
 </style>

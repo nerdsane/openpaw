@@ -1,16 +1,96 @@
 <script lang="ts">
+  import { slide } from 'svelte/transition';
   import type { SessionTurn } from '$lib/parse';
   import { formatToolInput } from '$lib/parse';
+  import type { PolicyEntry } from '$lib/api';
+  import { parseCedarPolicies, type ParsedPermission } from '$lib/utils/cedar-parse';
+  import AuthzBadge from './AuthzBadge.svelte';
 
-  let { turns }: { turns: SessionTurn[] } = $props();
+  let {
+    turns,
+    userMessage = null,
+    stateTransitions = [],
+    policies = [],
+  }: {
+    turns: SessionTurn[];
+    userMessage?: string | null;
+    stateTransitions?: Array<{ action: string; from: string; to: string; timestamp: string }>;
+    policies?: PolicyEntry[];
+  } = $props();
 
   let expandedItems = $state<Set<number>>(new Set());
+  let expandedAuthz = $state<Set<number>>(new Set());
+  let expandedPolicy = $state<Set<number>>(new Set());
+  let terminalEl = $state<HTMLDivElement | null>(null);
 
   function toggleExpand(key: number) {
     const next = new Set(expandedItems);
     if (next.has(key)) next.delete(key);
     else next.add(key);
     expandedItems = next;
+  }
+
+  function toggleAuthz(key: number) {
+    const next = new Set(expandedAuthz);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    expandedAuthz = next;
+  }
+
+  function togglePolicy(key: number) {
+    const next = new Set(expandedPolicy);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    expandedPolicy = next;
+  }
+
+  // Auto-scroll to bottom when turns change
+  $effect(() => {
+    turns;
+    if (terminalEl) {
+      requestAnimationFrame(() => {
+        terminalEl!.scrollTop = terminalEl!.scrollHeight;
+      });
+    }
+  });
+
+  // Parse all policies once to find matching rules per action
+  let parsedPolicies = $derived.by(() => {
+    const all: Array<ParsedPermission & { source?: string; created_by?: string }> = [];
+    for (const p of policies) {
+      const parsed = parseCedarPolicies(p.cedar_text);
+      for (const rule of parsed) {
+        all.push({ ...rule, source: p.source, created_by: p.created_by });
+      }
+    }
+    return all;
+  });
+
+  function findMatchingPolicies(actionName: string): typeof parsedPolicies {
+    if (parsedPolicies.length === 0) return [];
+    // Tool calls on sessions go through ProcessToolCalls Cedar action.
+    // Match: exact action, wildcards, or actions containing the tool name.
+    const matches = parsedPolicies.filter(p => {
+      const a = p.action.toLowerCase();
+      const r = p.resource.toLowerCase();
+      const resourceMatch = r === '*' || r === 'session';
+      if (!resourceMatch) return false;
+      // Exact match on ProcessToolCalls or HandleToolResults (the dispatch pipeline)
+      if (a === 'processtoolcalls' || a === 'handletoolresults') return true;
+      // Wildcard action (principal is Admin, action, resource is Session)
+      if (a === '*') return true;
+      // Tool name match
+      if (a === actionName.toLowerCase()) return true;
+      return false;
+    });
+    // If no specific match, broaden: show all permit rules for Session
+    if (matches.length === 0) {
+      return parsedPolicies.filter(p => {
+        const r = p.resource.toLowerCase();
+        return (r === '*' || r === 'session') && p.verdict === 'permit';
+      });
+    }
+    return matches;
   }
 
   function formatTime(ts: string): string {
@@ -26,66 +106,191 @@
     return formatted.slice(0, 120) + '...';
   }
 
-  function hasExpandableInput(name: string, input: Record<string, unknown>): boolean {
-    if (name === 'edit') return !!(input.old_string || input.new_string);
-    if (name === 'write') return !!input.content;
-    if (name === 'bash') return ((input.command as string) ?? '').length > 120;
-    if (name === 'temper_action') return !!input.body && JSON.stringify(input.body).length > 2;
-    return false;
+  /** Full content for any tool call — always available */
+  function fullContent(name: string, input: Record<string, unknown>): string {
+    switch (name) {
+      case 'edit': {
+        let out = '';
+        if (input.file_path) out += `file: ${input.file_path}\n`;
+        if (input.old_string) out += `--- old\n${input.old_string}\n`;
+        if (input.new_string) out += `+++ new\n${input.new_string}`;
+        return out || JSON.stringify(input, null, 2);
+      }
+      case 'write':
+        return `file: ${input.file_path ?? ''}\n\n${(input.content as string) ?? ''}`;
+      case 'bash':
+        return (input.command as string) ?? JSON.stringify(input, null, 2);
+      case 'read':
+        return `file: ${input.file_path ?? input.path ?? ''}\n${input.offset ? `offset: ${input.offset}` : ''}${input.limit ? ` limit: ${input.limit}` : ''}`;
+      case 'temper_action':
+        return JSON.stringify(input, null, 2);
+      case 'temper_get':
+      case 'temper_list':
+      case 'temper_create':
+        return JSON.stringify(input, null, 2);
+      default:
+        return JSON.stringify(input, null, 2);
+    }
   }
 
-  function expandedContent(name: string, input: Record<string, unknown>): string {
-    if (name === 'edit') {
-      let out = '';
-      if (input.old_string) out += `--- old\n${input.old_string}\n`;
-      if (input.new_string) out += `+++ new\n${input.new_string}`;
-      return out;
-    }
-    if (name === 'write') return (input.content as string) ?? '';
-    if (name === 'bash') return (input.command as string) ?? '';
-    if (name === 'temper_action' && input.body) return JSON.stringify(input.body, null, 2);
-    return JSON.stringify(input, null, 2);
+  /** Check if full content is longer than the preview (always expandable for non-trivial inputs) */
+  function isExpandable(name: string, input: Record<string, unknown>): boolean {
+    const preview = formatToolInput(name, input);
+    const full = fullContent(name, input);
+    return full.length > preview.length || full.length > 120;
   }
 </script>
 
-<div class="terminal">
+<div class="terminal" bind:this={terminalEl}>
+  {#if userMessage}
+    <div class="user-message">
+      <span class="prompt">$</span>
+      <span class="user-text">{userMessage}</span>
+    </div>
+  {/if}
+
   {#if turns.length === 0}
     <div class="terminal-empty">
-      <span class="comment"># No tool calls recorded</span>
+      <span class="comment"># WAITING...</span>
+      <span class="cursor"></span>
     </div>
   {:else}
     {#each turns as turn, ti (turn.number)}
-      <div class="turn" style:animation-delay="{ti * 20}ms">
+      <div class="turn" style:animation-delay="{ti * 15}ms">
         <div class="turn-header">
-          <span class="comment"># Turn {turn.number}</span>
+          <span class="comment"># TURN {turn.number}</span>
           {#if turn.timestamp}
             <span class="comment"> — {formatTime(turn.timestamp)}</span>
           {/if}
+          {#if turn.inputTokens > 0}
+            <span class="comment"> — ctx:{turn.inputTokens.toLocaleString()} out:{turn.outputTokens.toLocaleString()}</span>
+          {/if}
           {#if turn.authz}
-            <span class="comment"> — </span><span class={turn.authz.allowed ? 'authz-ok' : 'authz-denied'}>{turn.authz.allowed ? 'ALLOWED' : 'DENIED'}</span>
+            <span class="turn-authz">
+              <AuthzBadge
+                allowed={turn.authz.allowed}
+                resource={turn.authz.denied_resource ?? null}
+              />
+            </span>
           {/if}
         </div>
 
         {#if turn.toolCalls.length === 0}
-          <div class="tool-line">
+          <div class="tool-line-static">
             <span class="comment"># (tool call data not available)</span>
           </div>
         {:else}
           {#each turn.toolCalls as tc, i}
-            <div class="tool-block">
-              <div class="tool-line">
+            {@const toolKey = turn.number * 100 + i}
+            {@const matchingPolicies = findMatchingPolicies(tc.name)}
+            <div class="tool-block" class:tool-block--denied={turn.authz && !turn.authz.allowed}>
+              <!-- Tool call line (always clickable to expand details) -->
+              <div class="tool-line-row">
                 <span class="prompt">&gt;</span>
                 <span class="tool-name">{tc.name}</span>
                 <span class="tool-args">{toolInputPreview(tc.name, tc.input)}</span>
+                {#if turn.authz}
+                  <span class="tool-authz-inline">
+                    <AuthzBadge
+                      allowed={turn.authz.allowed}
+                      resource={turn.authz.denied_resource ?? null}
+                    />
+                  </span>
+                {/if}
               </div>
 
-              {#if hasExpandableInput(tc.name, tc.input)}
-                <button class="expand-btn" onclick={() => toggleExpand(turn.number * 100 + i)}>
-                  {expandedItems.has(turn.number * 100 + i) ? '[-]' : '[+]'} details
-                </button>
-                {#if expandedItems.has(turn.number * 100 + i)}
-                  <pre class="tool-detail">{expandedContent(tc.name, tc.input)}</pre>
+              <!-- Expand/collapse controls -->
+              <div class="tool-actions">
+                {#if isExpandable(tc.name, tc.input)}
+                  <button class="expand-btn" onclick={() => toggleExpand(toolKey)}>
+                    {expandedItems.has(toolKey) ? '[-]' : '[+]'} FULL OUTPUT
+                  </button>
                 {/if}
+                <button class="expand-btn" onclick={() => toggleAuthz(toolKey)}>
+                  {expandedAuthz.has(toolKey) ? '[-]' : '[+]'} AUTHORIZATION
+                </button>
+              </div>
+
+              <!-- Full tool call content -->
+              {#if expandedItems.has(toolKey)}
+                <pre class="tool-detail" transition:slide={{ duration: 150 }}>{fullContent(tc.name, tc.input)}</pre>
+              {/if}
+
+              <!-- Authorization drill-down -->
+              {#if expandedAuthz.has(toolKey)}
+                <div class="authz-detail" transition:slide={{ duration: 150 }}>
+                  <div class="authz-row">
+                    <span class="authz-label">TOOL</span>
+                    <span class="authz-value">{tc.name}</span>
+                  </div>
+                  <div class="authz-row">
+                    <span class="authz-label">ACTION</span>
+                    <span class="authz-value">ProcessToolCalls</span>
+                  </div>
+                  <div class="authz-row">
+                    <span class="authz-label">RESOURCE</span>
+                    <span class="authz-value">Session</span>
+                  </div>
+                  <div class="authz-row">
+                    <span class="authz-label">VERDICT</span>
+                    <span class="authz-value">
+                      <AuthzBadge
+                        allowed={turn.authz?.allowed ?? true}
+                        resource={turn.authz?.denied_resource ?? null}
+                      />
+                    </span>
+                  </div>
+                  {#if turn.authz && !turn.authz.allowed && turn.authz.denied_resource}
+                    <div class="authz-row">
+                      <span class="authz-label">DENIED RESOURCE</span>
+                      <span class="authz-value authz-value--denied">{turn.authz.denied_resource}</span>
+                    </div>
+                  {/if}
+
+                  <!-- Matching policies -->
+                  {#if matchingPolicies.length > 0}
+                    <div class="authz-policies">
+                      <span class="authz-policies-label">MATCHING POLICIES ({matchingPolicies.length})</span>
+                      {#each matchingPolicies as mp, pi}
+                        <div class="authz-policy-row">
+                          <span class="policy-verdict" class:policy-verdict--permit={mp.verdict === 'permit'} class:policy-verdict--forbid={mp.verdict === 'forbid'}>
+                            {mp.verdict.toUpperCase()}
+                          </span>
+                          <span class="policy-principal">{mp.principal === '*' ? 'any principal' : mp.principal}</span>
+                          <span class="policy-action">{mp.actionDisplay}</span>
+                          <span class="policy-resource">on {mp.resource}</span>
+                          {#if mp.condition}
+                            <span class="policy-condition">when {mp.condition}</span>
+                          {/if}
+                          <div class="policy-meta">
+                            {#if mp.source}
+                              <span class="policy-source">{mp.source}</span>
+                            {/if}
+                            {#if mp.created_by}
+                              <span class="policy-author">by {mp.created_by}</span>
+                            {/if}
+                            <button class="policy-raw-btn" onclick={() => togglePolicy(toolKey * 1000 + pi)}>
+                              {expandedPolicy.has(toolKey * 1000 + pi) ? '[-]' : '[+]'} CEDAR
+                            </button>
+                          </div>
+                          {#if expandedPolicy.has(toolKey * 1000 + pi)}
+                            <pre class="policy-raw" transition:slide={{ duration: 150 }}>{mp.rawLine}</pre>
+                          {/if}
+                        </div>
+                      {/each}
+                    </div>
+                  {:else if policies.length > 0}
+                    <div class="authz-row">
+                      <span class="authz-label">POLICY</span>
+                      <span class="authz-value authz-value--dim">Permitted by a policy not parseable client-side. <a href="/permissions" class="policy-link">View all policies</a></span>
+                    </div>
+                  {:else}
+                    <div class="authz-row">
+                      <span class="authz-label">POLICY</span>
+                      <span class="authz-value authz-value--dim">No policies loaded. <a href="/permissions" class="policy-link">View policies</a></span>
+                    </div>
+                  {/if}
+                </div>
               {/if}
             </div>
           {/each}
@@ -98,53 +303,114 @@
 <style>
   .terminal {
     font-family: var(--font-mono);
-    font-size: 0.75rem;
-    line-height: 1.35;
+    font-size: var(--caption);
+    line-height: 1.4;
     color: var(--text-secondary);
-    background: var(--surface-base);
+    background: var(--terminal-bg);
     overflow-y: auto;
+    padding: var(--space-md);
+    border-radius: var(--radius-md);
+  }
+
+  .user-message {
+    display: flex;
+    gap: 6px;
+    align-items: baseline;
+    padding: var(--space-sm) 0;
+    border-bottom: 1px solid var(--terminal-border);
+    margin-bottom: var(--space-sm);
+  }
+
+  .user-message .prompt {
+    color: var(--terminal-text);
+    font-weight: 700;
+  }
+
+  .user-text {
+    color: var(--text-primary);
+    word-break: break-word;
   }
 
   .terminal-empty {
-    padding: var(--space-4) 0;
+    padding: var(--space-xl) 0;
     text-align: center;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-sm);
+  }
+
+  .cursor {
+    display: inline-block;
+    width: 8px;
+    height: 14px;
+    background: var(--terminal-cursor);
+    animation: blink 1s step-end infinite;
+  }
+
+  @keyframes blink {
+    50% { opacity: 0; }
   }
 
   .turn {
-    padding: 6px 0;
-    border-bottom: 1px solid var(--border);
-    animation: turn-in 120ms var(--ease) both;
+    padding: var(--space-sm) 0;
+    border-bottom: 1px solid var(--terminal-border);
+    animation: turn-in 150ms var(--ease) both;
   }
 
   @keyframes turn-in {
-    from { opacity: 0; transform: translateX(-4px); }
+    from { opacity: 0; }
   }
 
   .turn-header {
-    margin-bottom: 4px;
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    margin-bottom: var(--space-xs);
   }
 
-  .comment { color: var(--text-tertiary); }
-  .authz-ok { color: var(--status-success); }
-  .authz-denied { color: var(--status-error); }
+  .turn-authz {
+    margin-left: auto;
+  }
 
-  .tool-block { margin: 2px 0; }
+  .comment {
+    color: var(--terminal-dim);
+    font-size: var(--label);
+    letter-spacing: 0.04em;
+  }
 
-  .tool-line {
+  .tool-block {
+    margin: var(--space-xs) 0;
+  }
+
+  .tool-block--denied {
+    background: var(--authz-denied-bg);
+    border-left: 2px solid var(--authz-denied-border);
+    padding-left: var(--space-sm);
+    margin-left: calc(-1 * var(--space-sm));
+  }
+
+  .tool-line-row {
     display: flex;
     gap: 6px;
     align-items: baseline;
     flex-wrap: wrap;
   }
 
+  .tool-line-static {
+    display: flex;
+    gap: 6px;
+    align-items: baseline;
+  }
+
   .prompt {
-    color: var(--text-tertiary);
+    color: var(--terminal-text);
     flex-shrink: 0;
   }
 
   .tool-name {
-    color: var(--status-success);
-    font-weight: 500;
+    color: var(--terminal-text);
+    font-weight: 400;
     flex-shrink: 0;
   }
 
@@ -153,36 +419,199 @@
     word-break: break-all;
   }
 
-  .expand-btn {
-    font-family: var(--font-mono);
-    font-size: 0.625rem;
-    color: var(--text-tertiary);
-    padding: 0;
-    margin-left: 16px;
-    cursor: pointer;
+  .tool-authz-inline {
+    margin-left: auto;
+    flex-shrink: 0;
   }
 
-  .expand-btn:hover { color: var(--text-secondary); }
+  .tool-actions {
+    display: flex;
+    gap: var(--space-md);
+    margin-top: var(--space-2xs);
+    margin-left: var(--space-md);
+  }
+
+  .expand-btn {
+    font-family: var(--font-mono);
+    font-size: var(--label);
+    color: var(--terminal-dim);
+    padding: 0;
+    cursor: pointer;
+    letter-spacing: 0.04em;
+    transition: color var(--duration-fast) var(--ease);
+  }
+
+  .expand-btn:hover { color: var(--terminal-text); }
 
   .tool-detail {
-    margin: 2px 0 4px 16px;
-    padding: 4px 8px;
-    background: var(--surface-raised);
-    color: var(--text-secondary);
-    font-size: 0.6875rem;
-    line-height: 1.3;
-    max-height: 200px;
+    margin: var(--space-xs) 0 var(--space-xs) var(--space-md);
+    padding: var(--space-sm);
+    background: var(--black);
+    border: 1px solid var(--terminal-border);
+    color: var(--text-primary);
+    font-size: var(--label);
+    line-height: 1.4;
+    max-height: 300px;
     overflow: auto;
     white-space: pre-wrap;
     word-break: break-all;
+    border-radius: var(--radius-sm);
+  }
+
+  .authz-detail {
+    margin: var(--space-xs) 0 var(--space-xs) var(--space-md);
+    padding: var(--space-md);
+    background: var(--black);
+    border: 1px solid var(--terminal-border);
+    border-radius: var(--radius-sm);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+  }
+
+  .authz-row {
+    display: flex;
+    gap: var(--space-md);
+    align-items: baseline;
+  }
+
+  .authz-label {
+    font-size: var(--label);
+    letter-spacing: 0.08em;
+    color: var(--terminal-dim);
+    min-width: 130px;
+    flex-shrink: 0;
+  }
+
+  .authz-value {
+    font-size: var(--caption);
+    color: var(--text-primary);
+  }
+
+  .authz-value--denied {
+    color: var(--status-error);
+  }
+
+  .authz-value--dim {
+    color: var(--text-disabled);
+  }
+
+  /* Policy matching section */
+  .authz-policies {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+    margin-top: var(--space-xs);
+    padding-top: var(--space-sm);
+    border-top: 1px solid var(--terminal-border);
+  }
+
+  .authz-policies-label {
+    font-size: var(--label);
+    letter-spacing: 0.08em;
+    color: var(--terminal-dim);
+  }
+
+  .authz-policy-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--space-sm);
+    padding: var(--space-xs) 0;
+    border-bottom: 1px solid var(--terminal-border);
+  }
+
+  .authz-policy-row:last-child {
+    border-bottom: none;
+  }
+
+  .policy-verdict {
+    font-size: var(--label);
+    letter-spacing: 0.06em;
+    font-weight: 700;
+  }
+
+  .policy-verdict--permit { color: var(--accent); }
+  .policy-verdict--forbid { color: var(--status-error); }
+
+  .policy-principal {
+    font-size: var(--caption);
+    color: var(--text-secondary);
+  }
+
+  .policy-action {
+    font-size: var(--caption);
+    color: var(--text-primary);
+  }
+
+  .policy-resource {
+    font-size: var(--caption);
+    color: var(--text-secondary);
+  }
+
+  .policy-condition {
+    font-size: var(--label);
+    color: var(--status-warning);
+  }
+
+  .policy-meta {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    width: 100%;
+    margin-top: var(--space-2xs);
+  }
+
+  .policy-source {
+    font-size: var(--label);
+    color: var(--terminal-dim);
+    background: var(--terminal-bg);
+    padding: 1px 6px;
+    border-radius: var(--radius-sm);
+  }
+
+  .policy-author {
+    font-size: var(--label);
+    color: var(--text-disabled);
+  }
+
+  .policy-raw-btn {
+    font-family: var(--font-mono);
+    font-size: var(--label);
+    color: var(--terminal-dim);
+    cursor: pointer;
+    letter-spacing: 0.04em;
+    margin-left: auto;
+  }
+
+  .policy-raw-btn:hover { color: var(--terminal-text); }
+
+  .policy-link {
+    color: var(--terminal-text);
+    text-decoration: underline;
+  }
+
+  .policy-raw {
+    width: 100%;
+    font-size: var(--label);
+    color: var(--text-secondary);
+    background: var(--terminal-bg);
+    border: 1px solid var(--terminal-border);
+    padding: var(--space-sm);
+    border-radius: var(--radius-sm);
+    white-space: pre-wrap;
+    word-break: break-all;
+    margin-top: var(--space-xs);
   }
 
   @media (prefers-reduced-motion: reduce) {
     .turn { animation: none; }
+    .cursor { animation: none; }
   }
 
   @media (max-width: 768px) {
-    .terminal { font-size: 0.6875rem; }
-    .tool-detail { margin-left: 8px; }
+    .terminal { font-size: var(--label); }
+    .tool-detail { margin-left: var(--space-sm); }
+    .authz-detail { margin-left: var(--space-sm); }
   }
 </style>
