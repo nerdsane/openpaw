@@ -4,31 +4,28 @@
   import { fetchDecisions, fetchPolicies, queryEntities, queryTeams, queryAgentsForTeam, fetchFileContent, type PendingDecision, type PolicyEntry } from '$lib/api';
   import StatusBadge from '$lib/components/StatusBadge.svelte';
   import GatePipeline from '$lib/components/GatePipeline.svelte';
-  import type { WorkCycle, Agent, Team, Session } from '$lib/types';
+  import type { WorkCycle, Agent, Team, Session, Plan } from '$lib/types';
 
   let loaded = $state(false);
 
-  // Data
   let harnesses = $state<Record<string, unknown>[]>([]);
   let teams = $state<Team[]>([]);
   let teamAgents = $state<Record<string, Agent[]>>({});
+  let plans = $state<Plan[]>([]);
   let souls = $state<Record<string, unknown>[]>([]);
   let skills = $state<Record<string, unknown>[]>([]);
   let workCycles = $state<Record<string, unknown>[]>([]);
   let decisions = $state<PendingDecision[]>([]);
   let policies = $state<PolicyEntry[]>([]);
 
-  // Agent sessions (loaded on click)
   let expandedAgentSessions = $state<string | null>(null);
   let agentSessionsCache = $state<Record<string, Session[]>>({});
 
-  // Expandable
   let expandedHarness = $state<string | null>(null);
   let expandedPolicy = $state<string | null>(null);
   let expandedSoul = $state<string | null>(null);
   let expandedSkill = $state<string | null>(null);
 
-  // File content cache for souls and skills
   let fileContentCache = $state<Record<string, string>>({});
 
   async function toggleFileContent(id: string, fileId: string, setter: 'soul' | 'skill') {
@@ -62,9 +59,10 @@
   }
 
   onMount(async () => {
-    const [ha, tm, so, sk, wc, dec, pol] = await Promise.all([
+    const [ha, tm, pl, so, sk, wc, dec, pol] = await Promise.all([
       queryEntities('Harnesses').catch(() => queryEntities('ProjectHarnesses').catch(() => [])),
       queryTeams().catch(() => []),
+      queryEntities('Plans', undefined, 'Id desc', 20).catch(() => []),
       queryEntities('Souls').catch(() => []),
       queryEntities('Skills').catch(() => []),
       queryEntities('WorkCycles').catch(() => []),
@@ -73,13 +71,13 @@
     ]);
     harnesses = ha;
     teams = tm as unknown as Team[];
+    plans = pl as unknown as Plan[];
     souls = so;
     skills = sk;
     workCycles = wc;
     decisions = dec;
     policies = pol;
 
-    // Load agents for each team
     const agentMap: Record<string, Agent[]> = {};
     await Promise.all(teams.map(async (team) => {
       try {
@@ -113,21 +111,19 @@
 
 <div class="page">
   <header class="page-header">
-    <h1>Project</h1>
-    <p class="subtitle">Operating context: harnesses, team, skills, work cycles, and authorization</p>
+    <span class="page-label">PROJECT</span>
+    <p class="page-desc">Operating context: harnesses, team, skills, and authorization</p>
   </header>
 
   {#if !loaded}
-    <div class="empty"><p class="empty-text">Loading...</p></div>
+    <div class="empty"><span class="empty-text">[LOADING...]</span></div>
   {:else}
 
     <!-- HARNESS -->
+    {#if harnesses.length > 0}
     <section class="section">
-      <h2 class="section-title">Harness</h2>
+      <span class="section-label">HARNESS ({harnesses.length})</span>
       <p class="section-desc">Project harnesses govern what agents can do within a repository</p>
-      {#if harnesses.length === 0}
-        <p class="empty-text">No harnesses configured</p>
-      {:else}
         {#each harnesses as harness (field(harness, 'Id'))}
           {@const harnessId = field(harness, 'Id')}
           <div class="list-row">
@@ -141,64 +137,61 @@
             {#if expandedHarness === harnessId}
               <div class="list-detail" transition:slide={{ duration: 150 }}>
                 <div class="detail-grid">
-                  <span class="detail-label">Harness ID</span>
+                  <span class="detail-label">HARNESS ID</span>
                   <code class="detail-value">{harnessId}</code>
 
-                  <span class="detail-label">Repository</span>
+                  <span class="detail-label">REPOSITORY</span>
                   <span class="detail-value">{field(harness, 'repo_url')}</span>
 
-                  <span class="detail-label">Tech Stack</span>
+                  <span class="detail-label">TECH STACK</span>
                   <span class="detail-value">{field(harness, 'tech_stack')}</span>
 
                   {#if field(harness, 'conventions')}
-                    <span class="detail-label">Conventions</span>
+                    <span class="detail-label">CONVENTIONS</span>
                     <pre class="detail-pre">{field(harness, 'conventions')}</pre>
                   {/if}
                 </div>
               </div>
             {/if}
 
-            <!-- Flow diagram inline under this harness -->
             <div class="harness-flow">
               <div class="flow-row">
-                <div class="flow-state">Planning</div>
-                <span class="flow-arrow">→</span>
-                <div class="flow-state">Planned</div>
-                <span class="flow-arrow">→</span>
-                <div class="flow-state">InProgress</div>
-                <span class="flow-arrow">→</span>
+                <div class="flow-state">PLANNING</div>
+                <span class="flow-arrow">&rarr;</span>
+                <div class="flow-state">PLANNED</div>
+                <span class="flow-arrow">&rarr;</span>
+                <div class="flow-state">IN PROGRESS</div>
+                <span class="flow-arrow">&rarr;</span>
                 <div class="flow-gates">
-                  <span class="flow-gates-label">Level 1 Gates</span>
-                  <div class="flow-gate">Migrations</div>
-                  <div class="flow-gate">Typecheck</div>
-                  <div class="flow-gate">Unit Tests</div>
+                  <span class="flow-gates-label">L1 GATES</span>
+                  <div class="flow-gate">MIGRATIONS</div>
+                  <div class="flow-gate">TYPECHECK</div>
+                  <div class="flow-gate">UNIT TESTS</div>
                 </div>
-                <span class="flow-arrow">→</span>
-                <div class="flow-state">Testing</div>
-                <span class="flow-arrow">→</span>
+                <span class="flow-arrow">&rarr;</span>
+                <div class="flow-state">TESTING</div>
+                <span class="flow-arrow">&rarr;</span>
                 <div class="flow-gates">
-                  <span class="flow-gates-label">Level 2 Gates</span>
+                  <span class="flow-gates-label">L2 GATES</span>
                   <div class="flow-gate">DST</div>
-                  <div class="flow-gate">Policy Gates</div>
+                  <div class="flow-gate">POLICY</div>
                 </div>
-                <span class="flow-arrow">→</span>
-                <div class="flow-state">Reviewing</div>
-                <span class="flow-arrow">→</span>
-                <div class="flow-state flow-state--final">Complete</div>
+                <span class="flow-arrow">&rarr;</span>
+                <div class="flow-state">REVIEWING</div>
+                <span class="flow-arrow">&rarr;</span>
+                <div class="flow-state flow-state--final">COMPLETE</div>
               </div>
             </div>
           </div>
         {/each}
-      {/if}
     </section>
+    {/if}
 
     <!-- TEAMS & AGENTS -->
+    {#if teams.length > 0}
     <section class="section">
-      <h2 class="section-title">Team</h2>
+      <span class="section-label">TEAM ({teams.length})</span>
       <p class="section-desc">Persistent agent members for this project</p>
-      {#if teams.length === 0}
-        <p class="empty-text">No team configured</p>
-      {:else}
         {#each teams as team (team.Id)}
           <div class="team-block">
             <div class="team-header">
@@ -211,7 +204,7 @@
             {/if}
 
             {#if (teamAgents[team.Id] ?? []).length === 0}
-              <p class="empty-text">No agents in this team</p>
+              <span class="empty-text">No agents in this team</span>
             {:else}
               <div class="card-grid">
                 {#each teamAgents[team.Id] ?? [] as agent (agent.Id)}
@@ -235,23 +228,23 @@
                         <span class="meta-tag">{agent.provider}</span>
                       {/if}
                       {#if agent.soul_id}
-                        <span class="meta-tag">soul: {agent.soul_id}</span>
+                        <span class="meta-tag">SOUL: {agent.soul_id}</span>
                       {/if}
                       {#if agent.tools_enabled}
-                        <span class="meta-tag">tools: {agent.tools_enabled}</span>
+                        <span class="meta-tag">TOOLS: {agent.tools_enabled}</span>
                       {/if}
                       {#if agent.skill_ids}
-                        <span class="meta-tag">skills: {agent.skill_ids}</span>
+                        <span class="meta-tag">SKILLS: {agent.skill_ids}</span>
                       {/if}
                     </div>
                     <StatusBadge status={agent.Status} />
                     <button class="view-btn" onclick={() => toggleAgentSessions(agent.Id)}>
-                      {expandedAgentSessions === agent.Id ? 'Hide Sessions' : 'View Sessions'}
+                      {expandedAgentSessions === agent.Id ? '[-] HIDE SESSIONS' : '[+] VIEW SESSIONS'}
                     </button>
                     {#if expandedAgentSessions === agent.Id}
                       <div class="agent-sessions" transition:slide={{ duration: 150 }}>
                         {#if (agentSessionsCache[agent.Id] ?? []).length === 0}
-                          <p class="empty-text">No sessions for this agent</p>
+                          <span class="empty-text">No sessions for this agent</span>
                         {:else}
                           {#each agentSessionsCache[agent.Id] ?? [] as sess (sess.Id)}
                             <a href="/sessions/{sess.Id}" class="agent-session-row">
@@ -271,37 +264,99 @@
             {/if}
           </div>
         {/each}
-      {/if}
     </section>
+    {/if}
+
+    <!-- PLANS -->
+    {#if plans.length > 0}
+    <section class="section">
+      <span class="section-label">PLANS ({plans.length})</span>
+      <p class="section-desc">Agent plans — research, review, implementation</p>
+        <div class="card-grid">
+          {#each plans as plan (plan.Id)}
+            <div class="card" class:plan-escalated={plan.Status === 'Escalated'} class:plan-review={plan.Status === 'UnderReview'}>
+              <div class="card-header">
+                <StatusBadge status={plan.Status} />
+                <code class="card-id">{plan.Id?.slice(0, 8)}</code>
+              </div>
+              <h4 class="card-name">{plan.Description || plan.description || 'Untitled Plan'}</h4>
+              {#if plan.AuthorAgentId || plan.author_agent_id}
+                <p class="card-meta">Author: <code>{(plan.AuthorAgentId || plan.author_agent_id)?.slice(0, 12)}</code></p>
+              {/if}
+              {#if plan.ReviewerAgentId || plan.reviewer_agent_id}
+                <p class="card-meta">Reviewer: <code>{(plan.ReviewerAgentId || plan.reviewer_agent_id)?.slice(0, 12)}</code></p>
+              {/if}
+              {#if plan.ReviewNotes || plan.review_notes}
+                <p class="card-meta review-notes">Notes: {plan.ReviewNotes || plan.review_notes}</p>
+              {/if}
+              {#if plan.PlanText || plan.plan_text}
+                <details class="plan-detail">
+                  <summary>View Plan</summary>
+                  <pre class="plan-text">{plan.PlanText || plan.plan_text}</pre>
+                </details>
+              {/if}
+            </div>
+          {/each}
+        </div>
+    </section>
+    {/if}
+
+    <!-- SOULS -->
+    {#if souls.length > 0}
+    <section class="section">
+      <span class="section-label">SOULS ({souls.length})</span>
+      <p class="section-desc">Agent personalities and identity definitions</p>
+        <div class="card-grid">
+          {#each souls as soul (field(soul, 'Id'))}
+            {@const soulId = field(soul, 'Id')}
+            {@const soulFileId = field(soul, 'ContentFileId') || field(soul, 'content_file_id')}
+            <div class="card">
+              <div class="card-header">
+                <span class="card-dot" style:background="var(--terminal-text)"></span>
+                <span class="card-name">{field(soul, 'Name') || field(soul, 'name') || 'Unnamed'}</span>
+              </div>
+              <p class="card-desc">{field(soul, 'Description') || field(soul, 'description') || '--'}</p>
+              <StatusBadge status={field(soul, 'Status')} />
+              {#if soulFileId}
+                <button class="view-btn" onclick={() => toggleFileContent(soulId, soulFileId, 'soul')}>
+                  {expandedSoul === soulId ? '[-] HIDE' : '[+] VIEW SOUL'}
+                </button>
+              {/if}
+              {#if expandedSoul === soulId && fileContentCache[soulId]}
+                <pre class="file-content" transition:slide={{ duration: 150 }}>{fileContentCache[soulId]}</pre>
+              {/if}
+            </div>
+          {/each}
+        </div>
+    </section>
+    {/if}
 
     <!-- SKILLS -->
+    {#if skills.length > 0}
     <section class="section">
-      <h2 class="section-title">Skills</h2>
+      <span class="section-label">SKILLS ({skills.length})</span>
       <p class="section-desc">Capabilities available to agents</p>
-      {#if skills.length === 0}
-        <p class="empty-text">No skills configured</p>
-      {:else}
         <div class="card-grid">
           {#each skills as skill (field(skill, 'Id'))}
             {@const skillId = field(skill, 'Id')}
             {@const skillFileId = field(skill, 'content_file_id') || field(skill, 'ContentFileId')}
             <div class="card">
               <div class="card-header">
-                <span class="card-dot" style:background="var(--status-active)"></span>
+                <span class="card-dot" style:background="var(--accent)"></span>
                 <span class="card-name">{field(skill, 'Name') || field(skill, 'name') || 'Unnamed'}</span>
               </div>
               <p class="card-desc">{field(skill, 'Description') || field(skill, 'description') || '--'}</p>
               <div class="card-meta-row">
                 {#if field(skill, 'scope')}
-                  <span class="meta-tag">scope: {field(skill, 'scope')}</span>
+                  <span class="meta-tag">SCOPE: {field(skill, 'scope')}</span>
                 {/if}
                 {#if field(skill, 'agent_filter')}
-                  <span class="meta-tag">filter: {field(skill, 'agent_filter')}</span>
+                  <span class="meta-tag">FILTER: {field(skill, 'agent_filter')}</span>
                 {/if}
               </div>
               {#if skillFileId}
                 <button class="view-btn" onclick={() => toggleFileContent(skillId, skillFileId, 'skill')}>
-                  {expandedSkill === skillId ? 'Hide Content' : 'View Content'}
+                  {expandedSkill === skillId ? '[-] HIDE' : '[+] VIEW'}
                 </button>
               {/if}
               {#if expandedSkill === skillId && fileContentCache[skillId]}
@@ -310,161 +365,260 @@
             </div>
           {/each}
         </div>
-      {/if}
     </section>
+    {/if}
 
+    <!-- WORK CYCLES -->
+    {#if workCycles.length > 0}
+    <section class="section">
+      <span class="section-label">WORK CYCLES ({workCycles.length})</span>
+      <p class="section-desc">Planned changes with quality gates</p>
+        <div class="wc-list">
+          {#each workCycles as wc (field(wc, 'Id'))}
+            <div class="wc-row">
+              <div class="wc-header">
+                <span class="card-dot" style:background={statusColor(field(wc, 'Status'))}></span>
+                <span class="wc-task">{field(wc, 'task_summary') || 'Untitled'}</span>
+                <StatusBadge status={field(wc, 'Status')} />
+              </div>
+              <div class="wc-meta">
+                {#if field(wc, 'planner_id')}
+                  <span class="meta-tag">PLANNER: {field(wc, 'planner_id').slice(0, 8)}</span>
+                {/if}
+                {#if field(wc, 'pr_url')}
+                  <span class="meta-tag">PR: {field(wc, 'pr_url')}</span>
+                {/if}
+              </div>
+              <div class="wc-gates">
+                <span class="gate-item" class:gate-item--pass={wc.has_plan}>PLAN</span>
+                <span class="gate-item" class:gate-item--pass={wc.tests_passed}>TESTS</span>
+              </div>
+              {#if field(wc, 'plan_summary')}
+                <p class="wc-summary">{field(wc, 'plan_summary')}</p>
+              {/if}
+            </div>
+          {/each}
+        </div>
+    </section>
+    {/if}
 
   {/if}
 </div>
 
 <style>
-  .page { display: flex; flex-direction: column; gap: var(--space-4); }
-  .subtitle { color: var(--text-secondary); font-size: var(--text-sm); }
+  .page { display: flex; flex-direction: column; gap: var(--space-xl); }
 
-  .section { display: flex; flex-direction: column; gap: var(--space-2); }
-  .section-title { font-size: var(--text-lg); }
-  .section-desc { font-size: var(--text-xs); color: var(--text-tertiary); margin-bottom: var(--space-1); }
+  .page-header { display: flex; flex-direction: column; gap: var(--space-xs); }
+  .page-label {
+    font-family: var(--font-mono);
+    font-size: var(--label);
+    letter-spacing: 0.08em;
+    color: var(--text-secondary);
+  }
+  .page-desc { font-size: var(--body-sm); color: var(--text-secondary); }
 
-  .empty { display: flex; align-items: center; justify-content: center; padding: var(--space-6) 0; }
-  .empty-text { color: var(--text-tertiary); font-size: var(--text-sm); }
-  .empty-inline { color: var(--text-tertiary); font-size: var(--text-xs); font-style: italic; }
+  .section { display: flex; flex-direction: column; gap: var(--space-md); }
+  .section-label {
+    font-family: var(--font-mono);
+    font-size: var(--label);
+    letter-spacing: 0.08em;
+    color: var(--text-secondary);
+  }
+  .section-desc { font-size: var(--caption); color: var(--text-disabled); }
 
-  /* Cards grid (for souls, skills) */
-  .card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: var(--space-2); }
+  .empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-sm); padding: var(--space-3xl) 0; }
+  .empty-text {
+    font-family: var(--font-mono);
+    font-size: var(--caption);
+    color: var(--text-disabled);
+    letter-spacing: 0.04em;
+  }
+  .empty-note {
+    font-family: var(--font-mono);
+    font-size: var(--caption);
+    color: var(--text-disabled);
+  }
+
+  /* Cards grid */
+  .card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: var(--space-md); }
   .card {
     display: flex; flex-direction: column; gap: 6px;
-    padding: var(--space-2); background: var(--surface-raised); border-radius: var(--radius-md);
+    padding: var(--space-md); background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius-md);
   }
-  .card-header { display: flex; align-items: center; gap: var(--space-1); }
-  .card-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-  .card-name { font-size: var(--text-sm); font-weight: 600; color: var(--text-primary); }
-  .card-id { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-tertiary); }
-  .card-desc { font-size: var(--text-xs); color: var(--text-secondary); line-height: 1.4; }
+  .card-header { display: flex; align-items: center; gap: var(--space-sm); }
+  .card-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+  .card-name { font-size: var(--body-sm); font-weight: 500; color: var(--text-display); }
+  .card-id { font-family: var(--font-mono); font-size: var(--label); color: var(--text-disabled); }
+  .card-desc { font-size: var(--caption); color: var(--text-secondary); line-height: 1.4; }
   .card-meta-row { display: flex; flex-wrap: wrap; gap: 6px; }
   .meta-tag {
-    font-family: var(--font-mono); font-size: 0.625rem; color: var(--text-secondary);
-    background: var(--surface-overlay); padding: 1px 6px; border-radius: var(--radius-sm);
+    font-family: var(--font-mono); font-size: var(--label); color: var(--text-secondary);
+    letter-spacing: 0.04em;
+    background: var(--surface-raised); padding: 1px 8px; border-radius: var(--radius-sm);
   }
   .view-btn {
-    font-size: var(--text-xs); color: var(--text-secondary); padding: 2px 0;
-    text-align: left; width: fit-content; cursor: pointer;
-    background: none; border: none;
+    font-family: var(--font-mono); font-size: var(--label); color: var(--text-disabled);
+    letter-spacing: 0.06em;
+    padding: var(--space-2xs) 0; text-align: left; width: fit-content;
+    cursor: pointer; background: none; border: none;
   }
-  .view-btn:hover { color: var(--text-primary); }
+  .view-btn:hover { color: var(--text-display); }
   .file-content {
-    font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-secondary);
-    background: var(--surface-overlay); padding: var(--space-2); border-radius: var(--radius-sm);
+    font-family: var(--font-mono); font-size: var(--label); color: var(--text-secondary);
+    background: var(--surface-raised); border: 1px solid var(--border);
+    padding: var(--space-md); border-radius: var(--radius-sm);
     white-space: pre-wrap; overflow-x: auto; max-height: 400px; overflow-y: auto;
   }
 
   /* List rows */
-  .list { display: flex; flex-direction: column; }
   .list-row { border-bottom: 1px solid var(--border); }
   .list-header {
-    display: flex; align-items: center; gap: var(--space-1);
-    padding: var(--space-2) 0; cursor: pointer;
+    display: flex; align-items: center; gap: var(--space-sm);
+    padding: var(--space-md) 0; cursor: pointer;
     transition: background var(--duration-fast) var(--ease);
   }
-  .list-header:hover { background: var(--brand-subtle); }
-  .list-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-  .list-name { font-size: var(--text-sm); font-weight: 500; color: var(--text-primary); }
-  .list-meta { font-size: var(--text-xs); color: var(--text-tertiary); }
-  .list-meta code { font-family: var(--font-mono); }
+  .list-header:hover { background: var(--accent-subtle); }
+  .list-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+  .list-name { font-size: var(--body-sm); font-weight: 500; color: var(--text-display); }
+  .list-meta { font-family: var(--font-mono); font-size: var(--label); color: var(--text-disabled); }
 
   /* Detail panels */
   .list-detail {
-    padding: var(--space-2) var(--space-3); background: var(--surface-raised);
-    border-radius: var(--radius-md); margin-bottom: var(--space-1);
+    padding: var(--space-md) var(--space-lg); background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md); margin-bottom: var(--space-sm);
   }
-  .detail-grid { display: grid; grid-template-columns: 120px 1fr; gap: 6px var(--space-2); align-items: baseline; }
-  .detail-label { font-size: 0.625rem; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.05em; }
-  .detail-value { font-size: var(--text-sm); color: var(--text-primary); word-break: break-all; }
+  .detail-grid { display: grid; grid-template-columns: 120px 1fr; gap: 6px var(--space-md); align-items: baseline; }
+  .detail-label {
+    font-family: var(--font-mono); font-size: var(--label);
+    letter-spacing: 0.08em; color: var(--text-disabled);
+  }
+  .detail-value { font-size: var(--body-sm); color: var(--text-primary); word-break: break-all; }
   .detail-pre {
-    font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-secondary);
-    background: var(--surface-overlay); padding: var(--space-2); border-radius: var(--radius-sm);
+    font-family: var(--font-mono); font-size: var(--label); color: var(--text-secondary);
+    background: var(--surface-raised); border: 1px solid var(--border);
+    padding: var(--space-md); border-radius: var(--radius-sm);
     white-space: pre-wrap; overflow-x: auto; max-height: 300px; overflow-y: auto; grid-column: 1 / -1;
   }
 
-  /* Tool tags */
-  .tool-tag {
-    font-family: var(--font-mono); font-size: 0.625rem; color: var(--text-secondary);
-    background: var(--surface-overlay); padding: 1px 6px; border-radius: var(--radius-sm);
-  }
-
-  /* WorkCycle inline */
-  .wc-detail { padding: 0 0 var(--space-1) var(--space-2); }
-  .wc-meta { display: flex; gap: var(--space-2); font-size: var(--text-xs); color: var(--text-tertiary); margin-top: 6px; }
-  .wc-meta code { font-family: var(--font-mono); }
-
   /* Team blocks */
   .team-block {
-    display: flex; flex-direction: column; gap: var(--space-2);
-    padding: var(--space-2) 0; border-bottom: 1px solid var(--border);
+    display: flex; flex-direction: column; gap: var(--space-md);
+    padding: var(--space-md) 0; border-bottom: 1px solid var(--border);
   }
-  .team-header { display: flex; align-items: center; gap: var(--space-1); }
-  .team-name { font-size: var(--text-sm); font-weight: 600; color: var(--text-primary); }
-  .team-desc { font-size: var(--text-xs); color: var(--text-secondary); }
+  .team-header { display: flex; align-items: center; gap: var(--space-sm); }
+  .team-name { font-size: var(--body-sm); font-weight: 500; color: var(--text-display); }
+  .team-desc { font-size: var(--caption); color: var(--text-secondary); }
   .agent-role {
-    font-family: var(--font-mono); font-size: 0.625rem; color: var(--text-secondary);
-    background: var(--surface-overlay); padding: 1px 6px; border-radius: var(--radius-sm); width: fit-content;
+    font-family: var(--font-mono); font-size: var(--label); color: var(--text-secondary);
+    letter-spacing: 0.06em;
+    background: var(--surface-raised); padding: 1px 8px; border-radius: var(--radius-sm); width: fit-content;
   }
   .agent-member-card { cursor: default; }
 
-  /* Agent sessions expandable */
+  /* Agent sessions */
   .agent-sessions {
-    display: flex; flex-direction: column; gap: 4px;
-    padding-top: var(--space-1);
+    display: flex; flex-direction: column; gap: var(--space-xs);
+    padding-top: var(--space-sm);
   }
   .agent-session-row {
-    display: flex; align-items: center; gap: var(--space-1);
-    padding: 4px var(--space-1); background: var(--surface-overlay); border-radius: var(--radius-sm);
-    text-decoration: none; color: inherit; font-size: var(--text-xs);
-    transition: background var(--duration-fast) var(--ease);
+    display: flex; align-items: center; gap: var(--space-sm);
+    padding: var(--space-xs) var(--space-sm); background: var(--surface-raised);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    text-decoration: none; color: inherit; font-size: var(--caption);
+    transition: border-color var(--duration-fast) var(--ease);
   }
-  .agent-session-row:hover { background: var(--brand-subtle); text-decoration: none; }
-  .agent-session-id { font-family: var(--font-mono); color: var(--text-tertiary); }
+  .agent-session-row:hover { border-color: var(--border-visible); text-decoration: none; }
+  .agent-session-id { font-family: var(--font-mono); font-size: var(--label); color: var(--text-disabled); }
   .agent-session-task { color: var(--text-secondary); }
 
   /* Harness flow diagram */
   .harness-flow {
-    background: var(--surface-raised); border-radius: var(--radius-md);
-    padding: var(--space-3); overflow-x: auto;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: var(--space-lg); overflow-x: auto;
   }
   .flow-row {
-    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    display: flex; align-items: center; gap: var(--space-sm); flex-wrap: wrap;
     min-width: max-content;
   }
   .flow-state {
+    font-family: var(--font-mono); font-size: var(--label); letter-spacing: 0.06em;
     padding: 6px 14px; border-radius: var(--radius-sm);
-    background: var(--surface-overlay); color: var(--text-primary);
-    font-size: var(--text-sm); font-weight: 500; white-space: nowrap;
+    background: var(--surface-raised); border: 1px solid var(--border);
+    color: var(--text-primary); white-space: nowrap;
   }
   .flow-state--final {
-    background: var(--status-success); color: #000; font-weight: 600;
+    background: var(--accent); color: #000; border-color: var(--accent);
+    font-weight: 700;
   }
-  .flow-arrow { color: var(--text-tertiary); font-size: var(--text-sm); }
+  .flow-arrow {
+    font-family: var(--font-mono);
+    color: var(--text-disabled); font-size: var(--body-sm);
+  }
   .flow-gates {
-    display: flex; flex-direction: column; gap: 4px; align-items: center;
-    padding: 8px 12px; border: 1px dashed var(--border-subtle); border-radius: var(--radius-sm);
+    display: flex; flex-direction: column; gap: var(--space-xs); align-items: center;
+    padding: var(--space-sm) var(--space-md);
+    border: 1px dashed var(--border-visible); border-radius: var(--radius-sm);
   }
   .flow-gates-label {
-    font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.05em;
-    color: var(--text-tertiary); margin-bottom: 2px;
+    font-family: var(--font-mono); font-size: var(--label);
+    letter-spacing: 0.08em;
+    color: var(--text-disabled);
   }
   .flow-gate {
-    font-size: var(--text-xs); padding: 2px 8px; border-radius: 10px;
-    background: var(--surface-overlay); color: var(--text-secondary);
+    font-family: var(--font-mono); font-size: var(--label);
+    letter-spacing: 0.04em;
+    padding: 2px 8px;
+    background: var(--surface-raised); color: var(--text-secondary);
+    border-radius: var(--radius-sm);
   }
-  .flow-note {
-    font-size: var(--text-xs); color: var(--text-tertiary); font-style: italic;
-    margin-top: var(--space-2);
+
+  /* Work Cycles */
+  .wc-list {
+    display: flex; flex-direction: column; gap: var(--space-sm);
   }
-  .conventions-detail {
-    margin-top: var(--space-2);
+  .wc-row {
+    display: flex; flex-direction: column; gap: var(--space-xs);
+    padding: var(--space-md);
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md);
   }
-  .conventions-detail summary {
-    font-size: var(--text-xs); color: var(--text-secondary); cursor: pointer;
+  .wc-header {
+    display: flex; align-items: center; gap: var(--space-sm);
   }
+  .wc-task {
+    font-size: var(--body-sm); font-weight: 500; color: var(--text-display);
+  }
+  .wc-meta {
+    display: flex; gap: var(--space-sm); flex-wrap: wrap;
+  }
+  .wc-gates {
+    display: flex; gap: var(--space-xs);
+  }
+  .gate-item {
+    font-family: var(--font-mono); font-size: var(--label); letter-spacing: 0.06em;
+    padding: 2px 8px; border-radius: var(--radius-sm);
+    background: var(--surface-raised); color: var(--text-disabled);
+    border: 1px solid var(--border);
+  }
+  .gate-item--pass {
+    color: var(--accent); border-color: var(--accent);
+    background: var(--accent-subtle);
+  }
+  .wc-summary {
+    font-size: var(--caption); color: var(--text-secondary); line-height: 1.4;
+  }
+
+  /* Plan cards */
+  .plan-escalated { border-color: var(--status-error) !important; border-width: 2px !important; }
+  .plan-review { border-color: var(--status-warning) !important; border-width: 2px !important; }
+  .review-notes { font-style: italic; color: var(--status-warning); }
+  .plan-detail { margin-top: var(--space-xs); }
+  .plan-detail summary { font-size: var(--label); color: var(--text-disabled); cursor: pointer; font-family: var(--font-mono); letter-spacing: 0.04em; }
+  .plan-text { font-size: var(--caption); color: var(--text-secondary); white-space: pre-wrap; max-height: 300px; overflow-y: auto; margin-top: var(--space-xs); padding: var(--space-sm); background: var(--surface-raised); border-radius: var(--radius-sm); }
+  .card-meta { font-size: var(--caption); color: var(--text-secondary); }
 
   @media (max-width: 800px) {
     .card-grid { grid-template-columns: 1fr; }

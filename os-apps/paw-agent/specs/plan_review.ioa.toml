@@ -1,0 +1,150 @@
+# Plan Review — Extended Plan entity with review workflow.
+#
+# Extends the built-in Plan entity with review states and fields
+# so plans are reviewed by a lead agent before implementation.
+#
+# Review chain: Worker creates → Lead reviews → Human escalation (optional)
+#
+# States: Draft → UnderReview → Active → Completed/Failed
+#                → Escalated (human review)
+#         UnderReview → Draft (changes requested, with feedback)
+
+[automaton]
+name = "Plan"
+states = ["Draft", "UnderReview", "Escalated", "Active", "Paused", "Completed", "Failed"]
+initial = "Draft"
+
+# --- State Variables ---
+
+[[state]]
+name = "description"
+type = "string"
+initial = ""
+
+[[state]]
+name = "plan_text"
+type = "string"
+initial = ""
+
+[[state]]
+name = "author_agent_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "reviewer_agent_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "review_notes"
+type = "string"
+initial = ""
+
+[[state]]
+name = "task_count"
+type = "counter"
+initial = "0"
+
+[[state]]
+name = "last_task_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "session_id"
+type = "string"
+initial = ""
+
+# --- Actions: Review Workflow ---
+
+[[action]]
+name = "SubmitForReview"
+kind = "input"
+from = ["Draft"]
+to = "UnderReview"
+params = ["reviewer_agent_id"]
+hint = "Submit plan for lead agent review."
+
+[[action]]
+name = "Approve"
+kind = "input"
+from = ["UnderReview", "Escalated"]
+to = "Active"
+hint = "Lead or human approves the plan. Implementation can proceed."
+
+[[action]]
+name = "RequestChanges"
+kind = "input"
+from = ["UnderReview", "Escalated"]
+to = "Draft"
+params = ["review_notes"]
+hint = "Reviewer requests changes. Plan returns to Draft with feedback."
+
+[[action]]
+name = "Escalate"
+kind = "input"
+from = ["UnderReview"]
+to = "Escalated"
+hint = "Lead escalates plan to human for review."
+
+# --- Actions: Execution (same as built-in Plan) ---
+
+[[action]]
+name = "Activate"
+kind = "input"
+from = ["Draft"]
+to = "Active"
+params = ["description"]
+hint = "Direct activation (skip review). For trivial plans."
+
+[[action]]
+name = "AddTask"
+kind = "input"
+from = ["Active"]
+hint = "Add a task to the plan."
+effect = [
+  { type = "increment", var = "task_count" },
+]
+
+[[action]]
+name = "Pause"
+kind = "input"
+from = ["Active"]
+to = "Paused"
+hint = "Pause plan execution."
+
+[[action]]
+name = "Resume"
+kind = "input"
+from = ["Paused"]
+to = "Active"
+hint = "Resume paused plan."
+
+[[action]]
+name = "Complete"
+kind = "input"
+from = ["Active"]
+to = "Completed"
+params = ["description"]
+hint = "Mark plan as completed with summary."
+
+[[action]]
+name = "Fail"
+kind = "input"
+from = ["Active", "Paused", "UnderReview", "Escalated"]
+to = "Failed"
+params = ["review_notes"]
+hint = "Mark plan as failed with reason."
+
+# --- Invariants ---
+
+[[invariant]]
+name = "CompletedIsFinal"
+when = ["Completed"]
+assert = "no_further_transitions"
+
+[[invariant]]
+name = "FailedIsFinal"
+when = ["Failed"]
+assert = "no_further_transitions"

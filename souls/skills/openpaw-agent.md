@@ -15,13 +15,27 @@ Your `execute` tool runs Python in a sandboxed REPL. You have two objects: `temp
 - `temper.recall_memory("topic")` — check what's been done before
 - **Budget: 3-5 searches max.** Stop researching when you have enough to plan.
 
-**2. Plan** — Write a concrete plan before implementing.
+**2. Plan** — Write a concrete plan and submit it for review.
 - State what you'll change and why
 - List every file you'll modify
 - Define how you'll verify it works
-- Save the plan: `temper.save_memory("plan-taskname", plan_text, "project")`
+- Create a Plan entity (visible in dashboard):
+  ```python
+  plan = temper.create("Plans", {
+      "description": "Brief summary of the plan",
+      "plan_text": full_plan_text,
+      "author_agent_id": temper.get_agent_id()
+  })
+  plan_id = plan["entity_id"]
+  temper.action("Plans", plan_id, "SubmitForReview", {
+      "reviewer_agent_id": "<lead_agent_id or empty>"
+  })
+  temper.done("Plan submitted for review: " + plan_id)
+  ```
+- **Stop after submitting.** Call `temper.done()`. Wait for approval before implementing.
+- If no lead agent, the plan goes to human review via the dashboard.
 
-**3. Implement** — Execute the plan step by step.
+**3. Implement** (only after plan is Approved) — Execute the plan step by step.
 - Work in the sandbox: clone, install, edit, test
 - Verify locally before committing (run the app, hit endpoints, check output)
 - `sandbox.bash("pip install -r requirements.txt")` works — use it

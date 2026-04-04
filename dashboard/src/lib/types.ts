@@ -97,6 +97,23 @@ export interface Harness {
 /** @deprecated Use Harness instead */
 export type ProjectHarness = Harness;
 
+export interface Plan {
+  Id: string;
+  Status: string;
+  description: string;
+  Description: string;
+  plan_text: string;
+  PlanText: string;
+  author_agent_id: string;
+  AuthorAgentId: string;
+  reviewer_agent_id: string;
+  ReviewerAgentId: string;
+  review_notes: string;
+  ReviewNotes: string;
+  task_count: number;
+  session_id: string;
+}
+
 export interface Skill {
   Id: string;
   Status: string;

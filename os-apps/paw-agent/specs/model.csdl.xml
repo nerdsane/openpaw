@@ -581,6 +581,19 @@
         <Property Name="ErrorMessage" Type="Edm.String"/>
       </EntityType>
 
+      <EntityType Name="Plan">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.String" Nullable="false"/>
+        <Property Name="Status" Type="Edm.String"/>
+        <Property Name="Description" Type="Edm.String"/>
+        <Property Name="PlanText" Type="Edm.String"/>
+        <Property Name="AuthorAgentId" Type="Edm.String"/>
+        <Property Name="ReviewerAgentId" Type="Edm.String"/>
+        <Property Name="ReviewNotes" Type="Edm.String"/>
+        <Property Name="TaskCount" Type="Edm.Int64"/>
+        <Property Name="SessionId" Type="Edm.String"/>
+      </EntityType>
+
       <EntityContainer Name="Service">
         <EntitySet Name="Sessions" EntityType="OpenPaw.Session"/>
         <EntitySet Name="Agents" EntityType="OpenPaw.Agent"/>
@@ -593,6 +606,7 @@
         <EntitySet Name="CronJobs" EntityType="OpenPaw.CronJob"/>
         <EntitySet Name="CronSchedulers" EntityType="OpenPaw.CronScheduler"/>
         <EntitySet Name="CapabilityRequests" EntityType="OpenPaw.CapabilityRequest"/>
+        <EntitySet Name="Plans" EntityType="OpenPaw.Plan"/>
 
       </EntityContainer>
 
