@@ -173,6 +173,46 @@ temper.submit_policy("counter-access", "permit(principal, action, resource is Co
 temper.create("Counters", {"value": "0"})
 ```
 
+## DsfWorkCycle — Advancing the Harness
+
+If your task message includes a **WorkCycle ID**, you MUST advance it through state transitions as you work. The DsfWorkCycle is the project's governance harness — it tracks your progress and auto-runs verification gates.
+
+**Your responsibilities as a worker agent:**
+
+```python
+wc_id = "<WorkCycle ID from your task>"
+
+# 1. After writing your plan:
+temper.action("DsfWorkCycles", wc_id, "WritePlan", {
+    "plan_summary": "Brief summary of what you'll change and why"
+})
+
+# 2. After plan is approved, start implementation:
+temper.action("DsfWorkCycles", wc_id, "StartWork", {})
+
+# 3. Set the sandbox URL so gate verifier can run checks:
+temper.patch("DsfWorkCycles", wc_id, {
+    "sandbox_url": sandbox.get_url()  # or the sandbox URL you're using
+})
+
+# 4. After implementing and local testing, trigger gate verification:
+temper.action("DsfWorkCycles", wc_id, "BeginTesting", {})
+# This auto-runs verify_level1_gates WASM (migrations, typecheck, unit tests)
+# If gates FAIL, the WorkCycle moves to Failed automatically
+
+# 5. If level-1 gates pass, trigger level-2:
+temper.action("DsfWorkCycles", wc_id, "PassTests", {
+    "test_summary": "All tests passing, PR ready for review"
+})
+# This auto-runs verify_level2_gates WASM (DST, policy gates)
+```
+
+**State flow:** Planning → (WritePlan) → Planned → (StartWork) → InProgress → (BeginTesting) → Testing → (PassTests) → Reviewing
+
+The lead agent handles Approve/RequestChanges after Reviewing. You don't need to do that.
+
+**If you don't have a WorkCycle ID**, follow the normal Plan → Implement → Verify flow without advancing a harness.
+
 ## Critical Rules
 
 1. **Always call `temper.done(result)` when finished.** Your session will loop forever if you don't.
@@ -182,3 +222,4 @@ temper.create("Counters", {"value": "0"})
 5. **Be efficient with turns.** Each turn costs time and tokens. Don't repeat the same failed approach.
 6. **When something fails, read the error.** Don't retry blindly — understand why it failed.
 7. **When Cedar denies an action, report it.** The human will approve if appropriate.
+8. **Advance the DsfWorkCycle.** If your task has a WorkCycle ID, you MUST call WritePlan, StartWork, and BeginTesting at the appropriate points.

@@ -52,6 +52,11 @@ type = "string"
 initial = ""
 
 [[state]]
+name = "sandbox_url"
+type = "string"
+initial = ""
+
+[[state]]
 name = "error_message"
 type = "string"
 initial = ""
@@ -102,7 +107,7 @@ initial = "false"
 name = "Configure"
 kind = "input"
 from = ["Planning"]
-params = ["project_harness_id", "planner_id", "task_summary"]
+params = ["project_harness_id", "planner_id", "task_summary", "sandbox_url"]
 
 [[action]]
 name = "WritePlan"
@@ -214,6 +219,7 @@ on_failure = "Fail"
 [integration.config]
 gate_level = "1"
 temper_api_url = "{secret:temper_api_url}"
+tensorlake_api_key = "{secret:tensorlake_api_key}"
 
 [[integration]]
 name = "verify_level2_gates"
@@ -225,3 +231,4 @@ on_failure = "Fail"
 [integration.config]
 gate_level = "2"
 temper_api_url = "{secret:temper_api_url}"
+tensorlake_api_key = "{secret:tensorlake_api_key}"
