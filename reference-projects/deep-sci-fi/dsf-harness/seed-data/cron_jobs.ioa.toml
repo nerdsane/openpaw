@@ -1,0 +1,16 @@
+# Deep-Sci-Fi CronJob instance data.
+# SRE health scan runs every 6 hours to verify monitor coverage.
+
+[[instance]]
+id = "dsf-sre-health-scan"
+entity_type = "CronJob"
+
+[instance.fields]
+name = "deep-sci-fi-monitor-health-scan"
+schedule = "0 */6 * * *"
+soul_id = "SRE"
+model = "claude-sonnet-4-6"
+provider = "anthropic"
+tools_enabled = "temper_get,temper_list,temper_action,temper_create,read_entity,bash,read"
+max_turns = "30"
+user_message_template = "Run a monitor health scan for deep-sci-fi (Harness: deep-sci-fi). Check monitor coverage against the codebase, verify existing monitors still match current code, add monitors for new/changed code. This is run {{run_count}}. Previous result: {{last_result}}"

@@ -36,6 +36,8 @@ const PAW_OS_APPS: &[&str] = &[
     "paw-ingest",
     "paw-research",
     "paw-foresight",
+    // Deep Sci-Fi reference apps (registered via add_os_apps_dir)
+    "dsf-harness",
 ];
 
 /// Run the Open Paw daemon.

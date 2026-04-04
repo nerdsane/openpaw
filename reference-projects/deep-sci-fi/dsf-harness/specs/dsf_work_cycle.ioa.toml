@@ -200,7 +200,7 @@ kind = "input"
 from = ["Planning"]
 to = "Planned"
 params = ["plan_summary", "planner_id"]
-effect = "set has_plan true"
+effect = [{ type = "set_bool", var = "has_plan", value = "true" }]
 hint = "Draft the plan before implementation can begin."
 
 [[action]]
@@ -208,7 +208,7 @@ name = "StartWork"
 kind = "input"
 from = ["Planned"]
 to = "InProgress"
-guard = "is_true has_plan"
+guard = [{ type = "is_true", var = "has_plan" }]
 hint = "Start implementation only after a plan exists."
 
 [[action]]
@@ -279,12 +279,7 @@ guard = [
   { type = "is_true", var = "unit_tests_ok" }
 ]
 hint = "Move to testing only after migrations, typecheck, and unit tests are green."
-
-  [[action.integration]]
-  wasm = "wasm/gate_verifier"
-  on = "effect"
-  config = { gate_level = "1" }
-  on_failure = "Fail"
+effect = [{ type = "trigger", name = "verify_level1_gates" }]
 
 [[action]]
 name = "PassTests"
@@ -292,25 +287,22 @@ kind = "input"
 from = ["Testing"]
 to = "Reviewing"
 params = ["test_summary"]
-effect = "set tests_passed true"
 guard = [
   { type = "is_true", var = "dst_ok" },
   { type = "is_true", var = "policy_gates_ok" }
 ]
 hint = "Only passing work should enter review. DST and policy gates must be green."
-
-  [[action.integration]]
-  wasm = "wasm/gate_verifier"
-  on = "effect"
-  config = { gate_level = "2" }
-  on_failure = "Fail"
+effect = [
+  { type = "set_bool", var = "tests_passed", value = "true" },
+  { type = "trigger", name = "verify_level2_gates" }
+]
 
 [[action]]
 name = "Approve"
 kind = "input"
 from = ["Reviewing"]
 to = "Complete"
-guard = "is_true tests_passed"
+guard = [{ type = "is_true", var = "tests_passed" }]
 params = ["approver_id", "pr_url"]
 hint = "Approve the reviewed change after all tests have passed."
 
@@ -320,7 +312,7 @@ kind = "input"
 from = ["Reviewing"]
 to = "Planning"
 params = ["review_notes"]
-effect = "set tests_passed false"
+effect = [{ type = "set_bool", var = "tests_passed", value = "false" }]
 hint = "Send work back for changes. Resets tests_passed so gates must be re-verified."
 
 [[action]]
@@ -341,14 +333,29 @@ when = ["Planned", "InProgress", "Testing", "Reviewing", "Complete"]
 assert = "has_plan"
 
 [[invariant]]
-name = "TestingRequiresBaseGates"
+name = "TestingRequiresMigrations"
 when = ["Testing", "Reviewing", "Complete"]
-assert = "migrations_ok && typecheck_ok && unit_tests_ok"
+assert = "migrations_ok"
 
 [[invariant]]
-name = "ReviewRequiresDSTAndPolicy"
+name = "TestingRequiresTypecheck"
+when = ["Testing", "Reviewing", "Complete"]
+assert = "typecheck_ok"
+
+[[invariant]]
+name = "TestingRequiresUnitTests"
+when = ["Testing", "Reviewing", "Complete"]
+assert = "unit_tests_ok"
+
+[[invariant]]
+name = "ReviewRequiresDST"
 when = ["Reviewing", "Complete"]
-assert = "dst_ok && policy_gates_ok"
+assert = "dst_ok"
+
+[[invariant]]
+name = "ReviewRequiresPolicyGates"
+when = ["Reviewing", "Complete"]
+assert = "policy_gates_ok"
 
 [[invariant]]
 name = "ReviewedWorkPassedTests"
@@ -364,3 +371,29 @@ assert = "no_further_transitions"
 name = "FailedIsFinal"
 when = ["Failed"]
 assert = "no_further_transitions"
+
+# ============================================================
+# Integrations — gate verification WASM modules
+# ============================================================
+
+[[integration]]
+name = "verify_level1_gates"
+trigger = "verify_level1_gates"
+type = "wasm"
+module = "gate_verifier"
+on_failure = "Fail"
+
+[integration.config]
+gate_level = "1"
+temper_api_url = "{secret:temper_api_url}"
+
+[[integration]]
+name = "verify_level2_gates"
+trigger = "verify_level2_gates"
+type = "wasm"
+module = "gate_verifier"
+on_failure = "Fail"
+
+[integration.config]
+gate_level = "2"
+temper_api_url = "{secret:temper_api_url}"
