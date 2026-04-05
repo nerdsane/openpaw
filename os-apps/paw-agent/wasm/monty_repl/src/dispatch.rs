@@ -8,7 +8,7 @@
 //! Mirrors the method signatures from `temper-sandbox/src/dispatch.rs`
 //! so agents see the exact same Python interface as `mcp__temper__execute`.
 
-use std::cell::RefCell;
+use std::{cell::RefCell, collections::BTreeSet};
 use serde_json::{Value, json};
 use temper_wasm_sdk::context::Context;
 
@@ -40,6 +40,7 @@ pub fn dispatch(
     method: &str,
     args: &[Value],
 ) -> Result<Value, String> {
+    ensure_method_enabled(ctx, obj_name, method, sandbox_url)?;
     match obj_name {
         "temper" => dispatch_temper(ctx, temper_api_url, tenant, sandbox_url, workdir, method, args),
         "sandbox" => {
@@ -47,6 +48,124 @@ pub fn dispatch(
             dispatch_sandbox(ctx, sandbox_url, workdir, &sandbox_api_key, method, args)
         }
         _ => Err(format!("unknown object: {obj_name}")),
+    }
+}
+
+fn ensure_method_enabled(
+    ctx: &Context,
+    obj_name: &str,
+    method: &str,
+    sandbox_url: &str,
+) -> Result<(), String> {
+    let enabled = enabled_tools(ctx);
+
+    match obj_name {
+        "sandbox" => {
+            if sandbox_url.is_empty() {
+                return Err("sandbox is not configured for this session".to_string());
+            }
+
+            let Some(token) = sandbox_method_token(method) else {
+                return Ok(());
+            };
+            if enabled.contains(token) {
+                return Ok(());
+            }
+
+            Err(format!(
+                "sandbox.{method}() is not enabled for this session. Enabled tools: {}",
+                format_enabled_tools(&enabled)
+            ))
+        }
+        "temper" => {
+            let Some(token) = temper_method_token(method) else {
+                return Ok(());
+            };
+            if enabled.contains(token) {
+                return Ok(());
+            }
+
+            Err(format!(
+                "temper.{method}() is not enabled for this session. Enabled tools: {}",
+                format_enabled_tools(&enabled)
+            ))
+        }
+        _ => Ok(()),
+    }
+}
+
+fn enabled_tools(ctx: &Context) -> BTreeSet<String> {
+    ctx.entity_state
+        .get("fields")
+        .and_then(|fields| fields.get("tools_enabled"))
+        .and_then(|value| value.as_str())
+        .unwrap_or("read,write,edit,bash")
+        .split(',')
+        .map(str::trim)
+        .filter(|tool| !tool.is_empty())
+        .map(ToOwned::to_owned)
+        .collect()
+}
+
+fn format_enabled_tools(enabled: &BTreeSet<String>) -> String {
+    if enabled.is_empty() {
+        "(none)".to_string()
+    } else {
+        enabled.iter().cloned().collect::<Vec<_>>().join(", ")
+    }
+}
+
+fn sandbox_method_token(method: &str) -> Option<&'static str> {
+    match method {
+        "bash" => Some("bash"),
+        "read" => Some("read"),
+        "write" => Some("write"),
+        "edit" => Some("edit"),
+        _ => None,
+    }
+}
+
+fn temper_method_token(method: &str) -> Option<&'static str> {
+    match method {
+        "get" => Some("temper_get"),
+        "list" => Some("temper_list"),
+        "create" => Some("temper_create"),
+        "action" => Some("temper_action"),
+        "patch" => Some("temper_patch"),
+        "submit_specs" => Some("temper_submit_specs"),
+        "show_spec" | "spec_detail" => Some("temper_show_spec"),
+        "specs" => Some("temper_specs"),
+        "upload_wasm" => Some("temper_upload_wasm"),
+        "get_trajectories" => Some("temper_get_trajectories"),
+        "get_insights" => Some("temper_get_insights"),
+        "get_decisions" => Some("temper_get_decisions"),
+        "poll_decision" => Some("temper_poll_decision"),
+        "approve_decision" => Some("temper_approve_decision"),
+        "deny_decision" => Some("temper_deny_decision"),
+        "submit_policy" => Some("temper_submit_policy"),
+        "list_policies" => Some("temper_list_policies"),
+        "get_policy" => Some("temper_get_policy"),
+        "update_policy" => Some("temper_update_policy"),
+        "delete_policy" => Some("temper_delete_policy"),
+        "install_app" => Some("temper_install_app"),
+        "list_apps" => Some("temper_list_apps"),
+        "spawn_session" => Some("temper_spawn_session"),
+        "list_sessions" => Some("temper_list_sessions"),
+        "abort_session" => Some("temper_abort_session"),
+        "steer_session" => Some("temper_steer_session"),
+        "save_memory" => Some("temper_save_memory"),
+        "recall_memory" => Some("temper_recall_memory"),
+        "file_upload" => Some("temper_file_upload"),
+        "read_entity" => Some("temper_read_entity"),
+        "run_coding_agent" => Some("temper_run_coding_agent"),
+        "get_secret" => Some("temper_get_secret"),
+        "datadog_query" => Some("temper_datadog_query"),
+        "railway" => Some("temper_railway"),
+        "vercel" => Some("temper_vercel"),
+        "web_search" => Some("temper_web_search"),
+        "web_fetch" => Some("temper_web_fetch"),
+        "done" | "get_agent_id" => None,
+        _ => None,
     }
 }
 
@@ -153,7 +272,7 @@ fn dispatch_temper(
 
 fn temper_list(ctx: &Context, api_url: &str, tenant: &str, args: &[Value]) -> Result<Value, String> {
     let entity_set = str_arg(args, 0, "entity_set", "list")?;
-    let filter = opt_str_arg(args, 1);
+    let filter = opt_str_arg(args, 1).map(|f| normalize_odata_filter(&f));
     let path = match filter {
         Some(f) => {
             let encoded = f.replace(' ', "%20").replace('\'', "%27");
@@ -170,6 +289,14 @@ fn temper_get(ctx: &Context, api_url: &str, tenant: &str, args: &[Value]) -> Res
     let entity_id = str_arg(args, 1, "entity_id", "get")?;
     let key = escape_odata_key(&entity_id);
     http_get(ctx, api_url, tenant, &format!("/tdata/{entity_set}('{key}')"))
+}
+
+fn normalize_odata_filter(filter: &str) -> String {
+    filter
+        .trim()
+        .strip_prefix("$filter=")
+        .unwrap_or(filter.trim())
+        .to_string()
 }
 
 fn temper_create(ctx: &Context, api_url: &str, tenant: &str, args: &[Value]) -> Result<Value, String> {

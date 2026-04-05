@@ -9,6 +9,7 @@
 //!
 //! Build: `cargo build --target wasm32-wasip1 --release`
 
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::time::Duration;
 
@@ -24,10 +25,92 @@ mod vercel;
 
 use monty::{
     DictPairs, ExcType, ExtFunctionResult, LimitedTracker, MontyException, MontyObject, MontyRepl,
-    PrintWriter, ReplProgress, ResourceLimits,
+    PrintWriter, PrintWriterCallback, ReplProgress, ResourceLimits,
 };
 
 const MAX_TOOL_RESULT_BYTES: usize = 16 * 1024;
+
+/// Captures `print()` output without allowing Monty to grow an unbounded host-side buffer.
+///
+/// The original implementation used `PrintWriter::Collect(String)` and only truncated after
+/// execution completed. Large or pathological output therefore forced repeated reallocations
+/// inside the daemon and could balloon RSS before we ever returned a tool result.
+struct BoundedOutputCollector {
+    buf: String,
+    max_bytes: usize,
+    total_bytes_seen: usize,
+    truncated: bool,
+}
+
+impl BoundedOutputCollector {
+    fn new(max_bytes: usize) -> Self {
+        Self {
+            buf: String::with_capacity(max_bytes.min(1024)),
+            max_bytes,
+            total_bytes_seen: 0,
+            truncated: false,
+        }
+    }
+
+    fn append_str(&mut self, output: &str) {
+        self.total_bytes_seen += output.len();
+        if self.buf.len() >= self.max_bytes {
+            self.truncated = true;
+            return;
+        }
+
+        let remaining = self.max_bytes - self.buf.len();
+        if output.len() <= remaining {
+            self.buf.push_str(output);
+            return;
+        }
+
+        self.truncated = true;
+        self.buf.push_str(prefix_at_char_boundary(output, remaining));
+    }
+
+    fn append_char(&mut self, ch: char) {
+        self.total_bytes_seen += ch.len_utf8();
+        if self.buf.len() >= self.max_bytes {
+            self.truncated = true;
+            return;
+        }
+
+        if self.buf.len() + ch.len_utf8() <= self.max_bytes {
+            self.buf.push(ch);
+        } else {
+            self.truncated = true;
+        }
+    }
+
+    fn into_string(self) -> String {
+        if !self.truncated {
+            return self.buf;
+        }
+
+        let captured_bytes = self.buf.len();
+        let total_bytes_seen = self.total_bytes_seen;
+        let buf = self.buf;
+        format!(
+            "{}...\n[print output truncated, captured {} of {} bytes]",
+            buf,
+            captured_bytes,
+            total_bytes_seen,
+        )
+    }
+}
+
+impl PrintWriterCallback for BoundedOutputCollector {
+    fn stdout_write(&mut self, output: Cow<'_, str>) -> Result<(), MontyException> {
+        self.append_str(&output);
+        Ok(())
+    }
+
+    fn stdout_push(&mut self, end: char) -> Result<(), MontyException> {
+        self.append_char(end);
+        Ok(())
+    }
+}
 
 /// Entry point — invoked by the Temper WASM engine on the `run_tools` trigger.
 #[unsafe(no_mangle)]
@@ -104,34 +187,37 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             // Wrap code in async function
             let wrapped = wrap_user_code(code);
 
-            // Execute via REPL start() — use Collect to capture print() output.
-            let mut print = PrintWriter::Collect(String::new());
+            // Execute via REPL start() using a bounded collector so pathological
+            // print output cannot force runaway reallocations inside the daemon.
+            let mut printed = BoundedOutputCollector::new(MAX_TOOL_RESULT_BYTES);
+            let mut print = PrintWriter::Callback(&mut printed);
             let progress = match repl.start(&wrapped, &mut print) {
                 Ok(p) => p,
                 Err(e) => {
                     repl = e.repl;
+                    let mut combined = printed.into_string();
                     let msg = format_monty_exception(&e.error);
-                    tool_results.push(make_tool_result(tool_id, &msg, true));
+                    if !combined.is_empty() {
+                        combined.push('\n');
+                    }
+                    combined.push_str(&msg);
+                    tool_results.push(make_tool_result(tool_id, &truncate_output(&combined), true));
                     continue;
                 }
             };
-            // Recover print buffer from start() call
-            let start_output = match print {
-                PrintWriter::Collect(buf) => buf,
-                _ => String::new(),
-            };
 
             // Drive the event loop (continues collecting print output)
-            let (result, returned_repl, printed) = drive_repl_loop(
+            let (result, returned_repl) = drive_repl_loop(
                 &ctx,
                 &temper_api_url,
                 tenant,
                 sandbox_url,
                 workdir,
                 progress,
-                start_output,
+                &mut printed,
             );
             repl = returned_repl;
+            let printed = printed.into_string();
 
             // Combine print output + expression value
             let (content, is_error) = match result {
@@ -155,7 +241,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                         combined.push('\n');
                     }
                     combined.push_str(&e);
-                    (combined, true)
+                    (truncate_output(&combined), true)
                 }
             };
 
@@ -280,8 +366,8 @@ fn drive_repl_loop(
     sandbox_url: &str,
     workdir: &str,
     mut progress: ReplProgress<LimitedTracker>,
-    mut print_buf: String,
-) -> (Result<String, String>, MontyRepl<LimitedTracker>, String) {
+    print_buf: &mut BoundedOutputCollector,
+) -> (Result<String, String>, MontyRepl<LimitedTracker>) {
     let mut pending_results: BTreeMap<u32, ExtFunctionResult> = BTreeMap::new();
 
     loop {
@@ -290,7 +376,7 @@ fn drive_repl_loop(
                 let json_value = convert::monty_object_to_json(&value);
                 let result = serde_json::to_string(&json_value)
                     .map_err(|e| format!("failed to serialize result: {e}"));
-                return (result, repl, print_buf);
+                return (result, repl);
             }
 
             ReplProgress::FunctionCall(call) => {
@@ -303,16 +389,13 @@ fn drive_repl_loop(
                         ExcType::RuntimeError,
                         Some(msg.clone()),
                     ));
-                    let mut print = PrintWriter::Collect(std::mem::take(&mut print_buf));
+                    let mut print = PrintWriter::Callback(print_buf);
                     match call.resume(ext_result, &mut print) {
                         Ok(p) => {
-                            if let PrintWriter::Collect(s) = print { print_buf = s; }
-                            progress = p; continue;
+                            progress = p;
+                            continue;
                         }
-                        Err(e) => {
-                            if let PrintWriter::Collect(s) = print { print_buf = s; }
-                            return (Err(msg), e.repl, print_buf);
-                        }
+                        Err(e) => return (Err(msg), e.repl),
                     }
                 }
 
@@ -350,10 +433,10 @@ fn drive_repl_loop(
 
                 // Resume with the result directly — we have it now, no need for
                 // the async resume_pending() → ResolveFutures roundtrip.
-                let mut print = PrintWriter::Collect(std::mem::take(&mut print_buf));
+                let mut print = PrintWriter::Callback(print_buf);
                 match call.resume(ext_result, &mut print) {
-                    Ok(p) => { if let PrintWriter::Collect(s) = print { print_buf = s; } progress = p; }
-                    Err(e) => { if let PrintWriter::Collect(s) = print { print_buf = s; } return (Err(format_monty_exception(&e.error)), e.repl, print_buf); }
+                    Ok(p) => progress = p,
+                    Err(e) => return (Err(format_monty_exception(&e.error)), e.repl),
                 }
             }
 
@@ -365,18 +448,18 @@ fn drive_repl_loop(
                     }
                 }
 
-                let mut print = PrintWriter::Collect(std::mem::take(&mut print_buf));
+                let mut print = PrintWriter::Callback(print_buf);
                 match state.resume(ready, &mut print) {
-                    Ok(p) => { if let PrintWriter::Collect(s) = print { print_buf = s; } progress = p; }
-                    Err(e) => { if let PrintWriter::Collect(s) = print { print_buf = s; } return (Err(format_monty_exception(&e.error)), e.repl, print_buf); }
+                    Ok(p) => progress = p,
+                    Err(e) => return (Err(format_monty_exception(&e.error)), e.repl),
                 }
             }
 
             ReplProgress::NameLookup(lookup) => {
-                let mut print = PrintWriter::Collect(std::mem::take(&mut print_buf));
+                let mut print = PrintWriter::Callback(print_buf);
                 match lookup.resume(monty::NameLookupResult::Undefined, &mut print) {
-                    Ok(p) => { if let PrintWriter::Collect(s) = print { print_buf = s; } progress = p; }
-                    Err(e) => { if let PrintWriter::Collect(s) = print { print_buf = s; } return (Err(format_monty_exception(&e.error)), e.repl, print_buf); }
+                    Ok(p) => progress = p,
+                    Err(e) => return (Err(format_monty_exception(&e.error)), e.repl),
                 }
             }
 
@@ -385,10 +468,10 @@ fn drive_repl_loop(
                     ExcType::RuntimeError,
                     Some("sandbox blocked OS access. Use sandbox.bash() for shell commands.".into()),
                 ));
-                let mut print = PrintWriter::Collect(std::mem::take(&mut print_buf));
+                let mut print = PrintWriter::Callback(print_buf);
                 match os_call.resume(ext_result, &mut print) {
-                    Ok(p) => { if let PrintWriter::Collect(s) = print { print_buf = s; } progress = p; }
-                    Err(e) => { if let PrintWriter::Collect(s) = print { print_buf = s; } return (Err(format_monty_exception(&e.error)), e.repl, print_buf); }
+                    Ok(p) => progress = p,
+                    Err(e) => return (Err(format_monty_exception(&e.error)), e.repl),
                 }
             }
         }
@@ -437,14 +520,35 @@ fn format_monty_exception(exception: &MontyException) -> String {
 
 fn truncate_output(output: &str) -> String {
     if output.len() > MAX_TOOL_RESULT_BYTES {
+        let shown = prefix_at_char_boundary(output, MAX_TOOL_RESULT_BYTES);
         format!(
-            "{}...\n[truncated, showing {MAX_TOOL_RESULT_BYTES} of {} bytes]",
-            &output[..MAX_TOOL_RESULT_BYTES],
+            "{}...\n[truncated, showing {} of {} bytes]",
+            shown,
+            shown.len(),
             output.len()
         )
     } else {
         output.to_string()
     }
+}
+
+fn prefix_at_char_boundary(input: &str, max_bytes: usize) -> &str {
+    if input.len() <= max_bytes {
+        return input;
+    }
+    if max_bytes == 0 {
+        return "";
+    }
+
+    let mut end = 0;
+    for (idx, ch) in input.char_indices() {
+        let next = idx + ch.len_utf8();
+        if next > max_bytes {
+            break;
+        }
+        end = next;
+    }
+    &input[..end]
 }
 
 fn make_tool_result(tool_id: &str, content: &str, is_error: bool) -> Value {
