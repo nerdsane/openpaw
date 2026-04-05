@@ -4,7 +4,7 @@
 //! agent state machine's conversation and session tracking.
 
 use temper_wasm_sdk::prelude::*;
-use wasm_helpers::{entity_field_str, create_content_file};
+use wasm_helpers::{create_content_file, entity_field_str, runtime_headers_as};
 
 /// Persist tool results to the session tree (or conversation file, or inline).
 ///
@@ -99,12 +99,24 @@ pub fn persist_results(
 
 /// Send heartbeat to keep agent alive.
 pub fn send_heartbeat(ctx: &Context, temper_api_url: &str, tenant: &str) {
+    let fields = ctx
+        .entity_state
+        .get("fields")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
     let url = format!(
-        "{temper_api_url}/tdata/Agents('{}')/OpenPaw.Heartbeat",
+        "{temper_api_url}/tdata/Sessions('{}')/OpenPaw.Heartbeat",
         ctx.entity_id
     );
     let body = json!({ "last_heartbeat_at": "alive" });
-    let headers = odata_headers(tenant);
+    let headers = runtime_headers_as(
+        ctx,
+        tenant,
+        &fields,
+        "system",
+        Some("application/json"),
+        None,
+    );
     let _ = ctx.http_call("POST", &url, &headers, &body.to_string());
 }
 

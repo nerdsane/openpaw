@@ -18,7 +18,7 @@
 use session_tree_lib::{EntryType, SessionTree};
 use std::collections::BTreeSet;
 use temper_wasm_sdk::prelude::*;
-use wasm_helpers::{create_content_file, runtime_headers, send_typing_indicator};
+use wasm_helpers::{create_content_file, runtime_headers, runtime_headers_as, send_typing_indicator};
 
 /// Entry point — NOT using `temper_module!` because we need dynamic callback actions.
 #[unsafe(no_mangle)]
@@ -1436,7 +1436,19 @@ fn send_heartbeat(ctx: &Context, temper_api_url: &str, tenant: &str) -> Result<(
         ctx.entity_id
     );
     let body = json!({ "last_heartbeat_at": "alive" });
-    let headers = agent_headers(ctx, tenant, Some("application/json"), None);
+    let fields = ctx
+        .entity_state
+        .get("fields")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    let headers = runtime_headers_as(
+        ctx,
+        tenant,
+        &fields,
+        "system",
+        Some("application/json"),
+        None,
+    );
     let _ = ctx.http_call("POST", &url, &headers, &body.to_string())?;
     Ok(())
 }
