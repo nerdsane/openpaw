@@ -283,7 +283,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             .unwrap_or_else(|_| "[]".to_string());
 
         set_success_result(
-            "",
+            "ProbesReady",
             &json!({
                 "probe_agent_ids": ids_json
             }),
