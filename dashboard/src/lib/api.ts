@@ -167,3 +167,135 @@ export async function fetchFileContent(fileId: string): Promise<string> {
   if (!res.ok) return '';
   return res.text();
 }
+
+// ──────────────────── Setup & Transport API ────────────────────
+
+export interface SetupStatus {
+  has_anthropic_key: boolean;
+  has_discord: boolean;
+  has_slack: boolean;
+  has_agents: boolean;
+  agent_count: number;
+  discord_connected: boolean;
+  slack_connected: boolean;
+}
+
+export async function fetchSetupStatus(): Promise<SetupStatus> {
+  const res = await fetch(`${BASE}/paw/setup/status`, { headers: HEADERS });
+  if (!res.ok) throw new Error(`Setup status failed: ${res.status}`);
+  return res.json();
+}
+
+export async function saveSecret(key: string, value: string): Promise<void> {
+  const res = await fetch(`${BASE}/paw/setup/secrets`, {
+    method: 'POST',
+    headers: { ...HEADERS, 'content-type': 'application/json' },
+    body: JSON.stringify({ key, value }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `Save secret failed: ${res.status}`);
+  }
+}
+
+export async function listSecretKeys(): Promise<string[]> {
+  const res = await fetch(`${BASE}/paw/setup/secrets`, { headers: HEADERS });
+  if (!res.ok) return [];
+  const data = await res.json();
+  return data.keys ?? [];
+}
+
+export async function deleteSecret(key: string): Promise<void> {
+  await fetch(`${BASE}/paw/setup/secrets/${key}`, {
+    method: 'DELETE',
+    headers: HEADERS,
+  });
+}
+
+export interface SoulTemplate {
+  name: string;
+  description: string;
+  path: string;
+}
+
+export async function getSoulTemplates(): Promise<SoulTemplate[]> {
+  const res = await fetch(`${BASE}/paw/souls/templates`, { headers: HEADERS });
+  if (!res.ok) return [];
+  const data = await res.json();
+  return data.templates ?? [];
+}
+
+export interface CreateAgentParams {
+  name: string;
+  role?: string;
+  soul_template?: string;
+  model?: string;
+  tools_enabled?: string;
+  max_turns?: string;
+}
+
+export async function createAgent(params: CreateAgentParams): Promise<{ agent_id: string }> {
+  const res = await fetch(`${BASE}/paw/agents/create`, {
+    method: 'POST',
+    headers: { ...HEADERS, 'content-type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `Create agent failed: ${res.status}`);
+  }
+  return res.json();
+}
+
+export interface TransportStatusResponse {
+  discord: { status: string; guild_id?: string; message?: string };
+  slack: { status: string; message?: string };
+}
+
+export async function getTransportStatus(): Promise<TransportStatusResponse> {
+  const res = await fetch(`${BASE}/paw/transports/status`, { headers: HEADERS });
+  if (!res.ok) throw new Error(`Transport status failed: ${res.status}`);
+  return res.json();
+}
+
+export async function connectDiscord(params: {
+  bot_token: string;
+  public_key?: string;
+  guild_id?: string;
+  feed_channel_id?: string;
+  forum_channel_id?: string;
+}): Promise<void> {
+  const res = await fetch(`${BASE}/paw/transports/discord/connect`, {
+    method: 'POST',
+    headers: { ...HEADERS, 'content-type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+  if (!res.ok) throw new Error(`Connect Discord failed: ${res.status}`);
+}
+
+export async function disconnectDiscord(): Promise<void> {
+  await fetch(`${BASE}/paw/transports/discord/disconnect`, {
+    method: 'POST',
+    headers: HEADERS,
+  });
+}
+
+export async function connectSlack(params: {
+  app_token: string;
+  bot_token: string;
+  signing_secret?: string;
+}): Promise<void> {
+  const res = await fetch(`${BASE}/paw/transports/slack/connect`, {
+    method: 'POST',
+    headers: { ...HEADERS, 'content-type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+  if (!res.ok) throw new Error(`Connect Slack failed: ${res.status}`);
+}
+
+export async function disconnectSlack(): Promise<void> {
+  await fetch(`${BASE}/paw/transports/slack/disconnect`, {
+    method: 'POST',
+    headers: HEADERS,
+  });
+}

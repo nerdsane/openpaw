@@ -60,3 +60,9 @@ tower-http = { version = "0.6", features = ["fs"] }
 
 # HTTP client (for soul bootstrap OData calls)
 reqwest = { version = "0.12", features = ["json"] }
+
+# Transport manager (cancellation tokens)
+tokio-util = "0.7"
+
+# UUID generation for agent IDs
+uuid = { version = "1", features = ["v4"] }

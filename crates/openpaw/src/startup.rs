@@ -41,13 +41,19 @@ const PAW_OS_APPS: &[&str] = &[
 ];
 
 /// Run the Open Paw daemon.
-pub async fn run(config: Config) -> Result<()> {
+pub async fn run(mut config: Config) -> Result<()> {
     let port = config.port;
     let tenant = config.tenant.clone();
     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
     let data_dir = Path::new(&home).join(".local/share/openpaw");
     std::fs::create_dir_all(&data_dir)
         .with_context(|| format!("Failed to create data dir: {}", data_dir.display()))?;
+
+    // Phase 0: First-run interactive setup
+    if crate::setup::needs_first_run_setup(&data_dir, &config) {
+        let setup_result = crate::setup::run_first_run_setup()?;
+        crate::setup::merge_setup_into_config(&mut config, setup_result);
+    }
 
     // Phase 1: Storage backend (Turso)
     tracing::info!("Phase 1: Initializing storage...");
@@ -79,6 +85,13 @@ pub async fn run(config: Config) -> Result<()> {
     if reference_apps_dir.exists() {
         temper_platform::os_apps::add_os_apps_dir(reference_apps_dir);
         tracing::info!("  Reference apps directory registered (available for install)");
+    }
+
+    // Register Kotowari teaching platform apps
+    let kotowari_dir = PathBuf::from("reference-projects/kotowari");
+    if kotowari_dir.exists() {
+        temper_platform::os_apps::add_os_apps_dir(kotowari_dir);
+        tracing::info!("  Kotowari apps directory registered (available for install)");
     }
 
     // Phase 4: Assemble PlatformState
@@ -121,11 +134,15 @@ pub async fn run(config: Config) -> Result<()> {
     // Phase 5: Secrets vault
     tracing::info!("Phase 5: Configuring secrets vault...");
     {
+        let vault_key_path = data_dir.join("vault.key");
         let key_bytes: [u8; 32] = if let Some(ref key_b64) = config.vault_key {
             use base64::Engine as _;
 
             match base64::engine::general_purpose::STANDARD.decode(key_b64) {
-                Ok(decoded) if decoded.len() == 32 => decoded.try_into().unwrap(),
+                Ok(decoded) if decoded.len() == 32 => {
+                    tracing::info!("Vault key loaded from TEMPER_VAULT_KEY env var");
+                    decoded.try_into().unwrap()
+                }
                 Ok(decoded) => {
                     let mut key = [0u8; 32];
                     rand::fill(&mut key);
@@ -145,67 +162,181 @@ pub async fn run(config: Config) -> Result<()> {
                     key
                 }
             }
+        } else if vault_key_path.exists() {
+            // Load persisted vault key from file
+            use base64::Engine as _;
+            match std::fs::read_to_string(&vault_key_path) {
+                Ok(contents) => {
+                    match base64::engine::general_purpose::STANDARD.decode(contents.trim()) {
+                        Ok(decoded) if decoded.len() == 32 => {
+                            tracing::info!(
+                                path = %vault_key_path.display(),
+                                "Vault key loaded from file"
+                            );
+                            decoded.try_into().unwrap()
+                        }
+                        _ => {
+                            tracing::warn!(
+                                path = %vault_key_path.display(),
+                                "Vault key file was corrupt — generating new key"
+                            );
+                            let key = generate_and_save_vault_key(&vault_key_path)?;
+                            key
+                        }
+                    }
+                }
+                Err(error) => {
+                    tracing::warn!(
+                        %error,
+                        path = %vault_key_path.display(),
+                        "Failed to read vault key file — generating new key"
+                    );
+                    generate_and_save_vault_key(&vault_key_path)?
+                }
+            }
         } else {
-            let mut key = [0u8; 32];
-            rand::fill(&mut key);
-            tracing::warn!("No TEMPER_VAULT_KEY set — using ephemeral vault key");
-            key
+            // First run: generate and persist a new vault key
+            tracing::info!(
+                path = %vault_key_path.display(),
+                "No vault key found — generating and saving new key"
+            );
+            generate_and_save_vault_key(&vault_key_path)?
         };
         let vault = temper_server::secrets::vault::SecretsVault::new(&key_bytes);
         state.server.secrets_vault = Some(Arc::new(vault));
     }
 
-    // Seed secrets from env
+    // Phase 5b: Restore secrets from Turso (before env seeding so env vars take priority)
     if let Some(ref vault) = state.server.secrets_vault {
-        if let Some(ref key) = config.anthropic_api_key {
-            let _ = vault.cache_secret("default", "anthropic_api_key", key.clone());
-            if tenant != "default" {
-                let _ = vault.cache_secret(&tenant, "anthropic_api_key", key.clone());
-            }
+        restore_secrets_from_turso(vault, &turso_store, "default").await;
+        if tenant != "default" {
+            restore_secrets_from_turso(vault, &turso_store, &tenant).await;
+        }
+    }
+
+    // Phase 5c: Seed secrets from env (env vars override Turso-stored values)
+    //
+    // Each secret is cached in-memory AND persisted to Turso so it survives
+    // restarts even if the env var is later removed.
+    if let Some(ref vault) = state.server.secrets_vault {
+        /// Helper to seed a secret from an optional env value into both tenants.
+        macro_rules! seed_secret {
+            ($vault:expr, $store:expr, $tenant:expr, $key:expr, $value:expr) => {
+                if let Some(ref val) = $value {
+                    cache_and_persist_secret($vault, $store, "default", $key, val.clone()).await;
+                    if $tenant != "default" {
+                        cache_and_persist_secret($vault, $store, $tenant, $key, val.clone()).await;
+                    }
+                }
+            };
         }
 
-        if let Some(ref key) = config.tensorlake_api_key {
-            let _ = vault.cache_secret("default", "tensorlake_api_key", key.clone());
-            if tenant != "default" {
-                let _ = vault.cache_secret(&tenant, "tensorlake_api_key", key.clone());
-            }
+        seed_secret!(
+            vault,
+            &turso_store,
+            &tenant,
+            "anthropic_api_key",
+            config.anthropic_api_key
+        );
+        seed_secret!(
+            vault,
+            &turso_store,
+            &tenant,
+            "tensorlake_api_key",
+            config.tensorlake_api_key
+        );
+        seed_secret!(
+            vault,
+            &turso_store,
+            &tenant,
+            "github_token",
+            config.github_token
+        );
+        seed_secret!(
+            vault,
+            &turso_store,
+            &tenant,
+            "dd_api_key",
+            config.dd_api_key
+        );
+        seed_secret!(
+            vault,
+            &turso_store,
+            &tenant,
+            "dd_app_key",
+            config.dd_app_key
+        );
+        seed_secret!(
+            vault,
+            &turso_store,
+            &tenant,
+            "exa_api_key",
+            config.exa_api_key
+        );
+        seed_secret!(
+            vault,
+            &turso_store,
+            &tenant,
+            "discord_bot_token",
+            config.discord_bot_token
+        );
+        seed_secret!(
+            vault,
+            &turso_store,
+            &tenant,
+            "slack_bot_token",
+            config.slack_bot_token
+        );
+        seed_secret!(
+            vault,
+            &turso_store,
+            &tenant,
+            "slack_app_token",
+            config.slack_app_token
+        );
+        seed_secret!(
+            vault,
+            &turso_store,
+            &tenant,
+            "fly_api_token",
+            config.fly_api_token
+        );
+        seed_secret!(
+            vault,
+            &turso_store,
+            &tenant,
+            "railway_token",
+            config.railway_token
+        );
+        seed_secret!(
+            vault,
+            &turso_store,
+            &tenant,
+            "vercel_token",
+            config.vercel_token
+        );
+
+        // dd_site always has a value (defaults to "datadoghq.com")
+        cache_and_persist_secret(
+            vault,
+            &turso_store,
+            "default",
+            "dd_site",
+            config.dd_site.clone(),
+        )
+        .await;
+        if tenant != "default" {
+            cache_and_persist_secret(
+                vault,
+                &turso_store,
+                &tenant,
+                "dd_site",
+                config.dd_site.clone(),
+            )
+            .await;
         }
 
-        if let Some(ref token) = config.github_token {
-            let _ = vault.cache_secret("default", "github_token", token.clone());
-            if tenant != "default" {
-                let _ = vault.cache_secret(&tenant, "github_token", token.clone());
-            }
-        }
-
-        if let Some(ref token) = config.dd_api_key {
-            let _ = vault.cache_secret("default", "dd_api_key", token.clone());
-            if tenant != "default" {
-                let _ = vault.cache_secret(&tenant, "dd_api_key", token.clone());
-            }
-        }
-
-        if let Some(ref token) = config.dd_app_key {
-            let _ = vault.cache_secret("default", "dd_app_key", token.clone());
-            if tenant != "default" {
-                let _ = vault.cache_secret(&tenant, "dd_app_key", token.clone());
-            }
-        }
-
-        {
-            let _ = vault.cache_secret("default", "dd_site", config.dd_site.clone());
-            if tenant != "default" {
-                let _ = vault.cache_secret(&tenant, "dd_site", config.dd_site.clone());
-            }
-        }
-
-        if let Some(ref key) = config.exa_api_key {
-            let _ = vault.cache_secret("default", "exa_api_key", key.clone());
-            if tenant != "default" {
-                let _ = vault.cache_secret(&tenant, "exa_api_key", key.clone());
-            }
-        }
-
+        // temper_api_url — always set to local server
         let api_url = format!("http://127.0.0.1:{port}");
         let _ = vault.cache_secret("default", "temper_api_url", api_url.clone());
         if tenant != "default" {
@@ -214,9 +345,17 @@ pub async fn run(config: Config) -> Result<()> {
 
         // Sandbox URL: explicit override for testing, otherwise Tensorlake provisions on demand.
         if let Some(sandbox_url) = std::env::var("SANDBOX_URL").ok().filter(|s| !s.is_empty()) {
-            let _ = vault.cache_secret("default", "sandbox_url", sandbox_url.clone());
+            cache_and_persist_secret(
+                vault,
+                &turso_store,
+                "default",
+                "sandbox_url",
+                sandbox_url.clone(),
+            )
+            .await;
             if tenant != "default" {
-                let _ = vault.cache_secret(&tenant, "sandbox_url", sandbox_url);
+                cache_and_persist_secret(vault, &turso_store, &tenant, "sandbox_url", sandbox_url)
+                    .await;
             }
         } else if config.tensorlake_api_key.is_some() {
             tracing::info!(
@@ -226,30 +365,16 @@ pub async fn run(config: Config) -> Result<()> {
             tracing::warn!("No TL_API_KEY or SANDBOX_URL — agent sandbox provisioning will fail");
         }
 
-        // Local blob store for TemperFS content uploads/downloads.
-        let blob_store_port = port + 20;
+        // Blob store for TemperFS content uploads/downloads.
+        //
+        // Default to Temper's own internal blob route so local deployments keep
+        // storage in-process and can benefit from server-side backpressure and
+        // fast paths. External S3/R2-compatible endpoints can still override via
+        // BLOB_ENDPOINT.
         let blob_endpoint = if let Ok(url) = std::env::var("BLOB_ENDPOINT") {
             url
         } else {
-            let blob_script = Path::new("os-apps/paw-fs/sandbox/local_blob_store.py");
-            let url = format!("http://127.0.0.1:{blob_store_port}");
-            if blob_script.exists() {
-                let _ = std::fs::create_dir_all("/tmp/openpaw-blobs");
-                match std::process::Command::new("python3")
-                    .arg(blob_script)
-                    .arg("--port")
-                    .arg(blob_store_port.to_string())
-                    .arg("--dir")
-                    .arg("/tmp/openpaw-blobs")
-                    .stdout(std::process::Stdio::null())
-                    .stderr(std::process::Stdio::null())
-                    .spawn()
-                {
-                    Ok(_) => tracing::info!("Local blob store: {url} (auto-started)"),
-                    Err(e) => tracing::warn!("Failed to start local blob store: {e}"),
-                }
-            }
-            url
+            format!("http://127.0.0.1:{port}/_internal/blobs")
         };
         let blob_bucket = std::env::var("BLOB_BUCKET").unwrap_or_else(|_| "temper-fs".into());
         let _ = vault.cache_secret("default", "blob_endpoint", blob_endpoint.clone());
@@ -261,56 +386,31 @@ pub async fn run(config: Config) -> Result<()> {
 
         // HMAC credentials for GCS (or any S3-compatible blob store).
         if let Ok(key) = std::env::var("BLOB_ACCESS_KEY") {
-            let _ = vault.cache_secret("default", "blob_access_key", key.clone());
+            cache_and_persist_secret(
+                vault,
+                &turso_store,
+                "default",
+                "blob_access_key",
+                key.clone(),
+            )
+            .await;
             if tenant != "default" {
-                let _ = vault.cache_secret(&tenant, "blob_access_key", key);
+                cache_and_persist_secret(vault, &turso_store, &tenant, "blob_access_key", key)
+                    .await;
             }
         }
         if let Ok(key) = std::env::var("BLOB_SECRET_KEY") {
-            let _ = vault.cache_secret("default", "blob_secret_key", key.clone());
+            cache_and_persist_secret(
+                vault,
+                &turso_store,
+                "default",
+                "blob_secret_key",
+                key.clone(),
+            )
+            .await;
             if tenant != "default" {
-                let _ = vault.cache_secret(&tenant, "blob_secret_key", key);
-            }
-        }
-
-        if let Some(ref token) = config.discord_bot_token {
-            let _ = vault.cache_secret("default", "discord_bot_token", token.clone());
-            if tenant != "default" {
-                let _ = vault.cache_secret(&tenant, "discord_bot_token", token.clone());
-            }
-        }
-
-        if let Some(ref token) = config.slack_bot_token {
-            let _ = vault.cache_secret("default", "slack_bot_token", token.clone());
-            if tenant != "default" {
-                let _ = vault.cache_secret(&tenant, "slack_bot_token", token.clone());
-            }
-        }
-        if let Some(ref token) = config.slack_app_token {
-            let _ = vault.cache_secret("default", "slack_app_token", token.clone());
-            if tenant != "default" {
-                let _ = vault.cache_secret(&tenant, "slack_app_token", token.clone());
-            }
-        }
-
-        if let Some(ref token) = config.fly_api_token {
-            let _ = vault.cache_secret("default", "fly_api_token", token.clone());
-            if tenant != "default" {
-                let _ = vault.cache_secret(&tenant, "fly_api_token", token.clone());
-            }
-        }
-
-        if let Some(ref token) = config.railway_token {
-            let _ = vault.cache_secret("default", "railway_token", token.clone());
-            if tenant != "default" {
-                let _ = vault.cache_secret(&tenant, "railway_token", token.clone());
-            }
-        }
-
-        if let Some(ref token) = config.vercel_token {
-            let _ = vault.cache_secret("default", "vercel_token", token.clone());
-            if tenant != "default" {
-                let _ = vault.cache_secret(&tenant, "vercel_token", token.clone());
+                cache_and_persist_secret(vault, &turso_store, &tenant, "blob_secret_key", key)
+                    .await;
             }
         }
     }
@@ -365,6 +465,60 @@ pub async fn run(config: Config) -> Result<()> {
         state.server.populate_index_from_store(tenant_id).await;
     }
 
+    // Phase 7b: Session recovery — fail orphaned sessions from previous run
+    {
+        let terminal_states: HashSet<&str> =
+            ["Completed", "Failed", "Cancelled"].into_iter().collect();
+        let tenant_id = TenantId::new(&tenant);
+        let session_ids: Vec<String> = {
+            let index = state.server.entity_index.read().unwrap(); // ci-ok: infallible lock
+            let index_key = format!("{tenant_id}:Session");
+            index
+                .get(&index_key)
+                .cloned()
+                .unwrap_or_default()
+                .into_iter()
+                .collect()
+        };
+
+        let mut recovered = 0u32;
+        for session_id in &session_ids {
+            match state
+                .server
+                .get_tenant_entity_state(&tenant_id, "Session", session_id)
+                .await
+            {
+                Ok(resp) if !terminal_states.contains(resp.state.status.as_str()) => {
+                    let status = &resp.state.status;
+                    tracing::info!(session_id, status, "Recovering orphaned session");
+                    let params = serde_json::json!({
+                        "error_message": format!("process restart — session recovered from {status} state")
+                    });
+                    match state
+                        .server
+                        .dispatch_tenant_action(
+                            &tenant_id,
+                            "Session",
+                            session_id,
+                            "Fail",
+                            params,
+                            &temper_server::request_context::AgentContext::system(),
+                        )
+                        .await
+                    {
+                        Ok(_) => recovered += 1,
+                        Err(e) => tracing::warn!(session_id, %e, "Failed to recover session"),
+                    }
+                }
+                Ok(_) => {} // terminal state, skip
+                Err(e) => tracing::warn!(session_id, %e, "Failed to read session state"),
+            }
+        }
+        if recovered > 0 {
+            tracing::info!(recovered, "Recovered orphaned sessions from previous run");
+        }
+    }
+
     // Phase 8: Banner
     tracing::info!("Phase 8: Bootstrap complete");
     println!();
@@ -379,7 +533,24 @@ pub async fn run(config: Config) -> Result<()> {
         .with_context(|| format!("Failed to bind to port {port}"))?;
     let actual_port = listener.local_addr()?.port();
     let _ = state.server.listen_port.set(actual_port);
+
+    // Create transport manager for hot-connect/disconnect of Discord/Slack
+    let transport_manager = Arc::new(crate::transport_manager::TransportManager::new(
+        tenant.clone(),
+        actual_port,
+        config.temper_api_key.clone(),
+    ));
+
+    // Build platform router + setup API
     let router = build_platform_router(state.clone());
+    let setup_state = crate::setup_api::SetupApiState {
+        platform: state.clone(),
+        turso_store: turso_store.clone(),
+        transport_manager: transport_manager.clone(),
+        tenant: tenant.clone(),
+        agents_dir: PathBuf::from("os-apps/paw-agent/agents"),
+    };
+    let router = router.merge(crate::setup_api::router(setup_state));
 
     // Serve the dashboard SPA from dashboard/build if available.
     let router = if std::path::Path::new("dashboard/build").exists() {
@@ -395,55 +566,81 @@ pub async fn run(config: Config) -> Result<()> {
     // Cron scheduling is now handled by the platform's schedule_at effect —
     // CronJob entities self-schedule via ActivateComplete/TriggerComplete.
 
-    if let Some(ref token) = config.discord_bot_token {
-        spawn_discord_transport(
-            token.clone(),
-            config.discord_public_key.clone().unwrap_or_default(),
-            config.discord_guild_id.clone(),
-            config.discord_feed_channel_id.clone(),
-            config.discord_forum_channel_id.clone(),
-            &tenant,
-            actual_port,
-            config.temper_api_key.clone(),
-        );
-    } else {
-        tracing::warn!("No DISCORD_BOT_TOKEN — Discord transport not started");
-    }
+    // Start transports from vault (env vars were seeded into vault in Phase 5).
+    // The TransportManager enables runtime connect/disconnect via the /paw/ API.
+    {
+        let vault = state.server.secrets_vault.as_ref();
+        let discord_token = vault.and_then(|v| v.get_secret(&tenant, "discord_bot_token"));
+        if let Some(token) = discord_token {
+            let public_key = vault
+                .and_then(|v| v.get_secret(&tenant, "discord_public_key"))
+                .or_else(|| config.discord_public_key.clone())
+                .unwrap_or_default();
+            let guild_id = vault
+                .and_then(|v| v.get_secret(&tenant, "discord_guild_id"))
+                .or_else(|| config.discord_guild_id.clone());
+            let feed_channel_id = vault
+                .and_then(|v| v.get_secret(&tenant, "discord_feed_channel_id"))
+                .or_else(|| config.discord_feed_channel_id.clone());
+            let forum_channel_id = vault
+                .and_then(|v| v.get_secret(&tenant, "discord_forum_channel_id"))
+                .or_else(|| config.discord_forum_channel_id.clone());
 
-    if let (Some(app_token), Some(bot_token)) = (&config.slack_app_token, &config.slack_bot_token) {
-        spawn_slack_transport(
-            app_token.clone(),
-            bot_token.clone(),
-            config.slack_signing_secret.clone().unwrap_or_default(),
-            &tenant,
-            actual_port,
-            config.temper_api_key.clone(),
-        );
-    } else {
-        tracing::warn!("No SLACK_APP_TOKEN/SLACK_BOT_TOKEN — Slack transport not started");
-    }
+            transport_manager
+                .connect_discord(crate::transport_manager::DiscordConnectParams {
+                    bot_token: token,
+                    public_key,
+                    guild_id: guild_id.clone(),
+                    feed_channel_id: feed_channel_id.clone(),
+                    forum_channel_id: forum_channel_id.clone(),
+                })
+                .await;
 
-    // Spawn Discord observer (SSE → Discord feed/forum).
-    if config.discord_feed_channel_id.is_some() || config.discord_forum_channel_id.is_some() {
-        let observer_api = paw_transport::PawApiClient::new(paw_transport::PawApiConfig {
-            base_url: format!("http://127.0.0.1:{actual_port}"),
-            tenant: tenant.clone(),
-            api_key: config.temper_api_key.clone(),
-        });
-        let observer_config = paw_transport::discord::ObserverConfig {
-            bot_token: config.discord_bot_token.clone().unwrap_or_default(),
-            feed_channel_id: config.discord_feed_channel_id.clone(),
-            forum_channel_id: config.discord_forum_channel_id.clone(),
-        };
-        tokio::spawn(async move {
-            // Give the server a moment to start accepting connections.
-            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-            if let Err(e) =
-                paw_transport::discord::run_observer(observer_api, observer_config).await
-            {
-                tracing::error!("Discord observer failed: {e}");
+            // Spawn Discord observer (SSE → Discord feed/forum).
+            if feed_channel_id.is_some() || forum_channel_id.is_some() {
+                let bot_token_for_observer = vault
+                    .and_then(|v| v.get_secret(&tenant, "discord_bot_token"))
+                    .unwrap_or_default();
+                let observer_api = paw_transport::PawApiClient::new(paw_transport::PawApiConfig {
+                    base_url: format!("http://127.0.0.1:{actual_port}"),
+                    tenant: tenant.clone(),
+                    api_key: config.temper_api_key.clone(),
+                });
+                let observer_config = paw_transport::discord::ObserverConfig {
+                    bot_token: bot_token_for_observer,
+                    feed_channel_id,
+                    forum_channel_id,
+                };
+                tokio::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                    if let Err(e) =
+                        paw_transport::discord::run_observer(observer_api, observer_config).await
+                    {
+                        tracing::error!("Discord observer failed: {e}");
+                    }
+                });
             }
-        });
+        } else {
+            tracing::warn!("No discord_bot_token in vault — Discord transport not started");
+        }
+
+        let slack_bot = vault.and_then(|v| v.get_secret(&tenant, "slack_bot_token"));
+        let slack_app = vault.and_then(|v| v.get_secret(&tenant, "slack_app_token"));
+        if let (Some(app_token), Some(bot_token)) = (slack_app, slack_bot) {
+            let signing_secret = vault
+                .and_then(|v| v.get_secret(&tenant, "slack_signing_secret"))
+                .or_else(|| config.slack_signing_secret.clone())
+                .unwrap_or_default();
+            transport_manager
+                .connect_slack(crate::transport_manager::SlackConnectParams {
+                    app_token,
+                    bot_token,
+                    signing_secret,
+                })
+                .await;
+        } else {
+            tracing::warn!("No slack tokens in vault — Slack transport not started");
+        }
     }
 
     // Spawn background loops
@@ -456,6 +653,87 @@ pub async fn run(config: Config) -> Result<()> {
     axum::serve(listener, router).await?;
 
     Ok(())
+}
+
+/// Cache a secret in the in-memory vault AND persist it to Turso so it survives restarts.
+async fn cache_and_persist_secret(
+    vault: &temper_server::secrets::vault::SecretsVault,
+    store: &TursoEventStore,
+    tenant: &str,
+    key: &str,
+    value: String,
+) {
+    let _ = vault.cache_secret(tenant, key, value.clone());
+    match vault.encrypt(value.as_bytes()) {
+        Ok((ciphertext, nonce)) => {
+            if let Err(e) = store.upsert_secret(tenant, key, &ciphertext, &nonce).await {
+                tracing::warn!(key, tenant, %e, "Failed to persist secret to Turso");
+            }
+        }
+        Err(e) => {
+            tracing::warn!(key, tenant, %e, "Failed to encrypt secret for persistence");
+        }
+    }
+}
+
+/// Restore secrets from Turso into the in-memory vault.
+async fn restore_secrets_from_turso(
+    vault: &temper_server::secrets::vault::SecretsVault,
+    store: &TursoEventStore,
+    tenant: &str,
+) {
+    match store.load_secrets_for_tenant(tenant).await {
+        Ok(rows) => {
+            let mut restored = 0u32;
+            for (key_name, ciphertext, nonce) in rows {
+                match vault.decrypt(&ciphertext, &nonce) {
+                    Ok(plaintext) => {
+                        if let Ok(value) = String::from_utf8(plaintext) {
+                            let _ = vault.cache_secret(tenant, &key_name, value);
+                            restored += 1;
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            key = key_name,
+                            tenant,
+                            %e,
+                            "Failed to decrypt secret from Turso — skipping"
+                        );
+                    }
+                }
+            }
+            if restored > 0 {
+                tracing::info!(tenant, restored, "Restored secrets from Turso");
+            }
+        }
+        Err(e) => {
+            tracing::warn!(tenant, %e, "Failed to load secrets from Turso");
+        }
+    }
+}
+
+/// Generate a random 32-byte vault key, save it to disk as base64, and return the raw bytes.
+fn generate_and_save_vault_key(path: &Path) -> Result<[u8; 32]> {
+    use base64::Engine as _;
+
+    let mut key = [0u8; 32];
+    rand::fill(&mut key);
+    let encoded = base64::engine::general_purpose::STANDARD.encode(&key);
+    std::fs::write(path, &encoded)
+        .with_context(|| format!("Failed to write vault key to {}", path.display()))?;
+
+    // Set file permissions to owner-only (0o600) on Unix.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let perms = std::fs::Permissions::from_mode(0o600);
+        std::fs::set_permissions(path, perms)
+            .with_context(|| format!("Failed to set permissions on {}", path.display()))?;
+    }
+
+    tracing::info!(path = %path.display(), "Saved new vault key to file");
+    Ok(key)
 }
 
 async fn persist_os_app_verification(
@@ -534,7 +812,11 @@ fn spawn_soul_bootstrap(port: u16, tenant: String, api_key: Option<String>) {
                     "os-apps/paw-agent/agents/paw/AGENT.md",
                 ],
             ),
-            ("SWE", "Software developer agent", &["os-apps/paw-agent/agents/swe/AGENT.md"]),
+            (
+                "SWE",
+                "Software developer agent",
+                &["os-apps/paw-agent/agents/swe/AGENT.md"],
+            ),
             (
                 "SRE",
                 "Site reliability engineering agent",
@@ -1406,78 +1688,4 @@ fn spawn_webhook_trigger(tenant: &str, port: u16, api_key: Option<String>) {
     });
 }
 
-/// Spawn the Discord channel transport.
-fn spawn_discord_transport(
-    bot_token: String,
-    public_key: String,
-    guild_id: Option<String>,
-    feed_channel_id: Option<String>,
-    forum_channel_id: Option<String>,
-    tenant: &str,
-    port: u16,
-    api_key: Option<String>,
-) {
-    use paw_transport::PawApiConfig;
-    use paw_transport::discord::types::intents;
-    use paw_transport::discord::{DiscordConfig, DiscordTransport};
-
-    let tenant = tenant.to_string();
-    let api_url = format!("http://127.0.0.1:{port}");
-    tracing::info!("Discord transport: connecting (tenant={tenant})...");
-
-    tokio::spawn(async move {
-        let api = paw_transport::PawApiClient::new(PawApiConfig {
-            base_url: api_url,
-            tenant,
-            api_key,
-        });
-        let config = DiscordConfig {
-            bot_token,
-            public_key,
-            intents: intents::DEFAULT,
-            webhook_port: 3488,
-            guild_id,
-            feed_channel_id,
-            forum_channel_id,
-        };
-        let transport = DiscordTransport::new(config, api);
-        if let Err(e) = transport.run().await {
-            tracing::error!("Discord transport fatal error: {e}");
-        }
-    });
-}
-
-/// Spawn the Slack channel transport.
-fn spawn_slack_transport(
-    app_token: String,
-    bot_token: String,
-    signing_secret: String,
-    tenant: &str,
-    port: u16,
-    api_key: Option<String>,
-) {
-    use paw_transport::PawApiConfig;
-    use paw_transport::slack::{SlackConfig, SlackTransport};
-
-    let tenant = tenant.to_string();
-    let api_url = format!("http://127.0.0.1:{port}");
-    tracing::info!("Slack transport: connecting (tenant={tenant})...");
-
-    tokio::spawn(async move {
-        let api = paw_transport::PawApiClient::new(PawApiConfig {
-            base_url: api_url,
-            tenant,
-            api_key,
-        });
-        let config = SlackConfig {
-            app_token,
-            bot_token,
-            webhook_port: 3489,
-            signing_secret,
-        };
-        let transport = SlackTransport::new(config, api);
-        if let Err(e) = transport.run().await {
-            tracing::error!("Slack transport fatal error: {e}");
-        }
-    });
-}
+// Transport spawning is now handled by TransportManager (see transport_manager.rs).

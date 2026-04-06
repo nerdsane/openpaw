@@ -4,7 +4,10 @@
 //! seeds agent souls, and starts the Discord transport.
 
 mod config;
+mod setup;
+mod setup_api;
 mod startup;
+mod transport_manager;
 
 use opentelemetry::trace::TracerProvider;
 use opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge;

@@ -115,6 +115,10 @@
 <div class="page">
   <div class="page-label">AGENTS</div>
 
+  <div class="header-row">
+    <a href="/agents/new" class="new-agent-btn">+ NEW AGENT</a>
+  </div>
+
   {#if !loaded}
     <div class="empty">LOADING...</div>
   {:else if $allAgents.length === 0}
@@ -300,6 +304,27 @@
 </div>
 
 <style>
+  .header-row {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: var(--space-md, 16px);
+  }
+
+  .new-agent-btn {
+    font-family: var(--font-mono, monospace);
+    font-size: var(--caption, 12px);
+    letter-spacing: 0.1em;
+    padding: var(--space-sm, 8px) var(--space-lg, 20px);
+    border-radius: var(--radius-sm, 4px);
+    background: var(--accent, #00DC82);
+    color: var(--black, #000);
+    font-weight: 700;
+    text-decoration: none;
+    transition: opacity 0.15s ease;
+  }
+
+  .new-agent-btn:hover { opacity: 0.9; text-decoration: none; }
+
   .page {
     background: var(--black, #000000);
     min-height: 100vh;

@@ -5,71 +5,76 @@
   import ThemeToggle from '$lib/components/ThemeToggle.svelte';
   import { queryTeams } from '$lib/api';
   import type { Team } from '$lib/types';
+  import { page } from '$app/stores';
 
   let { children } = $props();
+  let collapsed = $state(false);
   let projectsOpen = $state(true);
   let teams = $state<Team[]>([]);
+
+  let isCanvas = $derived($page.url.pathname === '/');
 
   onMount(async () => {
     try {
       const data = await queryTeams();
       teams = data as unknown as Team[];
-    } catch { /* no teams */ }
+    } catch {}
   });
 </script>
 
-<div class="shell">
-  <aside class="sidebar">
-    <div class="sidebar-header">
-      <PawLogo size={20} />
-      <span class="sidebar-title">OPEN PAW</span>
+<div class="shell" class:sidebar-collapsed={collapsed}>
+  <aside class="sidebar" class:collapsed>
+    <div class="sidebar-top">
+      <button class="sidebar-toggle" onclick={() => collapsed = !collapsed} title={collapsed ? 'Expand' : 'Collapse'}>
+        {#if collapsed}
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 18l6-6-6-6"/></svg>
+        {:else}
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M15 18l-6-6 6-6"/></svg>
+        {/if}
+      </button>
+      {#if !collapsed}
+        <span class="sidebar-title">OPEN PAW</span>
+      {/if}
     </div>
 
     <nav class="sidebar-nav">
-      <a href="/" class="nav-link">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
-        FLOOR
+      <a href="/" class="nav-item" class:active={$page.url.pathname === '/'}>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
+        {#if !collapsed}<span>Canvas</span>{/if}
       </a>
-      <a href="/agents" class="nav-link">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-        AGENTS
+      <a href="/apps" class="nav-item" class:active={$page.url.pathname === '/apps'}>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+        {#if !collapsed}<span>Apps</span>{/if}
       </a>
-      <a href="/permissions" class="nav-link">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-        PERMISSIONS
+      <a href="/sessions" class="nav-item" class:active={$page.url.pathname.startsWith('/sessions')}>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+        {#if !collapsed}<span>Sessions</span>{/if}
       </a>
 
-      <!-- PROJECTS folder tree -->
-      <button class="nav-folder" onclick={() => projectsOpen = !projectsOpen}>
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-          {#if projectsOpen}
-            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
-            <line x1="9" y1="14" x2="15" y2="14"/>
-          {:else}
-            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
-            <line x1="12" y1="11" x2="12" y2="17"/>
-            <line x1="9" y1="14" x2="15" y2="14"/>
-          {/if}
-        </svg>
-        PROJECTS
-      </button>
+      {#if !collapsed}
+        <div class="nav-divider"></div>
 
-      {#if projectsOpen}
-        {@const items = [{ id: '_platform', label: 'PLATFORM', href: '/platform', platform: true }, ...teams.map(t => ({ id: t.Id, label: (t.name || 'Unnamed').replace(/ Team$/i, '').toUpperCase(), href: `/project/${t.Id}`, platform: false }))]}
-        <div class="nav-tree">
-          {#each items as item, i (item.id)}
-            <a href={item.href} class="nav-tree-item" class:nav-tree-item--platform={item.platform}>
-              <span class="tree-branch">{i === items.length - 1 ? '└' : '├'}</span>
-              {item.label}
-            </a>
-          {/each}
-          {#if teams.length === 0}
-            <span class="nav-tree-item nav-tree-empty">
-              <span class="tree-branch">└</span>
-              NO PROJECTS
-            </span>
-          {/if}
-        </div>
+        <button class="nav-item nav-folder" onclick={() => projectsOpen = !projectsOpen}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+          </svg>
+          <span>Projects</span>
+          <span class="folder-chevron">{projectsOpen ? '−' : '+'}</span>
+        </button>
+
+        {#if projectsOpen}
+          <div class="tree">
+            <a href="/?focus=platform" class="tree-item tree-item--dim">Platform</a>
+            {#each teams as team (team.Id)}
+              <a href="/?focus=project&id={team.Id}" class="tree-item">
+                {(team.name || 'Unnamed').replace(/ Team$/i, '')}
+              </a>
+            {/each}
+            {#if teams.length === 0}
+              <span class="tree-item tree-item--empty">No projects</span>
+            {/if}
+          </div>
+        {/if}
       {/if}
     </nav>
 
@@ -78,7 +83,7 @@
     </div>
   </aside>
 
-  <main class="main-content">
+  <main class="main" class:main--canvas={isCanvas}>
     {@render children()}
   </main>
 </div>
@@ -89,142 +94,158 @@
     min-height: 100vh;
   }
 
+  /* ---- Sidebar ---- */
   .sidebar {
-    width: var(--sidebar-width);
+    width: var(--sidebar-w);
     flex-shrink: 0;
     display: flex;
     flex-direction: column;
-    padding: var(--space-lg) var(--space-md);
-    border-right: 1px solid var(--terminal-border);
-    background: var(--black);
+    padding: var(--sp-3) var(--sp-2);
+    border-right: 1px solid var(--border);
+    background: var(--bg);
     position: fixed;
-    top: 0;
-    left: 0;
-    bottom: 0;
-    z-index: 10;
+    top: 0; left: 0; bottom: 0;
+    z-index: 20;
+    transition: width var(--duration) var(--ease);
+    overflow: hidden;
   }
 
-  .sidebar-header {
+  .sidebar.collapsed {
+    width: 44px;
+    padding: var(--sp-3) var(--sp-1);
+  }
+
+  .sidebar-top {
     display: flex;
     align-items: center;
-    gap: var(--space-sm);
-    padding-bottom: var(--space-xl);
-    color: var(--accent);
+    gap: var(--sp-2);
+    padding-bottom: var(--sp-4);
+    min-height: 20px;
   }
+
+  .sidebar-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px; height: 24px;
+    color: var(--text-3);
+    flex-shrink: 0;
+    border-radius: var(--radius);
+  }
+
+  .sidebar-toggle:hover { color: var(--text-1); }
 
   .sidebar-title {
     font-family: var(--font-mono);
-    font-size: var(--label);
-    font-weight: 700;
-    letter-spacing: 0.1em;
-    color: var(--text-display);
+    font-size: var(--text-xs);
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    color: var(--text-2);
+    white-space: nowrap;
   }
 
+  /* ---- Nav items ---- */
   .sidebar-nav {
     display: flex;
     flex-direction: column;
-    gap: var(--space-2xs);
+    gap: 1px;
     flex: 1;
   }
 
-  .nav-link {
+  .nav-item {
     display: flex;
     align-items: center;
-    gap: var(--space-sm);
-    padding: var(--space-sm) var(--space-sm);
-    border-radius: var(--radius-sm);
-    font-family: var(--font-mono);
-    font-size: var(--label);
-    letter-spacing: 0.08em;
-    color: var(--text-disabled);
+    gap: var(--sp-2);
+    padding: 6px var(--sp-2);
+    border-radius: var(--radius);
+    font-size: var(--text-sm);
+    color: var(--text-3);
     text-decoration: none;
-    transition: color var(--duration-fast) var(--ease);
+    transition: color var(--duration) var(--ease), background var(--duration) var(--ease);
+    white-space: nowrap;
   }
 
-  .nav-link:hover {
-    color: var(--terminal-text);
-    text-decoration: none;
-  }
+  .nav-item:hover { color: var(--text-1); background: var(--accent-subtle); text-decoration: none; }
+  .nav-item.active { color: var(--text-1); }
+  .nav-item svg { flex-shrink: 0; }
 
-  /* Folder toggle button */
   .nav-folder {
-    display: flex;
-    align-items: center;
-    gap: var(--space-sm);
-    padding: var(--space-sm) var(--space-sm);
-    border-radius: var(--radius-sm);
-    font-family: var(--font-mono);
-    font-size: var(--label);
-    letter-spacing: 0.08em;
-    color: var(--text-disabled);
-    cursor: pointer;
-    transition: color var(--duration-fast) var(--ease);
     width: 100%;
     text-align: left;
+    cursor: pointer;
   }
 
-  .nav-folder:hover {
-    color: var(--terminal-text);
+  .folder-chevron {
+    margin-left: auto;
+    font-size: var(--text-xs);
+    color: var(--text-3);
   }
 
-  /* Tree children */
-  .nav-tree {
+  .nav-divider {
+    height: 1px;
+    background: var(--border);
+    margin: var(--sp-2) 0;
+  }
+
+  /* ---- Tree ---- */
+  .tree {
     display: flex;
     flex-direction: column;
-    gap: 0;
-    margin-left: var(--space-lg);
+    padding-left: var(--sp-6);
+    border-left: 1px solid var(--border);
+    margin-left: 13px;
   }
 
-  .nav-tree-item {
-    display: flex;
-    align-items: center;
-    gap: var(--space-xs);
-    padding: 3px 0;
-    font-family: var(--font-mono);
-    font-size: var(--label);
-    letter-spacing: 0.06em;
-    color: var(--text-disabled);
+  .tree-item {
+    font-size: var(--text-sm);
+    color: var(--text-3);
+    padding: 2px var(--sp-2);
     text-decoration: none;
-    transition: color var(--duration-fast) var(--ease);
+    transition: color var(--duration) var(--ease);
   }
 
-  .nav-tree-item:hover {
-    color: var(--terminal-text);
-    text-decoration: none;
-  }
+  .tree-item:hover { color: var(--text-1); text-decoration: none; }
+  .tree-item--dim { opacity: 0.5; }
+  .tree-item--dim:hover { opacity: 1; }
+  .tree-item--empty { opacity: 0.3; font-style: italic; }
 
-  .tree-branch {
-    color: var(--terminal-border);
-    font-size: var(--caption);
-    line-height: 1;
-    flex-shrink: 0;
-    user-select: none;
-  }
-
-  /* Platform styled differently — muted, system-level */
-  .nav-tree-item--platform {
-    color: var(--text-disabled);
-    opacity: 0.6;
-  }
-
-  .nav-tree-item--platform:hover {
-    color: var(--text-secondary);
-    opacity: 1;
-  }
-
-  .nav-tree-empty {
-    color: var(--text-disabled);
-    opacity: 0.4;
-  }
-
+  /* ---- Footer ---- */
   .sidebar-footer {
     margin-top: auto;
-    padding-top: var(--space-sm);
+    padding-top: var(--sp-2);
   }
 
-  .main-content {
+  /* ---- Main content ---- */
+  .main {
     flex: 1;
-    margin-left: var(--sidebar-width);
-    padding: var(--space-2xl) var(--space-xl);
+    margin-left: var(--sidebar-w);
+    padding: var(--sp-6) var(--sp-8);
+    transition: margin-left var(--duration) var(--ease);
+  }
+
+  .sidebar-collapsed .main {
+    margin-left: 44px;
+  }
+
+  .main--canvas {
+    padding: 0;
+  }
+
+  /* ---- Responsive ---- */
+  @media (max-width: 768px) {
+    .sidebar {
+      width: 44px;
+      padding: var(--sp-3) var(--sp-1);
+    }
+
+    .sidebar-title, .nav-item span, .nav-divider,
+    .nav-folder span, .folder-chevron, .tree { display: none; }
+
+    .main {
+      margin-left: 44px;
+      padding: var(--sp-4) var(--sp-4);
+    }
+
+    .main--canvas { padding: 0; }
   }
 </style>
