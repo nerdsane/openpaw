@@ -204,8 +204,10 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             }
         }
 
-        // 4. Convergence analysis — read Observations from previous step,
-        //    find overlapping signal_refs from different Probes, dispatch Confirm
+        // 4. Spawn Convergence Analyst for previous step's Observations
+        //    The analyst is an LLM-powered agent that reads all Observations and
+        //    identifies semantic convergence (not just signal_refs string matching).
+        //    It runs asynchronously — does not block step advancement.
         if current_step > 0 {
             let prev_step = current_step - 1;
             let obs_url = format!(
@@ -216,59 +218,21 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                     let obs_body: Value = serde_json::from_str(&obs_resp.body).unwrap_or(json!({}));
                     let observations = obs_body.get("value").and_then(|v| v.as_array()).cloned().unwrap_or_default();
 
-                    // Group observations by signal_refs content to find convergence
-                    let mut signal_to_obs: std::collections::BTreeMap<String, Vec<(String, String)>> = std::collections::BTreeMap::new();
+                    // Guard: need 2+ different Probes
+                    let mut probe_ids: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
                     for obs in &observations {
-                        let obs_id = obs.get("entity_id").and_then(|v| v.as_str()).unwrap_or("");
-                        let fields = obs.get("fields").cloned().unwrap_or(json!({}));
-                        let probe_id = fields.get("probe_agent_id").and_then(|v| v.as_str()).unwrap_or("");
-                        let status = obs.get("status").and_then(|v| v.as_str()).unwrap_or("");
-                        let signal_refs = fields.get("signal_refs").and_then(|v| v.as_str()).unwrap_or("");
-
-                        // Only process Created (not already Confirmed) observations
-                        if status != "Created" || signal_refs.is_empty() || probe_id.is_empty() {
-                            continue;
-                        }
-
-                        // Parse signal_refs and add each signal to the map
-                        if let Ok(refs) = serde_json::from_str::<Vec<String>>(signal_refs) {
-                            for sig in &refs {
-                                signal_to_obs.entry(sig.clone()).or_default().push((obs_id.to_string(), probe_id.to_string()));
-                            }
+                        if let Some(pid) = obs.get("fields").and_then(|f| f.get("probe_agent_id")).and_then(|v| v.as_str()) {
+                            if !pid.is_empty() { probe_ids.insert(pid.to_string()); }
                         }
                     }
 
-                    // For each signal referenced by 2+ different Probes, confirm one observation
-                    let mut confirmed: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
-                    for (_signal, obs_list) in &signal_to_obs {
-                        if obs_list.len() < 2 { continue; }
-                        // Get unique probe IDs
-                        let unique_probes: std::collections::BTreeSet<&str> = obs_list.iter().map(|(_, p)| p.as_str()).collect();
-                        if unique_probes.len() < 2 { continue; }
-
-                        // Confirm the first observation using a different probe
-                        let (first_obs_id, first_probe) = &obs_list[0];
-                        if confirmed.contains(first_obs_id) { continue; }
-                        let confirmer = obs_list.iter().find(|(_, p)| p != first_probe).map(|(_, p)| p.clone());
-                        if let Some(confirmer_id) = confirmer {
-                            let confirm_url = format!(
-                                "{temper_api_url}/tdata/Observations('{first_obs_id}')/OpenPaw.Foresight.Confirm"
-                            );
-                            let confirm_body = json!({
-                                "confirmer_agent_id": confirmer_id,
-                                "confirmation_note": format!("Convergence: signal referenced by {} independent probes", unique_probes.len())
-                            });
-                            if let Ok(resp) = ctx.http_call("POST", &confirm_url, &headers, &confirm_body.to_string()) {
-                                if resp.status >= 200 && resp.status < 300 {
-                                    ctx.log("info", &format!("advance_step: confirmed Observation {first_obs_id} (convergence from {} probes)", unique_probes.len()));
-                                    confirmed.insert(first_obs_id.clone());
-                                }
-                            }
+                    if probe_ids.len() >= 2 && !observations.is_empty() {
+                        let obs_json = serde_json::to_string_pretty(&observations).unwrap_or_default();
+                        if let Err(e) = spawn_convergence_analyst(&ctx, &temper_api_url, &headers, entity_id, prev_step, &obs_json) {
+                            ctx.log("warn", &format!("advance_step: failed to spawn convergence analyst: {e}"));
                         }
-                    }
-
-                    if !confirmed.is_empty() {
-                        ctx.log("info", &format!("advance_step: convergence analysis confirmed {} observations", confirmed.len()));
+                    } else {
+                        ctx.log("info", &format!("advance_step: skipping convergence (need 2+ probes, have {})", probe_ids.len()));
                     }
                 }
             }
@@ -300,6 +264,88 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         set_error_result(&e);
     }
     0
+}
+
+/// Spawn a Convergence Analyst agent to analyze Observations for semantic convergence.
+/// Follows the same Agent+Session+Configure pattern as spawn_probes.
+fn spawn_convergence_analyst(
+    ctx: &Context,
+    temper_api_url: &str,
+    headers: &[(String, String)],
+    projection_id: &str,
+    prev_step: usize,
+    observations_json: &str,
+) -> Result<(), String> {
+    // 1. Create Agent entity
+    let agent_url = format!("{temper_api_url}/tdata/Agents");
+    let agent_body = json!({
+        "Name": format!("Convergence-Analyst-step-{}", prev_step),
+        "Role": "convergence-analyst"
+    });
+    let agent_resp = ctx.http_call("POST", &agent_url, headers, &agent_body.to_string())?;
+    if agent_resp.status < 200 || agent_resp.status >= 300 {
+        return Err(format!("failed to create Agent (HTTP {})", agent_resp.status));
+    }
+    let agent_parsed: Value = serde_json::from_str(&agent_resp.body).unwrap_or(json!({}));
+    let agent_id = agent_parsed.get("entity_id").and_then(|v| v.as_str()).unwrap_or("unknown");
+
+    // 2. Create Session entity
+    let session_url = format!("{temper_api_url}/tdata/Sessions");
+    let session_resp = ctx.http_call("POST", &session_url, headers, &json!({}).to_string())?;
+    if session_resp.status < 200 || session_resp.status >= 300 {
+        return Err(format!("failed to create Session (HTTP {})", session_resp.status));
+    }
+    let session_parsed: Value = serde_json::from_str(&session_resp.body).unwrap_or(json!({}));
+    let session_id = session_parsed.get("entity_id").and_then(|v| v.as_str()).unwrap_or("unknown");
+
+    // 3. Configure — observations inline, no soul
+    let configure_url = format!(
+        "{temper_api_url}/tdata/Sessions('{session_id}')/OpenPaw.Configure"
+    );
+
+    let obs_for_prompt = if observations_json.len() > 40000 {
+        format!("{}... (truncated)", &observations_json[..40000])
+    } else {
+        observations_json.to_string()
+    };
+
+    let user_message = format!(
+        "You are a Convergence Analyst. Analyze these Observations for semantic convergence and contradictions.\n\n\
+         Projection ID: {projection_id}\n\
+         Step analyzed: {prev_step}\n\
+         Your Agent ID: {agent_id}\n\n\
+         Here are ALL Observations from this step:\n\n\
+         {obs_for_prompt}\n\n\
+         For each pair from DIFFERENT Probes:\n\
+         - If they independently say the same thing → temper.action(\"Observations\", \"<id>\", \"Confirm\", \
+           {{\"confirmer_agent_id\": \"{agent_id}\", \"confirmation_note\": \"Converges with <other_id>: <reason>\"}})\n\
+         - If they contradict → temper.create(\"Observations\", {{\"content\": \"CONTRADICTION: ...\", \
+           \"importance\": \"high\", \"signal_refs\": \"<merged>\", \"probe_agent_id\": \"{agent_id}\", \
+           \"projection_id\": \"{projection_id}\", \"step_at\": \"{prev_step}\"}})\n\n\
+         Be conservative: only Confirm when genuinely saying the same thing.\n\
+         When done, call temper.done(\"complete\") with a summary."
+    );
+
+    let configure_body = json!({
+        "model": "claude-sonnet-4-6",
+        "agent_name": "convergence-analyst",
+        "tools_enabled": "temper_get,temper_list,temper_action,temper_create",
+        "max_turns": "30",
+        "user_message": user_message
+    });
+    let configure_resp = ctx.http_call("POST", &configure_url, headers, &configure_body.to_string())?;
+    if configure_resp.status < 200 || configure_resp.status >= 300 {
+        ctx.log("warn", &format!(
+            "spawn_convergence_analyst: Configure failed (HTTP {}): {}",
+            configure_resp.status, &configure_resp.body[..configure_resp.body.len().min(200)]
+        ));
+    } else {
+        ctx.log("info", &format!(
+            "spawn_convergence_analyst: spawned analyst {agent_id} session {session_id} for step {prev_step}"
+        ));
+    }
+
+    Ok(())
 }
 
 /// Re-spawn a probe by creating a new Session and configuring it.
