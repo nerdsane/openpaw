@@ -160,6 +160,54 @@
           },
           {
             "definition": {
+              "title": "Blob I/O Wait (avg ms)",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "q": "avg:temper_blob_io_wait_duration_ms{*} by {operation}.rollup(avg, 60)",
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "Local Blob Fast Path Requests",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "q": "sum:temper_blob_local_fast_path_requests_total{*} by {method}.as_count().rollup(sum, 60)",
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "Remote Blob Transport Wait (avg ms)",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "q": "avg:temper_blob_transport_wait_duration_ms{*} by {backend,http_method}.rollup(avg, 60)",
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "Remote Blob Transport Requests",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "q": "sum:temper_blob_transport_requests_total{*} by {backend,http_method}.as_count().rollup(sum, 60)",
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
               "title": "Monty REPL Executions",
               "type": "timeseries",
               "requests": [
@@ -172,11 +220,11 @@
           },
           {
             "definition": {
-              "title": "Monty REPL Active Invocations (max)",
+              "title": "Observed Monty Overlap (max active)",
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "max:temper_monty_repl_observed_active_invocations{*} by {max_concurrency}.rollup(max, 60)",
+                  "q": "max:temper_monty_repl_observed_active_invocations{*}.rollup(max, 60)",
                   "display_type": "line"
                 }
               ]
@@ -196,7 +244,7 @@
           },
           {
             "definition": {
-              "title": "Monty REPL Acquisitions",
+              "title": "Monty REPL Acquisitions by Configured Cap",
               "type": "timeseries",
               "requests": [
                 {

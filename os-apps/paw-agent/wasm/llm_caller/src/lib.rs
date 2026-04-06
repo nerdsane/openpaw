@@ -18,7 +18,12 @@
 use session_tree_lib::{EntryType, SessionTree};
 use std::collections::BTreeSet;
 use temper_wasm_sdk::prelude::*;
-use wasm_helpers::{create_content_file, runtime_headers, runtime_headers_as, send_typing_indicator};
+use wasm_helpers::{
+    create_content_file, runtime_headers, runtime_headers_as, send_typing_indicator,
+    write_temperfs_value_with_retry,
+};
+
+const SESSION_ENTRY_FILE_THRESHOLD_BYTES: usize = 4096;
 
 /// Entry point — NOT using `temper_module!` because we need dynamic callback actions.
 #[unsafe(no_mangle)]
@@ -369,7 +374,10 @@ anthropic_api_key (or api_key) for anthropic, openrouter_api_key (or api_key) fo
                         let parent = session_leaf_id;
                         let content_str =
                             serde_json::to_string(&response.content).unwrap_or_default();
-                        let (leaf, _) = if !workspace_id.is_empty() {
+                        let (leaf, _) =
+                            if !workspace_id.is_empty()
+                                && should_store_entry_as_file(&content_str)
+                        {
                             match create_content_file_for_entry(
                                 &ctx,
                                 &temper_api_url,
@@ -448,7 +456,10 @@ anthropic_api_key (or api_key) for anthropic, openrouter_api_key (or api_key) fo
                         let parent = session_leaf_id;
                         let content_str =
                             serde_json::to_string(&response.content).unwrap_or_default();
-                        let (new_leaf, _) = if !workspace_id.is_empty() {
+                        let (new_leaf, _) =
+                            if !workspace_id.is_empty()
+                                && should_store_entry_as_file(&content_str)
+                        {
                             match create_content_file_for_entry(
                                 &ctx,
                                 &temper_api_url,
@@ -1941,47 +1952,68 @@ fn read_conversation_from_temperfs(
     let url = format!("{temper_api_url}/tdata/Files('{file_id}')/$value");
     let headers = agent_headers(ctx, tenant, None, Some("application/json"));
 
-    match ctx.http_call("GET", &url, &headers, "") {
-        Ok(resp) if resp.status == 200 => {
-            let parsed: Value = serde_json::from_str(&resp.body).unwrap_or(json!({"messages": []}));
-            let messages = parsed
-                .get("messages")
-                .and_then(|v| v.as_array())
-                .cloned()
-                .unwrap_or_default();
-            if messages.is_empty() {
-                // First turn — initialize with user message
-                Ok(vec![json!({ "role": "user", "content": user_message })])
-            } else {
-                Ok(messages)
+    const READ_ATTEMPTS: usize = 10;
+    let mut last_status = 0;
+    let mut last_body = String::new();
+
+    for attempt in 0..READ_ATTEMPTS {
+        match ctx.http_call("GET", &url, &headers, "") {
+            Ok(resp) if resp.status == 200 => {
+                let parsed: Value =
+                    serde_json::from_str(&resp.body).unwrap_or(json!({"messages": []}));
+                let messages = parsed
+                    .get("messages")
+                    .and_then(|v| v.as_array())
+                    .cloned()
+                    .unwrap_or_default();
+                if messages.is_empty() {
+                    return Ok(vec![json!({ "role": "user", "content": user_message })]);
+                }
+                return Ok(messages);
+            }
+            Ok(resp) if resp.status == 404 => {
+                ctx.log(
+                    "info",
+                    "llm_caller: TemperFS file has no content, initializing",
+                );
+                return Ok(vec![json!({ "role": "user", "content": user_message })]);
+            }
+            Ok(resp) => {
+                last_status = resp.status;
+                last_body = resp.body;
+                if (500..600).contains(&resp.status) && attempt + 1 < READ_ATTEMPTS {
+                    ctx.log(
+                        "warn",
+                        &format!(
+                            "llm_caller: TemperFS conversation read transient HTTP {}, retry {}/{}",
+                            resp.status,
+                            attempt + 2,
+                            READ_ATTEMPTS
+                        ),
+                    );
+                    continue;
+                }
+                break;
+            }
+            Err(e) => {
+                ctx.log(
+                    "warn",
+                    &format!("llm_caller: TemperFS read error: {e}, falling back to inline"),
+                );
+                return Ok(vec![json!({ "role": "user", "content": user_message })]);
             }
         }
-        Ok(resp) if resp.status == 404 => {
-            // File has no content yet — first turn
-            ctx.log(
-                "info",
-                "llm_caller: TemperFS file has no content, initializing",
-            );
-            Ok(vec![json!({ "role": "user", "content": user_message })])
-        }
-        Ok(resp) => {
-            ctx.log(
-                "warn",
-                &format!(
-                    "llm_caller: TemperFS read failed (HTTP {}), falling back to inline",
-                    resp.status
-                ),
-            );
-            Ok(vec![json!({ "role": "user", "content": user_message })])
-        }
-        Err(e) => {
-            ctx.log(
-                "warn",
-                &format!("llm_caller: TemperFS read error: {e}, falling back to inline"),
-            );
-            Ok(vec![json!({ "role": "user", "content": user_message })])
-        }
     }
+
+    ctx.log(
+        "warn",
+        &format!(
+            "llm_caller: TemperFS read failed (HTTP {}): {}, falling back to inline",
+            last_status,
+            &last_body[..last_body.len().min(200)]
+        ),
+    );
+    Ok(vec![json!({ "role": "user", "content": user_message })])
 }
 
 /// Write conversation messages to TemperFS File entity via $value endpoint.
@@ -1998,23 +2030,70 @@ fn write_conversation_to_temperfs(
     // Wrap messages array in the TemperFS conversation format
     let body = format!("{{\"messages\":{conversation_json}}}");
 
-    let resp = ctx.http_call("PUT", &url, &headers, &body)?;
-    if resp.status >= 200 && resp.status < 300 {
-        ctx.log(
-            "info",
-            &format!(
-                "llm_caller: wrote conversation to TemperFS ({} bytes)",
-                body.len()
-            ),
-        );
-        Ok(())
-    } else {
-        Err(format!(
-            "TemperFS $value write failed (HTTP {}): {}",
-            resp.status,
-            &resp.body[..resp.body.len().min(200)]
-        ))
+    write_temperfs_value_with_retry(
+        ctx,
+        &url,
+        &headers,
+        &body,
+        "TemperFS $value write failed",
+    )?;
+    ctx.log(
+        "info",
+        &format!(
+            "llm_caller: wrote conversation to TemperFS ({} bytes)",
+            body.len()
+        ),
+    );
+    Ok(())
+}
+
+fn read_temperfs_file_value(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+    file_id: &str,
+    content_type: Option<&str>,
+    label: &str,
+) -> Result<String, String> {
+    let url = format!("{temper_api_url}/tdata/Files('{file_id}')/$value");
+    let headers = agent_headers(ctx, tenant, None, content_type);
+
+    const READ_ATTEMPTS: usize = 10;
+    let mut last_status = 0;
+    let mut last_body = String::new();
+
+    for attempt in 0..READ_ATTEMPTS {
+        let resp = ctx.http_call("GET", &url, &headers, "")?;
+        if resp.status == 200 {
+            return Ok(resp.body);
+        }
+        if resp.status == 404 {
+            return Ok(String::new());
+        }
+
+        last_status = resp.status;
+        last_body = resp.body;
+
+        if (500..600).contains(&last_status) && attempt + 1 < READ_ATTEMPTS {
+            ctx.log(
+                "warn",
+                &format!(
+                    "llm_caller: {label} transient HTTP {}, retry {}/{}",
+                    last_status,
+                    attempt + 2,
+                    READ_ATTEMPTS
+                ),
+            );
+            continue;
+        }
+        break;
     }
+
+    Err(format!(
+        "{label} (HTTP {}): {}",
+        last_status,
+        &last_body[..last_body.len().min(200)]
+    ))
 }
 
 /// Read session JSONL from TemperFS.
@@ -2024,19 +2103,14 @@ fn read_session_from_temperfs(
     tenant: &str,
     file_id: &str,
 ) -> Result<String, String> {
-    let url = format!("{temper_api_url}/tdata/Files('{file_id}')/$value");
-    let headers = agent_headers(ctx, tenant, None, None);
-    let resp = ctx.http_call("GET", &url, &headers, "")?;
-    if resp.status == 200 {
-        Ok(resp.body)
-    } else if resp.status == 404 {
-        Ok(String::new())
-    } else {
-        Err(format!(
-            "TemperFS session read failed (HTTP {})",
-            resp.status
-        ))
-    }
+    read_temperfs_file_value(
+        ctx,
+        temper_api_url,
+        tenant,
+        file_id,
+        None,
+        "TemperFS session read failed",
+    )
 }
 
 /// Write session JSONL to TemperFS.
@@ -2049,15 +2123,13 @@ fn write_session_to_temperfs(
 ) -> Result<(), String> {
     let url = format!("{temper_api_url}/tdata/Files('{file_id}')/$value");
     let headers = agent_headers(ctx, tenant, Some("text/plain"), None);
-    let resp = ctx.http_call("PUT", &url, &headers, jsonl)?;
-    if resp.status >= 200 && resp.status < 300 {
-        Ok(())
-    } else {
-        Err(format!(
-            "TemperFS session write failed (HTTP {})",
-            resp.status
-        ))
-    }
+    write_temperfs_value_with_retry(
+        ctx,
+        &url,
+        &headers,
+        jsonl,
+        "TemperFS session write failed",
+    )
 }
 
 /// Load project harness conventions as a context block for the system prompt.
@@ -2324,15 +2396,15 @@ fn load_soul_content(
     if content_file_id.is_empty() {
         return Ok(String::new());
     }
-    // Read from TemperFS
-    let headers = agent_headers(ctx, tenant, None, Some("application/json"));
-    let file_url = format!("{temper_api_url}/tdata/Files('{content_file_id}')/$value");
-    let resp = ctx.http_call("GET", &file_url, &headers, "")?;
-    if resp.status == 200 {
-        Ok(resp.body)
-    } else {
-        Ok(String::new())
-    }
+    read_temperfs_file_value(
+        ctx,
+        temper_api_url,
+        tenant,
+        content_file_id,
+        Some("application/json"),
+        "TemperFS soul content read failed",
+    )
+    .or_else(|_| Ok(String::new()))
 }
 
 fn resolve_soul_entity(
@@ -2623,16 +2695,14 @@ fn read_content_file_raw(
     tenant: &str,
     file_id: &str,
 ) -> Result<String, String> {
-    let url = format!("{temper_api_url}/tdata/Files('{file_id}')/$value");
-    let headers = agent_headers(ctx, tenant, None, None);
-    let resp = ctx.http_call("GET", &url, &headers, "")?;
-    if resp.status == 200 {
-        Ok(resp.body)
-    } else if resp.status == 404 {
-        Ok(String::new())
-    } else {
-        Err(format!("Content file read failed (HTTP {})", resp.status))
-    }
+    read_temperfs_file_value(
+        ctx,
+        temper_api_url,
+        tenant,
+        file_id,
+        None,
+        "Content file read failed",
+    )
 }
 
 fn create_content_file_for_entry(
@@ -2645,6 +2715,10 @@ fn create_content_file_for_entry(
 ) -> Result<String, String> {
     let file_name = format!("msg-{entry_id}.txt");
     create_content_file(ctx, temper_api_url, tenant, workspace_id, &file_name, content)
+}
+
+fn should_store_entry_as_file(content: &str) -> bool {
+    content.len() > SESSION_ENTRY_FILE_THRESHOLD_BYTES
 }
 
 fn resolve_temper_api_url(ctx: &Context, fields: &Value) -> String {

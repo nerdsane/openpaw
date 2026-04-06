@@ -5,6 +5,101 @@
 
 use temper_wasm_sdk::prelude::*;
 
+const TEMPERFS_READ_ATTEMPTS: usize = 10;
+const TEMPERFS_WRITE_ATTEMPTS: usize = 5;
+
+fn read_temperfs_value_with_retry(
+    ctx: &Context,
+    url: &str,
+    headers: &[(String, String)],
+    label: &str,
+) -> Result<String, String> {
+    let mut last_status = 0;
+    let mut last_body = String::new();
+
+    for attempt in 0..TEMPERFS_READ_ATTEMPTS {
+        let resp = ctx.http_call("GET", url, headers, "")?;
+        if resp.status == 200 {
+            return Ok(resp.body);
+        }
+        if resp.status == 404 {
+            return Ok(String::new());
+        }
+
+        last_status = resp.status;
+        last_body = resp.body;
+
+        if (500..600).contains(&resp.status) && attempt + 1 < TEMPERFS_READ_ATTEMPTS {
+            ctx.log(
+                "warn",
+                &format!(
+                    "{label}: transient read failure (HTTP {}), retry {}/{}",
+                    resp.status,
+                    attempt + 2,
+                    TEMPERFS_READ_ATTEMPTS
+                ),
+            );
+            continue;
+        }
+        break;
+    }
+
+    Err(format!(
+        "{label} (HTTP {}): {}",
+        last_status,
+        &last_body[..last_body.len().min(200)]
+    ))
+}
+
+fn is_retriable_write_failure(status: u16, body: &str) -> bool {
+    (500..600).contains(&status)
+        || body.contains("BlobUploadFailed")
+        || body.contains("HTTP -1")
+}
+
+pub fn write_temperfs_value_with_retry(
+    ctx: &Context,
+    url: &str,
+    headers: &[(String, String)],
+    body: &str,
+    label: &str,
+) -> Result<(), String> {
+    let mut last_status = 0;
+    let mut last_body = String::new();
+
+    for attempt in 0..TEMPERFS_WRITE_ATTEMPTS {
+        let resp = ctx.http_call("PUT", url, headers, body)?;
+        if (200..300).contains(&resp.status) {
+            return Ok(());
+        }
+
+        last_status = resp.status;
+        last_body = resp.body;
+
+        if is_retriable_write_failure(resp.status, &last_body)
+            && attempt + 1 < TEMPERFS_WRITE_ATTEMPTS
+        {
+            ctx.log(
+                "warn",
+                &format!(
+                    "{label}: transient write failure (HTTP {}), retry {}/{}",
+                    resp.status,
+                    attempt + 2,
+                    TEMPERFS_WRITE_ATTEMPTS
+                ),
+            );
+            continue;
+        }
+        break;
+    }
+
+    Err(format!(
+        "{label} (HTTP {}): {}",
+        last_status,
+        &last_body[..last_body.len().min(200)]
+    ))
+}
+
 /// Resolve the Temper API URL from entity fields or context config,
 /// falling back to localhost.
 pub fn resolve_temper_api_url(ctx: &Context, fields: &Value) -> String {
@@ -32,18 +127,7 @@ pub fn read_session_from_temperfs(
 ) -> Result<String, String> {
     let url = format!("{temper_api_url}/tdata/Files('{file_id}')/$value");
     let headers = runtime_headers(ctx, tenant, fields, None, None);
-
-    let resp = ctx.http_call("GET", &url, &headers, "")?;
-    if resp.status == 200 {
-        Ok(resp.body)
-    } else if resp.status == 404 {
-        Ok(String::new())
-    } else {
-        Err(format!(
-            "TemperFS session read failed (HTTP {})",
-            resp.status
-        ))
-    }
+    read_temperfs_value_with_retry(ctx, &url, &headers, "TemperFS session read failed")
 }
 
 /// Write session JSONL to TemperFS by file ID.
@@ -57,16 +141,13 @@ pub fn write_session_to_temperfs(
 ) -> Result<(), String> {
     let url = format!("{temper_api_url}/tdata/Files('{file_id}')/$value");
     let headers = runtime_headers(ctx, tenant, fields, Some("text/plain"), None);
-
-    let resp = ctx.http_call("PUT", &url, &headers, jsonl)?;
-    if resp.status >= 200 && resp.status < 300 {
-        Ok(())
-    } else {
-        Err(format!(
-            "TemperFS session write failed (HTTP {})",
-            resp.status
-        ))
-    }
+    write_temperfs_value_with_retry(
+        ctx,
+        &url,
+        &headers,
+        jsonl,
+        "TemperFS session write failed",
+    )
 }
 
 /// Read raw file content from TemperFS by file ID.
@@ -79,18 +160,7 @@ pub fn read_content_file(
 ) -> Result<String, String> {
     let url = format!("{temper_api_url}/tdata/Files('{file_id}')/$value");
     let headers = runtime_headers(ctx, tenant, fields, None, None);
-
-    let resp = ctx.http_call("GET", &url, &headers, "")?;
-    if resp.status == 200 {
-        Ok(resp.body)
-    } else if resp.status == 404 {
-        Ok(String::new())
-    } else {
-        Err(format!(
-            "TemperFS content file read failed (HTTP {})",
-            resp.status
-        ))
-    }
+    read_temperfs_value_with_retry(ctx, &url, &headers, "TemperFS content file read failed")
 }
 
 /// Create a TemperFS file and write content into it.
@@ -151,14 +221,13 @@ pub fn create_content_file(
         Some("text/plain"),
         None,
     );
-    let value_resp = ctx.http_call("PUT", &value_url, &value_headers, content)?;
-
-    if value_resp.status < 200 || value_resp.status >= 300 {
-        return Err(format!(
-            "content file write failed (HTTP {})",
-            value_resp.status
-        ));
-    }
+    write_temperfs_value_with_retry(
+        ctx,
+        &value_url,
+        &value_headers,
+        content,
+        "content file write failed",
+    )?;
 
     Ok(file_id)
 }

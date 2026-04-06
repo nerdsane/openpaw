@@ -110,6 +110,16 @@ type = "string"
 initial = ""
 
 [[state]]
+name = "provision_check_count"
+type = "counter"
+initial = "0"
+
+[[state]]
+name = "max_provision_checks"
+type = "string"
+initial = "24"
+
+[[state]]
 name = "file_manifest_id"
 type = "string"
 initial = ""
@@ -280,6 +290,27 @@ kind = "input"
 from = ["Created"]
 to = "Provisioning"
 hint = "Start sandbox provisioning. Triggers provision_sandbox WASM integration."
+effect = [{ type = "trigger", name = "provision_sandbox" }]
+
+[[action]]
+name = "ProvisionPending"
+kind = "input"
+from = ["Provisioning"]
+to = "Provisioning"
+params = ["sandbox_url", "sandbox_id"]
+hint = "Sandbox exists but is still booting. Persist connection details and schedule another readiness check."
+effect = [
+  { type = "increment", var = "provision_check_count" },
+  { type = "schedule", action = "CheckSandboxReady", delay_seconds = 5 },
+]
+
+[[action]]
+name = "CheckSandboxReady"
+kind = "input"
+from = ["Provisioning"]
+to = "Provisioning"
+params = []
+hint = "Retry sandbox readiness check after a bounded delay."
 effect = [{ type = "trigger", name = "provision_sandbox" }]
 
 [[action]]

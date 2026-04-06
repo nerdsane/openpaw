@@ -12,7 +12,10 @@
 //! Build: `cargo build --target wasm32-unknown-unknown --release`
 
 use temper_wasm_sdk::prelude::*;
-use wasm_helpers::{runtime_headers, runtime_headers_for_workspace};
+use wasm_helpers::{
+    resolve_temper_api_url, runtime_headers, runtime_headers_for_workspace,
+    write_temperfs_value_with_retry,
+};
 
 /// Entry point.
 #[unsafe(no_mangle)]
@@ -32,8 +35,22 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             return Err("agent not configured — user_message is empty".to_string());
         }
 
-        // Provision sandbox
-        let sandbox_result = provision_sandbox(&ctx)?;
+        // Provision sandbox or schedule a later readiness check if the
+        // Tensorlake microVM still needs time to boot.
+        let sandbox_status = provision_sandbox(&ctx, &fields)?;
+        let sandbox_result = match sandbox_status {
+            SandboxStatus::Pending(sandbox_result) => {
+                set_success_result(
+                    "ProvisionPending",
+                    &json!({
+                        "sandbox_url": sandbox_result.sandbox_url,
+                        "sandbox_id": sandbox_result.sandbox_id,
+                    }),
+                );
+                return Ok(());
+            }
+            SandboxStatus::Ready(sandbox_result) => sandbox_result,
+        };
         ctx.log(
             "info",
             &format!(
@@ -116,6 +133,11 @@ struct SandboxResult {
     sandbox_id: String,
 }
 
+enum SandboxStatus {
+    Pending(SandboxResult),
+    Ready(SandboxResult),
+}
+
 fn agent_headers(
     ctx: &Context,
     tenant: &str,
@@ -140,31 +162,28 @@ fn workspace_headers(
     runtime_headers_for_workspace(ctx, tenant, &json!({}), workspace_id, content_type, accept)
 }
 
-fn resolve_temper_api_url(ctx: &Context, fields: &Value) -> String {
-    fields
-        .get("temper_api_url")
-        .and_then(|v| v.as_str())
-        .filter(|s| !s.is_empty())
-        .map(|s| s.to_string())
-        .or_else(
-            || match ctx.config.get("temper_api_url").map(String::as_str) {
-                Some(value) if !value.trim().is_empty() && !value.contains("{secret:") => {
-                    Some(value.to_string())
-                }
-                _ => None,
-            },
-        )
-        .unwrap_or_else(|| "http://127.0.0.1:3000".to_string())
-}
-
 /// Provision a sandbox. Priority order:
 /// 1. sandbox_url from entity state (set via Configure action) or integration config
 /// 2. Tensorlake REST API
 /// 3. Fail with setup guidance
-fn provision_sandbox(ctx: &Context) -> Result<SandboxResult, String> {
-    let fields = ctx.entity_state.get("fields").cloned().unwrap_or(json!({}));
+fn provision_sandbox(ctx: &Context, fields: &Value) -> Result<SandboxStatus, String> {
+    // Retry path: Tensorlake sandbox was already created on a previous
+    // invocation; only readiness checking remains.
+    let existing_sandbox_url = fields
+        .get("sandbox_url")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned);
+    let existing_sandbox_id = fields
+        .get("sandbox_id")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned);
+    if let (Some(sandbox_url), Some(sandbox_id)) = (existing_sandbox_url, existing_sandbox_id) {
+        return check_sandbox_ready(ctx, fields, sandbox_url, sandbox_id);
+    }
 
-    // Priority 1: sandbox_url from entity state (set at Configure time) or config.
+    // Priority 1: sandbox_url from Configure-time state or integration config.
     let static_url = fields
         .get("sandbox_url")
         .and_then(|v| v.as_str())
@@ -188,10 +207,10 @@ fn provision_sandbox(ctx: &Context) -> Result<SandboxResult, String> {
             "info",
             &format!("sandbox_provisioner: using static sandbox_url: {url}"),
         );
-        return Ok(SandboxResult {
+        return Ok(SandboxStatus::Ready(SandboxResult {
             sandbox_url: url,
             sandbox_id: "static-sandbox".to_string(),
-        });
+        }));
     }
 
     // Priority 2: Tensorlake REST API — create a Firecracker MicroVM sandbox.
@@ -247,45 +266,108 @@ fn provision_sandbox(ctx: &Context) -> Result<SandboxResult, String> {
         })
         .to_string();
     let sandbox_url = format!("https://{sandbox_id}.sandbox.tensorlake.ai");
+    check_sandbox_ready(ctx, fields, sandbox_url, sandbox_id)
+}
 
-    // Wait for sandbox to become ready by polling the files list endpoint.
-    ctx.log(
-        "info",
-        &format!("sandbox_provisioner: waiting for sandbox {sandbox_id} to become ready..."),
-    );
-    let health_headers = vec![
-        ("authorization".to_string(), format!("Bearer {api_key}")),
-    ];
+fn check_sandbox_ready(
+    ctx: &Context,
+    fields: &Value,
+    sandbox_url: String,
+    sandbox_id: String,
+) -> Result<SandboxStatus, String> {
+    let api_key = ctx
+        .config
+        .get("tensorlake_api_key")
+        .filter(|s| !s.is_empty() && !s.contains("{secret:"))
+        .cloned()
+        .ok_or_else(|| {
+            "TL_API_KEY is required to check Tensorlake sandbox readiness".to_string()
+        })?;
+    let health_headers = vec![("authorization".to_string(), format!("Bearer {api_key}"))];
     let health_url = format!("{sandbox_url}/api/v1/files/list?path=/");
-    let mut ready = false;
-    for attempt in 0..120 {
-        match ctx.http_call("GET", &health_url, &health_headers, "") {
-            Ok(r) if r.status >= 200 && r.status < 300 => {
-                ready = true;
-                break;
+
+    match ctx.http_call("GET", &health_url, &health_headers, "") {
+        Ok(r) if r.status >= 200 && r.status < 300 => {
+            ctx.log(
+                "info",
+                &format!(
+                    "sandbox_provisioner: Tensorlake sandbox ready: id={sandbox_id}, url={sandbox_url}"
+                ),
+            );
+            Ok(SandboxStatus::Ready(SandboxResult {
+                sandbox_url,
+                sandbox_id,
+            }))
+        }
+        Ok(r) => {
+            let check_count = fields
+                .get("provision_check_count")
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0);
+            let max_checks = fields
+                .get("max_provision_checks")
+                .and_then(|v| v.as_str())
+                .and_then(|v| v.parse::<i64>().ok())
+                .unwrap_or(24)
+                .max(1);
+            if check_count >= max_checks {
+                Err(format!(
+                    "Tensorlake sandbox {sandbox_id} did not become ready within {} retries (last HTTP {})",
+                    max_checks, r.status
+                ))
+            } else {
+                let temper_api_url = resolve_temper_api_url(ctx, fields);
+                let retry_delay_seconds = 5;
+                ctx.log(
+                    "info",
+                    &format!(
+                        "sandbox_provisioner: sandbox {sandbox_id} not ready yet (HTTP {}), scheduling readiness check {}/{} in {}s via {}",
+                        r.status,
+                        check_count + 1,
+                        max_checks,
+                        retry_delay_seconds,
+                        temper_api_url
+                    ),
+                );
+                Ok(SandboxStatus::Pending(SandboxResult {
+                    sandbox_url,
+                    sandbox_id,
+                }))
             }
-            _ => {
-                if attempt % 10 == 0 && attempt > 0 {
-                    ctx.log(
-                        "info",
-                        &format!("sandbox_provisioner: still waiting... (attempt {attempt})"),
-                    );
-                }
+        }
+        Err(err) => {
+            let check_count = fields
+                .get("provision_check_count")
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0);
+            let max_checks = fields
+                .get("max_provision_checks")
+                .and_then(|v| v.as_str())
+                .and_then(|v| v.parse::<i64>().ok())
+                .unwrap_or(24)
+                .max(1);
+            if check_count >= max_checks {
+                Err(format!(
+                    "Tensorlake sandbox {sandbox_id} did not become ready within {} retries: {}",
+                    max_checks, err
+                ))
+            } else {
+                ctx.log(
+                    "info",
+                    &format!(
+                        "sandbox_provisioner: sandbox {sandbox_id} readiness check failed ({}), scheduling retry {}/{}",
+                        err,
+                        check_count + 1,
+                        max_checks
+                    ),
+                );
+                Ok(SandboxStatus::Pending(SandboxResult {
+                    sandbox_url,
+                    sandbox_id,
+                }))
             }
         }
     }
-    if !ready {
-        return Err(format!(
-            "Tensorlake sandbox {sandbox_id} did not become ready within timeout"
-        ));
-    }
-
-    ctx.log(
-        "info",
-        &format!("sandbox_provisioner: Tensorlake sandbox ready: id={sandbox_id}, url={sandbox_url}"),
-    );
-
-    Ok(SandboxResult { sandbox_url, sandbox_id })
 }
 
 /// Create a TemperFS Workspace, conversation File, manifest File, and session file.
@@ -370,15 +452,16 @@ fn create_conversation_storage(
     let value_url = format!("{temper_api_url}/tdata/Files('{file_id}')/$value");
     let value_headers =
         workspace_headers(ctx, tenant, &workspace_id, Some("application/json"), None);
-    let value_resp = ctx.http_call("PUT", &value_url, &value_headers, &init_conv)?;
-
-    if value_resp.status < 200 || value_resp.status >= 300 {
+    if let Err(err) = write_temperfs_value_with_retry(
+        ctx,
+        &value_url,
+        &value_headers,
+        &init_conv,
+        "sandbox_provisioner: initial $value write failed",
+    ) {
         ctx.log(
             "warn",
-            &format!(
-                "sandbox_provisioner: initial $value write failed (HTTP {})",
-                value_resp.status
-            ),
+            &err,
         );
     }
 
@@ -417,16 +500,16 @@ fn create_conversation_storage(
     // 5. Write initial empty manifest
     let init_manifest = json!({"files": {}, "synced_at_turn": 0}).to_string();
     let manifest_value_url = format!("{temper_api_url}/tdata/Files('{manifest_id}')/$value");
-    let manifest_value_resp =
-        ctx.http_call("PUT", &manifest_value_url, &value_headers, &init_manifest)?;
-
-    if manifest_value_resp.status < 200 || manifest_value_resp.status >= 300 {
+    if let Err(err) = write_temperfs_value_with_retry(
+        ctx,
+        &manifest_value_url,
+        &value_headers,
+        &init_manifest,
+        "sandbox_provisioner: initial manifest $value write failed",
+    ) {
         ctx.log(
             "warn",
-            &format!(
-                "sandbox_provisioner: initial manifest $value write failed (HTTP {})",
-                manifest_value_resp.status
-            ),
+            &err,
         );
     }
 
@@ -581,18 +664,18 @@ fn create_session_tree(
 
     let write_url = format!("{temper_api_url}/tdata/Files('{session_file_id}')/$value");
     let write_headers = workspace_headers(ctx, tenant, workspace_id, Some("text/plain"), None);
-    match ctx.http_call("PUT", &write_url, &write_headers, &initial_jsonl) {
-        Ok(resp) if resp.status >= 200 && resp.status < 300 => {
+    match write_temperfs_value_with_retry(
+        ctx,
+        &write_url,
+        &write_headers,
+        &initial_jsonl,
+        "Failed to write session file",
+    ) {
+        Ok(()) => {
             ctx.log("info", "sandbox_provisioner: session tree initialized");
         }
-        Ok(resp) => {
-            ctx.log(
-                "warn",
-                &format!("Failed to write session file (HTTP {})", resp.status),
-            );
-        }
         Err(e) => {
-            ctx.log("warn", &format!("Failed to write session file: {e}"));
+            ctx.log("warn", &e);
         }
     }
 

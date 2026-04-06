@@ -6,6 +6,8 @@
 use temper_wasm_sdk::prelude::*;
 use wasm_helpers::{create_content_file, entity_field_str, runtime_headers_as};
 
+const SESSION_ENTRY_FILE_THRESHOLD_BYTES: usize = 4096;
+
 /// Persist tool results to the session tree (or conversation file, or inline).
 ///
 /// Returns the params to include in the HandleToolResults callback.
@@ -37,7 +39,8 @@ pub fn persist_results(
         let tokens_est = results_json.len() / 4;
         let content_str = serde_json::to_string(&tool_results_value).unwrap_or_default();
 
-        let (new_leaf, _) = if !workspace_id.is_empty() {
+        let (new_leaf, _) =
+            if !workspace_id.is_empty() && should_store_entry_as_file(&content_str) {
             match create_content_file(
                 ctx,
                 temper_api_url,
@@ -53,7 +56,7 @@ pub fn persist_results(
                     tree.append_tool_results(session_leaf_id, &tool_results_value, tokens_est)
                 }
             }
-        } else {
+            } else {
             tree.append_tool_results(session_leaf_id, &tool_results_value, tokens_est)
         };
 
@@ -166,10 +169,13 @@ pub fn save_repl_to_file(
     // Write REPL state to file
     let url = format!("{temper_api_url}/tdata/Files('{file_id}')/$value");
     let headers = workspace_headers(tenant, workspace_id);
-    let resp = ctx.http_call("PUT", &url, &headers, repl_state_b64)?;
-    if resp.status >= 400 {
-        return Err(format!("failed to write REPL state file: {}", resp.body));
-    }
+    write_temperfs_file_with_retry(
+        ctx,
+        &url,
+        &headers,
+        repl_state_b64,
+        "failed to write REPL state file",
+    )?;
 
     Ok(file_id)
 }
@@ -327,14 +333,91 @@ fn read_temperfs_file(
 ) -> Result<String, String> {
     let url = format!("{temper_api_url}/tdata/Files('{file_id}')/$value");
     let headers = file_headers(tenant);
-    let resp = ctx.http_call("GET", &url, &headers, "")?;
-    if resp.status == 200 {
-        Ok(resp.body)
-    } else if resp.status == 404 {
-        Ok(String::new())
-    } else {
-        Err(format!("TemperFS read failed (HTTP {})", resp.status))
+
+    const READ_ATTEMPTS: usize = 5;
+    let mut last_status = 0;
+    let mut last_body = String::new();
+
+    for attempt in 0..READ_ATTEMPTS {
+        let resp = ctx.http_call("GET", &url, &headers, "")?;
+        if resp.status == 200 {
+            return Ok(resp.body);
+        }
+        if resp.status == 404 {
+            return Ok(String::new());
+        }
+
+        last_status = resp.status;
+        last_body = resp.body;
+
+        if (500..600).contains(&last_status) && attempt + 1 < READ_ATTEMPTS {
+            ctx.log(
+                "warn",
+                &format!(
+                    "monty_repl: TemperFS read transient HTTP {}, retry {}/{}",
+                    last_status,
+                    attempt + 2,
+                    READ_ATTEMPTS
+                ),
+            );
+            continue;
+        }
+        break;
     }
+
+    Err(format!(
+        "TemperFS read failed (HTTP {}): {}",
+        last_status,
+        &last_body[..last_body.len().min(200)]
+    ))
+}
+
+fn is_retriable_write_failure(status: u16, body: &str) -> bool {
+    (500..600).contains(&status)
+        || body.contains("BlobUploadFailed")
+        || body.contains("HTTP -1")
+}
+
+fn write_temperfs_file_with_retry(
+    ctx: &Context,
+    url: &str,
+    headers: &[(String, String)],
+    content: &str,
+    label: &str,
+) -> Result<(), String> {
+    const WRITE_ATTEMPTS: usize = 5;
+    let mut last_status = 0;
+    let mut last_body = String::new();
+
+    for attempt in 0..WRITE_ATTEMPTS {
+        let resp = ctx.http_call("PUT", url, headers, content)?;
+        if (200..300).contains(&resp.status) {
+            return Ok(());
+        }
+
+        last_status = resp.status;
+        last_body = resp.body;
+
+        if is_retriable_write_failure(last_status, &last_body) && attempt + 1 < WRITE_ATTEMPTS {
+            ctx.log(
+                "warn",
+                &format!(
+                    "monty_repl: {label} transient HTTP {}, retry {}/{}",
+                    last_status,
+                    attempt + 2,
+                    WRITE_ATTEMPTS
+                ),
+            );
+            continue;
+        }
+        break;
+    }
+
+    Err(format!(
+        "{label} (HTTP {}): {}",
+        last_status,
+        &last_body[..last_body.len().min(200)]
+    ))
 }
 
 fn write_temperfs_file(
@@ -346,12 +429,7 @@ fn write_temperfs_file(
 ) -> Result<(), String> {
     let url = format!("{temper_api_url}/tdata/Files('{file_id}')/$value");
     let headers = file_headers_text(tenant);
-    let resp = ctx.http_call("PUT", &url, &headers, content)?;
-    if resp.status >= 200 && resp.status < 300 {
-        Ok(())
-    } else {
-        Err(format!("TemperFS write failed (HTTP {})", resp.status))
-    }
+    write_temperfs_file_with_retry(ctx, &url, &headers, content, "TemperFS write failed")
 }
 
 fn read_conversation(
@@ -375,6 +453,10 @@ fn read_conversation(
 
 fn field_str<'a>(fields: &'a Value, key: &str) -> &'a str {
     fields.get(key).and_then(|v| v.as_str()).unwrap_or("")
+}
+
+fn should_store_entry_as_file(content: &str) -> bool {
+    content.len() > SESSION_ENTRY_FILE_THRESHOLD_BYTES
 }
 
 fn odata_headers(tenant: &str) -> Vec<(String, String)> {
