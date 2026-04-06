@@ -35,6 +35,11 @@ type = "string"
 initial = ""
 
 [[state]]
+name = "instructions_file_id"
+type = "string"
+initial = ""
+
+[[state]]
 name = "team_id"
 type = "string"
 initial = ""
@@ -71,14 +76,14 @@ name = "Configure"
 kind = "input"
 from = ["Created"]
 to = "Active"
-params = ["name", "role", "description", "soul_id", "team_id", "model", "provider", "tools_enabled", "max_turns", "skill_ids"]
+params = ["name", "role", "description", "soul_id", "instructions_file_id", "team_id", "model", "provider", "tools_enabled", "max_turns", "skill_ids"]
 hint = "Set up the agent identity and session configuration."
 
 [[action]]
 name = "Update"
 kind = "input"
 from = ["Active"]
-params = ["description", "model", "tools_enabled", "max_turns", "skill_ids"]
+params = ["description", "instructions_file_id", "model", "tools_enabled", "max_turns", "skill_ids"]
 hint = "Update agent configuration."
 
 [[action]]

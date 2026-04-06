@@ -514,7 +514,7 @@ async fn persist_os_app_verification(
 
 /// Bootstrap Paw souls into the entity system.
 ///
-/// Reads soul files from `souls/` directory, creates TemperFS File entities
+/// Reads soul files from `os-apps/paw-agent/agents/` directory, creates TemperFS File entities
 /// for the content, and registers Soul entities. Runs once on first boot;
 /// skips if souls already exist.
 fn spawn_soul_bootstrap(port: u16, tenant: String, api_key: Option<String>) {
@@ -529,21 +529,21 @@ fn spawn_soul_bootstrap(port: u16, tenant: String, api_key: Option<String>) {
                 "Paw",
                 "Paw chief of staff agent",
                 &[
-                    "souls/paw/SOUL.md",
-                    "souls/paw/STYLE.md",
-                    "souls/paw/SKILL.md",
+                    "os-apps/paw-agent/agents/paw/SOUL.md",
+                    "os-apps/paw-agent/agents/paw/STYLE.md",
+                    "os-apps/paw-agent/agents/paw/AGENT.md",
                 ],
             ),
-            ("SWE", "Software developer agent", &["souls/swe/SKILL.md"]),
+            ("SWE", "Software developer agent", &["os-apps/paw-agent/agents/swe/AGENT.md"]),
             (
                 "SRE",
                 "Site reliability engineering agent",
-                &["souls/sre/SKILL.md"],
+                &["os-apps/paw-agent/agents/sre/AGENT.md"],
             ),
             (
                 "Probe",
                 "Foresight probe agent for projecting product futures",
-                &["souls/probe.md"],
+                &["os-apps/paw-agent/agents/probe/AGENT.md"],
             ),
         ];
 
@@ -569,13 +569,13 @@ fn spawn_soul_bootstrap(port: u16, tenant: String, api_key: Option<String>) {
             (
                 "Project Lead Schema",
                 "Dimensions Paw fills when crafting a project lead soul",
-                "souls/project-lead/SCHEMA.md",
+                "os-apps/paw-agent/skills/project-lead-schema/SKILL.md",
                 "Paw",
             ),
             (
                 "Project Lead Playbook",
                 "Shared operational playbook for all project leads",
-                "souls/project-lead/SKILL.md",
+                "os-apps/paw-agent/skills/project-lead-playbook/SKILL.md",
                 "project-lead",
             ),
         ];

@@ -1,0 +1,4 @@
+name = "paw-fs"
+description = "TemperFS — file, workspace, and directory management"
+version = "0.1.0"
+dependencies = []

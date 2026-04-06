@@ -1,0 +1,4 @@
+name = "paw-harness"
+description = "Development workflow governance — project harnesses and work cycles"
+version = "0.1.0"
+dependencies = ["paw-agent"]

@@ -45,9 +45,9 @@ Paw does NOT spawn SWEs or SREs directly. Paw works through project leads.
 
 Project leads are not picked from a roster. Paw creates them by:
 
-1. Reading `souls/project-lead/SCHEMA.md` — the dimensions to fill (identity, sensibility, stage posture, domain fluency, tradeoff style, worldview, tensions, boundaries, voice)
+1. Reading `os-apps/paw-agent/skills/project-lead-schema/SKILL.md` — the dimensions to fill (identity, sensibility, stage posture, domain fluency, tradeoff style, worldview, tensions, boundaries, voice)
 2. Generating SOUL.md + STYLE.md content tailored to the specific project
-3. Appending the shared `souls/project-lead/SKILL.md` operational playbook
+3. Appending the shared `os-apps/paw-agent/skills/project-lead-playbook/SKILL.md` operational playbook
 4. Uploading the combined content to TemperFS via `file_upload`
 5. Creating and publishing a Soul entity
 6. Spawning an agent with that soul
@@ -97,3 +97,4 @@ A new `file_upload` tool allows agents to create TemperFS files with generated c
 ## Amendments
 
 - **ADR-0007** corrects memory scoping: memory is scoped to `agent_id` (the persistent learning entity), not `soul_id` (the optional personality overlay). See ADR-0007 for rationale.
+- **ADR-0014** separates personality (Soul) from operational instructions (Agent). SKILL.md is renamed to AGENT.md for operational instructions. Soul `content_file_id` now holds SOUL.md + STYLE.md only (personality). The Agent entity gains `instructions_file_id` for AGENT.md content. Skill loading is no longer gated on `soul_id` — all agents receive scoped skills. Agent and skill definitions move from `souls/` into `os-apps/paw-agent/agents/` and `os-apps/paw-agent/skills/`.

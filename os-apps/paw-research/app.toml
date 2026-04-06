@@ -1,0 +1,4 @@
+name = "paw-research"
+description = "Governed web search for agent research"
+version = "0.1.0"
+dependencies = ["paw-agent"]

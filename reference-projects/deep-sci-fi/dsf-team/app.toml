@@ -1,0 +1,4 @@
+name = "dsf-team"
+description = "7-role agent team for the Deep Sci-Fi platform"
+version = "0.1.0"
+dependencies = ["paw-agent"]

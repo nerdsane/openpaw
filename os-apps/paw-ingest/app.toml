@@ -1,0 +1,4 @@
+name = "paw-ingest"
+description = "Webhook ingress — event routing and processing"
+version = "0.1.0"
+dependencies = []
