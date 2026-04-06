@@ -222,4 +222,3 @@ impl PawApiClient {
         req
     }
 }
-pub mod slack;
