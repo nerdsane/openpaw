@@ -122,7 +122,8 @@ name = "StepComplete"
 kind = "input"
 from = ["Running"]
 params = ["projected_state_file_id"]
-hint = "Callback from advance_step WASM. Records the projected state snapshot for this step."
+hint = "Callback from advance_step WASM. Records the projected state and schedules next step after probe work time."
+effect = [{ type = "schedule", action = "AdvanceStep", delay_seconds = 120 }]
 
 [[action]]
 name = "Complete"
