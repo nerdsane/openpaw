@@ -1,0 +1,4 @@
+name = "paw-foresight"
+description = "Product direction engine — projections, observations, entropy-based simulation"
+version = "0.1.0"
+dependencies = ["paw-agent"]

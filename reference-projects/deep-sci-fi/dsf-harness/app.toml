@@ -1,0 +1,4 @@
+name = "dsf-harness"
+description = "Development governance for Deep Sci-Fi — 3-level gate system"
+version = "0.1.0"
+dependencies = ["paw-harness"]

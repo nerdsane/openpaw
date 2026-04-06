@@ -1,0 +1,4 @@
+name = "paw-agent"
+description = "Core agent lifecycle — souls, skills, sessions, memory, teams"
+version = "0.1.0"
+dependencies = ["paw-fs"]

@@ -1,0 +1,4 @@
+name = "paw-pm"
+description = "Project management — issues, projects, cycles, labels, comments"
+version = "0.1.0"
+dependencies = []

@@ -1,0 +1,4 @@
+name = "paw-channels"
+description = "Multi-channel agent communication — Slack, web, API routes"
+version = "0.1.0"
+dependencies = ["paw-agent"]

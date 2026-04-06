@@ -1,0 +1,4 @@
+name = "paw-compute"
+description = "Compute provisioning for agent sandboxes via Fly.io"
+version = "0.1.0"
+dependencies = []

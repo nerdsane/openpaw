@@ -1,0 +1,73 @@
+# paw-agent
+
+Core agent lifecycle management. Defines agent identities, sessions, souls, skills, memory, teams, cron jobs, and capability requests.
+
+## Entity Types
+
+### Agent
+Persistent agent identity (team member). Sessions are spawned from agents.
+
+- **States**: Created -> Active -> Archived
+- **Key actions**: `Configure` (name, role, soul_id, team_id, model, tools), `Update`, `Archive`
+
+### Session
+Ephemeral agent run. Created per task, transitions through execution phases.
+
+- **States**: Created -> Configuring -> Running -> Complete/Failed/TimedOut
+- **Key actions**: `Configure`, `Start`, `Heartbeat`, `Complete`, `Fail`, `TimeoutFail`
+- **WASM**: `sandbox_provisioner` provisions compute on session start
+
+### Soul
+Agent personality — identity and communication style. Optional; task agents skip this.
+
+- **States**: Created -> Published -> Archived
+- **Key actions**: `Publish` (with content_file_id), `Archive`
+
+### Skill
+Reusable knowledge injected into agent prompts. Scoped by agent/soul name.
+
+- **States**: Created -> Published -> Archived
+- **Key actions**: `Publish` (content, scope, skill_type), `Archive`
+
+### Memory
+Cross-session persistent knowledge, scoped to an agent_id.
+
+- **States**: Active -> Archived
+- **Key actions**: `Save` (key, content, memory_type, agent_id), `Update`, `Recall`, `Archive`
+
+### Team
+Group of agents working together.
+
+- **States**: Active -> Archived
+- **Key actions**: `Configure`, `AddMember`, `RemoveMember`, `Archive`
+
+### CronJob
+Scheduled agent runs using cron expressions. Self-scheduling via `schedule_at` effects.
+
+- **States**: Created -> Active <-> Paused -> Expired
+- **Key actions**: `Configure`, `Activate`, `Trigger` (auto-spawns Session), `Pause`, `Resume`
+- **WASM**: `cron_compute_next` parses cron schedule and substitutes message templates
+
+### HeartbeatMonitor
+Periodic scanner for stale sessions. One per tenant, self-scheduling.
+
+- **States**: Idle <-> Scanning
+- **Key actions**: `Start`, `ScanComplete`, `ScheduledScan`
+- **WASM**: `heartbeat_scan`, `heartbeat_scheduler`
+
+### CapabilityRequest
+Cedar-governed agent self-provisioning. Agents request capabilities; Cedar policies auto-approve or require human approval.
+
+- **States**: Requested -> Installing -> Installed / Rejected / Failed
+- **Key actions**: `Approve`, `Reject`, `InstallComplete`
+- **WASM**: `capability_installer`
+
+### Plan
+Plan entity with review workflow. Worker creates, lead reviews, human escalation optional.
+
+- **States**: Draft -> UnderReview -> Active -> Completed/Failed (+ Escalated, Paused)
+- **Key actions**: `SubmitForReview`, `Approve`, `RequestChanges`, `Escalate`, `AddTask`, `Complete`
+
+## Setup
+
+Depends on `paw-fs` for file storage (soul content, agent instructions). Install with `temper.install_app("tenant", "paw-agent")`.
