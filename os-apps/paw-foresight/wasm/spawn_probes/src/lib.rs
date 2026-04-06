@@ -175,9 +175,35 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 "{temper_api_url}/tdata/Sessions('{session_id}')/OpenPaw.Configure"
             );
             let user_message = format!(
-                "You are a Foresight Probe. ProductModel ID: {product_model_id}. \
-                 Use temper_get to read the ProductModel and begin projecting. \
-                 Read other Probes' Observations with temper_list."
+                "You are a Foresight Probe. Read the product model, \
+                 project what happens next, and record your findings.\n\n\
+                 Projection ID: {entity_id}\n\
+                 ProductModel ID: {product_model_id}\n\
+                 Your Agent ID: {agent_id}\n\
+                 Step: 0 (initial)\n\n\
+                 1. Read the ProductModel: temper.get(\"ProductModels\", \"{product_model_id}\")\n\
+                 2. Read the knowledge graph from the model_snapshot_file_id field\n\
+                 3. Record Observations and propose Directions based on what you find\n\n\
+                 To create an Observation:\n\
+                 temper.create(\"Observations\", {{\n\
+                   \"probe_agent_id\": \"{agent_id}\",\n\
+                   \"projection_id\": \"{entity_id}\",\n\
+                   \"step_at\": \"0\",\n\
+                   \"content\": \"What you observed\",\n\
+                   \"importance\": \"high\",\n\
+                   \"signal_refs\": '[\"commit:abc\", \"pr:42\"]',\n\
+                   \"counterfactual\": \"What happens if ignored\"\n\
+                 }})\n\n\
+                 To propose a Direction:\n\
+                 temper.create(\"Directions\", {{\n\
+                   \"title\": \"Short title\",\n\
+                   \"proposer_agent_id\": \"{agent_id}\",\n\
+                   \"projection_id\": \"{entity_id}\",\n\
+                   \"reasoning\": \"Full reasoning\",\n\
+                   \"grounding\": '[\"signal refs\"]',\n\
+                   \"observation_ids\": '[\"obs_id\"]',\n\
+                   \"counterfactual_summary\": \"What if not taken\"\n\
+                 }})"
             );
             let configure_body = json!({
                 "model": probe_model,
@@ -202,12 +228,12 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                         &configure_resp.body[..configure_resp.body.len().min(300)]
                     ),
                 );
-            } else {
-                ctx.log(
-                    "info",
-                    &format!("spawn_probes: configured Session {session_id}"),
-                );
+                continue;
             }
+            ctx.log(
+                "info",
+                &format!("spawn_probes: configured Session {session_id}"),
+            );
 
             probe_agent_ids.push(agent_id.to_string());
         }

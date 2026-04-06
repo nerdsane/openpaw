@@ -127,46 +127,37 @@
       <!-- Work Cycle Flow -->
       <div class="flow">
         <span class="flow-title">WORK CYCLE FLOW</span>
-        <div class="flow-pipeline">
-          <div class="flow-stage">
-            <span class="flow-node">PLANNING</span>
-          </div>
-          <span class="flow-connector">→</span>
-          <div class="flow-stage">
-            <span class="flow-node">PLANNED</span>
-          </div>
-          <span class="flow-connector">→</span>
-          <div class="flow-stage">
-            <span class="flow-node">IN PROGRESS</span>
-          </div>
-          <span class="flow-connector">→</span>
-          <div class="flow-gate-group">
-            <span class="flow-gate-label">L1 GATES</span>
-            <div class="flow-gates">
-              <span class="flow-gate">MIGRATIONS</span>
-              <span class="flow-gate">TYPECHECK</span>
-              <span class="flow-gate">UNIT TESTS</span>
+        <div class="flow-diagram">
+          <!-- Row 1: States -->
+          <div class="flow-row">
+            <div class="flow-cell"><span class="flow-node">PLANNING</span></div>
+            <div class="flow-arrow">→</div>
+            <div class="flow-cell"><span class="flow-node">PLANNED</span></div>
+            <div class="flow-arrow">→</div>
+            <div class="flow-cell"><span class="flow-node">IN PROGRESS</span></div>
+            <div class="flow-arrow">→</div>
+            <div class="flow-cell flow-cell--gate">
+              <span class="flow-gate-label">L1 GATES</span>
+              <div class="flow-gate-list">
+                <span class="flow-gate">MIGRATIONS</span>
+                <span class="flow-gate">TYPECHECK</span>
+                <span class="flow-gate">UNIT TESTS</span>
+              </div>
             </div>
-          </div>
-          <span class="flow-connector">→</span>
-          <div class="flow-stage">
-            <span class="flow-node">TESTING</span>
-          </div>
-          <span class="flow-connector">→</span>
-          <div class="flow-gate-group">
-            <span class="flow-gate-label">L2 GATES</span>
-            <div class="flow-gates">
-              <span class="flow-gate">DST</span>
-              <span class="flow-gate">POLICY</span>
+            <div class="flow-arrow">→</div>
+            <div class="flow-cell"><span class="flow-node">TESTING</span></div>
+            <div class="flow-arrow">→</div>
+            <div class="flow-cell flow-cell--gate">
+              <span class="flow-gate-label">L2 GATES</span>
+              <div class="flow-gate-list">
+                <span class="flow-gate">DST</span>
+                <span class="flow-gate">POLICY</span>
+              </div>
             </div>
-          </div>
-          <span class="flow-connector">→</span>
-          <div class="flow-stage">
-            <span class="flow-node">REVIEWING</span>
-          </div>
-          <span class="flow-connector">→</span>
-          <div class="flow-stage">
-            <span class="flow-node flow-node--final">COMPLETE</span>
+            <div class="flow-arrow">→</div>
+            <div class="flow-cell"><span class="flow-node">REVIEWING</span></div>
+            <div class="flow-arrow">→</div>
+            <div class="flow-cell"><span class="flow-node flow-node--final">COMPLETE</span></div>
           </div>
         </div>
       </div>
@@ -413,56 +404,147 @@
 
   /* Work Cycle Flow Diagram */
   .flow {
-    display: flex; flex-direction: column; gap: var(--space-sm);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
     margin-top: var(--space-md);
   }
+
   .flow-title {
-    font-family: var(--font-mono); font-size: var(--label);
-    letter-spacing: 0.08em; color: var(--terminal-dim);
+    font-family: var(--font-mono);
+    font-size: var(--label);
+    letter-spacing: 0.08em;
+    color: var(--terminal-dim);
   }
-  .flow-pipeline {
-    display: flex; align-items: center; gap: 0;
-    padding: var(--space-lg);
-    background: var(--black); border: 1px solid var(--terminal-border);
-    border-radius: var(--radius-md); overflow-x: auto;
-    min-width: max-content;
+
+  .flow-diagram {
+    background: var(--black);
+    border: 1px solid var(--terminal-border);
+    border-radius: var(--radius-md);
+    padding: var(--space-xl) var(--space-lg);
+    overflow-x: auto;
   }
-  .flow-stage { flex-shrink: 0; }
-  .flow-node {
-    display: inline-block;
-    font-family: var(--font-mono); font-size: var(--label); letter-spacing: 0.06em;
-    padding: 8px 16px; border-radius: var(--radius-sm);
-    background: var(--terminal-bg); border: 1px solid var(--terminal-border);
-    color: var(--text-primary); white-space: nowrap;
+
+  .flow-row {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    min-width: min-content;
   }
-  .flow-node--final {
-    background: var(--accent); color: #000; border-color: var(--accent); font-weight: 700;
-  }
-  .flow-connector {
-    font-family: var(--font-mono); font-size: var(--body);
-    color: var(--terminal-dim); padding: 0 var(--space-sm); flex-shrink: 0;
-  }
-  .flow-gate-group {
-    display: flex; flex-direction: column; align-items: center; gap: var(--space-xs);
-    padding: var(--space-sm) var(--space-md);
-    border: 1px dashed var(--terminal-dim); border-radius: var(--radius-sm);
+
+  .flow-cell {
+    display: flex;
+    align-items: center;
+    justify-content: center;
     flex-shrink: 0;
   }
-  .flow-gate-label {
-    font-family: var(--font-mono); font-size: var(--label);
-    letter-spacing: 0.08em; color: var(--terminal-dim);
+
+  .flow-cell--gate {
+    flex-direction: column;
+    gap: var(--space-xs);
+    padding: var(--space-sm) var(--space-md);
+    border: 1px dashed var(--border-visible);
+    border-radius: var(--radius-sm);
   }
-  .flow-gates { display: flex; gap: var(--space-xs); }
-  .flow-gate {
-    font-family: var(--font-mono); font-size: var(--label); letter-spacing: 0.04em;
-    padding: 3px 10px; background: var(--terminal-bg);
+
+  .flow-arrow {
+    font-family: var(--font-mono);
+    font-size: var(--body-sm);
+    color: var(--terminal-dim);
+    padding: 0 var(--space-sm);
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+  }
+
+  .flow-node {
+    font-family: var(--font-mono);
+    font-size: var(--label);
+    letter-spacing: 0.06em;
+    padding: 10px 18px;
+    border-radius: var(--radius-sm);
+    background: var(--terminal-bg);
     border: 1px solid var(--terminal-border);
-    color: var(--text-secondary); border-radius: var(--radius-sm);
+    color: var(--text-primary);
+    white-space: nowrap;
+    text-align: center;
+  }
+
+  .flow-node--final {
+    background: var(--accent);
+    color: #000;
+    border-color: var(--accent);
+    font-weight: 700;
+  }
+
+  .flow-gate-label {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    letter-spacing: 0.1em;
+    color: var(--terminal-dim);
+    text-align: center;
+  }
+
+  .flow-gate-list {
+    display: flex;
+    gap: var(--space-xs);
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .flow-gate {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    letter-spacing: 0.04em;
+    padding: 3px 8px;
+    background: var(--terminal-bg);
+    border: 1px solid var(--terminal-border);
+    color: var(--text-secondary);
+    border-radius: var(--radius-sm);
+    white-space: nowrap;
+  }
+
+  /* Responsive: stack vertically on small screens */
+  @media (max-width: 900px) {
+    .flow-row {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 0;
+    }
+
+    .flow-cell {
+      width: 100%;
+    }
+
+    .flow-cell--gate {
+      margin: 0;
+    }
+
+    .flow-node {
+      width: 100%;
+      text-align: center;
+    }
+
+    .flow-arrow {
+      justify-content: center;
+      padding: var(--space-xs) 0;
+    }
+
+    .flow-arrow::after {
+      content: '↓';
+    }
+
+    /* Hide the → text, show ↓ via ::after */
+    .flow-arrow {
+      font-size: 0;
+    }
+
+    .flow-arrow::after {
+      font-size: var(--body-sm);
+    }
   }
 
   @media (max-width: 800px) {
     .card-grid { grid-template-columns: 1fr; }
-    .flow-pipeline { flex-direction: column; align-items: flex-start; min-width: 0; }
-    .flow-connector { transform: rotate(90deg); padding: var(--space-xs) 0; }
   }
 </style>

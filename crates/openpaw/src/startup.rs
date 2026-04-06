@@ -36,6 +36,8 @@ const PAW_OS_APPS: &[&str] = &[
     "paw-ingest",
     "paw-research",
     "paw-foresight",
+    // Deep Sci-Fi reference apps (registered via add_os_apps_dir)
+    "dsf-harness",
 ];
 
 /// Run the Open Paw daemon.
@@ -328,6 +330,18 @@ pub async fn run(config: Config) -> Result<()> {
             }
             Err(e) => tracing::error!("  Failed to install {app_name}: {e}"),
         }
+    }
+
+    // Safety net: commit all specs for the tenant.
+    // install_os_app() calls commit_specs() internally, but if a previous daemon
+    // run crashed between upsert (committed=0) and commit (committed=1), specs
+    // would be left uncommitted and deleted on the NEXT restart by
+    // delete_uncommitted_specs(). This explicit commit ensures all OS app specs
+    // are durable before we proceed to entity hydration.
+    if let Err(e) = turso_store.commit_specs(&tenant).await {
+        tracing::error!("Failed to commit specs after OS app install: {e}");
+    } else {
+        tracing::info!("Specs committed for tenant {tenant}");
     }
 
     if let Err(error) = build_and_register_local_wasm_modules(&state, &tenant, &os_apps_dir).await {

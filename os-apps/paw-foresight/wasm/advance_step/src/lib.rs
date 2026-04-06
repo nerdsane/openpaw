@@ -276,7 +276,8 @@ fn respawn_probe(
         "soul_id": "Probe",
         "tools_enabled": "temper_get,temper_list,temper_action,temper_create",
         "max_turns": "50",
-        "user_message": user_message
+        "user_message": user_message,
+        "temper_api_url": temper_api_url
     });
     let configure_resp = ctx.http_call(
         "POST",

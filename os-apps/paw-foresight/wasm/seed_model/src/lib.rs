@@ -153,6 +153,58 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         // Compute change hotspots from commits (files changed most frequently)
         let change_hotspots = compute_change_hotspots(&commits);
 
+        // Query codebase structure: top-level directory, key subdirs, languages
+        let root_contents_url = format!(
+            "https://api.github.com/repos/{owner}/{repo}/contents/"
+        );
+        let root_contents_resp = ctx.http_call("GET", &root_contents_url, &gh_headers, "")?;
+        let root_contents: Value = if root_contents_resp.status >= 200 && root_contents_resp.status < 300 {
+            let raw: Value = serde_json::from_str(&root_contents_resp.body).unwrap_or(json!([]));
+            summarize_directory_listing(&raw)
+        } else {
+            ctx.log(
+                "warn",
+                &format!(
+                    "seed_model: failed to fetch root contents (HTTP {})",
+                    root_contents_resp.status
+                ),
+            );
+            json!([])
+        };
+
+        // Try key subdirectories: src, platform, crates, packages
+        let subdir_names = ["src", "platform", "crates", "packages", "lib", "apps"];
+        let mut subdirectories = json!({});
+        for subdir in &subdir_names {
+            let subdir_url = format!(
+                "https://api.github.com/repos/{owner}/{repo}/contents/{subdir}"
+            );
+            let subdir_resp = ctx.http_call("GET", &subdir_url, &gh_headers, "")?;
+            if subdir_resp.status >= 200 && subdir_resp.status < 300 {
+                let raw: Value = serde_json::from_str(&subdir_resp.body).unwrap_or(json!([]));
+                subdirectories[*subdir] = summarize_directory_listing(&raw);
+            }
+            // Silently skip 404s — the subdir may not exist
+        }
+
+        // GET /repos/{owner}/{repo}/languages
+        let languages_url = format!(
+            "https://api.github.com/repos/{owner}/{repo}/languages"
+        );
+        let languages_resp = ctx.http_call("GET", &languages_url, &gh_headers, "")?;
+        let languages: Value = if languages_resp.status >= 200 && languages_resp.status < 300 {
+            serde_json::from_str(&languages_resp.body).unwrap_or(json!({}))
+        } else {
+            ctx.log(
+                "warn",
+                &format!(
+                    "seed_model: failed to fetch languages (HTTP {})",
+                    languages_resp.status
+                ),
+            );
+            json!({})
+        };
+
         ctx.log("info", "seed_model: GitHub signals collected");
 
         // 4. Query Datadog API
@@ -235,6 +287,11 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 "url": repo_url,
                 "tech_stack": tech_stack,
                 "default_branch": default_branch
+            },
+            "codebase": {
+                "directories": root_contents,
+                "subdirectories": subdirectories,
+                "languages": languages
             },
             "modules": extract_modules(&signal_source_config),
             "dependencies": extract_dependencies(&signal_source_config),
@@ -593,6 +650,22 @@ fn count_signals(
     let event_count = event_list.as_array().map(|a| a.len()).unwrap_or(0);
     let alert_count = alert_cycles.as_array().map(|a| a.len()).unwrap_or(0);
     pr_count + issue_count + commit_count + monitor_count + event_count + alert_count
+}
+
+/// Summarize a GitHub Contents API directory listing into compact form.
+fn summarize_directory_listing(contents: &Value) -> Value {
+    let items = contents.as_array().map(|arr| {
+        arr.iter()
+            .map(|entry| {
+                json!({
+                    "name": entry.get("name"),
+                    "type": entry.get("type"),
+                    "size": entry.get("size")
+                })
+            })
+            .collect::<Vec<_>>()
+    });
+    json!(items.unwrap_or_default())
 }
 
 /// Get timestamp from trigger params or entity state, falling back to "now".
