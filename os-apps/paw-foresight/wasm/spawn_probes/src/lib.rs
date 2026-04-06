@@ -87,6 +87,34 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             "unknown".to_string()
         };
 
+        // 2c. Read the knowledge graph file content so we can include it in the prompt
+        //     (Probes can't read TemperFS files via read_entity in the sandbox)
+        let knowledge_graph = if pm_resp.status >= 200 && pm_resp.status < 300 {
+            let pm: Value = serde_json::from_str(&pm_resp.body).unwrap_or(json!({}));
+            let file_id = pm
+                .get("fields")
+                .and_then(|f| f.get("model_snapshot_file_id"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            if !file_id.is_empty() {
+                let file_url = format!("{temper_api_url}/tdata/Files('{file_id}')/$value");
+                match ctx.http_call("GET", &file_url, &headers, "") {
+                    Ok(resp) if resp.status >= 200 && resp.status < 300 => {
+                        ctx.log("info", &format!("spawn_probes: loaded knowledge graph ({} bytes)", resp.body.len()));
+                        resp.body
+                    }
+                    _ => {
+                        ctx.log("warn", "spawn_probes: could not read knowledge graph file");
+                        String::new()
+                    }
+                }
+            } else {
+                String::new()
+            }
+        } else {
+            String::new()
+        };
+
         ctx.log(
             "info",
             &format!(
@@ -174,37 +202,44 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             let configure_url = format!(
                 "{temper_api_url}/tdata/Sessions('{session_id}')/OpenPaw.Configure"
             );
+            // Truncate knowledge graph if too large for a user message
+            let kg_for_prompt = if knowledge_graph.len() > 40000 {
+                format!("{}... (truncated)", &knowledge_graph[..40000])
+            } else {
+                knowledge_graph.clone()
+            };
+
             let user_message = format!(
-                "You are a Foresight Probe. Read the product model, \
-                 project what happens next, and record your findings.\n\n\
+                "You are {probe_name}, a Foresight Probe. Analyze this product and project its future.\n\n\
                  Projection ID: {entity_id}\n\
                  ProductModel ID: {product_model_id}\n\
                  Your Agent ID: {agent_id}\n\
                  Step: 0 (initial)\n\n\
-                 1. Read the ProductModel: temper.get(\"ProductModels\", \"{product_model_id}\")\n\
-                 2. Read the knowledge graph from the model_snapshot_file_id field\n\
-                 3. Record Observations and propose Directions based on what you find\n\n\
+                 Here is the ProductModel knowledge graph (real signals from the codebase):\n\n\
+                 {kg_for_prompt}\n\n\
+                 IMPORTANT: Work INDEPENDENTLY. Do NOT read other Probes' Observations.\n\
+                 Analyze the knowledge graph above. Create 3-5 Observations and 1-2 Directions.\n\n\
                  CRITICAL: Use EXACTLY these field names. The API silently drops unknown fields.\n\n\
                  temper.create(\"Observations\", {{\n\
-                   \"content\": \"What you observed — THIS FIELD IS REQUIRED\",\n\
+                   \"content\": \"What you observed and why it matters\",\n\
                    \"importance\": \"high\",\n\
                    \"signal_refs\": '[\"commit:abc\", \"pr:42\"]',\n\
-                   \"counterfactual\": \"What happens if ignored\",\n\
+                   \"counterfactual\": \"What happens if this is ignored\",\n\
                    \"probe_agent_id\": \"{agent_id}\",\n\
                    \"projection_id\": \"{entity_id}\",\n\
                    \"step_at\": \"0\"\n\
                  }})\n\n\
                  temper.create(\"Directions\", {{\n\
-                   \"title\": \"Short title\",\n\
-                   \"reasoning\": \"Full reasoning — THIS FIELD IS REQUIRED\",\n\
-                   \"grounding\": '[\"signal refs\"]',\n\
+                   \"title\": \"Short title for the direction\",\n\
+                   \"reasoning\": \"Full reasoning about why this direction matters\",\n\
+                   \"grounding\": '[\"signal refs from the knowledge graph\"]',\n\
                    \"observation_ids\": '[\"obs_id\"]',\n\
-                   \"counterfactual_summary\": \"What if not taken\",\n\
+                   \"counterfactual_summary\": \"What happens if NOT taken\",\n\
                    \"proposer_agent_id\": \"{agent_id}\",\n\
                    \"projection_id\": \"{entity_id}\"\n\
                  }})\n\n\
-                 DO NOT use 'body', 'title' only, 'description', or 'confidence'. \
-                 The only valid fields are listed above."
+                 DO NOT use 'body', 'description', or 'confidence' as field names.\n\
+                 When done, call temper.done(\"complete\")."
             );
             let configure_body = json!({
                 "model": probe_model,

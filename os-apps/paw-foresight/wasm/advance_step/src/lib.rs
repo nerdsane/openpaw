@@ -204,7 +204,77 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             }
         }
 
-        // 4-5. Check completion
+        // 4. Convergence analysis — read Observations from previous step,
+        //    find overlapping signal_refs from different Probes, dispatch Confirm
+        if current_step > 0 {
+            let prev_step = current_step - 1;
+            let obs_url = format!(
+                "{temper_api_url}/tdata/Observations?$filter=projection_id eq '{entity_id}'"
+            );
+            if let Ok(obs_resp) = ctx.http_call("GET", &obs_url, &headers, "") {
+                if obs_resp.status >= 200 && obs_resp.status < 300 {
+                    let obs_body: Value = serde_json::from_str(&obs_resp.body).unwrap_or(json!({}));
+                    let observations = obs_body.get("value").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+
+                    // Group observations by signal_refs content to find convergence
+                    let mut signal_to_obs: std::collections::BTreeMap<String, Vec<(String, String)>> = std::collections::BTreeMap::new();
+                    for obs in &observations {
+                        let obs_id = obs.get("entity_id").and_then(|v| v.as_str()).unwrap_or("");
+                        let fields = obs.get("fields").cloned().unwrap_or(json!({}));
+                        let probe_id = fields.get("probe_agent_id").and_then(|v| v.as_str()).unwrap_or("");
+                        let status = obs.get("status").and_then(|v| v.as_str()).unwrap_or("");
+                        let signal_refs = fields.get("signal_refs").and_then(|v| v.as_str()).unwrap_or("");
+
+                        // Only process Created (not already Confirmed) observations
+                        if status != "Created" || signal_refs.is_empty() || probe_id.is_empty() {
+                            continue;
+                        }
+
+                        // Parse signal_refs and add each signal to the map
+                        if let Ok(refs) = serde_json::from_str::<Vec<String>>(signal_refs) {
+                            for sig in &refs {
+                                signal_to_obs.entry(sig.clone()).or_default().push((obs_id.to_string(), probe_id.to_string()));
+                            }
+                        }
+                    }
+
+                    // For each signal referenced by 2+ different Probes, confirm one observation
+                    let mut confirmed: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+                    for (_signal, obs_list) in &signal_to_obs {
+                        if obs_list.len() < 2 { continue; }
+                        // Get unique probe IDs
+                        let unique_probes: std::collections::BTreeSet<&str> = obs_list.iter().map(|(_, p)| p.as_str()).collect();
+                        if unique_probes.len() < 2 { continue; }
+
+                        // Confirm the first observation using a different probe
+                        let (first_obs_id, first_probe) = &obs_list[0];
+                        if confirmed.contains(first_obs_id) { continue; }
+                        let confirmer = obs_list.iter().find(|(_, p)| p != first_probe).map(|(_, p)| p.clone());
+                        if let Some(confirmer_id) = confirmer {
+                            let confirm_url = format!(
+                                "{temper_api_url}/tdata/Observations('{first_obs_id}')/OpenPaw.Foresight.Confirm"
+                            );
+                            let confirm_body = json!({
+                                "confirmer_agent_id": confirmer_id,
+                                "confirmation_note": format!("Convergence: signal referenced by {} independent probes", unique_probes.len())
+                            });
+                            if let Ok(resp) = ctx.http_call("POST", &confirm_url, &headers, &confirm_body.to_string()) {
+                                if resp.status >= 200 && resp.status < 300 {
+                                    ctx.log("info", &format!("advance_step: confirmed Observation {first_obs_id} (convergence from {} probes)", unique_probes.len()));
+                                    confirmed.insert(first_obs_id.clone());
+                                }
+                            }
+                        }
+                    }
+
+                    if !confirmed.is_empty() {
+                        ctx.log("info", &format!("advance_step: convergence analysis confirmed {} observations", confirmed.len()));
+                    }
+                }
+            }
+        }
+
+        // 5. Check completion
         if current_step >= max_steps {
             ctx.log(
                 "info",

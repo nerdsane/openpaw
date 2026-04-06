@@ -685,18 +685,24 @@ fn summarize_directory_listing(contents: &Value) -> Value {
 fn get_timestamp(ctx: &Context) -> String {
     // Try trigger params first (set by the caller/script)
     if let Some(ts) = ctx.trigger_params.get("last_signal_refresh").and_then(|v| v.as_str()) {
-        if !ts.is_empty() {
+        if !ts.is_empty() && ts != "pending" {
             return ts.to_string();
         }
     }
-    // Fall back to existing entity state
-    if let Some(fields) = ctx.entity_state.get("fields") {
-        if let Some(ts) = fields.get("last_signal_refresh").and_then(|v| v.as_str()) {
-            if !ts.is_empty() {
+    // WASM has no clock. Use the entity's event history to derive a timestamp.
+    // The most recent event timestamp tells us when this WASM was triggered.
+    if let Some(events) = ctx.entity_state.get("events").and_then(|v| v.as_array()) {
+        if let Some(last) = events.last() {
+            if let Some(ts) = last.get("timestamp").and_then(|v| v.as_str()) {
                 return ts.to_string();
             }
         }
     }
-    // Last resort — the platform will update this on next action dispatch
-    "pending".to_string()
+    // Fallback: use signal_count as a version marker
+    let signal_count = ctx.entity_state
+        .get("fields")
+        .and_then(|f| f.get("signal_count"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("0");
+    format!("refresh-v{signal_count}")
 }
