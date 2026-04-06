@@ -184,26 +184,27 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                  1. Read the ProductModel: temper.get(\"ProductModels\", \"{product_model_id}\")\n\
                  2. Read the knowledge graph from the model_snapshot_file_id field\n\
                  3. Record Observations and propose Directions based on what you find\n\n\
-                 To create an Observation:\n\
+                 CRITICAL: Use EXACTLY these field names. The API silently drops unknown fields.\n\n\
                  temper.create(\"Observations\", {{\n\
-                   \"probe_agent_id\": \"{agent_id}\",\n\
-                   \"projection_id\": \"{entity_id}\",\n\
-                   \"step_at\": \"0\",\n\
-                   \"content\": \"What you observed\",\n\
+                   \"content\": \"What you observed — THIS FIELD IS REQUIRED\",\n\
                    \"importance\": \"high\",\n\
                    \"signal_refs\": '[\"commit:abc\", \"pr:42\"]',\n\
-                   \"counterfactual\": \"What happens if ignored\"\n\
+                   \"counterfactual\": \"What happens if ignored\",\n\
+                   \"probe_agent_id\": \"{agent_id}\",\n\
+                   \"projection_id\": \"{entity_id}\",\n\
+                   \"step_at\": \"0\"\n\
                  }})\n\n\
-                 To propose a Direction:\n\
                  temper.create(\"Directions\", {{\n\
                    \"title\": \"Short title\",\n\
-                   \"proposer_agent_id\": \"{agent_id}\",\n\
-                   \"projection_id\": \"{entity_id}\",\n\
-                   \"reasoning\": \"Full reasoning\",\n\
+                   \"reasoning\": \"Full reasoning — THIS FIELD IS REQUIRED\",\n\
                    \"grounding\": '[\"signal refs\"]',\n\
                    \"observation_ids\": '[\"obs_id\"]',\n\
-                   \"counterfactual_summary\": \"What if not taken\"\n\
-                 }})"
+                   \"counterfactual_summary\": \"What if not taken\",\n\
+                   \"proposer_agent_id\": \"{agent_id}\",\n\
+                   \"projection_id\": \"{entity_id}\"\n\
+                 }})\n\n\
+                 DO NOT use 'body', 'title' only, 'description', or 'confidence'. \
+                 The only valid fields are listed above."
             );
             let configure_body = json!({
                 "model": probe_model,
