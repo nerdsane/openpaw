@@ -1,5 +1,12 @@
 // TemperFS File Authorization Policies
 
+// Any authenticated principal can read/list files
+permit(
+    principal,
+    action in [Action::"read", Action::"list"],
+    resource is File
+);
+
 // Agents can create, update, lock, and unlock files in their own workspace
 permit(
     principal is Agent,

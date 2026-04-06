@@ -208,7 +208,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             let configure_body = json!({
                 "model": probe_model,
                 "soul_id": "Probe",
-                "tools_enabled": "temper_get,temper_list,temper_action,temper_create",
+                "tools_enabled": "temper_get,temper_list,temper_action,temper_create,read_entity",
                 "max_turns": "50",
                 "user_message": user_message
             });

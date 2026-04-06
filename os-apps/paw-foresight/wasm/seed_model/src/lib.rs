@@ -386,14 +386,25 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             &format!("seed_model: knowledge graph written to file {file_id}"),
         );
 
-        // 8. Dispatch SeedComplete action via OData API
+        // 8. Dispatch callback: SeedComplete (from Seeding) or RefreshComplete (from Active)
         let entity_id = ctx
             .entity_state
             .get("entity_id")
             .and_then(|v| v.as_str())
             .unwrap_or("unknown");
+        let current_status = ctx
+            .entity_state
+            .get("status")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let callback_action = if current_status == "Active" {
+            "RefreshComplete"
+        } else {
+            "SeedComplete"
+        };
+        ctx.log("info", &format!("seed_model: dispatching {callback_action} (status={current_status})"));
         let seed_complete_url = format!(
-            "{temper_api_url}/tdata/ProductModels('{entity_id}')/OpenPaw.Foresight.SeedComplete"
+            "{temper_api_url}/tdata/ProductModels('{entity_id}')/OpenPaw.Foresight.{callback_action}"
         );
         let seed_complete_body = json!({
             "model_snapshot_file_id": file_id,
@@ -414,12 +425,12 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             &seed_complete_body.to_string(),
         )?;
         if resp.status >= 200 && resp.status < 300 {
-            ctx.log("info", "seed_model: SeedComplete dispatched");
+            ctx.log("info", &format!("seed_model: {callback_action} dispatched"));
         } else {
             ctx.log(
                 "warn",
                 &format!(
-                    "seed_model: SeedComplete dispatch failed ({}): {}",
+                    "seed_model: {callback_action} dispatch failed ({}): {}",
                     resp.status, resp.body
                 ),
             );
