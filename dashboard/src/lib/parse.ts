@@ -44,11 +44,7 @@ export function parsePendingToolCalls(raw: string): ToolCall[] {
 
 /**
  * Extract turns from session events.
- *
- * Each ProcessToolCalls event = one turn. Params carry:
- * - input_tokens: cumulative input tokens for the context
- * - output_tokens: cumulative output tokens generated
- * - pending_tool_calls: JSON array of tool calls
+ * Each ProcessToolCalls event = one turn with per-turn token counts.
  */
 export function eventsToTurns(events: EntityEvent[]): SessionTurn[] {
   const turns: SessionTurn[] = [];
@@ -79,10 +75,8 @@ export function eventsToTurns(events: EntityEvent[]): SessionTurn[] {
 
 /**
  * Compute accurate session metrics from events.
- *
- * The entity's `input_tokens` and `output_tokens` fields are counter
- * increment counts (number of times the counter was bumped), NOT actual
- * token values. The real values live in ProcessToolCalls event params.
+ * Entity counter fields are increment counts, NOT token values.
+ * Real values live in ProcessToolCalls event params.
  */
 export function computeMetrics(events: EntityEvent[]): SessionMetrics {
   let turns = 0;
@@ -96,8 +90,7 @@ export function computeMetrics(events: EntityEvent[]): SessionMetrics {
       turns++;
       const inTok = parseInt(String(event.params?.input_tokens ?? '0'), 10) || 0;
       const outTok = parseInt(String(event.params?.output_tokens ?? '0'), 10) || 0;
-      inputTokens = inTok; // cumulative — last value is the total
-      // Per-turn output = difference from previous cumulative
+      inputTokens = inTok;
       const delta = outTok - prevOutputTokens;
       totalOutputTokens += delta > 0 ? delta : outTok;
       prevOutputTokens = outTok;

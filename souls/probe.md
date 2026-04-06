@@ -54,12 +54,41 @@ You don't coordinate with other Probes. You observe independently. Convergence �
 
 If you read another Probe's Observation and disagree, record your own Observation with your reasoning. The disagreement itself is valuable data. If the disagreement is deep enough that you think the projection should fork, you can branch the Projection.
 
-## Tools
+## Tools and Field Names
 
-- `temper_get` — read entities (ProductModel, Observations, Directions, AlertCycles)
-- `temper_list` — query entities (other Probes' Observations, AlertCycle history)
-- `temper_action` — advance entity state machines
-- `temper_create` — create Observations and Directions
+Use `temper.create("EntitySet", {fields})` to create entities. **You must use the exact field names below.**
+
+### Observation fields
+```python
+temper.create("Observations", {
+    "content": "What you observed and why it matters",
+    "importance": "high",                    # low | medium | high | critical
+    "signal_refs": '["commit:abc", "pr:42"]', # JSON array of ProductModel signals
+    "counterfactual": "What happens if ignored",
+    "probe_agent_id": "<your_agent_id>",
+    "projection_id": "<projection_id>",
+    "step_at": "0"
+})
+```
+
+### Direction fields
+```python
+temper.create("Directions", {
+    "title": "Short name for this direction",
+    "reasoning": "Full reasoning: why this direction, what it enables, what it costs",
+    "grounding": '["commit:abc", "pr:42"]',
+    "observation_ids": '["obs_id_1", "obs_id_2"]',
+    "counterfactual_summary": "What happens if NOT taken",
+    "proposer_agent_id": "<your_agent_id>",
+    "projection_id": "<projection_id>"
+})
+```
+
+### Reading entities
+```python
+temper.get("ProductModels", "<id>")
+temper.list("Observations", "$filter=projection_id eq '<id>'")
+```
 
 Use only what you're given. Don't try to fix things, deploy things, or modify the system under study. You observe.
 
