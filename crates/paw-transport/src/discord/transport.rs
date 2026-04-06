@@ -400,8 +400,8 @@ impl DiscordTransport {
     /// - POST /reply — receives reply callbacks from send_reply/request_approval WASM
     /// - POST /interaction — receives Discord button click interactions
     async fn spawn_webhook_listener(&self) -> Result<u16, String> {
-        use axum::{Router, extract::State, routing::post};
         use super::types::*;
+        use axum::{Router, extract::State, routing::post};
 
         #[derive(Clone)]
         struct WebhookState {
@@ -540,34 +540,46 @@ impl DiscordTransport {
 
             // Type 3 = MESSAGE_COMPONENT (button click)
             if payload.interaction_type != 3 {
-                return (axum::http::StatusCode::OK, axum::Json(serde_json::json!({
-                    "type": 4,
-                    "data": { "content": "Unsupported interaction type.", "flags": 64 }
-                })));
+                return (
+                    axum::http::StatusCode::OK,
+                    axum::Json(serde_json::json!({
+                        "type": 4,
+                        "data": { "content": "Unsupported interaction type.", "flags": 64 }
+                    })),
+                );
             }
 
             let Some(ref data) = payload.data else {
-                return (axum::http::StatusCode::OK, axum::Json(serde_json::json!({
-                    "type": 4,
-                    "data": { "content": "No interaction data.", "flags": 64 }
-                })));
+                return (
+                    axum::http::StatusCode::OK,
+                    axum::Json(serde_json::json!({
+                        "type": 4,
+                        "data": { "content": "No interaction data.", "flags": 64 }
+                    })),
+                );
             };
 
             let custom_id = &data.custom_id;
             let parts: Vec<&str> = custom_id.splitn(2, ':').collect();
             if parts.len() != 2 {
-                return (axum::http::StatusCode::OK, axum::Json(serde_json::json!({
-                    "type": 4,
-                    "data": { "content": "Invalid button ID.", "flags": 64 }
-                })));
+                return (
+                    axum::http::StatusCode::OK,
+                    axum::Json(serde_json::json!({
+                        "type": 4,
+                        "data": { "content": "Invalid button ID.", "flags": 64 }
+                    })),
+                );
             }
 
             let (action, decision_id) = (parts[0], parts[1]);
             if action != "approve" && action != "deny" {
-                return (axum::http::StatusCode::OK, axum::Json(serde_json::json!({
-                    "type": 4,
-                    "data": { "content": "Unknown action.", "flags": 64 }
-                })));
+                return (
+                    axum::http::StatusCode::OK,
+                    axum::Json(serde_json::json!({
+                        "type": 4,
+                        "data": { "content": "Unknown action.", "flags": 64 }
+                    })),
+                );
             }
 
             // Extract reviewer info
@@ -586,9 +598,7 @@ impl DiscordTransport {
                 .unwrap_or("unknown")
                 .to_string();
 
-            println!(
-                "  [discord] Interaction: {action} decision {decision_id} by {reviewer_id}"
-            );
+            println!("  [discord] Interaction: {action} decision {decision_id} by {reviewer_id}");
 
             // Process via Temper's native decisions API asynchronously
             let api = state.api.clone();
@@ -596,10 +606,7 @@ impl DiscordTransport {
             let reviewer_id_owned = reviewer_id.clone();
             let is_approve = action == "approve";
             let token = payload.token.clone();
-            let app_id = payload
-                .application_id
-                .clone()
-                .unwrap_or_default();
+            let app_id = payload.application_id.clone().unwrap_or_default();
             let http = state.http.clone();
 
             tokio::spawn(async move {
@@ -616,7 +623,9 @@ impl DiscordTransport {
                             .json::<serde_json::Value>()
                             .await
                             .ok()
-                            .and_then(|v| v.get("content").and_then(|c| c.as_str()).map(String::from))
+                            .and_then(|v| {
+                                v.get("content").and_then(|c| c.as_str()).map(String::from)
+                            })
                             .unwrap_or_default(),
                         Err(_) => String::new(),
                     }
@@ -659,10 +668,13 @@ impl DiscordTransport {
                     status_line
                 } else {
                     // Replace "Permission Required" header with the result
-                    let updated = original_content
-                        .replace("**Permission Required**", &format!("~~Permission Required~~ **{status_line}**"));
+                    let updated = original_content.replace(
+                        "**Permission Required**",
+                        &format!("~~Permission Required~~ **{status_line}**"),
+                    );
                     // Remove the "Click a button" instruction line if present
-                    updated.lines()
+                    updated
+                        .lines()
                         .filter(|l| !l.contains("Click a button"))
                         .collect::<Vec<_>>()
                         .join("\n")
@@ -674,9 +686,7 @@ impl DiscordTransport {
                     let filter = format!(
                         "pending_decision_id eq '{decision_id_owned}' and Status eq 'WaitingForApproval'"
                     );
-                    let agents_url = format!(
-                        "{base_url}/tdata/Sessions?$filter={filter}&$top=1"
-                    );
+                    let agents_url = format!("{base_url}/tdata/Sessions?$filter={filter}&$top=1");
                     if let Ok(agents_resp) = api.raw_get(&agents_url).await {
                         if let Some(agent) = agents_resp
                             .get("value")
@@ -693,8 +703,12 @@ impl DiscordTransport {
                                     "{base_url}/tdata/Sessions('{agent_id}')/OpenPaw.ResumeAfterApproval"
                                 );
                                 match api.raw_post(&resume_url, serde_json::json!({})).await {
-                                    Ok(_) => println!("  [discord] Resumed agent {agent_id} after approval"),
-                                    Err(e) => eprintln!("  [discord] Failed to resume agent {agent_id}: {e}"),
+                                    Ok(_) => println!(
+                                        "  [discord] Resumed agent {agent_id} after approval"
+                                    ),
+                                    Err(e) => eprintln!(
+                                        "  [discord] Failed to resume agent {agent_id}: {e}"
+                                    ),
                                 }
                             }
                         }
@@ -704,9 +718,7 @@ impl DiscordTransport {
                     let filter = format!(
                         "pending_decision_id eq '{decision_id_owned}' and Status eq 'WaitingForApproval'"
                     );
-                    let agents_url = format!(
-                        "{base_url}/tdata/Sessions?$filter={filter}&$top=1"
-                    );
+                    let agents_url = format!("{base_url}/tdata/Sessions?$filter={filter}&$top=1");
                     if let Ok(agents_resp) = api.raw_get(&agents_url).await {
                         if let Some(agent) = agents_resp
                             .get("value")
@@ -719,9 +731,8 @@ impl DiscordTransport {
                                 .and_then(|v| v.as_str())
                                 .unwrap_or("");
                             if !agent_id.is_empty() {
-                                let fail_url = format!(
-                                    "{base_url}/tdata/Sessions('{agent_id}')/OpenPaw.Fail"
-                                );
+                                let fail_url =
+                                    format!("{base_url}/tdata/Sessions('{agent_id}')/OpenPaw.Fail");
                                 let _ = api.raw_post(&fail_url, serde_json::json!({
                                     "error_message": "Action denied by human reviewer via Discord"
                                 })).await;
@@ -749,7 +760,10 @@ impl DiscordTransport {
 
             // Respond with deferred update (type 6 = DEFERRED_UPDATE_MESSAGE)
             // This removes the "thinking" state and we'll edit the message in the spawn above.
-            (axum::http::StatusCode::OK, axum::Json(serde_json::json!({ "type": 6 })))
+            (
+                axum::http::StatusCode::OK,
+                axum::Json(serde_json::json!({ "type": 6 })),
+            )
         }
 
         let webhook_state = WebhookState {
@@ -812,7 +826,7 @@ fn verify_discord_signature(
     timestamp: &str,
     body: &[u8],
 ) -> bool {
-    use ed25519_dalek::{Signature, VerifyingKey, Verifier};
+    use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 
     let Ok(pk_bytes) = hex::decode(public_key_hex) else {
         return false;

@@ -19,8 +19,9 @@ serde_json = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 opentelemetry = "0.28"
-opentelemetry_sdk = { version = "0.28", features = ["rt-tokio"] }
-opentelemetry-otlp = { version = "0.28", features = ["grpc-tonic"] }
+opentelemetry_sdk = { version = "0.28", features = ["rt-tokio", "logs", "metrics"] }
+opentelemetry-otlp = { version = "0.28", features = ["grpc-tonic", "logs", "metrics"] }
+opentelemetry-appender-tracing = "0.28"
 tracing-opentelemetry = "0.29"
 axum = { version = "0.8", features = ["macros"] }
 anyhow = "1"

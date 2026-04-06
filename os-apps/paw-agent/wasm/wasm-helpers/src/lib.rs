@@ -39,7 +39,10 @@ pub fn read_session_from_temperfs(
     } else if resp.status == 404 {
         Ok(String::new())
     } else {
-        Err(format!("TemperFS session read failed (HTTP {})", resp.status))
+        Err(format!(
+            "TemperFS session read failed (HTTP {})",
+            resp.status
+        ))
     }
 }
 
@@ -59,7 +62,10 @@ pub fn write_session_to_temperfs(
     if resp.status >= 200 && resp.status < 300 {
         Ok(())
     } else {
-        Err(format!("TemperFS session write failed (HTTP {})", resp.status))
+        Err(format!(
+            "TemperFS session write failed (HTTP {})",
+            resp.status
+        ))
     }
 }
 
@@ -176,15 +182,7 @@ pub fn runtime_headers(
     content_type: Option<&str>,
     accept: Option<&str>,
 ) -> Vec<(String, String)> {
-    runtime_headers_with_workspace(
-        ctx,
-        tenant,
-        fields,
-        None,
-        None,
-        content_type,
-        accept,
-    )
+    runtime_headers_with_workspace(ctx, tenant, fields, None, None, content_type, accept)
 }
 
 /// Build runtime headers while overriding the logical agent type.
@@ -254,7 +252,8 @@ fn runtime_headers_with_workspace(
         headers.push(("accept".to_string(), accept.to_string()));
     }
 
-    if let Some(soul_id) = entity_field_str(fields, &["soul_id", "SoulId"]).filter(|v| !v.is_empty())
+    if let Some(soul_id) =
+        entity_field_str(fields, &["soul_id", "SoulId"]).filter(|v| !v.is_empty())
     {
         headers.push(("x-temper-attr-soul_id".to_string(), soul_id.to_string()));
     }
@@ -262,7 +261,8 @@ fn runtime_headers_with_workspace(
     let workspace_id = workspace_id_override
         .filter(|value| !value.is_empty())
         .or_else(|| {
-            entity_field_str(fields, &["workspace_id", "WorkspaceId"]).filter(|value| !value.is_empty())
+            entity_field_str(fields, &["workspace_id", "WorkspaceId"])
+                .filter(|value| !value.is_empty())
         });
     if let Some(workspace_id) = workspace_id {
         headers.push((
@@ -275,7 +275,8 @@ fn runtime_headers_with_workspace(
 }
 
 fn default_agent_type(ctx: &Context) -> &'static str {
-    if ctx.entity_type.eq_ignore_ascii_case("Session") || ctx.entity_type.eq_ignore_ascii_case("Sessions")
+    if ctx.entity_type.eq_ignore_ascii_case("Session")
+        || ctx.entity_type.eq_ignore_ascii_case("Sessions")
     {
         "agent"
     } else {
@@ -471,11 +472,12 @@ fn send_typing_indicator_inner(
     }
 
     // POST to /typing endpoint
-    let typing_url = format!("{}/typing", webhook_url.trim_end_matches('/').trim_end_matches("/reply"));
+    let typing_url = format!(
+        "{}/typing",
+        webhook_url.trim_end_matches('/').trim_end_matches("/reply")
+    );
     let body = json!({"thread_id": thread_id});
-    let wh_headers = vec![
-        ("content-type".to_string(), "application/json".to_string()),
-    ];
+    let wh_headers = vec![("content-type".to_string(), "application/json".to_string())];
     let _ = ctx.http_call("POST", &typing_url, &wh_headers, &body.to_string());
     Ok(())
 }

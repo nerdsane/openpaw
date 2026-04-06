@@ -10,9 +10,9 @@ use futures_util::StreamExt;
 use serde::Deserialize;
 
 use super::gateway::{
-    create_forum_post, edit_message, send_channel_message, send_thread_message, DISCORD_API_BASE,
+    DISCORD_API_BASE, create_forum_post, edit_message, send_channel_message, send_thread_message,
 };
-use super::types::{embed_colors, Embed, EmbedField, EmbedFooter};
+use super::types::{Embed, EmbedField, EmbedFooter, embed_colors};
 use crate::PawApiClient;
 
 /// Configuration for the Discord observer.
@@ -160,12 +160,8 @@ async fn connect_and_process(
                     let http_c = http_clone.clone();
                     let bot_token = config_clone.bot_token.clone();
                     let evt = event_clone.clone();
-                    let soul_name = resolve_soul_name(
-                        &api_clone,
-                        soul_cache,
-                        evt.agent_id.as_deref(),
-                    )
-                    .await;
+                    let soul_name =
+                        resolve_soul_name(&api_clone, soul_cache, evt.agent_id.as_deref()).await;
 
                     let embed = build_feed_embed(&evt, soul_name.as_deref());
                     tokio::spawn(async move {
@@ -179,17 +175,9 @@ async fn connect_and_process(
                 }
 
                 // For forum channel: handle WorkCycle events inline to track state.
-                if config.forum_channel_id.is_some()
-                    && event_clone.entity_type == "WorkCycle"
-                {
-                    handle_work_cycle_event(
-                        &event_clone,
-                        config,
-                        http,
-                        &api_clone,
-                        forum_posts,
-                    )
-                    .await;
+                if config.forum_channel_id.is_some() && event_clone.entity_type == "WorkCycle" {
+                    handle_work_cycle_event(&event_clone, config, http, &api_clone, forum_posts)
+                        .await;
                 }
             }
         }
@@ -251,9 +239,7 @@ async fn handle_work_cycle_event(
     if is_created {
         // Fetch the entity to get task_summary.
         let summary = fetch_work_cycle_summary(api, &event.entity_id).await;
-        let thread_name = summary
-            .as_deref()
-            .unwrap_or(&event.entity_id);
+        let thread_name = summary.as_deref().unwrap_or(&event.entity_id);
         // Truncate to 100 chars for Discord thread name limit.
         let thread_name = if thread_name.len() > 100 {
             &thread_name[..thread_name.floor_char_boundary(100)]
@@ -341,10 +327,7 @@ async fn handle_work_cycle_event(
     // Send a thread reply for every transition.
     let reply_embed = Embed {
         title: None,
-        description: Some(format!(
-            "{} \u{2192} **{}**",
-            event.action, event.status
-        )),
+        description: Some(format!("{} \u{2192} **{}**", event.action, event.status)),
         color: Some(status_color(&event.status)),
         fields: None,
         footer: Some(EmbedFooter {
@@ -373,17 +356,29 @@ fn build_gates_embed(entity_id: &str, gates: &WorkCycleGates, status: &str) -> E
     let fields = vec![
         EmbedField {
             name: "Plan".to_string(),
-            value: if gates.has_plan { check.to_string() } else { pending.to_string() },
+            value: if gates.has_plan {
+                check.to_string()
+            } else {
+                pending.to_string()
+            },
             inline: true,
         },
         EmbedField {
             name: "Tests".to_string(),
-            value: if gates.tests_passed { check.to_string() } else { pending.to_string() },
+            value: if gates.tests_passed {
+                check.to_string()
+            } else {
+                pending.to_string()
+            },
             inline: true,
         },
         EmbedField {
             name: "Review".to_string(),
-            value: if gates.review_passed { check.to_string() } else { pending.to_string() },
+            value: if gates.review_passed {
+                check.to_string()
+            } else {
+                pending.to_string()
+            },
             inline: true,
         },
         EmbedField {
@@ -416,9 +411,18 @@ struct WorkCycleGates {
 async fn fetch_work_cycle_gates(api: &PawApiClient, entity_id: &str) -> WorkCycleGates {
     match api.get_entity("WorkCycles", entity_id).await {
         Ok(val) => WorkCycleGates {
-            has_plan: val.get("has_plan").and_then(|v| v.as_bool()).unwrap_or(false),
-            tests_passed: val.get("tests_passed").and_then(|v| v.as_bool()).unwrap_or(false),
-            review_passed: val.get("review_passed").and_then(|v| v.as_bool()).unwrap_or(false),
+            has_plan: val
+                .get("has_plan")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
+            tests_passed: val
+                .get("tests_passed")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
+            review_passed: val
+                .get("review_passed")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
         },
         Err(e) => {
             tracing::debug!("Discord observer: failed to fetch WorkCycle gates: {e}");
@@ -440,7 +444,11 @@ async fn fetch_work_cycle_summary(api: &PawApiClient, entity_id: &str) -> Option
 }
 
 /// Fetch the first message ID from a thread (used to get the top embed message).
-async fn fetch_first_message_id(http: &reqwest::Client, bot_token: &str, thread_id: &str) -> String {
+async fn fetch_first_message_id(
+    http: &reqwest::Client,
+    bot_token: &str,
+    thread_id: &str,
+) -> String {
     let url = format!("{DISCORD_API_BASE}/channels/{thread_id}/messages?limit=1&sort_order=asc");
     let resp = http
         .get(&url)

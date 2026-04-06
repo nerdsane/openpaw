@@ -34,10 +34,7 @@ pub fn spawn_session(
         .get("tools")
         .and_then(|v| v.as_str())
         .unwrap_or("read,write,edit,bash");
-    let soul_id = input
-        .get("soul_id")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
+    let soul_id = input.get("soul_id").and_then(|v| v.as_str()).unwrap_or("");
     let parent_id = ctx
         .entity_state
         .get("entity_id")
@@ -278,10 +275,7 @@ pub fn save_memory(
         .and_then(|v| v.as_str())
         .unwrap_or("");
     let fields = ctx.entity_state.get("fields").cloned().unwrap_or(json!({}));
-    let soul_id = fields
-        .get("soul_id")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
+    let soul_id = fields.get("soul_id").and_then(|v| v.as_str()).unwrap_or("");
 
     let body = json!({
         "Key": key, "Content": content, "MemoryType": memory_type,
@@ -456,9 +450,7 @@ pub fn run_coding_agent(
     };
 
     let final_cmd = if background {
-        format!(
-            "nohup bash -c '{command}' > /tmp/coding-agent-{agent_type}.log 2>&1 & echo $!"
-        )
+        format!("nohup bash -c '{command}' > /tmp/coding-agent-{agent_type}.log 2>&1 & echo $!")
     } else {
         command.clone()
     };
@@ -502,9 +494,7 @@ pub fn run_coding_agent(
     let out_file = format!("/tmp/.paw-out-{unique}");
 
     // Run with output capture
-    let wrapped = format!(
-        "({final_cmd}) > {out_file} 2>&1; echo $? > {rc_file}"
-    );
+    let wrapped = format!("({final_cmd}) > {out_file} 2>&1; echo $? > {rc_file}");
     let body2 = json!({
         "command": ["bash", "-c", &wrapped],
         "cwd": agent_workdir,
@@ -521,10 +511,7 @@ pub fn run_coding_agent(
     loop {
         let rc_resp = ctx.http_call(
             "GET",
-            &format!(
-                "{sandbox_url}/api/v1/files?path={}",
-                urlenc(&rc_file)
-            ),
+            &format!("{sandbox_url}/api/v1/files?path={}", urlenc(&rc_file)),
             &[],
             "",
         )?;
@@ -540,10 +527,7 @@ pub fn run_coding_agent(
     let stdout = ctx
         .http_call(
             "GET",
-            &format!(
-                "{sandbox_url}/api/v1/files?path={}",
-                urlenc(&out_file)
-            ),
+            &format!("{sandbox_url}/api/v1/files?path={}", urlenc(&out_file)),
             &[],
             "",
         )
@@ -554,10 +538,7 @@ pub fn run_coding_agent(
     for f in [&out_file, &rc_file] {
         let _ = ctx.http_call(
             "DELETE",
-            &format!(
-                "{sandbox_url}/api/v1/files?path={}",
-                urlenc(f)
-            ),
+            &format!("{sandbox_url}/api/v1/files?path={}", urlenc(f)),
             &[],
             "",
         );

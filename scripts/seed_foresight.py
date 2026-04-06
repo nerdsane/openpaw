@@ -2,7 +2,7 @@
 """Seed Foresight for the Deep Sci-Fi project.
 
 Creates a ProductModel, seeds it with signals, creates a Projection with
-3 Probes (1 opus, 2 sonnet), and starts the projection cycle.
+a configurable number of Probe sessions, and starts the projection cycle.
 
 Idempotent — checks for existing entities before creating new ones.
 
@@ -30,11 +30,7 @@ SIGNAL_SOURCE_CONFIG = json.dumps({
     "datadog": True,
 })
 
-PROBE_CONFIG = json.dumps([
-    {"name": "Probe-Deep", "model": "claude-opus-4-6"},
-    {"name": "Probe-Broad-1", "model": "claude-sonnet-4-6"},
-    {"name": "Probe-Broad-2", "model": "claude-sonnet-4-6"},
-])
+DEFAULT_PROBE_COUNT = 3
 
 # Adaptive step schedule: 3 daily, 3 weekly, 3 monthly, 3 quarterly
 STEP_SCHEDULE = json.dumps([1, 1, 1, 7, 7, 7, 30, 30, 30, 90, 90, 90])
@@ -111,19 +107,41 @@ def seed_product_model(client: ODataClient) -> str:
     return mid
 
 
-def seed_projection(client: ODataClient, product_model_id: str) -> str:
+def build_probe_config(probe_count: int) -> str:
+    probes: list[dict[str, str]] = []
+    if probe_count <= 0:
+        raise ValueError("probe_count must be > 0")
+
+    probes.append({"name": "Probe-Deep", "model": "claude-opus-4-6"})
+    for idx in range(1, probe_count):
+        probes.append(
+            {
+                "name": f"Probe-Broad-{idx}",
+                "model": "claude-sonnet-4-6",
+            }
+        )
+    return json.dumps(probes)
+
+
+def seed_projection(
+    client: ODataClient,
+    product_model_id: str,
+    probe_config: str,
+    *,
+    reuse_existing: bool = True,
+) -> str:
     """Create a Projection for the ProductModel. Returns entity ID."""
-    # Check for existing running projections
-    results = client.list(
-        "Projections",
-        filter_expr=f"product_model_id eq '{product_model_id}'",
-        top=1,
-    )
-    if results:
-        pid = entity_id(results[0])
-        status = nested_str(results[0], ["Status", "status"])
-        print(f"  [exists] Projection ({pid}) -- {status}")
-        return pid
+    if reuse_existing:
+        results = client.list(
+            "Projections",
+            filter_expr=f"product_model_id eq '{product_model_id}'",
+            top=1,
+        )
+        if results:
+            pid = entity_id(results[0])
+            status = nested_str(results[0], ["Status", "status"])
+            print(f"  [exists] Projection ({pid}) -- {status}")
+            return pid
 
     proj = client.create("Projections")
     pid = entity_id(proj)
@@ -137,7 +155,7 @@ def seed_projection(client: ODataClient, product_model_id: str) -> str:
             "horizon": "3m",
             "max_steps": "12",
             "step_schedule": STEP_SCHEDULE,
-            "probe_config": PROBE_CONFIG,
+            "probe_config": probe_config,
         },
     )
     print(f"  [created] Projection ({pid}) -- configured")
@@ -179,9 +197,24 @@ def main() -> None:
         "--start", action="store_true",
         help="Start the Projection after seeding (triggers Probe spawning)",
     )
+    parser.add_argument(
+        "--probe-count",
+        type=int,
+        default=int(os.environ.get("OPENPAW_PROBE_COUNT", DEFAULT_PROBE_COUNT)),
+        help="Number of Probe sessions to configure for the Projection.",
+    )
+    parser.add_argument(
+        "--new-projection",
+        action="store_true",
+        help="Always create a fresh Projection instead of reusing an existing one for the ProductModel.",
+    )
     args = parser.parse_args()
 
+    if args.probe_count <= 0:
+        raise SystemExit("--probe-count must be greater than 0")
+
     client = ODataClient(args.base_url, args.tenant, args.api_key)
+    probe_config = build_probe_config(args.probe_count)
 
     print("=== Seeding Foresight for Deep Sci-Fi ===\n")
 
@@ -196,7 +229,12 @@ def main() -> None:
         print("  [warn] ProductModel did not reach Active — may still be seeding")
 
     print("\n3. Projection")
-    proj_id = seed_projection(client, model_id)
+    proj_id = seed_projection(
+        client,
+        model_id,
+        probe_config,
+        reuse_existing=not args.new_projection,
+    )
 
     if args.start:
         print("\n4. Starting Projection...")

@@ -48,17 +48,15 @@ pub(crate) async fn fetch_socket_url(
         ));
     }
 
-    body.url.ok_or_else(|| "No WebSocket URL in response".to_string())
+    body.url
+        .ok_or_else(|| "No WebSocket URL in response".to_string())
 }
 
 /// Connect to the Socket Mode WebSocket and run the event loop.
 ///
 /// Receives envelopes, sends acknowledgments, and forwards events to the
 /// provided handler callback. Returns on disconnect.
-pub(crate) async fn connect_and_run<F, Fut>(
-    url: &str,
-    mut on_envelope: F,
-) -> Result<(), String>
+pub(crate) async fn connect_and_run<F, Fut>(url: &str, mut on_envelope: F) -> Result<(), String>
 where
     F: FnMut(SlackEnvelope) -> Fut,
     Fut: std::future::Future<Output = ()>,
@@ -85,10 +83,8 @@ where
 
         let text = match frame {
             Message::Text(t) => t.to_string(),
-            Message::Binary(b) => {
-                String::from_utf8(b.to_vec())
-                    .map_err(|e| format!("Invalid UTF-8 in Socket Mode frame: {e}"))?
-            }
+            Message::Binary(b) => String::from_utf8(b.to_vec())
+                .map_err(|e| format!("Invalid UTF-8 in Socket Mode frame: {e}"))?,
             Message::Ping(data) => {
                 let _ = write.send(Message::Pong(data)).await;
                 continue;

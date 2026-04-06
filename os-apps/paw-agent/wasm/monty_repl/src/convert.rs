@@ -24,9 +24,7 @@ pub fn json_to_monty_object(value: &Value) -> MontyObject {
             }
         }
         Value::String(v) => MontyObject::String(v.clone()),
-        Value::Array(items) => {
-            MontyObject::List(items.iter().map(json_to_monty_object).collect())
-        }
+        Value::Array(items) => MontyObject::List(items.iter().map(json_to_monty_object).collect()),
         Value::Object(map) => {
             let pairs = map
                 .iter()
@@ -49,9 +47,7 @@ pub fn monty_object_to_json(value: &MontyObject) -> Value {
             .map(Value::Number)
             .unwrap_or(Value::Null),
         MontyObject::String(v) => Value::String(v.clone()),
-        MontyObject::Bytes(bytes) => {
-            Value::Array(bytes.iter().copied().map(Value::from).collect())
-        }
+        MontyObject::Bytes(bytes) => Value::Array(bytes.iter().copied().map(Value::from).collect()),
         MontyObject::List(items)
         | MontyObject::Tuple(items)
         | MontyObject::Set(items)

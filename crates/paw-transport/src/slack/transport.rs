@@ -81,15 +81,16 @@ impl SlackTransport {
         let mut backoff = Duration::from_secs(1);
 
         loop {
-            let socket_url = match socket::fetch_socket_url(&self.http, &self.config.app_token).await {
-                Ok(url) => url,
-                Err(e) => {
-                    eprintln!("  [slack] Failed to get Socket Mode URL: {e}");
-                    tokio::time::sleep(backoff).await;
-                    backoff = (backoff * 2).min(Duration::from_secs(60));
-                    continue;
-                }
-            };
+            let socket_url =
+                match socket::fetch_socket_url(&self.http, &self.config.app_token).await {
+                    Ok(url) => url,
+                    Err(e) => {
+                        eprintln!("  [slack] Failed to get Socket Mode URL: {e}");
+                        tokio::time::sleep(backoff).await;
+                        backoff = (backoff * 2).min(Duration::from_secs(60));
+                        continue;
+                    }
+                };
 
             match self.connect_and_handle(&socket_url).await {
                 Ok(()) => backoff = Duration::from_secs(1),
@@ -218,13 +219,7 @@ impl SlackTransport {
                         .await;
                     }
                     "interactive" => {
-                        handle_interactive(
-                            envelope.payload,
-                            &api,
-                            &http,
-                            &bot_token,
-                        )
-                        .await;
+                        handle_interactive(envelope.payload, &api, &http, &bot_token).await;
                     }
                     other => {
                         println!("  [slack] Ignoring envelope type: {other}");
@@ -300,13 +295,8 @@ impl SlackTransport {
                     channel_id
                 );
 
-                match api::send_slack_message(
-                    &state.http,
-                    &state.bot_token,
-                    channel_id,
-                    content,
-                )
-                .await
+                match api::send_slack_message(&state.http, &state.bot_token, channel_id, content)
+                    .await
                 {
                     Ok(()) => axum::http::StatusCode::OK,
                     Err(e) => {
@@ -431,12 +421,7 @@ async fn handle_events_api(
     });
 
     match api
-        .dispatch_action(
-            "Channels",
-            &entity_id,
-            "Paw.Channel.ReceiveMessage",
-            params,
-        )
+        .dispatch_action("Channels", &entity_id, "Paw.Channel.ReceiveMessage", params)
         .await
     {
         Ok(_) => {
@@ -508,9 +493,8 @@ async fn handle_interactive(
     let is_approve = action_type == "approve";
 
     let (success, status_line) = if is_approve {
-        let approve_url = format!(
-            "{base_url}/api/tenants/{tenant}/decisions/{decision_id}/approve"
-        );
+        let approve_url =
+            format!("{base_url}/api/tenants/{tenant}/decisions/{decision_id}/approve");
         let scope = serde_json::json!({
             "scope": {
                 "principal": "this_agent",
@@ -525,9 +509,7 @@ async fn handle_interactive(
             Err(e) => (false, format!("Approval failed: {e}")),
         }
     } else {
-        let deny_url = format!(
-            "{base_url}/api/tenants/{tenant}/decisions/{decision_id}/deny"
-        );
+        let deny_url = format!("{base_url}/api/tenants/{tenant}/decisions/{decision_id}/deny");
         let deny_body = serde_json::json!({
             "decided_by": format!("slack:{reviewer_id}")
         });
@@ -539,12 +521,9 @@ async fn handle_interactive(
 
     // Resume or fail the agent based on decision.
     if success {
-        let filter = format!(
-            "pending_decision_id eq '{decision_id}' and Status eq 'WaitingForApproval'"
-        );
-        let agents_url = format!(
-            "{base_url}/tdata/Sessions?$filter={filter}&$top=1"
-        );
+        let filter =
+            format!("pending_decision_id eq '{decision_id}' and Status eq 'WaitingForApproval'");
+        let agents_url = format!("{base_url}/tdata/Sessions?$filter={filter}&$top=1");
         if let Ok(agents_resp) = api.raw_get(&agents_url).await {
             if let Some(agent) = agents_resp
                 .get("value")
@@ -566,12 +545,16 @@ async fn handle_interactive(
                             Err(e) => eprintln!("  [slack] Failed to resume agent {agent_id}: {e}"),
                         }
                     } else {
-                        let fail_url = format!(
-                            "{base_url}/tdata/Sessions('{agent_id}')/OpenPaw.Fail"
-                        );
-                        let _ = api.raw_post(&fail_url, serde_json::json!({
-                            "error_message": "Action denied by human reviewer via Slack"
-                        })).await;
+                        let fail_url =
+                            format!("{base_url}/tdata/Sessions('{agent_id}')/OpenPaw.Fail");
+                        let _ = api
+                            .raw_post(
+                                &fail_url,
+                                serde_json::json!({
+                                    "error_message": "Action denied by human reviewer via Slack"
+                                }),
+                            )
+                            .await;
                     }
                 }
             }
@@ -593,13 +576,11 @@ async fn handle_interactive(
 
     if !channel_id.is_empty() && !message_ts.is_empty() {
         // Update with result text and remove buttons.
-        let result_blocks = vec![
-            SlackBlock::Section {
-                text: SlackTextObject::mrkdwn(&status_line),
-                block_id: None,
-                fields: None,
-            },
-        ];
+        let result_blocks = vec![SlackBlock::Section {
+            text: SlackTextObject::mrkdwn(&status_line),
+            block_id: None,
+            fields: None,
+        }];
         let _ = api::update_slack_message(
             http,
             bot_token,

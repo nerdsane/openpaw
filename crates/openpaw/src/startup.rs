@@ -105,8 +105,7 @@ pub async fn run(config: Config) -> Result<()> {
             .load_verification_cache("temper-system")
             .await
             .unwrap_or_default();
-        let sys_hashes =
-            temper_platform::bootstrap_system_tenant(&state, &sys_cache);
+        let sys_hashes = temper_platform::bootstrap_system_tenant(&state, &sys_cache);
         temper_platform::persist_system_verification(&turso_store, &sys_hashes).await;
 
         let agent_cache = turso_store
@@ -411,9 +410,7 @@ pub async fn run(config: Config) -> Result<()> {
         tracing::warn!("No DISCORD_BOT_TOKEN — Discord transport not started");
     }
 
-    if let (Some(app_token), Some(bot_token)) =
-        (&config.slack_app_token, &config.slack_bot_token)
-    {
+    if let (Some(app_token), Some(bot_token)) = (&config.slack_app_token, &config.slack_bot_token) {
         spawn_slack_transport(
             app_token.clone(),
             bot_token.clone(),
@@ -441,7 +438,9 @@ pub async fn run(config: Config) -> Result<()> {
         tokio::spawn(async move {
             // Give the server a moment to start accepting connections.
             tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-            if let Err(e) = paw_transport::discord::run_observer(observer_api, observer_config).await {
+            if let Err(e) =
+                paw_transport::discord::run_observer(observer_api, observer_config).await
+            {
                 tracing::error!("Discord observer failed: {e}");
             }
         });
@@ -454,12 +453,10 @@ pub async fn run(config: Config) -> Result<()> {
 
     tracing::info!("Open Paw listening on port {actual_port}");
 
-
     axum::serve(listener, router).await?;
 
     Ok(())
 }
-
 
 async fn persist_os_app_verification(
     state: &PlatformState,
@@ -584,8 +581,17 @@ fn spawn_soul_bootstrap(port: u16, tenant: String, api_key: Option<String>) {
         ];
 
         for (name, description, path, scope) in skills {
-            match bootstrap_skill(&client, &api_url, &tenant, &api_key, name, description, path, scope)
-                .await
+            match bootstrap_skill(
+                &client,
+                &api_url,
+                &tenant,
+                &api_key,
+                name,
+                description,
+                path,
+                scope,
+            )
+            .await
             {
                 Ok(skill_id) => tracing::info!("  Skill '{name}' ready: {skill_id}"),
                 Err(e) => tracing::error!("  Failed to bootstrap skill '{name}': {e}"),
@@ -703,8 +709,7 @@ async fn bootstrap_soul(
     let content = paths
         .iter()
         .map(|p| {
-            std::fs::read_to_string(p)
-                .with_context(|| format!("Failed to read soul file: {p}"))
+            std::fs::read_to_string(p).with_context(|| format!("Failed to read soul file: {p}"))
         })
         .collect::<Result<Vec<_>>>()?
         .join("\n\n");
@@ -1022,7 +1027,9 @@ async fn set_default_soul(
     // Also repair Channels with missing default_agent_config
     let channels_resp = odata_get(
         client,
-        &format!("{api_url}/tdata/Channels?$filter=Status eq 'Connected' or Status eq 'Disconnected'"),
+        &format!(
+            "{api_url}/tdata/Channels?$filter=Status eq 'Connected' or Status eq 'Disconnected'"
+        ),
         tenant,
         api_key,
     )
@@ -1054,9 +1061,7 @@ async fn set_default_soul(
                 )
                 .await
                 .ok();
-                tracing::info!(
-                    "  Set default soul '{soul_name}' on Channel {channel_id}"
-                );
+                tracing::info!("  Set default soul '{soul_name}' on Channel {channel_id}");
             }
         }
     }
@@ -1206,7 +1211,9 @@ async fn build_and_register_local_wasm_modules(
             .server
             .upsert_wasm_module(tenant, module_name, &wasm_bytes, &hash)
             .await
-            .map_err(|error| anyhow::anyhow!("Failed to persist WASM module '{module_name}': {error}"))?;
+            .map_err(|error| {
+                anyhow::anyhow!("Failed to persist WASM module '{module_name}': {error}")
+            })?;
         {
             let mut registry = state.server.wasm_module_registry.write().unwrap();
             registry.register(&tenant_id, module_name, &hash);
@@ -1391,9 +1398,7 @@ fn spawn_webhook_trigger(tenant: &str, port: u16, api_key: Option<String>) {
             tenant,
             api_key,
         });
-        let config = WebhookTriggerConfig {
-            port: trigger_port,
-        };
+        let config = WebhookTriggerConfig { port: trigger_port };
         let trigger = WebhookTrigger::new(config, api);
         if let Err(e) = trigger.run().await {
             tracing::error!("Webhook trigger fatal error: {e}");

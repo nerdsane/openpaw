@@ -7,7 +7,7 @@
 //! id/parentId. Entries can carry content inline or reference TemperFS files
 //! through `content_file_id`.
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
 /// A single entry in the session tree.
@@ -368,7 +368,15 @@ impl SessionTree {
         } else {
             Some(json!({ "content_file_id": content_file_id }))
         };
-        self.append_entry(id, parent_id, entry_type, role, None, tokens, extra.as_ref())
+        self.append_entry(
+            id,
+            parent_id,
+            entry_type,
+            role,
+            None,
+            tokens,
+            extra.as_ref(),
+        )
     }
 
     /// Append a user message. Returns (entry_id, jsonl_line).

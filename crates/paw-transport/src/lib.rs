@@ -65,10 +65,7 @@ impl PawApiClient {
     }
 
     /// GET an arbitrary URL with tenant/auth headers.
-    pub async fn raw_get(
-        &self,
-        url: &str,
-    ) -> Result<serde_json::Value, String> {
+    pub async fn raw_get(&self, url: &str) -> Result<serde_json::Value, String> {
         let resp = self
             .build_request(reqwest::Method::GET, url)
             .send()

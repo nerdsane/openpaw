@@ -66,7 +66,8 @@ impl BoundedOutputCollector {
         }
 
         self.truncated = true;
-        self.buf.push_str(prefix_at_char_boundary(output, remaining));
+        self.buf
+            .push_str(prefix_at_char_boundary(output, remaining));
     }
 
     fn append_char(&mut self, ch: char) {
@@ -93,9 +94,7 @@ impl BoundedOutputCollector {
         let buf = self.buf;
         format!(
             "{}...\n[print output truncated, captured {} of {} bytes]",
-            buf,
-            captured_bytes,
-            total_bytes_seen,
+            buf, captured_bytes, total_bytes_seen,
         )
     }
 }
@@ -166,8 +165,20 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 .unwrap_or_default()
         } else {
             // Fallback: check entity field for backward compatibility
-            fields.get("repl_state").and_then(|v| v.as_str()).unwrap_or("").to_string()
+            fields
+                .get("repl_state")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string()
         };
+        ctx.log(
+            "info",
+            &format!(
+                "monty_repl: loaded repl state bytes={} from_file={}",
+                repl_state_b64.len(),
+                !repl_file_id.is_empty()
+            ),
+        );
 
         let mut repl = load_or_create_repl(&repl_state_b64, &ctx)?;
 
@@ -177,12 +188,15 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         for call in &tool_calls {
             let tool_id = call.get("id").and_then(|v| v.as_str()).unwrap_or("unknown");
             let input = call.get("input").cloned().unwrap_or(json!({}));
-            let code = input
-                .get("code")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
+            let code = input.get("code").and_then(|v| v.as_str()).unwrap_or("");
 
-            ctx.log("info", &format!("monty_repl: executing code for {tool_id}"));
+            ctx.log(
+                "info",
+                &format!(
+                    "monty_repl: executing code for {tool_id}, code_bytes={}",
+                    code.len()
+                ),
+            );
 
             // Wrap code in async function
             let wrapped = wrap_user_code(code);
@@ -222,6 +236,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             // Combine print output + expression value
             let (content, is_error) = match result {
                 Ok(expr_val) => {
+                    let expr_len = expr_val.len();
                     let mut combined = printed;
                     // Append expression value if it's not null/None
                     if expr_val != "null" && !expr_val.is_empty() {
@@ -233,15 +248,36 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                     if combined.is_empty() {
                         combined.push_str("(no output)");
                     }
-                    (truncate_output(&combined), false)
+                    let content = truncate_output(&combined);
+                    ctx.log(
+                        "info",
+                        &format!(
+                            "monty_repl: tool completed {tool_id}, printed_bytes={}, expr_bytes={}, result_bytes={}, is_error=false",
+                            combined.len().saturating_sub(expr_len),
+                            expr_len,
+                            content.len()
+                        ),
+                    );
+                    (content, false)
                 }
                 Err(e) => {
+                    let error_len = e.len();
                     let mut combined = printed;
                     if !combined.is_empty() {
                         combined.push('\n');
                     }
                     combined.push_str(&e);
-                    (truncate_output(&combined), true)
+                    let content = truncate_output(&combined);
+                    ctx.log(
+                        "info",
+                        &format!(
+                            "monty_repl: tool completed {tool_id}, printed_bytes={}, error_bytes={}, result_bytes={}, is_error=true",
+                            combined.len().saturating_sub(error_len),
+                            error_len,
+                            content.len()
+                        ),
+                    );
+                    (content, true)
                 }
             };
 
@@ -250,6 +286,14 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
 
         // Save REPL state to TemperFS file (not entity field)
         let saved_state = save_repl_state(&repl)?;
+        ctx.log(
+            "info",
+            &format!(
+                "monty_repl: saving repl state bytes={}, tool_results={}",
+                saved_state.len(),
+                tool_results.len()
+            ),
+        );
         let repl_file_id = session::save_repl_to_file(
             &ctx,
             &temper_api_url,
@@ -332,11 +376,20 @@ fn load_or_create_repl(
         ];
 
         let mut print = PrintWriter::Disabled;
-        let (repl, _init_result) =
-            MontyRepl::new(init_code, "init.py", input_names, inputs, tracker, &mut print)
-                .map_err(|e| format_monty_exception(&e))?;
+        let (repl, _init_result) = MontyRepl::new(
+            init_code,
+            "init.py",
+            input_names,
+            inputs,
+            tracker,
+            &mut print,
+        )
+        .map_err(|e| format_monty_exception(&e))?;
 
-        ctx.log("info", "monty_repl: created fresh REPL with temper + sandbox objects");
+        ctx.log(
+            "info",
+            "monty_repl: created fresh REPL with temper + sandbox objects",
+        );
         Ok(repl)
     } else {
         let bytes = base64_decode(repl_state_b64)?;
@@ -422,9 +475,7 @@ fn drive_repl_loop(
                 );
 
                 let ext_result = match result {
-                    Ok(value) => {
-                        ExtFunctionResult::Return(convert::json_to_monty_object(&value))
-                    }
+                    Ok(value) => ExtFunctionResult::Return(convert::json_to_monty_object(&value)),
                     Err(message) => ExtFunctionResult::Error(MontyException::new(
                         ExcType::RuntimeError,
                         Some(message),
@@ -466,7 +517,9 @@ fn drive_repl_loop(
             ReplProgress::OsCall(os_call) => {
                 let ext_result = ExtFunctionResult::Error(MontyException::new(
                     ExcType::RuntimeError,
-                    Some("sandbox blocked OS access. Use sandbox.bash() for shell commands.".into()),
+                    Some(
+                        "sandbox blocked OS access. Use sandbox.bash() for shell commands.".into(),
+                    ),
                 ));
                 let mut print = PrintWriter::Callback(print_buf);
                 match os_call.resume(ext_result, &mut print) {

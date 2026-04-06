@@ -387,7 +387,9 @@ pub async fn create_forum_post(
     });
 
     let resp = http
-        .post(format!("{DISCORD_API_BASE}/channels/{forum_channel_id}/threads"))
+        .post(format!(
+            "{DISCORD_API_BASE}/channels/{forum_channel_id}/threads"
+        ))
         .header("Authorization", format!("Bot {bot_token}"))
         .header("Content-Type", "application/json")
         .json(&body)
@@ -454,7 +456,10 @@ pub async fn edit_message(
 ) -> Result<serde_json::Value, String> {
     let mut body = serde_json::Map::new();
     if let Some(c) = content {
-        body.insert("content".to_string(), serde_json::Value::String(c.to_string()));
+        body.insert(
+            "content".to_string(),
+            serde_json::Value::String(c.to_string()),
+        );
     }
     if let Some(e) = embeds {
         body.insert(

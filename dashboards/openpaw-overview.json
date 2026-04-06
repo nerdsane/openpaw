@@ -121,6 +121,90 @@
                 { "q": "avg:process_resident_memory_bytes{*}", "display_type": "line" }
               ]
             }
+          },
+          {
+            "definition": {
+              "title": "WASM Invocations",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "q": "sum:temper_wasm_invocations_total{*} by {trigger_action,success}.as_count()",
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "WASM Invoke Duration (avg ms)",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "q": "avg:temper_wasm_invocation_duration_ms{*} by {trigger_action}.rollup(avg, 60)",
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "WASM Host HTTP Response Bytes",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "q": "avg:temper_wasm_host_http_response_bytes{*} by {call_kind,status_code_class}",
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "Monty REPL Executions",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "q": "sum:temper_wasm_invocations_total{trigger_action:processtoolcalls,needs_wasi:true,success:true}.as_count()",
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "Monty REPL Active Invocations (max)",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "q": "max:temper_monty_repl_observed_active_invocations{*} by {max_concurrency}.rollup(max, 60)",
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "Monty REPL Wait (avg ms)",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "q": "avg:temper_monty_repl_wait_duration_ms{*} by {max_concurrency}.rollup(avg, 60)",
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "Monty REPL Acquisitions",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "q": "sum:temper_monty_repl_acquisitions_total{*} by {max_concurrency}.as_count().rollup(sum, 60)",
+                  "display_type": "line"
+                }
+              ]
+            }
           }
         ]
       }

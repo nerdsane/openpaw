@@ -70,9 +70,7 @@ pub fn datadog_query(ctx: &Context, args: &[Value]) -> Result<Value, String> {
                 .and_then(Value::as_i64)
                 .unwrap_or(4_102_444_800);
             let tags = input.get("tags").and_then(Value::as_str).unwrap_or("");
-            let mut u = format!(
-                "{base_url}/api/v1/events?start={start}&end={end}&unparsed=true"
-            );
+            let mut u = format!("{base_url}/api/v1/events?start={start}&end={end}&unparsed=true");
             if !query.trim().is_empty() {
                 u.push_str("&query=");
                 u.push_str(&urlenc(query));

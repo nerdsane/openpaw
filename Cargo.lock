@@ -3230,6 +3230,7 @@ dependencies = [
  "hex",
  "hmac",
  "opentelemetry",
+ "opentelemetry-appender-tracing",
  "opentelemetry-otlp",
  "opentelemetry_sdk",
  "paw-transport",
@@ -3448,9 +3449,11 @@ dependencies = [
  "ed25519-dalek",
  "futures-util",
  "hex",
+ "hmac",
  "reqwest",
  "serde",
  "serde_json",
+ "sha2",
  "tokio",
  "tokio-stream",
  "tokio-tungstenite",
@@ -5159,7 +5162,7 @@ checksum = "adb6935a6f5c20170eeceb1a3835a49e12e19d792f6dd344ccc76a985ca5a6ca"
 [[package]]
 name = "temper-authz"
 version = "0.1.0"
-source = "git+https://github.com/nerdsane/temper.git?branch=main#099d95ec2149e563dc9042d563de910a8f0283c6"
+source = "git+https://github.com/nerdsane/temper.git?branch=main#3f674d7096f597f079163d6cd278a87dd2f7c5c1"
 dependencies = [
  "cedar-policy",
  "opentelemetry",
@@ -5173,7 +5176,7 @@ dependencies = [
 [[package]]
 name = "temper-evolution"
 version = "0.1.0"
-source = "git+https://github.com/nerdsane/temper.git?branch=main#099d95ec2149e563dc9042d563de910a8f0283c6"
+source = "git+https://github.com/nerdsane/temper.git?branch=main#3f674d7096f597f079163d6cd278a87dd2f7c5c1"
 dependencies = [
  "chrono",
  "serde",
@@ -5190,7 +5193,7 @@ dependencies = [
 [[package]]
 name = "temper-jit"
 version = "0.1.0"
-source = "git+https://github.com/nerdsane/temper.git?branch=main#099d95ec2149e563dc9042d563de910a8f0283c6"
+source = "git+https://github.com/nerdsane/temper.git?branch=main#3f674d7096f597f079163d6cd278a87dd2f7c5c1"
 dependencies = [
  "serde",
  "serde_json",
@@ -5202,7 +5205,7 @@ dependencies = [
 [[package]]
 name = "temper-observe"
 version = "0.1.0"
-source = "git+https://github.com/nerdsane/temper.git?branch=main#099d95ec2149e563dc9042d563de910a8f0283c6"
+source = "git+https://github.com/nerdsane/temper.git?branch=main#3f674d7096f597f079163d6cd278a87dd2f7c5c1"
 dependencies = [
  "chrono",
  "opentelemetry",
@@ -5224,7 +5227,7 @@ dependencies = [
 [[package]]
 name = "temper-odata"
 version = "0.1.0"
-source = "git+https://github.com/nerdsane/temper.git?branch=main#099d95ec2149e563dc9042d563de910a8f0283c6"
+source = "git+https://github.com/nerdsane/temper.git?branch=main#3f674d7096f597f079163d6cd278a87dd2f7c5c1"
 dependencies = [
  "axum 0.8.8",
  "chrono",
@@ -5238,7 +5241,7 @@ dependencies = [
 [[package]]
 name = "temper-optimize"
 version = "0.1.0"
-source = "git+https://github.com/nerdsane/temper.git?branch=main#099d95ec2149e563dc9042d563de910a8f0283c6"
+source = "git+https://github.com/nerdsane/temper.git?branch=main#3f674d7096f597f079163d6cd278a87dd2f7c5c1"
 dependencies = [
  "serde",
  "serde_json",
@@ -5252,7 +5255,7 @@ dependencies = [
 [[package]]
 name = "temper-platform"
 version = "0.1.0"
-source = "git+https://github.com/nerdsane/temper.git?branch=main#099d95ec2149e563dc9042d563de910a8f0283c6"
+source = "git+https://github.com/nerdsane/temper.git?branch=main#3f674d7096f597f079163d6cd278a87dd2f7c5c1"
 dependencies = [
  "anyhow",
  "axum 0.8.8",
@@ -5281,7 +5284,7 @@ dependencies = [
 [[package]]
 name = "temper-runtime"
 version = "0.1.0"
-source = "git+https://github.com/nerdsane/temper.git?branch=main#099d95ec2149e563dc9042d563de910a8f0283c6"
+source = "git+https://github.com/nerdsane/temper.git?branch=main#3f674d7096f597f079163d6cd278a87dd2f7c5c1"
 dependencies = [
  "anyhow",
  "chrono",
@@ -5296,7 +5299,7 @@ dependencies = [
 [[package]]
 name = "temper-sandbox"
 version = "0.1.0"
-source = "git+https://github.com/nerdsane/temper.git?branch=main#099d95ec2149e563dc9042d563de910a8f0283c6"
+source = "git+https://github.com/nerdsane/temper.git?branch=main#3f674d7096f597f079163d6cd278a87dd2f7c5c1"
 dependencies = [
  "anyhow",
  "monty",
@@ -5310,7 +5313,7 @@ dependencies = [
 [[package]]
 name = "temper-server"
 version = "0.1.0"
-source = "git+https://github.com/nerdsane/temper.git?branch=main#099d95ec2149e563dc9042d563de910a8f0283c6"
+source = "git+https://github.com/nerdsane/temper.git?branch=main#3f674d7096f597f079163d6cd278a87dd2f7c5c1"
 dependencies = [
  "aes-gcm",
  "async-trait",
@@ -5320,6 +5323,7 @@ dependencies = [
  "ed25519-dalek",
  "futures-util",
  "hyper 1.9.0",
+ "libc",
  "lru",
  "opentelemetry",
  "reqwest",
@@ -5354,7 +5358,7 @@ dependencies = [
 [[package]]
 name = "temper-spec"
 version = "0.1.0"
-source = "git+https://github.com/nerdsane/temper.git?branch=main#099d95ec2149e563dc9042d563de910a8f0283c6"
+source = "git+https://github.com/nerdsane/temper.git?branch=main#3f674d7096f597f079163d6cd278a87dd2f7c5c1"
 dependencies = [
  "quick-xml",
  "serde",
@@ -5366,7 +5370,7 @@ dependencies = [
 [[package]]
 name = "temper-store-postgres"
 version = "0.1.0"
-source = "git+https://github.com/nerdsane/temper.git?branch=main#099d95ec2149e563dc9042d563de910a8f0283c6"
+source = "git+https://github.com/nerdsane/temper.git?branch=main#3f674d7096f597f079163d6cd278a87dd2f7c5c1"
 dependencies = [
  "chrono",
  "serde",
@@ -5380,7 +5384,7 @@ dependencies = [
 [[package]]
 name = "temper-store-redis"
 version = "0.1.0"
-source = "git+https://github.com/nerdsane/temper.git?branch=main#099d95ec2149e563dc9042d563de910a8f0283c6"
+source = "git+https://github.com/nerdsane/temper.git?branch=main#3f674d7096f597f079163d6cd278a87dd2f7c5c1"
 dependencies = [
  "chrono",
  "fred",
@@ -5397,7 +5401,7 @@ dependencies = [
 [[package]]
 name = "temper-store-turso"
 version = "0.1.0"
-source = "git+https://github.com/nerdsane/temper.git?branch=main#099d95ec2149e563dc9042d563de910a8f0283c6"
+source = "git+https://github.com/nerdsane/temper.git?branch=main#3f674d7096f597f079163d6cd278a87dd2f7c5c1"
 dependencies = [
  "libsql",
  "opentelemetry",
@@ -5413,7 +5417,7 @@ dependencies = [
 [[package]]
 name = "temper-verify"
 version = "0.1.0"
-source = "git+https://github.com/nerdsane/temper.git?branch=main#099d95ec2149e563dc9042d563de910a8f0283c6"
+source = "git+https://github.com/nerdsane/temper.git?branch=main#3f674d7096f597f079163d6cd278a87dd2f7c5c1"
 dependencies = [
  "proptest",
  "serde",
@@ -5427,10 +5431,11 @@ dependencies = [
 [[package]]
 name = "temper-wasm"
 version = "0.1.0"
-source = "git+https://github.com/nerdsane/temper.git?branch=main#099d95ec2149e563dc9042d563de910a8f0283c6"
+source = "git+https://github.com/nerdsane/temper.git?branch=main#3f674d7096f597f079163d6cd278a87dd2f7c5c1"
 dependencies = [
  "async-trait",
  "chrono",
+ "opentelemetry",
  "reqwest",
  "serde",
  "serde_json",

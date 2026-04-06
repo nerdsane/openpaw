@@ -8,8 +8,8 @@
 //! Mirrors the method signatures from `temper-sandbox/src/dispatch.rs`
 //! so agents see the exact same Python interface as `mcp__temper__execute`.
 
-use std::{cell::RefCell, collections::BTreeSet};
 use serde_json::{Value, json};
+use std::{cell::RefCell, collections::BTreeSet};
 use temper_wasm_sdk::context::Context;
 
 // Thread-local storage for the done signal. When an agent calls
@@ -42,9 +42,21 @@ pub fn dispatch(
 ) -> Result<Value, String> {
     ensure_method_enabled(ctx, obj_name, method, sandbox_url)?;
     match obj_name {
-        "temper" => dispatch_temper(ctx, temper_api_url, tenant, sandbox_url, workdir, method, args),
+        "temper" => dispatch_temper(
+            ctx,
+            temper_api_url,
+            tenant,
+            sandbox_url,
+            workdir,
+            method,
+            args,
+        ),
         "sandbox" => {
-            let sandbox_api_key = ctx.config.get("tensorlake_api_key").cloned().unwrap_or_default();
+            let sandbox_api_key = ctx
+                .config
+                .get("tensorlake_api_key")
+                .cloned()
+                .unwrap_or_default();
             dispatch_sandbox(ctx, sandbox_url, workdir, &sandbox_api_key, method, args)
         }
         _ => Err(format!("unknown object: {obj_name}")),
@@ -221,14 +233,18 @@ fn dispatch_temper(
 
         // Agent identity
         "get_agent_id" => {
-            let agent_id = ctx.entity_state.get("entity_id")
+            let agent_id = ctx
+                .entity_state
+                .get("entity_id")
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
             Ok(json!(agent_id))
         }
 
         // Entity operations (ported from tool_runner)
-        "spawn_session" => super::entity_ops::spawn_session(ctx, api_url, tenant, sandbox_url, workdir, args),
+        "spawn_session" => {
+            super::entity_ops::spawn_session(ctx, api_url, tenant, sandbox_url, workdir, args)
+        }
         "list_sessions" => super::entity_ops::list_sessions(ctx, api_url, tenant, args),
         "abort_session" => super::entity_ops::abort_session(ctx, api_url, tenant, args),
         "steer_session" => super::entity_ops::steer_session(ctx, api_url, tenant, args),
@@ -236,7 +252,9 @@ fn dispatch_temper(
         "recall_memory" => super::entity_ops::recall_memory(ctx, api_url, tenant, args),
         "file_upload" => super::entity_ops::file_upload(ctx, api_url, tenant, args),
         "read_entity" => super::entity_ops::read_entity(ctx, api_url, tenant, args),
-        "run_coding_agent" => super::entity_ops::run_coding_agent(ctx, api_url, tenant, sandbox_url, workdir, args),
+        "run_coding_agent" => {
+            super::entity_ops::run_coding_agent(ctx, api_url, tenant, sandbox_url, workdir, args)
+        }
 
         // Secrets (Cedar-gated via access_secret on Secret resource)
         "get_secret" => temper_get_secret(ctx, args),
@@ -270,13 +288,22 @@ fn dispatch_temper(
 
 // --- Entity CRUD ---
 
-fn temper_list(ctx: &Context, api_url: &str, tenant: &str, args: &[Value]) -> Result<Value, String> {
+fn temper_list(
+    ctx: &Context,
+    api_url: &str,
+    tenant: &str,
+    args: &[Value],
+) -> Result<Value, String> {
     let entity_set = str_arg(args, 0, "entity_set", "list")?;
-    let filter = opt_str_arg(args, 1).map(|f| normalize_odata_filter(&f));
-    let path = match filter {
-        Some(f) => {
-            let encoded = f.replace(' ', "%20").replace('\'', "%27");
+    let query = opt_str_arg(args, 1).map(|arg| normalize_odata_query_arg(&arg));
+    let path = match query {
+        Some(ODataQueryArg::Filter(filter)) => {
+            let encoded = encode_odata_query_value(&filter);
             format!("/tdata/{entity_set}?$filter={encoded}")
+        }
+        Some(ODataQueryArg::Raw(raw_query)) => {
+            let encoded = encode_odata_query_value(&raw_query);
+            format!("/tdata/{entity_set}?{encoded}")
         }
         None => format!("/tdata/{entity_set}"),
     };
@@ -288,51 +315,110 @@ fn temper_get(ctx: &Context, api_url: &str, tenant: &str, args: &[Value]) -> Res
     let entity_set = str_arg(args, 0, "entity_set", "get")?;
     let entity_id = str_arg(args, 1, "entity_id", "get")?;
     let key = escape_odata_key(&entity_id);
-    http_get(ctx, api_url, tenant, &format!("/tdata/{entity_set}('{key}')"))
+    http_get(
+        ctx,
+        api_url,
+        tenant,
+        &format!("/tdata/{entity_set}('{key}')"),
+    )
 }
 
-fn normalize_odata_filter(filter: &str) -> String {
-    filter
-        .trim()
-        .strip_prefix("$filter=")
-        .unwrap_or(filter.trim())
-        .to_string()
+enum ODataQueryArg {
+    Filter(String),
+    Raw(String),
 }
 
-fn temper_create(ctx: &Context, api_url: &str, tenant: &str, args: &[Value]) -> Result<Value, String> {
+fn normalize_odata_query_arg(arg: &str) -> ODataQueryArg {
+    let trimmed = arg.trim().trim_start_matches('?');
+    if let Some(filter) = trimmed.strip_prefix("$filter=") {
+        ODataQueryArg::Filter(filter.trim().to_string())
+    } else if trimmed.starts_with('$') {
+        ODataQueryArg::Raw(trimmed.to_string())
+    } else {
+        ODataQueryArg::Filter(trimmed.to_string())
+    }
+}
+
+fn encode_odata_query_value(value: &str) -> String {
+    value.replace(' ', "%20").replace('\'', "%27")
+}
+
+fn temper_create(
+    ctx: &Context,
+    api_url: &str,
+    tenant: &str,
+    args: &[Value],
+) -> Result<Value, String> {
     let entity_set = str_arg(args, 0, "entity_set", "create")?;
     let body = obj_arg(args, 1, "fields", "create")?;
     http_post(ctx, api_url, tenant, &format!("/tdata/{entity_set}"), &body)
 }
 
-fn temper_action(ctx: &Context, api_url: &str, tenant: &str, args: &[Value]) -> Result<Value, String> {
+fn temper_action(
+    ctx: &Context,
+    api_url: &str,
+    tenant: &str,
+    args: &[Value],
+) -> Result<Value, String> {
     let entity_set = str_arg(args, 0, "entity_set", "action")?;
     let entity_id = str_arg(args, 1, "entity_id", "action")?;
     let action_name = str_arg(args, 2, "action_name", "action")?;
     let body = obj_arg_or_empty(args, 3);
     let key = escape_odata_key(&entity_id);
-    http_post(ctx, api_url, tenant, &format!("/tdata/{entity_set}('{key}')/Temper.{action_name}"), &body)
+    http_post(
+        ctx,
+        api_url,
+        tenant,
+        &format!("/tdata/{entity_set}('{key}')/Temper.{action_name}"),
+        &body,
+    )
 }
 
-fn temper_patch(ctx: &Context, api_url: &str, tenant: &str, args: &[Value]) -> Result<Value, String> {
+fn temper_patch(
+    ctx: &Context,
+    api_url: &str,
+    tenant: &str,
+    args: &[Value],
+) -> Result<Value, String> {
     let entity_set = str_arg(args, 0, "entity_set", "patch")?;
     let entity_id = str_arg(args, 1, "entity_id", "patch")?;
     let body = obj_arg(args, 2, "fields", "patch")?;
     let key = escape_odata_key(&entity_id);
-    http_patch(ctx, api_url, tenant, &format!("/tdata/{entity_set}('{key}')"), &body)
+    http_patch(
+        ctx,
+        api_url,
+        tenant,
+        &format!("/tdata/{entity_set}('{key}')"),
+        &body,
+    )
 }
 
 // --- Specs ---
 
-fn temper_submit_specs(ctx: &Context, api_url: &str, tenant: &str, args: &[Value]) -> Result<Value, String> {
+fn temper_submit_specs(
+    ctx: &Context,
+    api_url: &str,
+    tenant: &str,
+    args: &[Value],
+) -> Result<Value, String> {
     let specs = obj_arg(args, 0, "specs", "submit_specs")?;
     let body = json!({ "tenant": tenant, "specs": specs });
     http_post(ctx, api_url, tenant, "/api/specs/load-inline", &body)
 }
 
-fn temper_show_spec(ctx: &Context, api_url: &str, tenant: &str, args: &[Value]) -> Result<Value, String> {
+fn temper_show_spec(
+    ctx: &Context,
+    api_url: &str,
+    tenant: &str,
+    args: &[Value],
+) -> Result<Value, String> {
     let entity_type = str_arg(args, 0, "entity_type", "show_spec")?;
-    http_get(ctx, api_url, tenant, &format!("/observe/specs/{entity_type}"))
+    http_get(
+        ctx,
+        api_url,
+        tenant,
+        &format!("/observe/specs/{entity_type}"),
+    )
 }
 
 fn temper_specs(ctx: &Context, api_url: &str, tenant: &str) -> Result<Value, String> {
@@ -341,16 +427,32 @@ fn temper_specs(ctx: &Context, api_url: &str, tenant: &str) -> Result<Value, Str
 
 // --- WASM ---
 
-fn temper_upload_wasm(ctx: &Context, api_url: &str, tenant: &str, args: &[Value]) -> Result<Value, String> {
+fn temper_upload_wasm(
+    ctx: &Context,
+    api_url: &str,
+    tenant: &str,
+    args: &[Value],
+) -> Result<Value, String> {
     let module_name = str_arg(args, 0, "module_name", "upload_wasm")?;
     let wasm_base64 = str_arg(args, 1, "wasm_base64", "upload_wasm")?;
     let body = json!({ "wasm_base64": wasm_base64 });
-    http_post(ctx, api_url, tenant, &format!("/api/wasm/modules/{module_name}"), &body)
+    http_post(
+        ctx,
+        api_url,
+        tenant,
+        &format!("/api/wasm/modules/{module_name}"),
+        &body,
+    )
 }
 
 // --- Evolution ---
 
-fn temper_get_trajectories(ctx: &Context, api_url: &str, tenant: &str, args: &[Value]) -> Result<Value, String> {
+fn temper_get_trajectories(
+    ctx: &Context,
+    api_url: &str,
+    tenant: &str,
+    args: &[Value],
+) -> Result<Value, String> {
     let entity_type = opt_str_arg(args, 0);
     let failed_only = args.get(1).and_then(|v| v.as_bool()).unwrap_or(false);
     let limit = args.get(2).and_then(|v| v.as_u64()).unwrap_or(50);
@@ -374,25 +476,45 @@ fn temper_get_decisions(ctx: &Context, api_url: &str, tenant: &str) -> Result<Va
     http_get(ctx, api_url, tenant, "/api/decisions")
 }
 
-fn temper_poll_decision(ctx: &Context, api_url: &str, tenant: &str, args: &[Value]) -> Result<Value, String> {
+fn temper_poll_decision(
+    ctx: &Context,
+    api_url: &str,
+    tenant: &str,
+    args: &[Value],
+) -> Result<Value, String> {
     let decision_id = str_arg(args, 0, "decision_id", "poll_decision")?;
     // Poll once — the agent can call repeatedly if needed.
     // Full blocking poll would exceed WASM execution budget.
-    http_get(ctx, api_url, tenant, &format!("/api/decisions/{decision_id}"))
+    http_get(
+        ctx,
+        api_url,
+        tenant,
+        &format!("/api/decisions/{decision_id}"),
+    )
 }
 
 // --- Web research (dispatch wrappers for standalone WASM modules) ---
 
 /// Search the web via WebQuery entity + web_search WASM module.
 /// Creates a WebQuery, dispatches ExecuteSearch, reads results.
-fn temper_web_search(ctx: &Context, api_url: &str, tenant: &str, args: &[Value]) -> Result<Value, String> {
+fn temper_web_search(
+    ctx: &Context,
+    api_url: &str,
+    tenant: &str,
+    args: &[Value],
+) -> Result<Value, String> {
     let query = str_arg(args, 0, "query", "web_search")?;
     web_query_dispatch(ctx, api_url, tenant, "search", &query, "")
 }
 
 /// Fetch a URL via WebQuery entity + web_fetch WASM module.
 /// Creates a WebQuery, dispatches ExecuteFetch, reads results.
-fn temper_web_fetch(ctx: &Context, api_url: &str, tenant: &str, args: &[Value]) -> Result<Value, String> {
+fn temper_web_fetch(
+    ctx: &Context,
+    api_url: &str,
+    tenant: &str,
+    args: &[Value],
+) -> Result<Value, String> {
     let url = str_arg(args, 0, "url", "web_fetch")?;
     web_query_dispatch(ctx, api_url, tenant, "fetch", "", &url)
 }
@@ -494,21 +616,47 @@ fn temper_get_secret(ctx: &Context, args: &[Value]) -> Result<Value, String> {
 
 // --- Cedar Policy Management (all Cedar-gated by platform) ---
 
-fn temper_submit_policy(ctx: &Context, api_url: &str, tenant: &str, args: &[Value]) -> Result<Value, String> {
+fn temper_submit_policy(
+    ctx: &Context,
+    api_url: &str,
+    tenant: &str,
+    args: &[Value],
+) -> Result<Value, String> {
     let policy_id = str_arg(args, 0, "policy_id", "submit_policy")?;
     let cedar_text = str_arg(args, 1, "cedar_text", "submit_policy")?;
     let body = json!({ "policy_id": policy_id, "cedar_text": cedar_text });
-    http_post(ctx, api_url, tenant, &format!("/api/tenants/{tenant}/policies/create"), &body)
+    http_post(
+        ctx,
+        api_url,
+        tenant,
+        &format!("/api/tenants/{tenant}/policies/create"),
+        &body,
+    )
 }
 
 fn temper_list_policies(ctx: &Context, api_url: &str, tenant: &str) -> Result<Value, String> {
-    http_get(ctx, api_url, tenant, &format!("/api/tenants/{tenant}/policies/list"))
+    http_get(
+        ctx,
+        api_url,
+        tenant,
+        &format!("/api/tenants/{tenant}/policies/list"),
+    )
 }
 
-fn temper_get_policy(ctx: &Context, api_url: &str, tenant: &str, args: &[Value]) -> Result<Value, String> {
+fn temper_get_policy(
+    ctx: &Context,
+    api_url: &str,
+    tenant: &str,
+    args: &[Value],
+) -> Result<Value, String> {
     let policy_id = str_arg(args, 0, "policy_id", "get_policy")?;
     // List all and filter — no single-policy GET endpoint
-    let all = http_get(ctx, api_url, tenant, &format!("/api/tenants/{tenant}/policies/list"))?;
+    let all = http_get(
+        ctx,
+        api_url,
+        tenant,
+        &format!("/api/tenants/{tenant}/policies/list"),
+    )?;
     let policies = all.get("policies").and_then(|v| v.as_array());
     if let Some(list) = policies {
         for p in list {
@@ -520,47 +668,101 @@ fn temper_get_policy(ctx: &Context, api_url: &str, tenant: &str, args: &[Value])
     Err(format!("policy '{policy_id}' not found"))
 }
 
-fn temper_update_policy(ctx: &Context, api_url: &str, tenant: &str, args: &[Value]) -> Result<Value, String> {
+fn temper_update_policy(
+    ctx: &Context,
+    api_url: &str,
+    tenant: &str,
+    args: &[Value],
+) -> Result<Value, String> {
     let policy_id = str_arg(args, 0, "policy_id", "update_policy")?;
     let cedar_text = str_arg(args, 1, "cedar_text", "update_policy")?;
     let body = json!({ "cedar_text": cedar_text });
-    http_patch(ctx, api_url, tenant, &format!("/api/tenants/{tenant}/policies/entry/{policy_id}"), &body)
+    http_patch(
+        ctx,
+        api_url,
+        tenant,
+        &format!("/api/tenants/{tenant}/policies/entry/{policy_id}"),
+        &body,
+    )
 }
 
-fn temper_delete_policy(ctx: &Context, api_url: &str, tenant: &str, args: &[Value]) -> Result<Value, String> {
+fn temper_delete_policy(
+    ctx: &Context,
+    api_url: &str,
+    tenant: &str,
+    args: &[Value],
+) -> Result<Value, String> {
     let policy_id = str_arg(args, 0, "policy_id", "delete_policy")?;
-    http_delete(ctx, api_url, tenant, &format!("/api/tenants/{tenant}/policies/entry/{policy_id}"))
+    http_delete(
+        ctx,
+        api_url,
+        tenant,
+        &format!("/api/tenants/{tenant}/policies/entry/{policy_id}"),
+    )
 }
 
 // --- Decision Management (Cedar-gated by platform) ---
 
-fn temper_approve_decision(ctx: &Context, api_url: &str, tenant: &str, args: &[Value]) -> Result<Value, String> {
+fn temper_approve_decision(
+    ctx: &Context,
+    api_url: &str,
+    tenant: &str,
+    args: &[Value],
+) -> Result<Value, String> {
     let decision_id = str_arg(args, 0, "decision_id", "approve_decision")?;
     let scope = obj_arg(args, 1, "scope", "approve_decision")?;
-    let agent_id = ctx.entity_state.get("entity_id")
+    let agent_id = ctx
+        .entity_state
+        .get("entity_id")
         .and_then(|v| v.as_str())
         .unwrap_or("agent");
     let body = json!({ "scope": scope, "decided_by": format!("agent:{agent_id}") });
-    http_post(ctx, api_url, tenant, &format!("/api/tenants/{tenant}/decisions/{decision_id}/approve"), &body)
+    http_post(
+        ctx,
+        api_url,
+        tenant,
+        &format!("/api/tenants/{tenant}/decisions/{decision_id}/approve"),
+        &body,
+    )
 }
 
-fn temper_deny_decision(ctx: &Context, api_url: &str, tenant: &str, args: &[Value]) -> Result<Value, String> {
+fn temper_deny_decision(
+    ctx: &Context,
+    api_url: &str,
+    tenant: &str,
+    args: &[Value],
+) -> Result<Value, String> {
     let decision_id = str_arg(args, 0, "decision_id", "deny_decision")?;
-    let agent_id = ctx.entity_state.get("entity_id")
+    let agent_id = ctx
+        .entity_state
+        .get("entity_id")
         .and_then(|v| v.as_str())
         .unwrap_or("agent");
     let body = json!({ "decided_by": format!("agent:{agent_id}") });
-    http_post(ctx, api_url, tenant, &format!("/api/tenants/{tenant}/decisions/{decision_id}/deny"), &body)
+    http_post(
+        ctx,
+        api_url,
+        tenant,
+        &format!("/api/tenants/{tenant}/decisions/{decision_id}/deny"),
+        &body,
+    )
 }
 
 // --- Apps ---
 
-fn temper_install_app(ctx: &Context, api_url: &str, tenant: &str, args: &[Value]) -> Result<Value, String> {
+fn temper_install_app(
+    ctx: &Context,
+    api_url: &str,
+    tenant: &str,
+    args: &[Value],
+) -> Result<Value, String> {
     let app_name = str_arg(args, 0, "app_name", "install_app")?;
     let reason = opt_str_arg(args, 1).unwrap_or_default();
     let payload = opt_str_arg(args, 2).unwrap_or_default();
     let cap_type = opt_str_arg(args, 3).unwrap_or_else(|| "os_app".to_string());
-    let agent_id = ctx.entity_state.get("entity_id")
+    let agent_id = ctx
+        .entity_state
+        .get("entity_id")
         .and_then(|v| v.as_str())
         .unwrap_or("");
 
@@ -601,7 +803,9 @@ fn dispatch_sandbox(
         "write" => sandbox_write(ctx, sandbox_url, sandbox_api_key, args),
         "edit" => sandbox_edit(ctx, sandbox_url, sandbox_api_key, args),
         "bash" => sandbox_bash(ctx, sandbox_url, sandbox_api_key, workdir, args),
-        _ => Err(format!("unknown sandbox method '{method}'. Available: read, write, edit, bash")),
+        _ => Err(format!(
+            "unknown sandbox method '{method}'. Available: read, write, edit, bash"
+        )),
     }
 }
 
@@ -619,7 +823,12 @@ fn sandbox_headers_json(api_key: &str) -> Vec<(String, String)> {
     h
 }
 
-fn sandbox_read(ctx: &Context, sandbox_url: &str, api_key: &str, args: &[Value]) -> Result<Value, String> {
+fn sandbox_read(
+    ctx: &Context,
+    sandbox_url: &str,
+    api_key: &str,
+    args: &[Value],
+) -> Result<Value, String> {
     let path = str_arg(args, 0, "path", "read")?;
     let url = format!("{sandbox_url}/api/v1/files?path={}", urlenc(&path));
     let resp = ctx.http_call("GET", &url, &sandbox_headers(api_key), "")?;
@@ -629,7 +838,12 @@ fn sandbox_read(ctx: &Context, sandbox_url: &str, api_key: &str, args: &[Value])
     Ok(json!(resp.body))
 }
 
-fn sandbox_write(ctx: &Context, sandbox_url: &str, api_key: &str, args: &[Value]) -> Result<Value, String> {
+fn sandbox_write(
+    ctx: &Context,
+    sandbox_url: &str,
+    api_key: &str,
+    args: &[Value],
+) -> Result<Value, String> {
     let path = str_arg(args, 0, "path", "write")?;
     let content = str_arg(args, 1, "content", "write")?;
     let url = format!("{sandbox_url}/api/v1/files?path={}", urlenc(&path));
@@ -640,7 +854,12 @@ fn sandbox_write(ctx: &Context, sandbox_url: &str, api_key: &str, args: &[Value]
     Ok(json!({"ok": true}))
 }
 
-fn sandbox_edit(ctx: &Context, sandbox_url: &str, api_key: &str, args: &[Value]) -> Result<Value, String> {
+fn sandbox_edit(
+    ctx: &Context,
+    sandbox_url: &str,
+    api_key: &str,
+    args: &[Value],
+) -> Result<Value, String> {
     let path = str_arg(args, 0, "path", "edit")?;
     let old_string = str_arg(args, 1, "old_string", "edit")?;
     let new_string = str_arg(args, 2, "new_string", "edit")?;
@@ -654,7 +873,9 @@ fn sandbox_edit(ctx: &Context, sandbox_url: &str, api_key: &str, args: &[Value])
 
     let content = resp.body;
     if !content.contains(&old_string) {
-        return Err(format!("sandbox.edit({path}): old_string not found in file"));
+        return Err(format!(
+            "sandbox.edit({path}): old_string not found in file"
+        ));
     }
     let new_content = content.replacen(&old_string, &new_string, 1);
 
@@ -665,22 +886,29 @@ fn sandbox_edit(ctx: &Context, sandbox_url: &str, api_key: &str, args: &[Value])
     Ok(json!({"ok": true}))
 }
 
-fn sandbox_bash(ctx: &Context, sandbox_url: &str, api_key: &str, workdir: &str, args: &[Value]) -> Result<Value, String> {
+fn sandbox_bash(
+    ctx: &Context,
+    sandbox_url: &str,
+    api_key: &str,
+    workdir: &str,
+    args: &[Value],
+) -> Result<Value, String> {
     let command = str_arg(args, 0, "command", "bash")?;
     let headers = sandbox_headers(api_key);
     let headers_json = sandbox_headers_json(api_key);
 
-    let unique = format!("{:x}", std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis());
+    let unique = format!(
+        "{:x}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis()
+    );
     let out_file = format!("/tmp/.paw-out-{unique}");
     let err_file = format!("/tmp/.paw-err-{unique}");
     let rc_file = format!("/tmp/.paw-rc-{unique}");
 
-    let wrapped = format!(
-        "({command}) > {out_file} 2> {err_file}; echo $? > {rc_file}"
-    );
+    let wrapped = format!("({command}) > {out_file} 2> {err_file}; echo $? > {rc_file}");
 
     // Tensorlake API: command is binary path, args is separate array
     let body = json!({
@@ -698,15 +926,41 @@ fn sandbox_bash(ctx: &Context, sandbox_url: &str, api_key: &str, workdir: &str, 
     }
 
     // Process started — poll for output files to know when it's done.
-    let stdout = ctx.http_call("GET", &format!("{sandbox_url}/api/v1/files?path={}", urlenc(&out_file)), &headers, "")
-        .map(|r| r.body).unwrap_or_default();
-    let stderr = ctx.http_call("GET", &format!("{sandbox_url}/api/v1/files?path={}", urlenc(&err_file)), &headers, "")
-        .map(|r| r.body).unwrap_or_default();
-    let exit_code = ctx.http_call("GET", &format!("{sandbox_url}/api/v1/files?path={}", urlenc(&rc_file)), &headers, "")
-        .map(|r| r.body.trim().to_string()).unwrap_or_default();
+    let stdout = ctx
+        .http_call(
+            "GET",
+            &format!("{sandbox_url}/api/v1/files?path={}", urlenc(&out_file)),
+            &headers,
+            "",
+        )
+        .map(|r| r.body)
+        .unwrap_or_default();
+    let stderr = ctx
+        .http_call(
+            "GET",
+            &format!("{sandbox_url}/api/v1/files?path={}", urlenc(&err_file)),
+            &headers,
+            "",
+        )
+        .map(|r| r.body)
+        .unwrap_or_default();
+    let exit_code = ctx
+        .http_call(
+            "GET",
+            &format!("{sandbox_url}/api/v1/files?path={}", urlenc(&rc_file)),
+            &headers,
+            "",
+        )
+        .map(|r| r.body.trim().to_string())
+        .unwrap_or_default();
 
     for f in [&out_file, &err_file, &rc_file] {
-        let _ = ctx.http_call("DELETE", &format!("{sandbox_url}/api/v1/files?path={}", urlenc(f)), &headers, "");
+        let _ = ctx.http_call(
+            "DELETE",
+            &format!("{sandbox_url}/api/v1/files?path={}", urlenc(f)),
+            &headers,
+            "",
+        );
     }
 
     let mut output = String::new();
@@ -714,7 +968,9 @@ fn sandbox_bash(ctx: &Context, sandbox_url: &str, api_key: &str, workdir: &str, 
         output.push_str(&stdout);
     }
     if !stderr.is_empty() {
-        if !output.is_empty() { output.push('\n'); }
+        if !output.is_empty() {
+            output.push('\n');
+        }
         output.push_str("STDERR: ");
         output.push_str(&stderr);
     }
@@ -735,14 +991,18 @@ fn str_arg(args: &[Value], idx: usize, name: &str, method: &str) -> Result<Strin
 }
 
 fn opt_str_arg(args: &[Value], idx: usize) -> Option<String> {
-    args.get(idx).and_then(|v| v.as_str()).map(|s| s.to_string())
+    args.get(idx)
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
 }
 
 fn obj_arg(args: &[Value], idx: usize, name: &str, method: &str) -> Result<Value, String> {
     args.get(idx)
         .filter(|v| v.is_object())
         .cloned()
-        .ok_or_else(|| format!("temper.{method}(): missing object argument '{name}' at position {idx}"))
+        .ok_or_else(|| {
+            format!("temper.{method}(): missing object argument '{name}' at position {idx}")
+        })
 }
 
 fn obj_arg_or_empty(args: &[Value], idx: usize) -> Value {
@@ -784,7 +1044,13 @@ fn http_get(ctx: &Context, api_url: &str, tenant: &str, path: &str) -> Result<Va
         .map_err(|e| format!("failed to parse response from {path}: {e}"))
 }
 
-fn http_post(ctx: &Context, api_url: &str, tenant: &str, path: &str, body: &Value) -> Result<Value, String> {
+fn http_post(
+    ctx: &Context,
+    api_url: &str,
+    tenant: &str,
+    path: &str,
+    body: &Value,
+) -> Result<Value, String> {
     let url = format!("{api_url}{path}");
     let headers = runtime_headers(tenant);
     let resp = ctx.http_call("POST", &url, &headers, &body.to_string())?;
@@ -798,7 +1064,13 @@ fn http_post(ctx: &Context, api_url: &str, tenant: &str, path: &str, body: &Valu
         .map_err(|e| format!("failed to parse response from {path}: {e}"))
 }
 
-fn http_patch(ctx: &Context, api_url: &str, tenant: &str, path: &str, body: &Value) -> Result<Value, String> {
+fn http_patch(
+    ctx: &Context,
+    api_url: &str,
+    tenant: &str,
+    path: &str,
+    body: &Value,
+) -> Result<Value, String> {
     let url = format!("{api_url}{path}");
     let headers = runtime_headers(tenant);
     let resp = ctx.http_call("PATCH", &url, &headers, &body.to_string())?;

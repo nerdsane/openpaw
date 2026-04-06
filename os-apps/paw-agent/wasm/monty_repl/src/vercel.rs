@@ -19,11 +19,7 @@ pub fn vercel(ctx: &Context, args: &[Value]) -> Result<Value, String> {
         .filter(|s| !s.is_empty())
         .ok_or("vercel: 'action' is required")?;
 
-    let token = ctx
-        .config
-        .get("vercel_token")
-        .cloned()
-        .unwrap_or_default();
+    let token = ctx.config.get("vercel_token").cloned().unwrap_or_default();
     if token.trim().is_empty() || token.contains("{secret:") {
         return Err("vercel: missing VERCEL_TOKEN; configure vercel_token secret".into());
     }
@@ -101,7 +97,10 @@ fn require_str<'a>(input: &'a Value, key: &str) -> Result<&'a str, String> {
         .ok_or_else(|| format!("vercel: '{key}' is required"))
 }
 
-fn check_response(action: &str, resp: &temper_wasm_sdk::context::HttpResponse) -> Result<Value, String> {
+fn check_response(
+    action: &str,
+    resp: &temper_wasm_sdk::context::HttpResponse,
+) -> Result<Value, String> {
     if resp.status >= 200 && resp.status < 300 {
         serde_json::from_str(&resp.body)
             .map_err(|e| format!("vercel {action}: failed to parse response: {e}"))

@@ -150,7 +150,8 @@ pub fn save_repl_to_file(
         }
         let created: Value = serde_json::from_str(&resp.body)
             .map_err(|e| format!("failed to parse file create response: {e}"))?;
-        created.get("entity_id")
+        created
+            .get("entity_id")
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string()
@@ -271,8 +272,7 @@ fn load_matching_hooks(
     if resp.status != 200 {
         return Ok(Vec::new());
     }
-    let parsed: Value =
-        serde_json::from_str(&resp.body).unwrap_or_else(|_| json!({ "value": [] }));
+    let parsed: Value = serde_json::from_str(&resp.body).unwrap_or_else(|_| json!({ "value": [] }));
     let hooks = parsed
         .get("value")
         .and_then(Value::as_array)

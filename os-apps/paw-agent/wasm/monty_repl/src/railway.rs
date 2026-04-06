@@ -19,11 +19,7 @@ pub fn railway(ctx: &Context, args: &[Value]) -> Result<Value, String> {
         .filter(|s| !s.is_empty())
         .ok_or("railway: 'action' is required")?;
 
-    let token = ctx
-        .config
-        .get("railway_token")
-        .cloned()
-        .unwrap_or_default();
+    let token = ctx.config.get("railway_token").cloned().unwrap_or_default();
     if token.trim().is_empty() || token.contains("{secret:") {
         return Err("railway: missing RAILWAY_TOKEN; configure railway_token secret".into());
     }
@@ -66,9 +62,7 @@ pub fn railway(ctx: &Context, args: &[Value]) -> Result<Value, String> {
                 .and_then(Value::as_str)
                 .unwrap_or("");
             if environment_id.is_empty() {
-                format!(
-                    r#"{{"query":"query {{ variables(serviceId: \"{service_id}\") }}"}}"#
-                )
+                format!(r#"{{"query":"query {{ variables(serviceId: \"{service_id}\") }}"}}"#)
             } else {
                 format!(
                     r#"{{"query":"query {{ variables(serviceId: \"{service_id}\", environmentId: \"{environment_id}\") }}"}}"#
@@ -78,7 +72,7 @@ pub fn railway(ctx: &Context, args: &[Value]) -> Result<Value, String> {
         _ => {
             return Err(format!(
                 "railway: unknown action '{action}'. Valid: deployment_status, service_status, redeploy, logs, variables"
-            ))
+            ));
         }
     };
 
