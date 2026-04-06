@@ -40,9 +40,12 @@ Open Paw follows the Temper OS app pattern — all agent logic is modeled as IOA
 | paw-harness | Paw.Harness | Development workflow enforcement (ProjectHarness, WorkCycle) |
 | paw-heal | Paw.Heal | Self-healing monitoring (Monitor, AlertCycle, MonitorScan) |
 
-### Souls
+### Agents & Skills
 
-Agent personalities are defined in `souls/` and seeded into the entity system at boot:
-- `paw.md` — Project manager agent
-- `developer.md` — Software developer agent
-- `sre.md` — Monitoring and triage agent
+Agent definitions live in `os-apps/paw-agent/agents/` and are seeded into the entity system at boot:
+- `paw/` — Paw chief of staff (SOUL.md + STYLE.md + AGENT.md)
+- `swe/` — Software developer agent (AGENT.md)
+- `sre/` — Site reliability engineering agent (AGENT.md)
+- `probe/` — Foresight probe agent (AGENT.md)
+
+Reusable skills live in `os-apps/paw-agent/skills/`.

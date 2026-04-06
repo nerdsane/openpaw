@@ -58,7 +58,8 @@ If the answer is no, some logic is hiding in imperative code. Refactor it into e
 | **Platform** (Rust) | OData API, WASM runtime, Cedar engine | `crates/temper/` |
 | **Entity specs** (TOML) | State machines, action definitions | `os-apps/*/specs/` |
 | **Integrations** (WASM) | Business logic on state transitions | `os-apps/*/wasm/` |
-| **Intelligence** (Souls) | Agent decision-making | `souls/` |
+| **Agent definitions** | Agent identities and instructions | `os-apps/paw-agent/agents/` |
+| **Skill definitions** | Reusable knowledge for agent prompts | `os-apps/paw-agent/skills/` |
 | **Policies** (Cedar) | Authorization rules | `os-apps/*/policies/` |
 
 ## Reference

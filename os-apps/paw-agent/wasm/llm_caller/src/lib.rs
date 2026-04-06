@@ -2126,6 +2126,26 @@ fn assemble_system_prompt(
         }
     }
 
+    // 1b. Agent instructions (from Agent entity's instructions_file_id)
+    {
+        let agent_id = ctx
+            .entity_state
+            .get("fields")
+            .and_then(|f| f.get("agent_id").or_else(|| f.get("AgentId")))
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        if !agent_id.is_empty() {
+            match load_agent_instructions(ctx, temper_api_url, tenant, agent_id) {
+                Ok(content) if !content.is_empty() => parts.push(content),
+                Ok(_) => {}
+                Err(e) => ctx.log(
+                    "warn",
+                    &format!("assemble_system_prompt: failed to load agent instructions: {e}"),
+                ),
+            }
+        }
+    }
+
     // 2. System prompt override
     if !system_prompt_override.is_empty() {
         parts.push(system_prompt_override.to_string());
@@ -2148,9 +2168,20 @@ fn assemble_system_prompt(
         }
     }
 
-    // 3. Available skills (filtered by scope: global + soul-specific)
-    if !soul_id.is_empty() {
-        match load_skills_block(ctx, temper_api_url, tenant, soul_id) {
+    // 3. Available skills (filtered by scope: global + soul-specific + agent-specific)
+    {
+        let agent_id = ctx
+            .entity_state
+            .get("fields")
+            .and_then(|f| f.get("agent_id").or_else(|| f.get("AgentId")))
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let agent_name = if !agent_id.is_empty() {
+            resolve_agent_name(ctx, temper_api_url, tenant, agent_id).unwrap_or_default()
+        } else {
+            String::new()
+        };
+        match load_skills_block(ctx, temper_api_url, tenant, soul_id, &agent_name) {
             Ok(block) if !block.is_empty() => parts.push(block),
             Ok(_) => {}
             Err(e) => ctx.log(
@@ -2335,11 +2366,15 @@ fn resolve_soul_entity(
 }
 
 /// Load active skills as an XML block for the system prompt.
+///
+/// Skills are loaded for ALL agents (not gated on soul_id). Scope filtering
+/// includes global skills, plus skills scoped to the soul name or agent name.
 fn load_skills_block(
     ctx: &Context,
     temper_api_url: &str,
     tenant: &str,
     soul_id: &str,
+    agent_name: &str,
 ) -> Result<String, String> {
     let headers = agent_headers(ctx, tenant, None, Some("application/json"));
 
@@ -2355,19 +2390,24 @@ fn load_skills_block(
         String::new()
     };
 
-    // Query: global skills + skills scoped to this soul name
-    let filter = if soul_name.is_empty() {
-        "Status eq 'Active' and Scope eq 'global'".to_string()
-    } else {
+    // Build scope filter: global + soul name + agent name
+    let mut scope_parts = vec!["Scope eq 'global'".to_string()];
+    if !soul_name.is_empty() {
         let escaped = soul_name.replace('\'', "''");
-        format!(
-            "Status eq 'Active' and (Scope eq 'global' or Scope eq '{escaped}')"
-        )
-    };
+        scope_parts.push(format!("Scope eq '{escaped}'"));
+    }
+    if !agent_name.is_empty() {
+        let escaped = agent_name.replace('\'', "''");
+        scope_parts.push(format!("Scope eq '{escaped}'"));
+    }
+    let filter = format!(
+        "Status eq 'Active' and ({})",
+        scope_parts.join(" or ")
+    );
     let url = format!("{temper_api_url}/tdata/Skills?$filter={filter}");
     let resp = ctx.http_call("GET", &url, &headers, "")?;
 
-    // If parenthesized OR isn't supported, fall back to two queries
+    // If parenthesized OR isn't supported, fall back to separate queries merged client-side
     let skills = if resp.status == 200 {
         let parsed: Value = serde_json::from_str(&resp.body).unwrap_or(json!({}));
         parsed
@@ -2375,36 +2415,32 @@ fn load_skills_block(
             .and_then(|v| v.as_array())
             .cloned()
             .unwrap_or_default()
-    } else if !soul_name.is_empty() {
-        // Fallback: two separate queries merged client-side
+    } else {
+        // Fallback: separate queries merged client-side
         let mut merged = Vec::new();
-        let global_url =
-            format!("{temper_api_url}/tdata/Skills?$filter=Status eq 'Active' and Scope eq 'global'");
-        if let Ok(gr) = ctx.http_call("GET", &global_url, &headers, "") {
-            if gr.status == 200 {
-                if let Ok(gp) = serde_json::from_str::<Value>(&gr.body) {
-                    if let Some(arr) = gp.get("value").and_then(|v| v.as_array()) {
-                        merged.extend(arr.iter().cloned());
-                    }
-                }
-            }
-        }
-        let escaped = soul_name.replace('\'', "''");
-        let scoped_url = format!(
-            "{temper_api_url}/tdata/Skills?$filter=Status eq 'Active' and Scope eq '{escaped}'"
-        );
-        if let Ok(sr) = ctx.http_call("GET", &scoped_url, &headers, "") {
-            if sr.status == 200 {
-                if let Ok(sp) = serde_json::from_str::<Value>(&sr.body) {
-                    if let Some(arr) = sp.get("value").and_then(|v| v.as_array()) {
-                        merged.extend(arr.iter().cloned());
+        let mut seen_ids = BTreeSet::new();
+        for scope_filter in &scope_parts {
+            let fallback_url = format!(
+                "{temper_api_url}/tdata/Skills?$filter=Status eq 'Active' and {scope_filter}"
+            );
+            if let Ok(r) = ctx.http_call("GET", &fallback_url, &headers, "") {
+                if r.status == 200 {
+                    if let Ok(p) = serde_json::from_str::<Value>(&r.body) {
+                        if let Some(arr) = p.get("value").and_then(|v| v.as_array()) {
+                            for item in arr {
+                                let id = entity_field_str(item, &["Id", "entity_id"])
+                                    .unwrap_or("")
+                                    .to_string();
+                                if seen_ids.insert(id) {
+                                    merged.push(item.clone());
+                                }
+                            }
+                        }
                     }
                 }
             }
         }
         merged
-    } else {
-        Vec::new()
     };
 
     if skills.is_empty() {
@@ -2421,6 +2457,58 @@ fn load_skills_block(
     }
     xml.push_str("</available_skills>");
     Ok(xml)
+}
+
+/// Load agent instructions from the Agent entity's instructions_file_id.
+///
+/// Queries the Agent entity by ID, reads the InstructionsFileId field,
+/// and fetches the file content from TemperFS.
+fn load_agent_instructions(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+    agent_id: &str,
+) -> Result<String, String> {
+    let headers = agent_headers(ctx, tenant, None, Some("application/json"));
+    let url = format!("{temper_api_url}/tdata/Agents('{agent_id}')");
+    let resp = ctx.http_call("GET", &url, &headers, "")?;
+    if resp.status != 200 {
+        return Ok(String::new());
+    }
+    let agent: Value =
+        serde_json::from_str(&resp.body).map_err(|e| format!("parse agent JSON: {e}"))?;
+    let file_id = entity_field_str(&agent, &["InstructionsFileId", "instructions_file_id"])
+        .unwrap_or("");
+    if file_id.is_empty() {
+        return Ok(String::new());
+    }
+    let file_url = format!("{temper_api_url}/tdata/Files('{file_id}')/$value");
+    let file_resp = ctx.http_call("GET", &file_url, &headers, "")?;
+    if file_resp.status == 200 && !file_resp.body.is_empty() {
+        Ok(file_resp.body)
+    } else {
+        Ok(String::new())
+    }
+}
+
+/// Resolve an Agent entity's name by ID.
+fn resolve_agent_name(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+    agent_id: &str,
+) -> Result<String, String> {
+    let headers = agent_headers(ctx, tenant, None, Some("application/json"));
+    let url = format!("{temper_api_url}/tdata/Agents('{agent_id}')");
+    let resp = ctx.http_call("GET", &url, &headers, "")?;
+    if resp.status != 200 {
+        return Ok(String::new());
+    }
+    let agent: Value =
+        serde_json::from_str(&resp.body).map_err(|e| format!("parse agent JSON: {e}"))?;
+    Ok(entity_field_str(&agent, &["Name", "name"])
+        .unwrap_or("")
+        .to_string())
 }
 
 /// Load agent memories as a context block for the system prompt.
