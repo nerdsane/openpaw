@@ -452,7 +452,7 @@ fn drive_repl_loop(
                     }
                 }
 
-                let call_id = call.call_id;
+                let _call_id = call.call_id;
                 let fn_name = call.function_name.clone();
                 let args = call.args.clone();
 

@@ -70,9 +70,6 @@ pub struct Config {
     /// Exa API key for web search.
     pub exa_api_key: Option<String>,
 
-    /// Shared secret used to validate webhook request signatures.
-    pub webhook_secret: Option<String>,
-
     /// Enable OpenTelemetry export to Datadog Agent via OTLP.
     pub otel_enabled: bool,
 
@@ -114,7 +111,6 @@ impl Config {
             railway_token: optional_env("RAILWAY_TOKEN"),
             vercel_token: optional_env("VERCEL_TOKEN"),
             exa_api_key: optional_env("EXA_API_KEY"),
-            webhook_secret: optional_env("WEBHOOK_SECRET"),
             otel_enabled: std::env::var("OTEL_ENABLED")
                 .map(|v| v != "false" && v != "0")
                 .unwrap_or(true),

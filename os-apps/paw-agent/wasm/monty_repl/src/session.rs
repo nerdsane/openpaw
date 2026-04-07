@@ -202,6 +202,8 @@ fn workspace_headers(tenant: &str, workspace_id: &str) -> Vec<(String, String)> 
 }
 
 /// Evaluate before-hooks for a tool/op name. Returns error string if blocked.
+/// Not yet wired into the dispatch pipeline; will be called once hook policies are enabled.
+#[allow(dead_code)]
 pub fn evaluate_before_hooks(
     ctx: &Context,
     temper_api_url: &str,
@@ -234,6 +236,8 @@ pub fn evaluate_before_hooks(
 }
 
 /// Apply after-hooks to tool output.
+/// Not yet wired into the dispatch pipeline; will be called once hook policies are enabled.
+#[allow(dead_code)]
 pub fn apply_after_hooks(
     ctx: &Context,
     temper_api_url: &str,
@@ -264,6 +268,7 @@ pub fn apply_after_hooks(
 
 // --- Internal helpers ---
 
+#[allow(dead_code)]
 fn load_matching_hooks(
     ctx: &Context,
     temper_api_url: &str,
@@ -298,6 +303,7 @@ fn load_matching_hooks(
     Ok(hooks)
 }
 
+#[allow(dead_code)]
 fn hook_matches(pattern: &str, op_name: &str) -> bool {
     let pattern = pattern.trim();
     if pattern.is_empty() || pattern == ".*" || pattern == "*" {
@@ -459,6 +465,7 @@ fn should_store_entry_as_file(content: &str) -> bool {
     content.len() > SESSION_ENTRY_FILE_THRESHOLD_BYTES
 }
 
+#[allow(dead_code)]
 fn odata_headers(tenant: &str) -> Vec<(String, String)> {
     vec![
         ("Content-Type".to_string(), "application/json".to_string()),

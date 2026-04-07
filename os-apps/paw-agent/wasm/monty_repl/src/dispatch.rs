@@ -890,7 +890,7 @@ fn sandbox_bash(
     ctx: &Context,
     sandbox_url: &str,
     api_key: &str,
-    workdir: &str,
+    _workdir: &str,
     args: &[Value],
 ) -> Result<Value, String> {
     let command = str_arg(args, 0, "command", "bash")?;
