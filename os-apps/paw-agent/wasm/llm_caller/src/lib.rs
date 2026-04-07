@@ -1137,38 +1137,39 @@ fn call_openai(
     }
     let resp = resp.ok_or_else(|| format!("OpenAI Codex API failed after 5 attempts: {last_err}"))?;
 
-    // Parse response — the host may return either:
-    // 1. Pre-extracted response.completed event data (single JSON line) — from SSE auto-detection
-    // 2. Full SSE stream text (fallback) — scan for response.completed event
+    // Parse response — the host returns SSE data payloads (newline-separated JSON lines,
+    // already stripped of "data: " prefixes). Scan for the response.completed event.
     let body = &resp.body;
-    let response: Value = if let Ok(event) = serde_json::from_str::<Value>(body) {
-        // Case 1: host returned the completed event JSON directly
-        let event_type = event.get("type").and_then(Value::as_str).unwrap_or("");
-        if event_type == "response.completed" {
-            event.get("response").cloned().unwrap_or(event)
-        } else if event.get("output").is_some() {
-            // Already the response object (not wrapped in event)
-            event
-        } else {
-            return Err(format!("OpenAI: unexpected response format: {}", &body[..body.len().min(200)]));
+    let mut completed_response: Option<Value> = None;
+    for line in body.lines() {
+        // Each line is a JSON payload from an SSE data: field
+        // Try parsing — skip non-JSON lines (empty, [DONE], etc.)
+        let line = line.trim();
+        if line.is_empty() || line == "[DONE]" {
+            continue;
         }
-    } else {
-        // Case 2: raw SSE stream — scan for response.completed
-        let mut completed = None;
-        for line in body.lines() {
-            if let Some(data) = line.strip_prefix("data: ") {
-                if let Ok(event) = serde_json::from_str::<Value>(data) {
-                    if event.get("type").and_then(Value::as_str) == Some("response.completed") {
-                        completed = event.get("response").cloned();
-                        break;
-                    }
-                }
+        // Try with and without "data: " prefix (host may or may not strip it)
+        let json_str = line.strip_prefix("data: ").unwrap_or(line);
+        if let Ok(event) = serde_json::from_str::<Value>(json_str) {
+            let event_type = event.get("type").and_then(Value::as_str).unwrap_or("");
+            if event_type == "response.completed" {
+                completed_response = event.get("response").cloned();
+                break;
+            }
+            // Also handle if the line IS the response object directly
+            if event.get("output").is_some() && event.get("usage").is_some() {
+                completed_response = Some(event);
+                break;
             }
         }
-        completed.ok_or_else(|| format!(
-            "OpenAI: no response.completed found (body {}B)", body.len()
-        ))?
-    };
+    }
+    let response = completed_response.ok_or_else(|| {
+        format!(
+            "OpenAI: no response.completed found in {} lines ({}B)",
+            body.lines().count(),
+            body.len()
+        )
+    })?;
 
     // Extract content and tool calls from response.output
     let mut content_blocks = Vec::<Value>::new();
