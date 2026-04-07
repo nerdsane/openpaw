@@ -452,28 +452,28 @@
 
   /* Terminal in panel */
   .panel-terminal {
-    background: var(--surface, #141414);
-    border: 1px solid var(--border, rgba(255,255,255,0.08));
+    background: var(--terminal-bg, #09090b);
+    border: 1px solid var(--terminal-border, rgba(255,255,255,0.05));
     border-radius: var(--radius, 4px);
-    padding: 8px;
+    padding: 10px 12px;
     display: flex;
     flex-direction: column;
-    gap: 2px;
-    max-height: 300px;
+    gap: 3px;
+    max-height: 320px;
     overflow-y: auto;
   }
 
   .panel-line {
     display: flex;
-    gap: 4px;
+    gap: 6px;
     font-size: 10px;
     white-space: nowrap;
     overflow: hidden;
   }
 
-  .panel-prompt { color: var(--accent, #00DC82); flex-shrink: 0; }
-  .panel-cmd { color: var(--accent, #00DC82); flex-shrink: 0; }
-  .panel-args { color: var(--text-2, #a0a0a0); overflow: hidden; text-overflow: ellipsis; }
+  .panel-prompt { color: var(--accent, #34d399); flex-shrink: 0; user-select: none; }
+  .panel-cmd { color: var(--text-1, #fafafa); font-weight: 500; flex-shrink: 0; }
+  .panel-args { color: var(--text-3, #71717a); overflow: hidden; text-overflow: ellipsis; }
 
   /* Tags */
   .panel-tags {

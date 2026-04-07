@@ -105,14 +105,14 @@
 
   .terminal {
     flex: 1; padding: 4px 8px; overflow: hidden;
-    display: flex; flex-direction: column; gap: 1px;
-    font-size: 10px; line-height: 1.5;
+    display: flex; flex-direction: column; gap: 2px;
+    font-size: 10px; line-height: 1.4;
   }
 
   .line { display: flex; gap: 3px; white-space: nowrap; overflow: hidden; }
-  .prompt { color: var(--accent, #00DC82); flex-shrink: 0; }
-  .cmd { color: var(--accent, #00DC82); flex-shrink: 0; }
-  .args { color: var(--text-2, #a0a0a0); overflow: hidden; text-overflow: ellipsis; }
+  .prompt { color: var(--accent, #34d399); flex-shrink: 0; }
+  .cmd { color: var(--text-1, #fafafa); font-weight: 500; flex-shrink: 0; }
+  .args { color: var(--text-3, #71717a); overflow: hidden; text-overflow: ellipsis; }
 
   .waiting-banner { color: var(--status-warning, #eab308); font-weight: 600; font-size: 9px; }
   .idle { color: var(--text-3, #666); font-size: 9px; }

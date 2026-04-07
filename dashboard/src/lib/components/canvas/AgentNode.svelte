@@ -7,7 +7,7 @@
   let hasActive = $derived(data.activeSessionCount > 0);
 </script>
 
-<div class="agent-card" class:active={hasActive} class:pending={data.hasPendingDecision}>
+<div class="agent-card" class:active={hasActive} class:idle={!hasActive} class:pending={data.hasPendingDecision}>
   <span class="dot" class:dot--active={hasActive}></span>
   <span class="name">{data.agent.name}</span>
   <span class="role">{data.agent.role}</span>
@@ -31,7 +31,9 @@
   }
   .agent-card:hover { border-color: var(--text-2, #a0a0a0); }
   .agent-card.active { border-color: var(--accent, #00DC82); }
-  .agent-card.pending { border-color: var(--status-warning, #eab308); }
+  .agent-card.idle { opacity: 0.5; }
+  .agent-card.idle:hover { opacity: 0.8; }
+  .agent-card.pending { border-color: var(--status-warning, #facc15); }
 
   .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-3, #666); flex-shrink: 0; }
   .dot--active { background: var(--accent, #00DC82); }

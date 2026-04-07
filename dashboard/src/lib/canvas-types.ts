@@ -53,14 +53,13 @@ export const LAYOUT = {
   AGENT_ROW_Y: 60,
   AGENT_WIDTH: 170,
   AGENT_HEIGHT: 50,
-  // Agent spacing = SESSION_WIDTH + SESSION_GAP so sessions don't overlap
-  // Each agent column is 320px wide (session 300 + 20 gap)
-  AGENT_COLUMN_WIDTH: 320,
+  AGENT_COLUMN_WIDTH: 220, // each agent column: enough for session below
+  AGENTS_PER_ROW: 5,
   AGENT_START_X: 20,
   // Session terminals (below agents)
   SESSION_ROW_Y: 140,
-  SESSION_WIDTH: 300,
-  SESSION_HEIGHT: 220,
+  SESSION_WIDTH: 200,
+  SESSION_HEIGHT: 180,
   SESSION_GAP: 20,
   // Entity badges (small, near sessions)
   ENTITY_WIDTH: 140,

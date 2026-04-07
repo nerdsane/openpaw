@@ -52,12 +52,16 @@ export function buildCanvasGraph(data: {
       }
     }
 
-    // Compute frame dimensions from agent count
+    // Compute frame dimensions — cap at AGENTS_PER_ROW columns
     const hasActiveSessions = teamActiveSessions.length > 0;
-    const frameWidth = Math.max(600, LAYOUT.AGENT_START_X * 2 + teamAgents.length * LAYOUT.AGENT_COLUMN_WIDTH);
-    const frameHeight = LAYOUT.AGENT_ROW_Y + LAYOUT.AGENT_HEIGHT + 20 +
+    const perRow = LAYOUT.AGENTS_PER_ROW;
+    const agentCols = Math.min(teamAgents.length, perRow);
+    const agentRows = Math.ceil(teamAgents.length / perRow);
+    const frameWidth = Math.max(500, LAYOUT.AGENT_START_X * 2 + agentCols * LAYOUT.AGENT_COLUMN_WIDTH);
+    const agentBlockHeight = agentRows * (LAYOUT.AGENT_HEIGHT + 8);
+    const frameHeight = LAYOUT.AGENT_ROW_Y + agentBlockHeight + 20 +
       (hasActiveSessions ? LAYOUT.SESSION_HEIGHT + LAYOUT.ENTITY_HEIGHT + LAYOUT.ENTITY_OFFSET_Y + 40 : 0) +
-      50; // footer
+      50;
 
     nodes.push({
       id: projectId,
@@ -82,8 +86,10 @@ export function buildCanvasGraph(data: {
         return scope === 'global' || scope === soulName;
       }).length;
 
-      // Position agent centered in its column
-      const colX = LAYOUT.AGENT_START_X + i * LAYOUT.AGENT_COLUMN_WIDTH;
+      // Position agent in grid (multi-row if > AGENTS_PER_ROW)
+      const col = i % perRow;
+      const row = Math.floor(i / perRow);
+      const colX = LAYOUT.AGENT_START_X + col * LAYOUT.AGENT_COLUMN_WIDTH;
       const agentX = colX + (LAYOUT.AGENT_COLUMN_WIDTH - LAYOUT.AGENT_WIDTH) / 2;
 
       nodes.push({
@@ -91,7 +97,7 @@ export function buildCanvasGraph(data: {
         type: 'agent',
         position: {
           x: agentX,
-          y: LAYOUT.AGENT_ROW_Y,
+          y: LAYOUT.AGENT_ROW_Y + row * (LAYOUT.AGENT_HEIGHT + 8),
         },
         data: {
           type: 'agent',
@@ -122,16 +128,18 @@ export function buildCanvasGraph(data: {
       const agentNodeId = `agent-${item.agent.Id}`;
       const colIndex = agentColumnIndex.get(item.agent.Id) ?? 0;
 
-      // Session is positioned at the start of the agent's column, centered
-      const colX = LAYOUT.AGENT_START_X + colIndex * LAYOUT.AGENT_COLUMN_WIDTH;
+      // Session below its agent's column, after all agent rows
+      const agentCol = colIndex % perRow;
+      const colX = LAYOUT.AGENT_START_X + agentCol * LAYOUT.AGENT_COLUMN_WIDTH;
       const sessionX = colX + (LAYOUT.AGENT_COLUMN_WIDTH - LAYOUT.SESSION_WIDTH) / 2;
+      const sessionBaseY = LAYOUT.AGENT_ROW_Y + agentBlockHeight + 16;
 
       nodes.push({
         id: sessionNodeId,
         type: 'session',
         position: {
           x: sessionX,
-          y: LAYOUT.SESSION_ROW_Y,
+          y: sessionBaseY,
         },
         data: {
           type: 'session',
@@ -187,7 +195,7 @@ export function buildCanvasGraph(data: {
                     type: 'entity',
                     position: {
                       x: entityX,
-                      y: LAYOUT.SESSION_ROW_Y + LAYOUT.SESSION_HEIGHT + LAYOUT.ENTITY_OFFSET_Y,
+                      y: sessionBaseY + LAYOUT.SESSION_HEIGHT + LAYOUT.ENTITY_OFFSET_Y,
                     },
                     data: {
                       type: 'entity',
