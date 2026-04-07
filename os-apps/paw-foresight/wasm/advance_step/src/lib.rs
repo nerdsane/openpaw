@@ -131,7 +131,8 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         }
 
         if !all_done {
-            // Not all Probes done — just re-poll, don't advance
+            // Not all Probes done — schedule another poll via StepComplete → PollProbes.
+            // This does NOT increment the step counter.
             ctx.log("info", &format!(
                 "advance_step: waiting for Probes ({terminal_count}/{} done), re-polling in 15s",
                 probe_agent_ids.len()
@@ -189,18 +190,23 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             }
         }
 
-        // 6. Check completion
+        // 6. Check completion or advance to next step
         if current_step >= max_steps {
             ctx.log(
                 "info",
-                &format!("advance_step: Projection {entity_id} reached max_steps, completing"),
+                &format!("advance_step: Projection {entity_id} reached max_steps ({current_step}/{max_steps}), completing"),
             );
             set_success_result("Complete", &json!({
                 "final_step": current_step,
                 "days_offset": days_offset
             }));
         } else {
-            set_success_result("StepComplete", &json!({
+            // All Probes done, convergence analyzed, respawned — advance to next step.
+            // Return "AdvanceStep" to increment the step counter and trigger the next iteration.
+            ctx.log("info", &format!(
+                "advance_step: all Probes done at step {current_step}, advancing to next step"
+            ));
+            set_success_result("AdvanceStep", &json!({
                 "current_step": current_step,
                 "days_offset": days_offset,
                 "probes_steered": probe_agent_ids.len()

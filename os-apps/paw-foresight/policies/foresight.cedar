@@ -18,7 +18,7 @@ permit(
   principal,
   action in [Action::"create", Action::"read", Action::"list",
              Action::"Configure", Action::"Start", Action::"ProbesReady",
-             Action::"AdvanceStep", Action::"StepComplete",
+             Action::"AdvanceStep", Action::"PollProbes", Action::"StepComplete",
              Action::"Complete", Action::"Branch", Action::"Fail"],
   resource is Projection
 );

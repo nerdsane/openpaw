@@ -111,19 +111,27 @@ name = "AdvanceStep"
 kind = "internal"
 from = ["Running"]
 params = []
-hint = "Internal action: increment step counter and trigger the advance_step WASM module."
+hint = "Advance to next step: increment counter and trigger advance_step WASM."
 effect = [
   { type = "increment", var = "current_step" },
   { type = "trigger", name = "advance_step" },
 ]
 
 [[action]]
+name = "PollProbes"
+kind = "input"
+from = ["Running"]
+params = []
+hint = "Poll whether all Probes finished this step. Does NOT increment step counter. Triggers advance_step WASM which checks probe status."
+effect = [{ type = "trigger", name = "advance_step" }]
+
+[[action]]
 name = "StepComplete"
 kind = "input"
 from = ["Running"]
 params = ["projected_state_file_id"]
-hint = "Callback from advance_step WASM. Records the projected state. Schedules a poll to check if all Probes finished this step."
-effect = [{ type = "schedule", action = "AdvanceStep", delay_seconds = 15 }]
+hint = "Callback from advance_step WASM. Records projected state. Schedules a probe poll in 15s."
+effect = [{ type = "schedule", action = "PollProbes", delay_seconds = 15 }]
 
 [[action]]
 name = "Complete"
