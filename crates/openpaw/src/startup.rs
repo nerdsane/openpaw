@@ -672,11 +672,51 @@ pub async fn run(mut config: Config) -> Result<()> {
 
     spawn_soul_bootstrap(actual_port, tenant.clone(), config.temper_api_key.clone());
 
-    println!();
-    println!("  Open Paw Data API: http://localhost:{actual_port}/tdata");
-    println!("  Dashboard:         http://localhost:{actual_port}/dashboard");
-    println!("  Tenant: {tenant}");
-    println!();
+    // Print startup summary with actionable next steps
+    {
+        let vault = state.server.secrets_vault.as_ref();
+        let has_api_key = vault
+            .and_then(|v| v.get_secret(&tenant, "anthropic_api_key"))
+            .is_some();
+        let has_discord = vault
+            .and_then(|v| v.get_secret(&tenant, "discord_bot_token"))
+            .is_some();
+        let transport_status = transport_manager.status().await;
+        let discord_connected = matches!(
+            transport_status.discord,
+            crate::transport_manager::TransportStatus::Connected { .. }
+        );
+
+        println!();
+        println!("  Open Paw is running.");
+        println!();
+        println!("  API:       http://localhost:{actual_port}/tdata");
+        println!("  Dashboard: http://localhost:{actual_port}/dashboard");
+        println!();
+
+        // Show what's configured and what's missing
+        if has_api_key {
+            println!("  \u{2713} Anthropic API key configured");
+        } else {
+            println!("  \u{2717} No Anthropic API key — agents won't be able to call LLMs");
+            println!("    Fix: curl -X POST http://localhost:{actual_port}/paw/setup/secrets \\");
+            println!("      -H 'content-type: application/json' -H 'x-tenant-id: default' -H 'x-temper-principal-kind: admin' \\");
+            println!("      -d '{{\"key\": \"anthropic_api_key\", \"value\": \"sk-ant-...\"}}'");
+        }
+
+        if has_discord && discord_connected {
+            println!("  \u{2713} Discord connected");
+        } else if has_discord {
+            println!("  ~ Discord token saved but not connected (may be connecting...)");
+        } else {
+            println!("  \u{2717} Discord not connected");
+            println!("    Fix: curl -X POST http://localhost:{actual_port}/paw/transports/discord/connect \\");
+            println!("      -H 'content-type: application/json' -H 'x-tenant-id: default' -H 'x-temper-principal-kind: admin' \\");
+            println!("      -d '{{\"bot_token\": \"your-bot-token\"}}'");
+        }
+
+        println!();
+    }
     tracing::info!("Open Paw listening on port {actual_port}");
 
     axum::serve(listener, router).await?;
