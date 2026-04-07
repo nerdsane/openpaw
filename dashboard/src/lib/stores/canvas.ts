@@ -52,20 +52,19 @@ export function buildCanvasGraph(data: {
       }
     }
 
-    // Compute frame height
-    const sessionCount = teamActiveSessions.length;
-    const sessionCols = Math.min(sessionCount, 4);
-    const sessionRows = Math.ceil(sessionCount / 4) || 0;
+    // Compute frame dimensions from agent count
+    const hasActiveSessions = teamActiveSessions.length > 0;
+    const frameWidth = Math.max(600, LAYOUT.AGENT_START_X * 2 + teamAgents.length * LAYOUT.AGENT_COLUMN_WIDTH);
     const frameHeight = LAYOUT.AGENT_ROW_Y + LAYOUT.AGENT_HEIGHT + 20 +
-      (sessionRows > 0 ? sessionRows * (LAYOUT.SESSION_HEIGHT + LAYOUT.SESSION_GAP) + 20 : 0) +
-      60; // footer
+      (hasActiveSessions ? LAYOUT.SESSION_HEIGHT + LAYOUT.ENTITY_HEIGHT + LAYOUT.ENTITY_OFFSET_Y + 40 : 0) +
+      50; // footer
 
     nodes.push({
       id: projectId,
       type: 'project',
       position: { x: LAYOUT.PROJECT_START_X, y: projectY },
       data: { type: 'project', team, harness, agents: teamAgents, workCycles: wcs },
-      style: `width: ${LAYOUT.PROJECT_WIDTH}px; height: ${frameHeight}px;`,
+      style: `width: ${frameWidth}px; height: ${frameHeight}px;`,
     });
 
     // ── Agent identity cards (top row) ──
@@ -83,11 +82,15 @@ export function buildCanvasGraph(data: {
         return scope === 'global' || scope === soulName;
       }).length;
 
+      // Position agent centered in its column
+      const colX = LAYOUT.AGENT_START_X + i * LAYOUT.AGENT_COLUMN_WIDTH;
+      const agentX = colX + (LAYOUT.AGENT_COLUMN_WIDTH - LAYOUT.AGENT_WIDTH) / 2;
+
       nodes.push({
         id: agentNodeId,
         type: 'agent',
         position: {
-          x: LAYOUT.AGENT_START_X + i * (LAYOUT.AGENT_WIDTH + LAYOUT.AGENT_GAP),
+          x: agentX,
           y: LAYOUT.AGENT_ROW_Y,
         },
         data: {
@@ -107,19 +110,28 @@ export function buildCanvasGraph(data: {
       });
     });
 
-    // ── Session terminal nodes (below agents) ──
-    teamActiveSessions.forEach((item, i) => {
-      const col = i % 4;
-      const row = Math.floor(i / 4);
+    // ── Session terminal nodes (directly below their parent agent) ──
+    // Build a map of agent index → position for alignment
+    const agentColumnIndex = new Map<string, number>();
+    teamAgents.forEach((agent, i) => {
+      agentColumnIndex.set(agent.Id, i);
+    });
+
+    teamActiveSessions.forEach((item) => {
       const sessionNodeId = `session-${item.session.Id}`;
       const agentNodeId = `agent-${item.agent.Id}`;
+      const colIndex = agentColumnIndex.get(item.agent.Id) ?? 0;
+
+      // Session is positioned at the start of the agent's column, centered
+      const colX = LAYOUT.AGENT_START_X + colIndex * LAYOUT.AGENT_COLUMN_WIDTH;
+      const sessionX = colX + (LAYOUT.AGENT_COLUMN_WIDTH - LAYOUT.SESSION_WIDTH) / 2;
 
       nodes.push({
         id: sessionNodeId,
         type: 'session',
         position: {
-          x: LAYOUT.AGENT_START_X + col * (LAYOUT.SESSION_WIDTH + LAYOUT.SESSION_GAP),
-          y: LAYOUT.SESSION_ROW_Y + row * (LAYOUT.SESSION_HEIGHT + LAYOUT.SESSION_GAP),
+          x: sessionX,
+          y: LAYOUT.SESSION_ROW_Y,
         },
         data: {
           type: 'session',
@@ -131,13 +143,13 @@ export function buildCanvasGraph(data: {
         style: `width: ${LAYOUT.SESSION_WIDTH}px; height: ${LAYOUT.SESSION_HEIGHT}px;`,
       });
 
-      // Edge: agent → session
+      // Edge: agent → session (straight down)
       edges.push({
         id: `edge-${agentNodeId}-${sessionNodeId}`,
         source: agentNodeId,
         target: sessionNodeId,
-        type: 'smoothstep',
-        style: 'stroke: var(--accent, #00DC82); stroke-width: 1; opacity: 0.5;',
+        type: 'straight',
+        style: 'stroke: var(--accent, #00DC82); stroke-width: 1.5; opacity: 0.6;',
       });
 
       // Edge: parent session → child session
@@ -167,14 +179,15 @@ export function buildCanvasGraph(data: {
                   referencedEntities.add(key);
                   const entityNodeId = `entity-${tc.input.entity_set}-${tc.input.entity_id}`;
 
+                  const entityX = sessionX +
+                    (referencedEntities.size - 1) * (LAYOUT.ENTITY_WIDTH + LAYOUT.ENTITY_GAP);
+
                   nodes.push({
                     id: entityNodeId,
                     type: 'entity',
                     position: {
-                      x: LAYOUT.AGENT_START_X + col * (LAYOUT.SESSION_WIDTH + LAYOUT.SESSION_GAP) +
-                        (referencedEntities.size - 1) * (LAYOUT.ENTITY_WIDTH + LAYOUT.ENTITY_GAP),
-                      y: LAYOUT.SESSION_ROW_Y + row * (LAYOUT.SESSION_HEIGHT + LAYOUT.SESSION_GAP) +
-                        LAYOUT.SESSION_HEIGHT + LAYOUT.ENTITY_OFFSET_Y,
+                      x: entityX,
+                      y: LAYOUT.SESSION_ROW_Y + LAYOUT.SESSION_HEIGHT + LAYOUT.ENTITY_OFFSET_Y,
                     },
                     data: {
                       type: 'entity',

@@ -46,19 +46,22 @@ export interface EntityBadgeData {
 export const LAYOUT = {
   PROJECT_START_X: 20,
   PROJECT_START_Y: 20,
-  PROJECT_WIDTH: 1400,
+  PROJECT_WIDTH: 2400,
   PROJECT_GAP: 80,
   // Agent identity cards (small, top row)
+  // Gap between agents must be >= SESSION_WIDTH so sessions don't overlap
   AGENT_ROW_Y: 60,
   AGENT_WIDTH: 170,
   AGENT_HEIGHT: 50,
-  AGENT_GAP: 12,
+  // Agent spacing = SESSION_WIDTH + SESSION_GAP so sessions don't overlap
+  // Each agent column is 320px wide (session 300 + 20 gap)
+  AGENT_COLUMN_WIDTH: 320,
   AGENT_START_X: 20,
   // Session terminals (below agents)
   SESSION_ROW_Y: 140,
   SESSION_WIDTH: 300,
   SESSION_HEIGHT: 220,
-  SESSION_GAP: 16,
+  SESSION_GAP: 20,
   // Entity badges (small, near sessions)
   ENTITY_WIDTH: 140,
   ENTITY_HEIGHT: 28,
