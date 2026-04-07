@@ -242,6 +242,13 @@ pub async fn run(mut config: Config) -> Result<()> {
             vault,
             &turso_store,
             &tenant,
+            "llm_provider",
+            config.llm_provider
+        );
+        seed_secret!(
+            vault,
+            &turso_store,
+            &tenant,
             "tensorlake_api_key",
             config.tensorlake_api_key
         );

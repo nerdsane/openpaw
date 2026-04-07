@@ -16,12 +16,16 @@ use crate::setup_llm::{
 
 /// Result of the setup wizard.
 pub struct SetupResult {
+    /// LLM API key (Anthropic, OpenRouter, or OpenAI)
     pub api_key: Option<String>,
+    /// Provider name: "anthropic", "openrouter", or "openai"
     pub provider: Option<String>,
     pub discord_bot_token: Option<String>,
     pub discord_guild_id: Option<String>,
     pub discord_feed_channel_id: Option<String>,
     pub discord_forum_channel_id: Option<String>,
+    pub slack_app_token: Option<String>,
+    pub slack_bot_token: Option<String>,
 }
 
 /// Returns `true` if interactive setup should run.
@@ -50,6 +54,8 @@ pub async fn run_setup(data_dir: &Path, config: &Config) -> anyhow::Result<Setup
         discord_guild_id: None,
         discord_feed_channel_id: None,
         discord_forum_channel_id: None,
+        slack_app_token: None,
+        slack_bot_token: None,
     };
 
     cliclack::intro("Open Paw")?;
@@ -171,7 +177,24 @@ pub async fn run_setup(data_dir: &Path, config: &Config) -> anyhow::Result<Setup
                      3. Under OAuth & Permissions, copy the Bot Token (xoxb-...)\n\
                      4. Subscribe to events: message.channels, message.im"
                 )?;
-                cliclack::log::info("Slack setup via CLI coming soon. Use `openpaw setup` after boot or the REST API.")?;
+
+                let app_token: String = cliclack::password("App Token (xapp-...)")
+                    .mask('•')
+                    .interact()?;
+                let app_token = app_token.trim().to_string();
+
+                let bot_token: String = cliclack::password("Bot Token (xoxb-...)")
+                    .mask('•')
+                    .interact()?;
+                let bot_token = bot_token.trim().to_string();
+
+                if app_token.is_empty() || bot_token.is_empty() {
+                    cliclack::log::warning("Skipped — both tokens required")?;
+                } else {
+                    result.slack_app_token = Some(app_token);
+                    result.slack_bot_token = Some(bot_token);
+                    cliclack::log::success("Slack configured")?;
+                }
             }
             _ => {
                 cliclack::log::info("API only — interact via REST or the dashboard")?;
@@ -321,10 +344,17 @@ pub async fn run_setup(data_dir: &Path, config: &Config) -> anyhow::Result<Setup
 
 /// Merge setup results into the config.
 pub fn merge_setup_into_config(config: &mut Config, setup: SetupResult) {
+    // Store the API key. For now all providers' keys go to anthropic_api_key
+    // in config (it's used by the vault seeding in startup.rs). The provider
+    // name is stored separately so the LLM caller can use the right API.
+    //
     if let Some(key) = setup.api_key {
         if config.anthropic_api_key.is_none() {
             config.anthropic_api_key = Some(key);
         }
+    }
+    if let Some(provider) = setup.provider {
+        config.llm_provider = Some(provider);
     }
     if let Some(token) = setup.discord_bot_token {
         if config.discord_bot_token.is_none() {
@@ -344,6 +374,16 @@ pub fn merge_setup_into_config(config: &mut Config, setup: SetupResult) {
     if let Some(id) = setup.discord_forum_channel_id {
         if config.discord_forum_channel_id.is_none() {
             config.discord_forum_channel_id = Some(id);
+        }
+    }
+    if let Some(token) = setup.slack_app_token {
+        if config.slack_app_token.is_none() {
+            config.slack_app_token = Some(token);
+        }
+    }
+    if let Some(token) = setup.slack_bot_token {
+        if config.slack_bot_token.is_none() {
+            config.slack_bot_token = Some(token);
         }
     }
 }
