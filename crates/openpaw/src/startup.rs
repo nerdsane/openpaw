@@ -51,7 +51,7 @@ pub async fn run(mut config: Config) -> Result<()> {
 
     // Phase 0: Interactive setup (runs whenever something is missing)
     if crate::setup::needs_setup(&data_dir, &config) {
-        let setup_result = crate::setup::run_setup(&data_dir, &config)?;
+        let setup_result = crate::setup::run_setup(&data_dir, &config).await?;
         crate::setup::merge_setup_into_config(&mut config, setup_result);
     }
 
@@ -853,34 +853,56 @@ fn spawn_soul_bootstrap(port: u16, tenant: String, api_key: Option<String>) {
         let api_url = format!("http://127.0.0.1:{port}");
         let client = reqwest::Client::new();
 
-        let souls: &[(&str, &str, &[&str])] = &[
+        // Check for personalized Paw soul from `openpaw setup`
+        let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
+        let generated_dir = Path::new(&home).join(".local/share/openpaw/generated");
+        let gen_soul = generated_dir.join("paw-soul.md");
+        let gen_style = generated_dir.join("paw-style.md");
+        let gen_user = generated_dir.join("user.md");
+
+        // Build Paw's soul paths: prefer generated files, always include AGENT.md for operations
+        let mut paw_paths: Vec<String> = Vec::new();
+        if gen_soul.exists() {
+            paw_paths.push(gen_soul.to_string_lossy().to_string());
+            if gen_style.exists() {
+                paw_paths.push(gen_style.to_string_lossy().to_string());
+            }
+            if gen_user.exists() {
+                paw_paths.push(gen_user.to_string_lossy().to_string());
+            }
+            tracing::info!("Using personalized Paw soul from setup");
+        } else {
+            paw_paths.push("os-apps/paw-agent/agents/paw/SOUL.md".to_string());
+            paw_paths.push("os-apps/paw-agent/agents/paw/STYLE.md".to_string());
+        }
+        // AGENT.md always included — operational instructions don't change with personalization
+        paw_paths.push("os-apps/paw-agent/agents/paw/AGENT.md".to_string());
+        let paw_path_refs: Vec<&str> = paw_paths.iter().map(|s| s.as_str()).collect();
+
+        let souls: Vec<(&str, &str, Vec<&str>)> = vec![
             (
                 "Paw",
                 "Paw chief of staff agent",
-                &[
-                    "os-apps/paw-agent/agents/paw/SOUL.md",
-                    "os-apps/paw-agent/agents/paw/STYLE.md",
-                    "os-apps/paw-agent/agents/paw/AGENT.md",
-                ],
+                paw_path_refs,
             ),
             (
                 "SWE",
                 "Software developer agent",
-                &["os-apps/paw-agent/agents/swe/AGENT.md"],
+                vec!["os-apps/paw-agent/agents/swe/AGENT.md"],
             ),
             (
                 "SRE",
                 "Site reliability engineering agent",
-                &["os-apps/paw-agent/agents/sre/AGENT.md"],
+                vec!["os-apps/paw-agent/agents/sre/AGENT.md"],
             ),
             (
                 "Probe",
                 "Foresight probe agent for projecting product futures",
-                &["os-apps/paw-agent/agents/probe/AGENT.md"],
+                vec!["os-apps/paw-agent/agents/probe/AGENT.md"],
             ),
         ];
 
-        for (name, description, paths) in souls {
+        for (name, description, paths) in &souls {
             match bootstrap_soul(
                 &client,
                 &api_url,

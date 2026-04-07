@@ -6,6 +6,7 @@
 mod config;
 mod setup;
 mod setup_api;
+mod setup_llm;
 mod startup;
 mod transport_manager;
 
@@ -57,10 +58,8 @@ async fn main() -> anyhow::Result<()> {
 
     match cli.command {
         Some(Command::Setup) => {
-            // Force-run setup regardless of current state
-            let result = setup::run_setup(&data_dir, &config)?;
+            let result = setup::run_setup(&data_dir, &config).await?;
             setup::merge_setup_into_config(&mut config, result);
-            println!("  Setup complete. Run `openpaw` to start the server.");
             return Ok(());
         }
         Some(Command::Doctor) => {
