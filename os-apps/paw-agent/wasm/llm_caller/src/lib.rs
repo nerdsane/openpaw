@@ -1137,23 +1137,38 @@ fn call_openai(
     }
     let resp = resp.ok_or_else(|| format!("OpenAI Codex API failed after 5 attempts: {last_err}"))?;
 
-    // Parse SSE stream — find the response.completed event which has the full response
+    // Parse response — the host may return either:
+    // 1. Pre-extracted response.completed event data (single JSON line) — from SSE auto-detection
+    // 2. Full SSE stream text (fallback) — scan for response.completed event
     let body = &resp.body;
-    let mut completed_response: Option<Value> = None;
-    for line in body.lines() {
-        if let Some(data) = line.strip_prefix("data: ") {
-            if let Ok(event) = serde_json::from_str::<Value>(data) {
-                let event_type = event.get("type").and_then(Value::as_str).unwrap_or("");
-                if event_type == "response.completed" {
-                    completed_response = event.get("response").cloned();
-                    break;
+    let response: Value = if let Ok(event) = serde_json::from_str::<Value>(body) {
+        // Case 1: host returned the completed event JSON directly
+        let event_type = event.get("type").and_then(Value::as_str).unwrap_or("");
+        if event_type == "response.completed" {
+            event.get("response").cloned().unwrap_or(event)
+        } else if event.get("output").is_some() {
+            // Already the response object (not wrapped in event)
+            event
+        } else {
+            return Err(format!("OpenAI: unexpected response format: {}", &body[..body.len().min(200)]));
+        }
+    } else {
+        // Case 2: raw SSE stream — scan for response.completed
+        let mut completed = None;
+        for line in body.lines() {
+            if let Some(data) = line.strip_prefix("data: ") {
+                if let Ok(event) = serde_json::from_str::<Value>(data) {
+                    if event.get("type").and_then(Value::as_str) == Some("response.completed") {
+                        completed = event.get("response").cloned();
+                        break;
+                    }
                 }
             }
         }
-    }
-
-    let response = completed_response
-        .ok_or_else(|| "OpenAI Codex: no response.completed event found in SSE stream".to_string())?;
+        completed.ok_or_else(|| format!(
+            "OpenAI: no response.completed found (body {}B)", body.len()
+        ))?
+    };
 
     // Extract content and tool calls from response.output
     let mut content_blocks = Vec::<Value>::new();
@@ -1728,8 +1743,8 @@ fn build_tool_definitions(_tools_enabled: &str, _sandbox_url: &str, _workdir: &s
             "- temper.steer_session(session_id, message) → inject message\n",
             "- temper.save_memory(key, content, memory_type='project') → persist memory\n",
             "- temper.recall_memory(query) → search memories, returns list\n",
-            "- temper.file_upload(name, content) → upload to TemperFS, returns file_id\n",
-            "- temper.read_entity(file_id) → read TemperFS file content\n",
+            "- temper.write(path, content, opts?) → write file by path (auto-creates workspace/dirs), returns {file_id, path, workspace_id}\n",
+            "- temper.read(path, opts?) → read file content by path\n",
             "- temper.run_coding_agent(agent_type, task) → spawn coding session\n",
             "- temper.submit_specs(files_dict) → load specs into Temper\n",
             "- temper.show_spec(entity_name) → inspect entity spec\n",
