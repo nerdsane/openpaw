@@ -147,11 +147,13 @@
         <Parameter Name="probe_agent_ids" Type="Edm.String" Nullable="true"/>
         <ReturnType Type="OpenPaw.Foresight.Projection"/>
       </Action>
-      <Action Name="PollProbes" IsBound="true">
+      <Action Name="ProbeStepDone" IsBound="true">
         <Parameter Name="bindingParameter" Type="OpenPaw.Foresight.Projection"/>
+        <Parameter Name="probe_agent_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="direction_id" Type="Edm.String" Nullable="true"/>
         <ReturnType Type="OpenPaw.Foresight.Projection"/>
       </Action>
-      <Action Name="StepComplete" IsBound="true">
+      <Action Name="ConvergenceComplete" IsBound="true">
         <Parameter Name="bindingParameter" Type="OpenPaw.Foresight.Projection"/>
         <Parameter Name="projected_state_file_id" Type="Edm.String" Nullable="true"/>
         <ReturnType Type="OpenPaw.Foresight.Projection"/>

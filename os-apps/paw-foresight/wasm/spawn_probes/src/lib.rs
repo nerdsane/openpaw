@@ -210,8 +210,8 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             };
 
             let user_message = format!(
-                "You are {probe_name}, a Foresight Probe. Your job is to PROJECT WHERE THIS PRODUCT COULD GO \
-                 over the next 2-4 weeks, not just report what's broken today.\n\n\
+                "You are {probe_name}, a Foresight Probe in a temporal simulation.\n\
+                 Your job is to PROJECT WHERE THIS PRODUCT COULD GO, not just report what's broken.\n\n\
                  Projection ID: {entity_id}\n\
                  ProductModel ID: {product_model_id}\n\
                  Your Agent ID: {agent_id}\n\
@@ -219,43 +219,42 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                  Here is the ProductModel knowledge graph:\n\n\
                  {kg_for_prompt}\n\n\
                  YOUR TASK:\n\
-                 1. Look PAST the current sprint's activity. What is this product architecturally? \
-                    What features does it have? What user needs does it serve?\n\
-                 2. Project forward: given the codebase structure, tech stack, and trajectory, \
-                    where COULD this product evolve? Think about:\n\
+                 1. Understand what this product IS — its architecture, capabilities, user needs\n\
+                 2. Project forward: where COULD this product evolve? Think about:\n\
                     - New capabilities the architecture could support\n\
                     - User experience improvements\n\
                     - Integrations or expansions\n\
-                    - Simplifications that would make it more focused\n\
-                    - Architectural shifts that unlock new possibilities\n\
-                 3. Create 3-5 Observations about the product's TRAJECTORY (not just bugs)\n\
-                 4. Create 2-3 DIVERSE Directions — each a different plausible future for the product, \
-                    like choose-your-own-adventure options a PM could select between\n\n\
-                 DO NOT just report operational issues. A PM doesn't need a probe to tell them monitors are broken. \
-                 They need to see where the product COULD GO.\n\n\
+                    - Simplifications or architectural shifts\n\
+                 3. Create Observations about the product's TRAJECTORY (not just bugs)\n\
+                 4. Propose exactly ONE Direction — your single strongest thesis for where this \
+                    product should go. Commit to it. You will be respawned for future steps \
+                    with memory of what you found and can revise or double down.\n\n\
+                 DO NOT just report operational issues. A PM needs to see where the product COULD GO.\n\
                  Work INDEPENDENTLY. Do NOT read other Probes' Observations.\n\n\
                  CRITICAL: Use EXACTLY these field names (API silently drops unknown fields):\n\n\
                  temper.create(\"Observations\", {{\n\
-                   \"content\": \"What you see in the trajectory and why it matters for the product's future\",\n\
+                   \"content\": \"What you see in the trajectory\",\n\
                    \"importance\": \"high\",\n\
                    \"signal_refs\": '[\"commit:abc\", \"pr:42\"]',\n\
-                   \"counterfactual\": \"What happens in 2-4 weeks if this signal is ignored\",\n\
+                   \"counterfactual\": \"What happens if this signal is ignored\",\n\
                    \"probe_agent_id\": \"{agent_id}\",\n\
                    \"projection_id\": \"{entity_id}\",\n\
                    \"step_at\": \"0\"\n\
                  }})\n\n\
                  temper.create(\"Directions\", {{\n\
-                   \"title\": \"Name for this product direction\",\n\
-                   \"reasoning\": \"Full product brief: why this direction, what it enables, what it costs, \
-                     what the product looks like if this path is taken\",\n\
-                   \"grounding\": '[\"signal refs that support this direction\"]',\n\
+                   \"title\": \"Direction title\",\n\
+                   \"reasoning\": \"Full product brief: why, what it enables, what it costs\",\n\
+                   \"grounding\": '[\"signal refs\"]',\n\
                    \"observation_ids\": '[\"obs_id\"]',\n\
-                   \"counterfactual_summary\": \"What happens if this direction is NOT taken\",\n\
+                   \"counterfactual_summary\": \"What if this direction is NOT taken\",\n\
                    \"proposer_agent_id\": \"{agent_id}\",\n\
                    \"projection_id\": \"{entity_id}\"\n\
                  }})\n\n\
-                 DO NOT use 'body', 'description', or 'confidence' as field names.\n\
-                 When done, call temper.done(\"complete\")."
+                 DO NOT use 'body', 'description', or 'confidence' as field names.\n\n\
+                 When done, FIRST call:\n\
+                 temper.action(\"Projections\", \"{entity_id}\", \"ProbeStepDone\",\n\
+                   {{\"probe_agent_id\": \"{agent_id}\", \"direction_id\": \"<your_direction_id>\"}})\n\
+                 THEN call temper.done(\"complete\")."
             );
             let configure_body = json!({
                 "model": probe_model,

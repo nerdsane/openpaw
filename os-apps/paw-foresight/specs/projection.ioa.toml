@@ -1,12 +1,16 @@
-# Projection — Temporal clock that advances through adaptive time steps.
+# Projection — Temporal simulation that advances through adaptive time steps.
 #
 # A projection simulates a product's future by stepping through a schedule of
 # day offsets. At each step, probe agents observe the projected state and record
 # observations. Projections can branch to explore alternative futures.
 #
-# The step loop is driven by WASM integration chaining:
-#   Start → (spawn_probes) → ProbesReady → (advance_step) →
-#   StepComplete → AdvanceStep → (advance_step) → ... → Complete
+# The step loop is fully event-driven:
+#   Start → (spawn_probes) → ProbesReady
+#   → Probes self-report via ProbeStepDone
+#   → (handle_probe_done) checks all reported → spawns Convergence Analyst
+#   → Analyst calls ConvergenceComplete with projected state
+#   → (handle_convergence) respawns probes → returns AdvanceStep
+#   → AdvanceStep increments counter → waits for next ProbeStepDone cycle
 
 [automaton]
 name = "Projection"
@@ -103,35 +107,33 @@ name = "ProbesReady"
 kind = "input"
 from = ["Running"]
 params = ["probe_agent_ids"]
-hint = "Callback after probe agents are spawned. Records agent IDs and starts first step."
-effect = [{ type = "trigger", name = "advance_step" }]
+hint = "Callback after probe agents are spawned. Records agent IDs. Chain pauses until ProbeStepDone events arrive."
+
+[[action]]
+name = "ProbeStepDone"
+kind = "input"
+from = ["Running"]
+params = ["probe_agent_id", "direction_id"]
+hint = "A Probe self-reports completion of the current step. WASM checks if all probes have reported; if so, spawns Convergence Analyst."
+effect = [{ type = "trigger", name = "handle_probe_done" }]
+
+[[action]]
+name = "ConvergenceComplete"
+kind = "input"
+from = ["Running"]
+params = ["projected_state_file_id"]
+hint = "Convergence Analyst finished with updated projected state. WASM respawns probes for next step or completes the projection."
+effect = [{ type = "trigger", name = "handle_convergence" }]
 
 [[action]]
 name = "AdvanceStep"
 kind = "internal"
 from = ["Running"]
 params = []
-hint = "Advance to next step: increment counter and trigger advance_step WASM."
+hint = "Advance to next step: increment counter. Probes already respawned by handle_convergence."
 effect = [
   { type = "increment", var = "current_step" },
-  { type = "trigger", name = "advance_step" },
 ]
-
-[[action]]
-name = "PollProbes"
-kind = "input"
-from = ["Running"]
-params = []
-hint = "Poll whether all Probes finished this step. Does NOT increment step counter. Triggers advance_step WASM which checks probe status."
-effect = [{ type = "trigger", name = "advance_step" }]
-
-[[action]]
-name = "StepComplete"
-kind = "input"
-from = ["Running"]
-params = ["projected_state_file_id"]
-hint = "Callback from advance_step WASM. Records projected state. Schedules a probe poll in 15s."
-effect = [{ type = "schedule", action = "PollProbes", delay_seconds = 15 }]
 
 [[action]]
 name = "Complete"
@@ -188,10 +190,20 @@ temper_api_url = "{secret:temper_api_url}"
 anthropic_api_key = "{secret:anthropic_api_key}"
 
 [[integration]]
-name = "advance_step"
-trigger = "advance_step"
+name = "handle_probe_done"
+trigger = "handle_probe_done"
 type = "wasm"
-module = "advance_step"
+module = "handle_probe_done"
+on_failure = "Fail"
+
+[integration.config]
+temper_api_url = "{secret:temper_api_url}"
+
+[[integration]]
+name = "handle_convergence"
+trigger = "handle_convergence"
+type = "wasm"
+module = "handle_convergence"
 on_failure = "Fail"
 
 [integration.config]
