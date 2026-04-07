@@ -201,13 +201,14 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             // Wrap code in async function
             let wrapped = wrap_user_code(code);
 
-            // Execute via REPL start() using a bounded collector so pathological
+            // Execute via REPL feed_start() using a bounded collector so pathological
             // print output cannot force runaway reallocations inside the daemon.
             let mut printed = BoundedOutputCollector::new(MAX_TOOL_RESULT_BYTES);
-            let mut print = PrintWriter::Callback(&mut printed);
-            let progress = match repl.start(&wrapped, &mut print) {
+            let print = PrintWriter::Callback(&mut printed);
+            let progress = match repl.feed_start(&wrapped, vec![], print) {
                 Ok(p) => p,
                 Err(e) => {
+                    let e = *e;
                     repl = e.repl;
                     let mut combined = printed.into_string();
                     let msg = format_monty_exception(&e.error);
@@ -341,9 +342,8 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
 
 /// Load a persistent REPL from serialized state, or create a fresh one.
 ///
-/// At bf7c7ef, MontyRepl::new() takes initial code + inputs and executes
-/// immediately. For fresh REPLs, we run a setup snippet that makes
-/// `temper` and `sandbox` objects available as globals.
+/// At c9802b5 (v0.0.9), MontyRepl::new() creates a bare REPL; globals are
+/// injected via feed_start() which we drive to completion.
 fn load_or_create_repl(
     repl_state_b64: &str,
     ctx: &Context,
@@ -355,36 +355,38 @@ fn load_or_create_repl(
     let tracker = LimitedTracker::new(limits);
 
     if repl_state_b64.is_empty() {
-        // Create fresh REPL with temper and sandbox objects injected
-        let init_code = "pass".to_string(); // minimal init snippet
-        let input_names = vec!["temper".to_string(), "sandbox".to_string()];
+        // Create bare REPL, then inject temper + sandbox globals via feed_start
+        let repl = MontyRepl::new("init.py", tracker);
+
         let inputs = vec![
-            MontyObject::Dataclass {
-                name: "Temper".to_string(),
-                type_id: 1,
-                field_names: vec![],
-                attrs: DictPairs::from(Vec::<(MontyObject, MontyObject)>::new()),
-                frozen: true,
-            },
-            MontyObject::Dataclass {
-                name: "Sandbox".to_string(),
-                type_id: 2,
-                field_names: vec![],
-                attrs: DictPairs::from(Vec::<(MontyObject, MontyObject)>::new()),
-                frozen: true,
-            },
+            (
+                "temper".to_string(),
+                MontyObject::Dataclass {
+                    name: "Temper".to_string(),
+                    type_id: 1,
+                    field_names: vec![],
+                    attrs: DictPairs::from(Vec::<(MontyObject, MontyObject)>::new()),
+                    frozen: true,
+                },
+            ),
+            (
+                "sandbox".to_string(),
+                MontyObject::Dataclass {
+                    name: "Sandbox".to_string(),
+                    type_id: 2,
+                    field_names: vec![],
+                    attrs: DictPairs::from(Vec::<(MontyObject, MontyObject)>::new()),
+                    frozen: true,
+                },
+            ),
         ];
 
-        let mut print = PrintWriter::Disabled;
-        let (repl, _init_result) = MontyRepl::new(
-            init_code,
-            "init.py",
-            input_names,
-            inputs,
-            tracker,
-            &mut print,
-        )
-        .map_err(|e| format_monty_exception(&e))?;
+        let print = PrintWriter::Disabled;
+        let progress = repl
+            .feed_start("pass", inputs, print)
+            .map_err(|e| format_monty_exception(&e.error))?;
+
+        let repl = drive_init_to_completion(progress)?;
 
         ctx.log(
             "info",
@@ -394,6 +396,49 @@ fn load_or_create_repl(
     } else {
         let bytes = base64_decode(repl_state_b64)?;
         MontyRepl::load(&bytes).map_err(|e| format!("failed to deserialize REPL state: {e}"))
+    }
+}
+
+/// Drive a simple init snippet (just "pass") to completion, recovering the REPL.
+fn drive_init_to_completion(
+    mut progress: ReplProgress<LimitedTracker>,
+) -> Result<MontyRepl<LimitedTracker>, String> {
+    loop {
+        match progress {
+            ReplProgress::Complete { repl, .. } => return Ok(repl),
+            ReplProgress::FunctionCall(call) => {
+                let ext_result = ExtFunctionResult::Error(MontyException::new(
+                    ExcType::RuntimeError,
+                    Some("function calls not allowed during init".into()),
+                ));
+                let print = PrintWriter::Disabled;
+                progress = call
+                    .resume(ext_result, print)
+                    .map_err(|e| format_monty_exception(&e.error))?;
+            }
+            ReplProgress::ResolveFutures(state) => {
+                let print = PrintWriter::Disabled;
+                progress = state
+                    .resume(vec![], print)
+                    .map_err(|e| format_monty_exception(&e.error))?;
+            }
+            ReplProgress::NameLookup(lookup) => {
+                let print = PrintWriter::Disabled;
+                progress = lookup
+                    .resume(monty::NameLookupResult::Undefined, print)
+                    .map_err(|e| format_monty_exception(&e.error))?;
+            }
+            ReplProgress::OsCall(os_call) => {
+                let ext_result = ExtFunctionResult::Error(MontyException::new(
+                    ExcType::RuntimeError,
+                    Some("OS calls not allowed during init".into()),
+                ));
+                let print = PrintWriter::Disabled;
+                progress = os_call
+                    .resume(ext_result, print)
+                    .map_err(|e| format_monty_exception(&e.error))?;
+            }
+        }
     }
 }
 
@@ -407,11 +452,10 @@ fn save_repl_state(repl: &MontyRepl<LimitedTracker>) -> Result<String, String> {
 
 /// Drive the Monty REPL event loop to completion.
 ///
-/// Accepts a print buffer (from the initial `start()` call) and continues
+/// Accepts a print buffer (from the initial `feed_start()` call) and continues
 /// collecting `print()` output throughout execution. Returns:
 /// - expression result (Ok/Err)
 /// - the repl (for state persistence)
-/// - accumulated print output string
 fn drive_repl_loop(
     ctx: &Context,
     temper_api_url: &str,
@@ -442,8 +486,8 @@ fn drive_repl_loop(
                         ExcType::RuntimeError,
                         Some(msg.clone()),
                     ));
-                    let mut print = PrintWriter::Callback(print_buf);
-                    match call.resume(ext_result, &mut print) {
+                    let print = PrintWriter::Callback(print_buf);
+                    match call.resume(ext_result, print) {
                         Ok(p) => {
                             progress = p;
                             continue;
@@ -484,8 +528,8 @@ fn drive_repl_loop(
 
                 // Resume with the result directly — we have it now, no need for
                 // the async resume_pending() → ResolveFutures roundtrip.
-                let mut print = PrintWriter::Callback(print_buf);
-                match call.resume(ext_result, &mut print) {
+                let print = PrintWriter::Callback(print_buf);
+                match call.resume(ext_result, print) {
                     Ok(p) => progress = p,
                     Err(e) => return (Err(format_monty_exception(&e.error)), e.repl),
                 }
@@ -499,16 +543,16 @@ fn drive_repl_loop(
                     }
                 }
 
-                let mut print = PrintWriter::Callback(print_buf);
-                match state.resume(ready, &mut print) {
+                let print = PrintWriter::Callback(print_buf);
+                match state.resume(ready, print) {
                     Ok(p) => progress = p,
                     Err(e) => return (Err(format_monty_exception(&e.error)), e.repl),
                 }
             }
 
             ReplProgress::NameLookup(lookup) => {
-                let mut print = PrintWriter::Callback(print_buf);
-                match lookup.resume(monty::NameLookupResult::Undefined, &mut print) {
+                let print = PrintWriter::Callback(print_buf);
+                match lookup.resume(monty::NameLookupResult::Undefined, print) {
                     Ok(p) => progress = p,
                     Err(e) => return (Err(format_monty_exception(&e.error)), e.repl),
                 }
@@ -521,8 +565,8 @@ fn drive_repl_loop(
                         "sandbox blocked OS access. Use sandbox.bash() for shell commands.".into(),
                     ),
                 ));
-                let mut print = PrintWriter::Callback(print_buf);
-                match os_call.resume(ext_result, &mut print) {
+                let print = PrintWriter::Callback(print_buf);
+                match os_call.resume(ext_result, print) {
                     Ok(p) => progress = p,
                     Err(e) => return (Err(format_monty_exception(&e.error)), e.repl),
                 }
