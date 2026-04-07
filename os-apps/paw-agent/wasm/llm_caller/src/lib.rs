@@ -96,9 +96,9 @@ set tenant secret and retry"
             .get("openrouter_api_url")
             .cloned()
             .unwrap_or_else(|| "https://openrouter.ai/api/v1/chat/completions".to_string());
-        let openai_codex_api_url = ctx
+        let openai_api_url = ctx
             .config
-            .get("openai_codex_api_url")
+            .get("openai_api_url")
             .cloned()
             .unwrap_or_else(|| "https://chatgpt.com/backend-api/codex/responses".to_string());
         let anthropic_auth_mode = ctx
@@ -314,10 +314,10 @@ anthropic_api_token (or api_key) for anthropic, openrouter_api_key (or api_key) 
                 &openrouter_site_url,
                 &openrouter_app_name,
             )?,
-            "openai-codex" | "openai" => call_openai_codex(
+            "openai" => call_openai(
                 &ctx,
                 &api_key,
-                &openai_codex_api_url,
+                &openai_api_url,
                 model,
                 &assembled_system_prompt,
                 &messages,
@@ -597,7 +597,7 @@ fn resolve_provider_api_key(ctx: &Context, provider: &str) -> Result<String, Str
             ctx.config.get("anthropic_api_token").cloned(),
             ctx.config.get("api_key").cloned(),
         ]),
-        "openai-codex" | "openai" => first_non_empty(&[
+        "openai" => first_non_empty(&[
             ctx.config.get("openai_codex_token").cloned(),
             ctx.config.get("api_key").cloned(),
         ]),
@@ -983,7 +983,7 @@ fn call_openrouter(
 ///
 /// Uses the Responses API format (not Chat Completions): instructions, input, stream=true.
 /// The WASM http_call buffers the full SSE stream — we parse the response.completed event.
-fn call_openai_codex(
+fn call_openai(
     ctx: &Context,
     api_key: &str,
     api_url: &str,
@@ -1089,7 +1089,9 @@ fn call_openai_codex(
     });
     if !codex_tools.is_empty() {
         body["tools"] = json!(codex_tools);
-        body["tool_choice"] = json!("auto");
+        // Force tool use — without this, GPT-5 writes text analysis
+        // instead of calling the execute tool
+        body["tool_choice"] = json!("required");
     }
 
     let body_str = serde_json::to_string(&body)

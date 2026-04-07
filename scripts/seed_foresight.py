@@ -115,7 +115,7 @@ def build_probe_config(probe_count: int) -> str:
     # Use OpenAI Codex provider if OPENAI_CODEX_TOKEN is set, else Anthropic
     provider = os.environ.get("LLM_PROVIDER", "")
     if not provider:
-        provider = "openai-codex" if os.environ.get("OPENAI_CODEX_TOKEN") else "anthropic"
+        provider = "openai" if os.environ.get("OPENAI_CODEX_TOKEN") else "anthropic"
     model = "gpt-5" if "openai" in provider else "claude-sonnet-4-6"
 
     for idx in range(probe_count):
