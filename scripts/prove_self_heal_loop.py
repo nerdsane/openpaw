@@ -215,7 +215,7 @@ Follow this exact workflow:
 2. Create one WorkCycle tied to the Harness with a task summary about fixing deep-sci-fi platform lockfile drift.
 3. Spawn exactly one Developer child agent with:
    - soul_id = Developer
-   - tools = read,write,edit,bash,temper_get,temper_list,temper_action,read_entity
+   - tools = read,write,edit,bash,temper_get,temper_list,temper_action,temper_read
    {sandbox_instruction}
    - workdir = /tmp/deep-sci-fi-self-heal
    - max_turns = 80
@@ -349,7 +349,7 @@ def main() -> int:
             "model": args.model,
             "provider": "anthropic",
             "max_turns": "60",
-            "tools_enabled": "temper_get,temper_list,temper_action,temper_create,spawn_session,read_entity",
+            "tools_enabled": "temper_get,temper_list,temper_action,temper_create,spawn_session,temper_read",
             "sandbox_url": sandbox_url,
             "workdir": "/tmp/openpaw-sre-self-heal",
             "soul_id": "SRE",

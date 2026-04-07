@@ -164,7 +164,7 @@ def main() -> int:
         route_config = {
             "model": args.model,
             "provider": "anthropic",
-            "tools_enabled": "temper_create,temper_get,temper_list,temper_action,read_entity,save_memory",
+            "tools_enabled": "temper_create,temper_get,temper_list,temper_action,temper_read,save_memory",
             "max_turns": "24",
             "workdir": "/tmp/paw-full-platform-proof",
             "temper_api_url": args.base_url.rstrip("/"),

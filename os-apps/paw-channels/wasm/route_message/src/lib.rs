@@ -383,7 +383,7 @@ fn create_agent_from_route(
         "user_message": user_message,
         "model": config.get("model").and_then(Value::as_str).unwrap_or("claude-sonnet-4-6"),
         "provider": config.get("provider").and_then(Value::as_str).unwrap_or("anthropic"),
-        "tools_enabled": config.get("tools_enabled").and_then(Value::as_str).unwrap_or("read_entity"),
+        "tools_enabled": config.get("tools_enabled").and_then(Value::as_str).unwrap_or("temper_read"),
         "workdir": config.get("workdir").and_then(Value::as_str).unwrap_or("/tmp/workspace"),
         "sandbox_url": config.get("sandbox_url").and_then(Value::as_str).unwrap_or(""),
         "temper_api_url": config.get("temper_api_url").and_then(Value::as_str).unwrap_or(""),

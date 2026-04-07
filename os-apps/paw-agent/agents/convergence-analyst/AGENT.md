@@ -77,7 +77,7 @@ The `current_projected_state` is what Probes will see next step. It should look 
 
 Upload the JSON:
 1. `temper.create("Files", {"Name": "projected_state_step_N.json", "MimeType": "application/json"})`
-2. Use `file_upload` tool to upload the JSON content to the file
+2. Use `temper.write` to write the JSON content to the file by path
 
 ## Phase 3: Report Completion
 

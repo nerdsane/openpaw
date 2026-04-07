@@ -24,7 +24,7 @@ Your lead may inject `Skill` entities containing lessons learned on this project
 - `temper_get` — read entities for context
 - `temper_list` — query entities
 - `temper_action` — advance entity state machines
-- `read_entity` — read entity content
+- `temper_read` — read file content by path
 
 Your lead may grant additional tools per task. Use only what you're given.
 

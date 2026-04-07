@@ -1369,7 +1369,7 @@ async fn set_default_soul(
                 let agent_config = serde_json::json!({
                     "model": "claude-sonnet-4-6",
                     "provider": "anthropic",
-                    "tools_enabled": "temper_create,temper_get,temper_list,temper_action,read_entity,save_memory,spawn_agent",
+                    "tools_enabled": "temper_create,temper_get,temper_list,temper_action,temper_read,save_memory,spawn_agent",
                     "max_turns": "24",
                     "temper_api_url": api_url,
                     "max_follow_ups": "8",

@@ -1,7 +1,7 @@
 {
   "model": "claude-sonnet-4-6",
   "provider": "anthropic",
-  "tools_enabled": "temper_create,temper_get,temper_list,temper_action,spawn_agent,save_memory,read_entity",
+  "tools_enabled": "temper_create,temper_get,temper_list,temper_action,spawn_agent,save_memory,temper_read",
   "max_turns": "24",
   "max_follow_ups": "5",
   "heartbeat_timeout_seconds": "300",

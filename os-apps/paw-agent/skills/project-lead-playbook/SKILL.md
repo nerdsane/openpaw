@@ -70,7 +70,7 @@ Use for: feature implementation, bug fixes, tests, commits, PRs, monitoring inst
 ```
 spawn_agent:
   soul: swe
-  tools: [read, write, edit, bash, temper_get, temper_list, temper_action, read_entity]
+  tools: [read, write, edit, bash, temper_get, temper_list, temper_action, temper_read]
   task: <precise description>
   context:
     work_cycle_id: <id>
@@ -89,7 +89,7 @@ Use for: alert investigation, remediation, monitor tuning, infrastructure scalin
 ```
 spawn_agent:
   soul: sre
-  tools: [read, write, edit, bash, temper_get, temper_list, temper_action, read_entity, datadog_query]
+  tools: [read, write, edit, bash, temper_get, temper_list, temper_action, temper_read, datadog_query]
   task: <precise description>
   context:
     alert_cycle_id: <id>

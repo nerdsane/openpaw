@@ -167,8 +167,8 @@ fn temper_method_token(method: &str) -> Option<&'static str> {
         "steer_session" => Some("temper_steer_session"),
         "save_memory" => Some("temper_save_memory"),
         "recall_memory" => Some("temper_recall_memory"),
-        "file_upload" => Some("temper_file_upload"),
-        "read_entity" => Some("temper_read_entity"),
+        "write" => Some("temper_write"),
+        "read" => Some("temper_read"),
         "run_coding_agent" => Some("temper_run_coding_agent"),
         "get_secret" => Some("temper_get_secret"),
         "datadog_query" => Some("temper_datadog_query"),
@@ -250,8 +250,8 @@ fn dispatch_temper(
         "steer_session" => super::entity_ops::steer_session(ctx, api_url, tenant, args),
         "save_memory" => super::entity_ops::save_memory(ctx, api_url, tenant, args),
         "recall_memory" => super::entity_ops::recall_memory(ctx, api_url, tenant, args),
-        "file_upload" => super::entity_ops::file_upload(ctx, api_url, tenant, args),
-        "read_entity" => super::entity_ops::read_entity(ctx, api_url, tenant, args),
+        "write" => super::entity_ops::write(ctx, api_url, tenant, args),
+        "read" => super::entity_ops::read(ctx, api_url, tenant, args),
         "run_coding_agent" => {
             super::entity_ops::run_coding_agent(ctx, api_url, tenant, sandbox_url, workdir, args)
         }
@@ -279,7 +279,7 @@ fn dispatch_temper(
              submit_policy, list_policies, get_policy, update_policy, delete_policy, \
              get_secret, done, install_app, list_apps, get_agent_id, \
              spawn_session, list_sessions, abort_session, steer_session, \
-             save_memory, recall_memory, file_upload, read_entity, \
+             save_memory, recall_memory, write, read, \
              run_coding_agent, datadog_query, railway, vercel, \
              web_search, web_fetch"
         )),

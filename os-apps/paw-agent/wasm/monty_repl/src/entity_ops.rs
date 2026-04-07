@@ -338,66 +338,139 @@ pub fn recall_memory(
 }
 
 // ---------------------------------------------------------------------------
-// file_upload
+// write — temper.write(path, content, opts?)
 // ---------------------------------------------------------------------------
 
-pub fn file_upload(
+pub fn write(
     ctx: &Context,
     api_url: &str,
     tenant: &str,
     args: &[Value],
 ) -> Result<Value, String> {
-    let input = obj_arg(args, 0, "opts", "file_upload")?;
-    let name = require_str(&input, "name", "file_upload")?;
-    let content = require_str(&input, "content", "file_upload")?;
-    let mime_type = input
+    let path = pos_str(args, 0, "path", "write")?;
+    let content = pos_str(args, 1, "content", "write")?;
+    let opts = obj_arg_or_empty(args, 2);
+
+    let workspace_name = opts
+        .get("workspace")
+        .and_then(|v| v.as_str())
+        .unwrap_or("default");
+    let mime_type = opts
         .get("mime_type")
         .and_then(|v| v.as_str())
-        .unwrap_or("text/markdown");
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| mime_from_ext(&path).to_string());
 
-    // Create File entity
-    let file_body = json!({ "Name": name, "MimeType": mime_type });
-    let resp = http_post(ctx, api_url, tenant, "/tdata/Files", &file_body)?;
+    // 1. Ensure workspace exists.
+    let ws_id = ensure_workspace(ctx, api_url, tenant, workspace_name)?;
+
+    // 2. Parse path to get dir_path for MkDir.
+    let dir_path = match path.rsplit_once('/') {
+        Some(("", _)) => "/",
+        Some((d, _)) => d,
+        None => "/",
+    };
+
+    // 3. MkDir — create directory hierarchy (FUSE: mkdir -p).
+    http_post(
+        ctx,
+        api_url,
+        tenant,
+        &format!(
+            "/tdata/Workspaces('{ws_id}')/Temper.MkDir?await_integration=true"
+        ),
+        &json!({"path": dir_path}),
+    )?;
+
+    // 4. CreateFile — create file entity at path (FUSE: creat).
+    let resp = http_post(
+        ctx,
+        api_url,
+        tenant,
+        &format!(
+            "/tdata/Workspaces('{ws_id}')/Temper.CreateFile?await_integration=true"
+        ),
+        &json!({"path": path, "mime_type": mime_type}),
+    )?;
+
+    // Extract file_id from workspace state fields.
     let file_id = resp
-        .get("entity_id")
-        .or_else(|| resp.get("Id"))
+        .get("fields")
+        .and_then(|f| f.get("last_file_id"))
+        .or_else(|| resp.get("last_file_id"))
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
     if file_id.is_empty() {
-        return Err("file_upload: File created but no Id returned".into());
+        return Err("temper.write(): CreateFile succeeded but no file_id returned".into());
     }
 
-    // Upload content via PUT $value
+    // 5. PUT $value — upload content (FUSE: write).
     let url = format!("{api_url}/tdata/Files('{file_id}')/$value");
     let headers = vec![
         ("X-Tenant-Id".to_string(), tenant.to_string()),
         ("Content-Type".to_string(), mime_type.to_string()),
     ];
-    let resp = ctx.http_call("PUT", &url, &headers, content)?;
+    let resp = ctx.http_call("PUT", &url, &headers, &content)?;
     if resp.status >= 400 {
         return Err(format!(
-            "file_upload: content write failed (HTTP {})",
+            "temper.write(): content upload failed (HTTP {})",
             resp.status
         ));
     }
 
-    Ok(json!({ "file_id": file_id }))
+    Ok(json!({
+        "file_id": file_id,
+        "path": path,
+        "workspace_id": ws_id,
+    }))
 }
 
 // ---------------------------------------------------------------------------
-// read_entity
+// read — temper.read(path, opts?)
 // ---------------------------------------------------------------------------
 
-pub fn read_entity(
+pub fn read(
     ctx: &Context,
     api_url: &str,
     tenant: &str,
     args: &[Value],
 ) -> Result<Value, String> {
-    let input = obj_arg(args, 0, "opts", "read_entity")?;
-    let file_id = require_str(&input, "file_id", "read_entity")?;
+    let path = pos_str(args, 0, "path", "read")?;
+    let opts = obj_arg_or_empty(args, 1);
 
+    let workspace_name = opts
+        .get("workspace")
+        .and_then(|v| v.as_str())
+        .unwrap_or("default");
+
+    // 1. Find workspace (query-only, no auto-create).
+    let ws_id = find_workspace(ctx, api_url, tenant, workspace_name)?
+        .ok_or_else(|| format!("temper.read(): workspace '{}' not found", workspace_name))?;
+
+    // 2. ResolvePath — resolve path to file_id (FUSE: stat).
+    let resp = http_post(
+        ctx,
+        api_url,
+        tenant,
+        &format!(
+            "/tdata/Workspaces('{ws_id}')/Temper.ResolvePath?await_integration=true"
+        ),
+        &json!({"path": path}),
+    )?;
+
+    let file_id = resp
+        .get("fields")
+        .and_then(|f| f.get("last_file_id"))
+        .or_else(|| resp.get("last_file_id"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    if file_id.is_empty() {
+        return Err(format!("temper.read(): file not found at '{path}'"));
+    }
+
+    // 3. GET $value — read content (FUSE: read).
     let url = format!("{api_url}/tdata/Files('{file_id}')/$value");
     let headers = vec![
         ("X-Tenant-Id".to_string(), tenant.to_string()),
@@ -405,8 +478,9 @@ pub fn read_entity(
     ];
     let resp = ctx.http_call("GET", &url, &headers, "")?;
     if resp.status >= 400 {
-        return Err(format!("read_entity failed (HTTP {})", resp.status));
+        return Err(format!("temper.read(): content read failed (HTTP {})", resp.status));
     }
+
     Ok(json!(resp.body))
 }
 
@@ -622,6 +696,80 @@ fn http_post(
     }
     serde_json::from_str(&resp.body)
         .map_err(|e| format!("failed to parse response from {path}: {e}"))
+}
+
+fn pos_str(args: &[Value], idx: usize, name: &str, method: &str) -> Result<String, String> {
+    args.get(idx)
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+        .ok_or_else(|| format!("temper.{method}(): missing '{name}' at position {idx}"))
+}
+
+fn find_workspace(
+    ctx: &Context,
+    api_url: &str,
+    tenant: &str,
+    name: &str,
+) -> Result<Option<String>, String> {
+    let name_enc = urlenc(name);
+    let resp = http_get(
+        ctx,
+        api_url,
+        tenant,
+        &format!("/tdata/Workspaces?$filter=Name%20eq%20'{name_enc}'"),
+    )?;
+    let items = resp.get("value").and_then(|v| v.as_array());
+    Ok(items
+        .and_then(|arr| arr.first())
+        .and_then(|v| {
+            v.get("entity_id")
+                .or_else(|| v.get("Id"))
+                .and_then(|v| v.as_str())
+        })
+        .map(|s| s.to_string()))
+}
+
+fn ensure_workspace(
+    ctx: &Context,
+    api_url: &str,
+    tenant: &str,
+    name: &str,
+) -> Result<String, String> {
+    if let Some(id) = find_workspace(ctx, api_url, tenant, name)? {
+        return Ok(id);
+    }
+    let resp = http_post(
+        ctx,
+        api_url,
+        tenant,
+        "/tdata/Workspaces",
+        &json!({"Name": name}),
+    )?;
+    resp.get("entity_id")
+        .or_else(|| resp.get("Id"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .ok_or_else(|| "temper.write(): Workspace created but no Id returned".into())
+}
+
+fn mime_from_ext(path: &str) -> &'static str {
+    match path.rsplit('.').next().unwrap_or("") {
+        "md" | "markdown" => "text/markdown",
+        "txt" => "text/plain",
+        "json" => "application/json",
+        "yaml" | "yml" => "application/yaml",
+        "toml" => "application/toml",
+        "html" | "htm" => "text/html",
+        "css" => "text/css",
+        "js" => "application/javascript",
+        "ts" => "application/typescript",
+        "rs" => "text/x-rust",
+        "py" => "text/x-python",
+        "xml" => "application/xml",
+        "csv" => "text/csv",
+        _ => "application/octet-stream",
+    }
 }
 
 fn urlenc(s: &str) -> String {

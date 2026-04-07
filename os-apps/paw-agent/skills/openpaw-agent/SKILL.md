@@ -146,8 +146,8 @@ temper.deny_decision(id)                     # deny (Cedar-gated)
 
 ### Files
 ```
-temper.file_upload(name, content)  # upload to TemperFS
-temper.read_entity(file_id)       # read TemperFS file
+temper.write(path, content)        # write file by path (auto-creates workspace/dirs)
+temper.read(path)                  # read file content by path
 ```
 
 ### Completion

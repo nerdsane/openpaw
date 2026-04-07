@@ -204,6 +204,58 @@
         <Annotation Term="Paw.Vocab.StateMachine.TargetState" String="Archived"/>
       </Action>
 
+      <!-- Filesystem Actions (FUSE-mapped, bound to Workspace) -->
+      <Action Name="MkDir" IsBound="true">
+        <Parameter Name="bindingParameter" Type="Paw.FS.Workspace"/>
+        <Parameter Name="path" Type="Edm.String" Nullable="false"/>
+        <ReturnType Type="Paw.FS.Workspace"/>
+        <Annotation Term="Paw.Vocab.StateMachine.ValidFromStates">
+          <Collection><String>Active</String></Collection>
+        </Annotation>
+        <Annotation Term="Paw.Vocab.Agent.Hint" String="Create directory hierarchy at path (mkdir -p). WASM resolves and creates intermediate directories."/>
+      </Action>
+
+      <Action Name="CreateFile" IsBound="true">
+        <Parameter Name="bindingParameter" Type="Paw.FS.Workspace"/>
+        <Parameter Name="path" Type="Edm.String" Nullable="false"/>
+        <Parameter Name="mime_type" Type="Edm.String"/>
+        <ReturnType Type="Paw.FS.Workspace"/>
+        <Annotation Term="Paw.Vocab.StateMachine.ValidFromStates">
+          <Collection><String>Active</String></Collection>
+        </Annotation>
+        <Annotation Term="Paw.Vocab.Agent.Hint" String="Create file entity at path (creat). Returns file_id in workspace state. Upload content separately via PUT $value."/>
+      </Action>
+
+      <Action Name="ResolvePath" IsBound="true">
+        <Parameter Name="bindingParameter" Type="Paw.FS.Workspace"/>
+        <Parameter Name="path" Type="Edm.String" Nullable="false"/>
+        <ReturnType Type="Paw.FS.Workspace"/>
+        <Annotation Term="Paw.Vocab.StateMachine.ValidFromStates">
+          <Collection><String>Active</String></Collection>
+        </Annotation>
+        <Annotation Term="Paw.Vocab.Agent.Hint" String="Resolve path to file entity (stat). Returns file_id in workspace state."/>
+      </Action>
+
+      <Action Name="ListDir" IsBound="true">
+        <Parameter Name="bindingParameter" Type="Paw.FS.Workspace"/>
+        <Parameter Name="path" Type="Edm.String" Nullable="false"/>
+        <ReturnType Type="Paw.FS.Workspace"/>
+        <Annotation Term="Paw.Vocab.StateMachine.ValidFromStates">
+          <Collection><String>Active</String></Collection>
+        </Annotation>
+        <Annotation Term="Paw.Vocab.Agent.Hint" String="List directory contents at path (readdir). Returns JSON listing in workspace state."/>
+      </Action>
+
+      <Action Name="DeleteFile" IsBound="true">
+        <Parameter Name="bindingParameter" Type="Paw.FS.Workspace"/>
+        <Parameter Name="path" Type="Edm.String" Nullable="false"/>
+        <ReturnType Type="Paw.FS.Workspace"/>
+        <Annotation Term="Paw.Vocab.StateMachine.ValidFromStates">
+          <Collection><String>Active</String></Collection>
+        </Annotation>
+        <Annotation Term="Paw.Vocab.Agent.Hint" String="Archive file at path (unlink). Dispatches FileArchive on the resolved file entity."/>
+      </Action>
+
       <!-- Directory Actions -->
       <Action Name="AddChild" IsBound="true">
         <Parameter Name="bindingParameter" Type="Paw.FS.Directory"/>

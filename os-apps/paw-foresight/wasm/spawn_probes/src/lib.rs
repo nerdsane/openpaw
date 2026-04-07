@@ -104,7 +104,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         };
 
         // 2c. Read the knowledge graph file content so we can include it in the prompt
-        //     (Probes can't read TemperFS files via read_entity in the sandbox)
+        //     (Probes can't read TemperFS files via temper.read in the sandbox)
         let knowledge_graph = if pm_resp.status >= 200 && pm_resp.status < 300 {
             let pm: Value = serde_json::from_str(&pm_resp.body).unwrap_or(json!({}));
             let file_id = pm
@@ -289,7 +289,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 "model": probe_model,
                 "provider": probe_provider,
                 "soul_id": "Probe",
-                "tools_enabled": "temper_get,temper_list,temper_action,temper_create,read_entity",
+                "tools_enabled": "temper_get,temper_list,temper_action,temper_create,temper_read",
                 "max_turns": "50",
                 "user_message": user_message,
                 "sandbox_url": "none",

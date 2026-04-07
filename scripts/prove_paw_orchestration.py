@@ -73,7 +73,7 @@ def main() -> int:
         route_config = {
             "model": args.model,
             "provider": "anthropic",
-            "tools_enabled": "temper_create,temper_get,temper_list,temper_action,spawn_session,read_entity,save_memory",
+            "tools_enabled": "temper_create,temper_get,temper_list,temper_action,spawn_session,temper_read,save_memory",
             "max_turns": "24",
             "workdir": "/tmp/paw-orchestration-proof",
             "sandbox_url": sandbox_url,

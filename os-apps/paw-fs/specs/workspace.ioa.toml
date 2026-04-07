@@ -25,6 +25,31 @@ name = "file_count"
 type = "counter"
 initial = "0"
 
+[[state]]
+name = "last_file_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "last_file_path"
+type = "string"
+initial = ""
+
+[[state]]
+name = "last_dir_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "last_dir_path"
+type = "string"
+initial = ""
+
+[[state]]
+name = "last_listing"
+type = "string"
+initial = ""
+
 # --- Actions ---
 
 [[action]]
@@ -98,6 +123,101 @@ from = ["Active", "Frozen"]
 to = "Archived"
 hint = "Archive the workspace. Terminal state."
 
+# --- Filesystem Actions (FUSE-mapped) ---
+
+[[action]]
+name = "MkDir"
+kind = "input"
+from = ["Active"]
+to = "Active"
+params = ["path"]
+hint = "Create directory hierarchy at path (mkdir -p)."
+effect = [{ type = "trigger", name = "fs_mkdir" }]
+
+[[action]]
+name = "DirCreated"
+kind = "input"
+from = ["Active"]
+to = "Active"
+params = ["last_dir_id", "last_dir_path"]
+hint = "Directory hierarchy created by WASM."
+
+[[action]]
+name = "CreateFile"
+kind = "input"
+from = ["Active"]
+to = "Active"
+params = ["path", "mime_type"]
+hint = "Create file entity at path (creat). Parent dir must exist."
+effect = [{ type = "trigger", name = "fs_create_file" }]
+
+[[action]]
+name = "FileCreated"
+kind = "input"
+from = ["Active"]
+to = "Active"
+params = ["last_file_id", "last_file_path"]
+hint = "File entity created/found by WASM."
+
+[[action]]
+name = "ResolvePath"
+kind = "input"
+from = ["Active"]
+to = "Active"
+params = ["path"]
+hint = "Resolve path to file entity (stat)."
+effect = [{ type = "trigger", name = "fs_resolve_path" }]
+
+[[action]]
+name = "PathResolved"
+kind = "input"
+from = ["Active"]
+to = "Active"
+params = ["last_file_id", "last_file_path"]
+hint = "Path resolved to file entity by WASM."
+
+[[action]]
+name = "ListDir"
+kind = "input"
+from = ["Active"]
+to = "Active"
+params = ["path"]
+hint = "List directory contents (readdir)."
+effect = [{ type = "trigger", name = "fs_list_dir" }]
+
+[[action]]
+name = "DirListed"
+kind = "input"
+from = ["Active"]
+to = "Active"
+params = ["last_listing"]
+hint = "Directory listing returned by WASM."
+
+[[action]]
+name = "DeleteFile"
+kind = "input"
+from = ["Active"]
+to = "Active"
+params = ["path"]
+hint = "Archive file at path (unlink)."
+effect = [{ type = "trigger", name = "fs_delete_file" }]
+
+[[action]]
+name = "FileDeleted"
+kind = "input"
+from = ["Active"]
+to = "Active"
+params = ["last_file_id", "last_file_path"]
+hint = "File archived by WASM."
+
+[[action]]
+name = "FsOperationFailed"
+kind = "input"
+from = ["Active"]
+to = "Active"
+params = ["last_file_id"]
+hint = "Filesystem operation failed. Workspace remains Active."
+
 # --- Output Actions ---
 
 [[action]]
@@ -121,3 +241,60 @@ assert = "used_bytes <= quota_limit"
 name = "FileCountNonNegative"
 when = ["Active", "Frozen", "Archived"]
 assert = "file_count >= 0"
+
+# --- Filesystem Integrations (WASM) ---
+
+[[integration]]
+name = "fs_mkdir"
+trigger = "fs_mkdir"
+type = "wasm"
+module = "workspace_fs"
+on_failure = "FsOperationFailed"
+
+[integration.config]
+temper_api_url = "{secret:temper_api_url}"
+operation = "mkdir"
+
+[[integration]]
+name = "fs_create_file"
+trigger = "fs_create_file"
+type = "wasm"
+module = "workspace_fs"
+on_failure = "FsOperationFailed"
+
+[integration.config]
+temper_api_url = "{secret:temper_api_url}"
+operation = "create_file"
+
+[[integration]]
+name = "fs_resolve_path"
+trigger = "fs_resolve_path"
+type = "wasm"
+module = "workspace_fs"
+on_failure = "FsOperationFailed"
+
+[integration.config]
+temper_api_url = "{secret:temper_api_url}"
+operation = "resolve_path"
+
+[[integration]]
+name = "fs_list_dir"
+trigger = "fs_list_dir"
+type = "wasm"
+module = "workspace_fs"
+on_failure = "FsOperationFailed"
+
+[integration.config]
+temper_api_url = "{secret:temper_api_url}"
+operation = "list_dir"
+
+[[integration]]
+name = "fs_delete_file"
+trigger = "fs_delete_file"
+type = "wasm"
+module = "workspace_fs"
+on_failure = "FsOperationFailed"
+
+[integration.config]
+temper_api_url = "{secret:temper_api_url}"
+operation = "delete_file"

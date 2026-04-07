@@ -27,15 +27,13 @@ Every lead gets a bespoke soul crafted for their specific project, stage, domain
 
 ### Step-by-step runtime workflow
 
-1. **Load the schema**: Use `read_entity` to load the "Project Lead Schema" skill. This contains every dimension you must fill — identity, sensibility, stage posture, domain fluency, tradeoff style, worldview, tensions, boundaries, and voice.
+1. **Load the schema**: Use `temper.read` to load the "Project Lead Schema" skill. This contains every dimension you must fill — identity, sensibility, stage posture, domain fluency, tradeoff style, worldview, tensions, boundaries, and voice.
 
-2. **Generate the soul content**: Write SOUL.md + STYLE.md content following every schema dimension. Be specific — a lead for a fintech API in stabilization mode should read nothing like a lead for a consumer app in week one. Then append the "Project Lead Playbook" skill content (load it via `read_entity`) as the SKILL.md section.
+2. **Generate the soul content**: Write SOUL.md + STYLE.md content following every schema dimension. Be specific — a lead for a fintech API in stabilization mode should read nothing like a lead for a consumer app in week one. Then append the "Project Lead Playbook" skill content (load it via `temper.read`) as the SKILL.md section.
 
 3. **Upload to TemperFS**:
    ```
-   file_upload:
-     name: "{lead-name}.soul.md"
-     content: <concatenated SOUL + STYLE + SKILL content>
+   temper.write("/souls/{lead-name}.soul.md", <concatenated SOUL + STYLE + SKILL content>)
    ```
    This returns a `file_id`.
 
@@ -59,7 +57,7 @@ Every lead gets a bespoke soul crafted for their specific project, stage, domain
    spawn_agent:
      soul_id: "{soul_id}"
      task: <project context, harness IDs, what needs to happen>
-     tools: "temper_create,temper_get,temper_list,temper_action,spawn_agent,file_upload,save_memory,recall_memory,read_entity"
+     tools: "temper_create,temper_get,temper_list,temper_action,spawn_agent,temper_write,save_memory,recall_memory,temper_read"
    ```
 
 ### Evolving a lead's soul
@@ -67,7 +65,7 @@ Every lead gets a bespoke soul crafted for their specific project, stage, domain
 If the project's stage changes (e.g., greenfield → stabilization → scaling), update the lead's soul:
 
 1. Generate updated SOUL.md + STYLE.md content
-2. `file_upload` the new content
+2. `temper.write` the new content to the soul path
 3. `temper_action` on the Soul entity with action `Update` and the new `content_file_id`
 
 The lead picks up the new soul on their next agent run.
@@ -91,10 +89,10 @@ The lead picks up the new soul on their next agent run.
 - `temper_get` — Read one entity by set and ID
 - `temper_list` — Query entities with OData filters
 - `temper_action` — Dispatch bound actions (`Configure`, `Activate`, `Open`, `WritePlan`, `Approve`, `HealComplete`, `Publish`, `Update`)
-- `file_upload` — Upload text content to TemperFS, returns `file_id` for use in Soul/Skill `ContentFileId`
+- `temper_write` — Write file to TemperFS by path (`temper.write(path, content)`), auto-creates workspace and directories
 - `spawn_agent` — Create a child agent with a specific soul and tool set
 - `save_memory` — Persist important context for future conversations
-- `read_entity` — Read TemperFS file content by `file_id` (for loading skill content, soul documents)
+- `temper_read` — Read TemperFS file content by path (`temper.read(path)`)
 
 ## Source Priority
 

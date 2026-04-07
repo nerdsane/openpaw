@@ -200,7 +200,7 @@ Required workflow:\n\
 4. Create or reuse exactly one WorkCycle tied to the Harness for the remediation.\n\
 5. Spawn exactly one Developer child agent with:\n\
    - `soul_id = Developer`\n\
-   - tools including `read,write,edit,bash,temper_get,temper_list,temper_action,read_entity`\n\
+   - tools including `read,write,edit,bash,temper_get,temper_list,temper_action,temper_read`\n\
    - `workdir = {default_developer_workdir}`\n\
    - `background = false`\n\
    - do not invent a sandbox URL; let platform provisioning use the configured default sandbox\n\
@@ -252,7 +252,7 @@ ISSUE_ID=<id or empty>"
         let configure_body = json!({
             "model": default_agent_model,
             "provider": "anthropic",
-            "tools_enabled": "temper_get,temper_list,temper_action,temper_create,spawn_session,read_entity",
+            "tools_enabled": "temper_get,temper_list,temper_action,temper_create,spawn_session,temper_read",
             "workdir": default_sre_workdir,
             "soul_id": "SRE",
             "temper_api_url": temper_api_url,

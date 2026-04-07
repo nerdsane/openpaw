@@ -280,7 +280,7 @@ def main() -> int:
             ),
             "model": args.model,
             "provider": "anthropic",
-            "tools_enabled": "read_entity",
+            "tools_enabled": "temper_read",
             "max_turns": "8",
             "workdir": "/tmp/channel-continuation-proof",
             "sandbox_url": sandbox_url,

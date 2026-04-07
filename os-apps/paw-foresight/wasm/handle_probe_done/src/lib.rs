@@ -340,7 +340,7 @@ fn spawn_convergence_analyst(
          }}\n\n\
          Upload this JSON:\n\
          1. temper.create(\"Files\", {{\"Name\": \"projected_state_step_{current_step}.json\", \"MimeType\": \"application/json\"}})\n\
-         2. Use the file_upload tool to upload the JSON content to the file\n\n\
+         2. Use temper.write(path, content) to write the JSON content\n\n\
          PHASE 3: Report Completion\n\
          Call temper.action(\"Projections\", \"{projection_id}\", \"ConvergenceComplete\", \
            {{\"projected_state_file_id\": \"<file_id>\"}})\n\
@@ -354,7 +354,7 @@ fn spawn_convergence_analyst(
     let configure_body = json!({
         "model": "claude-sonnet-4-6",
         "agent_name": "convergence-analyst",
-        "tools_enabled": "temper_get,temper_list,temper_action,temper_create,file_upload",
+        "tools_enabled": "temper_get,temper_list,temper_action,temper_create,temper_write",
         "max_turns": "40",
         "user_message": user_message,
         "sandbox_url": "none",

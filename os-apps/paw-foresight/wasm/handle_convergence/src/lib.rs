@@ -331,7 +331,7 @@ fn respawn_probe_with_memory(
     let configure_body = json!({
         "model": "claude-sonnet-4-6",
         "soul_id": "Probe",
-        "tools_enabled": "temper_get,temper_list,temper_action,temper_create,read_entity",
+        "tools_enabled": "temper_get,temper_list,temper_action,temper_create,temper_read",
         "max_turns": "50",
         "user_message": user_message,
         "sandbox_url": "none",
