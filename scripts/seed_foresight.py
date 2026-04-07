@@ -33,7 +33,7 @@ SIGNAL_SOURCE_CONFIG = json.dumps({
 DEFAULT_PROBE_COUNT = 3
 
 # Adaptive step schedule: 3 daily, 3 weekly, 3 monthly, 3 quarterly
-STEP_SCHEDULE = json.dumps([1, 1, 1, 7, 7, 7, 30, 30, 30, 90, 90, 90])
+STEP_SCHEDULE = json.dumps([1, 3, 7])
 
 
 def find_product_model(client: ODataClient) -> dict | None:
@@ -112,11 +112,10 @@ def build_probe_config(probe_count: int) -> str:
     if probe_count <= 0:
         raise ValueError("probe_count must be > 0")
 
-    probes.append({"name": "Probe-Deep", "model": "claude-opus-4-6"})
-    for idx in range(1, probe_count):
+    for idx in range(probe_count):
         probes.append(
             {
-                "name": f"Probe-Broad-{idx}",
+                "name": f"Probe-{idx + 1}",
                 "model": "claude-sonnet-4-6",
             }
         )

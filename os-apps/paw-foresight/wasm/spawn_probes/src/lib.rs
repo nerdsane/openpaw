@@ -171,9 +171,9 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 &format!("spawn_probes: created Agent {agent_id} ({probe_name})"),
             );
 
-            // 3b. Create Session
+            // 3b. Create Session (with agent_id so advance_step can find it)
             let session_url = format!("{temper_api_url}/tdata/Sessions");
-            let session_body = json!({});
+            let session_body = json!({"agent_id": agent_id});
             let session_resp =
                 ctx.http_call("POST", &session_url, &headers, &session_body.to_string())?;
             if session_resp.status < 200 || session_resp.status >= 300 {
@@ -262,7 +262,9 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 "soul_id": "Probe",
                 "tools_enabled": "temper_get,temper_list,temper_action,temper_create,read_entity",
                 "max_turns": "50",
-                "user_message": user_message
+                "user_message": user_message,
+                "sandbox_url": "none",
+                "temper_api_url": temper_api_url
             });
             let configure_resp = ctx.http_call(
                 "POST",

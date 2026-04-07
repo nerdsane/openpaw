@@ -142,9 +142,28 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             return Ok(());
         }
 
+        // Check if ALL probes failed (none completed successfully)
+        let completed_count = probe_session_states.iter()
+            .filter(|(_, _, state, _)| state == "Completed")
+            .count();
+        let failed_count = probe_session_states.iter()
+            .filter(|(_, _, state, _)| state == "Failed")
+            .count();
+
+        if completed_count == 0 && failed_count > 0 {
+            ctx.log("warn", &format!(
+                "advance_step: all {} Probes failed (none completed), failing Projection",
+                failed_count
+            ));
+            set_success_result("Fail", &json!({
+                "error_message": format!("All {} probe sessions failed", failed_count)
+            }));
+            return Ok(());
+        }
+
         ctx.log("info", &format!(
-            "advance_step: all {} Probes done, proceeding with convergence + next step",
-            probe_agent_ids.len()
+            "advance_step: all {} Probes done ({} completed, {} failed), proceeding with convergence + next step",
+            probe_agent_ids.len(), completed_count, failed_count
         ));
 
         // 4. Spawn Convergence Analyst for previous step's Observations
@@ -288,7 +307,9 @@ fn spawn_convergence_analyst(
         "agent_name": "convergence-analyst",
         "tools_enabled": "temper_get,temper_list,temper_action,temper_create",
         "max_turns": "30",
-        "user_message": user_message
+        "user_message": user_message,
+        "sandbox_url": "none",
+        "temper_api_url": temper_api_url
     });
     let configure_resp = ctx.http_call("POST", &configure_url, headers, &configure_body.to_string())?;
     if configure_resp.status < 200 || configure_resp.status >= 300 {
@@ -313,9 +334,9 @@ fn respawn_probe(
     agent_id: &str,
     product_model_id: &str,
 ) -> Result<(), String> {
-    // Create new Session
+    // Create new Session (with agent_id so advance_step can find it)
     let session_url = format!("{temper_api_url}/tdata/Sessions");
-    let session_body = json!({});
+    let session_body = json!({"agent_id": agent_id});
     let session_resp = ctx.http_call("POST", &session_url, headers, &session_body.to_string())?;
     if session_resp.status < 200 || session_resp.status >= 300 {
         ctx.log(
@@ -350,6 +371,7 @@ fn respawn_probe(
         "tools_enabled": "temper_get,temper_list,temper_action,temper_create",
         "max_turns": "50",
         "user_message": user_message,
+        "sandbox_url": "none",
         "temper_api_url": temper_api_url
     });
     let configure_resp = ctx.http_call(
