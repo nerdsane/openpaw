@@ -153,6 +153,29 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         // Compute change hotspots from commits (files changed most frequently)
         let change_hotspots = compute_change_hotspots(&commits);
 
+        // Query README for product description
+        let readme_url = format!(
+            "https://api.github.com/repos/{owner}/{repo}/readme"
+        );
+        let readme_resp = ctx.http_call("GET", &readme_url, &gh_headers, "")?;
+        let readme_content = if readme_resp.status >= 200 && readme_resp.status < 300 {
+            let readme_json: Value = serde_json::from_str(&readme_resp.body).unwrap_or(json!({}));
+            // README is base64 encoded in the "content" field
+            let encoded = readme_json.get("content").and_then(|v| v.as_str()).unwrap_or("");
+            let cleaned = encoded.replace('\n', "");
+            // Decode base64
+            let decoded = base64_decode(&cleaned);
+            // Truncate to first 2000 chars to keep the knowledge graph reasonable
+            if decoded.len() > 2000 {
+                format!("{}... (truncated)", &decoded[..2000])
+            } else {
+                decoded
+            }
+        } else {
+            ctx.log("warn", "seed_model: could not fetch README");
+            String::new()
+        };
+
         // Query codebase structure: top-level directory, key subdirs, languages
         let root_contents_url = format!(
             "https://api.github.com/repos/{owner}/{repo}/contents/"
@@ -286,7 +309,8 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             "repo": {
                 "url": repo_url,
                 "tech_stack": tech_stack,
-                "default_branch": default_branch
+                "default_branch": default_branch,
+                "description": readme_content
             },
             "codebase": {
                 "directories": root_contents,
@@ -682,6 +706,33 @@ fn summarize_directory_listing(contents: &Value) -> Value {
 /// Get timestamp from trigger params or entity state, falling back to "now".
 /// WASM has no std::time clock, so we rely on the caller to pass a timestamp
 /// via the action params or entity state fields.
+/// Simple base64 decode (no padding required, ignores whitespace).
+fn base64_decode(input: &str) -> String {
+    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut output = Vec::new();
+    let mut buf: u32 = 0;
+    let mut bits: u32 = 0;
+    for ch in input.bytes() {
+        let val = match ch {
+            b'A'..=b'Z' => ch - b'A',
+            b'a'..=b'z' => ch - b'a' + 26,
+            b'0'..=b'9' => ch - b'0' + 52,
+            b'+' => 62,
+            b'/' => 63,
+            b'=' | b'\n' | b'\r' | b' ' => continue,
+            _ => continue,
+        };
+        buf = (buf << 6) | val as u32;
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            output.push((buf >> bits) as u8);
+            buf &= (1 << bits) - 1;
+        }
+    }
+    String::from_utf8_lossy(&output).to_string()
+}
+
 fn get_timestamp(ctx: &Context) -> String {
     // Try trigger params first (set by the caller/script)
     if let Some(ts) = ctx.trigger_params.get("last_signal_refresh").and_then(|v| v.as_str()) {

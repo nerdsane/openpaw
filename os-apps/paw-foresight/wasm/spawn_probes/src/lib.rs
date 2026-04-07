@@ -210,31 +210,47 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             };
 
             let user_message = format!(
-                "You are {probe_name}, a Foresight Probe. Analyze this product and project its future.\n\n\
+                "You are {probe_name}, a Foresight Probe. Your job is to PROJECT WHERE THIS PRODUCT COULD GO \
+                 over the next 2-4 weeks, not just report what's broken today.\n\n\
                  Projection ID: {entity_id}\n\
                  ProductModel ID: {product_model_id}\n\
                  Your Agent ID: {agent_id}\n\
                  Step: 0 (initial)\n\n\
-                 Here is the ProductModel knowledge graph (real signals from the codebase):\n\n\
+                 Here is the ProductModel knowledge graph:\n\n\
                  {kg_for_prompt}\n\n\
-                 IMPORTANT: Work INDEPENDENTLY. Do NOT read other Probes' Observations.\n\
-                 Analyze the knowledge graph above. Create 3-5 Observations and 1-2 Directions.\n\n\
-                 CRITICAL: Use EXACTLY these field names. The API silently drops unknown fields.\n\n\
+                 YOUR TASK:\n\
+                 1. Look PAST the current sprint's activity. What is this product architecturally? \
+                    What features does it have? What user needs does it serve?\n\
+                 2. Project forward: given the codebase structure, tech stack, and trajectory, \
+                    where COULD this product evolve? Think about:\n\
+                    - New capabilities the architecture could support\n\
+                    - User experience improvements\n\
+                    - Integrations or expansions\n\
+                    - Simplifications that would make it more focused\n\
+                    - Architectural shifts that unlock new possibilities\n\
+                 3. Create 3-5 Observations about the product's TRAJECTORY (not just bugs)\n\
+                 4. Create 2-3 DIVERSE Directions — each a different plausible future for the product, \
+                    like choose-your-own-adventure options a PM could select between\n\n\
+                 DO NOT just report operational issues. A PM doesn't need a probe to tell them monitors are broken. \
+                 They need to see where the product COULD GO.\n\n\
+                 Work INDEPENDENTLY. Do NOT read other Probes' Observations.\n\n\
+                 CRITICAL: Use EXACTLY these field names (API silently drops unknown fields):\n\n\
                  temper.create(\"Observations\", {{\n\
-                   \"content\": \"What you observed and why it matters\",\n\
+                   \"content\": \"What you see in the trajectory and why it matters for the product's future\",\n\
                    \"importance\": \"high\",\n\
                    \"signal_refs\": '[\"commit:abc\", \"pr:42\"]',\n\
-                   \"counterfactual\": \"What happens if this is ignored\",\n\
+                   \"counterfactual\": \"What happens in 2-4 weeks if this signal is ignored\",\n\
                    \"probe_agent_id\": \"{agent_id}\",\n\
                    \"projection_id\": \"{entity_id}\",\n\
                    \"step_at\": \"0\"\n\
                  }})\n\n\
                  temper.create(\"Directions\", {{\n\
-                   \"title\": \"Short title for the direction\",\n\
-                   \"reasoning\": \"Full reasoning about why this direction matters\",\n\
-                   \"grounding\": '[\"signal refs from the knowledge graph\"]',\n\
+                   \"title\": \"Name for this product direction\",\n\
+                   \"reasoning\": \"Full product brief: why this direction, what it enables, what it costs, \
+                     what the product looks like if this path is taken\",\n\
+                   \"grounding\": '[\"signal refs that support this direction\"]',\n\
                    \"observation_ids\": '[\"obs_id\"]',\n\
-                   \"counterfactual_summary\": \"What happens if NOT taken\",\n\
+                   \"counterfactual_summary\": \"What happens if this direction is NOT taken\",\n\
                    \"proposer_agent_id\": \"{agent_id}\",\n\
                    \"projection_id\": \"{entity_id}\"\n\
                  }})\n\n\

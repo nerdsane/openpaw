@@ -173,12 +173,11 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 );
                 let steer_message = format!(
                     "[Foresight] Step {current_step} of {max_steps}. \
-                     Time horizon: project what happens over the next {days_offset} days. \
-                     ProductModel ID: {product_model_id}. \
-                     Use temper_get to read the ProductModel. \
-                     Use temper_list to read other Probes' Observations. \
-                     Project what happens. Record Observations. \
-                     Propose Directions when you see them."
+                     Time horizon: {days_offset} days from now. \
+                     Project where this product COULD BE in {days_offset} days. \
+                     Think about new capabilities, user needs, architectural evolution. \
+                     Create Observations about trajectory and Directions as product futures. \
+                     Do NOT just report bugs. Do NOT read other Probes' Observations."
                 );
                 let steer_body = json!({ "message": steer_message });
                 let steer_resp = ctx.http_call(
