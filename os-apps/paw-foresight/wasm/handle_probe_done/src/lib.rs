@@ -98,7 +98,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             .cloned()
             .unwrap_or_default();
 
-        // Count distinct probe_agent_ids
+        // Count distinct probe_agent_ids from Observations
         let mut reported_probes: std::collections::BTreeSet<String> =
             std::collections::BTreeSet::new();
         for obs in &observations {
@@ -109,6 +109,38 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             {
                 if !pid.is_empty() && probe_agent_ids.contains(&pid.to_string()) {
                     reported_probes.insert(pid.to_string());
+                }
+            }
+        }
+
+        // Also include the probe that just called ProbeStepDone (it may have
+        // completed without creating Observations — still counts as reported)
+        if let Some(caller_id) = ctx.trigger_params.get("probe_agent_id").and_then(|v| v.as_str()) {
+            if !caller_id.is_empty() && probe_agent_ids.contains(&caller_id.to_string()) {
+                reported_probes.insert(caller_id.to_string());
+            }
+        }
+
+        // Check sessions: any probe whose session is terminal (Completed/Failed)
+        // also counts as reported, even if it created no Observations
+        for agent_id in &probe_agent_ids {
+            if reported_probes.contains(agent_id) {
+                continue;
+            }
+            let session_url = format!(
+                "{temper_api_url}/tdata/Sessions?$filter=agent_id eq '{agent_id}'&$orderby=created_at desc&$top=1"
+            );
+            if let Ok(resp) = ctx.http_call("GET", &session_url, &headers, "") {
+                if resp.status >= 200 && resp.status < 300 {
+                    let body: Value = serde_json::from_str(&resp.body).unwrap_or(json!({}));
+                    if let Some(sessions) = body.get("value").and_then(|v| v.as_array()) {
+                        if let Some(s) = sessions.first() {
+                            let status = s.get("status").and_then(|v| v.as_str()).unwrap_or("");
+                            if matches!(status, "Completed" | "Failed" | "Cancelled") {
+                                reported_probes.insert(agent_id.clone());
+                            }
+                        }
+                    }
                 }
             }
         }

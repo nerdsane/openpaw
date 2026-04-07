@@ -210,7 +210,9 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             };
 
             let user_message = format!(
-                "You are {probe_name}, a Foresight Probe in a temporal simulation.\n\
+                "IMPORTANT: You MUST use the execute tool for ALL actions. Do NOT write analysis as text. \
+                 ALL observations and directions must be created via temper.create() calls inside execute.\n\n\
+                 You are {probe_name}, a Foresight Probe in a temporal simulation.\n\
                  Your job is to PROJECT WHERE THIS PRODUCT COULD GO, not just report what's broken.\n\n\
                  Projection ID: {entity_id}\n\
                  ProductModel ID: {product_model_id}\n\
