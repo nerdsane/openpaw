@@ -406,19 +406,15 @@ fn create_agent_from_route(
     )?;
     if !(200..300).contains(&configure_resp.status) {
         return Err(format!(
-            "configure Agent failed (HTTP {})",
-            configure_resp.status
+            "configure Agent failed (HTTP {}): {}",
+            configure_resp.status,
+            truncate_error_body(&configure_resp.body)
         ));
     }
 
-    let provision_url = format!("{temper_api_url}/tdata/Sessions('{agent_id}')/OpenPaw.Provision");
-    let provision_resp = ctx.http_call("POST", &provision_url, &odata_headers(ctx, tenant), "{}")?;
-    if !(200..300).contains(&provision_resp.status) {
-        return Err(format!(
-            "provision Agent failed (HTTP {})",
-            provision_resp.status
-        ));
-    }
+    // Provision is auto-scheduled by the Configure action's spec effect
+    // (session.ioa.toml: effect = [{ type = "schedule", action = "Provision", delay_seconds = 0 }]).
+    // No explicit Provision call needed — it would race with the scheduled one.
     Ok(agent_id)
 }
 
