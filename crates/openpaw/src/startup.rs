@@ -519,20 +519,44 @@ pub async fn run(mut config: Config) -> Result<()> {
         }
     }
 
-    // Phase 8: Banner
+    // Phase 8: Banner (printed after bind so we show the actual port)
     tracing::info!("Phase 8: Bootstrap complete");
-    println!();
-    println!("  Open Paw Data API: http://localhost:{port}/tdata");
-    println!("  Tenant: {tenant}");
-    println!();
 
     // Phase 9: Bind + start transports + serve
     tracing::info!("Phase 9: Starting server...");
-    let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{port}"))
-        .await
-        .with_context(|| format!("Failed to bind to port {port}"))?;
+    let listener = match tokio::net::TcpListener::bind(format!("0.0.0.0:{port}")).await {
+        Ok(l) => l,
+        Err(_) => {
+            tracing::warn!(port, "Port {port} in use — binding to a free port");
+            tokio::net::TcpListener::bind("0.0.0.0:0")
+                .await
+                .context("Failed to bind to any port")?
+        }
+    };
     let actual_port = listener.local_addr()?.port();
+    if actual_port != port {
+        tracing::info!("Using port {actual_port} instead of {port}");
+    }
     let _ = state.server.listen_port.set(actual_port);
+
+    // Update port-dependent secrets now that we know the actual port.
+    // These were set in Phase 5c using the *configured* port, which may differ
+    // if the preferred port was in use and we fell back.
+    if let Some(ref vault) = state.server.secrets_vault {
+        let api_url = format!("http://127.0.0.1:{actual_port}");
+        let _ = vault.cache_secret("default", "temper_api_url", api_url.clone());
+        if tenant != "default" {
+            let _ = vault.cache_secret(&tenant, "temper_api_url", api_url);
+        }
+        // Only override blob_endpoint if it was using the internal route (not an external S3 URL).
+        if std::env::var("BLOB_ENDPOINT").is_err() {
+            let blob_url = format!("http://127.0.0.1:{actual_port}/_internal/blobs");
+            let _ = vault.cache_secret("default", "blob_endpoint", blob_url.clone());
+            if tenant != "default" {
+                let _ = vault.cache_secret(&tenant, "blob_endpoint", blob_url);
+            }
+        }
+    }
 
     // Create transport manager for hot-connect/disconnect of Discord/Slack
     let transport_manager = Arc::new(crate::transport_manager::TransportManager::new(
@@ -648,6 +672,11 @@ pub async fn run(mut config: Config) -> Result<()> {
 
     spawn_soul_bootstrap(actual_port, tenant.clone(), config.temper_api_key.clone());
 
+    println!();
+    println!("  Open Paw Data API: http://localhost:{actual_port}/tdata");
+    println!("  Dashboard:         http://localhost:{actual_port}/dashboard");
+    println!("  Tenant: {tenant}");
+    println!();
     tracing::info!("Open Paw listening on port {actual_port}");
 
     axum::serve(listener, router).await?;
