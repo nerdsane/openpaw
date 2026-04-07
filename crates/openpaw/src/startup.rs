@@ -49,9 +49,9 @@ pub async fn run(mut config: Config) -> Result<()> {
     std::fs::create_dir_all(&data_dir)
         .with_context(|| format!("Failed to create data dir: {}", data_dir.display()))?;
 
-    // Phase 0: First-run interactive setup
-    if crate::setup::needs_first_run_setup(&data_dir, &config) {
-        let setup_result = crate::setup::run_first_run_setup()?;
+    // Phase 0: Interactive setup (runs whenever something is missing)
+    if crate::setup::needs_setup(&data_dir, &config) {
+        let setup_result = crate::setup::run_setup(&data_dir, &config)?;
         crate::setup::merge_setup_into_config(&mut config, setup_result);
     }
 
@@ -672,7 +672,7 @@ pub async fn run(mut config: Config) -> Result<()> {
 
     spawn_soul_bootstrap(actual_port, tenant.clone(), config.temper_api_key.clone());
 
-    // Print startup summary with actionable next steps
+    // Print startup summary
     {
         let vault = state.server.secrets_vault.as_ref();
         let has_api_key = vault
@@ -681,11 +681,9 @@ pub async fn run(mut config: Config) -> Result<()> {
         let has_discord = vault
             .and_then(|v| v.get_secret(&tenant, "discord_bot_token"))
             .is_some();
-        let transport_status = transport_manager.status().await;
-        let discord_connected = matches!(
-            transport_status.discord,
-            crate::transport_manager::TransportStatus::Connected { .. }
-        );
+        let has_slack = vault
+            .and_then(|v| v.get_secret(&tenant, "slack_bot_token"))
+            .is_some();
 
         println!();
         println!("  Open Paw is running.");
@@ -693,28 +691,12 @@ pub async fn run(mut config: Config) -> Result<()> {
         println!("  API:       http://localhost:{actual_port}/tdata");
         println!("  Dashboard: http://localhost:{actual_port}/dashboard");
         println!();
-
-        // Show what's configured and what's missing
-        if has_api_key {
-            println!("  \u{2713} Anthropic API key configured");
-        } else {
-            println!("  \u{2717} No Anthropic API key — agents won't be able to call LLMs");
-            println!("    Fix: curl -X POST http://localhost:{actual_port}/paw/setup/secrets \\");
-            println!("      -H 'content-type: application/json' -H 'x-tenant-id: default' -H 'x-temper-principal-kind: admin' \\");
-            println!("      -d '{{\"key\": \"anthropic_api_key\", \"value\": \"sk-ant-...\"}}'");
+        if has_api_key { println!("  \u{2713} Anthropic API key"); }
+        if has_discord  { println!("  \u{2713} Discord"); }
+        if has_slack    { println!("  \u{2713} Slack"); }
+        if !has_api_key && !has_discord && !has_slack {
+            println!("  Run setup: cargo run -- setup");
         }
-
-        if has_discord && discord_connected {
-            println!("  \u{2713} Discord connected");
-        } else if has_discord {
-            println!("  ~ Discord token saved but not connected (may be connecting...)");
-        } else {
-            println!("  \u{2717} Discord not connected");
-            println!("    Fix: curl -X POST http://localhost:{actual_port}/paw/transports/discord/connect \\");
-            println!("      -H 'content-type: application/json' -H 'x-tenant-id: default' -H 'x-temper-principal-kind: admin' \\");
-            println!("      -d '{{\"bot_token\": \"your-bot-token\"}}'");
-        }
-
         println!();
     }
     tracing::info!("Open Paw listening on port {actual_port}");

@@ -9,6 +9,7 @@ mod setup_api;
 mod startup;
 mod transport_manager;
 
+use clap::{Parser, Subcommand};
 use opentelemetry::trace::TracerProvider;
 use opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge;
 use opentelemetry_otlp::WithExportConfig;
@@ -30,9 +31,46 @@ const LOG_BATCH_MAX_QUEUE_SIZE: usize = 2_048;
 const LOG_BATCH_MAX_EXPORT_BATCH_SIZE: usize = 512;
 const LOG_BATCH_SCHEDULE_DELAY_MS: u64 = 1_000;
 
+#[derive(Parser)]
+#[command(name = "openpaw", about = "Open Paw — agent platform")]
+struct Cli {
+    #[command(subcommand)]
+    command: Option<Command>,
+}
+
+#[derive(Subcommand)]
+enum Command {
+    /// Configure API keys and messaging platforms interactively
+    Setup,
+    /// Diagnose configuration and show what's working
+    Doctor,
+}
+
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> anyhow::Result<()> {
-    let config = config::Config::from_env()?;
+    let cli = Cli::parse();
+    let mut config = config::Config::from_env()?;
+
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
+    let data_dir = std::path::Path::new(&home).join(".local/share/openpaw");
+    std::fs::create_dir_all(&data_dir)?;
+
+    match cli.command {
+        Some(Command::Setup) => {
+            // Force-run setup regardless of current state
+            let result = setup::run_setup(&data_dir, &config)?;
+            setup::merge_setup_into_config(&mut config, result);
+            println!("  Setup complete. Run `openpaw` to start the server.");
+            return Ok(());
+        }
+        Some(Command::Doctor) => {
+            setup::run_doctor(&data_dir, &config);
+            return Ok(());
+        }
+        None => {
+            // Default: boot server (with setup prompt if missing config and interactive terminal)
+        }
+    }
 
     // Build layered tracing subscriber
     let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()

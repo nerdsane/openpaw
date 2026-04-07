@@ -66,3 +66,9 @@ tokio-util = "0.7"
 
 # UUID generation for agent IDs
 uuid = { version = "1", features = ["v4"] }
+
+# Terminal detection (skip interactive prompts when piped/CI)
+atty = "0.2"
+
+# CLI subcommands
+clap = { version = "4", features = ["derive"] }
