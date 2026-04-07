@@ -489,15 +489,10 @@ fn continue_session(
         user_message,
         prior_agent_id,
         &route_soul_fallback,
-    )?;
-    resume_agent_from_prior(
-        ctx,
-        temper_api_url,
-        tenant,
-        &new_agent_id,
-        &fields,
         new_leaf_id.as_deref().unwrap_or(prior_leaf_id),
     )?;
+    // Resume is handled by Configure — resume fields are folded into the Configure call
+    // and auto-Provision restores the workspace via provision_sandbox.
     update_session_agent_binding(
         ctx,
         temper_api_url,
@@ -553,6 +548,7 @@ fn configure_agent_from_prior(
     user_message: &str,
     prior_agent_id: &str,
     fallback_soul_ref: &str,
+    session_leaf_id: &str,
 ) -> Result<(), String> {
     let prior_soul_ref = str_field(fields, &["soul_id", "SoulId"]).unwrap_or("");
     let soul_ref = normalize_soul_ref(ctx, temper_api_url, tenant, prior_soul_ref)
@@ -564,6 +560,9 @@ fn configure_agent_from_prior(
                 fallback_soul_ref.to_string()
             }
         });
+    // Include resume-specific fields (workspace, conversation, session tree) in Configure
+    // so they're stored as session fields before auto-Provision fires. The provision_sandbox
+    // integration checks these to decide whether to restore an existing workspace or provision new.
     let configure_body = json!({
         "system_prompt": str_field(fields, &["system_prompt", "SystemPrompt"]).unwrap_or(""),
         "user_message": user_message,
@@ -572,6 +571,7 @@ fn configure_agent_from_prior(
         "tools_enabled": str_field(fields, &["tools_enabled", "ToolsEnabled"]).unwrap_or("read,write,edit,bash"),
         "workdir": str_field(fields, &["workdir", "Workdir"]).unwrap_or("/workspace"),
         "sandbox_url": str_field(fields, &["sandbox_url", "SandboxUrl"]).unwrap_or(""),
+        "sandbox_id": str_field(fields, &["sandbox_id", "SandboxId"]).unwrap_or(""),
         "temper_api_url": str_field(fields, &["temper_api_url", "TemperApiUrl"]).unwrap_or(""),
         "soul_id": soul_ref,
         "parent_session_id": if prior_agent_id.is_empty() {
@@ -586,6 +586,12 @@ fn configure_agent_from_prior(
         "keep_recent_tokens": str_field(fields, &["keep_recent_tokens", "KeepRecentTokens"]).unwrap_or("10000"),
         "compaction_model": str_field(fields, &["compaction_model", "CompactionModel"]).unwrap_or(""),
         "heartbeat_timeout_seconds": str_field(fields, &["heartbeat_timeout_seconds", "HeartbeatTimeoutSeconds"]).unwrap_or("300"),
+        // Resume fields — folded into Configure so auto-Provision can restore prior state.
+        "workspace_id": str_field(fields, &["workspace_id", "WorkspaceId"]).unwrap_or(""),
+        "conversation_file_id": str_field(fields, &["conversation_file_id", "ConversationFileId"]).unwrap_or(""),
+        "file_manifest_id": str_field(fields, &["file_manifest_id", "FileManifestId"]).unwrap_or(""),
+        "session_file_id": str_field(fields, &["session_file_id", "SessionFileId"]).unwrap_or(""),
+        "session_leaf_id": session_leaf_id,
     });
     let configure_url = format!("{temper_api_url}/tdata/Sessions('{agent_id}')/OpenPaw.Configure");
     let configure_resp = ctx.http_call(
@@ -596,43 +602,13 @@ fn configure_agent_from_prior(
     )?;
     if !(200..300).contains(&configure_resp.status) {
         return Err(format!(
-            "configure continuation Agent failed (HTTP {})",
-            configure_resp.status
+            "configure continuation Agent failed (HTTP {}): {}",
+            configure_resp.status,
+            truncate_error_body(&configure_resp.body)
         ));
     }
-    Ok(())
-}
-
-fn resume_agent_from_prior(
-    ctx: &Context,
-    temper_api_url: &str,
-    tenant: &str,
-    agent_id: &str,
-    fields: &Value,
-    session_leaf_id: &str,
-) -> Result<(), String> {
-    let resume_body = json!({
-        "sandbox_url": str_field(fields, &["sandbox_url", "SandboxUrl"]).unwrap_or(""),
-        "sandbox_id": str_field(fields, &["sandbox_id", "SandboxId"]).unwrap_or(""),
-        "workspace_id": str_field(fields, &["workspace_id", "WorkspaceId"]).unwrap_or(""),
-        "conversation_file_id": str_field(fields, &["conversation_file_id", "ConversationFileId"]).unwrap_or(""),
-        "file_manifest_id": str_field(fields, &["file_manifest_id", "FileManifestId"]).unwrap_or(""),
-        "session_file_id": str_field(fields, &["session_file_id", "SessionFileId"]).unwrap_or(""),
-        "session_leaf_id": session_leaf_id,
-    });
-    let resume_url = format!("{temper_api_url}/tdata/Sessions('{agent_id}')/OpenPaw.Resume");
-    let resume_resp = ctx.http_call(
-        "POST",
-        &resume_url,
-        &odata_headers(ctx, tenant),
-        &resume_body.to_string(),
-    )?;
-    if !(200..300).contains(&resume_resp.status) {
-        return Err(format!(
-            "resume continuation Agent failed (HTTP {})",
-            resume_resp.status
-        ));
-    }
+    // Provision is auto-scheduled by Configure's spec effect. No explicit Resume needed —
+    // the resume fields are already stored and provision_sandbox will restore the workspace.
     Ok(())
 }
 
