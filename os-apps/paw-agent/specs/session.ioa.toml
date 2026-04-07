@@ -424,6 +424,13 @@ from = ["Thinking", "Executing", "Steering", "Compacting", "WaitingForApproval"]
 params = ["steering_messages"]
 hint = "Queue a steering message for mid-run injection. External callers append messages while session runs. Self-loop — does not change state."
 
+[[action]]
+name = "SwitchProvider"
+kind = "input"
+from = ["Thinking", "Executing", "Steering", "Compacting", "WaitingForApproval", "Provisioning"]
+params = ["model", "provider"]
+hint = "Change LLM provider and/or model mid-session. Self-loop — takes effect on the next LLM call. Callable by the session itself or by parent/supervisor."
+
 # --- Actions: Cedar Approval Pause-Resume ---
 
 [[action]]

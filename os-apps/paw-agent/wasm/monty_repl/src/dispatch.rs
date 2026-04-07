@@ -176,7 +176,7 @@ fn temper_method_token(method: &str) -> Option<&'static str> {
         "vercel" => Some("temper_vercel"),
         "web_search" => Some("temper_web_search"),
         "web_fetch" => Some("temper_web_fetch"),
-        "done" | "get_agent_id" => None,
+        "done" | "get_agent_id" | "switch_provider" => None,
         _ => None,
     }
 }
@@ -239,6 +239,46 @@ fn dispatch_temper(
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
             Ok(json!(agent_id))
+        }
+
+        // Switch own LLM provider/model mid-session
+        "switch_provider" => {
+            let input = args.first().and_then(|v| v.as_object()).cloned().unwrap_or_default();
+            let model = input.get("model").and_then(|v| v.as_str()).unwrap_or("");
+            let provider = input.get("provider").and_then(|v| v.as_str()).unwrap_or("");
+            if model.is_empty() && provider.is_empty() {
+                return Err("switch_provider requires at least one of: model, provider".into());
+            }
+            let agent_id = ctx
+                .entity_state
+                .get("entity_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let mut body = serde_json::Map::new();
+            if !model.is_empty() {
+                body.insert("model".into(), json!(model));
+            }
+            if !provider.is_empty() {
+                body.insert("provider".into(), json!(provider));
+            }
+            let url = format!("{api_url}/tdata/Sessions('{agent_id}')/OpenPaw.SwitchProvider");
+            let headers: Vec<(String, String)> = vec![
+                ("Content-Type".into(), "application/json".into()),
+                ("X-Tenant-Id".into(), tenant.to_string()),
+                ("x-temper-principal-kind".into(), "agent".into()),
+                ("x-temper-principal-id".into(), agent_id.to_string()),
+                ("x-temper-agent-type".into(), "agent".into()),
+            ];
+            let resp = ctx.http_call("POST", &url, &headers, &json!(body).to_string())?;
+            if resp.status >= 200 && resp.status < 300 {
+                Ok(json!({
+                    "switched": true,
+                    "model": if model.is_empty() { "unchanged" } else { model },
+                    "provider": if provider.is_empty() { "unchanged" } else { provider },
+                }))
+            } else {
+                Err(format!("SwitchProvider failed (HTTP {}): {}", resp.status, &resp.body[..resp.body.len().min(200)]))
+            }
         }
 
         // Entity operations (ported from tool_runner)
@@ -558,7 +598,7 @@ fn web_query_dispatch(
         ctx,
         api_url,
         tenant,
-        &format!("/tdata/WebQueries('{key}')/Temper.{action_name}"),
+        &format!("/tdata/WebQueries('{key}')/Temper.{action_name}?await_integration=true"),
         &action_params,
     );
 

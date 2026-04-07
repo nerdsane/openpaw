@@ -42,7 +42,7 @@ permit(
 
 permit(
   principal,
-  action in [Action::"Steer"],
+  action in [Action::"Steer", Action::"SwitchProvider"],
   resource is Session
 ) when {
   ["supervisor", "human", "system"].contains(principal.agent_type) ||
