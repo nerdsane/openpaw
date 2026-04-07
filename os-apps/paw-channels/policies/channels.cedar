@@ -39,7 +39,7 @@ permit(
 // System agents can handle channel callbacks and session management
 permit(
   principal,
-  action in [Action::"Ready", Action::"ReceiveMessage", Action::"SendReply", Action::"ReplyDelivered", Action::"ConnectFailed", Action::"RouteFailed", Action::"ReplyFailed"],
+  action in [Action::"Ready", Action::"ReceiveMessage", Action::"SendReply", Action::"ReplyDelivered", Action::"ConnectFailed", Action::"RouteFailed", Action::"ReplyFailed", Action::"UpdateCursor"],
   resource is Channel
 ) when {
   principal.agent_type == "system"

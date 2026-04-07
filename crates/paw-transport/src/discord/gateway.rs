@@ -292,6 +292,53 @@ pub(crate) async fn send_typing(http: &reqwest::Client, bot_token: &str, channel
         .await;
 }
 
+/// Fetch the bot's DM channels from Discord REST API.
+pub(crate) async fn fetch_dm_channels(
+    http: &reqwest::Client,
+    bot_token: &str,
+) -> Vec<serde_json::Value> {
+    let resp = http
+        .get(format!("{DISCORD_API_BASE}/users/@me/channels"))
+        .header("Authorization", format!("Bot {bot_token}"))
+        .send()
+        .await;
+    match resp {
+        Ok(r) if r.status().is_success() => {
+            r.json::<Vec<serde_json::Value>>().await.unwrap_or_default()
+        }
+        _ => vec![],
+    }
+}
+
+/// Fetch messages from a Discord channel newer than `after_id`.
+/// Returns messages in chronological order (oldest first).
+pub(crate) async fn fetch_channel_messages(
+    http: &reqwest::Client,
+    bot_token: &str,
+    channel_id: &str,
+    after_id: &str,
+    limit: u32,
+) -> Vec<serde_json::Value> {
+    let url = format!(
+        "{DISCORD_API_BASE}/channels/{channel_id}/messages?after={after_id}&limit={limit}"
+    );
+    let resp = http
+        .get(&url)
+        .header("Authorization", format!("Bot {bot_token}"))
+        .send()
+        .await;
+    match resp {
+        Ok(r) if r.status().is_success() => {
+            // Discord returns messages newest-first; reverse for chronological order
+            let mut msgs: Vec<serde_json::Value> =
+                r.json().await.unwrap_or_default();
+            msgs.reverse();
+            msgs
+        }
+        _ => vec![],
+    }
+}
+
 /// UTF-8 safe truncation.
 fn truncate(s: &str, max: usize) -> String {
     if s.len() <= max {

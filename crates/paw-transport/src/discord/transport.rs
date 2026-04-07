@@ -50,6 +50,8 @@ pub struct DiscordTransport {
     channel_entity_id: Arc<RwLock<Option<String>>>,
     /// Maps Discord channel_id (DM channel) → user_id for reply routing.
     dm_channels: Arc<RwLock<BTreeMap<String, String>>>,
+    /// Last processed Discord message snowflake ID (for catch-up on reconnect).
+    last_message_cursor: Arc<RwLock<String>>,
 }
 
 impl DiscordTransport {
@@ -62,6 +64,7 @@ impl DiscordTransport {
             gateway: GatewayState::new(),
             channel_entity_id: Arc::new(RwLock::new(None)),
             dm_channels: Arc::new(RwLock::new(BTreeMap::new())),
+            last_message_cursor: Arc::new(RwLock::new(String::new())),
         }
     }
 
@@ -93,6 +96,9 @@ impl DiscordTransport {
                 }
             }
 
+            // Flush cursor before reconnecting so it survives if we crash.
+            self.flush_cursor().await;
+
             if let Some(resume) = self.gateway.resume_url.read().await.as_ref() {
                 url = format!("{resume}/?v=10&encoding=json");
             }
@@ -108,8 +114,8 @@ impl DiscordTransport {
     /// webhook_url in sync with the current listener port.
     async fn bootstrap_channel(&self, webhook_url: &str) -> Result<(), String> {
         // Archive any stale Channel entities from previous runs.
-        // The transport creates a fresh Channel each startup so the
-        // webhook_url always matches the current listener port.
+        // Before archiving, read the last_discord_message_id cursor
+        // so we can catch up on missed messages after reconnecting.
         let stale = self
             .api
             .query_entities(
@@ -118,7 +124,31 @@ impl DiscordTransport {
             )
             .await
             .unwrap_or_default();
+
+        let mut inherited_cursor = String::new();
         for old in &stale {
+            // Read cursor from the most recent stale channel
+            if let Some(cursor) = old
+                .get("fields")
+                .and_then(|f| f.get("last_discord_message_id"))
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty())
+            {
+                if cursor > inherited_cursor.as_str() {
+                    inherited_cursor = cursor.to_string();
+                }
+            }
+            // Also try top-level field
+            if let Some(cursor) = old
+                .get("last_discord_message_id")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty())
+            {
+                if cursor > inherited_cursor.as_str() {
+                    inherited_cursor = cursor.to_string();
+                }
+            }
+
             if let Some(old_id) = old
                 .get("Id")
                 .or_else(|| old.get("entity_id"))
@@ -134,6 +164,11 @@ impl DiscordTransport {
                     )
                     .await;
             }
+        }
+
+        if !inherited_cursor.is_empty() {
+            println!("  [discord] Inherited message cursor: {inherited_cursor}");
+            *self.last_message_cursor.write().await = inherited_cursor;
         }
 
         let channel_id = {
@@ -190,6 +225,154 @@ impl DiscordTransport {
         *self.channel_entity_id.write().await = Some(channel_id.clone());
 
         Ok(())
+    }
+
+    /// Catch up on DMs missed while the bot was offline.
+    ///
+    /// Fetches messages newer than `last_message_cursor` from all DM channels
+    /// and dispatches ReceiveMessage for each. Called after Gateway READY.
+    async fn catch_up_missed_dms(&self) {
+        let cursor = self.last_message_cursor.read().await.clone();
+        if cursor.is_empty() {
+            // No baseline cursor — first-ever run, nothing to catch up on.
+            return;
+        }
+
+        let channel_entity_id = self.channel_entity_id.read().await.clone();
+        let Some(ref entity_id) = channel_entity_id else {
+            return;
+        };
+
+        let dm_channels = fetch_dm_channels(&self.http, &self.config.bot_token).await;
+        if dm_channels.is_empty() {
+            return;
+        }
+
+        let bot_id = self.gateway.bot_user_id.read().await.clone();
+        let mut total_caught_up = 0u32;
+
+        for dm in &dm_channels {
+            let dm_channel_id = dm.get("id").and_then(|v| v.as_str()).unwrap_or("");
+            if dm_channel_id.is_empty() {
+                continue;
+            }
+
+            // Fetch messages newer than our cursor
+            let mut after = cursor.clone();
+            loop {
+                let messages = fetch_channel_messages(
+                    &self.http,
+                    &self.config.bot_token,
+                    dm_channel_id,
+                    &after,
+                    100,
+                )
+                .await;
+
+                if messages.is_empty() {
+                    break;
+                }
+
+                for msg in &messages {
+                    let author_id = msg
+                        .get("author")
+                        .and_then(|a| a.get("id"))
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
+                    let is_bot = msg
+                        .get("author")
+                        .and_then(|a| a.get("bot"))
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false);
+                    let msg_id = msg.get("id").and_then(|v| v.as_str()).unwrap_or("");
+                    let content = msg.get("content").and_then(|v| v.as_str()).unwrap_or("");
+
+                    // Skip bot's own messages and empty messages
+                    if author_id == bot_id || is_bot || content.is_empty() {
+                        continue;
+                    }
+
+                    let username = msg
+                        .get("author")
+                        .and_then(|a| a.get("username"))
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("unknown");
+
+                    println!("  [discord] Catching up missed message from {username}: {}", &content[..content.len().min(40)]);
+
+                    // Track DM channel mapping
+                    self.dm_channels
+                        .write()
+                        .await
+                        .insert(author_id.to_string(), dm_channel_id.to_string());
+
+                    // Dispatch ReceiveMessage
+                    let params = serde_json::json!({
+                        "message_id": msg_id,
+                        "author_id": author_id,
+                        "thread_id": author_id,
+                        "content": content,
+                    });
+
+                    match self
+                        .api
+                        .dispatch_action("Channels", entity_id, "Paw.Channel.ReceiveMessage", params)
+                        .await
+                    {
+                        Ok(_) => {
+                            total_caught_up += 1;
+                            let mut c = self.last_message_cursor.write().await;
+                            if msg_id > c.as_str() {
+                                *c = msg_id.to_string();
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("  [discord] Catch-up ReceiveMessage failed: {e}");
+                        }
+                    }
+                }
+
+                let last_id = messages
+                    .last()
+                    .and_then(|m| m.get("id"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                if messages.len() < 100 || last_id.is_empty() {
+                    break;
+                }
+                after = last_id.to_string();
+            }
+
+            // Rate limit: 200ms between channel fetches
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+
+        if total_caught_up > 0 {
+            println!("  [discord] Caught up {total_caught_up} missed messages");
+            // Flush cursor to Channel entity
+            self.flush_cursor().await;
+        }
+    }
+
+    /// Persist the last_message_cursor to the Channel entity via UpdateCursor.
+    async fn flush_cursor(&self) {
+        let cursor = self.last_message_cursor.read().await.clone();
+        if cursor.is_empty() {
+            return;
+        }
+        let channel_entity_id = self.channel_entity_id.read().await.clone();
+        let Some(ref entity_id) = channel_entity_id else {
+            return;
+        };
+        let _ = self
+            .api
+            .dispatch_action(
+                "Channels",
+                entity_id,
+                "Paw.Channel.UpdateCursor",
+                serde_json::json!({ "last_discord_message_id": cursor }),
+            )
+            .await;
     }
 
     /// Connect to Gateway and run the event loop.
@@ -286,6 +469,8 @@ impl DiscordTransport {
                         if let Some(d) = payload.d {
                             handle_ready(&self.gateway, d).await?;
                         }
+                        // Catch up on messages missed while offline.
+                        self.catch_up_missed_dms().await;
                     }
                     "MESSAGE_CREATE" => {
                         if let Some(d) = payload.d {
@@ -377,6 +562,11 @@ impl DiscordTransport {
                     "  [discord] Dispatched ReceiveMessage for {}",
                     msg.author.username
                 );
+                // Update cursor to track last processed message for catch-up
+                let mut cursor = self.last_message_cursor.write().await;
+                if msg.id.as_str() > cursor.as_str() {
+                    *cursor = msg.id.clone();
+                }
             }
             Err(e) => {
                 eprintln!("  [discord] ReceiveMessage failed: {e}");

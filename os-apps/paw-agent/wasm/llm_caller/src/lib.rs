@@ -993,6 +993,22 @@ fn call_openai(
     tools: &[Value],
 ) -> Result<LlmResponse, String> {
     // Convert Anthropic-format messages to Responses API input format
+    let pre_convert_types: Vec<String> = messages.iter().map(|m| {
+        let role = m.get("role").and_then(Value::as_str).unwrap_or("?");
+        let ct = if m.get("content").and_then(Value::as_str).is_some() {
+            "str".to_string()
+        } else if let Some(arr) = m.get("content").and_then(Value::as_array) {
+            let block_types: Vec<&str> = arr.iter()
+                .filter_map(|b| b.get("type").and_then(Value::as_str))
+                .collect();
+            format!("arr[{}]", block_types.join(","))
+        } else {
+            "?".to_string()
+        };
+        format!("{}:{}", role, ct)
+    }).collect();
+    ctx.log("info", &format!("llm_caller: openai pre-convert messages={} types={:?}", messages.len(), pre_convert_types));
+
     let mut input = Vec::<Value>::new();
     for msg in messages {
         let role = msg.get("role").and_then(Value::as_str).unwrap_or("user");
@@ -1826,8 +1842,15 @@ fn build_tool_definitions(_tools_enabled: &str, _sandbox_url: &str, _workdir: &s
             "- temper.vercel(action, deployment_id=None, ...) → Vercel API\n",
             "- temper.web_search(query) → search the web via Exa, returns list of {title, url, text}\n",
             "- temper.web_fetch(url) → fetch a URL, returns text content (HTML tags stripped)\n\n",
-            "IMPORTANT: No pip packages available (no requests, httpx, subprocess, os). ",
-            "Use sandbox.bash() for ALL shell commands. Write complete multi-step scripts, not one-liners."
+            "IMPORTANT PYTHON RULES (this is Monty, a restricted Python — NOT standard CPython):\n",
+            "- No 'import' statements at all (no import json, os, re, typing, sys — NOTHING)\n",
+            "- No enumerate(x, start=N) — use range(len(x)) instead\n",
+            "- No f-strings with nested quotes — use string concatenation\n",
+            "- No tuple comparison operators (<, >, etc.)\n",
+            "- All temper.* calls return pre-parsed dicts/lists — no json.loads() needed\n",
+            "- No pip packages (no requests, httpx, subprocess, os)\n",
+            "- Use sandbox.bash() for ALL shell commands\n",
+            "Write complete multi-step scripts. Use simple Python: for/if/while, string concat, list indexing."
         ),
         "input_schema": {
             "type": "object",
@@ -2223,12 +2246,17 @@ fn build_sdk_reference(tools_enabled: &str, sandbox_url: &str, workdir: &str) ->
         "<temper_sdk>\n\
          ## Execution Environment\n\n\
          Your `execute` tool runs Python in a sandboxed REPL.{sandbox_note}\n\n\
-         Constraints:\n\
+         Constraints (Monty — restricted Python, NOT standard CPython):\n\
+         - No 'import' statements at all (no import json, os, re, typing, sys)\n\
+         - No enumerate(x, start=N) — use range(len(x)) instead\n\
+         - No f-strings with nested quotes — use string concatenation\n\
+         - No tuple comparison (<, >) — compare individual elements\n\
+         - All temper.* calls return pre-parsed dicts/lists — no json.loads() needed\n\
          - No pip packages (no requests, httpx, numpy, pandas, etc.)\n\
          - No network access from Python — use sandbox.bash(\"curl ...\") for HTTP\n\
          - No filesystem access from Python — use sandbox.read/write/edit\n\
          - Variables persist across execute calls within the same session\n\
-         - Write substantial code blocks, not one-liners\n\
+         - Write substantial code blocks using simple Python: for/if/while, string concat, list indexing\n\
          - Sandbox working directory: {workdir}",
         sandbox_note = if has_sandbox {
             " Two objects available: `temper` (platform API) and `sandbox` (remote shell/files)."

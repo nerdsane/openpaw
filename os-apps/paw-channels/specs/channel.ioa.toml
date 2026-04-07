@@ -39,6 +39,11 @@ type = "string"
 initial = ""
 
 [[state]]
+name = "last_discord_message_id"
+type = "string"
+initial = ""
+
+[[state]]
 name = "active_sessions"
 type = "counter"
 initial = "0"
@@ -99,6 +104,13 @@ kind = "input"
 from = ["Connected", "Disconnected"]
 params = ["default_agent_config"]
 hint = "Update channel configuration on a live or disconnected channel."
+
+[[action]]
+name = "UpdateCursor"
+kind = "input"
+from = ["Connected"]
+params = ["last_discord_message_id"]
+hint = "Persist the last processed Discord message ID for catch-up on reconnect. Self-loop."
 
 [[action]]
 name = "Disconnect"
