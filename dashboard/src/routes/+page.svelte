@@ -17,14 +17,14 @@
 
   import ProjectFrame from '$lib/components/canvas/ProjectFrame.svelte';
   import AgentNode from '$lib/components/canvas/AgentNode.svelte';
-  import PlatformCluster from '$lib/components/canvas/PlatformCluster.svelte';
-  import SoulNode from '$lib/components/canvas/SoulNode.svelte';
+  import SessionNode from '$lib/components/canvas/SessionNode.svelte';
+  import EntityBadge from '$lib/components/canvas/EntityBadge.svelte';
 
   const nodeTypes: NodeTypes = {
     project: ProjectFrame as any,
     agent: AgentNode as any,
-    platform: PlatformCluster as any,
-    soul: SoulNode as any,
+    session: SessionNode as any,
+    entity: EntityBadge as any,
   };
 
   let loaded = $state(false);
@@ -43,28 +43,33 @@
   }
 
   // Derive detail panel content from selected node
+  let panelType = $derived(selectedNode?.data?.type ?? null);
+
   let panelAgent = $derived.by(() => {
-    if (!selectedNode || selectedNode.data?.type !== 'agent') return null;
-    return selectedNode.data as any;
+    if (panelType !== 'agent') return null;
+    return selectedNode!.data as any;
   });
 
-  let panelSessions = $derived(panelAgent?.sessions ?? []);
-  let panelActiveSession = $derived(
-    panelSessions.find((s: any) => !['Completed', 'Failed', 'Cancelled'].includes(s.Status))
-  );
-  let panelEvents = $derived((panelActiveSession as any)?._events ?? []);
+  let panelSession = $derived.by(() => {
+    if (panelType !== 'session') return null;
+    return selectedNode!.data as any;
+  });
+
+  let panelEntity = $derived.by(() => {
+    if (panelType !== 'entity') return null;
+    return selectedNode!.data as any;
+  });
+
   let panelToolCalls = $derived.by(() => {
-    const calls: Array<{ name: string; args: string; timestamp: string; tokens: number }> = [];
-    for (const e of panelEvents) {
+    const session = panelSession?.session;
+    if (!session) return [];
+    const events = (session as any)._events ?? [];
+    const calls: Array<{ name: string; args: string }> = [];
+    for (const e of events) {
       if (e.action === 'ProcessToolCalls' && e.params?.pending_tool_calls) {
         const tcs = parsePendingToolCalls(e.params.pending_tool_calls as string);
         for (const tc of tcs) {
-          calls.push({
-            name: tc.name,
-            args: formatToolInput(tc.name, tc.input),
-            timestamp: e.timestamp ?? '',
-            tokens: parseInt(String(e.params?.input_tokens ?? '0'), 10),
-          });
+          calls.push({ name: tc.name, args: formatToolInput(tc.name, tc.input) });
         }
       }
     }
@@ -189,71 +194,76 @@
         <Controls />
       </SvelteFlow>
 
-      <!-- Detail panel (slides in from right when a node is selected) -->
-      {#if selectedNode && panelAgent}
+      <!-- Detail panel -->
+      {#if selectedNode && panelType}
         <div class="detail-panel">
           <button class="panel-close" onclick={() => selectedNode = null}>&times;</button>
-          <div class="panel-header">
-            <span class="panel-name">{panelAgent.agent?.name ?? 'Agent'}</span>
-            <span class="panel-role">{panelAgent.agent?.role ?? ''}</span>
-            <StatusBadge status={panelActiveSession?.Status ?? panelAgent.agent?.Status ?? 'Idle'} />
-          </div>
 
-          {#if panelAgent.agent?.model}
-            <div class="panel-meta">{panelAgent.agent.provider}/{panelAgent.agent.model}</div>
-          {/if}
-
-          <!-- Sessions -->
-          <div class="panel-section">
-            <span class="panel-label">Sessions ({panelSessions.length})</span>
-            {#each panelSessions.slice(0, 5) as sess}
-              <div class="panel-session">
-                <StatusBadge status={sess.Status} />
-                <span class="panel-session-id">{sess.Id}</span>
-                <span class="panel-session-turns">{(sess as any).turn_count ?? (sess as any).fields?.turn_count ?? 0}t</span>
-              </div>
-            {/each}
-          </div>
-
-          <!-- Active session terminal -->
-          {#if panelToolCalls.length > 0}
-            <div class="panel-section">
-              <span class="panel-label">Activity</span>
-              <div class="panel-terminal">
-                {#each panelToolCalls as tc}
-                  <div class="panel-line">
-                    <span class="panel-prompt">&gt;</span>
-                    <span class="panel-cmd">{tc.name}</span>
-                    <span class="panel-args">{tc.args}</span>
-                  </div>
-                {/each}
-              </div>
+          {#if panelType === 'agent' && panelAgent}
+            <div class="panel-header">
+              <span class="panel-name">{panelAgent.agent?.name}</span>
+              <span class="panel-role">{panelAgent.agent?.role}</span>
+              <StatusBadge status={panelAgent.agent?.Status ?? 'Idle'} />
             </div>
-          {/if}
-
-          <!-- Skills -->
-          {#if panelAgent.skills?.length > 0}
+            {#if panelAgent.agent?.model}
+              <div class="panel-meta">{panelAgent.agent.provider}/{panelAgent.agent.model}</div>
+            {/if}
+            {#if panelAgent.soul}
+              <div class="panel-section">
+                <span class="panel-label">Soul</span>
+                <span class="panel-value">{panelAgent.soul.Name ?? panelAgent.soul.name}</span>
+              </div>
+            {/if}
+            <div class="panel-section">
+              <span class="panel-label">Sessions</span>
+              <span class="panel-value">{panelAgent.activeSessionCount} active / {panelAgent.sessionCount} total</span>
+            </div>
             <div class="panel-section">
               <span class="panel-label">Skills</span>
-              <div class="panel-tags">
-                {#each panelAgent.skills as skill}
-                  <span class="panel-tag">{skill.name || skill.Name}</span>
-                {/each}
+              <span class="panel-value">{panelAgent.skillCount}</span>
+            </div>
+            {#if panelAgent.hasPendingDecision}
+              <div class="panel-warning">Pending approval required</div>
+            {/if}
+
+          {:else if panelType === 'session' && panelSession}
+            <div class="panel-header">
+              <span class="panel-name">{panelSession.agentName}</span>
+              <StatusBadge status={panelSession.session.Status} />
+            </div>
+            <div class="panel-meta">{panelSession.session.Id}</div>
+            {#if panelSession.session.user_message ?? (panelSession.session as any).fields?.user_message}
+              <div class="panel-section">
+                <span class="panel-label">Task</span>
+                <div class="panel-task">{(panelSession.session as any).user_message ?? (panelSession.session as any).fields?.user_message}</div>
               </div>
-            </div>
-          {/if}
+            {/if}
+            {#if panelToolCalls.length > 0}
+              <div class="panel-section">
+                <span class="panel-label">Activity ({panelToolCalls.length} tool calls)</span>
+                <div class="panel-terminal">
+                  {#each panelToolCalls as tc}
+                    <div class="panel-line">
+                      <span class="panel-prompt">&gt;</span>
+                      <span class="panel-cmd">{tc.name}</span>
+                      <span class="panel-args">{tc.args}</span>
+                    </div>
+                  {/each}
+                </div>
+              </div>
+            {/if}
 
-          <!-- Authz -->
-          <div class="panel-section">
-            <span class="panel-label">Authorization</span>
-            <div class="panel-authz">
-              <span class="panel-authz-ok">{panelAgent.authzAllowed} allowed</span>
-              <span class="panel-authz-deny">{panelAgent.authzDenied} denied</span>
+          {:else if panelType === 'entity' && panelEntity}
+            <div class="panel-header">
+              <span class="panel-name">{panelEntity.entityType}</span>
             </div>
-          </div>
-
-          {#if panelAgent.hasPendingDecision}
-            <div class="panel-warning">Pending approval required</div>
+            <div class="panel-meta">{panelEntity.entityId}</div>
+            {#if panelEntity.label}
+              <div class="panel-section">
+                <span class="panel-label">Action</span>
+                <span class="panel-value">{panelEntity.label}</span>
+              </div>
+            {/if}
           {/if}
         </div>
       {/if}

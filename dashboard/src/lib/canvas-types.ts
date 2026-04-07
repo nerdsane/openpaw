@@ -1,6 +1,5 @@
 /**
  * Canvas node data types for the Svelte Flow mission control canvas.
- * Each node type has a discriminated union tag for type-safe rendering.
  */
 
 import type { Agent, Team, Session, Skill, Soul, Harness, WorkCycle } from './types';
@@ -8,8 +7,8 @@ import type { Agent, Team, Session, Skill, Soul, Harness, WorkCycle } from './ty
 export type CanvasNodeData =
   | ProjectNodeData
   | AgentNodeData
-  | SoulNodeData
-  | PlatformNodeData;
+  | SessionNodeData
+  | EntityBadgeData;
 
 export interface ProjectNodeData {
   type: 'project';
@@ -22,41 +21,47 @@ export interface ProjectNodeData {
 export interface AgentNodeData {
   type: 'agent';
   agent: Agent;
-  sessions: Session[];
+  sessionCount: number;
+  activeSessionCount: number;
   soul: Soul | null;
-  skills: Skill[];
-  authzAllowed: number;
-  authzDenied: number;
+  skillCount: number;
   hasPendingDecision: boolean;
 }
 
-export interface SoulNodeData {
-  type: 'soul';
-  soul: Soul;
+export interface SessionNodeData {
+  type: 'session';
+  session: Session;
+  agentName: string;
 }
 
-export interface PlatformNodeData {
-  type: 'platform';
-  souls: Soul[];
-  skills: Skill[];
+export interface EntityBadgeData {
+  type: 'entity';
+  entityType: string;
+  entityId: string;
+  status: string;
+  label: string;
 }
 
 /** Layout constants */
 export const LAYOUT = {
-  PLATFORM_X: -500,
-  PLATFORM_Y: 0,
-  PLATFORM_WIDTH: 320,
-  PROJECT_START_X: 50,
-  PROJECT_START_Y: 0,
-  PROJECT_WIDTH: 1200,
+  PROJECT_START_X: 20,
+  PROJECT_START_Y: 20,
+  PROJECT_WIDTH: 1400,
   PROJECT_GAP: 80,
-  PROJECT_HEADER_HEIGHT: 100,
-  AGENT_WIDTH: 340,
-  AGENT_HEIGHT: 280,
-  AGENT_GAP: 16,
+  // Agent identity cards (small, top row)
+  AGENT_ROW_Y: 60,
+  AGENT_WIDTH: 170,
+  AGENT_HEIGHT: 50,
+  AGENT_GAP: 12,
   AGENT_START_X: 20,
-  AGENT_START_Y: 100,
-  AGENTS_PER_ROW: 3,
-  SOUL_HEIGHT: 40,
-  SOUL_GAP: 6,
+  // Session terminals (below agents)
+  SESSION_ROW_Y: 140,
+  SESSION_WIDTH: 300,
+  SESSION_HEIGHT: 220,
+  SESSION_GAP: 16,
+  // Entity badges (small, near sessions)
+  ENTITY_WIDTH: 140,
+  ENTITY_HEIGHT: 28,
+  ENTITY_GAP: 8,
+  ENTITY_OFFSET_Y: 20, // below session
 } as const;
