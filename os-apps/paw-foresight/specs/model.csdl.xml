@@ -157,6 +157,10 @@
       </Action>
       <Action Name="ConvergenceComplete" IsBound="true">
         <Parameter Name="bindingParameter" Type="OpenPaw.Foresight.Projection"/>
+        <ReturnType Type="OpenPaw.Foresight.Projection"/>
+      </Action>
+      <Action Name="ProjectionUpdated" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Foresight.Projection"/>
         <Parameter Name="projected_state_file_id" Type="Edm.String" Nullable="true"/>
         <ReturnType Type="OpenPaw.Foresight.Projection"/>
       </Action>

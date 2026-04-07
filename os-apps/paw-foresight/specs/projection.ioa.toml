@@ -121,16 +121,24 @@ effect = [{ type = "trigger", name = "handle_probe_done" }]
 name = "ConvergenceComplete"
 kind = "input"
 from = ["Running"]
-params = ["projected_state_file_id"]
-hint = "Convergence Analyst finished with updated projected state. WASM respawns probes for next step or completes the projection."
+params = []
+hint = "Convergence Analyst finished. Spawns Model Projector to produce updated projected state."
 effect = [{ type = "trigger", name = "handle_convergence" }]
+
+[[action]]
+name = "ProjectionUpdated"
+kind = "input"
+from = ["Running"]
+params = ["projected_state_file_id"]
+hint = "Model Projector finished with updated projected state. Respawns probes for next step or completes."
+effect = [{ type = "trigger", name = "handle_projection_updated" }]
 
 [[action]]
 name = "AdvanceStep"
 kind = "internal"
 from = ["Running"]
 params = []
-hint = "Advance to next step: increment counter. Probes already respawned by handle_convergence."
+hint = "Advance to next step: increment counter. Probes already respawned by handle_projection_updated."
 effect = [
   { type = "increment", var = "current_step" },
 ]
@@ -205,6 +213,17 @@ name = "handle_convergence"
 trigger = "handle_convergence"
 type = "wasm"
 module = "handle_convergence"
+on_failure = "Fail"
+
+[integration.config]
+temper_api_url = "{secret:temper_api_url}"
+openai_codex_token = "{secret:openai_codex_token}"
+
+[[integration]]
+name = "handle_projection_updated"
+trigger = "handle_projection_updated"
+type = "wasm"
+module = "handle_projection_updated"
 on_failure = "Fail"
 
 [integration.config]

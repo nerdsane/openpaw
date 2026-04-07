@@ -19,6 +19,7 @@ permit(
   action in [Action::"create", Action::"read", Action::"list",
              Action::"Configure", Action::"Start", Action::"ProbesReady",
              Action::"ProbeStepDone", Action::"ConvergenceComplete",
+             Action::"ProjectionUpdated",
              Action::"AdvanceStep", Action::"Complete", Action::"Branch", Action::"Fail"],
   resource is Projection
 );
@@ -59,7 +60,7 @@ permit(
   action == Action::"http_call",
   resource is HttpEndpoint
 ) when {
-  ["seed_model", "spawn_probes", "handle_probe_done", "handle_convergence"].contains(context.module)
+  ["seed_model", "spawn_probes", "handle_probe_done", "handle_convergence", "handle_projection_updated"].contains(context.module)
 };
 
 permit(
@@ -67,5 +68,5 @@ permit(
   action == Action::"access_secret",
   resource is Secret
 ) when {
-  ["seed_model", "spawn_probes", "handle_probe_done", "handle_convergence"].contains(context.module)
+  ["seed_model", "spawn_probes", "handle_probe_done", "handle_convergence", "handle_projection_updated"].contains(context.module)
 };

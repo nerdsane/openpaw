@@ -1,12 +1,7 @@
 //! Handle Convergence — WASM module for Projection.ConvergenceComplete.
 //!
-//! Triggered when the Convergence Analyst finishes and provides an updated
-//! projected state. Respawns all Probes for the next step with:
-//!   - The new projected state (simulated world evolution)
-//!   - Each Probe's own prior Observations (episodic memory)
-//!   - Each Probe's own prior Direction
-//!
-//! If max_steps reached, completes the Projection instead.
+//! Triggered when the Convergence Analyst finishes. Spawns a Model Projector
+//! agent to produce the updated projected state for the next step.
 //!
 //! Build: `cargo build --target wasm32-unknown-unknown --release`
 
@@ -25,7 +20,6 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             .and_then(|v| v.as_str())
             .unwrap_or("unknown");
 
-        // Read Projection state
         let current_step = fields
             .get("current_step")
             .and_then(|v| v.as_u64())
@@ -38,34 +32,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             .get("product_model_id")
             .and_then(|v| v.as_str())
             .unwrap_or("");
-        let probe_agent_ids_raw = fields
-            .get("probe_agent_ids")
-            .cloned()
-            .unwrap_or(json!([]));
-        let probe_agent_ids: Vec<String> = if let Some(arr) = probe_agent_ids_raw.as_array() {
-            arr.iter()
-                .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                .collect()
-        } else if let Some(s) = probe_agent_ids_raw.as_str() {
-            serde_json::from_str(s).unwrap_or_default()
-        } else {
-            vec![]
-        };
-        let step_schedule_raw = fields
-            .get("step_schedule")
-            .cloned()
-            .unwrap_or(json!([1, 3, 7]));
-        let step_schedule: Vec<u64> = if let Some(arr) = step_schedule_raw.as_array() {
-            arr.iter().filter_map(|v| v.as_u64()).collect()
-        } else if let Some(s) = step_schedule_raw.as_str() {
-            serde_json::from_str(s).unwrap_or_else(|_| vec![1, 3, 7])
-        } else {
-            vec![1, 3, 7]
-        };
-
-        // Read projected_state_file_id from trigger params (the NEW projected state)
-        let new_projected_state_file_id = ctx
-            .trigger_params
+        let projected_state_file_id = fields
             .get("projected_state_file_id")
             .and_then(|v| v.as_str())
             .unwrap_or("");
@@ -85,89 +52,207 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             ("x-temper-agent-type".to_string(), "system".to_string()),
         ];
 
-        // Next step = current_step + 1 (AdvanceStep will increment the counter)
+        // If max_steps reached, complete now (no need for model projector)
         let next_step = current_step + 1;
-
-        ctx.log(
-            "info",
-            &format!(
-                "handle_convergence: step {current_step} complete, projected_state={}, next_step={next_step}, max_steps={max_steps}",
-                if new_projected_state_file_id.is_empty() { "none" } else { new_projected_state_file_id }
-            ),
-        );
-
-        // Check if we've reached max_steps
         if next_step >= max_steps {
             ctx.log(
                 "info",
-                &format!(
-                    "handle_convergence: Projection reached max_steps ({next_step}/{max_steps}), completing"
-                ),
+                &format!("handle_convergence: reached max_steps ({next_step}/{max_steps}), completing"),
             );
             set_success_result("Complete", &json!({}));
             return Ok(());
         }
 
-        // Read the new projected state content for the probe prompts
-        let projected_state_content = if !new_projected_state_file_id.is_empty() {
-            let file_url = format!(
-                "{temper_api_url}/tdata/Files('{new_projected_state_file_id}')/$value"
-            );
+        ctx.log(
+            "info",
+            &format!(
+                "handle_convergence: step {current_step} convergence done, spawning Model Projector"
+            ),
+        );
+
+        // Read current state content (for the projector to evolve)
+        let state_file_id = if !projected_state_file_id.is_empty() {
+            projected_state_file_id.to_string()
+        } else {
+            // Use ProductModel's knowledge graph
+            let pm_url = format!("{temper_api_url}/tdata/ProductModels('{product_model_id}')");
+            let pm_resp = ctx.http_call("GET", &pm_url, &headers, "")?;
+            if pm_resp.status >= 200 && pm_resp.status < 300 {
+                let pm: Value = serde_json::from_str(&pm_resp.body).unwrap_or(json!({}));
+                pm.get("fields")
+                    .and_then(|f| f.get("model_snapshot_file_id"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string()
+            } else {
+                String::new()
+            }
+        };
+
+        let current_state = if !state_file_id.is_empty() {
+            let file_url = format!("{temper_api_url}/tdata/Files('{state_file_id}')/$value");
             match ctx.http_call("GET", &file_url, &headers, "") {
-                Ok(resp) if resp.status >= 200 && resp.status < 300 => {
-                    ctx.log(
-                        "info",
-                        &format!(
-                            "handle_convergence: loaded projected state ({} bytes)",
-                            resp.body.len()
-                        ),
-                    );
-                    resp.body
-                }
-                _ => {
-                    ctx.log("warn", "handle_convergence: could not read projected state file");
-                    String::new()
-                }
+                Ok(resp) if resp.status >= 200 && resp.status < 300 => resp.body,
+                _ => String::new(),
             }
         } else {
             String::new()
         };
 
-        // Get days_offset for the NEXT step
-        let next_days_offset = if next_step < step_schedule.len() {
-            step_schedule[next_step]
+        // Read confirmed observations from this step
+        let obs_url = format!(
+            "{temper_api_url}/tdata/Observations?$filter=projection_id eq '{entity_id}'"
+        );
+        let obs_resp = ctx.http_call("GET", &obs_url, &headers, "")?;
+        let obs_json = if obs_resp.status >= 200 && obs_resp.status < 300 {
+            let body: Value = serde_json::from_str(&obs_resp.body).unwrap_or(json!({}));
+            serde_json::to_string_pretty(body.get("value").unwrap_or(&json!([]))).unwrap_or_default()
+        } else {
+            "[]".to_string()
+        };
+
+        // Read directions from this step
+        let dir_url = format!(
+            "{temper_api_url}/tdata/Directions?$filter=projection_id eq '{entity_id}'"
+        );
+        let dir_resp = ctx.http_call("GET", &dir_url, &headers, "")?;
+        let dir_json = if dir_resp.status >= 200 && dir_resp.status < 300 {
+            let body: Value = serde_json::from_str(&dir_resp.body).unwrap_or(json!({}));
+            serde_json::to_string_pretty(body.get("value").unwrap_or(&json!([]))).unwrap_or_default()
+        } else {
+            "[]".to_string()
+        };
+
+        // Truncate for prompt
+        let state_for_prompt = if current_state.len() > 20000 {
+            format!("{}... (truncated)", &current_state[..20000])
+        } else {
+            current_state
+        };
+        let obs_for_prompt = if obs_json.len() > 15000 {
+            format!("{}... (truncated)", &obs_json[..15000])
+        } else {
+            obs_json
+        };
+        let dir_for_prompt = if dir_json.len() > 5000 {
+            format!("{}... (truncated)", &dir_json[..5000])
+        } else {
+            dir_json
+        };
+
+        // Spawn Model Projector agent
+        let agent_url = format!("{temper_api_url}/tdata/Agents");
+        let agent_body = json!({
+            "Name": format!("Model-Projector-step-{}", current_step),
+            "Role": "model-projector"
+        });
+        let agent_resp = ctx.http_call("POST", &agent_url, &headers, &agent_body.to_string())?;
+        if agent_resp.status < 200 || agent_resp.status >= 300 {
+            return Err(format!("failed to create Model Projector (HTTP {})", agent_resp.status));
+        }
+        let agent_parsed: Value = serde_json::from_str(&agent_resp.body).unwrap_or(json!({}));
+        let agent_id = agent_parsed.get("entity_id").and_then(|v| v.as_str()).unwrap_or("unknown");
+
+        let session_url = format!("{temper_api_url}/tdata/Sessions");
+        let session_resp = ctx.http_call("POST", &session_url, &headers, &json!({"agent_id": agent_id}).to_string())?;
+        if session_resp.status < 200 || session_resp.status >= 300 {
+            return Err(format!("failed to create Model Projector Session (HTTP {})", session_resp.status));
+        }
+        let session_parsed: Value = serde_json::from_str(&session_resp.body).unwrap_or(json!({}));
+        let session_id = session_parsed.get("entity_id").and_then(|v| v.as_str()).unwrap_or("unknown");
+
+        let step_schedule_raw = fields.get("step_schedule").cloned().unwrap_or(json!([1, 3, 7]));
+        let step_schedule: Vec<u64> = if let Some(arr) = step_schedule_raw.as_array() {
+            arr.iter().filter_map(|v| v.as_u64()).collect()
+        } else if let Some(s) = step_schedule_raw.as_str() {
+            serde_json::from_str(s).unwrap_or_else(|_| vec![1, 3, 7])
+        } else {
+            vec![1, 3, 7]
+        };
+        let days_offset = if current_step < step_schedule.len() {
+            step_schedule[current_step]
         } else {
             step_schedule.last().copied().unwrap_or(7)
         };
 
-        // Respawn each Probe with episodic memory + projected state
-        for agent_id in &probe_agent_ids {
-            if let Err(e) = respawn_probe_with_memory(
-                &ctx,
-                &temper_api_url,
-                &headers,
-                agent_id,
-                entity_id,
-                product_model_id,
-                next_step,
-                next_days_offset,
-                &projected_state_content,
-            ) {
-                ctx.log(
-                    "warn",
-                    &format!("handle_convergence: failed to respawn Probe {agent_id}: {e}"),
-                );
-            }
+        let user_message = format!(
+            "CRITICAL: When you finish, you MUST call BOTH of these in order:\n\
+             1. temper.action(\"Projections\", \"{entity_id}\", \"ProjectionUpdated\", \
+                {{\"projected_state_file_id\": \"<file_id_you_created>\"}})\n\
+             2. temper.done(\"complete\")\n\
+             If you do NOT call ProjectionUpdated, the projection stalls forever.\n\n\
+             You are a Model Projector for Projection {entity_id}, step {current_step}.\n\
+             Your Agent ID: {agent_id}\n\
+             Simulated day offset: {days_offset} days\n\n\
+             == CURRENT STATE OF THE WORLD ==\n\
+             {state_for_prompt}\n\n\
+             == OBSERVATIONS FROM THIS STEP (confirmed + created) ==\n\
+             {obs_for_prompt}\n\n\
+             == DIRECTIONS FROM THIS STEP ==\n\
+             {dir_for_prompt}\n\n\
+             == YOUR TASK ==\n\
+             Produce an UPDATED projected state that represents how the simulated world \
+             has evolved after {days_offset} simulated days. The probes observed and proposed \
+             directions — your job is to synthesize what WOULD HAVE HAPPENED.\n\n\
+             Read the observations and directions. Based on what the probes independently \
+             projected, produce a new knowledge graph that reflects:\n\
+             - What changed in the product (new features, architectural shifts)\n\
+             - What signals would exist now (new PRs, new monitors, new content)\n\
+             - How the product's trajectory shifted\n\n\
+             Structure as JSON:\n\
+             {{\n\
+               \"base_model\": <reference to original knowledge graph>,\n\
+               \"step_history\": [<prior steps if any>, {{\n\
+                 \"step\": {current_step}, \"day_offset\": {days_offset},\n\
+                 \"convergent_findings\": \"<what probes agreed on>\",\n\
+                 \"projected_changes\": \"<what changed in the simulated world>\"\n\
+               }}],\n\
+               \"current_projected_state\": <the world as it looks now — same structure \
+                 as the base model but with projected additions>\n\
+             }}\n\n\
+             Upload this JSON:\n\
+             1. Create a file: result = temper.create(\"Files\", {{\"Name\": \"projected_state_step_{current_step}.json\", \"MimeType\": \"application/json\"}})\n\
+             2. Write content: temper.file_upload(\"projected_state_step_{current_step}.json\", <json_string>)\n\
+             3. The file_id is result[\"entity_id\"]\n\n\
+             Then call ProjectionUpdated with the file_id as instructed above."
+        );
+
+        // Detect provider
+        let has_openai = ctx.config.get("openai_codex_token")
+            .is_some_and(|v| !v.is_empty() && !v.contains("{secret:"));
+        let (model, provider) = if has_openai {
+            ("gpt-5", "openai")
+        } else {
+            ("claude-sonnet-4-6", "anthropic")
+        };
+
+        let configure_url = format!(
+            "{temper_api_url}/tdata/Sessions('{session_id}')/OpenPaw.Configure"
+        );
+        let configure_body = json!({
+            "model": model,
+            "provider": provider,
+            "agent_name": "model-projector",
+            "tools_enabled": "temper_get,temper_list,temper_action,temper_create,file_upload",
+            "max_turns": "20",
+            "user_message": user_message,
+            "sandbox_url": "none",
+            "temper_api_url": temper_api_url
+        });
+        let configure_resp = ctx.http_call("POST", &configure_url, &headers, &configure_body.to_string())?;
+        if configure_resp.status < 200 || configure_resp.status >= 300 {
+            ctx.log("warn", &format!(
+                "handle_convergence: Configure failed (HTTP {})", configure_resp.status
+            ));
+        } else {
+            ctx.log("info", &format!(
+                "handle_convergence: spawned Model Projector {agent_id} session {session_id}"
+            ));
         }
 
-        // Return AdvanceStep to increment the step counter
-        set_success_result(
-            "AdvanceStep",
-            &json!({
-                "projected_state_file_id": new_projected_state_file_id,
-            }),
-        );
-        ctx.log("info", "handle_convergence: done, probes respawned, advancing step");
+        // Return no chained action — wait for ProjectionUpdated
+        set_success_result("", &json!({}));
+        ctx.log("info", "handle_convergence: done, waiting for ProjectionUpdated");
         Ok(())
     })();
 
@@ -175,199 +260,4 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         set_error_result(&e);
     }
     0
-}
-
-fn respawn_probe_with_memory(
-    ctx: &Context,
-    temper_api_url: &str,
-    headers: &[(String, String)],
-    agent_id: &str,
-    projection_id: &str,
-    product_model_id: &str,
-    next_step: usize,
-    days_offset: u64,
-    projected_state_content: &str,
-) -> Result<(), String> {
-    // Read this Probe's own prior Observations
-    let obs_url = format!(
-        "{temper_api_url}/tdata/Observations?$filter=probe_agent_id eq '{agent_id}' and projection_id eq '{projection_id}'"
-    );
-    let obs_resp = ctx.http_call("GET", &obs_url, headers, "")?;
-    let own_observations = if obs_resp.status >= 200 && obs_resp.status < 300 {
-        let body: Value = serde_json::from_str(&obs_resp.body).unwrap_or(json!({}));
-        let obs = body.get("value").and_then(|v| v.as_array()).cloned().unwrap_or_default();
-        // Extract just the key fields for the prompt
-        let summaries: Vec<Value> = obs
-            .iter()
-            .map(|o| {
-                let f = o.get("fields").cloned().unwrap_or(json!({}));
-                json!({
-                    "id": o.get("entity_id").and_then(|v| v.as_str()).unwrap_or(""),
-                    "step": f.get("step_at").and_then(|v| v.as_str()).unwrap_or("?"),
-                    "content": f.get("Content").or(f.get("content")).and_then(|v| v.as_str()).unwrap_or(""),
-                    "importance": f.get("Importance").or(f.get("importance")).and_then(|v| v.as_str()).unwrap_or(""),
-                    "status": o.get("status").and_then(|v| v.as_str()).unwrap_or("")
-                })
-            })
-            .collect();
-        serde_json::to_string_pretty(&summaries).unwrap_or_default()
-    } else {
-        "[]".to_string()
-    };
-
-    // Read this Probe's own prior Direction(s)
-    let dir_url = format!(
-        "{temper_api_url}/tdata/Directions?$filter=proposer_agent_id eq '{agent_id}' and projection_id eq '{projection_id}'&$orderby=created_at desc&$top=1"
-    );
-    let dir_resp = ctx.http_call("GET", &dir_url, headers, "")?;
-    let own_direction = if dir_resp.status >= 200 && dir_resp.status < 300 {
-        let body: Value = serde_json::from_str(&dir_resp.body).unwrap_or(json!({}));
-        let dirs = body.get("value").and_then(|v| v.as_array()).cloned().unwrap_or_default();
-        if let Some(d) = dirs.first() {
-            let f = d.get("fields").cloned().unwrap_or(json!({}));
-            serde_json::to_string_pretty(&json!({
-                "id": d.get("entity_id").and_then(|v| v.as_str()).unwrap_or(""),
-                "title": f.get("Title").or(f.get("title")).and_then(|v| v.as_str()).unwrap_or(""),
-                "reasoning": f.get("Reasoning").or(f.get("reasoning")).and_then(|v| v.as_str()).unwrap_or("")
-            }))
-            .unwrap_or_default()
-        } else {
-            "null".to_string()
-        }
-    } else {
-        "null".to_string()
-    };
-
-    // Truncate projected state if needed
-    let state_for_prompt = if projected_state_content.len() > 30000 {
-        format!("{}... (truncated)", &projected_state_content[..30000])
-    } else {
-        projected_state_content.to_string()
-    };
-
-    // Truncate observations if needed
-    let obs_for_prompt = if own_observations.len() > 10000 {
-        format!("{}... (truncated)", &own_observations[..10000])
-    } else {
-        own_observations.clone()
-    };
-
-    // Create new Session
-    let session_url = format!("{temper_api_url}/tdata/Sessions");
-    let session_resp = ctx.http_call(
-        "POST",
-        &session_url,
-        headers,
-        &json!({"agent_id": agent_id}).to_string(),
-    )?;
-    if session_resp.status < 200 || session_resp.status >= 300 {
-        return Err(format!(
-            "failed to create Session for Probe {agent_id} (HTTP {})",
-            session_resp.status
-        ));
-    }
-    let session_parsed: Value = serde_json::from_str(&session_resp.body).unwrap_or(json!({}));
-    let session_id = session_parsed
-        .get("entity_id")
-        .and_then(|v| v.as_str())
-        .unwrap_or("unknown");
-
-    // Build episodic prompt
-    let user_message = format!(
-        "IMPORTANT: You MUST use the execute tool for ALL actions. Do NOT write analysis as text.\n\n\
-         You are a Foresight Probe at step {next_step} of a temporal simulation.\n\n\
-         Projection ID: {projection_id}\n\
-         ProductModel ID: {product_model_id}\n\
-         Your Agent ID: {agent_id}\n\
-         Simulated day offset: {days_offset} days from start\n\n\
-         == PROJECTED STATE OF THE WORLD ==\n\
-         {state_for_prompt}\n\n\
-         == YOUR PRIOR OBSERVATIONS ==\n\
-         {obs_for_prompt}\n\n\
-         == YOUR PRIOR DIRECTION ==\n\
-         {own_direction}\n\n\
-         == YOUR TASK ==\n\
-         The simulated world has evolved. The projected state reflects convergent\n\
-         projections from all probes.\n\n\
-         1. Review the updated projected state — what has changed?\n\
-         2. Review your prior observations and direction\n\
-         3. DIRECTION VERSIONING: Archive your old Direction, then create a revised one:\n\
-            temper.action(\"Directions\", \"<old_direction_id>\", \"Archive\", \
-              {{\"archive_reason\": \"Revised in step {next_step}\"}})\n\
-            Then create new Direction with parent_direction_id pointing to old one.\n\
-         4. Create new Observations for step {next_step}\n\
-         5. Propose exactly ONE Direction — revise or double down\n\n\
-         CRITICAL FIELD NAMES:\n\n\
-         temper.create(\"Observations\", {{\n\
-           \"content\": \"What you observe in the projected trajectory\",\n\
-           \"importance\": \"high\",\n\
-           \"signal_refs\": '[\"...\"]',\n\
-           \"counterfactual\": \"What happens if this is ignored\",\n\
-           \"probe_agent_id\": \"{agent_id}\",\n\
-           \"projection_id\": \"{projection_id}\",\n\
-           \"step_at\": \"{next_step}\"\n\
-         }})\n\n\
-         temper.create(\"Directions\", {{\n\
-           \"title\": \"Direction title\",\n\
-           \"reasoning\": \"Full product brief\",\n\
-           \"grounding\": '[\"signal refs\"]',\n\
-           \"observation_ids\": '[\"obs_id\"]',\n\
-           \"counterfactual_summary\": \"What if not taken\",\n\
-           \"proposer_agent_id\": \"{agent_id}\",\n\
-           \"projection_id\": \"{projection_id}\",\n\
-           \"parent_direction_id\": \"<old_direction_id>\",\n\
-           \"step_at\": \"{next_step}\"\n\
-         }})\n\n\
-         When done, call:\n\
-         temper.action(\"Projections\", \"{projection_id}\", \"ProbeStepDone\",\n\
-           {{\"probe_agent_id\": \"{agent_id}\", \"direction_id\": \"<your_direction_id>\"}})\n\
-         then temper.done(\"complete\")"
-    );
-
-    // Configure Session
-    let configure_url = format!(
-        "{temper_api_url}/tdata/Sessions('{session_id}')/OpenPaw.Configure"
-    );
-    // Use OpenAI if available, otherwise Anthropic
-    let has_openai = ctx.config.get("openai_codex_token")
-        .is_some_and(|v| !v.is_empty() && !v.contains("{secret:"));
-    let (probe_model, probe_provider) = if has_openai {
-        ("gpt-5", "openai")
-    } else {
-        ("claude-sonnet-4-6", "anthropic")
-    };
-    let configure_body = json!({
-        "model": probe_model,
-        "provider": probe_provider,
-        "soul_id": "Probe",
-        "tools_enabled": "temper_get,temper_list,temper_action,temper_create,temper_read",
-        "max_turns": "50",
-        "user_message": user_message,
-        "sandbox_url": "none",
-        "temper_api_url": temper_api_url
-    });
-    let configure_resp = ctx.http_call(
-        "POST",
-        &configure_url,
-        headers,
-        &configure_body.to_string(),
-    )?;
-    if configure_resp.status < 200 || configure_resp.status >= 300 {
-        ctx.log(
-            "warn",
-            &format!(
-                "handle_convergence: Configure failed for Session {} (HTTP {})",
-                session_id, configure_resp.status
-            ),
-        );
-    } else {
-        ctx.log(
-            "info",
-            &format!(
-                "handle_convergence: respawned Probe {agent_id} with session {session_id} for step {next_step}"
-            ),
-        );
-    }
-
-    Ok(())
 }
