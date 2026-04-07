@@ -159,6 +159,32 @@ export async function getEntity(
   return flattenEntity(raw);
 }
 
+/** OS App entry from the Temper platform catalog. */
+export interface OsAppEntry {
+  name: string;
+  description: string;
+  entity_types: string[];
+  version: string;
+  app_guide: string | null;
+  /** @deprecated Use app_guide */ skill_guide?: string | null;
+}
+
+/** Fetch all registered OS apps from the platform catalog. */
+export async function fetchOsApps(): Promise<OsAppEntry[]> {
+  const res = await fetch(`${BASE}/observe/os-apps`, { headers: HEADERS });
+  if (!res.ok) return [];
+  const data = await res.json();
+  return data.apps ?? [];
+}
+
+/** Fetch the APP.md guide for a specific OS app. */
+export async function fetchOsAppGuide(name: string): Promise<string> {
+  const res = await fetch(`${BASE}/observe/os-apps/${encodeURIComponent(name)}`, { headers: HEADERS });
+  if (!res.ok) return '';
+  const data = await res.json();
+  return data.guide ?? '';
+}
+
 /**
  * Fetch raw file content by file ID (e.g. soul markdown, skill markdown).
  */

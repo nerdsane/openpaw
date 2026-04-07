@@ -3,25 +3,14 @@
 
   const statusColor = $derived.by(() => {
     switch (status) {
-      case 'Completed':
-      case 'Complete':
-      case 'Resolved':
-      case 'Done':
+      case 'Completed': case 'Complete': case 'Resolved': case 'Done':
         return 'var(--status-success)';
-      case 'Failed':
-      case 'Cancelled':
-      case 'Escalate':
+      case 'Failed': case 'Cancelled': case 'Escalate':
         return 'var(--status-error)';
-      case 'WaitingForApproval':
-      case 'Reviewing':
-      case 'Testing':
+      case 'WaitingForApproval': case 'Reviewing': case 'Testing':
         return 'var(--status-warning)';
-      case 'Thinking':
-      case 'Executing':
-      case 'InProgress':
-      case 'Triaging':
-      case 'Planning':
-      case 'Running':
+      case 'Thinking': case 'Executing': case 'InProgress':
+      case 'Triaging': case 'Planning': case 'Running':
         return 'var(--status-active)';
       default:
         return 'var(--status-idle)';
@@ -38,22 +27,20 @@
   .status-badge {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    gap: 4px;
   }
 
   .dot {
-    display: inline-block;
-    width: 6px;
-    height: 6px;
+    width: 5px; height: 5px;
     border-radius: 50%;
     flex-shrink: 0;
   }
 
   .label {
     font-family: var(--font-mono);
-    font-size: var(--label);
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: var(--text-secondary);
+    font-size: 10px;
+    letter-spacing: 0.04em;
+    text-transform: lowercase;
+    color: var(--text-3, var(--text-secondary));
   }
 </style>

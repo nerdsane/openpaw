@@ -36,37 +36,37 @@ SKILLS = [
         "name": "swe-conventions",
         "description": "SWE coding conventions for the deep-sci-fi codebase.",
         "agent_filter": "SWE",
-        "file": "dsf-team/skills/swe-conventions.md",
+        "file": "dsf-team/skills/swe-conventions/SKILL.md",
     },
     {
         "name": "sre-monitoring",
         "description": "SRE monitoring, alert triage, and health-scan workflows.",
         "agent_filter": "SRE",
-        "file": "dsf-team/skills/sre-monitoring.md",
+        "file": "dsf-team/skills/sre-monitoring/SKILL.md",
     },
     {
         "name": "reviewer-code",
         "description": "Code review conventions and quality checklist.",
         "agent_filter": "CodeReviewer",
-        "file": "dsf-team/skills/reviewer-code.md",
+        "file": "dsf-team/skills/reviewer-code/SKILL.md",
     },
     {
         "name": "reviewer-dst",
         "description": "Deterministic simulation testing review checklist.",
         "agent_filter": "DSTReviewer",
-        "file": "dsf-team/skills/reviewer-dst.md",
+        "file": "dsf-team/skills/reviewer-dst/SKILL.md",
     },
     {
         "name": "design-system",
         "description": "Neo-editorial design system conventions and tokens.",
         "agent_filter": "Design",
-        "file": "dsf-team/skills/design-system.md",
+        "file": "dsf-team/skills/design-system/SKILL.md",
     },
     {
         "name": "content-standards",
         "description": "Content quality, world coherence, and scientific grounding.",
         "agent_filter": "Librarian",
-        "file": "dsf-team/skills/content-standards.md",
+        "file": "dsf-team/skills/content-standards/SKILL.md",
     },
 ]
 
@@ -149,7 +149,7 @@ def seed_harness(client: ODataClient) -> str:
         {
             "repo_url": REPO_URL,
             "tech_stack": "Next.js 14 (App Router), TypeScript, Tailwind, Supabase, Python",
-            "conventions": read_reference_file("dsf-team/skills/swe-conventions.md"),
+            "conventions": read_reference_file("dsf-team/skills/swe-conventions/SKILL.md"),
             "work_cycle_type": "WorkCycles",
         },
     )
@@ -173,8 +173,8 @@ def seed_soul(client: ODataClient) -> str:
         return sid
 
     # Upload soul and style files
-    soul_content = read_reference_file("dsf-team/souls/ren/SOUL.md")
-    style_content = read_reference_file("dsf-team/souls/ren/STYLE.md")
+    soul_content = read_reference_file("dsf-team/agents/ren/SOUL.md")
+    style_content = read_reference_file("dsf-team/agents/ren/STYLE.md")
 
     soul_file_id = upload_file(client, "ren-soul.md", soul_content)
     print(f"    uploaded SOUL.md -> {soul_file_id}")

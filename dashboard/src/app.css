@@ -1,67 +1,85 @@
 /* ============================================================
-   Open Paw — Nothing-Inspired Design System
-   Swiss typography · Industrial precision · Green accent
-   Fonts: Doto (display), Space Grotesk (body), Space Mono (data/labels)
+   Open Paw — Neo-Editorial Design System
+   Compact · Typographic hierarchy · Chromatic restraint
+   Fonts: Inter (body/UI), Geist Mono (data/terminal)
    ============================================================ */
 
-/* ---- Dark mode (default) ---- */
 :root {
   /* Surfaces */
-  --black: #000000;
-  --surface: #111111;
-  --surface-raised: #1A1A1A;
-  --border: #222222;
-  --border-visible: #333333;
+  --bg: #0a0a0a;
+  --surface: #141414;
+  --surface-raised: #1c1c1c;
+  --border: rgba(255,255,255,0.08);
+  --border-strong: rgba(255,255,255,0.14);
 
-  /* Text hierarchy (4 levels max) */
-  --text-display: #FFFFFF;
-  --text-primary: #E8E8E8;
-  --text-secondary: #999999;
-  --text-disabled: #666666;
+  /* Text — luminance hierarchy, not color */
+  --text-1: #ededed;
+  --text-2: #a0a0a0;
+  --text-3: #666666;
 
-  /* Accent — green, not red */
+  /* Accent */
   --accent: #00DC82;
-  --accent-subtle: rgba(0, 220, 130, 0.12);
+  --accent-subtle: rgba(0,220,130,0.08);
 
-  /* Status */
+  /* Status — muted on dark */
   --status-active: #00DC82;
-  --status-success: #00DC82;
-  --status-error: #E85B81;
-  --status-warning: #E8C547;
+  --status-success: #22c55e;
+  --status-error: #f87171;
+  --status-warning: #eab308;
   --status-idle: #444444;
 
-  /* Interactive */
-  --interactive: #5B9BF6;
-
   /* Terminal */
-  --terminal-bg: #0A0A0A;
-  --terminal-chrome: #141414;
+  --terminal-bg: #0a0a0a;
+  --terminal-chrome: #111111;
   --terminal-text: #00DC82;
   --terminal-dim: #007744;
-  --terminal-cursor: #00DC82;
-  --terminal-border: #1A1A1A;
+  --terminal-border: rgba(255,255,255,0.06);
 
   /* Authorization */
-  --authz-denied-bg: rgba(232, 91, 129, 0.08);
-  --authz-denied-border: rgba(232, 91, 129, 0.3);
+  --authz-denied-bg: rgba(248,113,113,0.06);
+  --authz-denied-border: rgba(248,113,113,0.2);
 
-  /* Typography stacks */
-  --font-display: 'Doto', 'Space Mono', monospace;
-  --font-body: 'Space Grotesk', 'DM Sans', system-ui, sans-serif;
-  --font-mono: 'Space Mono', 'JetBrains Mono', 'SF Mono', monospace;
+  /* Typography */
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-mono: 'Geist Mono', 'JetBrains Mono', 'SF Mono', monospace;
 
-  /* Type scale */
-  --display-xl: 72px;
-  --display-lg: 48px;
-  --display-md: 36px;
-  --heading: 24px;
-  --subheading: 18px;
-  --body: 16px;
-  --body-sm: 14px;
-  --caption: 12px;
-  --label: 11px;
+  /* Type scale — compact editorial */
+  --text-xl: 20px;
+  --text-lg: 15px;
+  --text-base: 13px;
+  --text-sm: 12px;
+  --text-xs: 11px;
 
-  /* Spacing (8px base) */
+  /* Spacing — 4px base */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-6: 24px;
+  --sp-8: 32px;
+
+  /* Radii — sharp editorial */
+  --radius: 4px;
+
+  /* Motion */
+  --duration: 150ms;
+  --ease: cubic-bezier(0.25, 0.1, 0.25, 1);
+
+  /* Layout */
+  --sidebar-w: 180px;
+
+  /* ---- Legacy aliases (components use these) ---- */
+  --black: var(--bg);
+  --surface: var(--surface);
+  --surface-raised: var(--surface-raised);
+  --border-visible: var(--border-strong);
+  --text-display: var(--text-1);
+  --text-primary: var(--text-1);
+  --text-secondary: var(--text-2);
+  --text-disabled: var(--text-3);
+  --font-body: var(--font-sans);
+  --font-display: var(--font-sans);
+  --sidebar-width: var(--sidebar-w);
   --space-2xs: 2px;
   --space-xs: 4px;
   --space-sm: 8px;
@@ -71,49 +89,53 @@
   --space-2xl: 48px;
   --space-3xl: 64px;
   --space-4xl: 96px;
-
-  /* Radii */
+  --display-xl: 72px;
+  --display-lg: 48px;
+  --display-md: 36px;
+  --heading: 20px;
+  --subheading: 15px;
+  --body: 13px;
+  --body-sm: 12px;
+  --caption: 11px;
+  --label: 10px;
   --radius-sm: 4px;
-  --radius-md: 8px;
-  --radius-lg: 12px;
-
-  /* Motion */
+  --radius-md: 6px;
+  --radius-lg: 8px;
   --duration-fast: 150ms;
   --duration-base: 250ms;
-  --ease: cubic-bezier(0.25, 0.1, 0.25, 1);
-
-  /* Layout */
-  --sidebar-width: 200px;
-  --content-max: 1200px;
+  --interactive: #5B9BF6;
+  --accent-subtle: rgba(0,220,130,0.08);
+  --terminal-cursor: #00DC82;
 }
 
 /* ---- Light mode ---- */
 [data-theme="light"] {
-  --black: #F5F5F5;
-  --surface: #FFFFFF;
-  --surface-raised: #F0F0F0;
-  --border: #E8E8E8;
-  --border-visible: #CCCCCC;
+  --bg: #fafafa;
+  --surface: #ffffff;
+  --surface-raised: #f5f5f5;
+  --border: rgba(0,0,0,0.08);
+  --border-strong: rgba(0,0,0,0.14);
 
-  --text-display: #000000;
-  --text-primary: #1A1A1A;
-  --text-secondary: #666666;
-  --text-disabled: #999999;
+  --text-1: #171717;
+  --text-2: #666666;
+  --text-3: #a0a0a0;
 
-  --interactive: #007AFF;
-
-  --status-idle: #CCCCCC;
-
-  /* Terminal — light mode: NOT green-on-white */
-  --terminal-bg: #FAFAFA;
-  --terminal-chrome: #F0F0F0;
-  --terminal-text: #1A1A1A;
+  --terminal-bg: #fafafa;
+  --terminal-chrome: #f0f0f0;
+  --terminal-text: #171717;
   --terminal-dim: #888888;
-  --terminal-cursor: #00DC82;
-  --terminal-border: #E0E0E0;
+  --terminal-border: rgba(0,0,0,0.06);
 
-  --authz-denied-bg: rgba(232, 91, 129, 0.06);
-  --authz-denied-border: rgba(232, 91, 129, 0.2);
+  --status-idle: #d4d4d4;
+  --authz-denied-bg: rgba(248,113,113,0.05);
+
+  --black: var(--bg);
+  --text-display: var(--text-1);
+  --text-primary: var(--text-1);
+  --text-secondary: var(--text-2);
+  --text-disabled: var(--text-3);
+  --interactive: #007AFF;
+  --terminal-cursor: #00DC82;
 }
 
 /* ============================================================
@@ -121,199 +143,103 @@
    ============================================================ */
 
 *, *::before, *::after {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
+  margin: 0; padding: 0; box-sizing: border-box;
 }
 
 html {
-  font-size: 16px;
+  font-size: 13px;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
 }
 
 body {
-  font-family: var(--font-body);
-  font-size: var(--body-sm);
-  font-weight: 400;
-  line-height: 1.5;
-  color: var(--text-primary);
-  background: var(--black);
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: 1.4;
+  color: var(--text-1);
+  background: var(--bg);
   min-height: 100vh;
 }
 
-a {
-  color: var(--text-primary);
-  text-decoration: none;
-}
+a { color: var(--text-1); text-decoration: none; }
+a:hover { color: var(--accent); }
 
-a:hover {
-  color: var(--text-display);
-}
-
-img, svg {
-  display: block;
-  max-width: 100%;
-}
+img, svg { display: block; max-width: 100%; }
 
 button {
-  font-family: inherit;
-  font-size: inherit;
-  cursor: pointer;
-  border: none;
-  background: none;
-  color: inherit;
+  font-family: inherit; font-size: inherit;
+  cursor: pointer; border: none; background: none; color: inherit;
 }
 
 input, select, textarea {
-  font-family: inherit;
-  font-size: inherit;
-  color: inherit;
-  background: transparent;
+  font-family: inherit; font-size: inherit;
+  color: inherit; background: transparent;
 }
 
-ul, ol {
-  list-style: none;
-}
+ul, ol { list-style: none; }
 
 /* ============================================================
-   Typography — strict hierarchy
+   Typography — editorial contrast
    ============================================================ */
 
 h1, h2, h3 {
-  font-family: var(--font-body);
+  font-family: var(--font-sans);
   font-weight: 500;
-  line-height: 1.1;
+  line-height: 1.2;
   letter-spacing: -0.02em;
-  color: var(--text-display);
+  color: var(--text-1);
 }
 
-h1 { font-size: var(--heading); }
-h2 { font-size: var(--subheading); }
-h3 { font-size: var(--body); }
+h1 { font-size: var(--text-xl); }
+h2 { font-size: var(--text-lg); }
+h3 { font-size: var(--text-base); font-weight: 600; }
 
 code, pre {
   font-family: var(--font-mono);
-  font-size: var(--caption);
+  font-size: var(--text-sm);
 }
 
 pre {
   background: var(--surface);
-  padding: var(--space-md);
-  border-radius: var(--radius-md);
+  padding: var(--sp-3);
+  border-radius: var(--radius);
   overflow-x: auto;
 }
 
 /* ============================================================
-   Cards — flat surfaces, border separation, no shadows
-   ============================================================ */
-
-.card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  padding: var(--space-lg);
-}
-
-.card-overlay {
-  background: var(--surface-raised);
-  border-radius: var(--radius-md);
-  padding: var(--space-lg);
-}
-
-/* ============================================================
-   Status indicators — geometric
+   Status dots
    ============================================================ */
 
 .status-dot {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--status-idle);
-  flex-shrink: 0;
-}
-
-.status-dot[data-status="active"],
-.status-dot[data-status="Running"] {
-  background: var(--status-active);
-}
-
-.status-dot[data-status="success"],
-.status-dot[data-status="Completed"] {
-  background: var(--status-success);
-}
-
-.status-dot[data-status="error"],
-.status-dot[data-status="Failed"] {
-  background: var(--status-error);
-}
-
-.status-dot[data-status="warning"],
-.status-dot[data-status="AwaitingApproval"] {
-  background: var(--status-warning);
-}
-
-.status-dot[data-status="idle"],
-.status-dot[data-status="Idle"],
-.status-dot[data-status="Cancelled"] {
-  background: var(--status-idle);
-}
-
-.status-ring {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  border: 1.5px solid var(--status-idle);
-  flex-shrink: 0;
+  display: inline-block; width: 6px; height: 6px;
+  border-radius: 50%; background: var(--status-idle); flex-shrink: 0;
 }
 
 /* ============================================================
-   Dot-matrix motif (decorative background)
+   Svelte Flow canvas overrides
    ============================================================ */
 
-.dot-grid {
-  background-image: radial-gradient(circle, var(--border-visible) 1px, transparent 1px);
-  background-size: 16px 16px;
-}
-
-.dot-grid-subtle {
-  background-image: radial-gradient(circle, var(--border) 0.5px, transparent 0.5px);
-  background-size: 12px 12px;
-}
+.svelte-flow { background: var(--bg) !important; }
+.svelte-flow__minimap { background: var(--surface) !important; border: 1px solid var(--border) !important; border-radius: var(--radius) !important; }
+.svelte-flow__controls { border: 1px solid var(--border) !important; border-radius: var(--radius) !important; overflow: hidden; }
+.svelte-flow__controls button { background: var(--surface) !important; color: var(--text-2) !important; border: none !important; border-bottom: 1px solid var(--border) !important; width: 26px !important; height: 26px !important; }
+.svelte-flow__controls button:hover { background: var(--surface-raised) !important; }
+.svelte-flow__controls button svg { fill: var(--text-2) !important; }
+.svelte-flow__attribution { display: none; }
+.svelte-flow__edge-path { stroke: var(--border-strong) !important; }
+.svelte-flow__background pattern circle { fill: var(--border) !important; }
 
 /* ============================================================
-   Utility classes
+   Utilities
    ============================================================ */
 
-.mono {
-  font-family: var(--font-mono);
-  font-size: var(--caption);
-}
-
-.label {
-  font-family: var(--font-mono);
-  font-size: var(--label);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--text-secondary);
-}
-
-.sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  border: 0;
-}
+.mono { font-family: var(--font-mono); font-size: var(--text-sm); }
+.label { font-family: var(--font-mono); font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-3); }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); border: 0; }
 
 /* ============================================================
-   Motion — respect prefers-reduced-motion
+   Motion
    ============================================================ */
 
 @media (prefers-reduced-motion: reduce) {
@@ -321,6 +247,5 @@ pre {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
-    scroll-behavior: auto !important;
   }
 }
