@@ -100,108 +100,51 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             ("x-temper-agent-type".to_string(), "system".to_string()),
         ];
 
-        // 3. For each Probe agent, steer or re-spawn
+        // 3. Check if ALL Probes are done. If not, just re-poll (return StepComplete).
+        //    Only when all Probes are terminal do we: run convergence, then respawn for next step.
+        let mut all_done = true;
+        let mut terminal_count = 0;
+        let mut probe_session_states: Vec<(String, String, String, bool)> = Vec::new(); // (agent_id, session_id, state, is_terminal)
+
         for agent_id in &probe_agent_ids {
-            // 3a. Query latest Session for this agent
             let session_query_url = format!(
                 "{temper_api_url}/tdata/Sessions?$filter=agent_id eq '{agent_id}'&$orderby=created_at desc&$top=1"
             );
             let session_resp = ctx.http_call("GET", &session_query_url, &headers, "")?;
-
             if session_resp.status < 200 || session_resp.status >= 300 {
-                ctx.log(
-                    "warn",
-                    &format!(
-                        "advance_step: failed to query Sessions for Agent {} (HTTP {})",
-                        agent_id, session_resp.status
-                    ),
-                );
                 continue;
             }
-
-            let session_body: Value =
-                serde_json::from_str(&session_resp.body).unwrap_or(json!({}));
-            let sessions = session_body
-                .get("value")
-                .and_then(|v| v.as_array())
-                .cloned()
-                .unwrap_or_default();
-
+            let session_body: Value = serde_json::from_str(&session_resp.body).unwrap_or(json!({}));
+            let sessions = session_body.get("value").and_then(|v| v.as_array()).cloned().unwrap_or_default();
             if sessions.is_empty() {
-                ctx.log(
-                    "warn",
-                    &format!("advance_step: no Sessions found for Agent {agent_id}, re-spawning"),
-                );
-                respawn_probe(&ctx, &temper_api_url, &headers, agent_id, product_model_id)?;
+                // No session yet — not done
+                all_done = false;
                 continue;
             }
-
-            let latest_session = &sessions[0];
-            let session_id = latest_session
-                .get("entity_id")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            let session_state = latest_session
-                .get("state")
-                .and_then(|v| v.as_str())
-                .or_else(|| {
-                    latest_session
-                        .get("fields")
-                        .and_then(|f| f.get("state"))
-                        .and_then(|v| v.as_str())
-                })
-                .unwrap_or("unknown");
-
-            // 3b. Check if terminal
-            let is_terminal = matches!(
-                session_state,
-                "Completed" | "Failed" | "Cancelled" | "completed" | "failed" | "cancelled"
-            );
-
-            if is_terminal {
-                ctx.log(
-                    "info",
-                    &format!(
-                        "advance_step: Session {session_id} is {session_state}, re-spawning probe {agent_id}"
-                    ),
-                );
-                respawn_probe(&ctx, &temper_api_url, &headers, agent_id, product_model_id)?;
-            } else {
-                // 3c. Steer active session
-                let steer_url = format!(
-                    "{temper_api_url}/tdata/Sessions('{session_id}')/OpenPaw.Steer"
-                );
-                let steer_message = format!(
-                    "[Foresight] Step {current_step} of {max_steps}. \
-                     Time horizon: {days_offset} days from now. \
-                     Project where this product COULD BE in {days_offset} days. \
-                     Think about new capabilities, user needs, architectural evolution. \
-                     Create Observations about trajectory and Directions as product futures. \
-                     Do NOT just report bugs. Do NOT read other Probes' Observations."
-                );
-                let steer_body = json!({ "message": steer_message });
-                let steer_resp = ctx.http_call(
-                    "POST",
-                    &steer_url,
-                    &headers,
-                    &steer_body.to_string(),
-                )?;
-                if steer_resp.status < 200 || steer_resp.status >= 300 {
-                    ctx.log(
-                        "warn",
-                        &format!(
-                            "advance_step: Steer failed for Session {} (HTTP {})",
-                            session_id, steer_resp.status
-                        ),
-                    );
-                } else {
-                    ctx.log(
-                        "info",
-                        &format!("advance_step: steered Session {session_id} for Agent {agent_id}"),
-                    );
-                }
-            }
+            let latest = &sessions[0];
+            let session_id = latest.get("entity_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let state = latest.get("status").and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
+            let is_terminal = matches!(state.as_str(), "Completed" | "Failed" | "Cancelled");
+            if !is_terminal { all_done = false; }
+            if is_terminal { terminal_count += 1; }
+            probe_session_states.push((agent_id.clone(), session_id, state, is_terminal));
         }
+
+        if !all_done {
+            // Not all Probes done — just re-poll, don't advance
+            ctx.log("info", &format!(
+                "advance_step: waiting for Probes ({terminal_count}/{} done), re-polling in 15s",
+                probe_agent_ids.len()
+            ));
+            set_success_result("StepComplete", &json!({}));
+            ctx.log("info", "advance_step: done (waiting for probes)");
+            return Ok(());
+        }
+
+        ctx.log("info", &format!(
+            "advance_step: all {} Probes done, proceeding with convergence + next step",
+            probe_agent_ids.len()
+        ));
 
         // 4. Spawn Convergence Analyst for previous step's Observations
         //    The analyst is an LLM-powered agent that reads all Observations and
@@ -237,7 +180,16 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             }
         }
 
-        // 5. Check completion
+        // 5. Respawn all Probes for the next step
+        for (agent_id, _session_id, _state, _is_terminal) in &probe_session_states {
+            if let Err(e) = respawn_probe(&ctx, &temper_api_url, &headers, agent_id, product_model_id) {
+                ctx.log("warn", &format!("advance_step: failed to respawn Probe {agent_id}: {e}"));
+            } else {
+                ctx.log("info", &format!("advance_step: respawned Probe {agent_id} for step {current_step}"));
+            }
+        }
+
+        // 6. Check completion
         if current_step >= max_steps {
             ctx.log(
                 "info",
