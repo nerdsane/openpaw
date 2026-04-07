@@ -1366,10 +1366,12 @@ async fn set_default_soul(
         if let Ok(created) = create_resp {
             let route_id = entity_id_from_json(&created).unwrap_or("");
             if !route_id.is_empty() {
+                let default_model = std::env::var("LLM_MODEL").unwrap_or_else(|_| "claude-sonnet-4-6".to_string());
+                let default_provider = std::env::var("LLM_PROVIDER").unwrap_or_else(|_| "anthropic".to_string());
                 let agent_config = serde_json::json!({
-                    "model": "claude-sonnet-4-6",
-                    "provider": "anthropic",
-                    "tools_enabled": "temper_create,temper_get,temper_list,temper_action,temper_read,save_memory,spawn_agent",
+                    "model": default_model,
+                    "provider": default_provider,
+                    "tools_enabled": "temper_create,temper_get,temper_list,temper_action,temper_patch,read_entity,save_memory,recall_memory,spawn_agent,temper_file_upload,temper_web_search,temper_web_fetch,temper_run_coding_agent,temper_spawn_session,temper_list_sessions,temper_abort_session,temper_steer_session,temper_get_agent_id,temper_submit_specs,temper_show_spec,temper_specs,temper_install_app,temper_list_apps,temper_get_decisions,temper_poll_decision,temper_approve_decision,temper_deny_decision,temper_submit_policy,temper_list_policies,temper_get_policy,temper_update_policy,temper_delete_policy,temper_get_secret,temper_datadog_query,temper_railway,temper_vercel,temper_get_trajectories,temper_get_insights,temper_upload_wasm,read,write,edit,bash,temper_done,temper_switch_provider",
                     "max_turns": "24",
                     "temper_api_url": api_url,
                     "max_follow_ups": "8",
