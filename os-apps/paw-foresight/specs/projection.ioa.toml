@@ -198,6 +198,7 @@ on_failure = "Fail"
 
 [integration.config]
 temper_api_url = "{secret:temper_api_url}"
+openai_codex_token = "{secret:openai_codex_token}"
 
 [[integration]]
 name = "handle_convergence"
@@ -208,3 +209,4 @@ on_failure = "Fail"
 
 [integration.config]
 temper_api_url = "{secret:temper_api_url}"
+openai_codex_token = "{secret:openai_codex_token}"

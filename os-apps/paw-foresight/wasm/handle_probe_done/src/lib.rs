@@ -351,8 +351,17 @@ fn spawn_convergence_analyst(
     let configure_url = format!(
         "{temper_api_url}/tdata/Sessions('{session_id}')/OpenPaw.Configure"
     );
+    // Use OpenAI if available, otherwise Anthropic
+    let has_openai = ctx.config.get("openai_codex_token")
+        .is_some_and(|v| !v.is_empty() && !v.contains("{secret:"));
+    let (analyst_model, analyst_provider) = if has_openai {
+        ("gpt-5", "openai")
+    } else {
+        ("claude-sonnet-4-6", "anthropic")
+    };
     let configure_body = json!({
-        "model": "claude-sonnet-4-6",
+        "model": analyst_model,
+        "provider": analyst_provider,
         "agent_name": "convergence-analyst",
         "tools_enabled": "temper_get,temper_list,temper_action,temper_create,temper_write",
         "max_turns": "40",

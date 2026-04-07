@@ -328,8 +328,17 @@ fn respawn_probe_with_memory(
     let configure_url = format!(
         "{temper_api_url}/tdata/Sessions('{session_id}')/OpenPaw.Configure"
     );
+    // Use OpenAI if available, otherwise Anthropic
+    let has_openai = ctx.config.get("openai_codex_token")
+        .is_some_and(|v| !v.is_empty() && !v.contains("{secret:"));
+    let (probe_model, probe_provider) = if has_openai {
+        ("gpt-5", "openai")
+    } else {
+        ("claude-sonnet-4-6", "anthropic")
+    };
     let configure_body = json!({
-        "model": "claude-sonnet-4-6",
+        "model": probe_model,
+        "provider": probe_provider,
         "soul_id": "Probe",
         "tools_enabled": "temper_get,temper_list,temper_action,temper_create,temper_read",
         "max_turns": "50",
