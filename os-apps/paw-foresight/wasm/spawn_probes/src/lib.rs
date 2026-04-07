@@ -153,6 +153,10 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 .get("model")
                 .and_then(|v| v.as_str())
                 .unwrap_or("claude-sonnet-4-6");
+            let probe_provider = probe
+                .get("provider")
+                .and_then(|v| v.as_str())
+                .unwrap_or("anthropic");
 
             // 3a. Create Agent
             let agent_url = format!("{temper_api_url}/tdata/Agents");
@@ -283,6 +287,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             );
             let configure_body = json!({
                 "model": probe_model,
+                "provider": probe_provider,
                 "soul_id": "Probe",
                 "tools_enabled": "temper_get,temper_list,temper_action,temper_create,read_entity",
                 "max_turns": "50",

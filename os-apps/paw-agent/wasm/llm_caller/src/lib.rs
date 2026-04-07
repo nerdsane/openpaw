@@ -96,6 +96,11 @@ set tenant secret and retry"
             .get("openrouter_api_url")
             .cloned()
             .unwrap_or_else(|| "https://openrouter.ai/api/v1/chat/completions".to_string());
+        let openai_codex_api_url = ctx
+            .config
+            .get("openai_codex_api_url")
+            .cloned()
+            .unwrap_or_else(|| "https://chatgpt.com/backend-api/codex/responses".to_string());
         let anthropic_auth_mode = ctx
             .config
             .get("anthropic_auth_mode")
@@ -308,6 +313,15 @@ anthropic_api_token (or api_key) for anthropic, openrouter_api_key (or api_key) 
                 &tools,
                 &openrouter_site_url,
                 &openrouter_app_name,
+            )?,
+            "openai-codex" | "openai" => call_openai_codex(
+                &ctx,
+                &api_key,
+                &openai_codex_api_url,
+                model,
+                &assembled_system_prompt,
+                &messages,
+                &tools,
             )?,
             other => return Err(format!("unsupported LLM provider: {other}")),
         };
@@ -579,8 +593,12 @@ fn first_non_empty(values: &[Option<String>]) -> String {
 fn resolve_provider_api_key(ctx: &Context, provider: &str) -> Result<String, String> {
     let key = match provider {
         "anthropic" => first_non_empty(&[
-            ctx.config.get("anthropic_api_token").cloned(),
             ctx.config.get("anthropic_api_key").cloned(),
+            ctx.config.get("anthropic_api_token").cloned(),
+            ctx.config.get("api_key").cloned(),
+        ]),
+        "openai-codex" | "openai" => first_non_empty(&[
+            ctx.config.get("openai_codex_token").cloned(),
             ctx.config.get("api_key").cloned(),
         ]),
         "openrouter" => first_non_empty(&[
@@ -952,6 +970,247 @@ fn call_openrouter(
     } else {
         "end_turn".to_string()
     };
+
+    Ok(LlmResponse {
+        content: Value::Array(content_blocks),
+        stop_reason,
+        input_tokens,
+        output_tokens,
+    })
+}
+
+/// Call OpenAI Codex Responses API (chatgpt.com/backend-api/codex/responses).
+///
+/// Uses the Responses API format (not Chat Completions): instructions, input, stream=true.
+/// The WASM http_call buffers the full SSE stream — we parse the response.completed event.
+fn call_openai_codex(
+    ctx: &Context,
+    api_key: &str,
+    api_url: &str,
+    model: &str,
+    system_prompt: &str,
+    messages: &[Value],
+    tools: &[Value],
+) -> Result<LlmResponse, String> {
+    // Convert Anthropic-format messages to Responses API input format
+    let mut input = Vec::<Value>::new();
+    for msg in messages {
+        let role = msg.get("role").and_then(Value::as_str).unwrap_or("user");
+        match role {
+            "user" => {
+                if let Some(content) = msg.get("content").and_then(Value::as_str) {
+                    input.push(json!({"role": "user", "content": content}));
+                } else if let Some(blocks) = msg.get("content").and_then(Value::as_array) {
+                    // Handle array content blocks
+                    let text: String = blocks.iter()
+                        .filter_map(|b| b.get("text").and_then(Value::as_str))
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    if !text.is_empty() {
+                        input.push(json!({"role": "user", "content": text}));
+                    }
+                }
+            }
+            "assistant" => {
+                if let Some(blocks) = msg.get("content").and_then(Value::as_array) {
+                    for block in blocks {
+                        let block_type = block.get("type").and_then(Value::as_str).unwrap_or("");
+                        match block_type {
+                            "text" => {
+                                if let Some(text) = block.get("text").and_then(Value::as_str) {
+                                    input.push(json!({
+                                        "type": "message",
+                                        "role": "assistant",
+                                        "content": [{"type": "output_text", "text": text}]
+                                    }));
+                                }
+                            }
+                            "tool_use" => {
+                                let call_id = block.get("id").and_then(Value::as_str).unwrap_or("").to_string();
+                                let name = block.get("name").and_then(Value::as_str).unwrap_or("").to_string();
+                                let arguments = serde_json::to_string(
+                                    block.get("input").unwrap_or(&json!({}))
+                                ).unwrap_or_else(|_| "{}".to_string());
+                                input.push(json!({
+                                    "type": "function_call",
+                                    "call_id": call_id,
+                                    "name": name,
+                                    "arguments": arguments
+                                }));
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+            "tool_result" => {
+                // Anthropic tool_result → Responses API function_call_output
+                let tool_use_id = msg.get("tool_use_id").and_then(Value::as_str).unwrap_or("");
+                let content = if let Some(blocks) = msg.get("content").and_then(Value::as_array) {
+                    blocks.iter()
+                        .filter_map(|b| b.get("text").and_then(Value::as_str))
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                } else if let Some(text) = msg.get("content").and_then(Value::as_str) {
+                    text.to_string()
+                } else {
+                    String::new()
+                };
+                input.push(json!({
+                    "type": "function_call_output",
+                    "call_id": tool_use_id,
+                    "output": content
+                }));
+            }
+            _ => {}
+        }
+    }
+
+    // Convert tools to Responses API format
+    let codex_tools: Vec<Value> = tools.iter().map(|t| {
+        let name = t.get("name").and_then(Value::as_str).unwrap_or("");
+        let desc = t.get("description").and_then(Value::as_str).unwrap_or("");
+        let schema = t.get("input_schema").cloned().unwrap_or(json!({}));
+        json!({
+            "type": "function",
+            "name": name,
+            "description": desc,
+            "parameters": schema,
+            "strict": false
+        })
+    }).collect();
+
+    let mut body = json!({
+        "model": model,
+        "instructions": system_prompt,
+        "input": input,
+        "stream": true,
+        "store": false,
+    });
+    if !codex_tools.is_empty() {
+        body["tools"] = json!(codex_tools);
+        body["tool_choice"] = json!("auto");
+    }
+
+    let body_str = serde_json::to_string(&body)
+        .map_err(|e| format!("JSON serialize error: {e}"))?;
+
+    let headers = vec![
+        ("authorization".to_string(), format!("Bearer {api_key}")),
+        ("content-type".to_string(), "application/json".to_string()),
+    ];
+
+    ctx.log(
+        "info",
+        &format!(
+            "llm_caller: calling OpenAI Codex API, model={model}, input={}, url={api_url}",
+            input.len(),
+        ),
+    );
+
+    let mut last_err = String::new();
+    let mut resp = None;
+    for attempt in 0..5 {
+        if attempt > 0 {
+            ctx.log("warn", &format!("llm_caller: OpenAI Codex retry {}/{}", attempt + 1, 5));
+        }
+        match ctx.http_call("POST", api_url, &headers, &body_str) {
+            Ok(r) if r.status >= 200 && r.status < 300 => {
+                resp = Some(r);
+                break;
+            }
+            Ok(r) if r.status == 429 => {
+                last_err = format!("OpenAI Codex API rate limited (429)");
+                continue;
+            }
+            Ok(r) => {
+                let snippet = &r.body[..r.body.len().min(300)];
+                return Err(format!("OpenAI Codex API returned {}: {snippet}", r.status));
+            }
+            Err(e) => {
+                last_err = e;
+                continue;
+            }
+        }
+    }
+    let resp = resp.ok_or_else(|| format!("OpenAI Codex API failed after 5 attempts: {last_err}"))?;
+
+    // Parse SSE stream — find the response.completed event which has the full response
+    let body = &resp.body;
+    let mut completed_response: Option<Value> = None;
+    for line in body.lines() {
+        if let Some(data) = line.strip_prefix("data: ") {
+            if let Ok(event) = serde_json::from_str::<Value>(data) {
+                let event_type = event.get("type").and_then(Value::as_str).unwrap_or("");
+                if event_type == "response.completed" {
+                    completed_response = event.get("response").cloned();
+                    break;
+                }
+            }
+        }
+    }
+
+    let response = completed_response
+        .ok_or_else(|| "OpenAI Codex: no response.completed event found in SSE stream".to_string())?;
+
+    // Extract content and tool calls from response.output
+    let mut content_blocks = Vec::<Value>::new();
+    let mut has_tool_calls = false;
+
+    if let Some(output) = response.get("output").and_then(Value::as_array) {
+        for item in output {
+            let item_type = item.get("type").and_then(Value::as_str).unwrap_or("");
+            match item_type {
+                "message" => {
+                    if let Some(content) = item.get("content").and_then(Value::as_array) {
+                        for part in content {
+                            let part_type = part.get("type").and_then(Value::as_str).unwrap_or("");
+                            if part_type == "output_text" {
+                                if let Some(text) = part.get("text").and_then(Value::as_str) {
+                                    if !text.is_empty() {
+                                        content_blocks.push(json!({
+                                            "type": "text",
+                                            "text": text,
+                                        }));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                "function_call" => {
+                    let call_id = item.get("call_id").and_then(Value::as_str).unwrap_or("").to_string();
+                    let name = item.get("name").and_then(Value::as_str).unwrap_or("").to_string();
+                    let arguments = item.get("arguments").and_then(Value::as_str).unwrap_or("{}");
+                    let input = serde_json::from_str::<Value>(arguments).unwrap_or(json!({}));
+                    content_blocks.push(json!({
+                        "type": "tool_use",
+                        "id": call_id,
+                        "name": name,
+                        "input": input,
+                    }));
+                    has_tool_calls = true;
+                }
+                _ => {} // reasoning, etc. — skip
+            }
+        }
+    }
+
+    let usage = response.get("usage").cloned().unwrap_or(json!({}));
+    let input_tokens = usage.get("input_tokens").and_then(|v| v.as_i64()).unwrap_or(0);
+    let output_tokens = usage.get("output_tokens").and_then(|v| v.as_i64()).unwrap_or(0);
+
+    let stop_reason = if has_tool_calls {
+        "tool_use".to_string()
+    } else {
+        "end_turn".to_string()
+    };
+
+    ctx.log(
+        "info",
+        &format!("llm_caller: OpenAI Codex response: blocks={}, stop={stop_reason}, in={input_tokens}, out={output_tokens}",
+            content_blocks.len()),
+    );
 
     Ok(LlmResponse {
         content: Value::Array(content_blocks),

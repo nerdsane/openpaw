@@ -112,11 +112,18 @@ def build_probe_config(probe_count: int) -> str:
     if probe_count <= 0:
         raise ValueError("probe_count must be > 0")
 
+    # Use OpenAI Codex provider if OPENAI_CODEX_TOKEN is set, else Anthropic
+    provider = os.environ.get("LLM_PROVIDER", "")
+    if not provider:
+        provider = "openai-codex" if os.environ.get("OPENAI_CODEX_TOKEN") else "anthropic"
+    model = "gpt-5" if "openai" in provider else "claude-sonnet-4-6"
+
     for idx in range(probe_count):
         probes.append(
             {
                 "name": f"Probe-{idx + 1}",
-                "model": "claude-sonnet-4-6",
+                "model": model,
+                "provider": provider,
             }
         )
     return json.dumps(probes)

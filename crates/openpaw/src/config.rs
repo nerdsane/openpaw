@@ -33,10 +33,13 @@ pub struct Config {
     /// Turso auth token (for Turso Cloud).
     pub turso_auth_token: Option<String>,
 
-    /// Anthropic API token (Bearer auth).
-    pub anthropic_api_token: Option<String>,
+    /// Anthropic API key (sk-ant-api03-... from console.anthropic.com).
+    pub anthropic_api_key: Option<String>,
 
-    /// LLM provider name: "anthropic", "openrouter", or "openai".
+    /// OpenAI Codex OAuth token (JWT from ~/.codex/auth.json or OPENAI_CODEX_TOKEN env).
+    pub openai_codex_token: Option<String>,
+
+    /// LLM provider name: "anthropic", "openrouter", or "openai-codex".
     /// Set during interactive setup. Defaults to "anthropic" if not set.
     pub llm_provider: Option<String>,
 
@@ -103,7 +106,8 @@ impl Config {
             slack_signing_secret: optional_env("SLACK_SIGNING_SECRET"),
             turso_url: optional_env("TURSO_URL"),
             turso_auth_token: optional_env("TURSO_AUTH_TOKEN"),
-            anthropic_api_token: optional_env("ANTHROPIC_API_TOKEN"),
+            anthropic_api_key: optional_env("ANTHROPIC_API_KEY"),
+            openai_codex_token: optional_env("OPENAI_CODEX_TOKEN"),
             llm_provider: optional_env("LLM_PROVIDER"),
             tensorlake_api_key: optional_env("TL_API_KEY"),
             github_token: optional_env("GITHUB_TOKEN"),
