@@ -635,9 +635,9 @@ fn detect_anthropic_oauth_mode(api_key: &str, auth_mode: &str) -> bool {
     match auth_mode.trim().to_ascii_lowercase().as_str() {
         "oauth" | "token" | "bearer" => true,
         "api_key" => false,
-        // Auto-detect: legacy sk-ant-api03- keys use x-api-key header,
-        // everything else (OAuth tokens, new-format tokens) uses Bearer auth.
-        _ => !api_key.starts_with("sk-ant-api03-"),
+        // Auto-detect: Anthropic accepts all token formats via x-api-key header.
+        // Only use Bearer if explicitly configured. Default to x-api-key.
+        _ => false,
     }
 }
 
