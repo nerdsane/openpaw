@@ -63,20 +63,22 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         // or project harness. For now, always install gh CLI if not present.
         run_sandbox_setup(&ctx, &sandbox_result.sandbox_url, &fields);
 
-        // Create TemperFS Workspace + File for conversation storage.
-        // Prefer per-run override from Configure state, then integration config.
+        // Check if continuation context was passed via Configure (resume fields).
+        // If conversation_file_id is already set, this is a continuation — reuse
+        // the prior workspace and conversation instead of creating fresh storage.
         let temper_api_url = resolve_temper_api_url(&ctx, &fields);
-
         let entity_id = ctx
             .entity_state
             .get("entity_id")
             .and_then(|v| v.as_str())
             .unwrap_or("unknown");
-
         let tenant = &ctx.tenant;
 
-        let fs_result =
-            create_conversation_storage(&ctx, &temper_api_url, tenant, entity_id, user_message);
+        let prior_workspace_id = fields.get("workspace_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let prior_conversation_file_id = fields.get("conversation_file_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let prior_file_manifest_id = fields.get("file_manifest_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let prior_session_file_id = fields.get("session_file_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let prior_session_leaf_id = fields.get("session_leaf_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
 
         let (
             workspace_id,
@@ -84,24 +86,44 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             file_manifest_id,
             session_file_id,
             session_leaf_id,
-        ) = match fs_result {
-            Ok((ws, conv, manifest, session_file_id, session_leaf_id)) => {
-                (ws, conv, manifest, session_file_id, session_leaf_id)
-            }
-            Err(e) => {
-                ctx.log(
-                    "warn",
-                    &format!(
-                        "sandbox_provisioner: TemperFS bootstrap failed at {temper_api_url}/tdata (tenant={tenant}, agent={entity_id}): {e}. Ensure os-app 'temper-fs' is installed for this tenant and temper_api_url is correct. Falling back to inline."
-                    ),
-                );
-                (
-                    String::new(),
-                    String::new(),
-                    String::new(),
-                    String::new(),
-                    String::new(),
-                )
+        ) = if !prior_conversation_file_id.is_empty() {
+            // Continuation session — reuse prior workspace and conversation storage.
+            ctx.log(
+                "info",
+                &format!(
+                    "sandbox_provisioner: continuation detected — reusing workspace={prior_workspace_id} conv={prior_conversation_file_id} session={prior_session_file_id}"
+                ),
+            );
+            (
+                prior_workspace_id,
+                prior_conversation_file_id,
+                prior_file_manifest_id,
+                prior_session_file_id,
+                prior_session_leaf_id,
+            )
+        } else {
+            // Fresh session — create new conversation storage.
+            let fs_result =
+                create_conversation_storage(&ctx, &temper_api_url, tenant, entity_id, user_message);
+            match fs_result {
+                Ok((ws, conv, manifest, session_file_id, session_leaf_id)) => {
+                    (ws, conv, manifest, session_file_id, session_leaf_id)
+                }
+                Err(e) => {
+                    ctx.log(
+                        "warn",
+                        &format!(
+                            "sandbox_provisioner: TemperFS bootstrap failed at {temper_api_url}/tdata (tenant={tenant}, agent={entity_id}): {e}. Ensure os-app 'temper-fs' is installed for this tenant and temper_api_url is correct. Falling back to inline."
+                        ),
+                    );
+                    (
+                        String::new(),
+                        String::new(),
+                        String::new(),
+                        String::new(),
+                        String::new(),
+                    )
+                }
             }
         };
 

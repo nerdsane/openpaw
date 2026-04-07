@@ -280,8 +280,8 @@ initial = ""
 name = "Configure"
 kind = "input"
 from = ["Created"]
-params = ["system_prompt", "user_message", "model", "provider", "max_turns", "tools_enabled", "workdir", "sandbox_url", "temper_api_url", "soul_id", "parent_session_id", "session_depth", "max_follow_ups", "hook_policy", "reserve_tokens", "keep_recent_tokens", "compaction_model", "heartbeat_timeout_seconds", "project_harness_id"]
-hint = "Configure session. Auto-provisions after configuration."
+params = ["system_prompt", "user_message", "model", "provider", "max_turns", "tools_enabled", "workdir", "sandbox_url", "sandbox_id", "temper_api_url", "soul_id", "parent_session_id", "session_depth", "max_follow_ups", "hook_policy", "reserve_tokens", "keep_recent_tokens", "compaction_model", "heartbeat_timeout_seconds", "project_harness_id", "workspace_id", "conversation_file_id", "file_manifest_id", "session_file_id", "session_leaf_id"]
+hint = "Configure session. Auto-provisions after configuration. Resume fields (workspace_id, conversation_file_id, session_file_id, session_leaf_id) are accepted so continuations carry prior conversation state."
 effect = [{ type = "schedule", action = "Provision", delay_seconds = 0 }]
 
 [[action]]
