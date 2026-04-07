@@ -1,6 +1,7 @@
 /**
- * Canvas store — builds the Svelte Flow node/edge graph.
- * Agents as identity cards, sessions as terminal nodes below, edges showing relationships.
+ * Canvas store — vertical flow layout.
+ * Projects stack vertically. Active agents show as full-width terminal cards.
+ * Idle agents compress into a single row.
  */
 
 import { writable } from 'svelte/store';
@@ -16,6 +17,11 @@ export const zoomLevel = writable<number>(0.5);
 export const focusTarget = writable<{ type: string; id: string } | null>(null);
 
 const TERMINAL_STATUSES = ['Completed', 'Failed', 'Cancelled'];
+
+// Known apps per project — in practice this would come from the API
+const PROJECT_APPS: Record<string, string[]> = {
+  'default': ['paw-agent', 'paw-harness', 'paw-heal', 'paw-foresight', 'paw-pm', 'paw-fs'],
+};
 
 export function buildCanvasGraph(data: {
   teams: Team[];
@@ -39,225 +45,130 @@ export function buildCanvasGraph(data: {
       h.Id === (team as any).harness_id
     ) ?? data.harnesses[0] ?? null;
 
-    const wcs = data.workCycles;
+    // Separate active vs idle agents
+    const activeAgentsWithSessions: Array<{ agent: Agent; session: Session }> = [];
+    const idleAgents: Agent[] = [];
 
-    // Collect active sessions for this team's agents
-    const teamActiveSessions: Array<{ agent: Agent; session: Session }> = [];
     for (const agent of teamAgents) {
       const agentSessions = data.sessions.filter(s => s.agent_id === agent.Id);
-      for (const s of agentSessions) {
-        if (!TERMINAL_STATUSES.includes(s.Status)) {
-          teamActiveSessions.push({ agent, session: s });
-        }
+      const activeSession = agentSessions.find(s => !TERMINAL_STATUSES.includes(s.Status));
+      if (activeSession) {
+        activeAgentsWithSessions.push({ agent, session: activeSession });
+      } else {
+        idleAgents.push(agent);
       }
     }
 
-    // Compute frame dimensions — cap at AGENTS_PER_ROW columns
-    const hasActiveSessions = teamActiveSessions.length > 0;
-    const perRow = LAYOUT.AGENTS_PER_ROW;
-    const agentCols = Math.min(teamAgents.length, perRow);
-    const agentRows = Math.ceil(teamAgents.length / perRow);
-    const frameWidth = Math.max(500, LAYOUT.AGENT_START_X * 2 + agentCols * LAYOUT.AGENT_COLUMN_WIDTH);
-    const agentBlockHeight = agentRows * (LAYOUT.AGENT_HEIGHT + 8);
-    const frameHeight = LAYOUT.AGENT_ROW_Y + agentBlockHeight + 20 +
-      (hasActiveSessions ? LAYOUT.SESSION_HEIGHT + LAYOUT.ENTITY_HEIGHT + LAYOUT.ENTITY_OFFSET_Y + 40 : 0) +
-      50;
+    // Compute project frame height
+    const activityBlockHeight = activeAgentsWithSessions.length * (LAYOUT.ACTIVITY_HEIGHT + LAYOUT.ACTIVITY_GAP);
+    const idleBlockHeight = idleAgents.length > 0 ? LAYOUT.IDLE_HEIGHT + LAYOUT.IDLE_GAP : 0;
+    const frameHeight = LAYOUT.PROJECT_HEADER_HEIGHT + activityBlockHeight + idleBlockHeight + LAYOUT.PROJECT_FOOTER_HEIGHT + 16;
+
+    const apps = PROJECT_APPS['default'] ?? [];
 
     nodes.push({
       id: projectId,
       type: 'project',
       position: { x: LAYOUT.PROJECT_START_X, y: projectY },
-      data: { type: 'project', team, harness, agents: teamAgents, workCycles: wcs },
-      style: `width: ${frameWidth}px; height: ${frameHeight}px;`,
+      data: {
+        type: 'project',
+        team,
+        harness,
+        agentCount: teamAgents.length,
+        activeCount: activeAgentsWithSessions.length,
+        apps,
+        workCycles: data.workCycles,
+      },
+      style: `width: ${LAYOUT.PROJECT_WIDTH}px; height: ${frameHeight}px;`,
     });
 
-    // ── Agent identity cards (top row) ──
-    teamAgents.forEach((agent, i) => {
-      const agentNodeId = `agent-${agent.Id}`;
-      const agentSessions = data.sessions.filter(s => s.agent_id === agent.Id);
-      const activeSessions = agentSessions.filter(s => !TERMINAL_STATUSES.includes(s.Status));
+    // ── Activity cards (active agents with sessions) ──
+    let cardY = LAYOUT.ACTIVITY_START_Y;
+
+    activeAgentsWithSessions.forEach((item) => {
+      const cardId = `activity-${item.agent.Id}`;
+
       const soul = data.souls.find(s =>
-        s.Id === agent.soul_id || s.Name === agent.soul_id || s.name === agent.soul_id
+        s.Id === item.agent.soul_id || s.Name === item.agent.soul_id || s.name === item.agent.soul_id
       ) ?? null;
 
-      const skillCount = data.skills.filter(sk => {
-        const scope = ((sk as any).scope ?? (sk as any).Scope ?? '') as string;
-        const soulName = soul?.Name ?? soul?.name ?? agent.soul_id ?? '';
+      const agentSkills = data.skills.filter(sk => {
+        const scope = ((sk as any).scope ?? '') as string;
+        const soulName = soul?.Name ?? soul?.name ?? item.agent.soul_id ?? '';
         return scope === 'global' || scope === soulName;
-      }).length;
-
-      // Position agent in grid (multi-row if > AGENTS_PER_ROW)
-      const col = i % perRow;
-      const row = Math.floor(i / perRow);
-      const colX = LAYOUT.AGENT_START_X + col * LAYOUT.AGENT_COLUMN_WIDTH;
-      const agentX = colX + (LAYOUT.AGENT_COLUMN_WIDTH - LAYOUT.AGENT_WIDTH) / 2;
-
-      nodes.push({
-        id: agentNodeId,
-        type: 'agent',
-        position: {
-          x: agentX,
-          y: LAYOUT.AGENT_ROW_Y + row * (LAYOUT.AGENT_HEIGHT + 8),
-        },
-        data: {
-          type: 'agent',
-          agent,
-          sessionCount: agentSessions.length,
-          activeSessionCount: activeSessions.length,
-          soul,
-          skillCount,
-          hasPendingDecision: agentSessions.some(s =>
-            !!(s as any).pending_decision_id || !!(s as any).fields?.pending_decision_id
-          ),
-        },
-        parentId: projectId,
-        extent: 'parent' as const,
-        style: `width: ${LAYOUT.AGENT_WIDTH}px; height: ${LAYOUT.AGENT_HEIGHT}px;`,
       });
-    });
 
-    // ── Session terminal nodes (directly below their parent agent) ──
-    // Build a map of agent index → position for alignment
-    const agentColumnIndex = new Map<string, number>();
-    teamAgents.forEach((agent, i) => {
-      agentColumnIndex.set(agent.Id, i);
-    });
-
-    teamActiveSessions.forEach((item) => {
-      const sessionNodeId = `session-${item.session.Id}`;
-      const agentNodeId = `agent-${item.agent.Id}`;
-      const colIndex = agentColumnIndex.get(item.agent.Id) ?? 0;
-
-      // Session below its agent's column, after all agent rows
-      const agentCol = colIndex % perRow;
-      const colX = LAYOUT.AGENT_START_X + agentCol * LAYOUT.AGENT_COLUMN_WIDTH;
-      const sessionX = colX + (LAYOUT.AGENT_COLUMN_WIDTH - LAYOUT.SESSION_WIDTH) / 2;
-      const sessionBaseY = LAYOUT.AGENT_ROW_Y + agentBlockHeight + 16;
+      const tools = ((item.agent as any).tools_enabled || '').split(',').filter(Boolean);
 
       nodes.push({
-        id: sessionNodeId,
-        type: 'session',
-        position: {
-          x: sessionX,
-          y: sessionBaseY,
-        },
+        id: cardId,
+        type: 'activity',
+        position: { x: LAYOUT.ACTIVITY_START_X, y: cardY },
         data: {
-          type: 'session',
+          type: 'activity',
+          agent: item.agent,
           session: item.session,
-          agentName: item.agent.name || item.agent.role || 'Agent',
+          soul,
+          skills: agentSkills,
+          tools,
         },
         parentId: projectId,
         extent: 'parent' as const,
-        style: `width: ${LAYOUT.SESSION_WIDTH}px; height: ${LAYOUT.SESSION_HEIGHT}px;`,
+        style: `width: ${LAYOUT.ACTIVITY_WIDTH}px; height: ${LAYOUT.ACTIVITY_HEIGHT}px;`,
       });
 
-      // Edge: agent → session (straight down)
-      edges.push({
-        id: `edge-${agentNodeId}-${sessionNodeId}`,
-        source: agentNodeId,
-        target: sessionNodeId,
-        type: 'straight',
-        style: 'stroke: var(--accent, #00DC82); stroke-width: 1.5; opacity: 0.6;',
-      });
-
-      // Edge: parent session → child session
-      const parentId = (item.session as any).parent_session_id ?? (item.session as any).fields?.parent_session_id;
-      if (parentId) {
-        edges.push({
-          id: `edge-parent-${parentId}-${sessionNodeId}`,
-          source: `session-${parentId}`,
-          target: sessionNodeId,
-          type: 'smoothstep',
-          animated: true,
-          style: 'stroke: var(--text-3, #666); stroke-width: 1; stroke-dasharray: 4 2;',
-        });
-      }
-
-      // ── Entity badges from temper_action tool calls ──
-      const events = (item.session as any)._events ?? [];
-      const referencedEntities = new Set<string>();
-      for (const e of events) {
-        if (e.action === 'ProcessToolCalls' && e.params?.pending_tool_calls) {
-          try {
-            const tcs = JSON.parse(e.params.pending_tool_calls);
-            for (const tc of tcs) {
-              if (tc.name === 'temper_action' && tc.input?.entity_set && tc.input?.entity_id) {
-                const key = `${tc.input.entity_set}:${tc.input.entity_id}`;
-                if (!referencedEntities.has(key)) {
-                  referencedEntities.add(key);
-                  const entityNodeId = `entity-${tc.input.entity_set}-${tc.input.entity_id}`;
-
-                  const entityX = sessionX +
-                    (referencedEntities.size - 1) * (LAYOUT.ENTITY_WIDTH + LAYOUT.ENTITY_GAP);
-
-                  nodes.push({
-                    id: entityNodeId,
-                    type: 'entity',
-                    position: {
-                      x: entityX,
-                      y: sessionBaseY + LAYOUT.SESSION_HEIGHT + LAYOUT.ENTITY_OFFSET_Y,
-                    },
-                    data: {
-                      type: 'entity',
-                      entityType: tc.input.entity_set.replace(/s$/, ''),
-                      entityId: tc.input.entity_id,
-                      status: '',
-                      label: `${tc.input.action ?? ''}`,
-                    },
-                    parentId: projectId,
-                    extent: 'parent' as const,
-                    style: `width: ${LAYOUT.ENTITY_WIDTH}px; height: ${LAYOUT.ENTITY_HEIGHT}px;`,
-                  });
-
-                  // Edge: session → entity
-                  edges.push({
-                    id: `edge-${sessionNodeId}-${entityNodeId}`,
-                    source: sessionNodeId,
-                    target: entityNodeId,
-                    type: 'smoothstep',
-                    style: 'stroke: var(--text-3, #666); stroke-width: 1; opacity: 0.3; stroke-dasharray: 2 2;',
-                  });
-                }
-              }
-            }
-          } catch { /* skip malformed */ }
-        }
-      }
+      cardY += LAYOUT.ACTIVITY_HEIGHT + LAYOUT.ACTIVITY_GAP;
     });
+
+    // ── Idle group (compressed) ──
+    if (idleAgents.length > 0) {
+      const idleId = `idle-${team.Id}`;
+      nodes.push({
+        id: idleId,
+        type: 'idleGroup',
+        position: { x: LAYOUT.ACTIVITY_START_X, y: cardY },
+        data: {
+          type: 'idleGroup',
+          agents: idleAgents,
+        },
+        parentId: projectId,
+        extent: 'parent' as const,
+        style: `width: ${LAYOUT.ACTIVITY_WIDTH}px; height: ${LAYOUT.IDLE_HEIGHT}px;`,
+      });
+    }
 
     projectY += frameHeight + LAYOUT.PROJECT_GAP;
   }
 
-  // ── Orphan sessions (no agent, e.g. probes) ──
+  // ── Orphan sessions (no agent, no team) ──
   const orphanSessions = data.sessions.filter(s =>
     !s.agent_id && !TERMINAL_STATUSES.includes(s.Status)
   );
 
-  if (orphanSessions.length > 0) {
-    orphanSessions.forEach((session, i) => {
-      const nodeId = `session-${session.Id}`;
-      nodes.push({
-        id: nodeId,
-        type: 'session',
-        position: {
-          x: LAYOUT.PROJECT_START_X + i * (LAYOUT.SESSION_WIDTH + LAYOUT.SESSION_GAP),
-          y: projectY + 20,
-        },
-        data: {
-          type: 'session',
-          session,
-          agentName: session.soul_id || 'Session',
-        },
-        style: `width: ${LAYOUT.SESSION_WIDTH}px; height: ${LAYOUT.SESSION_HEIGHT}px;`,
-      });
+  orphanSessions.forEach((session, i) => {
+    nodes.push({
+      id: `activity-orphan-${session.Id}`,
+      type: 'activity',
+      position: {
+        x: LAYOUT.PROJECT_START_X,
+        y: projectY + i * (LAYOUT.ACTIVITY_HEIGHT + LAYOUT.ACTIVITY_GAP),
+      },
+      data: {
+        type: 'activity',
+        agent: { Id: session.Id, Status: session.Status, name: session.soul_id || 'Session', role: '', soul_id: session.soul_id } as any,
+        session,
+        soul: data.souls.find(s => s.Name === session.soul_id || s.name === session.soul_id) ?? null,
+        skills: [],
+        tools: [],
+      },
+      style: `width: ${LAYOUT.ACTIVITY_WIDTH}px; height: ${LAYOUT.ACTIVITY_HEIGHT}px;`,
     });
-  }
+  });
 
   canvasNodes.set(nodes);
-  canvasEdges.set(edges);
+  canvasEdges.set(edges); // No edges needed — relationships are shown inline
 }
 
 export function updateAgentSessions(agentId: string, sessions: Session[]): void {
-  // For live updates, rebuild would be needed — simplified for now
   canvasNodes.update(n => n);
 }

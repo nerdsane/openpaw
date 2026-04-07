@@ -1,69 +1,54 @@
 /**
- * Canvas node data types for the Svelte Flow mission control canvas.
+ * Canvas node data types — simplified for vertical flow layout.
+ * Three node types: project frame, activity card, idle group.
  */
 
 import type { Agent, Team, Session, Skill, Soul, Harness, WorkCycle } from './types';
 
 export type CanvasNodeData =
   | ProjectNodeData
-  | AgentNodeData
-  | SessionNodeData
-  | EntityBadgeData;
+  | ActivityCardData
+  | IdleGroupData;
 
 export interface ProjectNodeData {
   type: 'project';
   team: Team;
   harness: Harness | null;
-  agents: Agent[];
+  agentCount: number;
+  activeCount: number;
+  apps: string[]; // installed app names
   workCycles: WorkCycle[];
 }
 
-export interface AgentNodeData {
-  type: 'agent';
+export interface ActivityCardData {
+  type: 'activity';
   agent: Agent;
-  sessionCount: number;
-  activeSessionCount: number;
-  soul: Soul | null;
-  skillCount: number;
-  hasPendingDecision: boolean;
-}
-
-export interface SessionNodeData {
-  type: 'session';
   session: Session;
-  agentName: string;
+  soul: Soul | null;
+  skills: Skill[];
+  tools: string[];
 }
 
-export interface EntityBadgeData {
-  type: 'entity';
-  entityType: string;
-  entityId: string;
-  status: string;
-  label: string;
+export interface IdleGroupData {
+  type: 'idleGroup';
+  agents: Agent[];
 }
 
-/** Layout constants */
+/** Layout constants — vertical flow, fits viewport */
 export const LAYOUT = {
   PROJECT_START_X: 20,
   PROJECT_START_Y: 20,
-  PROJECT_WIDTH: 2400,
-  PROJECT_GAP: 80,
-  // Agent identity cards (small, top row)
-  // Gap between agents must be >= SESSION_WIDTH so sessions don't overlap
-  AGENT_ROW_Y: 60,
-  AGENT_WIDTH: 170,
-  AGENT_HEIGHT: 50,
-  AGENT_COLUMN_WIDTH: 220, // each agent column: enough for session below
-  AGENTS_PER_ROW: 5,
-  AGENT_START_X: 20,
-  // Session terminals (below agents)
-  SESSION_ROW_Y: 140,
-  SESSION_WIDTH: 200,
-  SESSION_HEIGHT: 180,
-  SESSION_GAP: 20,
-  // Entity badges (small, near sessions)
-  ENTITY_WIDTH: 140,
-  ENTITY_HEIGHT: 28,
-  ENTITY_GAP: 8,
-  ENTITY_OFFSET_Y: 20, // below session
+  PROJECT_GAP: 40,
+  PROJECT_WIDTH: 640,
+  PROJECT_HEADER_HEIGHT: 64,
+  PROJECT_FOOTER_HEIGHT: 48,
+  // Activity cards (agent + session combined, full width)
+  ACTIVITY_WIDTH: 600,
+  ACTIVITY_HEIGHT: 180,
+  ACTIVITY_GAP: 12,
+  ACTIVITY_START_X: 20,
+  ACTIVITY_START_Y: 70,
+  // Idle group (compressed row of names)
+  IDLE_HEIGHT: 32,
+  IDLE_GAP: 8,
 } as const;

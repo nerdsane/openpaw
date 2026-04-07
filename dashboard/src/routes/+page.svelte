@@ -16,15 +16,13 @@
   import StatusBadge from '$lib/components/StatusBadge.svelte';
 
   import ProjectFrame from '$lib/components/canvas/ProjectFrame.svelte';
-  import AgentNode from '$lib/components/canvas/AgentNode.svelte';
-  import SessionNode from '$lib/components/canvas/SessionNode.svelte';
-  import EntityBadge from '$lib/components/canvas/EntityBadge.svelte';
+  import ActivityCard from '$lib/components/canvas/ActivityCard.svelte';
+  import IdleGroup from '$lib/components/canvas/IdleGroup.svelte';
 
   const nodeTypes: NodeTypes = {
     project: ProjectFrame as any,
-    agent: AgentNode as any,
-    session: SessionNode as any,
-    entity: EntityBadge as any,
+    activity: ActivityCard as any,
+    idleGroup: IdleGroup as any,
   };
 
   let loaded = $state(false);
@@ -45,23 +43,13 @@
   // Derive detail panel content from selected node
   let panelType = $derived(selectedNode?.data?.type ?? null);
 
-  let panelAgent = $derived.by(() => {
-    if (panelType !== 'agent') return null;
-    return selectedNode!.data as any;
-  });
-
-  let panelSession = $derived.by(() => {
-    if (panelType !== 'session') return null;
-    return selectedNode!.data as any;
-  });
-
-  let panelEntity = $derived.by(() => {
-    if (panelType !== 'entity') return null;
+  let panelActivity = $derived.by(() => {
+    if (panelType !== 'activity') return null;
     return selectedNode!.data as any;
   });
 
   let panelToolCalls = $derived.by(() => {
-    const session = panelSession?.session;
+    const session = panelActivity?.session;
     if (!session) return [];
     const events = (session as any)._events ?? [];
     const calls: Array<{ name: string; args: string }> = [];
@@ -195,75 +183,74 @@
       </SvelteFlow>
 
       <!-- Detail panel -->
-      {#if selectedNode && panelType}
+      {#if selectedNode && panelType === 'activity' && panelActivity}
         <div class="detail-panel">
           <button class="panel-close" onclick={() => selectedNode = null}>&times;</button>
 
-          {#if panelType === 'agent' && panelAgent}
-            <div class="panel-header">
-              <span class="panel-name">{panelAgent.agent?.name}</span>
-              <span class="panel-role">{panelAgent.agent?.role}</span>
-              <StatusBadge status={panelAgent.agent?.Status ?? 'Idle'} />
-            </div>
-            {#if panelAgent.agent?.model}
-              <div class="panel-meta">{panelAgent.agent.provider}/{panelAgent.agent.model}</div>
+          <div class="panel-header">
+            <span class="panel-name">{panelActivity.agent?.name}</span>
+            {#if panelActivity.agent?.role}
+              <span class="panel-role">{panelActivity.agent.role}</span>
             {/if}
-            {#if panelAgent.soul}
-              <div class="panel-section">
-                <span class="panel-label">Soul</span>
-                <span class="panel-value">{panelAgent.soul.Name ?? panelAgent.soul.name}</span>
-              </div>
-            {/if}
-            <div class="panel-section">
-              <span class="panel-label">Sessions</span>
-              <span class="panel-value">{panelAgent.activeSessionCount} active / {panelAgent.sessionCount} total</span>
-            </div>
-            <div class="panel-section">
-              <span class="panel-label">Skills</span>
-              <span class="panel-value">{panelAgent.skillCount}</span>
-            </div>
-            {#if panelAgent.hasPendingDecision}
-              <div class="panel-warning">Pending approval required</div>
-            {/if}
+            <StatusBadge status={panelActivity.session.Status} />
+          </div>
 
-          {:else if panelType === 'session' && panelSession}
-            <div class="panel-header">
-              <span class="panel-name">{panelSession.agentName}</span>
-              <StatusBadge status={panelSession.session.Status} />
-            </div>
-            <div class="panel-meta">{panelSession.session.Id}</div>
-            {#if panelSession.session.user_message ?? (panelSession.session as any).fields?.user_message}
-              <div class="panel-section">
-                <span class="panel-label">Task</span>
-                <div class="panel-task">{(panelSession.session as any).user_message ?? (panelSession.session as any).fields?.user_message}</div>
-              </div>
-            {/if}
-            {#if panelToolCalls.length > 0}
-              <div class="panel-section">
-                <span class="panel-label">Activity ({panelToolCalls.length} tool calls)</span>
-                <div class="panel-terminal">
-                  {#each panelToolCalls as tc}
-                    <div class="panel-line">
-                      <span class="panel-prompt">&gt;</span>
-                      <span class="panel-cmd">{tc.name}</span>
-                      <span class="panel-args">{tc.args}</span>
-                    </div>
-                  {/each}
-                </div>
-              </div>
-            {/if}
+          <div class="panel-meta">{panelActivity.agent?.provider}/{panelActivity.agent?.model}</div>
 
-          {:else if panelType === 'entity' && panelEntity}
-            <div class="panel-header">
-              <span class="panel-name">{panelEntity.entityType}</span>
+          <!-- Task -->
+          {#if panelActivity.session.user_message ?? (panelActivity.session as any).fields?.user_message}
+            <div class="panel-section">
+              <span class="panel-label">Task</span>
+              <div class="panel-task">{(panelActivity.session as any).user_message ?? (panelActivity.session as any).fields?.user_message}</div>
             </div>
-            <div class="panel-meta">{panelEntity.entityId}</div>
-            {#if panelEntity.label}
-              <div class="panel-section">
-                <span class="panel-label">Action</span>
-                <span class="panel-value">{panelEntity.label}</span>
+          {/if}
+
+          <!-- Tools -->
+          {#if panelActivity.tools?.length > 0}
+            <div class="panel-section">
+              <span class="panel-label">Tools</span>
+              <div class="panel-pills">
+                {#each panelActivity.tools as tool}
+                  <span class="panel-pill">{tool}</span>
+                {/each}
               </div>
-            {/if}
+            </div>
+          {/if}
+
+          <!-- Skills -->
+          {#if panelActivity.skills?.length > 0}
+            <div class="panel-section">
+              <span class="panel-label">Skills ({panelActivity.skills.length})</span>
+              <div class="panel-pills">
+                {#each panelActivity.skills as skill}
+                  <span class="panel-pill">{skill.name || skill.Name}</span>
+                {/each}
+              </div>
+            </div>
+          {/if}
+
+          <!-- Soul -->
+          {#if panelActivity.soul}
+            <div class="panel-section">
+              <span class="panel-label">Soul</span>
+              <span class="panel-value">{panelActivity.soul.Name ?? panelActivity.soul.name}</span>
+            </div>
+          {/if}
+
+          <!-- Activity -->
+          {#if panelToolCalls.length > 0}
+            <div class="panel-section">
+              <span class="panel-label">Activity ({panelToolCalls.length} tool calls)</span>
+              <div class="panel-terminal">
+                {#each panelToolCalls as tc}
+                  <div class="panel-line">
+                    <span class="panel-prompt">&gt;</span>
+                    <span class="panel-cmd">{tc.name}</span>
+                    <span class="panel-args">{tc.args}</span>
+                  </div>
+                {/each}
+              </div>
+            </div>
           {/if}
         </div>
       {/if}
@@ -474,6 +461,15 @@
   .panel-prompt { color: var(--accent, #34d399); flex-shrink: 0; user-select: none; }
   .panel-cmd { color: var(--text-1, #fafafa); font-weight: 500; flex-shrink: 0; }
   .panel-args { color: var(--text-3, #71717a); overflow: hidden; text-overflow: ellipsis; }
+
+  .panel-pills { display: flex; flex-wrap: wrap; gap: 4px; }
+  .panel-pill {
+    font-family: var(--font-mono, monospace);
+    font-size: 10px; color: var(--text-2, #a1a1aa);
+    background: var(--surface, #18181b);
+    border: 1px solid var(--border, rgba(255,255,255,0.07));
+    padding: 1px 6px; border-radius: 3px;
+  }
 
   /* Tags */
   .panel-tags {
