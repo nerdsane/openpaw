@@ -26,7 +26,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             .unwrap_or(0) as usize;
         let max_steps = fields
             .get("max_steps")
-            .and_then(|v| v.as_u64())
+            .and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
             .unwrap_or(5) as usize;
         let product_model_id = fields
             .get("product_model_id")
