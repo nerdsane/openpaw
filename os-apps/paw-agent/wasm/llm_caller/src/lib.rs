@@ -1116,9 +1116,10 @@ fn call_openai(
     });
     if !codex_tools.is_empty() {
         body["tools"] = json!(codex_tools);
-        // Force tool use — without this, GPT-5 writes text analysis
-        // instead of calling the execute tool
-        body["tool_choice"] = json!("required");
+        // "auto" lets the model choose text or tool calls. "required" forces
+        // a tool call every turn, which creates an infinite loop when the model
+        // wants to respond with text (e.g., "hello").
+        body["tool_choice"] = json!("auto");
     }
 
     let body_str = serde_json::to_string(&body)
