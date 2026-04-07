@@ -474,6 +474,7 @@ kind = "input"
 from = ["Thinking", "Executing", "Steering", "Compacting", "WaitingForApproval"]
 params = ["last_heartbeat_at"]
 hint = "Record session liveness. Called by WASM modules during long operations. Self-loop."
+effect = [{ type = "trigger", name = "heartbeat_typing" }]
 
 [[action]]
 name = "TimeoutFail"
@@ -643,6 +644,15 @@ name = "notify_approval_needed"
 trigger = "notify_approval_needed"
 type = "wasm"
 module = "request_approval"
+
+[integration.config]
+temper_api_url = "{secret:temper_api_url}"
+
+[[integration]]
+name = "heartbeat_typing"
+trigger = "heartbeat_typing"
+type = "wasm"
+module = "heartbeat_typing"
 
 [integration.config]
 temper_api_url = "{secret:temper_api_url}"
