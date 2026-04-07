@@ -36,6 +36,11 @@ type = "string"
 initial = ""
 
 [[state]]
+name = "result_file_id"
+type = "string"
+initial = ""
+
+[[state]]
 name = "error"
 type = "string"
 initial = ""
@@ -65,7 +70,7 @@ name = "RecordResults"
 kind = "input"
 from = ["Executing"]
 to = "Complete"
-params = ["results"]
+params = ["results", "result_file_id"]
 hint = "WASM module completed successfully; store results."
 
 [[action]]
@@ -106,3 +111,6 @@ trigger = "execute_fetch"
 type = "wasm"
 module = "web_fetch"
 on_failure = "RecordError"
+
+[integration.config]
+temper_api_url = "{secret:temper_api_url}"

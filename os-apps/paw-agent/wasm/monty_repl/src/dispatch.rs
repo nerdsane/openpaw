@@ -620,6 +620,36 @@ fn web_query_dispatch(
         return Err(format!("web_{query_type}: {error}"));
     }
 
+    // If result_file_id is set, the full content is in TemperFS (large results).
+    // Read the file content directly instead of using the inline results field.
+    let result_file_id = result_fields
+        .get("result_file_id")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty());
+
+    if let Some(file_id) = result_file_id {
+        let file_url = format!("/tdata/Files('{file_id}')/$value");
+        let file_headers = vec![
+            ("X-Tenant-Id".to_string(), tenant.to_string()),
+            ("x-temper-principal-kind".to_string(), "agent".to_string()),
+            ("x-temper-agent-type".to_string(), "system".to_string()),
+            ("Accept".to_string(), "text/plain".to_string()),
+        ];
+        let url = format!("{api_url}{file_url}");
+        match ctx.http_call("GET", &url, &file_headers, "") {
+            Ok(resp) if resp.status >= 200 && resp.status < 300 => {
+                return Ok(json!(resp.body));
+            }
+            Ok(resp) => {
+                ctx.log("warn", &format!("web_query: failed to read result file {file_id} (HTTP {})", resp.status));
+            }
+            Err(e) => {
+                ctx.log("warn", &format!("web_query: failed to read result file {file_id}: {e}"));
+            }
+        }
+        // Fall through to inline results if file read fails
+    }
+
     let results_raw = result_fields
         .get("results")
         .and_then(|v| v.as_str())
@@ -1070,6 +1100,9 @@ fn runtime_headers(tenant: &str) -> Vec<(String, String)> {
     vec![
         ("Content-Type".to_string(), "application/json".to_string()),
         ("X-Tenant-Id".to_string(), tenant.to_string()),
+        ("x-temper-principal-kind".to_string(), "agent".to_string()),
+        ("x-temper-principal-id".to_string(), "system".to_string()),
+        ("x-temper-agent-type".to_string(), "system".to_string()),
     ]
 }
 
