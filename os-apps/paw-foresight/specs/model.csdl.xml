@@ -69,6 +69,8 @@
         <Property Name="BranchName" Type="Edm.String"/>
         <Property Name="PrUrl" Type="Edm.String"/>
         <Property Name="ArtifactFileId" Type="Edm.String"/>
+        <Property Name="ParentDirectionId" Type="Edm.String"/>
+        <Property Name="StepAt" Type="Edm.String"/>
         <Property Name="ArchiveReason" Type="Edm.String"/>
         <Property Name="ErrorMessage" Type="Edm.String"/>
       </EntityType>

@@ -68,14 +68,20 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         // 2b. Read ProductModel entity for summary context
         let pm_url = format!("{temper_api_url}/tdata/ProductModels('{product_model_id}')");
         let pm_resp = ctx.http_call("GET", &pm_url, &headers, "")?;
-        let pm_name = if pm_resp.status >= 200 && pm_resp.status < 300 {
+        let (pm_name, repo_url) = if pm_resp.status >= 200 && pm_resp.status < 300 {
             let pm: Value = serde_json::from_str(&pm_resp.body).unwrap_or(json!({}));
-            pm.get("fields")
+            let name = pm.get("fields")
                 .and_then(|f| f.get("name"))
                 .and_then(|v| v.as_str())
                 .or_else(|| pm.get("name").and_then(|v| v.as_str()))
                 .unwrap_or("unknown")
-                .to_string()
+                .to_string();
+            let url = pm.get("fields")
+                .and_then(|f| f.get("repo_url").or(f.get("RepoUrl")))
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            (name, url)
         } else {
             ctx.log(
                 "warn",
@@ -84,7 +90,17 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                     pm_resp.status
                 ),
             );
-            "unknown".to_string()
+            ("unknown".to_string(), String::new())
+        };
+
+        // Derive raw GitHub base URL for web_fetch code reading
+        let raw_github_base = if !repo_url.is_empty() {
+            // Convert "https://github.com/owner/repo.git" to "https://raw.githubusercontent.com/owner/repo/main"
+            repo_url
+                .replace("https://github.com/", "https://raw.githubusercontent.com/")
+                .replace(".git", "/main")
+        } else {
+            String::new()
         };
 
         // 2c. Read the knowledge graph file content so we can include it in the prompt
@@ -209,6 +225,17 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 knowledge_graph.clone()
             };
 
+            let raw_github_hint = if !raw_github_base.is_empty() {
+                format!(
+                    "\n\nSOURCE CODE ACCESS:\n\
+                     You can read actual source files to understand the architecture:\n\
+                     content = temper.web_fetch(\"{raw_github_base}/<path>\")\n\
+                     Read entry points, schemas, configs — follow signals, don't read randomly.\n"
+                )
+            } else {
+                String::new()
+            };
+
             let user_message = format!(
                 "IMPORTANT: You MUST use the execute tool for ALL actions. Do NOT write analysis as text. \
                  ALL observations and directions must be created via temper.create() calls inside execute.\n\n\
@@ -219,21 +246,17 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                  Your Agent ID: {agent_id}\n\
                  Step: 0 (initial)\n\n\
                  Here is the ProductModel knowledge graph:\n\n\
-                 {kg_for_prompt}\n\n\
+                 {kg_for_prompt}\n\
+                 {raw_github_hint}\n\
                  YOUR TASK:\n\
-                 1. Understand what this product IS — its architecture, capabilities, user needs\n\
-                 2. Project forward: where COULD this product evolve? Think about:\n\
-                    - New capabilities the architecture could support\n\
-                    - User experience improvements\n\
-                    - Integrations or expansions\n\
-                    - Simplifications or architectural shifts\n\
+                 1. Read the knowledge graph. If source code access is available, read key files \
+                    (entry points, schemas, configs) to understand the architecture deeply.\n\
+                 2. Project forward: where COULD this product evolve?\n\
                  3. Create Observations about the product's TRAJECTORY (not just bugs)\n\
                  4. Propose exactly ONE Direction — your single strongest thesis for where this \
-                    product should go. Commit to it. You will be respawned for future steps \
-                    with memory of what you found and can revise or double down.\n\n\
-                 DO NOT just report operational issues. A PM needs to see where the product COULD GO.\n\
+                    product should go. Include step_at field.\n\n\
                  Work INDEPENDENTLY. Do NOT read other Probes' Observations.\n\n\
-                 CRITICAL: Use EXACTLY these field names (API silently drops unknown fields):\n\n\
+                 CRITICAL FIELD NAMES (API silently drops unknown fields):\n\n\
                  temper.create(\"Observations\", {{\n\
                    \"content\": \"What you see in the trajectory\",\n\
                    \"importance\": \"high\",\n\
@@ -250,9 +273,9 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                    \"observation_ids\": '[\"obs_id\"]',\n\
                    \"counterfactual_summary\": \"What if this direction is NOT taken\",\n\
                    \"proposer_agent_id\": \"{agent_id}\",\n\
-                   \"projection_id\": \"{entity_id}\"\n\
+                   \"projection_id\": \"{entity_id}\",\n\
+                   \"step_at\": \"0\"\n\
                  }})\n\n\
-                 DO NOT use 'body', 'description', or 'confidence' as field names.\n\n\
                  When done, FIRST call:\n\
                  temper.action(\"Projections\", \"{entity_id}\", \"ProbeStepDone\",\n\
                    {{\"probe_agent_id\": \"{agent_id}\", \"direction_id\": \"<your_direction_id>\"}})\n\

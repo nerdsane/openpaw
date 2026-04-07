@@ -81,6 +81,16 @@ type = "string"
 initial = ""
 
 [[state]]
+name = "parent_direction_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "step_at"
+type = "string"
+initial = ""
+
+[[state]]
 name = "archive_reason"
 type = "string"
 initial = ""

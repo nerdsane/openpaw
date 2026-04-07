@@ -274,30 +274,30 @@ fn respawn_probe_with_memory(
 
     // Build episodic prompt
     let user_message = format!(
-        "You are a Foresight Probe at step {next_step} of a temporal simulation.\n\n\
+        "IMPORTANT: You MUST use the execute tool for ALL actions. Do NOT write analysis as text.\n\n\
+         You are a Foresight Probe at step {next_step} of a temporal simulation.\n\n\
          Projection ID: {projection_id}\n\
          ProductModel ID: {product_model_id}\n\
          Your Agent ID: {agent_id}\n\
          Simulated day offset: {days_offset} days from start\n\n\
          == PROJECTED STATE OF THE WORLD ==\n\
-         The following is the current state of the simulated world, incorporating\n\
-         convergent projections from all probes across prior steps:\n\n\
          {state_for_prompt}\n\n\
          == YOUR PRIOR OBSERVATIONS ==\n\
-         These are the observations YOU made in prior steps:\n\n\
          {obs_for_prompt}\n\n\
          == YOUR PRIOR DIRECTION ==\n\
-         This is the direction YOU proposed previously:\n\n\
          {own_direction}\n\n\
          == YOUR TASK ==\n\
-         The simulated world has evolved since your last step. The projected state\n\
-         above reflects convergent projections from all probes.\n\n\
+         The simulated world has evolved. The projected state reflects convergent\n\
+         projections from all probes.\n\n\
          1. Review the updated projected state — what has changed?\n\
          2. Review your prior observations and direction\n\
-         3. Does your direction still hold? Revise it or double down with updated reasoning\n\
-         4. Create new Observations for step {next_step} (day offset {days_offset})\n\
-         5. Propose exactly ONE Direction — your single strongest thesis\n\n\
-         CRITICAL FIELD NAMES (API silently drops unknown fields):\n\n\
+         3. DIRECTION VERSIONING: Archive your old Direction, then create a revised one:\n\
+            temper.action(\"Directions\", \"<old_direction_id>\", \"Archive\", \
+              {{\"archive_reason\": \"Revised in step {next_step}\"}})\n\
+            Then create new Direction with parent_direction_id pointing to old one.\n\
+         4. Create new Observations for step {next_step}\n\
+         5. Propose exactly ONE Direction — revise or double down\n\n\
+         CRITICAL FIELD NAMES:\n\n\
          temper.create(\"Observations\", {{\n\
            \"content\": \"What you observe in the projected trajectory\",\n\
            \"importance\": \"high\",\n\
@@ -314,7 +314,9 @@ fn respawn_probe_with_memory(
            \"observation_ids\": '[\"obs_id\"]',\n\
            \"counterfactual_summary\": \"What if not taken\",\n\
            \"proposer_agent_id\": \"{agent_id}\",\n\
-           \"projection_id\": \"{projection_id}\"\n\
+           \"projection_id\": \"{projection_id}\",\n\
+           \"parent_direction_id\": \"<old_direction_id>\",\n\
+           \"step_at\": \"{next_step}\"\n\
          }})\n\n\
          When done, call:\n\
          temper.action(\"Projections\", \"{projection_id}\", \"ProbeStepDone\",\n\
