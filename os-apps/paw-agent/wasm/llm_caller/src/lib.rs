@@ -1001,13 +1001,40 @@ fn call_openai(
                 if let Some(content) = msg.get("content").and_then(Value::as_str) {
                     input.push(json!({"role": "user", "content": content}));
                 } else if let Some(blocks) = msg.get("content").and_then(Value::as_array) {
-                    // Handle array content blocks
-                    let text: String = blocks.iter()
-                        .filter_map(|b| b.get("text").and_then(Value::as_str))
-                        .collect::<Vec<_>>()
-                        .join("\n");
-                    if !text.is_empty() {
-                        input.push(json!({"role": "user", "content": text}));
+                    // Handle array content blocks — may contain text AND tool_result blocks
+                    let mut has_tool_results = false;
+                    for block in blocks {
+                        let block_type = block.get("type").and_then(Value::as_str).unwrap_or("");
+                        if block_type == "tool_result" {
+                            // Anthropic tool_result → Responses API function_call_output
+                            let call_id = block.get("tool_use_id").and_then(Value::as_str).unwrap_or("");
+                            let output = if let Some(inner) = block.get("content").and_then(Value::as_array) {
+                                inner.iter()
+                                    .filter_map(|b| b.get("text").and_then(Value::as_str))
+                                    .collect::<Vec<_>>()
+                                    .join("\n")
+                            } else if let Some(text) = block.get("content").and_then(Value::as_str) {
+                                text.to_string()
+                            } else {
+                                String::new()
+                            };
+                            input.push(json!({
+                                "type": "function_call_output",
+                                "call_id": call_id,
+                                "output": output
+                            }));
+                            has_tool_results = true;
+                        }
+                    }
+                    // Also extract any text blocks (non-tool-result content)
+                    if !has_tool_results {
+                        let text: String = blocks.iter()
+                            .filter_map(|b| b.get("text").and_then(Value::as_str))
+                            .collect::<Vec<_>>()
+                            .join("\n");
+                        if !text.is_empty() {
+                            input.push(json!({"role": "user", "content": text}));
+                        }
                     }
                 }
             }
@@ -1102,11 +1129,18 @@ fn call_openai(
         ("content-type".to_string(), "application/json".to_string()),
     ];
 
+    // Log input types for debugging conversation format issues
+    let input_types: Vec<String> = input.iter().map(|i| {
+        let t = i.get("type").and_then(Value::as_str)
+            .or_else(|| i.get("role").and_then(Value::as_str))
+            .unwrap_or("?");
+        t.to_string()
+    }).collect();
     ctx.log(
         "info",
         &format!(
-            "llm_caller: calling OpenAI Codex API, model={model}, input={}, url={api_url}",
-            input.len(),
+            "llm_caller: calling OpenAI API, model={model}, input={}, types={:?}, url={api_url}",
+            input.len(), input_types,
         ),
     );
 
