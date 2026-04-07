@@ -165,9 +165,10 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             let cleaned = encoded.replace('\n', "");
             // Decode base64
             let decoded = base64_decode(&cleaned);
-            // Truncate to first 2000 chars to keep the knowledge graph reasonable
-            if decoded.len() > 2000 {
-                format!("{}... (truncated)", &decoded[..2000])
+            // Keep full README — probes need the complete product description
+            // to understand what the product IS, not just what's in commit messages
+            if decoded.len() > 10000 {
+                format!("{}... (truncated at 10KB)", &decoded[..10000])
             } else {
                 decoded
             }
@@ -175,6 +176,46 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             ctx.log("warn", "seed_model: could not fetch README");
             String::new()
         };
+
+        // Fetch deployed website content if homepage is known
+        let homepage = repo_meta
+            .get("homepage")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .unwrap_or("");
+        let website_content = if !homepage.is_empty() {
+            ctx.log("info", &format!("seed_model: fetching deployed website: {homepage}"));
+            match ctx.http_call("GET", homepage, &[], "") {
+                Ok(resp) if resp.status >= 200 && resp.status < 300 => {
+                    // Strip HTML tags for a rough text extraction
+                    let text = strip_html_tags(&resp.body);
+                    let trimmed = if text.len() > 5000 {
+                        format!("{}... (trimmed)", &text[..5000])
+                    } else {
+                        text
+                    };
+                    ctx.log("info", &format!("seed_model: fetched website ({} chars)", trimmed.len()));
+                    trimmed
+                }
+                _ => {
+                    ctx.log("warn", &format!("seed_model: could not fetch website {homepage}"));
+                    String::new()
+                }
+            }
+        } else {
+            String::new()
+        };
+
+        let repo_description = repo_meta
+            .get("description")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let repo_topics: Vec<String> = repo_meta
+            .get("topics")
+            .and_then(|v| v.as_array())
+            .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
+            .unwrap_or_default();
 
         // Query codebase structure: top-level directory, key subdirs, languages
         let root_contents_url = format!(
@@ -310,7 +351,15 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 "url": repo_url,
                 "tech_stack": tech_stack,
                 "default_branch": default_branch,
-                "description": readme_content
+                "description": repo_description,
+                "topics": repo_topics,
+                "homepage": homepage,
+                "readme": readme_content
+            },
+            "product": {
+                "website_url": homepage,
+                "website_content": website_content,
+                "description": if !repo_description.is_empty() { &repo_description } else { "See README" }
             },
             "codebase": {
                 "directories": root_contents,
@@ -731,6 +780,45 @@ fn base64_decode(input: &str) -> String {
         }
     }
     String::from_utf8_lossy(&output).to_string()
+}
+
+/// Rough HTML tag stripper for extracting text from web pages.
+fn strip_html_tags(html: &str) -> String {
+    let mut result = String::with_capacity(html.len());
+    let mut in_tag = false;
+    let mut in_script = false;
+    let mut last_was_space = false;
+    for ch in html.chars() {
+        if ch == '<' {
+            in_tag = true;
+            // Check for script/style tags
+            let remaining = &html[html.len().min(result.len())..];
+            if remaining.starts_with("<script") || remaining.starts_with("<style") {
+                in_script = true;
+            }
+            continue;
+        }
+        if ch == '>' {
+            in_tag = false;
+            if in_script {
+                in_script = false;
+            }
+            continue;
+        }
+        if in_tag || in_script {
+            continue;
+        }
+        if ch.is_whitespace() {
+            if !last_was_space {
+                result.push(' ');
+                last_was_space = true;
+            }
+        } else {
+            result.push(ch);
+            last_was_space = false;
+        }
+    }
+    result.trim().to_string()
 }
 
 fn get_timestamp(ctx: &Context) -> String {

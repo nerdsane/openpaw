@@ -253,12 +253,17 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                  {kg_for_prompt}\n\
                  {raw_github_hint}\n\
                  YOUR TASK:\n\
-                 1. Read the knowledge graph. If source code access is available, read key files \
-                    (entry points, schemas, configs) to understand the architecture deeply.\n\
-                 2. Project forward: where COULD this product evolve?\n\
-                 3. Create Observations about the product's TRAJECTORY (not just bugs)\n\
-                 4. Propose exactly ONE Direction — your single strongest thesis for where this \
+                 1. UNDERSTAND THE PRODUCT FIRST. Read the knowledge graph's 'product' and 'repo.readme' \
+                    sections. If there's a website_url, fetch it with temper.web_fetch() to see what users see. \
+                    Read actual source code files to understand the architecture.\n\
+                 2. Think about what this product IS for its users — not just its infrastructure. \
+                    What experience does it provide? What makes it unique?\n\
+                 3. Project forward: where COULD this product evolve as a product?\n\
+                 4. Create Observations about the product's TRAJECTORY — focus on product direction, \
+                    user experience, market position, not just operational concerns.\n\
+                 5. Propose exactly ONE Direction — your single strongest thesis for where this \
                     product should go. Include step_at field.\n\n\
+                 DO NOT just analyze telemetry/monitoring setup. That's infrastructure, not product direction.\n\
                  Work INDEPENDENTLY. Do NOT read other Probes' Observations.\n\n\
                  CRITICAL FIELD NAMES (API silently drops unknown fields):\n\n\
                  temper.create(\"Observations\", {{\n\

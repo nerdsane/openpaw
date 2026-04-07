@@ -299,7 +299,12 @@ fn spawn_convergence_analyst(
     };
 
     let user_message = format!(
-        "You are a Convergence Analyst for Projection {projection_id}, step {current_step}.\n\
+        "CRITICAL: When you finish ALL your work, you MUST call BOTH of these in order:\n\
+         1. temper.action(\"Projections\", \"{projection_id}\", \"ConvergenceComplete\", \
+            {{\"projected_state_file_id\": \"\"}})\n\
+         2. temper.done(\"complete\")\n\
+         If you do NOT call ConvergenceComplete, the projection will stall forever.\n\n\
+         You are a Convergence Analyst for Projection {projection_id}, step {current_step}.\n\
          Your Agent ID: {agent_id}\n\
          Simulated day offset: {days_offset} days\n\n\
          == CURRENT PROJECTED STATE ==\n\
@@ -307,7 +312,6 @@ fn spawn_convergence_analyst(
          == ALL OBSERVATIONS FROM STEP {current_step} ==\n\
          {obs_for_prompt}\n\n\
          == YOUR TASKS ==\n\n\
-         PHASE 1: Convergence Analysis\n\
          For each pair of Observations from DIFFERENT Probes:\n\
          - If they independently say the same thing → temper.action(\"Observations\", \"<id>\", \"Confirm\", \
            {{\"confirmer_agent_id\": \"{agent_id}\", \"confirmation_note\": \"Converges with <other_id>: <reason>\"}})\n\
@@ -315,36 +319,7 @@ fn spawn_convergence_analyst(
            \"importance\": \"high\", \"probe_agent_id\": \"{agent_id}\", \
            \"projection_id\": \"{projection_id}\", \"step_at\": \"{current_step}\"}})\n\n\
          Be conservative: only Confirm when genuinely saying the same thing.\n\n\
-         PHASE 2: Projected State Update\n\
-         Based on your convergence analysis, produce an UPDATED projected state.\n\
-         The projected state represents how the simulated world has evolved.\n\n\
-         Structure your output as JSON:\n\
-         {{\n\
-           \"base_model\": <copy the base_model from current state, or the entire current state if step 0>,\n\
-           \"step_history\": [\n\
-             <keep existing step_history entries>,\n\
-             {{\n\
-               \"step\": {current_step},\n\
-               \"day_offset\": {days_offset},\n\
-               \"convergent_observations\": [\"<confirmed obs IDs>\"],\n\
-               \"contradictions\": [\"<contradiction obs IDs>\"],\n\
-               \"directions\": [\"<direction IDs from this step>\"],\n\
-               \"projected_changes\": {{\n\
-                 \"description\": \"<what changed in the simulated world>\",\n\
-                 \"new_signals\": [<projected signals that emerged>],\n\
-                 \"architecture_shifts\": [<structural changes>]\n\
-               }}\n\
-             }}\n\
-           ],\n\
-           \"current_projected_state\": <merged base + all projected changes — this is what probes will see next step>\n\
-         }}\n\n\
-         Upload this JSON:\n\
-         1. temper.create(\"Files\", {{\"Name\": \"projected_state_step_{current_step}.json\", \"MimeType\": \"application/json\"}})\n\
-         2. Use temper.write(path, content) to write the JSON content\n\n\
-         PHASE 3: Report Completion\n\
-         Call temper.action(\"Projections\", \"{projection_id}\", \"ConvergenceComplete\", \
-           {{\"projected_state_file_id\": \"<file_id>\"}})\n\
-         Then call temper.done(\"complete\") with a summary."
+         When done analyzing, call ConvergenceComplete as instructed above, then temper.done(\"complete\")."
     );
 
     // Configure Session
