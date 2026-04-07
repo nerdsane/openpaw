@@ -109,14 +109,12 @@ impl DiscordTransport {
 
     /// Bootstrap the Channel entity used by the Discord transport.
     ///
-    /// Startup seeds the default fallback AgentRoute ahead of time, so the
-    /// transport only needs to rotate the Channel entity and keep its
-    /// webhook_url in sync with the current listener port.
+    /// Reuses an existing Connected/Disconnected Channel entity if one exists
+    /// (preserving ChannelSessions and conversation state across restarts).
+    /// Only creates a new Channel if none exists.
     async fn bootstrap_channel(&self, webhook_url: &str) -> Result<(), String> {
-        // Archive any stale Channel entities from previous runs.
-        // Before archiving, read the last_discord_message_id cursor
-        // so we can catch up on missed messages after reconnecting.
-        let stale = self
+        // Look for an existing discord Channel entity we can reuse.
+        let existing = self
             .api
             .query_entities(
                 "Channels",
@@ -125,53 +123,72 @@ impl DiscordTransport {
             .await
             .unwrap_or_default();
 
-        let mut inherited_cursor = String::new();
-        for old in &stale {
-            // Read cursor from the most recent stale channel
-            if let Some(cursor) = old
-                .get("fields")
-                .and_then(|f| f.get("last_discord_message_id"))
+        // Pick the most recent Connected or Disconnected channel to reuse.
+        let mut reuse_id = String::new();
+        for ch in &existing {
+            let status = ch
+                .get("status")
+                .or_else(|| ch.get("fields").and_then(|f| f.get("Status")))
                 .and_then(|v| v.as_str())
-                .filter(|s| !s.is_empty())
-            {
-                if cursor > inherited_cursor.as_str() {
-                    inherited_cursor = cursor.to_string();
-                }
-            }
-            // Also try top-level field
-            if let Some(cursor) = old
-                .get("last_discord_message_id")
+                .unwrap_or("");
+            let id = ch
+                .get("entity_id")
+                .or_else(|| ch.get("Id"))
                 .and_then(|v| v.as_str())
-                .filter(|s| !s.is_empty())
-            {
-                if cursor > inherited_cursor.as_str() {
-                    inherited_cursor = cursor.to_string();
-                }
-            }
+                .unwrap_or("");
 
-            if let Some(old_id) = old
-                .get("Id")
-                .or_else(|| old.get("entity_id"))
-                .and_then(|v| v.as_str())
-            {
-                let _ = self
-                    .api
-                    .dispatch_action(
-                        "Channels",
-                        old_id,
-                        "Paw.Channel.Archive",
-                        serde_json::json!({}),
-                    )
-                    .await;
+            if !id.is_empty() && (status == "Connected" || status == "Disconnected") {
+                reuse_id = id.to_string();
+
+                // Read cursor from the existing channel
+                if let Some(cursor) = ch
+                    .get("fields")
+                    .and_then(|f| f.get("last_discord_message_id"))
+                    .and_then(|v| v.as_str())
+                    .filter(|s| !s.is_empty())
+                {
+                    *self.last_message_cursor.write().await = cursor.to_string();
+                    println!("  [discord] Loaded message cursor: {cursor}");
+                }
+                break;
             }
         }
 
-        if !inherited_cursor.is_empty() {
-            println!("  [discord] Inherited message cursor: {inherited_cursor}");
-            *self.last_message_cursor.write().await = inherited_cursor;
-        }
+        let channel_id = if !reuse_id.is_empty() {
+            // Reuse existing Channel — just update webhook_url.
+            println!("  [discord] Reusing Channel entity: {reuse_id}");
+            let _ = self
+                .api
+                .dispatch_action(
+                    "Channels",
+                    &reuse_id,
+                    "Paw.Channel.UpdateConfig",
+                    serde_json::json!({
+                        "default_agent_config": serde_json::json!({"webhook_url": webhook_url}).to_string(),
+                    }),
+                )
+                .await;
+            reuse_id
+        } else {
+            // Archive any stale channels in non-reusable states (e.g., Created).
+            for old in &existing {
+                if let Some(old_id) = old
+                    .get("Id")
+                    .or_else(|| old.get("entity_id"))
+                    .and_then(|v| v.as_str())
+                {
+                    let _ = self
+                        .api
+                        .dispatch_action(
+                            "Channels",
+                            old_id,
+                            "Paw.Channel.Archive",
+                            serde_json::json!({}),
+                        )
+                        .await;
+                }
+            }
 
-        let channel_id = {
             // Create new Channel entity.
             let resp = self
                 .api
