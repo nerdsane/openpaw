@@ -96,7 +96,7 @@ pub async fn run(mut config: Config) -> Result<()> {
 
     // Phase 4: Assemble PlatformState
     tracing::info!("Phase 4: Assembling platform state...");
-    let mut state = PlatformState::with_registry(registry, config.anthropic_api_key.clone());
+    let mut state = PlatformState::with_registry(registry, config.anthropic_api_token.clone());
     state.api_token = config.temper_api_key.clone();
     state.server.data_dir = data_dir.clone();
     state.server.event_store = Some(Arc::new(ServerEventStore::Turso(turso_store.clone())));
@@ -235,8 +235,8 @@ pub async fn run(mut config: Config) -> Result<()> {
             vault,
             &turso_store,
             &tenant,
-            "anthropic_api_key",
-            config.anthropic_api_key
+            "anthropic_api_token",
+            config.anthropic_api_token
         );
         seed_secret!(
             vault,
@@ -683,7 +683,7 @@ pub async fn run(mut config: Config) -> Result<()> {
     {
         let vault = state.server.secrets_vault.as_ref();
         let has_api_key = vault
-            .and_then(|v| v.get_secret(&tenant, "anthropic_api_key"))
+            .and_then(|v| v.get_secret(&tenant, "anthropic_api_token"))
             .is_some();
         let has_discord = vault
             .and_then(|v| v.get_secret(&tenant, "discord_bot_token"))

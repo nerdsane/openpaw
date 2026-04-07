@@ -33,7 +33,7 @@ pub fn needs_setup(_data_dir: &Path, config: &Config) -> bool {
     if !std::io::stdin().is_terminal() {
         return false;
     }
-    let has_api_key = config.anthropic_api_key.is_some();
+    let has_api_key = config.anthropic_api_token.is_some();
     let has_messaging = config.discord_bot_token.is_some()
         || (config.slack_app_token.is_some() && config.slack_bot_token.is_some());
     !has_api_key || !has_messaging
@@ -41,7 +41,7 @@ pub fn needs_setup(_data_dir: &Path, config: &Config) -> bool {
 
 /// Run the full interactive setup wizard.
 pub async fn run_setup(data_dir: &Path, config: &Config) -> anyhow::Result<SetupResult> {
-    let has_api_key = config.anthropic_api_key.is_some();
+    let has_api_key = config.anthropic_api_token.is_some();
     let has_discord = config.discord_bot_token.is_some();
     let has_slack = config.slack_app_token.is_some() && config.slack_bot_token.is_some();
     let generated_dir = data_dir.join("generated");
@@ -64,7 +64,7 @@ pub async fn run_setup(data_dir: &Path, config: &Config) -> anyhow::Result<Setup
 
     let (api_key, provider_name) = if has_api_key {
         cliclack::log::success("API key configured")?;
-        (config.anthropic_api_key.clone().unwrap_or_default(), "anthropic".to_string())
+        (config.anthropic_api_token.clone().unwrap_or_default(), "anthropic".to_string())
     } else {
         let provider: &str = cliclack::select("Which AI provider do you use?")
             .item("anthropic", "Anthropic (Claude)", "")
@@ -344,13 +344,13 @@ pub async fn run_setup(data_dir: &Path, config: &Config) -> anyhow::Result<Setup
 
 /// Merge setup results into the config.
 pub fn merge_setup_into_config(config: &mut Config, setup: SetupResult) {
-    // Store the API key. For now all providers' keys go to anthropic_api_key
+    // Store the API key. For now all providers' keys go to anthropic_api_token
     // in config (it's used by the vault seeding in startup.rs). The provider
     // name is stored separately so the LLM caller can use the right API.
     //
     if let Some(key) = setup.api_key {
-        if config.anthropic_api_key.is_none() {
-            config.anthropic_api_key = Some(key);
+        if config.anthropic_api_token.is_none() {
+            config.anthropic_api_token = Some(key);
         }
     }
     if let Some(provider) = setup.provider {
@@ -423,7 +423,7 @@ pub fn run_doctor(data_dir: &Path, config: &Config) {
 
     println!();
 
-    if config.anthropic_api_key.is_some() {
+    if config.anthropic_api_token.is_some() {
         println!("  \u{2713} API key");
     } else {
         println!("  \u{2717} API key — run `openpaw setup`");

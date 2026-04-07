@@ -187,7 +187,7 @@ on_failure = "Fail"
 
 [integration.config]
 temper_api_url = "{secret:temper_api_url}"
-anthropic_api_key = "{secret:anthropic_api_key}"
+anthropic_api_token = "{secret:anthropic_api_token}"
 
 [[integration]]
 name = "handle_probe_done"

@@ -115,7 +115,7 @@ set tenant secret and retry"
         if provider != "mock" && api_key.is_empty() {
             return Err(format!(
                 "missing API key for provider={provider}. expected secrets: \
-anthropic_api_key (or api_key) for anthropic, openrouter_api_key (or api_key) for openrouter"
+anthropic_api_token (or api_key) for anthropic, openrouter_api_key (or api_key) for openrouter"
             ));
         }
 
@@ -579,6 +579,7 @@ fn first_non_empty(values: &[Option<String>]) -> String {
 fn resolve_provider_api_key(ctx: &Context, provider: &str) -> Result<String, String> {
     let key = match provider {
         "anthropic" => first_non_empty(&[
+            ctx.config.get("anthropic_api_token").cloned(),
             ctx.config.get("anthropic_api_key").cloned(),
             ctx.config.get("api_key").cloned(),
         ]),
@@ -632,9 +633,11 @@ fn call_mock(
 
 fn detect_anthropic_oauth_mode(api_key: &str, auth_mode: &str) -> bool {
     match auth_mode.trim().to_ascii_lowercase().as_str() {
-        "oauth" => true,
+        "oauth" | "token" | "bearer" => true,
         "api_key" => false,
-        _ => api_key.starts_with("sk-ant-oat"),
+        // Auto-detect: legacy sk-ant-api03- keys use x-api-key header,
+        // everything else (OAuth tokens, new-format tokens) uses Bearer auth.
+        _ => !api_key.starts_with("sk-ant-api03-"),
     }
 }
 

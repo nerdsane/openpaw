@@ -31,7 +31,7 @@ pub struct SetupApiState {
 /// Whitelisted secret key names that can be set via the API.
 fn allowed_secret_keys() -> HashSet<&'static str> {
     [
-        "anthropic_api_key",
+        "anthropic_api_token",
         "discord_bot_token",
         "discord_public_key",
         "discord_guild_id",
@@ -85,7 +85,7 @@ async fn get_setup_status(State(state): State<SetupApiState>) -> Json<SetupStatu
     let vault = state.platform.server.secrets_vault.as_ref();
 
     let has_anthropic_key = vault
-        .and_then(|v| v.get_secret(&state.tenant, "anthropic_api_key"))
+        .and_then(|v| v.get_secret(&state.tenant, "anthropic_api_token"))
         .is_some();
     let has_discord = vault
         .and_then(|v| v.get_secret(&state.tenant, "discord_bot_token"))

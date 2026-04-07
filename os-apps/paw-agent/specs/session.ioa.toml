@@ -554,8 +554,8 @@ module = "llm_caller"
 on_failure = "Fail"
 
 [integration.config]
-api_key = "{secret:anthropic_api_key}"
-anthropic_api_key = "{secret:anthropic_api_key}"
+api_key = "{secret:anthropic_api_token}"
+anthropic_api_token = "{secret:anthropic_api_token}"
 openrouter_api_key = "{secret:openrouter_api_key}"
 anthropic_api_url = "https://api.anthropic.com/v1/messages"
 openrouter_api_url = "https://openrouter.ai/api/v1/chat/completions"
