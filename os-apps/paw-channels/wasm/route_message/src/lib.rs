@@ -570,8 +570,11 @@ fn configure_agent_from_prior(
         "provider": str_field(fields, &["provider", "Provider"]).unwrap_or("anthropic"),
         "tools_enabled": str_field(fields, &["tools_enabled", "ToolsEnabled"]).unwrap_or("read,write,edit,bash"),
         "workdir": str_field(fields, &["workdir", "Workdir"]).unwrap_or("/workspace"),
-        "sandbox_url": str_field(fields, &["sandbox_url", "SandboxUrl"]).unwrap_or(""),
-        "sandbox_id": str_field(fields, &["sandbox_id", "SandboxId"]).unwrap_or(""),
+        // Don't carry forward sandbox_url/sandbox_id from the prior session —
+        // Tensorlake sandboxes expire and stale URLs cause infinite retry loops.
+        // Let provision_sandbox create a fresh sandbox for each continuation.
+        "sandbox_url": "",
+        "sandbox_id": "",
         "temper_api_url": str_field(fields, &["temper_api_url", "TemperApiUrl"]).unwrap_or(""),
         "soul_id": soul_ref,
         "parent_session_id": if prior_agent_id.is_empty() {
