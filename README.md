@@ -4,9 +4,9 @@ Agent platform built on [Temper](https://github.com/nerdsane/temper). Talk to ag
 
 ## Get Started
 
-### Have an agent? Point it here:
+### Have an agent? Give it this:
 
-> Read [INSTRUCTIONS.md](INSTRUCTIONS.md) and follow it.
+> Set up Open Paw for me. Read the instructions at https://raw.githubusercontent.com/nerdsane/openpaw/main/INSTRUCTIONS.md and follow them.
 
 ### Doing it yourself?
 
