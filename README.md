@@ -16,6 +16,16 @@ cd openpaw
 cargo run
 ```
 
+The CLI walks you through everything: API key, Discord/Slack, and personalizing your agent.
+
+### Already set up?
+
+```bash
+openpaw setup    # reconfigure or personalize Paw
+openpaw doctor   # check what's configured
+openpaw          # start the server
+```
+
 ## Architecture
 
 All agent logic is modeled as Temper state machines (IOA specs), WASM integrations, and Cedar authorization policies. The binary embeds the Temper platform engine.
@@ -24,7 +34,7 @@ All agent logic is modeled as Temper state machines (IOA specs), WASM integratio
 
 | App | Purpose |
 |-----|---------|
-| paw-agent | Agent execution — Agent, Soul, Skill, Memory, Session, Team |
+| paw-agent | Agent execution — Agent, Soul, Skill, Memory, Session, Team, Project |
 | paw-channels | Multi-platform messaging — Channel, AgentRoute, ChannelSession |
 | paw-fs | Governed file storage — File, Workspace, Directory |
 | paw-pm | Project management — Issues, Plans |
