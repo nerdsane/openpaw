@@ -198,8 +198,8 @@ on_failure = "Escalate"
 [integration.config]
 temper_api_url = "{secret:temper_api_url}"
 default_agent_model = "claude-sonnet-4-6"
-default_sre_workdir = "/tmp/openpaw-sre-webhook"
-default_developer_workdir = "/tmp/openpaw-self-heal"
+default_sre_workdir = "/workspace/openpaw-sre-webhook"
+default_developer_workdir = "/workspace/openpaw-self-heal"
 
 [[integration]]
 name = "begin_cicd"

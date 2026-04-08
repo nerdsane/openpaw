@@ -2,6 +2,9 @@ use session_tree_lib::SessionTree;
 use temper_wasm_sdk::prelude::*;
 use wasm_helpers::{create_content_file, runtime_headers, runtime_headers_for_workspace};
 
+const DEFAULT_TOOLS_ENABLED: &str = "temper_create,temper_get,temper_list,temper_action,temper_patch,temper_submit_specs,temper_show_spec,temper_specs,temper_upload_wasm,temper_get_trajectories,temper_get_insights,temper_get_decisions,temper_poll_decision,temper_approve_decision,temper_deny_decision,temper_submit_policy,temper_list_policies,temper_get_policy,temper_update_policy,temper_delete_policy,temper_install_app,temper_list_apps,temper_spawn_session,temper_list_sessions,temper_abort_session,temper_steer_session,temper_save_memory,temper_recall_memory,temper_write,temper_read,temper_run_coding_agent,temper_get_secret,temper_datadog_query,temper_railway,temper_vercel,temper_web_search,temper_web_fetch,read,write,edit,bash";
+const DEFAULT_WORKDIR: &str = "/workspace";
+
 #[unsafe(no_mangle)]
 pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
     let result = (|| -> Result<(), String> {
@@ -383,8 +386,8 @@ fn create_agent_from_route(
         "user_message": user_message,
         "model": config.get("model").and_then(Value::as_str).unwrap_or("claude-sonnet-4-6"),
         "provider": config.get("provider").and_then(Value::as_str).unwrap_or("anthropic"),
-        "tools_enabled": config.get("tools_enabled").and_then(Value::as_str).unwrap_or("temper_read"),
-        "workdir": config.get("workdir").and_then(Value::as_str).unwrap_or("/tmp/workspace"),
+        "tools_enabled": config.get("tools_enabled").and_then(Value::as_str).unwrap_or(DEFAULT_TOOLS_ENABLED),
+        "workdir": config.get("workdir").and_then(Value::as_str).unwrap_or(DEFAULT_WORKDIR),
         "sandbox_url": config.get("sandbox_url").and_then(Value::as_str).unwrap_or(""),
         "temper_api_url": config.get("temper_api_url").and_then(Value::as_str).unwrap_or(""),
         "soul_id": normalized_soul_ref,
@@ -396,6 +399,8 @@ fn create_agent_from_route(
         "keep_recent_tokens": config.get("keep_recent_tokens").and_then(Value::as_str).unwrap_or("10000"),
         "compaction_model": config.get("compaction_model").and_then(Value::as_str).unwrap_or(""),
         "heartbeat_timeout_seconds": config.get("heartbeat_timeout_seconds").and_then(Value::as_str).unwrap_or("300"),
+        "project_harness_id": config.get("project_harness_id").and_then(Value::as_str).unwrap_or(""),
+        "project_id": config.get("project_id").and_then(Value::as_str).unwrap_or(""),
     });
     let configure_url = format!("{temper_api_url}/tdata/Sessions('{agent_id}')/OpenPaw.Configure");
     let configure_resp = ctx.http_call(
@@ -568,8 +573,8 @@ fn configure_agent_from_prior(
         "user_message": user_message,
         "model": str_field(fields, &["model", "Model"]).unwrap_or("claude-sonnet-4-6"),
         "provider": str_field(fields, &["provider", "Provider"]).unwrap_or("anthropic"),
-        "tools_enabled": str_field(fields, &["tools_enabled", "ToolsEnabled"]).unwrap_or("read,write,edit,bash"),
-        "workdir": str_field(fields, &["workdir", "Workdir"]).unwrap_or("/workspace"),
+        "tools_enabled": str_field(fields, &["tools_enabled", "ToolsEnabled"]).unwrap_or(DEFAULT_TOOLS_ENABLED),
+        "workdir": str_field(fields, &["workdir", "Workdir"]).unwrap_or(DEFAULT_WORKDIR),
         // Don't carry forward sandbox_url/sandbox_id from the prior session —
         // Tensorlake sandboxes expire and stale URLs cause infinite retry loops.
         // Let provision_sandbox create a fresh sandbox for each continuation.
@@ -595,6 +600,8 @@ fn configure_agent_from_prior(
         "file_manifest_id": str_field(fields, &["file_manifest_id", "FileManifestId"]).unwrap_or(""),
         "session_file_id": str_field(fields, &["session_file_id", "SessionFileId"]).unwrap_or(""),
         "session_leaf_id": session_leaf_id,
+        "project_harness_id": str_field(fields, &["project_harness_id", "ProjectHarnessId"]).unwrap_or(""),
+        "project_id": str_field(fields, &["project_id", "ProjectId"]).unwrap_or(""),
     });
     let configure_url = format!("{temper_api_url}/tdata/Sessions('{agent_id}')/OpenPaw.Configure");
     let configure_resp = ctx.http_call(

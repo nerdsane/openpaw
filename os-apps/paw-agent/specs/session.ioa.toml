@@ -132,7 +132,7 @@ initial = "/workspace"
 [[state]]
 name = "tools_enabled"
 type = "string"
-initial = "read,write,edit,bash"
+initial = "temper_create,temper_get,temper_list,temper_action,temper_patch,temper_submit_specs,temper_show_spec,temper_specs,temper_upload_wasm,temper_get_trajectories,temper_get_insights,temper_get_decisions,temper_poll_decision,temper_approve_decision,temper_deny_decision,temper_submit_policy,temper_list_policies,temper_get_policy,temper_update_policy,temper_delete_policy,temper_install_app,temper_list_apps,temper_spawn_session,temper_list_sessions,temper_abort_session,temper_steer_session,temper_save_memory,temper_recall_memory,temper_write,temper_read,temper_run_coding_agent,temper_get_secret,temper_datadog_query,temper_railway,temper_vercel,temper_web_search,temper_web_fetch,read,write,edit,bash"
 
 [[state]]
 name = "system_prompt"
@@ -510,6 +510,13 @@ hint = "Cancel session execution."
 effect = [{ type = "trigger", name = "deliver_reply" }]
 
 [[action]]
+name = "DeliveryFailed"
+kind = "input"
+from = ["Completed", "Failed", "Cancelled"]
+params = ["error_message"]
+hint = "Reply delivery failed after the session reached a terminal state."
+
+[[action]]
 name = "Resume"
 kind = "input"
 from = ["Created"]
@@ -525,20 +532,9 @@ name = "CompletedHasResult"
 when = ["Completed"]
 assert = "has_result"
 
-[[invariant]]
-name = "CompletedIsFinal"
-when = ["Completed"]
-assert = "no_further_transitions"
-
-[[invariant]]
-name = "FailedIsFinal"
-when = ["Failed"]
-assert = "no_further_transitions"
-
-[[invariant]]
-name = "CancelledIsFinal"
-when = ["Cancelled"]
-assert = "no_further_transitions"
+# Note: Completed/Failed/Cancelled are terminal for the session loop, but
+# DeliveryFailed is a valid self-loop action from terminal states to record
+# delivery failures. So we do NOT assert no_further_transitions.
 
 [[invariant]]
 name = "TurnCountNonNegative"
@@ -641,6 +637,7 @@ name = "deliver_reply"
 trigger = "deliver_reply"
 type = "wasm"
 module = "agent_reply"
+on_failure = "DeliveryFailed"
 
 [integration.config]
 temper_api_url = "{secret:temper_api_url}"

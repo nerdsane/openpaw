@@ -6,7 +6,7 @@
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use futures_util::{SinkExt, StreamExt};
@@ -52,6 +52,100 @@ pub struct DiscordTransport {
     dm_channels: Arc<RwLock<BTreeMap<String, String>>>,
     /// Last processed Discord message snowflake ID (for catch-up on reconnect).
     last_message_cursor: Arc<RwLock<String>>,
+}
+
+fn embed_text_len(embed: &Embed) -> usize {
+    let title_len = embed.title.as_ref().map(|value| value.len()).unwrap_or(0);
+    let description_len = embed
+        .description
+        .as_ref()
+        .map(|value| value.len())
+        .unwrap_or(0);
+    let field_len = embed
+        .fields
+        .as_ref()
+        .map(|fields| {
+            fields
+                .iter()
+                .map(|field| field.name.len() + field.value.len())
+                .sum::<usize>()
+        })
+        .unwrap_or(0);
+    let footer_len = embed
+        .footer
+        .as_ref()
+        .map(|value| value.text.len())
+        .unwrap_or(0);
+    title_len + description_len + field_len + footer_len
+}
+
+fn embeds_exceed_limits(embeds: &[Embed]) -> bool {
+    let total_chars = embeds.iter().map(embed_text_len).sum::<usize>();
+    total_chars > 6000
+        || embeds.iter().any(|embed| {
+            embed
+                .title
+                .as_ref()
+                .map(|value| value.len() > 256)
+                .unwrap_or(false)
+                || embed
+                    .description
+                    .as_ref()
+                    .map(|value| value.len() > 4096)
+                    .unwrap_or(false)
+                || embed
+                    .footer
+                    .as_ref()
+                    .map(|value| value.text.len() > 2048)
+                    .unwrap_or(false)
+                || embed
+                    .fields
+                    .as_ref()
+                    .map(|fields| {
+                        fields.len() > 25
+                            || fields
+                                .iter()
+                                .any(|field| field.name.len() > 256 || field.value.len() > 1024)
+                    })
+                    .unwrap_or(false)
+        })
+}
+
+fn flatten_embeds_for_plain_text(embeds: &[Embed]) -> String {
+    let mut blocks = Vec::new();
+    for embed in embeds {
+        let mut parts = Vec::new();
+        if let Some(title) = embed.title.as_ref().filter(|value| !value.is_empty()) {
+            parts.push(format!("**{title}**"));
+        }
+        if let Some(description) = embed.description.as_ref().filter(|value| !value.is_empty()) {
+            parts.push(description.clone());
+        }
+        if let Some(fields) = embed.fields.as_ref() {
+            for field in fields {
+                parts.push(format!("**{}**\n{}", field.name, field.value));
+            }
+        }
+        if let Some(footer) = embed.footer.as_ref().filter(|value| !value.text.is_empty()) {
+            parts.push(format!("_{text}_", text = footer.text));
+        }
+        if !parts.is_empty() {
+            blocks.push(parts.join("\n\n"));
+        }
+    }
+    blocks.join("\n\n")
+}
+
+fn build_rich_fallback_text(content: &str, embeds: &[Embed]) -> String {
+    let mut parts = Vec::new();
+    if !content.is_empty() {
+        parts.push(content.to_string());
+    }
+    let embed_text = flatten_embeds_for_plain_text(embeds);
+    if !embed_text.is_empty() {
+        parts.push(embed_text);
+    }
+    parts.join("\n\n")
 }
 
 impl DiscordTransport {
@@ -184,7 +278,12 @@ impl DiscordTransport {
         for old_id in &others_to_archive {
             let _ = self
                 .api
-                .dispatch_action("Channels", old_id, "Paw.Channel.Archive", serde_json::json!({}))
+                .dispatch_action(
+                    "Channels",
+                    old_id,
+                    "Paw.Channel.Archive",
+                    serde_json::json!({}),
+                )
                 .await;
         }
 
@@ -232,7 +331,12 @@ impl DiscordTransport {
 
             let _ = self
                 .api
-                .dispatch_action("Channels", &id, "Paw.Channel.Connect", serde_json::json!({}))
+                .dispatch_action(
+                    "Channels",
+                    &id,
+                    "Paw.Channel.Connect",
+                    serde_json::json!({}),
+                )
                 .await;
 
             id
@@ -318,7 +422,10 @@ impl DiscordTransport {
                         .and_then(|v| v.as_str())
                         .unwrap_or("unknown");
 
-                    println!("  [discord] Catching up missed message from {username}: {}", &content[..content.len().min(40)]);
+                    println!(
+                        "  [discord] Catching up missed message from {username}: {}",
+                        &content[..content.len().min(40)]
+                    );
 
                     // Track DM channel mapping
                     self.dm_channels
@@ -336,7 +443,12 @@ impl DiscordTransport {
 
                     match self
                         .api
-                        .dispatch_action("Channels", entity_id, "Paw.Channel.ReceiveMessage", params)
+                        .dispatch_action(
+                            "Channels",
+                            entity_id,
+                            "Paw.Channel.ReceiveMessage",
+                            params,
+                        )
                         .await
                     {
                         Ok(_) => {
@@ -433,6 +545,7 @@ impl DiscordTransport {
 
         // Heartbeat ticker.
         let (heartbeat_tx, mut heartbeat_rx) = tokio::sync::mpsc::channel::<()>(1);
+        let awaiting_heartbeat_ack = Arc::new(AtomicBool::new(false));
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(heartbeat_interval);
             loop {
@@ -448,18 +561,33 @@ impl DiscordTransport {
             tokio::select! {
                 frame = read.next() => {
                     let Some(frame) = frame else {
-                        return Ok(());
+                        return Err("Discord gateway closed unexpectedly".to_string());
                     };
                     let frame = frame.map_err(|e| format!("WebSocket read error: {e}"))?;
+                    if let Message::Close(close) = &frame {
+                        let reason = close
+                            .as_ref()
+                            .map(|frame| format!("code={} reason={}", frame.code, frame.reason))
+                            .unwrap_or_else(|| "no close frame".to_string());
+                        return Err(format!("Discord gateway closed: {reason}"));
+                    }
                     let Some(payload) = parse_frame(frame)? else {
                         continue;
                     };
-                    let should_reconnect = self.handle_payload(payload).await?;
+                    let should_reconnect = self
+                        .handle_payload(payload, &awaiting_heartbeat_ack)
+                        .await?;
                     if should_reconnect {
                         return Ok(());
                     }
                 }
                 Some(()) = heartbeat_rx.recv() => {
+                    if awaiting_heartbeat_ack.swap(true, Ordering::SeqCst) {
+                        return Err(
+                            "Discord gateway heartbeat ACK timeout (possible close code 1006)"
+                                .to_string(),
+                        );
+                    }
                     let s = self.gateway.sequence.load(Ordering::Relaxed);
                     let payload = HeartbeatPayload {
                         op: GatewayOpcode::Heartbeat as u8,
@@ -476,7 +604,11 @@ impl DiscordTransport {
     }
 
     /// Handle a Gateway payload.
-    async fn handle_payload(&self, payload: GatewayPayload) -> Result<bool, String> {
+    async fn handle_payload(
+        &self,
+        payload: GatewayPayload,
+        awaiting_heartbeat_ack: &AtomicBool,
+    ) -> Result<bool, String> {
         if let Some(s) = payload.s {
             self.gateway.sequence.store(s, Ordering::Relaxed);
         }
@@ -501,7 +633,10 @@ impl DiscordTransport {
                 }
                 Ok(false)
             }
-            Some(GatewayOpcode::HeartbeatAck) => Ok(false),
+            Some(GatewayOpcode::HeartbeatAck) => {
+                awaiting_heartbeat_ack.store(false, Ordering::SeqCst);
+                Ok(false)
+            }
             Some(GatewayOpcode::Reconnect) => {
                 println!("  [discord] Server requested reconnect");
                 Ok(true)
@@ -630,20 +765,6 @@ impl DiscordTransport {
         ) -> axum::http::StatusCode {
             let thread_id = body.get("thread_id").and_then(|v| v.as_str()).unwrap_or("");
             let content = body.get("content").and_then(|v| v.as_str()).unwrap_or("");
-
-            if thread_id.is_empty() || content.is_empty() {
-                eprintln!("  [discord] Webhook received empty reply (thread={thread_id})");
-                return axum::http::StatusCode::BAD_REQUEST;
-            }
-
-            // thread_id is the Discord user ID (for DMs). Look up their DM channel.
-            let channel_id = state.dm_channels.read().await.get(thread_id).cloned();
-            let Some(channel_id) = channel_id else {
-                eprintln!("  [discord] No DM channel found for thread_id={thread_id}");
-                return axum::http::StatusCode::NOT_FOUND;
-            };
-
-            // Check for rich content (components, embeds).
             let components: Vec<ActionRow> = body
                 .get("components")
                 .and_then(|v| serde_json::from_value(v.clone()).ok())
@@ -654,36 +775,93 @@ impl DiscordTransport {
                 .unwrap_or_default();
             let has_rich_content = !components.is_empty() || !embeds.is_empty();
 
-            if has_rich_content {
-                println!(
-                    "  [discord] Delivering rich reply ({} chars, {} components, {} embeds to {})",
-                    content.len(),
-                    components.len(),
-                    embeds.len(),
-                    thread_id
-                );
+            if thread_id.is_empty() || (content.is_empty() && !has_rich_content) {
+                tracing::error!("discord reply webhook missing content and rich payload");
+                return axum::http::StatusCode::BAD_REQUEST;
+            }
 
-                match send_discord_message_with_components(
-                    &state.http,
-                    &state.bot_token,
-                    &channel_id,
-                    content,
-                    &components,
-                    &embeds,
-                )
-                .await
-                {
-                    Ok(_msg) => axum::http::StatusCode::OK,
-                    Err(e) => {
-                        eprintln!("  [discord] Rich reply delivery failed: {e}");
-                        axum::http::StatusCode::INTERNAL_SERVER_ERROR
+            // thread_id is the Discord user ID (for DMs). Look up their DM channel.
+            let channel_id = state.dm_channels.read().await.get(thread_id).cloned();
+            let Some(channel_id) = channel_id else {
+                tracing::error!(thread_id, "discord reply webhook has no DM channel mapping");
+                return axum::http::StatusCode::NOT_FOUND;
+            };
+
+            if has_rich_content {
+                let fallback_text = build_rich_fallback_text(content, &embeds);
+                let needs_fallback = content.len() > 2000 || embeds_exceed_limits(&embeds);
+
+                if !needs_fallback {
+                    tracing::info!(
+                        thread_id,
+                        content_len = content.len(),
+                        component_count = components.len(),
+                        embed_count = embeds.len(),
+                        "delivering rich discord reply"
+                    );
+
+                    match send_discord_message_with_components(
+                        &state.http,
+                        &state.bot_token,
+                        &channel_id,
+                        content,
+                        &components,
+                        &embeds,
+                    )
+                    .await
+                    {
+                        Ok(_msg) => return axum::http::StatusCode::OK,
+                        Err(DiscordApiError::PayloadTooLarge(error)) => {
+                            tracing::warn!(thread_id, %error, "rich discord reply exceeded payload limits; falling back to plain text");
+                        }
+                        Err(error) => {
+                            tracing::error!(thread_id, %error, "rich discord reply delivery failed");
+                            return axum::http::StatusCode::INTERNAL_SERVER_ERROR;
+                        }
                     }
                 }
+
+                if !fallback_text.is_empty() {
+                    if let Err(error) = send_discord_message(
+                        &state.http,
+                        &state.bot_token,
+                        &channel_id,
+                        &fallback_text,
+                    )
+                    .await
+                    {
+                        tracing::error!(thread_id, %error, "plain-text fallback delivery failed");
+                        return axum::http::StatusCode::INTERNAL_SERVER_ERROR;
+                    }
+                }
+
+                if !components.is_empty() {
+                    let controls_text = if fallback_text.is_empty() {
+                        "Interactive controls:".to_string()
+                    } else {
+                        "Interactive controls below:".to_string()
+                    };
+                    if let Err(error) = send_discord_message_with_components(
+                        &state.http,
+                        &state.bot_token,
+                        &channel_id,
+                        &controls_text,
+                        &components,
+                        &[],
+                    )
+                    .await
+                    {
+                        tracing::error!(thread_id, %error, "component follow-up delivery failed");
+                        return axum::http::StatusCode::INTERNAL_SERVER_ERROR;
+                    }
+                }
+
+                axum::http::StatusCode::OK
             } else {
-                println!(
-                    "  [discord] Delivering reply via webhook ({} chars to {})",
-                    content.len(),
-                    thread_id
+                tracing::info!(
+                    thread_id,
+                    content_len = content.len(),
+                    "delivering discord reply"
                 );
 
                 match send_discord_message(&state.http, &state.bot_token, &channel_id, content)
@@ -691,7 +869,7 @@ impl DiscordTransport {
                 {
                     Ok(()) => axum::http::StatusCode::OK,
                     Err(e) => {
-                        eprintln!("  [discord] Reply delivery failed: {e}");
+                        tracing::error!(thread_id, %e, "discord reply delivery failed");
                         axum::http::StatusCode::INTERNAL_SERVER_ERROR
                     }
                 }

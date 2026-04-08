@@ -10,6 +10,9 @@ use serde::Serialize;
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 
+pub const DISCORD_WEBHOOK_PORT: u16 = 3488;
+pub const SLACK_WEBHOOK_PORT: u16 = 3489;
+
 /// Manages the lifecycle of Discord and Slack transports at runtime.
 pub struct TransportManager {
     discord: Arc<RwLock<TransportHandle>>,
@@ -112,7 +115,7 @@ impl TransportManager {
                 bot_token: params.bot_token,
                 public_key: params.public_key,
                 intents: intents::DEFAULT,
-                webhook_port: 3488,
+                webhook_port: DISCORD_WEBHOOK_PORT,
                 guild_id: params.guild_id,
                 feed_channel_id: params.feed_channel_id,
                 forum_channel_id: params.forum_channel_id,
@@ -194,7 +197,7 @@ impl TransportManager {
                 app_token: params.app_token,
                 bot_token: params.bot_token,
                 signing_secret: params.signing_secret,
-                webhook_port: 3489,
+                webhook_port: SLACK_WEBHOOK_PORT,
             };
 
             {
@@ -244,5 +247,9 @@ impl TransportManager {
             discord: self.discord.read().await.status.clone(),
             slack: self.slack.read().await.status.clone(),
         }
+    }
+
+    pub fn discord_interaction_proxy_url(&self) -> String {
+        format!("http://127.0.0.1:{DISCORD_WEBHOOK_PORT}/interaction")
     }
 }

@@ -24,6 +24,7 @@ use wasm_helpers::{
 };
 
 const SESSION_ENTRY_FILE_THRESHOLD_BYTES: usize = 4096;
+const DEFAULT_TOOLS_ENABLED: &str = "temper_create,temper_get,temper_list,temper_action,temper_patch,temper_submit_specs,temper_show_spec,temper_specs,temper_upload_wasm,temper_get_trajectories,temper_get_insights,temper_get_decisions,temper_poll_decision,temper_approve_decision,temper_deny_decision,temper_submit_policy,temper_list_policies,temper_get_policy,temper_update_policy,temper_delete_policy,temper_install_app,temper_list_apps,temper_spawn_session,temper_list_sessions,temper_abort_session,temper_steer_session,temper_save_memory,temper_recall_memory,temper_write,temper_read,temper_run_coding_agent,temper_get_secret,temper_datadog_query,temper_railway,temper_vercel,temper_web_search,temper_web_fetch,read,write,edit,bash";
 
 /// Entry point — NOT using `temper_module!` because we need dynamic callback actions.
 #[unsafe(no_mangle)]
@@ -54,7 +55,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         let tools_enabled = fields
             .get("tools_enabled")
             .and_then(|v| v.as_str())
-            .unwrap_or("read,write,edit,bash");
+            .unwrap_or(DEFAULT_TOOLS_ENABLED);
         // `system_prompt` is the Anthropic API system parameter (agent persona/behavior).
         // `user_message` is the actual user task from the Provision action.
         let system_prompt = fields
@@ -2207,7 +2208,7 @@ fn assemble_system_prompt(
             .get("fields")
             .and_then(|f| f.get("tools_enabled"))
             .and_then(|v| v.as_str())
-            .unwrap_or("read,write,edit,bash");
+            .unwrap_or(DEFAULT_TOOLS_ENABLED);
         let sandbox_url = ctx
             .entity_state
             .get("fields")

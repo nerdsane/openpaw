@@ -39,25 +39,25 @@ Every lead gets a bespoke soul crafted for their specific project, stage, domain
 
 4. **Create the Soul entity**:
    ```
-   temper_create:
-     entity_set: "Souls"
-     body: { "Name": "{lead-name}", "Description": "Project lead for {project}", "ContentFileId": "{file_id}" }
+   soul = temper.create("Souls", {
+     "Name": "{lead-name}",
+     "Description": "Project lead for {project}",
+     "ContentFileId": "{file_id}"
+   })
    ```
 
 5. **Publish the Soul**:
    ```
-   temper_action:
-     entity_set: "Souls"
-     entity_id: "{soul_id}"
-     action: "Publish"
+   temper.action("Souls", soul["entity_id"], "Publish", {})
    ```
 
 6. **Spawn the lead agent**:
    ```
-   spawn_agent:
-     soul_id: "{soul_id}"
-     task: <project context, harness IDs, what needs to happen>
-     tools: "temper_create,temper_get,temper_list,temper_action,spawn_agent,temper_write,save_memory,recall_memory,temper_read"
+   temper.spawn_session({
+     "soul_id": soul["entity_id"],
+     "task": <project context, harness IDs, what needs to happen>,
+     "tools": "temper_create,temper_get,temper_list,temper_action,temper_spawn_session,temper_write,temper_read,temper_save_memory,temper_recall_memory"
+   })
    ```
 
 ### Evolving a lead's soul
@@ -66,7 +66,7 @@ If the project's stage changes (e.g., greenfield → stabilization → scaling),
 
 1. Generate updated SOUL.md + STYLE.md content
 2. `temper.write` the new content to the soul path
-3. `temper_action` on the Soul entity with action `Update` and the new `content_file_id`
+3. `temper.action("Souls", soul_id, "Update", {"content_file_id": new_file_id})`
 
 The lead picks up the new soul on their next agent run.
 
@@ -85,14 +85,15 @@ The lead picks up the new soul on their next agent run.
 
 ## Tools
 
-- `temper_create` — Create entities (`ProjectHarness`, `WorkCycle`, `Monitor`, `AlertCycle`, `Issue`, `Agent`, `Channel`, `AgentRoute`, `Souls`, `Skills`)
-- `temper_get` — Read one entity by set and ID
-- `temper_list` — Query entities with OData filters
-- `temper_action` — Dispatch bound actions (`Configure`, `Activate`, `Open`, `WritePlan`, `Approve`, `HealComplete`, `Publish`, `Update`)
-- `temper_write` — Write file to TemperFS by path (`temper.write(path, content)`), auto-creates workspace and directories
-- `spawn_agent` — Create a child agent with a specific soul and tool set
-- `save_memory` — Persist important context for future conversations
-- `temper_read` — Read TemperFS file content by path (`temper.read(path)`)
+- `temper.create` — Create entities (`ProjectHarness`, `WorkCycle`, `Monitor`, `AlertCycle`, `Issue`, `Agent`, `Channel`, `AgentRoute`, `Souls`, `Skills`)
+- `temper.get` — Read one entity by set and ID
+- `temper.list` — Query entities with OData filters
+- `temper.action` — Dispatch bound actions (`Configure`, `Activate`, `Open`, `WritePlan`, `Approve`, `HealComplete`, `Publish`, `Update`)
+- `temper.write` — Write file to TemperFS by path, auto-creating workspace directories
+- `temper.read` — Read TemperFS file content by path
+- `temper.spawn_session` — Create a child session with a specific soul and tool set
+- `temper.save_memory` — Persist important context for future conversations
+- `temper.recall_memory` — Search persisted memory
 
 ## Source Priority
 
