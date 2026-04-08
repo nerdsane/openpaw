@@ -16,11 +16,17 @@ impl LlmProvider {
     /// Detect provider from API key prefix.
     pub fn detect(api_key: &str, provider_hint: &str) -> Self {
         if api_key.starts_with("sk-ant-") || provider_hint == "anthropic" {
-            LlmProvider::Anthropic { api_key: api_key.to_string() }
+            LlmProvider::Anthropic {
+                api_key: api_key.to_string(),
+            }
         } else if api_key.starts_with("sk-or-") || provider_hint == "openrouter" {
-            LlmProvider::OpenRouter { api_key: api_key.to_string() }
+            LlmProvider::OpenRouter {
+                api_key: api_key.to_string(),
+            }
         } else {
-            LlmProvider::OpenAi { api_key: api_key.to_string() }
+            LlmProvider::OpenAi {
+                api_key: api_key.to_string(),
+            }
         }
     }
 
@@ -47,7 +53,10 @@ impl LlmProvider {
                     .context("Anthropic API call failed")?;
 
                 let status = resp.status();
-                let data: serde_json::Value = resp.json().await.context("Failed to parse Anthropic response")?;
+                let data: serde_json::Value = resp
+                    .json()
+                    .await
+                    .context("Failed to parse Anthropic response")?;
                 if !status.is_success() {
                     let msg = data["error"]["message"].as_str().unwrap_or("Unknown error");
                     anyhow::bail!("Anthropic API error ({}): {}", status, msg);
@@ -76,7 +85,10 @@ impl LlmProvider {
                     .context("OpenRouter API call failed")?;
 
                 let status = resp.status();
-                let data: serde_json::Value = resp.json().await.context("Failed to parse OpenRouter response")?;
+                let data: serde_json::Value = resp
+                    .json()
+                    .await
+                    .context("Failed to parse OpenRouter response")?;
                 if !status.is_success() {
                     let msg = data["error"]["message"].as_str().unwrap_or("Unknown error");
                     anyhow::bail!("OpenRouter API error ({}): {}", status, msg);
@@ -105,7 +117,10 @@ impl LlmProvider {
                     .context("OpenAI API call failed")?;
 
                 let status = resp.status();
-                let data: serde_json::Value = resp.json().await.context("Failed to parse OpenAI response")?;
+                let data: serde_json::Value = resp
+                    .json()
+                    .await
+                    .context("Failed to parse OpenAI response")?;
                 if !status.is_success() {
                     let msg = data["error"]["message"].as_str().unwrap_or("Unknown error");
                     anyhow::bail!("OpenAI API error ({}): {}", status, msg);

@@ -179,12 +179,14 @@ pub async fn run_setup_config(config: &Config) -> anyhow::Result<SetupResult> {
                      4. Subscribe to events: message.channels, message.im",
                 )?;
 
-                let app_token: String =
-                    cliclack::password("App Token (xapp-...)").mask('•').interact()?;
+                let app_token: String = cliclack::password("App Token (xapp-...)")
+                    .mask('•')
+                    .interact()?;
                 let app_token = app_token.trim().to_string();
 
-                let bot_token: String =
-                    cliclack::password("Bot Token (xoxb-...)").mask('•').interact()?;
+                let bot_token: String = cliclack::password("Bot Token (xoxb-...)")
+                    .mask('•')
+                    .interact()?;
                 let bot_token = bot_token.trim().to_string();
 
                 if app_token.is_empty() || bot_token.is_empty() {
@@ -379,9 +381,9 @@ async fn save_soul_to_temper(
     let items = resp["value"]
         .as_array()
         .ok_or_else(|| anyhow::anyhow!("No Souls found"))?;
-    let paw = items
-        .first()
-        .ok_or_else(|| anyhow::anyhow!("Paw Soul entity not found — server may still be booting"))?;
+    let paw = items.first().ok_or_else(|| {
+        anyhow::anyhow!("Paw Soul entity not found — server may still be booting")
+    })?;
 
     // Get the ContentFileId
     let file_id = paw["fields"]["ContentFileId"]
@@ -390,8 +392,8 @@ async fn save_soul_to_temper(
         .ok_or_else(|| anyhow::anyhow!("Paw Soul has no ContentFileId"))?;
 
     // Concatenate soul + style + user + the default AGENT.md (operational instructions)
-    let agent_md = std::fs::read_to_string("os-apps/paw-agent/agents/paw/AGENT.md")
-        .unwrap_or_default();
+    let agent_md =
+        std::fs::read_to_string("os-apps/paw-agent/agents/paw/AGENT.md").unwrap_or_default();
 
     let full_content = format!(
         "{}\n\n{}\n\n{}\n\n{}",
