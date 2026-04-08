@@ -56,20 +56,19 @@ async fn main() -> anyhow::Result<()> {
     let data_dir = std::path::Path::new(&home).join(".local/share/openpaw");
     std::fs::create_dir_all(&data_dir)?;
 
-    match cli.command {
+    let force_soul_setup = match cli.command {
         Some(Command::Setup) => {
-            let result = setup::run_setup(&data_dir, &config).await?;
+            // Phase A: config setup (always runs, even if already configured)
+            let result = setup::run_setup_config(&config).await?;
             setup::merge_setup_into_config(&mut config, result);
-            return Ok(());
+            true // force soul personalization after boot
         }
         Some(Command::Doctor) => {
             setup::run_doctor(&data_dir, &config);
             return Ok(());
         }
-        None => {
-            // Default: boot server (with setup prompt if missing config and interactive terminal)
-        }
-    }
+        None => false,
+    };
 
     // Build layered tracing subscriber
     let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
@@ -189,7 +188,7 @@ async fn main() -> anyhow::Result<()> {
             None
         };
 
-    let result = startup::run(config).await;
+    let result = startup::run(config, force_soul_setup).await;
 
     // Flush pending spans on exit
     if let Some((tracer_provider, meter_provider, logger_provider)) = _providers {

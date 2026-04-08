@@ -1,24 +1,21 @@
 //! Interactive setup for Open Paw.
 //!
-//! Beautiful cliclack-powered TUI that:
-//! 1. Collects API key (auto-detects provider) and messaging platform config
-//! 2. Interviews the user to understand who they are and what they want
-//! 3. Calls the LLM to generate a personalized Paw soul + user profile
-//! 4. Lets the user preview and iterate on the generated soul
+//! Two phases:
+//! - Phase A (pre-boot): API key + messaging platform config
+//! - Phase B (post-boot): User interview + LLM soul generation → writes to TemperFS via OData
+//!
+//! Phase B requires the server to be running so it can write the personalized
+//! soul directly to Temper entities — no intermediate files on disk.
 
 use std::io::IsTerminal;
 use std::path::Path;
 
 use crate::config::Config;
-use crate::setup_llm::{
-    self, GeneratedSoul, LlmProvider, UserInterview,
-};
+use crate::setup_llm::{self, GeneratedSoul, LlmProvider, UserInterview};
 
-/// Result of the setup wizard.
+/// Result of Phase A (config setup).
 pub struct SetupResult {
-    /// LLM API key (Anthropic, OpenRouter, or OpenAI)
     pub api_key: Option<String>,
-    /// Provider name: "anthropic", "openrouter", or "openai"
     pub provider: Option<String>,
     pub discord_bot_token: Option<String>,
     pub discord_guild_id: Option<String>,
@@ -28,7 +25,7 @@ pub struct SetupResult {
     pub slack_bot_token: Option<String>,
 }
 
-/// Returns `true` if interactive setup should run.
+/// Returns `true` if config setup should run (API key or messaging missing).
 pub fn needs_setup(_data_dir: &Path, config: &Config) -> bool {
     if !std::io::stdin().is_terminal() {
         return false;
@@ -39,13 +36,11 @@ pub fn needs_setup(_data_dir: &Path, config: &Config) -> bool {
     !has_api_key || !has_messaging
 }
 
-/// Run the full interactive setup wizard.
-pub async fn run_setup(data_dir: &Path, config: &Config) -> anyhow::Result<SetupResult> {
+/// Phase A: Collect API key and messaging config (runs pre-boot).
+pub async fn run_setup_config(config: &Config) -> anyhow::Result<SetupResult> {
     let has_api_key = config.anthropic_api_key.is_some();
     let has_discord = config.discord_bot_token.is_some();
     let has_slack = config.slack_app_token.is_some() && config.slack_bot_token.is_some();
-    let generated_dir = data_dir.join("generated");
-    let has_personalization = generated_dir.join("paw-soul.md").exists();
 
     let mut result = SetupResult {
         api_key: None,
@@ -60,11 +55,10 @@ pub async fn run_setup(data_dir: &Path, config: &Config) -> anyhow::Result<Setup
 
     cliclack::intro("Open Paw")?;
 
-    // ─── Part A: API Key ───
+    // ─── API Key ───
 
-    let (api_key, provider_name) = if has_api_key {
+    if has_api_key {
         cliclack::log::success("API key configured")?;
-        (config.anthropic_api_key.clone().unwrap_or_default(), "anthropic".to_string())
     } else {
         let provider: &str = cliclack::select("Which AI provider do you use?")
             .item("anthropic", "Anthropic (Claude)", "")
@@ -81,7 +75,7 @@ pub async fn run_setup(data_dir: &Path, config: &Config) -> anyhow::Result<Setup
             }
             "openai" => {
                 cliclack::log::info(
-                    "Get your key at platform.openai.com/api-keys\n  Note: ChatGPT Plus/Pro subscriptions don't include API access"
+                    "Get your key at platform.openai.com/api-keys\n  Note: ChatGPT Plus/Pro subscriptions don't include API access",
                 )?;
             }
             _ => {}
@@ -99,12 +93,11 @@ pub async fn run_setup(data_dir: &Path, config: &Config) -> anyhow::Result<Setup
             .interact()?;
 
         let key = key.trim().to_string();
-        result.api_key = Some(key.clone());
+        result.api_key = Some(key);
         result.provider = Some(provider.to_string());
-        (key, provider.to_string())
-    };
+    }
 
-    // ─── Part A2: Messaging Platform ───
+    // ─── Messaging Platform ───
 
     let skip_messaging = if has_discord {
         let reconfigure: bool = cliclack::confirm("Discord is connected. Reconfigure?")
@@ -141,12 +134,10 @@ pub async fn run_setup(data_dir: &Path, config: &Config) -> anyhow::Result<Setup
                         Select scope: \"bot\"\n\
                         Select permissions: \"Send Messages\" +\n\
                         \"Read Message History\"\n\
-                     7. Copy the URL, open it, pick your server"
+                     7. Copy the URL, open it, pick your server",
                 )?;
 
-                let token: String = cliclack::password("Bot token")
-                    .mask('•')
-                    .interact()?;
+                let token: String = cliclack::password("Bot token").mask('•').interact()?;
                 let token = token.trim().to_string();
 
                 if !token.is_empty() {
@@ -185,17 +176,15 @@ pub async fn run_setup(data_dir: &Path, config: &Config) -> anyhow::Result<Setup
                     "1. Go to api.slack.com/apps → Create New App\n\
                      2. Enable Socket Mode → copy the App Token (xapp-...)\n\
                      3. Under OAuth & Permissions, copy the Bot Token (xoxb-...)\n\
-                     4. Subscribe to events: message.channels, message.im"
+                     4. Subscribe to events: message.channels, message.im",
                 )?;
 
-                let app_token: String = cliclack::password("App Token (xapp-...)")
-                    .mask('•')
-                    .interact()?;
+                let app_token: String =
+                    cliclack::password("App Token (xapp-...)").mask('•').interact()?;
                 let app_token = app_token.trim().to_string();
 
-                let bot_token: String = cliclack::password("Bot Token (xoxb-...)")
-                    .mask('•')
-                    .interact()?;
+                let bot_token: String =
+                    cliclack::password("Bot Token (xoxb-...)").mask('•').interact()?;
                 let bot_token = bot_token.trim().to_string();
 
                 if app_token.is_empty() || bot_token.is_empty() {
@@ -210,154 +199,227 @@ pub async fn run_setup(data_dir: &Path, config: &Config) -> anyhow::Result<Setup
                 cliclack::log::info("API only — interact via REST or the dashboard")?;
             }
         }
-    } // end if !skip_messaging
+    }
 
-    // ─── Part B: User Interview + Soul Generation ───
+    cliclack::log::step("Booting server...")?;
+    Ok(result)
+}
 
-    if has_personalization {
-        let redo: bool = cliclack::confirm("Paw is already personalized. Redo?")
-            .initial_value(false)
-            .interact()?;
-        if !redo {
-            cliclack::outro("Setup complete.")?;
-            return Ok(result);
+/// Phase B: User interview + LLM soul generation (runs post-boot, writes to TemperFS via OData).
+///
+/// `api_port` is the local server port for OData calls.
+/// `api_key` is the LLM provider key for generating the soul.
+/// `provider` is "anthropic", "openrouter", or "openai".
+pub async fn run_setup_soul(
+    api_port: u16,
+    api_key: &str,
+    provider_name: &str,
+    tenant: &str,
+) -> anyhow::Result<()> {
+    if !std::io::stdin().is_terminal() || api_key.is_empty() {
+        return Ok(());
+    }
+
+    // Check if Paw soul already has personalized content
+    let base = format!("http://127.0.0.1:{api_port}");
+    let client = reqwest::Client::new();
+
+    cliclack::log::step("Let's make Paw yours.")?;
+
+    let name: String = cliclack::input("What's your name?")
+        .placeholder("your name")
+        .interact()?;
+
+    let about: String = cliclack::input("Tell Paw about yourself.")
+        .placeholder("what you do, what you're working on, what you care about")
+        .interact()?;
+
+    let ideal: String = cliclack::input("What kind of Paw do you want?")
+        .placeholder("how they think, how they talk, what makes them great to work with")
+        .interact()?;
+
+    let provider = LlmProvider::detect(api_key, provider_name);
+
+    // Round 2: LLM-generated follow-ups
+    let mut followup_answers = Vec::new();
+    let followup_spinner = cliclack::spinner();
+    followup_spinner.start("Thinking of something to ask you...");
+
+    match setup_llm::generate_followup_questions(&provider, &name, &about, &ideal).await {
+        Ok(questions) => {
+            followup_spinner.stop("Got it.");
+            for question in questions {
+                let answer: String = cliclack::input(&question).placeholder("").interact()?;
+                if !answer.is_empty() {
+                    followup_answers.push((question, answer));
+                }
+            }
+        }
+        Err(e) => {
+            followup_spinner.stop(format!("Skipped follow-ups: {e}"));
         }
     }
 
-    // Only run interview if we have an API key to call the LLM
-    if !api_key.is_empty() {
-        cliclack::log::step("Let's make Paw yours.")?;
+    // Generate soul
+    let interview = UserInterview {
+        name: name.clone(),
+        about_you: about,
+        ideal_paw: ideal,
+        followup_answers,
+    };
 
-        let name: String = cliclack::input("What's your name?")
-            .placeholder("your name")
-            .interact()?;
+    let soul_spinner = cliclack::spinner();
+    soul_spinner.start("Generating your Paw...");
 
-        let about: String = cliclack::input("Tell Paw about yourself.")
-            .placeholder("what you do, what you're working on, what you care about")
-            .interact()?;
+    match setup_llm::generate_personalized_soul(&provider, &interview).await {
+        Ok(mut generated) => {
+            soul_spinner.stop("Done.");
 
-        let ideal: String = cliclack::input("What kind of Paw do you want?")
-            .placeholder("how they think, how they talk, what makes them great to work with")
-            .interact()?;
+            // Preview + iteration loop
+            loop {
+                let choice: &str = cliclack::select(&format!(
+                    "Here's what Paw will be like:\n\n  \"{}\"\n",
+                    generated.summary
+                ))
+                .item("accept", "Looks good", "")
+                .item("adjust", "Almost — let me adjust", "")
+                .item("redo", "Start over", "")
+                .interact()?;
 
-        let provider = LlmProvider::detect(&api_key, &provider_name);
+                match choice {
+                    "accept" => break,
+                    "adjust" => {
+                        let feedback: String = cliclack::input("What should change?")
+                            .placeholder("describe what to adjust")
+                            .interact()?;
 
-        // Round 2: LLM-generated follow-ups
-        let mut followup_answers = Vec::new();
-        let followup_spinner = cliclack::spinner();
-        followup_spinner.start("Thinking of something to ask you...");
-
-        match setup_llm::generate_followup_questions(&provider, &name, &about, &ideal).await {
-            Ok(questions) => {
-                followup_spinner.stop("Got it.");
-                for question in questions {
-                    let answer: String = cliclack::input(&question)
-                        .placeholder("")
-                        .interact()?;
-                    if !answer.is_empty() {
-                        followup_answers.push((question, answer));
+                        let refine_spinner = cliclack::spinner();
+                        refine_spinner.start("Regenerating...");
+                        match setup_llm::refine_soul(
+                            &provider,
+                            &interview,
+                            &generated.summary,
+                            &feedback,
+                        )
+                        .await
+                        {
+                            Ok(refined) => {
+                                refine_spinner.stop("Done.");
+                                generated = refined;
+                            }
+                            Err(e) => {
+                                refine_spinner.stop(format!("Failed: {e}"));
+                                break;
+                            }
+                        }
                     }
+                    "redo" => {
+                        let redo_spinner = cliclack::spinner();
+                        redo_spinner.start("Regenerating from scratch...");
+                        match setup_llm::generate_personalized_soul(&provider, &interview).await {
+                            Ok(fresh) => {
+                                redo_spinner.stop("Done.");
+                                generated = fresh;
+                            }
+                            Err(e) => {
+                                redo_spinner.stop(format!("Failed: {e}"));
+                                break;
+                            }
+                        }
+                    }
+                    _ => break,
                 }
             }
-            Err(e) => {
-                followup_spinner.stop(format!("Skipped follow-ups: {e}"));
+
+            // Write soul directly to TemperFS via OData
+            let save_spinner = cliclack::spinner();
+            save_spinner.start("Saving soul to Temper...");
+            match save_soul_to_temper(&client, &base, tenant, &generated).await {
+                Ok(()) => {
+                    save_spinner.stop("Soul saved.");
+                }
+                Err(e) => {
+                    save_spinner.stop(format!("Failed to save: {e}"));
+                    cliclack::log::warning(
+                        "Soul generation succeeded but couldn't save to Temper. Run `cargo run -- setup` to retry.",
+                    )?;
+                }
             }
         }
-
-        // Generate soul
-        let interview = UserInterview {
-            name: name.clone(),
-            about_you: about,
-            ideal_paw: ideal,
-            followup_answers,
-        };
-
-        let soul_spinner = cliclack::spinner();
-        soul_spinner.start("Generating your Paw...");
-
-        match setup_llm::generate_personalized_soul(&provider, &interview).await {
-            Ok(mut generated) => {
-                soul_spinner.stop("Done.");
-
-                // Preview + iteration loop
-                loop {
-                    let choice: &str = cliclack::select(&format!(
-                        "Here's what Paw will be like:\n\n  \"{}\"\n",
-                        generated.summary
-                    ))
-                    .item("accept", "Looks good", "")
-                    .item("adjust", "Almost — let me adjust", "")
-                    .item("redo", "Start over", "")
-                    .interact()?;
-
-                    match choice {
-                        "accept" => break,
-                        "adjust" => {
-                            let feedback: String = cliclack::input("What should change?")
-                                .placeholder("describe what to adjust")
-                                .interact()?;
-
-                            let refine_spinner = cliclack::spinner();
-                            refine_spinner.start("Regenerating...");
-                            match setup_llm::refine_soul(
-                                &provider,
-                                &interview,
-                                &generated.summary,
-                                &feedback,
-                            )
-                            .await
-                            {
-                                Ok(refined) => {
-                                    refine_spinner.stop("Done.");
-                                    generated = refined;
-                                }
-                                Err(e) => {
-                                    refine_spinner.stop(format!("Failed: {e}"));
-                                    break;
-                                }
-                            }
-                        }
-                        "redo" => {
-                            let redo_spinner = cliclack::spinner();
-                            redo_spinner.start("Regenerating from scratch...");
-                            match setup_llm::generate_personalized_soul(&provider, &interview).await
-                            {
-                                Ok(fresh) => {
-                                    redo_spinner.stop("Done.");
-                                    generated = fresh;
-                                }
-                                Err(e) => {
-                                    redo_spinner.stop(format!("Failed: {e}"));
-                                    break;
-                                }
-                            }
-                        }
-                        _ => break,
-                    }
-                }
-
-                // Save generated files
-                save_generated_soul(data_dir, &generated)?;
-                cliclack::log::success("Soul saved")?;
-            }
-            Err(e) => {
-                soul_spinner.stop(format!("Soul generation failed: {e}"));
-                cliclack::log::warning("Using default Paw soul. Run `openpaw setup` later to personalize.")?;
-            }
+        Err(e) => {
+            soul_spinner.stop(format!("Soul generation failed: {e}"));
+            cliclack::log::warning(
+                "Using default Paw soul. Run `cargo run -- setup` later to personalize.",
+            )?;
         }
     }
 
     cliclack::outro("Paw is ready.")?;
-
-    Ok(result)
+    Ok(())
 }
 
-/// Merge setup results into the config.
+/// Write the generated soul content to the existing Paw Soul entity in TemperFS.
+async fn save_soul_to_temper(
+    client: &reqwest::Client,
+    base: &str,
+    tenant: &str,
+    soul: &GeneratedSoul,
+) -> anyhow::Result<()> {
+    // Find the Paw Soul entity
+    let url = format!("{base}/tdata/Souls?$filter=Name eq 'Paw'");
+    let resp: serde_json::Value = client
+        .get(&url)
+        .header("x-tenant-id", tenant)
+        .header("x-temper-principal-kind", "admin")
+        .send()
+        .await?
+        .json()
+        .await?;
+
+    let items = resp["value"]
+        .as_array()
+        .ok_or_else(|| anyhow::anyhow!("No Souls found"))?;
+    let paw = items
+        .first()
+        .ok_or_else(|| anyhow::anyhow!("Paw Soul entity not found — server may still be booting"))?;
+
+    // Get the ContentFileId
+    let file_id = paw["fields"]["ContentFileId"]
+        .as_str()
+        .or_else(|| paw["fields"]["content_file_id"].as_str())
+        .ok_or_else(|| anyhow::anyhow!("Paw Soul has no ContentFileId"))?;
+
+    // Concatenate soul + style + user + the default AGENT.md (operational instructions)
+    let agent_md = std::fs::read_to_string("os-apps/paw-agent/agents/paw/AGENT.md")
+        .unwrap_or_default();
+
+    let full_content = format!(
+        "{}\n\n{}\n\n{}\n\n{}",
+        soul.soul_md, soul.style_md, soul.user_md, agent_md
+    );
+
+    // Upload to TemperFS via PUT $value
+    let upload_url = format!("{base}/tdata/Files('{file_id}')/$value");
+    let resp = client
+        .put(&upload_url)
+        .header("x-tenant-id", tenant)
+        .header("x-temper-principal-kind", "admin")
+        .header("content-type", "text/markdown")
+        .body(full_content)
+        .send()
+        .await?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        anyhow::bail!("Upload failed ({status}): {body}");
+    }
+
+    Ok(())
+}
+
+/// Merge Phase A results into config.
 pub fn merge_setup_into_config(config: &mut Config, setup: SetupResult) {
-    // Store the API key. For now all providers' keys go to anthropic_api_key
-    // in config (it's used by the vault seeding in startup.rs). The provider
-    // name is stored separately so the LLM caller can use the right API.
-    //
     if let Some(key) = setup.api_key {
         if config.anthropic_api_key.is_none() {
             config.anthropic_api_key = Some(key);
@@ -402,7 +464,6 @@ pub fn merge_setup_into_config(config: &mut Config, setup: SetupResult) {
 pub fn run_doctor(data_dir: &Path, config: &Config) {
     let vault_key_path = data_dir.join("vault.key");
     let db_path = data_dir.join("paw.db");
-    let generated_dir = data_dir.join("generated");
 
     println!();
     println!("  Open Paw Doctor");
@@ -436,13 +497,13 @@ pub fn run_doctor(data_dir: &Path, config: &Config) {
     if config.anthropic_api_key.is_some() {
         println!("  \u{2713} API key");
     } else {
-        println!("  \u{2717} API key — run `openpaw setup`");
+        println!("  \u{2717} API key — run `cargo run -- setup`");
     }
 
     if config.discord_bot_token.is_some() {
         println!("  \u{2713} Discord");
     } else {
-        println!("  \u{2717} Discord — run `openpaw setup`");
+        println!("  \u{2717} Discord — run `cargo run -- setup`");
     }
 
     if config.slack_app_token.is_some() && config.slack_bot_token.is_some() {
@@ -451,20 +512,5 @@ pub fn run_doctor(data_dir: &Path, config: &Config) {
         println!("  ~ Slack");
     }
 
-    if generated_dir.join("paw-soul.md").exists() {
-        println!("  \u{2713} Personalized soul");
-    } else {
-        println!("  ~ Default soul (run `openpaw setup` to personalize)");
-    }
-
     println!();
-}
-
-fn save_generated_soul(data_dir: &Path, soul: &GeneratedSoul) -> anyhow::Result<()> {
-    let dir = data_dir.join("generated");
-    std::fs::create_dir_all(&dir)?;
-    std::fs::write(dir.join("paw-soul.md"), &soul.soul_md)?;
-    std::fs::write(dir.join("paw-style.md"), &soul.style_md)?;
-    std::fs::write(dir.join("user.md"), &soul.user_md)?;
-    Ok(())
 }

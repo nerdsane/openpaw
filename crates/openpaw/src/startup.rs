@@ -45,7 +45,10 @@ const PAW_OS_APPS: &[&str] = &[
 ];
 
 /// Run the Open Paw daemon.
-pub async fn run(mut config: Config) -> Result<()> {
+///
+/// If `force_soul_setup` is true, the soul personalization interview runs
+/// after boot regardless of current configuration (used by `openpaw setup`).
+pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
     let port = config.port;
     let tenant = config.tenant.clone();
     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
@@ -53,11 +56,14 @@ pub async fn run(mut config: Config) -> Result<()> {
     std::fs::create_dir_all(&data_dir)
         .with_context(|| format!("Failed to create data dir: {}", data_dir.display()))?;
 
-    // Phase 0: Interactive setup (runs whenever something is missing)
-    if crate::setup::needs_setup(&data_dir, &config) {
-        let setup_result = crate::setup::run_setup(&data_dir, &config).await?;
+    // Phase 0: Config setup (API key + messaging — runs pre-boot)
+    let needs_soul_setup = if crate::setup::needs_setup(&data_dir, &config) {
+        let setup_result = crate::setup::run_setup_config(&config).await?;
         crate::setup::merge_setup_into_config(&mut config, setup_result);
-    }
+        true
+    } else {
+        force_soul_setup
+    };
 
     // Phase 1: Storage backend (Turso)
     tracing::info!("Phase 1: Initializing storage...");
@@ -721,7 +727,37 @@ pub async fn run(mut config: Config) -> Result<()> {
     }
     tracing::info!("Open Paw listening on port {actual_port}");
 
-    axum::serve(listener, router).await?;
+    // Phase 10: Soul personalization (post-boot, writes to TemperFS via OData)
+    if needs_soul_setup {
+        let api_key = state
+            .server
+            .secrets_vault
+            .as_ref()
+            .and_then(|v| v.get_secret(&tenant, "anthropic_api_key"))
+            .unwrap_or_default();
+        let provider_name = state
+            .server
+            .secrets_vault
+            .as_ref()
+            .and_then(|v| v.get_secret(&tenant, "llm_provider"))
+            .unwrap_or_else(|| "anthropic".to_string());
+
+        // Spawn server in background so OData is available during soul setup
+        let serve_handle = tokio::spawn(async move {
+            axum::serve(listener, router).await
+        });
+
+        // Give the server a moment to accept connections
+        tokio::time::sleep(Duration::from_millis(500)).await;
+
+        if let Err(e) = crate::setup::run_setup_soul(actual_port, &api_key, &provider_name, &tenant).await {
+            tracing::warn!("Soul setup failed: {e}");
+        }
+
+        serve_handle.await??;
+    } else {
+        axum::serve(listener, router).await?;
+    }
 
     Ok(())
 }
