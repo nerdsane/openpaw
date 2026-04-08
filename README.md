@@ -31,26 +31,15 @@ cargo run -- doctor   # check what's configured
 
 All agent logic is Temper state machines (IOA specs), WASM integrations, and Cedar authorization policies.
 
-### Temper Apps
-
-| App | Status | Purpose |
-|-----|--------|---------|
-| paw-agent | Working | Agent execution — Agent, Soul, Skill, Memory, Session, Team, Project |
-| paw-channels | Working | Multi-platform messaging — Channel, AgentRoute, ChannelSession |
-| paw-fs | Working | Governed file storage — File, Workspace, Directory |
-| paw-pm | Working | Project management — Issues, Plans |
-| paw-ingest | Working | Webhook ingestion — WebhookEvent, WebhookRoute |
-| paw-research | Working | Web search and fetch |
-| paw-foresight | Working | Probe projections and entropy simulation |
-
 ## What Works
 
-- **Core platform**: Paw boots, connects to Discord, runs conversations, spawns agents with cloud computers
-- **Entity CRUD + state machines**: temper_create/get/list/action all work; IOA state machines enforce valid transitions
-- **Web research**: temper_web_search + temper_web_fetch available to agents
-- **OS app loading**: apps under `os-apps/` are discovered and loaded at startup
-- **Agent sessions**: spawn_agent, temper_spawn_session, temper_steer_session work
-- **Cedar authorization**: policies enforce who can do what
+- **Paw itself is a Temper app** — the agent, its soul, skills, memory, and sessions are all Temper entities with state machines and Cedar policies (`paw-agent`)
+- **Governed filesystem** — agents read and write files through Temper with authorization checks (`paw-fs`)
+- **Project management** — issues and plans tracked as Temper entities so agents can manage work (`paw-pm`)
+- **Probes and projections** — agents simulate outcomes before acting (`paw-foresight`)
+- **Discord messaging** — Paw boots, connects to Discord, runs conversations, spawns agents with cloud computers
+- **Web research** — agents search the web and fetch pages
+- **Cedar authorization** — policies enforce who can do what across all apps
 
 ## Next Steps
 
