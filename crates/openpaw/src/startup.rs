@@ -36,6 +36,10 @@ const PAW_OS_APPS: &[&str] = &[
     "paw-ingest",
     "paw-research",
     "paw-foresight",
+    // Kotowari teaching platform apps
+    "koto-learn",
+    "koto-tutor",
+    "koto-wiki",
     // Deep Sci-Fi reference apps (registered via add_os_apps_dir)
     "dsf-harness",
 ];
