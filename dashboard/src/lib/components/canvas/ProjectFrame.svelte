@@ -3,7 +3,7 @@
 
   let { data }: { data: ProjectNodeData } = $props();
 
-  let projectName = $derived(data.team.name.replace(/\s*Team$/i, ''));
+  let projectName = $derived((data.team.name || '').replace(/\s*Team$/i, ''));
   let activeWc = $derived(data.workCycles.filter(wc => !['Completed', 'Cancelled'].includes(wc.Status)));
 </script>
 

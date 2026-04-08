@@ -80,6 +80,10 @@ const ago = (ms: number) => new Date(now - ms).toISOString();
 
 export const MOCK_ENTITIES: MockEntity[] = [
 
+  // ──── paw-agent: Projects ────
+  { Id: 'proj-dsf', Status: 'Active', _entity_type: 'Project', _app: 'paw-agent', fields: { name: 'Deep Sci-Fi', description: 'AI agent team for the Deep Sci-Fi social platform', owner_agent_id: 'agent-ren', app_ids: 'paw-harness,paw-heal,paw-pm,paw-foresight' }, _events: [], _sequence_nr: 1 },
+  { Id: 'proj-koto', Status: 'Active', _entity_type: 'Project', _app: 'paw-agent', fields: { name: 'Kotowari', description: 'AI teaching platform — adaptive learning', owner_agent_id: 'agent-sensei', app_ids: 'paw-pm' }, _events: [], _sequence_nr: 1 },
+
   // ──── paw-agent: Souls ────
   { Id: 'soul-paw', Status: 'Active', _entity_type: 'Soul', _app: 'paw-agent', fields: { Name: 'Paw', Description: 'Chief of staff — creates project leads, coordinates teams' }, _events: [], _sequence_nr: 2 },
   { Id: 'soul-swe', Status: 'Active', _entity_type: 'Soul', _app: 'paw-agent', fields: { Name: 'SWE', Description: 'Software engineer agent' }, _events: [], _sequence_nr: 2 },
@@ -89,14 +93,14 @@ export const MOCK_ENTITIES: MockEntity[] = [
   { Id: 'soul-ren', Status: 'Active', _entity_type: 'Soul', _app: 'paw-agent', fields: { Name: 'Ren', Description: 'Product lead for Deep Sci-Fi (INTP)' }, _events: [], _sequence_nr: 2 },
 
   // ──── paw-agent: Skills ────
-  { Id: 'skill-openpaw-agent', Status: 'Active', _entity_type: 'Skill', _app: 'paw-agent', fields: { name: 'openpaw-agent', description: 'Platform operating manual', scope: 'global' }, _events: [], _sequence_nr: 2 },
-  { Id: 'skill-platform-awareness', Status: 'Active', _entity_type: 'Skill', _app: 'paw-agent', fields: { name: 'platform-awareness', description: 'Entity type discovery', scope: 'global' }, _events: [], _sequence_nr: 2 },
-  { Id: 'skill-swe-conv', Status: 'Active', _entity_type: 'Skill', _app: 'paw-agent', fields: { name: 'swe-conventions', description: 'SWE coding conventions', scope: 'SWE' }, _events: [], _sequence_nr: 2 },
-  { Id: 'skill-sre-mon', Status: 'Active', _entity_type: 'Skill', _app: 'paw-agent', fields: { name: 'sre-monitoring', description: 'Datadog monitoring and alert triage', scope: 'SRE' }, _events: [], _sequence_nr: 2 },
-  { Id: 'skill-design', Status: 'Active', _entity_type: 'Skill', _app: 'paw-agent', fields: { name: 'design-system', description: 'Neo-editorial design tokens', scope: 'Design' }, _events: [], _sequence_nr: 2 },
+  { Id: 'skill-openpaw-agent', Status: 'Active', _entity_type: 'Skill', _app: 'paw-agent', fields: { name: 'openpaw-agent', description: 'Platform operating manual', scope: 'global', project_id: '' }, _events: [], _sequence_nr: 2 },
+  { Id: 'skill-platform-awareness', Status: 'Active', _entity_type: 'Skill', _app: 'paw-agent', fields: { name: 'platform-awareness', description: 'Entity type discovery', scope: 'global', project_id: '' }, _events: [], _sequence_nr: 2 },
+  { Id: 'skill-swe-conv', Status: 'Active', _entity_type: 'Skill', _app: 'paw-agent', fields: { name: 'swe-conventions', description: 'SWE coding conventions', scope: 'SWE', project_id: 'proj-dsf' }, _events: [], _sequence_nr: 2 },
+  { Id: 'skill-sre-mon', Status: 'Active', _entity_type: 'Skill', _app: 'paw-agent', fields: { name: 'sre-monitoring', description: 'Datadog monitoring and alert triage', scope: 'SRE', project_id: 'proj-dsf' }, _events: [], _sequence_nr: 2 },
+  { Id: 'skill-design', Status: 'Active', _entity_type: 'Skill', _app: 'paw-agent', fields: { name: 'design-system', description: 'Neo-editorial design tokens', scope: 'Design', project_id: 'proj-dsf' }, _events: [], _sequence_nr: 2 },
 
   // ──── paw-agent: Team ────
-  { Id: 'team-dsf', Status: 'Active', _entity_type: 'Team', _app: 'paw-agent', fields: { name: 'Deep Sci-Fi Team', description: '7-role AI agent team', harness_id: 'harness-dsf' }, _events: [], _sequence_nr: 2 },
+  { Id: 'team-dsf', Status: 'Active', _entity_type: 'Team', _app: 'paw-agent', fields: { name: 'Deep Sci-Fi Team', description: '7-role AI agent team', harness_id: 'harness-dsf', project_id: 'proj-dsf' }, _events: [], _sequence_nr: 2 },
 
   // ──── paw-agent: Agents ────
   { Id: 'agent-ren', Status: 'Active', _entity_type: 'Agent', _app: 'paw-agent', fields: { name: 'Ren', role: 'Lead', soul_id: 'soul-ren', team_id: 'team-dsf', model: 'claude-sonnet-4-20250514', provider: 'anthropic', tools_enabled: 'bash,edit,write,read,temper_action' }, _events: [], _sequence_nr: 3 },
@@ -108,7 +112,7 @@ export const MOCK_ENTITIES: MockEntity[] = [
   { Id: 'agent-dstreview', Status: 'Active', _entity_type: 'Agent', _app: 'paw-agent', fields: { name: 'DSTReviewer', role: 'DSTReviewer', soul_id: '', team_id: 'team-dsf', model: 'claude-sonnet-4-20250514', provider: 'anthropic' }, _events: [], _sequence_nr: 3 },
 
   // ──── paw-agent: Sessions (ACTIVE WORK) ────
-  { Id: 'sess-swe-1', Status: 'Executing', _entity_type: 'Session', _app: 'paw-agent', fields: { agent_id: 'agent-swe', soul_id: 'soul-swe', model: 'claude-sonnet-4-20250514', turn_count: 14, last_heartbeat_at: ago(30000), user_message: 'Implement the world proposal voting endpoint. Follow SWE conventions. Create migration, endpoint, tests. Report gates.', pending_decision_id: '' }, _events: [
+  { Id: 'sess-swe-1', Status: 'Executing', _entity_type: 'Session', _app: 'paw-agent', fields: { agent_id: 'agent-swe', soul_id: 'soul-swe', project_id: 'proj-dsf', model: 'claude-sonnet-4-20250514', turn_count: 14, last_heartbeat_at: ago(30000), user_message: 'Implement the world proposal voting endpoint. Follow SWE conventions. Create migration, endpoint, tests. Report gates.', pending_decision_id: '' }, _events: [
     { action: 'ProcessToolCalls', from_status: 'Thinking', to_status: 'Executing', timestamp: ago(500000), params: { input_tokens: 4200, output_tokens: 180, pending_tool_calls: '[{"name":"bash","input":{"command":"alembic revision --autogenerate -m \\"add world_proposals\\""}}]' } },
     { action: 'ProcessToolCalls', from_status: 'Thinking', to_status: 'Executing', timestamp: ago(400000), params: { input_tokens: 6800, output_tokens: 320, pending_tool_calls: '[{"name":"write","input":{"file_path":"platform/backend/app/api/proposals.py"}}]' } },
     { action: 'ProcessToolCalls', from_status: 'Thinking', to_status: 'Executing', timestamp: ago(300000), params: { input_tokens: 8900, output_tokens: 250, pending_tool_calls: '[{"name":"write","input":{"file_path":"platform/backend/tests/test_proposals.py"}}]' } },
@@ -117,23 +121,23 @@ export const MOCK_ENTITIES: MockEntity[] = [
     { action: 'ProcessToolCalls', from_status: 'Thinking', to_status: 'Executing', timestamp: ago(30000), params: { input_tokens: 15800, output_tokens: 180, pending_tool_calls: '[{"name":"bash","input":{"command":"bun run typecheck"}}]' } },
   ], _sequence_nr: 29 },
 
-  { Id: 'sess-sre-1', Status: 'Thinking', _entity_type: 'Session', _app: 'paw-agent', fields: { agent_id: 'agent-sre', soul_id: 'soul-sre', model: 'claude-sonnet-4-20250514', turn_count: 6, last_heartbeat_at: ago(15000), user_message: 'Alert: error_rate_5xx crossed 5% threshold. Triage and fix.', pending_decision_id: '' }, _events: [
+  { Id: 'sess-sre-1', Status: 'Thinking', _entity_type: 'Session', _app: 'paw-agent', fields: { agent_id: 'agent-sre', soul_id: 'soul-sre', project_id: 'proj-dsf', model: 'claude-sonnet-4-20250514', turn_count: 6, last_heartbeat_at: ago(15000), user_message: 'Alert: error_rate_5xx crossed 5% threshold. Triage and fix.', pending_decision_id: '' }, _events: [
     { action: 'ProcessToolCalls', from_status: 'Thinking', to_status: 'Executing', timestamp: ago(200000), params: { input_tokens: 3800, output_tokens: 120, pending_tool_calls: '[{"name":"bash","input":{"command":"curl -s https://api.datadoghq.com/api/v1/query..."}}]' } },
     { action: 'ProcessToolCalls', from_status: 'Thinking', to_status: 'Executing', timestamp: ago(100000), params: { input_tokens: 5200, output_tokens: 90, pending_tool_calls: '[{"name":"bash","input":{"command":"railway logs --project deep-sci-fi --last 50"}}]' } },
     { action: 'ProcessToolCalls', from_status: 'Thinking', to_status: 'Executing', timestamp: ago(15000), params: { input_tokens: 7600, output_tokens: 200, pending_tool_calls: '[{"name":"temper_action","input":{"entity_set":"AlertCycles","entity_id":"alert-1","action":"RecordDiagnosis"}}]' } },
   ], _sequence_nr: 13 },
 
-  { Id: 'sess-ren-1', Status: 'WaitingForApproval', _entity_type: 'Session', _app: 'paw-agent', fields: { agent_id: 'agent-ren', soul_id: 'soul-ren', model: 'claude-sonnet-4-20250514', turn_count: 8, last_heartbeat_at: ago(60000), user_message: 'Review work cycle WC-42. Check tests, review PR, approve or request changes.', pending_decision_id: 'pd-123', pending_tool_context: 'Awaiting Cedar approval to merge PR #47' }, _events: [], _sequence_nr: 17 },
+  { Id: 'sess-ren-1', Status: 'WaitingForApproval', _entity_type: 'Session', _app: 'paw-agent', fields: { agent_id: 'agent-ren', soul_id: 'soul-ren', project_id: 'proj-dsf', model: 'claude-sonnet-4-20250514', turn_count: 8, last_heartbeat_at: ago(60000), user_message: 'Review work cycle WC-42. Check tests, review PR, approve or request changes.', pending_decision_id: 'pd-123', pending_tool_context: 'Awaiting Cedar approval to merge PR #47' }, _events: [], _sequence_nr: 17 },
 
   { Id: 'sess-probe-1', Status: 'Completed', _entity_type: 'Session', _app: 'paw-agent', fields: { agent_id: '', soul_id: 'Probe', turn_count: 9, last_heartbeat_at: ago(3600000), result: '5 observations about content moderation scaling', user_message: 'Project forward: What happens to world coherence as proposals scale beyond 10K?', parent_session_id: 'sess-projection-1' }, _events: [], _sequence_nr: 19 },
   { Id: 'sess-probe-2', Status: 'Completed', _entity_type: 'Session', _app: 'paw-agent', fields: { agent_id: '', soul_id: 'Probe', turn_count: 7, last_heartbeat_at: ago(3500000), result: '4 observations about real-time collaboration bottlenecks', user_message: 'Project forward: How does foresight viz perform under 50+ concurrent users?', parent_session_id: 'sess-projection-1' }, _events: [], _sequence_nr: 15 },
 
   // ──── Kotowari project ────
-  { Id: 'team-koto', Status: 'Active', _entity_type: 'Team', _app: 'paw-agent', fields: { name: 'Kotowari Team', description: 'AI teaching platform — adaptive learning', harness_id: '' }, _events: [], _sequence_nr: 2 },
+  { Id: 'team-koto', Status: 'Active', _entity_type: 'Team', _app: 'paw-agent', fields: { name: 'Kotowari Team', description: 'AI teaching platform — adaptive learning', harness_id: '', project_id: 'proj-koto' }, _events: [], _sequence_nr: 2 },
   { Id: 'agent-sensei', Status: 'Active', _entity_type: 'Agent', _app: 'paw-agent', fields: { name: 'Sensei', role: 'Instructor', soul_id: '', team_id: 'team-koto', model: 'claude-sonnet-4-20250514', provider: 'anthropic', tools_enabled: 'bash,write,read,temper_action' }, _events: [], _sequence_nr: 3 },
   { Id: 'agent-curator', Status: 'Active', _entity_type: 'Agent', _app: 'paw-agent', fields: { name: 'Curator', role: 'Content', soul_id: '', team_id: 'team-koto', model: 'claude-sonnet-4-20250514', provider: 'anthropic', tools_enabled: 'bash,read,temper_action' }, _events: [], _sequence_nr: 3 },
   { Id: 'agent-assessor', Status: 'Active', _entity_type: 'Agent', _app: 'paw-agent', fields: { name: 'Assessor', role: 'Testing', soul_id: '', team_id: 'team-koto', model: 'claude-sonnet-4-20250514', provider: 'anthropic', tools_enabled: 'bash,read,temper_action' }, _events: [], _sequence_nr: 3 },
-  { Id: 'sess-sensei-1', Status: 'Executing', _entity_type: 'Session', _app: 'paw-agent', fields: { agent_id: 'agent-sensei', soul_id: '', model: 'claude-sonnet-4-20250514', turn_count: 5, last_heartbeat_at: ago(20000), user_message: 'Build lesson 3: introduction to recursion with visual tree diagrams', pending_decision_id: '' }, _events: [
+  { Id: 'sess-sensei-1', Status: 'Executing', _entity_type: 'Session', _app: 'paw-agent', fields: { agent_id: 'agent-sensei', soul_id: '', project_id: 'proj-koto', model: 'claude-sonnet-4-20250514', turn_count: 5, last_heartbeat_at: ago(20000), user_message: 'Build lesson 3: introduction to recursion with visual tree diagrams', pending_decision_id: '' }, _events: [
     { action: 'ProcessToolCalls', from_status: 'Thinking', to_status: 'Executing', timestamp: ago(100000), params: { input_tokens: 3200, output_tokens: 280, pending_tool_calls: '[{"name":"write","input":{"file_path":"lessons/03-recursion/content.md"}}]' } },
     { action: 'ProcessToolCalls', from_status: 'Thinking', to_status: 'Executing', timestamp: ago(60000), params: { input_tokens: 4800, output_tokens: 190, pending_tool_calls: '[{"name":"temper_action","input":{"entity_set":"Concepts","entity_id":"concept-recursion","action":"LinkPrerequisite"}}]' } },
     { action: 'ProcessToolCalls', from_status: 'Thinking', to_status: 'Executing', timestamp: ago(20000), params: { input_tokens: 6100, output_tokens: 150, pending_tool_calls: '[{"name":"write","input":{"file_path":"lessons/03-recursion/exercises.md"}}]' } },

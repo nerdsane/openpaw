@@ -10,7 +10,7 @@
   import { fetchAgentSessions } from '$lib/stores/agents';
   import { queryEntities, queryTeams, queryAgentsForTeam } from '$lib/api';
   import type { Node, Edge, NodeTypes } from '@xyflow/svelte';
-  import type { Team, Agent, Session, Soul, Skill, Harness, WorkCycle } from '$lib/types';
+  import type { Project, Team, Agent, Session, Soul, Skill, Harness, WorkCycle } from '$lib/types';
   import { MOCK_ENTITIES, entitiesOfType } from '$lib/mock-data';
   import { parsePendingToolCalls, formatToolInput, computeMetrics } from '$lib/parse';
   import StatusBadge from '$lib/components/StatusBadge.svelte';
@@ -66,6 +66,7 @@
 
   /** Convert mock entities to the shapes buildCanvasGraph expects */
   function loadFromMock() {
+    const projects = entitiesOfType('Project').map(e => ({ ...e.fields, Id: e.Id, Status: e.Status }) as unknown as Project);
     const teams = entitiesOfType('Team').map(e => ({ ...e.fields, Id: e.Id, Status: e.Status }) as unknown as Team);
     const souls = entitiesOfType('Soul').map(e => ({ ...e.fields, Id: e.Id, Status: e.Status }) as unknown as Soul);
     const skills = entitiesOfType('Skill').map(e => ({ ...e.fields, Id: e.Id, Status: e.Status }) as unknown as Skill);
@@ -79,13 +80,14 @@
       agentsMap[t.Id] = agents.filter(a => (a as any).team_id === t.Id);
     }
 
-    return { teams, agents: agentsMap, sessions, souls, skills, harnesses, workCycles };
+    return { projects, teams, agents: agentsMap, sessions, souls, skills, harnesses, workCycles };
   }
 
   onMount(async () => {
     try {
       // Try real API first
-      const [teamsRaw, sessionsRaw, soulsRaw, skillsRaw, harnessesRaw, workCyclesRaw] = await Promise.all([
+      const [projectsRaw, teamsRaw, sessionsRaw, soulsRaw, skillsRaw, harnessesRaw, workCyclesRaw] = await Promise.all([
+        queryEntities('Projects').catch(() => []),
         queryTeams().catch(() => []),
         queryEntities('Sessions', undefined, 'Id desc', 100).catch(() => []),
         queryEntities('Souls').catch(() => []),
@@ -94,6 +96,7 @@
         queryEntities('WorkCycles').catch(() => []),
       ]);
 
+      const projects = projectsRaw as unknown as Project[];
       const teams = teamsRaw as unknown as Team[];
       const sessions = (sessionsRaw as unknown as Session[]).filter(s => s.agent_id || s.soul_id);
       const souls = soulsRaw as unknown as Soul[];
@@ -101,8 +104,8 @@
       const harnesses = harnessesRaw as unknown as Harness[];
       const workCycles = workCyclesRaw as unknown as WorkCycle[];
 
-      // Use real data only if there's actual project structure (teams + agents)
-      const hasData = teams.length > 0;
+      // Use real data only if there are projects
+      const hasData = projects.length > 0;
 
       if (hasData) {
         const agentsMap: Record<string, Agent[]> = {};
@@ -113,7 +116,7 @@
             agentsMap[team.Id] = teamAgents as unknown as Agent[];
           } catch {}
         }));
-        buildCanvasGraph({ teams, agents: agentsMap, sessions, souls, skills, harnesses, workCycles });
+        buildCanvasGraph({ projects, teams, agents: agentsMap, sessions, souls, skills, harnesses, workCycles });
       } else {
         // Fall back to mock data for UI development
         usingMock = true;

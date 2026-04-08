@@ -2161,20 +2161,23 @@ fn assemble_system_prompt(
         }
     }
 
-    // 3. Available skills (filtered by scope: global + soul-specific + agent-specific)
+    // 3. Available skills (filtered by project_id + agent-specific skill_ids)
     {
-        let agent_id = ctx
-            .entity_state
-            .get("fields")
+        let fields_val = ctx.entity_state.get("fields");
+        let agent_id = fields_val
             .and_then(|f| f.get("agent_id").or_else(|| f.get("AgentId")))
             .and_then(|v| v.as_str())
             .unwrap_or("");
-        let agent_name = if !agent_id.is_empty() {
-            resolve_agent_name(ctx, temper_api_url, tenant, agent_id).unwrap_or_default()
+        let project_id = fields_val
+            .and_then(|f| f.get("project_id").or_else(|| f.get("ProjectId")))
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let agent_skill_ids = if !agent_id.is_empty() {
+            resolve_agent_skill_ids(ctx, temper_api_url, tenant, agent_id).unwrap_or_default()
         } else {
             String::new()
         };
-        match load_skills_block(ctx, temper_api_url, tenant, soul_id, &agent_name) {
+        match load_skills_block(ctx, temper_api_url, tenant, project_id, &agent_skill_ids) {
             Ok(block) if !block.is_empty() => parts.push(block),
             Ok(_) => {}
             Err(e) => ctx.log(
@@ -2365,62 +2368,59 @@ fn resolve_soul_entity(
 
 /// Load active skills as an XML block for the system prompt.
 ///
-/// Skills are loaded for ALL agents (not gated on soul_id). Scope filtering
-/// includes global skills, plus skills scoped to the soul name or agent name.
+/// Skills are scoped by project_id: loads skills where project_id is empty
+/// (global) or matches the session's project_id. Agent-specific skills
+/// (from the agent's skill_ids field) are loaded separately and merged.
 fn load_skills_block(
     ctx: &Context,
     temper_api_url: &str,
     tenant: &str,
-    soul_id: &str,
-    agent_name: &str,
+    project_id: &str,
+    agent_skill_ids: &str,
 ) -> Result<String, String> {
     let headers = agent_headers(ctx, tenant, None, Some("application/json"));
 
-    // Resolve the soul name for scope matching
-    let soul_name = if !soul_id.is_empty() {
-        match resolve_soul_entity(ctx, temper_api_url, tenant, soul_id) {
-            Ok(soul) => entity_field_str(&soul, &["Name"])
-                .unwrap_or(soul_id)
-                .to_string(),
-            Err(_) => soul_id.to_string(),
-        }
+    // Build project-scoped filter: global (empty project_id) + matching project_id
+    let filter = if !project_id.is_empty() {
+        let escaped = project_id.replace('\'', "''");
+        format!(
+            "Status eq 'Active' and (project_id eq '' or project_id eq '{escaped}')"
+        )
     } else {
-        String::new()
+        "Status eq 'Active' and project_id eq ''".to_string()
     };
-
-    // Build scope filter: global + soul name + agent name
-    let mut scope_parts = vec!["Scope eq 'global'".to_string()];
-    if !soul_name.is_empty() {
-        let escaped = soul_name.replace('\'', "''");
-        scope_parts.push(format!("Scope eq '{escaped}'"));
-    }
-    if !agent_name.is_empty() {
-        let escaped = agent_name.replace('\'', "''");
-        scope_parts.push(format!("Scope eq '{escaped}'"));
-    }
-    let filter = format!(
-        "Status eq 'Active' and ({})",
-        scope_parts.join(" or ")
-    );
     let url = format!("{temper_api_url}/tdata/Skills?$filter={filter}");
     let resp = ctx.http_call("GET", &url, &headers, "")?;
 
-    // If parenthesized OR isn't supported, fall back to separate queries merged client-side
-    let skills = if resp.status == 200 {
+    let mut seen_ids = BTreeSet::new();
+    let mut skills: Vec<Value> = if resp.status == 200 {
         let parsed: Value = serde_json::from_str(&resp.body).unwrap_or(json!({}));
-        parsed
+        let items = parsed
             .get("value")
             .and_then(|v| v.as_array())
             .cloned()
-            .unwrap_or_default()
+            .unwrap_or_default();
+        for item in &items {
+            let id = entity_field_str(item, &["Id", "entity_id"])
+                .unwrap_or("")
+                .to_string();
+            seen_ids.insert(id);
+        }
+        items
     } else {
-        // Fallback: separate queries merged client-side
+        // Fallback: try without parenthesized OR
         let mut merged = Vec::new();
-        let mut seen_ids = BTreeSet::new();
-        for scope_filter in &scope_parts {
-            let fallback_url = format!(
-                "{temper_api_url}/tdata/Skills?$filter=Status eq 'Active' and {scope_filter}"
-            );
+        let fallback_filters = if !project_id.is_empty() {
+            let escaped = project_id.replace('\'', "''");
+            vec![
+                "Status eq 'Active' and project_id eq ''".to_string(),
+                format!("Status eq 'Active' and project_id eq '{escaped}'"),
+            ]
+        } else {
+            vec!["Status eq 'Active' and project_id eq ''".to_string()]
+        };
+        for f in &fallback_filters {
+            let fallback_url = format!("{temper_api_url}/tdata/Skills?$filter={f}");
             if let Ok(r) = ctx.http_call("GET", &fallback_url, &headers, "") {
                 if r.status == 200 {
                     if let Ok(p) = serde_json::from_str::<Value>(&r.body) {
@@ -2440,6 +2440,26 @@ fn load_skills_block(
         }
         merged
     };
+
+    // Load agent-specific skills by their IDs and merge
+    if !agent_skill_ids.is_empty() {
+        for raw_id in agent_skill_ids.split(',') {
+            let skill_id = raw_id.trim();
+            if skill_id.is_empty() || !seen_ids.insert(skill_id.to_string()) {
+                continue;
+            }
+            let escaped = skill_id.replace('\'', "''");
+            let skill_url =
+                format!("{temper_api_url}/tdata/Skills('{escaped}')");
+            if let Ok(r) = ctx.http_call("GET", &skill_url, &headers, "") {
+                if r.status == 200 {
+                    if let Ok(skill) = serde_json::from_str::<Value>(&r.body) {
+                        skills.push(skill);
+                    }
+                }
+            }
+        }
+    }
 
     if skills.is_empty() {
         return Ok(String::new());
@@ -2505,6 +2525,26 @@ fn resolve_agent_name(
     let agent: Value =
         serde_json::from_str(&resp.body).map_err(|e| format!("parse agent JSON: {e}"))?;
     Ok(entity_field_str(&agent, &["Name", "name"])
+        .unwrap_or("")
+        .to_string())
+}
+
+/// Resolve an Agent entity's skill_ids (comma-separated) by ID.
+fn resolve_agent_skill_ids(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+    agent_id: &str,
+) -> Result<String, String> {
+    let headers = agent_headers(ctx, tenant, None, Some("application/json"));
+    let url = format!("{temper_api_url}/tdata/Agents('{agent_id}')");
+    let resp = ctx.http_call("GET", &url, &headers, "")?;
+    if resp.status != 200 {
+        return Ok(String::new());
+    }
+    let agent: Value =
+        serde_json::from_str(&resp.body).map_err(|e| format!("parse agent JSON: {e}"))?;
+    Ok(entity_field_str(&agent, &["SkillIds", "skill_ids"])
         .unwrap_or("")
         .to_string())
 }

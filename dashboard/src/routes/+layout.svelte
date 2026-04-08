@@ -3,21 +3,21 @@
   import { onMount } from 'svelte';
   import PawLogo from '$lib/components/PawLogo.svelte';
   import ThemeToggle from '$lib/components/ThemeToggle.svelte';
-  import { queryTeams } from '$lib/api';
-  import type { Team } from '$lib/types';
+  import { queryEntities } from '$lib/api';
+  import type { Project } from '$lib/types';
   import { page } from '$app/stores';
 
   let { children } = $props();
   let collapsed = $state(false);
   let projectsOpen = $state(true);
-  let teams = $state<Team[]>([]);
+  let projects = $state<Project[]>([]);
 
   let isCanvas = $derived($page.url.pathname === '/');
 
   onMount(async () => {
     try {
-      const data = await queryTeams();
-      teams = data as unknown as Team[];
+      const data = await queryEntities('Projects');
+      projects = data as unknown as Project[];
     } catch {}
   });
 </script>
@@ -65,12 +65,12 @@
         {#if projectsOpen}
           <div class="tree">
             <a href="/?focus=platform" class="tree-item tree-item--dim">Platform</a>
-            {#each teams as team (team.Id)}
-              <a href="/?focus=project&id={team.Id}" class="tree-item">
-                {(team.name || 'Unnamed').replace(/ Team$/i, '')}
+            {#each projects as project (project.Id)}
+              <a href="/?focus=project&id={project.Id}" class="tree-item">
+                {project.name || 'Unnamed'}
               </a>
             {/each}
-            {#if teams.length === 0}
+            {#if projects.length === 0}
               <span class="tree-item tree-item--empty">No projects</span>
             {/if}
           </div>

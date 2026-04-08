@@ -6,7 +6,7 @@
 
 import { writable } from 'svelte/store';
 import type { Node, Edge } from '@xyflow/svelte';
-import type { Team, Agent, Session, Skill, Soul, Harness, WorkCycle } from '$lib/types';
+import type { Project, Team, Agent, Session, Skill, Soul, Harness, WorkCycle } from '$lib/types';
 import type { CanvasNodeData } from '$lib/canvas-types';
 import { LAYOUT } from '$lib/canvas-types';
 
@@ -18,12 +18,9 @@ export const focusTarget = writable<{ type: string; id: string } | null>(null);
 
 const TERMINAL_STATUSES = ['Completed', 'Failed', 'Cancelled'];
 
-// Known apps per project — in practice this would come from the API
-const PROJECT_APPS: Record<string, string[]> = {
-  'default': ['paw-agent', 'paw-harness', 'paw-heal', 'paw-foresight', 'paw-pm', 'paw-fs'],
-};
 
 export function buildCanvasGraph(data: {
+  projects: Project[];
   teams: Team[];
   agents: Record<string, Agent[]>;
   sessions: Session[];
@@ -37,13 +34,32 @@ export function buildCanvasGraph(data: {
 
   let projectY = LAYOUT.PROJECT_START_Y;
 
-  for (const team of data.teams) {
-    const teamAgents = data.agents[team.Id] ?? [];
-    const projectId = `project-${team.Id}`;
+  for (const project of data.projects) {
+    // Find teams belonging to this project
+    const projectTeams = data.teams.filter(t => (t as any).project_id === project.Id);
+    // Collect all agents across all teams in this project
+    const allProjectAgents: Agent[] = [];
+    for (const team of projectTeams) {
+      const teamAgents = data.agents[team.Id] ?? [];
+      allProjectAgents.push(...teamAgents);
+    }
+    // If no teams found, try matching by name convention
+    if (allProjectAgents.length === 0) {
+      for (const team of data.teams) {
+        const teamAgents = data.agents[team.Id] ?? [];
+        allProjectAgents.push(...teamAgents);
+      }
+    }
 
-    const harness = data.harnesses.find(h =>
-      h.Id === (team as any).harness_id
-    ) ?? data.harnesses[0] ?? null;
+    const teamAgents = allProjectAgents;
+    const projectNodeId = `project-${project.Id}`;
+
+    // Find harness for this project's teams
+    const harness = data.harnesses.find(h => {
+      return projectTeams.some(t => (t as any).harness_id === h.Id);
+    }) ?? data.harnesses[0] ?? null;
+
+    const apps = (project.app_ids || '').split(',').filter(Boolean);
 
     // Separate active vs idle agents
     const activeAgentsWithSessions: Array<{ agent: Agent; session: Session }> = [];
@@ -64,15 +80,13 @@ export function buildCanvasGraph(data: {
     const idleBlockHeight = idleAgents.length > 0 ? LAYOUT.IDLE_HEIGHT + LAYOUT.IDLE_GAP : 0;
     const frameHeight = LAYOUT.PROJECT_HEADER_HEIGHT + activityBlockHeight + idleBlockHeight + LAYOUT.PROJECT_FOOTER_HEIGHT + 16;
 
-    const apps = PROJECT_APPS['default'] ?? [];
-
     nodes.push({
-      id: projectId,
+      id: projectNodeId,
       type: 'project',
       position: { x: LAYOUT.PROJECT_START_X, y: projectY },
       data: {
         type: 'project',
-        team,
+        team: projectTeams[0] ?? { Id: project.Id, Status: project.Status, name: project.name, description: project.description, harness_id: '', project_id: project.Id } as any,
         harness,
         agentCount: teamAgents.length,
         activeCount: activeAgentsWithSessions.length,
@@ -112,7 +126,7 @@ export function buildCanvasGraph(data: {
           skills: agentSkills,
           tools,
         },
-        parentId: projectId,
+        parentId: projectNodeId,
         extent: 'parent' as const,
         style: `width: ${LAYOUT.ACTIVITY_WIDTH}px; height: ${LAYOUT.ACTIVITY_HEIGHT}px;`,
       });
@@ -131,7 +145,7 @@ export function buildCanvasGraph(data: {
           type: 'idleGroup',
           agents: idleAgents,
         },
-        parentId: projectId,
+        parentId: projectNodeId,
         extent: 'parent' as const,
         style: `width: ${LAYOUT.ACTIVITY_WIDTH}px; height: ${LAYOUT.IDLE_HEIGHT}px;`,
       });

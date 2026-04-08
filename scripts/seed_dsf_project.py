@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Seed the Deep Sci-Fi project: one Harness, Ren's Soul, six Skills, and ToolHooks.
+"""Seed the Deep Sci-Fi project: Project, Harness, Ren's Soul, six Skills, and ToolHooks.
 
 This script is idempotent — it checks for existing entities before creating new
 ones.  It reads skill and soul content from reference-projects/deep-sci-fi/.
@@ -131,6 +131,31 @@ def upload_file(client: ODataClient, name: str, content: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+def seed_project(client: ODataClient) -> str:
+    """Create or find the Deep Sci-Fi Project. Returns its entity ID."""
+    existing = find_by_name(client, "Projects", "Deep Sci-Fi")
+    if existing:
+        pid = entity_id(existing)
+        print(f"  [exists] Project 'Deep Sci-Fi' ({pid})")
+        return pid
+
+    project = client.create("Projects")
+    pid = entity_id(project)
+    client.action(
+        "Projects",
+        pid,
+        "OpenPaw.Configure",
+        {
+            "name": "Deep Sci-Fi",
+            "description": "AI agent team for the Deep Sci-Fi social platform",
+            "owner_agent_id": "",  # set later when Ren is created
+            "app_ids": "paw-harness,paw-heal,paw-pm,paw-foresight",
+        },
+    )
+    print(f"  [created] Project 'Deep Sci-Fi' ({pid})")
+    return pid
+
+
 def seed_harness(client: ODataClient) -> str:
     """Create or find the deep-sci-fi Harness. Returns its entity ID."""
     existing = find_harness_by_repo(client, REPO_URL)
@@ -192,7 +217,7 @@ def seed_soul(client: ODataClient) -> str:
     return sid
 
 
-def seed_skill(client: ODataClient, skill_def: dict) -> str:
+def seed_skill(client: ODataClient, skill_def: dict, project_id: str) -> str:
     """Create or find a Skill entity. Returns its entity ID."""
     name = skill_def["name"]
     existing = find_by_name(client, "Skills", name)
@@ -220,6 +245,7 @@ def seed_skill(client: ODataClient, skill_def: dict) -> str:
             "scope": skill_def["agent_filter"] if skill_def.get("agent_filter") else "global",
             "agent_filter": skill_def["agent_filter"],
             "content_file_id": file_id,
+            "project_id": project_id,
         },
     )
     print(f"  [created] Skill '{name}' ({skid})")
@@ -275,7 +301,7 @@ def seed_tool_hooks(client: ODataClient) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Seed the Deep Sci-Fi project: Harness, Soul, Skills, ToolHooks."
+        description="Seed the Deep Sci-Fi project: Project, Harness, Soul, Skills, ToolHooks."
     )
     parser.add_argument(
         "--base-url",
@@ -293,20 +319,25 @@ def main() -> None:
 
     print("=== Seeding Deep Sci-Fi Project ===\n")
 
-    print("1. Harness")
+    print("1. Project")
+    project_id = seed_project(client)
+
+    print("\n2. Harness")
     harness_id = seed_harness(client)
 
-    print("\n2. Soul (Ren)")
-    seed_soul(client)
+    print("\n3. Soul (Ren)")
+    soul_id = seed_soul(client)
+    # NOTE: Team creation is not yet in this script. When added, pass project_id
+    # to associate the Team with the Project (e.g., Configure with project_id).
 
-    print("\n3. Skills")
+    print("\n4. Skills")
     for skill_def in SKILLS:
-        seed_skill(client, skill_def)
+        seed_skill(client, skill_def, project_id)
 
-    print("\n4. ToolHooks")
+    print("\n5. ToolHooks")
     seed_tool_hooks(client)
 
-    print(f"\nDone. Harness ID: {harness_id}")
+    print(f"\nDone. Project ID: {project_id}, Harness ID: {harness_id}")
 
 
 if __name__ == "__main__":
