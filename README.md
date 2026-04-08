@@ -21,9 +21,9 @@ The CLI walks you through everything: API key, Discord/Slack, and personalizing 
 ### Already set up?
 
 ```bash
-openpaw setup    # reconfigure or personalize Paw
-openpaw doctor   # check what's configured
-openpaw          # start the server
+cargo run -- setup    # reconfigure or personalize Paw
+cargo run -- doctor   # check what's configured
+cargo run             # start the server
 ```
 
 ## Architecture
