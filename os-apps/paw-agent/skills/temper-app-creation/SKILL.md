@@ -16,6 +16,8 @@ An app is a governed bundle that gives you new entity types, actions, integratio
 my-app/
   app.toml              # Identity: name, version, dependencies
   APP.md                # What the app does (human documentation)
+  adrs/                 # Architecture Decision Records (why this design exists)
+    001-initial-design.md
   specs/
     entity.ioa.toml     # State machines (one per entity type)
     model.csdl.xml      # OData data model (entity types, properties, actions)
@@ -64,6 +66,104 @@ Pattern:
 
 Temper's blob-backed overflow protection is a safety net for accidental large field values. It is **not** the preferred app design for document storage.
 
+## Recording design decisions
+
+Apps should carry their own decision trail.
+
+Specs, policies, and WASM define what an app does. ADRs explain why the app is
+shaped that way so later humans and agents can evolve it without reconstructing
+intent from diffs or chat logs.
+
+Write ADRs when:
+
+- you create a new app: at least one ADR covering entity types and state machine design
+- you make a significant change: one ADR per meaningful design decision
+- you change policy posture, reaction flow, or app dependencies
+
+Keep ADRs in `adrs/` with zero-padded filenames:
+
+```text
+adrs/
+  001-initial-design.md
+  002-approval-routing.md
+```
+
+Template:
+
+```markdown
+# ADR-NNN: {Title}
+
+**Status:** {Proposed | Accepted | Superseded by ADR-NNN}
+**Scope:** {entity-types | state-machine | policies | integrations | reactions | dependencies}
+**Author:** {agent-id or human name}
+**Date:** {YYYY-MM-DD}
+
+## Context
+
+{What prompted this decision?}
+
+## Decision
+
+{What was decided and why. Name the entities, actions, policies, or modules.}
+
+## Consequences
+
+### Positive
+- ...
+
+### Negative
+- ...
+```
+
+Use the fixed scope vocabulary so app histories stay consistent:
+
+- `entity-types`
+- `state-machine`
+- `policies`
+- `integrations`
+- `reactions`
+- `dependencies`
+
+Filesystem apps store ADRs as regular markdown files in `adrs/`.
+
+Runtime-created apps should write ADRs through TemperFS before submitting specs:
+
+```python
+temper.write(
+    "/apps/my-app/adrs/001-initial-design.md",
+    adr_content,
+    {"workspace": "default", "mime_type": "text/markdown"},
+)
+```
+
+Example for the Bookmark app in this guide:
+
+```markdown
+# ADR-001: Bookmark lifecycle
+
+**Status:** Accepted
+**Scope:** state-machine
+**Author:** paw
+**Date:** 2026-04-08
+
+## Context
+
+Bookmark management only needs one active state and one terminal archive state.
+
+## Decision
+
+Model Bookmark with `Active` and `Archived` only. Use a self-loop `Create`
+action so creation captures metadata without introducing a staging state.
+
+## Consequences
+
+### Positive
+- Simple state space, easy verification
+
+### Negative
+- No review or staging workflow without later evolution
+```
+
 ### Required parts
 
 | Part | File | Purpose |
@@ -79,6 +179,7 @@ Temper's blob-backed overflow protection is a safety net for accidental large fi
 | **WASM module** | `wasm/*.wasm` | Integration logic: external API calls, computation, side effects triggered by actions |
 | **Manifest** | `app.toml` | Metadata: name, version, dependencies on other apps |
 | **Documentation** | `APP.md` | Human-readable description of what the app does |
+| **ADRs** | `adrs/*.md` | Decision records: why this state machine, why these entity types, why this policy approach |
 | **Reactions** | `reactions/reactions.toml` | Cross-entity cascades: action on entity A triggers action on entity B |
 
 ### Part relationships
@@ -474,6 +575,14 @@ trajectories = temper.get_trajectories(failed_only=True)
 insights = temper.get_insights()
 
 # 3. Design a spec change to handle the unmet intent
+
+# 3.5 Record why you made the change
+temper.write(
+    "/apps/my-app/adrs/NNN-change-description.md",
+    adr_content,
+    {"workspace": "default", "mime_type": "text/markdown"},
+)
+
 # 4. Submit the updated spec
 # 5. Retry — should now succeed
 ```
