@@ -29,7 +29,6 @@ pub struct SetupApiState {
     pub transport_manager: Arc<TransportManager>,
     pub tenant: String,
     pub agents_dir: PathBuf,
-    pub public_base_url: Option<String>,
 }
 
 /// Whitelisted secret key names that can be set via the API.
@@ -128,9 +127,9 @@ async fn get_setup_status(State(state): State<SetupApiState>) -> Json<SetupStatu
         discord_connected,
         slack_connected,
         discord_interaction_url: state
-            .public_base_url
-            .as_ref()
-            .map(|base| format!("{}/discord/interaction", base.trim_end_matches('/'))),
+            .transport_manager
+            .discord_interaction_public_url()
+            .await,
     })
 }
 
@@ -437,54 +436,81 @@ async fn connect_discord(
     Json(req): Json<DiscordConnectRequest>,
 ) -> impl IntoResponse {
     let public_key = req.public_key.unwrap_or_default();
-
-    // Save Discord config to vault + Turso
-    if let Some(vault) = state.platform.server.secrets_vault.as_ref() {
-        let _ = vault.cache_secret(&state.tenant, "discord_bot_token", req.bot_token.clone());
-        if let Ok((ct, nc)) = vault.encrypt(req.bot_token.as_bytes()) {
-            let _ = state
-                .turso_store
-                .upsert_secret(&state.tenant, "discord_bot_token", &ct, &nc)
-                .await;
-        }
-
-        let _ = vault.cache_secret(&state.tenant, "discord_public_key", public_key.clone());
-        if let Ok((ct, nc)) = vault.encrypt(public_key.as_bytes()) {
-            let _ = state
-                .turso_store
-                .upsert_secret(&state.tenant, "discord_public_key", &ct, &nc)
-                .await;
-        }
-
-        for (key, value) in [
-            ("discord_guild_id", req.guild_id.clone()),
-            ("discord_feed_channel_id", req.feed_channel_id.clone()),
-            ("discord_forum_channel_id", req.forum_channel_id.clone()),
-        ] {
-            if let Some(value) = value {
-                let _ = vault.cache_secret(&state.tenant, key, value.clone());
-                if let Ok((ct, nc)) = vault.encrypt(value.as_bytes()) {
-                    let _ = state
-                        .turso_store
-                        .upsert_secret(&state.tenant, key, &ct, &nc)
-                        .await;
-                }
-            }
-        }
+    if public_key.trim().is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error": "discord public key is required to verify interactions"
+            })),
+        )
+            .into_response();
     }
 
-    state
+    match state
         .transport_manager
         .connect_discord(DiscordConnectParams {
-            bot_token: req.bot_token,
-            public_key,
-            guild_id: req.guild_id,
-            feed_channel_id: req.feed_channel_id,
-            forum_channel_id: req.forum_channel_id,
+            bot_token: req.bot_token.clone(),
+            public_key: public_key.clone(),
+            guild_id: req.guild_id.clone(),
+            feed_channel_id: req.feed_channel_id.clone(),
+            forum_channel_id: req.forum_channel_id.clone(),
         })
-        .await;
+        .await
+    {
+        Ok(interaction_url) => {
+            // Save Discord config to vault + Turso only after the endpoint is valid enough to start.
+            if let Some(vault) = state.platform.server.secrets_vault.as_ref() {
+                let _ =
+                    vault.cache_secret(&state.tenant, "discord_bot_token", req.bot_token.clone());
+                if let Ok((ct, nc)) = vault.encrypt(req.bot_token.as_bytes()) {
+                    let _ = state
+                        .turso_store
+                        .upsert_secret(&state.tenant, "discord_bot_token", &ct, &nc)
+                        .await;
+                }
 
-    Json(serde_json::json!({ "status": "connecting" }))
+                let _ = vault.cache_secret(&state.tenant, "discord_public_key", public_key.clone());
+                if let Ok((ct, nc)) = vault.encrypt(public_key.as_bytes()) {
+                    let _ = state
+                        .turso_store
+                        .upsert_secret(&state.tenant, "discord_public_key", &ct, &nc)
+                        .await;
+                }
+
+                for (key, value) in [
+                    ("discord_guild_id", req.guild_id.clone()),
+                    ("discord_feed_channel_id", req.feed_channel_id.clone()),
+                    ("discord_forum_channel_id", req.forum_channel_id.clone()),
+                ] {
+                    if let Some(value) = value {
+                        let _ = vault.cache_secret(&state.tenant, key, value.clone());
+                        if let Ok((ct, nc)) = vault.encrypt(value.as_bytes()) {
+                            let _ = state
+                                .turso_store
+                                .upsert_secret(&state.tenant, key, &ct, &nc)
+                                .await;
+                        }
+                    }
+                }
+            }
+
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "status": "connecting",
+                    "discord_interaction_url": interaction_url
+                })),
+            )
+                .into_response()
+        }
+        Err(error) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error": error.to_string()
+            })),
+        )
+            .into_response(),
+    }
 }
 
 async fn disconnect_discord(State(state): State<SetupApiState>) -> Json<serde_json::Value> {

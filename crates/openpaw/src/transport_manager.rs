@@ -4,9 +4,13 @@
 //! without requiring a process restart. Stores a `CancellationToken` per
 //! transport so they can be gracefully shut down via the setup API.
 
+use std::process::Stdio;
 use std::sync::Arc;
+use std::time::Duration;
 
-use serde::Serialize;
+use anyhow::{Context, bail};
+use serde::{Deserialize, Serialize};
+use tokio::process::{Child, Command};
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 
@@ -17,14 +21,43 @@ pub const SLACK_WEBHOOK_PORT: u16 = 3489;
 pub struct TransportManager {
     discord: Arc<RwLock<TransportHandle>>,
     slack: Arc<RwLock<TransportHandle>>,
+    ngrok: Arc<RwLock<Option<NgrokTunnel>>>,
     tenant: String,
     port: u16,
     api_key: Option<String>,
+    public_base_url: Arc<RwLock<Option<String>>>,
+    ngrok_bin: String,
+    ngrok_authtoken: Option<String>,
 }
 
 struct TransportHandle {
     status: TransportStatus,
     cancel: Option<CancellationToken>,
+}
+
+struct NgrokTunnel {
+    #[allow(dead_code)]
+    child: Child,
+    public_base_url: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct NgrokApiResponse {
+    #[serde(default)]
+    tunnels: Vec<NgrokApiTunnel>,
+}
+
+#[derive(Debug, Deserialize)]
+struct NgrokApiTunnel {
+    public_url: String,
+    #[serde(default)]
+    config: NgrokApiTunnelConfig,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct NgrokApiTunnelConfig {
+    #[serde(default)]
+    addr: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -64,7 +97,14 @@ pub struct SlackConnectParams {
 }
 
 impl TransportManager {
-    pub fn new(tenant: String, port: u16, api_key: Option<String>) -> Self {
+    pub fn new(
+        tenant: String,
+        port: u16,
+        api_key: Option<String>,
+        public_base_url: Option<String>,
+        ngrok_bin: String,
+        ngrok_authtoken: Option<String>,
+    ) -> Self {
         Self {
             discord: Arc::new(RwLock::new(TransportHandle {
                 status: TransportStatus::Disconnected,
@@ -74,14 +114,165 @@ impl TransportManager {
                 status: TransportStatus::Disconnected,
                 cancel: None,
             })),
+            ngrok: Arc::new(RwLock::new(None)),
             tenant,
             port,
             api_key,
+            public_base_url: Arc::new(RwLock::new(
+                public_base_url.map(|url| url.trim_end_matches('/').to_string()),
+            )),
+            ngrok_bin,
+            ngrok_authtoken,
         }
     }
 
+    pub fn ngrok_available(ngrok_bin: &str) -> bool {
+        std::process::Command::new(ngrok_bin)
+            .arg("version")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .map(|status| status.success())
+            .unwrap_or(false)
+    }
+
+    pub fn can_resolve_discord_public_endpoint(
+        configured_public_base_url: Option<&str>,
+        ngrok_bin: &str,
+    ) -> bool {
+        configured_public_base_url
+            .map(|value| !value.trim().is_empty())
+            .unwrap_or(false)
+            || Self::ngrok_available(ngrok_bin)
+    }
+
+    async fn current_public_base_url(&self) -> Option<String> {
+        self.public_base_url.read().await.clone()
+    }
+
+    pub async fn discord_interaction_public_url(&self) -> Option<String> {
+        self.current_public_base_url()
+            .await
+            .map(|base_url| format!("{}/discord/interaction", base_url.trim_end_matches('/')))
+    }
+
+    async fn ensure_discord_public_base_url(&self) -> anyhow::Result<String> {
+        if let Some(public_base_url) = self.current_public_base_url().await {
+            return Ok(public_base_url);
+        }
+
+        if let Some(public_base_url) = self.lookup_ngrok_public_base_url().await? {
+            tracing::info!(%public_base_url, "Reusing existing ngrok tunnel for Discord interactions");
+            *self.public_base_url.write().await = Some(public_base_url.clone());
+            return Ok(public_base_url);
+        }
+
+        if !Self::ngrok_available(&self.ngrok_bin) {
+            bail!(
+                "Discord requires a public interactions URL. Set PUBLIC_BASE_URL or install/configure {}.",
+                self.ngrok_bin
+            );
+        }
+
+        let mut command = Command::new(&self.ngrok_bin);
+        command
+            .arg("http")
+            .arg(self.port.to_string())
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .kill_on_drop(true);
+
+        if let Some(authtoken) = self.ngrok_authtoken.as_ref() {
+            command.env("NGROK_AUTHTOKEN", authtoken);
+        }
+
+        let child = command.spawn().with_context(|| {
+            format!(
+                "Failed to launch {} for Discord interactions",
+                self.ngrok_bin
+            )
+        })?;
+        {
+            let mut ngrok = self.ngrok.write().await;
+            *ngrok = Some(NgrokTunnel {
+                child,
+                public_base_url: String::new(),
+            });
+        }
+        tracing::info!(
+            ngrok_bin = %self.ngrok_bin,
+            port = self.port,
+            "Started ngrok automatically for local Discord interactions"
+        );
+
+        for _ in 0..20 {
+            tokio::time::sleep(Duration::from_millis(500)).await;
+            if let Some(public_base_url) = self.lookup_ngrok_public_base_url().await? {
+                {
+                    let mut ngrok = self.ngrok.write().await;
+                    if let Some(tunnel) = ngrok.as_mut() {
+                        tunnel.public_base_url = public_base_url.clone();
+                    }
+                }
+                *self.public_base_url.write().await = Some(public_base_url.clone());
+                tracing::info!(%public_base_url, "Discord interactions available through ngrok");
+                return Ok(public_base_url);
+            }
+        }
+
+        bail!(
+            "Started {} automatically, but could not discover a public URL. Check ngrok and set PUBLIC_BASE_URL manually if needed.",
+            self.ngrok_bin
+        );
+    }
+
+    async fn lookup_ngrok_public_base_url(&self) -> anyhow::Result<Option<String>> {
+        let response = match reqwest::get("http://127.0.0.1:4040/api/tunnels").await {
+            Ok(response) => response,
+            Err(_) => return Ok(None),
+        };
+
+        if !response.status().is_success() {
+            return Ok(None);
+        }
+
+        let payload: NgrokApiResponse = response
+            .json()
+            .await
+            .context("Failed to parse ngrok tunnels response")?;
+        let port_suffix = format!(":{}", self.port);
+        let fallback_https = payload
+            .tunnels
+            .iter()
+            .find(|tunnel| tunnel.public_url.starts_with("https://"))
+            .map(|tunnel| tunnel.public_url.trim_end_matches('/').to_string());
+
+        Ok(payload
+            .tunnels
+            .into_iter()
+            .find(|tunnel| {
+                tunnel.public_url.starts_with("https://")
+                    && (tunnel.config.addr.contains(&port_suffix)
+                        || tunnel.config.addr.ends_with(&self.port.to_string()))
+            })
+            .map(|tunnel| tunnel.public_url.trim_end_matches('/').to_string())
+            .or(fallback_https))
+    }
+
     /// Start the Discord transport. If already connected, disconnects first.
-    pub async fn connect_discord(&self, params: DiscordConnectParams) {
+    pub async fn connect_discord(&self, params: DiscordConnectParams) -> anyhow::Result<String> {
+        if params.public_key.trim().is_empty() {
+            bail!("Discord public key is required to verify interactions");
+        }
+
+        let public_base_url = self.ensure_discord_public_base_url().await?;
+        let interaction_url = format!(
+            "{}/discord/interaction",
+            public_base_url.trim_end_matches('/')
+        );
+
         // Disconnect existing if any
         self.disconnect_discord().await;
 
@@ -154,6 +345,8 @@ impl TransportManager {
                 }
             }
         });
+
+        Ok(interaction_url)
     }
 
     /// Stop the Discord transport gracefully.
@@ -252,4 +445,15 @@ impl TransportManager {
     pub fn discord_interaction_proxy_url(&self) -> String {
         format!("http://127.0.0.1:{DISCORD_WEBHOOK_PORT}/interaction")
     }
+}
+
+pub fn ngrok_available(ngrok_bin: &str) -> bool {
+    TransportManager::ngrok_available(ngrok_bin)
+}
+
+pub fn can_resolve_discord_public_endpoint(
+    configured_public_base_url: Option<&str>,
+    ngrok_bin: &str,
+) -> bool {
+    TransportManager::can_resolve_discord_public_endpoint(configured_public_base_url, ngrok_bin)
 }

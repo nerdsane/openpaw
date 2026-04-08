@@ -315,6 +315,34 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
             vault,
             &turso_store,
             &tenant,
+            "discord_public_key",
+            config.discord_public_key
+        );
+        seed_secret!(
+            vault,
+            &turso_store,
+            &tenant,
+            "discord_guild_id",
+            config.discord_guild_id
+        );
+        seed_secret!(
+            vault,
+            &turso_store,
+            &tenant,
+            "discord_feed_channel_id",
+            config.discord_feed_channel_id
+        );
+        seed_secret!(
+            vault,
+            &turso_store,
+            &tenant,
+            "discord_forum_channel_id",
+            config.discord_forum_channel_id
+        );
+        seed_secret!(
+            vault,
+            &turso_store,
+            &tenant,
             "slack_bot_token",
             config.slack_bot_token
         );
@@ -594,6 +622,9 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
         tenant.clone(),
         actual_port,
         config.temper_api_key.clone(),
+        config.public_base_url.clone(),
+        config.ngrok_bin.clone(),
+        config.ngrok_authtoken.clone(),
     ));
 
     // Build platform router + setup API
@@ -604,7 +635,6 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
         transport_manager: transport_manager.clone(),
         tenant: tenant.clone(),
         agents_dir: PathBuf::from("os-apps/paw-agent/agents"),
-        public_base_url: config.public_base_url.clone(),
     };
     let router = router.merge(crate::setup_api::router(setup_state));
 
@@ -642,7 +672,7 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
                 .and_then(|v| v.get_secret(&tenant, "discord_forum_channel_id"))
                 .or_else(|| config.discord_forum_channel_id.clone());
 
-            transport_manager
+            let interaction_url = transport_manager
                 .connect_discord(crate::transport_manager::DiscordConnectParams {
                     bot_token: token,
                     public_key,
@@ -650,7 +680,8 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
                     feed_channel_id: feed_channel_id.clone(),
                     forum_channel_id: forum_channel_id.clone(),
                 })
-                .await;
+                .await?;
+            tracing::info!(%interaction_url, "Discord transport ready");
 
             // Spawn Discord observer (SSE → Discord feed/forum).
             if feed_channel_id.is_some() || forum_channel_id.is_some() {
@@ -728,15 +759,9 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
         }
         if has_discord {
             println!("  \u{2713} Discord");
-            if let Some(ref base_url) = config.public_base_url {
-                println!(
-                    "  Discord interactions: {}/discord/interaction",
-                    base_url.trim_end_matches('/')
-                );
-            } else {
-                println!(
-                    "  Discord interactions route: /discord/interaction (set PUBLIC_BASE_URL to surface the full public URL)"
-                );
+            if let Some(interaction_url) = transport_manager.discord_interaction_public_url().await
+            {
+                println!("  Discord interactions: {interaction_url}");
             }
         }
         if has_slack {
