@@ -106,11 +106,21 @@ pub async fn run_setup(data_dir: &Path, config: &Config) -> anyhow::Result<Setup
 
     // ─── Part A2: Messaging Platform ───
 
-    if has_discord {
-        cliclack::log::success("Discord connected")?;
+    let skip_messaging = if has_discord {
+        let reconfigure: bool = cliclack::confirm("Discord is connected. Reconfigure?")
+            .initial_value(false)
+            .interact()?;
+        !reconfigure
     } else if has_slack {
-        cliclack::log::success("Slack connected")?;
+        let reconfigure: bool = cliclack::confirm("Slack is connected. Reconfigure?")
+            .initial_value(false)
+            .interact()?;
+        !reconfigure
     } else {
+        false
+    };
+
+    if !skip_messaging {
         let platform: &str = cliclack::select("How do you want to talk to Paw?")
             .item("discord", "Discord", "")
             .item("slack", "Slack", "")
@@ -200,7 +210,7 @@ pub async fn run_setup(data_dir: &Path, config: &Config) -> anyhow::Result<Setup
                 cliclack::log::info("API only — interact via REST or the dashboard")?;
             }
         }
-    }
+    } // end if !skip_messaging
 
     // ─── Part B: User Interview + Soul Generation ───
 
