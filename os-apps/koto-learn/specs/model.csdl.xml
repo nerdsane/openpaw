@@ -1,0 +1,240 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Kotowari.Learn OData CSDL Model
+  ================================
+  Defines the entity types for koto-learn: the knowledge graph, learner state,
+  and encounter tracking that together form the teaching platform's data layer.
+
+  Each EntityType corresponds to an I/O automaton spec (.ioa.toml) in this
+  directory. The State property on every entity tracks the automaton's current
+  state; all other properties map to the automaton's state variables.
+-->
+<edmx:Edmx Version="4.0" xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx">
+  <edmx:DataServices>
+    <Schema Namespace="Kotowari.Learn" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+
+      <!-- ================================================================== -->
+      <!-- LearnerProfile                                                      -->
+      <!-- Persistent learner identity, adaptive preferences, and trust level. -->
+      <!-- States: Onboarding -> Active -> Paused | Graduated                  -->
+      <!-- ================================================================== -->
+      <EntityType Name="LearnerProfile">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.String" Nullable="false"/>
+        <Property Name="State" Type="Edm.String" Nullable="false" DefaultValue="Onboarding"/>
+        <!-- Identity -->
+        <Property Name="Name" Type="Edm.String"/>
+        <Property Name="PersonaId" Type="Edm.String"/>
+        <Property Name="Domain" Type="Edm.String"/>
+        <Property Name="NativeLanguage" Type="Edm.String"/>
+        <!-- Adaptive state -->
+        <Property Name="LearningStyle" Type="Edm.String"/>
+        <Property Name="TrustLevel" Type="Edm.String" DefaultValue="guided"/>
+        <!-- Counters -->
+        <Property Name="EvolutionCount" Type="Edm.Int64" DefaultValue="0"/>
+        <Property Name="EncounterCount" Type="Edm.Int64" DefaultValue="0"/>
+        <Property Name="StreakDays" Type="Edm.Int64" DefaultValue="0"/>
+        <!-- Timestamps -->
+        <Property Name="LastActiveAt" Type="Edm.String"/>
+        <Annotation Term="Temper.IOA" String="learner_profile.ioa.toml"/>
+      </EntityType>
+
+      <!-- ================================================================== -->
+      <!-- Persona                                                             -->
+      <!-- A curated learning path targeting specific concept mastery.          -->
+      <!-- States: Draft -> Published -> Deprecated                            -->
+      <!-- ================================================================== -->
+      <EntityType Name="Persona">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.String" Nullable="false"/>
+        <Property Name="State" Type="Edm.String" Nullable="false" DefaultValue="Draft"/>
+        <!-- Identity -->
+        <Property Name="Name" Type="Edm.String"/>
+        <Property Name="Description" Type="Edm.String"/>
+        <Property Name="Domain" Type="Edm.String"/>
+        <!-- Target profile: JSON mapping concept type -> required mastery levels -->
+        <Property Name="TargetProfile" Type="Edm.String" DefaultValue="{}"/>
+        <!-- Corpus sources: JSON array of corpus/knowledge-bank names -->
+        <Property Name="CorpusSources" Type="Edm.String" DefaultValue="[]"/>
+        <!-- Coverage stats: JSON mapping corpus -> coverage data -->
+        <Property Name="CoverageStats" Type="Edm.String" DefaultValue="{}"/>
+        <!-- Total concepts in the target profile -->
+        <Property Name="TotalConcepts" Type="Edm.Int64" DefaultValue="0"/>
+        <Annotation Term="Temper.IOA" String="persona.ioa.toml"/>
+      </EntityType>
+
+      <!-- ================================================================== -->
+      <!-- KnowledgeBank                                                       -->
+      <!-- Domain knowledge corpus with concept extraction pipeline.            -->
+      <!-- States: Created -> Importing -> Active -> Stale                     -->
+      <!-- ================================================================== -->
+      <EntityType Name="KnowledgeBank">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.String" Nullable="false"/>
+        <Property Name="State" Type="Edm.String" Nullable="false" DefaultValue="Created"/>
+        <!-- Domain -->
+        <Property Name="Domain" Type="Edm.String"/>
+        <!-- Source configuration: JSON array of data source descriptors -->
+        <Property Name="SourceConfig" Type="Edm.String" DefaultValue="[]"/>
+        <!-- Import log: JSON per-source status tracking -->
+        <Property Name="ImportLog" Type="Edm.String" DefaultValue="{}"/>
+        <!-- Counters -->
+        <Property Name="TotalConceptsCreated" Type="Edm.Int64" DefaultValue="0"/>
+        <Property Name="TotalLinksCreated" Type="Edm.Int64" DefaultValue="0"/>
+        <!-- Corpus statistics: JSON frequency distributions -->
+        <Property Name="CorpusStats" Type="Edm.String" DefaultValue="{}"/>
+        <!-- Snapshot file reference for the built graph -->
+        <Property Name="SnapshotFileId" Type="Edm.String"/>
+        <!-- Error tracking -->
+        <Property Name="ErrorMessage" Type="Edm.String"/>
+        <Annotation Term="Temper.IOA" String="knowledge_bank.ioa.toml"/>
+      </EntityType>
+
+      <!-- ================================================================== -->
+      <!-- Concept                                                             -->
+      <!-- A single teachable unit of knowledge within a domain.               -->
+      <!-- States: Draft -> Active -> Deprecated                               -->
+      <!-- ================================================================== -->
+      <EntityType Name="Concept">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.String" Nullable="false"/>
+        <Property Name="State" Type="Edm.String" Nullable="false" DefaultValue="Draft"/>
+        <!-- Identity -->
+        <Property Name="Domain" Type="Edm.String"/>
+        <Property Name="Name" Type="Edm.String"/>
+        <Property Name="Description" Type="Edm.String"/>
+        <!-- Type: "vocab" | "kanji" | "grammar" | "skill" -->
+        <Property Name="ConceptType" Type="Edm.String"/>
+        <!-- Difficulty band: JSON { floor, ceiling, calibrated_at } -->
+        <Property Name="DifficultyBand" Type="Edm.String" DefaultValue="{}"/>
+        <!-- Tags: JSON array of classification tags -->
+        <Property Name="Tags" Type="Edm.String" DefaultValue="[]"/>
+        <!-- Prerequisite concept IDs: JSON array -->
+        <Property Name="PrerequisiteIds" Type="Edm.String" DefaultValue="[]"/>
+        <!-- Transfer domains: JSON array of domains this concept transfers to/from -->
+        <Property Name="TransferDomains" Type="Edm.String" DefaultValue="[]"/>
+        <!-- Corpus frequency rank -->
+        <Property Name="FrequencyRank" Type="Edm.String"/>
+        <!-- JLPT level (N5-N1) -->
+        <Property Name="JlptLevel" Type="Edm.String"/>
+        <Annotation Term="Temper.IOA" String="concept.ioa.toml"/>
+      </EntityType>
+
+      <!-- ================================================================== -->
+      <!-- ConceptLink                                                         -->
+      <!-- A weighted, typed edge between two concepts in the knowledge graph.  -->
+      <!-- States: Proposed -> Active -> Invalidated                           -->
+      <!-- ================================================================== -->
+      <EntityType Name="ConceptLink">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.String" Nullable="false"/>
+        <Property Name="State" Type="Edm.String" Nullable="false" DefaultValue="Proposed"/>
+        <!-- Source and target concept references -->
+        <Property Name="SourceConceptId" Type="Edm.String"/>
+        <Property Name="TargetConceptId" Type="Edm.String"/>
+        <!-- Link type: "prerequisite" | "reinforces" | "transfers" | "analogous" -->
+        <Property Name="LinkType" Type="Edm.String"/>
+        <!-- Edge weight (0.0 - 1.0) -->
+        <Property Name="Weight" Type="Edm.String" DefaultValue="0.5"/>
+        <!-- Evidence: JSON explaining why this link exists -->
+        <Property Name="Evidence" Type="Edm.String"/>
+        <!-- Who/what validated this link -->
+        <Property Name="ValidatedBy" Type="Edm.String"/>
+        <Annotation Term="Temper.IOA" String="concept_link.ioa.toml"/>
+      </EntityType>
+
+      <!-- ================================================================== -->
+      <!-- Mastery                                                             -->
+      <!-- Multi-dimensional mastery profile for a learner-concept pair.        -->
+      <!-- NOT a single score. Four dimensions: recognition, production,        -->
+      <!-- contextual_use, transfer.                                           -->
+      <!-- States: Unseen -> Introduced -> Developing -> Proficient -> Mastered -->
+      <!-- ================================================================== -->
+      <EntityType Name="Mastery">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.String" Nullable="false"/>
+        <Property Name="State" Type="Edm.String" Nullable="false" DefaultValue="Unseen"/>
+        <!-- Foreign keys -->
+        <Property Name="LearnerProfileId" Type="Edm.String" Nullable="false"/>
+        <Property Name="ConceptId" Type="Edm.String" Nullable="false"/>
+        <!-- Four mastery dimensions (0.0 - 1.0 each) -->
+        <Property Name="Recognition" Type="Edm.String" DefaultValue="0.0"/>
+        <Property Name="Production" Type="Edm.String" DefaultValue="0.0"/>
+        <Property Name="ContextualUse" Type="Edm.String" DefaultValue="0.0"/>
+        <Property Name="Transfer" Type="Edm.String" DefaultValue="0.0"/>
+        <!-- Composite mastery score (weighted average, computed) -->
+        <Property Name="CompositeScore" Type="Edm.String" DefaultValue="0.0"/>
+        <!-- Confidence in the current assessment (0.0 - 1.0) -->
+        <Property Name="Confidence" Type="Edm.String" DefaultValue="0.0"/>
+        <!-- Encounter history summary: JSON with recent performance data -->
+        <Property Name="EncounterHistory" Type="Edm.String" DefaultValue="[]"/>
+        <!-- Total encounters for this concept -->
+        <Property Name="EncounterCount" Type="Edm.Int64" DefaultValue="0"/>
+        <!-- SRS-like scheduling metadata: JSON { next_review_at, interval_days, ease_factor } -->
+        <Property Name="ReviewSchedule" Type="Edm.String" DefaultValue="{}"/>
+        <!-- Last encounter timestamp -->
+        <Property Name="LastEncounterAt" Type="Edm.String"/>
+        <!-- Regression tracking: number of times mastery decreased -->
+        <Property Name="RegressionCount" Type="Edm.Int64" DefaultValue="0"/>
+        <Annotation Term="Temper.IOA" String="mastery.ioa.toml"/>
+      </EntityType>
+
+      <!-- ================================================================== -->
+      <!-- Encounter                                                           -->
+      <!-- A single teaching experience. NOT a flashcard; contextual,            -->
+      <!-- narrative, LLM-designed. The core teaching unit.                     -->
+      <!-- States: Planned -> Active -> Completed | Abandoned | Failed         -->
+      <!-- ================================================================== -->
+      <EntityType Name="Encounter">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.String" Nullable="false"/>
+        <Property Name="State" Type="Edm.String" Nullable="false" DefaultValue="Planned"/>
+        <!-- Foreign keys -->
+        <Property Name="LearnerProfileId" Type="Edm.String" Nullable="false"/>
+        <Property Name="ConceptId" Type="Edm.String" Nullable="false"/>
+        <!-- Encounter design -->
+        <!-- Type: "narrative" | "conversation" | "puzzle" | "immersion" | "reflection" -->
+        <Property Name="EncounterType" Type="Edm.String"/>
+        <!-- The encounter prompt/scenario designed by the tutor: JSON -->
+        <Property Name="Design" Type="Edm.String" DefaultValue="{}"/>
+        <!-- Target mastery dimensions this encounter exercises: JSON array -->
+        <Property Name="TargetDimensions" Type="Edm.String" DefaultValue="[]"/>
+        <!-- Difficulty level chosen for this encounter -->
+        <Property Name="DifficultyLevel" Type="Edm.String"/>
+        <!-- Context concepts: JSON array of related concept IDs for reinforcement -->
+        <Property Name="ContextConceptIds" Type="Edm.String" DefaultValue="[]"/>
+        <!-- Execution -->
+        <!-- The learner's response: JSON with structured response data -->
+        <Property Name="LearnerResponse" Type="Edm.String" DefaultValue="{}"/>
+        <!-- Tutor evaluation: JSON with per-dimension assessment -->
+        <Property Name="Evaluation" Type="Edm.String" DefaultValue="{}"/>
+        <!-- Outcome: "success" | "partial" | "struggle" | "failure" -->
+        <Property Name="Outcome" Type="Edm.String"/>
+        <!-- Error message if encounter failed -->
+        <Property Name="ErrorMessage" Type="Edm.String"/>
+        <!-- Timestamps -->
+        <Property Name="StartedAt" Type="Edm.String"/>
+        <Property Name="CompletedAt" Type="Edm.String"/>
+        <!-- Duration in seconds -->
+        <Property Name="DurationSeconds" Type="Edm.Int64"/>
+        <!-- Agent session that ran this encounter -->
+        <Property Name="AgentSessionId" Type="Edm.String"/>
+        <Annotation Term="Temper.IOA" String="encounter.ioa.toml"/>
+      </EntityType>
+
+      <!-- ================================================================== -->
+      <!-- Entity Container                                                    -->
+      <!-- ================================================================== -->
+      <EntityContainer Name="Container">
+        <EntitySet Name="LearnerProfiles" EntityType="Kotowari.Learn.LearnerProfile"/>
+        <EntitySet Name="Personas" EntityType="Kotowari.Learn.Persona"/>
+        <EntitySet Name="KnowledgeBanks" EntityType="Kotowari.Learn.KnowledgeBank"/>
+        <EntitySet Name="Concepts" EntityType="Kotowari.Learn.Concept"/>
+        <EntitySet Name="ConceptLinks" EntityType="Kotowari.Learn.ConceptLink"/>
+        <EntitySet Name="Masteries" EntityType="Kotowari.Learn.Mastery"/>
+        <EntitySet Name="Encounters" EntityType="Kotowari.Learn.Encounter"/>
+      </EntityContainer>
+
+    </Schema>
+  </edmx:DataServices>
+</edmx:Edmx>

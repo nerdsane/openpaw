@@ -1,0 +1,106 @@
+# WikiSource -- Raw material submitted for processing into wiki pages.
+#
+# A source can be a web article, corpus data, reference material, file
+# download, or an encounter insight (knowledge extracted from teaching).
+# The Curator agent indexes sources by extracting topics and tracking
+# which wiki pages were derived from each source.
+#
+# Lifecycle: Submitted -> Indexed | Failed
+#
+# No WASM integrations; the Curator agent dispatches all actions directly.
+
+[automaton]
+name = "WikiSource"
+states = ["Submitted", "Indexed", "Failed"]
+initial = "Submitted"
+
+# Which persona's wiki this source feeds
+[[state]]
+name = "persona_id"
+type = "string"
+initial = ""
+
+# Human-readable source title
+[[state]]
+name = "title"
+type = "string"
+initial = ""
+
+# Source classification: web_article, corpus_data, reference, file_download, encounter_insight
+[[state]]
+name = "source_type"
+type = "string"
+initial = ""
+
+# Origin URL (empty for non-web sources)
+[[state]]
+name = "source_url"
+type = "string"
+initial = ""
+
+# paw-fs File GUID pointing to raw downloaded content
+[[state]]
+name = "file_id"
+type = "string"
+initial = ""
+
+# Freeform JSON metadata; Curator decides structure based on domain
+[[state]]
+name = "metadata"
+type = "string"
+initial = "{}"
+
+# JSON array of topics extracted during indexing
+[[state]]
+name = "extracted_topics"
+type = "string"
+initial = "[]"
+
+# JSON array of WikiPage IDs created or updated from this source
+[[state]]
+name = "derived_page_ids"
+type = "string"
+initial = "[]"
+
+# Error details if indexing failed
+[[state]]
+name = "error_message"
+type = "string"
+initial = ""
+
+# --- Submitted ---
+
+[[action]]
+name = "Submit"
+kind = "input"
+from = ["Submitted"]
+params = ["persona_id", "title", "source_type", "source_url", "file_id", "metadata"]
+hint = "Populate or update source fields while in Submitted state."
+
+[[action]]
+name = "Index"
+kind = "input"
+from = ["Submitted"]
+to = "Indexed"
+params = ["extracted_topics", "derived_page_ids"]
+hint = "Mark source as indexed after Curator has processed it and created wiki pages."
+
+[[action]]
+name = "IndexFailed"
+kind = "input"
+from = ["Submitted"]
+to = "Failed"
+params = ["error_message"]
+hint = "Mark source as failed if indexing could not complete."
+
+# --- Invariants ---
+
+[[invariant]]
+name = "IndexedIsFinal"
+when = ["Indexed"]
+assert = "no_further_transitions"
+
+[[invariant]]
+name = "FailedIsFinal"
+when = ["Failed"]
+assert = "no_further_transitions"

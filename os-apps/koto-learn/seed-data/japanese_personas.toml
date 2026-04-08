@@ -1,0 +1,239 @@
+# Seed data: Japanese learning personas
+# =======================================
+# Defines three curated learning paths for Japanese. Each persona specifies
+# a target competency profile (which concept types at which mastery levels)
+# and the corpus sources used to compute coverage.
+#
+# After creation, dispatch Persona.ComputeCoverage (via WASM or manually)
+# to calculate how well the knowledge bank covers the persona's target,
+# then Persona.Publish to make it available for learner assignment.
+
+# =========================================================================
+# Light Novel Reader — JLPT N3 equivalent
+# =========================================================================
+# Can read typical isekai/fantasy light novels with occasional dictionary
+# lookups. Strong recognition and contextual use of narrative vocabulary,
+# moderate production skills. Comfortable with informal written Japanese.
+
+[[instance]]
+type = "Persona"
+fields = { Name = "Light Novel Reader", Domain = "japanese", Description = "Read light novels in Japanese with occasional dictionary lookups. Targets JLPT N3-equivalent comprehension with emphasis on written narrative vocabulary, common kanji, and grammar patterns found in popular fiction. Prioritizes recognition and contextual understanding over production.", TargetProfile = '''
+{
+  "vocab": {
+    "total": 5000,
+    "distribution": {
+      "N5": { "count": 800, "required_mastery": "Proficient" },
+      "N4": { "count": 1500, "required_mastery": "Proficient" },
+      "N3": { "count": 2000, "required_mastery": "Developing" },
+      "genre_specific": { "count": 700, "required_mastery": "Introduced", "source_filter": "light_novel_frequency" }
+    },
+    "dimension_weights": {
+      "recognition": 0.40,
+      "production": 0.10,
+      "contextual_use": 0.35,
+      "transfer": 0.15
+    }
+  },
+  "kanji": {
+    "total": 800,
+    "distribution": {
+      "grade_1_3": { "count": 440, "required_mastery": "Proficient" },
+      "grade_4_6": { "count": 260, "required_mastery": "Developing" },
+      "secondary_common": { "count": 100, "required_mastery": "Introduced" }
+    },
+    "dimension_weights": {
+      "recognition": 0.50,
+      "production": 0.10,
+      "contextual_use": 0.30,
+      "transfer": 0.10
+    }
+  },
+  "grammar": {
+    "total": 150,
+    "distribution": {
+      "N5": { "count": 55, "required_mastery": "Mastered" },
+      "N4": { "count": 50, "required_mastery": "Proficient" },
+      "N3": { "count": 45, "required_mastery": "Developing" }
+    },
+    "dimension_weights": {
+      "recognition": 0.35,
+      "production": 0.15,
+      "contextual_use": 0.35,
+      "transfer": 0.15
+    }
+  }
+}
+''', CorpusSources = '''
+[
+  "jlpt_vocabulary",
+  "joyo_kanji",
+  "grammar_points",
+  "light_novel_frequency"
+]
+''' }
+
+[[instance.actions]]
+name = "Define"
+params = { name = "Light Novel Reader", description = "Read light novels in Japanese with occasional dictionary lookups. Targets JLPT N3-equivalent comprehension with emphasis on written narrative vocabulary, common kanji, and grammar patterns found in popular fiction. Prioritizes recognition and contextual understanding over production.", domain = "japanese" }
+
+# =========================================================================
+# High School Student — JLPT N2 equivalent
+# =========================================================================
+# Can read textbooks, news articles, and follow classroom discussion.
+# Balanced across all four mastery dimensions. Broad vocabulary and kanji
+# coverage with solid grammar through N2.
+
+[[instance]]
+type = "Persona"
+fields = { Name = "High School Student", Domain = "japanese", Description = "Follow classroom instruction, read textbooks, and understand news articles in Japanese. Targets JLPT N2-equivalent competency with balanced mastery across recognition, production, contextual use, and transfer. Suitable for learners preparing for academic or general-purpose Japanese proficiency.", TargetProfile = '''
+{
+  "vocab": {
+    "total": 8000,
+    "distribution": {
+      "N5": { "count": 800, "required_mastery": "Mastered" },
+      "N4": { "count": 1500, "required_mastery": "Mastered" },
+      "N3": { "count": 2500, "required_mastery": "Proficient" },
+      "N2": { "count": 3200, "required_mastery": "Developing" }
+    },
+    "dimension_weights": {
+      "recognition": 0.30,
+      "production": 0.25,
+      "contextual_use": 0.25,
+      "transfer": 0.20
+    }
+  },
+  "kanji": {
+    "total": 1200,
+    "distribution": {
+      "grade_1_3": { "count": 440, "required_mastery": "Mastered" },
+      "grade_4_6": { "count": 366, "required_mastery": "Proficient" },
+      "secondary": { "count": 394, "required_mastery": "Developing" }
+    },
+    "dimension_weights": {
+      "recognition": 0.35,
+      "production": 0.25,
+      "contextual_use": 0.25,
+      "transfer": 0.15
+    }
+  },
+  "grammar": {
+    "total": 220,
+    "distribution": {
+      "N5": { "count": 55, "required_mastery": "Mastered" },
+      "N4": { "count": 50, "required_mastery": "Mastered" },
+      "N3": { "count": 60, "required_mastery": "Proficient" },
+      "N2": { "count": 55, "required_mastery": "Developing" }
+    },
+    "dimension_weights": {
+      "recognition": 0.25,
+      "production": 0.30,
+      "contextual_use": 0.25,
+      "transfer": 0.20
+    }
+  }
+}
+''', CorpusSources = '''
+[
+  "jlpt_vocabulary",
+  "joyo_kanji",
+  "grammar_points",
+  "subtitle_frequency"
+]
+''' }
+
+[[instance.actions]]
+name = "Define"
+params = { name = "High School Student", description = "Follow classroom instruction, read textbooks, and understand news articles in Japanese. Targets JLPT N2-equivalent competency with balanced mastery across recognition, production, contextual use, and transfer. Suitable for learners preparing for academic or general-purpose Japanese proficiency.", domain = "japanese" }
+
+# =========================================================================
+# Business Conversation — JLPT N2 with domain focus
+# =========================================================================
+# Can participate in meetings, write formal emails, and understand keigo
+# (honorific/humble speech). Vocabulary is weighted toward business and
+# professional contexts. Production and contextual use are prioritized
+# over raw recognition breadth.
+
+[[instance]]
+type = "Persona"
+fields = { Name = "Business Conversation", Domain = "japanese", Description = "Participate in Japanese business meetings, write formal emails, and navigate keigo (honorific and humble speech patterns). Targets JLPT N2-equivalent proficiency with domain-weighted vocabulary emphasizing professional and business contexts. Prioritizes production and contextual use for real-time conversational competency.", TargetProfile = '''
+{
+  "vocab": {
+    "total": 6000,
+    "distribution": {
+      "N5": { "count": 800, "required_mastery": "Mastered" },
+      "N4": { "count": 1200, "required_mastery": "Proficient" },
+      "N3": { "count": 1800, "required_mastery": "Proficient" },
+      "N2_business": { "count": 1500, "required_mastery": "Developing", "tag_filter": ["business", "formal", "keigo"] },
+      "N2_general": { "count": 700, "required_mastery": "Introduced" }
+    },
+    "dimension_weights": {
+      "recognition": 0.20,
+      "production": 0.35,
+      "contextual_use": 0.30,
+      "transfer": 0.15
+    }
+  },
+  "kanji": {
+    "total": 1000,
+    "distribution": {
+      "grade_1_3": { "count": 440, "required_mastery": "Mastered" },
+      "grade_4_6": { "count": 366, "required_mastery": "Proficient" },
+      "secondary_business": { "count": 194, "required_mastery": "Developing", "tag_filter": ["business", "formal"] }
+    },
+    "dimension_weights": {
+      "recognition": 0.30,
+      "production": 0.30,
+      "contextual_use": 0.25,
+      "transfer": 0.15
+    }
+  },
+  "grammar": {
+    "total": 200,
+    "distribution": {
+      "N5": { "count": 55, "required_mastery": "Mastered" },
+      "N4": { "count": 50, "required_mastery": "Mastered" },
+      "N3": { "count": 50, "required_mastery": "Proficient" },
+      "N2_general": { "count": 25, "required_mastery": "Developing" },
+      "keigo": { "count": 20, "required_mastery": "Proficient", "tag_filter": ["keigo", "sonkeigo", "kenjougo", "teineigo"] }
+    },
+    "dimension_weights": {
+      "recognition": 0.20,
+      "production": 0.35,
+      "contextual_use": 0.30,
+      "transfer": 0.15
+    },
+    "special_focus": [
+      "sonkeigo (respectful language)",
+      "kenjougo (humble language)",
+      "teineigo (polite language)",
+      "business email patterns",
+      "meeting vocabulary"
+    ]
+  },
+  "skill": {
+    "total": 15,
+    "distribution": {
+      "email_writing": { "count": 5, "required_mastery": "Proficient" },
+      "meeting_participation": { "count": 5, "required_mastery": "Developing" },
+      "phone_etiquette": { "count": 5, "required_mastery": "Developing" }
+    },
+    "dimension_weights": {
+      "recognition": 0.15,
+      "production": 0.40,
+      "contextual_use": 0.30,
+      "transfer": 0.15
+    }
+  }
+}
+''', CorpusSources = '''
+[
+  "jlpt_vocabulary",
+  "joyo_kanji",
+  "grammar_points",
+  "subtitle_frequency"
+]
+''' }
+
+[[instance.actions]]
+name = "Define"
+params = { name = "Business Conversation", description = "Participate in Japanese business meetings, write formal emails, and navigate keigo (honorific and humble speech patterns). Targets JLPT N2-equivalent proficiency with domain-weighted vocabulary emphasizing professional and business contexts. Prioritizes production and contextual use for real-time conversational competency.", domain = "japanese" }

@@ -1,0 +1,96 @@
+# Persona — A curated learning path targeting specific concept mastery.
+#
+# A persona defines a learner archetype (e.g., "JLPT N3 Traveler") with a
+# target profile mapping concept IDs to required mastery levels.
+# Corpus sources specify which knowledge banks contribute concepts.
+#
+# Lifecycle: Draft (define & compute coverage) -> Published -> Deprecated.
+
+[automaton]
+name = "Persona"
+states = ["Draft", "Published", "Deprecated"]
+initial = "Draft"
+
+# Identity
+[[state]]
+name = "name"
+type = "string"
+initial = ""
+
+[[state]]
+name = "description"
+type = "string"
+initial = ""
+
+[[state]]
+name = "domain"
+type = "string"
+initial = ""
+
+# Target profile: JSON mapping concept_id -> required mastery level
+[[state]]
+name = "target_profile"
+type = "string"
+initial = "{}"
+
+# Corpus sources: JSON array of corpus/knowledge-bank names
+[[state]]
+name = "corpus_sources"
+type = "string"
+initial = "[]"
+
+# Coverage stats: JSON mapping corpus -> coverage data
+[[state]]
+name = "coverage_stats"
+type = "string"
+initial = "{}"
+
+# Total concepts in the target profile
+[[state]]
+name = "total_concepts"
+type = "counter"
+initial = "0"
+
+# --- Draft ---
+[[action]]
+name = "Define"
+kind = "input"
+from = ["Draft"]
+params = ["name", "description", "domain", "target_profile", "corpus_sources"]
+hint = "Set or update persona definition fields."
+
+[[action]]
+name = "ComputeCoverage"
+kind = "input"
+from = ["Draft"]
+params = ["coverage_stats"]
+hint = "Record computed coverage statistics for this persona's corpus sources."
+
+[[action]]
+name = "Publish"
+kind = "input"
+from = ["Draft"]
+to = "Published"
+params = ["total_concepts"]
+hint = "Publish the persona, making it available for learner assignment."
+
+# --- Published ---
+[[action]]
+name = "UpdateCoverage"
+kind = "input"
+from = ["Published"]
+params = ["coverage_stats"]
+hint = "Refresh coverage statistics after knowledge bank updates."
+
+[[action]]
+name = "Deprecate"
+kind = "input"
+from = ["Published"]
+to = "Deprecated"
+hint = "Deprecate this persona. Existing learners keep their profiles but no new learners can be assigned."
+
+# --- Invariants ---
+[[invariant]]
+name = "DeprecatedIsFinal"
+when = ["Deprecated"]
+assert = "no_further_transitions"

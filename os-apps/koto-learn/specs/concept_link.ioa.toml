@@ -1,0 +1,85 @@
+# ConceptLink — A weighted, typed edge between two concepts in the knowledge graph.
+#
+# Links encode relationships: prerequisite (A must come before B),
+# reinforces (practicing A strengthens B), transfers (A in domain X
+# maps to B in domain Y), analogous (structural similarity).
+#
+# Lifecycle: Proposed -> Active (validated) -> Invalidated.
+# Weights are recomputed as learner data reveals actual transfer strength.
+
+[automaton]
+name = "ConceptLink"
+states = ["Proposed", "Active", "Invalidated"]
+initial = "Proposed"
+
+# Source and target concept references
+[[state]]
+name = "source_concept_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "target_concept_id"
+type = "string"
+initial = ""
+
+# Link type: "prerequisite" | "reinforces" | "transfers" | "analogous"
+[[state]]
+name = "link_type"
+type = "string"
+initial = ""
+
+# Edge weight (0.0 - 1.0)
+[[state]]
+name = "weight"
+type = "string"
+initial = "0.5"
+
+# Evidence: JSON explaining why this link exists
+[[state]]
+name = "evidence"
+type = "string"
+initial = ""
+
+# Who/what validated this link
+[[state]]
+name = "validated_by"
+type = "string"
+initial = ""
+
+# --- Proposed ---
+[[action]]
+name = "Define"
+kind = "input"
+from = ["Proposed"]
+params = ["source_concept_id", "target_concept_id", "link_type", "weight", "evidence"]
+hint = "Set or update link definition fields."
+
+[[action]]
+name = "Validate"
+kind = "input"
+from = ["Proposed"]
+to = "Active"
+params = ["validated_by"]
+hint = "Validate this link, making it active in the knowledge graph."
+
+# --- Active ---
+[[action]]
+name = "Reweight"
+kind = "input"
+from = ["Active"]
+params = ["weight", "evidence"]
+hint = "Update edge weight based on observed learner transfer data."
+
+[[action]]
+name = "Invalidate"
+kind = "input"
+from = ["Active"]
+to = "Invalidated"
+hint = "Invalidate this link. It will no longer influence encounter design or mastery inference."
+
+# --- Invariants ---
+[[invariant]]
+name = "InvalidatedIsFinal"
+when = ["Invalidated"]
+assert = "no_further_transitions"

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Kotowari.Tutor OData CSDL Model
+  =================================
+  koto-tutor is primarily a soul/skill layer: it provides the Sensei tutor
+  soul, encounter design skills, and mastery evaluation skills. It does NOT
+  define new entity types; it operates on koto-learn entities via the
+  Temper OData API.
+
+  This minimal CSDL satisfies the OS app spec requirement for a model file
+  while keeping entity ownership cleanly in koto-learn.
+-->
+<edmx:Edmx Version="4.0" xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx">
+  <edmx:DataServices>
+    <Schema Namespace="Kotowari.Tutor" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+
+      <!-- Empty entity container: koto-tutor provides souls and skills,    -->
+      <!-- not entity types. All entity operations target Kotowari.Learn.   -->
+      <EntityContainer Name="Container"/>
+
+    </Schema>
+  </edmx:DataServices>
+</edmx:Edmx>

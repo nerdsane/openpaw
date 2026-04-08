@@ -1,0 +1,4 @@
+name = "koto-learn"
+description = "Core learning engine for Kotowari. Manages knowledge graph, mastery tracking, encounters, and learner profiles."
+version = "0.1.0"
+dependencies = ["paw-agent", "paw-fs"]
