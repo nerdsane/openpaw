@@ -1,14 +1,8 @@
 # Open Paw
 
-Agent platform built on [Temper](https://github.com/nerdsane/temper). Talk to agents via Discord or Slack — they manage software projects by spawning developer agents with persistent cloud computers.
+Agent platform built on [Temper](https://github.com/nerdsane/temper). Talk to Paw via Discord — it manages software projects by spawning specialized agents with persistent cloud computers.
 
 ## Get Started
-
-### Have an agent? Give it this:
-
-> Set up Open Paw for me. Read the instructions at https://raw.githubusercontent.com/nerdsane/openpaw/main/INSTRUCTIONS.md and follow them.
-
-### Doing it yourself?
 
 ```bash
 git clone https://github.com/nerdsane/openpaw.git
@@ -16,19 +10,26 @@ cd openpaw
 cargo run
 ```
 
-The CLI walks you through everything: API key, Discord/Slack, and personalizing your agent.
+On first run, the CLI walks you through setup:
+- Pick your AI provider (Anthropic, OpenRouter, or OpenAI) and paste your API key
+- Connect Discord (with step-by-step bot creation instructions)
+- A short interview about you and what kind of Paw you want
+- Paw generates a personalized soul using the LLM and shows you a preview
 
-### Already set up?
+Everything is encrypted and saved. Next time you run it, no prompts — just boots.
 
 ```bash
 cargo run -- setup    # reconfigure or personalize Paw
 cargo run -- doctor   # check what's configured
-cargo run             # start the server
 ```
+
+### Have an agent? Give it this:
+
+> Set up Open Paw for me. Read the instructions at https://raw.githubusercontent.com/nerdsane/openpaw/main/INSTRUCTIONS.md and follow them.
 
 ## Architecture
 
-All agent logic is modeled as Temper state machines (IOA specs), WASM integrations, and Cedar authorization policies. The binary embeds the Temper platform engine.
+All agent logic is Temper state machines (IOA specs), WASM integrations, and Cedar authorization policies.
 
 ### Temper Apps
 
