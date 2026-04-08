@@ -29,7 +29,47 @@ cargo run -- doctor   # check what's configured
 
 ## Architecture
 
-All agent logic is Temper state machines (IOA specs), WASM integrations, and Cedar authorization policies.
+Open Paw is a single Rust binary that embeds the [Temper](https://github.com/nerdsane/temper) platform. The binary itself has no business logic — it boots Temper, loads OS apps, and starts transports. All agent behavior lives in the apps.
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  Discord / Slack / Webhooks                             │
+│  (transports — receive messages, dispatch actions)      │
+└────────────────────────┬────────────────────────────────┘
+                         │
+                         ▼
+┌─────────────────────────────────────────────────────────┐
+│  Open Paw Binary  (crates/openpaw)                      │
+│  Boots Temper, loads apps, starts transports. No logic. │
+└────────────────────────┬────────────────────────────────┘
+                         │
+                         ▼
+┌─────────────────────────────────────────────────────────┐
+│  Temper Platform  (embedded)                            │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌───────────┐  │
+│  │ OData API│ │WASM      │ │Cedar     │ │Event Store│  │
+│  │(entities)│ │Runtime   │ │Authz     │ │(Turso/    │  │
+│  │          │ │(on state │ │(policies)│ │ SQLite)   │  │
+│  │          │ │ change)  │ │          │ │           │  │
+│  └──────────┘ └──────────┘ └──────────┘ └───────────┘  │
+└────────────────────────┬────────────────────────────────┘
+                         │
+                         ▼
+┌─────────────────────────────────────────────────────────┐
+│  OS Apps  (os-apps/)                                    │
+│                                                         │
+│  Each app is a bundle of:                               │
+│    specs/    — entity types + state machines (.ioa.toml) │
+│    policies/ — Cedar authorization rules                │
+│    wasm/     — integrations that run on state changes   │
+│    agents/   — agent definitions (souls, skills)        │
+│                                                         │
+│  paw-agent · paw-fs · paw-pm · paw-channels            │
+│  paw-research · paw-foresight · paw-ingest · ...        │
+└─────────────────────────────────────────────────────────┘
+```
+
+**How it works:** A Discord message arrives → the transport creates a entity and dispatches an action → Temper checks Cedar policies → runs the state machine transition → fires WASM integrations → which may create more entities and dispatch more actions. The agent, its memory, its files, its project plans — everything is an entity with a governed lifecycle. No Rust code runs business logic; if it needs logic, it's WASM on a state transition.
 
 ## What Works
 
