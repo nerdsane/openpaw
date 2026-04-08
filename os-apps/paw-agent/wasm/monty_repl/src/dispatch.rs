@@ -621,31 +621,50 @@ fn web_query_dispatch(
     }
 
     // If result_file_id is set, the full content is in TemperFS (large results).
-    // Read the file content directly instead of using the inline results field.
+    // Read the file content, then delete the file — it's ephemeral transport only.
+    // WORKAROUND: This delete-after-read pattern exists because Temper's entity field
+    // sync truncates values >32KB. The proper fix is platform-level blob-backed fields
+    // with TTL. See: https://github.com/nerdsane/temper/issues/106
     let result_file_id = result_fields
         .get("result_file_id")
         .and_then(|v| v.as_str())
         .filter(|s| !s.is_empty());
 
     if let Some(file_id) = result_file_id {
-        let file_url = format!("/tdata/Files('{file_id}')/$value");
-        let file_headers = vec![
+        let admin_headers = vec![
             ("X-Tenant-Id".to_string(), tenant.to_string()),
             ("x-temper-principal-kind".to_string(), "agent".to_string()),
             ("x-temper-agent-type".to_string(), "system".to_string()),
-            ("Accept".to_string(), "text/plain".to_string()),
         ];
-        let url = format!("{api_url}{file_url}");
-        match ctx.http_call("GET", &url, &file_headers, "") {
-            Ok(resp) if resp.status >= 200 && resp.status < 300 => {
-                return Ok(json!(resp.body));
-            }
+        let read_headers = {
+            let mut h = admin_headers.clone();
+            h.push(("Accept".to_string(), "text/plain".to_string()));
+            h
+        };
+        let read_url = format!("{api_url}/tdata/Files('{file_id}')/$value");
+        let content = match ctx.http_call("GET", &read_url, &read_headers, "") {
+            Ok(resp) if resp.status >= 200 && resp.status < 300 => Some(resp.body),
             Ok(resp) => {
                 ctx.log("warn", &format!("web_query: failed to read result file {file_id} (HTTP {})", resp.status));
+                None
             }
             Err(e) => {
                 ctx.log("warn", &format!("web_query: failed to read result file {file_id}: {e}"));
+                None
             }
+        };
+
+        // Delete the ephemeral file — best effort, don't fail the query if cleanup fails.
+        let archive_url = format!("{api_url}/tdata/Files('{file_id}')/Temper.Archive");
+        let archive_headers = {
+            let mut h = admin_headers;
+            h.push(("Content-Type".to_string(), "application/json".to_string()));
+            h
+        };
+        let _ = ctx.http_call("POST", &archive_url, &archive_headers, "{}");
+
+        if let Some(text) = content {
+            return Ok(json!(text));
         }
         // Fall through to inline results if file read fails
     }
