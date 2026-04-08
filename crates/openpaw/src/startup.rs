@@ -1397,47 +1397,10 @@ async fn set_default_soul(
         }
     }
 
-    // Also repair Channels with missing default_agent_config
-    let channels_resp = odata_get(
-        client,
-        &format!(
-            "{api_url}/tdata/Channels?$filter=Status eq 'Connected' or Status eq 'Disconnected'"
-        ),
-        tenant,
-        api_key,
-    )
-    .await?;
-
-    if let Some(channels) = channels_resp["value"].as_array() {
-        let soul_config = serde_json::json!({ "soul_id": soul_name }).to_string();
-        for channel in channels {
-            let channel_id = entity_id_from_json(channel).unwrap_or("");
-            let current_config =
-                entity_field_str(channel, &["DefaultAgentConfig", "default_agent_config"])
-                    .unwrap_or("");
-
-            // Parse config and check if soul_id is set
-            let config: serde_json::Value =
-                serde_json::from_str(current_config).unwrap_or(serde_json::json!({}));
-            let has_soul = config
-                .get("soul_id")
-                .and_then(serde_json::Value::as_str)
-                .is_some_and(|s| !s.is_empty());
-
-            if !has_soul && !channel_id.is_empty() {
-                odata_post(
-                    client,
-                    &format!("{api_url}/tdata/Channels('{channel_id}')/Paw.Channel.UpdateConfig"),
-                    tenant,
-                    api_key,
-                    serde_json::json!({ "default_agent_config": soul_config }),
-                )
-                .await
-                .ok();
-                tracing::info!("  Set default soul '{soul_name}' on Channel {channel_id}");
-            }
-        }
-    }
+    // Channel lifecycle is owned by the Discord transport (bootstrap_channel).
+    // The soul bootstrap should NOT query or modify Channel entities — doing so
+    // creates race conditions where the transport and bootstrap see different
+    // Channel states, causing messages to be dispatched to orphaned entities.
 
     Ok(())
 }
