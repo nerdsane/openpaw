@@ -44,7 +44,7 @@ All agent logic is Temper state machines (IOA specs), WASM integrations, and Ced
 | paw-foresight | Working | Probe projections and entropy simulation |
 | koto-learn | New | Language learning knowledge graph — Concept, Encounter, Persona |
 | koto-tutor | New | AI tutor agent — encounter design + adaptive teaching |
-| koto-wiki | New | LLM Wiki (Karpathy pattern) — WikiSource, WikiPage, WikiJob |
+| koto-wiki | New | LLM Wiki ([Karpathy pattern](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f)) — WikiSource, WikiPage, WikiJob |
 
 ## What Works
 
@@ -60,12 +60,13 @@ All agent logic is Temper state machines (IOA specs), WASM integrations, and Ced
 - **`temper.write` not available in agent sessions** — agents cannot write to TemperFS from within their tool sandbox. This blocks any workflow that needs to persist files (wiki pages, raw source snapshots, reports). The `write` tool in the sandbox is the local filesystem writer, not TemperFS.
 - **`/observe/specs` returns 403** — agents cannot inspect or register new entity specs at runtime. This blocks dynamic app installation (the `temper_install_app` path).
 - **Dynamic app install is incomplete** — Paw can design an OS app spec perfectly but cannot self-install it. The `temper_install_app` + `temper_submit_specs` flow requires permissions the agent session doesn't have.
-- **koto-wiki is spec-only** — the CSDL, IOA, Cedar, and agent definitions exist but the app hasn't been end-to-end tested with real ingest/compile/lint cycles (blocked by temper.write above).
+- **No way to surface auth requests to the user** — when an agent hits a permission wall (403, disabled tool), it has no mechanism to send an approval request to Discord for the human to act on. Agents get stuck in loops asking clarifying questions instead of requesting the specific grant they need.
+- **New OS apps are spec-only** — CSDL, IOA, Cedar, and agent definitions exist on disk but haven't been end-to-end tested (blocked by temper.write above).
 
 ## Next Steps
 
-1. **Enable `temper.write` in agent sessions** — this is the single highest-leverage fix. Without it, agents can't persist any file artifacts (wiki pages, reports, snapshots). Likely a Cedar policy or session capability grant.
-2. **Enable spec introspection for agents** — grant read access to `/observe/specs` so agents can discover installed entity sets and self-validate before creating records.
-3. **End-to-end test koto-wiki** — once temper.write works, run a full ingest→compile→lint cycle through the Curator agent on a real topic.
-4. **Generalize koto-wiki → llm-wiki** — koto-wiki is Kotowari-scoped (persona + learning graph). A general-purpose `llm-wiki` app would drop the persona/concept coupling and work for any topic. The entity model is 90% there; needs a KnowledgeBase wrapper entity and topic-derived KB creation.
-5. **Wire single-command invocation** — make `llm-wiki "<topic>"` a recognized command pattern that Paw routes to the wiki Curator agent automatically (AgentRoute or skill-based dispatch).
+1. **Agent awareness of available tools** — agents need to know what Temper tools they have (`temper.write`, `temper.specs`, etc.) and which are granted vs denied in their session. Without this self-awareness, agents waste turns attempting blocked operations.
+2. **Agent access to build new capabilities** — enable agents to create, install, and evolve Temper apps at runtime: submit specs (`temper_submit_specs`), write to TemperFS (`temper.write`), introspect installed specs (`/observe/specs`). This is what makes the platform self-extending.
+3. **End-to-end app lifecycle** — once agents can submit specs + write files, test the full cycle: agent designs an app → submits specs → governance approves → app installs → agent uses it. The koto-wiki app is the first candidate.
+4. **Surface auth requests to Discord** — when an agent needs a permission it doesn't have, it should be able to post a structured approval request to the user's Discord channel (tool needed, reason, scope). The user approves or denies; the agent polls and retries. No more stalling in chat loops.
+5. **Evolve apps over time** — agents should be able to extend an installed app (add entity types, new actions, updated policies) without reinstalling from scratch. Incremental spec evolution, not tear-down-and-rebuild.
