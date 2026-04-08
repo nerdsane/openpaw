@@ -33,13 +33,21 @@ All agent logic is Temper state machines (IOA specs), WASM integrations, and Ced
 
 ## What Works
 
-- **Paw itself is a Temper app** — the agent, its soul, skills, memory, and sessions are all Temper entities with state machines and Cedar policies (`paw-agent`)
-- **Governed filesystem** — agents read and write files through Temper with authorization checks (`paw-fs`)
-- **Project management** — issues and plans tracked as Temper entities so agents can manage work (`paw-pm`)
-- **Probes and projections** — agents simulate outcomes before acting (`paw-foresight`)
-- **Discord messaging** — Paw boots, connects to Discord, runs conversations, spawns agents with cloud computers
-- **Web research** — agents search the web and fetch pages
-- **Cedar authorization** — policies enforce who can do what across all apps
+- **Core platform**: Paw boots, connects to Discord, runs conversations, spawns agents with cloud computers
+- **Entity CRUD + state machines**: temper_create/get/list/action all work; IOA state machines enforce valid transitions
+- **Web research**: temper_web_search + temper_web_fetch available to agents
+- **OS app loading**: apps under `os-apps/` are discovered and loaded at startup
+- **Agent sessions**: spawn_agent, temper_spawn_session, temper_steer_session work
+- **Cedar authorization**: policies enforce who can do what
+
+### Temper Apps
+
+Paw itself is implemented as Temper apps — the agent isn't separate from the platform, it runs on it.
+
+- **paw-agent** — the agent, its soul, skills, memory, and sessions are all Temper entities with state machines and Cedar policies
+- **paw-fs** — governed filesystem; agents read and write files through Temper with authorization checks
+- **paw-pm** — project management; issues and plans tracked as Temper entities so agents can manage work
+- **paw-foresight** — probes and projections; agents simulate outcomes before acting
 
 ## Next Steps
 
