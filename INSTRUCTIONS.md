@@ -4,52 +4,59 @@ You are setting up the Open Paw agent platform for a human. Read this entire fil
 
 ## Prerequisites
 
-- Rust toolchain (stable) must be installed
-- The human needs an API key from one of: Anthropic, OpenRouter, or OpenAI
-- Optional: Discord bot token if they want Discord integration
+- Rust toolchain (stable)
+- An API key from Anthropic, OpenRouter, or OpenAI (ask the human)
+- Optional: a Discord bot token (see Discord setup below)
 
 ## Setup
 
-### 1. Clone and enter the repo
+### 1. Clone and build
 
 ```bash
 git clone https://github.com/nerdsane/openpaw.git
 cd openpaw
 ```
 
-### 2. Write a `.env` file
+### 2. Configure
 
-Ask the human which provider they use and get their API key.
+Write a `.env` file with the human's API key. The key goes in `ANTHROPIC_API_KEY` regardless of provider — the platform detects the provider from the key prefix.
 
-**Anthropic** (key from console.anthropic.com):
 ```bash
 echo 'ANTHROPIC_API_KEY=sk-ant-...' > .env
 ```
 
-**OpenRouter** (key from openrouter.ai/keys):
+If the human uses OpenRouter or OpenAI, also set the provider:
+
 ```bash
-echo 'ANTHROPIC_API_KEY=sk-or-...' > .env
-echo 'LLM_PROVIDER=openrouter' >> .env
+echo 'LLM_PROVIDER=openrouter' >> .env   # for sk-or-... keys
+echo 'LLM_PROVIDER=openai' >> .env       # for sk-proj-... keys
 ```
 
-**OpenAI** (key from platform.openai.com/api-keys — ChatGPT subscriptions don't include API access):
-```bash
-echo 'ANTHROPIC_API_KEY=sk-proj-...' > .env
-echo 'LLM_PROVIDER=openai' >> .env
-```
+### 3. Discord (optional)
 
-Optional — add Discord:
+If the human wants Discord, they need a bot token. Here's how to create one:
+
+1. Go to discord.com/developers/applications
+2. Click "New Application" → name it
+3. Click "Bot" in the left sidebar
+4. Click "Reset Token" → copy the token
+5. Turn on "Message Content Intent" under Privileged Gateway Intents
+6. Go to OAuth2 → URL Generator → select scope "bot" → select "Send Messages" + "Read Message History"
+7. Copy the generated URL, open it, pick the server to add the bot to
+
+Then add to `.env`:
+
 ```bash
 echo 'DISCORD_BOT_TOKEN=...' >> .env
 ```
 
-### 3. Start the server
+### 4. Start
 
 ```bash
 cargo run
 ```
 
-First boot takes 20-30 seconds (compiling WASM modules, verifying specs). The server is ready when you see:
+First boot takes 20-30 seconds. The server is ready when you see:
 
 ```
   Open Paw is running.
@@ -61,35 +68,31 @@ First boot takes 20-30 seconds (compiling WASM modules, verifying specs). The se
   ✓ Discord
 ```
 
-If the preferred port (3467) is taken, it automatically picks a free one.
+If port 3467 is taken, it picks a free one automatically.
 
-### 4. Personalize Paw (optional)
+### 5. Personalize (optional)
 
-If the human is at the terminal, they can run the interactive setup to personalize their agent:
+If the human is at the terminal, they can run the interactive setup to personalize Paw — it asks a few questions and generates a soul tailored to them:
 
 ```bash
 cargo run -- setup
 ```
 
-This walks through a short interview and uses the LLM to generate a soul tailored to the human. It can be re-run anytime.
-
-### 5. Diagnose
+### 6. Diagnose
 
 ```bash
 cargo run -- doctor
 ```
 
-Shows what's configured and what's missing.
-
 ## REST API
 
-Once the server is running, everything is also available via HTTP. All endpoints need headers: `x-tenant-id: default` and `x-temper-principal-kind: admin`.
+Once running, everything is available via HTTP. All endpoints need headers `x-tenant-id: default` and `x-temper-principal-kind: admin`.
 
 | Method | Endpoint | Body |
 |--------|----------|------|
 | GET | `/paw/setup/status` | — |
 | POST | `/paw/setup/secrets` | `{"key": "...", "value": "..."}` |
-| GET | `/paw/setup/secrets` | — (returns key names, not values) |
+| GET | `/paw/setup/secrets` | — (key names only) |
 | DELETE | `/paw/setup/secrets/{key}` | — |
 | GET | `/paw/souls/templates` | — |
 | POST | `/paw/agents/create` | `{"name", "role?", "model?", "tools_enabled?", "max_turns?"}` |
@@ -101,7 +104,6 @@ Once the server is running, everything is also available via HTTP. All endpoints
 
 ## Notes
 
-- All secrets are encrypted and persisted to the local database. The `.env` can be deleted after first boot.
-- Encryption key: `~/.local/share/openpaw/vault.key` — don't delete it.
-- Orphaned sessions are automatically cleaned up on restart.
-- If the port is busy, the server picks a free one automatically.
+- All secrets are encrypted and persisted. The `.env` can be deleted after first boot.
+- Encryption key at `~/.local/share/openpaw/vault.key` — don't delete it.
+- Orphaned sessions are cleaned up automatically on restart.
