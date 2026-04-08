@@ -1,0 +1,107 @@
+# Concept — A single teachable unit of knowledge within a domain.
+#
+# Concepts are the nodes in the knowledge graph. Each concept has a type
+# (vocab, kanji, grammar, skill), difficulty calibration, prerequisite
+# relationships, and corpus frequency data.
+#
+# Lifecycle: Draft (define) -> Active (published) -> Deprecated.
+# Difficulty bands are recalibrated as learner data accumulates.
+
+[automaton]
+name = "Concept"
+states = ["Draft", "Active", "Deprecated"]
+initial = "Draft"
+
+# Identity
+[[state]]
+name = "domain"
+type = "string"
+initial = ""
+
+[[state]]
+name = "name"
+type = "string"
+initial = ""
+
+[[state]]
+name = "description"
+type = "string"
+initial = ""
+
+# Type: "vocab" | "kanji" | "grammar" | "skill"
+[[state]]
+name = "concept_type"
+type = "string"
+initial = ""
+
+# Difficulty band: JSON { floor, ceiling, calibrated_at }
+[[state]]
+name = "difficulty_band"
+type = "string"
+initial = "{}"
+
+# Tags: JSON array of classification tags
+[[state]]
+name = "tags"
+type = "string"
+initial = "[]"
+
+# Prerequisite concept IDs: JSON array
+[[state]]
+name = "prerequisite_ids"
+type = "string"
+initial = "[]"
+
+# Transfer domains: JSON array of domains this concept transfers to/from
+[[state]]
+name = "transfer_domains"
+type = "string"
+initial = "[]"
+
+# Corpus frequency rank
+[[state]]
+name = "frequency_rank"
+type = "string"
+initial = ""
+
+# JLPT level (N5-N1)
+[[state]]
+name = "jlpt_level"
+type = "string"
+initial = ""
+
+# --- Draft ---
+[[action]]
+name = "Define"
+kind = "input"
+from = ["Draft"]
+params = ["domain", "name", "description", "concept_type", "difficulty_band", "tags", "prerequisite_ids", "transfer_domains", "frequency_rank", "jlpt_level"]
+hint = "Set or update all concept fields during drafting."
+
+[[action]]
+name = "Publish"
+kind = "input"
+from = ["Draft"]
+to = "Active"
+hint = "Publish concept, making it available for mastery tracking and encounters."
+
+# --- Active ---
+[[action]]
+name = "Recalibrate"
+kind = "input"
+from = ["Active"]
+params = ["difficulty_band"]
+hint = "Update difficulty band based on accumulated learner performance data."
+
+[[action]]
+name = "Deprecate"
+kind = "input"
+from = ["Active"]
+to = "Deprecated"
+hint = "Deprecate this concept. Existing mastery records are preserved."
+
+# --- Invariants ---
+[[invariant]]
+name = "DeprecatedIsFinal"
+when = ["Deprecated"]
+assert = "no_further_transitions"

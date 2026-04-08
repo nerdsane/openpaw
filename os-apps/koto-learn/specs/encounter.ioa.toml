@@ -1,0 +1,181 @@
+# Encounter — A single learning interaction designed for specific concepts.
+#
+# An encounter is the core teaching unit: it targets specific concepts for a
+# specific learner, wraps them in narrative/conversational context, presents
+# content, captures the student response, and evaluates mastery impact.
+#
+# Lifecycle: Designing -> Ready -> Active -> Completed -> Evaluated -> Abandoned.
+#
+# WASM integrations:
+#   Complete -> evaluate_encounter: AI-driven evaluation of student response
+#   RecordEvaluation -> apply_mastery_updates: dispatch Assess/Advance/Regress
+#     on Mastery entities (fire-and-forget; Encounter stays Evaluated regardless)
+
+[automaton]
+name = "Encounter"
+states = ["Designing", "Ready", "Active", "Completed", "Evaluated", "Abandoned"]
+initial = "Designing"
+
+# References
+[[state]]
+name = "learner_profile_id"
+type = "string"
+initial = ""
+
+# Target concepts: JSON array of concept IDs
+[[state]]
+name = "concept_ids"
+type = "string"
+initial = "[]"
+
+# Encounter type: "narrative" | "conversation" | "puzzle" | "immersion" | "reflection"
+[[state]]
+name = "encounter_type"
+type = "string"
+initial = ""
+
+# Narrative/situational context
+[[state]]
+name = "context"
+type = "string"
+initial = ""
+
+# The actual teaching content presented to the learner
+[[state]]
+name = "content"
+type = "string"
+initial = ""
+
+# Raw student response
+[[state]]
+name = "student_response"
+type = "string"
+initial = ""
+
+# Evaluation: JSON per-dimension assessment results
+[[state]]
+name = "evaluation"
+type = "string"
+initial = "{}"
+
+# Mastery updates: JSON array of mastery entity updates to apply
+[[state]]
+name = "mastery_updates"
+type = "string"
+initial = "[]"
+
+# Why this encounter was designed this way
+[[state]]
+name = "design_rationale"
+type = "string"
+initial = ""
+
+# Session tracking
+[[state]]
+name = "session_id"
+type = "string"
+initial = ""
+
+# Error tracking
+[[state]]
+name = "error_message"
+type = "string"
+initial = ""
+
+# --- Designing ---
+[[action]]
+name = "Design"
+kind = "input"
+from = ["Designing"]
+params = ["learner_profile_id", "concept_ids", "encounter_type", "context", "design_rationale"]
+hint = "Set or refine encounter design: target concepts, type, and narrative context."
+
+[[action]]
+name = "Finalize"
+kind = "input"
+from = ["Designing"]
+to = "Ready"
+params = ["content"]
+hint = "Finalize encounter content. Ready for presentation."
+
+# --- Ready ---
+[[action]]
+name = "Present"
+kind = "input"
+from = ["Ready"]
+to = "Active"
+params = ["session_id"]
+hint = "Present this encounter to the learner in a session."
+
+# --- Active ---
+[[action]]
+name = "Complete"
+kind = "input"
+from = ["Active"]
+to = "Completed"
+params = ["student_response"]
+hint = "Student has responded. Trigger AI evaluation."
+effect = [{ type = "trigger", name = "evaluate_encounter" }]
+
+# --- Completed ---
+[[action]]
+name = "RecordEvaluation"
+kind = "input"
+from = ["Completed"]
+to = "Evaluated"
+params = ["evaluation", "mastery_updates"]
+hint = "Record AI evaluation results and trigger mastery updates."
+effect = [{ type = "trigger", name = "apply_mastery_updates" }]
+
+# --- Abandonment (from any pre-completion state) ---
+[[action]]
+name = "Abandon"
+kind = "input"
+from = ["Designing", "Ready", "Active"]
+to = "Abandoned"
+hint = "Abandon this encounter (learner quit, session timeout, etc.)."
+
+[[action]]
+name = "Fail"
+kind = "input"
+from = ["Designing", "Active"]
+to = "Abandoned"
+params = ["error_message"]
+hint = "Encounter failed due to system error."
+
+# --- Invariants ---
+[[invariant]]
+name = "EvaluatedIsFinal"
+when = ["Evaluated"]
+assert = "no_further_transitions"
+
+[[invariant]]
+name = "AbandonedIsFinal"
+when = ["Abandoned"]
+assert = "no_further_transitions"
+
+# --- Integrations ---
+[[integration]]
+name = "evaluate_encounter"
+trigger = "evaluate_encounter"
+type = "wasm"
+module = "evaluate_mastery"
+on_failure = "Fail"
+
+[integration.config]
+temper_api_url = "{secret:temper_api_url}"
+anthropic_api_key = "{secret:anthropic_api_key}"
+
+# apply_mastery_updates fires after RecordEvaluation succeeds.
+# If it fails, the Encounter remains in Evaluated (correct — the evaluation
+# is already recorded). Mastery update failures are logged but do not
+# roll back the encounter. No on_failure is set because Evaluated is a
+# terminal state with no valid failure transition.
+[[integration]]
+name = "apply_mastery_updates"
+trigger = "apply_mastery_updates"
+type = "wasm"
+module = "apply_mastery"
+
+[integration.config]
+temper_api_url = "{secret:temper_api_url}"

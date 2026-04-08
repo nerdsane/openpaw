@@ -1,0 +1,131 @@
+# Mastery — Per-learner, per-concept mastery tracking with multi-dimensional assessment.
+#
+# Each Mastery entity represents one learner's relationship with one concept.
+# Dimensions track recognition, production, contextual_use, and transfer
+# independently (each 0.0-1.0).
+#
+# State progression: Unexplored -> Exploring -> Developing -> Proficient -> Fluent.
+# Regression is possible: Fluent->Proficient, Proficient->Developing, etc.
+# Mastery is driven by the apply_mastery WASM integration from Encounter evaluation.
+
+[automaton]
+name = "Mastery"
+states = ["Unexplored", "Exploring", "Developing", "Proficient", "Fluent"]
+initial = "Unexplored"
+
+# References
+[[state]]
+name = "learner_profile_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "concept_id"
+type = "string"
+initial = ""
+
+# Multi-dimensional mastery: JSON { recognition, production, contextual_use, transfer }
+[[state]]
+name = "dimensions"
+type = "string"
+initial = "{}"
+
+# Overall confidence score (0.0-1.0)
+[[state]]
+name = "confidence"
+type = "string"
+initial = "0.0"
+
+# Encounter counter
+[[state]]
+name = "encounter_count"
+type = "counter"
+initial = "0"
+
+# Last encounter reference
+[[state]]
+name = "last_encounter_id"
+type = "string"
+initial = ""
+
+# Timestamp of last assessment
+[[state]]
+name = "last_assessed_at"
+type = "string"
+initial = ""
+
+# Regression risk: "low" | "medium" | "high"
+[[state]]
+name = "regression_risk"
+type = "string"
+initial = "low"
+
+# --- Discovery ---
+[[action]]
+name = "Discover"
+kind = "input"
+from = ["Unexplored"]
+to = "Exploring"
+params = ["learner_profile_id", "concept_id"]
+hint = "Learner encounters this concept for the first time."
+
+# --- Assessment (self-loop across multiple states) ---
+[[action]]
+name = "Assess"
+kind = "input"
+from = ["Exploring", "Developing", "Proficient"]
+params = ["dimensions", "confidence", "last_encounter_id", "last_assessed_at"]
+hint = "Record assessment results from an encounter. Increments encounter_count."
+effect = [{ type = "increment", var = "encounter_count" }]
+
+# --- Advancement ---
+[[action]]
+name = "Advance"
+kind = "input"
+from = ["Exploring"]
+to = "Developing"
+hint = "Advance from Exploring to Developing."
+
+[[action]]
+name = "AdvanceToProficient"
+kind = "input"
+from = ["Developing"]
+to = "Proficient"
+hint = "Advance from Developing to Proficient."
+
+[[action]]
+name = "AdvanceToFluent"
+kind = "input"
+from = ["Proficient"]
+to = "Fluent"
+hint = "Advance from Proficient to Fluent."
+
+# --- Regression ---
+[[action]]
+name = "RegressToExploring"
+kind = "input"
+from = ["Developing"]
+to = "Exploring"
+hint = "Regress from Developing back to Exploring."
+
+[[action]]
+name = "RegressToDeveloping"
+kind = "input"
+from = ["Proficient"]
+to = "Developing"
+hint = "Regress from Proficient back to Developing."
+
+[[action]]
+name = "RegressToProficient"
+kind = "input"
+from = ["Fluent"]
+to = "Proficient"
+hint = "Regress from Fluent back to Proficient."
+
+# --- Regression risk (self-loop across active states) ---
+[[action]]
+name = "MarkRegressionRisk"
+kind = "input"
+from = ["Exploring", "Developing", "Proficient", "Fluent"]
+params = ["regression_risk"]
+hint = "Update regression risk assessment based on time since last encounter or performance trend."

@@ -5,7 +5,7 @@ You are setting up the Open Paw agent platform for a human. Read this entire fil
 ## Prerequisites
 
 - Rust toolchain (stable) must be installed
-- You need the human's Anthropic API key — ask them for it if you don't have it
+- The human needs an API key from one of: Anthropic, OpenRouter, or OpenAI
 - Optional: Discord bot token if they want Discord integration
 
 ## Setup
@@ -19,17 +19,28 @@ cd openpaw
 
 ### 2. Write a `.env` file
 
+Ask the human which provider they use and get their API key.
+
+**Anthropic** (key from console.anthropic.com):
 ```bash
 echo 'ANTHROPIC_API_KEY=sk-ant-...' > .env
 ```
 
-Replace with the human's actual key. Add optional tokens on separate lines:
+**OpenRouter** (key from openrouter.ai/keys):
+```bash
+echo 'ANTHROPIC_API_KEY=sk-or-...' > .env
+echo 'LLM_PROVIDER=openrouter' >> .env
+```
 
+**OpenAI** (key from platform.openai.com/api-keys — ChatGPT subscriptions don't include API access):
+```bash
+echo 'ANTHROPIC_API_KEY=sk-proj-...' > .env
+echo 'LLM_PROVIDER=openai' >> .env
+```
+
+Optional — add Discord:
 ```bash
 echo 'DISCORD_BOT_TOKEN=...' >> .env
-echo 'DISCORD_GUILD_ID=...' >> .env
-echo 'DISCORD_FEED_CHANNEL_ID=...' >> .env
-echo 'DISCORD_FORUM_CHANNEL_ID=...' >> .env
 ```
 
 ### 3. Start the server
@@ -41,38 +52,38 @@ cargo run
 First boot takes 20-30 seconds (compiling WASM modules, verifying specs). The server is ready when you see:
 
 ```
-Open Paw listening on port 3467
+  Open Paw is running.
+
+  API:       http://localhost:3467/tdata
+  Dashboard: http://localhost:3467/dashboard
+
+  ✓ Anthropic API key
+  ✓ Discord
 ```
 
-Dashboard: http://localhost:3467/dashboard
+If the preferred port (3467) is taken, it automatically picks a free one.
 
-### 4. Create an agent (optional)
+### 4. Personalize Paw (optional)
 
-Once the server is running, create agents via the REST API:
+If the human is at the terminal, they can run the interactive setup to personalize their agent:
 
 ```bash
-curl -X POST http://localhost:3467/paw/agents/create \
-  -H 'x-tenant-id: default' \
-  -H 'x-temper-principal-kind: admin' \
-  -H 'content-type: application/json' \
-  -d '{"name": "dev-agent", "role": "Software Developer", "model": "claude-sonnet-4-6"}'
+cargo run -- setup
 ```
 
-### 5. Connect Discord at runtime (optional)
+This walks through a short interview and uses the LLM to generate a soul tailored to the human. It can be re-run anytime.
 
-No restart needed:
+### 5. Diagnose
 
 ```bash
-curl -X POST http://localhost:3467/paw/transports/discord/connect \
-  -H 'x-tenant-id: default' \
-  -H 'x-temper-principal-kind: admin' \
-  -H 'content-type: application/json' \
-  -d '{"bot_token": "MTI3...", "guild_id": "123456789"}'
+cargo run -- doctor
 ```
 
-## REST API Reference
+Shows what's configured and what's missing.
 
-All endpoints require headers: `x-tenant-id: default` and `x-temper-principal-kind: admin`.
+## REST API
+
+Once the server is running, everything is also available via HTTP. All endpoints need headers: `x-tenant-id: default` and `x-temper-principal-kind: admin`.
 
 | Method | Endpoint | Body |
 |--------|----------|------|
@@ -88,11 +99,9 @@ All endpoints require headers: `x-tenant-id: default` and `x-temper-principal-ki
 | POST | `/paw/transports/slack/connect` | `{"app_token", "bot_token", "signing_secret?"}` |
 | POST | `/paw/transports/slack/disconnect` | — |
 
-Allowed secret keys: `anthropic_api_key`, `discord_bot_token`, `discord_public_key`, `discord_guild_id`, `discord_feed_channel_id`, `discord_forum_channel_id`, `slack_app_token`, `slack_bot_token`, `slack_signing_secret`, `github_token`, `exa_api_key`, `tensorlake_api_key`
-
 ## Notes
 
-- All secrets from `.env` are encrypted and persisted to the local database on first boot. The `.env` can be deleted afterward.
-- The encryption key is at `~/.local/share/openpaw/vault.key`. Don't delete it.
-- Subsequent `cargo run` starts immediately with no prompts — secrets load from the database.
-- If the server crashes, orphaned sessions are automatically cleaned up on restart.
+- All secrets are encrypted and persisted to the local database. The `.env` can be deleted after first boot.
+- Encryption key: `~/.local/share/openpaw/vault.key` — don't delete it.
+- Orphaned sessions are automatically cleaned up on restart.
+- If the port is busy, the server picks a free one automatically.

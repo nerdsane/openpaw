@@ -1,0 +1,4 @@
+name = "koto-tutor"
+description = "Sensei tutor agent for Kotowari. Teaches through immersive, contextual encounters adapted to each learner's persona and mastery level."
+version = "0.1.0"
+dependencies = ["koto-learn", "paw-agent", "paw-fs"]

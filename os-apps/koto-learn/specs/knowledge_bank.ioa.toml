@@ -1,0 +1,136 @@
+# KnowledgeBank — Domain knowledge corpus with concept extraction pipeline.
+#
+# A knowledge bank represents a domain's concept graph built from external
+# data sources (textbooks, frequency lists, grammar references, etc.).
+#
+# Lifecycle: Created -> Importing -> Active -> Stale -> (re-import).
+# The import pipeline extracts concepts and links, building the graph
+# that personas and encounters draw from.
+
+[automaton]
+name = "KnowledgeBank"
+states = ["Created", "Importing", "Active", "Stale"]
+initial = "Created"
+
+# Domain
+[[state]]
+name = "domain"
+type = "string"
+initial = ""
+
+# Source configuration: JSON array of data source descriptors
+[[state]]
+name = "source_config"
+type = "string"
+initial = "[]"
+
+# Import log: JSON per-source status tracking
+[[state]]
+name = "import_log"
+type = "string"
+initial = "{}"
+
+# Counters
+[[state]]
+name = "total_concepts_created"
+type = "counter"
+initial = "0"
+
+[[state]]
+name = "total_links_created"
+type = "counter"
+initial = "0"
+
+# Corpus statistics: JSON frequency distributions
+[[state]]
+name = "corpus_stats"
+type = "string"
+initial = "{}"
+
+# Snapshot file reference for the built graph
+[[state]]
+name = "snapshot_file_id"
+type = "string"
+initial = ""
+
+# Error tracking
+[[state]]
+name = "error_message"
+type = "string"
+initial = ""
+
+# --- Created ---
+[[action]]
+name = "Configure"
+kind = "input"
+from = ["Created"]
+params = ["domain", "source_config"]
+hint = "Set domain and data source configuration."
+
+[[action]]
+name = "BeginImport"
+kind = "input"
+from = ["Created"]
+to = "Importing"
+hint = "Start the import pipeline to extract concepts and links."
+effect = [{ type = "trigger", name = "import_knowledge_bank" }]
+
+# --- Importing ---
+[[action]]
+name = "ImportProgress"
+kind = "input"
+from = ["Importing"]
+params = ["import_log", "total_concepts_created", "total_links_created"]
+hint = "Report incremental import progress."
+
+[[action]]
+name = "ImportComplete"
+kind = "input"
+from = ["Importing"]
+to = "Active"
+params = ["corpus_stats", "snapshot_file_id"]
+hint = "Import finished successfully. Knowledge bank is ready."
+
+[[action]]
+name = "ImportFailed"
+kind = "input"
+from = ["Importing"]
+to = "Created"
+params = ["error_message"]
+hint = "Import failed. Returns to Created for reconfiguration or retry."
+
+# --- Active ---
+[[action]]
+name = "Refresh"
+kind = "input"
+from = ["Active"]
+to = "Importing"
+hint = "Re-import to pick up new source data."
+effect = [{ type = "trigger", name = "import_knowledge_bank" }]
+
+[[action]]
+name = "MarkStale"
+kind = "input"
+from = ["Active"]
+to = "Stale"
+hint = "Mark this knowledge bank as needing a refresh."
+
+# --- Stale ---
+[[action]]
+name = "Reactivate"
+kind = "input"
+from = ["Stale"]
+to = "Importing"
+hint = "Begin re-import from stale state."
+effect = [{ type = "trigger", name = "import_knowledge_bank" }]
+
+# --- Integrations ---
+[[integration]]
+name = "import_knowledge_bank"
+trigger = "import_knowledge_bank"
+type = "wasm"
+module = "import_knowledge_bank"
+on_failure = "ImportFailed"
+
+[integration.config]
+temper_api_url = "{secret:temper_api_url}"

@@ -1,0 +1,4 @@
+name = "koto-wiki"
+description = "Persona-scoped knowledge plane wiki for Kotowari. Stores synthesized, interlinked knowledge that the tutor consults during encounter design."
+version = "0.1.0"
+dependencies = ["paw-agent", "paw-fs", "paw-research", "koto-learn"]

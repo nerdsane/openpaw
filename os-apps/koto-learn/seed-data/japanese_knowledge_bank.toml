@@ -1,0 +1,212 @@
+# Seed data: Japanese KnowledgeBank configuration
+# ================================================
+# Creates one KnowledgeBank entity for the Japanese domain.
+# The source_config defines every external data source the import pipeline
+# will process to build the concept graph (vocabulary, kanji, grammar,
+# and frequency corpora).
+#
+# After installation, dispatch KnowledgeBank.BeginImport to kick off the
+# import_knowledge_bank WASM integration which reads source_config and
+# creates Concept + ConceptLink entities for each source.
+
+[[instance]]
+type = "KnowledgeBank"
+fields = { Domain = "japanese", SourceConfig = '''
+[
+  {
+    "name": "jlpt_vocabulary",
+    "type": "structured_list",
+    "levels": ["N5", "N4", "N3", "N2", "N1"],
+    "estimated_items": 10000,
+    "concept_type": "vocab",
+    "source": "open_jlpt_vocab_lists",
+    "description": "JLPT vocabulary lists (N5-N1) with readings, meanings, and example sentences.",
+    "tags_template": ["jlpt:{level}", "vocab"],
+    "difficulty_mapping": {
+      "N5": { "floor": 0.0, "ceiling": 0.2 },
+      "N4": { "floor": 0.15, "ceiling": 0.4 },
+      "N3": { "floor": 0.3, "ceiling": 0.6 },
+      "N2": { "floor": 0.5, "ceiling": 0.8 },
+      "N1": { "floor": 0.7, "ceiling": 1.0 }
+    }
+  },
+  {
+    "name": "joyo_kanji",
+    "type": "kanji_list",
+    "total_characters": 2136,
+    "concept_type": "kanji",
+    "source": "ministry_of_education_joyo",
+    "description": "Ministry of Education Joyo kanji set with grade levels, readings (on/kun), stroke order, and radical decomposition.",
+    "grade_levels": [1, 2, 3, 4, 5, 6, "secondary"],
+    "link_generation": {
+      "kanji_to_vocab": "prerequisite",
+      "radical_to_kanji": "prerequisite",
+      "similar_form": "analogous"
+    },
+    "difficulty_mapping": {
+      "1": { "floor": 0.0, "ceiling": 0.15 },
+      "2": { "floor": 0.1, "ceiling": 0.25 },
+      "3": { "floor": 0.2, "ceiling": 0.35 },
+      "4": { "floor": 0.3, "ceiling": 0.45 },
+      "5": { "floor": 0.35, "ceiling": 0.55 },
+      "6": { "floor": 0.4, "ceiling": 0.65 },
+      "secondary": { "floor": 0.5, "ceiling": 0.85 }
+    }
+  },
+  {
+    "name": "grammar_points",
+    "type": "grammar_inventory",
+    "levels": ["N5", "N4", "N3", "N2", "N1"],
+    "estimated_items": 300,
+    "concept_type": "grammar",
+    "source": "bunpro_open_grammar",
+    "description": "Japanese grammar points organized by JLPT level with formation rules, usage notes, and nuance explanations.",
+    "link_generation": {
+      "prerequisite_grammar": "prerequisite",
+      "related_grammar": "reinforces"
+    },
+    "difficulty_mapping": {
+      "N5": { "floor": 0.0, "ceiling": 0.2 },
+      "N4": { "floor": 0.15, "ceiling": 0.4 },
+      "N3": { "floor": 0.3, "ceiling": 0.6 },
+      "N2": { "floor": 0.5, "ceiling": 0.8 },
+      "N1": { "floor": 0.7, "ceiling": 1.0 }
+    }
+  },
+  {
+    "name": "subtitle_frequency",
+    "type": "frequency_corpus",
+    "corpus": "japanese_subtitle_corpus",
+    "coverage_type": "word_frequency",
+    "estimated_unique_words": 35000,
+    "source": "netflix_jp_subtitles",
+    "description": "Word frequency data extracted from Japanese Netflix subtitles. Represents natural spoken/informal Japanese register.",
+    "frequency_bands": {
+      "top_1000": { "floor": 0.0, "ceiling": 0.3 },
+      "top_3000": { "floor": 0.2, "ceiling": 0.5 },
+      "top_6000": { "floor": 0.4, "ceiling": 0.7 },
+      "top_10000": { "floor": 0.6, "ceiling": 0.85 },
+      "remainder": { "floor": 0.8, "ceiling": 1.0 }
+    },
+    "register": "informal_spoken"
+  },
+  {
+    "name": "light_novel_frequency",
+    "type": "frequency_corpus",
+    "corpus": "light_novel_text",
+    "coverage_type": "word_frequency",
+    "estimated_unique_words": 40000,
+    "source": "syosetu_narou_public",
+    "description": "Word frequency data from publicly available light novels on Syosetu ni Narou. Represents written narrative Japanese with genre-specific vocabulary.",
+    "frequency_bands": {
+      "top_1000": { "floor": 0.0, "ceiling": 0.25 },
+      "top_3000": { "floor": 0.15, "ceiling": 0.45 },
+      "top_6000": { "floor": 0.35, "ceiling": 0.65 },
+      "top_10000": { "floor": 0.55, "ceiling": 0.8 },
+      "remainder": { "floor": 0.75, "ceiling": 1.0 }
+    },
+    "register": "written_narrative"
+  }
+]
+''' }
+
+[[instance.actions]]
+name = "Configure"
+params = { domain = "japanese", source_config = '''
+[
+  {
+    "name": "jlpt_vocabulary",
+    "type": "structured_list",
+    "levels": ["N5", "N4", "N3", "N2", "N1"],
+    "estimated_items": 10000,
+    "concept_type": "vocab",
+    "source": "open_jlpt_vocab_lists",
+    "description": "JLPT vocabulary lists (N5-N1) with readings, meanings, and example sentences.",
+    "tags_template": ["jlpt:{level}", "vocab"],
+    "difficulty_mapping": {
+      "N5": { "floor": 0.0, "ceiling": 0.2 },
+      "N4": { "floor": 0.15, "ceiling": 0.4 },
+      "N3": { "floor": 0.3, "ceiling": 0.6 },
+      "N2": { "floor": 0.5, "ceiling": 0.8 },
+      "N1": { "floor": 0.7, "ceiling": 1.0 }
+    }
+  },
+  {
+    "name": "joyo_kanji",
+    "type": "kanji_list",
+    "total_characters": 2136,
+    "concept_type": "kanji",
+    "source": "ministry_of_education_joyo",
+    "description": "Ministry of Education Joyo kanji set with grade levels, readings (on/kun), stroke order, and radical decomposition.",
+    "grade_levels": [1, 2, 3, 4, 5, 6, "secondary"],
+    "link_generation": {
+      "kanji_to_vocab": "prerequisite",
+      "radical_to_kanji": "prerequisite",
+      "similar_form": "analogous"
+    },
+    "difficulty_mapping": {
+      "1": { "floor": 0.0, "ceiling": 0.15 },
+      "2": { "floor": 0.1, "ceiling": 0.25 },
+      "3": { "floor": 0.2, "ceiling": 0.35 },
+      "4": { "floor": 0.3, "ceiling": 0.45 },
+      "5": { "floor": 0.35, "ceiling": 0.55 },
+      "6": { "floor": 0.4, "ceiling": 0.65 },
+      "secondary": { "floor": 0.5, "ceiling": 0.85 }
+    }
+  },
+  {
+    "name": "grammar_points",
+    "type": "grammar_inventory",
+    "levels": ["N5", "N4", "N3", "N2", "N1"],
+    "estimated_items": 300,
+    "concept_type": "grammar",
+    "source": "bunpro_open_grammar",
+    "description": "Japanese grammar points organized by JLPT level with formation rules, usage notes, and nuance explanations.",
+    "link_generation": {
+      "prerequisite_grammar": "prerequisite",
+      "related_grammar": "reinforces"
+    },
+    "difficulty_mapping": {
+      "N5": { "floor": 0.0, "ceiling": 0.2 },
+      "N4": { "floor": 0.15, "ceiling": 0.4 },
+      "N3": { "floor": 0.3, "ceiling": 0.6 },
+      "N2": { "floor": 0.5, "ceiling": 0.8 },
+      "N1": { "floor": 0.7, "ceiling": 1.0 }
+    }
+  },
+  {
+    "name": "subtitle_frequency",
+    "type": "frequency_corpus",
+    "corpus": "japanese_subtitle_corpus",
+    "coverage_type": "word_frequency",
+    "estimated_unique_words": 35000,
+    "source": "netflix_jp_subtitles",
+    "description": "Word frequency data extracted from Japanese Netflix subtitles. Represents natural spoken/informal Japanese register.",
+    "frequency_bands": {
+      "top_1000": { "floor": 0.0, "ceiling": 0.3 },
+      "top_3000": { "floor": 0.2, "ceiling": 0.5 },
+      "top_6000": { "floor": 0.4, "ceiling": 0.7 },
+      "top_10000": { "floor": 0.6, "ceiling": 0.85 },
+      "remainder": { "floor": 0.8, "ceiling": 1.0 }
+    },
+    "register": "informal_spoken"
+  },
+  {
+    "name": "light_novel_frequency",
+    "type": "frequency_corpus",
+    "corpus": "light_novel_text",
+    "coverage_type": "word_frequency",
+    "estimated_unique_words": 40000,
+    "source": "syosetu_narou_public",
+    "description": "Word frequency data from publicly available light novels on Syosetu ni Narou. Represents written narrative Japanese with genre-specific vocabulary.",
+    "frequency_bands": {
+      "top_1000": { "floor": 0.0, "ceiling": 0.25 },
+      "top_3000": { "floor": 0.15, "ceiling": 0.45 },
+      "top_6000": { "floor": 0.35, "ceiling": 0.65 },
+      "top_10000": { "floor": 0.55, "ceiling": 0.8 },
+      "remainder": { "floor": 0.75, "ceiling": 1.0 }
+    },
+    "register": "written_narrative"
+  }
+]
+''' }

@@ -1,0 +1,128 @@
+# LearnerProfile — Persistent learner identity and adaptive preferences.
+#
+# Tracks a learner through their journey: Onboarding -> Active -> Graduated.
+# The profile accumulates learning style discoveries and trust level evolution
+# as the system learns how to best teach this individual.
+#
+# trust_level governs scaffolding: "guided" (explicit instruction),
+# "balanced" (mixed), "autonomous" (discovery-based).
+
+[automaton]
+name = "LearnerProfile"
+states = ["Onboarding", "Active", "Paused", "Graduated"]
+initial = "Onboarding"
+
+# Identity
+[[state]]
+name = "name"
+type = "string"
+initial = ""
+
+[[state]]
+name = "persona_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "domain"
+type = "string"
+initial = ""
+
+[[state]]
+name = "native_language"
+type = "string"
+initial = ""
+
+# Adaptive state
+[[state]]
+name = "learning_style"
+type = "string"
+initial = ""
+
+[[state]]
+name = "trust_level"
+type = "string"
+initial = "guided"
+
+# Counters
+[[state]]
+name = "evolution_count"
+type = "counter"
+initial = "0"
+
+[[state]]
+name = "encounter_count"
+type = "counter"
+initial = "0"
+
+[[state]]
+name = "streak_days"
+type = "counter"
+initial = "0"
+
+# Timestamps
+[[state]]
+name = "last_active_at"
+type = "string"
+initial = ""
+
+# --- Onboarding ---
+[[action]]
+name = "Configure"
+kind = "input"
+from = ["Onboarding"]
+params = ["name", "persona_id", "domain", "native_language"]
+hint = "Set learner identity fields during onboarding."
+
+[[action]]
+name = "Activate"
+kind = "input"
+from = ["Onboarding"]
+to = "Active"
+hint = "Onboarding complete; learner is ready to begin encounters."
+
+# --- Active ---
+[[action]]
+name = "RecordEncounter"
+kind = "input"
+from = ["Active"]
+params = ["last_active_at"]
+hint = "Record that an encounter occurred. Increments encounter_count."
+effect = [{ type = "increment", var = "encounter_count" }]
+
+[[action]]
+name = "Evolve"
+kind = "input"
+from = ["Active"]
+params = ["learning_style", "trust_level"]
+hint = "Update discovered learning preferences and trust level. Increments evolution_count."
+effect = [{ type = "increment", var = "evolution_count" }]
+
+[[action]]
+name = "Pause"
+kind = "input"
+from = ["Active"]
+to = "Paused"
+hint = "Learner pauses their learning journey."
+
+# --- Paused ---
+[[action]]
+name = "Resume"
+kind = "input"
+from = ["Paused"]
+to = "Active"
+hint = "Learner resumes their learning journey."
+
+# --- Graduation ---
+[[action]]
+name = "Graduate"
+kind = "input"
+from = ["Active"]
+to = "Graduated"
+hint = "Learner has achieved persona target mastery. Journey complete."
+
+# --- Invariants ---
+[[invariant]]
+name = "GraduatedIsFinal"
+when = ["Graduated"]
+assert = "no_further_transitions"

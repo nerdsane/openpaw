@@ -1,0 +1,22 @@
+# Seed data: Bootstrap comprehensive grammar sourcing job
+# When submitted, this job will automatically spawn a Curator session
+# that searches the web and stores sources in paw-fs.
+
+[[instance]]
+type = "WikiJob"
+id = "seed-grammar-sourcing"
+fields = { job_type = "source_search", persona_id = "light-novel-reader" }
+
+[[instance.actions]]
+name = "Configure"
+
+[instance.actions.params]
+job_type = "source_search"
+persona_id = "light-novel-reader"
+input = '''
+{
+  "task": "Comprehensive Japanese grammar sourcing for light novel readers",
+  "scope": "Cover ALL major grammar topics needed to read Japanese light novels: particles (wa, ga, wo, ni, de, he, no, to, mo, kara, made), verb conjugation (all groups, masu, plain, past, negative, volitional), te-form and all variants (te-iru, te-shimau, te-oku, te-ageru/morau/kureru), conditional forms (tara, ba, to, nara), passive/causative/potential forms, adjectives (i-adj, na-adj), sentence connectors (kedo, noni, nagara, tari, shi, node, kara), desire and modal expressions (tai, hoshii, daro, kamoshirenai, hazu), speech levels and keigo basics, reported speech (to iu, tte, to omou), comparison expressions (yori, hodo, kurabe), and light novel specific grammar patterns (narration, inner monologue, genre conventions).",
+  "priority": "high"
+}
+'''
