@@ -71,7 +71,7 @@ If the human is at the terminal, they can run the interactive setup to personali
 cargo run -- setup
 ```
 
-This walks through an interview and uses the LLM to generate a soul tailored to the human. It can be re-run anytime.
+This walks through a short interview and uses the LLM to generate a soul tailored to the human. It can be re-run anytime.
 
 ### 5. Diagnose
 
