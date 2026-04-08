@@ -2,8 +2,10 @@
 //!
 //! Pure platform I/O. No Paw business logic here.
 
+use std::fmt;
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
+use std::time::Duration;
 
 use futures_util::SinkExt;
 use tokio::sync::RwLock;
@@ -24,6 +26,20 @@ pub(crate) struct GatewayState {
     pub session_id: Arc<RwLock<Option<String>>>,
     /// Resume gateway URL (populated after READY).
     pub resume_url: Arc<RwLock<Option<String>>>,
+}
+
+#[derive(Debug)]
+pub enum DiscordApiError {
+    PayloadTooLarge(String),
+    RequestFailed(String),
+}
+
+impl fmt::Display for DiscordApiError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::PayloadTooLarge(message) | Self::RequestFailed(message) => f.write_str(message),
+        }
+    }
 }
 
 impl GatewayState {
@@ -188,27 +204,13 @@ pub async fn send_discord_message(
     bot_token: &str,
     channel_id: &str,
     content: &str,
-) -> Result<(), String> {
+) -> Result<(), DiscordApiError> {
     let chunks = split_message(content, 2000);
     for chunk in chunks {
         let body = CreateMessageRequest {
             content: chunk.to_string(),
         };
-
-        let resp = http
-            .post(format!("{DISCORD_API_BASE}/channels/{channel_id}/messages"))
-            .header("Authorization", format!("Bot {bot_token}"))
-            .header("Content-Type", "application/json")
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| format!("Discord API error: {e}"))?;
-
-        if !resp.status().is_success() {
-            let status = resp.status();
-            let body = resp.text().await.unwrap_or_default();
-            return Err(format!("Discord API returned {status}: {body}"));
-        }
+        discord_post_message(http, bot_token, channel_id, &body).await?;
     }
     Ok(())
 }
@@ -222,31 +224,77 @@ pub async fn send_discord_message_with_components(
     content: &str,
     components: &[super::types::ActionRow],
     embeds: &[super::types::Embed],
-) -> Result<serde_json::Value, String> {
+) -> Result<serde_json::Value, DiscordApiError> {
     let body = super::types::CreateMessageWithComponents {
         content: content.to_string(),
         components: components.to_vec(),
         embeds: embeds.to_vec(),
     };
+    let resp = discord_post_message(http, bot_token, channel_id, &body).await?;
 
-    let resp = http
-        .post(format!("{DISCORD_API_BASE}/channels/{channel_id}/messages"))
-        .header("Authorization", format!("Bot {bot_token}"))
-        .header("Content-Type", "application/json")
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| format!("Discord API error: {e}"))?;
+    resp.json::<serde_json::Value>().await.map_err(|e| {
+        DiscordApiError::RequestFailed(format!("Failed to parse Discord message response: {e}"))
+    })
+}
 
-    if !resp.status().is_success() {
+async fn discord_post_message<T: serde::Serialize>(
+    http: &reqwest::Client,
+    bot_token: &str,
+    channel_id: &str,
+    body: &T,
+) -> Result<reqwest::Response, DiscordApiError> {
+    let url = format!("{DISCORD_API_BASE}/channels/{channel_id}/messages");
+    let mut attempts = 0;
+
+    loop {
+        let resp = http
+            .post(&url)
+            .header("Authorization", format!("Bot {bot_token}"))
+            .header("Content-Type", "application/json")
+            .json(body)
+            .send()
+            .await
+            .map_err(|e| DiscordApiError::RequestFailed(format!("Discord API error: {e}")))?;
+
+        if resp.status().is_success() {
+            return Ok(resp);
+        }
+
         let status = resp.status();
-        let body = resp.text().await.unwrap_or_default();
-        return Err(format!("Discord API returned {status}: {body}"));
-    }
+        let retry_after = resp
+            .headers()
+            .get("Retry-After")
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.parse::<f64>().ok())
+            .unwrap_or(1.0)
+            .clamp(0.5, 30.0);
+        let body_text = resp.text().await.unwrap_or_default();
 
-    resp.json::<serde_json::Value>()
-        .await
-        .map_err(|e| format!("Failed to parse Discord message response: {e}"))
+        if status == reqwest::StatusCode::TOO_MANY_REQUESTS && attempts < 3 {
+            attempts += 1;
+            tokio::time::sleep(Duration::from_secs_f64(retry_after)).await;
+            continue;
+        }
+
+        if status == reqwest::StatusCode::PAYLOAD_TOO_LARGE
+            || (status == reqwest::StatusCode::BAD_REQUEST && is_payload_too_large_body(&body_text))
+        {
+            return Err(DiscordApiError::PayloadTooLarge(format!(
+                "Discord API returned {status}: {body_text}"
+            )));
+        }
+
+        return Err(DiscordApiError::RequestFailed(format!(
+            "Discord API returned {status}: {body_text}"
+        )));
+    }
+}
+
+fn is_payload_too_large_body(body: &str) -> bool {
+    body.contains("BASE_TYPE_MAX_LENGTH")
+        || body.contains("Must be 2000 or fewer in length")
+        || body.contains("must be 6000 or fewer in length")
+        || body.contains("Invalid Form Body")
 }
 
 /// Edit a Discord message to update content and/or remove components.
@@ -319,9 +367,8 @@ pub(crate) async fn fetch_channel_messages(
     after_id: &str,
     limit: u32,
 ) -> Vec<serde_json::Value> {
-    let url = format!(
-        "{DISCORD_API_BASE}/channels/{channel_id}/messages?after={after_id}&limit={limit}"
-    );
+    let url =
+        format!("{DISCORD_API_BASE}/channels/{channel_id}/messages?after={after_id}&limit={limit}");
     let resp = http
         .get(&url)
         .header("Authorization", format!("Bot {bot_token}"))
@@ -330,8 +377,7 @@ pub(crate) async fn fetch_channel_messages(
     match resp {
         Ok(r) if r.status().is_success() => {
             // Discord returns messages newest-first; reverse for chronological order
-            let mut msgs: Vec<serde_json::Value> =
-                r.json().await.unwrap_or_default();
+            let mut msgs: Vec<serde_json::Value> = r.json().await.unwrap_or_default();
             msgs.reverse();
             msgs
         }

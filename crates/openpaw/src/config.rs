@@ -86,6 +86,15 @@ pub struct Config {
     /// HTTP port for the OData API + webhook listener.
     pub port: u16,
 
+    /// Public base URL used for externally reachable webhook URLs.
+    pub public_base_url: Option<String>,
+
+    /// Optional ngrok authtoken used for automatic local Discord interaction tunnels.
+    pub ngrok_authtoken: Option<String>,
+
+    /// ngrok binary to use when automatically creating a local Discord tunnel.
+    pub ngrok_bin: String,
+
     /// Default tenant ID.
     pub tenant: String,
 }
@@ -129,6 +138,11 @@ impl Config {
                 .ok()
                 .and_then(|p| p.parse().ok())
                 .unwrap_or(3467),
+            public_base_url: optional_env("PUBLIC_BASE_URL").or_else(|| {
+                optional_env("RAILWAY_PUBLIC_DOMAIN").map(|domain| format!("https://{domain}"))
+            }),
+            ngrok_authtoken: optional_env("NGROK_AUTHTOKEN"),
+            ngrok_bin: std::env::var("NGROK_BIN").unwrap_or_else(|_| "ngrok".to_string()),
             tenant: std::env::var("PAW_TENANT").unwrap_or_else(|_| "default".to_string()),
         })
     }

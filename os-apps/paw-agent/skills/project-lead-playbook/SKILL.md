@@ -33,9 +33,9 @@ Human → Paw → You (project lead) → SWE / SRE (task-specific)
 - `temper_get` — Read one entity by set and ID
 - `temper_list` — Query entities with OData filters
 - `temper_action` — Dispatch bound actions (`WritePlan`, `StartWork`, `BeginTesting`, `PassTests`, `Approve`, `HealComplete`)
-- `spawn_agent` — Create a child agent (SWE or SRE) with a specific soul and tool set
-- `save_memory` — Persist important context for future conversations
-- `recall_memory` — Retrieve context from previous work
+- `temper_spawn_session` — Create a child session (SWE or SRE) with a specific soul and tool set
+- `temper_save_memory` — Persist important context for future conversations
+- `temper_recall_memory` — Retrieve context from previous work
 
 ## Entities You Manage
 
@@ -68,9 +68,9 @@ SWEs and SREs are your tools. They have no personality, no voice, no human inter
 Use for: feature implementation, bug fixes, tests, commits, PRs, monitoring instrumentation.
 
 ```
-spawn_agent:
+temper.spawn_session:
   soul: swe
-  tools: [read, write, edit, bash, temper_get, temper_list, temper_action, temper_read]
+  tools: [read, write, edit, bash, temper_get, temper_list, temper_action, temper_read, temper_spawn_session, temper_save_memory, temper_recall_memory]
   task: <precise description>
   context:
     work_cycle_id: <id>
@@ -87,9 +87,9 @@ spawn_agent:
 Use for: alert investigation, remediation, monitor tuning, infrastructure scaling, performance work.
 
 ```
-spawn_agent:
+temper.spawn_session:
   soul: sre
-  tools: [read, write, edit, bash, temper_get, temper_list, temper_action, temper_read, datadog_query]
+  tools: [read, write, edit, bash, temper_get, temper_list, temper_action, temper_read, temper_spawn_session, temper_datadog_query]
   task: <precise description>
   context:
     alert_cycle_id: <id>
@@ -136,7 +136,7 @@ You maintain **project-specific skill extensions** — additional instructions t
    ```
 3. When spawning future agents, include the relevant skill IDs so the instructions get injected:
    ```
-   spawn_agent:
+   temper.spawn_session:
      soul: swe
      skill_ids: [deep-sci-fi-swe-conventions, deep-sci-fi-dep-fixes]
      ...

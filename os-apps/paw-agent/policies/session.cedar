@@ -38,6 +38,12 @@ permit(
   resource is Session
 );
 
+permit(
+  principal,
+  action in [Action::"read_specs"],
+  resource is Spec
+);
+
 // --- Steering: supervisors, humans, and system (for parent agents) ---
 
 permit(
@@ -65,6 +71,7 @@ permit(
     Action::"CheckSteering",
     Action::"ContinueWithSteering",
     Action::"FinalizeResult",
+    Action::"DeliveryFailed",
     Action::"Heartbeat",
     Action::"TimeoutFail",
     Action::"PauseForApproval"

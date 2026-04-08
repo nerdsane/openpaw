@@ -494,26 +494,22 @@ fn send_typing_indicator_inner(
         .cloned()
         .unwrap_or_else(|| json!({}));
     let headers = runtime_headers(ctx, tenant, &fields, None, Some("application/json"));
+    let parent_session_id = entity_field_str(&ctx.entity_state, &["parent_session_id", "ParentSessionId"])
+        .unwrap_or("");
 
     // Find ChannelSession for this agent
-    let escaped = agent_entity_id.replace('\'', "''");
-    let session_url = format!(
-        "{temper_api_url}/tdata/ChannelSessions?$filter=agent_entity_id eq '{escaped}'&$top=1"
-    );
-    let session_resp = ctx.http_call("GET", &session_url, &headers, "")?;
-    if session_resp.status != 200 {
-        return Ok(());
-    }
-    let sessions: Value =
-        serde_json::from_str(&session_resp.body).unwrap_or_else(|_| json!({"value": []}));
-    let session = sessions
-        .get("value")
-        .and_then(Value::as_array)
-        .and_then(|arr| arr.first())
+    let session = find_channel_session(ctx, temper_api_url, &headers, agent_entity_id)
+        .or_else(|| {
+            if parent_session_id.is_empty() || parent_session_id == agent_entity_id {
+                None
+            } else {
+                find_channel_session(ctx, temper_api_url, &headers, parent_session_id)
+            }
+        })
         .ok_or("no session")?;
 
-    let channel_id = entity_field_str(session, &["ChannelId", "channel_id"]).unwrap_or("");
-    let thread_id = entity_field_str(session, &["ThreadId", "thread_id"]).unwrap_or("");
+    let channel_id = entity_field_str(&session, &["ChannelId", "channel_id"]).unwrap_or("");
+    let thread_id = entity_field_str(&session, &["ThreadId", "thread_id"]).unwrap_or("");
     if channel_id.is_empty() || thread_id.is_empty() {
         return Ok(());
     }
@@ -549,4 +545,43 @@ fn send_typing_indicator_inner(
     let wh_headers = vec![("content-type".to_string(), "application/json".to_string())];
     let _ = ctx.http_call("POST", &typing_url, &wh_headers, &body.to_string());
     Ok(())
+}
+
+fn find_channel_session(
+    ctx: &Context,
+    temper_api_url: &str,
+    headers: &[(String, String)],
+    agent_entity_id: &str,
+) -> Option<Value> {
+    let escaped = agent_entity_id.replace('\'', "''");
+    let active_url = format!(
+        "{temper_api_url}/tdata/ChannelSessions?$filter=Status eq 'Active' and agent_entity_id eq '{escaped}'&$top=1"
+    );
+    let active_resp = ctx.http_call("GET", &active_url, headers, "").ok()?;
+    if active_resp.status == 200 {
+        let sessions: Value =
+            serde_json::from_str(&active_resp.body).unwrap_or_else(|_| json!({"value": []}));
+        if let Some(session) = sessions
+            .get("value")
+            .and_then(Value::as_array)
+            .and_then(|arr| arr.first())
+        {
+            return Some(session.clone());
+        }
+    }
+
+    let fallback_url = format!(
+        "{temper_api_url}/tdata/ChannelSessions?$filter=agent_entity_id eq '{escaped}'&$top=1"
+    );
+    let fallback_resp = ctx.http_call("GET", &fallback_url, headers, "").ok()?;
+    if fallback_resp.status != 200 {
+        return None;
+    }
+    let sessions: Value =
+        serde_json::from_str(&fallback_resp.body).unwrap_or_else(|_| json!({"value": []}));
+    sessions
+        .get("value")
+        .and_then(Value::as_array)
+        .and_then(|arr| arr.first())
+        .cloned()
 }

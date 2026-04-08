@@ -170,6 +170,8 @@ temper.install_app("my-app", reason="Need bookmark management for project tracki
 my-app/
 ├── app.toml                  # name, version, dependencies
 ├── APP.md                    # human documentation
+├── adrs/                     # design decisions for the app
+│   └── 001-initial-design.md
 ├── specs/
 │   ├── entity_name.ioa.toml  # one state machine per entity type
 │   └── model.csdl.xml        # OData data model (optional, for complex schemas)

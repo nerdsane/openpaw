@@ -23,7 +23,8 @@
         <Property Name="SandboxUrl" Type="Edm.String"/>
         <Property Name="TemperApiUrl" Type="Edm.String"/>
         <Property Name="SandboxId" Type="Edm.String"/>
-        <Property Name="TemperApiUrl" Type="Edm.String"/>
+        <Property Name="ProvisionCheckCount" Type="Edm.Int64"/>
+        <Property Name="MaxProvisionChecks" Type="Edm.String"/>
         <Property Name="FileManifestId" Type="Edm.String"/>
         <Property Name="Workdir" Type="Edm.String"/>
         <Property Name="ToolsEnabled" Type="Edm.String"/>
@@ -41,6 +42,7 @@
         <Property Name="FollowUpCount" Type="Edm.Int64"/>
         <Property Name="MaxFollowUps" Type="Edm.String"/>
         <Property Name="SoulId" Type="Edm.String"/>
+        <Property Name="ReplFileId" Type="Edm.String"/>
         <Property Name="HookPolicy" Type="Edm.String"/>
         <Property Name="ParentSessionId" Type="Edm.String"/>
         <Property Name="ChildSessionIds" Type="Edm.String"/>
@@ -48,6 +50,10 @@
         <Property Name="AgentId" Type="Edm.String"/>
         <Property Name="LastHeartbeatAt" Type="Edm.String"/>
         <Property Name="HeartbeatTimeoutSeconds" Type="Edm.String"/>
+        <Property Name="PendingDecisionId" Type="Edm.String"/>
+        <Property Name="PendingToolContext" Type="Edm.String"/>
+        <Property Name="ProjectHarnessId" Type="Edm.String"/>
+        <Property Name="ProjectId" Type="Edm.String"/>
       </EntityType>
 
       <EntityType Name="Soul">
@@ -70,6 +76,7 @@
         <Property Name="ContentFileId" Type="Edm.String"/>
         <Property Name="Scope" Type="Edm.String"/>
         <Property Name="AgentFilter" Type="Edm.String"/>
+        <Property Name="ProjectId" Type="Edm.String"/>
       </EntityType>
 
       <EntityType Name="Memory">
@@ -81,6 +88,7 @@
         <Property Name="MemoryType" Type="Edm.String"/>
         <Property Name="AgentId" Type="Edm.String"/>
         <Property Name="SoulId" Type="Edm.String"/>
+        <Property Name="ProjectId" Type="Edm.String"/>
       </EntityType>
 
       <EntityType Name="ToolHook">
@@ -145,6 +153,7 @@
         <Parameter Name="tools_enabled" Type="Edm.String" Nullable="true"/>
         <Parameter Name="workdir" Type="Edm.String" Nullable="true"/>
         <Parameter Name="sandbox_url" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="sandbox_id" Type="Edm.String" Nullable="true"/>
         <Parameter Name="temper_api_url" Type="Edm.String" Nullable="true"/>
         <Parameter Name="soul_id" Type="Edm.String" Nullable="true"/>
         <Parameter Name="parent_session_id" Type="Edm.String" Nullable="true"/>
@@ -155,6 +164,13 @@
         <Parameter Name="keep_recent_tokens" Type="Edm.String" Nullable="true"/>
         <Parameter Name="compaction_model" Type="Edm.String" Nullable="true"/>
         <Parameter Name="heartbeat_timeout_seconds" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="project_harness_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="project_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="workspace_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="conversation_file_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="file_manifest_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="session_file_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="session_leaf_id" Type="Edm.String" Nullable="true"/>
         <ReturnType Type="OpenPaw.Session"/>
       </Action>
 
@@ -191,6 +207,7 @@
         <Parameter Name="pending_tool_calls" Type="Edm.String" Nullable="false"/>
         <Parameter Name="conversation" Type="Edm.String" Nullable="true"/>
         <Parameter Name="session_leaf_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="repl_file_id" Type="Edm.String" Nullable="true"/>
         <ReturnType Type="OpenPaw.Session"/>
       </Action>
 
@@ -239,6 +256,13 @@
         <ReturnType Type="OpenPaw.Session"/>
       </Action>
 
+      <Action Name="SwitchProvider" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Session"/>
+        <Parameter Name="model" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="provider" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="OpenPaw.Session"/>
+      </Action>
+
       <Action Name="PauseForApproval" IsBound="true">
         <Parameter Name="bindingParameter" Type="OpenPaw.Session"/>
         <Parameter Name="pending_decision_id" Type="Edm.String" Nullable="true"/>
@@ -258,6 +282,7 @@
         <Parameter Name="input_tokens" Type="Edm.Int64" Nullable="true"/>
         <Parameter Name="output_tokens" Type="Edm.Int64" Nullable="true"/>
         <Parameter Name="session_leaf_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="repl_file_id" Type="Edm.String" Nullable="true"/>
         <ReturnType Type="OpenPaw.Session"/>
       </Action>
 
@@ -296,6 +321,12 @@
         <ReturnType Type="OpenPaw.Session"/>
       </Action>
 
+      <Action Name="DeliveryFailed" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Session"/>
+        <Parameter Name="error_message" Type="Edm.String" Nullable="false"/>
+        <ReturnType Type="OpenPaw.Session"/>
+      </Action>
+
       <Action Name="Create" IsBound="true">
         <Parameter Name="bindingParameter" Type="OpenPaw.Soul"/>
         <Parameter Name="name" Type="Edm.String" Nullable="false"/>
@@ -329,6 +360,7 @@
         <Parameter Name="content_file_id" Type="Edm.String" Nullable="true"/>
         <Parameter Name="scope" Type="Edm.String" Nullable="true"/>
         <Parameter Name="agent_filter" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="project_id" Type="Edm.String" Nullable="true"/>
         <ReturnType Type="OpenPaw.Skill"/>
       </Action>
 
@@ -356,6 +388,7 @@
         <Parameter Name="memory_type" Type="Edm.String" Nullable="true"/>
         <Parameter Name="agent_id" Type="Edm.String" Nullable="true"/>
         <Parameter Name="soul_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="project_id" Type="Edm.String" Nullable="true"/>
         <ReturnType Type="OpenPaw.Memory"/>
       </Action>
 
