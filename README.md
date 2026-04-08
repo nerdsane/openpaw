@@ -38,9 +38,6 @@ All agent logic is modeled as Temper state machines (IOA specs), WASM integratio
 | paw-channels | Multi-platform messaging — Channel, AgentRoute, ChannelSession |
 | paw-fs | Governed file storage — File, Workspace, Directory |
 | paw-pm | Project management — Issues, Plans |
-| paw-compute | Cloud computer provisioning |
-| paw-harness | Development workflow — ProjectHarness, WorkCycle |
-| paw-heal | Self-healing monitoring — Monitor, AlertCycle |
 | paw-ingest | Webhook ingestion — WebhookEvent, WebhookRoute |
 | paw-research | Web search and fetch |
 | paw-foresight | Probe projections and entropy simulation |
