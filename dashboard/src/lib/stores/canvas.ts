@@ -136,7 +136,7 @@ export function buildCanvasGraph(data: {
 
     // ── Idle group (compressed) ──
     if (idleAgents.length > 0) {
-      const idleId = `idle-${team.Id}`;
+      const idleId = `idle-${project.Id}`;
       nodes.push({
         id: idleId,
         type: 'idleGroup',

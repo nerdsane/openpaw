@@ -14,6 +14,9 @@ fn runtime_headers(tenant: &str) -> Vec<(String, String)> {
     vec![
         ("Content-Type".to_string(), "application/json".to_string()),
         ("X-Tenant-Id".to_string(), tenant.to_string()),
+        ("x-temper-principal-kind".to_string(), "agent".to_string()),
+        ("x-temper-principal-id".to_string(), "system".to_string()),
+        ("x-temper-agent-type".to_string(), "system".to_string()),
     ]
 }
 

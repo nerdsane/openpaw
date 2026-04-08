@@ -129,12 +129,16 @@
       loaded = true;
       if (!usingMock) connectSSE();
     } catch (e) {
-      // API completely unreachable — use mock
-      console.warn('API unreachable, using mock data:', e);
-      usingMock = true;
-      buildCanvasGraph(loadFromMock());
-      canvasNodes.subscribe(v => { nodes = v; });
-      canvasEdges.subscribe(v => { edges = v; });
+      console.error('Canvas load error, falling back to mock:', e);
+      try {
+        usingMock = true;
+        buildCanvasGraph(loadFromMock());
+        canvasNodes.subscribe(v => { nodes = v; });
+        canvasEdges.subscribe(v => { edges = v; });
+      } catch (e2) {
+        console.error('Mock data also failed:', e2);
+        error = 'Failed to load data';
+      }
       loaded = true;
     }
   });

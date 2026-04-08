@@ -16,6 +16,21 @@ permit(
     resource.id == principal.workspaceid
 };
 
+// Agents can perform filesystem operations (FUSE-mapped: mkdir, creat, addchild, counters)
+permit(
+    principal is Agent,
+    action in [Action::"MkDir", Action::"CreateFile", Action::"DirCreated", Action::"FileCreated",
+               Action::"IncrementFileCount", Action::"DecrementFileCount"],
+    resource is Workspace
+);
+
+// Agents can manage directories (addchild, create, rename)
+permit(
+    principal is Agent,
+    action in [Action::"Create", Action::"AddChild", Action::"RemoveChild", Action::"DirectoryRename", Action::"DirectoryArchive"],
+    resource is Directory
+);
+
 // Only workspace admins can freeze, thaw, or archive
 permit(
     principal is Agent,

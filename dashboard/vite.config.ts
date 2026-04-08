@@ -6,7 +6,7 @@ export default defineConfig({
 	server: {
 		proxy: {
 			'/tdata': {
-				target: 'http://localhost:3469',
+				target: 'http://localhost:3467',
 				configure: (proxy) => {
 					proxy.on('proxyReq', (proxyReq) => {
 						proxyReq.setHeader('x-tenant-id', 'default');
@@ -15,7 +15,7 @@ export default defineConfig({
 				}
 			},
 			'/observe': {
-				target: 'http://localhost:3469',
+				target: 'http://localhost:3467',
 				configure: (proxy) => {
 					proxy.on('proxyReq', (proxyReq) => {
 						proxyReq.setHeader('x-tenant-id', 'default');
@@ -24,7 +24,7 @@ export default defineConfig({
 				}
 			},
 			'/api': {
-				target: 'http://localhost:3469',
+				target: 'http://localhost:3467',
 				configure: (proxy) => {
 					proxy.on('proxyReq', (proxyReq) => {
 						proxyReq.setHeader('x-tenant-id', 'default');
