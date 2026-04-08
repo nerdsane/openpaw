@@ -33,6 +33,37 @@ my-app/
   seed-data/             # Initial entities to create on install
 ```
 
+## Document Storage Rule
+
+If an app produces a document-sized artifact, store it in `Files` and keep only a file reference on the entity.
+
+Use inline string fields for:
+
+- short descriptions
+- comments
+- labels
+- bounded notes
+- prompts that are intentionally small
+
+Use `Files` plus `content_file_id` or another `*FileId` field for:
+
+- markdown pages
+- reports
+- transcripts
+- fetched documents
+- compiled analyses
+- large JSON outputs
+- HTML or rendered artifacts
+- long LLM outputs that need to survive round-trips in full
+
+Pattern:
+
+1. write bytes with `temper.write(...)` or `Files('{id}')/$value`
+2. store the returned file id on the entity
+3. keep only metadata inline
+
+Temper's blob-backed overflow protection is a safety net for accidental large field values. It is **not** the preferred app design for document storage.
+
 ### Required parts
 
 | Part | File | Purpose |
