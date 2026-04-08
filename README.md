@@ -1,6 +1,108 @@
-# Open Paw
+# OpenPaw
 
-Agent platform built on [Temper](https://github.com/nerdsane/temper). You talk to Paw via Discord. Paw spawns agents, gives them cloud computers, and manages work across projects. Agents can create Temper apps to extend their own capabilities — new entity types, state machines, tools — so the platform grows as they work.
+An agent that evolves its own capabilities.
+
+OpenPaw is an ambient agent platform. It runs in the background, always on. You talk to Paw wherever you already are — messaging, voice, text. Paw manages work, spawns specialist agents, and gives them their own computers. When an agent needs a capability that doesn't exist, it designs one. The platform verifies it. You approve it. And now every agent on the platform can use it — perpetually.
+
+Paw runs on the same platform it gives to its agents. Its memory, skills, permissions, and workflows are built the same way agents build new capabilities. So when agents extend the platform, they're working with the same building blocks Paw itself is made of. Like a building where the tenants can add rooms — using the same materials the building is made of. The platform grows with them.
+
+## The Human Experience
+
+1. You deploy OpenPaw — one binary, one service, a set of environment variables.
+2. You connect Paw to where you already communicate — Discord, Slack, or whatever comes next.
+3. You say: **"Manage this for me."**
+4. Paw takes it from there:
+   - Hires specialist agents for the work
+   - Gives each agent its own governed computer — scoped credentials, scoped access, isolated from everything else
+   - Sets up the workflow rules for the project (and asks you to approve them)
+   - Reports back to you
+5. From then on, the system runs:
+   - Agents handle day-to-day execution
+   - Paw proactively reports progress, surfaces decisions, flags problems
+   - You review outcomes and approve what matters
+6. You control how much autonomy each agent has, per project, and adjust it as trust builds.
+
+## What This Looks Like
+
+**"Take over this codebase."** You hand Paw a repo. Agents map the architecture, set up monitoring, and establish workflow rules based on the existing conventions. Within a day, the project has active maintenance — dependency updates tested in isolation, alerts triaged, PRs opened when something breaks. You review and approve.
+
+**"Track production for this campaign."** Dozens of deliverables across copy, design, video, and web. Agents track where every asset is in the pipeline — draft, review, revision, approved. When a reviewer is late, the agent flags it and suggests reassignment. When a dependency between deliverables shifts, you know before it blocks the launch.
+
+**"Manage our vendor contracts."** Agents track contract terms, flag renewals 90 days out, and surface clauses that conflict with new policies. When a contract comes up for renewal, you get a summary of what changed since last time — pricing, SLAs, compliance requirements. The agent already checked.
+
+**An agent keeps running into the same problem.** Across different projects, it keeps hitting the same friction — a pattern it has to work around every time. So it abstracts the pattern into a reusable capability, the platform verifies it, and you approve it. Now every agent on the platform can use it. The system grew a new organ.
+
+**You go to sleep.** While you're gone, an evolution agent watches how the other agents work. It notices friction — a workflow that takes too many steps, a tool that keeps failing. It designs an improvement, tests it, and queues it for your approval. You wake up to a platform that's better than the one you left.
+
+## Core Concepts
+
+### Agents as Humans
+
+Every agent is modeled as a human equivalent. When an agent gets "hired," it's like a new team member getting a laptop, credentials, and a project assignment.
+
+- **Paw** — The manager. Talks to you, delegates work, reports progress. Coordinates across projects.
+- **Specialists** — Domain experts assigned to specific work. A software engineer maintains a codebase. An SRE triages alerts. A production coordinator manages schedules. Each gets their own computer and scoped access.
+- **Evolution Agents** — The platform engineers. Watch how other agents use their tools, identify friction, and improve the tools and workflows agents use.
+
+### The Harness (Project-Specific Rules)
+
+Every project has a harness — the rules that govern how work happens on that project.
+
+The agent assigned to a project creates the harness, informed by the project's existing conventions. You approve it. From then on, the platform enforces it structurally — agents follow the required steps because the system requires them, at every transition.
+
+Different projects have different harnesses. A software project has deployment rules and testing requirements. A creative project has review stages and approval gates. Each harness reflects the work it governs.
+
+### The Autonomy Slider
+
+Per-agent, per-project, as granular as it gets.
+
+- "This agent can schedule tasks freely, but must ask before committing budget"
+- "This agent can open pull requests, but must ask before merging"
+- "This agent can adjust timelines, but must notify me when deadlines move"
+
+You decide where the line is. As trust builds, you move it.
+
+### Computer Governance
+
+Every agent's computer is governed:
+
+- **Scoped credentials** — only the access needed for its assigned project
+- **Network boundaries** — controlled access to external services
+- **Isolation** — Agent A's environment cannot reach Agent B's projects or secrets
+
+### The Evolution Loop
+
+Dedicated agents that run continuously in the background:
+
+1. Watches agent activity across all projects — tool usage, workarounds, failures, friction
+2. Identifies unmet needs — when agents work around something that should be direct
+3. Designs and tests improvements to tools and workflows
+4. Surfaces proposals for your approval
+
+The platform gets better over time, and you don't have to design every improvement yourself.
+
+### Agent-Created Capabilities
+
+Agents create capabilities as tools for themselves — structured workflows that make their work easier. A specialist agent creates a tracking system for its project. A team of agents creates a shared coordination tool with custom stages. These agent-created capabilities are what the evolution agents watch and improve.
+
+## What Paw Can Do Today
+
+- **Talk to you on Discord and Slack** — holds conversations, takes direction, reports back
+- **Spawn agents with their own computers** — isolated sandboxes with scoped credentials
+- **Manage projects** — track issues, create plans, coordinate work
+- **Research the web** — search, fetch, and synthesize information
+- **Read and write governed files** — every file operation is authorized
+- **Remember across sessions** — persistent memory, skills, and identity
+
+## Where We're Going
+
+**Self-extending capabilities.** Agents design, verify, and install new capabilities at runtime. The platform grows as agents work, through governed evolution.
+
+**Structural governance.** Every capability has enforced rules — what it can access, who can use it, what transitions are valid. The platform enforces them structurally. You control how much autonomy each agent has, and adjust it as trust builds.
+
+**The evolution loop.** Dedicated agents that watch how other agents work, identify friction, and propose improvements to tools and workflows. You review and approve. The platform gets better without you designing every improvement.
+
+**Cross-domain agent teams.** Agents with different expertise, different permissions, different tools — collaborating through governed shared state. Engineering agents, operations agents, creative agents, all coordinating on shared work.
 
 ## Get Started
 
@@ -12,87 +114,14 @@ cargo run
 
 On first run, the CLI walks you through setup:
 - Pick your AI provider (Anthropic, OpenRouter, or OpenAI) and paste your API key
-- Connect Discord (with step-by-step bot creation instructions)
+- Connect a messaging platform — Discord or Slack (with step-by-step instructions)
 - A short interview about you and what kind of Paw you want
-- Paw generates a personalized soul using the LLM and shows you a preview
+- Paw generates a personalized soul and shows you a preview
 
-Everything is encrypted and saved. Next time you run it, no prompts — just boots.
+Everything is encrypted and saved locally. Next time you run it — just boots.
 
-```bash
-cargo run -- setup    # reconfigure or personalize Paw
-cargo run -- doctor   # check what's configured
-```
+## How It's Built
 
-### Have an agent? Give it this:
+OpenPaw runs on [Temper](https://github.com/nerdsane/temper), an open-source kernel with building blocks that generalize to build software applications of any size. Temper provides verified state machines, authorization policies, and an auditable runtime. OpenPaw is one application built on Temper — and the capabilities agents create are also applications built on Temper. Same kernel, same building blocks, all the way down.
 
-> Set up Open Paw for me. Read the instructions at https://raw.githubusercontent.com/nerdsane/openpaw/main/INSTRUCTIONS.md and follow them.
-
-## Architecture
-
-Open Paw is a single Rust binary that embeds the [Temper](https://github.com/nerdsane/temper) platform. The binary itself has no business logic — it boots Temper, loads OS apps, and starts transports. All agent behavior lives in the apps.
-
-```
-┌─────────────────────────────────────────────────────────┐
-│  Discord / Slack / Webhooks                             │
-│  (transports — receive messages, dispatch actions)      │
-└────────────────────────┬────────────────────────────────┘
-                         │
-                         ▼
-┌─────────────────────────────────────────────────────────┐
-│  Open Paw Binary  (crates/openpaw)                      │
-│  Boots Temper, loads apps, starts transports. No logic. │
-└────────────────────────┬────────────────────────────────┘
-                         │
-                         ▼
-┌─────────────────────────────────────────────────────────┐
-│  Temper Platform  (embedded)                            │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌───────────┐  │
-│  │ OData API│ │WASM      │ │Cedar     │ │Event Store│  │
-│  │(entities)│ │Runtime   │ │Authz     │ │(Turso/    │  │
-│  │          │ │(on state │ │(policies)│ │ SQLite)   │  │
-│  │          │ │ change)  │ │          │ │           │  │
-│  └──────────┘ └──────────┘ └──────────┘ └───────────┘  │
-└────────────────────────┬────────────────────────────────┘
-                         │
-                         ▼
-┌─────────────────────────────────────────────────────────┐
-│  OS Apps  (os-apps/)                                    │
-│                                                         │
-│  Each app is a bundle of:                               │
-│    specs/    — entity types + state machines (.ioa.toml) │
-│    policies/ — Cedar authorization rules                │
-│    wasm/     — integrations that run on state changes   │
-│    agents/   — agent definitions (souls, skills)        │
-│                                                         │
-│  paw-agent · paw-fs · paw-pm · paw-channels            │
-│  paw-research · paw-foresight · paw-ingest · ...        │
-└─────────────────────────────────────────────────────────┘
-```
-
-**How it works:** A Discord message arrives → the transport creates a entity and dispatches an action → Temper checks Cedar policies → runs the state machine transition → fires WASM integrations → which may create more entities and dispatch more actions. The agent, its memory, its files, its project plans — everything is an entity with a governed lifecycle. No Rust code runs business logic; if it needs logic, it's WASM on a state transition.
-
-## What Works
-
-- **Core platform**: Paw boots, connects to Discord, runs conversations, spawns agents with cloud computers
-- **Entity CRUD + state machines**: temper_create/get/list/action all work; IOA state machines enforce valid transitions
-- **Web research**: temper_web_search + temper_web_fetch available to agents
-- **OS app loading**: apps under `os-apps/` are discovered and loaded at startup
-- **Agent sessions**: spawn_agent, temper_spawn_session, temper_steer_session work
-- **Cedar authorization**: policies enforce who can do what
-
-### Temper Apps
-
-Paw itself is implemented as Temper apps — the agent isn't separate from the platform, it runs on it.
-
-- **paw-agent** — the agent, its soul, skills, memory, and sessions are all Temper entities with state machines and Cedar policies
-- **paw-fs** — governed filesystem; agents read and write files through Temper with authorization checks
-- **paw-pm** — project management; issues and plans tracked as Temper entities so agents can manage work
-- **paw-foresight** — probes and projections; agents simulate outcomes before acting
-
-## Next Steps
-
-1. **Agent awareness of available tools** — agents need to know what Temper tools they have (`temper.write`, `temper.specs`, etc.) and which are granted vs denied in their session. Without this self-awareness, agents waste turns attempting blocked operations.
-2. **Agent access to build new capabilities** — enable agents to create, install, and evolve Temper apps at runtime: submit specs (`temper_submit_specs`), write to TemperFS (`temper.write`), introspect installed specs (`/observe/specs`). This is what makes the platform self-extending.
-3. **End-to-end app lifecycle** — once agents can submit specs + write files, test the full cycle: agent designs an app → submits specs → governance approves → app installs → agent uses it. A wiki app (web research → structured knowledge base) is the first candidate.
-4. **Surface auth requests to Discord** — when an agent needs a permission it doesn't have, it should be able to post a structured approval request to the user's Discord channel (tool needed, reason, scope). The user approves or denies; the agent polls and retries. No more stalling in chat loops.
-5. **Evolve apps over time** — agents should be able to extend an installed app (add entity types, new actions, updated policies) without reinstalling from scratch. Incremental spec evolution, not tear-down-and-rebuild.
+For architecture and internals, see [agents.md](agents.md) and [docs/](docs/).
