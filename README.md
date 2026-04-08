@@ -52,14 +52,6 @@ All agent logic is Temper state machines (IOA specs), WASM integrations, and Ced
 - **Agent sessions**: spawn_agent, temper_spawn_session, temper_steer_session work
 - **Cedar authorization**: policies enforce who can do what
 
-## What Doesn't Work (Known Blockers)
-
-- **`temper.write` not available in agent sessions** — agents cannot write to TemperFS from within their tool sandbox. This blocks any workflow that needs to persist files (wiki pages, raw source snapshots, reports). The `write` tool in the sandbox is the local filesystem writer, not TemperFS.
-- **`/observe/specs` returns 403** — agents cannot inspect or register new entity specs at runtime. This blocks dynamic app installation (the `temper_install_app` path).
-- **Dynamic app install is incomplete** — Paw can design an OS app spec perfectly but cannot self-install it. The `temper_install_app` + `temper_submit_specs` flow requires permissions the agent session doesn't have.
-- **No way to surface auth requests to the user** — when an agent hits a permission wall (403, disabled tool), it has no mechanism to send an approval request to Discord for the human to act on. Agents get stuck in loops asking clarifying questions instead of requesting the specific grant they need.
-- **New OS apps are spec-only** — CSDL, IOA, Cedar, and agent definitions exist on disk but haven't been end-to-end tested (blocked by temper.write above).
-
 ## Next Steps
 
 1. **Agent awareness of available tools** — agents need to know what Temper tools they have (`temper.write`, `temper.specs`, etc.) and which are granted vs denied in their session. Without this self-awareness, agents waste turns attempting blocked operations.
