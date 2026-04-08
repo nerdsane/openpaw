@@ -1,0 +1,71 @@
+# Project — coordinated effort container.
+#
+# A Project groups agents, scopes skills, and declares which apps it uses.
+# Not tied to code/repos — any coordinated effort (code, research, content).
+# See ADR-0018.
+
+[automaton]
+name = "Project"
+states = ["Active", "Paused", "Archived"]
+initial = "Active"
+
+# Identity
+[[state]]
+name = "name"
+type = "string"
+initial = ""
+
+[[state]]
+name = "description"
+type = "string"
+initial = ""
+
+# The lead agent (e.g., Ren). Cross-project agents (Paw) can own multiple.
+[[state]]
+name = "owner_agent_id"
+type = "string"
+initial = ""
+
+# Comma-separated app names this project uses (advisory, not enforced).
+# e.g. "paw-harness,paw-heal,paw-pm"
+[[state]]
+name = "app_ids"
+type = "string"
+initial = ""
+
+# --- Actions ---
+
+[[action]]
+name = "Configure"
+kind = "input"
+from = ["Active"]
+params = ["name", "description", "owner_agent_id", "app_ids"]
+hint = "Set up the project with a name, description, owner, and declared apps."
+
+[[action]]
+name = "Update"
+kind = "input"
+from = ["Active"]
+params = ["description", "app_ids"]
+hint = "Update project description or declared apps."
+
+[[action]]
+name = "Pause"
+kind = "input"
+from = ["Active"]
+to = "Paused"
+hint = "Pause the project. Agents can still read but no new sessions."
+
+[[action]]
+name = "Resume"
+kind = "input"
+from = ["Paused"]
+to = "Active"
+hint = "Resume a paused project."
+
+[[action]]
+name = "Archive"
+kind = "input"
+from = ["Active", "Paused"]
+to = "Archived"
+hint = "Archive the project. All associated entities remain but project is closed."

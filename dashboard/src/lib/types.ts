@@ -37,6 +37,15 @@ export interface Session {
   _total_event_count?: number;
 }
 
+export interface Project {
+  Id: string;
+  Status: string;
+  name: string;
+  description: string;
+  owner_agent_id: string;
+  app_ids: string;
+}
+
 export interface Agent {
   Id: string;
   Status: string;
@@ -44,6 +53,7 @@ export interface Agent {
   role: string;
   description: string;
   soul_id: string;
+  instructions_file_id: string;
   team_id: string;
   model: string;
   provider: string;
@@ -58,6 +68,7 @@ export interface Team {
   name: string;
   description: string;
   harness_id: string;
+  project_id: string;
 }
 
 export interface WorkCycle {

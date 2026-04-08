@@ -20,12 +20,17 @@ name = "harness_id"
 type = "string"
 initial = ""
 
+[[state]]
+name = "project_id"
+type = "string"
+initial = ""
+
 [[action]]
 name = "Configure"
 kind = "input"
 from = ["Created"]
 to = "Active"
-params = ["name", "description", "harness_id"]
+params = ["name", "description", "harness_id", "project_id"]
 hint = "Set up the team and link to a harness."
 
 [[action]]

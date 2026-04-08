@@ -33,11 +33,16 @@ name = "agent_filter"
 type = "string"
 initial = ""
 
+[[state]]
+name = "project_id"
+type = "string"
+initial = ""
+
 [[action]]
 name = "Register"
 kind = "input"
 from = ["Active"]
-params = ["name", "description", "content_file_id", "scope", "agent_filter"]
+params = ["name", "description", "content_file_id", "scope", "agent_filter", "project_id"]
 hint = "Register a new skill with name, description, content file, and scope."
 
 [[action]]

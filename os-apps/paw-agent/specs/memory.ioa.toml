@@ -34,11 +34,16 @@ name = "soul_id"
 type = "string"
 initial = ""
 
+[[state]]
+name = "project_id"
+type = "string"
+initial = ""
+
 [[action]]
 name = "Save"
 kind = "input"
 from = ["Active"]
-params = ["key", "content", "memory_type", "agent_id", "soul_id"]
+params = ["key", "content", "memory_type", "agent_id", "soul_id", "project_id"]
 hint = "Save or initialize a memory entry."
 
 [[action]]

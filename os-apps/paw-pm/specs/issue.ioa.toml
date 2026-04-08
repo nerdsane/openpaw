@@ -69,6 +69,11 @@ name = "has_description"
 type = "bool"
 initial = "false"
 
+[[state]]
+name = "project_id"
+type = "string"
+initial = ""
+
 # --- Actions: Parent/Sub-Issue Hierarchy ---
 
 [[action]]
@@ -148,6 +153,7 @@ name = "MoveToTriage"
 kind = "internal"
 from = ["Backlog"]
 to = "Triage"
+params = ["project_id"]
 hint = "Move issue from backlog into triage for prioritization and scoping."
 
 [[action]]
