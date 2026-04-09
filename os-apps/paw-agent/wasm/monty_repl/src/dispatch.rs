@@ -27,9 +27,27 @@ thread_local! {
     static DONE_RESULT: RefCell<Option<String>> = RefCell::new(None);
 }
 
+// Thread-local storage for lazily provisioned sandbox (ADR-0022).
+// When a sandbox tool is called and no sandbox exists, we provision
+// one on-demand and cache (sandbox_url, sandbox_id) here. lib.rs
+// reads this after tool execution to persist via HandleToolResults.
+thread_local! {
+    static LAZY_SANDBOX: RefCell<Option<(String, String)>> = RefCell::new(None);
+}
+
 /// Take the done result (if set). Clears it after reading.
 pub fn take_done_result() -> Option<String> {
     DONE_RESULT.with(|cell| cell.borrow_mut().take())
+}
+
+/// Take the lazily provisioned sandbox details (if set). Clears after reading.
+pub fn take_lazy_sandbox() -> Option<(String, String)> {
+    LAZY_SANDBOX.with(|cell| cell.borrow_mut().take())
+}
+
+/// Peek at the lazily provisioned sandbox URL without consuming it.
+pub fn peek_lazy_sandbox_url() -> Option<String> {
+    LAZY_SANDBOX.with(|cell| cell.borrow().as_ref().map(|(url, _)| url.clone()))
 }
 
 /// Dispatch a `temper.<method>()` or `sandbox.<method>()` call.
@@ -47,13 +65,39 @@ pub fn dispatch(
     method: &str,
     args: &[Value],
 ) -> Result<Value, String> {
-    ensure_method_enabled(ctx, obj_name, method, sandbox_url)?;
+    // Lazy sandbox provisioning (ADR-0022): if this tool needs a sandbox and
+    // none is attached, provision one on-demand instead of failing.
+    let needs_sandbox = obj_name == "sandbox"
+        || (obj_name == "temper" && method == "run_coding_agent");
+
+    let effective_sandbox_url = if needs_sandbox && sandbox_url.is_empty() {
+        // Check thread-local cache first (already provisioned this invocation)
+        if let Some(url) = peek_lazy_sandbox_url() {
+            url
+        } else {
+            // Lazy provision
+            match lazy_provision_sandbox(ctx, temper_api_url, tenant) {
+                Ok(url) => url,
+                Err(e) => {
+                    return Err(format!(
+                        "This tool requires a code execution sandbox, but sandbox provisioning failed: {e}. \
+                         You can still use non-sandbox tools (temper.create, temper.list, temper.web_search, etc.) \
+                         to help the user."
+                    ));
+                }
+            }
+        }
+    } else {
+        sandbox_url.to_string()
+    };
+
+    ensure_method_enabled(ctx, obj_name, method, &effective_sandbox_url)?;
     match obj_name {
         "temper" => dispatch_temper(
             ctx,
             temper_api_url,
             tenant,
-            sandbox_url,
+            &effective_sandbox_url,
             workdir,
             method,
             args,
@@ -64,7 +108,7 @@ pub fn dispatch(
                 .get("tensorlake_api_key")
                 .cloned()
                 .unwrap_or_default();
-            dispatch_sandbox(ctx, sandbox_url, workdir, &sandbox_api_key, method, args)
+            dispatch_sandbox(ctx, &effective_sandbox_url, workdir, &sandbox_api_key, method, args)
         }
         _ => Err(format!("unknown object: {obj_name}")),
     }
@@ -948,6 +992,186 @@ fn temper_install_app(
 
 fn temper_list_apps(ctx: &Context, api_url: &str, tenant: &str) -> Result<Value, String> {
     http_get(ctx, api_url, tenant, "/api/apps")
+}
+
+// ---------------------------------------------------------------------------
+// Lazy sandbox provisioning (ADR-0022)
+// ---------------------------------------------------------------------------
+
+/// Provision a Tensorlake sandbox on-demand. Called when a sandbox tool is
+/// invoked but no sandbox_url is set on the session.
+///
+/// Returns the sandbox_url on success. Caches (sandbox_url, sandbox_id) in
+/// the LAZY_SANDBOX thread-local so subsequent tool calls in the same
+/// invocation reuse it, and lib.rs persists it via HandleToolResults params.
+fn lazy_provision_sandbox(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+) -> Result<String, String> {
+    let api_key = ctx
+        .config
+        .get("tensorlake_api_key")
+        .filter(|s| !s.is_empty() && !s.contains("{secret:"))
+        .cloned()
+        .ok_or_else(|| {
+            "no tensorlake_api_key configured — set TL_API_KEY in .env for sandbox provisioning"
+                .to_string()
+        })?;
+
+    ctx.log("info", "lazy_provision_sandbox: provisioning via Tensorlake API");
+
+    // Send heartbeat so the user sees a typing indicator
+    super::session::send_heartbeat(ctx, temper_api_url, tenant);
+
+    // Create sandbox
+    let create_url = "https://api.tensorlake.ai/sandboxes";
+    let headers = vec![
+        ("authorization".to_string(), format!("Bearer {api_key}")),
+        ("content-type".to_string(), "application/json".to_string()),
+    ];
+    let body = json!({
+        "resources": {
+            "cpus": 2,
+            "memory_mb": 4096
+        },
+        "timeout_seconds": 3600,
+        "internet_access": true
+    });
+    let resp = ctx.http_call("POST", create_url, &headers, &body.to_string())?;
+    if resp.status < 200 || resp.status >= 300 {
+        return Err(format!(
+            "Tensorlake sandbox creation failed (HTTP {}): {}",
+            resp.status,
+            &resp.body[..resp.body.len().min(500)]
+        ));
+    }
+
+    let parsed: Value = serde_json::from_str(&resp.body)
+        .map_err(|e| format!("failed to parse Tensorlake response: {e}"))?;
+    let sandbox_id = parsed
+        .get("sandbox_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or_else(|| {
+            parsed
+                .get("id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("tensorlake-sandbox")
+        })
+        .to_string();
+    let sandbox_url = format!("https://{sandbox_id}.sandbox.tensorlake.ai");
+
+    // Poll for readiness (max 12 retries = ~60s)
+    let max_checks = 12;
+    let health_headers = vec![("authorization".to_string(), format!("Bearer {api_key}"))];
+    let health_url = format!("{sandbox_url}/api/v1/files/list?path=/");
+
+    for attempt in 0..max_checks {
+        match ctx.http_call("GET", &health_url, &health_headers, "") {
+            Ok(r) if r.status >= 200 && r.status < 300 => {
+                ctx.log(
+                    "info",
+                    &format!(
+                        "lazy_provision_sandbox: sandbox ready after {} checks: id={sandbox_id}",
+                        attempt + 1
+                    ),
+                );
+
+                // Run post-provisioning setup (gh CLI etc.) — non-fatal
+                run_sandbox_setup(ctx, &sandbox_url, &api_key);
+
+                // Cache in thread-local
+                LAZY_SANDBOX.with(|cell| {
+                    *cell.borrow_mut() = Some((sandbox_url.clone(), sandbox_id.clone()));
+                });
+
+                return Ok(sandbox_url);
+            }
+            Ok(r) => {
+                ctx.log(
+                    "info",
+                    &format!(
+                        "lazy_provision_sandbox: sandbox not ready (HTTP {}), check {}/{}",
+                        r.status,
+                        attempt + 1,
+                        max_checks
+                    ),
+                );
+            }
+            Err(err) => {
+                ctx.log(
+                    "info",
+                    &format!(
+                        "lazy_provision_sandbox: readiness check failed ({}), check {}/{}",
+                        err,
+                        attempt + 1,
+                        max_checks
+                    ),
+                );
+            }
+        }
+
+        // Send heartbeat between retries (typing indicator)
+        if attempt % 3 == 2 {
+            super::session::send_heartbeat(ctx, temper_api_url, tenant);
+        }
+    }
+
+    Err(format!(
+        "Tensorlake sandbox {sandbox_id} did not become ready within {max_checks} readiness checks. \
+         The sandbox may still be booting — try again in a moment."
+    ))
+}
+
+/// Run post-provisioning setup on a sandbox (gh CLI install etc.). Non-fatal.
+fn run_sandbox_setup(ctx: &Context, sandbox_url: &str, api_key: &str) {
+    if sandbox_url.is_empty() {
+        return;
+    }
+
+    let gh_setup = r#"
+if ! command -v gh &>/dev/null; then
+  (type -p wget >/dev/null || (apt-get update && apt-get install wget -y)) && \
+  mkdir -p -m 755 /etc/apt/keyrings && \
+  out=$(mktemp) && wget -nv -O"$out" https://cli.github.com/packages/githubcli-archive-keyring.gpg && \
+  cat "$out" | tee /etc/apt/keyrings/githubcli-archive-keyring.gpg > /dev/null && \
+  chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg && \
+  echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null && \
+  apt-get update && apt-get install gh -y
+fi
+gh --version 2>/dev/null || echo 'gh: not installed'
+"#;
+
+    let headers = vec![
+        ("content-type".to_string(), "application/json".to_string()),
+        ("authorization".to_string(), format!("Bearer {api_key}")),
+    ];
+    let body = json!({
+        "command": gh_setup,
+        "timeout": 120
+    });
+    let url = format!("{sandbox_url}/commands");
+
+    match ctx.http_call("POST", &url, &headers, &body.to_string()) {
+        Ok(resp) if resp.status >= 200 && resp.status < 300 => {
+            ctx.log("info", "lazy_provision_sandbox: gh CLI setup completed");
+        }
+        Ok(resp) => {
+            ctx.log(
+                "warn",
+                &format!(
+                    "lazy_provision_sandbox: gh CLI setup failed (HTTP {})",
+                    resp.status
+                ),
+            );
+        }
+        Err(e) => {
+            ctx.log(
+                "warn",
+                &format!("lazy_provision_sandbox: gh CLI setup request failed: {e}"),
+            );
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

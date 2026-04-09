@@ -590,3 +590,94 @@ pub(crate) fn log_message(username: &str, content: &str) {
         truncate(content, 80)
     );
 }
+
+/// Fetch the bot's application ID from Discord REST API.
+pub(crate) async fn fetch_application_id(
+    http: &reqwest::Client,
+    bot_token: &str,
+) -> Result<String, String> {
+    let resp = http
+        .get(format!("{DISCORD_API_BASE}/applications/@me"))
+        .header("Authorization", format!("Bot {bot_token}"))
+        .send()
+        .await
+        .map_err(|e| format!("Failed to fetch application info: {e}"))?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        return Err(format!("GET /applications/@me returned {status}: {body}"));
+    }
+
+    let body: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse application info: {e}"))?;
+
+    body.get("id")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .ok_or_else(|| "Application info missing 'id' field".to_string())
+}
+
+/// Register `/plan` and `/execute` slash commands with Discord.
+///
+/// Uses guild-scoped commands if `guild_id` is provided (instant propagation,
+/// good for development). Falls back to global commands (up to 1 hour to propagate).
+pub(crate) async fn register_commands(
+    http: &reqwest::Client,
+    bot_token: &str,
+    application_id: &str,
+    guild_id: Option<&str>,
+) -> Result<(), String> {
+    let commands = serde_json::json!([
+        {
+            "name": "plan",
+            "description": "Start a task in plan mode (research & plan before implementing)",
+            "type": 1,
+            "options": [{
+                "name": "task",
+                "description": "What to plan",
+                "type": 3,
+                "required": true
+            }]
+        },
+        {
+            "name": "execute",
+            "description": "Switch to execute mode (full tool access)",
+            "type": 1,
+            "options": [{
+                "name": "task",
+                "description": "Optional task to execute",
+                "type": 3,
+                "required": false
+            }]
+        }
+    ]);
+
+    let url = if let Some(gid) = guild_id {
+        format!(
+            "{DISCORD_API_BASE}/applications/{application_id}/guilds/{gid}/commands"
+        )
+    } else {
+        format!("{DISCORD_API_BASE}/applications/{application_id}/commands")
+    };
+
+    let resp = http
+        .put(&url)
+        .header("Authorization", format!("Bot {bot_token}"))
+        .json(&commands)
+        .send()
+        .await
+        .map_err(|e| format!("Failed to register slash commands: {e}"))?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        return Err(format!("PUT commands returned {status}: {body}"));
+    }
+
+    let scope = guild_id.map(|g| format!("guild {g}")).unwrap_or("global".to_string());
+    println!("  [discord] Registered /plan and /execute commands ({scope})");
+    Ok(())
+}

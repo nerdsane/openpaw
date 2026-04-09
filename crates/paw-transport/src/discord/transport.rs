@@ -172,6 +172,23 @@ impl DiscordTransport {
         // Phase 2: Bootstrap the Channel entity.
         self.bootstrap_channel(&webhook_url).await?;
 
+        // Phase 2b: Register slash commands (/plan, /execute).
+        match fetch_application_id(&self.http, &self.config.bot_token).await {
+            Ok(app_id) => {
+                if let Err(e) = register_commands(
+                    &self.http,
+                    &self.config.bot_token,
+                    &app_id,
+                    self.config.guild_id.as_deref(),
+                )
+                .await
+                {
+                    eprintln!("  [discord] Failed to register slash commands: {e}");
+                }
+            }
+            Err(e) => eprintln!("  [discord] Failed to fetch application ID: {e}"),
+        }
+
         // Phase 3: Connect to Discord Gateway.
         let gateway_url = fetch_gateway_url(&self.http, &self.config.bot_token).await?;
         println!("  [discord] Gateway URL: {gateway_url}");
@@ -755,6 +772,7 @@ impl DiscordTransport {
             dm_channels: Arc<RwLock<BTreeMap<String, String>>>,
             api: crate::PawApiClient,
             public_key: String,
+            channel_entity_id: Arc<RwLock<Option<String>>>,
         }
 
         /// Handle reply callbacks from send_reply and request_approval WASM.
@@ -926,6 +944,106 @@ impl DiscordTransport {
                 );
             }
 
+            // Type 2 = APPLICATION_COMMAND (slash command)
+            if payload.interaction_type == 2 {
+                let empty = serde_json::json!({});
+                let data = payload.data.as_ref().unwrap_or(&empty);
+                let command_name = data.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                let command = match command_name {
+                    "plan" | "execute" => command_name.to_string(),
+                    _ => {
+                        return (
+                            axum::http::StatusCode::OK,
+                            axum::Json(serde_json::json!({
+                                "type": 4,
+                                "data": { "content": "Unknown command.", "flags": 64 }
+                            })),
+                        );
+                    }
+                };
+                let task_text = data
+                    .get("options")
+                    .and_then(|v| v.as_array())
+                    .and_then(|opts| opts.iter().find(|o| o.get("name").and_then(|n| n.as_str()) == Some("task")))
+                    .and_then(|o| o.get("value").and_then(|v| v.as_str()))
+                    .unwrap_or("")
+                    .to_string();
+
+                // Extract user ID from interaction payload
+                let user_id = payload
+                    .user
+                    .as_ref()
+                    .map(|u| u.id.clone())
+                    .or_else(|| {
+                        payload.member.as_ref()
+                            .and_then(|m| m.get("user"))
+                            .and_then(|u| u.get("id"))
+                            .and_then(|id| id.as_str())
+                            .map(|s| s.to_string())
+                    })
+                    .unwrap_or_default();
+
+                // Store DM channel mapping for reply routing
+                let channel_id = payload.channel_id.clone().unwrap_or_default();
+                if !user_id.is_empty() && !channel_id.is_empty() {
+                    state.dm_channels.write().await.insert(user_id.clone(), channel_id);
+                }
+
+                let entity_id = state.channel_entity_id.read().await.clone();
+                let api = state.api.clone();
+                let http = state.http.clone();
+                let bot_token = state.bot_token.clone();
+                let app_id = payload.application_id.clone().unwrap_or_default();
+                let interaction_token = payload.token.clone();
+
+                // Dispatch ReceiveMessage asynchronously (deferred response)
+                tokio::spawn(async move {
+                    let Some(entity_id) = entity_id else {
+                        eprintln!("  [discord] No channel entity for slash command");
+                        return;
+                    };
+                    let params = serde_json::json!({
+                        "message_id": format!("cmd-{}", std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .map(|d| d.as_millis())
+                            .unwrap_or(0)),
+                        "author_id": user_id,
+                        "thread_id": user_id,
+                        "content": task_text,
+                        "command": command,
+                    });
+                    let preview = if task_text.len() > 80 { &task_text[..80] } else { &task_text };
+                    println!("  [discord] /{command} from {user_id}: {preview}");
+                    if let Err(e) = api
+                        .dispatch_action(
+                            "Channels",
+                            &entity_id,
+                            "Paw.Channel.ReceiveMessage",
+                            params,
+                        )
+                        .await
+                    {
+                        eprintln!("  [discord] Slash command dispatch failed: {e}");
+                        // Edit the deferred message with error
+                        let _ = http
+                            .patch(format!(
+                                "{}/webhooks/{app_id}/{interaction_token}/messages/@original",
+                                DISCORD_API_BASE
+                            ))
+                            .header("Authorization", format!("Bot {bot_token}"))
+                            .json(&serde_json::json!({"content": format!("Failed to process /{command}: {e}")}))
+                            .send()
+                            .await;
+                    }
+                });
+
+                // Respond with type 5 = DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE
+                return (
+                    axum::http::StatusCode::OK,
+                    axum::Json(serde_json::json!({ "type": 5 })),
+                );
+            }
+
             // Type 3 = MESSAGE_COMPONENT (button click)
             if payload.interaction_type != 3 {
                 return (
@@ -947,7 +1065,7 @@ impl DiscordTransport {
                 );
             };
 
-            let custom_id = &data.custom_id;
+            let custom_id = data.get("custom_id").and_then(|v| v.as_str()).unwrap_or("");
             let parts: Vec<&str> = custom_id.splitn(2, ':').collect();
             if parts.len() != 2 {
                 return (
@@ -1160,6 +1278,7 @@ impl DiscordTransport {
             dm_channels: self.dm_channels.clone(),
             api: self.api.clone(),
             public_key: self.config.public_key.clone(),
+            channel_entity_id: self.channel_entity_id.clone(),
         };
 
         /// Handle typing indicator requests from WASM modules.

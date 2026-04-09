@@ -221,6 +221,14 @@ impl SlackTransport {
                     "interactive" => {
                         handle_interactive(envelope.payload, &api, &http, &bot_token).await;
                     }
+                    "slash_commands" => {
+                        handle_slash_command(
+                            envelope.payload,
+                            &channel_entity_id,
+                            &api,
+                        )
+                        .await;
+                    }
                     other => {
                         println!("  [slack] Ignoring envelope type: {other}");
                     }
@@ -590,5 +598,71 @@ async fn handle_interactive(
             Some(&result_blocks),
         )
         .await;
+    }
+}
+
+/// Handle a Slack slash command (`/plan`, `/execute`).
+///
+/// Dispatches `Channel.ReceiveMessage` with the `command` field set so
+/// `route_message` WASM can spawn or switch the session to the requested mode.
+async fn handle_slash_command(
+    payload: serde_json::Value,
+    channel_entity_id: &Arc<tokio::sync::RwLock<Option<String>>>,
+    api: &crate::PawApiClient,
+) {
+    let raw_command = payload
+        .get("command")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let text = payload
+        .get("text")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let user_id = payload
+        .get("user_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let channel_id = payload
+        .get("channel_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let trigger_id = payload
+        .get("trigger_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+
+    // Strip leading "/" from command name
+    let command = raw_command.strip_prefix('/').unwrap_or(raw_command);
+    if command != "plan" && command != "execute" {
+        println!("  [slack] Ignoring unknown slash command: {raw_command}");
+        return;
+    }
+
+    let entity_id = channel_entity_id.read().await.clone();
+    let Some(entity_id) = entity_id else {
+        eprintln!("  [slack] No channel entity bootstrapped for slash command");
+        return;
+    };
+
+    let params = serde_json::json!({
+        "message_id": trigger_id,
+        "author_id": user_id,
+        "thread_id": channel_id,
+        "content": text,
+        "command": command,
+    });
+
+    println!("  [slack] /{command} from {user_id}: {text}");
+
+    if let Err(e) = api
+        .dispatch_action(
+            "Channels",
+            &entity_id,
+            "Paw.Channel.ReceiveMessage",
+            params,
+        )
+        .await
+    {
+        eprintln!("  [slack] Slash command dispatch failed: {e}");
     }
 }

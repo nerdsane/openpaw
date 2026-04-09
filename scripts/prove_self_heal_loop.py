@@ -369,7 +369,8 @@ def main() -> int:
     )
 
     client.action("Monitors", monitor_id, "OpenPaw.Heal.AlertFired", {"last_alert_payload": alert_payload})
-    client.action("Sessions", sre_id, "OpenPaw.Provision")
+    # Configure schedules ProvisionWorkspace automatically (ADR-0022).
+    # No explicit Provision call needed.
     print("SRE_STATUS=Provisioned", flush=True)
 
     sre_wait = client.wait_for_agent(sre_id, args.timeout_ms)

@@ -79,8 +79,8 @@ hint = "Channel is connected and ready to receive messages."
 name = "ReceiveMessage"
 kind = "input"
 from = ["Connected"]
-params = ["message_id", "author_id", "thread_id", "content"]
-hint = "Receive an incoming message from the channel platform."
+params = ["message_id", "author_id", "thread_id", "content", "command"]
+hint = "Receive an incoming message from the channel platform. Optional command field for slash commands (plan, execute)."
 effect = [{ type = "increment", var = "message_count" }, { type = "trigger", name = "route_message" }]
 
 [[action]]

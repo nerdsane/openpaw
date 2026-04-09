@@ -1,0 +1,13 @@
+[package]
+name = "workspace-provisioner"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib"]
+
+[workspace]
+
+[dependencies]
+temper-wasm-sdk = { git = "https://github.com/nerdsane/temper.git", branch = "main" }
+wasm-helpers = { path = "../wasm-helpers" }
