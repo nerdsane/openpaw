@@ -440,6 +440,10 @@ anthropic_api_token (or api_key) for anthropic, openrouter_api_key (or api_key) 
                     "pending_tool_calls": tool_calls_json,
                     "input_tokens": response.input_tokens,
                     "output_tokens": response.output_tokens,
+                    // GenAI observability: input/output messages for Datadog LLM Obs
+                    "_gen_ai_input_messages": build_gen_ai_input_messages(&assembled_system_prompt, &messages),
+                    "_gen_ai_output_messages": build_gen_ai_output_messages(&response.content),
+                    "_gen_ai_provider": provider.as_str(),
                 });
                 if let Some(leaf) = new_leaf {
                     params["session_leaf_id"] = json!(leaf);
@@ -510,6 +514,10 @@ anthropic_api_token (or api_key) for anthropic, openrouter_api_key (or api_key) 
                             &updated_jsonl,
                         )?;
 
+                        // GenAI observability messages for this turn
+                        let gen_ai_input = build_gen_ai_input_messages(&assembled_system_prompt, &messages);
+                        let gen_ai_output = build_gen_ai_output_messages(&response.content);
+
                         // Route through steering check if follow-ups are enabled
                         if max_follow_ups > 0 {
                             set_success_result(
@@ -519,6 +527,9 @@ anthropic_api_token (or api_key) for anthropic, openrouter_api_key (or api_key) 
                                     "session_leaf_id": new_leaf,
                                     "input_tokens": response.input_tokens,
                                     "output_tokens": response.output_tokens,
+                                    "_gen_ai_input_messages": gen_ai_input,
+                                    "_gen_ai_output_messages": gen_ai_output,
+                                    "_gen_ai_provider": provider.as_str(),
                                 }),
                             );
                         } else {
@@ -527,6 +538,9 @@ anthropic_api_token (or api_key) for anthropic, openrouter_api_key (or api_key) 
                                 "session_leaf_id": new_leaf,
                                 "input_tokens": response.input_tokens,
                                 "output_tokens": response.output_tokens,
+                                "_gen_ai_input_messages": gen_ai_input,
+                                "_gen_ai_output_messages": gen_ai_output,
+                                "_gen_ai_provider": provider.as_str(),
                             });
                             set_success_result("RecordResult", &params);
                         }
@@ -537,6 +551,9 @@ anthropic_api_token (or api_key) for anthropic, openrouter_api_key (or api_key) 
                         "result": result_text,
                         "input_tokens": response.input_tokens,
                         "output_tokens": response.output_tokens,
+                        "_gen_ai_input_messages": build_gen_ai_input_messages(&assembled_system_prompt, &messages),
+                        "_gen_ai_output_messages": build_gen_ai_output_messages(&response.content),
+                        "_gen_ai_provider": provider.as_str(),
                     });
                     if let Some(ref conv) = conv_param {
                         params["conversation"] = json!(conv);
@@ -567,6 +584,71 @@ struct LlmResponse {
     stop_reason: String,
     input_tokens: i64,
     output_tokens: i64,
+}
+
+/// Max bytes for gen_ai message attributes to avoid bloating spans.
+const GEN_AI_MESSAGE_ATTR_LIMIT: usize = 16_384;
+
+/// Build a JSON string of gen_ai input messages (system + last user message).
+/// Truncates if the result would exceed GEN_AI_MESSAGE_ATTR_LIMIT.
+fn build_gen_ai_input_messages(system_prompt: &str, messages: &[Value]) -> String {
+    let mut gen_ai_msgs: Vec<Value> = Vec::new();
+
+    // Include system message (truncated if huge)
+    if !system_prompt.is_empty() {
+        let sys_content = if system_prompt.len() > GEN_AI_MESSAGE_ATTR_LIMIT / 2 {
+            format!(
+                "{}... [truncated, {} chars total]",
+                &system_prompt[..GEN_AI_MESSAGE_ATTR_LIMIT / 4],
+                system_prompt.len()
+            )
+        } else {
+            system_prompt.to_string()
+        };
+        gen_ai_msgs.push(json!({"role": "system", "content": sys_content}));
+    }
+
+    // Include last user message
+    if let Some(last_user) = messages.iter().rev().find(|m| {
+        m.get("role").and_then(|r| r.as_str()) == Some("user")
+    }) {
+        gen_ai_msgs.push(last_user.clone());
+    }
+
+    let result = serde_json::to_string(&gen_ai_msgs).unwrap_or_default();
+    if result.len() > GEN_AI_MESSAGE_ATTR_LIMIT {
+        format!("[{{\"role\":\"system\",\"content\":\"[truncated, {} bytes]\"}}]", result.len())
+    } else {
+        result
+    }
+}
+
+/// Build a JSON string of gen_ai output messages (assistant response).
+fn build_gen_ai_output_messages(response_content: &Value) -> String {
+    let text = response_content
+        .as_array()
+        .unwrap_or(&vec![])
+        .iter()
+        .filter_map(|block| {
+            if block.get("type").and_then(|v| v.as_str()) == Some("text") {
+                block.get("text").and_then(|v| v.as_str()).map(String::from)
+            } else if block.get("type").and_then(|v| v.as_str()) == Some("tool_use") {
+                let name = block.get("name").and_then(|v| v.as_str()).unwrap_or("unknown");
+                Some(format!("[tool_use: {}]", name))
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let msg = json!([{"role": "assistant", "content": text}]);
+    let result = serde_json::to_string(&msg).unwrap_or_default();
+    if result.len() > GEN_AI_MESSAGE_ATTR_LIMIT {
+        format!("[{{\"role\":\"assistant\",\"content\":\"[truncated, {} bytes]\"}}]", result.len())
+    } else {
+        result
+    }
 }
 
 fn normalize_provider(provider: &str) -> String {
@@ -1854,6 +1936,8 @@ fn build_tool_definitions(_tools_enabled: &str, _sandbox_url: &str, _workdir: &s
             "- temper.upload_wasm(module_name, wasm_base64) → upload WASM module\n",
             "- temper.get_secret(key) → read secret from vault (Cedar-gated)\n",
             "- temper.switch_provider(model=None, provider=None) → change LLM provider/model mid-session (takes effect on next turn)\n",
+            "- temper.switch_mode({\"mode\": \"plan\"}) → switch to plan mode (read-only + Plan entities)\n",
+            "- temper.switch_mode({\"mode\": \"execute\"}) → switch to execute mode (full tools)\n",
             "- temper.done(result) → signal session completion with result\n",
             "- temper.submit_policy(policy_id, cedar_text) → create Cedar policy (Cedar-gated)\n",
             "- temper.list_policies() → list all Cedar policies\n",
@@ -2215,6 +2299,61 @@ fn assemble_system_prompt(
                 "warn",
                 &format!("assemble_system_prompt: failed to load skills: {e}"),
             ),
+        }
+    }
+
+    // 3b. Plan-mode instructions — conditional on session_mode, NOT a system skill (ADR-004)
+    {
+        let session_mode = ctx
+            .entity_state
+            .get("fields")
+            .and_then(|f| f.get("session_mode"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("execute");
+        if session_mode == "plan" {
+            match load_mode_instructions(ctx, temper_api_url, tenant, "plan") {
+                Ok(content) if !content.is_empty() => parts.push(content),
+                Ok(_) => {
+                    parts.push(PLAN_MODE_FALLBACK.to_string());
+                }
+                Err(e) => {
+                    ctx.log(
+                        "warn",
+                        &format!("assemble_system_prompt: plan mode instructions failed: {e}"),
+                    );
+                    parts.push(PLAN_MODE_FALLBACK.to_string());
+                }
+            }
+        }
+    }
+
+    // 3c. Active plan injection — when executing after planning (ADR-004)
+    {
+        let session_mode = ctx
+            .entity_state
+            .get("fields")
+            .and_then(|f| f.get("session_mode"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("execute");
+        if session_mode == "execute" {
+            let plan_id = ctx
+                .entity_state
+                .get("fields")
+                .and_then(|f| f.get("active_plan_id"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            if !plan_id.is_empty() {
+                match load_active_plan(ctx, temper_api_url, tenant, plan_id) {
+                    Ok(content) if !content.is_empty() => {
+                        parts.push(format!("<active_plan>\n{}\n</active_plan>", content));
+                    }
+                    Ok(_) => {}
+                    Err(e) => ctx.log(
+                        "warn",
+                        &format!("assemble_system_prompt: failed to load active plan: {e}"),
+                    ),
+                }
+            }
         }
     }
 
@@ -2659,6 +2798,85 @@ fn load_agent_instructions(
         .unwrap_or("");
     if file_id.is_empty() {
         return Ok(String::new());
+    }
+    let file_url = format!("{temper_api_url}/tdata/Files('{file_id}')/$value");
+    let file_resp = ctx.http_call("GET", &file_url, &headers, "")?;
+    if file_resp.status == 200 && !file_resp.body.is_empty() {
+        Ok(file_resp.body)
+    } else {
+        Ok(String::new())
+    }
+}
+
+/// Minimal fallback plan-mode instructions if the TemperFS file is not deployed.
+const PLAN_MODE_FALLBACK: &str = "\
+# Plan Mode\n\
+\n\
+You are in PLAN MODE. Investigate thoroughly and produce a Plan entity.\n\
+You CANNOT modify code or write sandbox files. You CAN read, explore, research,\n\
+and write plan documents to TemperFS via temper.write().\n\
+\n\
+Use sandbox.read() and sandbox.bash() for read-only exploration.\n\
+Create/update Plan entities with temper.create()/temper.action().\n\
+When ready, call temper.switch_mode({\"mode\": \"execute\"}) to resume with full tools.";
+
+/// Load mode-specific instructions from TemperFS at /system/mode-instructions/{mode}.md
+fn load_mode_instructions(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+    mode: &str,
+) -> Result<String, String> {
+    let headers = agent_headers(ctx, tenant, None, Some("application/json"));
+    // Find the mode instruction file by path
+    let path = format!("/system/mode-instructions/{mode}.md");
+    let filter = format!("path eq '{path}' and Status ne 'Archived'");
+    let url = format!("{temper_api_url}/tdata/Files?$filter={filter}");
+    let resp = ctx.http_call("GET", &url, &headers, "")?;
+    if resp.status != 200 {
+        return Ok(String::new());
+    }
+    let parsed: Value = serde_json::from_str(&resp.body).unwrap_or(json!({}));
+    let file_id = parsed
+        .get("value")
+        .and_then(|v| v.as_array())
+        .and_then(|arr| arr.first())
+        .and_then(|item| {
+            entity_field_str(item, &["Id", "entity_id"])
+        })
+        .unwrap_or("");
+    if file_id.is_empty() {
+        return Ok(String::new());
+    }
+    let file_url = format!("{temper_api_url}/tdata/Files('{file_id}')/$value");
+    let file_resp = ctx.http_call("GET", &file_url, &headers, "")?;
+    if file_resp.status == 200 && !file_resp.body.is_empty() {
+        Ok(strip_skill_frontmatter(&file_resp.body).to_string())
+    } else {
+        Ok(String::new())
+    }
+}
+
+/// Load active plan content from Plan entity's plan_file_id.
+fn load_active_plan(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+    plan_id: &str,
+) -> Result<String, String> {
+    let headers = agent_headers(ctx, tenant, None, Some("application/json"));
+    let url = format!("{temper_api_url}/tdata/Plans('{plan_id}')");
+    let resp = ctx.http_call("GET", &url, &headers, "")?;
+    if resp.status != 200 {
+        return Ok(String::new());
+    }
+    let plan: Value =
+        serde_json::from_str(&resp.body).map_err(|e| format!("parse plan JSON: {e}"))?;
+    let file_id = entity_field_str(&plan, &["PlanFileId", "plan_file_id"]).unwrap_or("");
+    if file_id.is_empty() {
+        // Fall back to inline plan_text
+        let text = entity_field_str(&plan, &["PlanText", "plan_text"]).unwrap_or("");
+        return Ok(text.to_string());
     }
     let file_url = format!("{temper_api_url}/tdata/Files('{file_id}')/$value");
     let file_resp = ctx.http_call("GET", &file_url, &headers, "")?;

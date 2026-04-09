@@ -56,7 +56,43 @@ name = "session_id"
 type = "string"
 initial = ""
 
+[[state]]
+name = "plan_file_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "exploration_file_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "iteration_count"
+type = "counter"
+initial = "0"
+
+[[state]]
+name = "exploration_count"
+type = "counter"
+initial = "0"
+
 # --- Actions: Review Workflow ---
+
+[[action]]
+name = "UpdatePlan"
+kind = "input"
+from = ["Draft"]
+params = ["plan_file_id", "plan_text", "description"]
+hint = "Update plan content — file or inline text. Self-loop in Draft for iterative refinement."
+effect = [{ type = "increment", var = "iteration_count" }]
+
+[[action]]
+name = "AddExplorationNote"
+kind = "input"
+from = ["Draft"]
+params = ["exploration_file_id"]
+hint = "Set/update exploration notes file. Self-loop."
+effect = [{ type = "increment", var = "exploration_count" }]
 
 [[action]]
 name = "SubmitForReview"
@@ -72,6 +108,7 @@ kind = "input"
 from = ["UnderReview", "Escalated"]
 to = "Active"
 hint = "Lead or human approves the plan. Implementation can proceed."
+effect = [{ type = "trigger", name = "plan_approved_switch" }]
 
 [[action]]
 name = "RequestChanges"
@@ -148,3 +185,15 @@ assert = "no_further_transitions"
 name = "FailedIsFinal"
 when = ["Failed"]
 assert = "no_further_transitions"
+
+# --- Integrations (ADR-004: Plan Mode) ---
+
+[[integration]]
+name = "plan_approved_switch"
+trigger = "plan_approved_switch"
+type = "wasm"
+module = "plan_approval_handler"
+on_failure = "Fail"
+
+[integration.config]
+temper_api_url = "{secret:temper_api_url}"

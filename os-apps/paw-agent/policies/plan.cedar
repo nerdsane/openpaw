@@ -19,7 +19,7 @@ permit(
 // Author can submit for review and update their own plan
 permit(
   principal,
-  action in [Action::"SubmitForReview", Action::"Activate", Action::"AddTask", Action::"Complete", Action::"Fail"],
+  action in [Action::"SubmitForReview", Action::"Activate", Action::"AddTask", Action::"Complete", Action::"Fail", Action::"UpdatePlan", Action::"AddExplorationNote"],
   resource is Plan
 ) when {
   ["agent", "supervisor", "human", "system"].contains(principal.agent_type)

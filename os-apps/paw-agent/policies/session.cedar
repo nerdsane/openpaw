@@ -48,7 +48,7 @@ permit(
 
 permit(
   principal,
-  action in [Action::"Steer", Action::"SwitchProvider"],
+  action in [Action::"Steer", Action::"SwitchProvider", Action::"SwitchMode"],
   resource is Session
 ) when {
   ["supervisor", "human", "system"].contains(principal.agent_type) ||
@@ -74,7 +74,8 @@ permit(
     Action::"DeliveryFailed",
     Action::"Heartbeat",
     Action::"TimeoutFail",
-    Action::"PauseForApproval"
+    Action::"PauseForApproval",
+    Action::"PauseForPlanApproval"
   ],
   resource is Session
 ) when {
@@ -86,7 +87,7 @@ permit(
 // Dispatched by Discord interaction handler after human clicks Approve.
 permit(
   principal,
-  action in [Action::"ResumeAfterApproval"],
+  action in [Action::"ResumeAfterApproval", Action::"ResumeWithPlanApproval"],
   resource is Session
 ) when {
   ["supervisor", "human", "system", "admin"].contains(principal.agent_type)
@@ -99,7 +100,7 @@ permit(
   action == Action::"http_call",
   resource is HttpEndpoint
 ) when {
-  ["agent_reply", "sandbox_provisioner", "llm_caller", "tool_runner", "monty_repl", "capability_installer", "workspace_restorer", "context_compactor", "steering_checker", "heartbeat_scan", "heartbeat_scheduler", "cron_scheduler_check", "cron_scheduler_heartbeat", "request_approval", "heartbeat_typing"].contains(context.module)
+  ["agent_reply", "sandbox_provisioner", "llm_caller", "tool_runner", "monty_repl", "capability_installer", "workspace_restorer", "context_compactor", "steering_checker", "heartbeat_scan", "heartbeat_scheduler", "cron_scheduler_check", "cron_scheduler_heartbeat", "request_approval", "heartbeat_typing", "plan_approval_handler"].contains(context.module)
 };
 
 // Allow agent WASM modules to access secrets

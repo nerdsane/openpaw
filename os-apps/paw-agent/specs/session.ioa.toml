@@ -267,6 +267,23 @@ name = "pending_tool_context"
 type = "string"
 initial = ""
 
+# --- State Variables: Plan Mode (ADR-004) ---
+
+[[state]]
+name = "session_mode"
+type = "string"
+initial = "execute"
+
+[[state]]
+name = "pre_plan_tools_enabled"
+type = "string"
+initial = ""
+
+[[state]]
+name = "active_plan_id"
+type = "string"
+initial = ""
+
 # --- State Variables: Project Harness ---
 
 [[state]]
@@ -285,7 +302,7 @@ initial = ""
 name = "Configure"
 kind = "input"
 from = ["Created"]
-params = ["system_prompt", "user_message", "model", "provider", "max_turns", "tools_enabled", "workdir", "sandbox_url", "sandbox_id", "temper_api_url", "soul_id", "parent_session_id", "session_depth", "max_follow_ups", "hook_policy", "reserve_tokens", "keep_recent_tokens", "compaction_model", "heartbeat_timeout_seconds", "project_harness_id", "project_id", "workspace_id", "conversation_file_id", "file_manifest_id", "session_file_id", "session_leaf_id"]
+params = ["system_prompt", "user_message", "model", "provider", "max_turns", "tools_enabled", "workdir", "sandbox_url", "sandbox_id", "temper_api_url", "soul_id", "parent_session_id", "session_depth", "max_follow_ups", "hook_policy", "reserve_tokens", "keep_recent_tokens", "compaction_model", "heartbeat_timeout_seconds", "project_harness_id", "project_id", "workspace_id", "conversation_file_id", "file_manifest_id", "session_file_id", "session_leaf_id", "session_mode"]
 hint = "Configure session. Auto-provisions after configuration. Resume fields (workspace_id, conversation_file_id, session_file_id, session_leaf_id) are accepted so continuations carry prior conversation state."
 effect = [{ type = "schedule", action = "Provision", delay_seconds = 0 }]
 
@@ -435,6 +452,33 @@ kind = "input"
 from = ["Thinking", "Executing", "Steering", "Compacting", "WaitingForApproval", "Provisioning"]
 params = ["model", "provider"]
 hint = "Change LLM provider and/or model mid-session. Self-loop — takes effect on the next LLM call. Callable by the session itself or by parent/supervisor."
+
+# --- Actions: Plan Mode (ADR-004) ---
+
+[[action]]
+name = "SwitchMode"
+kind = "input"
+from = ["Thinking", "Executing", "Steering", "Compacting", "WaitingForApproval", "Provisioning"]
+params = ["session_mode", "tools_enabled", "pre_plan_tools_enabled", "active_plan_id"]
+hint = "Switch between plan and execute modes. Self-loop — takes effect on next tool call."
+
+[[action]]
+name = "PauseForPlanApproval"
+kind = "input"
+from = ["Thinking", "Executing"]
+to = "WaitingForApproval"
+params = ["active_plan_id", "pending_tool_context"]
+hint = "Pause session until Plan is approved. Triggered by agent after SubmitForReview."
+effect = [{ type = "trigger", name = "notify_plan_approval_needed" }]
+
+[[action]]
+name = "ResumeWithPlanApproval"
+kind = "input"
+from = ["WaitingForApproval"]
+to = "Thinking"
+params = ["session_mode", "tools_enabled", "pre_plan_tools_enabled"]
+hint = "Plan approved. Switch to execute mode and resume LLM loop."
+effect = [{ type = "trigger", name = "call_llm" }]
 
 # --- Actions: Cedar Approval Pause-Resume ---
 
@@ -658,6 +702,15 @@ name = "heartbeat_typing"
 trigger = "heartbeat_typing"
 type = "wasm"
 module = "heartbeat_typing"
+
+[integration.config]
+temper_api_url = "{secret:temper_api_url}"
+
+[[integration]]
+name = "notify_plan_approval_needed"
+trigger = "notify_plan_approval_needed"
+type = "wasm"
+module = "request_approval"
 
 [integration.config]
 temper_api_url = "{secret:temper_api_url}"

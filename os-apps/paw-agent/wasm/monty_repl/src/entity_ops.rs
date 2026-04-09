@@ -59,6 +59,16 @@ pub fn spawn_session(
         .get("max_turns")
         .and_then(|v| v.as_str())
         .unwrap_or("20");
+    let mode = input
+        .get("mode")
+        .and_then(|v| v.as_str())
+        .unwrap_or("execute");
+    // In plan mode, override tools to PLAN_MODE_TOOLS unless explicitly provided
+    let tools = if mode == "plan" && input.get("tools").is_none() {
+        super::dispatch::PLAN_MODE_TOOLS
+    } else {
+        tools
+    };
 
     let run_tools_timeout_secs = ctx
         .config
@@ -110,6 +120,7 @@ pub fn spawn_session(
         "soul_id": soul_id, "user_message": task, "parent_session_id": parent_id,
         "sandbox_url": child_sandbox_url, "workdir": child_workdir,
         "session_depth": current_depth + 1, "max_turns": max_turns,
+        "session_mode": mode,
         "project_harness_id": input
             .get("project_harness_id")
             .and_then(|v| v.as_str())

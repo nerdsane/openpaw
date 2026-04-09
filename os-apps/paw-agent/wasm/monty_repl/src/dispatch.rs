@@ -14,6 +14,11 @@ use temper_wasm_sdk::context::Context;
 
 const DEFAULT_TOOLS_ENABLED: &str = "temper_create,temper_get,temper_list,temper_action,temper_patch,temper_submit_specs,temper_show_spec,temper_specs,temper_upload_wasm,temper_get_trajectories,temper_get_insights,temper_get_decisions,temper_poll_decision,temper_approve_decision,temper_deny_decision,temper_submit_policy,temper_list_policies,temper_get_policy,temper_update_policy,temper_delete_policy,temper_install_app,temper_list_apps,temper_spawn_session,temper_list_sessions,temper_abort_session,temper_steer_session,temper_save_memory,temper_recall_memory,temper_write,temper_read,temper_run_coding_agent,temper_get_secret,temper_datadog_query,temper_railway,temper_vercel,temper_web_search,temper_web_fetch,read,write,edit,bash";
 
+/// Tools available in plan mode (ADR-004). Blocks sandbox mutation (write, edit)
+/// and governance writes. Allows read ops, research, memory, Plan CRUD, and
+/// TemperFS writes (for plan documents).
+pub const PLAN_MODE_TOOLS: &str = "temper_create,temper_get,temper_list,temper_action,temper_specs,temper_show_spec,temper_save_memory,temper_recall_memory,temper_read,temper_write,temper_web_search,temper_web_fetch,temper_get_trajectories,temper_get_insights,read,bash";
+
 // Thread-local storage for the done signal. When an agent calls
 // temper.done(result), the result is stored here. After all tool
 // calls finish, lib.rs checks this and returns RecordResult instead
@@ -186,7 +191,7 @@ fn temper_method_token(method: &str) -> Option<&'static str> {
         "vercel" => Some("temper_vercel"),
         "web_search" => Some("temper_web_search"),
         "web_fetch" => Some("temper_web_fetch"),
-        "done" | "get_agent_id" | "switch_provider" => None,
+        "done" | "get_agent_id" | "switch_provider" | "switch_mode" => None,
         _ => None,
     }
 }
@@ -288,6 +293,70 @@ fn dispatch_temper(
                 }))
             } else {
                 Err(format!("SwitchProvider failed (HTTP {}): {}", resp.status, &resp.body[..resp.body.len().min(200)]))
+            }
+        }
+
+        // Switch session mode between plan and execute (ADR-004)
+        "switch_mode" => {
+            let input = args.first().and_then(|v| v.as_object()).cloned().unwrap_or_default();
+            let target_mode = input.get("mode").and_then(|v| v.as_str()).unwrap_or("");
+            if target_mode != "plan" && target_mode != "execute" {
+                return Err("switch_mode requires mode='plan' or mode='execute'".into());
+            }
+            let agent_id = ctx
+                .entity_state
+                .get("entity_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let fields = ctx.entity_state.get("fields").cloned().unwrap_or(json!({}));
+            let current_tools = fields
+                .get("tools_enabled")
+                .and_then(|v| v.as_str())
+                .unwrap_or(DEFAULT_TOOLS_ENABLED);
+
+            let mut body = serde_json::Map::new();
+            body.insert("session_mode".into(), json!(target_mode));
+
+            if target_mode == "plan" {
+                // Stash current tools so they can be restored on switch to execute
+                body.insert("pre_plan_tools_enabled".into(), json!(current_tools));
+                body.insert("tools_enabled".into(), json!(PLAN_MODE_TOOLS));
+            } else {
+                // Restore stashed tools
+                let stashed = fields
+                    .get("pre_plan_tools_enabled")
+                    .and_then(|v| v.as_str())
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or(DEFAULT_TOOLS_ENABLED);
+                body.insert("tools_enabled".into(), json!(stashed));
+                body.insert("pre_plan_tools_enabled".into(), json!(""));
+            }
+
+            // Carry active_plan_id if provided
+            if let Some(plan_id) = input.get("plan_id").and_then(|v| v.as_str()) {
+                body.insert("active_plan_id".into(), json!(plan_id));
+            }
+
+            let url = format!("{api_url}/tdata/Sessions('{agent_id}')/OpenPaw.SwitchMode");
+            let headers: Vec<(String, String)> = vec![
+                ("Content-Type".into(), "application/json".into()),
+                ("X-Tenant-Id".into(), tenant.to_string()),
+                ("x-temper-principal-kind".into(), "agent".into()),
+                ("x-temper-principal-id".into(), agent_id.to_string()),
+                ("x-temper-agent-type".into(), "agent".into()),
+            ];
+            let resp = ctx.http_call("POST", &url, &headers, &json!(body).to_string())?;
+            if resp.status >= 200 && resp.status < 300 {
+                Ok(json!({
+                    "switched": true,
+                    "mode": target_mode,
+                }))
+            } else {
+                Err(format!(
+                    "SwitchMode failed (HTTP {}): {}",
+                    resp.status,
+                    &resp.body[..resp.body.len().min(200)]
+                ))
             }
         }
 
