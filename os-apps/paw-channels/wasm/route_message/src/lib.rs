@@ -23,11 +23,17 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         let author_id = str_field(&fields, &["author_id", "AuthorId"]).unwrap_or("");
         let content = str_field(&fields, &["content", "Content"]).unwrap_or("");
         let command = str_field(&fields, &["command", "Command"]).unwrap_or("");
-        if channel_id.is_empty() || thread_id.is_empty() || author_id.is_empty() {
-            return Err("route_message: missing channel_id/thread_id/author_id".to_string());
+        if channel_id.is_empty() || author_id.is_empty() {
+            return Err("route_message: missing channel_id/author_id".to_string());
         }
+        // For DMs without threads, default thread_id to channel_id
+        let thread_id = if thread_id.is_empty() {
+            channel_id
+        } else {
+            thread_id
+        };
 
-        let existing_session = find_active_session(
+        let existing_cs = find_active_session(
             &ctx,
             &temper_api_url,
             &ctx.tenant,
@@ -35,127 +41,112 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             thread_id,
             author_id,
         )?;
-        let agent_id = if let Some(session) = existing_session {
-            let session_id = session
+        let session_id = if let Some(cs) = existing_cs {
+            let cs_id = cs
                 .get("entity_id")
                 .and_then(|v| v.as_str())
-                .or_else(|| nested_str_field(&session, &["Id", "entity_id"]))
+                .or_else(|| nested_str_field(&cs, &["Id", "entity_id"]))
                 .unwrap_or_default()
                 .to_string();
-            let agent_id = nested_str_field(&session, &["AgentEntityId", "agent_entity_id"])
-                .unwrap_or_default()
-                .to_string();
+            let agent_entity_id =
+                nested_str_field(&cs, &["AgentEntityId", "agent_entity_id"])
+                    .unwrap_or_default()
+                    .to_string();
+            let session_entity_id =
+                nested_str_field(&cs, &["SessionEntityId", "session_entity_id"])
+                    .unwrap_or_default()
+                    .to_string();
 
-            if !agent_id.is_empty() {
-                let agent = fetch_entity(
+            if !session_entity_id.is_empty() {
+                // Fetch the current Session entity to check its status
+                let session = fetch_entity(
                     &ctx,
-                    &agent_entity_url(&temper_api_url, &agent_id),
+                    &session_entity_url(&temper_api_url, &session_entity_id),
                     &ctx.tenant,
                 )?;
-                let agent_status = nested_str_field(&agent, &["Status", "status"]).unwrap_or("");
+                let session_status =
+                    nested_str_field(&session, &["Status", "status"]).unwrap_or("");
 
-                if is_steerable_status(agent_status) {
-                    resume_session(&ctx, &temper_api_url, &ctx.tenant, &session_id).ok();
+                if is_steerable_status(session_status) {
+                    resume_session(&ctx, &temper_api_url, &ctx.tenant, &cs_id).ok();
                     if !command.is_empty() {
                         // Slash command: switch mode first, then steer
                         switch_mode_and_steer(
                             &ctx,
                             &temper_api_url,
                             &ctx.tenant,
-                            &agent_id,
+                            &session_entity_id,
                             command,
                             content,
                         )?;
-                        agent_id
-                    } else if steer_existing_agent(
+                        session_entity_id
+                    } else if steer_session(
                         &ctx,
                         &temper_api_url,
                         &ctx.tenant,
-                        &agent_id,
+                        &session_entity_id,
                         content,
                     )
                     .is_ok()
                     {
-                        agent_id
+                        session_entity_id
                     } else {
-                        continue_session(
+                        // Steer failed — create a new session under the same agent
+                        continue_with_new_session(
                             &ctx,
                             &temper_api_url,
                             &ctx.tenant,
+                            &cs,
+                            &cs_id,
+                            &agent_entity_id,
                             &session,
-                            &session_id,
-                            &agent,
-                            &agent_id,
+                            &session_entity_id,
                             content,
                             command,
                         )?
                     }
-                } else if is_terminal_status(agent_status) {
-                    continue_session(
+                } else if is_terminal_status(session_status) {
+                    // Session is done — create a new session under the same persistent Agent
+                    continue_with_new_session(
                         &ctx,
                         &temper_api_url,
                         &ctx.tenant,
+                        &cs,
+                        &cs_id,
+                        &agent_entity_id,
                         &session,
-                        &session_id,
-                        &agent,
-                        &agent_id,
+                        &session_entity_id,
                         content,
                         command,
                     )?
                 } else {
-                    expire_session(&ctx, &temper_api_url, &ctx.tenant, &session_id).ok();
-                    let route = find_route(&ctx, &temper_api_url, &ctx.tenant, channel_id)?;
-                    let route_config = route
-                        .as_ref()
-                        .and_then(|value| nested_str_field(value, &["AgentConfig", "agent_config"]))
-                        .filter(|value| !value.trim().is_empty())
-                        .unwrap_or(default_agent_config);
-                    let route_soul_id = route
-                        .as_ref()
-                        .and_then(|value| nested_str_field(value, &["SoulId", "soul_id"]))
-                        .unwrap_or("");
-                    let new_agent_id = create_agent_from_route(
-                        &ctx,
-                        &temper_api_url,
-                        &ctx.tenant,
-                        route_config,
-                        route_soul_id,
-                        content,
-                        command,
-                    )?;
-                    create_session(
-                        &ctx,
-                        &temper_api_url,
-                        &ctx.tenant,
-                        channel_id,
-                        thread_id,
-                        author_id,
-                        &new_agent_id,
-                    )?;
-                    new_agent_id
+                    // Non-steerable, non-terminal (e.g. Provisioning, WaitingForApproval)
+                    // Just wait — don't expire or create a new session
+                    session_entity_id
                 }
             } else {
+                // ChannelSession exists but has no session_entity_id — route fresh
                 let route = find_route(&ctx, &temper_api_url, &ctx.tenant, channel_id)?;
                 let route_config = route
                     .as_ref()
                     .and_then(|value| nested_str_field(value, &["AgentConfig", "agent_config"]))
                     .filter(|value| !value.trim().is_empty())
                     .unwrap_or(default_agent_config);
-                let route_soul_id = route
+                let route_agent_id = route
                     .as_ref()
-                    .and_then(|value| nested_str_field(value, &["SoulId", "soul_id"]))
+                    .and_then(|value| nested_str_field(value, &["AgentId", "agent_id"]))
                     .unwrap_or("");
-                expire_session(&ctx, &temper_api_url, &ctx.tenant, &session_id).ok();
-                let new_agent_id = create_agent_from_route(
+                expire_session(&ctx, &temper_api_url, &ctx.tenant, &cs_id).ok();
+                let (new_agent_id, new_session_id) = create_session_for_agent(
                     &ctx,
                     &temper_api_url,
                     &ctx.tenant,
                     route_config,
-                    route_soul_id,
+                    route_agent_id,
                     content,
                     command,
                 )?;
-                create_session(
+                create_channel_session(
                     &ctx,
                     &temper_api_url,
                     &ctx.tenant,
@@ -163,30 +154,32 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                     thread_id,
                     author_id,
                     &new_agent_id,
+                    &new_session_id,
                 )?;
-                new_agent_id
+                new_session_id
             }
         } else {
+            // No existing ChannelSession — route from scratch
             let route = find_route(&ctx, &temper_api_url, &ctx.tenant, channel_id)?;
             let route_config = route
                 .as_ref()
                 .and_then(|value| nested_str_field(value, &["AgentConfig", "agent_config"]))
                 .filter(|value| !value.trim().is_empty())
                 .unwrap_or(default_agent_config);
-            let route_soul_id = route
+            let route_agent_id = route
                 .as_ref()
-                .and_then(|value| nested_str_field(value, &["SoulId", "soul_id"]))
+                .and_then(|value| nested_str_field(value, &["AgentId", "agent_id"]))
                 .unwrap_or("");
-            let agent_id = create_agent_from_route(
+            let (agent_id, new_session_id) = create_session_for_agent(
                 &ctx,
                 &temper_api_url,
                 &ctx.tenant,
                 route_config,
-                route_soul_id,
+                route_agent_id,
                 content,
                 command,
             )?;
-            create_session(
+            create_channel_session(
                 &ctx,
                 &temper_api_url,
                 &ctx.tenant,
@@ -194,20 +187,21 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 thread_id,
                 author_id,
                 &agent_id,
+                &new_session_id,
             )?;
-            agent_id
+            new_session_id
         };
 
         ctx.log(
             "info",
-            &format!("route_message: routed thread {thread_id} to agent {agent_id}"),
+            &format!("route_message: routed thread {thread_id} to session {session_id}"),
         );
         set_success_result(
             "",
             &json!({
                 "status": "routed",
                 "thread_id": thread_id,
-                "agent_entity_id": agent_id,
+                "agent_entity_id": session_id,
             }),
         );
         Ok(())
@@ -357,76 +351,115 @@ fn find_route(
     Ok(best_route.map(|(_, route)| route))
 }
 
-fn create_agent_from_route(
+/// Fetch the persistent Agent entity and extract its configuration.
+fn fetch_agent_config(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+    agent_id: &str,
+) -> Result<Value, String> {
+    let url = format!("{temper_api_url}/tdata/Agents('{agent_id}')");
+    fetch_entity(ctx, &url, tenant)
+}
+
+/// Create a new Session for a persistent Agent.
+///
+/// If `route_agent_id` is non-empty, fetches the Agent entity and uses its
+/// config (soul_id, model, provider, tools_enabled, max_turns).  Otherwise
+/// falls back to `route_config` JSON for backward-compatible ad-hoc routing.
+///
+/// Returns `(agent_entity_id, session_entity_id)`.
+fn create_session_for_agent(
     ctx: &Context,
     temper_api_url: &str,
     tenant: &str,
     route_config: &str,
-    route_soul_id: &str,
+    route_agent_id: &str,
     user_message: &str,
     command: &str,
-) -> Result<String, String> {
+) -> Result<(String, String), String> {
     let config: Value = serde_json::from_str(route_config).unwrap_or_else(|_| json!({}));
-    let raw_soul_ref = if route_soul_id.is_empty() {
-        config.get("soul_id").and_then(Value::as_str).unwrap_or("")
-    } else {
-        route_soul_id
-    };
-    let normalized_soul_ref = normalize_soul_ref(ctx, temper_api_url, tenant, raw_soul_ref)
-        .unwrap_or_else(|| raw_soul_ref.to_string());
-    let create_body = "{ }".to_string();
-    ctx.log(
-        "info",
-        &format!(
-            "route_message: creating routed agent via {temper_api_url}/tdata/Sessions with {} bytes",
-            create_body.len()
-        ),
-    );
-    let create_resp = ctx.http_call(
-        "POST",
-        &format!("{temper_api_url}/tdata/Sessions"),
-        &odata_headers(ctx, tenant),
-        &create_body,
-    )?;
-    if !(200..300).contains(&create_resp.status) {
-        return Err(format!(
-            "create Agent failed via {temper_api_url} (HTTP {}): {}",
-            create_resp.status,
-            truncate_error_body(&create_resp.body)
-        ));
-    }
-    let parsed: Value = serde_json::from_str(&create_resp.body).unwrap_or_else(|_| json!({}));
-    let agent_id = parsed
-        .get("entity_id")
-        .or_else(|| parsed.get("Id"))
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .to_string();
-    if agent_id.is_empty() {
-        return Err("route_message: created Agent missing entity_id".to_string());
-    }
+
+    // If route points to a persistent Agent, fetch its config
+    let (agent_id, agent_soul_id, agent_model, agent_provider, agent_tools, agent_max_turns) =
+        if !route_agent_id.is_empty() {
+            let agent = fetch_agent_config(ctx, temper_api_url, tenant, route_agent_id)?;
+            let soul_id = nested_str_field(&agent, &["SoulId", "soul_id"])
+                .unwrap_or("")
+                .to_string();
+            let model = nested_str_field(&agent, &["Model", "model"])
+                .unwrap_or("claude-sonnet-4-6")
+                .to_string();
+            let provider = nested_str_field(&agent, &["Provider", "provider"])
+                .unwrap_or("anthropic")
+                .to_string();
+            let tools = nested_str_field(&agent, &["ToolsEnabled", "tools_enabled"])
+                .filter(|s| !s.is_empty())
+                .unwrap_or(DEFAULT_TOOLS_ENABLED)
+                .to_string();
+            let max_turns = nested_str_field(&agent, &["MaxTurns", "max_turns"])
+                .unwrap_or("200")
+                .to_string();
+            (
+                route_agent_id.to_string(),
+                soul_id,
+                model,
+                provider,
+                tools,
+                max_turns,
+            )
+        } else {
+            // Ad-hoc routing: no persistent Agent, use route_config JSON
+            let soul_id = config
+                .get("soul_id")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
+            let model = config
+                .get("model")
+                .and_then(Value::as_str)
+                .unwrap_or("claude-sonnet-4-6")
+                .to_string();
+            let provider = config
+                .get("provider")
+                .and_then(Value::as_str)
+                .unwrap_or("anthropic")
+                .to_string();
+            let tools = config
+                .get("tools_enabled")
+                .and_then(Value::as_str)
+                .unwrap_or(DEFAULT_TOOLS_ENABLED)
+                .to_string();
+            let max_turns = config
+                .get("max_turns")
+                .and_then(Value::as_str)
+                .unwrap_or("200")
+                .to_string();
+            (String::new(), soul_id, model, provider, tools, max_turns)
+        };
+
+    // Create blank Session entity
+    let session_id = create_blank_session(ctx, temper_api_url, tenant)?;
 
     // Determine mode-specific tools and session_mode
-    let base_tools = config
-        .get("tools_enabled")
-        .and_then(Value::as_str)
-        .unwrap_or(DEFAULT_TOOLS_ENABLED);
     let (session_mode, tools_enabled, pre_plan_tools) = if command == "plan" {
-        ("plan", PLAN_MODE_TOOLS, base_tools)
+        ("plan", PLAN_MODE_TOOLS.to_string(), agent_tools.clone())
     } else {
-        ("execute", base_tools, "")
+        ("execute", agent_tools.clone(), String::new())
     };
 
     let configure_body = json!({
         "system_prompt": config.get("system_prompt").and_then(Value::as_str).unwrap_or(""),
         "user_message": user_message,
-        "model": config.get("model").and_then(Value::as_str).unwrap_or("claude-sonnet-4-6"),
-        "provider": config.get("provider").and_then(Value::as_str).unwrap_or("anthropic"),
+        "model": agent_model,
+        "provider": agent_provider,
         "tools_enabled": tools_enabled,
+        "max_turns": agent_max_turns,
         "workdir": config.get("workdir").and_then(Value::as_str).unwrap_or(DEFAULT_WORKDIR),
         "sandbox_url": config.get("sandbox_url").and_then(Value::as_str).unwrap_or(""),
         "temper_api_url": config.get("temper_api_url").and_then(Value::as_str).unwrap_or(""),
-        "soul_id": normalized_soul_ref,
+        "soul_id": agent_soul_id,
+        "agent_id": agent_id,
         "parent_session_id": config.get("parent_session_id").and_then(Value::as_str).unwrap_or(""),
         "session_depth": config.get("session_depth").and_then(Value::as_str).unwrap_or("0"),
         "max_follow_ups": config.get("max_follow_ups").and_then(Value::as_str).unwrap_or("5"),
@@ -440,7 +473,14 @@ fn create_agent_from_route(
         "session_mode": session_mode,
         "pre_plan_tools_enabled": pre_plan_tools,
     });
-    let configure_url = format!("{temper_api_url}/tdata/Sessions('{agent_id}')/OpenPaw.Configure");
+    let configure_url =
+        format!("{temper_api_url}/tdata/Sessions('{session_id}')/OpenPaw.Configure");
+    ctx.log(
+        "info",
+        &format!(
+            "route_message: creating session {session_id} for agent {agent_id} via {configure_url}"
+        ),
+    );
     let configure_resp = ctx.http_call(
         "POST",
         &configure_url,
@@ -449,7 +489,7 @@ fn create_agent_from_route(
     )?;
     if !(200..300).contains(&configure_resp.status) {
         return Err(format!(
-            "configure Agent failed (HTTP {}): {}",
+            "configure Session failed (HTTP {}): {}",
             configure_resp.status,
             truncate_error_body(&configure_resp.body)
         ));
@@ -458,21 +498,28 @@ fn create_agent_from_route(
     // Provision is auto-scheduled by the Configure action's spec effect
     // (session.ioa.toml: effect = [{ type = "schedule", action = "Provision", delay_seconds = 0 }]).
     // No explicit Provision call needed — it would race with the scheduled one.
-    Ok(agent_id)
+    Ok((agent_id, session_id))
 }
 
-fn continue_session(
+/// Create a new Session when the prior Session has ended (terminal) or steer failed.
+///
+/// Reads the Agent ID from the ChannelSession (persistent Agent), fetches
+/// the Agent entity for soul_id/config, carries forward session tree state
+/// from the prior Session, and updates the ChannelSession to point to the
+/// new Session via UpdateSession.
+fn continue_with_new_session(
     ctx: &Context,
     temper_api_url: &str,
     tenant: &str,
-    session: &Value,
-    session_id: &str,
-    prior_agent: &Value,
-    prior_agent_id: &str,
+    _channel_session: &Value,
+    cs_id: &str,
+    agent_entity_id: &str,
+    prior_session: &Value,
+    _prior_session_id: &str,
     user_message: &str,
     command: &str,
 ) -> Result<String, String> {
-    let fields = prior_agent
+    let fields = prior_session
         .get("fields")
         .cloned()
         .unwrap_or_else(|| json!({}));
@@ -513,48 +560,119 @@ fn continue_session(
         )?;
     }
 
-    let new_agent_id = create_blank_agent(ctx, temper_api_url, tenant)?;
-    let channel_id = nested_str_field(session, &["ChannelId", "channel_id"]).unwrap_or("");
-    let route_soul_fallback = if channel_id.is_empty() {
-        String::new()
+    // Prepend a session-continuation notice so the agent naturally acknowledges the new session
+    let user_message_with_notice = format!(
+        "[System: A new session has started. Your previous conversation context and memories are preserved.]\n\n{}",
+        user_message
+    );
+
+    let new_session_id = create_blank_session(ctx, temper_api_url, tenant)?;
+
+    // Fetch Agent entity to get soul_id and config (if we have a persistent Agent)
+    let (soul_id, agent_model, agent_provider, agent_tools, agent_max_turns) =
+        if !agent_entity_id.is_empty() {
+            match fetch_agent_config(ctx, temper_api_url, tenant, agent_entity_id) {
+                Ok(agent) => {
+                    let sid = nested_str_field(&agent, &["SoulId", "soul_id"])
+                        .unwrap_or("")
+                        .to_string();
+                    let model = nested_str_field(&agent, &["Model", "model"])
+                        .unwrap_or("")
+                        .to_string();
+                    let provider = nested_str_field(&agent, &["Provider", "provider"])
+                        .unwrap_or("")
+                        .to_string();
+                    let tools = nested_str_field(&agent, &["ToolsEnabled", "tools_enabled"])
+                        .unwrap_or("")
+                        .to_string();
+                    let max_turns = nested_str_field(&agent, &["MaxTurns", "max_turns"])
+                        .unwrap_or("")
+                        .to_string();
+                    (sid, model, provider, tools, max_turns)
+                }
+                Err(_) => (
+                    String::new(),
+                    String::new(),
+                    String::new(),
+                    String::new(),
+                    String::new(),
+                ),
+            }
+        } else {
+            (
+                String::new(),
+                String::new(),
+                String::new(),
+                String::new(),
+                String::new(),
+            )
+        };
+
+    // Use Agent entity values when available, otherwise fall back to prior session fields
+    let effective_soul_id = if !soul_id.is_empty() {
+        &soul_id
     } else {
-        find_route(ctx, temper_api_url, tenant, channel_id)?
-            .as_ref()
-            .and_then(|route| nested_str_field(route, &["SoulId", "soul_id"]))
-            .map(ToString::to_string)
-            .unwrap_or_default()
+        str_field(&fields, &["soul_id", "SoulId"]).unwrap_or("")
     };
-    configure_agent_from_prior(
+    let effective_model = if !agent_model.is_empty() {
+        &agent_model
+    } else {
+        str_field(&fields, &["model", "Model"]).unwrap_or("claude-sonnet-4-6")
+    };
+    let effective_provider = if !agent_provider.is_empty() {
+        &agent_provider
+    } else {
+        str_field(&fields, &["provider", "Provider"]).unwrap_or("anthropic")
+    };
+    let effective_tools = if !agent_tools.is_empty() {
+        &agent_tools
+    } else {
+        str_field(&fields, &["tools_enabled", "ToolsEnabled"]).unwrap_or(DEFAULT_TOOLS_ENABLED)
+    };
+    let effective_max_turns = if !agent_max_turns.is_empty() {
+        &agent_max_turns
+    } else {
+        str_field(&fields, &["max_turns", "MaxTurns"]).unwrap_or("200")
+    };
+
+    configure_session_from_prior(
         ctx,
         temper_api_url,
         tenant,
-        &new_agent_id,
+        &new_session_id,
         &fields,
-        user_message,
-        prior_agent_id,
-        &route_soul_fallback,
+        &user_message_with_notice,
+        agent_entity_id,
+        effective_soul_id,
+        effective_model,
+        effective_provider,
+        effective_tools,
+        effective_max_turns,
         new_leaf_id.as_deref().unwrap_or(prior_leaf_id),
         command,
     )?;
-    // Resume is handled by Configure — resume fields are folded into the Configure call
-    // and auto-Provision restores the workspace via provision_sandbox.
-    update_session_agent_binding(
+
+    // Update ChannelSession: agent_entity_id stays the same, only session_entity_id changes
+    update_session_binding(
         ctx,
         temper_api_url,
         tenant,
-        session_id,
-        session,
-        &new_agent_id,
+        cs_id,
+        &new_session_id,
     )?;
-    Ok(new_agent_id)
+    Ok(new_session_id)
 }
 
-fn create_blank_agent(ctx: &Context, temper_api_url: &str, tenant: &str) -> Result<String, String> {
+fn create_blank_session(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+) -> Result<String, String> {
     let create_body = "{ }".to_string();
     ctx.log(
         "info",
         &format!(
-            "route_message: creating continuation agent via {temper_api_url}/tdata/Sessions with {} bytes",
+            "route_message: creating session via {temper_api_url}/tdata/Sessions with {} bytes",
             create_body.len()
         ),
     );
@@ -566,52 +684,45 @@ fn create_blank_agent(ctx: &Context, temper_api_url: &str, tenant: &str) -> Resu
     )?;
     if !(200..300).contains(&create_resp.status) {
         return Err(format!(
-            "create Agent failed via {temper_api_url} (HTTP {}): {}",
+            "create Session failed via {temper_api_url} (HTTP {}): {}",
             create_resp.status,
             truncate_error_body(&create_resp.body)
         ));
     }
     let parsed: Value = serde_json::from_str(&create_resp.body).unwrap_or_else(|_| json!({}));
-    let agent_id = parsed
+    let session_id = parsed
         .get("entity_id")
         .or_else(|| parsed.get("Id"))
         .and_then(Value::as_str)
         .unwrap_or("")
         .to_string();
-    if agent_id.is_empty() {
-        return Err("created Agent missing entity_id".to_string());
+    if session_id.is_empty() {
+        return Err("created Session missing entity_id".to_string());
     }
-    Ok(agent_id)
+    Ok(session_id)
 }
 
-fn configure_agent_from_prior(
+fn configure_session_from_prior(
     ctx: &Context,
     temper_api_url: &str,
     tenant: &str,
-    agent_id: &str,
+    session_id: &str,
     fields: &Value,
     user_message: &str,
-    prior_agent_id: &str,
-    fallback_soul_ref: &str,
+    agent_entity_id: &str,
+    soul_id: &str,
+    model: &str,
+    provider: &str,
+    tools_enabled: &str,
+    max_turns: &str,
     session_leaf_id: &str,
     command: &str,
 ) -> Result<(), String> {
-    let prior_soul_ref = str_field(fields, &["soul_id", "SoulId"]).unwrap_or("");
-    let soul_ref = normalize_soul_ref(ctx, temper_api_url, tenant, prior_soul_ref)
-        .or_else(|| normalize_soul_ref(ctx, temper_api_url, tenant, fallback_soul_ref))
-        .unwrap_or_else(|| {
-            if !prior_soul_ref.is_empty() {
-                prior_soul_ref.to_string()
-            } else {
-                fallback_soul_ref.to_string()
-            }
-        });
     // Determine mode-specific tools and session_mode
-    let base_tools = str_field(fields, &["tools_enabled", "ToolsEnabled"]).unwrap_or(DEFAULT_TOOLS_ENABLED);
-    let (session_mode, tools_enabled, pre_plan_tools) = if command == "plan" {
-        ("plan", PLAN_MODE_TOOLS, base_tools)
+    let (session_mode, effective_tools, pre_plan_tools) = if command == "plan" {
+        ("plan", PLAN_MODE_TOOLS, tools_enabled.to_string())
     } else {
-        ("execute", base_tools, "")
+        ("execute", tools_enabled, String::new())
     };
 
     // Include resume-specific fields (workspace, conversation, session tree) in Configure
@@ -620,9 +731,10 @@ fn configure_agent_from_prior(
     let configure_body = json!({
         "system_prompt": str_field(fields, &["system_prompt", "SystemPrompt"]).unwrap_or(""),
         "user_message": user_message,
-        "model": str_field(fields, &["model", "Model"]).unwrap_or("claude-sonnet-4-6"),
-        "provider": str_field(fields, &["provider", "Provider"]).unwrap_or("anthropic"),
-        "tools_enabled": tools_enabled,
+        "model": model,
+        "provider": provider,
+        "tools_enabled": effective_tools,
+        "max_turns": max_turns,
         "workdir": str_field(fields, &["workdir", "Workdir"]).unwrap_or(DEFAULT_WORKDIR),
         // Don't carry forward sandbox_url/sandbox_id from the prior session —
         // Tensorlake sandboxes expire and stale URLs cause infinite retry loops.
@@ -630,11 +742,12 @@ fn configure_agent_from_prior(
         "sandbox_url": "",
         "sandbox_id": "",
         "temper_api_url": str_field(fields, &["temper_api_url", "TemperApiUrl"]).unwrap_or(""),
-        "soul_id": soul_ref,
-        "parent_session_id": if prior_agent_id.is_empty() {
+        "soul_id": soul_id,
+        "agent_id": agent_entity_id,
+        "parent_session_id": if !agent_entity_id.is_empty() {
             str_field(fields, &["parent_session_id", "ParentSessionId"]).unwrap_or("")
         } else {
-            prior_agent_id
+            str_field(fields, &["parent_session_id", "ParentSessionId"]).unwrap_or("")
         },
         "session_depth": str_field(fields, &["session_depth", "SessionDepth"]).unwrap_or("0"),
         "max_follow_ups": str_field(fields, &["max_follow_ups", "MaxFollowUps"]).unwrap_or("5"),
@@ -654,7 +767,8 @@ fn configure_agent_from_prior(
         "session_mode": session_mode,
         "pre_plan_tools_enabled": pre_plan_tools,
     });
-    let configure_url = format!("{temper_api_url}/tdata/Sessions('{agent_id}')/OpenPaw.Configure");
+    let configure_url =
+        format!("{temper_api_url}/tdata/Sessions('{session_id}')/OpenPaw.Configure");
     let configure_resp = ctx.http_call(
         "POST",
         &configure_url,
@@ -663,7 +777,7 @@ fn configure_agent_from_prior(
     )?;
     if !(200..300).contains(&configure_resp.status) {
         return Err(format!(
-            "configure continuation Agent failed (HTTP {}): {}",
+            "configure continuation Session failed (HTTP {}): {}",
             configure_resp.status,
             truncate_error_body(&configure_resp.body)
         ));
@@ -673,26 +787,32 @@ fn configure_agent_from_prior(
     Ok(())
 }
 
-fn update_session_agent_binding(
+/// Update a ChannelSession to point to a new Session via the UpdateSession action.
+/// The agent_entity_id stays the same (persistent Agent); only session_entity_id changes.
+fn update_session_binding(
     ctx: &Context,
     temper_api_url: &str,
     tenant: &str,
-    session_id: &str,
-    session: &Value,
-    agent_id: &str,
+    cs_id: &str,
+    new_session_id: &str,
 ) -> Result<(), String> {
-    let url = format!("{temper_api_url}/tdata/ChannelSessions('{session_id}')/Paw.Channel.Create");
+    let url = format!(
+        "{temper_api_url}/tdata/ChannelSessions('{cs_id}')/Paw.Channel.UpdateSession"
+    );
     let body = json!({
-        "channel_id": nested_str_field(session, &["ChannelId", "channel_id"]).unwrap_or(""),
-        "thread_id": nested_str_field(session, &["ThreadId", "thread_id"]).unwrap_or(""),
-        "author_id": nested_str_field(session, &["AuthorId", "author_id"]).unwrap_or(""),
-        "agent_entity_id": agent_id,
+        "session_entity_id": new_session_id,
         "last_message_at": "continued",
     });
-    let resp = ctx.http_call("POST", &url, &odata_headers(ctx, tenant), &body.to_string())?;
+    // Use admin-level headers for this internal infrastructure operation
+    let headers = vec![
+        ("Content-Type".to_string(), "application/json".to_string()),
+        ("x-tenant-id".to_string(), tenant.to_string()),
+        ("x-temper-principal-kind".to_string(), "admin".to_string()),
+    ];
+    let resp = ctx.http_call("POST", &url, &headers, &body.to_string())?;
     if !(200..300).contains(&resp.status) {
         return Err(format!(
-            "ChannelSession.Create continuation update failed (HTTP {})",
+            "ChannelSession.UpdateSession failed (HTTP {})",
             resp.status
         ));
     }
@@ -855,35 +975,6 @@ fn fetch_entity(ctx: &Context, url: &str, tenant: &str) -> Result<Value, String>
     serde_json::from_str(&resp.body).map_err(|e| format!("failed to parse entity JSON: {e}"))
 }
 
-fn normalize_soul_ref(
-    ctx: &Context,
-    temper_api_url: &str,
-    tenant: &str,
-    soul_ref: &str,
-) -> Option<String> {
-    if soul_ref.is_empty() {
-        return None;
-    }
-
-    let by_id_url = format!("{temper_api_url}/tdata/Souls('{soul_ref}')");
-    if let Ok(entity) = fetch_entity(ctx, &by_id_url, tenant) {
-        return nested_str_field(&entity, &["Name", "name"]).map(ToString::to_string);
-    }
-
-    let escaped = soul_ref.replace('\'', "''");
-    let by_name_url =
-        format!("{temper_api_url}/tdata/Souls?$filter=Name eq '{escaped}' and Status eq 'Active'");
-    if let Ok(list) = list_entities(ctx, &by_name_url, tenant) {
-        if let Some(entity) = list.into_iter().next() {
-            return nested_str_field(&entity, &["Name", "name"])
-                .or_else(|| nested_str_field(&entity, &["Id", "entity_id"]))
-                .map(ToString::to_string);
-        }
-    }
-
-    None
-}
-
 fn truncate_error_body(body: &str) -> String {
     const LIMIT: usize = 240;
     if body.len() <= LIMIT {
@@ -924,8 +1015,8 @@ fn interrupted_tool_results_for_leaf(tree: &SessionTree, leaf_id: &str) -> Optio
     }
 }
 
-fn agent_entity_url(temper_api_url: &str, agent_id: &str) -> String {
-    format!("{temper_api_url}/tdata/Sessions('{agent_id}')")
+fn session_entity_url(temper_api_url: &str, session_id: &str) -> String {
+    format!("{temper_api_url}/tdata/Sessions('{session_id}')")
 }
 
 fn is_terminal_status(status: &str) -> bool {
@@ -940,14 +1031,15 @@ fn estimate_tokens(text: &str) -> usize {
     text.len() / 4
 }
 
-fn create_session(
+fn create_channel_session(
     ctx: &Context,
     temper_api_url: &str,
     tenant: &str,
     channel_id: &str,
     thread_id: &str,
     author_id: &str,
-    agent_id: &str,
+    agent_entity_id: &str,
+    session_entity_id: &str,
 ) -> Result<(), String> {
     let create_resp = ctx.http_call(
         "POST",
@@ -962,22 +1054,23 @@ fn create_session(
         ));
     }
     let parsed: Value = serde_json::from_str(&create_resp.body).unwrap_or_else(|_| json!({}));
-    let session_id = parsed
+    let cs_id = parsed
         .get("entity_id")
         .or_else(|| parsed.get("Id"))
         .and_then(Value::as_str)
         .unwrap_or("")
         .to_string();
-    if session_id.is_empty() {
+    if cs_id.is_empty() {
         return Err("ChannelSession creation missing entity_id".to_string());
     }
     let create_url =
-        format!("{temper_api_url}/tdata/ChannelSessions('{session_id}')/Paw.Channel.Create");
+        format!("{temper_api_url}/tdata/ChannelSessions('{cs_id}')/Paw.Channel.Create");
     let body = json!({
         "channel_id": channel_id,
         "thread_id": thread_id,
         "author_id": author_id,
-        "agent_entity_id": agent_id,
+        "agent_entity_id": agent_entity_id,
+        "session_entity_id": session_entity_id,
         "last_message_at": "created",
     });
     let resp = ctx.http_call(
@@ -999,12 +1092,12 @@ fn switch_mode_and_steer(
     ctx: &Context,
     temper_api_url: &str,
     tenant: &str,
-    agent_id: &str,
+    session_id: &str,
     command: &str,
     content: &str,
 ) -> Result<(), String> {
     // 1. Fetch the Session entity to read current tools_enabled
-    let session_url = format!("{temper_api_url}/tdata/Sessions('{agent_id}')");
+    let session_url = format!("{temper_api_url}/tdata/Sessions('{session_id}')");
     let session_resp = ctx.http_call("GET", &session_url, &odata_headers(ctx, tenant), "")?;
     let session: Value = if session_resp.status == 200 {
         serde_json::from_str(&session_resp.body).unwrap_or_else(|_| json!({}))
@@ -1032,7 +1125,7 @@ fn switch_mode_and_steer(
     }
 
     // 3. Dispatch SwitchMode
-    let switch_url = format!("{temper_api_url}/tdata/Sessions('{agent_id}')/OpenPaw.SwitchMode");
+    let switch_url = format!("{temper_api_url}/tdata/Sessions('{session_id}')/OpenPaw.SwitchMode");
     let resp = ctx.http_call(
         "POST",
         &switch_url,
@@ -1049,23 +1142,23 @@ fn switch_mode_and_steer(
 
     // 4. Steer with the task text (if any)
     if !content.is_empty() {
-        steer_existing_agent(ctx, temper_api_url, tenant, agent_id, content)?;
+        steer_session(ctx, temper_api_url, tenant, session_id, content)?;
     }
 
     Ok(())
 }
 
-fn steer_existing_agent(
+fn steer_session(
     ctx: &Context,
     temper_api_url: &str,
     tenant: &str,
-    agent_id: &str,
+    session_id: &str,
     message: &str,
 ) -> Result<(), String> {
-    let agent_url = format!("{temper_api_url}/tdata/Sessions('{agent_id}')");
-    let agent_resp = ctx.http_call("GET", &agent_url, &odata_headers(ctx, tenant), "")?;
-    let mut queue = if agent_resp.status == 200 {
-        let parsed: Value = serde_json::from_str(&agent_resp.body).unwrap_or_else(|_| json!({}));
+    let session_url = format!("{temper_api_url}/tdata/Sessions('{session_id}')");
+    let session_resp = ctx.http_call("GET", &session_url, &odata_headers(ctx, tenant), "")?;
+    let mut queue = if session_resp.status == 200 {
+        let parsed: Value = serde_json::from_str(&session_resp.body).unwrap_or_else(|_| json!({}));
         serde_json::from_str::<Vec<Value>>(
             nested_str_field(&parsed, &["SteeringMessages", "steering_messages"]).unwrap_or("[]"),
         )
@@ -1074,7 +1167,7 @@ fn steer_existing_agent(
         Vec::new()
     };
     queue.push(json!({ "content": message }));
-    let steer_url = format!("{temper_api_url}/tdata/Sessions('{agent_id}')/OpenPaw.Steer");
+    let steer_url = format!("{temper_api_url}/tdata/Sessions('{session_id}')/OpenPaw.Steer");
     let body = json!({
         "steering_messages": serde_json::to_string(&queue).unwrap_or_else(|_| "[]".to_string()),
     });
@@ -1085,7 +1178,7 @@ fn steer_existing_agent(
         &body.to_string(),
     )?;
     if !(200..300).contains(&resp.status) {
-        return Err(format!("steer agent failed (HTTP {})", resp.status));
+        return Err(format!("steer session failed (HTTP {})", resp.status));
     }
     Ok(())
 }

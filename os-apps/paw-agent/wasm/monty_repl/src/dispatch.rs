@@ -35,6 +35,14 @@ thread_local! {
     static LAZY_SANDBOX: RefCell<Option<(String, String)>> = RefCell::new(None);
 }
 
+// Thread-local storage for Cedar denial. When dispatch detects a
+// CEDAR_DENIED_CTX error, the full JSON context is stored here so
+// lib.rs can read it after drive_repl_loop returns (even if Monty
+// Python code catches the exception).
+thread_local! {
+    static CEDAR_DENIAL: RefCell<Option<String>> = RefCell::new(None);
+}
+
 /// Take the done result (if set). Clears it after reading.
 pub fn take_done_result() -> Option<String> {
     DONE_RESULT.with(|cell| cell.borrow_mut().take())
@@ -43,6 +51,11 @@ pub fn take_done_result() -> Option<String> {
 /// Take the lazily provisioned sandbox details (if set). Clears after reading.
 pub fn take_lazy_sandbox() -> Option<(String, String)> {
     LAZY_SANDBOX.with(|cell| cell.borrow_mut().take())
+}
+
+/// Take the Cedar denial context (if set). Clears after reading.
+pub fn take_cedar_denial() -> Option<String> {
+    CEDAR_DENIAL.with(|cell| cell.borrow_mut().take())
 }
 
 /// Peek at the lazily provisioned sandbox URL without consuming it.
@@ -92,7 +105,7 @@ pub fn dispatch(
     };
 
     ensure_method_enabled(ctx, obj_name, method, &effective_sandbox_url)?;
-    match obj_name {
+    let result = match obj_name {
         "temper" => dispatch_temper(
             ctx,
             temper_api_url,
@@ -111,7 +124,31 @@ pub fn dispatch(
             dispatch_sandbox(ctx, &effective_sandbox_url, workdir, &sandbox_api_key, method, args)
         }
         _ => Err(format!("unknown object: {obj_name}")),
+    };
+
+    // Enrich Cedar denial errors with tool context so the REPL loop can
+    // build a complete pause payload (decision ID + what was being attempted).
+    if let Err(ref e) = result {
+        if let Some(rest) = e.strip_prefix("CEDAR_DENIED:") {
+            // rest = "{decision_id}:{body}" — split on first ':'
+            let (decision_id, body) = rest.split_once(':').unwrap_or((rest, ""));
+            let ctx_json = json!({
+                "decision_id": decision_id,
+                "method": format!("{obj_name}.{method}"),
+                "args": args,
+                "body": body,
+            });
+            // Store in thread-local so lib.rs can detect the denial even if
+            // Monty Python code catches the RuntimeError exception.
+            let ctx_str = ctx_json.to_string();
+            CEDAR_DENIAL.with(|cell| {
+                *cell.borrow_mut() = Some(ctx_str.clone());
+            });
+            return Err(format!("CEDAR_DENIED_CTX:{ctx_str}"));
+        }
     }
+
+    result
 }
 
 fn ensure_method_enabled(
@@ -235,7 +272,7 @@ fn temper_method_token(method: &str) -> Option<&'static str> {
         "vercel" => Some("temper_vercel"),
         "web_search" => Some("temper_web_search"),
         "web_fetch" => Some("temper_web_fetch"),
-        "done" | "get_agent_id" | "switch_provider" | "switch_mode" => None,
+        "done" | "get_agent_id" | "get_session_id" | "switch_provider" | "switch_mode" => None,
         _ => None,
     }
 }
@@ -292,12 +329,21 @@ fn dispatch_temper(
 
         // Agent identity
         "get_agent_id" => {
-            let agent_id = ctx
+            let fields = ctx.entity_state.get("fields").cloned().unwrap_or(json!({}));
+            let agent_id = fields
+                .get("agent_id")
+                .or_else(|| fields.get("AgentId"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            Ok(json!(agent_id))
+        }
+        "get_session_id" => {
+            let session_id = ctx
                 .entity_state
                 .get("entity_id")
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
-            Ok(json!(agent_id))
+            Ok(json!(session_id))
         }
 
         // Switch own LLM provider/model mid-session
@@ -440,7 +486,7 @@ fn dispatch_temper(
              upload_wasm, get_trajectories, get_insights, \
              get_decisions, poll_decision, approve_decision, deny_decision, \
              submit_policy, list_policies, get_policy, update_policy, delete_policy, \
-             get_secret, done, install_app, list_apps, get_agent_id, \
+             get_secret, done, install_app, list_apps, get_agent_id, get_session_id, \
              spawn_session, list_sessions, abort_session, steer_session, \
              save_memory, recall_memory, write, read, \
              run_coding_agent, datadog_query, railway, vercel, \
@@ -1428,10 +1474,24 @@ fn runtime_headers(tenant: &str) -> Vec<(String, String)> {
     ]
 }
 
+pub fn check_cedar_denial(status: u16, body: &str) -> Option<String> {
+    if status == 403 {
+        if let Ok(parsed) = serde_json::from_str::<Value>(body) {
+            if let Some(did) = parsed.get("decision_id").and_then(|v| v.as_str()) {
+                return Some(format!("CEDAR_DENIED:{}:{}", did, body));
+            }
+        }
+    }
+    None
+}
+
 fn http_get(ctx: &Context, api_url: &str, tenant: &str, path: &str) -> Result<Value, String> {
     let url = format!("{api_url}{path}");
     let headers = runtime_headers(tenant);
     let resp = ctx.http_call("GET", &url, &headers, "")?;
+    if let Some(denial) = check_cedar_denial(resp.status, &resp.body) {
+        return Err(denial);
+    }
     if resp.status >= 400 {
         return Err(format!("HTTP GET {path}: {} {}", resp.status, resp.body));
     }
@@ -1449,6 +1509,9 @@ fn http_post(
     let url = format!("{api_url}{path}");
     let headers = runtime_headers(tenant);
     let resp = ctx.http_call("POST", &url, &headers, &body.to_string())?;
+    if let Some(denial) = check_cedar_denial(resp.status, &resp.body) {
+        return Err(denial);
+    }
     if resp.status >= 400 {
         return Err(format!("HTTP POST {path}: {} {}", resp.status, resp.body));
     }
@@ -1469,6 +1532,9 @@ fn http_patch(
     let url = format!("{api_url}{path}");
     let headers = runtime_headers(tenant);
     let resp = ctx.http_call("PATCH", &url, &headers, &body.to_string())?;
+    if let Some(denial) = check_cedar_denial(resp.status, &resp.body) {
+        return Err(denial);
+    }
     if resp.status >= 400 {
         return Err(format!("HTTP PATCH {path}: {} {}", resp.status, resp.body));
     }
@@ -1483,6 +1549,9 @@ fn http_delete(ctx: &Context, api_url: &str, tenant: &str, path: &str) -> Result
     let url = format!("{api_url}{path}");
     let headers = runtime_headers(tenant);
     let resp = ctx.http_call("DELETE", &url, &headers, "")?;
+    if let Some(denial) = check_cedar_denial(resp.status, &resp.body) {
+        return Err(denial);
+    }
     if resp.status >= 400 {
         return Err(format!("HTTP DELETE {path}: {} {}", resp.status, resp.body));
     }

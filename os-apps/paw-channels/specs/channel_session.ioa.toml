@@ -29,6 +29,11 @@ type = "string"
 initial = ""
 
 [[state]]
+name = "session_entity_id"
+type = "string"
+initial = ""
+
+[[state]]
 name = "last_message_at"
 type = "string"
 initial = ""
@@ -37,7 +42,7 @@ initial = ""
 name = "Create"
 kind = "input"
 from = ["Active"]
-params = ["channel_id", "thread_id", "author_id", "agent_entity_id", "last_message_at"]
+params = ["channel_id", "thread_id", "author_id", "agent_entity_id", "session_entity_id", "last_message_at"]
 hint = "Create a new channel session linking a thread to an agent."
 
 [[action]]
@@ -46,6 +51,13 @@ kind = "input"
 from = ["Active"]
 params = ["last_message_at"]
 hint = "Resume the session with a new message timestamp."
+
+[[action]]
+name = "UpdateSession"
+kind = "input"
+from = ["Active"]
+params = ["session_entity_id", "last_message_at"]
+hint = "Update the active session pointer when a new session starts under the same agent."
 
 [[action]]
 name = "Expire"

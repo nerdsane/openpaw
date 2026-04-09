@@ -6,6 +6,8 @@
 use serde_json::{Value, json};
 use temper_wasm_sdk::context::Context;
 
+use crate::dispatch;
+
 const DEFAULT_TOOLS_ENABLED: &str = "temper_create,temper_get,temper_list,temper_action,temper_patch,temper_submit_specs,temper_show_spec,temper_specs,temper_upload_wasm,temper_get_trajectories,temper_get_insights,temper_get_decisions,temper_poll_decision,temper_approve_decision,temper_deny_decision,temper_submit_policy,temper_list_policies,temper_get_policy,temper_update_policy,temper_delete_policy,temper_install_app,temper_list_apps,temper_spawn_session,temper_list_sessions,temper_abort_session,temper_steer_session,temper_save_memory,temper_recall_memory,temper_write,temper_read,temper_run_coding_agent,temper_get_secret,temper_datadog_query,temper_railway,temper_vercel,temper_web_search,temper_web_fetch,read,write,edit,bash";
 
 // ---------------------------------------------------------------------------
@@ -286,12 +288,12 @@ pub fn save_memory(
         .get("memory_type")
         .and_then(|v| v.as_str())
         .unwrap_or("reference");
-    let agent_id = ctx
-        .entity_state
-        .get("entity_id")
+    let fields = ctx.entity_state.get("fields").cloned().unwrap_or(json!({}));
+    let agent_id = fields
+        .get("agent_id")
+        .or_else(|| fields.get("AgentId"))
         .and_then(|v| v.as_str())
         .unwrap_or("");
-    let fields = ctx.entity_state.get("fields").cloned().unwrap_or(json!({}));
     let soul_id = fields.get("soul_id").and_then(|v| v.as_str()).unwrap_or("");
 
     let body = json!({
@@ -330,9 +332,10 @@ pub fn recall_memory(
 ) -> Result<Value, String> {
     let input = obj_arg(args, 0, "opts", "recall_memory")?;
     let query = require_str(&input, "query", "recall_memory")?;
-    let agent_id = ctx
-        .entity_state
-        .get("entity_id")
+    let fields = ctx.entity_state.get("fields").cloned().unwrap_or(json!({}));
+    let agent_id = fields
+        .get("agent_id")
+        .or_else(|| fields.get("AgentId"))
         .and_then(|v| v.as_str())
         .unwrap_or("");
 
@@ -685,6 +688,9 @@ fn http_get(ctx: &Context, api_url: &str, tenant: &str, path: &str) -> Result<Va
     let url = format!("{api_url}{path}");
     let headers = runtime_headers(tenant);
     let resp = ctx.http_call("GET", &url, &headers, "")?;
+    if let Some(denial) = dispatch::check_cedar_denial(resp.status, &resp.body) {
+        return Err(denial);
+    }
     if resp.status >= 400 {
         return Err(format!("HTTP GET {path}: {} {}", resp.status, resp.body));
     }
@@ -702,6 +708,9 @@ fn http_post(
     let url = format!("{api_url}{path}");
     let headers = runtime_headers(tenant);
     let resp = ctx.http_call("POST", &url, &headers, &body.to_string())?;
+    if let Some(denial) = dispatch::check_cedar_denial(resp.status, &resp.body) {
+        return Err(denial);
+    }
     if resp.status >= 400 {
         return Err(format!("HTTP POST {path}: {} {}", resp.status, resp.body));
     }

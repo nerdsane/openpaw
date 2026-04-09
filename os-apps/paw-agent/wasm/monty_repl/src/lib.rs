@@ -137,19 +137,50 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             .and_then(|v| v.as_str())
             .unwrap_or("/workspace");
 
-        // Read pending tool calls
-        let tool_calls_json = ctx
-            .trigger_params
-            .get("pending_tool_calls")
+        // Cedar resume mode: if we're resuming after a Cedar approval, the
+        // remaining tool calls and previously-completed results are stored in
+        // the entity's `pending_tool_context` field (set during PauseForApproval).
+        let pending_ctx_str = fields
+            .get("pending_tool_context")
             .and_then(|v| v.as_str())
-            .unwrap_or("[]");
+            .filter(|s| !s.is_empty());
 
-        let tool_calls: Vec<Value> = serde_json::from_str(tool_calls_json)
-            .map_err(|e| format!("failed to parse pending_tool_calls: {e}"))?;
+        let is_cedar_resume = pending_ctx_str.is_some();
+        let (tool_calls, mut prior_results): (Vec<Value>, Vec<Value>) =
+            if let Some(ctx_json) = pending_ctx_str {
+                ctx.log("info", "monty_repl: resuming from Cedar approval");
+                let pause_ctx: Value = serde_json::from_str(ctx_json)
+                    .map_err(|e| format!("failed to parse pending_tool_context: {e}"))?;
+                let remaining = pause_ctx
+                    .get("remaining_tool_calls")
+                    .and_then(|v| v.as_array())
+                    .cloned()
+                    .unwrap_or_default();
+                let completed = pause_ctx
+                    .get("completed_results")
+                    .and_then(|v| v.as_array())
+                    .cloned()
+                    .unwrap_or_default();
+                (remaining, completed)
+            } else {
+                // Normal mode: read pending tool calls from trigger params
+                let tool_calls_json = ctx
+                    .trigger_params
+                    .get("pending_tool_calls")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("[]");
+                let calls: Vec<Value> = serde_json::from_str(tool_calls_json)
+                    .map_err(|e| format!("failed to parse pending_tool_calls: {e}"))?;
+                (calls, Vec::new())
+            };
 
         ctx.log(
             "info",
-            &format!("monty_repl: executing {} tool calls", tool_calls.len()),
+            &format!(
+                "monty_repl: executing {} tool calls (prior_results={})",
+                tool_calls.len(),
+                prior_results.len()
+            ),
         );
 
         // Load REPL state from TemperFS file (not from entity fields — avoids
@@ -187,7 +218,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         // Execute each tool call
         let mut tool_results: Vec<Value> = Vec::new();
 
-        for call in &tool_calls {
+        for (i, call) in tool_calls.iter().enumerate() {
             let tool_id = call.get("id").and_then(|v| v.as_str()).unwrap_or("unknown");
             let input = call.get("input").cloned().unwrap_or(json!({}));
             let code = input.get("code").and_then(|v| v.as_str()).unwrap_or("");
@@ -241,6 +272,62 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             if let Some(url) = dispatch::peek_lazy_sandbox_url() {
                 sandbox_url = url;
             }
+
+            // --- Cedar denial: clean pause ---
+            // Check the thread-local flag (set by dispatch even if Monty catches
+            // the exception). If a Cedar denial occurred, save state and pause.
+            if let Some(cedar_ctx_json) = dispatch::take_cedar_denial() {
+                ctx.log("info", "monty_repl: Cedar denial detected, pausing for approval");
+
+                // Parse the Cedar context to extract decision_id
+                let cedar_ctx: Value = serde_json::from_str(&cedar_ctx_json)
+                    .unwrap_or(json!({"decision_id": "unknown"}));
+                let decision_id = cedar_ctx
+                    .get("decision_id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown");
+
+                // Save REPL state before pausing
+                let saved_state = save_repl_state(&repl)?;
+                let repl_file_id = session::save_repl_to_file(
+                    &ctx,
+                    &temper_api_url,
+                    tenant,
+                    workspace_id,
+                    repl_file_id,
+                    &saved_state,
+                )?;
+
+                // Build pause context: all completed results (prior + current) +
+                // remaining tool calls (current denied call + any after it)
+                let mut all_completed = prior_results.clone();
+                all_completed.append(&mut tool_results);
+                let remaining: Vec<Value> = tool_calls[i..].to_vec();
+
+                let pause_ctx = json!({
+                    "completed_results": all_completed,
+                    "remaining_tool_calls": remaining,
+                    "tool_context": cedar_ctx,
+                });
+
+                // Dispatch PauseForApproval — Session transitions to WaitingForApproval
+                let mut params = json!({
+                    "pending_decision_id": decision_id,
+                    "pending_tool_context": serde_json::to_string(&pause_ctx)
+                        .unwrap_or_else(|_| "{}".to_string()),
+                    "repl_file_id": repl_file_id,
+                });
+
+                // Preserve sandbox state if lazily provisioned (ADR-0022)
+                if let Some((url, id)) = dispatch::take_lazy_sandbox() {
+                    params["sandbox_url"] = json!(url);
+                    params["sandbox_id"] = json!(id);
+                }
+
+                set_success_result("PauseForApproval", &params);
+                return Ok(());
+            }
+
             let printed = printed.into_string();
 
             // Combine print output + expression value
@@ -294,6 +381,12 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             tool_results.push(make_tool_result(tool_id, &content, is_error));
         }
 
+        // Merge prior results from Cedar resume (if any) with newly collected results
+        if !prior_results.is_empty() {
+            prior_results.append(&mut tool_results);
+            tool_results = prior_results;
+        }
+
         // Save REPL state to TemperFS file (not entity field)
         let saved_state = save_repl_state(&repl)?;
         ctx.log(
@@ -334,6 +427,13 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         if let Some((url, id)) = dispatch::take_lazy_sandbox() {
             params["sandbox_url"] = json!(url);
             params["sandbox_id"] = json!(id);
+        }
+
+        // Clear Cedar approval state after successful resume so the next
+        // run_tools invocation doesn't erroneously re-enter resume mode.
+        if is_cedar_resume {
+            params["pending_tool_context"] = json!("");
+            params["pending_decision_id"] = json!("");
         }
 
         if let Some(result_text) = done_result {

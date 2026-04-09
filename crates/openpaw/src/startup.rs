@@ -998,49 +998,180 @@ fn spawn_soul_bootstrap(port: u16, tenant: String, api_key: Option<String>) {
         paw_paths.push("os-apps/paw-agent/agents/paw/AGENT.md".to_string());
         let paw_path_refs: Vec<&str> = paw_paths.iter().map(|s| s.as_str()).collect();
 
-        let souls: Vec<(&str, &str, Vec<&str>)> = vec![
-            ("Paw", "Paw chief of staff agent", paw_path_refs),
+        // Agent definitions: (name, role, description, soul_paths)
+        // Agent is the primary entity. Soul is optional — attached to Agent by ID.
+        let agents: Vec<(&str, &str, &str, Option<Vec<&str>>)> = vec![
+            ("Paw", "chief-of-staff", "Paw chief of staff agent", Some(paw_path_refs)),
             (
                 "SWE",
+                "developer",
                 "Software developer agent",
-                vec!["os-apps/paw-agent/agents/swe/AGENT.md"],
+                Some(vec!["os-apps/paw-agent/agents/swe/AGENT.md"]),
             ),
             (
                 "SRE",
+                "sre",
                 "Site reliability engineering agent",
-                vec!["os-apps/paw-agent/agents/sre/AGENT.md"],
+                Some(vec!["os-apps/paw-agent/agents/sre/AGENT.md"]),
             ),
             (
                 "Probe",
+                "probe",
                 "Foresight probe agent for projecting product futures",
-                vec!["os-apps/paw-agent/agents/probe/AGENT.md"],
+                Some(vec!["os-apps/paw-agent/agents/probe/AGENT.md"]),
             ),
         ];
 
-        for (name, description, paths) in &souls {
-            match bootstrap_soul(
+        let default_config = default_agent_config(&api_url);
+
+        for (name, role, description, soul_paths) in &agents {
+            // Step 1: Create Agent entity (agent-first)
+            let agent_id = match bootstrap_agent(
                 &client,
                 &api_url,
                 &tenant,
                 &api_key,
                 name,
+                role,
                 description,
-                paths,
+                &default_config,
             )
             .await
             {
-                Ok(soul_id) => tracing::info!("  Soul '{name}' ready: {soul_id}"),
-                Err(e) => tracing::error!("  Failed to bootstrap soul '{name}': {e}"),
+                Ok(id) => {
+                    tracing::info!("  Agent '{name}' ready: {id}");
+                    id
+                }
+                Err(e) => {
+                    tracing::error!("  Failed to bootstrap agent '{name}': {e}");
+                    continue;
+                }
+            };
+
+            // Step 2: Optionally create/attach Soul
+            if let Some(paths) = soul_paths {
+                match bootstrap_soul(
+                    &client,
+                    &api_url,
+                    &tenant,
+                    &api_key,
+                    name,
+                    description,
+                    paths,
+                )
+                .await
+                {
+                    Ok(soul_id) => {
+                        // Attach Soul to Agent by ID
+                        if let Err(e) = attach_soul_to_agent(
+                            &client, &api_url, &tenant, &api_key, &agent_id, &soul_id,
+                        )
+                        .await
+                        {
+                            tracing::warn!("  Could not attach soul to agent '{name}': {e}");
+                        } else {
+                            tracing::info!("  Soul '{name}' ({soul_id}) attached to Agent {agent_id}");
+                        }
+                    }
+                    Err(e) => tracing::warn!("  Failed to bootstrap soul for '{name}': {e}"),
+                }
             }
         }
 
         // Skills are now bootstrapped as TemperFS files by the OS app installer
         // (install_os_app → bootstrap_skills). No separate skill bootstrap needed.
 
-        if let Err(e) = set_default_soul(&client, &api_url, &tenant, &api_key, "Paw").await {
-            tracing::warn!("Could not set default soul on AgentRoute: {e}");
+        // Point the global AgentRoute to the Paw Agent entity (by ID, not by name)
+        if let Err(e) = set_default_agent(&client, &api_url, &tenant, &api_key, "Paw").await {
+            tracing::warn!("Could not set default agent on AgentRoute: {e}");
         }
     });
+}
+
+/// Create or find an Agent entity by name.
+async fn bootstrap_agent(
+    client: &reqwest::Client,
+    api_url: &str,
+    tenant: &str,
+    api_key: &Option<String>,
+    name: &str,
+    role: &str,
+    description: &str,
+    config: &serde_json::Value,
+) -> Result<String> {
+    let escaped_name = name.replace('\'', "''");
+    let filter = format!("name eq '{escaped_name}' and Status eq 'Active'");
+    let list_url = format!("{api_url}/tdata/Agents?$filter={filter}");
+    let resp = odata_get(client, &list_url, tenant, api_key).await?;
+
+    if let Some(items) = resp["value"].as_array() {
+        if let Some(existing) = items.first() {
+            let id = entity_id_from_json(existing).unwrap_or("unknown");
+            tracing::info!("  Agent '{name}' already exists: {id}");
+            return Ok(id.to_string());
+        }
+    }
+
+    // Create new Agent entity
+    let create_resp = odata_post(
+        client,
+        &format!("{api_url}/tdata/Agents"),
+        tenant,
+        api_key,
+        serde_json::json!({}),
+    )
+    .await?;
+    let agent_id = create_resp["entity_id"]
+        .as_str()
+        .or_else(|| create_resp["fields"]["Id"].as_str())
+        .or_else(|| create_resp["Id"].as_str())
+        .context("Agent creation did not return Id")?
+        .to_string();
+
+    // Configure the agent
+    let model = config["model"].as_str().unwrap_or("claude-sonnet-4-6");
+    let provider = config["provider"].as_str().unwrap_or("anthropic");
+    let tools_enabled = config["tools_enabled"].as_str().unwrap_or("");
+    let max_turns = config["max_turns"].as_str().unwrap_or("24");
+
+    odata_post(
+        client,
+        &format!("{api_url}/tdata/Agents('{agent_id}')/OpenPaw.Configure"),
+        tenant,
+        api_key,
+        serde_json::json!({
+            "name": name,
+            "role": role,
+            "description": description,
+            "model": model,
+            "provider": provider,
+            "tools_enabled": tools_enabled,
+            "max_turns": max_turns,
+        }),
+    )
+    .await?;
+
+    Ok(agent_id)
+}
+
+/// Attach a Soul entity to an Agent by updating the Agent's soul_id field.
+async fn attach_soul_to_agent(
+    client: &reqwest::Client,
+    api_url: &str,
+    tenant: &str,
+    api_key: &Option<String>,
+    agent_id: &str,
+    soul_id: &str,
+) -> Result<()> {
+    odata_post(
+        client,
+        &format!("{api_url}/tdata/Agents('{agent_id}')/OpenPaw.Update"),
+        tenant,
+        api_key,
+        serde_json::json!({ "soul_id": soul_id }),
+    )
+    .await?;
+    Ok(())
 }
 
 /// Create or find a Soul entity for the given soul files.
@@ -1151,42 +1282,31 @@ async fn bootstrap_soul(
     Ok(soul_id)
 }
 
-/// Set the Paw soul as the default on any existing AgentRoute.
-async fn set_default_soul(
+/// Point the global AgentRoute to the named Agent entity (by ID).
+async fn set_default_agent(
     client: &reqwest::Client,
     api_url: &str,
     tenant: &str,
     api_key: &Option<String>,
-    soul_name: &str,
+    agent_name: &str,
 ) -> Result<()> {
-    let souls_resp = odata_get(
+    // Find the Agent entity by name
+    let escaped_name = agent_name.replace('\'', "''");
+    let agents_resp = odata_get(
         client,
-        &format!("{api_url}/tdata/Souls?$filter=Status eq 'Active'"),
+        &format!("{api_url}/tdata/Agents?$filter=name eq '{escaped_name}' and Status eq 'Active'"),
         tenant,
         api_key,
     )
     .await?;
-    let souls = souls_resp["value"]
+    let agents = agents_resp["value"]
         .as_array()
-        .context("Failed to list active souls")?;
+        .context("Failed to list active agents")?;
 
-    let mut known_refs = HashSet::new();
-    let mut target_exists = false;
-    for soul in souls {
-        if let Some(id) = entity_id_from_json(soul) {
-            known_refs.insert(id.to_string());
-        }
-        if let Some(name) = entity_field_str(soul, &["Name", "name"]) {
-            if name == soul_name {
-                target_exists = true;
-            }
-            known_refs.insert(name.to_string());
-        }
-    }
-
-    if !target_exists {
-        anyhow::bail!("Soul '{soul_name}' not found");
-    }
+    let target_agent = agents.first().context(format!("Agent '{agent_name}' not found"))?;
+    let target_agent_id = entity_id_from_json(target_agent)
+        .context("Agent entity missing ID")?
+        .to_string();
 
     let routes_resp = odata_get(
         client,
@@ -1200,22 +1320,24 @@ async fn set_default_soul(
     if let Some(routes) = routes_resp["value"].as_array() {
         for route in routes {
             let route_id = entity_id_from_json(route).unwrap_or("");
-            let current_soul = entity_field_str(route, &["SoulId", "soul_id"]).unwrap_or("");
+            let current_agent_id = entity_field_str(route, &["AgentId", "agent_id"]).unwrap_or("");
             let channel_id = entity_field_str(route, &["ChannelId", "channel_id"]).unwrap_or("");
             let current_config =
                 entity_field_str(route, &["AgentConfig", "agent_config"]).unwrap_or("");
-            let needs_repair = current_soul.is_empty() || !known_refs.contains(current_soul);
+
+            // Repair: update agent_id if missing or pointing to wrong agent
+            let needs_repair = current_agent_id.is_empty() || current_agent_id != target_agent_id;
             if needs_repair && !route_id.is_empty() {
                 odata_post(
                     client,
                     &format!("{api_url}/tdata/AgentRoutes('{route_id}')/Paw.Channel.Update"),
                     tenant,
                     api_key,
-                    serde_json::json!({ "soul_id": soul_name }),
+                    serde_json::json!({ "agent_id": target_agent_id }),
                 )
                 .await
                 .ok();
-                tracing::info!("  Repaired soul '{soul_name}' on AgentRoute {route_id}");
+                tracing::info!("  Set agent_id={target_agent_id} on AgentRoute {route_id}");
             }
             if !route_id.is_empty() {
                 if let Some(repaired_config) =
@@ -1239,10 +1361,9 @@ async fn set_default_soul(
         }
     }
 
-    // Ensure a global fallback AgentRoute exists so Discord (and any other
-    // channel) gets routed to the Paw soul with the full tool set.
+    // Ensure a global fallback AgentRoute exists pointing to the Agent entity.
     if !has_global_route {
-        tracing::info!("  No global AgentRoute found — creating one with soul '{soul_name}'");
+        tracing::info!("  No global AgentRoute found — creating one with agent '{agent_name}' ({target_agent_id})");
         let create_resp = odata_post(
             client,
             &format!("{api_url}/tdata/AgentRoutes"),
@@ -1266,20 +1387,15 @@ async fn set_default_soul(
                         "guild_id": "",
                         "match_pattern": "",
                         "agent_config": agent_config.to_string(),
-                        "soul_id": soul_name,
+                        "agent_id": target_agent_id,
                     }),
                 )
                 .await
                 .ok();
-                tracing::info!("  Created global AgentRoute {route_id} with soul '{soul_name}'");
+                tracing::info!("  Created global AgentRoute {route_id} with agent '{agent_name}' ({target_agent_id})");
             }
         }
     }
-
-    // Channel lifecycle is owned by the Discord transport (bootstrap_channel).
-    // The soul bootstrap should NOT query or modify Channel entities — doing so
-    // creates race conditions where the transport and bootstrap see different
-    // Channel states, causing messages to be dispatched to orphaned entities.
 
     Ok(())
 }
