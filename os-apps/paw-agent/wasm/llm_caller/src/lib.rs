@@ -2823,3 +2823,49 @@ fn resolve_temper_api_url(ctx: &Context, fields: &Value) -> String {
         )
         .unwrap_or_else(|| "http://127.0.0.1:3000".to_string())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn strip_yaml_frontmatter_normal() {
+        let input = "---\nname: foo\ndescription: bar\n---\n# Body\nContent here";
+        assert_eq!(strip_skill_frontmatter(input), "# Body\nContent here");
+    }
+
+    #[test]
+    fn strip_yaml_frontmatter_no_body() {
+        let input = "---\nname: foo\n---";
+        assert_eq!(strip_skill_frontmatter(input), "");
+    }
+
+    #[test]
+    fn strip_yaml_frontmatter_trailing_newline_only() {
+        let input = "---\nname: foo\n---\n";
+        assert_eq!(strip_skill_frontmatter(input), "");
+    }
+
+    #[test]
+    fn strip_toml_frontmatter_normal() {
+        let input = "+++\nname = \"foo\"\n+++\n# Body";
+        assert_eq!(strip_skill_frontmatter(input), "# Body");
+    }
+
+    #[test]
+    fn strip_no_frontmatter() {
+        let input = "# Just a heading\nSome content";
+        assert_eq!(strip_skill_frontmatter(input), "# Just a heading\nSome content");
+    }
+
+    #[test]
+    fn strip_empty_string() {
+        assert_eq!(strip_skill_frontmatter(""), "");
+    }
+
+    #[test]
+    fn strip_frontmatter_with_blank_lines_before_body() {
+        let input = "---\nname: foo\n---\n\n\n# Body";
+        assert_eq!(strip_skill_frontmatter(input), "# Body");
+    }
+}
