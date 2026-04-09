@@ -520,6 +520,7 @@ anthropic_api_token (or api_key) for anthropic, openrouter_api_key (or api_key) 
                     "_gen_ai_input_messages": build_gen_ai_input_messages(&assembled_system_prompt, &messages),
                     "_gen_ai_output_messages": build_gen_ai_output_messages(&response.content),
                     "_gen_ai_provider": provider.as_str(),
+                    "_gen_ai_finish_reason": response.stop_reason.clone(),
                     "system_prompt_hash": new_prompt_hash,
                     "system_prompt_file_id": new_prompt_file_id,
                 });
@@ -608,6 +609,7 @@ anthropic_api_token (or api_key) for anthropic, openrouter_api_key (or api_key) 
                                     "_gen_ai_input_messages": gen_ai_input,
                                     "_gen_ai_output_messages": gen_ai_output,
                                     "_gen_ai_provider": provider.as_str(),
+                                    "_gen_ai_finish_reason": response.stop_reason.clone(),
                                     "system_prompt_hash": new_prompt_hash,
                                     "system_prompt_file_id": new_prompt_file_id,
                                 }),
@@ -621,6 +623,7 @@ anthropic_api_token (or api_key) for anthropic, openrouter_api_key (or api_key) 
                                 "_gen_ai_input_messages": gen_ai_input,
                                 "_gen_ai_output_messages": gen_ai_output,
                                 "_gen_ai_provider": provider.as_str(),
+                                "_gen_ai_finish_reason": response.stop_reason.clone(),
                                 "system_prompt_hash": new_prompt_hash,
                                 "system_prompt_file_id": new_prompt_file_id,
                             });
@@ -636,6 +639,7 @@ anthropic_api_token (or api_key) for anthropic, openrouter_api_key (or api_key) 
                         "_gen_ai_input_messages": build_gen_ai_input_messages(&assembled_system_prompt, &messages),
                         "_gen_ai_output_messages": build_gen_ai_output_messages(&response.content),
                         "_gen_ai_provider": provider.as_str(),
+                        "_gen_ai_finish_reason": response.stop_reason.clone(),
                         "system_prompt_hash": new_prompt_hash,
                         "system_prompt_file_id": new_prompt_file_id,
                     });

@@ -522,6 +522,10 @@ fn drive_repl_loop(
                     .iter()
                     .map(|a| convert::monty_object_to_json(a))
                     .collect();
+                let tool_name = format!("{obj_name}.{fn_name}");
+                let tool_call_id = call.call_id.to_string();
+                let tool_arguments_json = serde_json::to_string(&json_args).unwrap_or_default();
+                let started_ms = Context::get_time_millis();
 
                 let result = dispatch::dispatch(
                     ctx,
@@ -532,6 +536,16 @@ fn drive_repl_loop(
                     &obj_name,
                     &fn_name,
                     &json_args,
+                );
+                let duration_ms = (Context::get_time_millis() - started_ms).max(0) as u64;
+
+                emit_tool_call_telemetry(
+                    ctx,
+                    &tool_name,
+                    &tool_call_id,
+                    &tool_arguments_json,
+                    &result,
+                    duration_ms,
                 );
 
                 let ext_result = match result {
@@ -656,6 +670,73 @@ fn make_tool_result(tool_id: &str, content: &str, is_error: bool) -> Value {
         "content": content,
         "is_error": is_error,
     })
+}
+
+fn emit_tool_call_telemetry(
+    ctx: &Context,
+    tool_name: &str,
+    tool_call_id: &str,
+    tool_arguments_json: &str,
+    result: &Result<Value, String>,
+    duration_ms: u64,
+) {
+    let success = result.is_ok();
+    let result_content = match result {
+        Ok(value) => truncate_output(&value.to_string()),
+        Err(message) => truncate_output(message),
+    };
+
+    let mut attributes = serde_json::Map::from_iter([
+        (
+            "gen_ai.tool.call.id".to_string(),
+            json!(tool_call_id),
+        ),
+        (
+            "gen_ai.tool.call.arguments".to_string(),
+            json!(truncate_output(tool_arguments_json)),
+        ),
+        (
+            "gen_ai.tool.call.result".to_string(),
+            json!(result_content.clone()),
+        ),
+    ]);
+    if let Err(message) = result {
+        attributes.insert("error".to_string(), json!(message));
+        attributes.insert("error.type".to_string(), json!("tool_call_error"));
+    }
+
+    let tags = json!({
+        "gen_ai.operation.name": "execute_tool",
+        "gen_ai.tool.name": tool_name,
+        "success": if success { "true" } else { "false" },
+    });
+    let attributes = Value::Object(attributes);
+    let measurements = json!({
+        "duration_ms": duration_ms as f64,
+        "invocation_count": 1.0,
+    });
+    let _ = ctx.emit_wide_event(
+        "ToolCall",
+        "execute_tool",
+        success,
+        duration_ms * 1_000_000,
+        &tags,
+        &attributes,
+        &measurements,
+    );
+
+    let log_level = if success { "info" } else { "warn" };
+    let _ = ctx.log_structured(
+        log_level,
+        "tool dispatch complete",
+        &json!({
+            "tool_name": tool_name,
+            "tool_call_id": tool_call_id,
+            "duration_ms": duration_ms,
+            "success": success,
+            "result_preview": result_content,
+        }),
+    );
 }
 
 fn base64_encode(data: &[u8]) -> String {
