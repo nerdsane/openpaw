@@ -22,6 +22,8 @@ Before writing any code or making changes:
    - Look for prior art, known pitfalls, and recommended approaches
 
 3. **Check existing state**
+   - `temper.specs()` to see what entity types and capabilities are already registered
+   - `temper.list("Apps", "Status eq 'Installed'")` to see installed apps — read their guides via `temper.read(f"/apps/{name}/APP.md")`
    - `temper.list()` for related entities (Issues, WorkCycles, Memories)
    - `temper.recall_memory()` for relevant past context
 
@@ -33,6 +35,7 @@ After research, write a concrete plan before implementing:
 2. **List the files** — every file you expect to modify or create
 3. **Identify risks** — what could go wrong, what you are unsure about
 4. **Define done** — how you will validate the change works
+5. **Evaluate app opportunity** — if this work creates a reusable capability (not just project-specific code), plan it as a Temper app
 
 Save the plan: `temper.save_memory("plan-{task}", plan_text)`
 
