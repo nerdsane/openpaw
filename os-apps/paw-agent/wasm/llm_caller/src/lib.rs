@@ -227,6 +227,12 @@ anthropic_api_token (or api_key) for anthropic, openrouter_api_key (or api_key) 
             }
         };
         messages = repair_interrupted_tool_use_messages(messages);
+        let prune_after_turns: usize = fields
+            .get("prune_tool_results_after_turns")
+            .and_then(|v| v.as_str())
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(4);
+        prune_old_tool_results(&mut messages, prune_after_turns);
 
         // Build tool definitions based on tools_enabled
         let tools = build_tool_definitions(tools_enabled, sandbox_url, workdir);
@@ -248,11 +254,22 @@ anthropic_api_token (or api_key) for anthropic, openrouter_api_key (or api_key) 
                         "llm_caller: context_tokens ({}) exceeds threshold ({}), triggering compaction",
                         context_tokens, context_window.saturating_sub(reserve_tokens)
                     ));
+                    // Pass through existing hash/file_id from fields (before recomputation)
+                    let existing_hash = fields
+                        .get("system_prompt_hash")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
+                    let existing_file_id = fields
+                        .get("system_prompt_file_id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
                     set_success_result(
                         "NeedsCompaction",
                         &json!({
                             "context_tokens": context_tokens,
                             "session_leaf_id": session_leaf_id,
+                            "system_prompt_hash": existing_hash,
+                            "system_prompt_file_id": existing_file_id,
                         }),
                     );
                     return Ok(());
@@ -260,13 +277,72 @@ anthropic_api_token (or api_key) for anthropic, openrouter_api_key (or api_key) 
             }
         }
 
-        // System prompt assembly (Pi architecture):
-        // 1. Soul content (from Soul entity via TemperFS)
-        // 2. system_prompt override (from Configure action)
-        // 3. Available skills XML block
-        // 4. Memory context
-        let assembled_system_prompt =
-            assemble_system_prompt(&ctx, &temper_api_url, tenant, soul_id, system_prompt)?;
+        // System prompt assembly with hash-based caching (Pi architecture):
+        // Components: Soul + agent instructions + override + harness + skills + memory
+        // If hash matches previous run, re-use cached prompt from TemperFS.
+        let agent_id = fields
+            .get("agent_id")
+            .or_else(|| fields.get("AgentId"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let project_harness_id = fields
+            .get("project_harness_id")
+            .or_else(|| fields.get("ProjectHarnessId"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let project_id = fields
+            .get("project_id")
+            .or_else(|| fields.get("ProjectId"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let session_mode = fields
+            .get("session_mode")
+            .and_then(|v| v.as_str())
+            .unwrap_or("execute");
+        let active_plan_id = fields
+            .get("active_plan_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+
+        let new_prompt_hash = compute_system_prompt_hash(
+            soul_id, agent_id, project_harness_id, project_id,
+            session_mode, active_plan_id, system_prompt,
+        );
+
+        let prev_hash = fields
+            .get("system_prompt_hash")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let prev_file_id = fields
+            .get("system_prompt_file_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+
+        let (assembled_system_prompt, new_prompt_file_id) =
+            if !prev_hash.is_empty() && prev_hash == new_prompt_hash && !prev_file_id.is_empty() {
+                // Cache hit — read from TemperFS (1 HTTP call instead of many)
+                match read_temperfs_file(&ctx, &temper_api_url, tenant, prev_file_id) {
+                    Ok(cached) if !cached.is_empty() => {
+                        ctx.log("info", "llm_caller: system prompt cache HIT");
+                        (cached, prev_file_id.to_string())
+                    }
+                    _ => {
+                        ctx.log("warn", "llm_caller: system prompt cache file unreadable, rebuilding");
+                        let prompt = assemble_system_prompt(&ctx, &temper_api_url, tenant, soul_id, system_prompt)?;
+                        let file_id = write_system_prompt_cache(&ctx, &temper_api_url, tenant, workspace_id, &prompt)
+                            .unwrap_or_default();
+                        (prompt, file_id)
+                    }
+                }
+            } else {
+                // Cache miss — full assembly
+                ctx.log("info", "llm_caller: system prompt cache MISS, assembling");
+                let prompt = assemble_system_prompt(&ctx, &temper_api_url, tenant, soul_id, system_prompt)?;
+                let file_id = write_system_prompt_cache(&ctx, &temper_api_url, tenant, workspace_id, &prompt)
+                    .unwrap_or_default();
+                (prompt, file_id)
+            };
+        let new_prompt_hash = new_prompt_hash; // rebind for clarity
 
         emit_progress_ignore(
             &ctx,
@@ -444,6 +520,8 @@ anthropic_api_token (or api_key) for anthropic, openrouter_api_key (or api_key) 
                     "_gen_ai_input_messages": build_gen_ai_input_messages(&assembled_system_prompt, &messages),
                     "_gen_ai_output_messages": build_gen_ai_output_messages(&response.content),
                     "_gen_ai_provider": provider.as_str(),
+                    "system_prompt_hash": new_prompt_hash,
+                    "system_prompt_file_id": new_prompt_file_id,
                 });
                 if let Some(leaf) = new_leaf {
                     params["session_leaf_id"] = json!(leaf);
@@ -530,6 +608,8 @@ anthropic_api_token (or api_key) for anthropic, openrouter_api_key (or api_key) 
                                     "_gen_ai_input_messages": gen_ai_input,
                                     "_gen_ai_output_messages": gen_ai_output,
                                     "_gen_ai_provider": provider.as_str(),
+                                    "system_prompt_hash": new_prompt_hash,
+                                    "system_prompt_file_id": new_prompt_file_id,
                                 }),
                             );
                         } else {
@@ -541,6 +621,8 @@ anthropic_api_token (or api_key) for anthropic, openrouter_api_key (or api_key) 
                                 "_gen_ai_input_messages": gen_ai_input,
                                 "_gen_ai_output_messages": gen_ai_output,
                                 "_gen_ai_provider": provider.as_str(),
+                                "system_prompt_hash": new_prompt_hash,
+                                "system_prompt_file_id": new_prompt_file_id,
                             });
                             set_success_result("RecordResult", &params);
                         }
@@ -554,6 +636,8 @@ anthropic_api_token (or api_key) for anthropic, openrouter_api_key (or api_key) 
                         "_gen_ai_input_messages": build_gen_ai_input_messages(&assembled_system_prompt, &messages),
                         "_gen_ai_output_messages": build_gen_ai_output_messages(&response.content),
                         "_gen_ai_provider": provider.as_str(),
+                        "system_prompt_hash": new_prompt_hash,
+                        "system_prompt_file_id": new_prompt_file_id,
                     });
                     if let Some(ref conv) = conv_param {
                         params["conversation"] = json!(conv);
@@ -584,6 +668,8 @@ struct LlmResponse {
     stop_reason: String,
     input_tokens: i64,
     output_tokens: i64,
+    cache_read_input_tokens: i64,
+    cache_creation_input_tokens: i64,
 }
 
 /// Max bytes for gen_ai message attributes to avoid bloating spans.
@@ -781,7 +867,41 @@ fn call_anthropic(
     });
 
     if !effective_system.is_empty() {
-        body["system"] = json!(effective_system);
+        body["system"] = json!([{
+            "type": "text",
+            "text": effective_system,
+            "cache_control": {"type": "ephemeral"}
+        }]);
+    }
+
+    // Add cache_control breakpoints to up to 2 recent user messages
+    if let Some(msgs_arr) = body.get_mut("messages").and_then(|v| v.as_array_mut()) {
+        let mut user_indices: Vec<usize> = Vec::new();
+        for (i, m) in msgs_arr.iter().enumerate() {
+            if m.get("role").and_then(|v| v.as_str()) == Some("user") {
+                user_indices.push(i);
+            }
+        }
+        // Take last 2 user message indices
+        let breakpoints: Vec<usize> = user_indices.into_iter().rev().take(2).collect();
+        for idx in breakpoints {
+            let msg = &mut msgs_arr[idx];
+            if let Some(content) = msg.get_mut("content") {
+                if let Some(arr) = content.as_array_mut() {
+                    // Array content — add cache_control to last block
+                    if let Some(last) = arr.last_mut() {
+                        last["cache_control"] = json!({"type": "ephemeral"});
+                    }
+                } else if let Some(text) = content.as_str().map(|s| s.to_string()) {
+                    // String content — convert to array format with cache_control
+                    msg["content"] = json!([{
+                        "type": "text",
+                        "text": text,
+                        "cache_control": {"type": "ephemeral"}
+                    }]);
+                }
+            }
+        }
     }
 
     if !tools.is_empty() {
@@ -806,7 +926,7 @@ fn call_anthropic(
             ("anthropic-version".to_string(), "2023-06-01".to_string()),
             (
                 "anthropic-beta".to_string(),
-                "oauth-2025-04-20,computer-use-2025-01-24".to_string(),
+                "oauth-2025-04-20,computer-use-2025-01-24,prompt-caching-2024-07-31".to_string(),
             ),
             ("content-type".to_string(), "application/json".to_string()),
             ("user-agent".to_string(), "claude-cli/2.1.75".to_string()),
@@ -816,6 +936,7 @@ fn call_anthropic(
         vec![
             ("x-api-key".to_string(), api_key.to_string()),
             ("anthropic-version".to_string(), "2023-06-01".to_string()),
+            ("anthropic-beta".to_string(), "prompt-caching-2024-07-31".to_string()),
             ("content-type".to_string(), "application/json".to_string()),
         ]
     };
@@ -883,10 +1004,18 @@ fn call_anthropic(
         .get("output_tokens")
         .and_then(|v| v.as_i64())
         .unwrap_or(0);
+    let cache_read_input_tokens = usage
+        .get("cache_read_input_tokens")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
+    let cache_creation_input_tokens = usage
+        .get("cache_creation_input_tokens")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
 
     ctx.log(
         "info",
-        &format!("llm_caller: usage: input={input_tokens}, output={output_tokens}"),
+        &format!("llm_caller: usage: input={input_tokens}, output={output_tokens}, cache_read={cache_read_input_tokens}, cache_create={cache_creation_input_tokens}"),
     );
 
     Ok(LlmResponse {
@@ -894,6 +1023,8 @@ fn call_anthropic(
         stop_reason,
         input_tokens,
         output_tokens,
+        cache_read_input_tokens,
+        cache_creation_input_tokens,
     })
 }
 
@@ -1059,6 +1190,8 @@ fn call_openrouter(
         stop_reason,
         input_tokens,
         output_tokens,
+        cache_read_input_tokens: 0,
+        cache_creation_input_tokens: 0,
     })
 }
 
@@ -1418,6 +1551,8 @@ fn call_openai(
         stop_reason,
         input_tokens,
         output_tokens,
+        cache_read_input_tokens: 0,
+        cache_creation_input_tokens: 0,
     })
 }
 
@@ -1596,6 +1731,8 @@ fn build_mock_step_response(
             stop_reason: "tool_use".to_string(),
             input_tokens: estimate_message_tokens(messages),
             output_tokens: output_len,
+            cache_read_input_tokens: 0,
+            cache_creation_input_tokens: 0,
         });
     }
 
@@ -1684,12 +1821,53 @@ fn extract_tool_result_ids(message: &Value) -> BTreeSet<String> {
         .collect()
 }
 
+fn prune_old_tool_results(messages: &mut [Value], keep_recent_turns: usize) {
+    let total_assistant_turns = messages
+        .iter()
+        .filter(|m| m.get("role").and_then(|v| v.as_str()) == Some("assistant"))
+        .count();
+    if total_assistant_turns <= keep_recent_turns {
+        return;
+    }
+    let cutoff = total_assistant_turns - keep_recent_turns;
+    let mut assistant_turn = 0;
+    for msg in messages.iter_mut() {
+        let role = msg.get("role").and_then(|v| v.as_str()).unwrap_or("");
+        if role == "assistant" {
+            assistant_turn += 1;
+        }
+        if role == "user" && assistant_turn < cutoff {
+            if let Some(content) = msg.get_mut("content") {
+                if let Some(arr) = content.as_array_mut() {
+                    for block in arr.iter_mut() {
+                        if block.get("type").and_then(|v| v.as_str()) == Some("tool_result") {
+                            if let Some(c) = block.get("content") {
+                                let content_str = match c.as_str() {
+                                    Some(s) => s.to_string(),
+                                    None => serde_json::to_string(c).unwrap_or_default(),
+                                };
+                                if content_str.len() > 200 {
+                                    block["content"] = json!(format!(
+                                        "[tool result pruned — {} chars]", content_str.len()
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 fn mock_text_response(messages: &[Value], text: String) -> LlmResponse {
     LlmResponse {
         content: json!([{ "type": "text", "text": text.clone() }]),
         stop_reason: "end_turn".to_string(),
         input_tokens: estimate_message_tokens(messages),
         output_tokens: text.len() as i64,
+        cache_read_input_tokens: 0,
+        cache_creation_input_tokens: 0,
     }
 }
 
@@ -2208,6 +2386,83 @@ fn load_harness_block(
     }
     block.push_str("</project_harness>");
     Ok(block)
+}
+
+/// Read a TemperFS file's content as a string (convenience wrapper).
+fn read_temperfs_file(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+    file_id: &str,
+) -> Result<String, String> {
+    read_temperfs_file_value(ctx, temper_api_url, tenant, file_id, None, "read_temperfs_file")
+}
+
+/// Write system prompt content to a new TemperFS File entity, returning the file_id.
+fn write_system_prompt_cache(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+    workspace_id: &str,
+    content: &str,
+) -> Result<String, String> {
+    // Create File entity
+    let headers = agent_headers(ctx, tenant, Some("application/json"), Some("application/json"));
+    let ws = if workspace_id.is_empty() { "default" } else { workspace_id };
+    let body = json!({
+        "name": "system-prompt-cache.txt",
+        "path": format!("/system/cache/system-prompt-{}.txt", &ctx.entity_id),
+        "workspace_id": ws,
+    });
+    let url = format!("{temper_api_url}/tdata/Files");
+    let resp = ctx.http_call("POST", &url, &headers, &body.to_string())?;
+    if resp.status < 200 || resp.status >= 300 {
+        return Err(format!("create system prompt cache file failed (HTTP {})", resp.status));
+    }
+    let parsed: Value = serde_json::from_str(&resp.body).unwrap_or(json!({}));
+    let file_id = entity_field_str(&parsed, &["Id", "entity_id"])
+        .unwrap_or("")
+        .to_string();
+    if file_id.is_empty() {
+        return Err("created system prompt cache file but got no id".to_string());
+    }
+    // Write content
+    let value_url = format!("{temper_api_url}/tdata/Files('{file_id}')/$value");
+    let value_headers = agent_headers(ctx, tenant, Some("text/plain"), None);
+    write_temperfs_value_with_retry(ctx, &value_url, &value_headers, content, "system prompt cache write")?;
+    Ok(file_id)
+}
+
+/// Compute a simple hash of the system prompt component inputs for caching.
+fn compute_system_prompt_hash(
+    soul_id: &str,
+    agent_id: &str,
+    project_harness_id: &str,
+    project_id: &str,
+    session_mode: &str,
+    active_plan_id: &str,
+    system_prompt_override: &str,
+) -> String {
+    // Simple additive hash — we just need change detection, not cryptographic security.
+    let mut hash: u64 = 0xcbf29ce484222325; // FNV offset basis
+    for b in soul_id.bytes()
+        .chain(b"|".iter().copied())
+        .chain(agent_id.bytes())
+        .chain(b"|".iter().copied())
+        .chain(project_harness_id.bytes())
+        .chain(b"|".iter().copied())
+        .chain(project_id.bytes())
+        .chain(b"|".iter().copied())
+        .chain(session_mode.bytes())
+        .chain(b"|".iter().copied())
+        .chain(active_plan_id.bytes())
+        .chain(b"|".iter().copied())
+        .chain(system_prompt_override.bytes())
+    {
+        hash ^= b as u64;
+        hash = hash.wrapping_mul(0x100000001b3); // FNV prime
+    }
+    format!("{:016x}", hash)
 }
 
 /// Assemble the full system prompt from soul + override + harness + skills + memory.
