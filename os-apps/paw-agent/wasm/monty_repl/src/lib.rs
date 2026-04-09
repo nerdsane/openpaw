@@ -5,7 +5,8 @@
 //! dispatches method calls to the Temper API or sandbox via host functions.
 //!
 //! REPL state (heap, globals, intern table) persists across LLM turns via
-//! Monty's dump()/load() serialization, stored in the `repl_state` entity field.
+//! Monty's dump()/load() serialization, stored in a `repl_file_id` TemperFS
+//! file for the session.
 //!
 //! Build: `cargo build --target wasm32-wasip1 --release`
 
@@ -198,14 +199,15 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 ),
             );
 
-            // Wrap code in async function
-            let wrapped = wrap_user_code(code);
+            // Execute snippets directly in the shared Monty namespace so globals
+            // and helper definitions survive across turns as intended.
+            let snippet = code.trim();
 
             // Execute via REPL feed_start() using a bounded collector so pathological
             // print output cannot force runaway reallocations inside the daemon.
             let mut printed = BoundedOutputCollector::new(MAX_TOOL_RESULT_BYTES);
             let print = PrintWriter::Callback(&mut printed);
-            let progress = match repl.feed_start(&wrapped, vec![], print) {
+            let progress = match repl.feed_start(snippet, vec![], print) {
                 Ok(p) => p,
                 Err(e) => {
                     let e = *e;
@@ -442,7 +444,7 @@ fn drive_init_to_completion(
     }
 }
 
-/// Serialize the REPL state to base64 for storage in an entity field.
+/// Serialize the REPL state to base64 for storage in a TemperFS file.
 fn save_repl_state(repl: &MontyRepl<LimitedTracker>) -> Result<String, String> {
     let bytes = repl
         .dump()
@@ -590,21 +592,6 @@ fn classify_method_call(args: &[MontyObject]) -> (String, Vec<MontyObject>) {
         _ => "unknown",
     };
     (obj_name.to_string(), args[1..].to_vec())
-}
-
-fn wrap_user_code(code: &str) -> String {
-    let mut out = String::from("async def __temper_user():\n");
-    if code.trim().is_empty() {
-        out.push_str("    return None\n");
-    } else {
-        for line in code.lines() {
-            out.push_str("    ");
-            out.push_str(line);
-            out.push('\n');
-        }
-    }
-    out.push_str("\nawait __temper_user()\n");
-    out
 }
 
 fn format_monty_exception(exception: &MontyException) -> String {

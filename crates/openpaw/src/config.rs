@@ -36,6 +36,9 @@ pub struct Config {
     /// Anthropic API key (sk-ant-api03-... from console.anthropic.com).
     pub anthropic_api_key: Option<String>,
 
+    /// OpenRouter API key.
+    pub openrouter_api_key: Option<String>,
+
     /// OpenAI Codex OAuth token (JWT from ~/.codex/auth.json or OPENAI_CODEX_TOKEN env).
     pub openai_codex_token: Option<String>,
 
@@ -116,6 +119,7 @@ impl Config {
             turso_url: optional_env("TURSO_URL"),
             turso_auth_token: optional_env("TURSO_AUTH_TOKEN"),
             anthropic_api_key: optional_env("ANTHROPIC_API_KEY"),
+            openrouter_api_key: optional_env("OPENROUTER_API_KEY"),
             openai_codex_token: optional_env("OPENAI_CODEX_TOKEN"),
             llm_provider: optional_env("LLM_PROVIDER"),
             tensorlake_api_key: optional_env("TL_API_KEY"),

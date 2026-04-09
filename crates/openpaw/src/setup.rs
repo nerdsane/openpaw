@@ -26,12 +26,18 @@ pub struct SetupResult {
     pub slack_bot_token: Option<String>,
 }
 
+fn has_llm_credentials(config: &Config) -> bool {
+    config.anthropic_api_key.is_some()
+        || config.openrouter_api_key.is_some()
+        || config.openai_codex_token.is_some()
+}
+
 /// Returns `true` if config setup should run (API key or messaging missing).
 pub fn needs_setup(_data_dir: &Path, config: &Config) -> bool {
     if !std::io::stdin().is_terminal() {
         return false;
     }
-    let has_api_key = config.anthropic_api_key.is_some();
+    let has_api_key = has_llm_credentials(config);
     let has_discord = config.discord_bot_token.is_some()
         && config.discord_public_key.is_some()
         && crate::transport_manager::can_resolve_discord_public_endpoint(
@@ -45,7 +51,7 @@ pub fn needs_setup(_data_dir: &Path, config: &Config) -> bool {
 
 /// Phase A: Collect API key and messaging config (runs pre-boot).
 pub async fn run_setup_config(config: &Config) -> anyhow::Result<SetupResult> {
-    let has_api_key = config.anthropic_api_key.is_some();
+    let has_api_key = has_llm_credentials(config);
     let has_discord = config.discord_bot_token.is_some()
         && config.discord_public_key.is_some()
         && crate::transport_manager::can_resolve_discord_public_endpoint(
@@ -419,7 +425,7 @@ async fn save_soul_to_temper(
     soul: &GeneratedSoul,
 ) -> anyhow::Result<()> {
     // Find the Paw Soul entity
-    let url = format!("{base}/tdata/Souls?$filter=Name eq 'Paw'");
+    let url = format!("{base}/tdata/Souls?$filter=name eq 'Paw'");
     let resp: serde_json::Value = client
         .get(&url)
         .header("x-tenant-id", tenant)
@@ -474,8 +480,22 @@ async fn save_soul_to_temper(
 /// Merge Phase A results into config.
 pub fn merge_setup_into_config(config: &mut Config, setup: SetupResult) {
     if let Some(key) = setup.api_key {
-        if config.anthropic_api_key.is_none() {
-            config.anthropic_api_key = Some(key);
+        match setup.provider.as_deref() {
+            Some("openai") => {
+                if config.openai_codex_token.is_none() {
+                    config.openai_codex_token = Some(key);
+                }
+            }
+            Some("openrouter") => {
+                if config.openrouter_api_key.is_none() {
+                    config.openrouter_api_key = Some(key);
+                }
+            }
+            _ => {
+                if config.anthropic_api_key.is_none() {
+                    config.anthropic_api_key = Some(key);
+                }
+            }
         }
     }
     if let Some(provider) = setup.provider {
@@ -552,7 +572,7 @@ pub fn run_doctor(data_dir: &Path, config: &Config) {
 
     println!();
 
-    if config.anthropic_api_key.is_some() {
+    if has_llm_credentials(config) {
         println!("  \u{2713} API key");
     } else {
         println!("  \u{2717} API key — run `cargo run -- setup`");

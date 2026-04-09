@@ -112,6 +112,7 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
     let llm_api_key = config
         .anthropic_api_key
         .clone()
+        .or_else(|| config.openrouter_api_key.clone())
         .or_else(|| config.openai_codex_token.clone());
     let mut state = PlatformState::with_registry(registry, llm_api_key);
     state.api_token = config.temper_api_key.clone();
@@ -254,6 +255,13 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
             &tenant,
             "anthropic_api_key",
             config.anthropic_api_key
+        );
+        seed_secret!(
+            vault,
+            &turso_store,
+            &tenant,
+            "openrouter_api_key",
+            config.openrouter_api_key
         );
         seed_secret!(
             vault,
@@ -739,7 +747,11 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
     {
         let vault = state.server.secrets_vault.as_ref();
         let has_api_key = vault
-            .and_then(|v| v.get_secret(&tenant, "anthropic_api_key"))
+            .and_then(|v| {
+                v.get_secret(&tenant, "anthropic_api_key")
+                    .or_else(|| v.get_secret(&tenant, "openrouter_api_key"))
+                    .or_else(|| v.get_secret(&tenant, "openai_codex_token"))
+            })
             .is_some();
         let has_discord = vault
             .and_then(|v| v.get_secret(&tenant, "discord_bot_token"))
@@ -780,7 +792,11 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
             .server
             .secrets_vault
             .as_ref()
-            .and_then(|v| v.get_secret(&tenant, "anthropic_api_key"))
+            .and_then(|v| {
+                v.get_secret(&tenant, "anthropic_api_key")
+                    .or_else(|| v.get_secret(&tenant, "openrouter_api_key"))
+                    .or_else(|| v.get_secret(&tenant, "openai_codex_token"))
+            })
             .unwrap_or_default();
         let provider_name = state
             .server
@@ -1048,7 +1064,7 @@ fn spawn_soul_bootstrap(port: u16, tenant: String, api_key: Option<String>) {
                 "OpenPaw Agent",
                 "Operating manual for OpenPaw agents using Temper and sandbox tools.",
                 "os-apps/paw-agent/skills/openpaw-agent/SKILL.md",
-                "global",
+                "Paw",
             ),
         ];
 
@@ -1109,11 +1125,42 @@ async fn migrate_skill_scopes(
         None => return,
     };
 
+    let mut latest_by_name = std::collections::HashMap::<String, (String, String)>::new();
+    for item in &items {
+        let name = entity_field_str(item, &["Name", "name"])
+            .unwrap_or("")
+            .to_string();
+        if name.is_empty() {
+            continue;
+        }
+        let id = entity_id_from_json(item).unwrap_or("").to_string();
+        let ts = item
+            .get("events")
+            .and_then(|v| v.as_array())
+            .and_then(|events| events.last())
+            .and_then(|event| event.get("timestamp"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        match latest_by_name.get(&name) {
+            Some((_, current_ts)) if current_ts >= &ts => {}
+            _ => {
+                latest_by_name.insert(name, (id, ts));
+            }
+        }
+    }
+
     for item in &items {
         let id = entity_id_from_json(item).unwrap_or("unknown");
         let name = entity_field_str(item, &["Name", "name"]).unwrap_or("");
         let scope = entity_field_str(item, &["Scope", "scope"]).unwrap_or("");
         let agent_filter = entity_field_str(item, &["agent_filter"]).unwrap_or("");
+        let description = entity_field_str(item, &["Description", "description"])
+            .unwrap_or("")
+            .to_string();
+        let content_file_id = entity_field_str(item, &["ContentFileId", "content_file_id"])
+            .unwrap_or("")
+            .to_string();
 
         // Ghost skill: no name — log warning
         if name.is_empty() {
@@ -1124,22 +1171,68 @@ async fn migrate_skill_scopes(
             continue;
         }
 
-        // Fix broken scope: "soul" → agent_filter value
-        if scope == "soul" && !agent_filter.is_empty() {
+        let desired_scope = match name {
+            "contextual-teaching" => Some("sensei"),
+            "japanese-language" => Some("sensei"),
+            "mastery-assessment" => Some("sensei"),
+            "wiki-consultation" => Some("sensei"),
+            "sourcing" => Some("curator"),
+            "synthesis" => Some("curator"),
+            "wiki-maintenance" => Some("curator"),
+            "openpaw-lead" => Some("project-lead"),
+            "project-lead-playbook" => Some("project-lead"),
+            "project-lead-schema" => Some("Paw"),
+            "openpaw-agent" => Some("Paw"),
+            _ if scope == "soul" && !agent_filter.is_empty() => Some(agent_filter),
+            _ => None,
+        };
+
+        if let Some((keep_id, _)) = latest_by_name.get(name)
+            && keep_id != id
+            && matches!(
+                name,
+                "Project Lead Schema"
+                    | "Project Lead Playbook"
+                    | "Temper App Creation"
+                    | "Platform Awareness"
+                    | "OpenPaw Agent"
+            )
+        {
+            tracing::info!(
+                skill_id = id,
+                keep_id,
+                name,
+                "skill scope migration: disabling duplicate bootstrap skill"
+            );
+            if let Err(e) = odata_post(
+                client,
+                &format!("{api_url}/tdata/Skills('{id}')/Temper.Disable"),
+                tenant,
+                api_key,
+                serde_json::json!({}),
+            )
+            .await
+            {
+                tracing::warn!(
+                    skill_id = id,
+                    name,
+                    error = %e,
+                    "skill scope migration: failed to disable duplicate bootstrap skill"
+                );
+            }
+            continue;
+        }
+
+        if let Some(new_scope) = desired_scope
+            && scope != new_scope
+        {
             tracing::info!(
                 skill_id = id,
                 name,
                 old_scope = scope,
-                new_scope = agent_filter,
+                new_scope,
                 "skill scope migration: fixing scope"
             );
-            // Use Register action to update scope (Register is idempotent on Active skills)
-            let content_file_id = entity_field_str(item, &["ContentFileId", "content_file_id"])
-                .unwrap_or("")
-                .to_string();
-            let description = entity_field_str(item, &["Description", "description"])
-                .unwrap_or("")
-                .to_string();
             if let Err(e) = odata_post(
                 client,
                 &format!("{api_url}/tdata/Skills('{id}')/OpenPaw.Register"),
@@ -1149,7 +1242,7 @@ async fn migrate_skill_scopes(
                     "name": name,
                     "description": description,
                     "content_file_id": content_file_id,
-                    "scope": agent_filter,
+                    "scope": new_scope,
                     "agent_filter": agent_filter,
                 }),
             )
@@ -1186,7 +1279,8 @@ async fn bootstrap_soul(
         .collect::<Result<Vec<_>>>()?
         .join("\n\n");
 
-    let filter = format!("Name eq '{name}'");
+    let escaped_name = name.replace('\'', "''");
+    let filter = format!("name eq '{escaped_name}'");
     let list_url = format!("{api_url}/tdata/Souls?$filter={filter}");
     let resp = odata_get(client, &list_url, tenant, api_key).await?;
     let items = resp["value"].as_array();
@@ -1287,15 +1381,49 @@ async fn bootstrap_skill(
     let content = std::fs::read_to_string(path)
         .with_context(|| format!("Failed to read skill file: {path}"))?;
 
-    // Check if skill already exists by name
-    let filter = format!("Name eq '{name}'");
+    // Check if skill already exists by name.
+    let escaped_name = name.replace('\'', "''");
+    let filter = format!("name eq '{escaped_name}'");
     let list_url = format!("{api_url}/tdata/Skills?$filter={filter}");
     let resp = odata_get(client, &list_url, tenant, api_key).await?;
     let items = resp["value"].as_array();
 
     if let Some(items) = items {
-        if let Some(existing) = items.first() {
+        let mut active_match: Option<&serde_json::Value> = None;
+        let mut disabled_match: Option<&serde_json::Value> = None;
+
+        for item in items {
+            let target = if entity_status(item) == Some("Active") {
+                &mut active_match
+            } else {
+                &mut disabled_match
+            };
+
+            let item_ts = entity_last_event_ts(item).unwrap_or("");
+            let current_ts = target
+                .and_then(|current| entity_last_event_ts(current))
+                .unwrap_or("");
+            if target.is_none() || item_ts > current_ts {
+                *target = Some(item);
+            }
+        }
+
+        if let Some(existing) = active_match.or(disabled_match) {
             let id = entity_id_from_json(existing).unwrap_or("unknown");
+            let was_disabled = entity_status(existing) == Some("Disabled");
+
+            if was_disabled {
+                odata_post(
+                    client,
+                    &format!("{api_url}/tdata/Skills('{id}')/Temper.Enable"),
+                    tenant,
+                    api_key,
+                    serde_json::json!({}),
+                )
+                .await
+                .with_context(|| format!("Failed to re-enable existing skill '{name}'"))?;
+            }
+
             if let Some(file_id) = entity_field_str(existing, &["ContentFileId", "content_file_id"])
             {
                 let upload_url = format!("{api_url}/tdata/Files('{file_id}')/$value");
@@ -1311,7 +1439,54 @@ async fn bootstrap_skill(
                 .with_context(|| {
                     format!("Failed to refresh existing skill content for '{name}'")
                 })?;
+
+                odata_post(
+                    client,
+                    &format!("{api_url}/tdata/Skills('{id}')/OpenPaw.Register"),
+                    tenant,
+                    api_key,
+                    serde_json::json!({
+                        "name": name,
+                        "description": description,
+                        "content_file_id": file_id,
+                        "scope": scope,
+                        "agent_filter": "",
+                        "project_id": ""
+                    }),
+                )
+                .await
+                .with_context(|| {
+                    format!("Failed to refresh existing skill metadata for '{name}'")
+                })?;
             }
+
+            for duplicate in items {
+                if std::ptr::eq(duplicate, existing) {
+                    continue;
+                }
+                if entity_status(duplicate) != Some("Active") {
+                    continue;
+                }
+                if let Some(duplicate_id) = entity_id_from_json(duplicate) {
+                    if let Err(error) = odata_post(
+                        client,
+                        &format!("{api_url}/tdata/Skills('{duplicate_id}')/Temper.Disable"),
+                        tenant,
+                        api_key,
+                        serde_json::json!({}),
+                    )
+                    .await
+                    {
+                        tracing::warn!(
+                            skill = name,
+                            duplicate_id,
+                            error = %error,
+                            "Failed to disable duplicate skill during bootstrap"
+                        );
+                    }
+                }
+            }
+
             tracing::info!("  Skill '{name}' already exists: {id}");
             return Ok(id.to_string());
         }
@@ -1770,6 +1945,28 @@ fn entity_id_from_json(value: &serde_json::Value) -> Option<&str> {
                 .and_then(|fields| fields.get("Id"))
                 .and_then(serde_json::Value::as_str)
         })
+}
+
+fn entity_status(value: &serde_json::Value) -> Option<&str> {
+    value
+        .get("status")
+        .and_then(serde_json::Value::as_str)
+        .or_else(|| value.get("Status").and_then(serde_json::Value::as_str))
+        .or_else(|| {
+            value
+                .get("fields")
+                .and_then(|fields| fields.get("Status"))
+                .and_then(serde_json::Value::as_str)
+        })
+}
+
+fn entity_last_event_ts(value: &serde_json::Value) -> Option<&str> {
+    value
+        .get("events")
+        .and_then(serde_json::Value::as_array)
+        .and_then(|events| events.last())
+        .and_then(|event| event.get("timestamp"))
+        .and_then(serde_json::Value::as_str)
 }
 
 fn entity_field_str<'a>(value: &'a serde_json::Value, names: &[&str]) -> Option<&'a str> {

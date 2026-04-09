@@ -26,6 +26,14 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 "info",
                 &format!("agent_reply: no channel session linked to agent {agent_id}; skipping"),
             );
+            set_success_result(
+                "",
+                &json!({
+                    "status": "skipped",
+                    "reason": "no_channel_session",
+                    "agent_entity_id": agent_id,
+                }),
+            );
             return Ok(());
         };
         if bound_agent_id != agent_id {
@@ -292,6 +300,9 @@ fn list_entities(ctx: &Context, url: &str, tenant: &str) -> Result<Vec<Value>, S
         .unwrap_or_else(|| json!({}));
     let headers = runtime_headers(ctx, tenant, &fields, None, Some("application/json"));
     let resp = ctx.http_call("GET", url, &headers, "")?;
+    if resp.status == 404 {
+        return Ok(Vec::new());
+    }
     if resp.status != 200 {
         return Err(format!("agent_reply: GET {url} failed (HTTP {})", resp.status));
     }

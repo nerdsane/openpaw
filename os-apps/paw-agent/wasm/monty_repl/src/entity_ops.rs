@@ -363,18 +363,16 @@ pub fn write(
     let content = pos_str(args, 1, "content", "write")?;
     let opts = obj_arg_or_empty(args, 2);
 
-    let workspace_name = opts
-        .get("workspace")
-        .and_then(|v| v.as_str())
-        .unwrap_or("default");
     let mime_type = opts
         .get("mime_type")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string())
         .unwrap_or_else(|| mime_from_ext(&path).to_string());
 
-    // 1. Ensure workspace exists.
-    let ws_id = ensure_workspace(ctx, api_url, tenant, workspace_name)?;
+    // 1. Resolve the target workspace. Prefer an explicit workspace override,
+    // then the session's attached workspace_id, then the legacy "default"
+    // workspace name.
+    let ws_id = resolve_workspace_id(ctx, api_url, tenant, &opts, true)?;
 
     // 2. Parse path to get dir_path for MkDir.
     let dir_path = match path.rsplit_once('/') {
@@ -451,14 +449,10 @@ pub fn read(
     let path = pos_str(args, 0, "path", "read")?;
     let opts = obj_arg_or_empty(args, 1);
 
-    let workspace_name = opts
-        .get("workspace")
-        .and_then(|v| v.as_str())
-        .unwrap_or("default");
-
-    // 1. Find workspace (query-only, no auto-create).
-    let ws_id = find_workspace(ctx, api_url, tenant, workspace_name)?
-        .ok_or_else(|| format!("temper.read(): workspace '{}' not found", workspace_name))?;
+    // 1. Resolve the target workspace. Prefer an explicit workspace override,
+    // then the session's attached workspace_id, then the legacy "default"
+    // workspace name.
+    let ws_id = resolve_workspace_id(ctx, api_url, tenant, &opts, false)?;
 
     // 2. ResolvePath — resolve path to file_id (FUSE: stat).
     let resp = http_post(
@@ -743,6 +737,56 @@ fn find_workspace(
                 .and_then(|v| v.as_str())
         })
         .map(|s| s.to_string()))
+}
+
+fn session_workspace_id(ctx: &Context) -> Option<String> {
+    ctx.entity_state
+        .get("fields")
+        .and_then(|fields| fields.get("workspace_id"))
+        .and_then(|value| value.as_str())
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_string())
+}
+
+fn resolve_workspace_id(
+    ctx: &Context,
+    api_url: &str,
+    tenant: &str,
+    opts: &Value,
+    create_if_missing: bool,
+) -> Result<String, String> {
+    if let Some(workspace_id) = opts
+        .get("workspace_id")
+        .and_then(|value| value.as_str())
+        .filter(|value| !value.is_empty())
+    {
+        return Ok(workspace_id.to_string());
+    }
+
+    if let Some(workspace_name) = opts
+        .get("workspace")
+        .and_then(|value| value.as_str())
+        .filter(|value| !value.is_empty())
+    {
+        return if create_if_missing {
+            ensure_workspace(ctx, api_url, tenant, workspace_name)
+        } else {
+            find_workspace(ctx, api_url, tenant, workspace_name)?.ok_or_else(|| {
+                format!("workspace '{}' not found", workspace_name)
+            })
+        };
+    }
+
+    if let Some(workspace_id) = session_workspace_id(ctx) {
+        return Ok(workspace_id);
+    }
+
+    if create_if_missing {
+        ensure_workspace(ctx, api_url, tenant, "default")
+    } else {
+        find_workspace(ctx, api_url, tenant, "default")?
+            .ok_or_else(|| "workspace 'default' not found".to_string())
+    }
 }
 
 fn ensure_workspace(
