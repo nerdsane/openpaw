@@ -304,14 +304,31 @@ kind = "input"
 from = ["Created"]
 params = ["system_prompt", "user_message", "model", "provider", "max_turns", "tools_enabled", "workdir", "sandbox_url", "sandbox_id", "temper_api_url", "soul_id", "parent_session_id", "session_depth", "max_follow_ups", "hook_policy", "reserve_tokens", "keep_recent_tokens", "compaction_model", "heartbeat_timeout_seconds", "project_harness_id", "project_id", "workspace_id", "conversation_file_id", "file_manifest_id", "session_file_id", "session_leaf_id", "session_mode"]
 hint = "Configure session. Auto-provisions after configuration. Resume fields (workspace_id, conversation_file_id, session_file_id, session_leaf_id) are accepted so continuations carry prior conversation state."
-effect = [{ type = "schedule", action = "Provision", delay_seconds = 0 }]
+effect = [{ type = "schedule", action = "ProvisionWorkspace", delay_seconds = 0 }]
+
+[[action]]
+name = "ProvisionWorkspace"
+kind = "input"
+from = ["Created"]
+to = "Provisioning"
+hint = "Start workspace provisioning (sandbox is lazy — ADR-0022). Triggers workspace_provisioner WASM."
+effect = [{ type = "trigger", name = "provision_workspace" }]
+
+[[action]]
+name = "WorkspaceReady"
+kind = "input"
+from = ["Provisioning"]
+to = "Thinking"
+params = ["workspace_id", "conversation_file_id", "file_manifest_id", "session_file_id", "session_leaf_id"]
+hint = "Workspace provisioned. Start LLM loop. Sandbox provisioned lazily on demand (ADR-0022)."
+effect = [{ type = "trigger", name = "call_llm" }]
 
 [[action]]
 name = "Provision"
 kind = "input"
 from = ["Created"]
 to = "Provisioning"
-hint = "Start sandbox provisioning. Triggers provision_sandbox WASM integration."
+hint = "Start sandbox provisioning. Used by Resume flow only (lazy sandbox bypasses this for new sessions)."
 effect = [{ type = "trigger", name = "provision_sandbox" }]
 
 [[action]]
@@ -363,8 +380,8 @@ name = "HandleToolResults"
 kind = "input"
 from = ["Executing"]
 to = "Thinking"
-params = ["pending_tool_calls", "conversation", "session_leaf_id", "repl_file_id"]
-hint = "Tool results received. Increment turn, transition to Thinking, and call LLM again."
+params = ["pending_tool_calls", "conversation", "session_leaf_id", "repl_file_id", "sandbox_url", "sandbox_id"]
+hint = "Tool results received. Increment turn, transition to Thinking, and call LLM again. sandbox_url/sandbox_id set by lazy provisioning (ADR-0022)."
 effect = [
   { type = "increment", var = "turn_count" },
   { type = "trigger", name = "call_llm" }
@@ -586,6 +603,16 @@ when = ["Created", "Provisioning", "Thinking", "Executing", "Compacting", "Steer
 assert = "turn_count >= 0"
 
 # --- Integrations ---
+
+[[integration]]
+name = "provision_workspace"
+trigger = "provision_workspace"
+type = "wasm"
+module = "workspace_provisioner"
+on_failure = "Fail"
+
+[integration.config]
+temper_api_url = "{secret:temper_api_url}"
 
 [[integration]]
 name = "provision_sandbox"

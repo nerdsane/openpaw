@@ -63,13 +63,8 @@ curl -sf -X POST "$SERVER/tdata/Sessions('${AGENT_ID}')/OpenPaw.Configure" \
     \"max_turns\": \"5\"
   }" > /dev/null
 
-# 3. Provision (triggers sandbox_provisioner → creates workspace + manifest)
-echo "Step 3: Provisioning..."
-curl -sf -X POST "$SERVER/tdata/Sessions('${AGENT_ID}')/OpenPaw.Provision" \
-  -H "content-type: application/json" \
-  -H "x-tenant-id: $TENANT" \
-  -H "x-temper-principal-kind: admin" \
-  -d '{}' > /dev/null
+# 3. Configure schedules ProvisionWorkspace automatically (ADR-0022).
+# No explicit Provision call needed — sandbox is lazy.
 
 # 4. Poll until completion
 echo "Step 4: Polling for completion..."

@@ -140,14 +140,8 @@ pub fn spawn_session(
         &config_body,
     )?;
 
-    // Provision
-    http_post(
-        ctx,
-        api_url,
-        tenant,
-        &format!("/tdata/Sessions('{child_id}')/OpenPaw.Provision"),
-        &json!({}),
-    )?;
+    // Configure schedules ProvisionWorkspace automatically (ADR-0022).
+    // Sandbox is provisioned lazily on first sandbox tool call.
 
     if background {
         return Ok(json!({

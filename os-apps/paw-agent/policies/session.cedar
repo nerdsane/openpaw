@@ -22,7 +22,7 @@ permit(
 
 permit(
   principal,
-  action in [Action::"Configure", Action::"Provision", Action::"Resume"],
+  action in [Action::"Configure", Action::"Provision", Action::"ProvisionWorkspace", Action::"Resume"],
   resource is Session
 ) when {
   ["supervisor", "human", "system"].contains(principal.agent_type) ||
@@ -63,6 +63,9 @@ permit(
   principal,
   action in [
     Action::"SandboxReady",
+    Action::"ProvisionPending",
+    Action::"CheckSandboxReady",
+    Action::"WorkspaceReady",
     Action::"ProcessToolCalls",
     Action::"HandleToolResults",
     Action::"RecordResult",
@@ -100,7 +103,7 @@ permit(
   action == Action::"http_call",
   resource is HttpEndpoint
 ) when {
-  ["agent_reply", "sandbox_provisioner", "llm_caller", "tool_runner", "monty_repl", "capability_installer", "workspace_restorer", "context_compactor", "steering_checker", "heartbeat_scan", "heartbeat_scheduler", "cron_scheduler_check", "cron_scheduler_heartbeat", "request_approval", "heartbeat_typing", "plan_approval_handler"].contains(context.module)
+  ["agent_reply", "sandbox_provisioner", "workspace_provisioner", "llm_caller", "tool_runner", "monty_repl", "capability_installer", "workspace_restorer", "context_compactor", "steering_checker", "heartbeat_scan", "heartbeat_scheduler", "cron_scheduler_check", "cron_scheduler_heartbeat", "request_approval", "heartbeat_typing", "plan_approval_handler"].contains(context.module)
 };
 
 // Allow agent WASM modules to access secrets
@@ -109,7 +112,7 @@ permit(
   action == Action::"access_secret",
   resource is Secret
 ) when {
-  ["sandbox_provisioner", "llm_caller", "tool_runner", "monty_repl", "capability_installer", "workspace_restorer", "context_compactor"].contains(context.module)
+  ["sandbox_provisioner", "workspace_provisioner", "llm_caller", "tool_runner", "monty_repl", "capability_installer", "workspace_restorer", "context_compactor"].contains(context.module)
 };
 
 // --- Failure and cancellation: admins, system callbacks, or the owning parent/self ---

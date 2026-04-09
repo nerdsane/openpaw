@@ -270,23 +270,8 @@ ISSUE_ID=<id or empty>"
         }
         ctx.log("info", &format!("alert_opener: configured Session {agent_id}"));
 
-        // 8. Dispatch Sessions.OpenPaw.Provision
-        let provision_url = format!(
-            "{temper_api_url}/tdata/Sessions('{agent_id}')/OpenPaw.Provision"
-        );
-        let provision_body = json!({});
-        let provision_resp =
-            ctx.http_call("POST", &provision_url, &headers, &provision_body.to_string())?;
-        if provision_resp.status < 200 || provision_resp.status >= 300 {
-            ctx.log(
-                "warn",
-                &format!(
-                    "alert_opener: Provision dispatch returned HTTP {} (non-fatal, agent may self-provision)",
-                    provision_resp.status
-                ),
-            );
-        }
-        ctx.log("info", &format!("alert_opener: provisioned Session {agent_id}"));
+        // Configure schedules ProvisionWorkspace automatically (ADR-0022).
+        // Sandbox is provisioned lazily on first sandbox tool call.
 
         // 9. PATCH AlertCycle to set sre_agent_id
         let patch_url = format!(

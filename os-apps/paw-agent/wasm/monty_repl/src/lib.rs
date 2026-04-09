@@ -127,10 +127,11 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             .cloned()
             .unwrap_or_else(|| "http://127.0.0.1:3000".to_string());
         let tenant = &ctx.tenant;
-        let sandbox_url = fields
+        let mut sandbox_url = fields
             .get("sandbox_url")
             .and_then(|v| v.as_str())
-            .unwrap_or("");
+            .unwrap_or("")
+            .to_string();
         let workdir = fields
             .get("workdir")
             .and_then(|v| v.as_str())
@@ -228,12 +229,18 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 &ctx,
                 &temper_api_url,
                 tenant,
-                sandbox_url,
+                &sandbox_url,
                 workdir,
                 progress,
                 &mut printed,
             );
             repl = returned_repl;
+
+            // If lazy sandbox was provisioned during this tool call, update
+            // sandbox_url for subsequent tool calls in this invocation (ADR-0022).
+            if let Some(url) = dispatch::peek_lazy_sandbox_url() {
+                sandbox_url = url;
+            }
             let printed = printed.into_string();
 
             // Combine print output + expression value
@@ -313,7 +320,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         let done_result = dispatch::take_done_result();
 
         // Persist results (without repl_state in entity params)
-        let params = session::persist_results(
+        let mut params = session::persist_results(
             &ctx,
             &temper_api_url,
             tenant,
@@ -321,6 +328,13 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             &tool_results,
             &repl_file_id,
         )?;
+
+        // If a sandbox was lazily provisioned during this invocation,
+        // include it in the callback params so it persists to entity state (ADR-0022).
+        if let Some((url, id)) = dispatch::take_lazy_sandbox() {
+            params["sandbox_url"] = json!(url);
+            params["sandbox_id"] = json!(id);
+        }
 
         if let Some(result_text) = done_result {
             // Agent called temper.done() — complete the session
