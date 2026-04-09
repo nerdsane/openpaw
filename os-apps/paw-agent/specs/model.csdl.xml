@@ -67,18 +67,6 @@
         <Property Name="AuthorId" Type="Edm.String"/>
       </EntityType>
 
-      <EntityType Name="Skill">
-        <Key><PropertyRef Name="Id"/></Key>
-        <Property Name="Id" Type="Edm.String" Nullable="false"/>
-        <Property Name="Status" Type="Edm.String"/>
-        <Property Name="Name" Type="Edm.String"/>
-        <Property Name="Description" Type="Edm.String"/>
-        <Property Name="ContentFileId" Type="Edm.String"/>
-        <Property Name="Scope" Type="Edm.String"/>
-        <Property Name="AgentFilter" Type="Edm.String"/>
-        <Property Name="ProjectId" Type="Edm.String"/>
-      </EntityType>
-
       <EntityType Name="Memory">
         <Key><PropertyRef Name="Id"/></Key>
         <Property Name="Id" Type="Edm.String" Nullable="false"/>
@@ -353,34 +341,6 @@
         <ReturnType Type="OpenPaw.Soul"/>
       </Action>
 
-      <Action Name="Register" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.Skill"/>
-        <Parameter Name="name" Type="Edm.String" Nullable="false"/>
-        <Parameter Name="description" Type="Edm.String" Nullable="true"/>
-        <Parameter Name="content_file_id" Type="Edm.String" Nullable="true"/>
-        <Parameter Name="scope" Type="Edm.String" Nullable="true"/>
-        <Parameter Name="agent_filter" Type="Edm.String" Nullable="true"/>
-        <Parameter Name="project_id" Type="Edm.String" Nullable="true"/>
-        <ReturnType Type="OpenPaw.Skill"/>
-      </Action>
-
-      <Action Name="Disable" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.Skill"/>
-        <ReturnType Type="OpenPaw.Skill"/>
-      </Action>
-
-      <Action Name="Enable" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.Skill"/>
-        <ReturnType Type="OpenPaw.Skill"/>
-      </Action>
-
-      <Action Name="Update" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.Skill"/>
-        <Parameter Name="description" Type="Edm.String" Nullable="true"/>
-        <Parameter Name="content_file_id" Type="Edm.String" Nullable="true"/>
-        <ReturnType Type="OpenPaw.Skill"/>
-      </Action>
-
       <Action Name="Save" IsBound="true">
         <Parameter Name="bindingParameter" Type="OpenPaw.Memory"/>
         <Parameter Name="key" Type="Edm.String" Nullable="false"/>
@@ -556,7 +516,6 @@
         <Property Name="Provider" Type="Edm.String"/>
         <Property Name="ToolsEnabled" Type="Edm.String"/>
         <Property Name="MaxTurns" Type="Edm.String"/>
-        <Property Name="SkillIds" Type="Edm.String"/>
       </EntityType>
 
       <Action Name="Configure" IsBound="true">
@@ -570,7 +529,6 @@
         <Parameter Name="provider" Type="Edm.String"/>
         <Parameter Name="tools_enabled" Type="Edm.String"/>
         <Parameter Name="max_turns" Type="Edm.String"/>
-        <Parameter Name="skill_ids" Type="Edm.String"/>
         <ReturnType Type="OpenPaw.Agent"/>
       </Action>
 
@@ -632,7 +590,6 @@
         <EntitySet Name="Agents" EntityType="OpenPaw.Agent"/>
         <EntitySet Name="Teams" EntityType="OpenPaw.Team"/>
         <EntitySet Name="Souls" EntityType="OpenPaw.Soul"/>
-        <EntitySet Name="Skills" EntityType="OpenPaw.Skill"/>
         <EntitySet Name="Memories" EntityType="OpenPaw.Memory"/>
         <EntitySet Name="ToolHooks" EntityType="OpenPaw.ToolHook"/>
         <EntitySet Name="HeartbeatMonitors" EntityType="OpenPaw.HeartbeatMonitor"/>
