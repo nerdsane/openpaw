@@ -318,7 +318,7 @@ impl ActionRow {
 
 // ── Discord Interactions (button clicks) ─────────────────────────────
 
-/// Incoming interaction payload from Discord (button click, etc.).
+/// Incoming interaction payload from Discord (button click, slash command, etc.).
 #[derive(Debug, Deserialize)]
 pub struct InteractionPayload {
     /// Interaction ID.
@@ -326,8 +326,11 @@ pub struct InteractionPayload {
     /// Interaction type: 1=PING, 2=APPLICATION_COMMAND, 3=MESSAGE_COMPONENT.
     #[serde(rename = "type")]
     pub interaction_type: u8,
-    /// Component interaction data (present for type 3).
-    pub data: Option<InteractionData>,
+    /// Interaction data — shape depends on interaction_type.
+    /// Type 2 (slash command): has `name`, `options`.
+    /// Type 3 (button click): has `custom_id`, `component_type`.
+    #[serde(default)]
+    pub data: Option<serde_json::Value>,
     /// Interaction token for follow-up messages.
     pub token: String,
     /// The user who triggered the interaction.
@@ -338,15 +341,9 @@ pub struct InteractionPayload {
     /// Application ID.
     #[serde(default)]
     pub application_id: Option<String>,
-}
-
-/// Component interaction data.
-#[derive(Debug, Deserialize)]
-pub struct InteractionData {
-    /// The custom_id of the clicked component.
-    pub custom_id: String,
-    /// Component type (2 = button).
-    pub component_type: u8,
+    /// Channel ID where the interaction was triggered.
+    #[serde(default)]
+    pub channel_id: Option<String>,
 }
 
 /// Response to a Discord interaction.

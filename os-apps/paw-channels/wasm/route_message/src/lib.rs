@@ -3,6 +3,7 @@ use temper_wasm_sdk::prelude::*;
 use wasm_helpers::{create_content_file, runtime_headers, runtime_headers_for_workspace};
 
 const DEFAULT_TOOLS_ENABLED: &str = "temper_create,temper_get,temper_list,temper_action,temper_patch,temper_submit_specs,temper_show_spec,temper_specs,temper_upload_wasm,temper_get_trajectories,temper_get_insights,temper_get_decisions,temper_poll_decision,temper_approve_decision,temper_deny_decision,temper_submit_policy,temper_list_policies,temper_get_policy,temper_update_policy,temper_delete_policy,temper_install_app,temper_list_apps,temper_spawn_session,temper_list_sessions,temper_abort_session,temper_steer_session,temper_save_memory,temper_recall_memory,temper_write,temper_read,temper_run_coding_agent,temper_get_secret,temper_datadog_query,temper_railway,temper_vercel,temper_web_search,temper_web_fetch,read,write,edit,bash";
+const PLAN_MODE_TOOLS: &str = "temper_create,temper_get,temper_list,temper_action,temper_specs,temper_show_spec,temper_save_memory,temper_recall_memory,temper_read,temper_write,temper_web_search,temper_web_fetch,temper_get_trajectories,temper_get_insights,read,bash";
 const DEFAULT_WORKDIR: &str = "/workspace";
 
 #[unsafe(no_mangle)]
@@ -21,6 +22,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         let thread_id = str_field(&fields, &["thread_id", "ThreadId"]).unwrap_or("");
         let author_id = str_field(&fields, &["author_id", "AuthorId"]).unwrap_or("");
         let content = str_field(&fields, &["content", "Content"]).unwrap_or("");
+        let command = str_field(&fields, &["command", "Command"]).unwrap_or("");
         if channel_id.is_empty() || thread_id.is_empty() || author_id.is_empty() {
             return Err("route_message: missing channel_id/thread_id/author_id".to_string());
         }
@@ -54,8 +56,25 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
 
                 if is_steerable_status(agent_status) {
                     resume_session(&ctx, &temper_api_url, &ctx.tenant, &session_id).ok();
-                    if steer_existing_agent(&ctx, &temper_api_url, &ctx.tenant, &agent_id, content)
-                        .is_ok()
+                    if !command.is_empty() {
+                        // Slash command: switch mode first, then steer
+                        switch_mode_and_steer(
+                            &ctx,
+                            &temper_api_url,
+                            &ctx.tenant,
+                            &agent_id,
+                            command,
+                            content,
+                        )?;
+                        agent_id
+                    } else if steer_existing_agent(
+                        &ctx,
+                        &temper_api_url,
+                        &ctx.tenant,
+                        &agent_id,
+                        content,
+                    )
+                    .is_ok()
                     {
                         agent_id
                     } else {
@@ -68,6 +87,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                             &agent,
                             &agent_id,
                             content,
+                            command,
                         )?
                     }
                 } else if is_terminal_status(agent_status) {
@@ -80,6 +100,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                         &agent,
                         &agent_id,
                         content,
+                        command,
                     )?
                 } else {
                     expire_session(&ctx, &temper_api_url, &ctx.tenant, &session_id).ok();
@@ -100,6 +121,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                         route_config,
                         route_soul_id,
                         content,
+                        command,
                     )?;
                     create_session(
                         &ctx,
@@ -131,6 +153,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                     route_config,
                     route_soul_id,
                     content,
+                    command,
                 )?;
                 create_session(
                     &ctx,
@@ -161,6 +184,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 route_config,
                 route_soul_id,
                 content,
+                command,
             )?;
             create_session(
                 &ctx,
@@ -340,6 +364,7 @@ fn create_agent_from_route(
     route_config: &str,
     route_soul_id: &str,
     user_message: &str,
+    command: &str,
 ) -> Result<String, String> {
     let config: Value = serde_json::from_str(route_config).unwrap_or_else(|_| json!({}));
     let raw_soul_ref = if route_soul_id.is_empty() {
@@ -381,12 +406,23 @@ fn create_agent_from_route(
         return Err("route_message: created Agent missing entity_id".to_string());
     }
 
+    // Determine mode-specific tools and session_mode
+    let base_tools = config
+        .get("tools_enabled")
+        .and_then(Value::as_str)
+        .unwrap_or(DEFAULT_TOOLS_ENABLED);
+    let (session_mode, tools_enabled, pre_plan_tools) = if command == "plan" {
+        ("plan", PLAN_MODE_TOOLS, base_tools)
+    } else {
+        ("execute", base_tools, "")
+    };
+
     let configure_body = json!({
         "system_prompt": config.get("system_prompt").and_then(Value::as_str).unwrap_or(""),
         "user_message": user_message,
         "model": config.get("model").and_then(Value::as_str).unwrap_or("claude-sonnet-4-6"),
         "provider": config.get("provider").and_then(Value::as_str).unwrap_or("anthropic"),
-        "tools_enabled": config.get("tools_enabled").and_then(Value::as_str).unwrap_or(DEFAULT_TOOLS_ENABLED),
+        "tools_enabled": tools_enabled,
         "workdir": config.get("workdir").and_then(Value::as_str).unwrap_or(DEFAULT_WORKDIR),
         "sandbox_url": config.get("sandbox_url").and_then(Value::as_str).unwrap_or(""),
         "temper_api_url": config.get("temper_api_url").and_then(Value::as_str).unwrap_or(""),
@@ -401,6 +437,8 @@ fn create_agent_from_route(
         "heartbeat_timeout_seconds": config.get("heartbeat_timeout_seconds").and_then(Value::as_str).unwrap_or("300"),
         "project_harness_id": config.get("project_harness_id").and_then(Value::as_str).unwrap_or(""),
         "project_id": config.get("project_id").and_then(Value::as_str).unwrap_or(""),
+        "session_mode": session_mode,
+        "pre_plan_tools_enabled": pre_plan_tools,
     });
     let configure_url = format!("{temper_api_url}/tdata/Sessions('{agent_id}')/OpenPaw.Configure");
     let configure_resp = ctx.http_call(
@@ -432,6 +470,7 @@ fn continue_session(
     prior_agent: &Value,
     prior_agent_id: &str,
     user_message: &str,
+    command: &str,
 ) -> Result<String, String> {
     let fields = prior_agent
         .get("fields")
@@ -495,6 +534,7 @@ fn continue_session(
         prior_agent_id,
         &route_soul_fallback,
         new_leaf_id.as_deref().unwrap_or(prior_leaf_id),
+        command,
     )?;
     // Resume is handled by Configure — resume fields are folded into the Configure call
     // and auto-Provision restores the workspace via provision_sandbox.
@@ -554,6 +594,7 @@ fn configure_agent_from_prior(
     prior_agent_id: &str,
     fallback_soul_ref: &str,
     session_leaf_id: &str,
+    command: &str,
 ) -> Result<(), String> {
     let prior_soul_ref = str_field(fields, &["soul_id", "SoulId"]).unwrap_or("");
     let soul_ref = normalize_soul_ref(ctx, temper_api_url, tenant, prior_soul_ref)
@@ -565,6 +606,14 @@ fn configure_agent_from_prior(
                 fallback_soul_ref.to_string()
             }
         });
+    // Determine mode-specific tools and session_mode
+    let base_tools = str_field(fields, &["tools_enabled", "ToolsEnabled"]).unwrap_or(DEFAULT_TOOLS_ENABLED);
+    let (session_mode, tools_enabled, pre_plan_tools) = if command == "plan" {
+        ("plan", PLAN_MODE_TOOLS, base_tools)
+    } else {
+        ("execute", base_tools, "")
+    };
+
     // Include resume-specific fields (workspace, conversation, session tree) in Configure
     // so they're stored as session fields before auto-Provision fires. The provision_sandbox
     // integration checks these to decide whether to restore an existing workspace or provision new.
@@ -573,7 +622,7 @@ fn configure_agent_from_prior(
         "user_message": user_message,
         "model": str_field(fields, &["model", "Model"]).unwrap_or("claude-sonnet-4-6"),
         "provider": str_field(fields, &["provider", "Provider"]).unwrap_or("anthropic"),
-        "tools_enabled": str_field(fields, &["tools_enabled", "ToolsEnabled"]).unwrap_or(DEFAULT_TOOLS_ENABLED),
+        "tools_enabled": tools_enabled,
         "workdir": str_field(fields, &["workdir", "Workdir"]).unwrap_or(DEFAULT_WORKDIR),
         // Don't carry forward sandbox_url/sandbox_id from the prior session —
         // Tensorlake sandboxes expire and stale URLs cause infinite retry loops.
@@ -602,6 +651,8 @@ fn configure_agent_from_prior(
         "session_leaf_id": session_leaf_id,
         "project_harness_id": str_field(fields, &["project_harness_id", "ProjectHarnessId"]).unwrap_or(""),
         "project_id": str_field(fields, &["project_id", "ProjectId"]).unwrap_or(""),
+        "session_mode": session_mode,
+        "pre_plan_tools_enabled": pre_plan_tools,
     });
     let configure_url = format!("{temper_api_url}/tdata/Sessions('{agent_id}')/OpenPaw.Configure");
     let configure_resp = ctx.http_call(
@@ -941,6 +992,66 @@ fn create_session(
             resp.status
         ));
     }
+    Ok(())
+}
+
+fn switch_mode_and_steer(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+    agent_id: &str,
+    command: &str,
+    content: &str,
+) -> Result<(), String> {
+    // 1. Fetch the Session entity to read current tools_enabled
+    let session_url = format!("{temper_api_url}/tdata/Sessions('{agent_id}')");
+    let session_resp = ctx.http_call("GET", &session_url, &odata_headers(ctx, tenant), "")?;
+    let session: Value = if session_resp.status == 200 {
+        serde_json::from_str(&session_resp.body).unwrap_or_else(|_| json!({}))
+    } else {
+        json!({})
+    };
+
+    let current_tools =
+        nested_str_field(&session, &["ToolsEnabled", "tools_enabled"]).unwrap_or(DEFAULT_TOOLS_ENABLED);
+
+    // 2. Build SwitchMode body
+    let mut body = serde_json::Map::new();
+    body.insert("session_mode".into(), json!(command));
+
+    if command == "plan" {
+        body.insert("pre_plan_tools_enabled".into(), json!(current_tools));
+        body.insert("tools_enabled".into(), json!(PLAN_MODE_TOOLS));
+    } else {
+        // "execute" — restore stashed tools
+        let stashed = nested_str_field(&session, &["PrePlanToolsEnabled", "pre_plan_tools_enabled"])
+            .filter(|s| !s.is_empty())
+            .unwrap_or(DEFAULT_TOOLS_ENABLED);
+        body.insert("tools_enabled".into(), json!(stashed));
+        body.insert("pre_plan_tools_enabled".into(), json!(""));
+    }
+
+    // 3. Dispatch SwitchMode
+    let switch_url = format!("{temper_api_url}/tdata/Sessions('{agent_id}')/OpenPaw.SwitchMode");
+    let resp = ctx.http_call(
+        "POST",
+        &switch_url,
+        &odata_headers(ctx, tenant),
+        &json!(body).to_string(),
+    )?;
+    if !(200..300).contains(&resp.status) {
+        return Err(format!(
+            "SwitchMode failed (HTTP {}): {}",
+            resp.status,
+            truncate_error_body(&resp.body)
+        ));
+    }
+
+    // 4. Steer with the task text (if any)
+    if !content.is_empty() {
+        steer_existing_agent(ctx, temper_api_url, tenant, agent_id, content)?;
+    }
+
     Ok(())
 }
 

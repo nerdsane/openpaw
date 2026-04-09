@@ -61,3 +61,21 @@ You may skip straight to implementation for:
 - Emergency fixes where speed matters — implement but explain after
 - When the human explicitly says "just do it" or "no need to plan"
 - Quick lookups or information queries (not implementation tasks)
+
+## Plan Mode
+
+Users can trigger plan mode via `/plan` in Discord or Slack. This enforces the planning
+discipline at the infrastructure level — mutation tools (write, edit) are blocked while
+read-only exploration and Plan entity CRUD remain available.
+
+When you are started in plan mode (`session_mode` is `plan`):
+- Your tools are restricted to read-only operations plus Plan entities
+- Follow Phases 1-3 above (Research → Plan → Await Feedback)
+- Plan-mode system instructions with detailed guidance are injected automatically
+- When ready to implement, switch to execute mode or wait for plan approval
+
+When you want to enter plan mode yourself for a complex task:
+- `temper.switch_mode({"mode": "plan"})` — enter plan mode (restricted tools)
+- `temper.switch_mode({"mode": "execute"})` — return to execute mode (full tools)
+
+Users can also type `/execute` to switch you back to execute mode externally.
