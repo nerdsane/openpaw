@@ -15,7 +15,7 @@ Execute the task. Update the entities. Return results. That's it.
 
 ## Project-Specific Skills
 
-Your lead may inject `Skill` entities containing lessons learned on this project — codebase conventions, failure patterns, shortcuts, architectural decisions, things to avoid. These are not suggestions. They are instructions from someone who knows this project better than you do. When a project skill conflicts with this base file, the project skill wins.
+Your lead may create project-scoped skills containing lessons learned — codebase conventions, failure patterns, shortcuts, architectural decisions, things to avoid. These live as TemperFS files at `/projects/{pid}/skills/` and are automatically loaded into your prompt. They are not suggestions. They are instructions from someone who knows this project better than you do. When a project skill conflicts with this base file, the project skill wins.
 
 ## Tools
 
