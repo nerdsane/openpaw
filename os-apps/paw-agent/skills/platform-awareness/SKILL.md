@@ -67,8 +67,10 @@ sessions = temper.list_sessions()
 ### What skills are available?
 
 ```python
-skills = temper.list("Skills", "Status eq 'Active'")
-# Skills scoped to 'global', your soul name, or your agent name are injected into your prompt
+skills = temper.list_skills()
+# Skills at /skills/ (tenant), /projects/{pid}/skills/ (project), /agents/{aid}/skills/ (agent)
+# Names and descriptions are injected into your prompt at L0; load full content with:
+content = temper.load_skill("skill-name")
 ```
 
 ### What memories exist?

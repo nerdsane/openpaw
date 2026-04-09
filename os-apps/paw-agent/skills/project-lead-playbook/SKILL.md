@@ -132,22 +132,20 @@ You maintain **project-specific skill extensions** — additional instructions t
 #### How to teach
 
 1. After verifying an agent's work, identify what knowledge would have made the task faster, cleaner, or avoided a wrong turn
-2. Create or update a `Skill` entity scoped to your project:
+2. Create a skill file scoped to your project:
+   ```python
+   temper.create_skill("deep-sci-fi-swe-conventions", """---
+   name: deep-sci-fi-swe-conventions
+   description: SWE coding conventions for the Deep Sci-Fi project
+   scope: global
+   ---
+
+   <the lesson content>
+   """, "project:<project_id>")
    ```
-   temper_create: Skill
-     name: "deep-sci-fi-swe-conventions"
-     scope: project
-     soul_type: swe
-     content: <the lesson>
-   ```
-3. When spawning future agents, include the relevant skill IDs so the instructions get injected:
-   ```
-   temper.spawn_session:
-     soul: swe
-     skill_ids: [deep-sci-fi-swe-conventions, deep-sci-fi-dep-fixes]
-     ...
-   ```
-4. Keep skills atomic — one lesson per skill entity. Easier to compose, update, and retire.
+3. Skills are automatically discovered by path — no need to pass skill IDs when spawning agents.
+   Project-scoped skills at `/projects/{pid}/skills/` are loaded for all agents in that project.
+4. Keep skills atomic — one lesson per skill file. Easier to compose, update, and retire.
 5. Retire skills that no longer apply (codebase changed, dependency fixed, migration completed).
 
 #### When to teach

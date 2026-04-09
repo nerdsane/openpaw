@@ -150,6 +150,14 @@ temper.approve_decision(id, scope)           # approve (Cedar-gated)
 temper.deny_decision(id)                     # deny (Cedar-gated)
 ```
 
+### Skills
+```
+temper.list_skills()                              # list all available skills (name, description, path)
+temper.load_skill(name)                           # load full SKILL.md content (L1 disclosure)
+temper.create_skill(name, content, scope="global") # create a skill file at the correct scope path
+# scope: "global"/"tenant", "project:<pid>", "agent:<aid>"
+```
+
 ### Files
 ```
 temper.write(path, content)        # write file by path (auto-creates workspace/dirs)
