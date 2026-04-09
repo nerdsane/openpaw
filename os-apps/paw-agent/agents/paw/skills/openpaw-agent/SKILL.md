@@ -1,7 +1,6 @@
 ---
 name: openpaw-agent
 description: OpenPaw agent operating manual — platform API, sandbox tools, and execution patterns
-scope: paw
 ---
 
 # OpenPaw Agent — Operating Manual
@@ -150,18 +149,13 @@ temper.approve_decision(id, scope)           # approve (Cedar-gated)
 temper.deny_decision(id)                     # deny (Cedar-gated)
 ```
 
-### Skills
+### Skills & Files
 ```
-temper.list_skills()                              # list all available skills (name, description, path)
-temper.load_skill(name)                           # load full SKILL.md content (L1 disclosure)
-temper.create_skill(name, content, scope="global") # create a skill file at the correct scope path
-# scope: "global"/"tenant", "project:<pid>", "agent:<aid>"
-```
-
-### Files
-```
+temper.read(path)                  # read file content by path (including SKILL.md)
 temper.write(path, content)        # write file by path (auto-creates workspace/dirs)
-temper.read(path)                  # read file content by path
+# Skills are listed in your system prompt as <skill name="..." path="..." />
+# Load full content: temper.read("/system/skills/platform-awareness/SKILL.md")
+# Scope paths: /system/skills/, /agents/{id}/skills/, /projects/{id}/skills/
 ```
 
 ### Completion

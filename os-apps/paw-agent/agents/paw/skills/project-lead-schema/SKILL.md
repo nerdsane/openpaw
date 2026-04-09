@@ -1,7 +1,6 @@
 ---
 name: project-lead-schema
 description: Soul schema and personality configuration for project lead agents
-scope: paw
 ---
 
 # Project Lead — Soul Schema

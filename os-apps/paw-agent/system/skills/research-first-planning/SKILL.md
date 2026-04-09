@@ -1,7 +1,6 @@
 ---
 name: research-first-planning
 description: Research-first planning methodology — investigate before implementing
-scope: global
 ---
 
 # Research-First Planning

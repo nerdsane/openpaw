@@ -2191,6 +2191,7 @@ fn assemble_system_prompt(
     }
 
     // 3. Available skills — discovered from TemperFS SKILL.md files (ADR-002)
+    //    Path = scope: /system/skills/, /agents/{id}/skills/, /projects/{id}/skills/
     {
         let fields_val = ctx.entity_state.get("fields");
         let agent_id = fields_val
@@ -2201,28 +2202,12 @@ fn assemble_system_prompt(
             .and_then(|f| f.get("project_id").or_else(|| f.get("ProjectId")))
             .and_then(|v| v.as_str())
             .unwrap_or("");
-        let soul_id = fields_val
-            .and_then(|f| f.get("soul_id").or_else(|| f.get("SoulId")))
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        let agent_name = if !agent_id.is_empty() {
-            resolve_agent_name(ctx, temper_api_url, tenant, agent_id).unwrap_or_default()
-        } else {
-            String::new()
-        };
-        let soul_name = if !soul_id.is_empty() {
-            resolve_soul_name(ctx, temper_api_url, tenant, soul_id).unwrap_or_default()
-        } else {
-            String::new()
-        };
         match load_skills_block(
             ctx,
             temper_api_url,
             tenant,
             project_id,
             agent_id,
-            &agent_name,
-            &soul_name,
         ) {
             Ok(block) if !block.is_empty() => parts.push(block),
             Ok(_) => {}
@@ -2416,18 +2401,6 @@ fn resolve_soul_entity(
         .ok_or_else(|| "soul read failed (no active soul matched reference)".to_string())
 }
 
-fn resolve_soul_name(
-    ctx: &Context,
-    temper_api_url: &str,
-    tenant: &str,
-    soul_ref: &str,
-) -> Result<String, String> {
-    let soul = resolve_soul_entity(ctx, temper_api_url, tenant, soul_ref)?;
-    Ok(entity_field_str(&soul, &["Name", "name"])
-        .unwrap_or("")
-        .to_string())
-}
-
 fn normalize_skill_key(name: &str) -> String {
     name.to_ascii_lowercase().replace('_', "-").replace(' ', "-")
 }
@@ -2499,34 +2472,26 @@ fn parse_skill_frontmatter(content: &str) -> (String, String, String) {
     (name, description, scope)
 }
 
-fn skill_matches_scope(scope: &str, agent_name: &str, soul_name: &str) -> bool {
-    scope.is_empty()
-        || scope.eq_ignore_ascii_case("global")
-        || (!agent_name.is_empty() && scope.eq_ignore_ascii_case(agent_name))
-        || (!soul_name.is_empty() && scope.eq_ignore_ascii_case(soul_name))
-}
-
 /// Load skills from TemperFS SKILL.md files as an XML block for the system prompt.
 ///
-/// Skills are discovered by path convention (ADR-002):
-///   /skills/{name}/SKILL.md              — tenant-scoped
-///   /projects/{pid}/skills/{name}/SKILL.md — project-scoped
-///   /agents/{aid}/skills/{name}/SKILL.md   — agent-scoped
+/// Skills are discovered by path convention (ADR-002). Path = scope:
+///   /system/skills/{name}/SKILL.md           — system-level (platform knowledge, all agents)
+///   /agents/{agent-id}/skills/{name}/SKILL.md — agent-scoped (from app bootstrap or runtime)
+///   /projects/{pid}/skills/{name}/SKILL.md   — project-scoped (runtime, created by leads)
 ///
-/// YAML frontmatter provides name, description, and scope for filtering.
+/// No frontmatter scope filtering. Precedence on name collision: agent > project > system.
+/// Agents use temper.read(path) for progressive disclosure.
 fn load_skills_block(
     ctx: &Context,
     temper_api_url: &str,
     tenant: &str,
     project_id: &str,
     agent_id: &str,
-    agent_name: &str,
-    soul_name: &str,
 ) -> Result<String, String> {
     let headers = agent_headers(ctx, tenant, None, Some("application/json"));
 
-    // Build path prefixes to search
-    let mut prefixes = vec!["/skills/".to_string()];
+    // Build path prefixes to search — path = scope
+    let mut prefixes = vec!["/system/skills/".to_string()];
     if !project_id.is_empty() {
         prefixes.push(format!("/projects/{project_id}/skills/"));
     }
@@ -2574,26 +2539,22 @@ fn load_skills_block(
         return Ok(String::new());
     }
 
-    // Read each file's content, parse frontmatter, filter by scope.
-    // Tuple: (norm_key, scope_priority, name, desc, file_id)
-    // scope_priority: 0 = agent (most specific), 1 = project, 2 = tenant (least specific)
+    // Read each file's content, parse frontmatter for name + description.
+    // Tuple: (norm_key, scope_priority, name, desc, path)
+    // scope_priority: 0 = agent (most specific), 1 = project, 2 = system (least specific)
     let mut entries: Vec<(String, u8, String, String, String)> = Vec::new();
 
     for (file_id, path) in &file_entries {
         let url = format!("{temper_api_url}/tdata/Files('{file_id}')/$value");
         match ctx.http_call("GET", &url, &headers, "") {
             Ok(resp) if resp.status == 200 && !resp.body.is_empty() => {
-                let (fm_name, fm_desc, fm_scope) = parse_skill_frontmatter(&resp.body);
+                let (fm_name, fm_desc, _) = parse_skill_frontmatter(&resp.body);
 
                 let name = if fm_name.is_empty() {
                     skill_name_from_path(path)
                 } else {
                     fm_name
                 };
-
-                if !skill_matches_scope(&fm_scope, agent_name, soul_name) {
-                    continue;
-                }
 
                 let scope_priority = if path.starts_with("/agents/") {
                     0
@@ -2603,7 +2564,7 @@ fn load_skills_block(
                     2
                 };
 
-                entries.push((normalize_skill_key(&name), scope_priority, name, fm_desc, file_id.clone()));
+                entries.push((normalize_skill_key(&name), scope_priority, name, fm_desc, path.clone()));
             }
             Ok(_) => {} // silently skip empty or missing files
             Err(e) => ctx.log(
@@ -2621,14 +2582,15 @@ fn load_skills_block(
     entries.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)));
     let mut seen_names = BTreeSet::new();
     let mut xml = String::from("<available_skills>\n");
-    for (norm, _priority, name, desc, fid) in &entries {
+    for (norm, _priority, name, desc, skill_path) in &entries {
         if !seen_names.insert(norm.clone()) {
             continue;
         }
         xml.push_str(&format!(
-            "  <skill name=\"{}\" description=\"{}\" file_id=\"{fid}\" />\n",
+            "  <skill name=\"{}\" description=\"{}\" path=\"{}\" />\n",
             xml_escape(name),
             xml_escape(desc),
+            xml_escape(skill_path),
         ));
     }
     xml.push_str("</available_skills>");
@@ -2665,26 +2627,6 @@ fn load_agent_instructions(
     } else {
         Ok(String::new())
     }
-}
-
-/// Resolve an Agent entity's name by ID.
-fn resolve_agent_name(
-    ctx: &Context,
-    temper_api_url: &str,
-    tenant: &str,
-    agent_id: &str,
-) -> Result<String, String> {
-    let headers = agent_headers(ctx, tenant, None, Some("application/json"));
-    let url = format!("{temper_api_url}/tdata/Agents('{agent_id}')");
-    let resp = ctx.http_call("GET", &url, &headers, "")?;
-    if resp.status != 200 {
-        return Ok(String::new());
-    }
-    let agent: Value =
-        serde_json::from_str(&resp.body).map_err(|e| format!("parse agent JSON: {e}"))?;
-    Ok(entity_field_str(&agent, &["Name", "name"])
-        .unwrap_or("")
-        .to_string())
 }
 
 /// Load agent memories as a context block for the system prompt.

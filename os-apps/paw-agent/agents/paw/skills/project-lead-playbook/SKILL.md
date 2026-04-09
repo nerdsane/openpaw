@@ -1,7 +1,6 @@
 ---
 name: project-lead-playbook
 description: Project lead operating manual — lifecycle, delegation, and agent team coordination
-scope: project-lead
 ---
 
 # Project Lead — Operating Manual
@@ -134,14 +133,13 @@ You maintain **project-specific skill extensions** — additional instructions t
 1. After verifying an agent's work, identify what knowledge would have made the task faster, cleaner, or avoided a wrong turn
 2. Create a skill file scoped to your project:
    ```python
-   temper.create_skill("deep-sci-fi-swe-conventions", """---
+   temper.write(f"/projects/{project_id}/skills/deep-sci-fi-swe-conventions/SKILL.md", """---
    name: deep-sci-fi-swe-conventions
    description: SWE coding conventions for the Deep Sci-Fi project
-   scope: global
    ---
 
    <the lesson content>
-   """, "project:<project_id>")
+   """)
    ```
 3. Skills are automatically discovered by path — no need to pass skill IDs when spawning agents.
    Project-scoped skills at `/projects/{pid}/skills/` are loaded for all agents in that project.

@@ -502,6 +502,31 @@
         <ReturnType Type="OpenPaw.CronScheduler"/>
       </Action>
 
+      <!-- App — installed application with provenance tracking -->
+      <EntityType Name="App">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.String" Nullable="false"/>
+        <Property Name="Status" Type="Edm.String"/>
+        <Property Name="Name" Type="Edm.String"/>
+        <Property Name="Description" Type="Edm.String"/>
+        <Property Name="Version" Type="Edm.String"/>
+        <Property Name="AppGuideFileId" Type="Edm.String"/>
+      </EntityType>
+
+      <Action Name="Install" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.App"/>
+        <Parameter Name="name" Type="Edm.String"/>
+        <Parameter Name="description" Type="Edm.String"/>
+        <Parameter Name="version" Type="Edm.String"/>
+        <Parameter Name="app_guide_file_id" Type="Edm.String"/>
+        <ReturnType Type="OpenPaw.App"/>
+      </Action>
+
+      <Action Name="Archive" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.App"/>
+        <ReturnType Type="OpenPaw.App"/>
+      </Action>
+
       <!-- Agent — persistent team member identity -->
       <EntityType Name="Agent">
         <Key><PropertyRef Name="Id"/></Key>
@@ -511,7 +536,9 @@
         <Property Name="Role" Type="Edm.String"/>
         <Property Name="Description" Type="Edm.String"/>
         <Property Name="SoulId" Type="Edm.String"/>
+        <Property Name="InstructionsFileId" Type="Edm.String"/>
         <Property Name="TeamId" Type="Edm.String"/>
+        <Property Name="SourceAppId" Type="Edm.String"/>
         <Property Name="Model" Type="Edm.String"/>
         <Property Name="Provider" Type="Edm.String"/>
         <Property Name="ToolsEnabled" Type="Edm.String"/>
@@ -524,9 +551,21 @@
         <Parameter Name="role" Type="Edm.String"/>
         <Parameter Name="description" Type="Edm.String"/>
         <Parameter Name="soul_id" Type="Edm.String"/>
+        <Parameter Name="instructions_file_id" Type="Edm.String"/>
         <Parameter Name="team_id" Type="Edm.String"/>
+        <Parameter Name="source_app_id" Type="Edm.String"/>
         <Parameter Name="model" Type="Edm.String"/>
         <Parameter Name="provider" Type="Edm.String"/>
+        <Parameter Name="tools_enabled" Type="Edm.String"/>
+        <Parameter Name="max_turns" Type="Edm.String"/>
+        <ReturnType Type="OpenPaw.Agent"/>
+      </Action>
+
+      <Action Name="Update" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Agent"/>
+        <Parameter Name="description" Type="Edm.String"/>
+        <Parameter Name="instructions_file_id" Type="Edm.String"/>
+        <Parameter Name="model" Type="Edm.String"/>
         <Parameter Name="tools_enabled" Type="Edm.String"/>
         <Parameter Name="max_turns" Type="Edm.String"/>
         <ReturnType Type="OpenPaw.Agent"/>
@@ -587,6 +626,7 @@
 
       <EntityContainer Name="Service">
         <EntitySet Name="Sessions" EntityType="OpenPaw.Session"/>
+        <EntitySet Name="Apps" EntityType="OpenPaw.App"/>
         <EntitySet Name="Agents" EntityType="OpenPaw.Agent"/>
         <EntitySet Name="Teams" EntityType="OpenPaw.Team"/>
         <EntitySet Name="Souls" EntityType="OpenPaw.Soul"/>

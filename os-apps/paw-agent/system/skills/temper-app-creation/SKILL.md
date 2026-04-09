@@ -1,7 +1,6 @@
 ---
 name: temper-app-creation
 description: How to build and install Temper apps — IOA specs, CSDL models, Cedar policies, WASM integrations
-scope: global
 ---
 
 # Temper App Creation
@@ -37,7 +36,15 @@ my-app/
   reactions/
     reactions.toml       # Cross-entity cascades
   agents/                # Agent definitions (if the app includes agents)
-  skills/                # Skills for agents (if the app includes skills)
+    agent-name/
+      AGENT.md           # Agent instructions
+      skills/            # Agent-scoped skills
+        skill-name/
+          SKILL.md       # Skill content (YAML frontmatter: name, description)
+  system/
+    skills/              # System-level skills (available to ALL agents)
+      skill-name/
+        SKILL.md
   seed-data/             # Initial entities to create on install
 ```
 
@@ -662,7 +669,10 @@ Before building, check what's already installed:
 temper.specs()
 
 # What apps are installed?
-temper.list("CapabilityRequests", "")
+apps = temper.list("Apps", "Status eq 'Installed'")
+
+# Read an app's guide for architecture context
+guide = temper.read("/apps/my-app/APP.md")
 
 # What actions are available from a given state?
 spec.actions_from("EntityType", "CurrentState")

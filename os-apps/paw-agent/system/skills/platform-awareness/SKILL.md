@@ -1,7 +1,6 @@
 ---
 name: platform-awareness
 description: How to discover installed apps, entity types, and available actions on the Temper platform
-scope: global
 ---
 
 # Platform Awareness
@@ -37,8 +36,11 @@ specs = temper.specs()
 ### What apps have been installed?
 
 ```python
-caps = temper.list("CapabilityRequests", "")
-# Shows install history — what was requested, approved, installed, or rejected
+apps = temper.list("Apps", "Status eq 'Installed'")
+# Returns App entities with name, description, version, app_guide_file_id
+# Read an app's guide for architecture context:
+for app in apps:
+    guide = temper.read(f"/apps/{app['Name']}/APP.md")
 ```
 
 ### What entities exist for a given type?
@@ -66,11 +68,15 @@ sessions = temper.list_sessions()
 
 ### What skills are available?
 
+Skills are listed in your system prompt as `<skill name="..." description="..." path="..." />`.
+To load full content, read the path:
+
 ```python
-skills = temper.list_skills()
-# Skills at /skills/ (tenant), /projects/{pid}/skills/ (project), /agents/{aid}/skills/ (agent)
-# Names and descriptions are injected into your prompt at L0; load full content with:
-content = temper.load_skill("skill-name")
+content = temper.read("/system/skills/platform-awareness/SKILL.md")
+# Skills are scoped by path:
+#   /system/skills/         → platform knowledge (all agents)
+#   /agents/{id}/skills/    → agent-specific skills
+#   /projects/{id}/skills/  → project-specific skills
 ```
 
 ### What memories exist?
