@@ -101,6 +101,47 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 prior_session_file_id,
                 prior_session_leaf_id,
             )
+        } else if !prior_workspace_id.is_empty() {
+            // Fresh session with an explicitly configured workspace — preserve it as the
+            // session's default workspace and create conversation storage inside it.
+            ctx.log(
+                "info",
+                &format!(
+                    "sandbox_provisioner: using configured workspace {prior_workspace_id} for fresh session storage"
+                ),
+            );
+            let fs_result = create_conversation_storage_in_workspace(
+                &ctx,
+                &temper_api_url,
+                tenant,
+                &prior_workspace_id,
+                entity_id,
+                user_message,
+            );
+            match fs_result {
+                Ok((conv, manifest, session_file_id, session_leaf_id)) => (
+                    prior_workspace_id,
+                    conv,
+                    manifest,
+                    session_file_id,
+                    session_leaf_id,
+                ),
+                Err(e) => {
+                    ctx.log(
+                        "warn",
+                        &format!(
+                            "sandbox_provisioner: configured workspace bootstrap failed at {temper_api_url}/tdata (tenant={tenant}, agent={entity_id}, workspace={prior_workspace_id}): {e}. Falling back to inline conversation storage."
+                        ),
+                    );
+                    (
+                        prior_workspace_id,
+                        String::new(),
+                        String::new(),
+                        String::new(),
+                        String::new(),
+                    )
+                }
+            }
         } else {
             // Fresh session — create new conversation storage.
             let fs_result =
@@ -435,6 +476,58 @@ fn create_conversation_storage(
         &format!("sandbox_provisioner: created workspace {workspace_id}"),
     );
 
+    let (file_id, manifest_id, session_file_id, session_leaf_id) =
+        create_session_storage_files(
+            ctx,
+            temper_api_url,
+            tenant,
+            &workspace_id,
+            agent_id,
+            user_message,
+        )?;
+
+    Ok((
+        workspace_id,
+        file_id,
+        manifest_id,
+        session_file_id,
+        session_leaf_id,
+    ))
+}
+
+/// Create conversation + manifest + session files inside an existing workspace.
+/// Returns (conversation_file_id, manifest_file_id, session_file_id, session_leaf_id).
+fn create_conversation_storage_in_workspace(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+    workspace_id: &str,
+    agent_id: &str,
+    user_message: &str,
+) -> Result<(String, String, String, String), String> {
+    if workspace_id.is_empty() {
+        return Err("configured workspace_id is empty".to_string());
+    }
+    create_session_storage_files(
+        ctx,
+        temper_api_url,
+        tenant,
+        workspace_id,
+        agent_id,
+        user_message,
+    )
+}
+
+/// Create conversation + manifest + session files inside the provided workspace.
+/// Returns (conversation_file_id, manifest_file_id, session_file_id, session_leaf_id).
+fn create_session_storage_files(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+    workspace_id: &str,
+    agent_id: &str,
+    user_message: &str,
+) -> Result<(String, String, String, String), String> {
     // 2. Create File for conversation
     let file_body = json!({
         "FileId": format!("conv-{agent_id}"),
@@ -539,18 +632,12 @@ fn create_conversation_storage(
         ctx,
         temper_api_url,
         tenant,
-        &workspace_id,
+        workspace_id,
         agent_id,
         user_message,
     );
 
-    Ok((
-        workspace_id,
-        file_id,
-        manifest_id,
-        session_file_id,
-        session_leaf_id,
-    ))
+    Ok((file_id, manifest_id, session_file_id, session_leaf_id))
 }
 
 /// Create a session tree JSONL file in TemperFS.

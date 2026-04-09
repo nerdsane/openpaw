@@ -21,6 +21,8 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         let temper_api_url = resolve_temper_api_url(&ctx, &fields);
         let tenant = &ctx.tenant;
         let agent_id = ctx.entity_id.as_str();
+        let parent_session_id =
+            entity_field_str(&fields, &["parent_session_id", "ParentSessionId"]).unwrap_or("");
 
         // Read decision context from agent state
         let decision_id =
@@ -43,14 +45,28 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         }
 
         // Find the ChannelSession for this agent
-        let session = find_session_by_agent(&ctx, &temper_api_url, tenant, agent_id)?;
-        let Some(session) = session else {
+        let session = find_session_by_agent(
+            &ctx,
+            &temper_api_url,
+            tenant,
+            agent_id,
+            parent_session_id,
+        )?;
+        let Some((session, bound_agent_id)) = session else {
             ctx.log(
                 "warn",
                 &format!("notify_approval: no channel session for agent {agent_id}, skipping"),
             );
             return Ok(());
         };
+        if bound_agent_id != agent_id {
+            ctx.log(
+                "info",
+                &format!(
+                    "notify_approval: using parent channel session {bound_agent_id} for agent {agent_id}"
+                ),
+            );
+        }
 
         let channel_id =
             entity_field_str(&session, &["ChannelId", "channel_id"]).unwrap_or("");
@@ -137,11 +153,40 @@ fn find_session_by_agent(
     temper_api_url: &str,
     tenant: &str,
     agent_id: &str,
+    parent_session_id: &str,
+) -> Result<Option<(Value, String)>, String> {
+    if let Some(session) = find_session_for_binding(ctx, temper_api_url, tenant, agent_id)? {
+        return Ok(Some((session, agent_id.to_string())));
+    }
+
+    let parent_session_id = parent_session_id.trim();
+    if !parent_session_id.is_empty() && parent_session_id != agent_id {
+        if let Some(session) =
+            find_session_for_binding(ctx, temper_api_url, tenant, parent_session_id)?
+        {
+            return Ok(Some((session, parent_session_id.to_string())));
+        }
+    }
+
+    Ok(None)
+}
+
+fn find_session_for_binding(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+    agent_id: &str,
 ) -> Result<Option<Value>, String> {
     let escaped = agent_id.replace('\'', "''");
-    let filter = format!("$filter=agent_entity_id eq '{escaped}'&$top=1");
-    let url = format!("{temper_api_url}/tdata/ChannelSessions?{filter}");
-    Ok(list_entities(ctx, &url, tenant)?.into_iter().next())
+    let active_filter = format!("$filter=Status eq 'Active' and agent_entity_id eq '{escaped}'&$top=1");
+    let active_url = format!("{temper_api_url}/tdata/ChannelSessions?{active_filter}");
+    if let Some(session) = list_entities(ctx, &active_url, tenant)?.into_iter().next() {
+        return Ok(Some(session));
+    }
+
+    let any_filter = format!("$filter=agent_entity_id eq '{escaped}'&$top=1");
+    let any_url = format!("{temper_api_url}/tdata/ChannelSessions?{any_filter}");
+    Ok(list_entities(ctx, &any_url, tenant)?.into_iter().next())
 }
 
 fn find_channel_by_external_id(

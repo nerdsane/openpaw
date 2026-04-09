@@ -7,6 +7,7 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use axum::body::{Body, Bytes};
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
@@ -17,6 +18,8 @@ use temper_platform::PlatformState;
 use temper_store_turso::TursoEventStore;
 
 use crate::transport_manager::{DiscordConnectParams, SlackConnectParams, TransportManager};
+
+const DEFAULT_SETUP_AGENT_TOOLS_ENABLED: &str = "temper_create,temper_get,temper_list,temper_action,temper_patch,temper_submit_specs,temper_show_spec,temper_specs,temper_upload_wasm,temper_get_trajectories,temper_get_insights,temper_get_decisions,temper_poll_decision,temper_approve_decision,temper_deny_decision,temper_submit_policy,temper_list_policies,temper_get_policy,temper_update_policy,temper_delete_policy,temper_install_app,temper_list_apps,temper_spawn_session,temper_list_sessions,temper_abort_session,temper_steer_session,temper_save_memory,temper_recall_memory,temper_write,temper_read,temper_run_coding_agent,temper_get_secret,temper_datadog_query,temper_railway,temper_vercel,temper_web_search,temper_web_fetch,read,write,edit,bash";
 
 /// Shared state for the setup API.
 #[derive(Clone)]
@@ -53,6 +56,7 @@ fn allowed_secret_keys() -> HashSet<&'static str> {
 /// Build the `/paw/` router.
 pub fn router(state: SetupApiState) -> Router {
     Router::new()
+        .route("/discord/interaction", post(proxy_discord_interaction))
         .route("/paw/setup/status", get(get_setup_status))
         .route("/paw/setup/secrets", get(list_secrets))
         .route("/paw/setup/secrets", post(upsert_secret))
@@ -81,6 +85,7 @@ struct SetupStatus {
     agent_count: usize,
     discord_connected: bool,
     slack_connected: bool,
+    discord_interaction_url: Option<String>,
 }
 
 async fn get_setup_status(State(state): State<SetupApiState>) -> Json<SetupStatus> {
@@ -121,6 +126,10 @@ async fn get_setup_status(State(state): State<SetupApiState>) -> Json<SetupStatu
         agent_count,
         discord_connected,
         slack_connected,
+        discord_interaction_url: state
+            .transport_manager
+            .discord_interaction_public_url()
+            .await,
     })
 }
 
@@ -313,7 +322,8 @@ async fn create_agent(
     let configure_params = serde_json::json!({
         "model": req.model.unwrap_or_else(|| "claude-sonnet-4-6".to_string()),
         "provider": "anthropic",
-        "tools_enabled": req.tools_enabled.unwrap_or_else(|| "read,write,edit,bash".to_string()),
+        "tools_enabled": req.tools_enabled.unwrap_or_else(|| DEFAULT_SETUP_AGENT_TOOLS_ENABLED.to_string()),
+        "workdir": "/workspace",
         "max_turns": req.max_turns.unwrap_or_else(|| "20".to_string()),
     });
 
@@ -353,6 +363,65 @@ async fn get_transport_status(
     Json(state.transport_manager.status().await)
 }
 
+async fn proxy_discord_interaction(
+    State(state): State<SetupApiState>,
+    headers: axum::http::HeaderMap,
+    body: Bytes,
+) -> impl IntoResponse {
+    let status = state.transport_manager.status().await;
+    if !matches!(
+        status.discord,
+        crate::transport_manager::TransportStatus::Connected { .. }
+            | crate::transport_manager::TransportStatus::Connecting
+    ) {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({ "error": "discord transport is not running" })),
+        )
+            .into_response();
+    }
+
+    let client = reqwest::Client::new();
+    let mut request = client
+        .post(state.transport_manager.discord_interaction_proxy_url())
+        .body(body.to_vec());
+
+    for header_name in [
+        "content-type",
+        "x-signature-ed25519",
+        "x-signature-timestamp",
+    ] {
+        if let Some(value) = headers.get(header_name) {
+            request = request.header(header_name, value.clone());
+        }
+    }
+
+    match request.send().await {
+        Ok(resp) => {
+            let status = resp.status();
+            let content_type = resp
+                .headers()
+                .get(axum::http::header::CONTENT_TYPE)
+                .cloned();
+            let bytes = resp.bytes().await.unwrap_or_default();
+            let mut response = axum::http::Response::builder().status(status);
+            if let Some(content_type) = content_type {
+                response = response.header(axum::http::header::CONTENT_TYPE, content_type);
+            }
+            response
+                .body(Body::from(bytes))
+                .unwrap_or_else(|_| axum::http::Response::new(Body::empty()))
+        }
+        Err(error) => (
+            StatusCode::BAD_GATEWAY,
+            Json(serde_json::json!({
+                "error": format!("failed to proxy discord interaction: {error}")
+            })),
+        )
+            .into_response(),
+    }
+}
+
 #[derive(Deserialize)]
 struct DiscordConnectRequest {
     bot_token: String,
@@ -366,29 +435,82 @@ async fn connect_discord(
     State(state): State<SetupApiState>,
     Json(req): Json<DiscordConnectRequest>,
 ) -> impl IntoResponse {
-    // Save token to vault + Turso
-    if let Some(vault) = state.platform.server.secrets_vault.as_ref() {
-        let _ = vault.cache_secret(&state.tenant, "discord_bot_token", req.bot_token.clone());
-        if let Ok((ct, nc)) = vault.encrypt(req.bot_token.as_bytes()) {
-            let _ = state
-                .turso_store
-                .upsert_secret(&state.tenant, "discord_bot_token", &ct, &nc)
-                .await;
-        }
+    let public_key = req.public_key.unwrap_or_default();
+    if public_key.trim().is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error": "discord public key is required to verify interactions"
+            })),
+        )
+            .into_response();
     }
 
-    state
+    match state
         .transport_manager
         .connect_discord(DiscordConnectParams {
-            bot_token: req.bot_token,
-            public_key: req.public_key.unwrap_or_default(),
-            guild_id: req.guild_id,
-            feed_channel_id: req.feed_channel_id,
-            forum_channel_id: req.forum_channel_id,
+            bot_token: req.bot_token.clone(),
+            public_key: public_key.clone(),
+            guild_id: req.guild_id.clone(),
+            feed_channel_id: req.feed_channel_id.clone(),
+            forum_channel_id: req.forum_channel_id.clone(),
         })
-        .await;
+        .await
+    {
+        Ok(interaction_url) => {
+            // Save Discord config to vault + Turso only after the endpoint is valid enough to start.
+            if let Some(vault) = state.platform.server.secrets_vault.as_ref() {
+                let _ =
+                    vault.cache_secret(&state.tenant, "discord_bot_token", req.bot_token.clone());
+                if let Ok((ct, nc)) = vault.encrypt(req.bot_token.as_bytes()) {
+                    let _ = state
+                        .turso_store
+                        .upsert_secret(&state.tenant, "discord_bot_token", &ct, &nc)
+                        .await;
+                }
 
-    Json(serde_json::json!({ "status": "connecting" }))
+                let _ = vault.cache_secret(&state.tenant, "discord_public_key", public_key.clone());
+                if let Ok((ct, nc)) = vault.encrypt(public_key.as_bytes()) {
+                    let _ = state
+                        .turso_store
+                        .upsert_secret(&state.tenant, "discord_public_key", &ct, &nc)
+                        .await;
+                }
+
+                for (key, value) in [
+                    ("discord_guild_id", req.guild_id.clone()),
+                    ("discord_feed_channel_id", req.feed_channel_id.clone()),
+                    ("discord_forum_channel_id", req.forum_channel_id.clone()),
+                ] {
+                    if let Some(value) = value {
+                        let _ = vault.cache_secret(&state.tenant, key, value.clone());
+                        if let Ok((ct, nc)) = vault.encrypt(value.as_bytes()) {
+                            let _ = state
+                                .turso_store
+                                .upsert_secret(&state.tenant, key, &ct, &nc)
+                                .await;
+                        }
+                    }
+                }
+            }
+
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "status": "connecting",
+                    "discord_interaction_url": interaction_url
+                })),
+            )
+                .into_response()
+        }
+        Err(error) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error": error.to_string()
+            })),
+        )
+            .into_response(),
+    }
 }
 
 async fn disconnect_discord(State(state): State<SetupApiState>) -> Json<serde_json::Value> {

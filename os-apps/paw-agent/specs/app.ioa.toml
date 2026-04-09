@@ -1,0 +1,51 @@
+# App — Installed application with provenance tracking.
+#
+# An App represents an installed capability package (entity types, WASM modules,
+# agents, skills, policies). Created during os-app bootstrap with a UUID.
+# Agents reference their source app via source_app_id.
+
+[automaton]
+name = "App"
+states = ["Installed", "Archived"]
+initial = "Installed"
+
+[[state]]
+name = "name"
+type = "string"
+initial = ""
+
+[[state]]
+name = "description"
+type = "string"
+initial = ""
+
+[[state]]
+name = "version"
+type = "string"
+initial = ""
+
+[[state]]
+name = "app_guide_file_id"
+type = "string"
+initial = ""
+
+# Actions
+[[action]]
+name = "Install"
+kind = "input"
+from = ["Installed"]
+to = "Installed"
+params = ["name", "description", "version", "app_guide_file_id"]
+hint = "Create or update an installed app."
+
+[[action]]
+name = "Archive"
+kind = "input"
+from = ["Installed"]
+to = "Archived"
+hint = "Archive this app."
+
+[[invariant]]
+name = "ArchivedIsFinal"
+when = ["Archived"]
+assert = "no_further_transitions"

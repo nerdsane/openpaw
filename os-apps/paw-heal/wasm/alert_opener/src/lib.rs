@@ -55,12 +55,12 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             .config
             .get("default_sre_workdir")
             .cloned()
-            .unwrap_or_else(|| "/tmp/openpaw-sre-webhook".to_string());
+            .unwrap_or_else(|| "/workspace/openpaw-sre-webhook".to_string());
         let default_developer_workdir = ctx
             .config
             .get("default_developer_workdir")
             .cloned()
-            .unwrap_or_else(|| "/tmp/openpaw-self-heal".to_string());
+            .unwrap_or_else(|| "/workspace/openpaw-self-heal".to_string());
 
         let tenant = &ctx.tenant;
         let headers = vec![
@@ -252,7 +252,7 @@ ISSUE_ID=<id or empty>"
         let configure_body = json!({
             "model": default_agent_model,
             "provider": "anthropic",
-            "tools_enabled": "temper_get,temper_list,temper_action,temper_create,spawn_session,temper_read",
+            "tools_enabled": "temper_get,temper_list,temper_action,temper_create,temper_spawn_session,temper_read",
             "workdir": default_sre_workdir,
             "soul_id": "SRE",
             "temper_api_url": temper_api_url,

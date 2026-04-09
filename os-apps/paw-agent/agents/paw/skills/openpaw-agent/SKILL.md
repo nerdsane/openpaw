@@ -1,3 +1,8 @@
+---
+name: openpaw-agent
+description: OpenPaw agent operating manual — platform API, sandbox tools, and execution patterns
+---
+
 # OpenPaw Agent — Operating Manual
 
 ## You are an agent running on OpenPaw (powered by Temper).
@@ -144,10 +149,13 @@ temper.approve_decision(id, scope)           # approve (Cedar-gated)
 temper.deny_decision(id)                     # deny (Cedar-gated)
 ```
 
-### Files
+### Skills & Files
 ```
+temper.read(path)                  # read file content by path (including SKILL.md)
 temper.write(path, content)        # write file by path (auto-creates workspace/dirs)
-temper.read(path)                  # read file content by path
+# Skills are listed in your system prompt as <skill name="..." path="..." />
+# Load full content: temper.read("/system/skills/platform-awareness/SKILL.md")
+# Scope paths: /system/skills/, /agents/{id}/skills/, /projects/{id}/skills/
 ```
 
 ### Completion

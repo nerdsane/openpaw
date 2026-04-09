@@ -1,3 +1,8 @@
+---
+name: platform-awareness
+description: How to discover installed apps, entity types, and available actions on the Temper platform
+---
+
 # Platform Awareness
 
 ## Your capabilities are not fixed — they come from installed apps.
@@ -31,8 +36,11 @@ specs = temper.specs()
 ### What apps have been installed?
 
 ```python
-caps = temper.list("CapabilityRequests", "")
-# Shows install history — what was requested, approved, installed, or rejected
+apps = temper.list("Apps", "Status eq 'Installed'")
+# Returns App entities with name, description, version, app_guide_file_id
+# Read an app's guide for architecture context:
+for app in apps:
+    guide = temper.read(f"/apps/{app['Name']}/APP.md")
 ```
 
 ### What entities exist for a given type?
@@ -60,9 +68,15 @@ sessions = temper.list_sessions()
 
 ### What skills are available?
 
+Skills are listed in your system prompt as `<skill name="..." description="..." path="..." />`.
+To load full content, read the path:
+
 ```python
-skills = temper.list("Skills", "Status eq 'Active'")
-# Skills scoped to 'global', your soul name, or your agent name are injected into your prompt
+content = temper.read("/system/skills/platform-awareness/SKILL.md")
+# Skills are scoped by path:
+#   /system/skills/         → platform knowledge (all agents)
+#   /agents/{id}/skills/    → agent-specific skills
+#   /projects/{id}/skills/  → project-specific skills
 ```
 
 ### What memories exist?
@@ -170,6 +184,8 @@ temper.install_app("my-app", reason="Need bookmark management for project tracki
 my-app/
 ├── app.toml                  # name, version, dependencies
 ├── APP.md                    # human documentation
+├── adrs/                     # design decisions for the app
+│   └── 001-initial-design.md
 ├── specs/
 │   ├── entity_name.ioa.toml  # one state machine per entity type
 │   └── model.csdl.xml        # OData data model (optional, for complex schemas)

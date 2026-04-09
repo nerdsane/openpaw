@@ -14,15 +14,36 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         let tenant = &ctx.tenant;
         let agent_id = ctx.entity_id.as_str();
         let status = entity_field_str(&ctx.entity_state, &["Status", "status"]).unwrap_or("");
-        let reply_text = build_reply_text(&fields, status);
+        let parent_session_id =
+            entity_field_str(&ctx.entity_state, &["parent_session_id", "ParentSessionId"])
+                .unwrap_or("");
+        let reply_text = build_reply_text(&ctx.entity_state, status);
 
-        let Some(session) = find_session_by_agent(&ctx, &temper_api_url, tenant, agent_id)? else {
+        let Some((session, bound_agent_id)) =
+            find_session_by_agent(&ctx, &temper_api_url, tenant, agent_id, parent_session_id)?
+        else {
             ctx.log(
                 "info",
                 &format!("agent_reply: no channel session linked to agent {agent_id}; skipping"),
             );
+            set_success_result(
+                "",
+                &json!({
+                    "status": "skipped",
+                    "reason": "no_channel_session",
+                    "agent_entity_id": agent_id,
+                }),
+            );
             return Ok(());
         };
+        if bound_agent_id != agent_id {
+            ctx.log(
+                "info",
+                &format!(
+                    "agent_reply: using parent channel session {bound_agent_id} for agent {agent_id}"
+                ),
+            );
+        }
 
         let channel_id = entity_field_str(&session, &["ChannelId", "channel_id"]).unwrap_or("");
         let thread_id = entity_field_str(&session, &["ThreadId", "thread_id"]).unwrap_or("");
@@ -67,8 +88,12 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             } else {
                 "Session".to_string()
             };
-            let desc = if reply_text.len() > 4000 {
-                format!("{}...", &reply_text[..reply_text.floor_char_boundary(4000)])
+            let needs_follow_up = reply_text.len() > 3900;
+            let desc = if needs_follow_up {
+                format!(
+                    "{}... (full reply in follow-up)",
+                    &reply_text[..reply_text.floor_char_boundary(3900)]
+                )
             } else {
                 reply_text.clone()
             };
@@ -100,6 +125,21 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                         resp.status
                     ));
                 }
+                if needs_follow_up {
+                    let follow_up_body = json!({
+                        "thread_id": thread_id,
+                        "content": reply_text,
+                        "agent_entity_id": agent_id,
+                    });
+                    let follow_up_resp =
+                        ctx.http_call("POST", webhook_url, &wh_headers, &follow_up_body.to_string())?;
+                    if !(200..300).contains(&follow_up_resp.status) {
+                        return Err(format!(
+                            "agent_reply: follow-up webhook POST failed (HTTP {})",
+                            follow_up_resp.status
+                        ));
+                    }
+                }
                 ctx.log(
                     "info",
                     &format!("agent_reply: sent embed reply for child agent {agent_id} ({soul_name})"),
@@ -114,8 +154,9 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             "content": reply_text,
             "agent_entity_id": agent_id,
         });
-        let url =
-            format!("{temper_api_url}/tdata/Channels('{channel_entity_id}')/Paw.Channel.SendReply");
+        let url = format!(
+            "{temper_api_url}/tdata/Channels('{channel_entity_id}')/Paw.Channel.SendReply?await_integration=true"
+        );
         let resp = ctx.http_call("POST", &url, &headers, &body.to_string())?;
         if !(200..300).contains(&resp.status) {
             return Err(format!(
@@ -146,13 +187,38 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
     0
 }
 
-fn build_reply_text(fields: &Value, status: &str) -> String {
-    if let Some(result) = entity_field_str(fields, &["result", "Result"]).filter(|v| !v.is_empty())
+fn build_reply_text(entity_state: &Value, status: &str) -> String {
+    if let Some(events) = entity_state.get("events").and_then(Value::as_array) {
+        for event in events.iter().rev() {
+            if let Some(result) = event
+                .get("params")
+                .and_then(|params| entity_field_str(params, &["result", "Result"]))
+                .filter(|value| !value.is_empty())
+            {
+                return result.to_string();
+            }
+            if let Some(error) = event
+                .get("params")
+                .and_then(|params| {
+                    entity_field_str(params, &["error_message", "ErrorMessage", "error"])
+                })
+                .filter(|value| !value.is_empty())
+            {
+                return error.to_string();
+            }
+        }
+    }
+
+    let fields = entity_state
+        .get("fields")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    if let Some(result) = entity_field_str(&fields, &["result", "Result"]).filter(|v| !v.is_empty())
     {
         return result.to_string();
     }
-    if let Some(error) =
-        entity_field_str(fields, &["error_message", "ErrorMessage", "error"]).filter(|v| !v.is_empty())
+    if let Some(error) = entity_field_str(&fields, &["error_message", "ErrorMessage", "error"])
+        .filter(|v| !v.is_empty())
     {
         return error.to_string();
     }
@@ -166,6 +232,29 @@ fn build_reply_text(fields: &Value, status: &str) -> String {
 }
 
 fn find_session_by_agent(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+    agent_id: &str,
+    parent_session_id: &str,
+) -> Result<Option<(Value, String)>, String> {
+    if let Some(session) = find_session_for_binding(ctx, temper_api_url, tenant, agent_id)? {
+        return Ok(Some((session, agent_id.to_string())));
+    }
+
+    let parent_session_id = parent_session_id.trim();
+    if !parent_session_id.is_empty() && parent_session_id != agent_id {
+        if let Some(session) =
+            find_session_for_binding(ctx, temper_api_url, tenant, parent_session_id)?
+        {
+            return Ok(Some((session, parent_session_id.to_string())));
+        }
+    }
+
+    Ok(None)
+}
+
+fn find_session_for_binding(
     ctx: &Context,
     temper_api_url: &str,
     tenant: &str,
@@ -211,6 +300,9 @@ fn list_entities(ctx: &Context, url: &str, tenant: &str) -> Result<Vec<Value>, S
         .unwrap_or_else(|| json!({}));
     let headers = runtime_headers(ctx, tenant, &fields, None, Some("application/json"));
     let resp = ctx.http_call("GET", url, &headers, "")?;
+    if resp.status == 404 {
+        return Ok(Vec::new());
+    }
     if resp.status != 200 {
         return Err(format!("agent_reply: GET {url} failed (HTTP {})", resp.status));
     }

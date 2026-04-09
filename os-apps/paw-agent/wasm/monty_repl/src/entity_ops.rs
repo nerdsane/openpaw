@@ -6,6 +6,8 @@
 use serde_json::{Value, json};
 use temper_wasm_sdk::context::Context;
 
+const DEFAULT_TOOLS_ENABLED: &str = "temper_create,temper_get,temper_list,temper_action,temper_patch,temper_submit_specs,temper_show_spec,temper_specs,temper_upload_wasm,temper_get_trajectories,temper_get_insights,temper_get_decisions,temper_poll_decision,temper_approve_decision,temper_deny_decision,temper_submit_policy,temper_list_policies,temper_get_policy,temper_update_policy,temper_delete_policy,temper_install_app,temper_list_apps,temper_spawn_session,temper_list_sessions,temper_abort_session,temper_steer_session,temper_save_memory,temper_recall_memory,temper_write,temper_read,temper_run_coding_agent,temper_get_secret,temper_datadog_query,temper_railway,temper_vercel,temper_web_search,temper_web_fetch,read,write,edit,bash";
+
 // ---------------------------------------------------------------------------
 // spawn_session
 // ---------------------------------------------------------------------------
@@ -33,7 +35,7 @@ pub fn spawn_session(
     let tools = input
         .get("tools")
         .and_then(|v| v.as_str())
-        .unwrap_or("read,write,edit,bash");
+        .unwrap_or(DEFAULT_TOOLS_ENABLED);
     let soul_id = input.get("soul_id").and_then(|v| v.as_str()).unwrap_or("");
     let parent_id = ctx
         .entity_state
@@ -108,6 +110,16 @@ pub fn spawn_session(
         "soul_id": soul_id, "user_message": task, "parent_session_id": parent_id,
         "sandbox_url": child_sandbox_url, "workdir": child_workdir,
         "session_depth": current_depth + 1, "max_turns": max_turns,
+        "project_harness_id": input
+            .get("project_harness_id")
+            .and_then(|v| v.as_str())
+            .or_else(|| fields.get("project_harness_id").and_then(|v| v.as_str()))
+            .unwrap_or(""),
+        "project_id": input
+            .get("project_id")
+            .and_then(|v| v.as_str())
+            .or_else(|| fields.get("project_id").and_then(|v| v.as_str()))
+            .unwrap_or(""),
     });
     http_post(
         ctx,
@@ -351,18 +363,16 @@ pub fn write(
     let content = pos_str(args, 1, "content", "write")?;
     let opts = obj_arg_or_empty(args, 2);
 
-    let workspace_name = opts
-        .get("workspace")
-        .and_then(|v| v.as_str())
-        .unwrap_or("default");
     let mime_type = opts
         .get("mime_type")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string())
         .unwrap_or_else(|| mime_from_ext(&path).to_string());
 
-    // 1. Ensure workspace exists.
-    let ws_id = ensure_workspace(ctx, api_url, tenant, workspace_name)?;
+    // 1. Resolve the target workspace. Prefer an explicit workspace override,
+    // then the session's attached workspace_id, then the legacy "default"
+    // workspace name.
+    let ws_id = resolve_workspace_id(ctx, api_url, tenant, &opts, true)?;
 
     // 2. Parse path to get dir_path for MkDir.
     let dir_path = match path.rsplit_once('/') {
@@ -439,14 +449,10 @@ pub fn read(
     let path = pos_str(args, 0, "path", "read")?;
     let opts = obj_arg_or_empty(args, 1);
 
-    let workspace_name = opts
-        .get("workspace")
-        .and_then(|v| v.as_str())
-        .unwrap_or("default");
-
-    // 1. Find workspace (query-only, no auto-create).
-    let ws_id = find_workspace(ctx, api_url, tenant, workspace_name)?
-        .ok_or_else(|| format!("temper.read(): workspace '{}' not found", workspace_name))?;
+    // 1. Resolve the target workspace. Prefer an explicit workspace override,
+    // then the session's attached workspace_id, then the legacy "default"
+    // workspace name.
+    let ws_id = resolve_workspace_id(ctx, api_url, tenant, &opts, false)?;
 
     // 2. ResolvePath — resolve path to file_id (FUSE: stat).
     let resp = http_post(
@@ -731,6 +737,56 @@ fn find_workspace(
                 .and_then(|v| v.as_str())
         })
         .map(|s| s.to_string()))
+}
+
+fn session_workspace_id(ctx: &Context) -> Option<String> {
+    ctx.entity_state
+        .get("fields")
+        .and_then(|fields| fields.get("workspace_id"))
+        .and_then(|value| value.as_str())
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_string())
+}
+
+fn resolve_workspace_id(
+    ctx: &Context,
+    api_url: &str,
+    tenant: &str,
+    opts: &Value,
+    create_if_missing: bool,
+) -> Result<String, String> {
+    if let Some(workspace_id) = opts
+        .get("workspace_id")
+        .and_then(|value| value.as_str())
+        .filter(|value| !value.is_empty())
+    {
+        return Ok(workspace_id.to_string());
+    }
+
+    if let Some(workspace_name) = opts
+        .get("workspace")
+        .and_then(|value| value.as_str())
+        .filter(|value| !value.is_empty())
+    {
+        return if create_if_missing {
+            ensure_workspace(ctx, api_url, tenant, workspace_name)
+        } else {
+            find_workspace(ctx, api_url, tenant, workspace_name)?.ok_or_else(|| {
+                format!("workspace '{}' not found", workspace_name)
+            })
+        };
+    }
+
+    if let Some(workspace_id) = session_workspace_id(ctx) {
+        return Ok(workspace_id);
+    }
+
+    if create_if_missing {
+        ensure_workspace(ctx, api_url, tenant, "default")
+    } else {
+        find_workspace(ctx, api_url, tenant, "default")?
+            .ok_or_else(|| "workspace 'default' not found".to_string())
+    }
 }
 
 fn ensure_workspace(

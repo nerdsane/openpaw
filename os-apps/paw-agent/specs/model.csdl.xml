@@ -23,7 +23,8 @@
         <Property Name="SandboxUrl" Type="Edm.String"/>
         <Property Name="TemperApiUrl" Type="Edm.String"/>
         <Property Name="SandboxId" Type="Edm.String"/>
-        <Property Name="TemperApiUrl" Type="Edm.String"/>
+        <Property Name="ProvisionCheckCount" Type="Edm.Int64"/>
+        <Property Name="MaxProvisionChecks" Type="Edm.String"/>
         <Property Name="FileManifestId" Type="Edm.String"/>
         <Property Name="Workdir" Type="Edm.String"/>
         <Property Name="ToolsEnabled" Type="Edm.String"/>
@@ -41,6 +42,7 @@
         <Property Name="FollowUpCount" Type="Edm.Int64"/>
         <Property Name="MaxFollowUps" Type="Edm.String"/>
         <Property Name="SoulId" Type="Edm.String"/>
+        <Property Name="ReplFileId" Type="Edm.String"/>
         <Property Name="HookPolicy" Type="Edm.String"/>
         <Property Name="ParentSessionId" Type="Edm.String"/>
         <Property Name="ChildSessionIds" Type="Edm.String"/>
@@ -48,6 +50,10 @@
         <Property Name="AgentId" Type="Edm.String"/>
         <Property Name="LastHeartbeatAt" Type="Edm.String"/>
         <Property Name="HeartbeatTimeoutSeconds" Type="Edm.String"/>
+        <Property Name="PendingDecisionId" Type="Edm.String"/>
+        <Property Name="PendingToolContext" Type="Edm.String"/>
+        <Property Name="ProjectHarnessId" Type="Edm.String"/>
+        <Property Name="ProjectId" Type="Edm.String"/>
       </EntityType>
 
       <EntityType Name="Soul">
@@ -61,17 +67,6 @@
         <Property Name="AuthorId" Type="Edm.String"/>
       </EntityType>
 
-      <EntityType Name="Skill">
-        <Key><PropertyRef Name="Id"/></Key>
-        <Property Name="Id" Type="Edm.String" Nullable="false"/>
-        <Property Name="Status" Type="Edm.String"/>
-        <Property Name="Name" Type="Edm.String"/>
-        <Property Name="Description" Type="Edm.String"/>
-        <Property Name="ContentFileId" Type="Edm.String"/>
-        <Property Name="Scope" Type="Edm.String"/>
-        <Property Name="AgentFilter" Type="Edm.String"/>
-      </EntityType>
-
       <EntityType Name="Memory">
         <Key><PropertyRef Name="Id"/></Key>
         <Property Name="Id" Type="Edm.String" Nullable="false"/>
@@ -81,6 +76,7 @@
         <Property Name="MemoryType" Type="Edm.String"/>
         <Property Name="AgentId" Type="Edm.String"/>
         <Property Name="SoulId" Type="Edm.String"/>
+        <Property Name="ProjectId" Type="Edm.String"/>
       </EntityType>
 
       <EntityType Name="ToolHook">
@@ -145,6 +141,7 @@
         <Parameter Name="tools_enabled" Type="Edm.String" Nullable="true"/>
         <Parameter Name="workdir" Type="Edm.String" Nullable="true"/>
         <Parameter Name="sandbox_url" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="sandbox_id" Type="Edm.String" Nullable="true"/>
         <Parameter Name="temper_api_url" Type="Edm.String" Nullable="true"/>
         <Parameter Name="soul_id" Type="Edm.String" Nullable="true"/>
         <Parameter Name="parent_session_id" Type="Edm.String" Nullable="true"/>
@@ -155,6 +152,13 @@
         <Parameter Name="keep_recent_tokens" Type="Edm.String" Nullable="true"/>
         <Parameter Name="compaction_model" Type="Edm.String" Nullable="true"/>
         <Parameter Name="heartbeat_timeout_seconds" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="project_harness_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="project_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="workspace_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="conversation_file_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="file_manifest_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="session_file_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="session_leaf_id" Type="Edm.String" Nullable="true"/>
         <ReturnType Type="OpenPaw.Session"/>
       </Action>
 
@@ -191,6 +195,7 @@
         <Parameter Name="pending_tool_calls" Type="Edm.String" Nullable="false"/>
         <Parameter Name="conversation" Type="Edm.String" Nullable="true"/>
         <Parameter Name="session_leaf_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="repl_file_id" Type="Edm.String" Nullable="true"/>
         <ReturnType Type="OpenPaw.Session"/>
       </Action>
 
@@ -239,6 +244,13 @@
         <ReturnType Type="OpenPaw.Session"/>
       </Action>
 
+      <Action Name="SwitchProvider" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Session"/>
+        <Parameter Name="model" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="provider" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="OpenPaw.Session"/>
+      </Action>
+
       <Action Name="PauseForApproval" IsBound="true">
         <Parameter Name="bindingParameter" Type="OpenPaw.Session"/>
         <Parameter Name="pending_decision_id" Type="Edm.String" Nullable="true"/>
@@ -258,6 +270,7 @@
         <Parameter Name="input_tokens" Type="Edm.Int64" Nullable="true"/>
         <Parameter Name="output_tokens" Type="Edm.Int64" Nullable="true"/>
         <Parameter Name="session_leaf_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="repl_file_id" Type="Edm.String" Nullable="true"/>
         <ReturnType Type="OpenPaw.Session"/>
       </Action>
 
@@ -296,6 +309,12 @@
         <ReturnType Type="OpenPaw.Session"/>
       </Action>
 
+      <Action Name="DeliveryFailed" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Session"/>
+        <Parameter Name="error_message" Type="Edm.String" Nullable="false"/>
+        <ReturnType Type="OpenPaw.Session"/>
+      </Action>
+
       <Action Name="Create" IsBound="true">
         <Parameter Name="bindingParameter" Type="OpenPaw.Soul"/>
         <Parameter Name="name" Type="Edm.String" Nullable="false"/>
@@ -322,33 +341,6 @@
         <ReturnType Type="OpenPaw.Soul"/>
       </Action>
 
-      <Action Name="Register" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.Skill"/>
-        <Parameter Name="name" Type="Edm.String" Nullable="false"/>
-        <Parameter Name="description" Type="Edm.String" Nullable="true"/>
-        <Parameter Name="content_file_id" Type="Edm.String" Nullable="true"/>
-        <Parameter Name="scope" Type="Edm.String" Nullable="true"/>
-        <Parameter Name="agent_filter" Type="Edm.String" Nullable="true"/>
-        <ReturnType Type="OpenPaw.Skill"/>
-      </Action>
-
-      <Action Name="Disable" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.Skill"/>
-        <ReturnType Type="OpenPaw.Skill"/>
-      </Action>
-
-      <Action Name="Enable" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.Skill"/>
-        <ReturnType Type="OpenPaw.Skill"/>
-      </Action>
-
-      <Action Name="Update" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.Skill"/>
-        <Parameter Name="description" Type="Edm.String" Nullable="true"/>
-        <Parameter Name="content_file_id" Type="Edm.String" Nullable="true"/>
-        <ReturnType Type="OpenPaw.Skill"/>
-      </Action>
-
       <Action Name="Save" IsBound="true">
         <Parameter Name="bindingParameter" Type="OpenPaw.Memory"/>
         <Parameter Name="key" Type="Edm.String" Nullable="false"/>
@@ -356,6 +348,7 @@
         <Parameter Name="memory_type" Type="Edm.String" Nullable="true"/>
         <Parameter Name="agent_id" Type="Edm.String" Nullable="true"/>
         <Parameter Name="soul_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="project_id" Type="Edm.String" Nullable="true"/>
         <ReturnType Type="OpenPaw.Memory"/>
       </Action>
 
@@ -509,6 +502,31 @@
         <ReturnType Type="OpenPaw.CronScheduler"/>
       </Action>
 
+      <!-- App — installed application with provenance tracking -->
+      <EntityType Name="App">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.String" Nullable="false"/>
+        <Property Name="Status" Type="Edm.String"/>
+        <Property Name="Name" Type="Edm.String"/>
+        <Property Name="Description" Type="Edm.String"/>
+        <Property Name="Version" Type="Edm.String"/>
+        <Property Name="AppGuideFileId" Type="Edm.String"/>
+      </EntityType>
+
+      <Action Name="Install" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.App"/>
+        <Parameter Name="name" Type="Edm.String"/>
+        <Parameter Name="description" Type="Edm.String"/>
+        <Parameter Name="version" Type="Edm.String"/>
+        <Parameter Name="app_guide_file_id" Type="Edm.String"/>
+        <ReturnType Type="OpenPaw.App"/>
+      </Action>
+
+      <Action Name="Archive" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.App"/>
+        <ReturnType Type="OpenPaw.App"/>
+      </Action>
+
       <!-- Agent — persistent team member identity -->
       <EntityType Name="Agent">
         <Key><PropertyRef Name="Id"/></Key>
@@ -518,12 +536,13 @@
         <Property Name="Role" Type="Edm.String"/>
         <Property Name="Description" Type="Edm.String"/>
         <Property Name="SoulId" Type="Edm.String"/>
+        <Property Name="InstructionsFileId" Type="Edm.String"/>
         <Property Name="TeamId" Type="Edm.String"/>
+        <Property Name="SourceAppId" Type="Edm.String"/>
         <Property Name="Model" Type="Edm.String"/>
         <Property Name="Provider" Type="Edm.String"/>
         <Property Name="ToolsEnabled" Type="Edm.String"/>
         <Property Name="MaxTurns" Type="Edm.String"/>
-        <Property Name="SkillIds" Type="Edm.String"/>
       </EntityType>
 
       <Action Name="Configure" IsBound="true">
@@ -532,12 +551,23 @@
         <Parameter Name="role" Type="Edm.String"/>
         <Parameter Name="description" Type="Edm.String"/>
         <Parameter Name="soul_id" Type="Edm.String"/>
+        <Parameter Name="instructions_file_id" Type="Edm.String"/>
         <Parameter Name="team_id" Type="Edm.String"/>
+        <Parameter Name="source_app_id" Type="Edm.String"/>
         <Parameter Name="model" Type="Edm.String"/>
         <Parameter Name="provider" Type="Edm.String"/>
         <Parameter Name="tools_enabled" Type="Edm.String"/>
         <Parameter Name="max_turns" Type="Edm.String"/>
-        <Parameter Name="skill_ids" Type="Edm.String"/>
+        <ReturnType Type="OpenPaw.Agent"/>
+      </Action>
+
+      <Action Name="Update" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Agent"/>
+        <Parameter Name="description" Type="Edm.String"/>
+        <Parameter Name="instructions_file_id" Type="Edm.String"/>
+        <Parameter Name="model" Type="Edm.String"/>
+        <Parameter Name="tools_enabled" Type="Edm.String"/>
+        <Parameter Name="max_turns" Type="Edm.String"/>
         <ReturnType Type="OpenPaw.Agent"/>
       </Action>
 
@@ -596,10 +626,10 @@
 
       <EntityContainer Name="Service">
         <EntitySet Name="Sessions" EntityType="OpenPaw.Session"/>
+        <EntitySet Name="Apps" EntityType="OpenPaw.App"/>
         <EntitySet Name="Agents" EntityType="OpenPaw.Agent"/>
         <EntitySet Name="Teams" EntityType="OpenPaw.Team"/>
         <EntitySet Name="Souls" EntityType="OpenPaw.Soul"/>
-        <EntitySet Name="Skills" EntityType="OpenPaw.Skill"/>
         <EntitySet Name="Memories" EntityType="OpenPaw.Memory"/>
         <EntitySet Name="ToolHooks" EntityType="OpenPaw.ToolHook"/>
         <EntitySet Name="HeartbeatMonitors" EntityType="OpenPaw.HeartbeatMonitor"/>
