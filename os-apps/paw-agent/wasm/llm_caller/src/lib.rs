@@ -305,8 +305,13 @@ anthropic_api_token (or api_key) for anthropic, openrouter_api_key (or api_key) 
             .unwrap_or("");
 
         let new_prompt_hash = compute_system_prompt_hash(
-            soul_id, agent_id, project_harness_id, project_id,
-            session_mode, active_plan_id, system_prompt,
+            soul_id,
+            agent_id,
+            project_harness_id,
+            project_id,
+            session_mode,
+            active_plan_id,
+            system_prompt,
         );
 
         let prev_hash = fields
@@ -327,19 +332,36 @@ anthropic_api_token (or api_key) for anthropic, openrouter_api_key (or api_key) 
                         (cached, prev_file_id.to_string())
                     }
                     _ => {
-                        ctx.log("warn", "llm_caller: system prompt cache file unreadable, rebuilding");
-                        let prompt = assemble_system_prompt(&ctx, &temper_api_url, tenant, soul_id, system_prompt)?;
-                        let file_id = write_system_prompt_cache(&ctx, &temper_api_url, tenant, workspace_id, &prompt)
-                            .unwrap_or_default();
+                        ctx.log(
+                            "warn",
+                            "llm_caller: system prompt cache file unreadable, rebuilding",
+                        );
+                        let prompt = assemble_system_prompt(
+                            &ctx,
+                            &temper_api_url,
+                            tenant,
+                            soul_id,
+                            system_prompt,
+                        )?;
+                        let file_id = write_system_prompt_cache(
+                            &ctx,
+                            &temper_api_url,
+                            tenant,
+                            workspace_id,
+                            &prompt,
+                        )
+                        .unwrap_or_default();
                         (prompt, file_id)
                     }
                 }
             } else {
                 // Cache miss — full assembly
                 ctx.log("info", "llm_caller: system prompt cache MISS, assembling");
-                let prompt = assemble_system_prompt(&ctx, &temper_api_url, tenant, soul_id, system_prompt)?;
-                let file_id = write_system_prompt_cache(&ctx, &temper_api_url, tenant, workspace_id, &prompt)
-                    .unwrap_or_default();
+                let prompt =
+                    assemble_system_prompt(&ctx, &temper_api_url, tenant, soul_id, system_prompt)?;
+                let file_id =
+                    write_system_prompt_cache(&ctx, &temper_api_url, tenant, workspace_id, &prompt)
+                        .unwrap_or_default();
                 (prompt, file_id)
             };
         let new_prompt_hash = new_prompt_hash; // rebind for clarity
@@ -465,9 +487,8 @@ anthropic_api_token (or api_key) for anthropic, openrouter_api_key (or api_key) 
                         let parent = session_leaf_id;
                         let content_str =
                             serde_json::to_string(&response.content).unwrap_or_default();
-                        let (leaf, _) =
-                            if !workspace_id.is_empty()
-                                && should_store_entry_as_file(&content_str)
+                        let (leaf, _) = if !workspace_id.is_empty()
+                            && should_store_entry_as_file(&content_str)
                         {
                             match create_content_file_for_entry(
                                 &ctx,
@@ -517,8 +538,9 @@ anthropic_api_token (or api_key) for anthropic, openrouter_api_key (or api_key) 
                     "input_tokens": response.input_tokens,
                     "output_tokens": response.output_tokens,
                     // GenAI observability: input/output messages for Datadog LLM Obs
-                    "_gen_ai_input_messages": build_gen_ai_input_messages(&assembled_system_prompt, &messages),
-                    "_gen_ai_output_messages": build_gen_ai_output_messages(&response.content),
+                    "_gen_ai_system_instructions": build_gen_ai_system_instructions(&assembled_system_prompt),
+                    "_gen_ai_input_messages": build_gen_ai_input_messages(&messages),
+                    "_gen_ai_output_messages": build_gen_ai_output_messages(&response.content, &response.stop_reason),
                     "_gen_ai_provider": provider.as_str(),
                     "_gen_ai_finish_reason": response.stop_reason.clone(),
                     "system_prompt_hash": new_prompt_hash,
@@ -554,9 +576,8 @@ anthropic_api_token (or api_key) for anthropic, openrouter_api_key (or api_key) 
                         let parent = session_leaf_id;
                         let content_str =
                             serde_json::to_string(&response.content).unwrap_or_default();
-                        let (new_leaf, _) =
-                            if !workspace_id.is_empty()
-                                && should_store_entry_as_file(&content_str)
+                        let (new_leaf, _) = if !workspace_id.is_empty()
+                            && should_store_entry_as_file(&content_str)
                         {
                             match create_content_file_for_entry(
                                 &ctx,
@@ -594,8 +615,11 @@ anthropic_api_token (or api_key) for anthropic, openrouter_api_key (or api_key) 
                         )?;
 
                         // GenAI observability messages for this turn
-                        let gen_ai_input = build_gen_ai_input_messages(&assembled_system_prompt, &messages);
-                        let gen_ai_output = build_gen_ai_output_messages(&response.content);
+                        let gen_ai_system_instructions =
+                            build_gen_ai_system_instructions(&assembled_system_prompt);
+                        let gen_ai_input = build_gen_ai_input_messages(&messages);
+                        let gen_ai_output =
+                            build_gen_ai_output_messages(&response.content, &response.stop_reason);
 
                         // Route through steering check if follow-ups are enabled
                         if max_follow_ups > 0 {
@@ -606,6 +630,7 @@ anthropic_api_token (or api_key) for anthropic, openrouter_api_key (or api_key) 
                                     "session_leaf_id": new_leaf,
                                     "input_tokens": response.input_tokens,
                                     "output_tokens": response.output_tokens,
+                                    "_gen_ai_system_instructions": gen_ai_system_instructions,
                                     "_gen_ai_input_messages": gen_ai_input,
                                     "_gen_ai_output_messages": gen_ai_output,
                                     "_gen_ai_provider": provider.as_str(),
@@ -620,6 +645,7 @@ anthropic_api_token (or api_key) for anthropic, openrouter_api_key (or api_key) 
                                 "session_leaf_id": new_leaf,
                                 "input_tokens": response.input_tokens,
                                 "output_tokens": response.output_tokens,
+                                "_gen_ai_system_instructions": gen_ai_system_instructions,
                                 "_gen_ai_input_messages": gen_ai_input,
                                 "_gen_ai_output_messages": gen_ai_output,
                                 "_gen_ai_provider": provider.as_str(),
@@ -636,8 +662,9 @@ anthropic_api_token (or api_key) for anthropic, openrouter_api_key (or api_key) 
                         "result": result_text,
                         "input_tokens": response.input_tokens,
                         "output_tokens": response.output_tokens,
-                        "_gen_ai_input_messages": build_gen_ai_input_messages(&assembled_system_prompt, &messages),
-                        "_gen_ai_output_messages": build_gen_ai_output_messages(&response.content),
+                        "_gen_ai_system_instructions": build_gen_ai_system_instructions(&assembled_system_prompt),
+                        "_gen_ai_input_messages": build_gen_ai_input_messages(&messages),
+                        "_gen_ai_output_messages": build_gen_ai_output_messages(&response.content, &response.stop_reason),
                         "_gen_ai_provider": provider.as_str(),
                         "_gen_ai_finish_reason": response.stop_reason.clone(),
                         "system_prompt_hash": new_prompt_hash,
@@ -679,66 +706,294 @@ struct LlmResponse {
 /// Max bytes for gen_ai message attributes to avoid bloating spans.
 const GEN_AI_MESSAGE_ATTR_LIMIT: usize = 16_384;
 
-/// Build a JSON string of gen_ai input messages (system + last user message).
-/// Truncates if the result would exceed GEN_AI_MESSAGE_ATTR_LIMIT.
-fn build_gen_ai_input_messages(system_prompt: &str, messages: &[Value]) -> String {
-    let mut gen_ai_msgs: Vec<Value> = Vec::new();
-
-    // Include system message (truncated if huge)
-    if !system_prompt.is_empty() {
-        let sys_content = if system_prompt.len() > GEN_AI_MESSAGE_ATTR_LIMIT / 2 {
-            format!(
-                "{}... [truncated, {} chars total]",
-                &system_prompt[..GEN_AI_MESSAGE_ATTR_LIMIT / 4],
-                system_prompt.len()
-            )
-        } else {
-            system_prompt.to_string()
-        };
-        gen_ai_msgs.push(json!({"role": "system", "content": sys_content}));
-    }
-
-    // Include last user message
-    if let Some(last_user) = messages.iter().rev().find(|m| {
-        m.get("role").and_then(|r| r.as_str()) == Some("user")
-    }) {
-        gen_ai_msgs.push(last_user.clone());
-    }
-
-    let result = serde_json::to_string(&gen_ai_msgs).unwrap_or_default();
-    if result.len() > GEN_AI_MESSAGE_ATTR_LIMIT {
-        format!("[{{\"role\":\"system\",\"content\":\"[truncated, {} bytes]\"}}]", result.len())
+fn build_gen_ai_system_instructions(system_prompt: &str) -> String {
+    let payload = if system_prompt.is_empty() {
+        json!([])
     } else {
-        result
+        json!([{
+            "type": "text",
+            "content": truncate_for_gen_ai_attr(system_prompt),
+        }])
+    };
+
+    serialize_gen_ai_payload(payload, |size| {
+        json!([{
+            "type": "text",
+            "content": format!("[truncated, {size} bytes]"),
+        }])
+    })
+}
+
+/// Build an OTEL GenAI JSON string of the ordered input messages.
+fn build_gen_ai_input_messages(messages: &[Value]) -> String {
+    let mut gen_ai_msgs = Vec::new();
+
+    for message in messages {
+        match message
+            .get("role")
+            .and_then(Value::as_str)
+            .unwrap_or("user")
+        {
+            "user" => append_user_gen_ai_messages(&mut gen_ai_msgs, message.get("content")),
+            "assistant" => {
+                if let Some(parts) = build_assistant_parts(message.get("content")) {
+                    gen_ai_msgs.push(json!({
+                        "role": "assistant",
+                        "parts": parts,
+                    }));
+                }
+            }
+            "tool" | "tool_result" => {
+                if let Some(tool_message) =
+                    build_tool_response_message(message.get("tool_use_id"), message.get("content"))
+                {
+                    gen_ai_msgs.push(tool_message);
+                }
+            }
+            other => {
+                if let Some(content) = message.get("content") {
+                    let text = truncate_for_gen_ai_attr(&stringify_content(content));
+                    if !text.is_empty() {
+                        gen_ai_msgs.push(json!({
+                            "role": other,
+                            "parts": [{"type": "text", "content": text}],
+                        }));
+                    }
+                }
+            }
+        }
+    }
+
+    serialize_gen_ai_payload(json!(gen_ai_msgs), |size| {
+        json!([{
+            "role": "user",
+            "parts": [{"type": "text", "content": format!("[truncated, {size} bytes]")}],
+        }])
+    })
+}
+
+/// Build an OTEL GenAI JSON string of the assistant output messages.
+fn build_gen_ai_output_messages(response_content: &Value, finish_reason: &str) -> String {
+    let mut parts = Vec::new();
+    if let Some(blocks) = response_content.as_array() {
+        for block in blocks {
+            match block.get("type").and_then(Value::as_str).unwrap_or("") {
+                "text" => {
+                    if let Some(text) = block.get("text").and_then(Value::as_str) {
+                        parts.push(json!({
+                            "type": "text",
+                            "content": truncate_for_gen_ai_attr(text),
+                        }));
+                    }
+                }
+                "tool_use" => {
+                    parts.push(json!({
+                        "type": "tool_call",
+                        "id": block.get("id").and_then(Value::as_str).unwrap_or_default(),
+                        "name": block.get("name").and_then(Value::as_str).unwrap_or("unknown"),
+                        "arguments": block.get("input").cloned().unwrap_or_else(|| json!({})),
+                    }));
+                }
+                _ => {}
+            }
+        }
+    }
+
+    let payload = if parts.is_empty() {
+        json!([])
+    } else {
+        json!([{
+            "role": "assistant",
+            "finish_reason": finish_reason,
+            "parts": parts,
+        }])
+    };
+
+    serialize_gen_ai_payload(payload, |size| {
+        json!([{
+            "role": "assistant",
+            "finish_reason": finish_reason,
+            "parts": [{"type": "text", "content": format!("[truncated, {size} bytes]")}],
+        }])
+    })
+}
+
+fn append_user_gen_ai_messages(target: &mut Vec<Value>, content: Option<&Value>) {
+    let Some(content) = content else {
+        return;
+    };
+
+    match content {
+        Value::String(text) => {
+            let text = truncate_for_gen_ai_attr(text);
+            if !text.is_empty() {
+                target.push(json!({
+                    "role": "user",
+                    "parts": [{"type": "text", "content": text}],
+                }));
+            }
+        }
+        Value::Array(blocks) => {
+            let mut user_parts = Vec::new();
+            for block in blocks {
+                match block.get("type").and_then(Value::as_str).unwrap_or("") {
+                    "text" => {
+                        if let Some(text) = block.get("text").and_then(Value::as_str) {
+                            user_parts.push(json!({
+                                "type": "text",
+                                "content": truncate_for_gen_ai_attr(text),
+                            }));
+                        }
+                    }
+                    "tool_result" => {
+                        if let Some(message) = build_tool_response_message(
+                            block.get("tool_use_id"),
+                            block.get("content"),
+                        ) {
+                            target.push(message);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
+            if !user_parts.is_empty() {
+                target.push(json!({
+                    "role": "user",
+                    "parts": user_parts,
+                }));
+            }
+        }
+        other => {
+            let text = truncate_for_gen_ai_attr(&stringify_content(other));
+            if !text.is_empty() {
+                target.push(json!({
+                    "role": "user",
+                    "parts": [{"type": "text", "content": text}],
+                }));
+            }
+        }
     }
 }
 
-/// Build a JSON string of gen_ai output messages (assistant response).
-fn build_gen_ai_output_messages(response_content: &Value) -> String {
-    let text = response_content
-        .as_array()
-        .unwrap_or(&vec![])
-        .iter()
-        .filter_map(|block| {
-            if block.get("type").and_then(|v| v.as_str()) == Some("text") {
-                block.get("text").and_then(|v| v.as_str()).map(String::from)
-            } else if block.get("type").and_then(|v| v.as_str()) == Some("tool_use") {
-                let name = block.get("name").and_then(|v| v.as_str()).unwrap_or("unknown");
-                Some(format!("[tool_use: {}]", name))
-            } else {
-                None
-            }
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
+fn build_assistant_parts(content: Option<&Value>) -> Option<Vec<Value>> {
+    let content = content?;
+    let mut parts = Vec::new();
 
-    let msg = json!([{"role": "assistant", "content": text}]);
-    let result = serde_json::to_string(&msg).unwrap_or_default();
-    if result.len() > GEN_AI_MESSAGE_ATTR_LIMIT {
-        format!("[{{\"role\":\"assistant\",\"content\":\"[truncated, {} bytes]\"}}]", result.len())
-    } else {
-        result
+    match content {
+        Value::String(text) => {
+            let text = truncate_for_gen_ai_attr(text);
+            if !text.is_empty() {
+                parts.push(json!({"type": "text", "content": text}));
+            }
+        }
+        Value::Array(blocks) => {
+            for block in blocks {
+                match block.get("type").and_then(Value::as_str).unwrap_or("") {
+                    "text" => {
+                        if let Some(text) = block.get("text").and_then(Value::as_str) {
+                            parts.push(json!({
+                                "type": "text",
+                                "content": truncate_for_gen_ai_attr(text),
+                            }));
+                        }
+                    }
+                    "tool_use" => {
+                        parts.push(json!({
+                            "type": "tool_call",
+                            "id": block.get("id").and_then(Value::as_str).unwrap_or_default(),
+                            "name": block.get("name").and_then(Value::as_str).unwrap_or("unknown"),
+                            "arguments": block.get("input").cloned().unwrap_or_else(|| json!({})),
+                        }));
+                    }
+                    _ => {}
+                }
+            }
+        }
+        other => {
+            let text = truncate_for_gen_ai_attr(&stringify_content(other));
+            if !text.is_empty() {
+                parts.push(json!({"type": "text", "content": text}));
+            }
+        }
     }
+
+    (!parts.is_empty()).then_some(parts)
+}
+
+fn build_tool_response_message(
+    tool_use_id: Option<&Value>,
+    content: Option<&Value>,
+) -> Option<Value> {
+    let tool_use_id = tool_use_id.and_then(Value::as_str)?;
+    let result = normalize_tool_result_content(content?);
+
+    Some(json!({
+        "role": "tool",
+        "id": tool_use_id,
+        "parts": [{
+            "type": "tool_call_response",
+            "id": tool_use_id,
+            "result": result,
+        }],
+    }))
+}
+
+fn normalize_tool_result_content(content: &Value) -> Value {
+    match content {
+        Value::String(text) => serde_json::from_str::<Value>(text)
+            .unwrap_or_else(|_| json!(truncate_for_gen_ai_attr(text))),
+        Value::Array(blocks) => {
+            let text = blocks
+                .iter()
+                .filter_map(|block| block.get("text").and_then(Value::as_str))
+                .collect::<Vec<_>>()
+                .join("\n");
+            if text.is_empty() {
+                json!(truncate_for_gen_ai_attr(&content.to_string()))
+            } else {
+                json!(truncate_for_gen_ai_attr(&text))
+            }
+        }
+        other => other.clone(),
+    }
+}
+
+fn serialize_gen_ai_payload(payload: Value, fallback: impl Fn(usize) -> Value) -> String {
+    let serialized = serde_json::to_string(&payload).unwrap_or_default();
+    if serialized.len() <= GEN_AI_MESSAGE_ATTR_LIMIT {
+        serialized
+    } else {
+        serde_json::to_string(&fallback(serialized.len())).unwrap_or_else(|_| "[]".to_string())
+    }
+}
+
+fn truncate_for_gen_ai_attr(value: &str) -> String {
+    if value.len() <= GEN_AI_MESSAGE_ATTR_LIMIT / 2 {
+        return value.to_string();
+    }
+
+    let prefix = prefix_at_char_boundary(value, GEN_AI_MESSAGE_ATTR_LIMIT / 4);
+    format!("{prefix}... [truncated, {} bytes total]", value.len())
+}
+
+fn prefix_at_char_boundary(input: &str, max_bytes: usize) -> &str {
+    if input.len() <= max_bytes {
+        return input;
+    }
+    if max_bytes == 0 {
+        return "";
+    }
+
+    let mut end = 0;
+    for (idx, ch) in input.char_indices() {
+        let next = idx + ch.len_utf8();
+        if next > max_bytes {
+            break;
+        }
+        end = next;
+    }
+    &input[..end]
 }
 
 fn normalize_provider(provider: &str) -> String {
@@ -940,7 +1195,10 @@ fn call_anthropic(
         vec![
             ("x-api-key".to_string(), api_key.to_string()),
             ("anthropic-version".to_string(), "2023-06-01".to_string()),
-            ("anthropic-beta".to_string(), "prompt-caching-2024-07-31".to_string()),
+            (
+                "anthropic-beta".to_string(),
+                "prompt-caching-2024-07-31".to_string(),
+            ),
             ("content-type".to_string(), "application/json".to_string()),
         ]
     };
@@ -1213,21 +1471,32 @@ fn call_openai(
     tools: &[Value],
 ) -> Result<LlmResponse, String> {
     // Convert Anthropic-format messages to Responses API input format
-    let pre_convert_types: Vec<String> = messages.iter().map(|m| {
-        let role = m.get("role").and_then(Value::as_str).unwrap_or("?");
-        let ct = if m.get("content").and_then(Value::as_str).is_some() {
-            "str".to_string()
-        } else if let Some(arr) = m.get("content").and_then(Value::as_array) {
-            let block_types: Vec<&str> = arr.iter()
-                .filter_map(|b| b.get("type").and_then(Value::as_str))
-                .collect();
-            format!("arr[{}]", block_types.join(","))
-        } else {
-            "?".to_string()
-        };
-        format!("{}:{}", role, ct)
-    }).collect();
-    ctx.log("info", &format!("llm_caller: openai pre-convert messages={} types={:?}", messages.len(), pre_convert_types));
+    let pre_convert_types: Vec<String> = messages
+        .iter()
+        .map(|m| {
+            let role = m.get("role").and_then(Value::as_str).unwrap_or("?");
+            let ct = if m.get("content").and_then(Value::as_str).is_some() {
+                "str".to_string()
+            } else if let Some(arr) = m.get("content").and_then(Value::as_array) {
+                let block_types: Vec<&str> = arr
+                    .iter()
+                    .filter_map(|b| b.get("type").and_then(Value::as_str))
+                    .collect();
+                format!("arr[{}]", block_types.join(","))
+            } else {
+                "?".to_string()
+            };
+            format!("{}:{}", role, ct)
+        })
+        .collect();
+    ctx.log(
+        "info",
+        &format!(
+            "llm_caller: openai pre-convert messages={} types={:?}",
+            messages.len(),
+            pre_convert_types
+        ),
+    );
 
     let mut input = Vec::<Value>::new();
     for msg in messages {
@@ -1243,13 +1512,20 @@ fn call_openai(
                         let block_type = block.get("type").and_then(Value::as_str).unwrap_or("");
                         if block_type == "tool_result" {
                             // Anthropic tool_result → Responses API function_call_output
-                            let call_id = block.get("tool_use_id").and_then(Value::as_str).unwrap_or("");
-                            let output = if let Some(inner) = block.get("content").and_then(Value::as_array) {
-                                inner.iter()
+                            let call_id = block
+                                .get("tool_use_id")
+                                .and_then(Value::as_str)
+                                .unwrap_or("");
+                            let output = if let Some(inner) =
+                                block.get("content").and_then(Value::as_array)
+                            {
+                                inner
+                                    .iter()
                                     .filter_map(|b| b.get("text").and_then(Value::as_str))
                                     .collect::<Vec<_>>()
                                     .join("\n")
-                            } else if let Some(text) = block.get("content").and_then(Value::as_str) {
+                            } else if let Some(text) = block.get("content").and_then(Value::as_str)
+                            {
                                 text.to_string()
                             } else {
                                 String::new()
@@ -1264,7 +1540,8 @@ fn call_openai(
                     }
                     // Also extract any text blocks (non-tool-result content)
                     if !has_tool_results {
-                        let text: String = blocks.iter()
+                        let text: String = blocks
+                            .iter()
                             .filter_map(|b| b.get("text").and_then(Value::as_str))
                             .collect::<Vec<_>>()
                             .join("\n");
@@ -1289,11 +1566,19 @@ fn call_openai(
                                 }
                             }
                             "tool_use" => {
-                                let call_id = block.get("id").and_then(Value::as_str).unwrap_or("").to_string();
-                                let name = block.get("name").and_then(Value::as_str).unwrap_or("").to_string();
-                                let arguments = serde_json::to_string(
-                                    block.get("input").unwrap_or(&json!({}))
-                                ).unwrap_or_else(|_| "{}".to_string());
+                                let call_id = block
+                                    .get("id")
+                                    .and_then(Value::as_str)
+                                    .unwrap_or("")
+                                    .to_string();
+                                let name = block
+                                    .get("name")
+                                    .and_then(Value::as_str)
+                                    .unwrap_or("")
+                                    .to_string();
+                                let arguments =
+                                    serde_json::to_string(block.get("input").unwrap_or(&json!({})))
+                                        .unwrap_or_else(|_| "{}".to_string());
                                 input.push(json!({
                                     "type": "function_call",
                                     "call_id": call_id,
@@ -1310,7 +1595,8 @@ fn call_openai(
                 // Anthropic tool_result → Responses API function_call_output
                 let tool_use_id = msg.get("tool_use_id").and_then(Value::as_str).unwrap_or("");
                 let content = if let Some(blocks) = msg.get("content").and_then(Value::as_array) {
-                    blocks.iter()
+                    blocks
+                        .iter()
                         .filter_map(|b| b.get("text").and_then(Value::as_str))
                         .collect::<Vec<_>>()
                         .join("\n")
@@ -1330,18 +1616,21 @@ fn call_openai(
     }
 
     // Convert tools to Responses API format
-    let codex_tools: Vec<Value> = tools.iter().map(|t| {
-        let name = t.get("name").and_then(Value::as_str).unwrap_or("");
-        let desc = t.get("description").and_then(Value::as_str).unwrap_or("");
-        let schema = t.get("input_schema").cloned().unwrap_or(json!({}));
-        json!({
-            "type": "function",
-            "name": name,
-            "description": desc,
-            "parameters": schema,
-            "strict": false
+    let codex_tools: Vec<Value> = tools
+        .iter()
+        .map(|t| {
+            let name = t.get("name").and_then(Value::as_str).unwrap_or("");
+            let desc = t.get("description").and_then(Value::as_str).unwrap_or("");
+            let schema = t.get("input_schema").cloned().unwrap_or(json!({}));
+            json!({
+                "type": "function",
+                "name": name,
+                "description": desc,
+                "parameters": schema,
+                "strict": false
+            })
         })
-    }).collect();
+        .collect();
 
     let mut body = json!({
         "model": model,
@@ -1358,8 +1647,8 @@ fn call_openai(
         body["tool_choice"] = json!("auto");
     }
 
-    let body_str = serde_json::to_string(&body)
-        .map_err(|e| format!("JSON serialize error: {e}"))?;
+    let body_str =
+        serde_json::to_string(&body).map_err(|e| format!("JSON serialize error: {e}"))?;
 
     let headers = vec![
         ("authorization".to_string(), format!("Bearer {api_key}")),
@@ -1367,17 +1656,23 @@ fn call_openai(
     ];
 
     // Log input types for debugging conversation format issues
-    let input_types: Vec<String> = input.iter().map(|i| {
-        let t = i.get("type").and_then(Value::as_str)
-            .or_else(|| i.get("role").and_then(Value::as_str))
-            .unwrap_or("?");
-        t.to_string()
-    }).collect();
+    let input_types: Vec<String> = input
+        .iter()
+        .map(|i| {
+            let t = i
+                .get("type")
+                .and_then(Value::as_str)
+                .or_else(|| i.get("role").and_then(Value::as_str))
+                .unwrap_or("?");
+            t.to_string()
+        })
+        .collect();
     ctx.log(
         "info",
         &format!(
             "llm_caller: calling OpenAI API, model={model}, input={}, types={:?}, url={api_url}",
-            input.len(), input_types,
+            input.len(),
+            input_types,
         ),
     );
 
@@ -1385,7 +1680,10 @@ fn call_openai(
     let mut resp = None;
     for attempt in 0..5 {
         if attempt > 0 {
-            ctx.log("warn", &format!("llm_caller: OpenAI Codex retry {}/{}", attempt + 1, 5));
+            ctx.log(
+                "warn",
+                &format!("llm_caller: OpenAI Codex retry {}/{}", attempt + 1, 5),
+            );
         }
         match ctx.http_call("POST", api_url, &headers, &body_str) {
             Ok(r) if r.status >= 200 && r.status < 300 => {
@@ -1406,7 +1704,8 @@ fn call_openai(
             }
         }
     }
-    let resp = resp.ok_or_else(|| format!("OpenAI Codex API failed after 5 attempts: {last_err}"))?;
+    let resp =
+        resp.ok_or_else(|| format!("OpenAI Codex API failed after 5 attempts: {last_err}"))?;
 
     // Parse SSE data payloads (newline-separated JSON lines from host).
     // The Codex endpoint streams individual events — output_item.done events
@@ -1517,9 +1816,20 @@ fn call_openai(
                     }
                 }
                 "function_call" => {
-                    let call_id = item.get("call_id").and_then(Value::as_str).unwrap_or("").to_string();
-                    let name = item.get("name").and_then(Value::as_str).unwrap_or("").to_string();
-                    let arguments = item.get("arguments").and_then(Value::as_str).unwrap_or("{}");
+                    let call_id = item
+                        .get("call_id")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_string();
+                    let name = item
+                        .get("name")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_string();
+                    let arguments = item
+                        .get("arguments")
+                        .and_then(Value::as_str)
+                        .unwrap_or("{}");
                     let input = serde_json::from_str::<Value>(arguments).unwrap_or(json!({}));
                     content_blocks.push(json!({
                         "type": "tool_use",
@@ -1535,8 +1845,14 @@ fn call_openai(
     }
 
     let usage = response.get("usage").cloned().unwrap_or(json!({}));
-    let input_tokens = usage.get("input_tokens").and_then(|v| v.as_i64()).unwrap_or(0);
-    let output_tokens = usage.get("output_tokens").and_then(|v| v.as_i64()).unwrap_or(0);
+    let input_tokens = usage
+        .get("input_tokens")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
+    let output_tokens = usage
+        .get("output_tokens")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
 
     let stop_reason = if has_tool_calls {
         "tool_use".to_string()
@@ -1852,7 +2168,8 @@ fn prune_old_tool_results(messages: &mut [Value], keep_recent_turns: usize) {
                                 };
                                 if content_str.len() > 200 {
                                     block["content"] = json!(format!(
-                                        "[tool result pruned — {} chars]", content_str.len()
+                                        "[tool result pruned — {} chars]",
+                                        content_str.len()
                                     ));
                                 }
                             }
@@ -2246,13 +2563,7 @@ fn write_conversation_to_temperfs(
     // Wrap messages array in the TemperFS conversation format
     let body = format!("{{\"messages\":{conversation_json}}}");
 
-    write_temperfs_value_with_retry(
-        ctx,
-        &url,
-        &headers,
-        &body,
-        "TemperFS $value write failed",
-    )?;
+    write_temperfs_value_with_retry(ctx, &url, &headers, &body, "TemperFS $value write failed")?;
     ctx.log(
         "info",
         &format!(
@@ -2339,13 +2650,7 @@ fn write_session_to_temperfs(
 ) -> Result<(), String> {
     let url = format!("{temper_api_url}/tdata/Files('{file_id}')/$value");
     let headers = agent_headers(ctx, tenant, Some("text/plain"), None);
-    write_temperfs_value_with_retry(
-        ctx,
-        &url,
-        &headers,
-        jsonl,
-        "TemperFS session write failed",
-    )
+    write_temperfs_value_with_retry(ctx, &url, &headers, jsonl, "TemperFS session write failed")
 }
 
 /// Load project harness conventions as a context block for the system prompt.
@@ -2360,9 +2665,7 @@ fn load_harness_block(
         return Ok(String::new());
     }
     let headers = agent_headers(ctx, tenant, None, Some("application/json"));
-    let url = format!(
-        "{temper_api_url}/tdata/Harnesses('{project_harness_id}')"
-    );
+    let url = format!("{temper_api_url}/tdata/Harnesses('{project_harness_id}')");
     let resp = ctx.http_call("GET", &url, &headers, "")?;
     if resp.status != 200 {
         ctx.log(
@@ -2399,7 +2702,14 @@ fn read_temperfs_file(
     tenant: &str,
     file_id: &str,
 ) -> Result<String, String> {
-    read_temperfs_file_value(ctx, temper_api_url, tenant, file_id, None, "read_temperfs_file")
+    read_temperfs_file_value(
+        ctx,
+        temper_api_url,
+        tenant,
+        file_id,
+        None,
+        "read_temperfs_file",
+    )
 }
 
 /// Write system prompt content to a new TemperFS File entity, returning the file_id.
@@ -2411,8 +2721,17 @@ fn write_system_prompt_cache(
     content: &str,
 ) -> Result<String, String> {
     // Create File entity
-    let headers = agent_headers(ctx, tenant, Some("application/json"), Some("application/json"));
-    let ws = if workspace_id.is_empty() { "default" } else { workspace_id };
+    let headers = agent_headers(
+        ctx,
+        tenant,
+        Some("application/json"),
+        Some("application/json"),
+    );
+    let ws = if workspace_id.is_empty() {
+        "default"
+    } else {
+        workspace_id
+    };
     let body = json!({
         "name": "system-prompt-cache.txt",
         "path": format!("/system/cache/system-prompt-{}.txt", &ctx.entity_id),
@@ -2421,7 +2740,10 @@ fn write_system_prompt_cache(
     let url = format!("{temper_api_url}/tdata/Files");
     let resp = ctx.http_call("POST", &url, &headers, &body.to_string())?;
     if resp.status < 200 || resp.status >= 300 {
-        return Err(format!("create system prompt cache file failed (HTTP {})", resp.status));
+        return Err(format!(
+            "create system prompt cache file failed (HTTP {})",
+            resp.status
+        ));
     }
     let parsed: Value = serde_json::from_str(&resp.body).unwrap_or(json!({}));
     let file_id = entity_field_str(&parsed, &["Id", "entity_id"])
@@ -2433,7 +2755,13 @@ fn write_system_prompt_cache(
     // Write content
     let value_url = format!("{temper_api_url}/tdata/Files('{file_id}')/$value");
     let value_headers = agent_headers(ctx, tenant, Some("text/plain"), None);
-    write_temperfs_value_with_retry(ctx, &value_url, &value_headers, content, "system prompt cache write")?;
+    write_temperfs_value_with_retry(
+        ctx,
+        &value_url,
+        &value_headers,
+        content,
+        "system prompt cache write",
+    )?;
     Ok(file_id)
 }
 
@@ -2449,7 +2777,8 @@ fn compute_system_prompt_hash(
 ) -> String {
     // Simple additive hash — we just need change detection, not cryptographic security.
     let mut hash: u64 = 0xcbf29ce484222325; // FNV offset basis
-    for b in soul_id.bytes()
+    for b in soul_id
+        .bytes()
         .chain(b"|".iter().copied())
         .chain(agent_id.bytes())
         .chain(b"|".iter().copied())
@@ -2520,7 +2849,10 @@ fn assemble_system_prompt(
     {
         let fields_val = ctx.entity_state.get("fields");
         let project_harness_id = fields_val
-            .and_then(|f| f.get("project_harness_id").or_else(|| f.get("ProjectHarnessId")))
+            .and_then(|f| {
+                f.get("project_harness_id")
+                    .or_else(|| f.get("ProjectHarnessId"))
+            })
             .and_then(|v| v.as_str())
             .unwrap_or("");
         match load_harness_block(ctx, temper_api_url, tenant, project_harness_id) {
@@ -2545,13 +2877,7 @@ fn assemble_system_prompt(
             .and_then(|f| f.get("project_id").or_else(|| f.get("ProjectId")))
             .and_then(|v| v.as_str())
             .unwrap_or("");
-        match load_skills_block(
-            ctx,
-            temper_api_url,
-            tenant,
-            project_id,
-            agent_id,
-        ) {
+        match load_skills_block(ctx, temper_api_url, tenant, project_id, agent_id) {
             Ok(block) if !block.is_empty() => parts.push(block),
             Ok(_) => {}
             Err(e) => ctx.log(
@@ -2618,7 +2944,11 @@ fn assemble_system_prompt(
 
     // 4. Memory context — scoped to agent, not soul (ADR-0007)
     {
-        let entity_id = ctx.entity_state.get("entity_id").and_then(|v| v.as_str()).unwrap_or("");
+        let entity_id = ctx
+            .entity_state
+            .get("entity_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
         match load_memory_block(ctx, temper_api_url, tenant, entity_id) {
             Ok(block) if !block.is_empty() => parts.push(block),
             Ok(_) => {}
@@ -2753,8 +3083,8 @@ fn load_soul_content(
     soul_id: &str,
 ) -> Result<String, String> {
     let soul = resolve_soul_entity(ctx, temper_api_url, tenant, soul_id)?;
-    let content_file_id = entity_field_str(&soul, &["ContentFileId", "content_file_id"])
-        .unwrap_or("");
+    let content_file_id =
+        entity_field_str(&soul, &["ContentFileId", "content_file_id"]).unwrap_or("");
     if content_file_id.is_empty() {
         return Ok(String::new());
     }
@@ -2800,7 +3130,9 @@ fn resolve_soul_entity(
 }
 
 fn normalize_skill_key(name: &str) -> String {
-    name.to_ascii_lowercase().replace('_', "-").replace(' ', "-")
+    name.to_ascii_lowercase()
+        .replace('_', "-")
+        .replace(' ', "-")
 }
 
 /// Extract skill name from a TemperFS path.
@@ -2850,15 +3182,18 @@ fn parse_skill_frontmatter(content: &str) -> (String, String, String) {
             let fm_block = &content[3..3 + end_idx];
             for line in fm_block.lines() {
                 let trimmed = line.trim();
-                if let Some(val) = trimmed.strip_prefix("name")
+                if let Some(val) = trimmed
+                    .strip_prefix("name")
                     .and_then(|r| r.trim().strip_prefix('='))
                 {
                     name = val.trim().trim_matches('"').trim_matches('\'').to_string();
-                } else if let Some(val) = trimmed.strip_prefix("description")
+                } else if let Some(val) = trimmed
+                    .strip_prefix("description")
                     .and_then(|r| r.trim().strip_prefix('='))
                 {
                     description = val.trim().trim_matches('"').trim_matches('\'').to_string();
-                } else if let Some(val) = trimmed.strip_prefix("scope")
+                } else if let Some(val) = trimmed
+                    .strip_prefix("scope")
                     .and_then(|r| r.trim().strip_prefix('='))
                 {
                     scope = val.trim().trim_matches('"').trim_matches('\'').to_string();
@@ -2921,9 +3256,8 @@ fn load_skills_block(
     let mut file_entries: Vec<(String, String)> = Vec::new(); // (file_id, path)
 
     for prefix in &prefixes {
-        let filter = format!(
-            "startswith(path,'{prefix}') and name eq 'SKILL.md' and Status ne 'Archived'"
-        );
+        let filter =
+            format!("startswith(path,'{prefix}') and name eq 'SKILL.md' and Status ne 'Archived'");
         let url = format!("{temper_api_url}/tdata/Files?$filter={filter}");
         match ctx.http_call("GET", &url, &headers, "") {
             Ok(resp) if resp.status == 200 => {
@@ -2944,7 +3278,10 @@ fn load_skills_block(
             }
             Ok(resp) => ctx.log(
                 "warn",
-                &format!("load_skills_block: file query for prefix {prefix} returned HTTP {}", resp.status),
+                &format!(
+                    "load_skills_block: file query for prefix {prefix} returned HTTP {}",
+                    resp.status
+                ),
             ),
             Err(e) => ctx.log(
                 "warn",
@@ -2990,7 +3327,14 @@ fn load_skills_block(
                     String::new()
                 };
 
-                entries.push((normalize_skill_key(&name), scope_priority, name, fm_desc, path.clone(), body));
+                entries.push((
+                    normalize_skill_key(&name),
+                    scope_priority,
+                    name,
+                    fm_desc,
+                    path.clone(),
+                    body,
+                ));
             }
             Ok(_) => {} // silently skip empty or missing files
             Err(e) => ctx.log(
@@ -3053,8 +3397,8 @@ fn load_agent_instructions(
     }
     let agent: Value =
         serde_json::from_str(&resp.body).map_err(|e| format!("parse agent JSON: {e}"))?;
-    let file_id = entity_field_str(&agent, &["InstructionsFileId", "instructions_file_id"])
-        .unwrap_or("");
+    let file_id =
+        entity_field_str(&agent, &["InstructionsFileId", "instructions_file_id"]).unwrap_or("");
     if file_id.is_empty() {
         return Ok(String::new());
     }
@@ -3100,9 +3444,7 @@ fn load_mode_instructions(
         .get("value")
         .and_then(|v| v.as_array())
         .and_then(|arr| arr.first())
-        .and_then(|item| {
-            entity_field_str(item, &["Id", "entity_id"])
-        })
+        .and_then(|item| entity_field_str(item, &["Id", "entity_id"]))
         .unwrap_or("");
     if file_id.is_empty() {
         return Ok(String::new());
@@ -3277,7 +3619,14 @@ fn create_content_file_for_entry(
     content: &str,
 ) -> Result<String, String> {
     let file_name = format!("msg-{entry_id}.txt");
-    create_content_file(ctx, temper_api_url, tenant, workspace_id, &file_name, content)
+    create_content_file(
+        ctx,
+        temper_api_url,
+        tenant,
+        workspace_id,
+        &file_name,
+        content,
+    )
 }
 
 fn should_store_entry_as_file(content: &str) -> bool {
@@ -3306,6 +3655,72 @@ mod tests {
     use super::*;
 
     #[test]
+    fn gen_ai_system_instructions_use_otel_schema() {
+        let payload = build_gen_ai_system_instructions("You are a precise assistant.");
+        let parsed: Value = serde_json::from_str(&payload).unwrap();
+        assert_eq!(parsed[0]["type"], "text");
+        assert_eq!(parsed[0]["content"], "You are a precise assistant.");
+    }
+
+    #[test]
+    fn gen_ai_input_messages_preserve_chat_history_and_tool_results() {
+        let payload = build_gen_ai_input_messages(&[
+            json!({"role": "user", "content": "List the recent sessions."}),
+            json!({
+                "role": "assistant",
+                "content": [{
+                    "type": "tool_use",
+                    "id": "tool_123",
+                    "name": "temper.list_sessions",
+                    "input": {"top": 3}
+                }]
+            }),
+            json!({
+                "role": "user",
+                "content": [{
+                    "type": "tool_result",
+                    "tool_use_id": "tool_123",
+                    "content": [{"type": "text", "text": "[\"s1\",\"s2\"]"}],
+                    "is_error": false
+                }]
+            }),
+        ]);
+
+        let parsed: Value = serde_json::from_str(&payload).unwrap();
+        assert_eq!(parsed[0]["role"], "user");
+        assert_eq!(parsed[0]["parts"][0]["type"], "text");
+        assert_eq!(parsed[1]["role"], "assistant");
+        assert_eq!(parsed[1]["parts"][0]["type"], "tool_call");
+        assert_eq!(parsed[1]["parts"][0]["name"], "temper.list_sessions");
+        assert_eq!(parsed[2]["role"], "tool");
+        assert_eq!(parsed[2]["parts"][0]["type"], "tool_call_response");
+        assert_eq!(parsed[2]["parts"][0]["id"], "tool_123");
+    }
+
+    #[test]
+    fn gen_ai_output_messages_preserve_text_and_tool_calls() {
+        let payload = build_gen_ai_output_messages(
+            &json!([
+                {"type": "text", "text": "I need to inspect the latest sessions first."},
+                {
+                    "type": "tool_use",
+                    "id": "tool_456",
+                    "name": "temper.list_sessions",
+                    "input": {"top": 5}
+                }
+            ]),
+            "tool_use",
+        );
+
+        let parsed: Value = serde_json::from_str(&payload).unwrap();
+        assert_eq!(parsed[0]["role"], "assistant");
+        assert_eq!(parsed[0]["finish_reason"], "tool_use");
+        assert_eq!(parsed[0]["parts"][0]["type"], "text");
+        assert_eq!(parsed[0]["parts"][1]["type"], "tool_call");
+        assert_eq!(parsed[0]["parts"][1]["id"], "tool_456");
+    }
+
+    #[test]
     fn strip_yaml_frontmatter_normal() {
         let input = "---\nname: foo\ndescription: bar\n---\n# Body\nContent here";
         assert_eq!(strip_skill_frontmatter(input), "# Body\nContent here");
@@ -3332,7 +3747,10 @@ mod tests {
     #[test]
     fn strip_no_frontmatter() {
         let input = "# Just a heading\nSome content";
-        assert_eq!(strip_skill_frontmatter(input), "# Just a heading\nSome content");
+        assert_eq!(
+            strip_skill_frontmatter(input),
+            "# Just a heading\nSome content"
+        );
     }
 
     #[test]

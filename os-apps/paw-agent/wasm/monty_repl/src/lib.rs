@@ -681,16 +681,24 @@ fn emit_tool_call_telemetry(
     duration_ms: u64,
 ) {
     let success = result.is_ok();
+    let fields = ctx.entity_state.get("fields").and_then(Value::as_object);
+    let provider = fields
+        .and_then(|value| value.get("provider"))
+        .and_then(Value::as_str)
+        .unwrap_or("unknown");
+    let parent_trace_id = fields
+        .and_then(|value| value.get("_gen_ai_parent_trace_id"))
+        .and_then(Value::as_str);
+    let parent_span_id = fields
+        .and_then(|value| value.get("_gen_ai_parent_span_id"))
+        .and_then(Value::as_str);
     let result_content = match result {
         Ok(value) => truncate_output(&value.to_string()),
         Err(message) => truncate_output(message),
     };
 
     let mut attributes = serde_json::Map::from_iter([
-        (
-            "gen_ai.tool.call.id".to_string(),
-            json!(tool_call_id),
-        ),
+        ("gen_ai.tool.call.id".to_string(), json!(tool_call_id)),
         (
             "gen_ai.tool.call.arguments".to_string(),
             json!(truncate_output(tool_arguments_json)),
@@ -704,8 +712,15 @@ fn emit_tool_call_telemetry(
         attributes.insert("error".to_string(), json!(message));
         attributes.insert("error.type".to_string(), json!("tool_call_error"));
     }
+    if let Some(parent_trace_id) = parent_trace_id {
+        attributes.insert("_otel.parent_trace_id".to_string(), json!(parent_trace_id));
+    }
+    if let Some(parent_span_id) = parent_span_id {
+        attributes.insert("_otel.parent_span_id".to_string(), json!(parent_span_id));
+    }
 
     let tags = json!({
+        "gen_ai.system": provider,
         "gen_ai.operation.name": "execute_tool",
         "gen_ai.tool.name": tool_name,
         "success": if success { "true" } else { "false" },
