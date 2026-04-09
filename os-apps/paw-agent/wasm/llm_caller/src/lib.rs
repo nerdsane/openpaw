@@ -2436,13 +2436,19 @@ fn normalize_skill_key(name: &str) -> String {
 /// "/skills/my-skill/SKILL.md" → "my-skill"
 /// "/projects/pid/skills/my-skill/SKILL.md" → "my-skill"
 fn skill_name_from_path(path: &str) -> String {
-    // Second-to-last segment is the skill directory name
-    let segments: Vec<&str> = path.split('/').collect();
+    let segments: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
     if segments.len() >= 2 {
         segments[segments.len() - 2].to_string()
     } else {
         "unknown".to_string()
     }
+}
+
+fn xml_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
 }
 
 /// Parse YAML or TOML frontmatter from SKILL.md content.
@@ -2473,9 +2479,18 @@ fn parse_skill_frontmatter(content: &str) -> (String, String, String) {
             let fm_block = &content[3..3 + end_idx];
             for line in fm_block.lines() {
                 let trimmed = line.trim();
-                if let Some(val) = trimmed.strip_prefix("scope") {
-                    let val = val.trim().trim_start_matches('=').trim();
-                    scope = val.trim_matches('"').trim_matches('\'').to_string();
+                if let Some(val) = trimmed.strip_prefix("name")
+                    .and_then(|r| r.trim().strip_prefix('='))
+                {
+                    name = val.trim().trim_matches('"').trim_matches('\'').to_string();
+                } else if let Some(val) = trimmed.strip_prefix("description")
+                    .and_then(|r| r.trim().strip_prefix('='))
+                {
+                    description = val.trim().trim_matches('"').trim_matches('\'').to_string();
+                } else if let Some(val) = trimmed.strip_prefix("scope")
+                    .and_then(|r| r.trim().strip_prefix('='))
+                {
+                    scope = val.trim().trim_matches('"').trim_matches('\'').to_string();
                 }
             }
         }
@@ -2559,8 +2574,10 @@ fn load_skills_block(
         return Ok(String::new());
     }
 
-    // Read each file's content, parse frontmatter, filter by scope
-    let mut entries: Vec<(String, String, String, String)> = Vec::new(); // (norm_key, name, desc, file_id)
+    // Read each file's content, parse frontmatter, filter by scope.
+    // Tuple: (norm_key, scope_priority, name, desc, file_id)
+    // scope_priority: 0 = agent (most specific), 1 = project, 2 = tenant (least specific)
+    let mut entries: Vec<(String, u8, String, String, String)> = Vec::new();
 
     for (file_id, path) in &file_entries {
         let url = format!("{temper_api_url}/tdata/Files('{file_id}')/$value");
@@ -2578,7 +2595,15 @@ fn load_skills_block(
                     continue;
                 }
 
-                entries.push((normalize_skill_key(&name), name, fm_desc, file_id.clone()));
+                let scope_priority = if path.starts_with("/agents/") {
+                    0
+                } else if path.starts_with("/projects/") {
+                    1
+                } else {
+                    2
+                };
+
+                entries.push((normalize_skill_key(&name), scope_priority, name, fm_desc, file_id.clone()));
             }
             Ok(_) => {} // silently skip empty or missing files
             Err(e) => ctx.log(
@@ -2592,16 +2617,18 @@ fn load_skills_block(
         return Ok(String::new());
     }
 
-    // Sort and deduplicate by normalized name
-    entries.sort_by(|a, b| a.0.cmp(&b.0));
+    // Sort by (norm_key, scope_priority) so most-specific scope wins dedup.
+    entries.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)));
     let mut seen_names = BTreeSet::new();
     let mut xml = String::from("<available_skills>\n");
-    for (norm, name, desc, fid) in &entries {
+    for (norm, _priority, name, desc, fid) in &entries {
         if !seen_names.insert(norm.clone()) {
             continue;
         }
         xml.push_str(&format!(
-            "  <skill name=\"{name}\" description=\"{desc}\" file_id=\"{fid}\" />\n"
+            "  <skill name=\"{}\" description=\"{}\" file_id=\"{fid}\" />\n",
+            xml_escape(name),
+            xml_escape(desc),
         ));
     }
     xml.push_str("</available_skills>");

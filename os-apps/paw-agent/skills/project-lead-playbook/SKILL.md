@@ -119,7 +119,7 @@ temper.spawn_session:
 
 SWEs and SREs start with their base SKILL.md. That's the floor. As you work with them on your project, you'll learn what works — which approaches succeed, which fail, what's idiomatic in this codebase, what the gotchas are. Encode that knowledge so every subsequent agent you spawn is smarter.
 
-You maintain **project-specific skill extensions** — additional instructions that get layered on top of the base SKILL.md when you spawn an agent. These live as `Skill` entities scoped to your project.
+You maintain **project-specific skill extensions** — additional instructions that get layered on top of the base SKILL.md when you spawn an agent. These live as TemperFS files at `/projects/{project_id}/skills/{name}/SKILL.md`.
 
 #### What to teach
 
