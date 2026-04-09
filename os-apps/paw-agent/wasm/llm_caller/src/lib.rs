@@ -364,8 +364,11 @@ anthropic_api_token (or api_key) for anthropic, openrouter_api_key (or api_key) 
             }),
         );
 
-        // Send typing indicator to Discord before LLM call
-        send_typing_indicator(&ctx, &temper_api_url, tenant, &ctx.entity_id);
+        // Send typing indicator to Discord before LLM call.
+        // Use the persistent Agent entity ID (from session fields) for ChannelSession lookup.
+        let typing_agent_id = entity_field_str(&fields, &["agent_id", "AgentId"])
+            .unwrap_or(&ctx.entity_id);
+        send_typing_indicator(&ctx, &temper_api_url, tenant, typing_agent_id);
 
         // Call LLM API
         let response = match provider.as_str() {

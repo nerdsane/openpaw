@@ -12,7 +12,11 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             .unwrap_or_else(|| json!({}));
         let temper_api_url = resolve_temper_api_url(&ctx, &fields);
         let tenant = &ctx.tenant;
-        let agent_id = ctx.entity_id.as_str();
+        // Use the persistent Agent entity ID from Session fields, not the Session's own ID.
+        // ChannelSessions store agent_entity_id = aj-..., not ss-...
+        let session_id = ctx.entity_id.as_str();
+        let agent_id = entity_field_str(&fields, &["agent_id", "AgentId"])
+            .unwrap_or(session_id);
         let status = entity_field_str(&ctx.entity_state, &["Status", "status"]).unwrap_or("");
         let parent_session_id =
             entity_field_str(&ctx.entity_state, &["parent_session_id", "ParentSessionId"])

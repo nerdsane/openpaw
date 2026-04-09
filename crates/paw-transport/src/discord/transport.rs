@@ -52,6 +52,9 @@ pub struct DiscordTransport {
     dm_channels: Arc<RwLock<BTreeMap<String, String>>>,
     /// Last processed Discord message snowflake ID (for catch-up on reconnect).
     last_message_cursor: Arc<RwLock<String>>,
+    /// Cancel senders for active typing indicator loops, keyed by thread_id (user ID for DMs).
+    /// When a reply is sent, the corresponding cancel sender is triggered to stop the typing loop.
+    typing_cancels: Arc<RwLock<BTreeMap<String, tokio::sync::watch::Sender<bool>>>>,
 }
 
 fn embed_text_len(embed: &Embed) -> usize {
@@ -159,6 +162,7 @@ impl DiscordTransport {
             channel_entity_id: Arc::new(RwLock::new(None)),
             dm_channels: Arc::new(RwLock::new(BTreeMap::new())),
             last_message_cursor: Arc::new(RwLock::new(String::new())),
+            typing_cancels: Arc::new(RwLock::new(BTreeMap::new())),
         }
     }
 
@@ -702,8 +706,28 @@ impl DiscordTransport {
             .await
             .insert(msg.author.id.clone(), msg.channel_id.clone());
 
-        // Send typing indicator.
+        // Start typing indicator refresh loop.
+        // Sends typing every 8 seconds (Discord expires it at ~10s) until cancelled by reply.
         send_typing(&self.http, &self.config.bot_token, &msg.channel_id).await;
+        {
+            let (cancel_tx, mut cancel_rx) = tokio::sync::watch::channel(false);
+            self.typing_cancels.write().await.insert(msg.author.id.clone(), cancel_tx);
+            let http = self.http.clone();
+            let bot_token = self.config.bot_token.clone();
+            let channel_id = msg.channel_id.clone();
+            tokio::spawn(async move {
+                loop {
+                    tokio::select! {
+                        _ = tokio::time::sleep(Duration::from_secs(8)) => {
+                            send_typing(&http, &bot_token, &channel_id).await;
+                        }
+                        _ = cancel_rx.changed() => {
+                            break;
+                        }
+                    }
+                }
+            });
+        }
 
         // Dispatch Channel.ReceiveMessage — the WASM handles everything else.
         let channel_entity_id = self.channel_entity_id.read().await.clone();
@@ -773,6 +797,7 @@ impl DiscordTransport {
             api: crate::PawApiClient,
             public_key: String,
             channel_entity_id: Arc<RwLock<Option<String>>>,
+            typing_cancels: Arc<RwLock<BTreeMap<String, tokio::sync::watch::Sender<bool>>>>,
         }
 
         /// Handle reply callbacks from send_reply and request_approval WASM.
@@ -796,6 +821,11 @@ impl DiscordTransport {
             if thread_id.is_empty() || (content.is_empty() && !has_rich_content) {
                 tracing::error!("discord reply webhook missing content and rich payload");
                 return axum::http::StatusCode::BAD_REQUEST;
+            }
+
+            // Cancel the typing indicator loop for this thread — reply is arriving.
+            if let Some(cancel_tx) = state.typing_cancels.write().await.remove(thread_id) {
+                let _ = cancel_tx.send(true);
             }
 
             // thread_id is the Discord user ID (for DMs). Look up their DM channel.
@@ -1279,6 +1309,7 @@ impl DiscordTransport {
             api: self.api.clone(),
             public_key: self.config.public_key.clone(),
             channel_entity_id: self.channel_entity_id.clone(),
+            typing_cancels: self.typing_cancels.clone(),
         };
 
         /// Handle typing indicator requests from WASM modules.

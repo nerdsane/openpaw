@@ -44,7 +44,7 @@ permit(
   resource is Spec
 );
 
-// --- Steering: supervisors, humans, and system (for parent agents) ---
+// --- Steering: supervisors, humans, system, and self (session acting on itself) ---
 
 permit(
   principal,
