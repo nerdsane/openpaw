@@ -1,3 +1,9 @@
+---
+name: project-lead-playbook
+description: Project lead operating manual — lifecycle, delegation, and agent team coordination
+scope: project-lead
+---
+
 # Project Lead — Operating Manual
 
 This is the shared operational playbook for all project leads. Every lead gets this file regardless of their crafted soul and style. It defines what leads can do, how they coordinate agents, and how they report back.

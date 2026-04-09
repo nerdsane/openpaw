@@ -1,3 +1,9 @@
+---
+name: research-first-planning
+description: Research-first planning methodology — investigate before implementing
+scope: global
+---
+
 # Research-First Planning
 
 When you receive a non-trivial task, follow this sequence. Do not skip to implementation.

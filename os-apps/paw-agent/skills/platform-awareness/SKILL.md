@@ -1,3 +1,9 @@
+---
+name: platform-awareness
+description: How to discover installed apps, entity types, and available actions on the Temper platform
+scope: global
+---
+
 # Platform Awareness
 
 ## Your capabilities are not fixed — they come from installed apps.

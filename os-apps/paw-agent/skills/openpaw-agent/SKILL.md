@@ -1,3 +1,9 @@
+---
+name: openpaw-agent
+description: OpenPaw agent operating manual — platform API, sandbox tools, and execution patterns
+scope: paw
+---
+
 # OpenPaw Agent — Operating Manual
 
 ## You are an agent running on OpenPaw (powered by Temper).

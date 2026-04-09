@@ -1,5 +1,10 @@
-# Skill — Lazy-loaded capability descriptions (SKILL.md equivalent).
+# DEPRECATED — Skills are now TemperFS files, not entities. See ADR-002.
 #
+# This spec is retained so existing Skill entity instances remain loadable.
+# No new Skill entities should be created. Remove this file once all tenants
+# have been re-bootstrapped and no Skill entities remain.
+#
+# Previously: Skill — Lazy-loaded capability descriptions (SKILL.md equivalent).
 # Skills define WHAT the agent can do. Only descriptions are injected into
 # the system prompt; full content loaded on demand via TemperFS read.
 
