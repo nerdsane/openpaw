@@ -616,3 +616,112 @@ fn decode_entity(chars: &[char], i: usize) -> Option<(String, usize)> {
     };
     Some((decoded, advance))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn headings() {
+        let html = "<h1>Title</h1><h2>Subtitle</h2><h3>Section</h3>";
+        let md = html_to_markdown(html);
+        assert!(md.contains("# Title"), "h1: {md}");
+        assert!(md.contains("## Subtitle"), "h2: {md}");
+        assert!(md.contains("### Section"), "h3: {md}");
+    }
+
+    #[test]
+    fn links() {
+        let html = r#"<a href="https://example.com">Example</a>"#;
+        let md = html_to_markdown(html);
+        assert!(md.contains("[Example](https://example.com)"), "link: {md}");
+    }
+
+    #[test]
+    fn unordered_list() {
+        let html = "<ul><li>One</li><li>Two</li><li>Three</li></ul>";
+        let md = html_to_markdown(html);
+        assert!(md.contains("- One"), "ul item: {md}");
+        assert!(md.contains("- Two"), "ul item: {md}");
+    }
+
+    #[test]
+    fn ordered_list() {
+        let html = "<ol><li>First</li><li>Second</li></ol>";
+        let md = html_to_markdown(html);
+        assert!(md.contains("1. First"), "ol item: {md}");
+        assert!(md.contains("2. Second"), "ol item: {md}");
+    }
+
+    #[test]
+    fn bold_and_italic() {
+        let html = "<strong>bold</strong> and <em>italic</em>";
+        let md = html_to_markdown(html);
+        assert!(md.contains("**bold**"), "bold: {md}");
+        assert!(md.contains("*italic*"), "italic: {md}");
+    }
+
+    #[test]
+    fn inline_code() {
+        let html = "Use <code>println!</code> to print";
+        let md = html_to_markdown(html);
+        assert!(md.contains("`println!`"), "code: {md}");
+    }
+
+    #[test]
+    fn pre_block() {
+        let html = "<pre>fn main() {\n  println!(\"hi\");\n}</pre>";
+        let md = html_to_markdown(html);
+        assert!(md.contains("```"), "fenced: {md}");
+        assert!(md.contains("fn main()"), "content: {md}");
+    }
+
+    #[test]
+    fn blockquote() {
+        let html = "<blockquote>A wise saying</blockquote>";
+        let md = html_to_markdown(html);
+        assert!(md.contains("> A wise saying"), "bq: {md}");
+    }
+
+    #[test]
+    fn script_and_style_stripped() {
+        let html = "<p>Hello</p><script>alert('x')</script><style>.x{}</style><p>World</p>";
+        let md = html_to_markdown(html);
+        assert!(!md.contains("alert"), "script: {md}");
+        assert!(!md.contains(".x{"), "style: {md}");
+        assert!(md.contains("Hello"), "p1: {md}");
+        assert!(md.contains("World"), "p2: {md}");
+    }
+
+    #[test]
+    fn html_entities() {
+        let html = "&amp; &lt; &gt; &quot;";
+        let md = html_to_markdown(html);
+        assert!(md.contains("& < > \""), "entities: {md}");
+    }
+
+    #[test]
+    fn unknown_tags_stripped() {
+        let html = "<div><span>text</span></div>";
+        let md = html_to_markdown(html);
+        assert!(md.contains("text"), "content preserved: {md}");
+        assert!(!md.contains("<div>"), "div stripped: {md}");
+        assert!(!md.contains("<span>"), "span stripped: {md}");
+    }
+
+    #[test]
+    fn full_page() {
+        let html = r#"<html><head><title>Test</title></head><body>
+            <h2>API Reference</h2>
+            <ul>
+                <li><a href="/docs">Documentation</a></li>
+                <li><a href="/api">API</a></li>
+            </ul>
+            <p>Read the <strong>docs</strong> for more.</p>
+        </body></html>"#;
+        let md = html_to_markdown(html);
+        assert!(md.contains("## API Reference"), "heading: {md}");
+        assert!(md.contains("[Documentation](/docs)"), "link: {md}");
+        assert!(md.contains("**docs**"), "bold: {md}");
+    }
+}
