@@ -375,6 +375,9 @@ fn dispatch_temper(
                 ("x-temper-agent-type".into(), "agent".into()),
             ];
             let resp = ctx.http_call("POST", &url, &headers, &json!(body).to_string())?;
+            if let Some(denial) = check_cedar_denial(resp.status, &resp.body) {
+                return Err(denial);
+            }
             if resp.status >= 200 && resp.status < 300 {
                 Ok(json!({
                     "switched": true,
@@ -436,6 +439,9 @@ fn dispatch_temper(
                 ("x-temper-agent-type".into(), "agent".into()),
             ];
             let resp = ctx.http_call("POST", &url, &headers, &json!(body).to_string())?;
+            if let Some(denial) = check_cedar_denial(resp.status, &resp.body) {
+                return Err(denial);
+            }
             if resp.status >= 200 && resp.status < 300 {
                 Ok(json!({
                     "switched": true,
@@ -1328,7 +1334,7 @@ fn sandbox_bash(
     ctx: &Context,
     sandbox_url: &str,
     api_key: &str,
-    _workdir: &str,
+    workdir: &str,
     args: &[Value],
 ) -> Result<Value, String> {
     let command = str_arg(args, 0, "command", "bash")?;
@@ -1346,12 +1352,17 @@ fn sandbox_bash(
     let err_file = format!("/tmp/.paw-err-{unique}");
     let rc_file = format!("/tmp/.paw-rc-{unique}");
 
-    let wrapped = format!("({command}) > {out_file} 2> {err_file}; echo $? > {rc_file}");
+    // Prepend cd to set working directory — the Tensorlake processes API
+    // may ignore the `cwd` field, so we enforce it in the shell command.
+    let cwd = if workdir.is_empty() { "/home/tl-user" } else { workdir };
+    let wrapped = format!(
+        "mkdir -p {cwd} 2>/dev/null; cd {cwd} && ({command}) > {out_file} 2> {err_file}; echo $? > {rc_file}"
+    );
 
-    // Tensorlake API: command is binary path, args is separate array
     let body = json!({
         "command": "/bin/bash",
         "args": ["-c", &wrapped],
+        "cwd": cwd,
     });
     let resp = ctx.http_call(
         "POST",
@@ -1363,7 +1374,28 @@ fn sandbox_bash(
         return Err(format!("sandbox.bash(): start failed: {}", resp.body));
     }
 
-    // Process started — poll for output files to know when it's done.
+    // Poll for exit code file — indicates process completed.
+    // The rc_file is written last (after stdout/stderr), so its presence
+    // guarantees all output files exist. Network latency provides natural
+    // ~50-200ms backoff per attempt (same pattern as run_coding_agent).
+    let max_poll = 600;
+    for attempt in 0..max_poll {
+        let rc_resp = ctx.http_call(
+            "GET",
+            &format!("{sandbox_url}/api/v1/files?path={}", urlenc(&rc_file)),
+            &headers,
+            "",
+        );
+        match rc_resp {
+            Ok(r) if r.status < 400 && !r.body.trim().is_empty() => break,
+            _ => {}
+        }
+        if attempt == max_poll - 1 {
+            return Err("sandbox.bash(): command timed out waiting for completion".into());
+        }
+    }
+
+    // Process completed — read output files.
     let stdout = ctx
         .http_call(
             "GET",
@@ -1477,8 +1509,23 @@ fn runtime_headers(tenant: &str) -> Vec<(String, String)> {
 pub fn check_cedar_denial(status: u16, body: &str) -> Option<String> {
     if status == 403 {
         if let Ok(parsed) = serde_json::from_str::<Value>(body) {
+            // Direct decision_id field (e.g. from /api/authorize)
             if let Some(did) = parsed.get("decision_id").and_then(|v| v.as_str()) {
                 return Some(format!("CEDAR_DENIED:{}:{}", did, body));
+            }
+            // OData error format: {"error":{"message":"... (decision: PD-xxx)"}}
+            if let Some(msg) = parsed
+                .get("error")
+                .and_then(|e| e.get("message"))
+                .and_then(|m| m.as_str())
+            {
+                if let Some(start) = msg.find("(decision: ") {
+                    let after = &msg[start + "(decision: ".len()..];
+                    if let Some(end) = after.find(')') {
+                        let did = &after[..end];
+                        return Some(format!("CEDAR_DENIED:{}:{}", did, body));
+                    }
+                }
             }
         }
     }
