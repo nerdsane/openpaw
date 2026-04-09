@@ -2472,6 +2472,26 @@ fn parse_skill_frontmatter(content: &str) -> (String, String, String) {
     (name, description, scope)
 }
 
+/// Strip YAML or TOML frontmatter from skill content, returning the body after the closing delimiter.
+fn strip_skill_frontmatter(content: &str) -> &str {
+    if content.starts_with("---") {
+        if let Some(end_idx) = content[3..].find("\n---") {
+            let after = 3 + end_idx + 4; // skip past "\n---"
+            if after <= content.len() {
+                return content[after..].trim_start();
+            }
+        }
+    } else if content.starts_with("+++") {
+        if let Some(end_idx) = content[3..].find("\n+++") {
+            let after = 3 + end_idx + 4;
+            if after <= content.len() {
+                return content[after..].trim_start();
+            }
+        }
+    }
+    content
+}
+
 /// Load skills from TemperFS SKILL.md files as an XML block for the system prompt.
 ///
 /// Skills are discovered by path convention (ADR-002). Path = scope:
@@ -2540,9 +2560,10 @@ fn load_skills_block(
     }
 
     // Read each file's content, parse frontmatter for name + description.
-    // Tuple: (norm_key, scope_priority, name, desc, path)
+    // Tuple: (norm_key, scope_priority, name, desc, path, body)
     // scope_priority: 0 = agent (most specific), 1 = project, 2 = system (least specific)
-    let mut entries: Vec<(String, u8, String, String, String)> = Vec::new();
+    // body: full content (sans frontmatter) for system skills; empty for others (L0 only)
+    let mut entries: Vec<(String, u8, String, String, String, String)> = Vec::new();
 
     for (file_id, path) in &file_entries {
         let url = format!("{temper_api_url}/tdata/Files('{file_id}')/$value");
@@ -2564,7 +2585,14 @@ fn load_skills_block(
                     2
                 };
 
-                entries.push((normalize_skill_key(&name), scope_priority, name, fm_desc, path.clone()));
+                // System skills get fully injected; others stay L0 (name+desc only)
+                let body = if scope_priority == 2 {
+                    strip_skill_frontmatter(&resp.body).to_string()
+                } else {
+                    String::new()
+                };
+
+                entries.push((normalize_skill_key(&name), scope_priority, name, fm_desc, path.clone(), body));
             }
             Ok(_) => {} // silently skip empty or missing files
             Err(e) => ctx.log(
@@ -2582,16 +2610,28 @@ fn load_skills_block(
     entries.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)));
     let mut seen_names = BTreeSet::new();
     let mut xml = String::from("<available_skills>\n");
-    for (norm, _priority, name, desc, skill_path) in &entries {
+    for (norm, _priority, name, desc, skill_path, body) in &entries {
         if !seen_names.insert(norm.clone()) {
             continue;
         }
-        xml.push_str(&format!(
-            "  <skill name=\"{}\" description=\"{}\" path=\"{}\" />\n",
-            xml_escape(name),
-            xml_escape(desc),
-            xml_escape(skill_path),
-        ));
+        if body.is_empty() {
+            // L0: name + description + path only (project/agent-scoped skills)
+            xml.push_str(&format!(
+                "  <skill name=\"{}\" description=\"{}\" path=\"{}\" />\n",
+                xml_escape(name),
+                xml_escape(desc),
+                xml_escape(skill_path),
+            ));
+        } else {
+            // Full injection: system skills include their complete content
+            xml.push_str(&format!(
+                "  <skill name=\"{}\" description=\"{}\" path=\"{}\">\n{}\n  </skill>\n",
+                xml_escape(name),
+                xml_escape(desc),
+                xml_escape(skill_path),
+                body,
+            ));
+        }
     }
     xml.push_str("</available_skills>");
     Ok(xml)
@@ -2782,4 +2822,50 @@ fn resolve_temper_api_url(ctx: &Context, fields: &Value) -> String {
             },
         )
         .unwrap_or_else(|| "http://127.0.0.1:3000".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn strip_yaml_frontmatter_normal() {
+        let input = "---\nname: foo\ndescription: bar\n---\n# Body\nContent here";
+        assert_eq!(strip_skill_frontmatter(input), "# Body\nContent here");
+    }
+
+    #[test]
+    fn strip_yaml_frontmatter_no_body() {
+        let input = "---\nname: foo\n---";
+        assert_eq!(strip_skill_frontmatter(input), "");
+    }
+
+    #[test]
+    fn strip_yaml_frontmatter_trailing_newline_only() {
+        let input = "---\nname: foo\n---\n";
+        assert_eq!(strip_skill_frontmatter(input), "");
+    }
+
+    #[test]
+    fn strip_toml_frontmatter_normal() {
+        let input = "+++\nname = \"foo\"\n+++\n# Body";
+        assert_eq!(strip_skill_frontmatter(input), "# Body");
+    }
+
+    #[test]
+    fn strip_no_frontmatter() {
+        let input = "# Just a heading\nSome content";
+        assert_eq!(strip_skill_frontmatter(input), "# Just a heading\nSome content");
+    }
+
+    #[test]
+    fn strip_empty_string() {
+        assert_eq!(strip_skill_frontmatter(""), "");
+    }
+
+    #[test]
+    fn strip_frontmatter_with_blank_lines_before_body() {
+        let input = "---\nname: foo\n---\n\n\n# Body";
+        assert_eq!(strip_skill_frontmatter(input), "# Body");
+    }
 }

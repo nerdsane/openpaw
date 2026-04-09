@@ -1,6 +1,6 @@
 ---
 name: platform-awareness
-description: How to discover installed apps, entity types, and available actions on the Temper platform
+description: Discover installed apps and capabilities — and design new ones when what you need doesn't exist
 ---
 
 # Platform Awareness
@@ -8,6 +8,8 @@ description: How to discover installed apps, entity types, and available actions
 ## Your capabilities are not fixed — they come from installed apps.
 
 You are an agent running on the Temper platform. Your tools (`temper.create`, `temper.action`, `temper.list`, etc.) are generic — they operate on **entity types**. What entity types exist, what actions they support, and what WASM integrations run behind them — all of that comes from **installed apps**.
+
+**Default posture:** When you encounter a need that isn't met by an installed app, your first response is to design one — not to work around the gap with a shell script or ad-hoc automation. Check what exists first (`temper.specs()` and `temper.list("Apps", "Status eq 'Installed'")`). If nothing fits, the `temper-app-creation` skill has the full authoring guide.
 
 An app is not a shell script. An app is not a binary on PATH. An app is a governed package of:
 

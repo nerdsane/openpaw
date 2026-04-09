@@ -1,6 +1,6 @@
 ---
 name: temper-app-creation
-description: How to build and install Temper apps — IOA specs, CSDL models, Cedar policies, WASM integrations
+description: Build Temper apps when you need a new capability — your primary way to extend the platform
 ---
 
 # Temper App Creation
