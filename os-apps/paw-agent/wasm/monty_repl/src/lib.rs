@@ -342,6 +342,18 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                         }
                         combined.push_str(&expr_val);
                     }
+                    // If the dispatch function stored important output (e.g.
+                    // submit_specs success message), always surface it — even
+                    // if Python printed something, the dispatch message is the
+                    // authoritative result the LLM needs to see.
+                    if let Some(dispatch_msg) = dispatch::take_dispatch_output() {
+                        if combined.is_empty() {
+                            combined.push_str(&dispatch_msg);
+                        } else {
+                            combined.push('\n');
+                            combined.push_str(&dispatch_msg);
+                        }
+                    }
                     if combined.is_empty() {
                         combined.push_str("(no output)");
                     }

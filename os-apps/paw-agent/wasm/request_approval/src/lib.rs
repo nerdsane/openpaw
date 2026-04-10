@@ -214,7 +214,7 @@ fn register_gd_callback(
 
     // Dispatch RegisterCallback on the GovernanceDecision.
     let callback_url = format!(
-        "{temper_api_url}/tenants/temper-system/tdata/GovernanceDecisions('{gd_id}')/temper-system.RegisterCallbackGovernanceDecision"
+        "{temper_api_url}/tenants/temper-system/tdata/GovernanceDecisions('{gd_id}')/temper-system.RegisterCallback"
     );
     let callback_body = json!({
         "callback_tenant": tenant,
