@@ -35,6 +35,7 @@ pub struct SetupApiState {
 fn allowed_secret_keys() -> HashSet<&'static str> {
     [
         "anthropic_api_key",
+        "openai_api_key",
         "openai_codex_token",
         "openrouter_api_key",
         "discord_bot_token",
@@ -92,7 +93,12 @@ async fn get_setup_status(State(state): State<SetupApiState>) -> Json<SetupStatu
     let vault = state.platform.server.secrets_vault.as_ref();
 
     let has_anthropic_key = vault
-        .and_then(|v| v.get_secret(&state.tenant, "anthropic_api_key"))
+        .and_then(|v| {
+            v.get_secret(&state.tenant, "anthropic_api_key")
+                .or_else(|| v.get_secret(&state.tenant, "openai_api_key"))
+                .or_else(|| v.get_secret(&state.tenant, "openai_codex_token"))
+                .or_else(|| v.get_secret(&state.tenant, "openrouter_api_key"))
+        })
         .is_some();
     let has_discord = vault
         .and_then(|v| v.get_secret(&state.tenant, "discord_bot_token"))

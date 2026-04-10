@@ -39,6 +39,9 @@ pub struct Config {
     /// OpenRouter API key.
     pub openrouter_api_key: Option<String>,
 
+    /// OpenAI API key for standard API usage (sk-... from platform.openai.com/api-keys).
+    pub openai_api_key: Option<String>,
+
     /// OpenAI Codex OAuth token (JWT from ~/.codex/auth.json or OPENAI_CODEX_TOKEN env).
     pub openai_codex_token: Option<String>,
 
@@ -107,6 +110,22 @@ impl Config {
     pub fn from_env() -> anyhow::Result<Self> {
         let _ = dotenvy::dotenv();
 
+        let anthropic_api_key = optional_env("ANTHROPIC_API_KEY");
+        let openrouter_api_key = optional_env("OPENROUTER_API_KEY");
+        let openai_api_key = optional_env("OPENAI_API_KEY");
+        let openai_codex_token = optional_env("OPENAI_CODEX_TOKEN");
+        let llm_provider = optional_env("LLM_PROVIDER").or_else(|| {
+            if anthropic_api_key.is_some() {
+                Some("anthropic".to_string())
+            } else if openrouter_api_key.is_some() {
+                Some("openrouter".to_string())
+            } else if openai_api_key.is_some() || openai_codex_token.is_some() {
+                Some("openai".to_string())
+            } else {
+                None
+            }
+        });
+
         Ok(Self {
             discord_bot_token: optional_env("DISCORD_BOT_TOKEN"),
             discord_public_key: optional_env("DISCORD_PUBLIC_KEY"),
@@ -118,10 +137,11 @@ impl Config {
             slack_signing_secret: optional_env("SLACK_SIGNING_SECRET"),
             turso_url: optional_env("TURSO_URL"),
             turso_auth_token: optional_env("TURSO_AUTH_TOKEN"),
-            anthropic_api_key: optional_env("ANTHROPIC_API_KEY"),
-            openrouter_api_key: optional_env("OPENROUTER_API_KEY"),
-            openai_codex_token: optional_env("OPENAI_CODEX_TOKEN"),
-            llm_provider: optional_env("LLM_PROVIDER"),
+            anthropic_api_key,
+            openrouter_api_key,
+            openai_api_key,
+            openai_codex_token,
+            llm_provider,
             tensorlake_api_key: optional_env("TL_API_KEY"),
             github_token: optional_env("GITHUB_TOKEN"),
             dd_api_key: optional_env("DD_API_KEY"),
@@ -137,7 +157,7 @@ impl Config {
                 .map(|v| v != "false" && v != "0")
                 .unwrap_or(true),
             otel_endpoint: std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT")
-                .unwrap_or_else(|_| "http://localhost:4317".to_string()),
+                .unwrap_or_else(|_| "http://localhost:4318".to_string()),
             port: std::env::var("PORT")
                 .ok()
                 .and_then(|p| p.parse().ok())

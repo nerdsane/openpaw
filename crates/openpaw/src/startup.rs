@@ -113,6 +113,7 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
         .anthropic_api_key
         .clone()
         .or_else(|| config.openrouter_api_key.clone())
+        .or_else(|| config.openai_api_key.clone())
         .or_else(|| config.openai_codex_token.clone());
     let mut state = PlatformState::with_registry(registry, llm_api_key);
     state.api_token = config.temper_api_key.clone();
@@ -262,6 +263,13 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
             &tenant,
             "openrouter_api_key",
             config.openrouter_api_key
+        );
+        seed_secret!(
+            vault,
+            &turso_store,
+            &tenant,
+            "openai_api_key",
+            config.openai_api_key
         );
         seed_secret!(
             vault,
@@ -750,6 +758,7 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
             .and_then(|v| {
                 v.get_secret(&tenant, "anthropic_api_key")
                     .or_else(|| v.get_secret(&tenant, "openrouter_api_key"))
+                    .or_else(|| v.get_secret(&tenant, "openai_api_key"))
                     .or_else(|| v.get_secret(&tenant, "openai_codex_token"))
             })
             .is_some();
@@ -767,7 +776,7 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
         println!("  Dashboard: http://localhost:{actual_port}/dashboard");
         println!();
         if has_api_key {
-            println!("  \u{2713} Anthropic API key");
+            println!("  \u{2713} LLM API key");
         }
         if has_discord {
             println!("  \u{2713} Discord");
@@ -795,6 +804,7 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
             .and_then(|v| {
                 v.get_secret(&tenant, "anthropic_api_key")
                     .or_else(|| v.get_secret(&tenant, "openrouter_api_key"))
+                    .or_else(|| v.get_secret(&tenant, "openai_api_key"))
                     .or_else(|| v.get_secret(&tenant, "openai_codex_token"))
             })
             .unwrap_or_default();

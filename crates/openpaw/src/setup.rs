@@ -29,24 +29,19 @@ pub struct SetupResult {
 fn has_llm_credentials(config: &Config) -> bool {
     config.anthropic_api_key.is_some()
         || config.openrouter_api_key.is_some()
+        || config.openai_api_key.is_some()
         || config.openai_codex_token.is_some()
 }
 
-/// Returns `true` if config setup should run (API key or messaging missing).
+/// Returns `true` if config setup should run automatically during boot.
+///
+/// Messaging setup stays opt-in via `openpaw setup`; we only block startup when
+/// no usable LLM credentials are available.
 pub fn needs_setup(_data_dir: &Path, config: &Config) -> bool {
     if !std::io::stdin().is_terminal() {
         return false;
     }
-    let has_api_key = has_llm_credentials(config);
-    let has_discord = config.discord_bot_token.is_some()
-        && config.discord_public_key.is_some()
-        && crate::transport_manager::can_resolve_discord_public_endpoint(
-            config.public_base_url.as_deref(),
-            &config.ngrok_bin,
-        );
-    let has_messaging =
-        has_discord || (config.slack_app_token.is_some() && config.slack_bot_token.is_some());
-    !has_api_key || !has_messaging
+    !has_llm_credentials(config)
 }
 
 /// Phase A: Collect API key and messaging config (runs pre-boot).
@@ -482,8 +477,8 @@ pub fn merge_setup_into_config(config: &mut Config, setup: SetupResult) {
     if let Some(key) = setup.api_key {
         match setup.provider.as_deref() {
             Some("openai") => {
-                if config.openai_codex_token.is_none() {
-                    config.openai_codex_token = Some(key);
+                if config.openai_api_key.is_none() {
+                    config.openai_api_key = Some(key);
                 }
             }
             Some("openrouter") => {

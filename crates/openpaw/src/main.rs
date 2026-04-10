@@ -11,26 +11,6 @@ mod startup;
 mod transport_manager;
 
 use clap::{Parser, Subcommand};
-use opentelemetry::trace::TracerProvider;
-use opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge;
-use opentelemetry_otlp::WithExportConfig;
-use opentelemetry_sdk::logs::{
-    BatchConfigBuilder as LogBatchConfigBuilder, BatchLogProcessor, SdkLoggerProvider,
-};
-use opentelemetry_sdk::metrics::{PeriodicReader, SdkMeterProvider};
-use opentelemetry_sdk::trace::{
-    BatchConfigBuilder as SpanBatchConfigBuilder, BatchSpanProcessor, SdkTracerProvider,
-};
-use std::time::Duration;
-use tracing_subscriber::layer::SubscriberExt;
-use tracing_subscriber::util::SubscriberInitExt;
-
-const TRACE_BATCH_MAX_QUEUE_SIZE: usize = 2_048;
-const TRACE_BATCH_MAX_EXPORT_BATCH_SIZE: usize = 512;
-const TRACE_BATCH_SCHEDULE_DELAY_MS: u64 = 1_000;
-const LOG_BATCH_MAX_QUEUE_SIZE: usize = 2_048;
-const LOG_BATCH_MAX_EXPORT_BATCH_SIZE: usize = 512;
-const LOG_BATCH_SCHEDULE_DELAY_MS: u64 = 1_000;
 
 #[derive(Parser)]
 #[command(name = "openpaw", about = "Open Paw — agent platform")]
@@ -71,130 +51,40 @@ async fn main() -> anyhow::Result<()> {
     };
 
     // Build layered tracing subscriber
-    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| "info,openpaw=debug".into());
-
-    let fmt_layer = tracing_subscriber::fmt::layer();
-
-    let mut resource_attrs = vec![opentelemetry::KeyValue::new(
-        "service.name",
-        "openpaw".to_string(),
-    )];
-    if let Ok(environment) = std::env::var("DD_ENV") {
-        let environment = environment.trim();
-        if !environment.is_empty() {
-            resource_attrs.push(opentelemetry::KeyValue::new(
-                "deployment.environment.name",
-                environment.to_string(),
-            ));
+    if std::env::var_os("RUST_LOG").is_none() {
+        unsafe {
+            std::env::set_var("RUST_LOG", "info,openpaw=debug");
         }
     }
-    if let Ok(version) = std::env::var("DD_VERSION") {
-        let version = version.trim();
-        if !version.is_empty() {
-            resource_attrs.push(opentelemetry::KeyValue::new(
-                "service.version",
-                version.to_string(),
-            ));
+    if config.otel_enabled {
+        let has_explicit_endpoint = std::env::var_os("OTLP_ENDPOINT").is_some()
+            || std::env::var_os("OTEL_EXPORTER_OTLP_ENDPOINT").is_some();
+        if !has_explicit_endpoint {
+            unsafe {
+                std::env::set_var("OTEL_EXPORTER_OTLP_ENDPOINT", &config.otel_endpoint);
+            }
+        }
+    } else {
+        unsafe {
+            std::env::remove_var("OTLP_ENDPOINT");
+            std::env::remove_var("OTEL_EXPORTER_OTLP_ENDPOINT");
         }
     }
 
-    let _providers: Option<(SdkTracerProvider, SdkMeterProvider, SdkLoggerProvider)> =
-        if config.otel_enabled {
-            let resource = opentelemetry_sdk::Resource::builder_empty()
-                .with_attributes(resource_attrs)
-                .build();
-
-            // Trace exporter → Datadog Agent via OTLP gRPC
-            let span_exporter = opentelemetry_otlp::SpanExporter::builder()
-                .with_tonic()
-                .with_endpoint(&config.otel_endpoint)
-                .build()?;
-
-            let trace_batch_config = SpanBatchConfigBuilder::default()
-                .with_max_queue_size(TRACE_BATCH_MAX_QUEUE_SIZE)
-                .with_max_export_batch_size(TRACE_BATCH_MAX_EXPORT_BATCH_SIZE)
-                .with_scheduled_delay(Duration::from_millis(TRACE_BATCH_SCHEDULE_DELAY_MS))
-                .build();
-
-            let trace_batch_processor = BatchSpanProcessor::builder(span_exporter)
-                .with_batch_config(trace_batch_config)
-                .build();
-
-            let tracer_provider = SdkTracerProvider::builder()
-                .with_span_processor(trace_batch_processor)
-                .with_resource(resource.clone())
-                .build();
-
-            // Metrics exporter → Datadog Agent via OTLP gRPC
-            let metric_exporter = opentelemetry_otlp::MetricExporter::builder()
-                .with_tonic()
-                .with_endpoint(&config.otel_endpoint)
-                .build()?;
-
-            let metric_reader = PeriodicReader::builder(metric_exporter).build();
-
-            let meter_provider = SdkMeterProvider::builder()
-                .with_reader(metric_reader)
-                .with_resource(resource.clone())
-                .build();
-
-            opentelemetry::global::set_meter_provider(meter_provider.clone());
-
-            // Logs exporter → Datadog Agent via OTLP gRPC
-            let log_exporter = opentelemetry_otlp::LogExporter::builder()
-                .with_tonic()
-                .with_endpoint(&config.otel_endpoint)
-                .build()?;
-
-            let log_batch_config = LogBatchConfigBuilder::default()
-                .with_max_queue_size(LOG_BATCH_MAX_QUEUE_SIZE)
-                .with_max_export_batch_size(LOG_BATCH_MAX_EXPORT_BATCH_SIZE)
-                .with_scheduled_delay(Duration::from_millis(LOG_BATCH_SCHEDULE_DELAY_MS))
-                .build();
-
-            let log_batch_processor = BatchLogProcessor::builder(log_exporter)
-                .with_batch_config(log_batch_config)
-                .build();
-
-            let logger_provider = SdkLoggerProvider::builder()
-                .with_log_processor(log_batch_processor)
-                .with_resource(resource)
-                .build();
-
-            let otel_layer =
-                tracing_opentelemetry::layer().with_tracer(tracer_provider.tracer("openpaw"));
-            let otel_log_layer = OpenTelemetryTracingBridge::new(&logger_provider);
-
-            tracing_subscriber::registry()
-                .with(env_filter)
-                .with(fmt_layer)
-                .with(otel_layer)
-                .with(otel_log_layer)
-                .init();
-
-            tracing::info!(
-                "Open Paw starting (OpenTelemetry enabled → {})...",
-                config.otel_endpoint
-            );
-            Some((tracer_provider, meter_provider, logger_provider))
-        } else {
-            tracing_subscriber::registry()
-                .with(env_filter)
-                .with(fmt_layer)
-                .init();
-
-            tracing::info!("Open Paw starting...");
-            None
-        };
+    let otel_guard = temper_observe::otel::init_observability("openpaw");
+    if config.otel_enabled {
+        tracing::info!(
+            "Open Paw starting (OpenTelemetry enabled → {})...",
+            config.otel_endpoint
+        );
+    } else {
+        tracing::info!("Open Paw starting...");
+    }
 
     let result = startup::run(config, force_soul_setup).await;
 
-    // Flush pending spans on exit
-    if let Some((tracer_provider, meter_provider, logger_provider)) = _providers {
-        let _ = tracer_provider.shutdown();
-        let _ = meter_provider.shutdown();
-        let _ = logger_provider.shutdown();
+    if let Some(guard) = otel_guard {
+        guard.shutdown();
     }
 
     result

@@ -1,0 +1,75 @@
+extensions:
+  health_check:
+    endpoint: "0.0.0.0:13133"
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: "0.0.0.0:4317"
+      http:
+        endpoint: "0.0.0.0:4318"
+
+processors:
+  filter/traces_llmobs:
+    error_mode: ignore
+    traces:
+      span:
+        - 'attributes["gen_ai.system"] == nil'
+  filter/traces_apm:
+    error_mode: ignore
+    traces:
+      span:
+        - 'attributes["gen_ai.system"] != nil'
+  batch:
+    send_batch_size: 1000
+    timeout: 5s
+
+exporters:
+  clickhouse:
+    endpoint: tcp://clickhouse:9000?dial_timeout=10s&compress=lz4
+    database: default
+    username: default
+    password: ""
+    traces_table_name: otel_traces
+    metrics_table_name: otel_metrics
+    logs_table_name: otel_logs
+    ttl: 72h
+    create_schema: true
+    retry_on_failure:
+      enabled: true
+      initial_interval: 5s
+      max_interval: 30s
+      max_elapsed_time: 300s
+  datadog:
+    api:
+      key: ${env:DD_API_KEY}
+      site: ${env:DD_SITE}
+  otlphttp/llmobs:
+    endpoint: https://otlp-intake.${env:DD_SITE}
+    headers:
+      dd-api-key: ${env:DD_API_KEY}
+      dd-otlp-source: llmobs
+
+service:
+  extensions: [health_check]
+  telemetry:
+    logs:
+      level: info
+  pipelines:
+    traces/llmobs:
+      receivers: [otlp]
+      processors: [filter/traces_llmobs, batch]
+      exporters: [clickhouse, otlphttp/llmobs]
+    traces/apm:
+      receivers: [otlp]
+      processors: [filter/traces_apm, batch]
+      exporters: [clickhouse, datadog]
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [clickhouse, datadog]
+    logs:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [clickhouse, datadog]

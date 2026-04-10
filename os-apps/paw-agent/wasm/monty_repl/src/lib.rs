@@ -217,6 +217,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
 
         // Execute each tool call
         let mut tool_results: Vec<Value> = Vec::new();
+        let mut tool_span_events: Vec<Value> = Vec::new();
 
         for (i, call) in tool_calls.iter().enumerate() {
             let tool_id = call.get("id").and_then(|v| v.as_str()).unwrap_or("unknown");
@@ -256,7 +257,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             };
 
             // Drive the event loop (continues collecting print output)
-            let (result, returned_repl) = drive_repl_loop(
+            let (result, returned_repl, tool_events) = drive_repl_loop(
                 &ctx,
                 &temper_api_url,
                 tenant,
@@ -266,6 +267,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 &mut printed,
             );
             repl = returned_repl;
+            tool_span_events.extend(tool_events);
 
             // If lazy sandbox was provisioned during this tool call, update
             // sandbox_url for subsequent tool calls in this invocation (ADR-0022).
@@ -428,6 +430,9 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             params["sandbox_url"] = json!(url);
             params["sandbox_id"] = json!(id);
         }
+        if !tool_span_events.is_empty() {
+            params["_dd_llmobs_tool_spans"] = json!(tool_span_events);
+        }
 
         // Clear Cedar approval state after successful resume so the next
         // run_tools invocation doesn't erroneously re-enter resume mode.
@@ -580,8 +585,9 @@ fn drive_repl_loop(
     workdir: &str,
     mut progress: ReplProgress<LimitedTracker>,
     print_buf: &mut BoundedOutputCollector,
-) -> (Result<String, String>, MontyRepl<LimitedTracker>) {
+) -> (Result<String, String>, MontyRepl<LimitedTracker>, Vec<Value>) {
     let mut pending_results: BTreeMap<u32, ExtFunctionResult> = BTreeMap::new();
+    let mut tool_span_events = Vec::new();
 
     loop {
         match progress {
@@ -589,7 +595,7 @@ fn drive_repl_loop(
                 let json_value = convert::monty_object_to_json(&value);
                 let result = serde_json::to_string(&json_value)
                     .map_err(|e| format!("failed to serialize result: {e}"));
-                return (result, repl);
+                return (result, repl, tool_span_events);
             }
 
             ReplProgress::FunctionCall(call) => {
@@ -608,7 +614,7 @@ fn drive_repl_loop(
                             progress = p;
                             continue;
                         }
-                        Err(e) => return (Err(msg), e.repl),
+                        Err(e) => return (Err(msg), e.repl, tool_span_events),
                     }
                 }
 
@@ -622,6 +628,10 @@ fn drive_repl_loop(
                     .iter()
                     .map(|a| convert::monty_object_to_json(a))
                     .collect();
+                let tool_name = format!("{obj_name}.{fn_name}");
+                let tool_call_id = call.call_id.to_string();
+                let tool_arguments_json = serde_json::to_string(&json_args).unwrap_or_default();
+                let started_ms = Context::get_time_millis();
 
                 let result = dispatch::dispatch(
                     ctx,
@@ -633,6 +643,16 @@ fn drive_repl_loop(
                     &fn_name,
                     &json_args,
                 );
+                let duration_ms = (Context::get_time_millis() - started_ms).max(0) as u64;
+
+                tool_span_events.push(emit_tool_call_telemetry(
+                    ctx,
+                    &tool_name,
+                    &tool_call_id,
+                    &tool_arguments_json,
+                    &result,
+                    duration_ms,
+                ));
 
                 let ext_result = match result {
                     Ok(value) => ExtFunctionResult::Return(convert::json_to_monty_object(&value)),
@@ -647,7 +667,9 @@ fn drive_repl_loop(
                 let print = PrintWriter::Callback(print_buf);
                 match call.resume(ext_result, print) {
                     Ok(p) => progress = p,
-                    Err(e) => return (Err(format_monty_exception(&e.error)), e.repl),
+                    Err(e) => {
+                        return (Err(format_monty_exception(&e.error)), e.repl, tool_span_events);
+                    }
                 }
             }
 
@@ -662,7 +684,9 @@ fn drive_repl_loop(
                 let print = PrintWriter::Callback(print_buf);
                 match state.resume(ready, print) {
                     Ok(p) => progress = p,
-                    Err(e) => return (Err(format_monty_exception(&e.error)), e.repl),
+                    Err(e) => {
+                        return (Err(format_monty_exception(&e.error)), e.repl, tool_span_events);
+                    }
                 }
             }
 
@@ -670,7 +694,9 @@ fn drive_repl_loop(
                 let print = PrintWriter::Callback(print_buf);
                 match lookup.resume(monty::NameLookupResult::Undefined, print) {
                     Ok(p) => progress = p,
-                    Err(e) => return (Err(format_monty_exception(&e.error)), e.repl),
+                    Err(e) => {
+                        return (Err(format_monty_exception(&e.error)), e.repl, tool_span_events);
+                    }
                 }
             }
 
@@ -684,7 +710,9 @@ fn drive_repl_loop(
                 let print = PrintWriter::Callback(print_buf);
                 match os_call.resume(ext_result, print) {
                     Ok(p) => progress = p,
-                    Err(e) => return (Err(format_monty_exception(&e.error)), e.repl),
+                    Err(e) => {
+                        return (Err(format_monty_exception(&e.error)), e.repl, tool_span_events);
+                    }
                 }
             }
         }
@@ -755,6 +783,37 @@ fn make_tool_result(tool_id: &str, content: &str, is_error: bool) -> Value {
         "tool_use_id": tool_id,
         "content": content,
         "is_error": is_error,
+    })
+}
+
+fn emit_tool_call_telemetry(
+    ctx: &Context,
+    tool_name: &str,
+    tool_call_id: &str,
+    tool_arguments_json: &str,
+    result: &Result<Value, String>,
+    duration_ms: u64,
+) -> Value {
+    let success = result.is_ok();
+    let result_content = match result {
+        Ok(value) => truncate_output(&value.to_string()),
+        Err(message) => truncate_output(message),
+    };
+    let log_level = if success { "info" } else { "warn" };
+    ctx.log(
+        log_level,
+        &format!(
+            "tool dispatch complete tool_name={tool_name} tool_call_id={tool_call_id} duration_ms={duration_ms} success={success} result_preview={result_content}"
+        ),
+    );
+
+    json!({
+        "tool_name": tool_name,
+        "tool_call_id": tool_call_id,
+        "arguments": truncate_output(tool_arguments_json),
+        "result": result_content,
+        "duration_ms": duration_ms,
+        "is_error": !success,
     })
 }
 
