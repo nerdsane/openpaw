@@ -1167,7 +1167,7 @@ impl DiscordTransport {
                     }
                 };
 
-                let (success, status_line) = if is_approve {
+                let (_success, status_line) = if is_approve {
                     // Call the platform's decisions API to add a Cedar policy
                     let approve_url = format!(
                         "{base_url}/api/tenants/{tenant}/decisions/{decision_id_owned}/approve"
@@ -1216,66 +1216,8 @@ impl DiscordTransport {
                         .join("\n")
                 };
 
-                // After approve: find the agent waiting on this decision and resume it
-                if is_approve && success {
-                    // Find the agent with pending_decision_id matching this decision
-                    let filter = format!(
-                        "pending_decision_id eq '{decision_id_owned}' and Status eq 'WaitingForApproval'"
-                    );
-                    let agents_url = format!("{base_url}/tdata/Sessions?$filter={filter}&$top=1");
-                    if let Ok(agents_resp) = api.raw_get(&agents_url).await {
-                        if let Some(agent) = agents_resp
-                            .get("value")
-                            .and_then(|v| v.as_array())
-                            .and_then(|arr| arr.first())
-                        {
-                            let agent_id = agent
-                                .get("entity_id")
-                                .or_else(|| agent.get("fields").and_then(|f| f.get("Id")))
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("");
-                            if !agent_id.is_empty() {
-                                let resume_url = format!(
-                                    "{base_url}/tdata/Sessions('{agent_id}')/OpenPaw.ResumeAfterApproval"
-                                );
-                                match api.raw_post(&resume_url, serde_json::json!({})).await {
-                                    Ok(_) => println!(
-                                        "  [discord] Resumed agent {agent_id} after approval"
-                                    ),
-                                    Err(e) => eprintln!(
-                                        "  [discord] Failed to resume agent {agent_id}: {e}"
-                                    ),
-                                }
-                            }
-                        }
-                    }
-                } else if !is_approve && success {
-                    // After deny: fail the agent
-                    let filter = format!(
-                        "pending_decision_id eq '{decision_id_owned}' and Status eq 'WaitingForApproval'"
-                    );
-                    let agents_url = format!("{base_url}/tdata/Sessions?$filter={filter}&$top=1");
-                    if let Ok(agents_resp) = api.raw_get(&agents_url).await {
-                        if let Some(agent) = agents_resp
-                            .get("value")
-                            .and_then(|v| v.as_array())
-                            .and_then(|arr| arr.first())
-                        {
-                            let agent_id = agent
-                                .get("entity_id")
-                                .or_else(|| agent.get("fields").and_then(|f| f.get("Id")))
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("");
-                            if !agent_id.is_empty() {
-                                let fail_url =
-                                    format!("{base_url}/tdata/Sessions('{agent_id}')/OpenPaw.Fail");
-                                let _ = api.raw_post(&fail_url, serde_json::json!({
-                                    "error_message": "Action denied by human reviewer via Discord"
-                                })).await;
-                            }
-                        }
-                    }
-                }
+                // Session resume/fail is now handled by GovernanceDecision.DispatchCallback
+                // effect — no transport-level orchestration needed.
 
                 // Edit the Discord message to show result
                 if !app_id.is_empty() && !token.is_empty() {

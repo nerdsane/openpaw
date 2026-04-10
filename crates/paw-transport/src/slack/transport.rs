@@ -500,7 +500,7 @@ async fn handle_interactive(
     let tenant = api.config().tenant.clone();
     let is_approve = action_type == "approve";
 
-    let (success, status_line) = if is_approve {
+    let (_success, status_line) = if is_approve {
         let approve_url =
             format!("{base_url}/api/tenants/{tenant}/decisions/{decision_id}/approve");
         let scope = serde_json::json!({
@@ -527,47 +527,8 @@ async fn handle_interactive(
         }
     };
 
-    // Resume or fail the agent based on decision.
-    if success {
-        let filter =
-            format!("pending_decision_id eq '{decision_id}' and Status eq 'WaitingForApproval'");
-        let agents_url = format!("{base_url}/tdata/Sessions?$filter={filter}&$top=1");
-        if let Ok(agents_resp) = api.raw_get(&agents_url).await {
-            if let Some(agent) = agents_resp
-                .get("value")
-                .and_then(|v| v.as_array())
-                .and_then(|arr| arr.first())
-            {
-                let agent_id = agent
-                    .get("entity_id")
-                    .or_else(|| agent.get("fields").and_then(|f| f.get("Id")))
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
-                if !agent_id.is_empty() {
-                    if is_approve {
-                        let resume_url = format!(
-                            "{base_url}/tdata/Sessions('{agent_id}')/OpenPaw.ResumeAfterApproval"
-                        );
-                        match api.raw_post(&resume_url, serde_json::json!({})).await {
-                            Ok(_) => println!("  [slack] Resumed agent {agent_id} after approval"),
-                            Err(e) => eprintln!("  [slack] Failed to resume agent {agent_id}: {e}"),
-                        }
-                    } else {
-                        let fail_url =
-                            format!("{base_url}/tdata/Sessions('{agent_id}')/OpenPaw.Fail");
-                        let _ = api
-                            .raw_post(
-                                &fail_url,
-                                serde_json::json!({
-                                    "error_message": "Action denied by human reviewer via Slack"
-                                }),
-                            )
-                            .await;
-                    }
-                }
-            }
-        }
-    }
+    // Session resume/fail is now handled by GovernanceDecision.DispatchCallback
+    // effect — no transport-level orchestration needed.
 
     // Update the original message to show the decision result.
     let channel_id = interaction
