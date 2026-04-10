@@ -1026,6 +1026,7 @@ fn resolve_provider_api_key(ctx: &Context, provider: &str) -> Result<String, Str
             ctx.config.get("api_key").cloned(),
         ]),
         "openai" => first_non_empty(&[
+            ctx.config.get("openai_api_key").cloned(),
             ctx.config.get("openai_codex_token").cloned(),
             ctx.config.get("api_key").cloned(),
         ]),
