@@ -27,17 +27,17 @@ axum = { version = "0.8", features = ["macros"] }
 anyhow = "1"
 
 [patch."https://github.com/nerdsane/temper.git"]
-temper-authz = { path = "../temper-dd-observability/crates/temper-authz" }
-temper-jit = { path = "../temper-dd-observability/crates/temper-jit" }
-temper-macros = { path = "../temper-dd-observability/crates/temper-macros" }
-temper-odata = { path = "../temper-dd-observability/crates/temper-odata" }
-temper-observe = { path = "../temper-dd-observability/crates/temper-observe" }
-temper-platform = { path = "../temper-dd-observability/crates/temper-platform" }
-temper-runtime = { path = "../temper-dd-observability/crates/temper-runtime" }
-temper-sandbox = { path = "../temper-dd-observability/crates/temper-sandbox" }
-temper-server = { path = "../temper-dd-observability/crates/temper-server" }
-temper-spec = { path = "../temper-dd-observability/crates/temper-spec" }
-temper-store-postgres = { path = "../temper-dd-observability/crates/temper-store-postgres" }
-temper-store-redis = { path = "../temper-dd-observability/crates/temper-store-redis" }
-temper-store-turso = { path = "../temper-dd-observability/crates/temper-store-turso" }
-temper-wasm = { path = "../temper-dd-observability/crates/temper-wasm" }
+temper-authz = { path = "../temper/crates/temper-authz" }
+temper-jit = { path = "../temper/crates/temper-jit" }
+temper-macros = { path = "../temper/crates/temper-macros" }
+temper-odata = { path = "../temper/crates/temper-odata" }
+temper-observe = { path = "../temper/crates/temper-observe" }
+temper-platform = { path = "../temper/crates/temper-platform" }
+temper-runtime = { path = "../temper/crates/temper-runtime" }
+temper-sandbox = { path = "../temper/crates/temper-sandbox" }
+temper-server = { path = "../temper/crates/temper-server" }
+temper-spec = { path = "../temper/crates/temper-spec" }
+temper-store-postgres = { path = "../temper/crates/temper-store-postgres" }
+temper-store-redis = { path = "../temper/crates/temper-store-redis" }
+temper-store-turso = { path = "../temper/crates/temper-store-turso" }
+temper-wasm = { path = "../temper/crates/temper-wasm" }
