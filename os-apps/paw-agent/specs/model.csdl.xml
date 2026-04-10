@@ -38,6 +38,10 @@
         <Property Name="KeepRecentTokens" Type="Edm.String"/>
         <Property Name="CompactionCount" Type="Edm.Int64"/>
         <Property Name="CompactionModel" Type="Edm.String"/>
+        <Property Name="SystemPromptHash" Type="Edm.String"/>
+        <Property Name="SystemPromptFileId" Type="Edm.String"/>
+        <Property Name="GenAiParentTraceId" Type="Edm.String"/>
+        <Property Name="GenAiParentSpanId" Type="Edm.String"/>
         <Property Name="SteeringMessages" Type="Edm.String"/>
         <Property Name="FollowUpCount" Type="Edm.Int64"/>
         <Property Name="MaxFollowUps" Type="Edm.String"/>
@@ -52,6 +56,9 @@
         <Property Name="HeartbeatTimeoutSeconds" Type="Edm.String"/>
         <Property Name="PendingDecisionId" Type="Edm.String"/>
         <Property Name="PendingToolContext" Type="Edm.String"/>
+        <Property Name="SessionMode" Type="Edm.String"/>
+        <Property Name="PrePlanToolsEnabled" Type="Edm.String"/>
+        <Property Name="ActivePlanId" Type="Edm.String"/>
         <Property Name="ProjectHarnessId" Type="Edm.String"/>
         <Property Name="ProjectId" Type="Edm.String"/>
       </EntityType>
@@ -159,6 +166,7 @@
         <Parameter Name="file_manifest_id" Type="Edm.String" Nullable="true"/>
         <Parameter Name="session_file_id" Type="Edm.String" Nullable="true"/>
         <Parameter Name="session_leaf_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="session_mode" Type="Edm.String" Nullable="true"/>
         <ReturnType Type="OpenPaw.Session"/>
       </Action>
 
@@ -187,6 +195,10 @@
         <Parameter Name="output_tokens" Type="Edm.Int64" Nullable="true"/>
         <Parameter Name="session_leaf_id" Type="Edm.String" Nullable="true"/>
         <Parameter Name="context_tokens" Type="Edm.Int64" Nullable="true"/>
+        <Parameter Name="system_prompt_hash" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="system_prompt_file_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="gen_ai_parent_trace_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="gen_ai_parent_span_id" Type="Edm.String" Nullable="true"/>
         <ReturnType Type="OpenPaw.Session"/>
       </Action>
 
@@ -196,6 +208,10 @@
         <Parameter Name="conversation" Type="Edm.String" Nullable="true"/>
         <Parameter Name="session_leaf_id" Type="Edm.String" Nullable="true"/>
         <Parameter Name="repl_file_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="sandbox_url" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="sandbox_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="system_prompt_hash" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="system_prompt_file_id" Type="Edm.String" Nullable="true"/>
         <ReturnType Type="OpenPaw.Session"/>
       </Action>
 
@@ -203,6 +219,8 @@
         <Parameter Name="bindingParameter" Type="OpenPaw.Session"/>
         <Parameter Name="input_tokens" Type="Edm.Int64" Nullable="true"/>
         <Parameter Name="output_tokens" Type="Edm.Int64" Nullable="true"/>
+        <Parameter Name="system_prompt_hash" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="system_prompt_file_id" Type="Edm.String" Nullable="true"/>
         <ReturnType Type="OpenPaw.Session"/>
       </Action>
 
@@ -210,6 +228,8 @@
         <Parameter Name="bindingParameter" Type="OpenPaw.Session"/>
         <Parameter Name="session_leaf_id" Type="Edm.String" Nullable="true"/>
         <Parameter Name="context_tokens" Type="Edm.Int64" Nullable="true"/>
+        <Parameter Name="system_prompt_hash" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="system_prompt_file_id" Type="Edm.String" Nullable="true"/>
         <ReturnType Type="OpenPaw.Session"/>
       </Action>
 
@@ -219,6 +239,8 @@
         <Parameter Name="output_tokens" Type="Edm.Int64" Nullable="true"/>
         <Parameter Name="session_leaf_id" Type="Edm.String" Nullable="true"/>
         <Parameter Name="context_tokens" Type="Edm.Int64" Nullable="true"/>
+        <Parameter Name="system_prompt_hash" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="system_prompt_file_id" Type="Edm.String" Nullable="true"/>
         <ReturnType Type="OpenPaw.Session"/>
       </Action>
 
@@ -251,6 +273,30 @@
         <ReturnType Type="OpenPaw.Session"/>
       </Action>
 
+      <Action Name="SwitchMode" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Session"/>
+        <Parameter Name="session_mode" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="tools_enabled" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="pre_plan_tools_enabled" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="active_plan_id" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="OpenPaw.Session"/>
+      </Action>
+
+      <Action Name="PauseForPlanApproval" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Session"/>
+        <Parameter Name="active_plan_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="pending_tool_context" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="OpenPaw.Session"/>
+      </Action>
+
+      <Action Name="ResumeWithPlanApproval" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Session"/>
+        <Parameter Name="session_mode" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="tools_enabled" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="pre_plan_tools_enabled" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="OpenPaw.Session"/>
+      </Action>
+
       <Action Name="PauseForApproval" IsBound="true">
         <Parameter Name="bindingParameter" Type="OpenPaw.Session"/>
         <Parameter Name="pending_decision_id" Type="Edm.String" Nullable="true"/>
@@ -271,6 +317,8 @@
         <Parameter Name="output_tokens" Type="Edm.Int64" Nullable="true"/>
         <Parameter Name="session_leaf_id" Type="Edm.String" Nullable="true"/>
         <Parameter Name="repl_file_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="system_prompt_hash" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="system_prompt_file_id" Type="Edm.String" Nullable="true"/>
         <ReturnType Type="OpenPaw.Session"/>
       </Action>
 

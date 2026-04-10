@@ -186,6 +186,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
 
         // Execute each tool call
         let mut tool_results: Vec<Value> = Vec::new();
+        let mut tool_span_events: Vec<Value> = Vec::new();
 
         for call in &tool_calls {
             let tool_id = call.get("id").and_then(|v| v.as_str()).unwrap_or("unknown");
@@ -225,7 +226,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             };
 
             // Drive the event loop (continues collecting print output)
-            let (result, returned_repl) = drive_repl_loop(
+            let (result, returned_repl, tool_events) = drive_repl_loop(
                 &ctx,
                 &temper_api_url,
                 tenant,
@@ -235,6 +236,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 &mut printed,
             );
             repl = returned_repl;
+            tool_span_events.extend(tool_events);
 
             // If lazy sandbox was provisioned during this tool call, update
             // sandbox_url for subsequent tool calls in this invocation (ADR-0022).
@@ -334,6 +336,9 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         if let Some((url, id)) = dispatch::take_lazy_sandbox() {
             params["sandbox_url"] = json!(url);
             params["sandbox_id"] = json!(id);
+        }
+        if !tool_span_events.is_empty() {
+            params["_dd_llmobs_tool_spans"] = json!(tool_span_events);
         }
 
         if let Some(result_text) = done_result {
@@ -480,8 +485,9 @@ fn drive_repl_loop(
     workdir: &str,
     mut progress: ReplProgress<LimitedTracker>,
     print_buf: &mut BoundedOutputCollector,
-) -> (Result<String, String>, MontyRepl<LimitedTracker>) {
+) -> (Result<String, String>, MontyRepl<LimitedTracker>, Vec<Value>) {
     let mut pending_results: BTreeMap<u32, ExtFunctionResult> = BTreeMap::new();
+    let mut tool_span_events = Vec::new();
 
     loop {
         match progress {
@@ -489,7 +495,7 @@ fn drive_repl_loop(
                 let json_value = convert::monty_object_to_json(&value);
                 let result = serde_json::to_string(&json_value)
                     .map_err(|e| format!("failed to serialize result: {e}"));
-                return (result, repl);
+                return (result, repl, tool_span_events);
             }
 
             ReplProgress::FunctionCall(call) => {
@@ -508,7 +514,7 @@ fn drive_repl_loop(
                             progress = p;
                             continue;
                         }
-                        Err(e) => return (Err(msg), e.repl),
+                        Err(e) => return (Err(msg), e.repl, tool_span_events),
                     }
                 }
 
@@ -539,14 +545,14 @@ fn drive_repl_loop(
                 );
                 let duration_ms = (Context::get_time_millis() - started_ms).max(0) as u64;
 
-                emit_tool_call_telemetry(
+                tool_span_events.push(emit_tool_call_telemetry(
                     ctx,
                     &tool_name,
                     &tool_call_id,
                     &tool_arguments_json,
                     &result,
                     duration_ms,
-                );
+                ));
 
                 let ext_result = match result {
                     Ok(value) => ExtFunctionResult::Return(convert::json_to_monty_object(&value)),
@@ -561,7 +567,9 @@ fn drive_repl_loop(
                 let print = PrintWriter::Callback(print_buf);
                 match call.resume(ext_result, print) {
                     Ok(p) => progress = p,
-                    Err(e) => return (Err(format_monty_exception(&e.error)), e.repl),
+                    Err(e) => {
+                        return (Err(format_monty_exception(&e.error)), e.repl, tool_span_events);
+                    }
                 }
             }
 
@@ -576,7 +584,9 @@ fn drive_repl_loop(
                 let print = PrintWriter::Callback(print_buf);
                 match state.resume(ready, print) {
                     Ok(p) => progress = p,
-                    Err(e) => return (Err(format_monty_exception(&e.error)), e.repl),
+                    Err(e) => {
+                        return (Err(format_monty_exception(&e.error)), e.repl, tool_span_events);
+                    }
                 }
             }
 
@@ -584,7 +594,9 @@ fn drive_repl_loop(
                 let print = PrintWriter::Callback(print_buf);
                 match lookup.resume(monty::NameLookupResult::Undefined, print) {
                     Ok(p) => progress = p,
-                    Err(e) => return (Err(format_monty_exception(&e.error)), e.repl),
+                    Err(e) => {
+                        return (Err(format_monty_exception(&e.error)), e.repl, tool_span_events);
+                    }
                 }
             }
 
@@ -598,7 +610,9 @@ fn drive_repl_loop(
                 let print = PrintWriter::Callback(print_buf);
                 match os_call.resume(ext_result, print) {
                     Ok(p) => progress = p,
-                    Err(e) => return (Err(format_monty_exception(&e.error)), e.repl),
+                    Err(e) => {
+                        return (Err(format_monty_exception(&e.error)), e.repl, tool_span_events);
+                    }
                 }
             }
         }
@@ -679,79 +693,28 @@ fn emit_tool_call_telemetry(
     tool_arguments_json: &str,
     result: &Result<Value, String>,
     duration_ms: u64,
-) {
+) -> Value {
     let success = result.is_ok();
-    let fields = ctx.entity_state.get("fields").and_then(Value::as_object);
-    let provider = fields
-        .and_then(|value| value.get("provider"))
-        .and_then(Value::as_str)
-        .unwrap_or("unknown");
-    let parent_trace_id = fields
-        .and_then(|value| value.get("_gen_ai_parent_trace_id"))
-        .and_then(Value::as_str);
-    let parent_span_id = fields
-        .and_then(|value| value.get("_gen_ai_parent_span_id"))
-        .and_then(Value::as_str);
     let result_content = match result {
         Ok(value) => truncate_output(&value.to_string()),
         Err(message) => truncate_output(message),
     };
-
-    let mut attributes = serde_json::Map::from_iter([
-        ("gen_ai.tool.call.id".to_string(), json!(tool_call_id)),
-        (
-            "gen_ai.tool.call.arguments".to_string(),
-            json!(truncate_output(tool_arguments_json)),
-        ),
-        (
-            "gen_ai.tool.call.result".to_string(),
-            json!(result_content.clone()),
-        ),
-    ]);
-    if let Err(message) = result {
-        attributes.insert("error".to_string(), json!(message));
-        attributes.insert("error.type".to_string(), json!("tool_call_error"));
-    }
-    if let Some(parent_trace_id) = parent_trace_id {
-        attributes.insert("_otel.parent_trace_id".to_string(), json!(parent_trace_id));
-    }
-    if let Some(parent_span_id) = parent_span_id {
-        attributes.insert("_otel.parent_span_id".to_string(), json!(parent_span_id));
-    }
-
-    let tags = json!({
-        "gen_ai.system": provider,
-        "gen_ai.operation.name": "execute_tool",
-        "gen_ai.tool.name": tool_name,
-        "success": if success { "true" } else { "false" },
-    });
-    let attributes = Value::Object(attributes);
-    let measurements = json!({
-        "duration_ms": duration_ms as f64,
-        "invocation_count": 1.0,
-    });
-    let _ = ctx.emit_wide_event(
-        "ToolCall",
-        "execute_tool",
-        success,
-        duration_ms * 1_000_000,
-        &tags,
-        &attributes,
-        &measurements,
-    );
-
     let log_level = if success { "info" } else { "warn" };
-    let _ = ctx.log_structured(
+    ctx.log(
         log_level,
-        "tool dispatch complete",
-        &json!({
-            "tool_name": tool_name,
-            "tool_call_id": tool_call_id,
-            "duration_ms": duration_ms,
-            "success": success,
-            "result_preview": result_content,
-        }),
+        &format!(
+            "tool dispatch complete tool_name={tool_name} tool_call_id={tool_call_id} duration_ms={duration_ms} success={success} result_preview={result_content}"
+        ),
     );
+
+    json!({
+        "tool_name": tool_name,
+        "tool_call_id": tool_call_id,
+        "arguments": truncate_output(tool_arguments_json),
+        "result": result_content,
+        "duration_ms": duration_ms,
+        "is_error": !success,
+    })
 }
 
 fn base64_encode(data: &[u8]) -> String {
