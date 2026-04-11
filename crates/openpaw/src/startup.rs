@@ -68,6 +68,24 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
         force_soul_setup
     };
 
+    // Reserve the API listener before bootstrapping any app config that needs a local base URL.
+    // This gives us the real port up front and prevents other local helper processes from
+    // stealing the preferred port while startup is still seeding secrets and entity config.
+    tracing::info!("Phase 0.5: Reserving API listener...");
+    let listener = match tokio::net::TcpListener::bind(format!("0.0.0.0:{port}")).await {
+        Ok(l) => l,
+        Err(_) => {
+            tracing::warn!(port, "Port {port} in use — binding to a free port");
+            tokio::net::TcpListener::bind("0.0.0.0:0")
+                .await
+                .context("Failed to bind to any port")?
+        }
+    };
+    let actual_port = listener.local_addr()?.port();
+    if actual_port != port {
+        tracing::info!("Using port {actual_port} instead of {port}");
+    }
+
     // Phase 1: Storage backend (Turso)
     tracing::info!("Phase 1: Initializing storage...");
     let default_db_path = data_dir.join("paw.db");
@@ -433,7 +451,7 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
         }
 
         // temper_api_url — always set to local server
-        let api_url = format!("http://127.0.0.1:{port}");
+        let api_url = format!("http://127.0.0.1:{actual_port}");
         let _ = vault.cache_secret("default", "temper_api_url", api_url.clone());
         if tenant != "default" {
             let _ = vault.cache_secret(&tenant, "temper_api_url", api_url);
@@ -457,9 +475,7 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
             let provider = config.sandbox_provider.as_deref().unwrap_or("tensorlake");
             match provider {
                 "tensorlake" if config.tensorlake_api_key.is_some() => {
-                    tracing::info!(
-                        "Sandbox provider: tensorlake (API key configured)"
-                    );
+                    tracing::info!("Sandbox provider: tensorlake (API key configured)");
                 }
                 "modal" if config.modal_api_token.is_some() && config.modal_api_url.is_some() => {
                     tracing::info!(
@@ -476,7 +492,9 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
                     tracing::warn!("No TL_API_KEY or SANDBOX_URL — sandbox provisioning will fail");
                 }
                 other => {
-                    tracing::warn!("Unsupported SANDBOX_PROVIDER={other} — use 'tensorlake' or 'modal'");
+                    tracing::warn!(
+                        "Unsupported SANDBOX_PROVIDER={other} — use 'tensorlake' or 'modal'"
+                    );
                 }
             }
         }
@@ -490,7 +508,7 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
         let blob_endpoint = if let Ok(url) = std::env::var("BLOB_ENDPOINT") {
             url
         } else {
-            format!("http://127.0.0.1:{port}/_internal/blobs")
+            format!("http://127.0.0.1:{actual_port}/_internal/blobs")
         };
         let blob_bucket = std::env::var("BLOB_BUCKET").unwrap_or_else(|_| "temper-fs".into());
         let _ = vault.cache_secret("default", "blob_endpoint", blob_endpoint.clone());
@@ -638,41 +656,9 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
     // Phase 8: Banner (printed after bind so we show the actual port)
     tracing::info!("Phase 8: Bootstrap complete");
 
-    // Phase 9: Bind + start transports + serve
+    // Phase 9: Start transports + serve using the reserved listener
     tracing::info!("Phase 9: Starting server...");
-    let listener = match tokio::net::TcpListener::bind(format!("0.0.0.0:{port}")).await {
-        Ok(l) => l,
-        Err(_) => {
-            tracing::warn!(port, "Port {port} in use — binding to a free port");
-            tokio::net::TcpListener::bind("0.0.0.0:0")
-                .await
-                .context("Failed to bind to any port")?
-        }
-    };
-    let actual_port = listener.local_addr()?.port();
-    if actual_port != port {
-        tracing::info!("Using port {actual_port} instead of {port}");
-    }
     let _ = state.server.listen_port.set(actual_port);
-
-    // Update port-dependent secrets now that we know the actual port.
-    // These were set in Phase 5c using the *configured* port, which may differ
-    // if the preferred port was in use and we fell back.
-    if let Some(ref vault) = state.server.secrets_vault {
-        let api_url = format!("http://127.0.0.1:{actual_port}");
-        let _ = vault.cache_secret("default", "temper_api_url", api_url.clone());
-        if tenant != "default" {
-            let _ = vault.cache_secret(&tenant, "temper_api_url", api_url);
-        }
-        // Only override blob_endpoint if it was using the internal route (not an external S3 URL).
-        if std::env::var("BLOB_ENDPOINT").is_err() {
-            let blob_url = format!("http://127.0.0.1:{actual_port}/_internal/blobs");
-            let _ = vault.cache_secret("default", "blob_endpoint", blob_url.clone());
-            if tenant != "default" {
-                let _ = vault.cache_secret(&tenant, "blob_endpoint", blob_url);
-            }
-        }
-    }
 
     // Create transport manager for hot-connect/disconnect of Discord/Slack
     let transport_manager = Arc::new(crate::transport_manager::TransportManager::new(
@@ -1052,7 +1038,12 @@ fn spawn_soul_bootstrap(port: u16, tenant: String, api_key: Option<String>) {
         // Agent definitions: (name, role, description, soul_paths)
         // Agent is the primary entity. Soul is optional — attached to Agent by ID.
         let agents: Vec<(&str, &str, &str, Option<Vec<&str>>)> = vec![
-            ("Paw", "chief-of-staff", "Paw chief of staff agent", Some(paw_path_refs)),
+            (
+                "Paw",
+                "chief-of-staff",
+                "Paw chief of staff agent",
+                Some(paw_path_refs),
+            ),
             (
                 "SWE",
                 "developer",
@@ -1121,7 +1112,9 @@ fn spawn_soul_bootstrap(port: u16, tenant: String, api_key: Option<String>) {
                         {
                             tracing::warn!("  Could not attach soul to agent '{name}': {e}");
                         } else {
-                            tracing::info!("  Soul '{name}' ({soul_id}) attached to Agent {agent_id}");
+                            tracing::info!(
+                                "  Soul '{name}' ({soul_id}) attached to Agent {agent_id}"
+                            );
                         }
                     }
                     Err(e) => tracing::warn!("  Failed to bootstrap soul for '{name}': {e}"),
@@ -1354,7 +1347,9 @@ async fn set_default_agent(
         .as_array()
         .context("Failed to list active agents")?;
 
-    let target_agent = agents.first().context(format!("Agent '{agent_name}' not found"))?;
+    let target_agent = agents
+        .first()
+        .context(format!("Agent '{agent_name}' not found"))?;
     let target_agent_id = entity_id_from_json(target_agent)
         .context("Agent entity missing ID")?
         .to_string();
@@ -1414,7 +1409,9 @@ async fn set_default_agent(
 
     // Ensure a global fallback AgentRoute exists pointing to the Agent entity.
     if !has_global_route {
-        tracing::info!("  No global AgentRoute found — creating one with agent '{agent_name}' ({target_agent_id})");
+        tracing::info!(
+            "  No global AgentRoute found — creating one with agent '{agent_name}' ({target_agent_id})"
+        );
         let create_resp = odata_post(
             client,
             &format!("{api_url}/tdata/AgentRoutes"),
@@ -1443,7 +1440,9 @@ async fn set_default_agent(
                 )
                 .await
                 .ok();
-                tracing::info!("  Created global AgentRoute {route_id} with agent '{agent_name}' ({target_agent_id})");
+                tracing::info!(
+                    "  Created global AgentRoute {route_id} with agent '{agent_name}' ({target_agent_id})"
+                );
             }
         }
     }

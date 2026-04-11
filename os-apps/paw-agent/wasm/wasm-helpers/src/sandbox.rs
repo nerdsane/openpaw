@@ -6,6 +6,7 @@
 //! WASM-compatible throughout.
 
 use serde_json::{Value, json};
+use std::path::Path;
 use temper_wasm_sdk::context::Context;
 
 use crate::entity_field_str;
@@ -588,6 +589,16 @@ fn modal_file_write(
     path: &str,
     content: &str,
 ) -> Result<(), String> {
+    if let Some(parent) = Path::new(path)
+        .parent()
+        .and_then(|value| value.to_str())
+        .filter(|value| !value.is_empty() && *value != ".")
+    {
+        modal_ensure_dir(ctx, api_key, sandbox_id, parent).map_err(|e| {
+            format!("sandbox.write({path}): failed to create parent directory {parent}: {e}")
+        })?;
+    }
+
     let base = modal_base_url(ctx);
     let url = modal_url(&base, "file-write", api_key, "");
     let headers = vec![("content-type".to_string(), "application/json".to_string())];
@@ -617,6 +628,26 @@ fn modal_file_delete(
 }
 
 fn modal_exec(
+    ctx: &Context,
+    api_key: &str,
+    sandbox_id: &str,
+    command: &str,
+    workdir: &str,
+) -> Result<ExecResult, String> {
+    let effective_workdir = if workdir.trim().is_empty() { "/" } else { workdir };
+    modal_ensure_dir(ctx, api_key, sandbox_id, effective_workdir)
+        .map_err(|e| format!("sandbox.exec: failed to prepare workdir {effective_workdir}: {e}"))?;
+
+    let prepared_command = format!(
+        "cd {} && {}",
+        shell_single_quote(effective_workdir),
+        command
+    );
+
+    modal_exec_raw(ctx, api_key, sandbox_id, &prepared_command, "/")
+}
+
+fn modal_exec_raw(
     ctx: &Context,
     api_key: &str,
     sandbox_id: &str,
@@ -660,6 +691,38 @@ fn modal_exec(
             .and_then(|v| v.as_i64())
             .unwrap_or(-1),
     })
+}
+
+fn modal_ensure_dir(
+    ctx: &Context,
+    api_key: &str,
+    sandbox_id: &str,
+    dir: &str,
+) -> Result<(), String> {
+    let result = modal_exec_raw(
+        ctx,
+        api_key,
+        sandbox_id,
+        &format!("mkdir -p {}", shell_single_quote(dir)),
+        "/",
+    )?;
+    if result.exit_code != 0 {
+        let stderr = result.stderr.trim();
+        let detail = if stderr.is_empty() {
+            format!("exit {}", result.exit_code)
+        } else {
+            format!("exit {}: {}", result.exit_code, stderr)
+        };
+        return Err(detail);
+    }
+    Ok(())
+}
+
+fn shell_single_quote(value: &str) -> String {
+    if value.is_empty() {
+        return "''".to_string();
+    }
+    format!("'{}'", value.replace('\'', "'\"'\"'"))
 }
 
 // ===========================================================================
@@ -706,5 +769,12 @@ mod tests {
             "real"
         );
         assert_eq!(first_non_empty(&[None, None]), "");
+    }
+
+    #[test]
+    fn test_shell_single_quote() {
+        assert_eq!(shell_single_quote("/workspace"), "'/workspace'");
+        assert_eq!(shell_single_quote(""), "''");
+        assert_eq!(shell_single_quote("it's fine"), "'it'\"'\"'s fine'");
     }
 }

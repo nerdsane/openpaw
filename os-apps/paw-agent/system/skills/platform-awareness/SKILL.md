@@ -140,8 +140,12 @@ from = ["Active"]
 to = "Archived"
 """
 
-# 2. Submit the spec — registers the entity type
-temper.submit_specs({"bookmark.ioa.toml": spec})
+# 2. Submit the spec bundle — registers the entity type
+# submit_specs requires model.csdl.xml plus one or more *.ioa.toml files
+temper.submit_specs({
+    "model.csdl.xml": csdl_model,
+    "bookmark.ioa.toml": spec,
+})
 
 # 3. Create a Cedar policy — allow agents to use it
 temper.submit_policy("bookmark-access", '''
@@ -190,7 +194,7 @@ my-app/
 │   └── 001-initial-design.md
 ├── specs/
 │   ├── entity_name.ioa.toml  # one state machine per entity type
-│   └── model.csdl.xml        # OData data model (optional, for complex schemas)
+│   └── model.csdl.xml        # OData data model (required for submit_specs)
 ├── policies/
 │   └── entity_name.cedar     # Cedar access rules
 ├── wasm/

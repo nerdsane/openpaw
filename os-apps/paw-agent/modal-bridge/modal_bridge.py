@@ -10,6 +10,7 @@ Rust/WASM modules can interact with Modal sandboxes via standard HTTP.
 
 import modal
 import os
+import shlex
 from datetime import datetime
 
 app = modal.App("openpaw-sandbox-bridge")
@@ -40,6 +41,13 @@ def _err(msg: str, status: int = 400):
     return JSONResponse(content={"error": msg}, status_code=status)
 
 
+def _ensure_dir(sb, path: str):
+    target = path or "/"
+    result = sb.exec("mkdir", "-p", target)
+    result.wait()
+    return result
+
+
 @app.function(image=bridge_image, secrets=[modal.Secret.from_name("openpaw-bridge-auth")], timeout=600)
 @modal.concurrent(max_inputs=100)
 @modal.fastapi_endpoint(method="POST", label="openpaw-sandbox-bridge-create")
@@ -54,6 +62,7 @@ def create_sandbox(body: dict, authorization: str = ""):
         timeout=body.get("timeout_seconds", 3600),
         app=app,
     )
+    _ensure_dir(sb, "/workspace")
     return {"sandbox_id": sb.object_id, "status": "running", "created_at": datetime.utcnow().isoformat()}
 
 
@@ -103,10 +112,14 @@ def file_write(body: dict, authorization: str = ""):
     if not sb:
         return _err("sandbox not found", 404)
     try:
-        f = sb.open(body["path"], "w")
+        path = body["path"]
+        parent = os.path.dirname(path)
+        if parent:
+            _ensure_dir(sb, parent)
+        f = sb.open(path, "w")
         f.write(body["content"])
         f.close()
-        return {"ok": True, "path": body["path"]}
+        return {"ok": True, "path": path}
     except Exception as e:
         return _err(str(e), 500)
 
@@ -139,9 +152,10 @@ def exec_command(body: dict, authorization: str = ""):
     if not sb:
         return _err("sandbox not found", 404)
     try:
-        workdir = body.get("workdir", "/")
+        workdir = body.get("workdir", "/") or "/"
         command = body.get("command", "")
-        result = sb.exec("bash", "-c", f"cd {workdir} && {command}")
+        _ensure_dir(sb, workdir)
+        result = sb.exec("bash", "-lc", f"cd {shlex.quote(workdir)} && {command}")
         stdout = result.stdout.read()
         stderr = result.stderr.read()
         result.wait()

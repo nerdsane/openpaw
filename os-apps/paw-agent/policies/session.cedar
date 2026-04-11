@@ -90,7 +90,7 @@ permit(
 // Dispatched by Discord interaction handler after human clicks Approve.
 permit(
   principal,
-  action in [Action::"ResumeAfterApproval", Action::"ResumeWithPlanApproval"],
+  action in [Action::"ResumeAfterApproval", Action::"ResumeWithPlanApproval", Action::"ResumeWithPlanChanges"],
   resource is Session
 ) when {
   ["supervisor", "human", "system", "admin"].contains(principal.agent_type)
@@ -103,7 +103,7 @@ permit(
   action == Action::"http_call",
   resource is HttpEndpoint
 ) when {
-  ["agent_reply", "sandbox_provisioner", "workspace_provisioner", "llm_caller", "tool_runner", "monty_repl", "capability_installer", "workspace_restorer", "context_compactor", "steering_checker", "heartbeat_scan", "heartbeat_scheduler", "cron_scheduler_check", "cron_scheduler_heartbeat", "request_approval", "heartbeat_typing", "plan_approval_handler"].contains(context.module)
+  ["agent_reply", "sandbox_provisioner", "workspace_provisioner", "llm_caller", "tool_runner", "monty_repl", "capability_installer", "workspace_restorer", "context_compactor", "steering_checker", "heartbeat_scan", "heartbeat_scheduler", "cron_scheduler_check", "cron_scheduler_heartbeat", "request_approval", "request_plan_review", "heartbeat_typing", "plan_approval_handler", "plan_review_feedback_handler"].contains(context.module)
 };
 
 // Allow agent WASM modules to access secrets

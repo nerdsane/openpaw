@@ -711,7 +711,10 @@ impl DiscordTransport {
         send_typing(&self.http, &self.config.bot_token, &msg.channel_id).await;
         {
             let (cancel_tx, mut cancel_rx) = tokio::sync::watch::channel(false);
-            self.typing_cancels.write().await.insert(msg.author.id.clone(), cancel_tx);
+            self.typing_cancels
+                .write()
+                .await
+                .insert(msg.author.id.clone(), cancel_tx);
             let http = self.http.clone();
             let bot_token = self.config.bot_token.clone();
             let channel_id = msg.channel_id.clone();
@@ -994,7 +997,10 @@ impl DiscordTransport {
                 let task_text = data
                     .get("options")
                     .and_then(|v| v.as_array())
-                    .and_then(|opts| opts.iter().find(|o| o.get("name").and_then(|n| n.as_str()) == Some("task")))
+                    .and_then(|opts| {
+                        opts.iter()
+                            .find(|o| o.get("name").and_then(|n| n.as_str()) == Some("task"))
+                    })
                     .and_then(|o| o.get("value").and_then(|v| v.as_str()))
                     .unwrap_or("")
                     .to_string();
@@ -1005,7 +1011,9 @@ impl DiscordTransport {
                     .as_ref()
                     .map(|u| u.id.clone())
                     .or_else(|| {
-                        payload.member.as_ref()
+                        payload
+                            .member
+                            .as_ref()
                             .and_then(|m| m.get("user"))
                             .and_then(|u| u.get("id"))
                             .and_then(|id| id.as_str())
@@ -1016,7 +1024,11 @@ impl DiscordTransport {
                 // Store DM channel mapping for reply routing
                 let channel_id = payload.channel_id.clone().unwrap_or_default();
                 if !user_id.is_empty() && !channel_id.is_empty() {
-                    state.dm_channels.write().await.insert(user_id.clone(), channel_id);
+                    state
+                        .dm_channels
+                        .write()
+                        .await
+                        .insert(user_id.clone(), channel_id);
                 }
 
                 let entity_id = state.channel_entity_id.read().await.clone();
@@ -1042,7 +1054,11 @@ impl DiscordTransport {
                         "content": task_text,
                         "command": command,
                     });
-                    let preview = if task_text.len() > 80 { &task_text[..80] } else { &task_text };
+                    let preview = if task_text.len() > 80 {
+                        &task_text[..80]
+                    } else {
+                        &task_text
+                    };
                     println!("  [discord] /{command} from {user_id}: {preview}");
                     if let Err(e) = api
                         .dispatch_action(
@@ -1107,8 +1123,12 @@ impl DiscordTransport {
                 );
             }
 
-            let (action, decision_id) = (parts[0], parts[1]);
-            if action != "approve" && action != "deny" {
+            let (action, target_id) = (parts[0], parts[1]);
+            if action != "approve"
+                && action != "deny"
+                && action != "plan_approve"
+                && action != "plan_request_changes"
+            {
                 return (
                     axum::http::StatusCode::OK,
                     axum::Json(serde_json::json!({
@@ -1134,13 +1154,13 @@ impl DiscordTransport {
                 .unwrap_or("unknown")
                 .to_string();
 
-            println!("  [discord] Interaction: {action} decision {decision_id} by {reviewer_id}");
+            println!("  [discord] Interaction: {action} target {target_id} by {reviewer_id}");
 
             // Process via Temper's native decisions API asynchronously
             let api = state.api.clone();
-            let decision_id_owned = decision_id.to_string();
+            let target_id_owned = target_id.to_string();
+            let action_owned = action.to_string();
             let reviewer_id_owned = reviewer_id.clone();
-            let is_approve = action == "approve";
             let token = payload.token.clone();
             let app_id = payload.application_id.clone().unwrap_or_default();
             let http = state.http.clone();
@@ -1167,47 +1187,89 @@ impl DiscordTransport {
                     }
                 };
 
-                let (_success, status_line) = if is_approve {
-                    // Call the platform's decisions API to add a Cedar policy
-                    let approve_url = format!(
-                        "{base_url}/api/tenants/{tenant}/decisions/{decision_id_owned}/approve"
-                    );
-                    let scope = serde_json::json!({
-                        "scope": {
-                            "principal": "this_agent",
-                            "action": "this_action",
-                            "resource": "any_of_type",
-                            "duration": "always"
-                        },
-                        "decided_by": format!("discord:{reviewer_id_owned}")
-                    });
-                    match api.raw_post(&approve_url, scope).await {
-                        Ok(_) => (true, format!("Approved by <@{reviewer_id_owned}>")),
-                        Err(e) => (false, format!("Approval failed: {e}")),
+                let (_success, status_line) = match action_owned.as_str() {
+                    "approve" => {
+                        let approve_url = format!(
+                            "{base_url}/api/tenants/{tenant}/decisions/{target_id_owned}/approve"
+                        );
+                        let scope = serde_json::json!({
+                            "scope": {
+                                "principal": "this_agent",
+                                "action": "this_action",
+                                "resource": "any_of_type",
+                                "duration": "always"
+                            },
+                            "decided_by": format!("discord:{reviewer_id_owned}")
+                        });
+                        match api.raw_post(&approve_url, scope).await {
+                            Ok(_) => (true, format!("Approval recorded by <@{reviewer_id_owned}>")),
+                            Err(e) => (false, format!("Approval failed: {e}")),
+                        }
                     }
-                } else {
-                    // Deny the decision
-                    let deny_url = format!(
-                        "{base_url}/api/tenants/{tenant}/decisions/{decision_id_owned}/deny"
-                    );
-                    let deny_body = serde_json::json!({
-                        "decided_by": format!("discord:{reviewer_id_owned}")
-                    });
-                    match api.raw_post(&deny_url, deny_body).await {
-                        Ok(_) => (true, format!("Denied by <@{reviewer_id_owned}>")),
-                        Err(e) => (false, format!("Deny failed: {e}")),
+                    "deny" => {
+                        let deny_url = format!(
+                            "{base_url}/api/tenants/{tenant}/decisions/{target_id_owned}/deny"
+                        );
+                        let deny_body = serde_json::json!({
+                            "decided_by": format!("discord:{reviewer_id_owned}")
+                        });
+                        match api.raw_post(&deny_url, deny_body).await {
+                            Ok(_) => (true, format!("Denial recorded by <@{reviewer_id_owned}>")),
+                            Err(e) => (false, format!("Deny failed: {e}")),
+                        }
                     }
+                    "plan_approve" => match api
+                        .dispatch_action(
+                            "Plans",
+                            &target_id_owned,
+                            "OpenPaw.Approve",
+                            serde_json::json!({}),
+                        )
+                        .await
+                    {
+                        Ok(_) => (true, format!("Plan approved by <@{reviewer_id_owned}>")),
+                        Err(e) => (false, format!("Plan approval failed: {e}")),
+                    },
+                    "plan_request_changes" => {
+                        let review_notes = format!(
+                            "Changes requested by discord:{reviewer_id_owned}. Review the plan, revise it, and resubmit for approval."
+                        );
+                        match api
+                            .dispatch_action(
+                                "Plans",
+                                &target_id_owned,
+                                "OpenPaw.RequestChanges",
+                                serde_json::json!({ "review_notes": review_notes }),
+                            )
+                            .await
+                        {
+                            Ok(_) => (
+                                true,
+                                format!(
+                                    "Plan changes requested by <@{reviewer_id_owned}>. Additional details can be sent in-thread."
+                                ),
+                            ),
+                            Err(e) => (false, format!("Request changes failed: {e}")),
+                        }
+                    }
+                    _ => (false, "Unknown action.".to_string()),
                 };
 
                 // Build the updated message: original context + decision result
                 let message = if original_content.is_empty() {
                     status_line
                 } else {
-                    // Replace "Permission Required" header with the result
-                    let updated = original_content.replace(
-                        "**Permission Required**",
-                        &format!("~~Permission Required~~ **{status_line}**"),
-                    );
+                    let updated = if original_content.contains("**Plan Review Required**") {
+                        original_content.replace(
+                            "**Plan Review Required**",
+                            &format!("~~Plan Review Required~~ **{status_line}**"),
+                        )
+                    } else {
+                        original_content.replace(
+                            "**Permission Required**",
+                            &format!("~~Permission Required~~ **{status_line}**"),
+                        )
+                    };
                     // Remove the "Click a button" instruction line if present
                     updated
                         .lines()

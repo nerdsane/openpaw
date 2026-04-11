@@ -649,9 +649,18 @@ fn temper_submit_specs(
     args: &[Value],
 ) -> Result<Value, String> {
     let specs = obj_arg(args, 0, "specs", "submit_specs")?;
-    let spec_names: Vec<String> = specs.as_object()
+    let spec_names: Vec<String> = specs
+        .as_object()
         .map(|o| o.keys().cloned().collect())
         .unwrap_or_default();
+    let has_model = has_model_csdl(&spec_names);
+    if !has_model {
+        return Err(
+            "temper.submit_specs requires a spec bundle containing model.csdl.xml. \
+             Include model.csdl.xml plus one or more *.ioa.toml files; nested paths are allowed."
+                .to_string(),
+        );
+    }
     let body = json!({ "tenant": tenant, "specs": specs });
     let result = http_post(ctx, api_url, tenant, "/api/specs/load-inline", &body)?;
     // Surface the outcome via dispatch output so the LLM sees it even
@@ -668,6 +677,12 @@ fn temper_submit_specs(
         "message": msg,
         "specs_submitted": spec_names,
     }))
+}
+
+fn has_model_csdl(spec_names: &[String]) -> bool {
+    spec_names
+        .iter()
+        .any(|name| name == "model.csdl.xml" || name.ends_with("/model.csdl.xml"))
 }
 
 fn temper_show_spec(
@@ -1431,4 +1446,27 @@ fn http_delete(ctx: &Context, api_url: &str, tenant: &str, path: &str) -> Result
     }
     serde_json::from_str(&resp.body)
         .map_err(|e| format!("failed to parse response from {path}: {e}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::has_model_csdl;
+
+    #[test]
+    fn detects_model_csdl_at_root() {
+        assert!(has_model_csdl(&["model.csdl.xml".to_string()]));
+    }
+
+    #[test]
+    fn detects_model_csdl_in_nested_bundle() {
+        assert!(has_model_csdl(&[
+            "InlineProbe/model.csdl.xml".to_string(),
+            "InlineProbe/order.ioa.toml".to_string(),
+        ]));
+    }
+
+    #[test]
+    fn rejects_bundle_without_model_csdl() {
+        assert!(!has_model_csdl(&["bookmark.ioa.toml".to_string()]));
+    }
 }

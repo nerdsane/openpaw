@@ -61,6 +61,9 @@
         <Property Name="ActivePlanId" Type="Edm.String"/>
         <Property Name="ProjectHarnessId" Type="Edm.String"/>
         <Property Name="ProjectId" Type="Edm.String"/>
+        <Property Name="SessionMode" Type="Edm.String"/>
+        <Property Name="PrePlanToolsEnabled" Type="Edm.String"/>
+        <Property Name="ActivePlanId" Type="Edm.String"/>
       </EntityType>
 
       <EntityType Name="Soul">
@@ -297,6 +300,12 @@
         <ReturnType Type="OpenPaw.Session"/>
       </Action>
 
+      <Action Name="ResumeWithPlanChanges" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Session"/>
+        <Parameter Name="session_leaf_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="conversation" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="OpenPaw.Session"/>
+      </Action>
       <Action Name="PauseForApproval" IsBound="true">
         <Parameter Name="bindingParameter" Type="OpenPaw.Session"/>
         <Parameter Name="pending_decision_id" Type="Edm.String" Nullable="true"/>
@@ -671,6 +680,42 @@
         <Property Name="TaskCount" Type="Edm.Int64"/>
         <Property Name="SessionId" Type="Edm.String"/>
       </EntityType>
+
+      <Action Name="UpdatePlan" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Plan"/>
+        <Parameter Name="plan_file_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="plan_text" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="description" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="OpenPaw.Plan"/>
+      </Action>
+
+      <Action Name="AddExplorationNote" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Plan"/>
+        <Parameter Name="exploration_file_id" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="OpenPaw.Plan"/>
+      </Action>
+
+      <Action Name="SubmitForReview" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Plan"/>
+        <Parameter Name="reviewer_agent_id" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="OpenPaw.Plan"/>
+      </Action>
+
+      <Action Name="Approve" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Plan"/>
+        <ReturnType Type="OpenPaw.Plan"/>
+      </Action>
+
+      <Action Name="RequestChanges" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Plan"/>
+        <Parameter Name="review_notes" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="OpenPaw.Plan"/>
+      </Action>
+
+      <Action Name="Escalate" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Plan"/>
+        <ReturnType Type="OpenPaw.Plan"/>
+      </Action>
 
       <EntityContainer Name="Service">
         <EntitySet Name="Sessions" EntityType="OpenPaw.Session"/>

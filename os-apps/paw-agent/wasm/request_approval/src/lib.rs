@@ -1,13 +1,19 @@
-//! notify_approval_needed WASM — sends Discord buttons when an agent
+//! notify_approval_needed WASM — sends approval controls when an agent
 //! is paused for Cedar approval.
 //!
 //! Triggered by Agent.PauseForApproval. Reads the pending_decision_id
-//! from the agent's state, finds the Discord channel via ChannelSession,
-//! and posts an Approve/Deny button message using the platform's
-//! decision ID (PD-xxx).
+//! from the agent's state, registers the GovernanceDecision callback,
+//! and then tries to notify the human through the bound channel session.
+//!
+//! Notification is best-effort only after callback registration succeeds.
+//! A session without a channel binding must still be able to wait for
+//! approval via the dashboard or API.
 
 use temper_wasm_sdk::prelude::*;
-use wasm_helpers::{entity_field_str, resolve_temper_api_url, runtime_headers};
+use wasm_helpers::{
+    entity_field_str, find_channel_session_by_agent, find_connected_channel_by_external_id,
+    resolve_temper_api_url,
+};
 
 #[unsafe(no_mangle)]
 pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
@@ -23,15 +29,15 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         // Use the persistent Agent entity ID from Session fields, not the Session's own ID.
         // ChannelSessions store agent_entity_id = aj-..., not ss-...
         let session_id = ctx.entity_id.as_str();
-        let agent_id = entity_field_str(&fields, &["agent_id", "AgentId"])
-            .unwrap_or(session_id);
+        let agent_id = entity_field_str(&fields, &["agent_id", "AgentId"]).unwrap_or(session_id);
         let parent_session_id =
             entity_field_str(&fields, &["parent_session_id", "ParentSessionId"]).unwrap_or("");
+        let active_plan_id =
+            entity_field_str(&fields, &["active_plan_id", "ActivePlanId"]).unwrap_or("");
 
         // Read decision context from agent state
         let decision_id =
-            entity_field_str(&fields, &["pending_decision_id", "PendingDecisionId"])
-                .unwrap_or("");
+            entity_field_str(&fields, &["pending_decision_id", "PendingDecisionId"]).unwrap_or("");
         let tool_context_str =
             entity_field_str(&fields, &["pending_tool_context", "PendingToolContext"])
                 .unwrap_or("{}");
@@ -48,22 +54,51 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         let action_desc = action_method;
 
         if decision_id.is_empty() {
-            ctx.log("warn", "notify_approval: no pending_decision_id, skipping");
-            return Ok(());
+            if !active_plan_id.is_empty() {
+                ctx.log(
+                    "info",
+                    &format!(
+                        "notify_approval: active_plan_id={active_plan_id} with no pending_decision_id; skipping governance callback registration"
+                    ),
+                );
+                set_success_result(
+                    "",
+                    &json!({
+                        "status": "skipped",
+                        "reason": "plan_review_notification_not_handled_here",
+                        "active_plan_id": active_plan_id,
+                    }),
+                );
+                return Ok(());
+            }
+
+            return Err("notify_approval: missing pending_decision_id".to_string());
         }
 
-        // Find the ChannelSession for this agent
-        let session = find_session_by_agent(
-            &ctx,
-            &temper_api_url,
-            tenant,
-            agent_id,
-            parent_session_id,
-        )?;
+        // Register callback before notifying humans so an approval click cannot
+        // outpace callback wiring and strand the waiting session.
+        register_gd_callback(&ctx, &temper_api_url, tenant, session_id, decision_id)?;
+
+        // Find the ChannelSession for this agent. Sessions without a channel
+        // binding can still be approved via dashboard/API, so do not fail the
+        // paused session if transport delivery is unavailable.
+        let session =
+            find_session_by_agent(&ctx, &temper_api_url, tenant, agent_id, parent_session_id)?;
         let Some((session, bound_agent_id)) = session else {
             ctx.log(
                 "warn",
-                &format!("notify_approval: no channel session for agent {agent_id}, skipping"),
+                &format!(
+                    "notify_approval: no channel session for agent {agent_id}; decision {decision_id} awaiting out-of-band approval"
+                ),
+            );
+            set_success_result(
+                "",
+                &json!({
+                    "status": "waiting_for_out_of_band_approval",
+                    "decision_id": decision_id,
+                    "delivery": "skipped",
+                    "reason": "no_channel_session",
+                }),
             );
             return Ok(());
         };
@@ -76,23 +111,66 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             );
         }
 
-        let channel_id =
-            entity_field_str(&session, &["ChannelId", "channel_id"]).unwrap_or("");
-        let thread_id =
-            entity_field_str(&session, &["ThreadId", "thread_id"]).unwrap_or("");
+        let channel_id = entity_field_str(&session, &["ChannelId", "channel_id"]).unwrap_or("");
+        let thread_id = entity_field_str(&session, &["ThreadId", "thread_id"]).unwrap_or("");
         if channel_id.is_empty() || thread_id.is_empty() {
-            return Err("notify_approval: session missing channel_id or thread_id".to_string());
+            ctx.log(
+                "warn",
+                &format!(
+                    "notify_approval: session missing channel_id or thread_id for agent {agent_id}; decision {decision_id} awaiting out-of-band approval"
+                ),
+            );
+            set_success_result(
+                "",
+                &json!({
+                    "status": "waiting_for_out_of_band_approval",
+                    "decision_id": decision_id,
+                    "delivery": "skipped",
+                    "reason": "missing_channel_binding",
+                }),
+            );
+            return Ok(());
         }
 
         // Find the Channel entity to get the webhook_url
-        let channel = find_channel_by_external_id(&ctx, &temper_api_url, tenant, channel_id)?
-            .ok_or_else(|| {
-                format!("notify_approval: no connected Channel for channel_id={channel_id}")
-            })?;
-        let webhook_url =
-            entity_field_str(&channel, &["webhook_url", "WebhookUrl"]).unwrap_or("");
+        let Some(channel) =
+            find_connected_channel_by_external_id(&ctx, &temper_api_url, tenant, channel_id)?
+        else {
+            ctx.log(
+                "warn",
+                &format!(
+                    "notify_approval: no connected Channel for channel_id={channel_id}; decision {decision_id} awaiting out-of-band approval"
+                ),
+            );
+            set_success_result(
+                "",
+                &json!({
+                    "status": "waiting_for_out_of_band_approval",
+                    "decision_id": decision_id,
+                    "delivery": "skipped",
+                    "reason": "channel_not_connected",
+                }),
+            );
+            return Ok(());
+        };
+        let webhook_url = entity_field_str(&channel, &["webhook_url", "WebhookUrl"]).unwrap_or("");
         if webhook_url.is_empty() {
-            return Err("notify_approval: Channel has no webhook_url".to_string());
+            ctx.log(
+                "warn",
+                &format!(
+                    "notify_approval: Channel has no webhook_url for channel_id={channel_id}; decision {decision_id} awaiting out-of-band approval"
+                ),
+            );
+            set_success_result(
+                "",
+                &json!({
+                    "status": "waiting_for_out_of_band_approval",
+                    "decision_id": decision_id,
+                    "delivery": "skipped",
+                    "reason": "missing_webhook_url",
+                }),
+            );
+            return Ok(());
         }
 
         // Build the approval message with buttons.
@@ -123,7 +201,40 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                         "custom_id": format!("deny:{decision_id}")
                     }
                 ]
-            }]
+            }],
+            "blocks": [
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": content,
+                    }
+                },
+                {
+                    "type": "actions",
+                    "block_id": format!("decision_{decision_id}"),
+                    "elements": [
+                        {
+                            "type": "button",
+                            "text": {
+                                "type": "plain_text",
+                                "text": "Approve"
+                            },
+                            "action_id": format!("approve:{decision_id}"),
+                            "style": "primary"
+                        },
+                        {
+                            "type": "button",
+                            "text": {
+                                "type": "plain_text",
+                                "text": "Deny"
+                            },
+                            "action_id": format!("deny:{decision_id}"),
+                            "style": "danger"
+                        }
+                    ]
+                }
+            ]
         });
 
         let headers = vec![
@@ -133,11 +244,22 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
 
         let resp = ctx.http_call("POST", webhook_url, &headers, &body.to_string())?;
         if !(200..300).contains(&resp.status) {
-            return Err(format!(
+            let failure = format!(
                 "notify_approval: webhook POST failed (HTTP {}): {}",
                 resp.status,
                 &resp.body[..resp.body.len().min(200)]
-            ));
+            );
+            ctx.log("warn", &failure);
+            set_success_result(
+                "",
+                &json!({
+                    "status": "waiting_for_out_of_band_approval",
+                    "decision_id": decision_id,
+                    "delivery": "failed",
+                    "error": failure,
+                }),
+            );
+            return Ok(());
         }
 
         ctx.log(
@@ -147,15 +269,10 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             ),
         );
 
-        // Register callback on the linked GovernanceDecision entity so that
-        // when a human approves/denies, the GD dispatches back to this Session.
-        if let Err(e) = register_gd_callback(
-            &ctx, &temper_api_url, tenant, session_id, decision_id,
-        ) {
-            ctx.log("warn", &format!("notify_approval: GD callback registration failed: {e}"));
-        }
-
-        set_success_result("", &json!({"status": "notified", "decision_id": decision_id}));
+        set_success_result(
+            "",
+            &json!({"status": "notified", "decision_id": decision_id}),
+        );
         Ok(())
     })();
 
@@ -191,17 +308,15 @@ fn register_gd_callback(
     if resp.status != 200 {
         return Err(format!("GD query failed (HTTP {})", resp.status));
     }
-    let parsed: Value =
-        serde_json::from_str(&resp.body).unwrap_or_else(|_| json!({"value": []}));
+    let parsed: Value = serde_json::from_str(&resp.body).unwrap_or_else(|_| json!({"value": []}));
     let gd = parsed
         .get("value")
         .and_then(Value::as_array)
         .and_then(|arr| arr.first());
     let Some(gd) = gd else {
-        ctx.log("info", &format!(
-            "notify_approval: no GovernanceDecision found for {decision_id}, callback skipped"
+        return Err(format!(
+            "notify_approval: no GovernanceDecision found for pending_decision_id={decision_id}"
         ));
-        return Ok(());
     };
 
     let gd_id = gd
@@ -230,7 +345,12 @@ fn register_gd_callback(
         ("x-temper-principal-kind".to_string(), "admin".to_string()),
     ];
 
-    let resp = ctx.http_call("POST", &callback_url, &post_headers, &callback_body.to_string())?;
+    let resp = ctx.http_call(
+        "POST",
+        &callback_url,
+        &post_headers,
+        &callback_body.to_string(),
+    )?;
     if !(200..300).contains(&resp.status) {
         return Err(format!(
             "RegisterCallback failed (HTTP {}): {}",
@@ -239,9 +359,10 @@ fn register_gd_callback(
         ));
     }
 
-    ctx.log("info", &format!(
-        "notify_approval: registered callback on GD {gd_id} → Sessions('{session_id}')"
-    ));
+    ctx.log(
+        "info",
+        &format!("notify_approval: registered callback on GD {gd_id} → Sessions('{session_id}')"),
+    );
     Ok(())
 }
 
@@ -252,68 +373,18 @@ fn find_session_by_agent(
     agent_id: &str,
     parent_session_id: &str,
 ) -> Result<Option<(Value, String)>, String> {
-    if let Some(session) = find_session_for_binding(ctx, temper_api_url, tenant, agent_id)? {
+    if let Some(session) = find_channel_session_by_agent(ctx, temper_api_url, tenant, agent_id)? {
         return Ok(Some((session, agent_id.to_string())));
     }
 
     let parent_session_id = parent_session_id.trim();
     if !parent_session_id.is_empty() && parent_session_id != agent_id {
         if let Some(session) =
-            find_session_for_binding(ctx, temper_api_url, tenant, parent_session_id)?
+            find_channel_session_by_agent(ctx, temper_api_url, tenant, parent_session_id)?
         {
             return Ok(Some((session, parent_session_id.to_string())));
         }
     }
 
     Ok(None)
-}
-
-fn find_session_for_binding(
-    ctx: &Context,
-    temper_api_url: &str,
-    tenant: &str,
-    agent_id: &str,
-) -> Result<Option<Value>, String> {
-    let escaped = agent_id.replace('\'', "''");
-    let active_filter = format!("$filter=Status eq 'Active' and agent_entity_id eq '{escaped}'&$top=1");
-    let active_url = format!("{temper_api_url}/tdata/ChannelSessions?{active_filter}");
-    if let Some(session) = list_entities(ctx, &active_url, tenant)?.into_iter().next() {
-        return Ok(Some(session));
-    }
-
-    let any_filter = format!("$filter=agent_entity_id eq '{escaped}'&$top=1");
-    let any_url = format!("{temper_api_url}/tdata/ChannelSessions?{any_filter}");
-    Ok(list_entities(ctx, &any_url, tenant)?.into_iter().next())
-}
-
-fn find_channel_by_external_id(
-    ctx: &Context,
-    temper_api_url: &str,
-    tenant: &str,
-    channel_id: &str,
-) -> Result<Option<Value>, String> {
-    let escaped = channel_id.replace('\'', "''");
-    let filter = format!("$filter=Status eq 'Connected' and channel_id eq '{escaped}'&$top=1");
-    let url = format!("{temper_api_url}/tdata/Channels?{filter}");
-    Ok(list_entities(ctx, &url, tenant)?.into_iter().next())
-}
-
-fn list_entities(ctx: &Context, url: &str, tenant: &str) -> Result<Vec<Value>, String> {
-    let fields = ctx
-        .entity_state
-        .get("fields")
-        .cloned()
-        .unwrap_or_else(|| json!({}));
-    let headers = runtime_headers(ctx, tenant, &fields, None, Some("application/json"));
-    let resp = ctx.http_call("GET", url, &headers, "")?;
-    if resp.status != 200 {
-        return Err(format!("notify_approval: GET {url} failed (HTTP {})", resp.status));
-    }
-    let parsed: Value =
-        serde_json::from_str(&resp.body).unwrap_or_else(|_| json!({"value": []}));
-    Ok(parsed
-        .get("value")
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default())
 }
