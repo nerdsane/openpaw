@@ -656,9 +656,7 @@ pub(crate) async fn register_commands(
     ]);
 
     let url = if let Some(gid) = guild_id {
-        format!(
-            "{DISCORD_API_BASE}/applications/{application_id}/guilds/{gid}/commands"
-        )
+        format!("{DISCORD_API_BASE}/applications/{application_id}/guilds/{gid}/commands")
     } else {
         format!("{DISCORD_API_BASE}/applications/{application_id}/commands")
     };
@@ -677,7 +675,9 @@ pub(crate) async fn register_commands(
         return Err(format!("PUT commands returned {status}: {body}"));
     }
 
-    let scope = guild_id.map(|g| format!("guild {g}")).unwrap_or("global".to_string());
+    let scope = guild_id
+        .map(|g| format!("guild {g}"))
+        .unwrap_or("global".to_string());
     println!("  [discord] Registered /plan and /execute commands ({scope})");
     Ok(())
 }

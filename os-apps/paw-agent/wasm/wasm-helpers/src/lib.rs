@@ -55,9 +55,7 @@ fn read_temperfs_value_with_retry(
 }
 
 fn is_retriable_write_failure(status: u16, body: &str) -> bool {
-    (500..600).contains(&status)
-        || body.contains("BlobUploadFailed")
-        || body.contains("HTTP -1")
+    (500..600).contains(&status) || body.contains("BlobUploadFailed") || body.contains("HTTP -1")
 }
 
 pub fn write_temperfs_value_with_retry(
@@ -144,13 +142,7 @@ pub fn write_session_to_temperfs(
 ) -> Result<(), String> {
     let url = format!("{temper_api_url}/tdata/Files('{file_id}')/$value");
     let headers = runtime_headers(ctx, tenant, fields, Some("text/plain"), None);
-    write_temperfs_value_with_retry(
-        ctx,
-        &url,
-        &headers,
-        jsonl,
-        "TemperFS session write failed",
-    )
+    write_temperfs_value_with_retry(ctx, &url, &headers, jsonl, "TemperFS session write failed")
 }
 
 /// Read raw file content from TemperFS by file ID.
@@ -371,6 +363,59 @@ pub fn entity_field_str<'a>(value: &'a Value, keys: &[&str]) -> Option<&'a str> 
     })
 }
 
+/// List entities returned by an OData collection URL.
+pub fn list_entities(ctx: &Context, url: &str, tenant: &str) -> Result<Vec<Value>, String> {
+    let fields = ctx
+        .entity_state
+        .get("fields")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    let headers = runtime_headers(ctx, tenant, &fields, None, Some("application/json"));
+    let resp = ctx.http_call("GET", url, &headers, "")?;
+    if resp.status != 200 {
+        return Err(format!("GET {url} failed (HTTP {})", resp.status));
+    }
+    let parsed: Value = serde_json::from_str(&resp.body).unwrap_or_else(|_| json!({"value": []}));
+    Ok(parsed
+        .get("value")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default())
+}
+
+/// Find the best available ChannelSession for a bound agent.
+pub fn find_channel_session_by_agent(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+    agent_id: &str,
+) -> Result<Option<Value>, String> {
+    let escaped = agent_id.replace('\'', "''");
+    let active_filter =
+        format!("$filter=Status eq 'Active' and agent_entity_id eq '{escaped}'&$top=1");
+    let active_url = format!("{temper_api_url}/tdata/ChannelSessions?{active_filter}");
+    if let Some(session) = list_entities(ctx, &active_url, tenant)?.into_iter().next() {
+        return Ok(Some(session));
+    }
+
+    let any_filter = format!("$filter=agent_entity_id eq '{escaped}'&$top=1");
+    let any_url = format!("{temper_api_url}/tdata/ChannelSessions?{any_filter}");
+    Ok(list_entities(ctx, &any_url, tenant)?.into_iter().next())
+}
+
+/// Find the connected Channel entity for a platform-specific channel ID.
+pub fn find_connected_channel_by_external_id(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+    channel_id: &str,
+) -> Result<Option<Value>, String> {
+    let escaped = channel_id.replace('\'', "''");
+    let filter = format!("$filter=Status eq 'Connected' and channel_id eq '{escaped}'&$top=1");
+    let url = format!("{temper_api_url}/tdata/Channels?{filter}");
+    Ok(list_entities(ctx, &url, tenant)?.into_iter().next())
+}
+
 /// Parse a basic ISO 8601 timestamp (YYYY-MM-DDTHH:MM:SSZ) to Unix epoch seconds.
 /// Returns None if the format is unrecognized.
 pub fn parse_iso8601_to_epoch_secs(s: &str) -> Option<u64> {
@@ -497,8 +542,9 @@ fn send_typing_indicator_inner(
         .cloned()
         .unwrap_or_else(|| json!({}));
     let headers = runtime_headers(ctx, tenant, &fields, None, Some("application/json"));
-    let parent_session_id = entity_field_str(&ctx.entity_state, &["parent_session_id", "ParentSessionId"])
-        .unwrap_or("");
+    let parent_session_id =
+        entity_field_str(&ctx.entity_state, &["parent_session_id", "ParentSessionId"])
+            .unwrap_or("");
 
     // Find ChannelSession for this agent
     let session = find_channel_session(ctx, temper_api_url, &headers, agent_entity_id)

@@ -222,12 +222,7 @@ impl SlackTransport {
                         handle_interactive(envelope.payload, &api, &http, &bot_token).await;
                     }
                     "slash_commands" => {
-                        handle_slash_command(
-                            envelope.payload,
-                            &channel_entity_id,
-                            &api,
-                        )
-                        .await;
+                        handle_slash_command(envelope.payload, &channel_entity_id, &api).await;
                     }
                     other => {
                         println!("  [slack] Ignoring envelope type: {other}");
@@ -479,8 +474,12 @@ async fn handle_interactive(
         return;
     }
 
-    let (action_type, decision_id) = (parts[0], parts[1]);
-    if action_type != "approve" && action_type != "deny" {
+    let (action_type, target_id) = (parts[0], parts[1]);
+    if action_type != "approve"
+        && action_type != "deny"
+        && action_type != "plan_approve"
+        && action_type != "plan_request_changes"
+    {
         return;
     }
 
@@ -493,38 +492,69 @@ async fn handle_interactive(
         .unwrap_or("unknown");
 
     println!(
-        "  [slack] Interaction: {action_type} decision {decision_id} by {reviewer_name} ({reviewer_id})"
+        "  [slack] Interaction: {action_type} target {target_id} by {reviewer_name} ({reviewer_id})"
     );
 
     let base_url = api.config().base_url.clone();
     let tenant = api.config().tenant.clone();
-    let is_approve = action_type == "approve";
-
-    let (_success, status_line) = if is_approve {
-        let approve_url =
-            format!("{base_url}/api/tenants/{tenant}/decisions/{decision_id}/approve");
-        let scope = serde_json::json!({
-            "scope": {
-                "principal": "this_agent",
-                "action": "this_action",
-                "resource": "any_of_type",
-                "duration": "always"
-            },
-            "decided_by": format!("slack:{reviewer_id}")
-        });
-        match api.raw_post(&approve_url, scope).await {
-            Ok(_) => (true, format!("Approved by <@{reviewer_id}>")),
-            Err(e) => (false, format!("Approval failed: {e}")),
+    let (_success, status_line) = match action_type {
+        "approve" => {
+            let approve_url =
+                format!("{base_url}/api/tenants/{tenant}/decisions/{target_id}/approve");
+            let scope = serde_json::json!({
+                "scope": {
+                    "principal": "this_agent",
+                    "action": "this_action",
+                    "resource": "any_of_type",
+                    "duration": "always"
+                },
+                "decided_by": format!("slack:{reviewer_id}")
+            });
+            match api.raw_post(&approve_url, scope).await {
+                Ok(_) => (true, format!("Approval recorded by <@{reviewer_id}>")),
+                Err(e) => (false, format!("Approval failed: {e}")),
+            }
         }
-    } else {
-        let deny_url = format!("{base_url}/api/tenants/{tenant}/decisions/{decision_id}/deny");
-        let deny_body = serde_json::json!({
-            "decided_by": format!("slack:{reviewer_id}")
-        });
-        match api.raw_post(&deny_url, deny_body).await {
-            Ok(_) => (true, format!("Denied by <@{reviewer_id}>")),
-            Err(e) => (false, format!("Deny failed: {e}")),
+        "deny" => {
+            let deny_url = format!("{base_url}/api/tenants/{tenant}/decisions/{target_id}/deny");
+            let deny_body = serde_json::json!({
+                "decided_by": format!("slack:{reviewer_id}")
+            });
+            match api.raw_post(&deny_url, deny_body).await {
+                Ok(_) => (true, format!("Denial recorded by <@{reviewer_id}>")),
+                Err(e) => (false, format!("Deny failed: {e}")),
+            }
         }
+        "plan_approve" => match api
+            .dispatch_action("Plans", target_id, "Temper.Approve", serde_json::json!({}))
+            .await
+        {
+            Ok(_) => (true, format!("Plan approved by <@{reviewer_id}>")),
+            Err(e) => (false, format!("Plan approval failed: {e}")),
+        },
+        "plan_request_changes" => {
+            let review_notes = format!(
+                "Changes requested by slack:{reviewer_id}. Review the plan, revise it, and resubmit for approval."
+            );
+            match api
+                .dispatch_action(
+                    "Plans",
+                    target_id,
+                    "Temper.RequestChanges",
+                    serde_json::json!({ "review_notes": review_notes }),
+                )
+                .await
+            {
+                Ok(_) => (
+                    true,
+                    format!(
+                        "Plan changes requested by <@{reviewer_id}>. Additional details can be sent in-thread."
+                    ),
+                ),
+                Err(e) => (false, format!("Request changes failed: {e}")),
+            }
+        }
+        _ => (false, "Unknown action.".to_string()),
     };
 
     // Session resume/fail is now handled by GovernanceDecision.DispatchCallback
@@ -575,10 +605,7 @@ async fn handle_slash_command(
         .get("command")
         .and_then(|v| v.as_str())
         .unwrap_or("");
-    let text = payload
-        .get("text")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
+    let text = payload.get("text").and_then(|v| v.as_str()).unwrap_or("");
     let user_id = payload
         .get("user_id")
         .and_then(|v| v.as_str())
@@ -616,12 +643,7 @@ async fn handle_slash_command(
     println!("  [slack] /{command} from {user_id}: {text}");
 
     if let Err(e) = api
-        .dispatch_action(
-            "Channels",
-            &entity_id,
-            "Paw.Channel.ReceiveMessage",
-            params,
-        )
+        .dispatch_action("Channels", &entity_id, "Paw.Channel.ReceiveMessage", params)
         .await
     {
         eprintln!("  [slack] Slash command dispatch failed: {e}");

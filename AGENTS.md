@@ -68,6 +68,28 @@ If the answer is no, some logic is hiding in imperative code. Refactor it into e
 | **Skill definitions** | Reusable knowledge for agent prompts | `os-apps/paw-agent/skills/` |
 | **Policies** (Cedar) | Authorization rules | `os-apps/*/policies/` |
 
+## Red-Green TDD (Mandatory)
+
+All code changes MUST follow red-green TDD:
+
+1. **Red** — Write a failing test first that defines the expected behavior.
+2. **Green** — Write the minimum code to make the test pass.
+3. **Refactor** — Clean up while keeping tests green.
+
+No implementation code is written before a failing test exists for it. This applies to WASM integrations, triggers, Cedar policies, and entity specs alike.
+
+## End-to-End Verification (Mandatory)
+
+Every implementation MUST be verified end-to-end before it is considered complete. Agents must:
+
+1. **Build and run** — Compile the full project, start the server, confirm it boots clean.
+2. **Exercise the feature** — Manually invoke the new functionality (dispatch actions, hit endpoints, send messages through transports) and confirm correct behavior.
+3. **Simulate real usage** — Walk through the user-facing flow as a real user would: send a Discord/Slack message, trigger a webhook, approve a plan — whatever the feature touches.
+4. **Check state transitions** — Query entities via OData to confirm state machines moved through the expected states.
+5. **Record results** — Capture output/logs as evidence in the `.proofs/` report.
+
+Passing unit tests alone is NOT sufficient. If you cannot run the system and observe the feature working, it is not done.
+
 ## Reference
 
 - **ADR-0001**: Open Paw Architecture — os-app pattern, thin daemon

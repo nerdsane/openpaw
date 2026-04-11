@@ -28,6 +28,28 @@ All stateful orchestration MUST use entity state machines + WASM integrations. S
 - Agents self-report outcomes via `temper_action`. No background watchers.
 - Test: if your Rust code creates entities or dispatches actions in a loop, it should be a WASM integration instead.
 
+## Red-Green TDD (Mandatory)
+
+All code changes MUST follow red-green TDD:
+
+1. **Red** — Write a failing test first that defines the expected behavior.
+2. **Green** — Write the minimum code to make the test pass.
+3. **Refactor** — Clean up while keeping tests green.
+
+No implementation code is written before a failing test exists for it. This applies to WASM integrations, triggers, Cedar policies, and entity specs alike.
+
+## End-to-End Verification (Mandatory)
+
+Coding agents MUST verify every implementation end-to-end before considering it complete. This means:
+
+1. **Build and run** — Compile the full project, start the server, confirm it boots clean.
+2. **Exercise the feature** — Manually invoke the new functionality (dispatch actions, hit endpoints, send messages through transports) and confirm correct behavior.
+3. **Simulate real usage** — Walk through the user-facing flow as a real user would: send a Discord/Slack message, trigger a webhook, approve a plan — whatever the feature touches.
+4. **Check state transitions** — Query entities via OData to confirm state machines moved through the expected states.
+5. **Record results** — Capture output/logs as evidence in the `.proofs/` report.
+
+Do NOT rely solely on unit tests passing. If you cannot run it and see it work, it is not done.
+
 ## Implementation Notes
 
 - Prefer real integrations over mocks when credentials are available.

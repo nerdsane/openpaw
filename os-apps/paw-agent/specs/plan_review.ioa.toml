@@ -117,6 +117,7 @@ from = ["UnderReview", "Escalated"]
 to = "Draft"
 params = ["review_notes"]
 hint = "Reviewer requests changes. Plan returns to Draft with feedback."
+effect = [{ type = "trigger", name = "plan_changes_requested_switch" }]
 
 [[action]]
 name = "Escalate"
@@ -193,6 +194,16 @@ name = "plan_approved_switch"
 trigger = "plan_approved_switch"
 type = "wasm"
 module = "plan_approval_handler"
+on_failure = "Fail"
+
+[integration.config]
+temper_api_url = "{secret:temper_api_url}"
+
+[[integration]]
+name = "plan_changes_requested_switch"
+trigger = "plan_changes_requested_switch"
+type = "wasm"
+module = "plan_review_feedback_handler"
 on_failure = "Fail"
 
 [integration.config]

@@ -531,6 +531,19 @@ params = ["session_mode", "tools_enabled", "pre_plan_tools_enabled"]
 hint = "Plan approved. Switch to execute mode and resume LLM loop."
 effect = [{ type = "trigger", name = "call_llm" }]
 
+[[action]]
+name = "ResumeWithPlanChanges"
+kind = "input"
+from = ["WaitingForApproval"]
+to = "Thinking"
+params = ["session_leaf_id", "conversation"]
+hint = "Plan changes requested. Inject reviewer feedback and resume the planning loop."
+effect = [
+  { type = "increment", var = "turn_count" },
+  { type = "increment", var = "follow_up_count" },
+  { type = "trigger", name = "call_llm" }
+]
+
 # --- Actions: Cedar Approval Pause-Resume ---
 
 [[action]]
@@ -763,6 +776,7 @@ name = "notify_approval_needed"
 trigger = "notify_approval_needed"
 type = "wasm"
 module = "request_approval"
+on_failure = "Fail"
 
 [integration.config]
 temper_api_url = "{secret:temper_api_url}"
@@ -780,7 +794,8 @@ temper_api_url = "{secret:temper_api_url}"
 name = "notify_plan_approval_needed"
 trigger = "notify_plan_approval_needed"
 type = "wasm"
-module = "request_approval"
+module = "request_plan_review"
+on_failure = "Fail"
 
 [integration.config]
 temper_api_url = "{secret:temper_api_url}"
