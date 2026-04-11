@@ -620,7 +620,7 @@ pub(crate) async fn fetch_application_id(
         .ok_or_else(|| "Application info missing 'id' field".to_string())
 }
 
-/// Register `/plan` and `/execute` slash commands with Discord.
+/// Register `/plan`, `/execute`, and `/reset` slash commands with Discord.
 ///
 /// Uses guild-scoped commands if `guild_id` is provided (instant propagation,
 /// good for development). Falls back to global commands (up to 1 hour to propagate).
@@ -652,6 +652,17 @@ pub(crate) async fn register_commands(
                 "type": 3,
                 "required": false
             }]
+        },
+        {
+            "name": "reset",
+            "description": "Start a fresh conversation (clears history)",
+            "type": 1,
+            "options": [{
+                "name": "message",
+                "description": "Optional first message for the new conversation",
+                "type": 3,
+                "required": false
+            }]
         }
     ]);
 
@@ -678,6 +689,6 @@ pub(crate) async fn register_commands(
     let scope = guild_id
         .map(|g| format!("guild {g}"))
         .unwrap_or("global".to_string());
-    println!("  [discord] Registered /plan and /execute commands ({scope})");
+    println!("  [discord] Registered /plan, /execute, and /reset commands ({scope})");
     Ok(())
 }

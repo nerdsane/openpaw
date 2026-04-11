@@ -616,7 +616,7 @@ anthropic_api_token (or api_key) for anthropic, openrouter_api_key (or api_key) 
                 )
             }
         };
-        messages = repair_interrupted_tool_use_messages(messages);
+        messages = repair_interrupted_tool_use_messages(&ctx, messages);
         let prune_after_turns: usize = fields
             .get("prune_tool_results_after_turns")
             .and_then(|v| v.as_str())
@@ -2465,8 +2465,9 @@ fn build_mock_step_response(
     ))
 }
 
-fn repair_interrupted_tool_use_messages(messages: Vec<Value>) -> Vec<Value> {
+fn repair_interrupted_tool_use_messages(ctx: &Context, messages: Vec<Value>) -> Vec<Value> {
     let mut repaired = Vec::new();
+    let mut repair_count = 0u32;
 
     for (idx, message) in messages.iter().enumerate() {
         repaired.push(message.clone());
@@ -2494,6 +2495,7 @@ fn repair_interrupted_tool_use_messages(messages: Vec<Value>) -> Vec<Value> {
             continue;
         }
 
+        repair_count += missing_ids.len() as u32;
         repaired.push(json!({
             "role": "user",
             "content": missing_ids
@@ -2506,6 +2508,15 @@ fn repair_interrupted_tool_use_messages(messages: Vec<Value>) -> Vec<Value> {
                 }))
                 .collect::<Vec<_>>(),
         }));
+    }
+
+    if repair_count > 0 {
+        ctx.log(
+            "warn",
+            &format!(
+                "llm_caller: repair_interrupted_tool_use_messages injected {repair_count} synthetic tool_result(s) — session_recoverer should have handled this (ADR-0025)"
+            ),
+        );
     }
 
     repaired

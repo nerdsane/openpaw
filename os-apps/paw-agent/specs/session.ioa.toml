@@ -19,7 +19,7 @@
 
 [automaton]
 name = "Session"
-states = ["Created", "Provisioning", "Thinking", "Executing", "Compacting", "Steering", "WaitingForApproval", "Completed", "Failed", "Cancelled"]
+states = ["Created", "Provisioning", "Thinking", "Executing", "Compacting", "Steering", "WaitingForApproval", "Recovering", "Completed", "Failed", "Cancelled"]
 initial = "Created"
 
 # --- State Variables: Core ---
@@ -330,6 +330,13 @@ name = "project_id"
 type = "string"
 initial = ""
 
+# --- State Variables: Recovery (ADR-0025) ---
+
+[[state]]
+name = "recovery_count"
+type = "counter"
+initial = "0"
+
 # --- Actions: Core Session Loop ---
 
 [[action]]
@@ -493,14 +500,14 @@ effect = [
 [[action]]
 name = "Steer"
 kind = "input"
-from = ["Thinking", "Executing", "Steering", "Compacting", "WaitingForApproval"]
+from = ["Thinking", "Executing", "Steering", "Compacting", "WaitingForApproval", "Recovering"]
 params = ["steering_messages"]
 hint = "Queue a steering message for mid-run injection. External callers append messages while session runs. Self-loop — does not change state."
 
 [[action]]
 name = "SwitchProvider"
 kind = "input"
-from = ["Thinking", "Executing", "Steering", "Compacting", "WaitingForApproval", "Provisioning"]
+from = ["Thinking", "Executing", "Steering", "Compacting", "WaitingForApproval", "Provisioning", "Recovering"]
 params = ["model", "provider"]
 hint = "Change LLM provider and/or model mid-session. Self-loop — takes effect on the next LLM call. Callable by the session itself or by parent/supervisor."
 
@@ -584,7 +591,7 @@ effect = [
 [[action]]
 name = "Heartbeat"
 kind = "input"
-from = ["Thinking", "Executing", "Steering", "Compacting", "WaitingForApproval"]
+from = ["Thinking", "Executing", "Steering", "Compacting", "WaitingForApproval", "Recovering"]
 params = ["last_heartbeat_at"]
 hint = "Record session liveness. Called by WASM modules during long operations. Self-loop."
 effect = [{ type = "trigger", name = "heartbeat_typing" }]
@@ -603,7 +610,7 @@ effect = [{ type = "trigger", name = "deliver_reply" }]
 [[action]]
 name = "Fail"
 kind = "input"
-from = ["Created", "Provisioning", "Thinking", "Executing", "Compacting", "Steering", "WaitingForApproval"]
+from = ["Created", "Provisioning", "Thinking", "Executing", "Compacting", "Steering", "WaitingForApproval", "Recovering"]
 to = "Failed"
 params = ["error_message"]
 hint = "Mark session run as failed."
@@ -612,7 +619,7 @@ effect = [{ type = "trigger", name = "deliver_reply" }]
 [[action]]
 name = "Cancel"
 kind = "input"
-from = ["Created", "Provisioning", "Thinking", "Executing", "Compacting", "Steering", "WaitingForApproval"]
+from = ["Created", "Provisioning", "Thinking", "Executing", "Compacting", "Steering", "WaitingForApproval", "Recovering"]
 to = "Cancelled"
 hint = "Cancel session execution."
 effect = [{ type = "trigger", name = "deliver_reply" }]
@@ -623,6 +630,30 @@ kind = "input"
 from = ["Completed", "Failed", "Cancelled"]
 params = ["error_message"]
 hint = "Reply delivery failed after the session reached a terminal state."
+
+# --- Actions: Session Recovery (ADR-0025) ---
+
+[[action]]
+name = "RecoverFromRestart"
+kind = "input"
+from = ["Thinking", "Executing", "Compacting", "Steering", "WaitingForApproval"]
+to = "Recovering"
+params = ["error_message"]
+guard = "recovery_count < 3"
+hint = "Server restart detected. Enter recovery state to repair session tree before resuming. Max 3 attempts."
+effect = [
+  { type = "increment", var = "recovery_count" },
+  { type = "trigger", name = "recover_session" },
+]
+
+[[action]]
+name = "RecoveryComplete"
+kind = "input"
+from = ["Recovering"]
+to = "Thinking"
+params = ["session_leaf_id"]
+hint = "Session tree repaired after restart. Re-enter LLM loop."
+effect = [{ type = "trigger", name = "call_llm" }]
 
 [[action]]
 name = "Resume"
@@ -646,7 +677,7 @@ assert = "has_result"
 
 [[invariant]]
 name = "TurnCountNonNegative"
-when = ["Created", "Provisioning", "Thinking", "Executing", "Compacting", "Steering", "WaitingForApproval", "Completed", "Failed", "Cancelled"]
+when = ["Created", "Provisioning", "Thinking", "Executing", "Compacting", "Steering", "WaitingForApproval", "Recovering", "Completed", "Failed", "Cancelled"]
 assert = "turn_count >= 0"
 
 # --- Integrations ---
@@ -795,6 +826,16 @@ name = "notify_plan_approval_needed"
 trigger = "notify_plan_approval_needed"
 type = "wasm"
 module = "request_plan_review"
+on_failure = "Fail"
+
+[integration.config]
+temper_api_url = "{secret:temper_api_url}"
+
+[[integration]]
+name = "recover_session"
+trigger = "recover_session"
+type = "wasm"
+module = "session_recoverer"
 on_failure = "Fail"
 
 [integration.config]

@@ -619,6 +619,41 @@ impl SessionTree {
     pub fn entry_ids(&self) -> &[String] {
         &self.order
     }
+
+    /// If the leaf is an assistant message with tool_use blocks, return synthetic
+    /// error tool_results for each tool_use (to handle interrupted execution).
+    ///
+    /// Returns `None` if the leaf is not an assistant message or has no tool_use blocks.
+    pub fn interrupted_tool_results_for_leaf(&self, leaf_id: &str) -> Option<Value> {
+        let entry = self.entries.get(leaf_id)?;
+        let role = entry.data.get("role").and_then(Value::as_str).unwrap_or("");
+        if role != "assistant" {
+            return None;
+        }
+
+        let blocks = entry.data.get("content").and_then(Value::as_array)?;
+        let mut results = Vec::new();
+        for block in blocks {
+            if block.get("type").and_then(Value::as_str) != Some("tool_use") {
+                continue;
+            }
+            let Some(tool_use_id) = block.get("id").and_then(Value::as_str) else {
+                continue;
+            };
+            results.push(json!({
+                "type": "tool_result",
+                "tool_use_id": tool_use_id,
+                "content": "Tool execution was interrupted because the previous agent run ended before returning results.",
+                "is_error": true,
+            }));
+        }
+
+        if results.is_empty() {
+            None
+        } else {
+            Some(Value::Array(results))
+        }
+    }
 }
 
 #[cfg(test)]
@@ -637,6 +672,62 @@ mod tests {
         assert_eq!(messages.len(), 2);
         assert_eq!(messages[0]["role"], "user");
         assert_eq!(messages[1]["role"], "assistant");
+    }
+
+    #[test]
+    fn test_interrupted_tool_results_for_clean_leaf() {
+        let mut tree = SessionTree::new("test-r1");
+        let header_id = tree.last_entry_id().unwrap().to_string();
+        let (user_id, _) = tree.append_user_message(&header_id, "Hello", 10);
+
+        // User leaf — no interrupted tool_use
+        assert!(tree.interrupted_tool_results_for_leaf(&user_id).is_none());
+    }
+
+    #[test]
+    fn test_interrupted_tool_results_for_tool_use_leaf() {
+        let mut tree = SessionTree::new("test-r2");
+        let header_id = tree.last_entry_id().unwrap().to_string();
+        let (user_id, _) = tree.append_user_message(&header_id, "Run some code", 10);
+        let (asst_id, _) = tree.append_assistant_message(
+            &user_id,
+            &json!([
+                {"type": "text", "text": "Let me run that."},
+                {"type": "tool_use", "id": "tu_1", "name": "bash", "input": {"command": "ls"}},
+                {"type": "tool_use", "id": "tu_2", "name": "read", "input": {"path": "/tmp/x"}},
+            ]),
+            50,
+        );
+
+        let results = tree.interrupted_tool_results_for_leaf(&asst_id);
+        assert!(results.is_some());
+        let arr = results.unwrap();
+        let arr = arr.as_array().unwrap();
+        assert_eq!(arr.len(), 2);
+        assert_eq!(arr[0]["tool_use_id"], "tu_1");
+        assert_eq!(arr[0]["is_error"], true);
+        assert_eq!(arr[1]["tool_use_id"], "tu_2");
+    }
+
+    #[test]
+    fn test_interrupted_tool_results_for_text_only_assistant() {
+        let mut tree = SessionTree::new("test-r3");
+        let header_id = tree.last_entry_id().unwrap().to_string();
+        let (user_id, _) = tree.append_user_message(&header_id, "Hi", 5);
+        let (asst_id, _) = tree.append_assistant_message(
+            &user_id,
+            &json!([{"type": "text", "text": "Hello!"}]),
+            10,
+        );
+
+        // Text-only assistant — no tool_use blocks
+        assert!(tree.interrupted_tool_results_for_leaf(&asst_id).is_none());
+    }
+
+    #[test]
+    fn test_interrupted_tool_results_for_nonexistent_leaf() {
+        let tree = SessionTree::new("test-r4");
+        assert!(tree.interrupted_tool_results_for_leaf("nonexistent").is_none());
     }
 
     #[test]
