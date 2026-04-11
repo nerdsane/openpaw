@@ -510,6 +510,8 @@ pub fn run_coding_agent(
     workdir: &str,
     args: &[Value],
 ) -> Result<Value, String> {
+    use wasm_helpers::sandbox::{self, SandboxHandle};
+
     let input = obj_arg(args, 0, "opts", "run_coding_agent")?;
     let agent_type = require_str(&input, "agent_type", "run_coding_agent")?;
     let task = require_str(&input, "task", "run_coding_agent")?;
@@ -525,6 +527,29 @@ pub fn run_coding_agent(
     if sandbox_url.is_empty() {
         return Err("run_coding_agent: sandbox_url is empty".into());
     }
+
+    // Build sandbox handle from entity state
+    let fields = ctx.entity_state.get("fields").cloned().unwrap_or(json!({}));
+    let provider = fields
+        .get("sandbox_provider")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+        .or_else(|| dispatch::peek_lazy_sandbox_provider())
+        .unwrap_or_else(|| {
+            sandbox::resolve_sandbox_provider(ctx, &fields)
+                .unwrap_or_else(|_| "tensorlake".to_string())
+        });
+    let sandbox_id = fields
+        .get("sandbox_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let handle = SandboxHandle {
+        sandbox_url: sandbox_url.to_string(),
+        sandbox_id,
+        provider,
+    };
 
     let escaped_task = task.replace('\'', "'\\''");
     let command = match agent_type {
@@ -543,25 +568,9 @@ pub fn run_coding_agent(
         command.clone()
     };
 
-    // Execute via sandbox bash
-    let body = json!({
-        "command": ["bash", "-c", &final_cmd],
-        "cwd": agent_workdir,
-    });
-    let resp = ctx.http_call(
-        "POST",
-        &format!("{sandbox_url}/api/v1/processes"),
-        &[("Content-Type".to_string(), "application/json".to_string())],
-        &body.to_string(),
-    )?;
-    if resp.status >= 400 {
-        return Err(format!(
-            "run_coding_agent: start failed (HTTP {}): {}",
-            resp.status, resp.body
-        ));
-    }
+    // Execute via sandbox provider abstraction
+    let result = sandbox::sandbox_exec(ctx, &handle, &final_cmd, agent_workdir)?;
 
-    // For background, return immediately
     if background {
         return Ok(json!({
             "agent_type": agent_type,
@@ -570,71 +579,17 @@ pub fn run_coding_agent(
         }));
     }
 
-    // Poll for completion using the same pattern as sandbox_bash in dispatch.rs
-    let unique = format!(
-        "{:x}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis()
-    );
-    let rc_file = format!("/tmp/.paw-rc-{unique}");
-    let out_file = format!("/tmp/.paw-out-{unique}");
-
-    // Run with output capture
-    let wrapped = format!("({final_cmd}) > {out_file} 2>&1; echo $? > {rc_file}");
-    let body2 = json!({
-        "command": ["bash", "-c", &wrapped],
-        "cwd": agent_workdir,
-    });
-    let _ = ctx.http_call(
-        "POST",
-        &format!("{sandbox_url}/api/v1/processes"),
-        &[("Content-Type".to_string(), "application/json".to_string())],
-        &body2.to_string(),
-    );
-
-    // Poll for exit code
-    let mut attempts = 0;
-    loop {
-        let rc_resp = ctx.http_call(
-            "GET",
-            &format!("{sandbox_url}/api/v1/files?path={}", urlenc(&rc_file)),
-            &[],
-            "",
-        )?;
-        if rc_resp.status < 400 && !rc_resp.body.trim().is_empty() {
-            break;
+    let mut output = result.stdout;
+    if !result.stderr.is_empty() {
+        if !output.is_empty() {
+            output.push('\n');
         }
-        attempts += 1;
-        if attempts > 600 {
-            return Err("run_coding_agent: timed out".into());
-        }
-    }
-
-    let stdout = ctx
-        .http_call(
-            "GET",
-            &format!("{sandbox_url}/api/v1/files?path={}", urlenc(&out_file)),
-            &[],
-            "",
-        )
-        .map(|r| r.body)
-        .unwrap_or_default();
-
-    // Cleanup
-    for f in [&out_file, &rc_file] {
-        let _ = ctx.http_call(
-            "DELETE",
-            &format!("{sandbox_url}/api/v1/files?path={}", urlenc(f)),
-            &[],
-            "",
-        );
+        output.push_str(&result.stderr);
     }
 
     Ok(json!({
         "agent_type": agent_type,
-        "output": stdout,
+        "output": output,
     }))
 }
 

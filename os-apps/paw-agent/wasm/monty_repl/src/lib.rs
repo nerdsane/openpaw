@@ -321,9 +321,10 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 });
 
                 // Preserve sandbox state if lazily provisioned (ADR-0022)
-                if let Some((url, id)) = dispatch::take_lazy_sandbox() {
+                if let Some((url, id, provider)) = dispatch::take_lazy_sandbox() {
                     params["sandbox_url"] = json!(url);
                     params["sandbox_id"] = json!(id);
+                    params["sandbox_provider"] = json!(provider);
                 }
 
                 set_success_result("PauseForApproval", &params);
@@ -438,9 +439,10 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
 
         // If a sandbox was lazily provisioned during this invocation,
         // include it in the callback params so it persists to entity state (ADR-0022).
-        if let Some((url, id)) = dispatch::take_lazy_sandbox() {
+        if let Some((url, id, provider)) = dispatch::take_lazy_sandbox() {
             params["sandbox_url"] = json!(url);
             params["sandbox_id"] = json!(id);
+            params["sandbox_provider"] = json!(provider);
         }
         if !tool_span_events.is_empty() {
             params["_dd_llmobs_tool_spans"] = json!(tool_span_events);

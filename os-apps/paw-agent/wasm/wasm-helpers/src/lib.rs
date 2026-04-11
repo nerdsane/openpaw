@@ -1,7 +1,10 @@
 //! Shared helper functions for Agent WASM modules.
 //!
-//! Provides common TemperFS I/O, field extraction, and URL resolution
-//! to eliminate duplication across WASM integration modules.
+//! Provides common TemperFS I/O, field extraction, URL resolution,
+//! and sandbox provider abstraction to eliminate duplication across
+//! WASM integration modules.
+
+pub mod sandbox;
 
 use temper_wasm_sdk::prelude::*;
 

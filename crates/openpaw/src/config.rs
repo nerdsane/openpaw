@@ -52,6 +52,15 @@ pub struct Config {
     /// Tensorlake API key for remote sandbox provisioning.
     pub tensorlake_api_key: Option<String>,
 
+    /// Sandbox provider name: "tensorlake" or "modal".
+    pub sandbox_provider: Option<String>,
+
+    /// Modal REST bridge bearer token.
+    pub modal_api_token: Option<String>,
+
+    /// Modal REST bridge base URL.
+    pub modal_api_url: Option<String>,
+
     /// GitHub token for repo cloning and PR flows.
     pub github_token: Option<String>,
 
@@ -143,6 +152,9 @@ impl Config {
             openai_codex_token,
             llm_provider,
             tensorlake_api_key: optional_env("TL_API_KEY"),
+            sandbox_provider: optional_env("SANDBOX_PROVIDER"),
+            modal_api_token: optional_env("MODAL_API_TOKEN"),
+            modal_api_url: optional_env("MODAL_API_URL"),
             github_token: optional_env("GITHUB_TOKEN"),
             dd_api_key: optional_env("DD_API_KEY"),
             dd_app_key: optional_env("DD_APP_KEY"),
