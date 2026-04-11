@@ -983,7 +983,7 @@ impl DiscordTransport {
                 let data = payload.data.as_ref().unwrap_or(&empty);
                 let command_name = data.get("name").and_then(|v| v.as_str()).unwrap_or("");
                 let command = match command_name {
-                    "plan" | "execute" => command_name.to_string(),
+                    "plan" | "execute" | "reset" => command_name.to_string(),
                     _ => {
                         return (
                             axum::http::StatusCode::OK,
@@ -994,12 +994,19 @@ impl DiscordTransport {
                         );
                     }
                 };
+                // Extract task/message text from slash command options.
+                // /plan and /execute use "task"; /reset uses "message".
+                let option_name = if command_name == "reset" {
+                    "message"
+                } else {
+                    "task"
+                };
                 let task_text = data
                     .get("options")
                     .and_then(|v| v.as_array())
                     .and_then(|opts| {
                         opts.iter()
-                            .find(|o| o.get("name").and_then(|n| n.as_str()) == Some("task"))
+                            .find(|o| o.get("name").and_then(|n| n.as_str()) == Some(option_name))
                     })
                     .and_then(|o| o.get("value").and_then(|v| v.as_str()))
                     .unwrap_or("")

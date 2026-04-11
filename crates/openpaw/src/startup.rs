@@ -599,10 +599,14 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
         state.server.populate_index_from_store(tenant_id).await;
     }
 
-    // Phase 7b: Session recovery — fail orphaned sessions from previous run
+    // Phase 7b: Session recovery — recover or fail orphaned sessions (ADR-0025)
     {
         let terminal_states: HashSet<&str> =
             ["Completed", "Failed", "Cancelled"].into_iter().collect();
+        let recoverable_states: HashSet<&str> =
+            ["Thinking", "Executing", "Compacting", "Steering", "WaitingForApproval"]
+                .into_iter()
+                .collect();
         let tenant_id = TenantId::new(&tenant);
         let session_ids: Vec<String> = {
             let index = state.server.entity_index.read().unwrap(); // ci-ok: infallible lock
@@ -615,20 +619,59 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
                 .collect()
         };
 
-        let mut recovered = 0u32;
+        let mut failed = 0u32;
+        let mut recovering = 0u32;
         for session_id in &session_ids {
             match state
                 .server
                 .get_tenant_entity_state(&tenant_id, "Session", session_id)
                 .await
             {
-                Ok(resp) if !terminal_states.contains(resp.state.status.as_str()) => {
+                Ok(resp) if recoverable_states.contains(resp.state.status.as_str()) => {
+                    // Recoverable state — attempt RecoverFromRestart (ADR-0025)
                     let status = &resp.state.status;
-                    tracing::info!(session_id, status, "Recovering orphaned session");
+                    tracing::info!(session_id, status, "Recovering session from restart");
+                    let params = serde_json::json!({
+                        "error_message": format!("process restart — recovering from {status}")
+                    });
+                    match state
+                        .server
+                        .dispatch_tenant_action(
+                            &tenant_id,
+                            "Session",
+                            session_id,
+                            "RecoverFromRestart",
+                            params.clone(),
+                            &temper_server::request_context::AgentContext::system(),
+                        )
+                        .await
+                    {
+                        Ok(_) => recovering += 1,
+                        Err(e) => {
+                            tracing::warn!(session_id, %e, "RecoverFromRestart failed, falling back to Fail");
+                            let _ = state
+                                .server
+                                .dispatch_tenant_action(
+                                    &tenant_id,
+                                    "Session",
+                                    session_id,
+                                    "Fail",
+                                    params,
+                                    &temper_server::request_context::AgentContext::system(),
+                                )
+                                .await;
+                            failed += 1;
+                        }
+                    }
+                }
+                Ok(resp) if !terminal_states.contains(resp.state.status.as_str()) => {
+                    // Non-recoverable (Created, Provisioning) — just fail
+                    let status = &resp.state.status;
+                    tracing::info!(session_id, status, "Failing orphaned session");
                     let params = serde_json::json!({
                         "error_message": format!("process restart — session recovered from {status} state")
                     });
-                    match state
+                    let _ = state
                         .server
                         .dispatch_tenant_action(
                             &tenant_id,
@@ -638,18 +681,15 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
                             params,
                             &temper_server::request_context::AgentContext::system(),
                         )
-                        .await
-                    {
-                        Ok(_) => recovered += 1,
-                        Err(e) => tracing::warn!(session_id, %e, "Failed to recover session"),
-                    }
+                        .await;
+                    failed += 1;
                 }
                 Ok(_) => {} // terminal state, skip
                 Err(e) => tracing::warn!(session_id, %e, "Failed to read session state"),
             }
         }
-        if recovered > 0 {
-            tracing::info!(recovered, "Recovered orphaned sessions from previous run");
+        if recovering > 0 || failed > 0 {
+            tracing::info!(recovering, failed, "Session recovery complete");
         }
     }
 

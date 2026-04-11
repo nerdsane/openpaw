@@ -49,6 +49,65 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             thread_id,
             author_id,
         )?;
+
+        // /reset command: cancel active session, expire ChannelSession, start fresh (ADR-0025)
+        if command == "reset" {
+            let route = find_route(&ctx, &temper_api_url, &ctx.tenant, channel_id)?;
+            let route_config = route
+                .as_ref()
+                .and_then(|value| nested_str_field(value, &["AgentConfig", "agent_config"]))
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or(default_agent_config);
+            let route_agent_id = route
+                .as_ref()
+                .and_then(|value| nested_str_field(value, &["AgentId", "agent_id"]))
+                .unwrap_or("");
+
+            // Clean up existing session/channel-session
+            if let Some(ref cs) = existing_cs {
+                let cs_id = cs
+                    .get("entity_id")
+                    .and_then(|v| v.as_str())
+                    .or_else(|| nested_str_field(cs, &["Id", "entity_id"]))
+                    .unwrap_or_default();
+                let session_entity_id =
+                    nested_str_field(cs, &["SessionEntityId", "session_entity_id"])
+                        .unwrap_or_default();
+                if !session_entity_id.is_empty() {
+                    cancel_session(&ctx, &temper_api_url, &ctx.tenant, session_entity_id).ok();
+                }
+                expire_session(&ctx, &temper_api_url, &ctx.tenant, cs_id).ok();
+            }
+
+            // Create fresh session with no inherited conversation tree
+            let user_msg = if content.is_empty() {
+                "[System: The user has reset the conversation. Start fresh.]"
+            } else {
+                content
+            };
+            let (new_agent_id, new_session_id) = create_session_for_agent(
+                &ctx,
+                &temper_api_url,
+                &ctx.tenant,
+                route_config,
+                route_agent_id,
+                user_msg,
+                "",
+            )?;
+            create_channel_session(
+                &ctx,
+                &temper_api_url,
+                &ctx.tenant,
+                channel_id,
+                thread_id,
+                author_id,
+                &new_agent_id,
+                &new_session_id,
+            )?;
+            set_success_result("MessageRouted", &json!({ "session_id": new_session_id }));
+            return Ok(());
+        }
+
         let session_id = if let Some(cs) = existing_cs {
             let cs_id = cs
                 .get("entity_id")
@@ -321,6 +380,17 @@ fn expire_session(
     session_id: &str,
 ) -> Result<(), String> {
     let url = format!("{temper_api_url}/tdata/ChannelSessions('{session_id}')/Paw.Channel.Expire");
+    let _ = ctx.http_call("POST", &url, &odata_headers(ctx, tenant), "{}")?;
+    Ok(())
+}
+
+fn cancel_session(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+    session_id: &str,
+) -> Result<(), String> {
+    let url = format!("{temper_api_url}/tdata/Sessions('{session_id}')/OpenPaw.Cancel");
     let _ = ctx.http_call("POST", &url, &odata_headers(ctx, tenant), "{}")?;
     Ok(())
 }
@@ -855,7 +925,7 @@ fn append_user_message_to_session(
             .map(|value| value.to_string())
             .ok_or("session tree is empty")?
     };
-    if let Some(interrupted_results) = interrupted_tool_results_for_leaf(&tree, &parent_id) {
+    if let Some(interrupted_results) = tree.interrupted_tool_results_for_leaf(&parent_id) {
         let note = "Tool execution was interrupted because the previous agent run ended before returning results.";
         let tokens = estimate_tokens(note);
         let (tool_result_id, _) =
@@ -999,37 +1069,6 @@ fn truncate_error_body(body: &str) -> String {
         body.to_string()
     } else {
         format!("{}...", &body[..LIMIT])
-    }
-}
-
-fn interrupted_tool_results_for_leaf(tree: &SessionTree, leaf_id: &str) -> Option<Value> {
-    let entry = tree.get(leaf_id)?;
-    let role = entry.data.get("role").and_then(Value::as_str).unwrap_or("");
-    if role != "assistant" {
-        return None;
-    }
-
-    let blocks = entry.data.get("content").and_then(Value::as_array)?;
-    let mut results = Vec::new();
-    for block in blocks {
-        if block.get("type").and_then(Value::as_str) != Some("tool_use") {
-            continue;
-        }
-        let Some(tool_use_id) = block.get("id").and_then(Value::as_str) else {
-            continue;
-        };
-        results.push(json!({
-            "type": "tool_result",
-            "tool_use_id": tool_use_id,
-            "content": "Tool execution was interrupted because the previous agent run ended before returning results.",
-            "is_error": true,
-        }));
-    }
-
-    if results.is_empty() {
-        None
-    } else {
-        Some(Value::Array(results))
     }
 }
 
