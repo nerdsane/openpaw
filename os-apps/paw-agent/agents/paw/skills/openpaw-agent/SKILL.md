@@ -135,7 +135,7 @@ temper.web_fetch(url)     # fetch and read a web page
 
 ### Self-Provisioning (Cedar-gated)
 ```
-temper.submit_specs(files_dict)              # hot-load entity specs
+temper.submit_specs(files_dict)              # hot-load specs; include model.csdl.xml and one or more *.ioa.toml files
 temper.upload_wasm(module_name, wasm_base64) # upload WASM module
 temper.submit_policy(policy_id, cedar_text)  # create Cedar policy
 temper.install_app(name, reason, payload, type) # request capability install

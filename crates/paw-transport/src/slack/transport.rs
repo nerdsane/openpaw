@@ -526,7 +526,7 @@ async fn handle_interactive(
             }
         }
         "plan_approve" => match api
-            .dispatch_action("Plans", target_id, "Temper.Approve", serde_json::json!({}))
+            .dispatch_action("Plans", target_id, "OpenPaw.Approve", serde_json::json!({}))
             .await
         {
             Ok(_) => (true, format!("Plan approved by <@{reviewer_id}>")),
@@ -540,7 +540,7 @@ async fn handle_interactive(
                 .dispatch_action(
                     "Plans",
                     target_id,
-                    "Temper.RequestChanges",
+                    "OpenPaw.RequestChanges",
                     serde_json::json!({ "review_notes": review_notes }),
                 )
                 .await

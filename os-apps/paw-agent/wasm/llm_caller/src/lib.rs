@@ -165,7 +165,7 @@ const REPL_METHOD_SPECS: &[ReplMethodSpec] = &[
         object: "temper",
         method: "submit_specs",
         signature: "(files_dict)",
-        description: "load specs into Temper",
+        description: "load specs into Temper; files_dict must include model.csdl.xml plus one or more *.ioa.toml files (nested paths allowed)",
         token: Some("temper_submit_specs"),
     },
     ReplMethodSpec {
@@ -4139,6 +4139,19 @@ mod tests {
         assert!(description.contains("temper.list(entity_set, filter_str)"));
         assert!(!description.contains("temper.submit_specs(files_dict)"));
         assert!(!description.contains("sandbox.bash(command)"));
+    }
+
+    #[test]
+    fn build_tool_definitions_explains_submit_specs_requirements() {
+        let tools = build_tool_definitions("temper_submit_specs", "", "/workspace");
+        let description = tools[0]
+            .get("description")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+
+        assert!(description.contains("temper.submit_specs(files_dict)"));
+        assert!(description.contains("model.csdl.xml"));
+        assert!(description.contains("nested paths allowed"));
     }
 
     #[test]

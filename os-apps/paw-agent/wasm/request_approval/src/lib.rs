@@ -1,10 +1,13 @@
-//! notify_approval_needed WASM — sends Discord buttons when an agent
+//! notify_approval_needed WASM — sends approval controls when an agent
 //! is paused for Cedar approval.
 //!
 //! Triggered by Agent.PauseForApproval. Reads the pending_decision_id
-//! from the agent's state, finds the Discord channel via ChannelSession,
-//! and posts an Approve/Deny button message using the platform's
-//! decision ID (PD-xxx).
+//! from the agent's state, registers the GovernanceDecision callback,
+//! and then tries to notify the human through the bound channel session.
+//!
+//! Notification is best-effort only after callback registration succeeds.
+//! A session without a channel binding must still be able to wait for
+//! approval via the dashboard or API.
 
 use temper_wasm_sdk::prelude::*;
 use wasm_helpers::{
@@ -72,13 +75,32 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             return Err("notify_approval: missing pending_decision_id".to_string());
         }
 
-        // Find the ChannelSession for this agent
+        // Register callback before notifying humans so an approval click cannot
+        // outpace callback wiring and strand the waiting session.
+        register_gd_callback(&ctx, &temper_api_url, tenant, session_id, decision_id)?;
+
+        // Find the ChannelSession for this agent. Sessions without a channel
+        // binding can still be approved via dashboard/API, so do not fail the
+        // paused session if transport delivery is unavailable.
         let session =
             find_session_by_agent(&ctx, &temper_api_url, tenant, agent_id, parent_session_id)?;
         let Some((session, bound_agent_id)) = session else {
-            return Err(format!(
-                "notify_approval: no channel session for agent {agent_id}"
-            ));
+            ctx.log(
+                "warn",
+                &format!(
+                    "notify_approval: no channel session for agent {agent_id}; decision {decision_id} awaiting out-of-band approval"
+                ),
+            );
+            set_success_result(
+                "",
+                &json!({
+                    "status": "waiting_for_out_of_band_approval",
+                    "decision_id": decision_id,
+                    "delivery": "skipped",
+                    "reason": "no_channel_session",
+                }),
+            );
+            return Ok(());
         };
         if bound_agent_id != agent_id {
             ctx.log(
@@ -92,23 +114,64 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         let channel_id = entity_field_str(&session, &["ChannelId", "channel_id"]).unwrap_or("");
         let thread_id = entity_field_str(&session, &["ThreadId", "thread_id"]).unwrap_or("");
         if channel_id.is_empty() || thread_id.is_empty() {
-            return Err("notify_approval: session missing channel_id or thread_id".to_string());
+            ctx.log(
+                "warn",
+                &format!(
+                    "notify_approval: session missing channel_id or thread_id for agent {agent_id}; decision {decision_id} awaiting out-of-band approval"
+                ),
+            );
+            set_success_result(
+                "",
+                &json!({
+                    "status": "waiting_for_out_of_band_approval",
+                    "decision_id": decision_id,
+                    "delivery": "skipped",
+                    "reason": "missing_channel_binding",
+                }),
+            );
+            return Ok(());
         }
 
         // Find the Channel entity to get the webhook_url
-        let channel =
+        let Some(channel) =
             find_connected_channel_by_external_id(&ctx, &temper_api_url, tenant, channel_id)?
-                .ok_or_else(|| {
-                    format!("notify_approval: no connected Channel for channel_id={channel_id}")
-                })?;
+        else {
+            ctx.log(
+                "warn",
+                &format!(
+                    "notify_approval: no connected Channel for channel_id={channel_id}; decision {decision_id} awaiting out-of-band approval"
+                ),
+            );
+            set_success_result(
+                "",
+                &json!({
+                    "status": "waiting_for_out_of_band_approval",
+                    "decision_id": decision_id,
+                    "delivery": "skipped",
+                    "reason": "channel_not_connected",
+                }),
+            );
+            return Ok(());
+        };
         let webhook_url = entity_field_str(&channel, &["webhook_url", "WebhookUrl"]).unwrap_or("");
         if webhook_url.is_empty() {
-            return Err("notify_approval: Channel has no webhook_url".to_string());
+            ctx.log(
+                "warn",
+                &format!(
+                    "notify_approval: Channel has no webhook_url for channel_id={channel_id}; decision {decision_id} awaiting out-of-band approval"
+                ),
+            );
+            set_success_result(
+                "",
+                &json!({
+                    "status": "waiting_for_out_of_band_approval",
+                    "decision_id": decision_id,
+                    "delivery": "skipped",
+                    "reason": "missing_webhook_url",
+                }),
+            );
+            return Ok(());
         }
-
-        // Register callback before notifying humans so an approval click cannot
-        // outpace callback wiring and strand the waiting session.
-        register_gd_callback(&ctx, &temper_api_url, tenant, session_id, decision_id)?;
 
         // Build the approval message with buttons.
         // custom_id uses the platform's decision ID (PD-xxx).
@@ -181,11 +244,22 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
 
         let resp = ctx.http_call("POST", webhook_url, &headers, &body.to_string())?;
         if !(200..300).contains(&resp.status) {
-            return Err(format!(
+            let failure = format!(
                 "notify_approval: webhook POST failed (HTTP {}): {}",
                 resp.status,
                 &resp.body[..resp.body.len().min(200)]
-            ));
+            );
+            ctx.log("warn", &failure);
+            set_success_result(
+                "",
+                &json!({
+                    "status": "waiting_for_out_of_band_approval",
+                    "decision_id": decision_id,
+                    "delivery": "failed",
+                    "error": failure,
+                }),
+            );
+            return Ok(());
         }
 
         ctx.log(
