@@ -41,3 +41,4 @@ temper-store-postgres = { path = "../temper/crates/temper-store-postgres" }
 temper-store-redis = { path = "../temper/crates/temper-store-redis" }
 temper-store-turso = { path = "../temper/crates/temper-store-turso" }
 temper-wasm = { path = "../temper/crates/temper-wasm" }
+temper-wasm-sdk = { path = "../temper/crates/temper-wasm-sdk" }

@@ -1,0 +1,2 @@
+[patch."https://github.com/nerdsane/temper.git"]
+temper-wasm-sdk = { path = "../temper/crates/temper-wasm-sdk" }
