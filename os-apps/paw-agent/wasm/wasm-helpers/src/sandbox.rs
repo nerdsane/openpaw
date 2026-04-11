@@ -487,12 +487,25 @@ fn tensorlake_exec(
 // Modal provider (calls REST bridge deployed on Modal)
 // ===========================================================================
 
+/// Resolve the Modal bridge base URL from config. This is the common prefix
+/// of the per-endpoint URLs, e.g. `https://user--openpaw-sandbox-bridge`.
+/// Each endpoint appends its label suffix: `-create.modal.run`, `-exec.modal.run`, etc.
 fn modal_base_url(ctx: &Context) -> String {
     ctx.config
         .get("modal_api_url")
         .filter(|s| !s.is_empty() && !is_unresolved_secret(s))
         .cloned()
-        .unwrap_or_else(|| "https://openpaw-sandbox--api.modal.run".to_string())
+        .unwrap_or_else(|| "https://openpaw-sandbox--bridge".to_string())
+}
+
+/// Build a Modal bridge endpoint URL with auth as query parameter.
+fn modal_url(base: &str, endpoint: &str, api_key: &str, extra_params: &str) -> String {
+    let auth = url_encode(&format!("Bearer {api_key}"));
+    if extra_params.is_empty() {
+        format!("{base}-{endpoint}.modal.run?authorization={auth}")
+    } else {
+        format!("{base}-{endpoint}.modal.run?{extra_params}&authorization={auth}")
+    }
 }
 
 fn modal_create(
@@ -501,13 +514,12 @@ fn modal_create(
     config: &SandboxConfig,
 ) -> Result<SandboxHandle, String> {
     let base = modal_base_url(ctx);
-    let url = format!("{base}/sandboxes");
-    let headers = bearer_headers_json(api_key);
+    let url = modal_url(&base, "create", api_key, "");
+    let headers = vec![("content-type".to_string(), "application/json".to_string())];
     let body = json!({
         "cpus": config.cpus,
         "memory_mb": config.memory_mb,
-        "timeout_seconds": config.timeout_seconds,
-        "internet_access": config.internet_access
+        "timeout_seconds": config.timeout_seconds
     });
 
     let resp = ctx.http_call("POST", &url, &headers, &body.to_string())?;
@@ -526,14 +538,9 @@ fn modal_create(
         .and_then(|v| v.as_str())
         .unwrap_or("modal-sandbox")
         .to_string();
-    let sandbox_url = parsed
-        .get("sandbox_url")
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| format!("{base}/sandboxes/{sandbox_id}"));
 
     Ok(SandboxHandle {
-        sandbox_url,
+        sandbox_url: base.clone(),
         sandbox_id,
         provider: "modal".to_string(),
     })
@@ -545,10 +552,13 @@ fn modal_health_check(
     sandbox_id: &str,
 ) -> Result<bool, String> {
     let base = modal_base_url(ctx);
-    let url = format!("{base}/sandboxes/{sandbox_id}/health");
-    let headers = bearer_headers(api_key);
-    match ctx.http_call("GET", &url, &headers, "") {
-        Ok(r) if r.status >= 200 && r.status < 300 => Ok(true),
+    let params = format!("sandbox_id={}", url_encode(sandbox_id));
+    let url = modal_url(&base, "health", api_key, &params);
+    match ctx.http_call("GET", &url, &[], "") {
+        Ok(r) if r.status >= 200 && r.status < 300 => {
+            let parsed: Value = serde_json::from_str(&r.body).unwrap_or(json!({}));
+            Ok(parsed.get("ready").and_then(|v| v.as_bool()).unwrap_or(false))
+        }
         Ok(_) => Ok(false),
         Err(e) => Err(format!("Modal health check failed: {e}")),
     }
@@ -561,15 +571,14 @@ fn modal_file_read(
     path: &str,
 ) -> Result<String, String> {
     let base = modal_base_url(ctx);
-    let url = format!(
-        "{base}/sandboxes/{sandbox_id}/files?path={}",
-        url_encode(path)
-    );
-    let resp = ctx.http_call("GET", &url, &bearer_headers(api_key), "")?;
+    let params = format!("sandbox_id={}&path={}", url_encode(sandbox_id), url_encode(path));
+    let url = modal_url(&base, "file-read", api_key, &params);
+    let resp = ctx.http_call("GET", &url, &[], "")?;
     if resp.status >= 400 {
         return Err(format!("sandbox.read({path}): {}", resp.body));
     }
-    Ok(resp.body)
+    let parsed: Value = serde_json::from_str(&resp.body).unwrap_or(json!({}));
+    Ok(parsed.get("content").and_then(|v| v.as_str()).unwrap_or("").to_string())
 }
 
 fn modal_file_write(
@@ -580,11 +589,14 @@ fn modal_file_write(
     content: &str,
 ) -> Result<(), String> {
     let base = modal_base_url(ctx);
-    let url = format!(
-        "{base}/sandboxes/{sandbox_id}/files?path={}",
-        url_encode(path)
-    );
-    let resp = ctx.http_call("PUT", &url, &bearer_headers(api_key), content)?;
+    let url = modal_url(&base, "file-write", api_key, "");
+    let headers = vec![("content-type".to_string(), "application/json".to_string())];
+    let body = json!({
+        "sandbox_id": sandbox_id,
+        "path": path,
+        "content": content
+    });
+    let resp = ctx.http_call("POST", &url, &headers, &body.to_string())?;
     if resp.status >= 400 {
         return Err(format!("sandbox.write({path}): {}", resp.body));
     }
@@ -598,11 +610,9 @@ fn modal_file_delete(
     path: &str,
 ) -> Result<(), String> {
     let base = modal_base_url(ctx);
-    let url = format!(
-        "{base}/sandboxes/{sandbox_id}/files?path={}",
-        url_encode(path)
-    );
-    let _ = ctx.http_call("DELETE", &url, &bearer_headers(api_key), "");
+    let params = format!("sandbox_id={}&path={}", url_encode(sandbox_id), url_encode(path));
+    let url = modal_url(&base, "file-delete", api_key, &params);
+    let _ = ctx.http_call("DELETE", &url, &[], "");
     Ok(())
 }
 
@@ -614,9 +624,10 @@ fn modal_exec(
     workdir: &str,
 ) -> Result<ExecResult, String> {
     let base = modal_base_url(ctx);
-    let url = format!("{base}/sandboxes/{sandbox_id}/exec");
-    let headers = bearer_headers_json(api_key);
+    let url = modal_url(&base, "exec", api_key, "");
+    let headers = vec![("content-type".to_string(), "application/json".to_string())];
     let body = json!({
+        "sandbox_id": sandbox_id,
         "command": command,
         "workdir": workdir
     });
