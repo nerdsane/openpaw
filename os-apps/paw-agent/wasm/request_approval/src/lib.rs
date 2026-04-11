@@ -178,10 +178,13 @@ fn register_gd_callback(
     let escaped = decision_id.replace('\'', "''");
     let gd_filter = format!("$filter=pending_decision_id eq '{escaped}'&$top=1");
     let gd_url = format!("{temper_api_url}/tdata/GovernanceDecisions?{gd_filter}");
+    // Use "admin" principal — "system" is blocked from HTTP headers to prevent
+    // privilege escalation. The temper-system tenant has a Cedar policy permitting
+    // Admin principals to manage GovernanceDecision entities.
     let system_headers = vec![
         ("accept".to_string(), "application/json".to_string()),
         ("x-tenant-id".to_string(), "temper-system".to_string()),
-        ("x-temper-principal-kind".to_string(), "system".to_string()),
+        ("x-temper-principal-kind".to_string(), "admin".to_string()),
     ];
 
     let resp = ctx.http_call("GET", &gd_url, &system_headers, "")?;
@@ -224,7 +227,7 @@ fn register_gd_callback(
     let post_headers = vec![
         ("content-type".to_string(), "application/json".to_string()),
         ("x-tenant-id".to_string(), "temper-system".to_string()),
-        ("x-temper-principal-kind".to_string(), "system".to_string()),
+        ("x-temper-principal-kind".to_string(), "admin".to_string()),
     ];
 
     let resp = ctx.http_call("POST", &callback_url, &post_headers, &callback_body.to_string())?;
