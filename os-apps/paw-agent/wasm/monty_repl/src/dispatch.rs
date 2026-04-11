@@ -41,6 +41,11 @@ thread_local! {
 // Python code catches the exception).
 thread_local! {
     static CEDAR_DENIAL: RefCell<Option<String>> = RefCell::new(None);
+    // Dispatch output: when a tool produces important output that the LLM
+    // must see (even if the Python code assigns the result to a variable
+    // instead of printing it), store it here. The REPL appends it to the
+    // tool result if the expression was null/None.
+    static DISPATCH_OUTPUT: RefCell<Option<String>> = RefCell::new(None);
 }
 
 /// Take the done result (if set). Clears it after reading.
@@ -56,6 +61,16 @@ pub fn take_lazy_sandbox() -> Option<(String, String)> {
 /// Take the Cedar denial context (if set). Clears after reading.
 pub fn take_cedar_denial() -> Option<String> {
     CEDAR_DENIAL.with(|cell| cell.borrow_mut().take())
+}
+
+/// Take the dispatch output (if set). Clears after reading.
+pub fn take_dispatch_output() -> Option<String> {
+    DISPATCH_OUTPUT.with(|cell| cell.borrow_mut().take())
+}
+
+/// Store a message that should be shown to the LLM as tool output.
+pub fn set_dispatch_output(msg: &str) {
+    DISPATCH_OUTPUT.with(|cell| *cell.borrow_mut() = Some(msg.to_string()));
 }
 
 /// Peek at the lazily provisioned sandbox URL without consuming it.
@@ -617,8 +632,25 @@ fn temper_submit_specs(
     args: &[Value],
 ) -> Result<Value, String> {
     let specs = obj_arg(args, 0, "specs", "submit_specs")?;
+    let spec_names: Vec<String> = specs.as_object()
+        .map(|o| o.keys().cloned().collect())
+        .unwrap_or_default();
     let body = json!({ "tenant": tenant, "specs": specs });
-    http_post(ctx, api_url, tenant, "/api/specs/load-inline", &body)
+    let result = http_post(ctx, api_url, tenant, "/api/specs/load-inline", &body)?;
+    // Surface the outcome via dispatch output so the LLM sees it even
+    // if the Python code assigns the return value to a variable.
+    let msg = if result.get("ok").and_then(|v| v.as_bool()) == Some(true) || result.is_null() {
+        format!("Specs loaded successfully: {}", spec_names.join(", "))
+    } else {
+        format!("submit_specs response: {result}")
+    };
+    ctx.log("info", &format!("submit_specs: {msg}"));
+    set_dispatch_output(&msg);
+    Ok(json!({
+        "ok": true,
+        "message": msg,
+        "specs_submitted": spec_names,
+    }))
 }
 
 fn temper_show_spec(
@@ -1513,16 +1545,26 @@ pub fn check_cedar_denial(status: u16, body: &str) -> Option<String> {
             if let Some(did) = parsed.get("decision_id").and_then(|v| v.as_str()) {
                 return Some(format!("CEDAR_DENIED:{}:{}", did, body));
             }
-            // OData error format: {"error":{"message":"... (decision: PD-xxx)"}}
+            // Error message formats from different endpoints:
+            //   OData:       "... (decision: PD-xxx)"
+            //   API (specs): "... Decision PD-xxx"
             if let Some(msg) = parsed
                 .get("error")
                 .and_then(|e| e.get("message"))
                 .and_then(|m| m.as_str())
             {
+                // Format 1: OData — "(decision: PD-xxx)"
                 if let Some(start) = msg.find("(decision: ") {
                     let after = &msg[start + "(decision: ".len()..];
                     if let Some(end) = after.find(')') {
                         let did = &after[..end];
+                        return Some(format!("CEDAR_DENIED:{}:{}", did, body));
+                    }
+                }
+                // Format 2: API — "Decision PD-xxx" (at end of message)
+                if let Some(start) = msg.find("Decision PD-") {
+                    let did = msg[start + "Decision ".len()..].trim();
+                    if !did.is_empty() {
                         return Some(format!("CEDAR_DENIED:{}:{}", did, body));
                     }
                 }
