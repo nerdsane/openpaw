@@ -648,10 +648,20 @@ fn drive_repl_loop(
 
                 let ext_result = match result {
                     Ok(value) => ExtFunctionResult::Return(convert::json_to_monty_object(&value)),
-                    Err(message) => ExtFunctionResult::Error(MontyException::new(
-                        ExcType::RuntimeError,
-                        Some(message),
-                    )),
+                    Err(message) => {
+                        // Tool-disabled errors must surface to the LLM even if Python
+                        // code catches the exception — store in DISPATCH_OUTPUT so the
+                        // REPL always includes it in the tool result.
+                        if message.contains("is not enabled for this session")
+                            || message.contains("is not configured for this session")
+                        {
+                            dispatch::set_dispatch_output(&message);
+                        }
+                        ExtFunctionResult::Error(MontyException::new(
+                            ExcType::RuntimeError,
+                            Some(message),
+                        ))
+                    }
                 };
 
                 // Resume with the result directly — we have it now, no need for

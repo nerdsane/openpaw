@@ -69,7 +69,7 @@ pub fn take_dispatch_output() -> Option<String> {
 }
 
 /// Store a message that should be shown to the LLM as tool output.
-fn set_dispatch_output(msg: &str) {
+pub fn set_dispatch_output(msg: &str) {
     DISPATCH_OUTPUT.with(|cell| *cell.borrow_mut() = Some(msg.to_string()));
 }
 

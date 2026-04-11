@@ -22,7 +22,15 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         let thread_id = str_field(&fields, &["thread_id", "ThreadId"]).unwrap_or("");
         let author_id = str_field(&fields, &["author_id", "AuthorId"]).unwrap_or("");
         let content = str_field(&fields, &["content", "Content"]).unwrap_or("");
-        let command = str_field(&fields, &["command", "Command"]).unwrap_or("");
+        // Read command from trigger_params (the current ReceiveMessage call), NOT
+        // from entity_state.fields which persists the value from prior calls.
+        // Regular messages don't include "command", so it must default to "" —
+        // reading from entity state would re-use a stale "/plan" command forever.
+        let command = ctx
+            .trigger_params
+            .get("command")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
         if channel_id.is_empty() || author_id.is_empty() {
             return Err("route_message: missing channel_id/author_id".to_string());
         }
@@ -627,7 +635,17 @@ fn continue_with_new_session(
     let effective_tools = if !agent_tools.is_empty() {
         &agent_tools
     } else {
-        str_field(&fields, &["tools_enabled", "ToolsEnabled"]).unwrap_or(DEFAULT_TOOLS_ENABLED)
+        // If prior session was in plan mode, its tools_enabled is the restricted
+        // PLAN_MODE_TOOLS set. Use the stashed pre_plan_tools_enabled instead so
+        // the continuation session starts with the full tool set.
+        let prior_mode = str_field(&fields, &["session_mode", "SessionMode"]).unwrap_or("execute");
+        if prior_mode == "plan" {
+            str_field(&fields, &["pre_plan_tools_enabled", "PrePlanToolsEnabled"])
+                .filter(|s| !s.is_empty())
+                .unwrap_or(DEFAULT_TOOLS_ENABLED)
+        } else {
+            str_field(&fields, &["tools_enabled", "ToolsEnabled"]).unwrap_or(DEFAULT_TOOLS_ENABLED)
+        }
     };
     let effective_max_turns = if !agent_max_turns.is_empty() {
         &agent_max_turns

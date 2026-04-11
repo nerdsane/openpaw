@@ -177,9 +177,7 @@ fn register_gd_callback(
     // Query GD by pending_decision_id in temper-system tenant.
     let escaped = decision_id.replace('\'', "''");
     let gd_filter = format!("$filter=pending_decision_id eq '{escaped}'&$top=1");
-    let gd_url = format!(
-        "{temper_api_url}/tenants/temper-system/tdata/GovernanceDecisions?{gd_filter}"
-    );
+    let gd_url = format!("{temper_api_url}/tdata/GovernanceDecisions?{gd_filter}");
     let system_headers = vec![
         ("accept".to_string(), "application/json".to_string()),
         ("x-tenant-id".to_string(), "temper-system".to_string()),
@@ -214,7 +212,7 @@ fn register_gd_callback(
 
     // Dispatch RegisterCallback on the GovernanceDecision.
     let callback_url = format!(
-        "{temper_api_url}/tenants/temper-system/tdata/GovernanceDecisions('{gd_id}')/temper-system.RegisterCallback"
+        "{temper_api_url}/tdata/GovernanceDecisions('{gd_id}')/temper-system.RegisterCallback"
     );
     let callback_body = json!({
         "callback_tenant": tenant,
