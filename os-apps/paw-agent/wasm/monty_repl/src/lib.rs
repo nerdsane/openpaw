@@ -321,9 +321,10 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 });
 
                 // Preserve sandbox state if lazily provisioned (ADR-0022)
-                if let Some((url, id)) = dispatch::take_lazy_sandbox() {
+                if let Some((url, id, provider)) = dispatch::take_lazy_sandbox() {
                     params["sandbox_url"] = json!(url);
                     params["sandbox_id"] = json!(id);
+                    params["sandbox_provider"] = json!(provider);
                 }
 
                 set_success_result("PauseForApproval", &params);
@@ -343,6 +344,18 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                             combined.push('\n');
                         }
                         combined.push_str(&expr_val);
+                    }
+                    // If the dispatch function stored important output (e.g.
+                    // submit_specs success message), always surface it — even
+                    // if Python printed something, the dispatch message is the
+                    // authoritative result the LLM needs to see.
+                    if let Some(dispatch_msg) = dispatch::take_dispatch_output() {
+                        if combined.is_empty() {
+                            combined.push_str(&dispatch_msg);
+                        } else {
+                            combined.push('\n');
+                            combined.push_str(&dispatch_msg);
+                        }
                     }
                     if combined.is_empty() {
                         combined.push_str("(no output)");
@@ -426,9 +439,10 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
 
         // If a sandbox was lazily provisioned during this invocation,
         // include it in the callback params so it persists to entity state (ADR-0022).
-        if let Some((url, id)) = dispatch::take_lazy_sandbox() {
+        if let Some((url, id, provider)) = dispatch::take_lazy_sandbox() {
             params["sandbox_url"] = json!(url);
             params["sandbox_id"] = json!(id);
+            params["sandbox_provider"] = json!(provider);
         }
         if !tool_span_events.is_empty() {
             params["_dd_llmobs_tool_spans"] = json!(tool_span_events);
@@ -656,10 +670,20 @@ fn drive_repl_loop(
 
                 let ext_result = match result {
                     Ok(value) => ExtFunctionResult::Return(convert::json_to_monty_object(&value)),
-                    Err(message) => ExtFunctionResult::Error(MontyException::new(
-                        ExcType::RuntimeError,
-                        Some(message),
-                    )),
+                    Err(message) => {
+                        // Tool-disabled errors must surface to the LLM even if Python
+                        // code catches the exception — store in DISPATCH_OUTPUT so the
+                        // REPL always includes it in the tool result.
+                        if message.contains("is not enabled for this session")
+                            || message.contains("is not configured for this session")
+                        {
+                            dispatch::set_dispatch_output(&message);
+                        }
+                        ExtFunctionResult::Error(MontyException::new(
+                            ExcType::RuntimeError,
+                            Some(message),
+                        ))
+                    }
                 };
 
                 // Resume with the result directly — we have it now, no need for

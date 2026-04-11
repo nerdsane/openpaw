@@ -29,10 +29,10 @@ thread_local! {
 
 // Thread-local storage for lazily provisioned sandbox (ADR-0022).
 // When a sandbox tool is called and no sandbox exists, we provision
-// one on-demand and cache (sandbox_url, sandbox_id) here. lib.rs
-// reads this after tool execution to persist via HandleToolResults.
+// one on-demand and cache (sandbox_url, sandbox_id, provider) here.
+// lib.rs reads this after tool execution to persist via HandleToolResults.
 thread_local! {
-    static LAZY_SANDBOX: RefCell<Option<(String, String)>> = RefCell::new(None);
+    static LAZY_SANDBOX: RefCell<Option<(String, String, String)>> = RefCell::new(None);
 }
 
 // Thread-local storage for Cedar denial. When dispatch detects a
@@ -41,6 +41,11 @@ thread_local! {
 // Python code catches the exception).
 thread_local! {
     static CEDAR_DENIAL: RefCell<Option<String>> = RefCell::new(None);
+    // Dispatch output: when a tool produces important output that the LLM
+    // must see (even if the Python code assigns the result to a variable
+    // instead of printing it), store it here. The REPL appends it to the
+    // tool result if the expression was null/None.
+    static DISPATCH_OUTPUT: RefCell<Option<String>> = RefCell::new(None);
 }
 
 /// Take the done result (if set). Clears it after reading.
@@ -49,7 +54,8 @@ pub fn take_done_result() -> Option<String> {
 }
 
 /// Take the lazily provisioned sandbox details (if set). Clears after reading.
-pub fn take_lazy_sandbox() -> Option<(String, String)> {
+/// Returns (sandbox_url, sandbox_id, provider).
+pub fn take_lazy_sandbox() -> Option<(String, String, String)> {
     LAZY_SANDBOX.with(|cell| cell.borrow_mut().take())
 }
 
@@ -58,9 +64,24 @@ pub fn take_cedar_denial() -> Option<String> {
     CEDAR_DENIAL.with(|cell| cell.borrow_mut().take())
 }
 
+/// Take the dispatch output (if set). Clears after reading.
+pub fn take_dispatch_output() -> Option<String> {
+    DISPATCH_OUTPUT.with(|cell| cell.borrow_mut().take())
+}
+
+/// Store a message that should be shown to the LLM as tool output.
+pub fn set_dispatch_output(msg: &str) {
+    DISPATCH_OUTPUT.with(|cell| *cell.borrow_mut() = Some(msg.to_string()));
+}
+
 /// Peek at the lazily provisioned sandbox URL without consuming it.
 pub fn peek_lazy_sandbox_url() -> Option<String> {
-    LAZY_SANDBOX.with(|cell| cell.borrow().as_ref().map(|(url, _)| url.clone()))
+    LAZY_SANDBOX.with(|cell| cell.borrow().as_ref().map(|(url, _, _)| url.clone()))
+}
+
+/// Peek at the lazily provisioned sandbox provider without consuming it.
+pub fn peek_lazy_sandbox_provider() -> Option<String> {
+    LAZY_SANDBOX.with(|cell| cell.borrow().as_ref().map(|(_, _, provider)| provider.clone()))
 }
 
 /// Dispatch a `temper.<method>()` or `sandbox.<method>()` call.
@@ -116,12 +137,23 @@ pub fn dispatch(
             args,
         ),
         "sandbox" => {
-            let sandbox_api_key = ctx
-                .config
-                .get("tensorlake_api_key")
-                .cloned()
-                .unwrap_or_default();
-            dispatch_sandbox(ctx, &effective_sandbox_url, workdir, &sandbox_api_key, method, args)
+            let fields = ctx.entity_state.get("fields").cloned().unwrap_or(json!({}));
+            let provider = fields
+                .get("sandbox_provider")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty())
+                .map(|s| s.to_string())
+                .or_else(|| peek_lazy_sandbox_provider())
+                .unwrap_or_else(|| {
+                    wasm_helpers::sandbox::resolve_sandbox_provider(ctx, &fields)
+                        .unwrap_or_else(|_| "tensorlake".to_string())
+                });
+            let sandbox_id = fields
+                .get("sandbox_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            dispatch_sandbox(ctx, &effective_sandbox_url, &sandbox_id, &provider, workdir, method, args)
         }
         _ => Err(format!("unknown object: {obj_name}")),
     };
@@ -617,8 +649,25 @@ fn temper_submit_specs(
     args: &[Value],
 ) -> Result<Value, String> {
     let specs = obj_arg(args, 0, "specs", "submit_specs")?;
+    let spec_names: Vec<String> = specs.as_object()
+        .map(|o| o.keys().cloned().collect())
+        .unwrap_or_default();
     let body = json!({ "tenant": tenant, "specs": specs });
-    http_post(ctx, api_url, tenant, "/api/specs/load-inline", &body)
+    let result = http_post(ctx, api_url, tenant, "/api/specs/load-inline", &body)?;
+    // Surface the outcome via dispatch output so the LLM sees it even
+    // if the Python code assigns the return value to a variable.
+    let msg = if result.get("ok").and_then(|v| v.as_bool()) == Some(true) || result.is_null() {
+        format!("Specs loaded successfully: {}", spec_names.join(", "))
+    } else {
+        format!("submit_specs response: {result}")
+    };
+    ctx.log("info", &format!("submit_specs: {msg}"));
+    set_dispatch_output(&msg);
+    Ok(json!({
+        "ok": true,
+        "message": msg,
+        "specs_submitted": spec_names,
+    }))
 }
 
 fn temper_show_spec(
@@ -1050,101 +1099,67 @@ fn temper_list_apps(ctx: &Context, api_url: &str, tenant: &str) -> Result<Value,
 // Lazy sandbox provisioning (ADR-0022)
 // ---------------------------------------------------------------------------
 
-/// Provision a Tensorlake sandbox on-demand. Called when a sandbox tool is
-/// invoked but no sandbox_url is set on the session.
+/// Provision a sandbox on-demand via the provider abstraction. Called when a
+/// sandbox tool is invoked but no sandbox_url is set on the session.
 ///
-/// Returns the sandbox_url on success. Caches (sandbox_url, sandbox_id) in
-/// the LAZY_SANDBOX thread-local so subsequent tool calls in the same
+/// Returns the sandbox_url on success. Caches (sandbox_url, sandbox_id, provider)
+/// in the LAZY_SANDBOX thread-local so subsequent tool calls in the same
 /// invocation reuse it, and lib.rs persists it via HandleToolResults params.
 fn lazy_provision_sandbox(
     ctx: &Context,
     temper_api_url: &str,
     tenant: &str,
 ) -> Result<String, String> {
-    let api_key = ctx
-        .config
-        .get("tensorlake_api_key")
-        .filter(|s| !s.is_empty() && !s.contains("{secret:"))
-        .cloned()
-        .ok_or_else(|| {
-            "no tensorlake_api_key configured — set TL_API_KEY in .env for sandbox provisioning"
-                .to_string()
-        })?;
+    use wasm_helpers::sandbox::{self, SandboxConfig};
 
-    ctx.log("info", "lazy_provision_sandbox: provisioning via Tensorlake API");
+    let fields = ctx.entity_state.get("fields").cloned().unwrap_or(json!({}));
+    let provider = sandbox::resolve_sandbox_provider(ctx, &fields)?;
+
+    ctx.log(
+        "info",
+        &format!("lazy_provision_sandbox: provisioning via {provider} provider"),
+    );
 
     // Send heartbeat so the user sees a typing indicator
     super::session::send_heartbeat(ctx, temper_api_url, tenant);
 
     // Create sandbox
-    let create_url = "https://api.tensorlake.ai/sandboxes";
-    let headers = vec![
-        ("authorization".to_string(), format!("Bearer {api_key}")),
-        ("content-type".to_string(), "application/json".to_string()),
-    ];
-    let body = json!({
-        "resources": {
-            "cpus": 2,
-            "memory_mb": 4096
-        },
-        "timeout_seconds": 3600,
-        "internet_access": true
-    });
-    let resp = ctx.http_call("POST", create_url, &headers, &body.to_string())?;
-    if resp.status < 200 || resp.status >= 300 {
-        return Err(format!(
-            "Tensorlake sandbox creation failed (HTTP {}): {}",
-            resp.status,
-            &resp.body[..resp.body.len().min(500)]
-        ));
-    }
-
-    let parsed: Value = serde_json::from_str(&resp.body)
-        .map_err(|e| format!("failed to parse Tensorlake response: {e}"))?;
-    let sandbox_id = parsed
-        .get("sandbox_id")
-        .and_then(|v| v.as_str())
-        .unwrap_or_else(|| {
-            parsed
-                .get("id")
-                .and_then(|v| v.as_str())
-                .unwrap_or("tensorlake-sandbox")
-        })
-        .to_string();
-    let sandbox_url = format!("https://{sandbox_id}.sandbox.tensorlake.ai");
+    let handle = sandbox::sandbox_create(ctx, &provider, &SandboxConfig::default())?;
 
     // Poll for readiness (max 12 retries = ~60s)
     let max_checks = 12;
-    let health_headers = vec![("authorization".to_string(), format!("Bearer {api_key}"))];
-    let health_url = format!("{sandbox_url}/api/v1/files/list?path=/");
-
     for attempt in 0..max_checks {
-        match ctx.http_call("GET", &health_url, &health_headers, "") {
-            Ok(r) if r.status >= 200 && r.status < 300 => {
+        match sandbox::sandbox_health_check(ctx, &handle) {
+            Ok(true) => {
                 ctx.log(
                     "info",
                     &format!(
-                        "lazy_provision_sandbox: sandbox ready after {} checks: id={sandbox_id}",
-                        attempt + 1
+                        "lazy_provision_sandbox: sandbox ready after {} checks: id={}, provider={}",
+                        attempt + 1,
+                        handle.sandbox_id,
+                        handle.provider
                     ),
                 );
 
                 // Run post-provisioning setup (gh CLI etc.) — non-fatal
-                run_sandbox_setup(ctx, &sandbox_url, &api_key);
+                sandbox::sandbox_setup(ctx, &handle);
 
                 // Cache in thread-local
                 LAZY_SANDBOX.with(|cell| {
-                    *cell.borrow_mut() = Some((sandbox_url.clone(), sandbox_id.clone()));
+                    *cell.borrow_mut() = Some((
+                        handle.sandbox_url.clone(),
+                        handle.sandbox_id.clone(),
+                        handle.provider.clone(),
+                    ));
                 });
 
-                return Ok(sandbox_url);
+                return Ok(handle.sandbox_url);
             }
-            Ok(r) => {
+            Ok(false) => {
                 ctx.log(
                     "info",
                     &format!(
-                        "lazy_provision_sandbox: sandbox not ready (HTTP {}), check {}/{}",
-                        r.status,
+                        "lazy_provision_sandbox: sandbox not ready, check {}/{}",
                         attempt + 1,
                         max_checks
                     ),
@@ -1170,283 +1185,92 @@ fn lazy_provision_sandbox(
     }
 
     Err(format!(
-        "Tensorlake sandbox {sandbox_id} did not become ready within {max_checks} readiness checks. \
-         The sandbox may still be booting — try again in a moment."
+        "sandbox {} did not become ready within {max_checks} readiness checks. \
+         The sandbox may still be booting — try again in a moment.",
+        handle.sandbox_id
     ))
 }
 
-/// Run post-provisioning setup on a sandbox (gh CLI install etc.). Non-fatal.
-fn run_sandbox_setup(ctx: &Context, sandbox_url: &str, api_key: &str) {
-    if sandbox_url.is_empty() {
-        return;
-    }
-
-    let gh_setup = r#"
-if ! command -v gh &>/dev/null; then
-  (type -p wget >/dev/null || (apt-get update && apt-get install wget -y)) && \
-  mkdir -p -m 755 /etc/apt/keyrings && \
-  out=$(mktemp) && wget -nv -O"$out" https://cli.github.com/packages/githubcli-archive-keyring.gpg && \
-  cat "$out" | tee /etc/apt/keyrings/githubcli-archive-keyring.gpg > /dev/null && \
-  chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg && \
-  echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null && \
-  apt-get update && apt-get install gh -y
-fi
-gh --version 2>/dev/null || echo 'gh: not installed'
-"#;
-
-    let headers = vec![
-        ("content-type".to_string(), "application/json".to_string()),
-        ("authorization".to_string(), format!("Bearer {api_key}")),
-    ];
-    let body = json!({
-        "command": gh_setup,
-        "timeout": 120
-    });
-    let url = format!("{sandbox_url}/commands");
-
-    match ctx.http_call("POST", &url, &headers, &body.to_string()) {
-        Ok(resp) if resp.status >= 200 && resp.status < 300 => {
-            ctx.log("info", "lazy_provision_sandbox: gh CLI setup completed");
-        }
-        Ok(resp) => {
-            ctx.log(
-                "warn",
-                &format!(
-                    "lazy_provision_sandbox: gh CLI setup failed (HTTP {})",
-                    resp.status
-                ),
-            );
-        }
-        Err(e) => {
-            ctx.log(
-                "warn",
-                &format!("lazy_provision_sandbox: gh CLI setup request failed: {e}"),
-            );
-        }
-    }
-}
-
 // ---------------------------------------------------------------------------
-// Sandbox dispatch
+// Sandbox dispatch (via provider abstraction)
 // ---------------------------------------------------------------------------
 
 fn dispatch_sandbox(
     ctx: &Context,
     sandbox_url: &str,
+    sandbox_id: &str,
+    provider: &str,
     workdir: &str,
-    sandbox_api_key: &str,
     method: &str,
     args: &[Value],
 ) -> Result<Value, String> {
+    use wasm_helpers::sandbox::{self, SandboxHandle};
+
     if sandbox_url.is_empty() {
         return Err(format!("sandbox.{method}(): no sandbox attached"));
     }
 
+    let handle = SandboxHandle {
+        sandbox_url: sandbox_url.to_string(),
+        sandbox_id: sandbox_id.to_string(),
+        provider: provider.to_string(),
+    };
+
     match method {
-        "read" => sandbox_read(ctx, sandbox_url, sandbox_api_key, args),
-        "write" => sandbox_write(ctx, sandbox_url, sandbox_api_key, args),
-        "edit" => sandbox_edit(ctx, sandbox_url, sandbox_api_key, args),
-        "bash" => sandbox_bash(ctx, sandbox_url, sandbox_api_key, workdir, args),
+        "read" => {
+            let path = str_arg(args, 0, "path", "read")?;
+            let content = sandbox::sandbox_file_read(ctx, &handle, &path)?;
+            Ok(json!(content))
+        }
+        "write" => {
+            let path = str_arg(args, 0, "path", "write")?;
+            let content = str_arg(args, 1, "content", "write")?;
+            sandbox::sandbox_file_write(ctx, &handle, &path, &content)?;
+            Ok(json!({"ok": true}))
+        }
+        "edit" => sandbox_edit(ctx, &handle, args),
+        "bash" => {
+            let command = str_arg(args, 0, "command", "bash")?;
+            let result = sandbox::sandbox_exec(ctx, &handle, &command, workdir)?;
+            let mut output = String::new();
+            if !result.stdout.is_empty() {
+                output.push_str(&result.stdout);
+            }
+            if !result.stderr.is_empty() {
+                if !output.is_empty() {
+                    output.push('\n');
+                }
+                output.push_str("STDERR: ");
+                output.push_str(&result.stderr);
+            }
+            output.push_str(&format!("\n[exit code: {}]", result.exit_code));
+            Ok(json!(output))
+        }
         _ => Err(format!(
             "unknown sandbox method '{method}'. Available: read, write, edit, bash"
         )),
     }
 }
 
-fn sandbox_headers(api_key: &str) -> Vec<(String, String)> {
-    if api_key.is_empty() {
-        vec![]
-    } else {
-        vec![("Authorization".to_string(), format!("Bearer {api_key}"))]
-    }
-}
-
-fn sandbox_headers_json(api_key: &str) -> Vec<(String, String)> {
-    let mut h = sandbox_headers(api_key);
-    h.push(("Content-Type".to_string(), "application/json".to_string()));
-    h
-}
-
-fn sandbox_read(
-    ctx: &Context,
-    sandbox_url: &str,
-    api_key: &str,
-    args: &[Value],
-) -> Result<Value, String> {
-    let path = str_arg(args, 0, "path", "read")?;
-    let url = format!("{sandbox_url}/api/v1/files?path={}", urlenc(&path));
-    let resp = ctx.http_call("GET", &url, &sandbox_headers(api_key), "")?;
-    if resp.status >= 400 {
-        return Err(format!("sandbox.read({path}): {}", resp.body));
-    }
-    Ok(json!(resp.body))
-}
-
-fn sandbox_write(
-    ctx: &Context,
-    sandbox_url: &str,
-    api_key: &str,
-    args: &[Value],
-) -> Result<Value, String> {
-    let path = str_arg(args, 0, "path", "write")?;
-    let content = str_arg(args, 1, "content", "write")?;
-    let url = format!("{sandbox_url}/api/v1/files?path={}", urlenc(&path));
-    let resp = ctx.http_call("PUT", &url, &sandbox_headers(api_key), &content)?;
-    if resp.status >= 400 {
-        return Err(format!("sandbox.write({path}): {}", resp.body));
-    }
-    Ok(json!({"ok": true}))
-}
-
+/// Edit a file via read-modify-write (consumer-level operation, not provider-level).
 fn sandbox_edit(
     ctx: &Context,
-    sandbox_url: &str,
-    api_key: &str,
+    handle: &wasm_helpers::sandbox::SandboxHandle,
     args: &[Value],
 ) -> Result<Value, String> {
     let path = str_arg(args, 0, "path", "edit")?;
     let old_string = str_arg(args, 1, "old_string", "edit")?;
     let new_string = str_arg(args, 2, "new_string", "edit")?;
 
-    let headers = sandbox_headers(api_key);
-    let url = format!("{sandbox_url}/api/v1/files?path={}", urlenc(&path));
-    let resp = ctx.http_call("GET", &url, &headers, "")?;
-    if resp.status >= 400 {
-        return Err(format!("sandbox.edit({path}): read failed: {}", resp.body));
-    }
-
-    let content = resp.body;
+    let content = wasm_helpers::sandbox::sandbox_file_read(ctx, handle, &path)?;
     if !content.contains(&old_string) {
         return Err(format!(
             "sandbox.edit({path}): old_string not found in file"
         ));
     }
     let new_content = content.replacen(&old_string, &new_string, 1);
-
-    let resp = ctx.http_call("PUT", &url, &headers, &new_content)?;
-    if resp.status >= 400 {
-        return Err(format!("sandbox.edit({path}): write failed: {}", resp.body));
-    }
+    wasm_helpers::sandbox::sandbox_file_write(ctx, handle, &path, &new_content)?;
     Ok(json!({"ok": true}))
-}
-
-fn sandbox_bash(
-    ctx: &Context,
-    sandbox_url: &str,
-    api_key: &str,
-    workdir: &str,
-    args: &[Value],
-) -> Result<Value, String> {
-    let command = str_arg(args, 0, "command", "bash")?;
-    let headers = sandbox_headers(api_key);
-    let headers_json = sandbox_headers_json(api_key);
-
-    let unique = format!(
-        "{:x}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis()
-    );
-    let out_file = format!("/tmp/.paw-out-{unique}");
-    let err_file = format!("/tmp/.paw-err-{unique}");
-    let rc_file = format!("/tmp/.paw-rc-{unique}");
-
-    // Prepend cd to set working directory — the Tensorlake processes API
-    // may ignore the `cwd` field, so we enforce it in the shell command.
-    let cwd = if workdir.is_empty() { "/home/tl-user" } else { workdir };
-    let wrapped = format!(
-        "mkdir -p {cwd} 2>/dev/null; cd {cwd} && ({command}) > {out_file} 2> {err_file}; echo $? > {rc_file}"
-    );
-
-    let body = json!({
-        "command": "/bin/bash",
-        "args": ["-c", &wrapped],
-        "cwd": cwd,
-    });
-    let resp = ctx.http_call(
-        "POST",
-        &format!("{sandbox_url}/api/v1/processes"),
-        &headers_json,
-        &body.to_string(),
-    )?;
-    if resp.status >= 400 {
-        return Err(format!("sandbox.bash(): start failed: {}", resp.body));
-    }
-
-    // Poll for exit code file — indicates process completed.
-    // The rc_file is written last (after stdout/stderr), so its presence
-    // guarantees all output files exist. Network latency provides natural
-    // ~50-200ms backoff per attempt (same pattern as run_coding_agent).
-    let max_poll = 600;
-    for attempt in 0..max_poll {
-        let rc_resp = ctx.http_call(
-            "GET",
-            &format!("{sandbox_url}/api/v1/files?path={}", urlenc(&rc_file)),
-            &headers,
-            "",
-        );
-        match rc_resp {
-            Ok(r) if r.status < 400 && !r.body.trim().is_empty() => break,
-            _ => {}
-        }
-        if attempt == max_poll - 1 {
-            return Err("sandbox.bash(): command timed out waiting for completion".into());
-        }
-    }
-
-    // Process completed — read output files.
-    let stdout = ctx
-        .http_call(
-            "GET",
-            &format!("{sandbox_url}/api/v1/files?path={}", urlenc(&out_file)),
-            &headers,
-            "",
-        )
-        .map(|r| r.body)
-        .unwrap_or_default();
-    let stderr = ctx
-        .http_call(
-            "GET",
-            &format!("{sandbox_url}/api/v1/files?path={}", urlenc(&err_file)),
-            &headers,
-            "",
-        )
-        .map(|r| r.body)
-        .unwrap_or_default();
-    let exit_code = ctx
-        .http_call(
-            "GET",
-            &format!("{sandbox_url}/api/v1/files?path={}", urlenc(&rc_file)),
-            &headers,
-            "",
-        )
-        .map(|r| r.body.trim().to_string())
-        .unwrap_or_default();
-
-    for f in [&out_file, &err_file, &rc_file] {
-        let _ = ctx.http_call(
-            "DELETE",
-            &format!("{sandbox_url}/api/v1/files?path={}", urlenc(f)),
-            &headers,
-            "",
-        );
-    }
-
-    let mut output = String::new();
-    if !stdout.is_empty() {
-        output.push_str(&stdout);
-    }
-    if !stderr.is_empty() {
-        if !output.is_empty() {
-            output.push('\n');
-        }
-        output.push_str("STDERR: ");
-        output.push_str(&stderr);
-    }
-    output.push_str(&format!("\n[exit code: {exit_code}]"));
-
-    Ok(json!(output))
 }
 
 // ---------------------------------------------------------------------------
@@ -1486,16 +1310,6 @@ fn escape_odata_key(key: &str) -> String {
     key.replace('\'', "''")
 }
 
-fn urlenc(s: &str) -> String {
-    s.replace('%', "%25")
-        .replace(' ', "%20")
-        .replace('&', "%26")
-        .replace('=', "%3D")
-        .replace('?', "%3F")
-        .replace('#', "%23")
-        .replace('\'', "%27")
-}
-
 fn runtime_headers(tenant: &str) -> Vec<(String, String)> {
     vec![
         ("Content-Type".to_string(), "application/json".to_string()),
@@ -1513,16 +1327,26 @@ pub fn check_cedar_denial(status: u16, body: &str) -> Option<String> {
             if let Some(did) = parsed.get("decision_id").and_then(|v| v.as_str()) {
                 return Some(format!("CEDAR_DENIED:{}:{}", did, body));
             }
-            // OData error format: {"error":{"message":"... (decision: PD-xxx)"}}
+            // Error message formats from different endpoints:
+            //   OData:       "... (decision: PD-xxx)"
+            //   API (specs): "... Decision PD-xxx"
             if let Some(msg) = parsed
                 .get("error")
                 .and_then(|e| e.get("message"))
                 .and_then(|m| m.as_str())
             {
+                // Format 1: OData — "(decision: PD-xxx)"
                 if let Some(start) = msg.find("(decision: ") {
                     let after = &msg[start + "(decision: ".len()..];
                     if let Some(end) = after.find(')') {
                         let did = &after[..end];
+                        return Some(format!("CEDAR_DENIED:{}:{}", did, body));
+                    }
+                }
+                // Format 2: API — "Decision PD-xxx" (at end of message)
+                if let Some(start) = msg.find("Decision PD-") {
+                    let did = msg[start + "Decision ".len()..].trim();
+                    if !did.is_empty() {
                         return Some(format!("CEDAR_DENIED:{}:{}", did, body));
                     }
                 }

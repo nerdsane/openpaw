@@ -38,10 +38,14 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         let tool_context: Value =
             serde_json::from_str(tool_context_str).unwrap_or_else(|_| json!({}));
 
-        let action_desc = tool_context
-            .get("action_description")
+        // The pending_tool_context has shape:
+        // { "tool_context": { "method": "Session.SwitchMode", "args": {...} }, ... }
+        let inner_ctx = tool_context.get("tool_context").unwrap_or(&tool_context);
+        let action_method = inner_ctx
+            .get("method")
             .and_then(|v| v.as_str())
             .unwrap_or("unknown action");
+        let action_desc = action_method;
 
         if decision_id.is_empty() {
             ctx.log("warn", "notify_approval: no pending_decision_id, skipping");
@@ -142,6 +146,15 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 "notify_approval: sent approval buttons for {decision_id} (agent {agent_id}) to thread {thread_id}"
             ),
         );
+
+        // Register callback on the linked GovernanceDecision entity so that
+        // when a human approves/denies, the GD dispatches back to this Session.
+        if let Err(e) = register_gd_callback(
+            &ctx, &temper_api_url, tenant, session_id, decision_id,
+        ) {
+            ctx.log("warn", &format!("notify_approval: GD callback registration failed: {e}"));
+        }
+
         set_success_result("", &json!({"status": "notified", "decision_id": decision_id}));
         Ok(())
     })();
@@ -150,6 +163,86 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         set_error_result(&error);
     }
     0
+}
+
+/// Query the GovernanceDecision entity by pending_decision_id in temper-system
+/// and dispatch RegisterCallback so approval/denial routes back to this Session.
+fn register_gd_callback(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+    session_id: &str,
+    decision_id: &str,
+) -> Result<(), String> {
+    // Query GD by pending_decision_id in temper-system tenant.
+    let escaped = decision_id.replace('\'', "''");
+    let gd_filter = format!("$filter=pending_decision_id eq '{escaped}'&$top=1");
+    let gd_url = format!("{temper_api_url}/tdata/GovernanceDecisions?{gd_filter}");
+    // Use "admin" principal — "system" is blocked from HTTP headers to prevent
+    // privilege escalation. The temper-system tenant has a Cedar policy permitting
+    // Admin principals to manage GovernanceDecision entities.
+    let system_headers = vec![
+        ("accept".to_string(), "application/json".to_string()),
+        ("x-tenant-id".to_string(), "temper-system".to_string()),
+        ("x-temper-principal-kind".to_string(), "admin".to_string()),
+    ];
+
+    let resp = ctx.http_call("GET", &gd_url, &system_headers, "")?;
+    if resp.status != 200 {
+        return Err(format!("GD query failed (HTTP {})", resp.status));
+    }
+    let parsed: Value =
+        serde_json::from_str(&resp.body).unwrap_or_else(|_| json!({"value": []}));
+    let gd = parsed
+        .get("value")
+        .and_then(Value::as_array)
+        .and_then(|arr| arr.first());
+    let Some(gd) = gd else {
+        ctx.log("info", &format!(
+            "notify_approval: no GovernanceDecision found for {decision_id}, callback skipped"
+        ));
+        return Ok(());
+    };
+
+    let gd_id = gd
+        .get("entity_id")
+        .or_else(|| gd.get("fields").and_then(|f| f.get("Id")))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    if gd_id.is_empty() {
+        return Err("GovernanceDecision has no entity_id".to_string());
+    }
+
+    // Dispatch RegisterCallback on the GovernanceDecision.
+    let callback_url = format!(
+        "{temper_api_url}/tdata/GovernanceDecisions('{gd_id}')/temper-system.RegisterCallback"
+    );
+    let callback_body = json!({
+        "callback_tenant": tenant,
+        "callback_entity_set": "Sessions",
+        "callback_entity_id": session_id,
+        "callback_on_approve": "ResumeAfterApproval",
+        "callback_on_deny": "Fail"
+    });
+    let post_headers = vec![
+        ("content-type".to_string(), "application/json".to_string()),
+        ("x-tenant-id".to_string(), "temper-system".to_string()),
+        ("x-temper-principal-kind".to_string(), "admin".to_string()),
+    ];
+
+    let resp = ctx.http_call("POST", &callback_url, &post_headers, &callback_body.to_string())?;
+    if !(200..300).contains(&resp.status) {
+        return Err(format!(
+            "RegisterCallback failed (HTTP {}): {}",
+            resp.status,
+            &resp.body[..resp.body.len().min(200)]
+        ));
+    }
+
+    ctx.log("info", &format!(
+        "notify_approval: registered callback on GD {gd_id} → Sessions('{session_id}')"
+    ));
+    Ok(())
 }
 
 fn find_session_by_agent(

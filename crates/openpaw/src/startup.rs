@@ -296,6 +296,27 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
             vault,
             &turso_store,
             &tenant,
+            "sandbox_provider",
+            config.sandbox_provider
+        );
+        seed_secret!(
+            vault,
+            &turso_store,
+            &tenant,
+            "modal_api_token",
+            config.modal_api_token
+        );
+        seed_secret!(
+            vault,
+            &turso_store,
+            &tenant,
+            "modal_api_url",
+            config.modal_api_url
+        );
+        seed_secret!(
+            vault,
+            &turso_store,
+            &tenant,
             "github_token",
             config.github_token
         );
@@ -432,12 +453,32 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
                 cache_and_persist_secret(vault, &turso_store, &tenant, "sandbox_url", sandbox_url)
                     .await;
             }
-        } else if config.tensorlake_api_key.is_some() {
-            tracing::info!(
-                "Tensorlake API key configured; sandbox_provisioner will create sandboxes on demand"
-            );
         } else {
-            tracing::warn!("No TL_API_KEY or SANDBOX_URL — agent sandbox provisioning will fail");
+            let provider = config.sandbox_provider.as_deref().unwrap_or("tensorlake");
+            match provider {
+                "tensorlake" if config.tensorlake_api_key.is_some() => {
+                    tracing::info!(
+                        "Sandbox provider: tensorlake (API key configured)"
+                    );
+                }
+                "modal" if config.modal_api_token.is_some() && config.modal_api_url.is_some() => {
+                    tracing::info!(
+                        "Sandbox provider: modal (bridge URL: {})",
+                        config.modal_api_url.as_deref().unwrap_or("?")
+                    );
+                }
+                "modal" => {
+                    tracing::warn!(
+                        "Sandbox provider is 'modal' but MODAL_API_TOKEN or MODAL_API_URL not set"
+                    );
+                }
+                "tensorlake" => {
+                    tracing::warn!("No TL_API_KEY or SANDBOX_URL — sandbox provisioning will fail");
+                }
+                other => {
+                    tracing::warn!("Unsupported SANDBOX_PROVIDER={other} — use 'tensorlake' or 'modal'");
+                }
+            }
         }
 
         // Blob store for TemperFS content uploads/downloads.

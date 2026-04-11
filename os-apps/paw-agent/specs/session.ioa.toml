@@ -110,6 +110,11 @@ type = "string"
 initial = ""
 
 [[state]]
+name = "sandbox_provider"
+type = "string"
+initial = ""
+
+[[state]]
 name = "provision_check_count"
 type = "counter"
 initial = "0"
@@ -331,7 +336,7 @@ initial = ""
 name = "Configure"
 kind = "input"
 from = ["Created"]
-params = ["system_prompt", "user_message", "model", "provider", "max_turns", "tools_enabled", "workdir", "sandbox_url", "sandbox_id", "temper_api_url", "soul_id", "agent_id", "parent_session_id", "session_depth", "max_follow_ups", "hook_policy", "reserve_tokens", "keep_recent_tokens", "compaction_model", "heartbeat_timeout_seconds", "project_harness_id", "project_id", "workspace_id", "conversation_file_id", "file_manifest_id", "session_file_id", "session_leaf_id", "session_mode"]
+params = ["system_prompt", "user_message", "model", "provider", "max_turns", "tools_enabled", "workdir", "sandbox_url", "sandbox_id", "sandbox_provider", "temper_api_url", "soul_id", "agent_id", "parent_session_id", "session_depth", "max_follow_ups", "hook_policy", "reserve_tokens", "keep_recent_tokens", "compaction_model", "heartbeat_timeout_seconds", "project_harness_id", "project_id", "workspace_id", "conversation_file_id", "file_manifest_id", "session_file_id", "session_leaf_id", "session_mode"]
 hint = "Configure session. Auto-provisions after configuration. Resume fields (workspace_id, conversation_file_id, session_file_id, session_leaf_id) are accepted so continuations carry prior conversation state."
 effect = [{ type = "schedule", action = "ProvisionWorkspace", delay_seconds = 0 }]
 
@@ -365,7 +370,7 @@ name = "ProvisionPending"
 kind = "input"
 from = ["Provisioning"]
 to = "Provisioning"
-params = ["sandbox_url", "sandbox_id"]
+params = ["sandbox_url", "sandbox_id", "sandbox_provider"]
 hint = "Sandbox exists but is still booting. Persist connection details and schedule another readiness check."
 effect = [
   { type = "increment", var = "provision_check_count" },
@@ -386,7 +391,7 @@ name = "SandboxReady"
 kind = "input"
 from = ["Provisioning"]
 to = "Thinking"
-params = ["sandbox_url", "sandbox_id", "workspace_id", "conversation_file_id", "file_manifest_id", "session_file_id", "session_leaf_id"]
+params = ["sandbox_url", "sandbox_id", "sandbox_provider", "workspace_id", "conversation_file_id", "file_manifest_id", "session_file_id", "session_leaf_id"]
 hint = "Callback from sandbox provisioner. Sets sandbox connection, TemperFS workspace/file/manifest/session, and starts think loop."
 effect = [{ type = "trigger", name = "call_llm" }]
 
@@ -409,7 +414,7 @@ name = "HandleToolResults"
 kind = "input"
 from = ["Executing"]
 to = "Thinking"
-params = ["pending_tool_calls", "conversation", "session_leaf_id", "repl_file_id", "sandbox_url", "sandbox_id", "system_prompt_hash", "system_prompt_file_id", "pending_tool_context", "pending_decision_id"]
+params = ["pending_tool_calls", "conversation", "session_leaf_id", "repl_file_id", "sandbox_url", "sandbox_id", "sandbox_provider", "system_prompt_hash", "system_prompt_file_id", "pending_tool_context", "pending_decision_id"]
 hint = "Tool results received. Increment turn, transition to Thinking, and call LLM again."
 effect = [
   { type = "increment", var = "turn_count" },
@@ -611,7 +616,7 @@ name = "Resume"
 kind = "input"
 from = ["Created"]
 to = "Provisioning"
-params = ["sandbox_url", "sandbox_id", "workspace_id", "conversation_file_id", "file_manifest_id", "session_file_id", "session_leaf_id"]
+params = ["sandbox_url", "sandbox_id", "sandbox_provider", "workspace_id", "conversation_file_id", "file_manifest_id", "session_file_id", "session_leaf_id"]
 hint = "Resume session from saved state. Transitions to Provisioning for workspace restore."
 effect = [{ type = "trigger", name = "restore_workspace" }]
 
@@ -654,6 +659,9 @@ on_failure = "Fail"
 temper_api_url = "{secret:temper_api_url}"
 sandbox_url = "{secret:sandbox_url}"
 tensorlake_api_key = "{secret:tensorlake_api_key}"
+sandbox_provider = "{secret:sandbox_provider}"
+modal_api_token = "{secret:modal_api_token}"
+modal_api_url = "{secret:modal_api_url}"
 
 [[integration]]
 name = "call_llm"
@@ -687,6 +695,9 @@ on_failure = "Fail"
 [integration.config]
 temper_api_url = "{secret:temper_api_url}"
 tensorlake_api_key = "{secret:tensorlake_api_key}"
+sandbox_provider = "{secret:sandbox_provider}"
+modal_api_token = "{secret:modal_api_token}"
+modal_api_url = "{secret:modal_api_url}"
 timeout_secs = "900"
 max_fuel = "50000000000"
 max_memory = "268435456"
@@ -733,6 +744,9 @@ on_failure = "Fail"
 [integration.config]
 temper_api_url = "{secret:temper_api_url}"
 tensorlake_api_key = "{secret:tensorlake_api_key}"
+sandbox_provider = "{secret:sandbox_provider}"
+modal_api_token = "{secret:modal_api_token}"
+modal_api_url = "{secret:modal_api_url}"
 
 [[integration]]
 name = "deliver_reply"
