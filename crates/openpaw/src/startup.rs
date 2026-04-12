@@ -42,6 +42,9 @@ const PAW_OS_APPS: &[&str] = &[
     "koto-wiki",
     // Deep Sci-Fi reference apps (registered via add_os_apps_dir)
     "dsf-harness",
+    // Katagami design language library
+    "katagami-commons",
+    "katagami-curation",
 ];
 
 const DEFAULT_AGENT_TOOLS_ENABLED: &str = "temper_create,temper_get,temper_list,temper_action,temper_patch,temper_submit_specs,temper_show_spec,temper_specs,temper_upload_wasm,temper_get_trajectories,temper_get_insights,temper_get_decisions,temper_poll_decision,temper_approve_decision,temper_deny_decision,temper_submit_policy,temper_list_policies,temper_get_policy,temper_update_policy,temper_delete_policy,temper_install_app,temper_list_apps,temper_spawn_session,temper_list_sessions,temper_abort_session,temper_steer_session,temper_save_memory,temper_recall_memory,temper_write,temper_read,temper_run_coding_agent,temper_get_secret,temper_datadog_query,temper_railway,temper_vercel,temper_web_search,temper_web_fetch,read,write,edit,bash";
@@ -597,6 +600,19 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
     };
     for tenant_id in &tenant_ids {
         state.server.populate_index_from_store(tenant_id).await;
+    }
+
+    // Background: populate field index from snapshots for OData filter push-down.
+    {
+        let server = state.server.clone();
+        let tenant_ids = tenant_ids.clone();
+        tokio::spawn(async move {
+            for tenant_id in tenant_ids {
+                server
+                    .populate_field_index_from_snapshots(&tenant_id)
+                    .await;
+            }
+        });
     }
 
     // Phase 7b: Session recovery — recover or fail orphaned sessions (ADR-0025)
