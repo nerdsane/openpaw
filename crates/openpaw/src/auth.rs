@@ -20,7 +20,6 @@ use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
 use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation, decode, encode};
 use serde::{Deserialize, Serialize};
 use temper_store_turso::TursoEventStore;
-use temper_platform::bearer_auth::PreAuthenticatedRequest;
 
 type SecretsVault = temper_server::secrets::vault::SecretsVault;
 
@@ -34,6 +33,8 @@ pub struct AuthState {
     vault: Arc<SecretsVault>,
     jwt_secret: Arc<Vec<u8>>,
     cookie_secure: bool,
+    api_key: Arc<String>,
+    register_lock: Arc<tokio::sync::Mutex<()>>,
 }
 
 impl AuthState {
@@ -42,12 +43,15 @@ impl AuthState {
         vault: Arc<SecretsVault>,
         jwt_secret: Vec<u8>,
         cookie_secure: bool,
+        api_key: String,
     ) -> Self {
         Self {
             turso_store,
             vault,
             jwt_secret: Arc::new(jwt_secret),
             cookie_secure,
+            api_key: Arc::new(api_key),
+            register_lock: Arc::new(tokio::sync::Mutex::new(())),
         }
     }
 
@@ -58,7 +62,7 @@ impl AuthState {
             .await
             .unwrap();
         let vault = Arc::new(SecretsVault::new(&[7; 32]));
-        Self::new(store, vault, vec![3; 32], false)
+        Self::new(store, vault, vec![3; 32], false, "test-api-key".to_string())
     }
 }
 
@@ -124,7 +128,12 @@ pub async fn middleware(
 
     if let Some(claims) = claims_from_headers(&state, request.headers()) {
         inject_auth_headers(&mut request, &claims);
-        request.extensions_mut().insert(PreAuthenticatedRequest);
+        // Inject a valid Bearer token so Temper's bearer_auth layer passes
+        // the request through without requiring a separate API key header.
+        let bearer = format!("Bearer {}", state.api_key);
+        if let Ok(val) = HeaderValue::from_str(&bearer) {
+            request.headers_mut().insert("authorization", val);
+        }
         return next.run(request).await;
     }
 
@@ -372,6 +381,10 @@ async fn register_impl(
     let email = normalize_email(&request.email)?;
     validate_password(&request.password)?;
 
+    // Serialize registration to prevent two concurrent requests from both
+    // passing the "no accounts exist" check (first-user-wins race).
+    let _guard = state.register_lock.lock().await;
+
     let mut accounts = load_accounts(state).await.map_err(AuthError::Storage)?;
     if !accounts.is_empty() {
         return Err(AuthError::Conflict(
@@ -531,7 +544,7 @@ fn build_session_cookie(state: &AuthState, claims: &SessionClaims) -> Cookie<'st
         .http_only(true)
         .same_site(SameSite::Lax)
         .secure(state.cookie_secure)
-        .max_age(cookie::time::Duration::seconds(SESSION_DURATION_SECS as i64))
+        .max_age(time::Duration::seconds(SESSION_DURATION_SECS as i64))
         .build()
 }
 

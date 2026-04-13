@@ -56,7 +56,6 @@ fn allowed_secret_keys() -> HashSet<&'static str> {
         "exa_api_key",
         "tensorlake_api_key",
         "llm_provider",
-        "temper_api_key",
     ]
     .into_iter()
     .collect()

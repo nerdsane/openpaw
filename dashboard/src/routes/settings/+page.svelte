@@ -51,6 +51,7 @@
     followup_answers: []
   });
 
+  let showApiKey = $state(false);
   let currentPassword = $state('');
   let newPassword = $state('');
 
@@ -127,75 +128,105 @@
   }
 
   async function saveProviderSecret(provider: 'anthropic' | 'openrouter' | 'openai') {
-    const value =
-      provider === 'anthropic' ? anthropicApiKey :
-      provider === 'openrouter' ? openrouterApiKey :
-      openaiApiKey;
+    error = ''; success = '';
+    try {
+      const value =
+        provider === 'anthropic' ? anthropicApiKey :
+        provider === 'openrouter' ? openrouterApiKey :
+        openaiApiKey;
 
-    await saveSecret('llm_provider', provider);
-    if (provider === 'anthropic') await saveSecret('anthropic_api_key', value);
-    if (provider === 'openrouter') await saveSecret('openrouter_api_key', value);
-    if (provider === 'openai') await saveSecret('openai_api_key', value);
-    success = `${provider} configuration saved`;
-    await load();
+      await saveSecret('llm_provider', provider);
+      if (provider === 'anthropic') await saveSecret('anthropic_api_key', value);
+      if (provider === 'openrouter') await saveSecret('openrouter_api_key', value);
+      if (provider === 'openai') await saveSecret('openai_api_key', value);
+      success = `${provider} configuration saved`;
+      await load();
+    } catch (err) {
+      error = err instanceof Error ? err.message : 'Failed to save provider';
+    }
   }
 
   async function saveDiscord() {
-    await Promise.all([
-      saveSecret('discord_bot_token', discordBotToken),
-      saveSecret('discord_public_key', discordPublicKey),
-      saveSecret('discord_guild_id', discordGuildId),
-      saveSecret('discord_feed_channel_id', discordFeedChannelId),
-      saveSecret('discord_forum_channel_id', discordForumChannelId)
-    ]);
-    await connectDiscord({
-      bot_token: discordBotToken,
-      public_key: discordPublicKey,
-      guild_id: discordGuildId || undefined,
-      feed_channel_id: discordFeedChannelId || undefined,
-      forum_channel_id: discordForumChannelId || undefined
-    });
-    success = 'Discord connected';
-    await load();
+    error = ''; success = '';
+    try {
+      await Promise.all([
+        saveSecret('discord_bot_token', discordBotToken),
+        saveSecret('discord_public_key', discordPublicKey),
+        saveSecret('discord_guild_id', discordGuildId),
+        saveSecret('discord_feed_channel_id', discordFeedChannelId),
+        saveSecret('discord_forum_channel_id', discordForumChannelId)
+      ]);
+      await connectDiscord({
+        bot_token: discordBotToken,
+        public_key: discordPublicKey,
+        guild_id: discordGuildId || undefined,
+        feed_channel_id: discordFeedChannelId || undefined,
+        forum_channel_id: discordForumChannelId || undefined
+      });
+      success = 'Discord connected';
+      await load();
+    } catch (err) {
+      error = err instanceof Error ? err.message : 'Failed to connect Discord';
+    }
   }
 
   async function saveSlack() {
-    await Promise.all([
-      saveSecret('slack_app_token', slackAppToken),
-      saveSecret('slack_bot_token', slackBotToken),
-      saveSecret('slack_signing_secret', slackSigningSecret)
-    ]);
-    await connectSlack({
-      app_token: slackAppToken,
-      bot_token: slackBotToken,
-      signing_secret: slackSigningSecret || undefined
-    });
-    success = 'Slack connected';
-    await load();
+    error = ''; success = '';
+    try {
+      await Promise.all([
+        saveSecret('slack_app_token', slackAppToken),
+        saveSecret('slack_bot_token', slackBotToken),
+        saveSecret('slack_signing_secret', slackSigningSecret)
+      ]);
+      await connectSlack({
+        app_token: slackAppToken,
+        bot_token: slackBotToken,
+        signing_secret: slackSigningSecret || undefined
+      });
+      success = 'Slack connected';
+      await load();
+    } catch (err) {
+      error = err instanceof Error ? err.message : 'Failed to connect Slack';
+    }
   }
 
   async function generateSoul() {
-    generatedSoul = await generateSoulPreview({
-      interview,
-      previous_summary: generatedSoul?.summary,
-      feedback: soulFeedback || undefined
-    });
-    soulFeedback = '';
-    success = 'New Paw preview ready';
+    error = ''; success = '';
+    try {
+      generatedSoul = await generateSoulPreview({
+        interview,
+        previous_summary: generatedSoul?.summary,
+        feedback: soulFeedback || undefined
+      });
+      soulFeedback = '';
+      success = 'New Paw preview ready';
+    } catch (err) {
+      error = err instanceof Error ? err.message : 'Failed to generate soul preview';
+    }
   }
 
   async function saveSoul() {
     if (!generatedSoul) return;
-    await saveGeneratedSoul(generatedSoul);
-    success = 'Paw soul updated';
-    soul = await getCurrentSoul();
+    error = ''; success = '';
+    try {
+      await saveGeneratedSoul(generatedSoul);
+      success = 'Paw soul updated';
+      soul = await getCurrentSoul();
+    } catch (err) {
+      error = err instanceof Error ? err.message : 'Failed to save soul';
+    }
   }
 
   async function updatePassword() {
-    await changePassword(currentPassword, newPassword);
-    currentPassword = '';
-    newPassword = '';
-    success = 'Password updated';
+    error = ''; success = '';
+    try {
+      await changePassword(currentPassword, newPassword);
+      currentPassword = '';
+      newPassword = '';
+      success = 'Password updated';
+    } catch (err) {
+      error = err instanceof Error ? err.message : 'Failed to change password';
+    }
   }
 </script>
 
@@ -297,7 +328,13 @@
 
       <section class="card">
         <h2>Account</h2>
-        <label><span>Programmatic API key</span><input bind:value={apiKey} readonly /></label>
+        <label>
+          <span>Programmatic API key</span>
+          <div class="row">
+            <input value={apiKey} readonly type={showApiKey ? 'text' : 'password'} />
+            <button class="ghost" type="button" onclick={() => showApiKey = !showApiKey}>{showApiKey ? 'Hide' : 'Show'}</button>
+          </div>
+        </label>
         <label><span>Current password</span><input bind:value={currentPassword} type="password" /></label>
         <label><span>New password</span><input bind:value={newPassword} type="password" /></label>
         <button class="action" onclick={updatePassword} type="button">Change password</button>

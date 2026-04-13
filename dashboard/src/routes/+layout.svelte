@@ -6,7 +6,7 @@
   import PawLogo from '$lib/components/PawLogo.svelte';
   import ThemeToggle from '$lib/components/ThemeToggle.svelte';
   import { queryEntities } from '$lib/api';
-  import { checkAuth, getCurrentUser, logout, type SessionUser } from '$lib/auth';
+  import { getCurrentUser, logout, type SessionUser } from '$lib/auth';
   import type { Project } from '$lib/types';
   import { page } from '$app/stores';
 
@@ -33,45 +33,39 @@
   let isCanvas = $derived(currentPath === '/');
   let isLoginRoute = $derived(currentPath === '/login');
 
-  onMount(() => {
-    const stop = page.subscribe(($page) => {
-      void syncAuthForPath($page.url.pathname);
-    });
+  onMount(async () => {
+    const onLoginPage = relativePath($page.url.pathname) === '/login';
 
-    return stop;
+    try {
+      user = await getCurrentUser();
+      authReady = true;
+
+      if (onLoginPage && user) {
+        await goto(appHref('/'));
+        return;
+      }
+      if (!onLoginPage && !user) {
+        await goto(appHref('/login'));
+        return;
+      }
+
+      if (user) {
+        const data = await queryEntities('Projects');
+        projects = data as unknown as Project[];
+      }
+    } catch (err) {
+      authReady = true;
+      authError = err instanceof Error ? err.message : 'Unable to load dashboard';
+      if (!onLoginPage) {
+        await goto(appHref('/login'));
+      }
+    }
   });
 
   async function handleLogout() {
     await logout();
     user = null;
     await goto(appHref('/login'));
-  }
-
-  async function syncAuthForPath(pathname: string) {
-    const onLoginPage = relativePath(pathname) === '/login';
-
-    try {
-      if (onLoginPage) {
-        user = await getCurrentUser();
-        authReady = true;
-        if (user) {
-          await goto(appHref('/'));
-        }
-        return;
-      }
-
-      user = await checkAuth();
-      authReady = true;
-
-      const data = await queryEntities('Projects');
-      projects = data as unknown as Project[];
-    } catch (error) {
-      authReady = true;
-      authError = error instanceof Error ? error.message : 'Unable to load dashboard';
-      if (!onLoginPage) {
-        await goto(appHref('/login'));
-      }
-    }
   }
 </script>
 

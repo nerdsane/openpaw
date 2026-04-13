@@ -787,6 +787,10 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
             .clone(),
         vault_key_bytes.to_vec(),
         cookie_secure,
+        config
+            .temper_api_key
+            .clone()
+            .unwrap_or_default(),
     );
 
     let router = build_platform_router(state.clone());
@@ -1099,7 +1103,11 @@ fn load_or_create_temper_api_key(explicit_key: Option<String>, path: &Path) -> R
         }
     }
 
-    let key = uuid::Uuid::new_v4().to_string();
+    let key = {
+        use rand::Rng;
+        let bytes: [u8; 32] = rand::rng().random();
+        hex::encode(bytes)
+    };
     std::fs::write(path, &key)
         .with_context(|| format!("Failed to write API key to {}", path.display()))?;
 
