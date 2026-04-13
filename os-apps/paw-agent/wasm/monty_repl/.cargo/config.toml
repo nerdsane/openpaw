@@ -1,0 +1,5 @@
+# getrandom 0.3+ requires explicit opt-in for wasm32-unknown-unknown.
+# We use the "custom" backend because this WASM module runs in a Temper host,
+# not a browser — the host provides randomness via imported functions.
+[target.wasm32-unknown-unknown]
+rustflags = ['--cfg', 'getrandom_backend="custom"']
