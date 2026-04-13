@@ -2,8 +2,6 @@
 
 An agent that evolves its own capabilities.
 
-[![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/new/template)
-
 OpenPaw is an ambient agent platform. It runs in the background, always on. You talk to Paw wherever you already are — messaging, voice, text. Paw manages work, spawns specialist agents, and gives them their own computers. When an agent needs a capability that doesn't exist, it designs one. The platform verifies it. You approve it. And now every agent on the platform can use it — perpetually.
 
 Paw runs on the same platform it gives to its agents. Its memory, skills, permissions, and workflows are built the same way agents build new capabilities. So when agents extend the platform, they're working with the same building blocks Paw itself is made of. Like a building where the tenants can add rooms — using the same materials the building is made of. The platform grows with them.
@@ -109,21 +107,11 @@ Agents create capabilities as tools for themselves — structured workflows that
 ## Get Started
 
 ```bash
-git clone https://github.com/nerdsane/openpaw.git
-cd openpaw
-make setup
+cargo install openpaw
 openpaw
 ```
 
-On first run, the CLI walks you through setup:
-- Pick your AI provider (Anthropic, OpenRouter, or OpenAI) and paste your API key
-- Connect a messaging platform — Discord or Slack (with step-by-step instructions)
-- A short interview about you and what kind of Paw you want
-- Paw generates a personalized soul and shows you a preview
-
-Everything is encrypted and saved locally. Next time you run it — just boots.
-
-For cloud deployment, run `openpaw deploy`. The CLI provisions infrastructure, deploys the single-binary app, and seeds the admin account and dashboard config.
+The CLI walks you through everything — API key, messaging, and personalizing your Paw. To deploy to the cloud, run `openpaw deploy`.
 
 ## How It's Built
 
