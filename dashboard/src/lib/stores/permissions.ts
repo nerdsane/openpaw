@@ -1,5 +1,5 @@
 import { writable } from 'svelte/store';
-import { fetchDecisions, fetchPolicies, type PendingDecision, type PolicyEntry, type SessionHistoryEntry } from '$lib/api';
+import { fetchDecisions, fetchPolicies, apiFetch, type PendingDecision, type PolicyEntry, type SessionHistoryEntry } from '$lib/api';
 
 export const decisions = writable<PendingDecision[]>([]);
 export const policies = writable<PolicyEntry[]>([]);
@@ -22,9 +22,7 @@ export async function loadPolicies(): Promise<void> {
 export async function loadAuthzHistory(limit = 500): Promise<void> {
   const params = new URLSearchParams();
   params.set('limit', limit.toString());
-  const res = await fetch(`/observe/agents/system/history?${params.toString()}`, {
-    headers: { 'x-tenant-id': 'default', 'x-temper-principal-kind': 'admin' },
-  });
+  const res = await apiFetch(`/observe/agents/system/history?${params.toString()}`);
   if (!res.ok) { authzHistory.set([]); return; }
   const data = await res.json();
   const history = data.history ?? data ?? [];

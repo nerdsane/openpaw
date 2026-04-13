@@ -5,7 +5,7 @@ const HEADERS: Record<string, string> = {
   'x-tenant-id': 'default'
 };
 
-async function apiFetch(input: string, init: RequestInit = {}): Promise<Response> {
+export async function apiFetch(input: string, init: RequestInit = {}): Promise<Response> {
   const headers = {
     ...HEADERS,
     ...(init.headers as Record<string, string> | undefined)
@@ -253,7 +253,7 @@ export async function getSecret(key: string): Promise<string | null> {
 }
 
 export async function deleteSecret(key: string): Promise<void> {
-  await apiFetch(`${BASE}/paw/setup/secrets/${key}`, {
+  await apiFetch(`${BASE}/paw/setup/secrets/${encodeURIComponent(key)}`, {
     method: 'DELETE',
   });
 }

@@ -153,7 +153,6 @@ fn is_public_path(method: &str, path: &str) -> bool {
         || path == "/auth"
         || path == "/healthz"
         || (method == "GET" && (path == "/tdata" || path == "/tdata/"))
-        || path.starts_with("/_internal")
         || is_dashboard_public_path(path)
 }
 
@@ -165,11 +164,12 @@ fn is_dashboard_public_path(path: &str) -> bool {
     path.starts_with("/dashboard/_app/")
         || path == "/dashboard/favicon.svg"
         || path == "/dashboard/robots.txt"
-        || path
-            .rsplit('/')
-            .next()
-            .map(|segment| segment.contains('.'))
-            .unwrap_or(false)
+        || (path.starts_with("/dashboard/")
+            && path
+                .rsplit('/')
+                .next()
+                .map(|segment| segment.contains('.'))
+                .unwrap_or(false))
 }
 
 fn claims_from_headers(state: &AuthState, headers: &HeaderMap) -> Option<SessionClaims> {
@@ -531,6 +531,7 @@ fn build_session_cookie(state: &AuthState, claims: &SessionClaims) -> Cookie<'st
         .http_only(true)
         .same_site(SameSite::Lax)
         .secure(state.cookie_secure)
+        .max_age(cookie::time::Duration::seconds(SESSION_DURATION_SECS as i64))
         .build()
 }
 

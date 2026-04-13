@@ -25,30 +25,3 @@ opentelemetry-appender-tracing = "0.28"
 tracing-opentelemetry = "0.29"
 axum = { version = "0.8", features = ["macros"] }
 anyhow = "1"
-
-[patch."https://github.com/nerdsane/temper.git"]
-temper-macros = { path = "../temper/crates/temper-macros" }
-temper-runtime = { path = "../temper/crates/temper-runtime" }
-temper-spec = { path = "../temper/crates/temper-spec" }
-temper-codegen = { path = "../temper/crates/temper-codegen" }
-temper-odata = { path = "../temper/crates/temper-odata" }
-temper-authz = { path = "../temper/crates/temper-authz" }
-temper-observe = { path = "../temper/crates/temper-observe" }
-temper-verify = { path = "../temper/crates/temper-verify" }
-temper-store-postgres = { path = "../temper/crates/temper-store-postgres" }
-temper-store-turso = { path = "../temper/crates/temper-store-turso" }
-temper-store-redis = { path = "../temper/crates/temper-store-redis" }
-temper-store-sim = { path = "../temper/crates/temper-store-sim" }
-temper-server = { path = "../temper/crates/temper-server" }
-temper-cli = { path = "../temper/crates/temper-cli" }
-temper-mcp = { path = "../temper/crates/temper-mcp" }
-temper-evolution = { path = "../temper/crates/temper-evolution" }
-temper-jit = { path = "../temper/crates/temper-jit" }
-temper-optimize = { path = "../temper/crates/temper-optimize" }
-temper-platform = { path = "../temper/crates/temper-platform" }
-temper-wasm = { path = "../temper/crates/temper-wasm" }
-temper-wasm-sdk = { path = "../temper/crates/temper-wasm-sdk" }
-temper-sdk = { path = "../temper/crates/temper-sdk" }
-temper-sandbox = { path = "../temper/crates/temper-sandbox" }
-temper-ots = { path = "../temper/crates/temper-ots" }
-temper-transport = { path = "../temper/crates/temper-transport" }
