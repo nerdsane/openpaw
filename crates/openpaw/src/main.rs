@@ -68,14 +68,27 @@ async fn main() -> anyhow::Result<()> {
             setup::run_doctor(&data_dir, &config);
             return Ok(());
         }
-        None => false,
+        None => {
+            // No subcommand: just boot the server.
+            // If not configured yet, tell the user what to do.
+            if std::io::stdin().is_terminal() && setup::needs_setup(&data_dir, &config) {
+                eprintln!();
+                eprintln!("  Open Paw is not configured yet.");
+                eprintln!();
+                eprintln!("  Run \x1b[1mopenpaw setup\x1b[0m to get started.");
+                eprintln!();
+                std::process::exit(1);
+            }
+            false
+        }
     };
 
-    // Build layered tracing subscriber
+    // In a terminal, suppress noisy logs — only show warnings and errors.
+    // Full debug logs when RUST_LOG is explicitly set or not in a terminal.
+    let is_terminal = std::io::stderr().is_terminal();
     if std::env::var_os("RUST_LOG").is_none() {
-        unsafe {
-            std::env::set_var("RUST_LOG", "info,openpaw=debug");
-        }
+        let level = if is_terminal { "warn" } else { "info,openpaw=debug" };
+        unsafe { std::env::set_var("RUST_LOG", level); }
     }
     if config.otel_enabled {
         let has_explicit_endpoint = std::env::var_os("OTLP_ENDPOINT").is_some()
@@ -93,11 +106,18 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let otel_guard = temper_observe::otel::init_observability("openpaw");
-    if config.otel_enabled {
-        tracing::info!(
-            "Open Paw starting (OpenTelemetry enabled → {})...",
-            config.otel_endpoint
-        );
+
+    // Print a clean banner in the terminal
+    if is_terminal {
+        let port = config.port;
+        eprintln!();
+        eprintln!("  \x1b[1mOpen Paw\x1b[0m is starting...");
+        eprintln!();
+        eprintln!("  Dashboard → \x1b[36mhttp://localhost:{port}/dashboard\x1b[0m");
+        eprintln!("  API       → \x1b[36mhttp://localhost:{port}\x1b[0m");
+        eprintln!();
+        eprintln!("  Logs are suppressed. Set \x1b[1mRUST_LOG=info\x1b[0m for verbose output.");
+        eprintln!();
     } else {
         tracing::info!("Open Paw starting...");
     }
