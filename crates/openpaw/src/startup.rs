@@ -787,10 +787,6 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
             .clone(),
         vault_key_bytes.to_vec(),
         cookie_secure,
-        config
-            .temper_api_key
-            .clone()
-            .unwrap_or_default(),
     );
 
     let router = build_platform_router(state.clone());
