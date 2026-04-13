@@ -8,7 +8,7 @@ use temper_wasm_sdk::context::Context;
 
 use crate::dispatch;
 
-const DEFAULT_TOOLS_ENABLED: &str = "temper_create,temper_get,temper_list,temper_action,temper_patch,temper_submit_specs,temper_show_spec,temper_specs,temper_upload_wasm,temper_get_trajectories,temper_get_insights,temper_get_decisions,temper_poll_decision,temper_approve_decision,temper_deny_decision,temper_submit_policy,temper_list_policies,temper_get_policy,temper_update_policy,temper_delete_policy,temper_install_app,temper_list_apps,temper_spawn_session,temper_list_sessions,temper_abort_session,temper_steer_session,temper_save_memory,temper_recall_memory,temper_write,temper_read,temper_run_coding_agent,temper_get_secret,temper_datadog_query,temper_railway,temper_vercel,temper_web_search,temper_web_fetch,read,write,edit,bash";
+const DEFAULT_TOOLS_ENABLED: &str = "temper_create,temper_get,temper_list,temper_action,temper_patch,temper_submit_specs,temper_show_spec,temper_specs,temper_upload_wasm,temper_get_trajectories,temper_get_insights,temper_get_decisions,temper_poll_decision,temper_approve_decision,temper_deny_decision,temper_submit_policy,temper_list_policies,temper_get_policy,temper_update_policy,temper_delete_policy,temper_install_app,temper_create_app,temper_list_apps,temper_spawn_session,temper_list_sessions,temper_abort_session,temper_steer_session,temper_save_memory,temper_recall_memory,temper_write,temper_read,temper_run_coding_agent,temper_get_secret,temper_datadog_query,temper_railway,temper_vercel,temper_web_search,temper_web_fetch,read,write,edit,bash";
 
 // ---------------------------------------------------------------------------
 // spawn_session
@@ -26,24 +26,58 @@ pub fn spawn_session(
 
     let task = require_str(&input, "task", "spawn_session")?;
     let requested_id = input.get("agent_id").and_then(|v| v.as_str()).unwrap_or("");
+
+    // Extract parent session fields early — used for provider/model inheritance,
+    // workspace sharing, depth guard, and project context.
+    let fields = ctx.entity_state.get("fields").cloned().unwrap_or(json!({}));
+    let parent_id = ctx
+        .entity_state
+        .get("entity_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+
+    // Three-tier fallback: explicit input → parent session fields → hardcoded default.
+    let parent_provider = fields.get("provider").and_then(|v| v.as_str()).unwrap_or("");
+    let parent_model = fields.get("model").and_then(|v| v.as_str()).unwrap_or("");
     let model = input
         .get("model")
         .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .or_else(|| if parent_model.is_empty() { None } else { Some(parent_model) })
         .unwrap_or("claude-sonnet-4-6");
     let provider = input
         .get("provider")
         .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .or_else(|| if parent_provider.is_empty() { None } else { Some(parent_provider) })
         .unwrap_or("anthropic");
     let tools = input
         .get("tools")
         .and_then(|v| v.as_str())
         .unwrap_or(DEFAULT_TOOLS_ENABLED);
     let soul_id = input.get("soul_id").and_then(|v| v.as_str()).unwrap_or("");
-    let parent_id = ctx
-        .entity_state
-        .get("entity_id")
+    // Workspace sharing: allow child to reuse parent's workspace.
+    let share_workspace = input
+        .get("share_workspace")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let parent_workspace_id = fields
+        .get("workspace_id")
         .and_then(|v| v.as_str())
         .unwrap_or("");
+    let child_workspace_id = input
+        .get("workspace_id")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .or_else(|| {
+            if share_workspace && !parent_workspace_id.is_empty() {
+                Some(parent_workspace_id)
+            } else {
+                None
+            }
+        })
+        .unwrap_or("");
+
     let child_sandbox_url = input
         .get("sandbox_url")
         .and_then(|v| v.as_str())
@@ -89,8 +123,7 @@ pub fn spawn_session(
         .unwrap_or(default_wait_timeout_ms)
         .max(1_000);
 
-    // Depth guard
-    let fields = ctx.entity_state.get("fields").cloned().unwrap_or(json!({}));
+    // Depth guard (fields already extracted above)
     let current_depth = fields
         .get("session_depth")
         .and_then(|v| v.as_i64())
@@ -104,7 +137,7 @@ pub fn spawn_session(
     if !requested_id.is_empty() {
         create_body["Id"] = Value::String(requested_id.to_string());
     }
-    let resp = http_post(ctx, api_url, tenant, "/tdata/Sessions", &create_body)?;
+    let resp = http_post(ctx, api_url, tenant, parent_id, "/tdata/Sessions", &create_body)?;
     let child_id = resp
         .get("entity_id")
         .or_else(|| resp.get("Id"))
@@ -121,6 +154,7 @@ pub fn spawn_session(
         "model": model, "provider": provider, "tools_enabled": tools,
         "soul_id": soul_id, "user_message": task, "parent_session_id": parent_id,
         "sandbox_url": child_sandbox_url, "workdir": child_workdir,
+        "workspace_id": child_workspace_id,
         "session_depth": current_depth + 1, "max_turns": max_turns,
         "session_mode": mode,
         "project_harness_id": input
@@ -138,6 +172,7 @@ pub fn spawn_session(
         ctx,
         api_url,
         tenant,
+        parent_id,
         &format!("/tdata/Sessions('{child_id}')/OpenPaw.Configure"),
         &config_body,
     )?;
@@ -157,7 +192,7 @@ pub fn spawn_session(
     let wait_url = format!(
         "/observe/entities/Session/{child_id}/wait?statuses=Completed,Failed,Cancelled&timeout_ms={wait_timeout_ms}&poll_ms=250"
     );
-    let entity = http_get(ctx, api_url, tenant, &wait_url)?;
+    let entity = http_get(ctx, api_url, tenant, parent_id, &wait_url)?;
     let status = entity_field_str_val(&entity, "Status");
     let result = entity_field_str_val(&entity, "Result");
 
@@ -179,11 +214,7 @@ pub fn list_sessions(
     args: &[Value],
 ) -> Result<Value, String> {
     let input = obj_arg_or_empty(args, 0);
-    let parent_id = ctx
-        .entity_state
-        .get("entity_id")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
+    let eid = ctx_entity_id(ctx);
 
     let filter = input.get("filter").and_then(|v| v.as_str()).unwrap_or("");
     let top = input.get("top").and_then(|v| v.as_i64()).unwrap_or(50);
@@ -192,10 +223,10 @@ pub fn list_sessions(
     let mut query_parts: Vec<String> = Vec::new();
     if !filter.is_empty() {
         query_parts.push(format!("$filter={}", urlenc(filter)));
-    } else if !parent_id.is_empty() {
+    } else if !eid.is_empty() {
         query_parts.push(format!(
             "$filter=ParentSessionId%20eq%20'{}'",
-            urlenc(parent_id)
+            urlenc(eid)
         ));
     }
     if top > 0 {
@@ -206,7 +237,7 @@ pub fn list_sessions(
         path.push_str(&query_parts.join("&"));
     }
 
-    let resp = http_get(ctx, api_url, tenant, &path)?;
+    let resp = http_get(ctx, api_url, tenant, eid, &path)?;
     Ok(resp.get("value").cloned().unwrap_or(resp))
 }
 
@@ -222,10 +253,12 @@ pub fn abort_session(
 ) -> Result<Value, String> {
     let input = obj_arg(args, 0, "opts", "abort_session")?;
     let session_id = require_str(&input, "session_id", "abort_session")?;
+    let eid = ctx_entity_id(ctx);
     http_post(
         ctx,
         api_url,
         tenant,
+        eid,
         &format!("/tdata/Sessions('{session_id}')/OpenPaw.Cancel"),
         &json!({}),
     )?;
@@ -245,12 +278,14 @@ pub fn steer_session(
     let input = obj_arg(args, 0, "opts", "steer_session")?;
     let session_id = require_str(&input, "session_id", "steer_session")?;
     let message = require_str(&input, "message", "steer_session")?;
+    let eid = ctx_entity_id(ctx);
 
     // Get current steering messages
     let entity = http_get(
         ctx,
         api_url,
         tenant,
+        eid,
         &format!("/tdata/Sessions('{session_id}')"),
     )?;
     let existing = entity_field_str_val(&entity, "SteeringMessages");
@@ -265,6 +300,7 @@ pub fn steer_session(
         ctx,
         api_url,
         tenant,
+        eid,
         &format!("/tdata/Sessions('{session_id}')/OpenPaw.Steer"),
         &body,
     )?;
@@ -300,20 +336,22 @@ pub fn save_memory(
         "Key": key, "Content": content, "MemoryType": memory_type,
         "AgentId": agent_id, "SoulId": soul_id,
     });
-    let resp = http_post(ctx, api_url, tenant, "/tdata/Memories", &body)?;
+    let eid = ctx_entity_id(ctx);
+    let resp = http_post(ctx, api_url, tenant, eid, "/tdata/Memories", &body)?;
 
     // Dispatch Save action
-    let entity_id = resp
+    let memory_id = resp
         .get("entity_id")
         .or_else(|| resp.get("Id"))
         .and_then(|v| v.as_str())
         .unwrap_or("");
-    if !entity_id.is_empty() {
+    if !memory_id.is_empty() {
         let _ = http_post(
             ctx,
             api_url,
             tenant,
-            &format!("/tdata/Memories('{entity_id}')/OpenPaw.Save"),
+            eid,
+            &format!("/tdata/Memories('{memory_id}')/OpenPaw.Save"),
             &json!({}),
         );
     }
@@ -339,7 +377,8 @@ pub fn recall_memory(
         .and_then(|v| v.as_str())
         .unwrap_or("");
 
-    let resp = http_get(ctx, api_url, tenant, "/tdata/Memories")?;
+    let eid = ctx_entity_id(ctx);
+    let resp = http_get(ctx, api_url, tenant, eid, "/tdata/Memories")?;
     let memories = resp
         .get("value")
         .and_then(|v| v.as_array())
@@ -389,11 +428,14 @@ pub fn write(
         None => "/",
     };
 
+    let eid = ctx_entity_id(ctx);
+
     // 3. MkDir — create directory hierarchy (FUSE: mkdir -p).
     http_post(
         ctx,
         api_url,
         tenant,
+        eid,
         &format!(
             "/tdata/Workspaces('{ws_id}')/Temper.MkDir?await_integration=true"
         ),
@@ -405,6 +447,7 @@ pub fn write(
         ctx,
         api_url,
         tenant,
+        eid,
         &format!(
             "/tdata/Workspaces('{ws_id}')/Temper.CreateFile?await_integration=true"
         ),
@@ -462,11 +505,14 @@ pub fn read(
     // workspace name.
     let ws_id = resolve_workspace_id(ctx, api_url, tenant, &opts, false)?;
 
+    let eid = ctx_entity_id(ctx);
+
     // 2. ResolvePath — resolve path to file_id (FUSE: stat).
     let resp = http_post(
         ctx,
         api_url,
         tenant,
+        eid,
         &format!(
             "/tdata/Workspaces('{ws_id}')/Temper.ResolvePath?await_integration=true"
         ),
@@ -621,6 +667,13 @@ fn obj_arg_or_empty(args: &[Value], idx: usize) -> Value {
         .unwrap_or(json!({}))
 }
 
+fn ctx_entity_id(ctx: &Context) -> &str {
+    ctx.entity_state
+        .get("entity_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+}
+
 fn entity_field_str_val(value: &Value, key: &str) -> String {
     value
         .get(key)
@@ -629,19 +682,26 @@ fn entity_field_str_val(value: &Value, key: &str) -> String {
         .to_string()
 }
 
-fn runtime_headers(tenant: &str) -> Vec<(String, String)> {
+fn runtime_headers(tenant: &str, principal_id: &str) -> Vec<(String, String)> {
+    let pid = if principal_id.is_empty() { "system" } else { principal_id };
     vec![
         ("Content-Type".to_string(), "application/json".to_string()),
         ("X-Tenant-Id".to_string(), tenant.to_string()),
         ("x-temper-principal-kind".to_string(), "agent".to_string()),
-        ("x-temper-principal-id".to_string(), "system".to_string()),
+        ("x-temper-principal-id".to_string(), pid.to_string()),
         ("x-temper-agent-type".to_string(), "system".to_string()),
     ]
 }
 
-fn http_get(ctx: &Context, api_url: &str, tenant: &str, path: &str) -> Result<Value, String> {
+fn http_get(
+    ctx: &Context,
+    api_url: &str,
+    tenant: &str,
+    principal_id: &str,
+    path: &str,
+) -> Result<Value, String> {
     let url = format!("{api_url}{path}");
-    let headers = runtime_headers(tenant);
+    let headers = runtime_headers(tenant, principal_id);
     let resp = ctx.http_call("GET", &url, &headers, "")?;
     if let Some(denial) = dispatch::check_cedar_denial(resp.status, &resp.body) {
         return Err(denial);
@@ -657,11 +717,12 @@ fn http_post(
     ctx: &Context,
     api_url: &str,
     tenant: &str,
+    principal_id: &str,
     path: &str,
     body: &Value,
 ) -> Result<Value, String> {
     let url = format!("{api_url}{path}");
-    let headers = runtime_headers(tenant);
+    let headers = runtime_headers(tenant, principal_id);
     let resp = ctx.http_call("POST", &url, &headers, &body.to_string())?;
     if let Some(denial) = dispatch::check_cedar_denial(resp.status, &resp.body) {
         return Err(denial);
@@ -691,10 +752,12 @@ fn find_workspace(
     name: &str,
 ) -> Result<Option<String>, String> {
     let name_enc = urlenc(name);
+    let eid = ctx_entity_id(ctx);
     let resp = http_get(
         ctx,
         api_url,
         tenant,
+        eid,
         &format!("/tdata/Workspaces?$filter=Name%20eq%20'{name_enc}'"),
     )?;
     let items = resp.get("value").and_then(|v| v.as_array());
@@ -767,10 +830,12 @@ fn ensure_workspace(
     if let Some(id) = find_workspace(ctx, api_url, tenant, name)? {
         return Ok(id);
     }
+    let eid = ctx_entity_id(ctx);
     let resp = http_post(
         ctx,
         api_url,
         tenant,
+        eid,
         "/tdata/Workspaces",
         &json!({"Name": name}),
     )?;

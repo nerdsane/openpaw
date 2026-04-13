@@ -288,6 +288,7 @@ fn temper_method_token(method: &str) -> Option<&'static str> {
         "update_policy" => Some("temper_update_policy"),
         "delete_policy" => Some("temper_delete_policy"),
         "install_app" => Some("temper_install_app"),
+        "create_app" => Some("temper_create_app"),
         "list_apps" => Some("temper_list_apps"),
         "spawn_session" => Some("temper_spawn_session"),
         "list_sessions" => Some("temper_list_sessions"),
@@ -357,6 +358,7 @@ fn dispatch_temper(
 
         // Apps
         "install_app" => temper_install_app(ctx, api_url, tenant, args),
+        "create_app" => temper_create_app(ctx, api_url, tenant, args),
         "list_apps" => temper_list_apps(ctx, api_url, tenant),
 
         // Agent identity
@@ -660,6 +662,23 @@ fn temper_submit_specs(
              Include model.csdl.xml plus one or more *.ioa.toml files; nested paths are allowed."
                 .to_string(),
         );
+    }
+    // Validate all spec values are strings (LoadInlineRequest expects BTreeMap<String, String>).
+    if let Some(obj) = specs.as_object() {
+        for (key, val) in obj {
+            if !val.is_string() {
+                let vtype = if val.is_object() { "object" }
+                    else if val.is_array() { "array" }
+                    else if val.is_number() { "number" }
+                    else if val.is_boolean() { "boolean" }
+                    else { "non-string" };
+                return Err(format!(
+                    "temper.submit_specs(): spec value for '{}' must be a TOML/XML/JSON string, \
+                     not a {} value. Wrap the content in a string.",
+                    key, vtype
+                ));
+            }
+        }
     }
     let body = json!({ "tenant": tenant, "specs": specs });
     let result = http_post(ctx, api_url, tenant, "/api/specs/load-inline", &body)?;
@@ -1106,6 +1125,85 @@ fn temper_install_app(
     http_post(ctx, api_url, tenant, "/tdata/CapabilityRequests", &body)
 }
 
+/// Create an app at runtime by bundling specs, policies, and WASM modules inline.
+/// This bypasses the on-disk catalog — the capability_installer processes the bundle
+/// using its `cap_type="app"` handler.
+///
+/// Input (single object arg):
+///   { name, specs: {filename: content, ...}, policies?: {filename: content, ...},
+///     wasm_modules?: {name: base64_bytes, ...}, reason? }
+fn temper_create_app(
+    ctx: &Context,
+    api_url: &str,
+    tenant: &str,
+    args: &[Value],
+) -> Result<Value, String> {
+    let input = args
+        .first()
+        .ok_or_else(|| "temper.create_app() requires an object argument with at least 'name' and 'specs'".to_string())?;
+
+    let app_name = input
+        .get("name")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| "temper.create_app(): 'name' (string) is required".to_string())?;
+    let specs = input
+        .get("specs")
+        .ok_or_else(|| "temper.create_app(): 'specs' (object of filename→content strings) is required".to_string())?;
+    let policies = input.get("policies").cloned().unwrap_or(json!({}));
+    let wasm_modules = input.get("wasm_modules").cloned().unwrap_or(json!({}));
+    let reason = input
+        .get("reason")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+
+    // Validate specs values are strings (same check as temper_submit_specs).
+    if let Some(obj) = specs.as_object() {
+        for (key, val) in obj {
+            if !val.is_string() {
+                let vtype = if val.is_object() {
+                    "object"
+                } else if val.is_array() {
+                    "array"
+                } else if val.is_number() {
+                    "number"
+                } else if val.is_boolean() {
+                    "boolean"
+                } else {
+                    "non-string"
+                };
+                return Err(format!(
+                    "temper.create_app(): spec value for '{}' must be a string, not a {} value.",
+                    key, vtype
+                ));
+            }
+        }
+    }
+
+    // Build the bundle that capability_installer's app handler expects.
+    let bundle = json!({
+        "specs": specs,
+        "policies": policies,
+        "wasm_modules": wasm_modules,
+    });
+    let payload = serde_json::to_string(&bundle)
+        .map_err(|e| format!("temper.create_app(): failed to serialize bundle: {e}"))?;
+
+    let agent_id = ctx
+        .entity_state
+        .get("entity_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+
+    let body = json!({
+        "CapabilityType": "app",
+        "CapabilityName": app_name,
+        "Reason": reason,
+        "RequestingAgentId": agent_id,
+        "Payload": payload,
+    });
+    http_post(ctx, api_url, tenant, "/tdata/CapabilityRequests", &body)
+}
+
 fn temper_list_apps(ctx: &Context, api_url: &str, tenant: &str) -> Result<Value, String> {
     http_get(ctx, api_url, tenant, "/api/apps")
 }
@@ -1325,12 +1423,18 @@ fn escape_odata_key(key: &str) -> String {
     key.replace('\'', "''")
 }
 
-fn runtime_headers(tenant: &str) -> Vec<(String, String)> {
+fn runtime_headers(ctx: &Context, tenant: &str) -> Vec<(String, String)> {
+    let principal_id = ctx
+        .entity_state
+        .get("entity_id")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .unwrap_or("system");
     vec![
         ("Content-Type".to_string(), "application/json".to_string()),
         ("X-Tenant-Id".to_string(), tenant.to_string()),
         ("x-temper-principal-kind".to_string(), "agent".to_string()),
-        ("x-temper-principal-id".to_string(), "system".to_string()),
+        ("x-temper-principal-id".to_string(), principal_id.to_string()),
         ("x-temper-agent-type".to_string(), "system".to_string()),
     ]
 }
@@ -1373,7 +1477,7 @@ pub fn check_cedar_denial(status: u16, body: &str) -> Option<String> {
 
 fn http_get(ctx: &Context, api_url: &str, tenant: &str, path: &str) -> Result<Value, String> {
     let url = format!("{api_url}{path}");
-    let headers = runtime_headers(tenant);
+    let headers = runtime_headers(ctx, tenant);
     let resp = ctx.http_call("GET", &url, &headers, "")?;
     if let Some(denial) = check_cedar_denial(resp.status, &resp.body) {
         return Err(denial);
@@ -1393,7 +1497,7 @@ fn http_post(
     body: &Value,
 ) -> Result<Value, String> {
     let url = format!("{api_url}{path}");
-    let headers = runtime_headers(tenant);
+    let headers = runtime_headers(ctx, tenant);
     let resp = ctx.http_call("POST", &url, &headers, &body.to_string())?;
     if let Some(denial) = check_cedar_denial(resp.status, &resp.body) {
         return Err(denial);
@@ -1416,7 +1520,7 @@ fn http_patch(
     body: &Value,
 ) -> Result<Value, String> {
     let url = format!("{api_url}{path}");
-    let headers = runtime_headers(tenant);
+    let headers = runtime_headers(ctx, tenant);
     let resp = ctx.http_call("PATCH", &url, &headers, &body.to_string())?;
     if let Some(denial) = check_cedar_denial(resp.status, &resp.body) {
         return Err(denial);
@@ -1433,7 +1537,7 @@ fn http_patch(
 
 fn http_delete(ctx: &Context, api_url: &str, tenant: &str, path: &str) -> Result<Value, String> {
     let url = format!("{api_url}{path}");
-    let headers = runtime_headers(tenant);
+    let headers = runtime_headers(ctx, tenant);
     let resp = ctx.http_call("DELETE", &url, &headers, "")?;
     if let Some(denial) = check_cedar_denial(resp.status, &resp.body) {
         return Err(denial);
