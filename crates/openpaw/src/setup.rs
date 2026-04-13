@@ -12,6 +12,7 @@ use std::path::Path;
 
 use crate::config::Config;
 use crate::setup_llm::{self, GeneratedSoul, LlmProvider, UserInterview};
+use axum::http::HeaderMap;
 
 /// Result of Phase A (config setup).
 pub struct SetupResult {
@@ -24,6 +25,48 @@ pub struct SetupResult {
     pub discord_forum_channel_id: Option<String>,
     pub slack_app_token: Option<String>,
     pub slack_bot_token: Option<String>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct SetupRequestAuth {
+    pub cookie: Option<String>,
+    pub authorization: Option<String>,
+}
+
+impl SetupRequestAuth {
+    pub fn from_headers(headers: &HeaderMap) -> Self {
+        Self {
+            cookie: headers
+                .get(axum::http::header::COOKIE)
+                .and_then(|value| value.to_str().ok())
+                .map(str::to_string),
+            authorization: headers
+                .get(axum::http::header::AUTHORIZATION)
+                .and_then(|value| value.to_str().ok())
+                .map(str::to_string),
+        }
+    }
+
+    pub fn from_cookie(cookie: impl Into<String>) -> Self {
+        Self {
+            cookie: Some(cookie.into()),
+            authorization: None,
+        }
+    }
+
+    pub fn apply(&self, request: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
+        let request = if let Some(cookie) = &self.cookie {
+            request.header(reqwest::header::COOKIE, cookie)
+        } else {
+            request
+        };
+
+        if let Some(authorization) = &self.authorization {
+            request.header(reqwest::header::AUTHORIZATION, authorization)
+        } else {
+            request
+        }
+    }
 }
 
 fn has_llm_credentials(config: &Config) -> bool {
@@ -42,6 +85,45 @@ pub fn needs_setup(_data_dir: &Path, config: &Config) -> bool {
         return false;
     }
     !has_llm_credentials(config)
+}
+
+pub fn resolve_llm_credentials(config: &Config) -> Option<(String, String)> {
+    match config.llm_provider.as_deref() {
+        Some("openai") => config
+            .openai_api_key
+            .clone()
+            .map(|key| ("openai".to_string(), key)),
+        Some("openrouter") => config
+            .openrouter_api_key
+            .clone()
+            .map(|key| ("openrouter".to_string(), key)),
+        Some("anthropic") => config
+            .anthropic_api_key
+            .clone()
+            .map(|key| ("anthropic".to_string(), key)),
+        _ => config
+            .anthropic_api_key
+            .clone()
+            .map(|key| ("anthropic".to_string(), key))
+            .or_else(|| {
+                config
+                    .openrouter_api_key
+                    .clone()
+                    .map(|key| ("openrouter".to_string(), key))
+            })
+            .or_else(|| {
+                config
+                    .openai_api_key
+                    .clone()
+                    .map(|key| ("openai".to_string(), key))
+            })
+            .or_else(|| {
+                config
+                    .openai_codex_token
+                    .clone()
+                    .map(|key| ("openai".to_string(), key))
+            }),
+    }
 }
 
 /// Phase A: Collect API key and messaging config (runs pre-boot).
@@ -264,19 +346,13 @@ pub async fn run_setup_config(config: &Config) -> anyhow::Result<SetupResult> {
 /// `api_port` is the local server port for OData calls.
 /// `api_key` is the LLM provider key for generating the soul.
 /// `provider` is "anthropic", "openrouter", or "openai".
-pub async fn run_setup_soul(
-    api_port: u16,
+pub async fn run_setup_soul_interview(
     api_key: &str,
     provider_name: &str,
-    tenant: &str,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<Option<GeneratedSoul>> {
     if !std::io::stdin().is_terminal() || api_key.is_empty() {
-        return Ok(());
+        return Ok(None);
     }
-
-    // Check if Paw soul already has personalized content
-    let base = format!("http://127.0.0.1:{api_port}");
-    let client = reqwest::Client::new();
 
     cliclack::log::step("Let's make Paw yours.")?;
 
@@ -384,27 +460,41 @@ pub async fn run_setup_soul(
                     _ => break,
                 }
             }
-
-            // Write soul directly to TemperFS via OData
-            let save_spinner = cliclack::spinner();
-            save_spinner.start("Saving soul to Temper...");
-            match save_soul_to_temper(&client, &base, tenant, &generated).await {
-                Ok(()) => {
-                    save_spinner.stop("Soul saved.");
-                }
-                Err(e) => {
-                    save_spinner.stop(format!("Failed to save: {e}"));
-                    cliclack::log::warning(
-                        "Soul generation succeeded but couldn't save to Temper. Run `cargo run -- setup` to retry.",
-                    )?;
-                }
-            }
+            Ok(Some(generated))
         }
         Err(e) => {
             soul_spinner.stop(format!("Soul generation failed: {e}"));
             cliclack::log::warning(
                 "Using default Paw soul. Run `cargo run -- setup` later to personalize.",
             )?;
+            Ok(None)
+        }
+    }
+}
+
+pub async fn run_setup_soul(
+    api_port: u16,
+    api_key: &str,
+    provider_name: &str,
+    tenant: &str,
+    auth: SetupRequestAuth,
+) -> anyhow::Result<()> {
+    let base = format!("http://127.0.0.1:{api_port}");
+    let client = reqwest::Client::new();
+
+    if let Some(generated) = run_setup_soul_interview(api_key, provider_name).await? {
+        let save_spinner = cliclack::spinner();
+        save_spinner.start("Saving soul to Temper...");
+        match save_soul_to_temper(&client, &base, tenant, &generated, &auth).await {
+            Ok(()) => {
+                save_spinner.stop("Soul saved.");
+            }
+            Err(e) => {
+                save_spinner.stop(format!("Failed to save: {e}"));
+                cliclack::log::warning(
+                    "Soul generation succeeded but couldn't save to Temper. Run `cargo run -- setup` to retry.",
+                )?;
+            }
         }
     }
 
@@ -412,17 +502,23 @@ pub async fn run_setup_soul(
     Ok(())
 }
 
-/// Write the generated soul content to the existing Paw Soul entity in TemperFS.
-async fn save_soul_to_temper(
+fn entity_field_str<'a>(entity: &'a serde_json::Value, field_names: &[&str]) -> Option<&'a str> {
+    field_names.iter().find_map(|field_name| {
+        entity["fields"][*field_name]
+            .as_str()
+            .or_else(|| entity[*field_name].as_str())
+    })
+}
+
+async fn resolve_paw_soul_entity(
     client: &reqwest::Client,
     base: &str,
     tenant: &str,
-    soul: &GeneratedSoul,
-) -> anyhow::Result<()> {
-    // Find the Paw Soul entity
-    let url = format!("{base}/tdata/Souls?$filter=name eq 'Paw'");
-    let resp: serde_json::Value = client
-        .get(&url)
+    auth: &SetupRequestAuth,
+) -> anyhow::Result<serde_json::Value> {
+    let agent_url = format!("{base}/tdata/Agents?$filter=name eq 'Paw' and Status eq 'Active'");
+    let agent_response: serde_json::Value = auth
+        .apply(client.get(&agent_url))
         .header("x-tenant-id", tenant)
         .header("x-temper-principal-kind", "admin")
         .send()
@@ -430,17 +526,82 @@ async fn save_soul_to_temper(
         .json()
         .await?;
 
-    let items = resp["value"]
-        .as_array()
-        .ok_or_else(|| anyhow::anyhow!("No Souls found"))?;
-    let paw = items.first().ok_or_else(|| {
-        anyhow::anyhow!("Paw Soul entity not found — server may still be booting")
-    })?;
+    if let Some(agent) = agent_response["value"].as_array().and_then(|items| items.first()) {
+        if let Some(soul_id) = entity_field_str(agent, &["soul_id", "SoulId"]) {
+            let soul_url = format!("{base}/tdata/Souls('{soul_id}')");
+            let soul_response: serde_json::Value = auth
+                .apply(client.get(&soul_url))
+                .header("x-tenant-id", tenant)
+                .header("x-temper-principal-kind", "admin")
+                .send()
+                .await?
+                .json()
+                .await?;
 
-    // Get the ContentFileId
-    let file_id = paw["fields"]["ContentFileId"]
-        .as_str()
-        .or_else(|| paw["fields"]["content_file_id"].as_str())
+            if entity_field_str(&soul_response, &["ContentFileId", "content_file_id"]).is_some() {
+                return Ok(soul_response);
+            }
+        }
+    }
+
+    for filter in ["Name eq 'Paw'", "name eq 'paw'"] {
+        let soul_url = format!("{base}/tdata/Souls?$filter={filter}");
+        let soul_response: serde_json::Value = auth
+            .apply(client.get(&soul_url))
+            .header("x-tenant-id", tenant)
+            .header("x-temper-principal-kind", "admin")
+            .send()
+            .await?
+            .json()
+            .await?;
+
+        if let Some(soul) = soul_response["value"].as_array().and_then(|items| items.first()) {
+            return Ok(soul.clone());
+        }
+    }
+
+    anyhow::bail!("Paw Soul entity not found");
+}
+
+pub(crate) async fn load_paw_soul_content(
+    client: &reqwest::Client,
+    base: &str,
+    tenant: &str,
+    auth: &SetupRequestAuth,
+) -> anyhow::Result<(String, String)> {
+    let soul = resolve_paw_soul_entity(client, base, tenant, auth).await?;
+    let file_id = entity_field_str(&soul, &["ContentFileId", "content_file_id"])
+        .ok_or_else(|| anyhow::anyhow!("Paw Soul has no ContentFileId"))?;
+
+    let content = auth
+        .apply(client.get(format!("{base}/tdata/Files('{file_id}')/$value")))
+        .header("x-tenant-id", tenant)
+        .header("x-temper-principal-kind", "admin")
+        .send()
+        .await?
+        .text()
+        .await?;
+
+    let summary = content
+        .lines()
+        .find(|line| !line.trim().is_empty() && !line.starts_with('#'))
+        .unwrap_or("Paw is ready, but not yet personalized.")
+        .trim()
+        .to_string();
+
+    Ok((summary, content))
+}
+
+/// Write the generated soul content to the existing Paw Soul entity in TemperFS.
+pub(crate) async fn save_soul_to_temper(
+    client: &reqwest::Client,
+    base: &str,
+    tenant: &str,
+    soul: &GeneratedSoul,
+    auth: &SetupRequestAuth,
+) -> anyhow::Result<()> {
+    let paw = resolve_paw_soul_entity(client, base, tenant, auth).await?;
+    let file_id = entity_field_str(&paw, &["ContentFileId", "content_file_id"])
         .ok_or_else(|| anyhow::anyhow!("Paw Soul has no ContentFileId"))?;
 
     // Concatenate soul + style + user + the default AGENT.md (operational instructions)
@@ -454,8 +615,8 @@ async fn save_soul_to_temper(
 
     // Upload to TemperFS via PUT $value
     let upload_url = format!("{base}/tdata/Files('{file_id}')/$value");
-    let resp = client
-        .put(&upload_url)
+    let resp = auth
+        .apply(client.put(&upload_url))
         .header("x-tenant-id", tenant)
         .header("x-temper-principal-kind", "admin")
         .header("content-type", "text/markdown")
@@ -607,4 +768,207 @@ pub fn run_doctor(data_dir: &Path, config: &Config) {
     }
 
     println!();
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{Arc, Mutex};
+
+    use axum::Router;
+    use axum::body::{Body, to_bytes};
+    use axum::extract::State;
+    use axum::http::{HeaderMap, Method, Request, StatusCode};
+    use axum::response::IntoResponse;
+    use axum::routing::any;
+    use serde_json::json;
+
+    use super::{GeneratedSoul, SetupRequestAuth, resolve_llm_credentials, save_soul_to_temper};
+
+    #[test]
+    fn resolve_llm_credentials_respects_provider_hint() {
+        let mut config = crate::config::Config::from_env().unwrap();
+        config.llm_provider = Some("openrouter".to_string());
+        config.anthropic_api_key = Some("anthropic-key".to_string());
+        config.openrouter_api_key = Some("openrouter-key".to_string());
+
+        let resolved = resolve_llm_credentials(&config).unwrap();
+        assert_eq!(resolved.0, "openrouter");
+        assert_eq!(resolved.1, "openrouter-key");
+    }
+
+    #[tokio::test]
+    async fn save_soul_to_temper_forwards_cookie_auth() {
+        #[derive(Clone, Default)]
+        struct SeenRequests {
+            cookies: Arc<Mutex<Vec<String>>>,
+            bodies: Arc<Mutex<Vec<String>>>,
+        }
+
+        async fn handler(
+            State(state): State<SeenRequests>,
+            headers: HeaderMap,
+            request: Request<Body>,
+        ) -> impl IntoResponse {
+            if let Some(cookie) = headers.get("cookie").and_then(|value| value.to_str().ok()) {
+                state.cookies.lock().unwrap().push(cookie.to_string());
+            }
+
+            match (request.method(), request.uri().path()) {
+                (&Method::GET, "/tdata/Agents") => (
+                    StatusCode::OK,
+                    axum::Json(json!({
+                        "value": [{
+                            "fields": {
+                                "soul_id": "soul-1"
+                            }
+                        }]
+                    })),
+                )
+                    .into_response(),
+                (&Method::GET, "/tdata/Souls('soul-1')") => (
+                    StatusCode::OK,
+                    axum::Json(json!({
+                        "fields": {
+                            "ContentFileId": "file-1"
+                        }
+                    })),
+                )
+                    .into_response(),
+                (&Method::GET, "/tdata/Souls") => (
+                    StatusCode::OK,
+                    axum::Json(json!({
+                        "value": [{
+                            "fields": {
+                                "ContentFileId": "file-1"
+                            }
+                        }]
+                    })),
+                )
+                    .into_response(),
+                (&Method::PUT, "/tdata/Files('file-1')/$value") => {
+                    let body = to_bytes(request.into_body(), usize::MAX).await.unwrap();
+                    state
+                        .bodies
+                        .lock()
+                        .unwrap()
+                        .push(String::from_utf8(body.to_vec()).unwrap());
+                    StatusCode::OK.into_response()
+                }
+                _ => StatusCode::NOT_FOUND.into_response(),
+            }
+        }
+
+        let seen = SeenRequests::default();
+        let app = Router::new()
+            .fallback(any(handler))
+            .with_state(seen.clone());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+
+        let soul = GeneratedSoul {
+            summary: "Thoughtful collaborator".to_string(),
+            soul_md: "# Soul".to_string(),
+            style_md: "# Style".to_string(),
+            user_md: "# User".to_string(),
+        };
+
+        save_soul_to_temper(
+            &reqwest::Client::new(),
+            &format!("http://{addr}"),
+            "default",
+            &soul,
+            &SetupRequestAuth::from_cookie("paw_session=test-cookie"),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            seen.cookies.lock().unwrap().as_slice(),
+            [
+                "paw_session=test-cookie",
+                "paw_session=test-cookie",
+                "paw_session=test-cookie"
+            ]
+        );
+        assert!(
+            seen.bodies
+                .lock()
+                .unwrap()
+                .first()
+                .map(|body| body.contains("# Soul")
+                    && body.contains("# Style")
+                    && body.contains("# User"))
+                .unwrap_or(false)
+        );
+    }
+
+    #[tokio::test]
+    async fn save_soul_to_temper_falls_back_to_named_paw_soul() {
+        async fn handler(request: Request<Body>) -> impl IntoResponse {
+            match (request.method(), request.uri().path(), request.uri().query()) {
+                (&Method::GET, "/tdata/Agents", _) => (
+                    StatusCode::OK,
+                    axum::Json(json!({
+                        "value": [{
+                            "fields": {}
+                        }]
+                    })),
+                )
+                    .into_response(),
+                (&Method::GET, "/tdata/Souls", Some(query))
+                    if query.contains("Name%20eq%20%27Paw%27") =>
+                {
+                    (
+                        StatusCode::OK,
+                        axum::Json(json!({
+                            "value": [{
+                                "fields": {
+                                    "ContentFileId": "file-1"
+                                }
+                            }]
+                        })),
+                    )
+                        .into_response()
+                }
+                (&Method::GET, "/tdata/Souls", _) => (
+                    StatusCode::OK,
+                    axum::Json(json!({
+                        "value": []
+                    })),
+                )
+                    .into_response(),
+                (&Method::PUT, "/tdata/Files('file-1')/$value", _) => {
+                    StatusCode::OK.into_response()
+                }
+                _ => StatusCode::NOT_FOUND.into_response(),
+            }
+        }
+
+        let app = Router::new().fallback(any(handler));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+
+        let soul = GeneratedSoul {
+            summary: "Thoughtful collaborator".to_string(),
+            soul_md: "# Soul".to_string(),
+            style_md: "# Style".to_string(),
+            user_md: "# User".to_string(),
+        };
+
+        save_soul_to_temper(
+            &reqwest::Client::new(),
+            &format!("http://{addr}"),
+            "default",
+            &soul,
+            &SetupRequestAuth::default(),
+        )
+        .await
+        .unwrap();
+    }
 }

@@ -4,6 +4,7 @@
 //! Supports Anthropic, OpenRouter, and OpenAI.
 
 use anyhow::{Context, Result};
+use serde::{Deserialize, Serialize};
 
 /// Detected LLM provider with its configuration.
 pub enum LlmProvider {
@@ -135,6 +136,7 @@ impl LlmProvider {
 }
 
 /// Interview data collected from the user.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserInterview {
     pub name: String,
     pub about_you: String,
@@ -143,6 +145,7 @@ pub struct UserInterview {
 }
 
 /// Generated soul artifacts.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GeneratedSoul {
     pub soul_md: String,
     pub style_md: String,

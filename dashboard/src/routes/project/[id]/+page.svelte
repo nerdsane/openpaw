@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { base } from '$app/paths';
   import { onMount } from 'svelte';
   import { slide } from 'svelte/transition';
   import { page } from '$app/stores';
@@ -50,6 +51,11 @@
   }
 
   onMount(async () => {
+    if (!teamId) {
+      loaded = true;
+      return;
+    }
+
     try {
       const teamData = await getEntity('Teams', teamId);
       team = teamData as unknown as Team;
@@ -64,7 +70,7 @@
       plans = pl;
 
       // Load harness if team has one
-      const harnessId = (team as Record<string, unknown>).harness_id as string;
+      const harnessId = team.harness_id;
       if (harnessId) {
         try {
           harness = await getEntity('Harnesses', harnessId);
@@ -110,11 +116,15 @@
     <section class="section">
       <span class="section-label">HARNESS</span>
       <div class="harness-card">
-        <div class="harness-header" onclick={() => expandedHarness = !expandedHarness}>
+        <button
+          type="button"
+          class="harness-header"
+          onclick={() => expandedHarness = !expandedHarness}
+        >
           <span class="harness-repo">{field(harness, 'repo_url').replace('https://github.com/', '')}</span>
           <span class="harness-stack">{field(harness, 'tech_stack')}</span>
           <span class="expand-icon">{expandedHarness ? '[-]' : '[+]'}</span>
-        </div>
+        </button>
         {#if expandedHarness}
           <div class="harness-detail" transition:slide={{ duration: 150 }}>
             {#if field(harness, 'conventions')}
@@ -203,7 +213,7 @@
                   <span class="empty-text-inline">NO SESSIONS</span>
                 {:else}
                   {#each agentSessionsCache[agent.Id] ?? [] as sess (sess.Id)}
-                    <a href="/sessions/{sess.Id}" class="session-row">
+                    <a href="{base}/sessions/{sess.Id}" class="session-row">
                       <span class="session-id">{sess.Id}</span>
                       <StatusBadge status={sess.Status} />
                       {#if sess.user_message}

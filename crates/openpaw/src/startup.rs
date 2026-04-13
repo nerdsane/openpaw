@@ -50,6 +50,48 @@ const PAW_OS_APPS: &[&str] = &[
 const DEFAULT_AGENT_TOOLS_ENABLED: &str = "temper_create,temper_get,temper_list,temper_action,temper_patch,temper_submit_specs,temper_show_spec,temper_specs,temper_upload_wasm,temper_get_trajectories,temper_get_insights,temper_get_decisions,temper_poll_decision,temper_approve_decision,temper_deny_decision,temper_submit_policy,temper_list_policies,temper_get_policy,temper_update_policy,temper_delete_policy,temper_install_app,temper_list_apps,temper_spawn_session,temper_list_sessions,temper_abort_session,temper_steer_session,temper_save_memory,temper_recall_memory,temper_write,temper_read,temper_run_coding_agent,temper_get_secret,temper_datadog_query,temper_railway,temper_vercel,temper_web_search,temper_web_fetch,read,write,edit,bash";
 const DEFAULT_AGENT_WORKDIR: &str = "/workspace";
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum RuntimeRecoveryStep {
+    PopulateIndex(String),
+    PopulateFieldIndex(String),
+}
+
+fn runtime_recovery_plan(tenant_ids: &[TenantId]) -> Vec<RuntimeRecoveryStep> {
+    let mut steps = Vec::with_capacity(tenant_ids.len() * 2);
+    for tenant_id in tenant_ids {
+        steps.push(RuntimeRecoveryStep::PopulateIndex(
+            tenant_id.as_str().to_string(),
+        ));
+    }
+    for tenant_id in tenant_ids {
+        steps.push(RuntimeRecoveryStep::PopulateFieldIndex(
+            tenant_id.as_str().to_string(),
+        ));
+    }
+    steps
+}
+
+async fn recover_runtime_indexes(
+    state: &PlatformState,
+    tenant_ids: &[TenantId],
+) {
+    for step in runtime_recovery_plan(tenant_ids) {
+        match step {
+            RuntimeRecoveryStep::PopulateIndex(tenant) => {
+                let tenant_id = TenantId::new(&tenant);
+                state.server.populate_index_from_store(&tenant_id).await;
+            }
+            RuntimeRecoveryStep::PopulateFieldIndex(tenant) => {
+                let tenant_id = TenantId::new(&tenant);
+                state
+                    .server
+                    .populate_field_index_from_snapshots(&tenant_id)
+                    .await;
+            }
+        }
+    }
+}
+
 /// Run the Open Paw daemon.
 ///
 /// If `force_soul_setup` is true, the soul personalization interview runs
@@ -61,6 +103,11 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
     let data_dir = Path::new(&home).join(".local/share/openpaw");
     std::fs::create_dir_all(&data_dir)
         .with_context(|| format!("Failed to create data dir: {}", data_dir.display()))?;
+    let api_key_path = data_dir.join("api.key");
+    config.temper_api_key = Some(load_or_create_temper_api_key(
+        config.temper_api_key.clone(),
+        &api_key_path,
+    )?);
 
     // Phase 0: Config setup (API key + messaging — runs pre-boot)
     let needs_soul_setup = if crate::setup::needs_setup(&data_dir, &config) {
@@ -173,7 +220,7 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
 
     // Phase 5: Secrets vault
     tracing::info!("Phase 5: Configuring secrets vault...");
-    {
+    let vault_key_bytes: [u8; 32] = {
         let vault_key_path = data_dir.join("vault.key");
         let key_bytes: [u8; 32] = if let Some(ref key_b64) = config.vault_key {
             use base64::Engine as _;
@@ -244,7 +291,8 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
         };
         let vault = temper_server::secrets::vault::SecretsVault::new(&key_bytes);
         state.server.secrets_vault = Some(Arc::new(vault));
-    }
+        key_bytes
+    };
 
     // Phase 5b: Restore secrets from Turso (before env seeding so env vars take priority)
     if let Some(ref vault) = state.server.secrets_vault {
@@ -361,6 +409,13 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
             &tenant,
             "exa_api_key",
             config.exa_api_key
+        );
+        seed_secret!(
+            vault,
+            &turso_store,
+            &tenant,
+            "temper_api_key",
+            config.temper_api_key
         );
         seed_secret!(
             vault,
@@ -598,31 +653,21 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
         let registry = state.registry.read().unwrap(); // ci-ok: infallible lock
         registry.tenant_ids().into_iter().cloned().collect()
     };
-    for tenant_id in &tenant_ids {
-        state.server.populate_index_from_store(tenant_id).await;
-    }
-
-    // Background: populate field index from snapshots for OData filter push-down.
-    {
-        let server = state.server.clone();
-        let tenant_ids = tenant_ids.clone();
-        tokio::spawn(async move {
-            for tenant_id in tenant_ids {
-                server
-                    .populate_field_index_from_snapshots(&tenant_id)
-                    .await;
-            }
-        });
-    }
+    recover_runtime_indexes(&state, &tenant_ids).await;
 
     // Phase 7b: Session recovery — recover or fail orphaned sessions (ADR-0025)
     {
         let terminal_states: HashSet<&str> =
             ["Completed", "Failed", "Cancelled"].into_iter().collect();
-        let recoverable_states: HashSet<&str> =
-            ["Thinking", "Executing", "Compacting", "Steering", "WaitingForApproval"]
-                .into_iter()
-                .collect();
+        let recoverable_states: HashSet<&str> = [
+            "Thinking",
+            "Executing",
+            "Compacting",
+            "Steering",
+            "WaitingForApproval",
+        ]
+        .into_iter()
+        .collect();
         let tenant_id = TenantId::new(&tenant);
         let session_ids: Vec<String> = {
             let index = state.server.entity_index.read().unwrap(); // ci-ok: infallible lock
@@ -727,6 +772,23 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
     ));
 
     // Build platform router + setup API
+    let cookie_secure = config
+        .public_base_url
+        .as_deref()
+        .map(|url| url.starts_with("https://"))
+        .unwrap_or(false);
+    let auth_state = crate::auth::AuthState::new(
+        turso_store.clone(),
+        state
+            .server
+            .secrets_vault
+            .as_ref()
+            .context("Vault must be initialized before auth")?
+            .clone(),
+        vault_key_bytes.to_vec(),
+        cookie_secure,
+    );
+
     let router = build_platform_router(state.clone());
     let setup_state = crate::setup_api::SetupApiState {
         platform: state.clone(),
@@ -734,16 +796,31 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
         transport_manager: transport_manager.clone(),
         tenant: tenant.clone(),
         agents_dir: PathBuf::from("os-apps/paw-agent/agents"),
+        base_url: format!("http://127.0.0.1:{actual_port}"),
     };
-    let router = router.merge(crate::setup_api::router(setup_state));
+    let router = router
+        .merge(crate::setup_api::router(setup_state))
+        .merge(crate::auth::router(auth_state.clone()));
+
+    // Raise the default body limit from 2 MB to 50 MB so large REPL state
+    // files and embodiment uploads don't get rejected with HTTP 413.
+    let router = router.layer(axum::extract::DefaultBodyLimit::max(50 * 1024 * 1024));
 
     // Serve the dashboard SPA from dashboard/build if available.
     let router = if std::path::Path::new("dashboard/build").exists() {
-        use tower_http::services::ServeDir;
-        router.nest_service("/dashboard", ServeDir::new("dashboard/build"))
+        use tower_http::services::{ServeDir, ServeFile};
+        router.nest_service(
+            "/dashboard",
+            ServeDir::new("dashboard/build")
+                .fallback(ServeFile::new("dashboard/build/index.html")),
+        )
     } else {
         router
     };
+    let router = router.layer(axum::middleware::from_fn_with_state(
+        auth_state,
+        crate::auth::middleware,
+    ));
 
     // Spawn webhook trigger (ONE entity, ONE action per request).
     spawn_webhook_trigger(&tenant, actual_port, config.temper_api_key.clone());
@@ -831,6 +908,7 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
 
     // Spawn background loops
     state.server.spawn_runtime_metrics_loop();
+    spawn_actor_passivation_loop(&state);
 
     spawn_soul_bootstrap(actual_port, tenant.clone(), config.temper_api_key.clone());
 
@@ -857,6 +935,10 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
         println!();
         println!("  API:       http://localhost:{actual_port}/tdata");
         println!("  Dashboard: http://localhost:{actual_port}/dashboard");
+        println!(
+            "  API key:   {}",
+            config.temper_api_key.as_deref().unwrap_or("")
+        );
         println!();
         if has_api_key {
             println!("  \u{2713} LLM API key");
@@ -897,6 +979,9 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
             .as_ref()
             .and_then(|v| v.get_secret(&tenant, "llm_provider"))
             .unwrap_or_else(|| "anthropic".to_string());
+        let setup_auth = crate::setup::SetupRequestAuth::from_cookie(
+            crate::auth::issue_session_cookie_value(&vault_key_bytes, "bootstrap@local.openpaw")?,
+        );
 
         // Spawn server in background so OData is available during soul setup
         let serve_handle = tokio::spawn(async move { axum::serve(listener, router).await });
@@ -905,7 +990,8 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
         tokio::time::sleep(Duration::from_millis(500)).await;
 
         if let Err(e) =
-            crate::setup::run_setup_soul(actual_port, &api_key, &provider_name, &tenant).await
+            crate::setup::run_setup_soul(actual_port, &api_key, &provider_name, &tenant, setup_auth)
+                .await
         {
             tracing::warn!("Soul setup failed: {e}");
         }
@@ -996,6 +1082,36 @@ fn generate_and_save_vault_key(path: &Path) -> Result<[u8; 32]> {
     }
 
     tracing::info!(path = %path.display(), "Saved new vault key to file");
+    Ok(key)
+}
+
+fn load_or_create_temper_api_key(explicit_key: Option<String>, path: &Path) -> Result<String> {
+    if let Some(key) = explicit_key {
+        return Ok(key);
+    }
+
+    if path.exists() {
+        let key = std::fs::read_to_string(path)
+            .with_context(|| format!("Failed to read API key from {}", path.display()))?;
+        let key = key.trim().to_string();
+        if !key.is_empty() {
+            return Ok(key);
+        }
+    }
+
+    let key = uuid::Uuid::new_v4().to_string();
+    std::fs::write(path, &key)
+        .with_context(|| format!("Failed to write API key to {}", path.display()))?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let perms = std::fs::Permissions::from_mode(0o600);
+        std::fs::set_permissions(path, perms)
+            .with_context(|| format!("Failed to set permissions on {}", path.display()))?;
+    }
+
+    tracing::info!(path = %path.display(), "Saved new API key to file");
     Ok(key)
 }
 
@@ -1153,6 +1269,7 @@ fn spawn_soul_bootstrap(port: u16, tenant: String, api_key: Option<String>) {
                     &api_url,
                     &tenant,
                     &api_key,
+                    &agent_id,
                     name,
                     description,
                     paths,
@@ -1282,6 +1399,7 @@ async fn bootstrap_soul(
     api_url: &str,
     tenant: &str,
     api_key: &Option<String>,
+    agent_id: &str,
     name: &str,
     description: &str,
     paths: &[&str],
@@ -1294,14 +1412,43 @@ async fn bootstrap_soul(
         .collect::<Result<Vec<_>>>()?
         .join("\n\n");
 
-    let escaped_name = name.replace('\'', "''");
-    let filter = format!("name eq '{escaped_name}'");
-    let list_url = format!("{api_url}/tdata/Souls?$filter={filter}");
-    let resp = odata_get(client, &list_url, tenant, api_key).await?;
-    let items = resp["value"].as_array();
+    let agent_resp = odata_get(
+        client,
+        &format!("{api_url}/tdata/Agents('{agent_id}')"),
+        tenant,
+        api_key,
+    )
+    .await?;
+    if let Some(attached_soul_id) = entity_field_str(&agent_resp, &["soul_id", "SoulId"]) {
+        let soul_resp = odata_get(
+            client,
+            &format!("{api_url}/tdata/Souls('{attached_soul_id}')"),
+            tenant,
+            api_key,
+        )
+        .await?;
+        if let Some(file_id) = entity_field_str(&soul_resp, &["ContentFileId", "content_file_id"])
+        {
+            let upload_url = format!("{api_url}/tdata/Files('{file_id}')/$value");
+            odata_put_bytes(
+                client,
+                &upload_url,
+                tenant,
+                api_key,
+                "text/markdown",
+                content.clone().into_bytes(),
+            )
+            .await
+            .with_context(|| format!("Failed to refresh attached soul content for '{name}'"))?;
+            tracing::info!("  Soul '{name}' already attached: {attached_soul_id}");
+            return Ok(attached_soul_id.to_string());
+        }
+    }
 
-    if let Some(items) = items {
-        if let Some(existing) = items.first() {
+    for filter in soul_lookup_filters(name) {
+        let list_url = format!("{api_url}/tdata/Souls?$filter={filter}");
+        let resp = odata_get(client, &list_url, tenant, api_key).await?;
+        if let Some(existing) = resp["value"].as_array().and_then(|items| items.first()) {
             let id = entity_id_from_json(existing).unwrap_or("unknown");
             if let Some(file_id) = entity_field_str(existing, &["ContentFileId", "content_file_id"])
             {
@@ -1380,6 +1527,15 @@ async fn bootstrap_soul(
     .await?;
 
     Ok(soul_id)
+}
+
+fn soul_lookup_filters(name: &str) -> [String; 2] {
+    let escaped_name = name.replace('\'', "''");
+    let escaped_lower_name = name.to_lowercase().replace('\'', "''");
+    [
+        format!("Name eq '{escaped_name}'"),
+        format!("name eq '{escaped_lower_name}'"),
+    ]
 }
 
 /// Point the global AgentRoute to the named Agent entity (by ID).
@@ -2010,4 +2166,237 @@ fn spawn_webhook_trigger(tenant: &str, port: u16, api_key: Option<String>) {
     });
 }
 
+fn actor_passivation_check_interval_secs(raw: Option<&str>) -> u64 {
+    raw.and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(60)
+        .clamp(1, 86_400)
+}
+
+fn spawn_actor_passivation_loop(state: &PlatformState) {
+    let interval_secs = actor_passivation_check_interval_secs(
+        std::env::var("TEMPER_PASSIVATION_CHECK_INTERVAL")
+            .ok()
+            .as_deref(),
+    );
+
+    let server = state.server.clone();
+    tokio::spawn(async move {
+        // determinism-ok: background task for resource management
+        let mut ticker = tokio::time::interval(Duration::from_secs(interval_secs));
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        ticker.tick().await; // consume immediate tick
+
+        loop {
+            ticker.tick().await;
+            server.passivate_idle_actors().await;
+        }
+    });
+}
+
 // Transport spawning is now handled by TransportManager (see transport_manager.rs).
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use serde_json::Value;
+    use temper_runtime::tenant::TenantId;
+
+    use super::{
+        RuntimeRecoveryStep, actor_passivation_check_interval_secs, load_or_create_temper_api_key,
+        runtime_recovery_plan, soul_lookup_filters,
+    };
+
+    #[test]
+    fn actor_passivation_interval_defaults_and_clamps() {
+        assert_eq!(actor_passivation_check_interval_secs(None), 60);
+        assert_eq!(actor_passivation_check_interval_secs(Some("0")), 1);
+        assert_eq!(actor_passivation_check_interval_secs(Some("garbage")), 60);
+        assert_eq!(actor_passivation_check_interval_secs(Some("5")), 5);
+        assert_eq!(
+            actor_passivation_check_interval_secs(Some("999999")),
+            86_400
+        );
+    }
+
+    #[test]
+    fn runtime_recovery_finishes_query_plane_before_post_boot_tasks() {
+        let tenants = vec![TenantId::new("default"), TenantId::new("temper-system")];
+        let plan = runtime_recovery_plan(&tenants);
+
+        assert_eq!(
+            plan,
+            vec![
+                RuntimeRecoveryStep::PopulateIndex("default".to_string()),
+                RuntimeRecoveryStep::PopulateIndex("temper-system".to_string()),
+                RuntimeRecoveryStep::PopulateFieldIndex("default".to_string()),
+                RuntimeRecoveryStep::PopulateFieldIndex("temper-system".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn datadog_configs_use_tenant_aware_entity_queries() {
+        let repo_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let dashboard_path = repo_root.join("dd-dashboards/openpaw-overview.json");
+        let monitor_path = repo_root.join("dd-monitors/openpaw-monitors.json");
+
+        let dashboard: Value =
+            serde_json::from_str(&std::fs::read_to_string(&dashboard_path).unwrap()).unwrap();
+        let monitors: Value =
+            serde_json::from_str(&std::fs::read_to_string(&monitor_path).unwrap()).unwrap();
+
+        let active_entities_query = dashboard["widgets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find_map(|widget| {
+                let widgets = widget["definition"]["widgets"].as_array()?;
+                widgets.iter().find_map(|inner| {
+                    let definition = &inner["definition"];
+                    if matches!(
+                        definition["title"].as_str()?,
+                        "Active Entities" | "Indexed Entities"
+                    ) {
+                        definition["requests"][0]["q"].as_str()
+                    } else {
+                        None
+                    }
+                })
+            })
+            .expect("Entity count widget query should exist");
+        assert_eq!(
+            active_entities_query,
+            "sum:temper_active_entities{service:openpaw,tenant:*}"
+        );
+
+        let active_actors_query = dashboard["widgets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find_map(|widget| {
+                let widgets = widget["definition"]["widgets"].as_array()?;
+                widgets.iter().find_map(|inner| {
+                    let definition = &inner["definition"];
+                    if definition["title"].as_str()? == "Active Actors" {
+                        definition["requests"][0]["q"].as_str()
+                    } else {
+                        None
+                    }
+                })
+            })
+            .expect("Active Actors widget query should exist");
+        assert_eq!(
+            active_actors_query,
+            "avg:temper_active_actors{service:openpaw}"
+        );
+
+        let projected_entities_query = dashboard["widgets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find_map(|widget| {
+                let widgets = widget["definition"]["widgets"].as_array()?;
+                widgets.iter().find_map(|inner| {
+                    let definition = &inner["definition"];
+                    if definition["title"].as_str()? == "Projected Entities" {
+                        definition["requests"][0]["q"].as_str()
+                    } else {
+                        None
+                    }
+                })
+            })
+            .expect("Projected Entities widget query should exist");
+        assert_eq!(
+            projected_entities_query,
+            "sum:temper_projected_entities{service:openpaw,tenant:*}"
+        );
+
+        let projection_coverage_query = dashboard["widgets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find_map(|widget| {
+                let widgets = widget["definition"]["widgets"].as_array()?;
+                widgets.iter().find_map(|inner| {
+                    let definition = &inner["definition"];
+                    if definition["title"].as_str()? == "Projection Coverage" {
+                        definition["requests"][0]["q"].as_str()
+                    } else {
+                        None
+                    }
+                })
+            })
+            .expect("Projection Coverage widget query should exist");
+        assert_eq!(
+            projection_coverage_query,
+            "avg:temper_projection_coverage_ratio{service:openpaw}"
+        );
+
+        let snapshot_miss_query = dashboard["widgets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find_map(|widget| {
+                let widgets = widget["definition"]["widgets"].as_array()?;
+                widgets.iter().find_map(|inner| {
+                    let definition = &inner["definition"];
+                    if definition["title"].as_str()? == "Projection Snapshot Misses" {
+                        definition["requests"][0]["q"].as_str()
+                    } else {
+                        None
+                    }
+                })
+            })
+            .expect("Projection Snapshot Misses widget query should exist");
+        assert_eq!(
+            snapshot_miss_query,
+            "sum:temper_projection_backfill_snapshot_misses_total{service:openpaw}.as_count().rollup(sum, 60)"
+        );
+
+        let active_entities_drop_query = monitors
+            .as_array()
+            .unwrap()
+            .iter()
+            .find_map(|monitor| {
+                if monitor["name"].as_str()? == "[OpenPaw] Active Entities Drop" {
+                    monitor["query"].as_str()
+                } else {
+                    None
+                }
+            })
+            .expect("Active Entities Drop monitor query should exist");
+        assert_eq!(
+            active_entities_drop_query,
+            "avg(last_15m):sum:temper_active_entities{service:openpaw,tenant:*} < 1"
+        );
+    }
+
+    #[test]
+    fn soul_lookup_filters_cover_current_and_legacy_names() {
+        assert_eq!(
+            soul_lookup_filters("Paw"),
+            ["Name eq 'Paw'".to_string(), "name eq 'paw'".to_string()]
+        );
+        assert_eq!(
+            soul_lookup_filters("SRE"),
+            ["Name eq 'SRE'".to_string(), "name eq 'sre'".to_string()]
+        );
+    }
+
+    #[test]
+    fn temper_api_key_persists_and_env_overrides() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let path = tempdir.path().join("api.key");
+
+        let generated = load_or_create_temper_api_key(None, &path).unwrap();
+        assert!(!generated.is_empty());
+        assert!(path.exists());
+
+        let reloaded = load_or_create_temper_api_key(None, &path).unwrap();
+        assert_eq!(reloaded, generated);
+
+        let explicit = load_or_create_temper_api_key(Some("env-token".to_string()), &path).unwrap();
+        assert_eq!(explicit, "env-token");
+    }
+}

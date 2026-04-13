@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { base } from '$app/paths';
   import { onMount } from 'svelte';
   import { slide } from 'svelte/transition';
   import type { Session } from '$lib/types';
@@ -70,7 +71,7 @@
   {#if expanded}
     <div class="agent-group__sessions" transition:slide={{ duration: 150 }}>
       {#each sessions as session (session.Id)}
-        <a href="/sessions/{session.Id}" class="session-row">
+        <a href="{base}/sessions/{session.Id}" class="session-row">
           <StatusBadge status={session.Status} />
           <code class="session-row__id">{session.Id}</code>
           <span class="session-row__task">{truncate(session.user_message, 80)}</span>

@@ -6,31 +6,19 @@ export default defineConfig({
 	server: {
 		proxy: {
 			'/tdata': {
-				target: 'http://localhost:3467',
-				configure: (proxy) => {
-					proxy.on('proxyReq', (proxyReq) => {
-						proxyReq.setHeader('x-tenant-id', 'default');
-						proxyReq.setHeader('x-temper-principal-kind', 'admin');
-					});
-				}
+				target: 'http://localhost:3467'
 			},
 			'/observe': {
-				target: 'http://localhost:3467',
-				configure: (proxy) => {
-					proxy.on('proxyReq', (proxyReq) => {
-						proxyReq.setHeader('x-tenant-id', 'default');
-						proxyReq.setHeader('x-temper-principal-kind', 'admin');
-					});
-				}
+				target: 'http://localhost:3467'
 			},
 			'/api': {
-				target: 'http://localhost:3467',
-				configure: (proxy) => {
-					proxy.on('proxyReq', (proxyReq) => {
-						proxyReq.setHeader('x-tenant-id', 'default');
-						proxyReq.setHeader('x-temper-principal-kind', 'admin');
-					});
-				}
+				target: 'http://localhost:3467'
+			},
+			'/paw': {
+				target: 'http://localhost:3467'
+			},
+			'/auth': {
+				target: 'http://localhost:3467'
 			}
 		}
 	}

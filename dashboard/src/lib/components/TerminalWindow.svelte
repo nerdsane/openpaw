@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { base } from '$app/paths';
   import { onMount } from 'svelte';
   import type { Session, EntityEvent } from '$lib/types';
   import { resolveAgentName } from '$lib/stores/agents';
@@ -61,7 +62,7 @@
   }
 </script>
 
-<a href="/sessions/{session.Id}" class="terminal-window" class:active={isActive}>
+<a href="{base}/sessions/{session.Id}" class="terminal-window" class:active={isActive}>
   <div class="title-bar">
     <div class="title-bar__left">
       <span class="title-bar__name">{agentName}</span>

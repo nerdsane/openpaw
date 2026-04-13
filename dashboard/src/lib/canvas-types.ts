@@ -10,7 +10,7 @@ export type CanvasNodeData =
   | ActivityCardData
   | IdleGroupData;
 
-export interface ProjectNodeData {
+export interface ProjectNodeData extends Record<string, unknown> {
   type: 'project';
   team: Team;
   harness: Harness | null;
@@ -20,7 +20,7 @@ export interface ProjectNodeData {
   workCycles: WorkCycle[];
 }
 
-export interface ActivityCardData {
+export interface ActivityCardData extends Record<string, unknown> {
   type: 'activity';
   agent: Agent;
   session: Session;
@@ -29,9 +29,40 @@ export interface ActivityCardData {
   tools: string[];
 }
 
-export interface IdleGroupData {
+export interface IdleGroupData extends Record<string, unknown> {
   type: 'idleGroup';
   agents: Agent[];
+}
+
+// Legacy canvas components still import these aliases.
+export interface AgentNodeData extends Record<string, unknown> {
+  type: 'agent';
+  agent: Agent;
+  sessionCount: number;
+  activeSessionCount: number;
+  hasPendingDecision: boolean;
+}
+
+export interface EntityBadgeData extends Record<string, unknown> {
+  type: 'entityBadge';
+  entityType: string;
+  label: string;
+}
+
+export interface PlatformNodeData extends Record<string, unknown> {
+  type: 'platform';
+  skills: Skill[];
+}
+
+export interface SessionNodeData extends Record<string, unknown> {
+  type: 'session';
+  session: Session;
+  agentName: string;
+}
+
+export interface SoulNodeData extends Record<string, unknown> {
+  type: 'soul';
+  soul: Soul;
 }
 
 /** Layout constants — vertical flow, fits viewport */

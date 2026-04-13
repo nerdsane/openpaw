@@ -1,9 +1,12 @@
 <script lang="ts">
   import '../app.css';
   import { onMount } from 'svelte';
+  import { goto } from '$app/navigation';
+  import { base } from '$app/paths';
   import PawLogo from '$lib/components/PawLogo.svelte';
   import ThemeToggle from '$lib/components/ThemeToggle.svelte';
   import { queryEntities } from '$lib/api';
+  import { checkAuth, getCurrentUser, logout, type SessionUser } from '$lib/auth';
   import type { Project } from '$lib/types';
   import { page } from '$app/stores';
 
@@ -11,17 +14,72 @@
   let collapsed = $state(false);
   let projectsOpen = $state(true);
   let projects = $state<Project[]>([]);
+  let user = $state<SessionUser | null>(null);
+  let authReady = $state(false);
+  let authError = $state('');
 
-  let isCanvas = $derived($page.url.pathname === '/');
+  function appHref(path: string): string {
+    return `${base}${path}`;
+  }
 
-  onMount(async () => {
+  function relativePath(pathname: string): string {
+    if (base && pathname.startsWith(base)) {
+      return pathname.slice(base.length) || '/';
+    }
+    return pathname || '/';
+  }
+
+  let currentPath = $derived(relativePath($page.url.pathname));
+  let isCanvas = $derived(currentPath === '/');
+  let isLoginRoute = $derived(currentPath === '/login');
+
+  onMount(() => {
+    const stop = page.subscribe(($page) => {
+      void syncAuthForPath($page.url.pathname);
+    });
+
+    return stop;
+  });
+
+  async function handleLogout() {
+    await logout();
+    user = null;
+    await goto(appHref('/login'));
+  }
+
+  async function syncAuthForPath(pathname: string) {
+    const onLoginPage = relativePath(pathname) === '/login';
+
     try {
+      if (onLoginPage) {
+        user = await getCurrentUser();
+        authReady = true;
+        if (user) {
+          await goto(appHref('/'));
+        }
+        return;
+      }
+
+      user = await checkAuth();
+      authReady = true;
+
       const data = await queryEntities('Projects');
       projects = data as unknown as Project[];
-    } catch {}
-  });
+    } catch (error) {
+      authReady = true;
+      authError = error instanceof Error ? error.message : 'Unable to load dashboard';
+      if (!onLoginPage) {
+        await goto(appHref('/login'));
+      }
+    }
+  }
 </script>
 
+{#if isLoginRoute}
+  <main class="auth-main">
+    {@render children()}
+  </main>
+{:else if authReady}
 <div class="shell" class:sidebar-collapsed={collapsed}>
   <aside class="sidebar" class:collapsed>
     <div class="sidebar-top">
@@ -38,17 +96,21 @@
     </div>
 
     <nav class="sidebar-nav">
-      <a href="/" class="nav-item" class:active={$page.url.pathname === '/'}>
+      <a href={appHref('/')} class="nav-item" class:active={currentPath === '/'}>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
         {#if !collapsed}<span>Canvas</span>{/if}
       </a>
-      <a href="/apps" class="nav-item" class:active={$page.url.pathname === '/apps'}>
+      <a href={appHref('/apps')} class="nav-item" class:active={currentPath === '/apps'}>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
         {#if !collapsed}<span>Apps</span>{/if}
       </a>
-      <a href="/sessions" class="nav-item" class:active={$page.url.pathname.startsWith('/sessions')}>
+      <a href={appHref('/sessions')} class="nav-item" class:active={currentPath.startsWith('/sessions')}>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
         {#if !collapsed}<span>Sessions</span>{/if}
+      </a>
+      <a href={appHref('/settings')} class="nav-item" class:active={currentPath.startsWith('/settings')}>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 1-3 0 1.7 1.7 0 0 0-1-.6 1.7 1.7 0 0 0-1.82.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 1 0-3 1.7 1.7 0 0 0 .6-1 1.7 1.7 0 0 0-.34-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 1 3 0 1.7 1.7 0 0 0 1 .6 1.7 1.7 0 0 0 1.82-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9c.26.3.46.65.6 1a1.7 1.7 0 0 1 0 3c-.14.35-.34.7-.6 1z"/></svg>
+        {#if !collapsed}<span>Settings</span>{/if}
       </a>
 
       {#if !collapsed}
@@ -64,9 +126,9 @@
 
         {#if projectsOpen}
           <div class="tree">
-            <a href="/?focus=platform" class="tree-item tree-item--dim">Platform</a>
+            <a href={appHref('/?focus=platform')} class="tree-item tree-item--dim">Platform</a>
             {#each projects as project (project.Id)}
-              <a href="/?focus=project&id={project.Id}" class="tree-item">
+              <a href={appHref(`/?focus=project&id=${project.Id}`)} class="tree-item">
                 {project.name || 'Unnamed'}
               </a>
             {/each}
@@ -79,6 +141,12 @@
     </nav>
 
     <div class="sidebar-footer">
+      {#if user && !collapsed}
+        <div class="user-chip">
+          <span class="user-email">{user.email}</span>
+          <button class="user-logout" type="button" onclick={handleLogout}>Log out</button>
+        </div>
+      {/if}
       <ThemeToggle />
     </div>
   </aside>
@@ -87,8 +155,23 @@
     {@render children()}
   </main>
 </div>
+{:else}
+  <main class="auth-main auth-main--loading">
+    <p>{authError || 'Checking your session…'}</p>
+  </main>
+{/if}
 
 <style>
+  .auth-main {
+    min-height: 100vh;
+  }
+
+  .auth-main--loading {
+    display: grid;
+    place-items: center;
+    color: var(--text-2);
+  }
+
   .shell {
     display: flex;
     min-height: 100vh;
@@ -213,6 +296,29 @@
   .sidebar-footer {
     margin-top: auto;
     padding-top: var(--sp-2);
+    display: grid;
+    gap: var(--sp-2);
+  }
+
+  .user-chip {
+    display: grid;
+    gap: 4px;
+    padding: var(--sp-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface-1, rgba(255,255,255,0.02));
+  }
+
+  .user-email {
+    font-size: var(--text-xs);
+    color: var(--text-2);
+    word-break: break-word;
+  }
+
+  .user-logout {
+    justify-self: start;
+    font-size: var(--text-xs);
+    color: var(--text-1);
   }
 
   /* ---- Main content ---- */

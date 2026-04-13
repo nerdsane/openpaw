@@ -1,13 +1,14 @@
 /target
 **/target/
-Cargo.lock
-**/Cargo.lock
 **/__pycache__/
 os-apps/**/*.wasm
 .env
+.env.local
 *.swp
 *.swo
 .DS_Store
 dashboard/node_modules/
 dashboard/.svelte-kit/
 dashboard/build/
+.cargo/config.toml
+tmp_*.log

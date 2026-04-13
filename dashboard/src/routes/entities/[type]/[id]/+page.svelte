@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { base } from '$app/paths';
   import { onMount } from 'svelte';
   import { fade } from 'svelte/transition';
   import { page } from '$app/stores';
@@ -45,6 +46,12 @@
   }
 
   onMount(async () => {
+    if (!entityId) {
+      error = `Could not load ${entityType}`;
+      loaded = true;
+      return;
+    }
+
     try {
       entity = await getEntity(entitySetName, entityId);
     } catch {
@@ -61,7 +68,7 @@
 </script>
 
 <div class="entity-detail">
-  <a href="/" class="entity-back">&larr; FLOOR</a>
+  <a href="{base}/" class="entity-back">&larr; FLOOR</a>
 
   {#if !loaded}
     <div class="entity-empty" transition:fade={{ duration: 200 }}>

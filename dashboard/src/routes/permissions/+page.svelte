@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { base } from '$app/paths';
   import { onMount } from 'svelte';
   import { slide } from 'svelte/transition';
   import { decisions, policies, authzHistory, loadDecisions, loadPolicies, loadAuthzHistory } from '$lib/stores/permissions';
@@ -158,7 +159,7 @@
             <div class="audit-row" class:denied-row={entry.authz_denied}>
               <span class="audit-time">{formatTime(entry.timestamp)}</span>
               <span class="tag">{entry.entity_type}</span>
-              <a href="/entities/{entry.entity_type}/{entry.entity_id}" class="audit-id">{entry.entity_id ?? ''}</a>
+              <a href="{base}/entities/{entry.entity_type}/{entry.entity_id}" class="audit-id">{entry.entity_id ?? ''}</a>
               <span class="audit-action">{entry.action}</span>
               {#if entry.authz_denied}
                 <span class="badge-denied">DENIED: {entry.denied_resource ?? 'unknown'}</span>

@@ -3,7 +3,9 @@
 //! Boots an embedded Temper platform, installs Paw OS apps,
 //! seeds agent souls, and starts the Discord transport.
 
+mod auth;
 mod config;
+mod deploy;
 mod setup;
 mod setup_api;
 mod setup_llm;
@@ -11,6 +13,7 @@ mod startup;
 mod transport_manager;
 
 use clap::{Parser, Subcommand};
+use std::io::IsTerminal;
 
 #[derive(Parser)]
 #[command(name = "openpaw", about = "Open Paw — agent platform")]
@@ -23,6 +26,12 @@ struct Cli {
 enum Command {
     /// Configure API keys and messaging platforms interactively
     Setup,
+    /// Provision infrastructure and deploy OpenPaw to Railway
+    Deploy {
+        /// Add the Datadog collector sidecar service and related variables
+        #[arg(long)]
+        with_datadog: bool,
+    },
     /// Diagnose configuration and show what's working
     Doctor,
 }
@@ -36,12 +45,31 @@ async fn main() -> anyhow::Result<()> {
     let data_dir = std::path::Path::new(&home).join(".local/share/openpaw");
     std::fs::create_dir_all(&data_dir)?;
 
-    let force_soul_setup = match cli.command {
+    let mut command = cli.command;
+    if command.is_none() && std::io::stdin().is_terminal() && setup::needs_setup(&data_dir, &config)
+    {
+        let choice: &str = cliclack::select("What would you like to do?")
+            .item("local", "Run locally (development)", "")
+            .item("deploy", "Deploy to the cloud", "")
+            .interact()?;
+
+        if choice == "deploy" {
+            command = Some(Command::Deploy {
+                with_datadog: false,
+            });
+        }
+    }
+
+    let force_soul_setup = match command {
         Some(Command::Setup) => {
             // Phase A: config setup (always runs, even if already configured)
             let result = setup::run_setup_config(&config).await?;
             setup::merge_setup_into_config(&mut config, result);
             true // force soul personalization after boot
+        }
+        Some(Command::Deploy { with_datadog }) => {
+            deploy::run_deploy(config, with_datadog).await?;
+            return Ok(());
         }
         Some(Command::Doctor) => {
             setup::run_doctor(&data_dir, &config);

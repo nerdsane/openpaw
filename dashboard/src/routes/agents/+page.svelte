@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { base } from '$app/paths';
   import { onMount } from 'svelte';
   import { slide } from 'svelte/transition';
   import { allAgents, loadAllAgents, fetchAgentSessions } from '$lib/stores/agents';
@@ -116,7 +117,7 @@
   <div class="page-label">AGENTS</div>
 
   <div class="header-row">
-    <a href="/agents/new" class="new-agent-btn">+ NEW AGENT</a>
+    <a href="{base}/agents/new" class="new-agent-btn">+ NEW AGENT</a>
   </div>
 
   {#if !loaded}
@@ -159,7 +160,7 @@
                       <div class="field-label">SOUL ID</div>
                       <div class="field-value">
                         {#if agent.soul_id}
-                          <a href="/entities/Souls/{agent.soul_id}" class="entity-link">{agent.soul_id}</a>
+                          <a href="{base}/entities/Souls/{agent.soul_id}" class="entity-link">{agent.soul_id}</a>
                         {:else}
                           --
                         {/if}
@@ -250,7 +251,7 @@
                     {:else}
                       <div class="session-list">
                         {#each sessionsCache[agent.Id] as session}
-                          <a href="/sessions/{session.Id}" class="session-row">
+                          <a href="{base}/sessions/{session.Id}" class="session-row">
                             <span class="status-dot" class:active={session.Status === 'Running' || session.Status === 'Active'} class:idle={session.Status !== 'Running' && session.Status !== 'Active'}></span>
                             <span class="session-id">{session.Id ?? ''}</span>
                             <span class="session-task">{truncate(session.user_message || session.result, 60)}</span>

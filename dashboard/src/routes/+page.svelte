@@ -10,6 +10,7 @@
   import { fetchAgentSessions } from '$lib/stores/agents';
   import { queryEntities, queryTeams, queryAgentsForTeam } from '$lib/api';
   import type { Node, Edge, NodeTypes } from '@xyflow/svelte';
+  import type { CanvasNodeData } from '$lib/canvas-types';
   import type { Project, Team, Agent, Session, Soul, Skill, Harness, WorkCycle } from '$lib/types';
   import { MOCK_ENTITIES, entitiesOfType } from '$lib/mock-data';
   import { parsePendingToolCalls, formatToolInput, computeMetrics } from '$lib/parse';
@@ -28,11 +29,11 @@
   let loaded = $state(false);
   let error = $state<string | null>(null);
   let usingMock = $state(false);
-  let nodes = $state<Node[]>([]);
+  let nodes = $state<Node<CanvasNodeData>[]>([]);
   let edges = $state<Edge[]>([]);
-  let selectedNode = $state<Node | null>(null);
+  let selectedNode = $state<Node<CanvasNodeData> | null>(null);
 
-  function handleNodeClick({ node }: { node: Node; event: MouseEvent | TouchEvent }) {
+  function handleNodeClick({ node }: { node: Node<CanvasNodeData>; event: MouseEvent | TouchEvent }) {
     selectedNode = selectedNode?.id === node.id ? null : node;
   }
 

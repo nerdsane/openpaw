@@ -2,6 +2,8 @@
 
 An agent that evolves its own capabilities.
 
+[![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/new/template)
+
 OpenPaw is an ambient agent platform. It runs in the background, always on. You talk to Paw wherever you already are — messaging, voice, text. Paw manages work, spawns specialist agents, and gives them their own computers. When an agent needs a capability that doesn't exist, it designs one. The platform verifies it. You approve it. And now every agent on the platform can use it — perpetually.
 
 Paw runs on the same platform it gives to its agents. Its memory, skills, permissions, and workflows are built the same way agents build new capabilities. So when agents extend the platform, they're working with the same building blocks Paw itself is made of. Like a building where the tenants can add rooms — using the same materials the building is made of. The platform grows with them.
@@ -109,7 +111,8 @@ Agents create capabilities as tools for themselves — structured workflows that
 ```bash
 git clone https://github.com/nerdsane/openpaw.git
 cd openpaw
-cargo run
+make setup
+openpaw
 ```
 
 On first run, the CLI walks you through setup:
@@ -120,8 +123,10 @@ On first run, the CLI walks you through setup:
 
 Everything is encrypted and saved locally. Next time you run it — just boots.
 
+For cloud deployment, run `openpaw deploy`. The CLI provisions infrastructure, deploys the single-binary app, and seeds the admin account and dashboard config.
+
 ## How It's Built
 
 OpenPaw runs on [Temper](https://github.com/nerdsane/temper), an open-source kernel with building blocks that generalize to build software applications of any size. Temper provides verified state machines, authorization policies, and an auditable runtime. OpenPaw is one application built on Temper — and the capabilities agents create are also applications built on Temper. Same kernel, same building blocks, all the way down.
 
-For architecture and internals, see [agents.md](agents.md) and [docs/](docs/).
+For architecture and internals, see [AGENTS.md](AGENTS.md), [docs/development.md](docs/development.md), and [docs/deployment.md](docs/deployment.md).
