@@ -24,11 +24,9 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Configure API keys and messaging platforms interactively
-    Setup,
-    /// Provision infrastructure and deploy OpenPaw to Railway
-    Deploy {
-        /// Add the Datadog collector sidecar service and related variables
+    /// Set up OpenPaw — API keys, messaging, soul, and optionally deploy to the cloud
+    Setup {
+        /// Add the Datadog collector sidecar service when deploying
         #[arg(long)]
         with_datadog: bool,
     },
@@ -45,31 +43,26 @@ async fn main() -> anyhow::Result<()> {
     let data_dir = std::path::Path::new(&home).join(".local/share/openpaw");
     std::fs::create_dir_all(&data_dir)?;
 
-    let mut command = cli.command;
-    if command.is_none() && std::io::stdin().is_terminal() && setup::needs_setup(&data_dir, &config)
-    {
-        let choice: &str = cliclack::select("What would you like to do?")
-            .item("local", "Run locally (development)", "")
-            .item("deploy", "Deploy to the cloud", "")
-            .interact()?;
-
-        if choice == "deploy" {
-            command = Some(Command::Deploy {
-                with_datadog: false,
-            });
-        }
-    }
-
-    let force_soul_setup = match command {
-        Some(Command::Setup) => {
-            // Phase A: config setup (always runs, even if already configured)
+    let force_soul_setup = match cli.command {
+        Some(Command::Setup { with_datadog }) => {
+            // Phase A: collect API key + messaging config
             let result = setup::run_setup_config(&config).await?;
             setup::merge_setup_into_config(&mut config, result);
-            true // force soul personalization after boot
-        }
-        Some(Command::Deploy { with_datadog }) => {
-            deploy::run_deploy(config, with_datadog).await?;
-            return Ok(());
+
+            // Ask: run locally or deploy to the cloud?
+            if std::io::stdin().is_terminal() {
+                let choice: &str = cliclack::select("What would you like to do?")
+                    .item("local", "Run locally", "Boot the server on this machine")
+                    .item("deploy", "Deploy to the cloud", "Provision infrastructure and deploy to Railway")
+                    .interact()?;
+
+                if choice == "deploy" {
+                    deploy::run_deploy(config, with_datadog).await?;
+                    return Ok(());
+                }
+            }
+
+            true // local path: force soul personalization after boot
         }
         Some(Command::Doctor) => {
             setup::run_doctor(&data_dir, &config);

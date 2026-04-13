@@ -110,10 +110,10 @@ Agents create capabilities as tools for themselves — structured workflows that
 git clone https://github.com/nerdsane/openpaw.git
 cd openpaw
 cargo build --release
-./target/release/openpaw deploy
+./target/release/openpaw setup
 ```
 
-The CLI walks you through everything — API key, messaging, personalizing your Paw, and deploying to the cloud.
+The CLI walks you through everything — API key, messaging, personalizing your Paw — then asks whether to run locally or deploy to the cloud.
 
 ## How It's Built
 
