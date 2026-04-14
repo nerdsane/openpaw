@@ -10,8 +10,11 @@
 use std::io::IsTerminal;
 use std::path::Path;
 
+use anyhow::Context;
+
 use crate::config::Config;
 use crate::setup_llm::{self, GeneratedSoul, LlmProvider, UserInterview};
+use axum::http::HeaderMap;
 
 /// Result of Phase A (config setup).
 pub struct SetupResult {
@@ -24,6 +27,48 @@ pub struct SetupResult {
     pub discord_forum_channel_id: Option<String>,
     pub slack_app_token: Option<String>,
     pub slack_bot_token: Option<String>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct SetupRequestAuth {
+    pub cookie: Option<String>,
+    pub authorization: Option<String>,
+}
+
+impl SetupRequestAuth {
+    pub fn from_headers(headers: &HeaderMap) -> Self {
+        Self {
+            cookie: headers
+                .get(axum::http::header::COOKIE)
+                .and_then(|value| value.to_str().ok())
+                .map(str::to_string),
+            authorization: headers
+                .get(axum::http::header::AUTHORIZATION)
+                .and_then(|value| value.to_str().ok())
+                .map(str::to_string),
+        }
+    }
+
+    pub fn from_cookie(cookie: impl Into<String>) -> Self {
+        Self {
+            cookie: Some(cookie.into()),
+            authorization: None,
+        }
+    }
+
+    pub fn apply(&self, request: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
+        let request = if let Some(cookie) = &self.cookie {
+            request.header(reqwest::header::COOKIE, cookie)
+        } else {
+            request
+        };
+
+        if let Some(authorization) = &self.authorization {
+            request.header(reqwest::header::AUTHORIZATION, authorization)
+        } else {
+            request
+        }
+    }
 }
 
 fn has_llm_credentials(config: &Config) -> bool {
@@ -47,13 +92,6 @@ pub fn needs_setup(_data_dir: &Path, config: &Config) -> bool {
 /// Phase A: Collect API key and messaging config (runs pre-boot).
 pub async fn run_setup_config(config: &Config) -> anyhow::Result<SetupResult> {
     let has_api_key = has_llm_credentials(config);
-    let has_discord = config.discord_bot_token.is_some()
-        && config.discord_public_key.is_some()
-        && crate::transport_manager::can_resolve_discord_public_endpoint(
-            config.public_base_url.as_deref(),
-            &config.ngrok_bin,
-        );
-    let has_slack = config.slack_app_token.is_some() && config.slack_bot_token.is_some();
 
     let mut result = SetupResult {
         api_key: None,
@@ -75,187 +113,43 @@ pub async fn run_setup_config(config: &Config) -> anyhow::Result<SetupResult> {
         cliclack::log::success("API key configured")?;
     } else {
         let provider: &str = cliclack::select("Which AI provider do you use?")
-            .item("anthropic", "Anthropic (Claude)", "")
-            .item("openrouter", "OpenRouter", "")
-            .item("openai", "OpenAI (GPT)", "")
+            .item("anthropic", "Anthropic", "Pay-per-token · console.anthropic.com → API Keys")
+            .item("openai", "OpenAI (API key)", "Pay-per-token · platform.openai.com/api-keys")
+            .item("openai_codex", "OpenAI (Codex subscription)", "Included in ChatGPT Plus/Pro · ~/.codex/auth.json")
+            .item("openrouter", "OpenRouter", "Pay-per-token · openrouter.ai/keys")
             .interact()?;
 
-        match provider {
-            "anthropic" => {
-                cliclack::log::info("Get your key at console.anthropic.com → API Keys")?;
-            }
-            "openrouter" => {
-                cliclack::log::info("Get your key at openrouter.ai/keys")?;
-            }
-            "openai" => {
-                cliclack::log::info(
-                    "Get your key at platform.openai.com/api-keys\n  Note: ChatGPT Plus/Pro subscriptions don't include API access",
-                )?;
-            }
-            _ => {}
-        }
+        if provider == "openai_codex" {
+            // Read token directly from ~/.codex/auth.json (written by `codex login`)
+            let key = read_codex_token()?;
+            result.api_key = Some(key);
+            result.provider = Some(provider.to_string());
+        } else {
+            let prompt = match provider {
+                "anthropic" => "Anthropic API key",
+                "openai" => "OpenAI API key",
+                "openrouter" => "OpenRouter API key",
+                _ => "API key",
+            };
 
-        let key: String = cliclack::password("API key")
-            .mask('•')
-            .validate(|input: &String| {
-                if input.trim().is_empty() {
-                    Err("API key is required")
-                } else {
-                    Ok(())
-                }
-            })
-            .interact()?;
-
-        let key = key.trim().to_string();
-        result.api_key = Some(key);
-        result.provider = Some(provider.to_string());
-    }
-
-    // ─── Messaging Platform ───
-
-    let skip_messaging = if has_discord {
-        let reconfigure: bool = cliclack::confirm("Discord is connected. Reconfigure?")
-            .initial_value(false)
-            .interact()?;
-        !reconfigure
-    } else if has_slack {
-        let reconfigure: bool = cliclack::confirm("Slack is connected. Reconfigure?")
-            .initial_value(false)
-            .interact()?;
-        !reconfigure
-    } else {
-        false
-    };
-
-    if !skip_messaging {
-        let platform: &str = cliclack::select("How do you want to talk to Paw?")
-            .item("discord", "Discord", "")
-            .item("slack", "Slack", "")
-            .item("api", "Just the API", "no messaging platform")
-            .interact()?;
-
-        match platform {
-            "discord" => {
-                if !crate::transport_manager::can_resolve_discord_public_endpoint(
-                    config.public_base_url.as_deref(),
-                    &config.ngrok_bin,
-                ) {
-                    anyhow::bail!(
-                        "Discord setup requires a public interactions URL. Set PUBLIC_BASE_URL or install/configure ngrok (binary: {}) and rerun setup.",
-                        config.ngrok_bin
-                    );
-                }
-
-                let interaction_destination = if let Some(base_url) =
-                    config.public_base_url.as_ref()
-                {
-                    format!("{}/discord/interaction", base_url.trim_end_matches('/'))
-                } else {
-                    format!(
-                        "auto-created locally with {} and exposed as https://.../discord/interaction",
-                        config.ngrok_bin
-                    )
-                };
-
-                cliclack::note(
-                    "Discord Bot Setup",
-                    format!(
-                        "1. Go to discord.com/developers/applications\n\
-                     2. Click \"New Application\" → name it\n\
-                     3. Click \"Bot\" in the left sidebar\n\
-                     4. Click \"Reset Token\" → copy it\n\
-                     5. Copy the application Public Key from General Information\n\
-                     6. Turn on \"Message Content Intent\" under\n\
-                        Privileged Gateway Intents\n\
-                     7. Go to OAuth2 → URL Generator\n\
-                        Select scope: \"bot\"\n\
-                        Select permissions: \"Send Messages\" +\n\
-                        \"Read Message History\"\n\
-                     8. Copy the URL, open it, pick your server\n\
-                     9. Set Interactions Endpoint URL to:\n\
-                        {interaction_destination}"
-                    ),
-                )?;
-
-                let token: String = cliclack::password("Bot token").mask('•').interact()?;
-                let token = token.trim().to_string();
-
-                if !token.is_empty() {
-                    result.discord_bot_token = Some(token);
-
-                    let public_key: String = cliclack::input("Application Public Key")
-                        .placeholder("General Information → Public Key")
-                        .validate(|input: &String| {
-                            if input.trim().is_empty() {
-                                Err("Discord public key is required for interactions")
-                            } else {
-                                Ok(())
-                            }
-                        })
-                        .interact()?;
-                    result.discord_public_key = Some(public_key.trim().to_string());
-
-                    let guild: String = cliclack::input("Guild ID")
-                        .placeholder("optional — right-click server → Copy Server ID")
-                        .required(false)
-                        .interact()?;
-                    if !guild.is_empty() {
-                        result.discord_guild_id = Some(guild);
+            let key: String = cliclack::password(prompt)
+                .mask('•')
+                .validate(|input: &String| {
+                    if input.trim().is_empty() {
+                        Err("Required")
+                    } else {
+                        Ok(())
                     }
+                })
+                .interact()?;
 
-                    let feed: String = cliclack::input("Feed Channel ID")
-                        .placeholder("optional")
-                        .required(false)
-                        .interact()?;
-                    if !feed.is_empty() {
-                        result.discord_feed_channel_id = Some(feed);
-                    }
-
-                    let forum: String = cliclack::input("Forum Channel ID")
-                        .placeholder("optional")
-                        .required(false)
-                        .interact()?;
-                    if !forum.is_empty() {
-                        result.discord_forum_channel_id = Some(forum);
-                    }
-
-                    cliclack::log::success("Discord configured")?;
-                }
-            }
-            "slack" => {
-                cliclack::note(
-                    "Slack Bot Setup",
-                    "1. Go to api.slack.com/apps → Create New App\n\
-                     2. Enable Socket Mode → copy the App Token (xapp-...)\n\
-                     3. Under OAuth & Permissions, copy the Bot Token (xoxb-...)\n\
-                     4. Subscribe to events: message.channels, message.im",
-                )?;
-
-                let app_token: String = cliclack::password("App Token (xapp-...)")
-                    .mask('•')
-                    .interact()?;
-                let app_token = app_token.trim().to_string();
-
-                let bot_token: String = cliclack::password("Bot Token (xoxb-...)")
-                    .mask('•')
-                    .interact()?;
-                let bot_token = bot_token.trim().to_string();
-
-                if app_token.is_empty() || bot_token.is_empty() {
-                    cliclack::log::warning("Skipped — both tokens required")?;
-                } else {
-                    result.slack_app_token = Some(app_token);
-                    result.slack_bot_token = Some(bot_token);
-                    cliclack::log::success("Slack configured")?;
-                }
-            }
-            _ => {
-                cliclack::log::info("API only — interact via REST or the dashboard")?;
-            }
+            let key = key.trim().to_string();
+            result.api_key = Some(key);
+            result.provider = Some(provider.to_string());
         }
     }
 
-    cliclack::log::step("Booting server...")?;
+    cliclack::log::info("Connect Discord, Slack, and other integrations in the dashboard after boot.")?;
     Ok(result)
 }
 
@@ -264,19 +158,13 @@ pub async fn run_setup_config(config: &Config) -> anyhow::Result<SetupResult> {
 /// `api_port` is the local server port for OData calls.
 /// `api_key` is the LLM provider key for generating the soul.
 /// `provider` is "anthropic", "openrouter", or "openai".
-pub async fn run_setup_soul(
-    api_port: u16,
+pub async fn run_setup_soul_interview(
     api_key: &str,
     provider_name: &str,
-    tenant: &str,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<Option<GeneratedSoul>> {
     if !std::io::stdin().is_terminal() || api_key.is_empty() {
-        return Ok(());
+        return Ok(None);
     }
-
-    // Check if Paw soul already has personalized content
-    let base = format!("http://127.0.0.1:{api_port}");
-    let client = reqwest::Client::new();
 
     cliclack::log::step("Let's make Paw yours.")?;
 
@@ -384,27 +272,41 @@ pub async fn run_setup_soul(
                     _ => break,
                 }
             }
-
-            // Write soul directly to TemperFS via OData
-            let save_spinner = cliclack::spinner();
-            save_spinner.start("Saving soul to Temper...");
-            match save_soul_to_temper(&client, &base, tenant, &generated).await {
-                Ok(()) => {
-                    save_spinner.stop("Soul saved.");
-                }
-                Err(e) => {
-                    save_spinner.stop(format!("Failed to save: {e}"));
-                    cliclack::log::warning(
-                        "Soul generation succeeded but couldn't save to Temper. Run `cargo run -- setup` to retry.",
-                    )?;
-                }
-            }
+            Ok(Some(generated))
         }
         Err(e) => {
             soul_spinner.stop(format!("Soul generation failed: {e}"));
             cliclack::log::warning(
                 "Using default Paw soul. Run `cargo run -- setup` later to personalize.",
             )?;
+            Ok(None)
+        }
+    }
+}
+
+pub async fn run_setup_soul(
+    api_port: u16,
+    api_key: &str,
+    provider_name: &str,
+    tenant: &str,
+    auth: SetupRequestAuth,
+) -> anyhow::Result<()> {
+    let base = format!("http://127.0.0.1:{api_port}");
+    let client = reqwest::Client::new();
+
+    if let Some(generated) = run_setup_soul_interview(api_key, provider_name).await? {
+        let save_spinner = cliclack::spinner();
+        save_spinner.start("Saving soul to Temper...");
+        match save_soul_to_temper(&client, &base, tenant, &generated, &auth).await {
+            Ok(()) => {
+                save_spinner.stop("Soul saved.");
+            }
+            Err(e) => {
+                save_spinner.stop(format!("Failed to save: {e}"));
+                cliclack::log::warning(
+                    "Soul generation succeeded but couldn't save to Temper. Run `cargo run -- setup` to retry.",
+                )?;
+            }
         }
     }
 
@@ -412,17 +314,23 @@ pub async fn run_setup_soul(
     Ok(())
 }
 
-/// Write the generated soul content to the existing Paw Soul entity in TemperFS.
-async fn save_soul_to_temper(
+fn entity_field_str<'a>(entity: &'a serde_json::Value, field_names: &[&str]) -> Option<&'a str> {
+    field_names.iter().find_map(|field_name| {
+        entity["fields"][*field_name]
+            .as_str()
+            .or_else(|| entity[*field_name].as_str())
+    })
+}
+
+async fn resolve_paw_soul_entity(
     client: &reqwest::Client,
     base: &str,
     tenant: &str,
-    soul: &GeneratedSoul,
-) -> anyhow::Result<()> {
-    // Find the Paw Soul entity
-    let url = format!("{base}/tdata/Souls?$filter=name eq 'Paw'");
-    let resp: serde_json::Value = client
-        .get(&url)
+    auth: &SetupRequestAuth,
+) -> anyhow::Result<serde_json::Value> {
+    let agent_url = format!("{base}/tdata/Agents?$filter=name eq 'Paw' and Status eq 'Active'");
+    let agent_response: serde_json::Value = auth
+        .apply(client.get(&agent_url))
         .header("x-tenant-id", tenant)
         .header("x-temper-principal-kind", "admin")
         .send()
@@ -430,17 +338,82 @@ async fn save_soul_to_temper(
         .json()
         .await?;
 
-    let items = resp["value"]
-        .as_array()
-        .ok_or_else(|| anyhow::anyhow!("No Souls found"))?;
-    let paw = items.first().ok_or_else(|| {
-        anyhow::anyhow!("Paw Soul entity not found — server may still be booting")
-    })?;
+    if let Some(agent) = agent_response["value"].as_array().and_then(|items| items.first()) {
+        if let Some(soul_id) = entity_field_str(agent, &["soul_id", "SoulId"]) {
+            let soul_url = format!("{base}/tdata/Souls('{soul_id}')");
+            let soul_response: serde_json::Value = auth
+                .apply(client.get(&soul_url))
+                .header("x-tenant-id", tenant)
+                .header("x-temper-principal-kind", "admin")
+                .send()
+                .await?
+                .json()
+                .await?;
 
-    // Get the ContentFileId
-    let file_id = paw["fields"]["ContentFileId"]
-        .as_str()
-        .or_else(|| paw["fields"]["content_file_id"].as_str())
+            if entity_field_str(&soul_response, &["ContentFileId", "content_file_id"]).is_some() {
+                return Ok(soul_response);
+            }
+        }
+    }
+
+    for filter in ["Name eq 'Paw'", "name eq 'paw'"] {
+        let soul_url = format!("{base}/tdata/Souls?$filter={filter}");
+        let soul_response: serde_json::Value = auth
+            .apply(client.get(&soul_url))
+            .header("x-tenant-id", tenant)
+            .header("x-temper-principal-kind", "admin")
+            .send()
+            .await?
+            .json()
+            .await?;
+
+        if let Some(soul) = soul_response["value"].as_array().and_then(|items| items.first()) {
+            return Ok(soul.clone());
+        }
+    }
+
+    anyhow::bail!("Paw Soul entity not found");
+}
+
+pub(crate) async fn load_paw_soul_content(
+    client: &reqwest::Client,
+    base: &str,
+    tenant: &str,
+    auth: &SetupRequestAuth,
+) -> anyhow::Result<(String, String)> {
+    let soul = resolve_paw_soul_entity(client, base, tenant, auth).await?;
+    let file_id = entity_field_str(&soul, &["ContentFileId", "content_file_id"])
+        .ok_or_else(|| anyhow::anyhow!("Paw Soul has no ContentFileId"))?;
+
+    let content = auth
+        .apply(client.get(format!("{base}/tdata/Files('{file_id}')/$value")))
+        .header("x-tenant-id", tenant)
+        .header("x-temper-principal-kind", "admin")
+        .send()
+        .await?
+        .text()
+        .await?;
+
+    let summary = content
+        .lines()
+        .find(|line| !line.trim().is_empty() && !line.starts_with('#'))
+        .unwrap_or("Paw is ready, but not yet personalized.")
+        .trim()
+        .to_string();
+
+    Ok((summary, content))
+}
+
+/// Write the generated soul content to the existing Paw Soul entity in TemperFS.
+pub(crate) async fn save_soul_to_temper(
+    client: &reqwest::Client,
+    base: &str,
+    tenant: &str,
+    soul: &GeneratedSoul,
+    auth: &SetupRequestAuth,
+) -> anyhow::Result<()> {
+    let paw = resolve_paw_soul_entity(client, base, tenant, auth).await?;
+    let file_id = entity_field_str(&paw, &["ContentFileId", "content_file_id"])
         .ok_or_else(|| anyhow::anyhow!("Paw Soul has no ContentFileId"))?;
 
     // Concatenate soul + style + user + the default AGENT.md (operational instructions)
@@ -454,8 +427,8 @@ async fn save_soul_to_temper(
 
     // Upload to TemperFS via PUT $value
     let upload_url = format!("{base}/tdata/Files('{file_id}')/$value");
-    let resp = client
-        .put(&upload_url)
+    let resp = auth
+        .apply(client.put(&upload_url))
         .header("x-tenant-id", tenant)
         .header("x-temper-principal-kind", "admin")
         .header("content-type", "text/markdown")
@@ -473,12 +446,54 @@ async fn save_soul_to_temper(
 }
 
 /// Merge Phase A results into config.
+/// Read the OpenAI Codex access token from `~/.codex/auth.json`.
+/// This file is written by `codex login` (part of the OpenAI Codex CLI).
+fn read_codex_token() -> anyhow::Result<String> {
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
+    let auth_path = std::path::Path::new(&home).join(".codex/auth.json");
+
+    if !auth_path.exists() {
+        anyhow::bail!(
+            "~/.codex/auth.json not found.\n\
+             Run \x1b[1mcodex login\x1b[0m first to authenticate with OpenAI."
+        );
+    }
+
+    let data = std::fs::read_to_string(&auth_path)
+        .with_context(|| format!("Failed to read {}", auth_path.display()))?;
+    let json: serde_json::Value = serde_json::from_str(&data)
+        .with_context(|| format!("Failed to parse {}", auth_path.display()))?;
+
+    let token = json
+        .get("tokens")
+        .and_then(|t| t.get("access_token"))
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!(
+            "~/.codex/auth.json missing tokens.access_token.\n\
+             Try running \x1b[1mcodex login\x1b[0m again."
+        ))?;
+
+    if token.is_empty() {
+        anyhow::bail!(
+            "~/.codex/auth.json has an empty access token.\n\
+             Try running \x1b[1mcodex login\x1b[0m again."
+        );
+    }
+
+    Ok(token.to_string())
+}
+
 pub fn merge_setup_into_config(config: &mut Config, setup: SetupResult) {
     if let Some(key) = setup.api_key {
         match setup.provider.as_deref() {
             Some("openai") => {
                 if config.openai_api_key.is_none() {
                     config.openai_api_key = Some(key);
+                }
+            }
+            Some("openai_codex") => {
+                if config.openai_codex_token.is_none() {
+                    config.openai_codex_token = Some(key);
                 }
             }
             Some("openrouter") => {
@@ -494,7 +509,11 @@ pub fn merge_setup_into_config(config: &mut Config, setup: SetupResult) {
         }
     }
     if let Some(provider) = setup.provider {
-        config.llm_provider = Some(provider);
+        config.llm_provider = Some(if provider == "openai_codex" {
+            "openai".to_string()
+        } else {
+            provider
+        });
     }
     if let Some(token) = setup.discord_bot_token {
         if config.discord_bot_token.is_none() {
@@ -607,4 +626,195 @@ pub fn run_doctor(data_dir: &Path, config: &Config) {
     }
 
     println!();
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{Arc, Mutex};
+
+    use axum::Router;
+    use axum::body::{Body, to_bytes};
+    use axum::extract::State;
+    use axum::http::{HeaderMap, Method, Request, StatusCode};
+    use axum::response::IntoResponse;
+    use axum::routing::any;
+    use serde_json::json;
+
+    use super::{GeneratedSoul, SetupRequestAuth, save_soul_to_temper};
+
+    #[tokio::test]
+    async fn save_soul_to_temper_forwards_cookie_auth() {
+        #[derive(Clone, Default)]
+        struct SeenRequests {
+            cookies: Arc<Mutex<Vec<String>>>,
+            bodies: Arc<Mutex<Vec<String>>>,
+        }
+
+        async fn handler(
+            State(state): State<SeenRequests>,
+            headers: HeaderMap,
+            request: Request<Body>,
+        ) -> impl IntoResponse {
+            if let Some(cookie) = headers.get("cookie").and_then(|value| value.to_str().ok()) {
+                state.cookies.lock().unwrap().push(cookie.to_string());
+            }
+
+            match (request.method(), request.uri().path()) {
+                (&Method::GET, "/tdata/Agents") => (
+                    StatusCode::OK,
+                    axum::Json(json!({
+                        "value": [{
+                            "fields": {
+                                "soul_id": "soul-1"
+                            }
+                        }]
+                    })),
+                )
+                    .into_response(),
+                (&Method::GET, "/tdata/Souls('soul-1')") => (
+                    StatusCode::OK,
+                    axum::Json(json!({
+                        "fields": {
+                            "ContentFileId": "file-1"
+                        }
+                    })),
+                )
+                    .into_response(),
+                (&Method::GET, "/tdata/Souls") => (
+                    StatusCode::OK,
+                    axum::Json(json!({
+                        "value": [{
+                            "fields": {
+                                "ContentFileId": "file-1"
+                            }
+                        }]
+                    })),
+                )
+                    .into_response(),
+                (&Method::PUT, "/tdata/Files('file-1')/$value") => {
+                    let body = to_bytes(request.into_body(), usize::MAX).await.unwrap();
+                    state
+                        .bodies
+                        .lock()
+                        .unwrap()
+                        .push(String::from_utf8(body.to_vec()).unwrap());
+                    StatusCode::OK.into_response()
+                }
+                _ => StatusCode::NOT_FOUND.into_response(),
+            }
+        }
+
+        let seen = SeenRequests::default();
+        let app = Router::new()
+            .fallback(any(handler))
+            .with_state(seen.clone());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+
+        let soul = GeneratedSoul {
+            summary: "Thoughtful collaborator".to_string(),
+            soul_md: "# Soul".to_string(),
+            style_md: "# Style".to_string(),
+            user_md: "# User".to_string(),
+        };
+
+        save_soul_to_temper(
+            &reqwest::Client::new(),
+            &format!("http://{addr}"),
+            "default",
+            &soul,
+            &SetupRequestAuth::from_cookie("paw_session=test-cookie"),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            seen.cookies.lock().unwrap().as_slice(),
+            [
+                "paw_session=test-cookie",
+                "paw_session=test-cookie",
+                "paw_session=test-cookie"
+            ]
+        );
+        assert!(
+            seen.bodies
+                .lock()
+                .unwrap()
+                .first()
+                .map(|body| body.contains("# Soul")
+                    && body.contains("# Style")
+                    && body.contains("# User"))
+                .unwrap_or(false)
+        );
+    }
+
+    #[tokio::test]
+    async fn save_soul_to_temper_falls_back_to_named_paw_soul() {
+        async fn handler(request: Request<Body>) -> impl IntoResponse {
+            match (request.method(), request.uri().path(), request.uri().query()) {
+                (&Method::GET, "/tdata/Agents", _) => (
+                    StatusCode::OK,
+                    axum::Json(json!({
+                        "value": [{
+                            "fields": {}
+                        }]
+                    })),
+                )
+                    .into_response(),
+                (&Method::GET, "/tdata/Souls", Some(query))
+                    if query.contains("Name%20eq%20%27Paw%27") =>
+                {
+                    (
+                        StatusCode::OK,
+                        axum::Json(json!({
+                            "value": [{
+                                "fields": {
+                                    "ContentFileId": "file-1"
+                                }
+                            }]
+                        })),
+                    )
+                        .into_response()
+                }
+                (&Method::GET, "/tdata/Souls", _) => (
+                    StatusCode::OK,
+                    axum::Json(json!({
+                        "value": []
+                    })),
+                )
+                    .into_response(),
+                (&Method::PUT, "/tdata/Files('file-1')/$value", _) => {
+                    StatusCode::OK.into_response()
+                }
+                _ => StatusCode::NOT_FOUND.into_response(),
+            }
+        }
+
+        let app = Router::new().fallback(any(handler));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+
+        let soul = GeneratedSoul {
+            summary: "Thoughtful collaborator".to_string(),
+            soul_md: "# Soul".to_string(),
+            style_md: "# Style".to_string(),
+            user_md: "# User".to_string(),
+        };
+
+        save_soul_to_temper(
+            &reqwest::Client::new(),
+            &format!("http://{addr}"),
+            "default",
+            &soul,
+            &SetupRequestAuth::default(),
+        )
+        .await
+        .unwrap();
+    }
 }

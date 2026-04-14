@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { base } from '$app/paths';
   import { slide } from 'svelte/transition';
   import type { SessionTurn } from '$lib/parse';
   import { formatToolInput } from '$lib/parse';
@@ -282,12 +283,12 @@
                   {:else if policies.length > 0}
                     <div class="authz-row">
                       <span class="authz-label">POLICY</span>
-                      <span class="authz-value authz-value--dim">Permitted by a policy not parseable client-side. <a href="/permissions" class="policy-link">View all policies</a></span>
+                      <span class="authz-value authz-value--dim">Permitted by a policy not parseable client-side. <a href="{base}/permissions" class="policy-link">View all policies</a></span>
                     </div>
                   {:else}
                     <div class="authz-row">
                       <span class="authz-label">POLICY</span>
-                      <span class="authz-value authz-value--dim">No policies loaded. <a href="/permissions" class="policy-link">View policies</a></span>
+                      <span class="authz-value authz-value--dim">No policies loaded. <a href="{base}/permissions" class="policy-link">View policies</a></span>
                     </div>
                   {/if}
                 </div>

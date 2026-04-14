@@ -137,16 +137,6 @@ impl TransportManager {
             .unwrap_or(false)
     }
 
-    pub fn can_resolve_discord_public_endpoint(
-        configured_public_base_url: Option<&str>,
-        ngrok_bin: &str,
-    ) -> bool {
-        configured_public_base_url
-            .map(|value| !value.trim().is_empty())
-            .unwrap_or(false)
-            || Self::ngrok_available(ngrok_bin)
-    }
-
     async fn current_public_base_url(&self) -> Option<String> {
         self.public_base_url.read().await.clone()
     }
@@ -451,9 +441,3 @@ pub fn ngrok_available(ngrok_bin: &str) -> bool {
     TransportManager::ngrok_available(ngrok_bin)
 }
 
-pub fn can_resolve_discord_public_endpoint(
-    configured_public_base_url: Option<&str>,
-    ngrok_bin: &str,
-) -> bool {
-    TransportManager::can_resolve_discord_public_endpoint(configured_public_base_url, ngrok_bin)
-}

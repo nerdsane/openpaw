@@ -97,10 +97,37 @@
         "widgets": [
           {
             "definition": {
-              "title": "Active Entities",
+              "title": "Indexed Entities",
               "type": "timeseries",
               "requests": [
-                { "q": "avg:temper_active_entities{*}", "display_type": "line" }
+                {
+                  "q": "sum:temper_active_entities{service:openpaw,tenant:*}",
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "Projected Entities",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "q": "sum:temper_projected_entities{service:openpaw,tenant:*}",
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "Projection Coverage",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "q": "avg:temper_projection_coverage_ratio{service:openpaw}",
+                  "display_type": "line"
+                }
               ]
             }
           },
@@ -109,7 +136,10 @@
               "title": "Active Actors",
               "type": "timeseries",
               "requests": [
-                { "q": "avg:temper_active_actors{*}", "display_type": "line" }
+                {
+                  "q": "avg:temper_active_actors{service:openpaw}",
+                  "display_type": "line"
+                }
               ]
             }
           },
@@ -119,6 +149,18 @@
               "type": "timeseries",
               "requests": [
                 { "q": "avg:process_resident_memory_bytes{*}", "display_type": "line" }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "Projection Snapshot Misses",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "q": "sum:temper_projection_backfill_snapshot_misses_total{service:openpaw}.as_count().rollup(sum, 60)",
+                  "display_type": "bars"
+                }
               ]
             }
           },

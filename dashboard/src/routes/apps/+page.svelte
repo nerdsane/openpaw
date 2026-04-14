@@ -45,8 +45,9 @@
       } else {
         // Check if the app entry has inline guide
         const app = apps.find(a => a.name === name);
-        if (app?.skill_guide) {
-          guideCache = { ...guideCache, [name]: app.app_guide };
+        const inlineGuide = app?.app_guide ?? app?.skill_guide ?? undefined;
+        if (inlineGuide) {
+          guideCache = { ...guideCache, [name]: inlineGuide };
         }
       }
     }

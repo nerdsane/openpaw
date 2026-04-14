@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { base } from '$app/paths';
   import { onMount, onDestroy } from 'svelte';
   import { slide, fade } from 'svelte/transition';
   import { page } from '$app/stores';
@@ -70,11 +71,20 @@
   });
 
   async function fetchSession() {
+    if (!sessionId) {
+      throw new Error('Missing session id');
+    }
     const data = await getEntity('Sessions', sessionId);
     session = data as unknown as Session;
   }
 
   onMount(async () => {
+    if (!sessionId) {
+      error = 'Missing session id';
+      loaded = true;
+      return;
+    }
+
     try {
       await fetchSession();
 
@@ -166,7 +176,7 @@
 </script>
 
 <div class="desk">
-  <a href="/" class="desk-back">&larr; FLOOR</a>
+  <a href="{base}/" class="desk-back">&larr; FLOOR</a>
 
   {#if !loaded}
     <div class="desk-empty" transition:fade={{ duration: 200 }}>
@@ -183,7 +193,7 @@
         <!-- Agent link -->
         <div class="context-section">
           <span class="context-label">AGENT</span>
-          <a href="/agents" class="agent-link">{agentName}</a>
+          <a href="{base}/agents" class="agent-link">{agentName}</a>
           {#if session.model}
             <span class="context-meta">{session.model}</span>
           {/if}
@@ -298,7 +308,7 @@
         {#if workcycle}
           <div class="context-section">
             <span class="context-label">WORK CYCLE</span>
-            <a href="/entities/WorkCycle/{workcycle.Id}" class="workcycle-link">
+            <a href="{base}/entities/WorkCycle/{workcycle.Id}" class="workcycle-link">
               <span>{workcycle.task_summary || 'Untitled'}</span>
               <StatusBadge status={workcycle.Status} />
               <GatePipeline {workcycle} />

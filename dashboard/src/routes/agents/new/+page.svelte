@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { base } from '$app/paths';
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { getSoulTemplates, createAgent } from '$lib/api';
@@ -50,7 +51,7 @@
         tools_enabled: tools.join(','),
         max_turns: maxTurns,
       });
-      goto('/agents');
+      goto(`${base}/agents`);
     } catch (e: unknown) {
       error = e instanceof Error ? e.message : 'Failed to create agent';
     } finally {
@@ -120,7 +121,7 @@
     </label>
 
     <div class="form-actions">
-      <a href="/agents" class="btn btn-secondary">CANCEL</a>
+      <a href="{base}/agents" class="btn btn-secondary">CANCEL</a>
       <button class="btn btn-primary" type="submit" disabled={submitting}>
         {submitting ? 'CREATING...' : 'CREATE AGENT'}
       </button>

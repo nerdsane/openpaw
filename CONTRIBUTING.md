@@ -1,0 +1,28 @@
+# Contributing
+
+## Quick start
+
+1. Run `make setup`.
+2. Start the daemon with `make dev`.
+3. Open `http://localhost:3467/dashboard`.
+
+## Local Temper development
+
+OpenPaw defaults to the upstream Temper git dependency. If you need to work against a sibling Temper checkout, copy `.cargo/config.toml.example` to `.cargo/config.toml` and uncomment the patch entries you need.
+
+## TDD expectations
+
+OpenPaw follows red-green-refactor for code changes:
+
+1. Add the failing test first.
+2. Implement the smallest change that makes it pass.
+3. Refactor while keeping the suite green.
+
+## Verification
+
+Before opening a PR, run:
+
+- `cargo test -p openpaw --quiet`
+- `cd dashboard && npm run build`
+
+If you touch end-to-end flows, capture proof in `.proofs/`.

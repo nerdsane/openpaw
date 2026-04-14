@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { base } from '$app/paths';
   import { onMount } from 'svelte';
   import { fade } from 'svelte/transition';
   import type { Session } from '$lib/types';
@@ -92,7 +93,7 @@
 </script>
 
 <a
-  href="/sessions/{session.Id}"
+  href="{base}/sessions/{session.Id}"
   class="session-card"
   class:session-card--active={isActive}
   transition:fade={{ duration: 200 }}

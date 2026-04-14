@@ -2,9 +2,21 @@ const BASE = ''; // relative — proxied by Vite in dev, served by tower-http in
 
 // Default headers for all OData requests.
 const HEADERS: Record<string, string> = {
-  'x-tenant-id': 'default',
-  'x-temper-principal-kind': 'admin',
+  'x-tenant-id': 'default'
 };
+
+export async function apiFetch(input: string, init: RequestInit = {}): Promise<Response> {
+  const headers = {
+    ...HEADERS,
+    ...(init.headers as Record<string, string> | undefined)
+  };
+
+  return fetch(input, {
+    ...init,
+    headers,
+    credentials: 'same-origin'
+  });
+}
 
 /**
  * Flatten a Temper OData entity response.
@@ -41,7 +53,7 @@ export async function queryEntities(
   const qs = params.toString();
   if (qs) url += `?${qs}`;
 
-  const res = await fetch(url, { headers: HEADERS });
+  const res = await apiFetch(url);
   if (!res.ok) {
     throw new Error(`OData query failed: ${res.status} ${res.statusText}`);
   }
@@ -54,14 +66,14 @@ export async function fetchDecisions(status?: string): Promise<DecisionsResponse
   // Temper platform serves decisions at /api/decisions (global, not tenant-scoped)
   let url = `${BASE}/api/decisions`;
   if (status) url += `?status=${status}`;
-  const res = await fetch(url, { headers: HEADERS });
+  const res = await apiFetch(url);
   if (!res.ok) return { decisions: [], total: 0, pending_count: 0, approved_count: 0, denied_count: 0 };
   return res.json();
 }
 
 export async function fetchPolicies(): Promise<PolicyEntry[]> {
   // Temper platform uses /policies/list and returns { policies: [...] }
-  const res = await fetch(`${BASE}/api/tenants/default/policies/list`, { headers: HEADERS });
+  const res = await apiFetch(`${BASE}/api/tenants/default/policies/list`);
   if (!res.ok) return [];
   const data = await res.json();
   return Array.isArray(data) ? data : (data.policies ?? data.value ?? []);
@@ -129,7 +141,7 @@ export async function fetchSessionHistory(
   if (entityType) params.set('entity_type', entityType);
   params.set('limit', limit.toString());
   const url = `${BASE}/observe/agents/system/history?${params.toString()}`;
-  const res = await fetch(url, { headers: HEADERS });
+  const res = await apiFetch(url);
   if (!res.ok) return [];
   const data = await res.json();
   const history = data.history ?? data ?? [];
@@ -151,7 +163,7 @@ export async function getEntity(
   entitySet: string,
   id: string
 ): Promise<Record<string, unknown>> {
-  const res = await fetch(`${BASE}/tdata/${entitySet}('${id}')`, { headers: HEADERS });
+  const res = await apiFetch(`${BASE}/tdata/${entitySet}('${id}')`);
   if (!res.ok) {
     throw new Error(`OData get failed: ${res.status} ${res.statusText}`);
   }
@@ -171,7 +183,7 @@ export interface OsAppEntry {
 
 /** Fetch all registered OS apps from the platform catalog. */
 export async function fetchOsApps(): Promise<OsAppEntry[]> {
-  const res = await fetch(`${BASE}/observe/os-apps`, { headers: HEADERS });
+  const res = await apiFetch(`${BASE}/observe/os-apps`);
   if (!res.ok) return [];
   const data = await res.json();
   return data.apps ?? [];
@@ -179,7 +191,7 @@ export async function fetchOsApps(): Promise<OsAppEntry[]> {
 
 /** Fetch the APP.md guide for a specific OS app. */
 export async function fetchOsAppGuide(name: string): Promise<string> {
-  const res = await fetch(`${BASE}/observe/os-apps/${encodeURIComponent(name)}`, { headers: HEADERS });
+  const res = await apiFetch(`${BASE}/observe/os-apps/${encodeURIComponent(name)}`);
   if (!res.ok) return '';
   const data = await res.json();
   return data.guide ?? '';
@@ -189,7 +201,7 @@ export async function fetchOsAppGuide(name: string): Promise<string> {
  * Fetch raw file content by file ID (e.g. soul markdown, skill markdown).
  */
 export async function fetchFileContent(fileId: string): Promise<string> {
-  const res = await fetch(`${BASE}/tdata/Files('${fileId}')/$value`, { headers: HEADERS });
+  const res = await apiFetch(`${BASE}/tdata/Files('${fileId}')/$value`);
   if (!res.ok) return '';
   return res.text();
 }
@@ -204,16 +216,17 @@ export interface SetupStatus {
   agent_count: number;
   discord_connected: boolean;
   slack_connected: boolean;
+  discord_interaction_url?: string;
 }
 
 export async function fetchSetupStatus(): Promise<SetupStatus> {
-  const res = await fetch(`${BASE}/paw/setup/status`, { headers: HEADERS });
+  const res = await apiFetch(`${BASE}/paw/setup/status`);
   if (!res.ok) throw new Error(`Setup status failed: ${res.status}`);
   return res.json();
 }
 
 export async function saveSecret(key: string, value: string): Promise<void> {
-  const res = await fetch(`${BASE}/paw/setup/secrets`, {
+  const res = await apiFetch(`${BASE}/paw/setup/secrets`, {
     method: 'POST',
     headers: { ...HEADERS, 'content-type': 'application/json' },
     body: JSON.stringify({ key, value }),
@@ -225,16 +238,23 @@ export async function saveSecret(key: string, value: string): Promise<void> {
 }
 
 export async function listSecretKeys(): Promise<string[]> {
-  const res = await fetch(`${BASE}/paw/setup/secrets`, { headers: HEADERS });
+  const res = await apiFetch(`${BASE}/paw/setup/secrets`);
   if (!res.ok) return [];
   const data = await res.json();
   return data.keys ?? [];
 }
 
+export async function getSecret(key: string): Promise<string | null> {
+  const res = await apiFetch(`${BASE}/paw/setup/secrets/${encodeURIComponent(key)}`);
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`Get secret failed: ${res.status}`);
+  const data = await res.json();
+  return data.value ?? null;
+}
+
 export async function deleteSecret(key: string): Promise<void> {
-  await fetch(`${BASE}/paw/setup/secrets/${key}`, {
+  await apiFetch(`${BASE}/paw/setup/secrets/${encodeURIComponent(key)}`, {
     method: 'DELETE',
-    headers: HEADERS,
   });
 }
 
@@ -245,10 +265,65 @@ export interface SoulTemplate {
 }
 
 export async function getSoulTemplates(): Promise<SoulTemplate[]> {
-  const res = await fetch(`${BASE}/paw/souls/templates`, { headers: HEADERS });
+  const res = await apiFetch(`${BASE}/paw/souls/templates`);
   if (!res.ok) return [];
   const data = await res.json();
   return data.templates ?? [];
+}
+
+export interface UserInterview {
+  name: string;
+  about_you: string;
+  ideal_paw: string;
+  followup_answers: [string, string][];
+}
+
+export interface GeneratedSoul {
+  soul_md: string;
+  style_md: string;
+  user_md: string;
+  summary: string;
+}
+
+export interface CurrentSoul {
+  summary: string;
+  content: string;
+}
+
+export async function getCurrentSoul(): Promise<CurrentSoul | null> {
+  const res = await apiFetch(`${BASE}/paw/setup/soul`);
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`Get soul failed: ${res.status}`);
+  return res.json();
+}
+
+export async function generateSoulPreview(params: {
+  interview: UserInterview;
+  previous_summary?: string;
+  feedback?: string;
+}): Promise<GeneratedSoul> {
+  const res = await apiFetch(`${BASE}/paw/setup/soul/generate`, {
+    method: 'POST',
+    headers: { ...HEADERS, 'content-type': 'application/json' },
+    body: JSON.stringify(params)
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `Soul generation failed: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function saveGeneratedSoul(generated: GeneratedSoul): Promise<void> {
+  const res = await apiFetch(`${BASE}/paw/setup/soul/save`, {
+    method: 'POST',
+    headers: { ...HEADERS, 'content-type': 'application/json' },
+    body: JSON.stringify(generated)
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `Saving soul failed: ${res.status}`);
+  }
 }
 
 export interface CreateAgentParams {
@@ -261,7 +336,7 @@ export interface CreateAgentParams {
 }
 
 export async function createAgent(params: CreateAgentParams): Promise<{ agent_id: string }> {
-  const res = await fetch(`${BASE}/paw/agents/create`, {
+  const res = await apiFetch(`${BASE}/paw/agents/create`, {
     method: 'POST',
     headers: { ...HEADERS, 'content-type': 'application/json' },
     body: JSON.stringify(params),
@@ -279,7 +354,7 @@ export interface TransportStatusResponse {
 }
 
 export async function getTransportStatus(): Promise<TransportStatusResponse> {
-  const res = await fetch(`${BASE}/paw/transports/status`, { headers: HEADERS });
+  const res = await apiFetch(`${BASE}/paw/transports/status`);
   if (!res.ok) throw new Error(`Transport status failed: ${res.status}`);
   return res.json();
 }
@@ -291,7 +366,7 @@ export async function connectDiscord(params: {
   feed_channel_id?: string;
   forum_channel_id?: string;
 }): Promise<void> {
-  const res = await fetch(`${BASE}/paw/transports/discord/connect`, {
+  const res = await apiFetch(`${BASE}/paw/transports/discord/connect`, {
     method: 'POST',
     headers: { ...HEADERS, 'content-type': 'application/json' },
     body: JSON.stringify(params),
@@ -300,9 +375,8 @@ export async function connectDiscord(params: {
 }
 
 export async function disconnectDiscord(): Promise<void> {
-  await fetch(`${BASE}/paw/transports/discord/disconnect`, {
+  await apiFetch(`${BASE}/paw/transports/discord/disconnect`, {
     method: 'POST',
-    headers: HEADERS,
   });
 }
 
@@ -311,7 +385,7 @@ export async function connectSlack(params: {
   bot_token: string;
   signing_secret?: string;
 }): Promise<void> {
-  const res = await fetch(`${BASE}/paw/transports/slack/connect`, {
+  const res = await apiFetch(`${BASE}/paw/transports/slack/connect`, {
     method: 'POST',
     headers: { ...HEADERS, 'content-type': 'application/json' },
     body: JSON.stringify(params),
@@ -320,8 +394,7 @@ export async function connectSlack(params: {
 }
 
 export async function disconnectSlack(): Promise<void> {
-  await fetch(`${BASE}/paw/transports/slack/disconnect`, {
+  await apiFetch(`${BASE}/paw/transports/slack/disconnect`, {
     method: 'POST',
-    headers: HEADERS,
   });
 }

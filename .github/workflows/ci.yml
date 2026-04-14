@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Install dashboard dependencies
+        run: cd dashboard && npm install
+      - name: Cargo fmt
+        run: cargo fmt --all -- --check
+      - name: Cargo clippy
+        run: cargo clippy -p openpaw --all-targets -- -D warnings
+      - name: Cargo check
+        run: cargo check -p openpaw
+      - name: WASM build
+        run: cargo build --workspace --target wasm32-unknown-unknown
+      - name: Cargo test
+        run: cargo test -p openpaw --quiet
+      - name: Dashboard build
+        run: cd dashboard && npm run build

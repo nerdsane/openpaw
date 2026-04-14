@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { base } from '$app/paths';
   let { parentId = null, currentId, childIds }: {
     parentId?: string | null;
     currentId: string;
@@ -13,7 +14,7 @@
 {#if hasTree}
   <nav class="session-tree" aria-label="Session hierarchy">
     {#if parentId}
-      <a href="/sessions/{parentId}" class="node parent">{shortParent}</a>
+      <a href="{base}/sessions/{parentId}" class="node parent">{shortParent}</a>
       <span class="separator">&gt;</span>
     {/if}
     <span class="node current">{shortCurrent}</span>
@@ -22,7 +23,7 @@
       <span class="children">
         {#each childIds as childId, i}
           {#if i > 0}<span class="comma">,</span>{/if}
-          <a href="/sessions/{childId}" class="node child">{childId}</a>
+          <a href="{base}/sessions/{childId}" class="node child">{childId}</a>
         {/each}
       </span>
     {/if}

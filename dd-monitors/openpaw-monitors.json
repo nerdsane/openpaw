@@ -39,7 +39,7 @@
   {
     "name": "[OpenPaw] Active Entities Drop",
     "type": "metric alert",
-    "query": "avg(last_15m):avg:temper_active_entities{*} < 1",
+    "query": "avg(last_15m):sum:temper_active_entities{service:openpaw,tenant:*} < 1",
     "message": "No active entities in OpenPaw. Platform may have lost state.\n\n@slack-openpaw-alerts",
     "tags": ["team:openpaw", "severity:medium"],
     "options": {

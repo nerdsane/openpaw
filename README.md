@@ -109,19 +109,14 @@ Agents create capabilities as tools for themselves — structured workflows that
 ```bash
 git clone https://github.com/nerdsane/openpaw.git
 cd openpaw
-cargo run
+cargo build --release
+./target/release/openpaw setup
 ```
 
-On first run, the CLI walks you through setup:
-- Pick your AI provider (Anthropic, OpenRouter, or OpenAI) and paste your API key
-- Connect a messaging platform — Discord or Slack (with step-by-step instructions)
-- A short interview about you and what kind of Paw you want
-- Paw generates a personalized soul and shows you a preview
-
-Everything is encrypted and saved locally. Next time you run it — just boots.
+The CLI walks you through everything — API key, messaging, personalizing your Paw — then asks whether to run locally or deploy to the cloud.
 
 ## How It's Built
 
 OpenPaw runs on [Temper](https://github.com/nerdsane/temper), an open-source kernel with building blocks that generalize to build software applications of any size. Temper provides verified state machines, authorization policies, and an auditable runtime. OpenPaw is one application built on Temper — and the capabilities agents create are also applications built on Temper. Same kernel, same building blocks, all the way down.
 
-For architecture and internals, see [agents.md](agents.md) and [docs/](docs/).
+For architecture and internals, see [AGENTS.md](AGENTS.md), [docs/development.md](docs/development.md), and [docs/deployment.md](docs/deployment.md).
