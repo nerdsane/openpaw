@@ -35,12 +35,12 @@ pub async fn run_deploy(config: Config, with_datadog: bool) -> Result<()> {
     let bucket_name = format!("openpaw-fs-{owner}");
 
     cliclack::log::step("Provisioning Turso database (free tier: 9 GB, 500M rows)...")?;
-    run_interactive("turso", &["db", "create", &database_name, "--wait"])?;
+    create_turso_db_idempotent(&database_name)?;
     let turso_url = capture_trimmed("turso", &["db", "show", &database_name, "--url"])?;
     let turso_auth_token = capture_trimmed("turso", &["db", "tokens", "create", &database_name])?;
 
     cliclack::log::step("Provisioning R2 bucket (free tier: 10 GB storage)...")?;
-    run_interactive("wrangler", &["r2", "bucket", "create", &bucket_name])?;
+    create_r2_bucket_idempotent(&bucket_name)?;
 
     // R2 S3-compatible tokens can't be created via CLI — open the browser
     // to the exact page and walk the user through it.
@@ -223,18 +223,27 @@ fn run_shell_install(script: &str) -> Result<()> {
 }
 
 fn ensure_logged_in(command: &str, check_args: &[&str], login_cmd: &[&str]) -> Result<()> {
-    let output = Command::new(command)
+    // Check both exit code AND output — some CLIs (turso) exit 0 even when not logged in.
+    let is_logged_in = Command::new(command)
         .args(check_args)
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status();
+        .output()
+        .map(|output| {
+            if !output.status.success() {
+                return false;
+            }
+            let combined = format!(
+                "{}{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr),
+            );
+            // If the output tells the user to log in, they're not logged in
+            !combined.contains("not logged in") && !combined.contains("please login")
+        })
+        .unwrap_or(false);
 
-    match output {
-        Ok(status) if status.success() => {
-            cliclack::log::success(format!("{command} authenticated ✓"))?;
-            return Ok(());
-        }
-        _ => {}
+    if is_logged_in {
+        cliclack::log::success(format!("{command} authenticated ✓"))?;
+        return Ok(());
     }
 
     cliclack::log::info(format!("Not logged in to {command}. Opening login flow..."))?;
@@ -258,8 +267,53 @@ fn ensure_logged_in(command: &str, check_args: &[&str], login_cmd: &[&str]) -> R
     Ok(())
 }
 
+/// Create a Turso database, treating "already exists" as success.
+fn create_turso_db_idempotent(database_name: &str) -> Result<()> {
+    let output = Command::new("turso")
+        .args(["db", "create", database_name, "--wait"])
+        .stdin(std::process::Stdio::inherit())
+        .stdout(std::process::Stdio::inherit())
+        .output()
+        .context("Failed to run turso db create")?;
+
+    if output.status.success() {
+        return Ok(());
+    }
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let combined = format!("{stdout}{stderr}");
+    if combined.contains("already exists") {
+        cliclack::log::success(format!("Database {database_name} already exists ✓"))?;
+        return Ok(());
+    }
+
+    anyhow::bail!("Failed to create Turso database: {combined}");
+}
+
+/// Create an R2 bucket, treating "already exists" as success.
+fn create_r2_bucket_idempotent(bucket_name: &str) -> Result<()> {
+    let output = Command::new("wrangler")
+        .args(["r2", "bucket", "create", bucket_name])
+        .stdin(std::process::Stdio::inherit())
+        .stdout(std::process::Stdio::inherit())
+        .output()
+        .context("Failed to run wrangler r2 bucket create")?;
+
+    if output.status.success() {
+        return Ok(());
+    }
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    if stderr.contains("already exists") || stderr.contains("10004") {
+        cliclack::log::success(format!("Bucket {bucket_name} already exists ✓"))?;
+        return Ok(());
+    }
+
+    anyhow::bail!("Failed to create R2 bucket: {stderr}");
+}
+
 /// Run a command with full terminal access (stdin/stdout/stderr inherited).
-/// Use for commands that need to detect a TTY (e.g. wrangler).
 fn run_interactive(command: &str, args: &[&str]) -> Result<()> {
     let status = Command::new(command)
         .args(args)
