@@ -15,6 +15,7 @@ COPY scripts ./scripts
 COPY docs ./docs
 COPY railway.toml README.md AGENTS.md CLAUDE.md INSTRUCTIONS.md ./
 COPY --from=dashboard-build /app/dashboard/build ./dashboard/build
+ENV CARGO_BUILD_JOBS=2
 RUN cargo build -p openpaw --release
 
 FROM debian:bookworm-slim
