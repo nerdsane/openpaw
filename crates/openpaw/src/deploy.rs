@@ -246,7 +246,10 @@ fn ensure_logged_in(command: &str, check_args: &[&str], login_cmd: &[&str]) -> R
         return Ok(());
     }
 
-    cliclack::log::info(format!("Not logged in to {command}. Opening login flow..."))?;
+    cliclack::log::info(format!(
+        "Not logged in to {command}. Running `{}`...",
+        login_cmd.join(" ")
+    ))?;
 
     // Run login interactively (needs user input / browser)
     let status = Command::new(login_cmd[0])
@@ -259,11 +262,37 @@ fn ensure_logged_in(command: &str, check_args: &[&str], login_cmd: &[&str]) -> R
 
     if !status.success() {
         anyhow::bail!(
-            "Login to {command} failed. Run `{}` manually and try again.",
+            "Login to {command} failed. Run `{}` manually and retry the deploy.",
             login_cmd.join(" ")
         );
     }
 
+    // Verify login actually worked — some OAuth flows complete without error
+    // but don't actually authenticate (e.g. browser callback missed).
+    let verified = Command::new(command)
+        .args(check_args)
+        .output()
+        .map(|output| {
+            let combined = format!(
+                "{}{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr),
+            );
+            output.status.success()
+                && !combined.contains("not logged in")
+                && !combined.contains("please login")
+        })
+        .unwrap_or(false);
+
+    if !verified {
+        anyhow::bail!(
+            "Login to {command} didn't complete.\n  \
+             Try running `{}` manually in your terminal, then re-run the deploy.",
+            login_cmd.join(" ")
+        );
+    }
+
+    cliclack::log::success(format!("{command} authenticated ✓"))?;
     Ok(())
 }
 
