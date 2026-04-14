@@ -261,8 +261,7 @@ export async function listSecretKeys(): Promise<string[]> {
 
 export async function getSecret(key: string): Promise<string | null> {
   const res = await apiFetch(`${BASE}/paw/setup/secrets/${encodeURIComponent(key)}`);
-  if (res.status === 404) return null;
-  if (!res.ok) throw new Error(`Get secret failed: ${res.status}`);
+  if (!res.ok) return null;
   const data = await res.json();
   return data.value ?? null;
 }

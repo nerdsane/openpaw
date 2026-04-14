@@ -133,31 +133,31 @@
   .session-card {
     display: flex;
     flex-direction: column;
-    gap: var(--space-sm);
-    padding: var(--space-lg);
+    gap: var(--sp-2);
+    padding: var(--sp-4);
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: var(--radius-md);
+    border-radius: var(--radius);
     text-decoration: none;
     color: inherit;
-    transition: border-color var(--duration-fast) var(--ease);
+    transition: border-color var(--duration) var(--ease);
     position: relative;
   }
 
   .session-card:hover {
     text-decoration: none;
-    border-color: var(--border-visible);
+    border-color: var(--border-strong);
   }
 
   .session-card--active {
-    border-color: var(--border-visible);
+    border-color: var(--border-strong);
   }
 
   .session-card--active::after {
     content: '';
     position: absolute;
-    top: var(--space-md);
-    right: var(--space-md);
+    top: var(--sp-4);
+    right: var(--sp-4);
     width: 6px;
     height: 6px;
     border-radius: 50%;
@@ -179,20 +179,20 @@
   .session-card__header {
     display: flex;
     align-items: baseline;
-    gap: var(--space-sm);
+    gap: var(--sp-2);
   }
 
   .session-card__name {
-    font-family: var(--font-body);
-    font-size: var(--body);
+    font-family: var(--font-sans);
+    font-size: var(--text-base);
     font-weight: 500;
-    color: var(--text-display);
+    color: var(--text-1);
   }
 
   .session-card__id {
     font-family: var(--font-mono);
-    font-size: var(--label);
-    color: var(--text-disabled);
+    font-size: var(--text-xs);
+    color: var(--text-3);
     letter-spacing: 0.02em;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -200,41 +200,41 @@
   }
 
   .session-card__task {
-    font-size: var(--body-sm);
-    color: var(--text-secondary);
+    font-size: var(--text-sm);
+    color: var(--text-2);
     line-height: 1.5;
   }
 
   .session-card__stats {
     display: flex;
-    gap: var(--space-lg);
-    margin-top: var(--space-xs);
+    gap: var(--sp-6);
+    margin-top: var(--sp-1);
   }
 
   .stat {
     display: flex;
     flex-direction: column;
-    gap: var(--space-2xs);
+    gap: 2px;
   }
 
   .stat-label {
     font-family: var(--font-mono);
-    font-size: var(--label);
+    font-size: var(--text-xs);
     letter-spacing: 0.08em;
-    color: var(--text-disabled);
+    color: var(--text-3);
   }
 
   .stat-value {
     font-family: var(--font-mono);
-    font-size: var(--caption);
-    color: var(--text-primary);
+    font-size: var(--text-xs);
+    color: var(--text-1);
   }
 
   .session-card__time {
     font-family: var(--font-mono);
-    font-size: var(--label);
-    color: var(--text-disabled);
+    font-size: var(--text-xs);
+    color: var(--text-3);
     letter-spacing: 0.04em;
-    margin-top: var(--space-xs);
+    margin-top: var(--sp-1);
   }
 </style>

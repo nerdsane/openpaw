@@ -64,64 +64,64 @@
   .drilldown {
     display: flex;
     flex-direction: column;
-    gap: var(--space-xs);
-    padding: var(--space-sm);
-    background: var(--terminal-bg);
-    border: 1px solid var(--terminal-border);
-    border-radius: var(--radius-sm);
+    gap: var(--sp-1);
+    padding: var(--sp-2);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
     font-family: var(--font-mono);
-    font-size: var(--label);
-    color: var(--terminal-text);
+    font-size: var(--text-xs);
+    color: var(--text-1);
   }
 
   .row {
     display: flex;
-    gap: var(--space-lg);
+    gap: var(--sp-6);
     flex-wrap: wrap;
   }
 
   .field {
     display: inline-flex;
     align-items: center;
-    gap: var(--space-xs);
+    gap: var(--sp-1);
   }
 
   .label {
-    color: var(--terminal-dim);
+    color: var(--text-3);
     text-transform: uppercase;
     letter-spacing: 0.08em;
   }
 
   .policy-toggle {
-    margin-top: var(--space-xs);
+    margin-top: var(--sp-1);
   }
 
   .policy-btn {
     background: none;
     border: none;
-    color: var(--terminal-dim);
+    color: var(--text-3);
     font-family: var(--font-mono);
-    font-size: var(--label);
+    font-size: var(--text-xs);
     letter-spacing: 0.06em;
     text-transform: uppercase;
     cursor: pointer;
     padding: 0;
-    transition: color var(--duration-fast) var(--ease);
+    transition: color var(--duration) var(--ease);
   }
 
   .policy-btn:hover {
-    color: var(--terminal-text);
+    color: var(--text-1);
   }
 
   .policy-text {
     margin: 0;
-    padding: var(--space-sm);
-    background: var(--terminal-bg);
-    border: 1px solid var(--terminal-border);
-    border-radius: var(--radius-sm);
+    padding: var(--sp-2);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
     font-family: var(--font-mono);
-    font-size: var(--label);
-    color: var(--terminal-text);
+    font-size: var(--text-xs);
+    color: var(--text-1);
     white-space: pre-wrap;
     overflow-x: auto;
   }

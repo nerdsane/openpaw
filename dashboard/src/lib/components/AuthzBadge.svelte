@@ -20,7 +20,7 @@
     display: inline-flex;
     align-items: center;
     font-family: var(--font-mono);
-    font-size: var(--label);
+    font-size: var(--text-xs);
     letter-spacing: 0.06em;
     text-transform: uppercase;
     line-height: 1;
@@ -33,7 +33,7 @@
   .denied {
     color: var(--status-error);
     background: var(--authz-denied-bg);
-    padding: 2px 4px;
-    border-radius: var(--radius-sm);
+    padding: 2px var(--sp-1);
+    border-radius: var(--radius);
   }
 </style>

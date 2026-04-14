@@ -335,6 +335,10 @@ fn runtime_headers_with_workspace(
         ));
     }
 
+    if let Some(key) = ctx.config.get("temper_api_key").filter(|k| !k.is_empty()) {
+        headers.push(("authorization".to_string(), format!("Bearer {key}")));
+    }
+
     headers
 }
 

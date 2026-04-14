@@ -1,6 +1,5 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
-  import { connectSSE, disconnectSSE, type StateChangeEvent } from '$lib/sse';
   import { getEntity, createSession, steerSession } from '$lib/api';
 
   interface Props {
@@ -20,12 +19,10 @@
   let messages = $state<ChatMessage[]>([]);
   let input = $state('');
   let sessionId = $state<string | null>(null);
-  let sessionStatus = $state<string>('idle');
-  let sending = $state(false);
+  let waiting = $state(false);
   let chatContainer: HTMLDivElement | undefined = $state();
-  let eventSource: EventSource | null = null;
+  let pollTimer: ReturnType<typeof setInterval> | null = null;
 
-  // Add greeting on mount
   onMount(() => {
     if (greeting) {
       messages = [{ role: 'assistant', content: greeting }];
@@ -33,10 +30,7 @@
   });
 
   onDestroy(() => {
-    if (eventSource) {
-      eventSource.close();
-      eventSource = null;
-    }
+    if (pollTimer) clearInterval(pollTimer);
   });
 
   function scrollToBottom() {
@@ -49,78 +43,64 @@
 
   async function send() {
     const text = input.trim();
-    if (!text || sending) return;
+    if (!text || waiting) return;
 
     input = '';
-    sending = true;
+    waiting = true;
     messages = [...messages, { role: 'user', content: text }];
     scrollToBottom();
 
     try {
       if (!sessionId) {
-        // First message — create a new session
         const { session_id } = await createSession({
           agent_id: agentId,
           user_message: text,
           system_prompt: systemPrompt,
         });
         sessionId = session_id;
-        sessionStatus = 'running';
-
-        // Start watching this session's events
-        watchSession(session_id);
+        pollForResult(session_id);
       } else {
-        // Follow-up message — steer the existing session
         await steerSession(sessionId, text);
+        pollForResult(sessionId);
       }
     } catch (err) {
       messages = [...messages, {
         role: 'system',
-        content: `Error: ${err instanceof Error ? err.message : 'Failed to send message'}`
+        content: err instanceof Error ? err.message : 'Failed to send message'
       }];
-    } finally {
-      sending = false;
-      scrollToBottom();
+      waiting = false;
     }
+    scrollToBottom();
   }
 
-  function watchSession(sid: string) {
-    // Use SSE to watch for state changes on this session
-    eventSource = connectSSE('Session', sid);
+  function pollForResult(sid: string) {
+    if (pollTimer) clearInterval(pollTimer);
 
-    // Poll for result periodically since SSE gives state changes, not content
-    const pollInterval = setInterval(async () => {
+    pollTimer = setInterval(async () => {
       try {
         const entity = await getEntity('Sessions', sid);
-        const status = (entity as any).Status || (entity as any)._status || '';
-        sessionStatus = status;
+        const status = (entity as any).Status || '';
 
         if (status === 'Completed') {
+          if (pollTimer) clearInterval(pollTimer);
           const result = (entity as any).result || '';
           if (result) {
             messages = [...messages, { role: 'assistant', content: result }];
             scrollToBottom();
           }
+          waiting = false;
           onComplete?.(result);
-          clearInterval(pollInterval);
-          sending = false;
-        } else if (status === 'Failed') {
+        } else if (status === 'Failed' || status === 'Cancelled') {
+          if (pollTimer) clearInterval(pollTimer);
           const error = (entity as any).error_message || 'Session failed';
-          messages = [...messages, { role: 'system', content: `Error: ${error}` }];
+          messages = [...messages, { role: 'system', content: error }];
           scrollToBottom();
-          clearInterval(pollInterval);
-          sending = false;
+          waiting = false;
         }
       } catch {
-        // Ignore polling errors
+        // ignore polling errors
       }
     }, 2000);
-
-    // Clean up on destroy
-    const origDestroy = onDestroy;
-    onDestroy(() => {
-      clearInterval(pollInterval);
-    });
   }
 
   function handleKeydown(event: KeyboardEvent) {
@@ -132,37 +112,32 @@
 </script>
 
 <div class="chat">
-  <div class="chat-messages" bind:this={chatContainer}>
+  <div class="chat-log" bind:this={chatContainer}>
     {#each messages as msg}
-      <div class="chat-msg chat-msg--{msg.role}">
-        <span class="chat-sender">{msg.role === 'user' ? 'You' : msg.role === 'assistant' ? 'Paw' : 'System'}</span>
-        <div class="chat-bubble">{msg.content}</div>
+      <div class="msg" class:msg-user={msg.role === 'user'} class:msg-err={msg.role === 'system'}>
+        <span class="msg-from">{msg.role === 'user' ? 'You' : msg.role === 'assistant' ? 'Paw' : 'Error'}</span>
+        <div class="msg-body">{msg.content}</div>
       </div>
     {/each}
-    {#if sending && sessionStatus === 'running'}
-      <div class="chat-msg chat-msg--assistant">
-        <span class="chat-sender">Paw</span>
-        <div class="chat-bubble chat-bubble--typing">Thinking...</div>
+    {#if waiting}
+      <div class="msg">
+        <span class="msg-from">Paw</span>
+        <div class="msg-body msg-thinking">thinking...</div>
       </div>
     {/if}
   </div>
 
-  <div class="chat-input-row">
-    <textarea
+  <form class="chat-bar" onsubmit={(e) => { e.preventDefault(); send(); }}>
+    <input
       class="chat-input"
       bind:value={input}
       onkeydown={handleKeydown}
-      placeholder="Type a message..."
-      rows="1"
-      disabled={sending}
-    ></textarea>
-    <button
-      class="chat-send"
-      onclick={send}
-      disabled={!input.trim() || sending}
-      type="button"
-    >Send</button>
-  </div>
+      placeholder="Message Paw..."
+      disabled={waiting}
+      autocomplete="off"
+    />
+    <button class="chat-send" disabled={!input.trim() || waiting} type="submit">SEND</button>
+  </form>
 </div>
 
 <style>
@@ -173,72 +148,65 @@
     min-height: 0;
   }
 
-  .chat-messages {
+  .chat-log {
     flex: 1;
     overflow-y: auto;
     display: flex;
     flex-direction: column;
-    gap: var(--sp-3);
-    padding: var(--sp-4);
+    gap: var(--sp-4);
+    padding: var(--sp-6) var(--sp-4);
   }
 
-  .chat-msg {
+  .msg {
     display: flex;
     flex-direction: column;
     gap: 2px;
-    max-width: 85%;
+    max-width: 90%;
   }
 
-  .chat-msg--user {
+  .msg-user {
     align-self: flex-end;
   }
 
-  .chat-msg--assistant,
-  .chat-msg--system {
-    align-self: flex-start;
-  }
-
-  .chat-sender {
+  .msg-from {
     font-family: var(--font-mono);
     font-size: var(--text-xs);
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
+    letter-spacing: 0.06em;
     color: var(--text-3);
+    text-transform: uppercase;
     padding: 0 var(--sp-1);
   }
 
-  .chat-bubble {
-    padding: var(--sp-2) var(--sp-3);
-    border-radius: var(--radius);
-    font-size: var(--text-base);
-    line-height: 1.5;
+  .msg-body {
+    font-family: var(--font-sans);
+    font-size: var(--text-sm);
+    line-height: 1.6;
+    color: var(--text-1);
     white-space: pre-wrap;
     word-break: break-word;
-  }
-
-  .chat-msg--user .chat-bubble {
-    background: var(--accent);
-    color: var(--bg);
-  }
-
-  .chat-msg--assistant .chat-bubble {
-    background: var(--surface);
-    color: var(--text-1);
+    padding: var(--sp-2) var(--sp-3);
     border: 1px solid var(--border);
+    border-radius: var(--radius);
   }
 
-  .chat-msg--system .chat-bubble {
-    background: rgba(255, 104, 104, 0.12);
+  .msg-user .msg-body {
+    background: var(--text-1);
+    color: var(--bg);
+    border-color: transparent;
+  }
+
+  .msg-err .msg-body {
     color: var(--status-error);
-    font-size: var(--text-sm);
+    border-color: rgba(255, 104, 104, 0.2);
   }
 
-  .chat-bubble--typing {
+  .msg-thinking {
     color: var(--text-3);
     font-style: italic;
+    border-style: dashed;
   }
 
-  .chat-input-row {
+  .chat-bar {
     display: flex;
     gap: var(--sp-2);
     padding: var(--sp-3) var(--sp-4);
@@ -247,14 +215,22 @@
 
   .chat-input {
     flex: 1;
-    resize: none;
     border: 1px solid var(--border);
     border-radius: var(--radius);
-    background: rgba(255, 255, 255, 0.04);
+    background: transparent;
     color: var(--text-1);
     padding: var(--sp-2) var(--sp-3);
-    font-size: var(--text-base);
-    font-family: inherit;
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+  }
+
+  .chat-input::placeholder {
+    color: var(--text-3);
+  }
+
+  .chat-input:focus {
+    outline: none;
+    border-color: var(--text-2);
   }
 
   .chat-input:disabled {
@@ -262,19 +238,27 @@
   }
 
   .chat-send {
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    letter-spacing: 0.08em;
     padding: var(--sp-2) var(--sp-4);
     border-radius: var(--radius);
-    border: none;
-    background: var(--accent);
+    border: 1px solid var(--text-1);
+    background: var(--text-1);
     color: var(--bg);
     font-weight: 600;
-    font-size: var(--text-sm);
     cursor: pointer;
-    white-space: nowrap;
   }
 
   .chat-send:disabled {
-    opacity: 0.4;
+    opacity: 0.25;
     cursor: not-allowed;
+  }
+
+  @media (max-width: 640px) {
+    .chat-log { padding: var(--sp-3) var(--sp-2); gap: var(--sp-3); }
+    .chat-bar { padding: var(--sp-2); }
+    .chat-send { padding: var(--sp-2) var(--sp-3); }
+    .msg { max-width: 95%; }
   }
 </style>

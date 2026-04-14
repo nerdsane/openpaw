@@ -29,17 +29,17 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 6px 12px;
+    padding: var(--sp-1) var(--sp-3);
     background: var(--terminal-chrome);
     border-bottom: 1px solid var(--terminal-border);
     font-family: var(--font-mono);
-    font-size: var(--label);
+    font-size: var(--text-xs);
   }
 
   .left {
     display: flex;
     align-items: center;
-    gap: var(--space-sm);
+    gap: var(--sp-2);
   }
 
   .name {
@@ -51,7 +51,7 @@
   .id {
     color: var(--terminal-dim);
     font-family: var(--font-mono);
-    font-size: var(--label);
+    font-size: var(--text-xs);
     letter-spacing: 0.02em;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -61,7 +61,7 @@
   .right {
     display: flex;
     align-items: center;
-    gap: var(--space-sm);
+    gap: var(--sp-2);
   }
 
   .active-dot {

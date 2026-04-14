@@ -63,23 +63,23 @@
 
 <style>
   .policy-row {
-    border-bottom: 1px solid var(--terminal-border);
+    border-bottom: 1px solid var(--border);
   }
 
   .row-header {
     display: flex;
     align-items: center;
-    gap: var(--space-sm);
+    gap: var(--sp-2);
     width: 100%;
-    padding: var(--space-sm) 0;
+    padding: var(--sp-2) 0;
     background: none;
     border: none;
     cursor: pointer;
     font-family: var(--font-mono);
-    font-size: var(--label);
-    color: var(--terminal-text);
+    font-size: var(--text-xs);
+    color: var(--text-1);
     text-align: left;
-    transition: color var(--duration-fast) var(--ease);
+    transition: color var(--duration) var(--ease);
   }
 
   .row-header:hover {
@@ -101,9 +101,9 @@
 
   .policy-id {
     font-family: var(--font-mono);
-    font-size: var(--label);
+    font-size: var(--text-xs);
     letter-spacing: 0.02em;
-    color: var(--terminal-text);
+    color: var(--text-1);
     flex: 1;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -112,36 +112,36 @@
 
   .source-badge {
     font-family: var(--font-mono);
-    font-size: var(--label);
+    font-size: var(--text-xs);
     text-transform: uppercase;
     letter-spacing: 0.06em;
-    color: var(--terminal-dim);
-    padding: 1px 6px;
-    border: 1px solid var(--terminal-border);
-    border-radius: var(--radius-sm);
+    color: var(--text-3);
+    padding: 1px var(--sp-1);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
     flex-shrink: 0;
   }
 
   .expand-toggle {
     font-family: var(--font-mono);
-    font-size: var(--label);
-    color: var(--terminal-dim);
+    font-size: var(--text-xs);
+    color: var(--text-3);
     flex-shrink: 0;
   }
 
   .cedar-block {
-    padding: var(--space-sm) 0 var(--space-md) 0;
+    padding: var(--sp-2) 0 var(--sp-4) 0;
   }
 
   .cedar-text {
     margin: 0;
-    padding: var(--space-sm);
-    background: var(--terminal-bg);
-    border: 1px solid var(--terminal-border);
-    border-radius: var(--radius-sm);
+    padding: var(--sp-2);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
     font-family: var(--font-mono);
-    font-size: var(--label);
-    color: var(--terminal-text);
+    font-size: var(--text-xs);
+    color: var(--text-1);
     white-space: pre-wrap;
     overflow-x: auto;
     line-height: 1.6;
@@ -158,6 +158,6 @@
   }
 
   .cedar-text :global(.hl-comment) {
-    color: var(--terminal-dim);
+    color: var(--text-3);
   }
 </style>

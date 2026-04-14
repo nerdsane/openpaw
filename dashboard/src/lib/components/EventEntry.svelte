@@ -52,12 +52,12 @@
   .event-entry {
     display: flex;
     align-items: center;
-    gap: var(--space-sm);
-    padding: var(--space-sm) 0;
+    gap: var(--sp-2);
+    padding: var(--sp-2) 0;
     text-decoration: none;
     color: inherit;
     border-bottom: 1px solid var(--border);
-    transition: background var(--duration-fast) var(--ease);
+    transition: background var(--duration) var(--ease);
   }
 
   .event-entry:hover {
@@ -75,8 +75,8 @@
 
   .event-type {
     font-family: var(--font-mono);
-    font-size: var(--label);
-    color: var(--text-disabled);
+    font-size: var(--text-xs);
+    color: var(--text-3);
     text-transform: uppercase;
     letter-spacing: 0.06em;
     flex-shrink: 0;
@@ -84,8 +84,8 @@
   }
 
   .event-desc {
-    font-size: var(--body-sm);
-    color: var(--text-secondary);
+    font-size: var(--text-sm);
+    color: var(--text-2);
     flex: 1;
     white-space: nowrap;
     overflow: hidden;
@@ -94,8 +94,8 @@
 
   .event-time {
     font-family: var(--font-mono);
-    font-size: var(--label);
-    color: var(--text-disabled);
+    font-size: var(--text-xs);
+    color: var(--text-3);
     flex-shrink: 0;
     margin-left: auto;
   }

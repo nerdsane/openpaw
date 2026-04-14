@@ -125,60 +125,60 @@
   .entity-detail {
     display: flex;
     flex-direction: column;
-    gap: var(--space-lg);
+    gap: var(--sp-6);
   }
 
   .entity-back {
     font-family: var(--font-mono);
-    font-size: var(--label);
+    font-size: var(--text-xs);
     letter-spacing: 0.08em;
-    color: var(--text-secondary);
+    color: var(--text-2);
     text-decoration: none;
     width: fit-content;
   }
 
   .entity-back:hover {
-    color: var(--text-display);
+    color: var(--text-1);
   }
 
   .entity-empty {
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: var(--space-4xl) 0;
+    padding: var(--sp-8) 0;
   }
 
   .entity-loading {
     font-family: var(--font-mono);
-    font-size: var(--caption);
-    color: var(--text-disabled);
+    font-size: var(--text-xs);
+    color: var(--text-3);
     letter-spacing: 0.06em;
   }
 
   .entity-header {
     display: flex;
     align-items: center;
-    gap: var(--space-md);
+    gap: var(--sp-4);
     flex-wrap: wrap;
   }
 
   .entity-title {
     display: flex;
     align-items: baseline;
-    gap: var(--space-sm);
+    gap: var(--sp-2);
   }
 
   .entity-type-label {
     font-family: var(--font-mono);
-    font-size: var(--subheading);
-    color: var(--text-display);
+    font-size: var(--text-lg);
+    color: var(--text-1);
     letter-spacing: -0.01em;
   }
 
   .entity-id-label {
     font-family: var(--font-mono);
-    font-size: var(--caption);
-    color: var(--text-disabled);
+    font-size: var(--text-xs);
+    color: var(--text-3);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -191,8 +191,8 @@
 
   .field-row {
     display: flex;
-    gap: var(--space-lg);
-    padding: var(--space-sm) 0;
+    gap: var(--sp-6);
+    padding: var(--sp-2) 0;
     border-bottom: 1px solid var(--border);
     align-items: flex-start;
   }
@@ -201,8 +201,8 @@
     width: 180px;
     flex-shrink: 0;
     font-family: var(--font-mono);
-    font-size: var(--caption);
-    color: var(--text-secondary);
+    font-size: var(--text-xs);
+    color: var(--text-2);
   }
 
   .field-value {
@@ -210,73 +210,73 @@
     min-width: 0;
     display: flex;
     flex-direction: column;
-    gap: var(--space-xs);
+    gap: var(--sp-1);
   }
 
   .field-text {
-    font-size: var(--body-sm);
-    color: var(--text-primary);
+    font-size: var(--text-sm);
+    color: var(--text-1);
     word-break: break-word;
   }
 
   .field-null {
     font-family: var(--font-mono);
-    font-size: var(--caption);
-    color: var(--text-disabled);
+    font-size: var(--text-xs);
+    color: var(--text-3);
   }
 
   .field-bool {
     font-family: var(--font-mono);
-    font-size: var(--caption);
-    color: var(--text-primary);
+    font-size: var(--text-xs);
+    color: var(--text-1);
     letter-spacing: 0.04em;
   }
 
   .field-json {
-    font-size: var(--label);
+    font-size: var(--text-xs);
     max-height: 200px;
     overflow: auto;
     white-space: pre-wrap;
     word-break: break-all;
     background: var(--surface);
     border: 1px solid var(--border);
-    padding: var(--space-sm);
-    border-radius: var(--radius-sm);
+    padding: var(--sp-2);
+    border-radius: var(--radius);
   }
 
   .field-expand {
     font-family: var(--font-mono);
-    font-size: var(--label);
+    font-size: var(--text-xs);
     letter-spacing: 0.06em;
-    color: var(--text-disabled);
+    color: var(--text-3);
     padding: 0;
     text-align: left;
     width: fit-content;
   }
 
   .field-expand:hover {
-    color: var(--text-display);
+    color: var(--text-1);
   }
 
   .entity-history {
     display: flex;
     flex-direction: column;
-    gap: var(--space-sm);
-    margin-top: var(--space-xl);
-    padding-top: var(--space-lg);
+    gap: var(--sp-2);
+    margin-top: var(--sp-8);
+    padding-top: var(--sp-6);
     border-top: 1px solid var(--border);
   }
 
   .history-label {
     font-family: var(--font-mono);
-    font-size: var(--label);
+    font-size: var(--text-xs);
     letter-spacing: 0.08em;
-    color: var(--text-secondary);
+    color: var(--text-2);
   }
 
   .history-text {
     font-family: var(--font-mono);
-    font-size: var(--caption);
-    color: var(--text-disabled);
+    font-size: var(--text-xs);
+    color: var(--text-3);
   }
 </style>

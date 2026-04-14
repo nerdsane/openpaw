@@ -51,7 +51,7 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: var(--space-xs);
+    gap: var(--sp-1);
   }
 
   .gate-block {
@@ -86,8 +86,8 @@
 
   .gate-label {
     font-family: var(--font-mono);
-    font-size: var(--label);
+    font-size: var(--text-xs);
     letter-spacing: 0.08em;
-    color: var(--text-disabled);
+    color: var(--text-3);
   }
 </style>

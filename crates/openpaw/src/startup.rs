@@ -1275,7 +1275,7 @@ fn spawn_soul_bootstrap(port: u16, tenant: String, api_key: Option<String>) {
             ),
         ];
 
-        let default_config = default_agent_config(&api_url);
+        let default_config = default_agent_config(&api_url, &api_key);
 
         for (name, role, description, soul_paths) in &agents {
             // Step 1: Create Agent entity (agent-first)
@@ -1637,7 +1637,7 @@ async fn set_default_agent(
             }
             if !route_id.is_empty() {
                 if let Some(repaired_config) =
-                    repaired_agent_config(current_config, api_url, channel_id.is_empty())
+                    repaired_agent_config(current_config, api_url, api_key, channel_id.is_empty())
                 {
                     odata_post(
                         client,
@@ -1673,7 +1673,7 @@ async fn set_default_agent(
         if let Ok(created) = create_resp {
             let route_id = entity_id_from_json(&created).unwrap_or("");
             if !route_id.is_empty() {
-                let agent_config = default_agent_config(api_url);
+                let agent_config = default_agent_config(api_url, api_key);
                 odata_post(
                     client,
                     &format!("{api_url}/tdata/AgentRoutes('{route_id}')/Paw.Channel.Register"),
@@ -1700,12 +1700,12 @@ async fn set_default_agent(
     Ok(())
 }
 
-fn default_agent_config(api_url: &str) -> serde_json::Value {
+fn default_agent_config(api_url: &str, api_key: &Option<String>) -> serde_json::Value {
     let default_model =
         std::env::var("LLM_MODEL").unwrap_or_else(|_| "claude-sonnet-4-6".to_string());
     let default_provider =
         std::env::var("LLM_PROVIDER").unwrap_or_else(|_| "anthropic".to_string());
-    serde_json::json!({
+    let mut config = serde_json::json!({
         "model": default_model,
         "provider": default_provider,
         "tools_enabled": DEFAULT_AGENT_TOOLS_ENABLED,
@@ -1713,10 +1713,19 @@ fn default_agent_config(api_url: &str) -> serde_json::Value {
         "max_turns": "24",
         "temper_api_url": api_url,
         "max_follow_ups": "8",
-    })
+    });
+    if let Some(key) = api_key {
+        config["temper_api_key"] = serde_json::Value::String(key.clone());
+    }
+    config
 }
 
-fn repaired_agent_config(raw: &str, api_url: &str, is_global_route: bool) -> Option<String> {
+fn repaired_agent_config(
+    raw: &str,
+    api_url: &str,
+    api_key: &Option<String>,
+    is_global_route: bool,
+) -> Option<String> {
     let original = raw.trim();
     let mut config = if original.is_empty() {
         serde_json::Map::new()
@@ -1728,7 +1737,7 @@ fn repaired_agent_config(raw: &str, api_url: &str, is_global_route: bool) -> Opt
     };
 
     let original_normalized = serde_json::to_string(&config).ok();
-    let defaults = default_agent_config(api_url);
+    let defaults = default_agent_config(api_url, api_key);
     let normalized_tools = normalize_tools_enabled(
         config
             .get("tools_enabled")
@@ -1760,6 +1769,12 @@ fn repaired_agent_config(raw: &str, api_url: &str, is_global_route: bool) -> Opt
         "temper_api_url".to_string(),
         serde_json::Value::String(api_url.to_string()),
     );
+    if let Some(key) = api_key {
+        config.insert(
+            "temper_api_key".to_string(),
+            serde_json::Value::String(key.clone()),
+        );
+    }
     if let Some(normalized_workdir) = normalize_legacy_workdir(&current_workdir) {
         config.insert(
             "workdir".to_string(),

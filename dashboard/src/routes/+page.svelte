@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
+  import { base } from '$app/paths';
   import { SvelteFlow, Background, MiniMap, Controls } from '@xyflow/svelte';
   import '@xyflow/svelte/dist/style.css';
 
@@ -83,17 +84,15 @@
       const harnesses = harnessesRaw as unknown as Harness[];
       const workCycles = workCyclesRaw as unknown as WorkCycle[];
 
-      if (projects.length > 0) {
-        const agentsMap: Record<string, Agent[]> = {};
-        await Promise.all(teams.map(async (team) => {
-          if (!team.Id) return;
-          try {
-            const teamAgents = await queryAgentsForTeam(team.Id);
-            agentsMap[team.Id] = teamAgents as unknown as Agent[];
-          } catch {}
-        }));
-        buildCanvasGraph({ projects, teams, agents: agentsMap, sessions, souls, skills, harnesses, workCycles });
-      }
+      const agentsMap: Record<string, Agent[]> = {};
+      await Promise.all(teams.map(async (team) => {
+        if (!team.Id) return;
+        try {
+          const teamAgents = await queryAgentsForTeam(team.Id);
+          agentsMap[team.Id] = teamAgents as unknown as Agent[];
+        } catch {}
+      }));
+      buildCanvasGraph({ projects, teams, agents: agentsMap, sessions, souls, skills, harnesses, workCycles });
 
       canvasNodes.subscribe(v => { nodes = v; });
       canvasEdges.subscribe(v => { edges = v; });
@@ -229,8 +228,8 @@
     {:else}
       <div class="canvas-empty">
         <span class="empty-label">CANVAS</span>
-        <span class="empty-text">No projects yet. Create an agent to get started.</span>
-        <a href="/agents" class="empty-link">Go to Agents</a>
+        <span class="empty-text">No activity yet. Agents will appear here when sessions are running.</span>
+        <a href="{base}/welcome" class="empty-link">Talk to Paw</a>
       </div>
     {/if}
   {:else}
@@ -248,34 +247,34 @@
   }
 
   .canvas-container :global(.svelte-flow) {
-    background: var(--bg, #0a0a0a) !important;
+    background: var(--bg) !important;
   }
 
   .canvas-container :global(.svelte-flow__minimap) {
-    background: var(--surface, #141414);
-    border: 1px solid var(--border, rgba(255,255,255,0.08));
-    border-radius: var(--radius, 4px);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
   }
 
   .canvas-container :global(.svelte-flow__controls) {
-    border: 1px solid var(--border, rgba(255,255,255,0.08));
-    border-radius: var(--radius, 4px);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
     overflow: hidden;
   }
 
   .canvas-container :global(.svelte-flow__controls-button) {
-    background: var(--surface, #141414);
-    color: var(--text-2, #a0a0a0);
+    background: var(--surface);
+    color: var(--text-2);
     border: none;
-    border-bottom: 1px solid var(--border, rgba(255,255,255,0.08));
+    border-bottom: 1px solid var(--border);
   }
 
   .canvas-container :global(.svelte-flow__controls-button:hover) {
-    background: var(--surface-raised, #1c1c1c);
+    background: var(--surface-raised);
   }
 
   .canvas-container :global(.svelte-flow__controls-button svg) {
-    fill: var(--text-2, #a0a0a0);
+    fill: var(--text-2);
   }
 
   .canvas-container :global(.svelte-flow__attribution) {
@@ -289,29 +288,29 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 8px;
+    gap: var(--sp-2);
   }
 
   .empty-label {
     font-family: var(--font-mono);
-    font-size: 20px;
+    font-size: var(--text-xl);
     letter-spacing: 0.08em;
-    color: var(--text-3, #666);
+    color: var(--text-3);
     opacity: 0.3;
   }
 
   .empty-text {
     font-family: var(--font-mono);
-    font-size: 12px;
-    color: var(--text-3, #666);
+    font-size: var(--text-sm);
+    color: var(--text-3);
   }
 
   .empty-link {
     font-family: var(--font-mono);
-    font-size: 13px;
-    color: var(--accent, #34d399);
+    font-size: var(--text-base);
+    color: var(--accent);
     text-decoration: none;
-    margin-top: 4px;
+    margin-top: var(--sp-1);
   }
 
   .empty-link:hover {
@@ -325,93 +324,72 @@
     right: 0;
     width: 360px;
     height: 100%;
-    background: var(--bg, #0a0a0a);
-    border-left: 1px solid var(--border, rgba(255,255,255,0.08));
+    background: var(--bg);
+    border-left: 1px solid var(--border);
     z-index: 20;
     overflow-y: auto;
-    padding: 16px;
+    padding: var(--sp-4);
     display: flex;
     flex-direction: column;
-    gap: 12px;
-    font-family: var(--font-mono, monospace);
+    gap: var(--sp-3);
+    font-family: var(--font-mono);
   }
 
   .panel-close {
     position: absolute;
-    top: 8px;
-    right: 12px;
-    font-size: 18px;
-    color: var(--text-3, #666);
+    top: var(--sp-2);
+    right: var(--sp-3);
+    font-size: var(--text-lg);
+    color: var(--text-3);
     cursor: pointer;
     background: none;
     border: none;
     line-height: 1;
   }
-  .panel-close:hover { color: var(--text-1, #eee); }
+  .panel-close:hover { color: var(--text-1); }
 
   .panel-header {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding-right: 24px;
+    gap: var(--sp-2);
+    padding-right: var(--sp-6);
   }
 
   .panel-name {
-    font-size: 15px;
+    font-size: var(--text-lg);
     font-weight: 600;
-    color: var(--accent, #00DC82);
+    color: var(--accent);
   }
 
   .panel-role {
-    font-size: 11px;
-    color: var(--text-3, #666);
+    font-size: var(--text-xs);
+    color: var(--text-3);
   }
 
   .panel-meta {
-    font-size: 10px;
-    color: var(--text-3, #666);
+    font-size: var(--text-xs);
+    color: var(--text-3);
   }
 
   .panel-section {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: var(--sp-1);
   }
 
   .panel-label {
-    font-size: 10px;
+    font-size: var(--text-xs);
     text-transform: uppercase;
     letter-spacing: 0.06em;
-    color: var(--text-3, #666);
-  }
-
-  .panel-session {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 10px;
-  }
-
-  .panel-session-id {
-    color: var(--text-2, #a0a0a0);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    flex: 1;
-    min-width: 0;
-  }
-
-  .panel-session-turns {
-    color: var(--text-3, #666);
-    flex-shrink: 0;
+    color: var(--text-3);
   }
 
   /* Terminal in panel */
   .panel-terminal {
-    background: var(--terminal-bg, #09090b);
-    border: 1px solid var(--terminal-border, rgba(255,255,255,0.05));
-    border-radius: var(--radius, 4px);
-    padding: 10px 12px;
+    background: var(--terminal-bg);
+    border: 1px solid var(--terminal-border);
+    border-radius: var(--radius);
+    padding: var(--sp-2) var(--sp-3);
     display: flex;
     flex-direction: column;
     gap: 3px;
@@ -421,59 +399,27 @@
 
   .panel-line {
     display: flex;
-    gap: 6px;
-    font-size: 10px;
+    gap: var(--sp-1);
+    font-size: var(--text-xs);
     white-space: nowrap;
     overflow: hidden;
   }
 
-  .panel-prompt { color: var(--accent, #34d399); flex-shrink: 0; user-select: none; }
-  .panel-cmd { color: var(--text-1, #fafafa); font-weight: 500; flex-shrink: 0; }
-  .panel-args { color: var(--text-3, #71717a); overflow: hidden; text-overflow: ellipsis; }
+  .panel-prompt { color: var(--accent); flex-shrink: 0; user-select: none; }
+  .panel-cmd { color: var(--text-1); font-weight: 500; flex-shrink: 0; }
+  .panel-args { color: var(--text-3); overflow: hidden; text-overflow: ellipsis; }
 
-  .panel-pills { display: flex; flex-wrap: wrap; gap: 4px; }
+  .panel-pills { display: flex; flex-wrap: wrap; gap: var(--sp-1); }
   .panel-pill {
-    font-family: var(--font-mono, monospace);
-    font-size: 10px; color: var(--text-2, #a1a1aa);
-    background: var(--surface, #18181b);
-    border: 1px solid var(--border, rgba(255,255,255,0.07));
-    padding: 1px 6px; border-radius: 3px;
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    color: var(--text-2);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    padding: 1px var(--sp-1);
+    border-radius: var(--radius);
   }
 
-  /* Tags */
-  .panel-tags {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px;
-  }
-
-  .panel-tag {
-    font-size: 10px;
-    color: var(--text-2, #a0a0a0);
-    background: var(--surface, #141414);
-    border: 1px solid var(--border, rgba(255,255,255,0.08));
-    padding: 1px 6px;
-    border-radius: 3px;
-  }
-
-  /* Authz */
-  .panel-authz {
-    display: flex;
-    gap: 12px;
-    font-size: 11px;
-  }
-
-  .panel-authz-ok { color: var(--accent, #00DC82); }
-  .panel-authz-deny { color: var(--status-error, #f87171); }
-
-  .panel-warning {
-    font-size: 10px;
-    color: var(--status-warning, #eab308);
-    background: rgba(234, 179, 8, 0.08);
-    border: 1px solid rgba(234, 179, 8, 0.2);
-    padding: 6px 10px;
-    border-radius: var(--radius, 4px);
-  }
 
   @media (max-width: 768px) {
     .detail-panel { width: 100%; }

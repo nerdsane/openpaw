@@ -84,7 +84,7 @@
   }
 </script>
 
-{#if isLoginRoute || isWelcomeRoute}
+{#if isLoginRoute}
   <main class="auth-main">
     {@render children()}
   </main>
@@ -116,6 +116,10 @@
       <a href={appHref('/sessions')} class="nav-item" class:active={currentPath.startsWith('/sessions')}>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
         {#if !collapsed}<span>Sessions</span>{/if}
+      </a>
+      <a href={appHref('/welcome')} class="nav-item" class:active={currentPath === '/welcome'}>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        {#if !collapsed}<span>Paw</span>{/if}
       </a>
       <a href={appHref('/settings')} class="nav-item" class:active={currentPath.startsWith('/settings')}>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 1-3 0 1.7 1.7 0 0 0-1-.6 1.7 1.7 0 0 0-1.82.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 1 0-3 1.7 1.7 0 0 0 .6-1 1.7 1.7 0 0 0-.34-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 1 3 0 1.7 1.7 0 0 0 1 .6 1.7 1.7 0 0 0 1.82-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9c.26.3.46.65.6 1a1.7 1.7 0 0 1 0 3c-.14.35-.34.7-.6 1z"/></svg>
@@ -248,7 +252,7 @@
     display: flex;
     align-items: center;
     gap: var(--sp-2);
-    padding: 6px var(--sp-2);
+    padding: var(--sp-1) var(--sp-2);
     border-radius: var(--radius);
     font-size: var(--text-sm);
     color: var(--text-3);
@@ -311,7 +315,7 @@
 
   .user-chip {
     display: grid;
-    gap: 4px;
+    gap: var(--sp-1);
     padding: var(--sp-2);
     border: 1px solid var(--border);
     border-radius: var(--radius);

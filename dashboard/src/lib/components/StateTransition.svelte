@@ -99,83 +99,83 @@
   .transition {
     display: flex;
     flex-direction: column;
-    gap: 6px;
-    padding: var(--space-md) 0;
+    gap: var(--sp-1);
+    padding: var(--sp-4) 0;
     border-bottom: 1px solid var(--border);
   }
 
   .transition__header {
     display: flex;
     align-items: center;
-    gap: var(--space-sm);
+    gap: var(--sp-2);
   }
 
   .transition__action {
-    font-family: var(--font-body);
-    font-size: var(--body-sm);
-    color: var(--text-primary);
+    font-family: var(--font-sans);
+    font-size: var(--text-sm);
+    color: var(--text-1);
     font-weight: 500;
   }
 
   .transition__flow {
     font-family: var(--font-mono);
-    font-size: var(--label);
-    color: var(--text-disabled);
+    font-size: var(--text-xs);
+    color: var(--text-3);
     letter-spacing: 0.04em;
   }
 
   .transition__time {
     font-family: var(--font-mono);
-    font-size: var(--label);
-    color: var(--text-disabled);
+    font-size: var(--text-xs);
+    color: var(--text-3);
     margin-left: auto;
   }
 
   .transition__counters {
     display: flex;
-    gap: var(--space-md);
+    gap: var(--sp-4);
   }
 
   .counter {
     font-family: var(--font-mono);
-    font-size: var(--label);
+    font-size: var(--text-xs);
     letter-spacing: 0.06em;
-    color: var(--text-disabled);
+    color: var(--text-3);
   }
 
   .transition__expand {
     font-family: var(--font-mono);
-    font-size: var(--label);
+    font-size: var(--text-xs);
     letter-spacing: 0.06em;
-    color: var(--text-secondary);
-    padding: var(--space-2xs) 0;
+    color: var(--text-2);
+    padding: 2px 0;
     text-align: left;
     width: fit-content;
   }
 
   .transition__expand:hover {
-    color: var(--text-display);
+    color: var(--text-1);
   }
 
   .transition__tools {
-    font-size: var(--label);
+    font-size: var(--text-xs);
     max-height: 200px;
     overflow: auto;
     white-space: pre-wrap;
     word-break: break-all;
     background: var(--surface);
     border: 1px solid var(--border);
-    padding: var(--space-sm);
-    border-radius: var(--radius-sm);
+    padding: var(--sp-2);
+    border-radius: var(--radius);
   }
 
   .authz-badge {
     font-family: var(--font-mono);
-    font-size: var(--label);
+    font-size: var(--text-xs);
     text-transform: uppercase;
     letter-spacing: 0.06em;
-    padding: 1px 8px;
-    border-radius: var(--radius-sm);
+    padding: 1px var(--sp-2);
+    border-radius: var(--radius);
   }
   .authz-badge--allowed {
     color: var(--status-success);
@@ -187,7 +187,7 @@
   }
   .authz-resource {
     font-family: var(--font-mono);
-    font-size: var(--label);
+    font-size: var(--text-xs);
     color: var(--status-error);
   }
 </style>
