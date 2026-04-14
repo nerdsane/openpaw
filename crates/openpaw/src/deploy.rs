@@ -287,15 +287,16 @@ fn ensure_auth_turso() -> Result<()> {
         return Ok(());
     }
 
-    let token_url = "https://turso.tech/app/settings/api-tokens";
+    let token_url = "https://app.turso.tech";
     cliclack::log::info(format!(
         "Turso provides the database (free tier, no credit card).\n  \
-         A browser tab is opening to create an API token.\n\n  \
+         A browser tab is opening to Turso.\n\n  \
          1. Sign up or log in if prompted\n  \
-         2. Click \"Create Token\"\n  \
-         3. Name: openpaw (or anything)\n  \
-         4. Click \"Create\"\n  \
-         5. Copy the token and paste it below"
+         2. Click \"API Tokens\" in the left sidebar\n  \
+         3. Click \"Create Token\"\n  \
+         4. Name: openpaw\n  \
+         5. Click \"Create\"\n  \
+         6. Copy the token and paste it below"
     ))?;
     let _ = Command::new("open").arg(token_url).status();
 
@@ -314,7 +315,7 @@ fn ensure_auth_turso() -> Result<()> {
 
     if !is_cli_logged_in("turso", &["auth", "whoami"]) {
         anyhow::bail!(
-            "That token didn't work. Go to {token_url}, create a new token, and retry."
+            "That token didn't work. Go to {token_url} → API Tokens, create a new one, and retry."
         );
     }
     cliclack::log::success("turso authenticated ✓")?;
