@@ -150,15 +150,22 @@ pub async fn run_setup_config(config: &Config) -> anyhow::Result<SetupResult> {
         cliclack::log::success("API key configured")?;
     } else {
         let provider: &str = cliclack::select("Which AI provider do you use?")
-            .item("anthropic", "Anthropic", "console.anthropic.com → API Keys")
-            .item("openrouter", "OpenRouter", "openrouter.ai/keys")
-            .item("openai", "OpenAI", "platform.openai.com/api-keys")
+            .item("anthropic", "Anthropic", "Pay-per-token · console.anthropic.com → API Keys")
+            .item("openai", "OpenAI (API key)", "Pay-per-token · platform.openai.com/api-keys")
+            .item("openai_codex", "OpenAI (Codex subscription)", "Included in ChatGPT Plus/Pro · ~/.codex/auth.json")
+            .item("openrouter", "OpenRouter", "Pay-per-token · openrouter.ai/keys")
             .interact()?;
 
         let prompt = match provider {
             "anthropic" => "Anthropic API key",
-            "openrouter" => "OpenRouter API key",
             "openai" => "OpenAI API key",
+            "openai_codex" => {
+                cliclack::log::info(
+                    "Run `codex login` first if you haven't already.\n  Your token is stored in ~/.codex/auth.json"
+                )?;
+                "Codex access token"
+            }
+            "openrouter" => "OpenRouter API key",
             _ => "API key",
         };
 
@@ -483,6 +490,11 @@ pub fn merge_setup_into_config(config: &mut Config, setup: SetupResult) {
                     config.openai_api_key = Some(key);
                 }
             }
+            Some("openai_codex") => {
+                if config.openai_codex_token.is_none() {
+                    config.openai_codex_token = Some(key);
+                }
+            }
             Some("openrouter") => {
                 if config.openrouter_api_key.is_none() {
                     config.openrouter_api_key = Some(key);
@@ -496,7 +508,11 @@ pub fn merge_setup_into_config(config: &mut Config, setup: SetupResult) {
         }
     }
     if let Some(provider) = setup.provider {
-        config.llm_provider = Some(provider);
+        config.llm_provider = Some(if provider == "openai_codex" {
+            "openai".to_string()
+        } else {
+            provider
+        });
     }
     if let Some(token) = setup.discord_bot_token {
         if config.discord_bot_token.is_none() {
