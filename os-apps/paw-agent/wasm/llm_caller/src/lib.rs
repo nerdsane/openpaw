@@ -466,17 +466,70 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             .unwrap_or("/workspace");
 
         // Resolve provider credentials from integration config.
-        let api_key = if provider == "mock" {
-            String::new()
+        // If the configured provider's key is unresolved (not set in vault),
+        // auto-detect a provider that has a valid key available.
+        let (provider, api_key) = if provider == "mock" {
+            (provider, String::new())
         } else {
-            resolve_provider_api_key(&ctx, &provider)?
-        };
-        if provider != "mock" && is_unresolved_secret_template(&api_key) {
-            return Err(format!(
-                "provider={provider} api key is unresolved secret template: '{api_key}'. \
+            let key = resolve_provider_api_key(&ctx, &provider)?;
+            if is_unresolved_secret_template(&key) {
+                // Try other providers
+                let alternatives = ["anthropic", "openai", "openrouter"];
+                let mut found = None;
+                for alt in &alternatives {
+                    if *alt == provider {
+                        continue;
+                    }
+                    if let Ok(alt_key) = resolve_provider_api_key(&ctx, alt) {
+                        if !alt_key.is_empty() && !is_unresolved_secret_template(&alt_key) {
+                            ctx.log(
+                                "warn",
+                                &format!(
+                                    "llm_caller: provider={provider} has no key, falling back to {alt}"
+                                ),
+                            );
+                            found = Some((alt.to_string(), alt_key));
+                            break;
+                        }
+                    }
+                }
+                match found {
+                    Some((p, k)) => (p, k),
+                    None => {
+                        return Err(format!(
+                            "provider={provider} api key is unresolved secret template: '{key}'. \
 set tenant secret and retry"
+                        ));
+                    }
+                }
+            } else {
+                (provider, key)
+            }
+        };
+
+        // If provider changed via fallback, remap model to the vault default
+        // for the new provider (the original model won't work cross-provider).
+        let model = if provider != normalize_provider(provider_raw) {
+            // Prefer vault-configured default model, fall back to hardcoded defaults
+            let vault_model = ctx.config.get("default_llm_model")
+                .filter(|v| !v.is_empty() && !is_unresolved_secret_template(v));
+            let new_model = if let Some(m) = vault_model {
+                m.clone()
+            } else {
+                match provider.as_str() {
+                    "openai" => "o3-mini".to_string(),
+                    "openrouter" => "anthropic/claude-sonnet-4".to_string(),
+                    _ => "claude-sonnet-4-6".to_string(),
+                }
+            };
+            ctx.log("warn", &format!(
+                "llm_caller: remapping model from {model} to {new_model} for provider={provider}"
             ));
-        }
+            new_model
+        } else {
+            model.to_string()
+        };
+
         let anthropic_api_url = ctx
             .config
             .get("anthropic_api_url")
@@ -789,7 +842,7 @@ anthropic_api_token (or api_key) for anthropic, openrouter_api_key (or api_key) 
                 &ctx,
                 &api_key,
                 &anthropic_api_url,
-                model,
+                &model,
                 &assembled_system_prompt,
                 &messages,
                 &tools,
@@ -799,7 +852,7 @@ anthropic_api_token (or api_key) for anthropic, openrouter_api_key (or api_key) 
                 &ctx,
                 &api_key,
                 &openrouter_api_url,
-                model,
+                &model,
                 &assembled_system_prompt,
                 &messages,
                 &tools,
@@ -810,7 +863,7 @@ anthropic_api_token (or api_key) for anthropic, openrouter_api_key (or api_key) 
                 &ctx,
                 &api_key,
                 &openai_api_url,
-                model,
+                &model,
                 &assembled_system_prompt,
                 &messages,
                 &tools,

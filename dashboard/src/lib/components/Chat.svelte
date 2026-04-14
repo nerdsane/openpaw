@@ -89,6 +89,7 @@
             scrollToBottom();
           }
           waiting = false;
+          sessionId = null; // allow next message to start a fresh session
           onComplete?.(result);
         } else if (status === 'Failed' || status === 'Cancelled') {
           if (pollTimer) clearInterval(pollTimer);
@@ -96,6 +97,7 @@
           messages = [...messages, { role: 'system', content: error }];
           scrollToBottom();
           waiting = false;
+          sessionId = null; // allow retry with a fresh session
         }
       } catch {
         // ignore polling errors
@@ -257,8 +259,10 @@
 
   @media (max-width: 640px) {
     .chat-log { padding: var(--sp-3) var(--sp-2); gap: var(--sp-3); }
-    .chat-bar { padding: var(--sp-2); }
-    .chat-send { padding: var(--sp-2) var(--sp-3); }
+    .chat-bar { padding: var(--sp-2); padding-bottom: calc(var(--sp-2) + env(safe-area-inset-bottom, 0px)); }
+    .chat-send { padding: var(--sp-2) var(--sp-3); min-height: 44px; }
+    .chat-input { min-height: 44px; font-size: 16px; }
     .msg { max-width: 95%; }
+    .msg-body { font-size: var(--text-base); }
   }
 </style>

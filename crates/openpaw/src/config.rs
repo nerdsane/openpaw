@@ -95,6 +95,9 @@ pub struct Config {
     /// Railway otel-collector service ID (captured during deploy).
     pub railway_otel_service_id: Option<String>,
 
+    /// Railway main openpaw service ID (for redeploy from dashboard).
+    pub railway_service_id: Option<String>,
+
     /// Vercel API token for deployment integrations.
     pub vercel_token: Option<String>,
 
@@ -118,6 +121,12 @@ pub struct Config {
 
     /// ngrok binary to use when automatically creating a local Discord tunnel.
     pub ngrok_bin: String,
+
+    /// Build version string (set at compile time via BUILD_VERSION env var).
+    pub build_version: String,
+
+    /// Build git SHA (set at compile time via BUILD_SHA env var).
+    pub build_sha: String,
 
     /// Default tenant ID.
     pub tenant: String,
@@ -175,6 +184,7 @@ impl Config {
             railway_project_id: optional_env("RAILWAY_PROJECT_ID"),
             railway_environment_id: optional_env("RAILWAY_ENVIRONMENT_ID"),
             railway_otel_service_id: optional_env("RAILWAY_OTEL_SERVICE_ID"),
+            railway_service_id: optional_env("RAILWAY_SERVICE_ID"),
             vercel_token: optional_env("VERCEL_TOKEN"),
             exa_api_key: optional_env("EXA_API_KEY"),
             otel_enabled: std::env::var("OTEL_ENABLED")
@@ -191,6 +201,8 @@ impl Config {
             }),
             ngrok_authtoken: optional_env("NGROK_AUTHTOKEN"),
             ngrok_bin: std::env::var("NGROK_BIN").unwrap_or_else(|_| "ngrok".to_string()),
+            build_version: std::env::var("BUILD_VERSION").unwrap_or_else(|_| "dev".to_string()),
+            build_sha: std::env::var("BUILD_SHA").unwrap_or_else(|_| "unknown".to_string()),
             tenant: std::env::var("PAW_TENANT").unwrap_or_else(|_| "default".to_string()),
         })
     }

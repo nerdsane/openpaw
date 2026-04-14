@@ -35,6 +35,8 @@ pub struct SetupApiState {
     pub tenant: String,
     pub agents_dir: PathBuf,
     pub base_url: String,
+    pub build_version: String,
+    pub build_sha: String,
 }
 
 /// Whitelisted secret key names that can be set via the API.
@@ -62,6 +64,7 @@ fn allowed_secret_keys() -> HashSet<&'static str> {
         "railway_project_id",
         "railway_environment_id",
         "railway_otel_service_id",
+        "railway_service_id",
     ]
     .into_iter()
     .collect()
@@ -125,6 +128,10 @@ pub fn router(state: SetupApiState) -> Router {
         .route("/paw/transports/slack/disconnect", post(disconnect_slack))
         .route("/paw/infra/railway/status", get(get_railway_status))
         .route("/paw/infra/railway/set-var", post(set_railway_var))
+        .route("/paw/infra/railway/redeploy", post(railway_redeploy))
+        .route("/paw/version", get(get_version))
+        .route("/paw/infra/updates", get(check_for_updates))
+        .route("/paw/infra/edge", get(check_edge_build))
         .with_state(state)
 }
 
@@ -557,10 +564,19 @@ async fn create_agent(
         }
     }
 
-    // Dispatch Configure action
+    // Dispatch Configure action — resolve provider/model from vault
+    let vault = state.platform.server.secrets_vault.as_ref();
+    let resolved_provider = vault
+        .and_then(|v| v.get_secret(&state.tenant, "llm_provider"))
+        .unwrap_or_else(|| "anthropic".to_string());
+    let default_model = match resolved_provider.as_str() {
+        "openai" => "o3-mini".to_string(),
+        "openrouter" => "anthropic/claude-sonnet-4".to_string(),
+        _ => "claude-sonnet-4-6".to_string(),
+    };
     let configure_params = serde_json::json!({
-        "model": req.model.unwrap_or_else(|| "claude-sonnet-4-6".to_string()),
-        "provider": "anthropic",
+        "model": req.model.unwrap_or(default_model),
+        "provider": resolved_provider,
         "tools_enabled": req.tools_enabled.unwrap_or_else(|| DEFAULT_SETUP_AGENT_TOOLS_ENABLED.to_string()),
         "workdir": "/workspace",
         "max_turns": req.max_turns.unwrap_or_else(|| "20".to_string()),
@@ -599,23 +615,34 @@ async fn create_agent(
 #[derive(Serialize)]
 struct RailwayStatus {
     configured: bool,
+    can_update: bool,
     project_id: Option<String>,
     environment_id: Option<String>,
+    service_id: Option<String>,
     otel_service_id: Option<String>,
 }
 
 async fn get_railway_status(State(state): State<SetupApiState>) -> Json<RailwayStatus> {
     let vault = state.platform.server.secrets_vault.as_ref();
+    let has_token = vault
+        .and_then(|v| {
+            v.get_secret(&state.tenant, "railway_token")
+                .or_else(|| v.get_secret("default", "railway_token"))
+        })
+        .is_some();
     let project_id = vault.and_then(|v| v.get_secret(&state.tenant, "railway_project_id"));
     let environment_id = vault.and_then(|v| v.get_secret(&state.tenant, "railway_environment_id"));
+    let service_id = vault.and_then(|v| v.get_secret(&state.tenant, "railway_service_id"));
     let otel_service_id =
         vault.and_then(|v| v.get_secret(&state.tenant, "railway_otel_service_id"));
-    let configured =
-        project_id.is_some() && environment_id.is_some() && otel_service_id.is_some();
+    let configured = has_token && project_id.is_some() && environment_id.is_some();
+    let can_update = configured && service_id.is_some();
     Json(RailwayStatus {
         configured,
+        can_update,
         project_id,
         environment_id,
+        service_id,
         otel_service_id,
     })
 }
@@ -736,6 +763,317 @@ async fn set_railway_var(
                     Json(serde_json::json!({
                         "set": req.key,
                         "service": req.service,
+                    })),
+                )
+                    .into_response()
+            } else {
+                let error_msg = body["errors"]
+                    .as_array()
+                    .and_then(|e| e.first())
+                    .and_then(|e| e["message"].as_str())
+                    .unwrap_or("Railway API error");
+                (
+                    StatusCode::BAD_GATEWAY,
+                    Json(serde_json::json!({ "error": error_msg })),
+                )
+                    .into_response()
+            }
+        }
+        Err(e) => (
+            StatusCode::BAD_GATEWAY,
+            Json(serde_json::json!({ "error": format!("Railway API request failed: {e}") })),
+        )
+            .into_response(),
+    }
+}
+
+// ────────────────────────────── Version + Updates ─────────────────────────────
+
+#[derive(Serialize)]
+struct VersionInfo {
+    version: String,
+    sha: String,
+}
+
+async fn get_version(State(state): State<SetupApiState>) -> Json<VersionInfo> {
+    Json(VersionInfo {
+        version: state.build_version.clone(),
+        sha: state.build_sha.clone(),
+    })
+}
+
+#[derive(Serialize)]
+struct UpdateCheck {
+    current_version: String,
+    latest_version: Option<String>,
+    latest_sha: Option<String>,
+    update_available: bool,
+    release_url: Option<String>,
+    release_notes: Option<String>,
+}
+
+async fn check_for_updates(State(state): State<SetupApiState>) -> impl IntoResponse {
+    let current = &state.build_version;
+
+    let client = reqwest::Client::builder()
+        .user_agent("openpaw-server")
+        .build()
+        .unwrap_or_default();
+
+    match client
+        .get("https://api.github.com/repos/nerdsane/openpaw/releases/latest")
+        .send()
+        .await
+    {
+        Ok(resp) if resp.status().is_success() => {
+            let body: serde_json::Value = resp.json().await.unwrap_or_default();
+            let tag = body["tag_name"].as_str().unwrap_or("").to_string();
+            let html_url = body["html_url"].as_str().map(|s| s.to_string());
+            let notes = body["body"].as_str().map(|s| {
+                // Truncate release notes to first 500 chars for the API response
+                if s.len() > 500 {
+                    format!("{}...", &s[..500])
+                } else {
+                    s.to_string()
+                }
+            });
+
+            // If current is "dev" or "sha-*" (non-release build), any release is an update.
+            // If current is a release tag (e.g. "v0.2.0"), compare against latest tag.
+            let update_available = if tag.is_empty() {
+                false
+            } else if current == "dev" || current.starts_with("sha-") || current == "unknown" {
+                true
+            } else {
+                tag != *current
+            };
+
+            (
+                StatusCode::OK,
+                Json(serde_json::json!(UpdateCheck {
+                    current_version: current.clone(),
+                    latest_version: if tag.is_empty() { None } else { Some(tag) },
+                    latest_sha: None,
+                    update_available,
+                    release_url: html_url,
+                    release_notes: notes,
+                })),
+            )
+                .into_response()
+        }
+        Ok(resp) => {
+            let status = resp.status();
+            (
+                StatusCode::BAD_GATEWAY,
+                Json(serde_json::json!({
+                    "error": format!("GitHub API returned {status}"),
+                    "current_version": current,
+                })),
+            )
+                .into_response()
+        }
+        Err(e) => (
+            StatusCode::BAD_GATEWAY,
+            Json(serde_json::json!({
+                "error": format!("Failed to check GitHub releases: {e}"),
+                "current_version": current,
+            })),
+        )
+            .into_response(),
+    }
+}
+
+#[derive(Serialize)]
+struct EdgeBuild {
+    available: bool,
+    sha: Option<String>,
+    short_sha: Option<String>,
+    message: Option<String>,
+    committed_at: Option<String>,
+}
+
+async fn check_edge_build(_state: State<SetupApiState>) -> impl IntoResponse {
+    let client = reqwest::Client::builder()
+        .user_agent("openpaw-server")
+        .build()
+        .unwrap_or_default();
+
+    match client
+        .get("https://api.github.com/repos/nerdsane/openpaw/commits/main")
+        .send()
+        .await
+    {
+        Ok(resp) if resp.status().is_success() => {
+            let body: serde_json::Value = resp.json().await.unwrap_or_default();
+            let sha = body["sha"].as_str().map(|s| s.to_string());
+            let short_sha = sha.as_deref().map(|s| s[..7.min(s.len())].to_string());
+            let message = body["commit"]["message"]
+                .as_str()
+                .map(|s| s.lines().next().unwrap_or(s).to_string());
+            let committed_at = body["commit"]["committer"]["date"]
+                .as_str()
+                .map(|s| s.to_string());
+
+            (
+                StatusCode::OK,
+                Json(serde_json::json!(EdgeBuild {
+                    available: sha.is_some(),
+                    sha,
+                    short_sha,
+                    message,
+                    committed_at,
+                })),
+            )
+                .into_response()
+        }
+        Ok(resp) => {
+            let status = resp.status();
+            (
+                StatusCode::BAD_GATEWAY,
+                Json(serde_json::json!({ "error": format!("GitHub API returned {status}") })),
+            )
+                .into_response()
+        }
+        Err(e) => (
+            StatusCode::BAD_GATEWAY,
+            Json(serde_json::json!({ "error": format!("Failed to check edge build: {e}") })),
+        )
+            .into_response(),
+    }
+}
+
+#[derive(Deserialize)]
+struct RedeployRequest {
+    /// Optional image tag to deploy. "edge" for latest main build, "latest" for latest release.
+    /// If omitted, redeploys with the current configuration (no tag change).
+    image_tag: Option<String>,
+}
+
+async fn railway_redeploy(
+    State(state): State<SetupApiState>,
+    Json(req): Json<RedeployRequest>,
+) -> impl IntoResponse {
+    // Only allow known tags to prevent arbitrary image injection
+    if let Some(ref tag) = req.image_tag {
+        if tag != "latest" && tag != "edge" {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({ "error": "image_tag must be 'latest' or 'edge'" })),
+            )
+                .into_response();
+        }
+    }
+
+    let vault = match state.platform.server.secrets_vault.as_ref() {
+        Some(v) => v,
+        None => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": "Vault not initialized" })),
+            )
+                .into_response()
+        }
+    };
+
+    let railway_token = vault
+        .get_secret(&state.tenant, "railway_token")
+        .or_else(|| vault.get_secret("default", "railway_token"));
+    let project_id = vault
+        .get_secret(&state.tenant, "railway_project_id")
+        .or_else(|| vault.get_secret("default", "railway_project_id"));
+    let environment_id = vault
+        .get_secret(&state.tenant, "railway_environment_id")
+        .or_else(|| vault.get_secret("default", "railway_environment_id"));
+    let service_id = vault
+        .get_secret(&state.tenant, "railway_service_id")
+        .or_else(|| vault.get_secret("default", "railway_service_id"));
+
+    let (Some(token), Some(project), Some(env), Some(svc)) =
+        (railway_token, project_id, environment_id, service_id)
+    else {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error": "Railway integration not configured. Set railway_token, railway_project_id, railway_environment_id, and railway_service_id."
+            })),
+        )
+            .into_response();
+    };
+
+    let client = reqwest::Client::new();
+    let railway_url = "https://backboard.railway.com/graphql/v2";
+
+    // If an image_tag was requested, set it as a Railway variable first.
+    // The deploy Dockerfile uses `ARG IMAGE_TAG=latest` so this controls which image is pulled.
+    if let Some(ref tag) = req.image_tag {
+        let var_query = serde_json::json!({
+            "query": "mutation($input: VariableUpsertInput!) { variableUpsert(input: $input) }",
+            "variables": {
+                "input": {
+                    "projectId": project,
+                    "environmentId": env,
+                    "serviceId": svc,
+                    "name": "IMAGE_TAG",
+                    "value": tag,
+                }
+            }
+        });
+
+        match client
+            .post(railway_url)
+            .header("Authorization", format!("Bearer {token}"))
+            .header("Content-Type", "application/json")
+            .json(&var_query)
+            .send()
+            .await
+        {
+            Ok(resp) => {
+                let body: serde_json::Value = resp.json().await.unwrap_or_default();
+                if body.get("errors").is_some() {
+                    let error_msg = body["errors"]
+                        .as_array()
+                        .and_then(|e| e.first())
+                        .and_then(|e| e["message"].as_str())
+                        .unwrap_or("Failed to set IMAGE_TAG");
+                    return (
+                        StatusCode::BAD_GATEWAY,
+                        Json(serde_json::json!({ "error": error_msg })),
+                    )
+                        .into_response();
+                }
+            }
+            Err(e) => {
+                return (
+                    StatusCode::BAD_GATEWAY,
+                    Json(serde_json::json!({ "error": format!("Failed to set IMAGE_TAG: {e}") })),
+                )
+                    .into_response();
+            }
+        }
+    }
+
+    // Trigger the redeploy
+    let redeploy_query = format!(
+        "mutation {{ serviceInstanceRedeploy(serviceId: \"{svc}\", environmentId: \"{env}\") }}"
+    );
+
+    match client
+        .post(railway_url)
+        .header("Authorization", format!("Bearer {token}"))
+        .header("Content-Type", "application/json")
+        .json(&serde_json::json!({ "query": redeploy_query }))
+        .send()
+        .await
+    {
+        Ok(resp) => {
+            let status = resp.status();
+            let body: serde_json::Value = resp.json().await.unwrap_or_default();
+            if status.is_success() && body.get("errors").is_none() {
+                (
+                    StatusCode::OK,
+                    Json(serde_json::json!({
+                        "triggered": true,
+                        "image_tag": req.image_tag.as_deref().unwrap_or("current"),
                     })),
                 )
                     .into_response()

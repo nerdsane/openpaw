@@ -110,9 +110,10 @@
 <style>
   .login-shell {
     min-height: 100vh;
+    min-height: 100dvh;
     display: grid;
     place-items: center;
-    padding: var(--sp-8);
+    padding: var(--sp-6) var(--sp-4);
     background: var(--bg);
   }
 
@@ -166,7 +167,7 @@
     border: 1px solid var(--border);
     background: rgba(255, 255, 255, 0.04);
     color: var(--text-1);
-    font-size: var(--text-base);
+    font-size: 16px; /* prevents iOS auto-zoom */
   }
 
   .submit {

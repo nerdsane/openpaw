@@ -358,6 +358,26 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
             "llm_provider",
             config.llm_provider
         );
+        // Seed llm_model derived from llm_provider
+        {
+            let provider = config
+                .llm_provider
+                .as_deref()
+                .unwrap_or("anthropic");
+            let default_model = match provider {
+                "openai" => std::env::var("LLM_MODEL").unwrap_or_else(|_| "o3-mini".to_string()),
+                "openrouter" => std::env::var("LLM_MODEL")
+                    .unwrap_or_else(|_| "anthropic/claude-sonnet-4".to_string()),
+                _ => std::env::var("LLM_MODEL")
+                    .unwrap_or_else(|_| "claude-sonnet-4-6".to_string()),
+            };
+            cache_and_persist_secret(vault, &turso_store, "default", "llm_model", default_model.clone())
+                .await;
+            if tenant != "default" {
+                cache_and_persist_secret(vault, &turso_store, &tenant, "llm_model", default_model)
+                    .await;
+            }
+        }
         seed_secret!(
             vault,
             &turso_store,
@@ -504,6 +524,13 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
             &tenant,
             "railway_otel_service_id",
             config.railway_otel_service_id
+        );
+        seed_secret!(
+            vault,
+            &turso_store,
+            &tenant,
+            "railway_service_id",
+            config.railway_service_id
         );
         seed_secret!(
             vault,
@@ -832,6 +859,8 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
         tenant: tenant.clone(),
         agents_dir: PathBuf::from("os-apps/paw-agent/agents"),
         base_url: format!("http://127.0.0.1:{actual_port}"),
+        build_version: config.build_version.clone(),
+        build_sha: config.build_sha.clone(),
     };
     let router = router
         .merge(crate::setup_api::router(setup_state))
@@ -944,7 +973,21 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
     state.server.spawn_runtime_metrics_loop();
     spawn_actor_passivation_loop(&state);
 
-    spawn_soul_bootstrap(actual_port, tenant.clone(), config.temper_api_key.clone());
+    // Resolve LLM provider from vault (dashboard-set) before falling back to env var / default.
+    let resolved_llm_provider = state
+        .server
+        .secrets_vault
+        .as_ref()
+        .and_then(|v| v.get_secret(&tenant, "llm_provider"))
+        .or_else(|| config.llm_provider.clone())
+        .unwrap_or_else(|| "anthropic".to_string());
+
+    spawn_soul_bootstrap(
+        actual_port,
+        tenant.clone(),
+        config.temper_api_key.clone(),
+        resolved_llm_provider,
+    );
 
     // Print startup summary
     {
@@ -1213,7 +1256,7 @@ async fn persist_os_app_verification(
 /// Reads soul files from `os-apps/paw-agent/agents/` directory, creates TemperFS File entities
 /// for the content, and registers Soul entities. Runs once on first boot;
 /// skips if souls already exist.
-fn spawn_soul_bootstrap(port: u16, tenant: String, api_key: Option<String>) {
+fn spawn_soul_bootstrap(port: u16, tenant: String, api_key: Option<String>, llm_provider: String) {
     tokio::spawn(async move {
         tokio::time::sleep(Duration::from_millis(500)).await;
 
@@ -1275,7 +1318,7 @@ fn spawn_soul_bootstrap(port: u16, tenant: String, api_key: Option<String>) {
             ),
         ];
 
-        let default_config = default_agent_config(&api_url, &api_key);
+        let default_config = default_agent_config(&api_url, &api_key, &llm_provider);
 
         for (name, role, description, soul_paths) in &agents {
             // Step 1: Create Agent entity (agent-first)
@@ -1673,7 +1716,10 @@ async fn set_default_agent(
         if let Ok(created) = create_resp {
             let route_id = entity_id_from_json(&created).unwrap_or("");
             if !route_id.is_empty() {
-                let agent_config = default_agent_config(api_url, api_key);
+                let resolved_provider =
+                    std::env::var("LLM_PROVIDER").unwrap_or_else(|_| "anthropic".to_string());
+                let agent_config =
+                    default_agent_config(api_url, api_key, &resolved_provider);
                 odata_post(
                     client,
                     &format!("{api_url}/tdata/AgentRoutes('{route_id}')/Paw.Channel.Register"),
@@ -1700,14 +1746,21 @@ async fn set_default_agent(
     Ok(())
 }
 
-fn default_agent_config(api_url: &str, api_key: &Option<String>) -> serde_json::Value {
-    let default_model =
-        std::env::var("LLM_MODEL").unwrap_or_else(|_| "claude-sonnet-4-6".to_string());
-    let default_provider =
-        std::env::var("LLM_PROVIDER").unwrap_or_else(|_| "anthropic".to_string());
+fn default_agent_config(
+    api_url: &str,
+    api_key: &Option<String>,
+    llm_provider: &str,
+) -> serde_json::Value {
+    let default_model = match llm_provider {
+        "openai" => std::env::var("LLM_MODEL").unwrap_or_else(|_| "o3-mini".to_string()),
+        "openrouter" => {
+            std::env::var("LLM_MODEL").unwrap_or_else(|_| "anthropic/claude-sonnet-4".to_string())
+        }
+        _ => std::env::var("LLM_MODEL").unwrap_or_else(|_| "claude-sonnet-4-6".to_string()),
+    };
     let mut config = serde_json::json!({
         "model": default_model,
-        "provider": default_provider,
+        "provider": llm_provider,
         "tools_enabled": DEFAULT_AGENT_TOOLS_ENABLED,
         "workdir": DEFAULT_AGENT_WORKDIR,
         "max_turns": "24",
@@ -1737,7 +1790,17 @@ fn repaired_agent_config(
     };
 
     let original_normalized = serde_json::to_string(&config).ok();
-    let defaults = default_agent_config(api_url, api_key);
+    // Use the provider already stored in the config if available, otherwise fall back to env/default.
+    let existing_provider = config
+        .get("provider")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let provider_for_defaults = if existing_provider.is_empty() {
+        std::env::var("LLM_PROVIDER").unwrap_or_else(|_| "anthropic".to_string())
+    } else {
+        existing_provider.to_string()
+    };
+    let defaults = default_agent_config(api_url, api_key, &provider_for_defaults);
     let normalized_tools = normalize_tools_enabled(
         config
             .get("tools_enabled")

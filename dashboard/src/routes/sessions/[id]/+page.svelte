@@ -615,7 +615,15 @@
   }
 
   @media (max-width: 800px) {
-    .desk-layout { flex-direction: column; }
+    .desk-layout { flex-direction: column; gap: var(--sp-4); }
     .desk-context { width: 100%; }
+  }
+
+  @media (max-width: 640px) {
+    .desk { gap: var(--sp-3); }
+    .desk-layout { gap: var(--sp-3); }
+    .context-section--result,
+    .context-section--error { padding: var(--sp-3); }
+    .context-pre { max-height: 200px; }
   }
 </style>

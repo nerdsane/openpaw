@@ -91,23 +91,32 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         let conversation_text = format_messages_for_summary(&messages_to_summarize);
 
         // 4. Call LLM for structured summary
+        let configured_provider = fields
+            .get("provider")
+            .and_then(|v| v.as_str())
+            .unwrap_or("anthropic");
+
+        // Resolve provider and API key with auto-fallback
+        let (provider, api_key) = resolve_compaction_provider(&ctx, configured_provider);
+
         let compaction_model = fields
             .get("compaction_model")
             .and_then(|v| v.as_str())
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| {
-                fields.get("model").and_then(|v| v.as_str()).unwrap_or("claude-sonnet-4-6")
+                fields.get("model").and_then(|v| v.as_str()).unwrap_or_else(|| {
+                    match provider.as_str() {
+                        "openai" => "o3-mini",
+                        "openrouter" => "anthropic/claude-sonnet-4",
+                        _ => "claude-sonnet-4-6",
+                    }
+                })
             });
 
-        let api_key = ctx.config.get("api_key").cloned().unwrap_or_default();
-        let provider = fields
-            .get("provider")
-            .and_then(|v| v.as_str())
-            .unwrap_or("anthropic");
-        let summary = if provider.eq_ignore_ascii_case("mock") || api_key.trim().is_empty() {
+        let summary = if provider == "mock" || api_key.trim().is_empty() {
             build_mock_summary(&conversation_text)
         } else {
-            call_compaction_llm(&ctx, &api_key, compaction_model, &conversation_text)?
+            call_compaction_llm(&ctx, &provider, &api_key, compaction_model, &conversation_text)?
         };
 
         ctx.log("info", &format!(
@@ -255,44 +264,127 @@ fn format_messages_for_summary(messages: &[Value]) -> String {
     text
 }
 
+/// Check if a value is an unresolved secret template like `{secret:key_name}`.
+fn is_unresolved_secret_template(value: &str) -> bool {
+    value.contains("{secret:")
+}
+
+/// Resolve the best available provider and API key, with auto-fallback.
+fn resolve_compaction_provider(ctx: &Context, configured_provider: &str) -> (String, String) {
+    let provider_keys: &[(&str, &[&str])] = &[
+        ("anthropic", &["anthropic_api_key", "api_key"]),
+        ("openai", &["openai_codex_token"]),
+        ("openrouter", &["openrouter_api_key"]),
+    ];
+
+    // Try configured provider first
+    for &(prov, keys) in provider_keys {
+        if prov != configured_provider { continue; }
+        for &key_name in keys {
+            if let Some(val) = ctx.config.get(key_name) {
+                if !val.trim().is_empty() && !is_unresolved_secret_template(val) {
+                    return (prov.to_string(), val.clone());
+                }
+            }
+        }
+    }
+
+    // Fallback: try any provider with a valid key
+    ctx.log("warn", &format!(
+        "context_compactor: provider={configured_provider} has no valid key, trying alternatives"
+    ));
+    for &(prov, keys) in provider_keys {
+        if prov == configured_provider { continue; }
+        for &key_name in keys {
+            if let Some(val) = ctx.config.get(key_name) {
+                if !val.trim().is_empty() && !is_unresolved_secret_template(val) {
+                    ctx.log("warn", &format!(
+                        "context_compactor: falling back to provider={prov}"
+                    ));
+                    return (prov.to_string(), val.clone());
+                }
+            }
+        }
+    }
+
+    // No valid key found — return configured provider with empty key (will use mock path)
+    (configured_provider.to_string(), String::new())
+}
+
 /// Call the LLM with a compaction-specific system prompt.
 fn call_compaction_llm(
     ctx: &Context,
+    provider: &str,
     api_key: &str,
     model: &str,
     conversation_text: &str,
 ) -> Result<String, String> {
     let system_prompt = "You are a conversation compactor. Extract distinct episodes from this conversation — each a coherent task or sub-task the agent attempted. Be concise but preserve the trajectory: what was tried, what worked, what failed, and why.\n\nOutput the summary in this exact format:\n\n## Active Goal\n<the current overarching objective>\n\n## Episodes\n\n### Episode: <short title>\n- **Goal:** <what was attempted>\n- **Worked:** <actions that succeeded and why>\n- **Failed:** <approaches tried and abandoned, what went wrong>\n- **Discoveries:** <facts learned, decisions made>\n- **Artifacts:** <files changed, entities created, useful outputs>\n\n(Repeat chronologically for each distinct episode)\n\n## Current State\n- **Where we are:** <what just completed or is in progress>\n- **Next:** <immediate next steps>\n- **Open questions:** <unresolved issues>\n\nIMPORTANT: Preserve the trajectory. A future model reading this needs to know which approaches were already tried and failed, not just what worked. This prevents repeating failed approaches.";
 
-    let body = json!({
-        "model": model,
-        "max_tokens": 2048,
-        "system": system_prompt,
-        "messages": [{
-            "role": "user",
-            "content": format!("Summarize this conversation:\n\n{conversation_text}")
-        }]
-    });
-
-    let is_oauth = api_key.contains("sk-ant-oat");
-    let headers = if is_oauth {
-        vec![
-            ("authorization".to_string(), format!("Bearer {api_key}")),
-            ("anthropic-version".to_string(), "2023-06-01".to_string()),
-            ("anthropic-beta".to_string(), "oauth-2025-04-20".to_string()),
-            ("content-type".to_string(), "application/json".to_string()),
-        ]
-    } else {
-        vec![
-            ("x-api-key".to_string(), api_key.to_string()),
-            ("anthropic-version".to_string(), "2023-06-01".to_string()),
-            ("content-type".to_string(), "application/json".to_string()),
-        ]
+    let (url, headers, body_str) = match provider {
+        "openai" => {
+            let body = json!({
+                "model": model,
+                "max_output_tokens": 2048,
+                "instructions": system_prompt,
+                "input": format!("Summarize this conversation:\n\n{conversation_text}")
+            });
+            let headers = vec![
+                ("authorization".to_string(), format!("Bearer {api_key}")),
+                ("content-type".to_string(), "application/json".to_string()),
+            ];
+            let body_str = serde_json::to_string(&body).map_err(|e| format!("JSON serialize error: {e}"))?;
+            ("https://api.openai.com/v1/responses".to_string(), headers, body_str)
+        }
+        "openrouter" => {
+            let body = json!({
+                "model": model,
+                "max_tokens": 2048,
+                "messages": [
+                    { "role": "system", "content": system_prompt },
+                    { "role": "user", "content": format!("Summarize this conversation:\n\n{conversation_text}") }
+                ]
+            });
+            let headers = vec![
+                ("authorization".to_string(), format!("Bearer {api_key}")),
+                ("content-type".to_string(), "application/json".to_string()),
+            ];
+            let body_str = serde_json::to_string(&body).map_err(|e| format!("JSON serialize error: {e}"))?;
+            ("https://openrouter.ai/api/v1/chat/completions".to_string(), headers, body_str)
+        }
+        _ => {
+            // Anthropic (default)
+            let body = json!({
+                "model": model,
+                "max_tokens": 2048,
+                "system": system_prompt,
+                "messages": [{
+                    "role": "user",
+                    "content": format!("Summarize this conversation:\n\n{conversation_text}")
+                }]
+            });
+            let is_oauth = api_key.contains("sk-ant-oat");
+            let headers = if is_oauth {
+                vec![
+                    ("authorization".to_string(), format!("Bearer {api_key}")),
+                    ("anthropic-version".to_string(), "2023-06-01".to_string()),
+                    ("anthropic-beta".to_string(), "oauth-2025-04-20".to_string()),
+                    ("content-type".to_string(), "application/json".to_string()),
+                ]
+            } else {
+                vec![
+                    ("x-api-key".to_string(), api_key.to_string()),
+                    ("anthropic-version".to_string(), "2023-06-01".to_string()),
+                    ("content-type".to_string(), "application/json".to_string()),
+                ]
+            };
+            let body_str = serde_json::to_string(&body).map_err(|e| format!("JSON serialize error: {e}"))?;
+            ("https://api.anthropic.com/v1/messages".to_string(), headers, body_str)
+        }
     };
 
-    let body_str = serde_json::to_string(&body).map_err(|e| format!("JSON serialize error: {e}"))?;
-
-    let resp = ctx.http_call("POST", "https://api.anthropic.com/v1/messages", &headers, &body_str)?;
+    ctx.log("info", &format!("context_compactor: calling {provider} at {url} with model={model}"));
+    let resp = ctx.http_call("POST", &url, &headers, &body_str)?;
     if resp.status != 200 {
         return Err(format!(
             "Compaction LLM call failed (HTTP {}): {}",
@@ -304,14 +396,42 @@ fn call_compaction_llm(
     let parsed: Value = serde_json::from_str(&resp.body)
         .map_err(|e| format!("failed to parse compaction LLM response: {e}"))?;
 
-    // Extract text from response
-    let text = parsed
-        .get("content")
-        .and_then(|v| v.as_array())
-        .and_then(|arr| arr.iter().find(|b| b.get("type").and_then(|v| v.as_str()) == Some("text")))
-        .and_then(|b| b.get("text").and_then(|v| v.as_str()))
-        .unwrap_or("Summary unavailable")
-        .to_string();
+    // Extract text — format varies by provider
+    let text = match provider {
+        "openai" => {
+            // OpenAI responses API
+            parsed.get("output")
+                .and_then(|v| v.as_array())
+                .and_then(|arr| arr.iter().find(|b| b.get("type").and_then(|v| v.as_str()) == Some("message")))
+                .and_then(|b| b.get("content"))
+                .and_then(|v| v.as_array())
+                .and_then(|arr| arr.first())
+                .and_then(|b| b.get("text").and_then(|v| v.as_str()))
+                .unwrap_or("Summary unavailable")
+                .to_string()
+        }
+        "openrouter" => {
+            // OpenRouter chat completions
+            parsed.get("choices")
+                .and_then(|v| v.as_array())
+                .and_then(|arr| arr.first())
+                .and_then(|c| c.get("message"))
+                .and_then(|m| m.get("content"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("Summary unavailable")
+                .to_string()
+        }
+        _ => {
+            // Anthropic messages
+            parsed
+                .get("content")
+                .and_then(|v| v.as_array())
+                .and_then(|arr| arr.iter().find(|b| b.get("type").and_then(|v| v.as_str()) == Some("text")))
+                .and_then(|b| b.get("text").and_then(|v| v.as_str()))
+                .unwrap_or("Summary unavailable")
+                .to_string()
+        }
+    };
 
     Ok(text)
 }

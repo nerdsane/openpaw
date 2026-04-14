@@ -135,6 +135,15 @@ pub async fn middleware(
         return next.run(request).await;
     }
 
+    // Trust requests that already carry principal headers (WASM module callbacks
+    // to the same server). These are internal calls — the principal-kind header
+    // is never set by browsers or external clients.
+    if has_principal_headers(request.headers()) {
+        ensure_tenant_header(request.headers_mut());
+        request.extensions_mut().insert(PreAuthenticatedRequest);
+        return next.run(request).await;
+    }
+
     if path.starts_with("/dashboard") && !is_dashboard_public_path(&path) {
         return Redirect::temporary("/dashboard/login").into_response();
     }
@@ -148,6 +157,13 @@ fn has_bearer_auth(headers: &HeaderMap) -> bool {
         .and_then(|value| value.to_str().ok())
         .map(|value| value.starts_with("Bearer "))
         .unwrap_or(false)
+}
+
+fn has_principal_headers(headers: &HeaderMap) -> bool {
+    headers
+        .get("x-temper-principal-kind")
+        .and_then(|value| value.to_str().ok())
+        .is_some()
 }
 
 fn is_public_path(method: &str, path: &str) -> bool {

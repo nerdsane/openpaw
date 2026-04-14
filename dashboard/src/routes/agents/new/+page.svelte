@@ -191,7 +191,8 @@
 
   .tools-grid {
     display: flex;
-    gap: var(--sp-6);
+    flex-wrap: wrap;
+    gap: var(--sp-4);
     margin-top: var(--sp-1);
   }
 

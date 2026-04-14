@@ -141,16 +141,17 @@
 
   @media (max-width: 640px) {
     .page { max-width: 100%; }
+    .page-title { margin-bottom: var(--sp-4); }
     .thead { display: none; }
     .row {
       flex-wrap: wrap;
       gap: var(--sp-1);
-      padding: var(--sp-2);
+      padding: var(--sp-3) var(--sp-2);
     }
-    .td-status { width: auto; }
-    .td-task { width: 100%; order: -1; }
-    .td-agent { width: auto; }
-    .td-turns { width: auto; text-align: left; }
-    .td-time { width: auto; }
+    .td-status { width: auto; order: 1; }
+    .td-task { width: 100%; order: -1; white-space: normal; line-height: 1.4; }
+    .td-agent { width: auto; order: 2; }
+    .td-turns { width: auto; text-align: left; order: 3; }
+    .td-time { width: auto; order: 4; font-size: 10px; }
   }
 </style>

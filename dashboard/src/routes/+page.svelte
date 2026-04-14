@@ -243,6 +243,7 @@
   .canvas-container {
     width: 100%;
     height: 100vh;
+    height: 100dvh;
     position: relative;
   }
 
@@ -423,5 +424,35 @@
 
   @media (max-width: 768px) {
     .detail-panel { width: 100%; }
+  }
+
+  @media (max-width: 640px) {
+    .canvas-container {
+      height: calc(100dvh - 64px);
+    }
+
+    .detail-panel {
+      width: 100%;
+      height: 60%;
+      top: auto;
+      bottom: 0;
+      border-left: none;
+      border-top: 1px solid var(--border);
+      border-radius: var(--radius) var(--radius) 0 0;
+    }
+
+    .panel-close {
+      width: 44px;
+      height: 44px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: var(--text-xl);
+    }
+
+    .empty-text {
+      padding: 0 var(--sp-4);
+      text-align: center;
+    }
   }
 </style>

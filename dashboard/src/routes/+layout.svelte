@@ -5,18 +5,23 @@
   import { base } from '$app/paths';
   import PawLogo from '$lib/components/PawLogo.svelte';
   import ThemeToggle from '$lib/components/ThemeToggle.svelte';
-  import { queryEntities, fetchSetupStatus } from '$lib/api';
+  import { fetchSetupStatus, fetchVersion, checkForUpdates, checkEdgeBuild, triggerRedeploy, getRailwayStatus } from '$lib/api';
+  import type { VersionInfo, UpdateCheck, EdgeBuild } from '$lib/api';
   import { getCurrentUser, logout, type SessionUser } from '$lib/auth';
-  import type { Project } from '$lib/types';
   import { page } from '$app/stores';
 
   let { children } = $props();
   let collapsed = $state(false);
-  let projectsOpen = $state(true);
-  let projects = $state<Project[]>([]);
   let user = $state<SessionUser | null>(null);
   let authReady = $state(false);
   let authError = $state('');
+  let version = $state<VersionInfo | null>(null);
+  let updateInfo = $state<UpdateCheck | null>(null);
+  let edgeBuild = $state<EdgeBuild | null>(null);
+  let updating = $state<'latest' | 'edge' | null>(null);
+  let updateError = $state('');
+  let updateSuccess = $state('');
+  let canUpdate = $state(false);
 
   function appHref(path: string): string {
     return `${base}${path}`;
@@ -65,8 +70,12 @@
           }
         }
 
-        const data = await queryEntities('Projects');
-        projects = data as unknown as Project[];
+
+        // Fetch version + check for updates in background
+        fetchVersion().then(v => { version = v; });
+        checkForUpdates().then(u => { updateInfo = u; });
+        checkEdgeBuild().then(e => { edgeBuild = e; });
+        getRailwayStatus().then(r => { canUpdate = r.can_update; });
       }
     } catch (err) {
       authReady = true;
@@ -81,6 +90,22 @@
     await logout();
     user = null;
     await goto(appHref('/login'));
+  }
+
+  async function handleUpdate(tag: 'latest' | 'edge') {
+    updating = tag;
+    updateError = '';
+    updateSuccess = '';
+    try {
+      await triggerRedeploy(tag);
+      updateSuccess = tag === 'edge'
+        ? 'Updating to latest build. This will take a few minutes.'
+        : `Updating to ${updateInfo?.latest_version}. This will take a few minutes.`;
+    } catch (err) {
+      updateError = err instanceof Error ? err.message : 'Update failed';
+    } finally {
+      updating = null;
+    }
   }
 </script>
 
@@ -126,39 +151,53 @@
         {#if !collapsed}<span>Settings</span>{/if}
       </a>
 
-      {#if !collapsed}
-        <div class="nav-divider"></div>
-
-        <button class="nav-item nav-folder" onclick={() => projectsOpen = !projectsOpen}>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
-          </svg>
-          <span>Projects</span>
-          <span class="folder-chevron">{projectsOpen ? '−' : '+'}</span>
-        </button>
-
-        {#if projectsOpen}
-          <div class="tree">
-            <a href={appHref('/?focus=platform')} class="tree-item tree-item--dim">Platform</a>
-            {#each projects as project (project.Id)}
-              <a href={appHref(`/?focus=project&id=${project.Id}`)} class="tree-item">
-                {project.name || 'Unnamed'}
-              </a>
-            {/each}
-            {#if projects.length === 0}
-              <span class="tree-item tree-item--empty">No projects</span>
-            {/if}
-          </div>
-        {/if}
-      {/if}
     </nav>
 
     <div class="sidebar-footer">
+      {#if !collapsed}
+        {#if updateSuccess}
+          <div class="update-pill update-pill--success">
+            <span class="update-pill-text">{updateSuccess}</span>
+          </div>
+        {/if}
+        {#if updateInfo?.update_available}
+          <div class="update-pill">
+            <a href={updateInfo.release_url || '#'} target="_blank" rel="noopener" class="update-pill-link">
+              <span class="update-pill-dot"></span>
+              <span class="update-pill-text">{updateInfo.latest_version} available</span>
+            </a>
+            {#if canUpdate}
+              <button class="update-pill-btn" onclick={() => handleUpdate('latest')} disabled={updating !== null}>
+                {updating === 'latest' ? '...' : 'Update'}
+              </button>
+            {/if}
+          </div>
+        {/if}
+        {#if canUpdate || version?.version === 'dev'}
+          <button
+            class="deploy-btn"
+            onclick={() => handleUpdate('edge')}
+            disabled={updating !== null || !canUpdate}
+          >
+            {#if updating === 'edge'}
+              Deploying...
+            {:else}
+              Deploy latest build
+            {/if}
+          </button>
+        {/if}
+        {#if updateError}
+          <span class="update-error">{updateError}</span>
+        {/if}
+      {/if}
       {#if user && !collapsed}
         <div class="user-chip">
           <span class="user-email">{user.email}</span>
           <button class="user-logout" type="button" onclick={handleLogout}>Log out</button>
         </div>
+      {/if}
+      {#if version && !collapsed}
+        <span class="version-label">{version.version === 'dev' ? 'dev' : version.version}</span>
       {/if}
       <ThemeToggle />
     </div>
@@ -177,6 +216,7 @@
 <style>
   .auth-main {
     min-height: 100vh;
+    min-height: 100dvh;
   }
 
   .auth-main--loading {
@@ -188,9 +228,10 @@
   .shell {
     display: flex;
     min-height: 100vh;
+    min-height: 100dvh;
   }
 
-  /* ---- Sidebar ---- */
+  /* ---- Sidebar (desktop) ---- */
   .sidebar {
     width: var(--sidebar-w);
     flex-shrink: 0;
@@ -265,46 +306,6 @@
   .nav-item.active { color: var(--text-1); }
   .nav-item svg { flex-shrink: 0; }
 
-  .nav-folder {
-    width: 100%;
-    text-align: left;
-    cursor: pointer;
-  }
-
-  .folder-chevron {
-    margin-left: auto;
-    font-size: var(--text-xs);
-    color: var(--text-3);
-  }
-
-  .nav-divider {
-    height: 1px;
-    background: var(--border);
-    margin: var(--sp-2) 0;
-  }
-
-  /* ---- Tree ---- */
-  .tree {
-    display: flex;
-    flex-direction: column;
-    padding-left: var(--sp-6);
-    border-left: 1px solid var(--border);
-    margin-left: 13px;
-  }
-
-  .tree-item {
-    font-size: var(--text-sm);
-    color: var(--text-3);
-    padding: 2px var(--sp-2);
-    text-decoration: none;
-    transition: color var(--duration) var(--ease);
-  }
-
-  .tree-item:hover { color: var(--text-1); text-decoration: none; }
-  .tree-item--dim { opacity: 0.5; }
-  .tree-item--dim:hover { opacity: 1; }
-  .tree-item--empty { opacity: 0.3; font-style: italic; }
-
   /* ---- Footer ---- */
   .sidebar-footer {
     margin-top: auto;
@@ -334,6 +335,99 @@
     color: var(--text-1);
   }
 
+  .version-label {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text-3);
+    letter-spacing: 0.04em;
+    text-align: center;
+  }
+
+  /* ---- Sidebar update controls ---- */
+  .update-pill {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    padding: var(--sp-1) var(--sp-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    font-family: var(--font-mono);
+    font-size: 11px;
+  }
+
+  .update-pill--success {
+    border-color: var(--accent, var(--border));
+  }
+
+  .update-pill-link {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-1);
+    color: var(--text-2);
+    text-decoration: none;
+    min-width: 0;
+    flex: 1;
+  }
+
+  .update-pill-link:hover { color: var(--text-1); }
+
+  .update-pill-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent, #4ade80);
+    flex-shrink: 0;
+  }
+
+  .update-pill-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text-2);
+    font-size: 11px;
+  }
+
+  .update-pill-btn {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.04em;
+    padding: 1px var(--sp-2);
+    border: 1px solid var(--text-1);
+    border-radius: var(--radius);
+    color: var(--bg);
+    background: var(--text-1);
+    cursor: pointer;
+    white-space: nowrap;
+    font-weight: 600;
+    flex-shrink: 0;
+  }
+
+  .update-pill-btn:hover { opacity: 0.85; }
+  .update-pill-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .deploy-btn {
+    width: 100%;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.04em;
+    padding: var(--sp-1) var(--sp-2);
+    border: 1px dashed var(--text-3);
+    border-radius: var(--radius);
+    color: var(--text-3);
+    background: transparent;
+    cursor: pointer;
+    text-align: center;
+  }
+
+  .deploy-btn:hover { color: var(--text-1); border-color: var(--text-2); }
+  .deploy-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .update-error {
+    color: var(--status-error);
+    font-family: var(--font-mono);
+    font-size: 10px;
+  }
+
   /* ---- Main content ---- */
   .main {
     flex: 1;
@@ -350,21 +444,97 @@
     padding: 0;
   }
 
-  /* ---- Responsive ---- */
+  /* ---- Tablet: collapse sidebar to icons ---- */
   @media (max-width: 768px) {
     .sidebar {
       width: 44px;
       padding: var(--sp-3) var(--sp-1);
     }
 
-    .sidebar-title, .nav-item span, .nav-divider,
-    .nav-folder span, .folder-chevron, .tree { display: none; }
+    .sidebar-title,
+    .nav-item span,
+    .user-chip,
+    .version-label,
+    .update-pill,
+    .deploy-btn,
+    .update-error { display: none; }
 
     .main {
       margin-left: 44px;
-      padding: var(--sp-4) var(--sp-4);
+      padding: var(--sp-4) var(--sp-3);
     }
 
     .main--canvas { padding: 0; }
+  }
+
+  /* ---- Mobile: bottom navigation bar ---- */
+  @media (max-width: 640px) {
+    .sidebar {
+      position: fixed;
+      top: auto;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      width: 100%;
+      height: auto;
+      flex-direction: row;
+      align-items: center;
+      padding: 0;
+      border-right: none;
+      border-top: 1px solid var(--border);
+      z-index: 30;
+    }
+
+    .sidebar.collapsed {
+      width: 100%;
+      padding: 0;
+    }
+
+    .sidebar-top,
+    .sidebar-footer { display: none; }
+
+    .sidebar-nav {
+      flex-direction: row;
+      justify-content: space-around;
+      align-items: center;
+      gap: 0;
+      flex: 1;
+      padding: var(--sp-2) 0;
+      padding-bottom: calc(var(--sp-2) + env(safe-area-inset-bottom, 0px));
+    }
+
+    .nav-item {
+      flex-direction: column;
+      gap: 2px;
+      padding: var(--sp-1);
+      font-size: 10px;
+      min-width: 44px;
+      min-height: 44px;
+      justify-content: center;
+      align-items: center;
+      border-radius: var(--radius);
+    }
+
+    .nav-item span { display: block; }
+
+    .nav-item svg {
+      width: 18px;
+      height: 18px;
+    }
+
+    .main {
+      margin-left: 0;
+      margin-bottom: 64px;
+      padding: var(--sp-4) var(--sp-4);
+    }
+
+    .sidebar-collapsed .main {
+      margin-left: 0;
+    }
+
+    .main--canvas {
+      padding: 0;
+      margin-bottom: 64px;
+    }
   }
 </style>
