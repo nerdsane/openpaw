@@ -17,13 +17,9 @@ pub async fn run_deploy(config: Config, with_datadog: bool) -> Result<()> {
     ensure_or_install("turso", &install_turso)?;
     ensure_or_install("wrangler", &install_wrangler)?;
 
-    ensure_logged_in(
-        "railway",
-        &["whoami"],
-        &["railway", "login", "--browserless"],
-    )?;
-    ensure_logged_in("turso", &["auth", "whoami"], &["turso", "auth", "login"])?;
-    ensure_logged_in("wrangler", &["whoami"], &["wrangler", "login"])?;
+    ensure_auth_railway()?;
+    ensure_auth_turso()?;
+    ensure_auth_wrangler()?;
 
     let owner = slugify(
         &std::env::var("USER")
@@ -222,9 +218,8 @@ fn run_shell_install(script: &str) -> Result<()> {
     Ok(())
 }
 
-fn ensure_logged_in(command: &str, check_args: &[&str], login_cmd: &[&str]) -> Result<()> {
-    // Check both exit code AND output — some CLIs (turso) exit 0 even when not logged in.
-    let is_logged_in = Command::new(command)
+fn is_cli_logged_in(command: &str, check_args: &[&str]) -> bool {
+    Command::new(command)
         .args(check_args)
         .output()
         .map(|output| {
@@ -236,63 +231,106 @@ fn ensure_logged_in(command: &str, check_args: &[&str], login_cmd: &[&str]) -> R
                 String::from_utf8_lossy(&output.stdout),
                 String::from_utf8_lossy(&output.stderr),
             );
-            // If the output tells the user to log in, they're not logged in
             !combined.contains("not logged in") && !combined.contains("please login")
         })
-        .unwrap_or(false);
+        .unwrap_or(false)
+}
 
-    if is_logged_in {
-        cliclack::log::success(format!("{command} authenticated ✓"))?;
+/// Railway: check existing session, fall back to `railway login --browserless`
+/// which prints a pairing code — no browser callback needed.
+fn ensure_auth_railway() -> Result<()> {
+    if is_cli_logged_in("railway", &["whoami"]) {
+        cliclack::log::success("railway authenticated ✓")?;
         return Ok(());
     }
 
-    cliclack::log::info(format!(
-        "Not logged in to {command}. Running `{}`...",
-        login_cmd.join(" ")
-    ))?;
-
-    // Run login interactively (needs user input / browser)
-    let status = Command::new(login_cmd[0])
-        .args(&login_cmd[1..])
+    cliclack::log::info("Not logged in to Railway. Pairing with a code...")?;
+    let status = Command::new("railway")
+        .args(["login", "--browserless"])
         .stdin(std::process::Stdio::inherit())
         .stdout(std::process::Stdio::inherit())
         .stderr(std::process::Stdio::inherit())
         .status()
-        .with_context(|| format!("Failed to run `{}`", login_cmd.join(" ")))?;
+        .context("Failed to run railway login")?;
 
-    if !status.success() {
-        anyhow::bail!(
-            "Login to {command} failed. Run `{}` manually and retry the deploy.",
-            login_cmd.join(" ")
-        );
+    if !status.success() || !is_cli_logged_in("railway", &["whoami"]) {
+        anyhow::bail!("Railway login failed. Run `railway login` manually and retry.");
+    }
+    cliclack::log::success("railway authenticated ✓")?;
+    Ok(())
+}
+
+/// Turso: check existing session, fall back to token paste.
+/// Browser OAuth is unreliable, so we open the tokens page and ask for a paste.
+fn ensure_auth_turso() -> Result<()> {
+    if is_cli_logged_in("turso", &["auth", "whoami"]) {
+        cliclack::log::success("turso authenticated ✓")?;
+        return Ok(());
     }
 
-    // Verify login actually worked — some OAuth flows complete without error
-    // but don't actually authenticate (e.g. browser callback missed).
-    let verified = Command::new(command)
-        .args(check_args)
-        .output()
-        .map(|output| {
-            let combined = format!(
-                "{}{}",
-                String::from_utf8_lossy(&output.stdout),
-                String::from_utf8_lossy(&output.stderr),
-            );
-            output.status.success()
-                && !combined.contains("not logged in")
-                && !combined.contains("please login")
+    let token_url = "https://turso.tech/app/settings/api-tokens";
+    cliclack::log::info(format!(
+        "Not logged in to Turso. Create an API token:\n  \
+         Opening: {token_url}\n  \
+         → Click \"Create Token\" → copy it below."
+    ))?;
+    let _ = Command::new("open").arg(token_url).status();
+
+    let token: String = cliclack::password("Turso API token")
+        .mask('•')
+        .validate(|input: &String| {
+            if input.trim().is_empty() {
+                Err("Required")
+            } else {
+                Ok(())
+            }
         })
-        .unwrap_or(false);
+        .interact()?;
 
-    if !verified {
-        anyhow::bail!(
-            "Login to {command} didn't complete.\n  \
-             Try running `{}` manually in your terminal, then re-run the deploy.",
-            login_cmd.join(" ")
-        );
+    // Set for this process and all child processes
+    unsafe { std::env::set_var("TURSO_API_TOKEN", token.trim()); }
+
+    if !is_cli_logged_in("turso", &["auth", "whoami"]) {
+        anyhow::bail!("Turso token didn't work. Check the token and retry.");
+    }
+    cliclack::log::success("turso authenticated ✓")?;
+    Ok(())
+}
+
+/// Wrangler: check existing session, fall back to token paste.
+/// Same approach — open the API tokens page, paste it back.
+fn ensure_auth_wrangler() -> Result<()> {
+    if is_cli_logged_in("wrangler", &["whoami"]) {
+        cliclack::log::success("wrangler authenticated ✓")?;
+        return Ok(());
     }
 
-    cliclack::log::success(format!("{command} authenticated ✓"))?;
+    let token_url = "https://dash.cloudflare.com/profile/api-tokens";
+    cliclack::log::info(format!(
+        "Not logged in to Cloudflare. Create an API token:\n  \
+         Opening: {token_url}\n  \
+         → Create Token → Use \"Edit Cloudflare Workers\" template\n  \
+         → Copy the token below."
+    ))?;
+    let _ = Command::new("open").arg(token_url).status();
+
+    let token: String = cliclack::password("Cloudflare API token")
+        .mask('•')
+        .validate(|input: &String| {
+            if input.trim().is_empty() {
+                Err("Required")
+            } else {
+                Ok(())
+            }
+        })
+        .interact()?;
+
+    unsafe { std::env::set_var("CLOUDFLARE_API_TOKEN", token.trim()); }
+
+    if !is_cli_logged_in("wrangler", &["whoami"]) {
+        anyhow::bail!("Cloudflare token didn't work. Check the token and retry.");
+    }
+    cliclack::log::success("wrangler authenticated ✓")?;
     Ok(())
 }
 
