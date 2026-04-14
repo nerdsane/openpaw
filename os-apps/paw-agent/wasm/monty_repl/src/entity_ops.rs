@@ -471,6 +471,9 @@ pub fn write(
     let headers = vec![
         ("X-Tenant-Id".to_string(), tenant.to_string()),
         ("Content-Type".to_string(), mime_type.to_string()),
+        ("x-temper-principal-kind".to_string(), "agent".to_string()),
+        ("x-temper-principal-id".to_string(), eid.to_string()),
+        ("x-temper-agent-type".to_string(), "system".to_string()),
     ];
     let resp = ctx.http_call("PUT", &url, &headers, &content)?;
     if resp.status >= 400 {

@@ -74,7 +74,7 @@ pub fn persist_results(
         let updated = serde_json::to_string(&messages).unwrap_or_default();
         let body = format!("{{\"messages\":{updated}}}");
         let url = format!("{temper_api_url}/tdata/Files('{conversation_file_id}')/$value");
-        let headers = file_headers(tenant);
+        let headers = file_headers(ctx, tenant);
         let resp = ctx.http_call("PUT", &url, &headers, &body)?;
         if resp.status >= 400 {
             return Err(format!(
@@ -146,7 +146,7 @@ pub fn save_repl_to_file(
             "WorkspaceId": workspace_id,
         });
         let url = format!("{temper_api_url}/tdata/Files");
-        let headers = file_headers(tenant);
+        let headers = file_headers(ctx, tenant);
         let resp = ctx.http_call("POST", &url, &headers, &body.to_string())?;
         if resp.status >= 400 {
             return Err(format!("failed to create REPL state file: {}", resp.body));
@@ -168,7 +168,7 @@ pub fn save_repl_to_file(
 
     // Write REPL state to file
     let url = format!("{temper_api_url}/tdata/Files('{file_id}')/$value");
-    let headers = workspace_headers(tenant, workspace_id);
+    let headers = workspace_headers(ctx, tenant, workspace_id);
     write_temperfs_file_with_retry(
         ctx,
         &url,
@@ -193,12 +193,22 @@ pub fn read_temperfs_file_safe(
     read_temperfs_file(ctx, temper_api_url, tenant, file_id)
 }
 
-fn workspace_headers(tenant: &str, workspace_id: &str) -> Vec<(String, String)> {
-    vec![
-        ("Content-Type".to_string(), "text/plain".to_string()),
-        ("X-Tenant-Id".to_string(), tenant.to_string()),
-        ("X-Workspace-Id".to_string(), workspace_id.to_string()),
-    ]
+fn workspace_headers(ctx: &Context, tenant: &str, workspace_id: &str) -> Vec<(String, String)> {
+    let fields = ctx
+        .entity_state
+        .get("fields")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    let mut headers = runtime_headers_as(
+        ctx,
+        tenant,
+        &fields,
+        "system",
+        Some("text/plain"),
+        None,
+    );
+    headers.push(("X-Workspace-Id".to_string(), workspace_id.to_string()));
+    headers
 }
 
 /// Evaluate before-hooks for a tool/op name. Returns error string if blocked.
@@ -338,7 +348,7 @@ fn read_temperfs_file(
     file_id: &str,
 ) -> Result<String, String> {
     let url = format!("{temper_api_url}/tdata/Files('{file_id}')/$value");
-    let headers = file_headers(tenant);
+    let headers = file_headers(ctx, tenant);
 
     const READ_ATTEMPTS: usize = 5;
     let mut last_status = 0;
@@ -434,7 +444,7 @@ fn write_temperfs_file(
     content: &str,
 ) -> Result<(), String> {
     let url = format!("{temper_api_url}/tdata/Files('{file_id}')/$value");
-    let headers = file_headers_text(tenant);
+    let headers = file_headers_text(ctx, tenant);
     write_temperfs_file_with_retry(ctx, &url, &headers, content, "TemperFS write failed")
 }
 
@@ -473,16 +483,34 @@ fn odata_headers(tenant: &str) -> Vec<(String, String)> {
     ]
 }
 
-fn file_headers(tenant: &str) -> Vec<(String, String)> {
-    vec![
-        ("X-Tenant-Id".to_string(), tenant.to_string()),
-        ("Accept".to_string(), "application/octet-stream".to_string()),
-    ]
+fn file_headers(ctx: &Context, tenant: &str) -> Vec<(String, String)> {
+    let fields = ctx
+        .entity_state
+        .get("fields")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    runtime_headers_as(
+        ctx,
+        tenant,
+        &fields,
+        "system",
+        Some("application/json"),
+        Some("application/octet-stream"),
+    )
 }
 
-fn file_headers_text(tenant: &str) -> Vec<(String, String)> {
-    vec![
-        ("X-Tenant-Id".to_string(), tenant.to_string()),
-        ("Content-Type".to_string(), "text/plain".to_string()),
-    ]
+fn file_headers_text(ctx: &Context, tenant: &str) -> Vec<(String, String)> {
+    let fields = ctx
+        .entity_state
+        .get("fields")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    runtime_headers_as(
+        ctx,
+        tenant,
+        &fields,
+        "system",
+        Some("text/plain"),
+        None,
+    )
 }
