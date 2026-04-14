@@ -81,8 +81,7 @@ pub async fn run_deploy(config: Config, with_datadog: bool) -> Result<()> {
         .interact()?;
 
     cliclack::log::step("Creating Railway project (free tier: 512 MB RAM, 1 vCPU)...")?;
-    run_interactive("railway", &["init", "--name", &project_name])?;
-    let _ = run_interactive("railway", &["add", "--service", "openpaw"]);
+    create_railway_project_idempotent(&project_name)?;
 
     let mut variables = vec![
         format!("TURSO_URL={turso_url}"),
@@ -359,6 +358,53 @@ fn ensure_auth_wrangler() -> Result<()> {
         );
     }
     cliclack::log::success("wrangler authenticated ✓")?;
+    Ok(())
+}
+
+/// Create or reuse a Railway project, and ensure the "openpaw" service exists.
+fn create_railway_project_idempotent(project_name: &str) -> Result<()> {
+    // Check if we're already linked to a project
+    let linked = Command::new("railway")
+        .args(["status", "--json"])
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+
+    if linked {
+        cliclack::log::success("Railway project already linked ✓")?;
+    } else {
+        // Try to create — if it fails because it exists, link to it instead
+        let status = Command::new("railway")
+            .args(["init", "--name", project_name])
+            .stdin(std::process::Stdio::inherit())
+            .stdout(std::process::Stdio::inherit())
+            .stderr(std::process::Stdio::inherit())
+            .status()
+            .context("Failed to run railway init")?;
+
+        if !status.success() {
+            // Project may exist — try linking to it
+            let link_status = Command::new("railway")
+                .args(["link"])
+                .stdin(std::process::Stdio::inherit())
+                .stdout(std::process::Stdio::inherit())
+                .stderr(std::process::Stdio::inherit())
+                .status()
+                .context("Failed to run railway link")?;
+
+            if !link_status.success() {
+                anyhow::bail!("Could not create or link to Railway project \"{project_name}\".");
+            }
+        }
+    }
+
+    // Ensure the "openpaw" service exists (ignore errors — it may already exist)
+    let _ = Command::new("railway")
+        .args(["add", "--service", "openpaw"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+
     Ok(())
 }
 
