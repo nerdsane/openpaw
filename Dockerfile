@@ -6,6 +6,7 @@ COPY dashboard ./
 RUN npm run build
 
 FROM rust:1.94-bookworm AS rust-build
+RUN apt-get update && apt-get install -y libclang-dev cmake && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
