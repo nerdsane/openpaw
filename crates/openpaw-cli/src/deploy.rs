@@ -99,10 +99,10 @@ pub async fn run_deploy(
         format!("BLOB_SECRET_KEY={blob_secret_key}"),
     ];
 
-    if let Some(key) = dd_api_key {
+    if let Some(key) = &dd_api_key {
         variables.push(format!("DD_API_KEY={key}"));
     }
-    if let Some(key) = dd_app_key {
+    if let Some(key) = &dd_app_key {
         variables.push(format!("DD_APP_KEY={key}"));
     }
     variables.push(format!("DD_SITE={dd_site}"));
@@ -116,21 +116,55 @@ pub async fn run_deploy(
     set_args.extend(variables);
     run_interactive("railway", &as_str_slice(&set_args))?;
 
+    // Get project/env IDs for all deploys
+    let (project_id, env_id) = get_railway_ids()?;
+
     if with_datadog {
-        let _ = run_interactive(
+        cliclack::log::step("Deploying OTEL collector → Datadog...")?;
+
+        // Ensure the otel-collector service exists before setting vars
+        let _ = Command::new("railway")
+            .args(["add", "--service", "otel-collector"])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
+
+        // Set DD_API_KEY and DD_SITE on the otel-collector service
+        let mut collector_vars: Vec<String> = Vec::new();
+        if let Some(key) = &dd_api_key {
+            collector_vars.push(format!("DD_API_KEY={key}"));
+        }
+        collector_vars.push(format!("DD_SITE={dd_site}"));
+        let mut collector_set_args = vec![
+            "variable".to_string(),
+            "set".to_string(),
+            "-s".to_string(),
+            "otel-collector".to_string(),
+        ];
+        collector_set_args.extend(collector_vars);
+        run_interactive("railway", &as_str_slice(&collector_set_args))?;
+
+        deploy_otel_collector(&project_id, &env_id)?;
+
+        // Set OTEL endpoint on the openpaw service to point at the collector
+        // Railway private networking: <service>.railway.internal
+        let otel_vars = vec![
+            "OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector.railway.internal:4318",
+            "OTEL_ENABLED=true",
+        ];
+        let mut otel_args = vec!["variable", "set", "-s", "openpaw"];
+        otel_args.extend(otel_vars);
+        run_interactive("railway", &otel_args)?;
+    } else {
+        // No collector — disable OTEL so the server doesn't spam connection errors
+        run_interactive(
             "railway",
-            &[
-                "add",
-                "--service",
-                "otel-collector",
-                "--image",
-                "otel/opentelemetry-collector-contrib:latest",
-            ],
-        );
+            &["variable", "set", "-s", "openpaw", "OTEL_ENABLED=false"],
+        )?;
     }
 
     cliclack::log::step("Deploying OpenPaw...")?;
-    deploy_prebuilt_image()?;
+    deploy_prebuilt_image(&project_id, &env_id)?;
 
     let domain_output = capture_trimmed("railway", &["domain", "--service", "openpaw", "--json"])?;
     let deploy_url = infer_domain(&domain_output).unwrap_or(domain_output.clone());
@@ -437,8 +471,8 @@ fn ensure_auth_wrangler(cache: &mut HashMap<String, String>) -> Result<()> {
     Ok(())
 }
 
-/// Deploy the pre-built Docker image from GHCR instead of building from source.
-fn deploy_prebuilt_image() -> Result<()> {
+/// Get Railway project and environment IDs from the linked project.
+fn get_railway_ids() -> Result<(String, String)> {
     let status_output = Command::new("railway")
         .args(["status", "--json"])
         .output()
@@ -456,7 +490,11 @@ fn deploy_prebuilt_image() -> Result<()> {
         .and_then(|e| e["node"]["id"].as_str())
         .context("No environment ID in Railway status")?
         .to_string();
+    Ok((project_id, env_id))
+}
 
+/// Deploy the pre-built Docker image from GHCR instead of building from source.
+fn deploy_prebuilt_image(project_id: &str, env_id: &str) -> Result<()> {
     let image = "ghcr.io/nerdsane/openpaw:latest";
     let tmp = std::env::temp_dir().join("openpaw-deploy");
     let _ = std::fs::create_dir_all(&tmp);
@@ -464,12 +502,12 @@ fn deploy_prebuilt_image() -> Result<()> {
     std::fs::write(
         tmp.join("railway.toml"),
         "[build]\nbuilder = \"dockerfile\"\ndockerfilePath = \"Dockerfile\"\n\n\
-         [deploy]\nhealthcheckPath = \"/healthz\"\nhealthcheckTimeout = 60\n\
+         [deploy]\nhealthcheckPath = \"/healthz\"\nhealthcheckTimeout = 300\n\
          restartPolicyType = \"ON_FAILURE\"\nrestartPolicyMaxRetries = 3\n",
     )?;
 
     let status = Command::new("railway")
-        .args(["up", "-s", "openpaw", "-p", &project_id, "-e", &env_id])
+        .args(["up", "-s", "openpaw", "-p", project_id, "-e", env_id])
         .current_dir(&tmp)
         .stdin(std::process::Stdio::inherit())
         .stdout(std::process::Stdio::inherit())
@@ -482,6 +520,82 @@ fn deploy_prebuilt_image() -> Result<()> {
     if !status.success() {
         anyhow::bail!("Railway deploy failed");
     }
+    Ok(())
+}
+
+/// Deploy the OTEL collector as a Railway service with the Datadog config baked in.
+/// The service must already exist (created by the caller).
+fn deploy_otel_collector(project_id: &str, env_id: &str) -> Result<()> {
+    let tmp = std::env::temp_dir().join("openpaw-otel-deploy");
+    let _ = std::fs::create_dir_all(&tmp);
+
+    // Dockerfile that bakes in the OTEL collector config
+    std::fs::write(
+        tmp.join("Dockerfile"),
+        "FROM otel/opentelemetry-collector-contrib:latest\n\
+         COPY otel-config.yaml /etc/otelcol-contrib/config.yaml\n",
+    )?;
+
+    // The OTEL collector config — OTLP receiver → Datadog exporter
+    std::fs::write(
+        tmp.join("otel-config.yaml"),
+        "receivers:\n\
+         \x20 otlp:\n\
+         \x20   protocols:\n\
+         \x20     grpc:\n\
+         \x20       endpoint: 0.0.0.0:4317\n\
+         \x20     http:\n\
+         \x20       endpoint: 0.0.0.0:4318\n\
+         \n\
+         processors:\n\
+         \x20 batch:\n\
+         \x20   send_batch_size: 1000\n\
+         \x20   timeout: 5s\n\
+         \n\
+         exporters:\n\
+         \x20 datadog:\n\
+         \x20   api:\n\
+         \x20     key: ${env:DD_API_KEY}\n\
+         \x20     site: ${env:DD_SITE}\n\
+         \n\
+         service:\n\
+         \x20 pipelines:\n\
+         \x20   traces:\n\
+         \x20     receivers: [otlp]\n\
+         \x20     processors: [batch]\n\
+         \x20     exporters: [datadog]\n\
+         \x20   metrics:\n\
+         \x20     receivers: [otlp]\n\
+         \x20     processors: [batch]\n\
+         \x20     exporters: [datadog]\n\
+         \x20   logs:\n\
+         \x20     receivers: [otlp]\n\
+         \x20     processors: [batch]\n\
+         \x20     exporters: [datadog]\n",
+    )?;
+
+    std::fs::write(
+        tmp.join("railway.toml"),
+        "[build]\nbuilder = \"dockerfile\"\ndockerfilePath = \"Dockerfile\"\n\n\
+         [deploy]\nrestartPolicyType = \"ON_FAILURE\"\nrestartPolicyMaxRetries = 3\n",
+    )?;
+
+    let status = Command::new("railway")
+        .args(["up", "-s", "otel-collector", "-p", project_id, "-e", env_id])
+        .current_dir(&tmp)
+        .stdin(std::process::Stdio::inherit())
+        .stdout(std::process::Stdio::inherit())
+        .stderr(std::process::Stdio::inherit())
+        .status()
+        .context("Failed to deploy OTEL collector")?;
+
+    let _ = std::fs::remove_dir_all(&tmp);
+
+    if !status.success() {
+        anyhow::bail!("OTEL collector deploy failed");
+    }
+
+    cliclack::log::success("OTEL collector deployed ✓")?;
     Ok(())
 }
 
