@@ -58,6 +58,9 @@ fn allowed_secret_keys() -> HashSet<&'static str> {
         "llm_provider",
         "dd_api_key",
         "dd_site",
+        "railway_project_id",
+        "railway_environment_id",
+        "railway_otel_service_id",
     ]
     .into_iter()
     .collect()
@@ -119,6 +122,8 @@ pub fn router(state: SetupApiState) -> Router {
         )
         .route("/paw/transports/slack/connect", post(connect_slack))
         .route("/paw/transports/slack/disconnect", post(disconnect_slack))
+        .route("/paw/infra/railway/status", get(get_railway_status))
+        .route("/paw/infra/railway/set-var", post(set_railway_var))
         .with_state(state)
 }
 
@@ -585,6 +590,172 @@ async fn create_agent(
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({ "error": format!("Failed to configure agent: {e}") })),
         ),
+    }
+}
+
+// ──────────────────────────── Railway Integration ────────────────────────────
+
+#[derive(Serialize)]
+struct RailwayStatus {
+    configured: bool,
+    project_id: Option<String>,
+    environment_id: Option<String>,
+    otel_service_id: Option<String>,
+}
+
+async fn get_railway_status(State(state): State<SetupApiState>) -> Json<RailwayStatus> {
+    let vault = state.platform.server.secrets_vault.as_ref();
+    let project_id = vault.and_then(|v| v.get_secret(&state.tenant, "railway_project_id"));
+    let environment_id = vault.and_then(|v| v.get_secret(&state.tenant, "railway_environment_id"));
+    let otel_service_id =
+        vault.and_then(|v| v.get_secret(&state.tenant, "railway_otel_service_id"));
+    let configured =
+        project_id.is_some() && environment_id.is_some() && otel_service_id.is_some();
+    Json(RailwayStatus {
+        configured,
+        project_id,
+        environment_id,
+        otel_service_id,
+    })
+}
+
+#[derive(Deserialize)]
+struct SetRailwayVarRequest {
+    service: String,
+    key: String,
+    value: String,
+}
+
+/// Allowlist of (service, key) pairs that can be set via this endpoint.
+fn allowed_railway_vars() -> Vec<(&'static str, &'static str)> {
+    vec![
+        ("otel-collector", "DD_API_KEY"),
+        ("otel-collector", "DD_SITE"),
+    ]
+}
+
+async fn set_railway_var(
+    State(state): State<SetupApiState>,
+    Json(req): Json<SetRailwayVarRequest>,
+) -> impl IntoResponse {
+    // Validate against allowlist
+    if !allowed_railway_vars()
+        .iter()
+        .any(|(s, k)| *s == req.service && *k == req.key)
+    {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error": format!("Setting {} on {} is not allowed", req.key, req.service)
+            })),
+        )
+            .into_response();
+    }
+
+    let vault = match state.platform.server.secrets_vault.as_ref() {
+        Some(v) => v,
+        None => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": "Vault not initialized" })),
+            )
+                .into_response()
+        }
+    };
+
+    let railway_token = vault
+        .get_secret(&state.tenant, "railway_token")
+        .or_else(|| vault.get_secret("default", "railway_token"));
+    let project_id = vault
+        .get_secret(&state.tenant, "railway_project_id")
+        .or_else(|| vault.get_secret("default", "railway_project_id"));
+    let environment_id = vault
+        .get_secret(&state.tenant, "railway_environment_id")
+        .or_else(|| vault.get_secret("default", "railway_environment_id"));
+
+    let (Some(token), Some(project), Some(env)) = (railway_token, project_id, environment_id)
+    else {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error": "Railway integration not configured. Deploy with `openpaw deploy` first."
+            })),
+        )
+            .into_response();
+    };
+
+    // Resolve service ID — for otel-collector, read from vault
+    let service_id = if req.service == "otel-collector" {
+        vault
+            .get_secret(&state.tenant, "railway_otel_service_id")
+            .or_else(|| vault.get_secret("default", "railway_otel_service_id"))
+    } else {
+        None
+    };
+
+    let Some(service_id) = service_id else {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error": format!("Service ID for {} not found in vault", req.service)
+            })),
+        )
+            .into_response();
+    };
+
+    // Call Railway GraphQL API — variableUpsert
+    let graphql_query = serde_json::json!({
+        "query": "mutation($input: VariableUpsertInput!) { variableUpsert(input: $input) }",
+        "variables": {
+            "input": {
+                "projectId": project,
+                "environmentId": env,
+                "serviceId": service_id,
+                "name": req.key,
+                "value": req.value,
+            }
+        }
+    });
+
+    let client = reqwest::Client::new();
+    match client
+        .post("https://backboard.railway.com/graphql/v2")
+        .header("Authorization", format!("Bearer {token}"))
+        .header("Content-Type", "application/json")
+        .json(&graphql_query)
+        .send()
+        .await
+    {
+        Ok(resp) => {
+            let status = resp.status();
+            let body: serde_json::Value = resp.json().await.unwrap_or_default();
+            if status.is_success() && body.get("errors").is_none() {
+                (
+                    StatusCode::OK,
+                    Json(serde_json::json!({
+                        "set": req.key,
+                        "service": req.service,
+                    })),
+                )
+                    .into_response()
+            } else {
+                let error_msg = body["errors"]
+                    .as_array()
+                    .and_then(|e| e.first())
+                    .and_then(|e| e["message"].as_str())
+                    .unwrap_or("Railway API error");
+                (
+                    StatusCode::BAD_GATEWAY,
+                    Json(serde_json::json!({ "error": error_msg })),
+                )
+                    .into_response()
+            }
+        }
+        Err(e) => (
+            StatusCode::BAD_GATEWAY,
+            Json(serde_json::json!({ "error": format!("Railway API request failed: {e}") })),
+        )
+            .into_response(),
     }
 }
 

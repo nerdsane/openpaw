@@ -8,11 +8,14 @@
     fetchSetupStatus,
     generateSoulPreview,
     getCurrentSoul,
+    getRailwayStatus,
     getSecret,
     listSecretKeys,
     saveGeneratedSoul,
     saveSecret,
+    setRailwayVar,
     type GeneratedSoul,
+    type RailwayStatus,
     type SecretSchemaEntry,
     type SetupStatus,
     type UserInterview
@@ -72,6 +75,9 @@
   let schema = $state<SecretSchemaEntry[]>([]);
   let existingKeys = $state<string[]>([]);
 
+  // Railway integration status
+  let railwayStatus = $state<RailwayStatus | null>(null);
+
   function setFeedback(section: string, type: 'error' | 'success', message: string) {
     sectionFeedback = { ...sectionFeedback, [section]: { type, message } };
     if (type === 'success') {
@@ -110,6 +116,7 @@
         currentSoul,
         secretsSchema,
         secretKeys,
+        railwayInfo,
         savedAnthropic,
         savedOpenRouter,
         savedOpenAi,
@@ -133,6 +140,7 @@
         getCurrentSoul(),
         fetchSecretsSchema(),
         listSecretKeys(),
+        getRailwayStatus(),
         getSecret('anthropic_api_key'),
         getSecret('openrouter_api_key'),
         getSecret('openai_api_key'),
@@ -157,6 +165,7 @@
       soul = currentSoul;
       schema = secretsSchema;
       existingKeys = secretKeys;
+      railwayStatus = railwayInfo;
       anthropicApiKey = savedAnthropic ?? '';
       openrouterApiKey = savedOpenRouter ?? '';
       openaiApiKey = savedOpenAi ?? '';
@@ -286,11 +295,28 @@
   async function saveObservability() {
     clearFeedback('observability');
     try {
+      // Save to vault
       await Promise.all([
         ddApiKey ? saveSecret('dd_api_key', ddApiKey) : Promise.resolve(),
         saveSecret('dd_site', ddSite)
       ]);
-      setFeedback('observability', 'success', 'Observability config saved');
+
+      // Push to Railway otel-collector if integration is configured
+      if (railwayStatus?.configured && ddApiKey) {
+        try {
+          await Promise.all([
+            setRailwayVar('otel-collector', 'DD_API_KEY', ddApiKey),
+            setRailwayVar('otel-collector', 'DD_SITE', ddSite),
+          ]);
+          setFeedback('observability', 'success', 'Saved to vault and pushed to Railway OTEL collector');
+        } catch (railwayErr) {
+          setFeedback('observability', 'success',
+            `Saved to vault. Railway push failed: ${railwayErr instanceof Error ? railwayErr.message : 'unknown error'}`);
+        }
+      } else {
+        setFeedback('observability', 'success',
+          railwayStatus?.configured ? 'Saved to vault' : 'Saved to vault (Railway integration not configured)');
+      }
     } catch (err) {
       setFeedback('observability', 'error', err instanceof Error ? err.message : 'Failed to save');
     }
@@ -459,7 +485,11 @@
         {/if}
         <label><span>Datadog API key</span><input bind:value={ddApiKey} type="password" placeholder="Enter to enable Datadog traces/metrics" /></label>
         <label><span>Datadog site</span><input bind:value={ddSite} placeholder="datadoghq.com" /></label>
-        <p class="hint">Saves to vault. To push to Railway's OTEL collector, use the Railway dashboard for now.</p>
+        {#if railwayStatus?.configured}
+          <p class="hint">Railway integration active. Saving will push DD_API_KEY to the OTEL collector service and restart it.</p>
+        {:else}
+          <p class="hint">Saves to vault. Deploy with <code>openpaw deploy</code> to enable automatic Railway push.</p>
+        {/if}
         <button class="action" onclick={saveObservability} type="button">Save observability</button>
       </section>
     </div>

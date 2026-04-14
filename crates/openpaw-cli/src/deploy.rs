@@ -191,6 +191,31 @@ pub async fn run_deploy(
         ],
     )?;
 
+    // Capture Railway metadata so the deployed server can call Railway's API from the dashboard.
+    // project_id and env_id are already available. Resolve otel-collector service ID.
+    let otel_service_id = resolve_railway_service_id(&project_id, &env_id, "otel-collector")
+        .unwrap_or_default();
+    if !otel_service_id.is_empty() {
+        let mut meta_vars = vec![
+            format!("RAILWAY_PROJECT_ID={project_id}"),
+            format!("RAILWAY_ENVIRONMENT_ID={env_id}"),
+            format!("RAILWAY_OTEL_SERVICE_ID={otel_service_id}"),
+        ];
+        // Generate a project-scoped token for the server to call Railway API
+        if let Ok(project_token) = capture_trimmed("railway", &["token"]) {
+            meta_vars.push(format!("RAILWAY_TOKEN={project_token}"));
+        }
+        let mut meta_set_args = vec![
+            "variable".to_string(),
+            "set".to_string(),
+            "-s".to_string(),
+            "openpaw".to_string(),
+        ];
+        meta_set_args.extend(meta_vars);
+        run_interactive("railway", &as_str_slice(&meta_set_args))?;
+        cliclack::log::success("Railway metadata captured for dashboard integration")?;
+    }
+
     cliclack::log::step("Deploying OpenPaw...")?;
     deploy_prebuilt_image(&project_id, &env_id)?;
 
@@ -865,6 +890,71 @@ fn slugify(input: &str) -> String {
         .filter(|segment| !segment.is_empty())
         .collect::<Vec<_>>()
         .join("-")
+}
+
+/// Resolve a Railway service ID by name using the Railway CLI.
+fn resolve_railway_service_id(
+    project_id: &str,
+    _env_id: &str,
+    service_name: &str,
+) -> Result<String> {
+    // `railway service --json` lists services in the linked project.
+    // We look for one with the matching name.
+    let output = Command::new("railway")
+        .args(["service", "--json"])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .output()
+        .context("Failed to run railway service --json")?;
+
+    if !output.status.success() {
+        // Fallback: try the status endpoint which includes service info
+        let status_output = Command::new("railway")
+            .args(["status", "--json"])
+            .output()
+            .context("Failed to get Railway status")?;
+        let status_json: serde_json::Value = serde_json::from_slice(&status_output.stdout)?;
+
+        // Look in services array
+        if let Some(services) = status_json["services"]["edges"].as_array() {
+            for service in services {
+                let name = service["node"]["name"]
+                    .as_str()
+                    .unwrap_or_default();
+                if name == service_name {
+                    if let Some(id) = service["node"]["id"].as_str() {
+                        return Ok(id.to_string());
+                    }
+                }
+            }
+        }
+        anyhow::bail!("Service {service_name} not found in project {project_id}");
+    }
+
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout)?;
+
+    // The output could be an array of services or an object with edges
+    if let Some(arr) = json.as_array() {
+        for svc in arr {
+            let name = svc["name"].as_str().unwrap_or_default();
+            if name == service_name {
+                if let Some(id) = svc["id"].as_str() {
+                    return Ok(id.to_string());
+                }
+            }
+        }
+    } else if let Some(edges) = json["edges"].as_array() {
+        for edge in edges {
+            let name = edge["node"]["name"].as_str().unwrap_or_default();
+            if name == service_name {
+                if let Some(id) = edge["node"]["id"].as_str() {
+                    return Ok(id.to_string());
+                }
+            }
+        }
+    }
+
+    anyhow::bail!("Service {service_name} not found in project {project_id}")
 }
 
 fn optional_env(name: &str) -> Option<String> {

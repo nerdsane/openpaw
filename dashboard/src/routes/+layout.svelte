@@ -5,7 +5,7 @@
   import { base } from '$app/paths';
   import PawLogo from '$lib/components/PawLogo.svelte';
   import ThemeToggle from '$lib/components/ThemeToggle.svelte';
-  import { queryEntities } from '$lib/api';
+  import { queryEntities, fetchSetupStatus } from '$lib/api';
   import { getCurrentUser, logout, type SessionUser } from '$lib/auth';
   import type { Project } from '$lib/types';
   import { page } from '$app/stores';
@@ -32,6 +32,7 @@
   let currentPath = $derived(relativePath($page.url.pathname));
   let isCanvas = $derived(currentPath === '/');
   let isLoginRoute = $derived(currentPath === '/login');
+  let isWelcomeRoute = $derived(currentPath === '/welcome');
 
   onMount(async () => {
     const onLoginPage = relativePath($page.url.pathname) === '/login';
@@ -50,6 +51,20 @@
       }
 
       if (user) {
+        // First-run detection: redirect to welcome if setup is incomplete
+        const onWelcomePage = relativePath($page.url.pathname) === '/welcome';
+        if (!onWelcomePage) {
+          try {
+            const setupStatus = await fetchSetupStatus();
+            if (!setupStatus.has_anthropic_key || !setupStatus.has_agents) {
+              await goto(appHref('/welcome'));
+              return;
+            }
+          } catch {
+            // If setup status check fails, proceed normally
+          }
+        }
+
         const data = await queryEntities('Projects');
         projects = data as unknown as Project[];
       }
@@ -69,7 +84,7 @@
   }
 </script>
 
-{#if isLoginRoute}
+{#if isLoginRoute || isWelcomeRoute}
   <main class="auth-main">
     {@render children()}
   </main>

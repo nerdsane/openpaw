@@ -488,6 +488,27 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
             vault,
             &turso_store,
             &tenant,
+            "railway_project_id",
+            config.railway_project_id
+        );
+        seed_secret!(
+            vault,
+            &turso_store,
+            &tenant,
+            "railway_environment_id",
+            config.railway_environment_id
+        );
+        seed_secret!(
+            vault,
+            &turso_store,
+            &tenant,
+            "railway_otel_service_id",
+            config.railway_otel_service_id
+        );
+        seed_secret!(
+            vault,
+            &turso_store,
+            &tenant,
             "vercel_token",
             config.vercel_token
         );
