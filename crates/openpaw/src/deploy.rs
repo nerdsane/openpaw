@@ -17,6 +17,7 @@ pub async fn run_deploy(config: Config, with_datadog: bool) -> Result<()> {
 
     ensure_logged_in("railway", &["whoami"], &["railway", "login", "--browserless"])?;
     ensure_logged_in("turso", &["auth", "whoami"], &["turso", "auth", "login"])?;
+    ensure_logged_in("wrangler", &["whoami"], &["wrangler", "login"])?;
 
     let owner = slugify(
         &std::env::var("USER")
@@ -235,6 +236,7 @@ fn ensure_logged_in(command: &str, check_args: &[&str], login_cmd: &[&str]) -> R
 fn run_checked(command: &str, args: &[&str]) -> Result<String> {
     let output = Command::new(command)
         .args(args)
+        .stdin(std::process::Stdio::inherit())
         .output()
         .with_context(|| format!("Failed to run `{command} {}`", args.join(" ")))?;
 
