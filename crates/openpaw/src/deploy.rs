@@ -24,15 +24,13 @@ pub async fn run_deploy(mut config: Config, with_datadog: bool) -> Result<()> {
         None => None,
     };
 
-    ensure_cli("railway", "https://docs.railway.com/guides/cli")?;
-    ensure_cli("turso", "https://docs.turso.tech/reference/turso-cli")?;
-    ensure_cli(
-        "wrangler",
-        "https://developers.cloudflare.com/workers/wrangler/install-and-update/",
-    )?;
+    cliclack::log::step("Checking prerequisites...")?;
+    ensure_or_install("railway", &install_railway)?;
+    ensure_or_install("turso", &install_turso)?;
+    ensure_or_install("wrangler", &install_wrangler)?;
 
-    ensure_logged_in("railway", &["whoami"], "railway login")?;
-    ensure_logged_in("turso", &["auth", "whoami"], "turso auth login")?;
+    ensure_logged_in("railway", &["whoami"], &["railway", "login", "--browserless"])?;
+    ensure_logged_in("turso", &["auth", "whoami"], &["turso", "auth", "login"])?;
 
     let owner = slugify(
         &std::env::var("USER")
@@ -128,27 +126,134 @@ pub async fn run_deploy(mut config: Config, with_datadog: bool) -> Result<()> {
     Ok(())
 }
 
-fn ensure_cli(command: &str, install_url: &str) -> Result<()> {
-    match Command::new(command).arg("--version").output() {
-        Ok(output) if output.status.success() => Ok(()),
-        _ => anyhow::bail!("{command} is required. Install it from {install_url}"),
-    }
+fn cli_exists(command: &str) -> bool {
+    Command::new(command)
+        .arg("--version")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
 }
 
-fn ensure_logged_in(command: &str, args: &[&str], login_hint: &str) -> Result<()> {
-    let output = Command::new(command)
-        .args(args)
-        .output()
-        .with_context(|| format!("Failed to run `{command} {}`", args.join(" ")))?;
+fn npm_exists() -> bool {
+    cli_exists("npm")
+}
 
-    if output.status.success() {
+fn ensure_or_install(command: &str, installer: &dyn Fn() -> Result<()>) -> Result<()> {
+    if cli_exists(command) {
+        cliclack::log::success(format!("{command} ✓"))?;
         return Ok(());
     }
 
-    anyhow::bail!(
-        "`{command} {}` failed. Run `{login_hint}` first.",
-        args.join(" ")
-    );
+    let spinner = cliclack::spinner();
+    spinner.start(format!("Installing {command}..."));
+    match installer() {
+        Ok(()) => {
+            if cli_exists(command) {
+                spinner.stop(format!("{command} installed ✓"));
+                Ok(())
+            } else {
+                spinner.stop(format!("{command} install finished but command not found"));
+                anyhow::bail!(
+                    "{command} installed but not on PATH. \
+                     You may need to restart your shell and try again."
+                );
+            }
+        }
+        Err(e) => {
+            spinner.stop(format!("{command} install failed"));
+            Err(e.context(format!("Failed to auto-install {command}")))
+        }
+    }
+}
+
+fn install_railway() -> Result<()> {
+    if npm_exists() {
+        run_install(&["npm", "install", "-g", "@railway/cli"])
+    } else {
+        // Shell installer fallback
+        run_shell_install("bash <(curl -fsSL cli.new)")
+    }
+}
+
+fn install_turso() -> Result<()> {
+    run_shell_install("curl -sSfL https://get.tur.so/install.sh | bash")
+}
+
+fn install_wrangler() -> Result<()> {
+    if npm_exists() {
+        run_install(&["npm", "install", "-g", "wrangler"])
+    } else {
+        anyhow::bail!(
+            "wrangler requires npm. Install Node.js first: https://nodejs.org"
+        )
+    }
+}
+
+fn run_install(args: &[&str]) -> Result<()> {
+    let status = Command::new(args[0])
+        .args(&args[1..])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .with_context(|| format!("Failed to run `{}`", args.join(" ")))?;
+    if !status.success() {
+        anyhow::bail!("`{}` exited with {}", args.join(" "), status);
+    }
+    Ok(())
+}
+
+fn run_shell_install(script: &str) -> Result<()> {
+    let status = Command::new("sh")
+        .arg("-c")
+        .arg(script)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .with_context(|| format!("Failed to run: {script}"))?;
+    if !status.success() {
+        anyhow::bail!("Install script failed: {script}");
+    }
+    Ok(())
+}
+
+fn ensure_logged_in(command: &str, check_args: &[&str], login_cmd: &[&str]) -> Result<()> {
+    let output = Command::new(command)
+        .args(check_args)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+
+    match output {
+        Ok(status) if status.success() => {
+            cliclack::log::success(format!("{command} authenticated ✓"))?;
+            return Ok(());
+        }
+        _ => {}
+    }
+
+    cliclack::log::info(format!(
+        "Not logged in to {command}. Opening login flow..."
+    ))?;
+
+    // Run login interactively (needs user input / browser)
+    let status = Command::new(login_cmd[0])
+        .args(&login_cmd[1..])
+        .stdin(std::process::Stdio::inherit())
+        .stdout(std::process::Stdio::inherit())
+        .stderr(std::process::Stdio::inherit())
+        .status()
+        .with_context(|| format!("Failed to run `{}`", login_cmd.join(" ")))?;
+
+    if !status.success() {
+        anyhow::bail!(
+            "Login to {command} failed. Run `{}` manually and try again.",
+            login_cmd.join(" ")
+        );
+    }
+
+    Ok(())
 }
 
 fn run_checked(command: &str, args: &[&str]) -> Result<String> {
