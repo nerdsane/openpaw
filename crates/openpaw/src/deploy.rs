@@ -10,6 +10,8 @@ use crate::config::Config;
 pub async fn run_deploy(config: Config, with_datadog: bool) -> Result<()> {
     cliclack::intro("Open Paw Deploy")?;
 
+    cliclack::log::info("All services use free tiers — no credit card required.")?;
+
     cliclack::log::step("Checking prerequisites...")?;
     ensure_or_install("railway", &install_railway)?;
     ensure_or_install("turso", &install_turso)?;
@@ -32,24 +34,45 @@ pub async fn run_deploy(config: Config, with_datadog: bool) -> Result<()> {
     let database_name = format!("openpaw-{owner}");
     let bucket_name = format!("openpaw-fs-{owner}");
 
-    cliclack::log::step("Provisioning Turso database...")?;
+    cliclack::log::step("Provisioning Turso database (free tier: 9 GB, 500M rows)...")?;
     run_interactive("turso", &["db", "create", &database_name, "--wait"])?;
     let turso_url = capture_trimmed("turso", &["db", "show", &database_name, "--url"])?;
     let turso_auth_token = capture_trimmed("turso", &["db", "tokens", "create", &database_name])?;
 
-    cliclack::log::step("Provisioning R2 bucket...")?;
+    cliclack::log::step("Provisioning R2 bucket (free tier: 10 GB storage)...")?;
     run_interactive("wrangler", &["r2", "bucket", "create", &bucket_name])?;
-    let blob_access_key: String = cliclack::input("Cloudflare R2 access key ID")
-        .placeholder("Create an R2 token in Cloudflare first")
+
+    // R2 S3-compatible tokens can't be created via CLI — open the browser
+    // to the exact page and walk the user through it.
+    let r2_token_url = "https://dash.cloudflare.com/?to=/:account/r2/api-tokens";
+    cliclack::log::info(format!(
+        "Create an R2 API token for file storage.\n  \
+         Opening: {r2_token_url}\n  \
+         → Permissions: Object Read & Write\n  \
+         → Specify bucket: {bucket_name}\n  \
+         → TTL: leave empty for no expiration\n  \
+         → Copy the Access Key ID and Secret Access Key below."
+    ))?;
+    let _ = Command::new("open").arg(r2_token_url).status();
+
+    let blob_access_key: String = cliclack::input("R2 Access Key ID")
+        .placeholder("Paste from the token you just created")
         .interact()?;
-    let blob_secret_key: String = cliclack::password("Cloudflare R2 secret access key")
+    let blob_secret_key: String = cliclack::password("R2 Secret Access Key")
         .mask('•')
         .interact()?;
-    let blob_endpoint: String = cliclack::input("Cloudflare R2 S3 endpoint")
+    let blob_endpoint: String = cliclack::input("R2 S3 endpoint")
         .placeholder("https://<account-id>.r2.cloudflarestorage.com")
+        .validate(|input: &String| {
+            if input.trim().is_empty() {
+                Err("Required — find it on the R2 bucket overview page")
+            } else {
+                Ok(())
+            }
+        })
         .interact()?;
 
-    cliclack::log::step("Creating Railway project...")?;
+    cliclack::log::step("Creating Railway project (free tier: 512 MB RAM, 1 vCPU)...")?;
     run_interactive("railway", &["init", "--name", &project_name])?;
     let _ = run_interactive("railway", &["add", "--service", "openpaw"]);
 
@@ -166,7 +189,9 @@ fn install_wrangler() -> Result<()> {
     if npm_exists() {
         run_install(&["npm", "install", "-g", "wrangler"])
     } else {
-        anyhow::bail!("wrangler requires npm. Install Node.js first: https://nodejs.org")
+        anyhow::bail!(
+            "wrangler requires npm. Install Node.js first: https://nodejs.org"
+        )
     }
 }
 
