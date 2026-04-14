@@ -150,18 +150,16 @@ pub async fn run_setup_config(config: &Config) -> anyhow::Result<SetupResult> {
         cliclack::log::success("API key configured")?;
     } else {
         let provider: &str = cliclack::select("Which AI provider do you use?")
-            .item("anthropic", "Anthropic", "API key from console.anthropic.com")
-            .item("openrouter", "OpenRouter", "API key from openrouter.ai")
-            .item("openai", "OpenAI API", "API key from platform.openai.com")
-            .item("openai_codex", "OpenAI Codex", "Codex token from chatgpt.com/companion")
+            .item("anthropic", "Anthropic", "console.anthropic.com → API Keys")
+            .item("openrouter", "OpenRouter", "openrouter.ai/keys")
+            .item("openai", "OpenAI", "platform.openai.com/api-keys")
             .interact()?;
 
-        let (prompt, hint) = match provider {
-            "anthropic" => ("Anthropic API key", "sk-ant-..."),
-            "openrouter" => ("OpenRouter API key", "sk-or-..."),
-            "openai" => ("OpenAI API key", "sk-..."),
-            "openai_codex" => ("Codex token", ""),
-            _ => ("API key", ""),
+        let prompt = match provider {
+            "anthropic" => "Anthropic API key",
+            "openrouter" => "OpenRouter API key",
+            "openai" => "OpenAI API key",
+            _ => "API key",
         };
 
         let key: String = cliclack::password(prompt)
@@ -178,9 +176,6 @@ pub async fn run_setup_config(config: &Config) -> anyhow::Result<SetupResult> {
         let key = key.trim().to_string();
         result.api_key = Some(key);
         result.provider = Some(provider.to_string());
-
-        // Suppress unused variable warning — hint is here for future input placeholder support
-        let _ = hint;
     }
 
     cliclack::log::info("Connect Discord, Slack, and other integrations in the dashboard after boot.")?;
@@ -488,11 +483,6 @@ pub fn merge_setup_into_config(config: &mut Config, setup: SetupResult) {
                     config.openai_api_key = Some(key);
                 }
             }
-            Some("openai_codex") => {
-                if config.openai_codex_token.is_none() {
-                    config.openai_codex_token = Some(key);
-                }
-            }
             Some("openrouter") => {
                 if config.openrouter_api_key.is_none() {
                     config.openrouter_api_key = Some(key);
@@ -506,12 +496,7 @@ pub fn merge_setup_into_config(config: &mut Config, setup: SetupResult) {
         }
     }
     if let Some(provider) = setup.provider {
-        // Normalize openai_codex → openai for the LLM provider setting
-        config.llm_provider = Some(if provider == "openai_codex" {
-            "openai".to_string()
-        } else {
-            provider
-        });
+        config.llm_provider = Some(provider);
     }
     if let Some(token) = setup.discord_bot_token {
         if config.discord_bot_token.is_none() {
