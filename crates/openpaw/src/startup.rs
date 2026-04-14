@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use temper_platform::PlatformState;
-use temper_platform::os_apps::get_os_app;
+use temper_platform::os_apps::{get_os_app, list_startup_os_apps};
 use temper_platform::recovery::{recover_cedar_policies, restore_installed_skills};
 use temper_platform::router::build_platform_router;
 use temper_runtime::scheduler::sim_now;
@@ -23,29 +23,6 @@ use temper_server::registry_bootstrap::restore_registry_from_turso;
 use temper_store_turso::{TursoEventStore, TursoSpecVerificationUpdate};
 
 use crate::config::Config;
-
-/// Paw OS apps to install at startup.
-const PAW_OS_APPS: &[&str] = &[
-    "paw-agent",
-    "paw-channels",
-    "paw-fs",
-    "paw-pm",
-    "paw-compute",
-    "paw-harness",
-    "paw-heal",
-    "paw-ingest",
-    "paw-research",
-    "paw-foresight",
-    // Kotowari teaching platform apps
-    "koto-learn",
-    "koto-tutor",
-    "koto-wiki",
-    // Deep Sci-Fi reference apps (registered via add_os_apps_dir)
-    "dsf-harness",
-    // Katagami design language library
-    "katagami-commons",
-    "katagami-curation",
-];
 
 const DEFAULT_AGENT_TOOLS_ENABLED: &str = "temper_create,temper_get,temper_list,temper_action,temper_patch,temper_submit_specs,temper_show_spec,temper_specs,temper_upload_wasm,temper_get_trajectories,temper_get_insights,temper_get_decisions,temper_poll_decision,temper_approve_decision,temper_deny_decision,temper_submit_policy,temper_list_policies,temper_get_policy,temper_update_policy,temper_delete_policy,temper_install_app,temper_list_apps,temper_spawn_session,temper_list_sessions,temper_abort_session,temper_steer_session,temper_save_memory,temper_recall_memory,temper_write,temper_read,temper_run_coding_agent,temper_get_secret,temper_datadog_query,temper_railway,temper_vercel,temper_web_search,temper_web_fetch,read,write,edit,bash";
 const DEFAULT_AGENT_WORKDIR: &str = "/workspace";
@@ -87,6 +64,10 @@ fn runtime_recovery_plan(tenant_ids: &[TenantId]) -> Vec<RuntimeRecoveryStep> {
         ));
     }
     steps
+}
+
+fn startup_os_apps() -> Vec<String> {
+    list_startup_os_apps()
 }
 
 async fn recover_runtime_indexes(state: &PlatformState, tenant_ids: &[TenantId]) {
@@ -636,12 +617,14 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
     let wasm_policy =
         local_wasm_startup_policy(std::env::var("OPENPAW_WASM_STARTUP_POLICY").ok().as_deref());
     tracing::info!(?wasm_policy, "WASM startup policy selected");
+    let startup_apps = startup_os_apps();
+    tracing::info!(apps = ?startup_apps, "Startup OS app surface resolved from manifests");
     if wasm_policy == LocalWasmStartupPolicy::BuildIfMissing
-        && let Err(error) = build_missing_wasm_modules(&os_apps_dir)
+        && let Err(error) = build_missing_wasm_modules(&os_apps_dir, &startup_apps)
     {
         tracing::error!(%error, "Failed to build local OS app WASM artifacts");
     }
-    for app_name in PAW_OS_APPS {
+    for app_name in &startup_apps {
         if temper_platform::os_apps::get_os_app(app_name).is_none() {
             tracing::warn!("Skipping OS app '{app_name}' because its bundle is missing or invalid");
             continue;
@@ -1966,8 +1949,8 @@ fn entity_field_str<'a>(value: &'a serde_json::Value, names: &[&str]) -> Option<
     })
 }
 
-fn build_missing_wasm_modules(os_apps_dir: &Path) -> Result<()> {
-    for build_script in wasm_build_scripts(os_apps_dir)? {
+fn build_missing_wasm_modules(os_apps_dir: &Path, startup_apps: &[String]) -> Result<()> {
+    for build_script in wasm_build_scripts(os_apps_dir, startup_apps)? {
         let build_dir = build_script
             .parent()
             .context("build.sh path missing parent directory")?;
@@ -1993,14 +1976,22 @@ fn build_missing_wasm_modules(os_apps_dir: &Path) -> Result<()> {
     Ok(())
 }
 
-fn wasm_build_scripts(os_apps_dir: &Path) -> Result<Vec<PathBuf>> {
+fn wasm_build_scripts(os_apps_dir: &Path, startup_apps: &[String]) -> Result<Vec<PathBuf>> {
     let mut scripts = Vec::new();
+    let startup_app_set: HashSet<&str> = startup_apps.iter().map(String::as_str).collect();
 
     for app_entry in std::fs::read_dir(os_apps_dir)? {
         let app_dir = match app_entry {
             Ok(entry) if entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false) => entry.path(),
             _ => continue,
         };
+        let app_name = app_dir
+            .file_name()
+            .and_then(OsStr::to_str)
+            .unwrap_or_default();
+        if !startup_app_set.contains(app_name) {
+            continue;
+        }
         let wasm_dir = app_dir.join("wasm");
         if !wasm_dir.is_dir() {
             continue;
@@ -2150,6 +2141,7 @@ mod tests {
         LocalWasmStartupPolicy, RuntimeRecoveryStep, actor_passivation_check_interval_secs,
         load_or_create_temper_api_key, local_wasm_startup_policy, runtime_recovery_plan,
         soul_lookup_filters,
+        startup_os_apps,
     };
 
     #[test]
@@ -2205,6 +2197,14 @@ mod tests {
     }
 
     #[test]
+    fn startup_os_apps_only_include_core_apps() {
+        let repo_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        temper_platform::os_apps::set_os_apps_dir(repo_root.join("os-apps"));
+        let apps = startup_os_apps();
+        assert_eq!(apps, vec!["paw-agent", "paw-channels", "paw-fs"]);
+    }
+
+    #[test]
     fn datadog_configs_use_tenant_aware_entity_queries() {
         let repo_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         let dashboard_path = repo_root.join("dd-dashboards/openpaw-overview.json");
@@ -2215,7 +2215,7 @@ mod tests {
         let monitors: Value =
             serde_json::from_str(&std::fs::read_to_string(&monitor_path).unwrap()).unwrap();
 
-        let active_entities_query = dashboard["widgets"]
+        let indexed_entities_query = dashboard["widgets"]
             .as_array()
             .unwrap()
             .iter()
@@ -2225,9 +2225,7 @@ mod tests {
                     let definition = &inner["definition"];
                     if matches!(
                         definition["title"].as_str()?,
-                        "Active Entities"
-                            | "Indexed Entities"
-                            | "Indexed Entities (Query Plane)"
+                        "Indexed Entities" | "Indexed Entities (Query Plane)"
                     ) {
                         definition["requests"][0]["q"].as_str()
                     } else {
@@ -2237,8 +2235,8 @@ mod tests {
             })
             .expect("Entity count widget query should exist");
         assert_eq!(
-            active_entities_query,
-            "sum:temper_active_entities{service:openpaw,tenant:*}"
+            indexed_entities_query,
+            "sum:temper_indexed_entities{service:openpaw,tenant:*}"
         );
 
         let active_actors_query = dashboard["widgets"]
@@ -2289,7 +2287,7 @@ mod tests {
             "avg:process_resident_memory_bytes{service:openpaw}"
         );
 
-        let active_entities_by_host_query = dashboard["widgets"]
+        let indexed_entities_by_host_query = dashboard["widgets"]
             .as_array()
             .unwrap()
             .iter()
@@ -2306,8 +2304,8 @@ mod tests {
             })
             .expect("Indexed Entities by Host widget query should exist");
         assert_eq!(
-            active_entities_by_host_query,
-            "sum:temper_active_entities{service:openpaw,tenant:*} by {host}"
+            indexed_entities_by_host_query,
+            "sum:temper_indexed_entities{service:openpaw,tenant:*} by {host}"
         );
 
         let active_actors_by_host_query = dashboard["widgets"]
@@ -2502,21 +2500,21 @@ mod tests {
             "sum:temper_wasm_module_load_failures_total{service:openpaw} by {app,module,reason,criticality}.as_count().rollup(sum, 60)"
         );
 
-        let active_entities_drop_query = monitors
+        let indexed_entities_drop_query = monitors
             .as_array()
             .unwrap()
             .iter()
             .find_map(|monitor| {
-                if monitor["name"].as_str()? == "[OpenPaw] Active Entities Drop" {
+                if monitor["name"].as_str()? == "[OpenPaw] Indexed Entities Drop" {
                     monitor["query"].as_str()
                 } else {
                     None
                 }
             })
-            .expect("Active Entities Drop monitor query should exist");
+            .expect("Indexed Entities Drop monitor query should exist");
         assert_eq!(
-            active_entities_drop_query,
-            "avg(last_15m):sum:temper_active_entities{service:openpaw,tenant:*} < 1"
+            indexed_entities_drop_query,
+            "avg(last_15m):sum:temper_indexed_entities{service:openpaw,tenant:*} < 1"
         );
 
         let startup_regression_query = monitors

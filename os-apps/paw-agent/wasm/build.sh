@@ -8,9 +8,22 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # Standard modules (wasm32-unknown-unknown)
 # Build failures are non-fatal — some modules may not compile on all targets.
 FAILED_MODULES=""
+copy_artifact() {
+    local module="$1"
+    local target="$2"
+    local source_file="$SCRIPT_DIR/$module/target/$target/release/${module/-/_}.wasm"
+    if [ ! -f "$source_file" ]; then
+        source_file="$SCRIPT_DIR/$module/target/$target/release/$(echo "$module" | tr '_' '-').wasm"
+    fi
+    if [ -f "$source_file" ]; then
+        cp "$source_file" "$SCRIPT_DIR/$module/$module.wasm"
+    fi
+}
+
 for module in llm_caller sandbox_provisioner workspace_provisioner context_compactor steering_checker coding_agent_runner heartbeat_scan heartbeat_scheduler cron_compute_next workspace_restorer agent_reply request_approval request_plan_review capability_installer plan_approval_handler plan_review_feedback_handler; do
     echo "Building $module..."
     if (cd "$SCRIPT_DIR/$module" && cargo build --target wasm32-unknown-unknown --release 2>&1); then
+        copy_artifact "$module" "wasm32-unknown-unknown"
         echo "  -> $module built successfully"
     else
         echo "  -> $module FAILED (skipping)"
@@ -22,6 +35,7 @@ done
 for module in monty_repl; do
     echo "Building $module (wasip1)..."
     if (cd "$SCRIPT_DIR/$module" && cargo build --target wasm32-wasip1 --release 2>&1); then
+        copy_artifact "$module" "wasm32-wasip1"
         echo "  -> $module built successfully"
     else
         echo "  -> $module FAILED (skipping)"

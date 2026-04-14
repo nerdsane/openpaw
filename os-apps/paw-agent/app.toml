@@ -1,4 +1,13 @@
 name = "paw-agent"
 description = "Core agent lifecycle — souls, skills, sessions, memory, teams"
 version = "0.1.0"
+startup_install = "core"
 dependencies = ["paw-fs"]
+
+[[wasm_modules]]
+name = "monty_repl"
+target = "wasm32-wasip1"
+criticality = "app-required"
+startup_loading = "lazy"
+provenance = "bundled-artifact"
+import_class = "temper-host+wasi-preview1"

@@ -38,14 +38,14 @@ That is the right idea, but the rebuild path is wrong. A durable projection shou
 Observed production-local telemetry from Datadog during investigation showed:
 
 - ~19.9k active actors
-- ~19.8k active entities in the default tenant plus ~92 in `temper-system`
+- ~19.8k indexed entities in the default tenant plus ~92 in `temper-system`
 - ~1.39–1.42 GB resident memory on the current `Mac` host
 
 This indicates that nearly the entire discovered corpus was hydrated as actors. On smaller instances this is likely to cause instability or OOM pressure even while the system is mostly idle.
 
 ### Problem 4: Metrics and naming obscure the real behavior
 
-`temper_active_entities` currently mixes a global total with tenant-tagged series. The existing dashboard query averaged those together and produced a misleading value. More importantly, the metric names imply that "active entities" and "active actors" are equivalent runtime concepts, when they are not.
+`temper_indexed_entities` must represent the discovered query-plane corpus, not actor residency. The earlier metric naming blurred those concepts, and the old dashboard query averaged a global total with tenant-tagged series to produce a misleading value.
 
 We need a model where:
 
