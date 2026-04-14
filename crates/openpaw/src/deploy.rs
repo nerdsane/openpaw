@@ -38,46 +38,45 @@ pub async fn run_deploy(config: Config, with_datadog: bool) -> Result<()> {
     cliclack::log::step("Provisioning R2 bucket (free tier: 10 GB storage)...")?;
     create_r2_bucket_idempotent(&bucket_name)?;
 
-    // R2 S3-compatible credentials can't be created via CLI.
-    // Open the exact page and walk the user through it step by step.
+    // R2 API token credentials can't be created via CLI.
     let r2_token_url = "https://dash.cloudflare.com/?to=/:account/r2/api-tokens";
     cliclack::log::info(format!(
-        "Now create S3 credentials so Paw can read/write files.\n  \
+        "Now create R2 credentials so Paw can read/write files.\n  \
          A browser tab is opening to the R2 API tokens page.\n\n  \
          1. Click \"Create API token\"\n  \
          2. Token name: openpaw\n  \
          3. Permissions: Object Read & Write\n  \
-         4. Under \"Specify bucket(s)\", select: Apply to specific buckets only\n     \
+         4. Under \"Specify bucket(s)\": Apply to specific buckets only\n     \
             → choose \"{bucket_name}\"\n  \
          5. TTL: leave as \"No expiration\"\n  \
          6. Click \"Create API Token\"\n  \
-         7. You'll see an Access Key ID and a Secret Access Key — paste both below\n  \
-         8. Copy the S3 endpoint shown on the same page (looks like\n     \
-            https://abc123.r2.cloudflarestorage.com)"
+         7. You'll see an Access Key ID and a Secret Access Key\n  \
+         8. The endpoint URL is also shown (looks like\n     \
+            https://abc123.r2.cloudflarestorage.com)\n  \
+         9. Paste all three values below"
     ))?;
     let _ = Command::new("open").arg(r2_token_url).status();
 
-    let blob_access_key: String = cliclack::input("Paste R2 Access Key ID")
-        .placeholder("Starts with a short alphanumeric string")
+    let blob_access_key: String = cliclack::input("R2 Access Key ID")
         .validate(|input: &String| {
             if input.trim().is_empty() {
-                Err("Required — it's on the token page you just created")
+                Err("Required — shown on the token page you just created")
             } else {
                 Ok(())
             }
         })
         .interact()?;
-    let blob_secret_key: String = cliclack::password("Paste R2 Secret Access Key")
+    let blob_secret_key: String = cliclack::password("R2 Secret Access Key")
         .mask('•')
         .validate(|input: &String| {
             if input.trim().is_empty() {
-                Err("Required — it's right below the Access Key ID")
+                Err("Required — shown right below the Access Key ID")
             } else {
                 Ok(())
             }
         })
         .interact()?;
-    let blob_endpoint: String = cliclack::input("Paste R2 S3 endpoint")
+    let blob_endpoint: String = cliclack::input("R2 endpoint URL")
         .placeholder("https://<account-id>.r2.cloudflarestorage.com")
         .validate(|input: &String| {
             if input.trim().is_empty() {
@@ -287,18 +286,17 @@ fn ensure_auth_turso() -> Result<()> {
         return Ok(());
     }
 
-    let token_url = "https://app.turso.tech";
-    cliclack::log::info(format!(
+    cliclack::log::info(
         "Turso provides the database (free tier, no credit card).\n  \
          A browser tab is opening to Turso.\n\n  \
          1. Sign up or log in if prompted\n  \
-         2. Click \"API Tokens\" in the left sidebar\n  \
-         3. Click \"Create Token\"\n  \
-         4. Name: openpaw\n  \
-         5. Click \"Create\"\n  \
-         6. Copy the token and paste it below"
-    ))?;
-    let _ = Command::new("open").arg(token_url).status();
+         2. Go to API Tokens (the URL ends with /api-tokens)\n  \
+         3. Click \"Create Token\" → name it \"openpaw\" → Create\n  \
+         4. Copy the token and paste it below"
+    )?;
+    let _ = Command::new("open")
+        .arg("https://app.turso.tech")
+        .status();
 
     let token: String = cliclack::password("Paste Turso API token")
         .mask('•')
@@ -315,7 +313,7 @@ fn ensure_auth_turso() -> Result<()> {
 
     if !is_cli_logged_in("turso", &["auth", "whoami"]) {
         anyhow::bail!(
-            "That token didn't work. Go to {token_url} → API Tokens, create a new one, and retry."
+            "That token didn't work. Go to https://app.turso.tech → API Tokens, create a new one, and retry."
         );
     }
     cliclack::log::success("turso authenticated ✓")?;
@@ -371,8 +369,8 @@ fn ensure_auth_wrangler() -> Result<()> {
 fn create_turso_db_idempotent(database_name: &str) -> Result<()> {
     let output = Command::new("turso")
         .args(["db", "create", database_name, "--wait"])
-        .stdin(std::process::Stdio::inherit())
-        .stdout(std::process::Stdio::inherit())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
         .output()
         .context("Failed to run turso db create")?;
 
@@ -395,8 +393,8 @@ fn create_turso_db_idempotent(database_name: &str) -> Result<()> {
 fn create_r2_bucket_idempotent(bucket_name: &str) -> Result<()> {
     let output = Command::new("wrangler")
         .args(["r2", "bucket", "create", bucket_name])
-        .stdin(std::process::Stdio::inherit())
-        .stdout(std::process::Stdio::inherit())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
         .output()
         .context("Failed to run wrangler r2 bucket create")?;
 
