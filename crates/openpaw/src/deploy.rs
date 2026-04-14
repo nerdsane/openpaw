@@ -41,10 +41,11 @@ pub async fn run_deploy(mut config: Config, with_datadog: bool) -> Result<()> {
     let database_name = format!("openpaw-{owner}");
     let bucket_name = format!("openpaw-fs-{owner}");
 
-    let admin_email: String = cliclack::input("Admin email")
+    cliclack::log::info("Create your dashboard login — this is how you'll sign into the web UI.")?;
+    let admin_email: String = cliclack::input("Email")
         .placeholder("you@example.com")
         .interact()?;
-    let admin_password: String = cliclack::password("Admin password").mask('•').interact()?;
+    let admin_password: String = cliclack::password("Password").mask('•').interact()?;
 
     cliclack::log::step("Provisioning Turso database...")?;
     run_checked("turso", &["db", "create", &database_name, "--wait"])?;
