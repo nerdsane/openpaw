@@ -732,8 +732,17 @@
   }
 
   @media (max-width: 640px) {
+    .page { max-width: 100%; }
     .var-main { flex-wrap: wrap; }
-    .cat-actions { flex-wrap: wrap; }
+    .var-val { max-width: none; text-align: left; margin-left: 0; width: 100%; padding-left: calc(6px + var(--sp-2)); }
+    .var-actions { width: 100%; padding-left: calc(6px + var(--sp-2)); }
+    .cat-actions { flex-wrap: wrap; gap: var(--sp-2); }
+    .cat-header { flex-wrap: wrap; }
     .pw-form { flex-direction: column; align-items: stretch; }
+    .var-edit { padding-left: 0; flex-direction: column; }
+    .add-form { flex-wrap: wrap; }
+    .var-input-key { max-width: none; }
+    .acct-row { flex-wrap: wrap; }
+    .acct-row .var-val { flex: none; width: 100%; }
   }
 </style>

@@ -173,6 +173,9 @@ body {
   color: var(--text-1);
   background: var(--bg);
   min-height: 100vh;
+  min-height: 100dvh;
+  overflow-x: hidden;
+  -webkit-text-size-adjust: 100%;
 }
 
 a { color: var(--text-1); text-decoration: none; }
@@ -260,5 +263,26 @@ pre {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+  }
+}
+
+/* ============================================================
+   Mobile
+   ============================================================ */
+
+@media (max-width: 640px) {
+  html { font-size: 14px; }
+
+  /* Ensure tap targets meet 44px minimum */
+  button, a, [role="button"] {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  /* Inline buttons (inside rows, forms) can be smaller */
+  .act, .btn-sm, .step-act, .tab, .expand-btn,
+  .cat-act, .raw-toggle, .section-label, .add-btn {
+    min-height: 36px;
+    min-width: auto;
   }
 }

@@ -548,10 +548,12 @@ fn get_railway_ids() -> Result<(String, String)> {
 
 /// Deploy the pre-built Docker image from GHCR instead of building from source.
 fn deploy_prebuilt_image(project_id: &str, env_id: &str) -> Result<()> {
-    let image = "ghcr.io/nerdsane/openpaw:latest";
     let tmp = std::env::temp_dir().join("openpaw-deploy");
     let _ = std::fs::create_dir_all(&tmp);
-    std::fs::write(tmp.join("Dockerfile"), format!("FROM {image}\n"))?;
+    std::fs::write(
+        tmp.join("Dockerfile"),
+        "ARG IMAGE_TAG=latest\nFROM ghcr.io/nerdsane/openpaw:${IMAGE_TAG}\n",
+    )?;
     std::fs::write(
         tmp.join("railway.toml"),
         "[build]\nbuilder = \"dockerfile\"\ndockerfilePath = \"Dockerfile\"\n\n\

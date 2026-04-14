@@ -417,14 +417,16 @@ export async function disconnectSlack(): Promise<void> {
 
 export interface RailwayStatus {
   configured: boolean;
+  can_update: boolean;
   project_id: string | null;
   environment_id: string | null;
+  service_id: string | null;
   otel_service_id: string | null;
 }
 
 export async function getRailwayStatus(): Promise<RailwayStatus> {
   const res = await apiFetch(`${BASE}/paw/infra/railway/status`);
-  if (!res.ok) return { configured: false, project_id: null, environment_id: null, otel_service_id: null };
+  if (!res.ok) return { configured: false, can_update: false, project_id: null, environment_id: null, service_id: null, otel_service_id: null };
   return res.json();
 }
 
@@ -437,6 +439,71 @@ export async function setRailwayVar(service: string, key: string, value: string)
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.error || `Set Railway var failed: ${res.status}`);
+  }
+}
+
+// ──────────────────── Version + Updates API ────────────────────
+
+export interface VersionInfo {
+  version: string;
+  sha: string;
+}
+
+export interface UpdateCheck {
+  current_version: string;
+  latest_version: string | null;
+  latest_sha: string | null;
+  update_available: boolean;
+  release_url: string | null;
+  release_notes: string | null;
+}
+
+export async function fetchVersion(): Promise<VersionInfo> {
+  const res = await apiFetch(`${BASE}/paw/version`);
+  if (!res.ok) return { version: 'unknown', sha: 'unknown' };
+  return res.json();
+}
+
+export async function checkForUpdates(): Promise<UpdateCheck> {
+  const res = await apiFetch(`${BASE}/paw/infra/updates`);
+  if (!res.ok) {
+    return {
+      current_version: 'unknown',
+      latest_version: null,
+      latest_sha: null,
+      update_available: false,
+      release_url: null,
+      release_notes: null,
+    };
+  }
+  return res.json();
+}
+
+export interface EdgeBuild {
+  available: boolean;
+  sha: string | null;
+  short_sha: string | null;
+  message: string | null;
+  committed_at: string | null;
+}
+
+export async function checkEdgeBuild(): Promise<EdgeBuild> {
+  const res = await apiFetch(`${BASE}/paw/infra/edge`);
+  if (!res.ok) {
+    return { available: false, sha: null, short_sha: null, message: null, committed_at: null };
+  }
+  return res.json();
+}
+
+export async function triggerRedeploy(imageTag?: 'latest' | 'edge'): Promise<void> {
+  const res = await apiFetch(`${BASE}/paw/infra/railway/redeploy`, {
+    method: 'POST',
+    headers: { ...HEADERS, 'content-type': 'application/json' },
+    body: JSON.stringify({ image_tag: imageTag ?? null }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `Update failed: ${res.status}`);
   }
 }
 
