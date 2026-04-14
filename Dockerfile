@@ -16,12 +16,12 @@ COPY docs ./docs
 COPY railway.toml README.md AGENTS.md CLAUDE.md INSTRUCTIONS.md ./
 COPY --from=dashboard-build /app/dashboard/build ./dashboard/build
 ENV CARGO_BUILD_JOBS=2
-RUN cargo build -p openpaw --release
+RUN cargo build -p openpaw --release --bin openpaw-server
 
 FROM debian:bookworm-slim
-RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y ca-certificates libz3-4 && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
-COPY --from=rust-build /app/target/release/openpaw ./openpaw
+COPY --from=rust-build /app/target/release/openpaw-server ./openpaw
 COPY --from=rust-build /app/dashboard/build ./dashboard/build
 COPY os-apps ./os-apps
 EXPOSE 3467

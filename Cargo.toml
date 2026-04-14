@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/openpaw",
+    "crates/openpaw-cli",
     "crates/paw-transport",
 ]
 

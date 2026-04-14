@@ -5,7 +5,6 @@
 
 mod auth;
 mod config;
-mod deploy;
 mod setup;
 mod setup_api;
 mod setup_llm;
@@ -16,7 +15,7 @@ use clap::{Parser, Subcommand};
 use std::io::IsTerminal;
 
 #[derive(Parser)]
-#[command(name = "openpaw", about = "Open Paw — agent platform")]
+#[command(name = "openpaw-server", about = "Open Paw — agent server")]
 struct Cli {
     #[command(subcommand)]
     command: Option<Command>,
@@ -24,12 +23,8 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Set up OpenPaw — API keys, messaging, soul, and optionally deploy to the cloud
-    Setup {
-        /// Add the Datadog collector sidecar service when deploying
-        #[arg(long)]
-        with_datadog: bool,
-    },
+    /// Configure and run OpenPaw locally — API keys, messaging, soul personalization
+    Run,
     /// Diagnose configuration and show what's working
     Doctor,
 }
@@ -44,25 +39,11 @@ async fn main() -> anyhow::Result<()> {
     std::fs::create_dir_all(&data_dir)?;
 
     let force_soul_setup = match cli.command {
-        Some(Command::Setup { with_datadog }) => {
-            // Phase A: collect API key + messaging config
+        Some(Command::Run) => {
+            // Collect API key + messaging config, then boot the server
             let result = setup::run_setup_config(&config).await?;
             setup::merge_setup_into_config(&mut config, result);
-
-            // Ask: run locally or deploy to the cloud?
-            if std::io::stdin().is_terminal() {
-                let choice: &str = cliclack::select("What would you like to do?")
-                    .item("local", "Run locally", "Boot the server on this machine")
-                    .item("deploy", "Deploy to the cloud", "Provision infrastructure and deploy to Railway")
-                    .interact()?;
-
-                if choice == "deploy" {
-                    deploy::run_deploy(config, with_datadog).await?;
-                    return Ok(());
-                }
-            }
-
-            true // local path: force soul personalization after boot
+            true // force soul personalization after boot
         }
         Some(Command::Doctor) => {
             setup::run_doctor(&data_dir, &config);
@@ -70,12 +51,12 @@ async fn main() -> anyhow::Result<()> {
         }
         None => {
             // No subcommand: just boot the server.
-            // If not configured yet, tell the user what to do.
             if std::io::stdin().is_terminal() && setup::needs_setup(&data_dir, &config) {
                 eprintln!();
                 eprintln!("  Open Paw is not configured yet.");
                 eprintln!();
-                eprintln!("  Run \x1b[1mopenpaw setup\x1b[0m to get started.");
+                eprintln!("  Run \x1b[1mopenpaw run\x1b[0m to get started locally,");
+                eprintln!("  or  \x1b[1mopenpaw deploy\x1b[0m to deploy to the cloud.");
                 eprintln!();
                 std::process::exit(1);
             }
@@ -87,8 +68,14 @@ async fn main() -> anyhow::Result<()> {
     // Full debug logs when RUST_LOG is explicitly set or not in a terminal.
     let is_terminal = std::io::stderr().is_terminal();
     if std::env::var_os("RUST_LOG").is_none() {
-        let level = if is_terminal { "warn" } else { "info,openpaw=debug" };
-        unsafe { std::env::set_var("RUST_LOG", level); }
+        let level = if is_terminal {
+            "warn"
+        } else {
+            "info,openpaw=debug"
+        };
+        unsafe {
+            std::env::set_var("RUST_LOG", level);
+        }
     }
     if config.otel_enabled {
         let has_explicit_endpoint = std::env::var_os("OTLP_ENDPOINT").is_some()

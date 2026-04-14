@@ -7,7 +7,7 @@ rust-version.workspace = true
 description = "Open Paw — Agent daemon built on Temper platform"
 
 [[bin]]
-name = "openpaw"
+name = "openpaw-server"
 path = "src/main.rs"
 
 [dependencies]
