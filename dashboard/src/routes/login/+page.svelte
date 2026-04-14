@@ -112,81 +112,86 @@
     min-height: 100vh;
     display: grid;
     place-items: center;
-    padding: 2rem;
-    background:
-      radial-gradient(circle at top left, rgba(83, 160, 255, 0.18), transparent 35%),
-      radial-gradient(circle at bottom right, rgba(255, 196, 72, 0.18), transparent 30%),
-      var(--bg);
+    padding: var(--sp-8);
+    background: var(--bg);
   }
 
   .login-card {
-    width: min(440px, 100%);
-    padding: 2rem;
+    width: min(400px, 100%);
+    padding: var(--sp-6);
     border: 1px solid var(--border);
-    border-radius: 24px;
-    background: color-mix(in srgb, var(--bg) 82%, white 4%);
-    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.18);
+    border-radius: var(--radius);
+    background: var(--surface);
   }
 
   .eyebrow {
-    margin: 0 0 0.75rem;
-    font-size: 0.75rem;
-    letter-spacing: 0.12em;
+    margin: 0 0 var(--sp-2);
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    letter-spacing: 0.08em;
     color: var(--text-3);
   }
 
   h1 {
     margin: 0;
-    font-size: clamp(2rem, 4vw, 2.6rem);
+    font-size: var(--text-xl);
   }
 
   .lede {
-    margin: 0.75rem 0 1.5rem;
+    margin: var(--sp-2) 0 var(--sp-6);
+    font-size: var(--text-sm);
     color: var(--text-2);
     line-height: 1.5;
   }
 
   .form {
     display: grid;
-    gap: 1rem;
+    gap: var(--sp-3);
   }
 
   label {
     display: grid;
-    gap: 0.35rem;
+    gap: var(--sp-1);
   }
 
   label span {
-    font-size: 0.85rem;
+    font-size: var(--text-sm);
     color: var(--text-2);
   }
 
   input {
     width: 100%;
-    padding: 0.85rem 1rem;
-    border-radius: 14px;
+    padding: var(--sp-2) var(--sp-3);
+    border-radius: var(--radius);
     border: 1px solid var(--border);
     background: rgba(255, 255, 255, 0.04);
     color: var(--text-1);
+    font-size: var(--text-base);
   }
 
   .submit {
-    margin-top: 0.5rem;
-    padding: 0.95rem 1rem;
-    border-radius: 14px;
+    margin-top: var(--sp-2);
+    padding: var(--sp-2) var(--sp-3);
+    border-radius: var(--radius);
     border: none;
-    background: linear-gradient(135deg, #53a0ff, #7a6cff);
-    color: white;
+    background: var(--accent);
+    color: var(--bg);
     font-weight: 600;
+    font-size: var(--text-base);
+  }
+
+  .submit:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
   }
 
   .status,
   .error {
     margin: 0;
-    font-size: 0.9rem;
+    font-size: var(--text-sm);
   }
 
   .error {
-    color: #ff8b8b;
+    color: var(--status-error);
   }
 </style>

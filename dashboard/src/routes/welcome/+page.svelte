@@ -179,12 +179,12 @@
 
 <style>
   .welcome {
-    max-width: 640px;
+    max-width: 560px;
     margin: 0 auto;
-    padding: 48px 24px;
+    padding: var(--sp-8) var(--sp-4);
     display: flex;
     flex-direction: column;
-    gap: 32px;
+    gap: var(--sp-6);
     min-height: 100vh;
   }
 
@@ -193,102 +193,102 @@
   }
 
   .welcome-title {
-    font-size: 24px;
-    font-weight: 600;
-    color: var(--text-1, #fafafa);
-    margin-bottom: 8px;
+    font-size: var(--text-xl);
+    font-weight: 500;
+    color: var(--text-1);
+    margin-bottom: var(--sp-1);
   }
 
   .welcome-subtitle {
-    font-size: 14px;
-    color: var(--text-3, #666);
+    font-size: var(--text-sm);
+    color: var(--text-3);
   }
 
   .welcome-error {
-    color: #ff9e9e;
+    color: var(--status-error);
   }
 
   .welcome-action {
     display: inline-block;
-    margin-top: 16px;
-    padding: 10px 24px;
-    border-radius: var(--radius-lg, 8px);
-    background: var(--accent, #34d399);
-    color: var(--bg, #0a0a0a);
+    margin-top: var(--sp-4);
+    padding: var(--sp-2) var(--sp-6);
+    border-radius: var(--radius);
+    background: var(--accent);
+    color: var(--bg);
     font-weight: 600;
-    font-size: 14px;
+    font-size: var(--text-base);
     text-decoration: none;
   }
 
   /* ---- LLM Setup Form ---- */
   .llm-setup, .fallback-setup {
-    background: rgba(255, 255, 255, 0.02);
-    border: 1px solid var(--border, rgba(255, 255, 255, 0.08));
-    border-radius: var(--radius-lg, 8px);
-    padding: 24px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: var(--sp-4);
   }
 
   .section-title {
-    font-size: 16px;
+    font-size: var(--text-lg);
     font-weight: 600;
-    color: var(--text-1, #fafafa);
-    margin-bottom: 4px;
+    color: var(--text-1);
+    margin-bottom: var(--sp-1);
   }
 
   .section-desc {
-    font-size: 13px;
-    color: var(--text-3, #666);
-    margin-bottom: 16px;
+    font-size: var(--text-sm);
+    color: var(--text-3);
+    margin-bottom: var(--sp-4);
   }
 
   .llm-form {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: var(--sp-3);
   }
 
   .field {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: var(--sp-1);
   }
 
   .field label {
-    font-size: 12px;
+    font-size: var(--text-xs);
     font-weight: 500;
-    color: var(--text-2, #aaa);
+    color: var(--text-2);
     text-transform: uppercase;
     letter-spacing: 0.04em;
   }
 
   .field select, .field input {
-    padding: 10px 12px;
-    border-radius: var(--radius-lg, 8px);
-    border: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+    padding: var(--sp-2) var(--sp-3);
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
     background: rgba(255, 255, 255, 0.04);
-    color: var(--text-1, #fafafa);
-    font-size: 14px;
+    color: var(--text-1);
+    font-size: var(--text-base);
     font-family: inherit;
   }
 
   .field select option {
-    background: var(--bg, #0a0a0a);
-    color: var(--text-1, #fafafa);
+    background: var(--bg);
+    color: var(--text-1);
   }
 
   .field-error {
-    font-size: 13px;
-    color: #ff9e9e;
+    font-size: var(--text-sm);
+    color: var(--status-error);
   }
 
   .btn-primary {
-    padding: 10px 20px;
-    border-radius: var(--radius-lg, 8px);
+    padding: var(--sp-2) var(--sp-4);
+    border-radius: var(--radius);
     border: none;
-    background: var(--accent, #34d399);
-    color: var(--bg, #0a0a0a);
+    background: var(--accent);
+    color: var(--bg);
     font-weight: 600;
-    font-size: 14px;
+    font-size: var(--text-sm);
     cursor: pointer;
     align-self: flex-start;
   }
@@ -302,8 +302,8 @@
   .chat-container {
     flex: 1;
     min-height: 400px;
-    border: 1px solid var(--border, rgba(255, 255, 255, 0.08));
-    border-radius: var(--radius-lg, 8px);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
     overflow: hidden;
   }
 
@@ -311,24 +311,24 @@
   .welcome-footer {
     display: flex;
     justify-content: center;
-    gap: 24px;
-    padding-top: 8px;
+    gap: var(--sp-6);
+    padding-top: var(--sp-2);
   }
 
   .welcome-link {
-    font-size: 13px;
-    color: var(--text-3, #666);
+    font-size: var(--text-sm);
+    color: var(--text-3);
     text-decoration: none;
   }
 
   .welcome-link:hover {
-    color: var(--accent, #34d399);
+    color: var(--accent);
   }
 
   .fallback-setup {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 12px;
+    gap: var(--sp-3);
   }
 </style>

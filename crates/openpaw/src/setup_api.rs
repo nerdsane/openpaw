@@ -55,6 +55,7 @@ fn allowed_secret_keys() -> HashSet<&'static str> {
         "github_token",
         "exa_api_key",
         "tensorlake_api_key",
+        "temper_api_key",
         "llm_provider",
         "dd_api_key",
         "dd_site",

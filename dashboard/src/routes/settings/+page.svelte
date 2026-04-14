@@ -551,25 +551,27 @@
 <style>
   .settings-shell {
     display: grid;
-    gap: 1.5rem;
+    gap: var(--sp-4);
     max-width: 960px;
     margin: 0 auto;
-    padding: 2rem 1rem;
+    padding: var(--sp-6) var(--sp-4);
   }
 
   .hero h1 {
     margin: 0;
-    font-size: clamp(2rem, 4vw, 3rem);
+    font-size: var(--text-xl);
   }
 
   .eyebrow {
-    margin: 0 0 0.5rem;
-    font-size: 0.75rem;
-    letter-spacing: 0.14em;
+    margin: 0 0 var(--sp-1);
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    letter-spacing: 0.08em;
     color: var(--text-3);
   }
 
   .lede {
+    font-size: var(--text-sm);
     color: var(--text-2);
     line-height: 1.5;
   }
@@ -577,16 +579,16 @@
   .grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 1rem;
+    gap: var(--sp-3);
   }
 
   .card {
     display: grid;
-    gap: 0.9rem;
-    padding: 1.25rem;
+    gap: var(--sp-3);
+    padding: var(--sp-4);
     border: 1px solid var(--border);
-    border-radius: var(--radius-lg, 8px);
-    background: color-mix(in srgb, var(--bg) 88%, white 4%);
+    border-radius: var(--radius);
+    background: var(--surface);
   }
 
   .full {
@@ -595,65 +597,73 @@
 
   h2 {
     margin: 0;
-    font-size: 1rem;
+    font-size: var(--text-lg);
     font-weight: 600;
   }
 
   .status-grid {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 1rem;
+    gap: var(--sp-3);
   }
 
   .status-grid article {
-    padding: 1rem;
-    border-radius: var(--radius-lg, 8px);
+    padding: var(--sp-3);
+    border-radius: var(--radius);
     background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--border);
   }
 
   .status-grid span {
     display: block;
-    margin-bottom: 0.3rem;
+    margin-bottom: var(--sp-1);
+    font-size: var(--text-xs);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
     color: var(--text-3);
   }
 
   .status-grid span.ok {
-    color: var(--status-success, #34d399);
+    color: var(--status-success);
+  }
+
+  .status-grid strong {
+    font-size: var(--text-base);
   }
 
   .provider-tabs,
   .row {
     display: flex;
-    gap: 0.5rem;
+    gap: var(--sp-2);
     flex-wrap: wrap;
   }
 
   .provider-tabs button {
-    padding: 0.5rem 0.85rem;
-    border-radius: var(--radius-lg, 8px);
+    padding: var(--sp-1) var(--sp-3);
+    border-radius: var(--radius);
     border: 1px solid var(--border);
     background: transparent;
     color: var(--text-2);
     cursor: pointer;
-    font-size: 0.85rem;
+    font-size: var(--text-sm);
   }
 
   .provider-tabs button.active {
-    background: var(--accent, #34d399);
-    color: var(--bg, #0a0a0a);
+    background: var(--accent);
+    color: var(--bg);
     border-color: transparent;
     font-weight: 600;
   }
 
   .action {
-    padding: 0.6rem 1rem;
-    border-radius: var(--radius-lg, 8px);
+    padding: var(--sp-2) var(--sp-3);
+    border-radius: var(--radius);
     border: 1px solid transparent;
-    background: var(--accent, #34d399);
-    color: var(--bg, #0a0a0a);
+    background: var(--accent);
+    color: var(--bg);
     font-weight: 600;
     cursor: pointer;
-    font-size: 0.85rem;
+    font-size: var(--text-sm);
   }
 
   .action:disabled {
@@ -662,54 +672,56 @@
   }
 
   .ghost {
-    padding: 0.6rem 1rem;
-    border-radius: var(--radius-lg, 8px);
+    padding: var(--sp-2) var(--sp-3);
+    border-radius: var(--radius);
     border: 1px solid var(--border);
     background: transparent;
     color: var(--text-1);
     cursor: pointer;
-    font-size: 0.85rem;
+    font-size: var(--text-sm);
   }
 
   label {
     display: grid;
-    gap: 0.35rem;
+    gap: var(--sp-1);
   }
 
   label span {
     color: var(--text-2);
-    font-size: 0.85rem;
+    font-size: var(--text-sm);
   }
 
   input,
   textarea {
     width: 100%;
-    border-radius: var(--radius-lg, 8px);
+    border-radius: var(--radius);
     border: 1px solid var(--border);
     background: rgba(255, 255, 255, 0.04);
     color: var(--text-1);
-    padding: 0.7rem 0.85rem;
-    font-size: 0.85rem;
+    padding: var(--sp-2) var(--sp-3);
+    font-size: var(--text-base);
   }
 
   code {
     background: rgba(255, 255, 255, 0.06);
-    padding: 0.1em 0.35em;
-    border-radius: 4px;
-    font-size: 0.82em;
+    padding: 1px 4px;
+    border-radius: var(--radius);
+    font-size: var(--text-sm);
   }
 
   .hint {
     color: var(--text-3);
-    font-size: 0.8rem;
+    font-size: var(--text-xs);
     line-height: 1.4;
     margin: 0;
   }
 
   .preview-block {
-    padding: 1rem;
-    border-radius: var(--radius-lg, 8px);
+    padding: var(--sp-3);
+    border-radius: var(--radius);
     background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--border);
+    font-size: var(--text-sm);
   }
 
   .preview-block p {
@@ -719,7 +731,7 @@
   .soul-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 1rem;
+    gap: var(--sp-3);
   }
 
   .wide {
@@ -728,19 +740,19 @@
 
   .message {
     margin: 0;
-    padding: 0.65rem 0.85rem;
-    border-radius: var(--radius-lg, 8px);
-    font-size: 0.85rem;
+    padding: var(--sp-2) var(--sp-3);
+    border-radius: var(--radius);
+    font-size: var(--text-sm);
   }
 
   .message.error {
     background: rgba(255, 104, 104, 0.12);
-    color: #ff9e9e;
+    color: var(--status-error);
   }
 
   .message.success {
     background: rgba(52, 211, 153, 0.12);
-    color: var(--status-success, #34d399);
+    color: var(--status-success);
   }
 
   @media (max-width: 900px) {

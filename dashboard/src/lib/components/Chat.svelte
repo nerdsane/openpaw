@@ -178,8 +178,8 @@
     overflow-y: auto;
     display: flex;
     flex-direction: column;
-    gap: 12px;
-    padding: 16px;
+    gap: var(--sp-3);
+    padding: var(--sp-4);
   }
 
   .chat-msg {
@@ -199,60 +199,61 @@
   }
 
   .chat-sender {
-    font-size: 10px;
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
     text-transform: uppercase;
     letter-spacing: 0.04em;
-    color: var(--text-3, #666);
-    padding: 0 4px;
+    color: var(--text-3);
+    padding: 0 var(--sp-1);
   }
 
   .chat-bubble {
-    padding: 10px 14px;
-    border-radius: var(--radius-lg, 8px);
-    font-size: 14px;
+    padding: var(--sp-2) var(--sp-3);
+    border-radius: var(--radius);
+    font-size: var(--text-base);
     line-height: 1.5;
     white-space: pre-wrap;
     word-break: break-word;
   }
 
   .chat-msg--user .chat-bubble {
-    background: var(--accent, #34d399);
-    color: var(--bg, #0a0a0a);
+    background: var(--accent);
+    color: var(--bg);
   }
 
   .chat-msg--assistant .chat-bubble {
-    background: rgba(255, 255, 255, 0.06);
-    color: var(--text-1, #fafafa);
-    border: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+    background: var(--surface);
+    color: var(--text-1);
+    border: 1px solid var(--border);
   }
 
   .chat-msg--system .chat-bubble {
     background: rgba(255, 104, 104, 0.12);
-    color: #ff9e9e;
-    font-size: 13px;
+    color: var(--status-error);
+    font-size: var(--text-sm);
   }
 
   .chat-bubble--typing {
-    color: var(--text-3, #666);
+    color: var(--text-3);
     font-style: italic;
   }
 
   .chat-input-row {
     display: flex;
-    gap: 8px;
-    padding: 12px 16px;
-    border-top: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+    gap: var(--sp-2);
+    padding: var(--sp-3) var(--sp-4);
+    border-top: 1px solid var(--border);
   }
 
   .chat-input {
     flex: 1;
     resize: none;
-    border: 1px solid var(--border, rgba(255, 255, 255, 0.08));
-    border-radius: var(--radius-lg, 8px);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
     background: rgba(255, 255, 255, 0.04);
-    color: var(--text-1, #fafafa);
-    padding: 10px 12px;
-    font-size: 14px;
+    color: var(--text-1);
+    padding: var(--sp-2) var(--sp-3);
+    font-size: var(--text-base);
     font-family: inherit;
   }
 
@@ -261,13 +262,13 @@
   }
 
   .chat-send {
-    padding: 10px 18px;
-    border-radius: var(--radius-lg, 8px);
+    padding: var(--sp-2) var(--sp-4);
+    border-radius: var(--radius);
     border: none;
-    background: var(--accent, #34d399);
-    color: var(--bg, #0a0a0a);
+    background: var(--accent);
+    color: var(--bg);
     font-weight: 600;
-    font-size: 14px;
+    font-size: var(--text-sm);
     cursor: pointer;
     white-space: nowrap;
   }
