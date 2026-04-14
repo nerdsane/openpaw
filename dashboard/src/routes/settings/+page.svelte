@@ -4,13 +4,16 @@
     connectSlack,
     disconnectDiscord,
     disconnectSlack,
+    fetchSecretsSchema,
     fetchSetupStatus,
     generateSoulPreview,
     getCurrentSoul,
     getSecret,
+    listSecretKeys,
     saveGeneratedSoul,
     saveSecret,
     type GeneratedSoul,
+    type SecretSchemaEntry,
     type SetupStatus,
     type UserInterview
   } from '$lib/api';
@@ -19,28 +22,42 @@
 
   let status = $state<SetupStatus | null>(null);
   let loading = $state(true);
-  let error = $state('');
-  let success = $state('');
+  let sectionFeedback = $state<Record<string, { type: 'error' | 'success'; message: string }>>({});
 
-  let llmProvider = $state<'anthropic' | 'openrouter' | 'openai'>('anthropic');
+  // LLM provider — now includes openai_codex
+  let llmProvider = $state<'anthropic' | 'openrouter' | 'openai' | 'openai_codex'>('anthropic');
   let anthropicApiKey = $state('');
   let openrouterApiKey = $state('');
   let openaiApiKey = $state('');
+  let openaiCodexToken = $state('');
 
+  // Discord
   let discordBotToken = $state('');
   let discordPublicKey = $state('');
   let discordGuildId = $state('');
   let discordFeedChannelId = $state('');
   let discordForumChannelId = $state('');
 
+  // Slack
   let slackAppToken = $state('');
   let slackBotToken = $state('');
   let slackSigningSecret = $state('');
 
+  // Integrations
   let githubToken = $state('');
   let exaApiKey = $state('');
-  let apiKey = $state('');
 
+  // Observability
+  let ddApiKey = $state('');
+  let ddSite = $state('datadoghq.com');
+
+  // Account
+  let apiKey = $state('');
+  let showApiKey = $state(false);
+  let currentPassword = $state('');
+  let newPassword = $state('');
+
+  // Soul
   let soul = $state<{ summary: string; content: string } | null>(null);
   let generatedSoul = $state<GeneratedSoul | null>(null);
   let soulFeedback = $state('');
@@ -51,9 +68,33 @@
     followup_answers: []
   });
 
-  let showApiKey = $state(false);
-  let currentPassword = $state('');
-  let newPassword = $state('');
+  // Secrets schema + existing keys
+  let schema = $state<SecretSchemaEntry[]>([]);
+  let existingKeys = $state<string[]>([]);
+
+  function setFeedback(section: string, type: 'error' | 'success', message: string) {
+    sectionFeedback = { ...sectionFeedback, [section]: { type, message } };
+    if (type === 'success') {
+      setTimeout(() => {
+        sectionFeedback = { ...sectionFeedback, [section]: undefined as any };
+      }, 4000);
+    }
+  }
+
+  function clearFeedback(section: string) {
+    const { [section]: _, ...rest } = sectionFeedback;
+    sectionFeedback = rest;
+  }
+
+  // Derive LLM status label from provider
+  let llmStatusLabel = $derived.by(() => {
+    if (!status?.has_anthropic_key) return 'Missing';
+    const p = status?.llm_provider;
+    if (p === 'anthropic') return 'Anthropic';
+    if (p === 'openrouter') return 'OpenRouter';
+    if (p === 'openai' || p === 'openai_codex') return 'OpenAI';
+    return 'Configured';
+  });
 
   onMount(async () => {
     await load();
@@ -61,16 +102,18 @@
 
   async function load() {
     loading = true;
-    error = '';
-    success = '';
+    sectionFeedback = {};
 
     try {
       const [
         nextStatus,
         currentSoul,
+        secretsSchema,
+        secretKeys,
         savedAnthropic,
         savedOpenRouter,
         savedOpenAi,
+        savedCodex,
         savedDiscordBot,
         savedDiscordPublic,
         savedDiscordGuild,
@@ -81,14 +124,19 @@
         savedSlackSigningSecret,
         savedGithub,
         savedExa,
+        savedDdApiKey,
+        savedDdSite,
         savedProvider,
         savedApiKey
       ] = await Promise.all([
         fetchSetupStatus(),
         getCurrentSoul(),
+        fetchSecretsSchema(),
+        listSecretKeys(),
         getSecret('anthropic_api_key'),
         getSecret('openrouter_api_key'),
         getSecret('openai_api_key'),
+        getSecret('openai_codex_token'),
         getSecret('discord_bot_token'),
         getSecret('discord_public_key'),
         getSecret('discord_guild_id'),
@@ -99,15 +147,20 @@
         getSecret('slack_signing_secret'),
         getSecret('github_token'),
         getSecret('exa_api_key'),
+        getSecret('dd_api_key'),
+        getSecret('dd_site'),
         getSecret('llm_provider'),
         getSecret('temper_api_key')
       ]);
 
       status = nextStatus;
       soul = currentSoul;
+      schema = secretsSchema;
+      existingKeys = secretKeys;
       anthropicApiKey = savedAnthropic ?? '';
       openrouterApiKey = savedOpenRouter ?? '';
       openaiApiKey = savedOpenAi ?? '';
+      openaiCodexToken = savedCodex ?? '';
       discordBotToken = savedDiscordBot ?? '';
       discordPublicKey = savedDiscordPublic ?? '';
       discordGuildId = savedDiscordGuild ?? '';
@@ -118,36 +171,41 @@
       slackSigningSecret = savedSlackSigningSecret ?? '';
       githubToken = savedGithub ?? '';
       exaApiKey = savedExa ?? '';
+      ddApiKey = savedDdApiKey ?? '';
+      ddSite = savedDdSite || 'datadoghq.com';
       apiKey = savedApiKey ?? '';
-      llmProvider = (savedProvider as typeof llmProvider) || (savedOpenRouter ? 'openrouter' : savedOpenAi ? 'openai' : 'anthropic');
+      llmProvider = (savedProvider as typeof llmProvider) || (savedCodex ? 'openai_codex' : savedOpenRouter ? 'openrouter' : savedOpenAi ? 'openai' : 'anthropic');
     } catch (err) {
-      error = err instanceof Error ? err.message : 'Could not load settings';
+      setFeedback('global', 'error', err instanceof Error ? err.message : 'Could not load settings');
     } finally {
       loading = false;
     }
   }
 
-  async function saveProviderSecret(provider: 'anthropic' | 'openrouter' | 'openai') {
-    error = ''; success = '';
+  async function saveProviderSecret(provider: typeof llmProvider) {
+    clearFeedback('llm');
     try {
       const value =
         provider === 'anthropic' ? anthropicApiKey :
         provider === 'openrouter' ? openrouterApiKey :
+        provider === 'openai_codex' ? openaiCodexToken :
         openaiApiKey;
 
       await saveSecret('llm_provider', provider);
       if (provider === 'anthropic') await saveSecret('anthropic_api_key', value);
       if (provider === 'openrouter') await saveSecret('openrouter_api_key', value);
       if (provider === 'openai') await saveSecret('openai_api_key', value);
-      success = `${provider} configuration saved`;
-      await load();
+      if (provider === 'openai_codex') await saveSecret('openai_codex_token', value);
+      setFeedback('llm', 'success', `${provider === 'openai_codex' ? 'OpenAI Codex' : provider} saved`);
+      // Refresh status to update LLM display
+      status = await fetchSetupStatus();
     } catch (err) {
-      error = err instanceof Error ? err.message : 'Failed to save provider';
+      setFeedback('llm', 'error', err instanceof Error ? err.message : 'Failed to save provider');
     }
   }
 
   async function saveDiscord() {
-    error = ''; success = '';
+    clearFeedback('discord');
     try {
       await Promise.all([
         saveSecret('discord_bot_token', discordBotToken),
@@ -163,15 +221,26 @@
         feed_channel_id: discordFeedChannelId || undefined,
         forum_channel_id: discordForumChannelId || undefined
       });
-      success = 'Discord connected';
-      await load();
+      setFeedback('discord', 'success', 'Discord connected');
+      status = await fetchSetupStatus();
     } catch (err) {
-      error = err instanceof Error ? err.message : 'Failed to connect Discord';
+      setFeedback('discord', 'error', err instanceof Error ? err.message : 'Failed to connect Discord');
+    }
+  }
+
+  async function handleDisconnectDiscord() {
+    clearFeedback('discord');
+    try {
+      await disconnectDiscord();
+      setFeedback('discord', 'success', 'Discord disconnected');
+      status = await fetchSetupStatus();
+    } catch (err) {
+      setFeedback('discord', 'error', err instanceof Error ? err.message : 'Failed to disconnect');
     }
   }
 
   async function saveSlack() {
-    error = ''; success = '';
+    clearFeedback('slack');
     try {
       await Promise.all([
         saveSecret('slack_app_token', slackAppToken),
@@ -183,15 +252,52 @@
         bot_token: slackBotToken,
         signing_secret: slackSigningSecret || undefined
       });
-      success = 'Slack connected';
-      await load();
+      setFeedback('slack', 'success', 'Slack connected');
+      status = await fetchSetupStatus();
     } catch (err) {
-      error = err instanceof Error ? err.message : 'Failed to connect Slack';
+      setFeedback('slack', 'error', err instanceof Error ? err.message : 'Failed to connect Slack');
+    }
+  }
+
+  async function handleDisconnectSlack() {
+    clearFeedback('slack');
+    try {
+      await disconnectSlack();
+      setFeedback('slack', 'success', 'Slack disconnected');
+      status = await fetchSetupStatus();
+    } catch (err) {
+      setFeedback('slack', 'error', err instanceof Error ? err.message : 'Failed to disconnect');
+    }
+  }
+
+  async function saveIntegrations() {
+    clearFeedback('integrations');
+    try {
+      await Promise.all([
+        githubToken ? saveSecret('github_token', githubToken) : Promise.resolve(),
+        exaApiKey ? saveSecret('exa_api_key', exaApiKey) : Promise.resolve()
+      ]);
+      setFeedback('integrations', 'success', 'Integrations saved');
+    } catch (err) {
+      setFeedback('integrations', 'error', err instanceof Error ? err.message : 'Failed to save');
+    }
+  }
+
+  async function saveObservability() {
+    clearFeedback('observability');
+    try {
+      await Promise.all([
+        ddApiKey ? saveSecret('dd_api_key', ddApiKey) : Promise.resolve(),
+        saveSecret('dd_site', ddSite)
+      ]);
+      setFeedback('observability', 'success', 'Observability config saved');
+    } catch (err) {
+      setFeedback('observability', 'error', err instanceof Error ? err.message : 'Failed to save');
     }
   }
 
   async function generateSoul() {
-    error = ''; success = '';
+    clearFeedback('soul');
     try {
       generatedSoul = await generateSoulPreview({
         interview,
@@ -199,177 +305,216 @@
         feedback: soulFeedback || undefined
       });
       soulFeedback = '';
-      success = 'New Paw preview ready';
+      setFeedback('soul', 'success', 'Preview ready');
     } catch (err) {
-      error = err instanceof Error ? err.message : 'Failed to generate soul preview';
+      setFeedback('soul', 'error', err instanceof Error ? err.message : 'Failed to generate preview');
     }
   }
 
   async function saveSoul() {
     if (!generatedSoul) return;
-    error = ''; success = '';
+    clearFeedback('soul');
     try {
       await saveGeneratedSoul(generatedSoul);
-      success = 'Paw soul updated';
+      setFeedback('soul', 'success', 'Soul updated');
       soul = await getCurrentSoul();
     } catch (err) {
-      error = err instanceof Error ? err.message : 'Failed to save soul';
+      setFeedback('soul', 'error', err instanceof Error ? err.message : 'Failed to save soul');
     }
   }
 
   async function updatePassword() {
-    error = ''; success = '';
+    clearFeedback('account');
     try {
       await changePassword(currentPassword, newPassword);
       currentPassword = '';
       newPassword = '';
-      success = 'Password updated';
+      setFeedback('account', 'success', 'Password updated');
     } catch (err) {
-      error = err instanceof Error ? err.message : 'Failed to change password';
+      setFeedback('account', 'error', err instanceof Error ? err.message : 'Failed to change password');
     }
   }
 </script>
 
 <svelte:head>
-  <title>Settings • Open Paw</title>
+  <title>Settings · Open Paw</title>
 </svelte:head>
 
 <section class="settings-shell">
   <header class="hero">
     <p class="eyebrow">SETTINGS</p>
-    <h1>Personal configuration</h1>
-    <p class="lede">Infrastructure comes from deploy-time env vars. Everything here is the live, personal layer your dashboard and terminal both read from the same vault.</p>
+    <h1>Configuration</h1>
+    <p class="lede">Infrastructure comes from deploy-time env vars. Everything here is the live, personal layer your dashboard and agents read from the same vault.</p>
   </header>
 
   {#if loading}
-    <p>Loading settings…</p>
+    <p>Loading settings...</p>
   {:else}
-    {#if error}<p class="message error">{error}</p>{/if}
-    {#if success}<p class="message success">{success}</p>{/if}
+    {#if sectionFeedback.global}
+      <p class="message {sectionFeedback.global.type}">{sectionFeedback.global.message}</p>
+    {/if}
+
+    <!-- ─── Status Bar ─── -->
+    <section class="card full">
+      <h2>Integration status</h2>
+      <div class="status-grid">
+        <article>
+          <span class:ok={status?.has_anthropic_key}>LLM</span>
+          <strong>{llmStatusLabel}</strong>
+        </article>
+        <article>
+          <span class:ok={status?.discord_connected}>Discord</span>
+          <strong>{status?.discord_connected ? 'Connected' : 'Disconnected'}</strong>
+        </article>
+        <article>
+          <span class:ok={status?.slack_connected}>Slack</span>
+          <strong>{status?.slack_connected ? 'Connected' : 'Disconnected'}</strong>
+        </article>
+        <article>
+          <span class:ok={status?.agent_count}>Agents</span>
+          <strong>{status?.agent_count ?? 0}</strong>
+        </article>
+      </div>
+    </section>
+
+    <!-- ─── LLM Provider ─── -->
+    <section class="card full">
+      <h2>LLM provider</h2>
+      {#if sectionFeedback.llm}
+        <p class="message {sectionFeedback.llm.type}">{sectionFeedback.llm.message}</p>
+      {/if}
+      <div class="provider-tabs">
+        <button class:active={llmProvider === 'anthropic'} onclick={() => llmProvider = 'anthropic'} type="button">Anthropic</button>
+        <button class:active={llmProvider === 'openrouter'} onclick={() => llmProvider = 'openrouter'} type="button">OpenRouter</button>
+        <button class:active={llmProvider === 'openai'} onclick={() => llmProvider = 'openai'} type="button">OpenAI</button>
+        <button class:active={llmProvider === 'openai_codex'} onclick={() => llmProvider = 'openai_codex'} type="button">OpenAI Codex</button>
+      </div>
+
+      {#if llmProvider === 'anthropic'}
+        <label><span>Anthropic API key</span><input bind:value={anthropicApiKey} placeholder="sk-ant-..." type="password" /></label>
+      {:else if llmProvider === 'openrouter'}
+        <label><span>OpenRouter API key</span><input bind:value={openrouterApiKey} placeholder="sk-or-..." type="password" /></label>
+      {:else if llmProvider === 'openai_codex'}
+        <label><span>Codex OAuth token</span><input bind:value={openaiCodexToken} placeholder="Paste from ~/.codex/auth.json or run codex login" type="password" /></label>
+        <p class="hint">Included with ChatGPT Plus/Pro subscription. Run <code>codex login</code> to get a token.</p>
+      {:else}
+        <label><span>OpenAI API key</span><input bind:value={openaiApiKey} placeholder="sk-..." type="password" /></label>
+      {/if}
+
+      <button class="action" onclick={() => saveProviderSecret(llmProvider)} type="button">Save provider</button>
+    </section>
 
     <div class="grid">
-      <section class="card span-2">
-        <h2>Integration status</h2>
-        <div class="status-grid">
-          <article>
-            <span class:ok={status?.has_anthropic_key}>LLM</span>
-            <strong>{status?.has_anthropic_key ? 'Configured' : 'Missing'}</strong>
-          </article>
-          <article>
-            <span class:ok={status?.discord_connected}>Discord</span>
-            <strong>{status?.discord_connected ? 'Connected' : 'Disconnected'}</strong>
-          </article>
-          <article>
-            <span class:ok={status?.slack_connected}>Slack</span>
-            <strong>{status?.slack_connected ? 'Connected' : 'Disconnected'}</strong>
-          </article>
-          <article>
-            <span class:ok={status?.agent_count}>Agents</span>
-            <strong>{status?.agent_count ?? 0}</strong>
-          </article>
-        </div>
-      </section>
-
-      <section class="card span-2">
-        <h2>LLM provider</h2>
-        <div class="provider-tabs">
-          <button class:active={llmProvider === 'anthropic'} onclick={() => llmProvider = 'anthropic'} type="button">Anthropic</button>
-          <button class:active={llmProvider === 'openrouter'} onclick={() => llmProvider = 'openrouter'} type="button">OpenRouter</button>
-          <button class:active={llmProvider === 'openai'} onclick={() => llmProvider = 'openai'} type="button">OpenAI</button>
-        </div>
-
-        {#if llmProvider === 'anthropic'}
-          <label><span>Anthropic API key</span><input bind:value={anthropicApiKey} placeholder="sk-ant-..." type="password" /></label>
-        {:else if llmProvider === 'openrouter'}
-          <label><span>OpenRouter API key</span><input bind:value={openrouterApiKey} placeholder="sk-or-..." type="password" /></label>
-        {:else}
-          <label><span>OpenAI API key</span><input bind:value={openaiApiKey} placeholder="sk-..." type="password" /></label>
-        {/if}
-
-        <button class="action" onclick={() => saveProviderSecret(llmProvider)} type="button">Save provider</button>
-      </section>
-
+      <!-- ─── Discord ─── -->
       <section class="card">
         <h2>Discord</h2>
+        {#if sectionFeedback.discord}
+          <p class="message {sectionFeedback.discord.type}">{sectionFeedback.discord.message}</p>
+        {/if}
         <label><span>Bot token</span><input bind:value={discordBotToken} type="password" /></label>
         <label><span>Public key</span><input bind:value={discordPublicKey} /></label>
         <label><span>Guild ID</span><input bind:value={discordGuildId} /></label>
         <label><span>Feed channel</span><input bind:value={discordFeedChannelId} /></label>
         <label><span>Forum channel</span><input bind:value={discordForumChannelId} /></label>
         <div class="row">
-          <button class="action" onclick={saveDiscord} type="button">Connect Discord</button>
-          <button class="ghost" onclick={disconnectDiscord} type="button">Disconnect</button>
+          <button class="action" onclick={saveDiscord} type="button">Connect</button>
+          <button class="ghost" onclick={handleDisconnectDiscord} type="button">Disconnect</button>
         </div>
         {#if status?.discord_interaction_url}
-          <p class="muted">{status.discord_interaction_url}</p>
+          <p class="hint">Interaction URL: {status.discord_interaction_url}</p>
         {/if}
       </section>
 
+      <!-- ─── Slack ─── -->
       <section class="card">
         <h2>Slack</h2>
+        {#if sectionFeedback.slack}
+          <p class="message {sectionFeedback.slack.type}">{sectionFeedback.slack.message}</p>
+        {/if}
         <label><span>App token</span><input bind:value={slackAppToken} type="password" /></label>
         <label><span>Bot token</span><input bind:value={slackBotToken} type="password" /></label>
         <label><span>Signing secret</span><input bind:value={slackSigningSecret} type="password" /></label>
         <div class="row">
-          <button class="action" onclick={saveSlack} type="button">Connect Slack</button>
-          <button class="ghost" onclick={disconnectSlack} type="button">Disconnect</button>
+          <button class="action" onclick={saveSlack} type="button">Connect</button>
+          <button class="ghost" onclick={handleDisconnectSlack} type="button">Disconnect</button>
         </div>
       </section>
 
+      <!-- ─── Integrations ─── -->
       <section class="card">
-        <h2>Other integrations</h2>
+        <h2>Integrations</h2>
+        {#if sectionFeedback.integrations}
+          <p class="message {sectionFeedback.integrations.type}">{sectionFeedback.integrations.message}</p>
+        {/if}
         <label><span>GitHub token</span><input bind:value={githubToken} type="password" /></label>
         <label><span>Exa API key</span><input bind:value={exaApiKey} type="password" /></label>
-        <div class="row">
-          <button class="action" onclick={() => saveSecret('github_token', githubToken)} type="button">Save GitHub</button>
-          <button class="action" onclick={() => saveSecret('exa_api_key', exaApiKey)} type="button">Save Exa</button>
-        </div>
+        <button class="action" onclick={saveIntegrations} type="button">Save integrations</button>
       </section>
 
+      <!-- ─── Observability ─── -->
       <section class="card">
-        <h2>Account</h2>
-        <label>
-          <span>Programmatic API key</span>
-          <div class="row">
-            <input value={apiKey} readonly type={showApiKey ? 'text' : 'password'} />
-            <button class="ghost" type="button" onclick={() => showApiKey = !showApiKey}>{showApiKey ? 'Hide' : 'Show'}</button>
-          </div>
-        </label>
-        <label><span>Current password</span><input bind:value={currentPassword} type="password" /></label>
-        <label><span>New password</span><input bind:value={newPassword} type="password" /></label>
-        <button class="action" onclick={updatePassword} type="button">Change password</button>
-      </section>
-
-      <section class="card span-2">
-        <h2>Soul personalization</h2>
-        <p class="muted">The browser now uses the same generation flow as `openpaw setup`, then saves the result into the live Paw soul file.</p>
-        {#if soul}
-          <div class="preview-block">
-            <strong>Current summary</strong>
-            <p>{soul.summary}</p>
-          </div>
+        <h2>Observability</h2>
+        {#if sectionFeedback.observability}
+          <p class="message {sectionFeedback.observability.type}">{sectionFeedback.observability.message}</p>
         {/if}
-
-        <div class="soul-grid">
-          <label><span>Your name</span><input bind:value={interview.name} /></label>
-          <label class="wide"><span>About you</span><textarea bind:value={interview.about_you} rows="4"></textarea></label>
-          <label class="wide"><span>What kind of Paw do you want?</span><textarea bind:value={interview.ideal_paw} rows="4"></textarea></label>
-          <label class="wide"><span>Adjustment feedback</span><textarea bind:value={soulFeedback} rows="3" placeholder="Optional. Use this after a preview if you want a more specific revision."></textarea></label>
-        </div>
-
-        <div class="row">
-          <button class="action" onclick={generateSoul} type="button">Generate preview</button>
-          <button class="action" disabled={!generatedSoul} onclick={saveSoul} type="button">Save soul</button>
-        </div>
-
-        {#if generatedSoul}
-          <div class="preview-block">
-            <strong>Preview</strong>
-            <p>{generatedSoul.summary}</p>
-          </div>
-        {/if}
+        <label><span>Datadog API key</span><input bind:value={ddApiKey} type="password" placeholder="Enter to enable Datadog traces/metrics" /></label>
+        <label><span>Datadog site</span><input bind:value={ddSite} placeholder="datadoghq.com" /></label>
+        <p class="hint">Saves to vault. To push to Railway's OTEL collector, use the Railway dashboard for now.</p>
+        <button class="action" onclick={saveObservability} type="button">Save observability</button>
       </section>
     </div>
+
+    <!-- ─── Soul Personalization ─── -->
+    <section class="card full">
+      <h2>Soul personalization</h2>
+      {#if sectionFeedback.soul}
+        <p class="message {sectionFeedback.soul.type}">{sectionFeedback.soul.message}</p>
+      {/if}
+      <p class="hint">Same generation flow as <code>openpaw run</code> — the result is saved into the live Paw soul.</p>
+      {#if soul}
+        <div class="preview-block">
+          <strong>Current summary</strong>
+          <p>{soul.summary}</p>
+        </div>
+      {/if}
+
+      <div class="soul-grid">
+        <label><span>Your name</span><input bind:value={interview.name} /></label>
+        <label class="wide"><span>About you</span><textarea bind:value={interview.about_you} rows="4"></textarea></label>
+        <label class="wide"><span>What kind of Paw do you want?</span><textarea bind:value={interview.ideal_paw} rows="4"></textarea></label>
+        <label class="wide"><span>Adjustment feedback</span><textarea bind:value={soulFeedback} rows="3" placeholder="Optional — refine after a preview."></textarea></label>
+      </div>
+
+      <div class="row">
+        <button class="action" onclick={generateSoul} type="button">Generate preview</button>
+        <button class="action" disabled={!generatedSoul} onclick={saveSoul} type="button">Save soul</button>
+      </div>
+
+      {#if generatedSoul}
+        <div class="preview-block">
+          <strong>Preview</strong>
+          <p>{generatedSoul.summary}</p>
+        </div>
+      {/if}
+    </section>
+
+    <!-- ─── Account ─── -->
+    <section class="card full">
+      <h2>Account</h2>
+      {#if sectionFeedback.account}
+        <p class="message {sectionFeedback.account.type}">{sectionFeedback.account.message}</p>
+      {/if}
+      <label>
+        <span>Programmatic API key</span>
+        <div class="row">
+          <input value={apiKey} readonly type={showApiKey ? 'text' : 'password'} />
+          <button class="ghost" type="button" onclick={() => showApiKey = !showApiKey}>{showApiKey ? 'Hide' : 'Show'}</button>
+        </div>
+      </label>
+      <label><span>Current password</span><input bind:value={currentPassword} type="password" /></label>
+      <label><span>New password</span><input bind:value={newPassword} type="password" /></label>
+      <button class="action" onclick={updatePassword} type="button">Change password</button>
+    </section>
   {/if}
 </section>
 
@@ -377,6 +522,9 @@
   .settings-shell {
     display: grid;
     gap: 1.5rem;
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 2rem 1rem;
   }
 
   .hero h1 {
@@ -391,8 +539,7 @@
     color: var(--text-3);
   }
 
-  .lede,
-  .muted {
+  .lede {
     color: var(--text-2);
     line-height: 1.5;
   }
@@ -408,12 +555,18 @@
     gap: 0.9rem;
     padding: 1.25rem;
     border: 1px solid var(--border);
-    border-radius: 22px;
+    border-radius: var(--radius-lg, 8px);
     background: color-mix(in srgb, var(--bg) 88%, white 4%);
   }
 
-  .span-2 {
-    grid-column: span 2;
+  .full {
+    grid-column: 1 / -1;
+  }
+
+  h2 {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 600;
   }
 
   .status-grid {
@@ -424,7 +577,7 @@
 
   .status-grid article {
     padding: 1rem;
-    border-radius: 16px;
+    border-radius: var(--radius-lg, 8px);
     background: rgba(255, 255, 255, 0.03);
   }
 
@@ -435,34 +588,57 @@
   }
 
   .status-grid span.ok {
-    color: #58d68d;
+    color: var(--status-success, #34d399);
   }
 
   .provider-tabs,
   .row {
     display: flex;
-    gap: 0.75rem;
+    gap: 0.5rem;
     flex-wrap: wrap;
   }
 
-  .provider-tabs button,
-  .action,
-  .ghost {
-    padding: 0.75rem 1rem;
-    border-radius: 999px;
+  .provider-tabs button {
+    padding: 0.5rem 0.85rem;
+    border-radius: var(--radius-lg, 8px);
     border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-2);
+    cursor: pointer;
+    font-size: 0.85rem;
   }
 
-  .provider-tabs button.active,
-  .action {
-    background: linear-gradient(135deg, #53a0ff, #7a6cff);
-    color: white;
+  .provider-tabs button.active {
+    background: var(--accent, #34d399);
+    color: var(--bg, #0a0a0a);
     border-color: transparent;
+    font-weight: 600;
+  }
+
+  .action {
+    padding: 0.6rem 1rem;
+    border-radius: var(--radius-lg, 8px);
+    border: 1px solid transparent;
+    background: var(--accent, #34d399);
+    color: var(--bg, #0a0a0a);
+    font-weight: 600;
+    cursor: pointer;
+    font-size: 0.85rem;
+  }
+
+  .action:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
   }
 
   .ghost {
+    padding: 0.6rem 1rem;
+    border-radius: var(--radius-lg, 8px);
+    border: 1px solid var(--border);
     background: transparent;
     color: var(--text-1);
+    cursor: pointer;
+    font-size: 0.85rem;
   }
 
   label {
@@ -478,16 +654,31 @@
   input,
   textarea {
     width: 100%;
-    border-radius: 14px;
+    border-radius: var(--radius-lg, 8px);
     border: 1px solid var(--border);
     background: rgba(255, 255, 255, 0.04);
     color: var(--text-1);
-    padding: 0.85rem 1rem;
+    padding: 0.7rem 0.85rem;
+    font-size: 0.85rem;
+  }
+
+  code {
+    background: rgba(255, 255, 255, 0.06);
+    padding: 0.1em 0.35em;
+    border-radius: 4px;
+    font-size: 0.82em;
+  }
+
+  .hint {
+    color: var(--text-3);
+    font-size: 0.8rem;
+    line-height: 1.4;
+    margin: 0;
   }
 
   .preview-block {
     padding: 1rem;
-    border-radius: 16px;
+    border-radius: var(--radius-lg, 8px);
     background: rgba(255, 255, 255, 0.03);
   }
 
@@ -507,8 +698,9 @@
 
   .message {
     margin: 0;
-    padding: 0.9rem 1rem;
-    border-radius: 14px;
+    padding: 0.65rem 0.85rem;
+    border-radius: var(--radius-lg, 8px);
+    font-size: 0.85rem;
   }
 
   .message.error {
@@ -517,8 +709,8 @@
   }
 
   .message.success {
-    background: rgba(88, 214, 141, 0.12);
-    color: #8ff0b4;
+    background: rgba(52, 211, 153, 0.12);
+    color: var(--status-success, #34d399);
   }
 
   @media (max-width: 900px) {
@@ -528,7 +720,6 @@
       grid-template-columns: 1fr;
     }
 
-    .span-2,
     .wide {
       grid-column: span 1;
     }

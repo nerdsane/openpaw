@@ -12,7 +12,6 @@
   import type { Node, Edge, NodeTypes } from '@xyflow/svelte';
   import type { CanvasNodeData } from '$lib/canvas-types';
   import type { Project, Team, Agent, Session, Soul, Skill, Harness, WorkCycle } from '$lib/types';
-  import { MOCK_ENTITIES, entitiesOfType } from '$lib/mock-data';
   import { parsePendingToolCalls, formatToolInput, computeMetrics } from '$lib/parse';
   import StatusBadge from '$lib/components/StatusBadge.svelte';
 
@@ -28,7 +27,6 @@
 
   let loaded = $state(false);
   let error = $state<string | null>(null);
-  let usingMock = $state(false);
   let nodes = $state<Node<CanvasNodeData>[]>([]);
   let edges = $state<Edge[]>([]);
   let selectedNode = $state<Node<CanvasNodeData> | null>(null);
@@ -65,28 +63,8 @@
     return calls;
   });
 
-  /** Convert mock entities to the shapes buildCanvasGraph expects */
-  function loadFromMock() {
-    const projects = entitiesOfType('Project').map(e => ({ ...e.fields, Id: e.Id, Status: e.Status }) as unknown as Project);
-    const teams = entitiesOfType('Team').map(e => ({ ...e.fields, Id: e.Id, Status: e.Status }) as unknown as Team);
-    const souls = entitiesOfType('Soul').map(e => ({ ...e.fields, Id: e.Id, Status: e.Status }) as unknown as Soul);
-    const skills = entitiesOfType('Skill').map(e => ({ ...e.fields, Id: e.Id, Status: e.Status }) as unknown as Skill);
-    const sessions = entitiesOfType('Session').map(e => ({ ...e.fields, Id: e.Id, Status: e.Status, _events: e._events, _sequence_nr: e._sequence_nr }) as unknown as Session);
-    const harnesses = entitiesOfType('ProjectHarness').map(e => ({ ...e.fields, Id: e.Id, Status: e.Status }) as unknown as Harness);
-    const workCycles = entitiesOfType('WorkCycle').map(e => ({ ...e.fields, Id: e.Id, Status: e.Status, _events: e._events }) as unknown as WorkCycle);
-    const agents = entitiesOfType('Agent').map(e => ({ ...e.fields, Id: e.Id, Status: e.Status }) as unknown as Agent);
-
-    const agentsMap: Record<string, Agent[]> = {};
-    for (const t of teams) {
-      agentsMap[t.Id] = agents.filter(a => (a as any).team_id === t.Id);
-    }
-
-    return { projects, teams, agents: agentsMap, sessions, souls, skills, harnesses, workCycles };
-  }
-
   onMount(async () => {
     try {
-      // Try real API first
       const [projectsRaw, teamsRaw, sessionsRaw, soulsRaw, skillsRaw, harnessesRaw, workCyclesRaw] = await Promise.all([
         queryEntities('Projects').catch(() => []),
         queryTeams().catch(() => []),
@@ -105,10 +83,7 @@
       const harnesses = harnessesRaw as unknown as Harness[];
       const workCycles = workCyclesRaw as unknown as WorkCycle[];
 
-      // Use real data only if there are projects
-      const hasData = projects.length > 0;
-
-      if (hasData) {
+      if (projects.length > 0) {
         const agentsMap: Record<string, Agent[]> = {};
         await Promise.all(teams.map(async (team) => {
           if (!team.Id) return;
@@ -118,28 +93,16 @@
           } catch {}
         }));
         buildCanvasGraph({ projects, teams, agents: agentsMap, sessions, souls, skills, harnesses, workCycles });
-      } else {
-        // Fall back to mock data for UI development
-        usingMock = true;
-        buildCanvasGraph(loadFromMock());
       }
 
       canvasNodes.subscribe(v => { nodes = v; });
       canvasEdges.subscribe(v => { edges = v; });
 
       loaded = true;
-      if (!usingMock) connectSSE();
+      connectSSE();
     } catch (e) {
-      console.error('Canvas load error, falling back to mock:', e);
-      try {
-        usingMock = true;
-        buildCanvasGraph(loadFromMock());
-        canvasNodes.subscribe(v => { nodes = v; });
-        canvasEdges.subscribe(v => { edges = v; });
-      } catch (e2) {
-        console.error('Mock data also failed:', e2);
-        error = 'Failed to load data';
-      }
+      console.error('Canvas load error:', e);
+      error = 'Failed to load canvas data';
       loaded = true;
     }
   });
@@ -149,7 +112,6 @@
   // SSE live updates
   let lastSeq = $state(0);
   $effect(() => {
-    if (usingMock) return;
     const evts = $events;
     if (evts.length === 0) return;
     const latest = evts[0];
@@ -169,9 +131,6 @@
 <div class="canvas-container">
   {#if loaded}
     {#if nodes.length > 0}
-      {#if usingMock}
-        <div class="mock-banner">MOCK DATA — backend not connected</div>
-      {/if}
       <SvelteFlow
         {nodes}
         {edges}
@@ -262,10 +221,16 @@
           {/if}
         </div>
       {/if}
+    {:else if error}
+      <div class="canvas-empty">
+        <span class="empty-label">CANVAS</span>
+        <span class="empty-text">{error}</span>
+      </div>
     {:else}
       <div class="canvas-empty">
         <span class="empty-label">CANVAS</span>
-        <span class="empty-text">No entities found.</span>
+        <span class="empty-text">No projects yet. Create an agent to get started.</span>
+        <a href="/agents" class="empty-link">Go to Agents</a>
       </div>
     {/if}
   {:else}
@@ -280,22 +245,6 @@
     width: 100%;
     height: 100vh;
     position: relative;
-  }
-
-  .mock-banner {
-    position: absolute;
-    top: 8px;
-    left: 50%;
-    transform: translateX(-50%);
-    z-index: 10;
-    font-family: var(--font-mono);
-    font-size: var(--text-xs, 11px);
-    color: var(--status-warning, #eab308);
-    background: var(--surface, #141414);
-    border: 1px solid var(--status-warning, #eab308);
-    padding: 2px 12px;
-    border-radius: var(--radius, 4px);
-    letter-spacing: 0.04em;
   }
 
   .canvas-container :global(.svelte-flow) {
@@ -355,6 +304,18 @@
     font-family: var(--font-mono);
     font-size: 12px;
     color: var(--text-3, #666);
+  }
+
+  .empty-link {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    color: var(--accent, #34d399);
+    text-decoration: none;
+    margin-top: 4px;
+  }
+
+  .empty-link:hover {
+    text-decoration: underline;
   }
 
   /* ── Detail Panel ── */

@@ -56,9 +56,44 @@ fn allowed_secret_keys() -> HashSet<&'static str> {
         "exa_api_key",
         "tensorlake_api_key",
         "llm_provider",
+        "dd_api_key",
+        "dd_site",
     ]
     .into_iter()
     .collect()
+}
+
+/// Metadata for a known secret key — used by the dashboard to render templates.
+#[derive(Serialize)]
+struct SecretSchema {
+    key: &'static str,
+    category: &'static str,
+    label: &'static str,
+    required: bool,
+    description: &'static str,
+}
+
+fn secrets_schema() -> Vec<SecretSchema> {
+    vec![
+        SecretSchema { key: "anthropic_api_key", category: "llm", label: "Anthropic API Key", required: false, description: "Claude models — console.anthropic.com" },
+        SecretSchema { key: "openai_api_key", category: "llm", label: "OpenAI API Key", required: false, description: "GPT models — platform.openai.com/api-keys" },
+        SecretSchema { key: "openai_codex_token", category: "llm", label: "OpenAI Codex Token", required: false, description: "OAuth token from codex login (~/.codex/auth.json)" },
+        SecretSchema { key: "openrouter_api_key", category: "llm", label: "OpenRouter API Key", required: false, description: "Multi-provider routing — openrouter.ai/keys" },
+        SecretSchema { key: "llm_provider", category: "llm", label: "Active LLM Provider", required: false, description: "anthropic, openai, openai_codex, or openrouter" },
+        SecretSchema { key: "discord_bot_token", category: "messaging", label: "Discord Bot Token", required: false, description: "Bot token from Discord developer portal" },
+        SecretSchema { key: "discord_public_key", category: "messaging", label: "Discord Public Key", required: false, description: "Application public key for interaction verification" },
+        SecretSchema { key: "discord_guild_id", category: "messaging", label: "Discord Guild ID", required: false, description: "Server ID for slash commands" },
+        SecretSchema { key: "discord_feed_channel_id", category: "messaging", label: "Discord Feed Channel", required: false, description: "Channel for activity feed" },
+        SecretSchema { key: "discord_forum_channel_id", category: "messaging", label: "Discord Forum Channel", required: false, description: "Forum channel for agent threads" },
+        SecretSchema { key: "slack_app_token", category: "messaging", label: "Slack App Token", required: false, description: "xapp-... token for Socket Mode" },
+        SecretSchema { key: "slack_bot_token", category: "messaging", label: "Slack Bot Token", required: false, description: "xoxb-... token for Web API" },
+        SecretSchema { key: "slack_signing_secret", category: "messaging", label: "Slack Signing Secret", required: false, description: "Webhook signature verification" },
+        SecretSchema { key: "github_token", category: "integrations", label: "GitHub Token", required: false, description: "For repo cloning and PR flows" },
+        SecretSchema { key: "exa_api_key", category: "integrations", label: "Exa API Key", required: false, description: "Web search via exa.ai" },
+        SecretSchema { key: "tensorlake_api_key", category: "integrations", label: "TensorLake API Key", required: false, description: "Remote sandbox provisioning" },
+        SecretSchema { key: "dd_api_key", category: "observability", label: "Datadog API Key", required: false, description: "Enables traces/metrics/logs in Datadog" },
+        SecretSchema { key: "dd_site", category: "observability", label: "Datadog Site", required: false, description: "Datadog site (default: datadoghq.com)" },
+    ]
 }
 
 /// Build the `/paw/` router.
@@ -67,6 +102,7 @@ pub fn router(state: SetupApiState) -> Router {
         .route("/discord/interaction", post(proxy_discord_interaction))
         .route("/paw/setup/status", get(get_setup_status))
         .route("/paw/setup/secrets", get(list_secrets))
+        .route("/paw/setup/secrets/schema", get(get_secrets_schema))
         .route("/paw/setup/secrets", post(upsert_secret))
         .route("/paw/setup/secrets/{key}", get(get_secret))
         .route("/paw/setup/secrets/{key}", delete(delete_secret))
@@ -91,6 +127,7 @@ pub fn router(state: SetupApiState) -> Router {
 #[derive(Serialize)]
 struct SetupStatus {
     has_anthropic_key: bool,
+    llm_provider: Option<String>,
     has_discord: bool,
     has_slack: bool,
     has_agents: bool,
@@ -111,6 +148,10 @@ async fn get_setup_status(State(state): State<SetupApiState>) -> Json<SetupStatu
                 .or_else(|| v.get_secret(&state.tenant, "openrouter_api_key"))
         })
         .is_some();
+    let llm_provider = vault.and_then(|v| {
+        v.get_secret(&state.tenant, "llm_provider")
+            .or_else(|| v.get_secret("default", "llm_provider"))
+    });
     let has_discord = vault
         .and_then(|v| v.get_secret(&state.tenant, "discord_bot_token"))
         .is_some();
@@ -137,6 +178,7 @@ async fn get_setup_status(State(state): State<SetupApiState>) -> Json<SetupStatu
 
     Json(SetupStatus {
         has_anthropic_key,
+        llm_provider,
         has_discord,
         has_slack,
         has_agents: agent_count > 0,
@@ -175,6 +217,10 @@ async fn list_secrets(State(state): State<SetupApiState>) -> Json<SecretKeyList>
         }
         Err(_) => Json(SecretKeyList { keys: vec![] }),
     }
+}
+
+async fn get_secrets_schema() -> Json<Vec<SecretSchema>> {
+    Json(secrets_schema())
 }
 
 async fn get_secret(

@@ -210,6 +210,7 @@ export async function fetchFileContent(fileId: string): Promise<string> {
 
 export interface SetupStatus {
   has_anthropic_key: boolean;
+  llm_provider: string | null;
   has_discord: boolean;
   has_slack: boolean;
   has_agents: boolean;
@@ -217,6 +218,20 @@ export interface SetupStatus {
   discord_connected: boolean;
   slack_connected: boolean;
   discord_interaction_url?: string;
+}
+
+export interface SecretSchemaEntry {
+  key: string;
+  category: string;
+  label: string;
+  required: boolean;
+  description: string;
+}
+
+export async function fetchSecretsSchema(): Promise<SecretSchemaEntry[]> {
+  const res = await apiFetch(`${BASE}/paw/setup/secrets/schema`);
+  if (!res.ok) return [];
+  return res.json();
 }
 
 export async function fetchSetupStatus(): Promise<SetupStatus> {

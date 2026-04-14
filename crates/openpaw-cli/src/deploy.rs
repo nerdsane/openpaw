@@ -106,6 +106,28 @@ pub async fn run_deploy(
     }
     variables.push(format!("DD_SITE={dd_site}"));
 
+    // Seed LLM credentials so the deployed dashboard shows "LLM: Configured" on first visit.
+    // Check env vars first, then ~/.codex/auth.json for Codex OAuth token.
+    if let Some(key) = optional_env("ANTHROPIC_API_KEY") {
+        variables.push(format!("ANTHROPIC_API_KEY={key}"));
+        variables.push("LLM_PROVIDER=anthropic".to_string());
+        cliclack::log::success("LLM credential detected: Anthropic")?;
+    } else if let Some(key) = optional_env("OPENROUTER_API_KEY") {
+        variables.push(format!("OPENROUTER_API_KEY={key}"));
+        variables.push("LLM_PROVIDER=openrouter".to_string());
+        cliclack::log::success("LLM credential detected: OpenRouter")?;
+    } else if let Some(key) = optional_env("OPENAI_API_KEY") {
+        variables.push(format!("OPENAI_API_KEY={key}"));
+        variables.push("LLM_PROVIDER=openai".to_string());
+        cliclack::log::success("LLM credential detected: OpenAI")?;
+    } else if let Some(token) = optional_env("OPENAI_CODEX_TOKEN")
+        .or_else(|| read_codex_token_file().ok())
+    {
+        variables.push(format!("OPENAI_CODEX_TOKEN={token}"));
+        variables.push("LLM_PROVIDER=openai_codex".to_string());
+        cliclack::log::success("LLM credential detected: OpenAI Codex")?;
+    }
+
     let mut set_args = vec![
         "variable".to_string(),
         "set".to_string(),
@@ -843,6 +865,28 @@ fn slugify(input: &str) -> String {
         .filter(|segment| !segment.is_empty())
         .collect::<Vec<_>>()
         .join("-")
+}
+
+fn optional_env(name: &str) -> Option<String> {
+    std::env::var(name)
+        .ok()
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+}
+
+/// Read OpenAI Codex OAuth token from ~/.codex/auth.json.
+fn read_codex_token_file() -> Result<String> {
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
+    let auth_path = std::path::Path::new(&home).join(".codex/auth.json");
+    let data = std::fs::read_to_string(&auth_path)
+        .with_context(|| format!("Cannot read {}", auth_path.display()))?;
+    let json: serde_json::Value = serde_json::from_str(&data)?;
+    json.get("tokens")
+        .and_then(|t| t.get("access_token"))
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+        .context("~/.codex/auth.json missing tokens.access_token")
 }
 
 fn as_str_slice(values: &[String]) -> Vec<&str> {
