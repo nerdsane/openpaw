@@ -1,4 +1,15 @@
 name = "paw-fs"
 description = "TemperFS — file, workspace, and directory management"
 version = "0.1.0"
+startup_install = "core"
 dependencies = []
+
+[[wasm_modules]]
+name = "blob_adapter"
+criticality = "app-required"
+startup_loading = "lazy"
+
+[[wasm_modules]]
+name = "workspace_fs"
+criticality = "app-required"
+startup_loading = "lazy"

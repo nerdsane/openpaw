@@ -1,4 +1,13 @@
 name = "paw-channels"
 description = "Multi-channel agent communication — Slack, web, API routes"
 version = "0.1.0"
+startup_install = "core"
 dependencies = ["paw-agent"]
+
+[[wasm_modules]]
+name = "route_message"
+target = "wasm32-wasip1"
+criticality = "app-required"
+startup_loading = "lazy"
+provenance = "bundled-artifact"
+import_class = "temper-host+wasi-preview1"

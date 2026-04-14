@@ -97,11 +97,11 @@
         "widgets": [
           {
             "definition": {
-              "title": "Indexed Entities",
+              "title": "Indexed Entities (Query Plane)",
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "sum:temper_active_entities{service:openpaw,tenant:*}",
+                  "q": "sum:temper_indexed_entities{service:openpaw,tenant:*}",
                   "display_type": "line"
                 }
               ]
@@ -109,7 +109,7 @@
           },
           {
             "definition": {
-              "title": "Projected Entities",
+              "title": "Projected Entities (Durable Catalog)",
               "type": "timeseries",
               "requests": [
                 {
@@ -133,7 +133,7 @@
           },
           {
             "definition": {
-              "title": "Active Actors",
+              "title": "Active Actors (Hydrated)",
               "type": "timeseries",
               "requests": [
                 {
@@ -145,10 +145,49 @@
           },
           {
             "definition": {
-              "title": "Process Memory (RSS)",
+              "title": "OpenPaw Process Memory (RSS)",
               "type": "timeseries",
               "requests": [
-                { "q": "avg:process_resident_memory_bytes{*}", "display_type": "line" }
+                {
+                  "q": "avg:process_resident_memory_bytes{service:openpaw}",
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "Indexed Entities by Host",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "q": "sum:temper_indexed_entities{service:openpaw,tenant:*} by {host}",
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "Active Actors by Host",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "q": "avg:temper_active_actors{service:openpaw} by {host}",
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "OpenPaw RSS by Host",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "q": "avg:process_resident_memory_bytes{service:openpaw} by {host}",
+                  "display_type": "line"
+                }
               ]
             }
           },
@@ -159,6 +198,90 @@
               "requests": [
                 {
                   "q": "sum:temper_projection_backfill_snapshot_misses_total{service:openpaw}.as_count().rollup(sum, 60)",
+                  "display_type": "bars"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "Startup Phase Duration",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "q": "avg:temper_startup_phase_duration_ms{service:openpaw} by {phase}.rollup(avg, 60)",
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "Startup Time To Healthy",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "q": "avg:temper_startup_time_to_healthy_ms{service:openpaw}.rollup(avg, 60)",
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "Startup Live Restore Entities",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "q": "sum:temper_startup_live_restore_entities_total{service:openpaw} by {tenant}.as_count().rollup(sum, 60)",
+                  "display_type": "bars"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "OS App Reconcile",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "q": "sum:temper_os_app_reconcile_total{service:openpaw} by {app,result}.as_count().rollup(sum, 60)",
+                  "display_type": "bars"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "OS App Reconcile Duration",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "q": "avg:temper_os_app_reconcile_duration_ms{service:openpaw} by {app,result}.rollup(avg, 60)",
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "WASM Load Failures",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "q": "sum:temper_wasm_module_load_failures_total{service:openpaw} by {app,module,reason,criticality}.as_count().rollup(sum, 60)",
+                  "display_type": "bars"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "WASM Modules Skipped",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "q": "sum:temper_wasm_module_skipped_total{service:openpaw} by {app,module,reason,criticality}.as_count().rollup(sum, 60)",
                   "display_type": "bars"
                 }
               ]

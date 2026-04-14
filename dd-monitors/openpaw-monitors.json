@@ -37,16 +37,52 @@
     }
   },
   {
-    "name": "[OpenPaw] Active Entities Drop",
+    "name": "[OpenPaw] Indexed Entities Drop",
     "type": "metric alert",
-    "query": "avg(last_15m):sum:temper_active_entities{service:openpaw,tenant:*} < 1",
-    "message": "No active entities in OpenPaw. Platform may have lost state.\n\n@slack-openpaw-alerts",
+    "query": "avg(last_15m):sum:temper_indexed_entities{service:openpaw,tenant:*} < 1",
+    "message": "No indexed entities in OpenPaw's query plane. Platform may have lost discoverable state.\n\n@slack-openpaw-alerts",
     "tags": ["team:openpaw", "severity:medium"],
     "options": {
       "thresholds": { "critical": 1 },
       "notify_no_data": true,
       "no_data_timeframe": 30,
       "renotify_interval": 120
+    }
+  },
+  {
+    "name": "[OpenPaw] Startup Time Regression",
+    "type": "metric alert",
+    "query": "avg(last_15m):avg:temper_startup_time_to_healthy_ms{service:openpaw} > 120000",
+    "message": "OpenPaw startup time to healthy exceeds 120s over the last 15 minutes.\n\n@slack-openpaw-alerts",
+    "tags": ["team:openpaw", "severity:medium"],
+    "options": {
+      "thresholds": { "critical": 120000, "warning": 60000 },
+      "notify_no_data": false,
+      "renotify_interval": 120
+    }
+  },
+  {
+    "name": "[OpenPaw] OS App Reconcile Regression",
+    "type": "metric alert",
+    "query": "avg(last_1h):avg:temper_startup_phase_duration_ms{service:openpaw,phase:phase_6_os_app_reconcile} > 60000",
+    "message": "OpenPaw OS app reconcile exceeds 60s during startup.\n\n@slack-openpaw-alerts",
+    "tags": ["team:openpaw", "severity:medium"],
+    "options": {
+      "thresholds": { "critical": 60000, "warning": 30000 },
+      "notify_no_data": false,
+      "renotify_interval": 120
+    }
+  },
+  {
+    "name": "[OpenPaw] Required WASM Load Failures",
+    "type": "metric alert",
+    "query": "sum(last_15m):sum:temper_wasm_module_load_failures_total{service:openpaw,criticality:(platform-required OR app-required)}.as_count() > 0",
+    "message": "Required OpenPaw WASM modules failed to load in the last 15 minutes.\n\n@slack-openpaw-alerts",
+    "tags": ["team:openpaw", "severity:high"],
+    "options": {
+      "thresholds": { "critical": 0, "warning": 0 },
+      "notify_no_data": false,
+      "renotify_interval": 60
     }
   }
 ]

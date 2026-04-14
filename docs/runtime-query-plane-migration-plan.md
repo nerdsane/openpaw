@@ -259,7 +259,7 @@ Remove temporary migration machinery and harden operational guardrails.
 - Remove shadow-read comparison where no longer needed.
 - Remove actor-hydrating field-index rebuild fallback entirely.
 - Rename or supersede misleading metrics:
-  `temper_active_entities`
+  `temper_indexed_entities`
 - Add memory-budget-triggered passivation if still needed.
 
 ### TDD
