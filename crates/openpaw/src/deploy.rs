@@ -38,12 +38,17 @@ pub async fn run_deploy(config: Config, with_datadog: bool) -> Result<()> {
     cliclack::log::step("Provisioning R2 bucket (free tier: 10 GB storage)...")?;
     create_r2_bucket_idempotent(&bucket_name)?;
 
-    let r2_token_url = "https://dash.cloudflare.com/?to=/:account/r2/api-tokens";
+    // Try to get the Cloudflare account ID for a direct link to the R2 token create page.
+    let cf_account_id = get_cloudflare_account_id();
+    let r2_token_url = match &cf_account_id {
+        Some(id) => format!("https://dash.cloudflare.com/{id}/r2/api-tokens/create?type=account"),
+        None => "https://dash.cloudflare.com/?to=/:account/r2/api-tokens".to_string(),
+    };
     cliclack::log::info(format!(
         "Create an R2 API token with Object Read & Write for bucket \"{bucket_name}\".\n  \
-         Opening the R2 tokens page — paste the three values it gives you below."
+         Opening the token creation page — paste the three values it gives you."
     ))?;
-    let _ = Command::new("open").arg(r2_token_url).status();
+    let _ = Command::new("open").arg(&r2_token_url).status();
 
     let blob_access_key: String = cliclack::input("R2 Access Key ID")
         .validate(|input: &String| {
@@ -118,18 +123,33 @@ pub async fn run_deploy(config: Config, with_datadog: bool) -> Result<()> {
         );
     }
 
-    cliclack::log::step("Deploying OpenPaw...")?;
+    cliclack::log::step("Deploying OpenPaw (this takes a few minutes — building from Dockerfile)...")?;
     run_interactive("railway", &["up", "-s", "openpaw", "-d"])?;
+
     let domain_output = capture_trimmed("railway", &["domain", "--service", "openpaw", "--json"])?;
-    let deploy_url = infer_domain(&domain_output).unwrap_or(domain_output);
+    let deploy_url = infer_domain(&domain_output).unwrap_or(domain_output.clone());
 
-    cliclack::log::step("Waiting for health check...")?;
-    poll_health(&deploy_url).await?;
-
-    cliclack::outro(format!(
-        "Paw is live → {deploy_url}/dashboard\n  \
-         Open the dashboard to create your account and finish setup."
+    cliclack::log::info(format!(
+        "Build running on Railway. Check progress at:\n  \
+         https://railway.com/project → {project_name}"
     ))?;
+
+    cliclack::log::step("Waiting for health check (may take 5-10 minutes for first build)...")?;
+    match poll_health(&deploy_url).await {
+        Ok(()) => {
+            cliclack::outro(format!(
+                "Paw is live → {deploy_url}/dashboard\n  \
+                 Open the dashboard to create your account and finish setup."
+            ))?;
+        }
+        Err(_) => {
+            anyhow::bail!(
+                "Health check timed out — the build may still be running.\n  \
+                 Check Railway dashboard: https://railway.com/project → {project_name}\n  \
+                 Once it's live, visit: {deploy_url}/dashboard"
+            );
+        }
+    }
     Ok(())
 }
 
@@ -342,6 +362,25 @@ fn ensure_auth_wrangler() -> Result<()> {
     Ok(())
 }
 
+/// Try to extract the Cloudflare account ID from wrangler whoami.
+fn get_cloudflare_account_id() -> Option<String> {
+    let output = Command::new("wrangler")
+        .args(["whoami"])
+        .output()
+        .ok()?;
+    let text = String::from_utf8_lossy(&output.stdout);
+    // wrangler whoami outputs a table with Account ID as a 32-char hex string
+    for line in text.lines() {
+        for word in line.split_whitespace() {
+            let clean = word.trim_matches('│').trim_matches('|').trim();
+            if clean.len() == 32 && clean.chars().all(|c| c.is_ascii_hexdigit()) {
+                return Some(clean.to_string());
+            }
+        }
+    }
+    None
+}
+
 /// Create a Turso database, treating "already exists" as success.
 fn create_turso_db_idempotent(database_name: &str) -> Result<()> {
     let output = Command::new("turso")
@@ -443,13 +482,15 @@ async fn poll_health(base_url: &str) -> Result<()> {
     let client = reqwest::Client::new();
     let health_url = format!("{base_url}/healthz");
 
-    for _ in 0..30 {
+    // First build can take 5-10 minutes (Rust compile on Railway).
+    // Poll for up to 15 minutes.
+    for _ in 0..90 {
         if let Ok(response) = client.get(&health_url).send().await {
             if response.status().is_success() {
                 return Ok(());
             }
         }
-        tokio::time::sleep(Duration::from_secs(2)).await;
+        tokio::time::sleep(Duration::from_secs(10)).await;
     }
 
     anyhow::bail!("Timed out waiting for {health_url}");

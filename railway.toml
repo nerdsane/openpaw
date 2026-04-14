@@ -1,13 +1,9 @@
 [build]
-builder = "nixpacks"
-buildCommand = "cd dashboard && npm install && npm run build && cd .. && cargo build --release"
+builder = "dockerfile"
+dockerfilePath = "Dockerfile"
 
 [deploy]
-startCommand = "./target/release/openpaw"
 healthcheckPath = "/healthz"
-healthcheckTimeout = 30
+healthcheckTimeout = 60
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 3
-
-[deploy.volumes]
-data = "/root/.local/share/openpaw"
