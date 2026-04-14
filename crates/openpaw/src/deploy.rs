@@ -1,5 +1,7 @@
 //! Cloud deployment workflow for OpenPaw.
 
+use std::collections::HashMap;
+use std::path::PathBuf;
 use std::process::Command;
 use std::time::Duration;
 
@@ -7,8 +9,51 @@ use anyhow::{Context, Result};
 
 use crate::config::Config;
 
+// ---------------------------------------------------------------------------
+// Credential cache — persists tokens/keys between deploy runs
+// ---------------------------------------------------------------------------
+
+fn cache_path() -> PathBuf {
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
+    PathBuf::from(home)
+        .join(".local/share/openpaw/deploy_cache.json")
+}
+
+fn load_cache() -> HashMap<String, String> {
+    let path = cache_path();
+    std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|data| serde_json::from_str(&data).ok())
+        .unwrap_or_default()
+}
+
+fn save_cache(cache: &HashMap<String, String>) {
+    let path = cache_path();
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let _ = std::fs::write(&path, serde_json::to_string_pretty(cache).unwrap_or_default());
+    // Owner-only read/write — same as ~/.aws/credentials
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+    }
+}
+
+fn cache_get(cache: &HashMap<String, String>, key: &str) -> Option<String> {
+    cache.get(key).filter(|v| !v.is_empty()).cloned()
+}
+
+fn cache_set(cache: &mut HashMap<String, String>, key: &str, value: &str) {
+    cache.insert(key.to_string(), value.to_string());
+    save_cache(cache);
+}
+
 pub async fn run_deploy(config: Config, with_datadog: bool) -> Result<()> {
     cliclack::intro("Open Paw Deploy")?;
+
+    let mut cache = load_cache();
 
     cliclack::log::info("All services use free tiers — no credit card required.")?;
 
@@ -18,8 +63,8 @@ pub async fn run_deploy(config: Config, with_datadog: bool) -> Result<()> {
     ensure_or_install("wrangler", &install_wrangler)?;
 
     ensure_auth_railway()?;
-    ensure_auth_turso()?;
-    ensure_auth_wrangler()?;
+    ensure_auth_turso(&mut cache)?;
+    ensure_auth_wrangler(&mut cache)?;
 
     let owner = slugify(
         &std::env::var("USER")
@@ -38,49 +83,9 @@ pub async fn run_deploy(config: Config, with_datadog: bool) -> Result<()> {
     cliclack::log::step("Provisioning R2 bucket (free tier: 10 GB storage)...")?;
     create_r2_bucket_idempotent(&bucket_name)?;
 
-    // Try to get the Cloudflare account ID for a direct link to the R2 token create page.
-    let cf_account_id = get_cloudflare_account_id();
-    let r2_token_url = match &cf_account_id {
-        Some(id) => format!("https://dash.cloudflare.com/{id}/r2/api-tokens/create?type=account"),
-        None => "https://dash.cloudflare.com/?to=/:account/r2/api-tokens".to_string(),
-    };
-    cliclack::log::info(format!(
-        "Create an R2 API token. Set these two values:\n  \
-         Permissions: \x1b[1mObject Read & Write\x1b[0m\n  \
-         Bucket: \x1b[1m{bucket_name}\x1b[0m\n  \
-         Then paste the three values it gives you below."
-    ))?;
-    let _ = Command::new("open").arg(&r2_token_url).status();
-
-    let blob_access_key: String = cliclack::input("R2 Access Key ID")
-        .validate(|input: &String| {
-            if input.trim().is_empty() {
-                Err("Required — shown on the token page you just created")
-            } else {
-                Ok(())
-            }
-        })
-        .interact()?;
-    let blob_secret_key: String = cliclack::password("R2 Secret Access Key")
-        .mask('•')
-        .validate(|input: &String| {
-            if input.trim().is_empty() {
-                Err("Required — shown right below the Access Key ID")
-            } else {
-                Ok(())
-            }
-        })
-        .interact()?;
-    let blob_endpoint: String = cliclack::input("R2 endpoint URL")
-        .placeholder("https://<account-id>.r2.cloudflarestorage.com")
-        .validate(|input: &String| {
-            if input.trim().is_empty() {
-                Err("Required — shown on the same token page, or on the R2 bucket overview")
-            } else {
-                Ok(())
-            }
-        })
-        .interact()?;
+    // Use cached R2 credentials if available, otherwise prompt
+    let (blob_access_key, blob_secret_key, blob_endpoint) =
+        collect_r2_credentials(&bucket_name, &mut cache)?;
 
     cliclack::log::step("Creating Railway project (free tier: 512 MB RAM, 1 vCPU)...")?;
     create_railway_project_idempotent(&project_name)?;
@@ -259,6 +264,72 @@ fn is_cli_logged_in(command: &str, check_args: &[&str]) -> bool {
         .unwrap_or(false)
 }
 
+/// Collect R2 credentials — use cache if available, otherwise prompt.
+fn collect_r2_credentials(
+    bucket_name: &str,
+    cache: &mut HashMap<String, String>,
+) -> Result<(String, String, String)> {
+    if let (Some(ak), Some(sk), Some(ep)) = (
+        cache_get(cache, "r2_access_key"),
+        cache_get(cache, "r2_secret_key"),
+        cache_get(cache, "r2_endpoint"),
+    ) {
+        cliclack::log::success("R2 credentials loaded from previous run ✓")?;
+        return Ok((ak, sk, ep));
+    }
+
+    // Need to prompt — open the token creation page
+    let cf_account_id = get_cloudflare_account_id();
+    let r2_token_url = match &cf_account_id {
+        Some(id) => format!("https://dash.cloudflare.com/{id}/r2/api-tokens/create?type=account"),
+        None => "https://dash.cloudflare.com/?to=/:account/r2/api-tokens".to_string(),
+    };
+    cliclack::log::info(format!(
+        "Create an R2 API token. Set these two values:\n  \
+         Permissions: \x1b[1mObject Read & Write\x1b[0m\n  \
+         Bucket: \x1b[1m{bucket_name}\x1b[0m\n  \
+         Then paste the three values it gives you below."
+    ))?;
+    let _ = Command::new("open").arg(&r2_token_url).status();
+
+    let blob_access_key: String = cliclack::input("R2 Access Key ID")
+        .validate(|input: &String| {
+            if input.trim().is_empty() {
+                Err("Required — shown on the token page you just created")
+            } else {
+                Ok(())
+            }
+        })
+        .interact()?;
+    let blob_secret_key: String = cliclack::password("R2 Secret Access Key")
+        .mask('•')
+        .validate(|input: &String| {
+            if input.trim().is_empty() {
+                Err("Required — shown right below the Access Key ID")
+            } else {
+                Ok(())
+            }
+        })
+        .interact()?;
+    let blob_endpoint: String = cliclack::input("R2 endpoint URL")
+        .placeholder("https://<account-id>.r2.cloudflarestorage.com")
+        .validate(|input: &String| {
+            if input.trim().is_empty() {
+                Err("Required — shown on the same token page, or on the R2 bucket overview")
+            } else {
+                Ok(())
+            }
+        })
+        .interact()?;
+
+    // Cache for next run
+    cache_set(cache, "r2_access_key", blob_access_key.trim());
+    cache_set(cache, "r2_secret_key", blob_secret_key.trim());
+    cache_set(cache, "r2_endpoint", blob_endpoint.trim());
+
+    Ok((blob_access_key, blob_secret_key, blob_endpoint))
+}
+
 /// Railway: check existing session, fall back to `railway login --browserless`
 /// which prints a pairing code — no browser callback needed.
 fn ensure_auth_railway() -> Result<()> {
@@ -283,11 +354,20 @@ fn ensure_auth_railway() -> Result<()> {
     Ok(())
 }
 
-/// Turso (database): check existing session, fall back to token paste.
-fn ensure_auth_turso() -> Result<()> {
+/// Turso (database): check existing session, try cached token, fall back to token paste.
+fn ensure_auth_turso(cache: &mut HashMap<String, String>) -> Result<()> {
     if is_cli_logged_in("turso", &["auth", "whoami"]) {
         cliclack::log::success("turso authenticated ✓")?;
         return Ok(());
+    }
+
+    // Try cached token first
+    if let Some(cached) = cache_get(cache, "turso_api_token") {
+        unsafe { std::env::set_var("TURSO_API_TOKEN", &cached); }
+        if is_cli_logged_in("turso", &["auth", "whoami"]) {
+            cliclack::log::success("turso authenticated (cached token) ✓")?;
+            return Ok(());
+        }
     }
 
     cliclack::log::info(
@@ -316,15 +396,25 @@ fn ensure_auth_turso() -> Result<()> {
             "That token didn't work. Go to https://app.turso.tech → API Tokens, create a new one, and retry."
         );
     }
+    cache_set(cache, "turso_api_token", token.trim());
     cliclack::log::success("turso authenticated ✓")?;
     Ok(())
 }
 
-/// Cloudflare (file storage): check existing session, fall back to token paste.
-fn ensure_auth_wrangler() -> Result<()> {
+/// Cloudflare (file storage): check existing session, try cached token, fall back to token paste.
+fn ensure_auth_wrangler(cache: &mut HashMap<String, String>) -> Result<()> {
     if is_cli_logged_in("wrangler", &["whoami"]) {
         cliclack::log::success("wrangler authenticated ✓")?;
         return Ok(());
+    }
+
+    // Try cached token first
+    if let Some(cached) = cache_get(cache, "cloudflare_api_token") {
+        unsafe { std::env::set_var("CLOUDFLARE_API_TOKEN", &cached); }
+        if is_cli_logged_in("wrangler", &["whoami"]) {
+            cliclack::log::success("wrangler authenticated (cached token) ✓")?;
+            return Ok(());
+        }
     }
 
     let token_url = "https://dash.cloudflare.com/profile/api-tokens";
@@ -354,6 +444,7 @@ fn ensure_auth_wrangler() -> Result<()> {
              Go to {token_url}, create a new token, and retry."
         );
     }
+    cache_set(cache, "cloudflare_api_token", token.trim());
     cliclack::log::success("wrangler authenticated ✓")?;
     Ok(())
 }

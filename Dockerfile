@@ -5,7 +5,7 @@ RUN npm install
 COPY dashboard ./
 RUN npm run build
 
-FROM rust:1.85-bookworm AS rust-build
+FROM rust:1.94-bookworm AS rust-build
 WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
