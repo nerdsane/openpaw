@@ -10,6 +10,8 @@
 use std::io::IsTerminal;
 use std::path::Path;
 
+use anyhow::Context;
+
 use crate::config::Config;
 use crate::setup_llm::{self, GeneratedSoul, LlmProvider, UserInterview};
 use axum::http::HeaderMap;
@@ -156,33 +158,34 @@ pub async fn run_setup_config(config: &Config) -> anyhow::Result<SetupResult> {
             .item("openrouter", "OpenRouter", "Pay-per-token · openrouter.ai/keys")
             .interact()?;
 
-        let prompt = match provider {
-            "anthropic" => "Anthropic API key",
-            "openai" => "OpenAI API key",
-            "openai_codex" => {
-                cliclack::log::info(
-                    "Run `codex login` first if you haven't already.\n  Your token is stored in ~/.codex/auth.json"
-                )?;
-                "Codex access token"
-            }
-            "openrouter" => "OpenRouter API key",
-            _ => "API key",
-        };
+        if provider == "openai_codex" {
+            // Read token directly from ~/.codex/auth.json (written by `codex login`)
+            let key = read_codex_token()?;
+            result.api_key = Some(key);
+            result.provider = Some(provider.to_string());
+        } else {
+            let prompt = match provider {
+                "anthropic" => "Anthropic API key",
+                "openai" => "OpenAI API key",
+                "openrouter" => "OpenRouter API key",
+                _ => "API key",
+            };
 
-        let key: String = cliclack::password(prompt)
-            .mask('•')
-            .validate(|input: &String| {
-                if input.trim().is_empty() {
-                    Err("Required")
-                } else {
-                    Ok(())
-                }
-            })
-            .interact()?;
+            let key: String = cliclack::password(prompt)
+                .mask('•')
+                .validate(|input: &String| {
+                    if input.trim().is_empty() {
+                        Err("Required")
+                    } else {
+                        Ok(())
+                    }
+                })
+                .interact()?;
 
-        let key = key.trim().to_string();
-        result.api_key = Some(key);
-        result.provider = Some(provider.to_string());
+            let key = key.trim().to_string();
+            result.api_key = Some(key);
+            result.provider = Some(provider.to_string());
+        }
     }
 
     cliclack::log::info("Connect Discord, Slack, and other integrations in the dashboard after boot.")?;
@@ -482,6 +485,43 @@ pub(crate) async fn save_soul_to_temper(
 }
 
 /// Merge Phase A results into config.
+/// Read the OpenAI Codex access token from `~/.codex/auth.json`.
+/// This file is written by `codex login` (part of the OpenAI Codex CLI).
+fn read_codex_token() -> anyhow::Result<String> {
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
+    let auth_path = std::path::Path::new(&home).join(".codex/auth.json");
+
+    if !auth_path.exists() {
+        anyhow::bail!(
+            "~/.codex/auth.json not found.\n\
+             Run \x1b[1mcodex login\x1b[0m first to authenticate with OpenAI."
+        );
+    }
+
+    let data = std::fs::read_to_string(&auth_path)
+        .with_context(|| format!("Failed to read {}", auth_path.display()))?;
+    let json: serde_json::Value = serde_json::from_str(&data)
+        .with_context(|| format!("Failed to parse {}", auth_path.display()))?;
+
+    let token = json
+        .get("tokens")
+        .and_then(|t| t.get("access_token"))
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!(
+            "~/.codex/auth.json missing tokens.access_token.\n\
+             Try running \x1b[1mcodex login\x1b[0m again."
+        ))?;
+
+    if token.is_empty() {
+        anyhow::bail!(
+            "~/.codex/auth.json has an empty access token.\n\
+             Try running \x1b[1mcodex login\x1b[0m again."
+        );
+    }
+
+    Ok(token.to_string())
+}
+
 pub fn merge_setup_into_config(config: &mut Config, setup: SetupResult) {
     if let Some(key) = setup.api_key {
         match setup.provider.as_deref() {
