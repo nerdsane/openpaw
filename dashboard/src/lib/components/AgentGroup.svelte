@@ -87,22 +87,22 @@
 
 <style>
   .agent-group {
-    background: var(--terminal-bg);
-    border: 1px solid var(--terminal-border);
-    border-radius: var(--radius-md);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
     overflow: hidden;
   }
 
   .agent-group__header {
     display: flex;
     flex-direction: column;
-    gap: var(--space-sm);
-    padding: var(--space-lg);
+    gap: var(--sp-2);
+    padding: var(--sp-4);
     width: 100%;
     text-align: left;
     cursor: pointer;
     font-family: var(--font-mono);
-    transition: background var(--duration-fast) var(--ease);
+    transition: background var(--duration) var(--ease);
   }
 
   .agent-group__header:hover {
@@ -112,80 +112,80 @@
   .agent-group__top {
     display: flex;
     align-items: baseline;
-    gap: var(--space-sm);
+    gap: var(--sp-2);
   }
 
   .agent-group__name {
     font-family: var(--font-mono);
-    font-size: var(--body);
+    font-size: var(--text-base);
     font-weight: 500;
-    color: var(--terminal-text);
+    color: var(--text-1);
   }
 
   .agent-group__count {
     font-family: var(--font-mono);
-    font-size: var(--label);
+    font-size: var(--text-xs);
     letter-spacing: 0.06em;
-    color: var(--terminal-dim);
+    color: var(--text-3);
   }
 
   .agent-group__time {
     font-family: var(--font-mono);
-    font-size: var(--label);
-    color: var(--terminal-dim);
+    font-size: var(--text-xs);
+    color: var(--text-3);
     margin-left: auto;
   }
 
   .agent-group__meta {
     display: flex;
     align-items: center;
-    gap: var(--space-md);
+    gap: var(--sp-4);
   }
 
   .agent-group__stats {
     display: flex;
-    gap: var(--space-md);
+    gap: var(--sp-4);
     margin-left: auto;
   }
 
   .agent-group__stat {
     font-family: var(--font-mono);
-    font-size: var(--label);
+    font-size: var(--text-xs);
     letter-spacing: 0.04em;
-    color: var(--terminal-dim);
+    color: var(--text-3);
   }
 
   .agent-group__expand {
     font-family: var(--font-mono);
-    font-size: var(--label);
-    color: var(--terminal-dim);
+    font-size: var(--text-xs);
+    color: var(--text-3);
     letter-spacing: 0.04em;
   }
 
   .agent-group__task {
     font-family: var(--font-mono);
-    font-size: var(--body-sm);
-    color: var(--text-secondary);
+    font-size: var(--text-sm);
+    color: var(--text-2);
     line-height: 1.5;
   }
 
   .agent-group__sessions {
     display: flex;
     flex-direction: column;
-    border-top: 1px solid var(--terminal-border);
+    border-top: 1px solid var(--border);
   }
 
   .session-row {
     display: flex;
     align-items: center;
-    gap: var(--space-sm);
-    padding: var(--space-sm) var(--space-lg);
+    gap: var(--sp-2);
+    padding: var(--sp-2) var(--sp-4);
     text-decoration: none;
     color: inherit;
-    background: var(--terminal-bg);
-    border-bottom: 1px solid var(--terminal-border);
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
     font-family: var(--font-mono);
-    transition: background var(--duration-fast) var(--ease);
+    transition: background var(--duration) var(--ease);
   }
 
   .session-row:last-child {
@@ -199,8 +199,8 @@
 
   .session-row__id {
     font-family: var(--font-mono);
-    font-size: var(--label);
-    color: var(--terminal-dim);
+    font-size: var(--text-xs);
+    color: var(--text-3);
     flex-shrink: 0;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -209,8 +209,8 @@
 
   .session-row__task {
     font-family: var(--font-mono);
-    font-size: var(--caption);
-    color: var(--text-secondary);
+    font-size: var(--text-xs);
+    color: var(--text-2);
     flex: 1;
     white-space: nowrap;
     overflow: hidden;
@@ -220,10 +220,10 @@
 
   .session-row__meta {
     display: flex;
-    gap: var(--space-sm);
+    gap: var(--sp-2);
     font-family: var(--font-mono);
-    font-size: var(--label);
-    color: var(--terminal-dim);
+    font-size: var(--text-xs);
+    color: var(--text-3);
     flex-shrink: 0;
     margin-left: auto;
   }

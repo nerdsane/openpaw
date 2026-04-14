@@ -94,14 +94,14 @@
 
 <style>
   .decision-card {
-    background: var(--terminal-bg);
-    border: 1px solid var(--terminal-border);
+    background: var(--surface);
+    border: 1px solid var(--border);
     border-left: 2px solid var(--status-warning);
-    border-radius: var(--radius-md);
-    padding: var(--space-md);
+    border-radius: var(--radius);
+    padding: var(--sp-4);
     display: flex;
     flex-direction: column;
-    gap: var(--space-sm);
+    gap: var(--sp-2);
   }
 
   .header {
@@ -112,16 +112,16 @@
 
   .agent {
     font-family: var(--font-mono);
-    font-size: var(--caption);
+    font-size: var(--text-xs);
     font-weight: 700;
-    color: var(--terminal-text);
+    color: var(--text-1);
     text-transform: uppercase;
     letter-spacing: 0.06em;
   }
 
   .status-badge {
     font-family: var(--font-mono);
-    font-size: var(--label);
+    font-size: var(--text-xs);
     color: var(--status-warning);
     text-transform: uppercase;
     letter-spacing: 0.06em;
@@ -130,19 +130,19 @@
   .body {
     display: flex;
     flex-direction: column;
-    gap: var(--space-xs);
+    gap: var(--sp-1);
   }
 
   .row {
     display: flex;
-    gap: var(--space-sm);
+    gap: var(--sp-2);
     align-items: baseline;
   }
 
   .label {
     font-family: var(--font-mono);
-    font-size: var(--label);
-    color: var(--terminal-dim);
+    font-size: var(--text-xs);
+    color: var(--text-3);
     text-transform: uppercase;
     letter-spacing: 0.08em;
     flex-shrink: 0;
@@ -150,51 +150,51 @@
 
   .value {
     font-family: var(--font-mono);
-    font-size: var(--caption);
-    color: var(--terminal-text);
+    font-size: var(--text-xs);
+    color: var(--text-1);
     word-break: break-all;
   }
 
   .policy-section {
-    margin-top: var(--space-xs);
+    margin-top: var(--sp-1);
   }
 
   .policy-btn {
     background: none;
     border: none;
-    color: var(--terminal-dim);
+    color: var(--text-3);
     font-family: var(--font-mono);
-    font-size: var(--label);
+    font-size: var(--text-xs);
     letter-spacing: 0.06em;
     text-transform: uppercase;
     cursor: pointer;
     padding: 0;
-    transition: color var(--duration-fast) var(--ease);
+    transition: color var(--duration) var(--ease);
   }
 
   .policy-btn:hover {
-    color: var(--terminal-text);
+    color: var(--text-1);
   }
 
   .policy-text {
-    margin: var(--space-xs) 0 0 0;
-    padding: var(--space-sm);
-    background: var(--terminal-bg);
-    border: 1px solid var(--terminal-border);
-    border-radius: var(--radius-sm);
+    margin: var(--sp-1) 0 0 0;
+    padding: var(--sp-2);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
     font-family: var(--font-mono);
-    font-size: var(--label);
-    color: var(--terminal-text);
+    font-size: var(--text-xs);
+    color: var(--text-1);
     white-space: pre-wrap;
     overflow-x: auto;
   }
 
   .decided {
-    margin-top: var(--space-xs);
-    padding-top: var(--space-xs);
-    border-top: 1px solid var(--terminal-border);
+    margin-top: var(--sp-1);
+    padding-top: var(--sp-1);
+    border-top: 1px solid var(--border);
     display: flex;
     flex-direction: column;
-    gap: var(--space-xs);
+    gap: var(--sp-1);
   }
 </style>

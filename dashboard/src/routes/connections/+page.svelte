@@ -197,49 +197,49 @@
 <style>
   .page { max-width: 800px; }
   .page-title {
-    font-family: var(--font-display);
-    font-size: var(--heading);
-    color: var(--text-display);
-    margin-bottom: var(--space-xl);
+    font-family: var(--font-sans);
+    font-size: var(--text-xl);
+    color: var(--text-1);
+    margin-bottom: var(--sp-8);
     letter-spacing: 0.1em;
   }
 
-  .cards { display: flex; flex-direction: column; gap: var(--space-lg); }
+  .cards { display: flex; flex-direction: column; gap: var(--sp-6); }
 
   .card {
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: var(--radius-md);
-    padding: var(--space-lg);
+    border-radius: var(--radius);
+    padding: var(--sp-4);
   }
 
-  .card-header { margin-bottom: var(--space-md); }
+  .card-header { margin-bottom: var(--sp-4); }
 
   .card-title-row {
     display: flex;
     align-items: center;
-    gap: var(--space-sm);
+    gap: var(--sp-2);
   }
 
   .dot {
-    width: 8px;
-    height: 8px;
+    width: 6px;
+    height: 6px;
     border-radius: 50%;
     flex-shrink: 0;
   }
 
   .card-title {
     font-family: var(--font-mono);
-    font-size: var(--body);
+    font-size: var(--text-base);
     font-weight: 700;
-    color: var(--text-display);
+    color: var(--text-1);
     letter-spacing: 0.08em;
   }
 
   .card-status {
     font-family: var(--font-mono);
-    font-size: var(--caption);
-    color: var(--text-secondary);
+    font-size: var(--text-xs);
+    color: var(--text-2);
     text-transform: uppercase;
     letter-spacing: 0.06em;
   }
@@ -247,48 +247,48 @@
   .card-detail {
     display: block;
     font-family: var(--font-mono);
-    font-size: var(--caption);
-    color: var(--text-disabled);
-    margin-top: var(--space-xs);
-    margin-left: calc(8px + var(--space-sm));
+    font-size: var(--text-xs);
+    color: var(--text-3);
+    margin-top: var(--sp-1);
+    margin-left: calc(6px + var(--sp-2));
   }
 
-  .card-actions { margin-bottom: var(--space-sm); }
+  .card-actions { margin-bottom: var(--sp-2); }
 
   .connect-form {
     display: flex;
     flex-direction: column;
-    gap: var(--space-sm);
-    margin-top: var(--space-md);
-    padding-top: var(--space-md);
+    gap: var(--sp-2);
+    margin-top: var(--sp-4);
+    padding-top: var(--sp-4);
     border-top: 1px solid var(--border);
   }
 
   .connect-form label {
     display: flex;
     flex-direction: column;
-    gap: var(--space-2xs);
+    gap: 2px;
   }
 
   .label-text {
     font-family: var(--font-mono);
-    font-size: var(--caption);
-    color: var(--text-secondary);
+    font-size: var(--text-xs);
+    color: var(--text-2);
     letter-spacing: 0.06em;
     text-transform: uppercase;
   }
 
   .connect-form input {
-    background: var(--terminal-bg);
-    border: 1px solid var(--border-visible);
-    border-radius: var(--radius-sm);
-    padding: var(--space-sm) var(--space-md);
+    background: var(--surface);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius);
+    padding: var(--sp-2) var(--sp-3);
     font-family: var(--font-mono);
-    font-size: var(--body-sm);
-    color: var(--text-primary);
+    font-size: var(--text-base);
+    color: var(--text-1);
   }
 
-  .connect-form input::placeholder { color: var(--text-disabled); }
+  .connect-form input::placeholder { color: var(--text-3); }
   .connect-form input:focus {
     outline: none;
     border-color: var(--accent);
@@ -296,19 +296,19 @@
 
   .btn {
     font-family: var(--font-mono);
-    font-size: var(--caption);
+    font-size: var(--text-sm);
     letter-spacing: 0.1em;
-    padding: var(--space-sm) var(--space-lg);
-    border-radius: var(--radius-sm);
+    padding: var(--sp-2) var(--sp-3);
+    border-radius: var(--radius);
     cursor: pointer;
     border: 1px solid transparent;
-    transition: all var(--duration-fast) var(--ease);
+    transition: all var(--duration) var(--ease);
   }
 
   .btn-primary {
     background: var(--accent);
-    color: var(--black);
-    font-weight: 700;
+    color: var(--bg);
+    font-weight: 600;
   }
   .btn-primary:hover { opacity: 0.9; }
   .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }

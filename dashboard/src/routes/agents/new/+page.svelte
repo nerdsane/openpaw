@@ -132,44 +132,44 @@
 <style>
   .page { max-width: 600px; }
   .page-title {
-    font-family: var(--font-display);
-    font-size: var(--heading);
-    color: var(--text-display);
-    margin-bottom: var(--space-xl);
+    font-family: var(--font-sans);
+    font-size: var(--text-xl);
+    color: var(--text-1);
+    margin-bottom: var(--sp-8);
     letter-spacing: 0.1em;
   }
 
   .agent-form {
     display: flex;
     flex-direction: column;
-    gap: var(--space-md);
+    gap: var(--sp-4);
   }
 
   .agent-form label {
     display: flex;
     flex-direction: column;
-    gap: var(--space-2xs);
+    gap: 2px;
   }
 
   .label-text {
     font-family: var(--font-mono);
-    font-size: var(--caption);
-    color: var(--text-secondary);
+    font-size: var(--text-xs);
+    color: var(--text-2);
     letter-spacing: 0.06em;
   }
 
   .agent-form input,
   .agent-form select {
-    background: var(--terminal-bg);
-    border: 1px solid var(--border-visible);
-    border-radius: var(--radius-sm);
-    padding: var(--space-sm) var(--space-md);
+    background: var(--surface);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius);
+    padding: var(--sp-2) var(--sp-3);
     font-family: var(--font-mono);
-    font-size: var(--body-sm);
-    color: var(--text-primary);
+    font-size: var(--text-base);
+    color: var(--text-1);
   }
 
-  .agent-form input::placeholder { color: var(--text-disabled); }
+  .agent-form input::placeholder { color: var(--text-3); }
   .agent-form input:focus,
   .agent-form select:focus {
     outline: none;
@@ -183,25 +183,25 @@
 
   .tools-fieldset {
     border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    padding: var(--space-sm) var(--space-md);
+    border-radius: var(--radius);
+    padding: var(--sp-2) var(--sp-3);
   }
 
-  .tools-fieldset legend { padding: 0 var(--space-xs); }
+  .tools-fieldset legend { padding: 0 var(--sp-1); }
 
   .tools-grid {
     display: flex;
-    gap: var(--space-lg);
-    margin-top: var(--space-xs);
+    gap: var(--sp-6);
+    margin-top: var(--sp-1);
   }
 
   .tool-check {
     display: flex;
     align-items: center;
-    gap: var(--space-xs);
+    gap: var(--sp-1);
     font-family: var(--font-mono);
-    font-size: var(--body-sm);
-    color: var(--text-primary);
+    font-size: var(--text-sm);
+    color: var(--text-1);
     cursor: pointer;
   }
 
@@ -212,47 +212,47 @@
   .error-msg {
     background: var(--authz-denied-bg);
     border: 1px solid var(--authz-denied-border);
-    border-radius: var(--radius-sm);
-    padding: var(--space-sm) var(--space-md);
+    border-radius: var(--radius);
+    padding: var(--sp-2) var(--sp-3);
     font-family: var(--font-mono);
-    font-size: var(--body-sm);
+    font-size: var(--text-sm);
     color: var(--status-error);
   }
 
   .form-actions {
     display: flex;
-    gap: var(--space-md);
+    gap: var(--sp-4);
     justify-content: flex-end;
-    margin-top: var(--space-md);
+    margin-top: var(--sp-4);
   }
 
   .btn {
     font-family: var(--font-mono);
-    font-size: var(--caption);
+    font-size: var(--text-sm);
     letter-spacing: 0.1em;
-    padding: var(--space-sm) var(--space-lg);
-    border-radius: var(--radius-sm);
+    padding: var(--sp-2) var(--sp-3);
+    border-radius: var(--radius);
     cursor: pointer;
     border: 1px solid transparent;
     text-decoration: none;
-    transition: all var(--duration-fast) var(--ease);
+    transition: all var(--duration) var(--ease);
   }
 
   .btn-primary {
     background: var(--accent);
-    color: var(--black);
-    font-weight: 700;
+    color: var(--bg);
+    font-weight: 600;
   }
   .btn-primary:hover { opacity: 0.9; }
   .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
 
   .btn-secondary {
     background: transparent;
-    color: var(--text-secondary);
-    border-color: var(--border-visible);
+    color: var(--text-2);
+    border-color: var(--border-strong);
   }
   .btn-secondary:hover {
-    color: var(--text-primary);
-    border-color: var(--text-secondary);
+    color: var(--text-1);
+    border-color: var(--text-2);
   }
 </style>

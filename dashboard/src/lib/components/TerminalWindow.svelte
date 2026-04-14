@@ -108,11 +108,11 @@
     flex-direction: column;
     background: var(--terminal-bg);
     border: 1px solid var(--terminal-border);
-    border-radius: var(--radius-md);
+    border-radius: var(--radius);
     overflow: hidden;
     text-decoration: none;
     color: inherit;
-    transition: border-color var(--duration-fast) var(--ease);
+    transition: border-color var(--duration) var(--ease);
   }
 
   .terminal-window:hover {
@@ -132,17 +132,17 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 6px 12px;
+    padding: var(--sp-1) var(--sp-3);
     background: var(--terminal-chrome);
     border-bottom: 1px solid var(--terminal-border);
     font-family: var(--font-mono);
-    font-size: var(--label);
+    font-size: var(--text-xs);
   }
 
   .title-bar__left {
     display: flex;
     align-items: center;
-    gap: var(--space-sm);
+    gap: var(--sp-2);
     min-width: 0;
   }
 
@@ -165,7 +165,7 @@
   .title-bar__right {
     display: flex;
     align-items: center;
-    gap: var(--space-sm);
+    gap: var(--sp-2);
     flex-shrink: 0;
   }
 
@@ -187,22 +187,22 @@
     min-height: 120px;
     max-height: 200px;
     overflow: hidden;
-    padding: var(--space-sm) 12px;
+    padding: var(--sp-2) var(--sp-3);
     font-family: var(--font-mono);
-    font-size: var(--label);
+    font-size: var(--text-xs);
     line-height: 1.4;
     background: var(--terminal-bg);
   }
 
   .approval-banner {
     color: var(--status-warning);
-    margin-bottom: var(--space-xs);
+    margin-bottom: var(--sp-1);
     font-weight: 600;
   }
 
   .tool-line {
     display: flex;
-    gap: 6px;
+    gap: var(--sp-1);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -219,24 +219,24 @@
   }
 
   .tool-args {
-    color: var(--text-primary);
+    color: var(--text-1);
     overflow: hidden;
     text-overflow: ellipsis;
   }
 
   .waiting {
     color: var(--terminal-dim);
-    padding-top: var(--space-md);
+    padding-top: var(--sp-4);
   }
 
   .footer {
     display: flex;
     align-items: center;
-    gap: var(--space-md);
-    padding: 4px 12px;
+    gap: var(--sp-4);
+    padding: var(--sp-1) var(--sp-3);
     border-top: 1px solid var(--terminal-border);
     font-family: var(--font-mono);
-    font-size: var(--label);
+    font-size: var(--text-xs);
     color: var(--terminal-dim);
   }
 

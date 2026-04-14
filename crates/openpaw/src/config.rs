@@ -86,6 +86,15 @@ pub struct Config {
     /// Railway API token for deployment integrations.
     pub railway_token: Option<String>,
 
+    /// Railway project ID (captured during deploy for dashboard → Railway API).
+    pub railway_project_id: Option<String>,
+
+    /// Railway environment ID (captured during deploy).
+    pub railway_environment_id: Option<String>,
+
+    /// Railway otel-collector service ID (captured during deploy).
+    pub railway_otel_service_id: Option<String>,
+
     /// Vercel API token for deployment integrations.
     pub vercel_token: Option<String>,
 
@@ -163,6 +172,9 @@ impl Config {
             vault_key: optional_env("TEMPER_VAULT_KEY"),
             fly_api_token: optional_env("FLY_API_TOKEN"),
             railway_token: optional_env("RAILWAY_TOKEN"),
+            railway_project_id: optional_env("RAILWAY_PROJECT_ID"),
+            railway_environment_id: optional_env("RAILWAY_ENVIRONMENT_ID"),
+            railway_otel_service_id: optional_env("RAILWAY_OTEL_SERVICE_ID"),
             vercel_token: optional_env("VERCEL_TOKEN"),
             exa_api_key: optional_env("EXA_API_KEY"),
             otel_enabled: std::env::var("OTEL_ENABLED")

@@ -154,7 +154,84 @@ export function buildCanvasGraph(data: {
     projectY += frameHeight + LAYOUT.PROJECT_GAP;
   }
 
-  // ── Orphan sessions (no agent, no team) ──
+  // ── Standalone agents (not in any project) ──
+  // Collect all agent IDs already placed in project nodes
+  const placedAgentIds = new Set<string>();
+  for (const teamAgents of Object.values(data.agents)) {
+    for (const a of teamAgents) placedAgentIds.add(a.Id);
+  }
+
+  // Find agents that weren't in any team (standalone bootstrapped agents)
+  const allAgentsFlat: Agent[] = Object.values(data.agents).flat();
+  const standaloneAgents = allAgentsFlat.filter(a => !placedAgentIds.has(a.Id));
+
+  // If no projects exist, treat ALL agents as standalone
+  if (data.projects.length === 0 && standaloneAgents.length === 0) {
+    for (const teamAgents of Object.values(data.agents)) {
+      standaloneAgents.push(...teamAgents);
+    }
+  }
+
+  // Create activity cards for standalone agents with active sessions, idle group for the rest
+  const standaloneActive: Array<{ agent: Agent; session: Session }> = [];
+  const standaloneIdle: Agent[] = [];
+
+  for (const agent of standaloneAgents) {
+    const agentSessions = data.sessions.filter(s => s.agent_id === agent.Id);
+    const activeSession = agentSessions.find(s => !TERMINAL_STATUSES.includes(s.Status));
+    if (activeSession) {
+      standaloneActive.push({ agent, session: activeSession });
+    } else {
+      standaloneIdle.push(agent);
+    }
+  }
+
+  standaloneActive.forEach((item, i) => {
+    const soul = data.souls.find(s =>
+      s.Id === item.agent.soul_id || s.Name === item.agent.soul_id || s.name === item.agent.soul_id
+    ) ?? null;
+    const tools = ((item.agent as any).tools_enabled || '').split(',').filter(Boolean);
+
+    nodes.push({
+      id: `activity-standalone-${item.agent.Id}`,
+      type: 'activity',
+      position: {
+        x: LAYOUT.PROJECT_START_X,
+        y: projectY + i * (LAYOUT.ACTIVITY_HEIGHT + LAYOUT.ACTIVITY_GAP),
+      },
+      data: {
+        type: 'activity',
+        agent: item.agent,
+        session: item.session,
+        soul,
+        skills: data.skills.filter(sk => {
+          const scope = ((sk as any).scope ?? '') as string;
+          return scope === 'global';
+        }),
+        tools,
+      },
+      style: `width: ${LAYOUT.ACTIVITY_WIDTH}px; height: ${LAYOUT.ACTIVITY_HEIGHT}px;`,
+    });
+  });
+
+  if (standaloneIdle.length > 0) {
+    const idleY = projectY + standaloneActive.length * (LAYOUT.ACTIVITY_HEIGHT + LAYOUT.ACTIVITY_GAP);
+    nodes.push({
+      id: `idle-standalone`,
+      type: 'idleGroup',
+      position: { x: LAYOUT.PROJECT_START_X, y: idleY },
+      data: {
+        type: 'idleGroup',
+        agents: standaloneIdle,
+      },
+      style: `width: ${LAYOUT.ACTIVITY_WIDTH}px; height: ${LAYOUT.IDLE_HEIGHT}px;`,
+    });
+    projectY = idleY + LAYOUT.IDLE_HEIGHT + LAYOUT.IDLE_GAP;
+  } else {
+    projectY += standaloneActive.length * (LAYOUT.ACTIVITY_HEIGHT + LAYOUT.ACTIVITY_GAP);
+  }
+
+  // ── Orphan sessions (no agent_id) ──
   const orphanSessions = data.sessions.filter(s =>
     !s.agent_id && !TERMINAL_STATUSES.includes(s.Status)
   );

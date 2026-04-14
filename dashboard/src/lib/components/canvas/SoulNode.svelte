@@ -22,11 +22,11 @@
   .soul-node {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 6px 10px;
-    background: var(--terminal-bg);
-    border-bottom: 1px solid var(--terminal-border);
-    border-radius: var(--radius-sm);
+    gap: var(--sp-2);
+    padding: var(--sp-1) var(--sp-2);
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    border-radius: var(--radius);
     min-width: 80px;
   }
 
@@ -40,15 +40,15 @@
 
   .soul-name {
     font-family: var(--font-mono);
-    font-size: var(--caption);
-    color: var(--text-secondary);
+    font-size: var(--text-xs);
+    color: var(--text-2);
     white-space: nowrap;
   }
 
   .soul-desc {
     font-family: var(--font-mono);
-    font-size: var(--label);
-    color: var(--text-disabled);
+    font-size: var(--text-xs);
+    color: var(--text-3);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;

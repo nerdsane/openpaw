@@ -210,6 +210,7 @@ export async function fetchFileContent(fileId: string): Promise<string> {
 
 export interface SetupStatus {
   has_anthropic_key: boolean;
+  llm_provider: string | null;
   has_discord: boolean;
   has_slack: boolean;
   has_agents: boolean;
@@ -217,6 +218,20 @@ export interface SetupStatus {
   discord_connected: boolean;
   slack_connected: boolean;
   discord_interaction_url?: string;
+}
+
+export interface SecretSchemaEntry {
+  key: string;
+  category: string;
+  label: string;
+  required: boolean;
+  description: string;
+}
+
+export async function fetchSecretsSchema(): Promise<SecretSchemaEntry[]> {
+  const res = await apiFetch(`${BASE}/paw/setup/secrets/schema`);
+  if (!res.ok) return [];
+  return res.json();
 }
 
 export async function fetchSetupStatus(): Promise<SetupStatus> {
@@ -246,8 +261,7 @@ export async function listSecretKeys(): Promise<string[]> {
 
 export async function getSecret(key: string): Promise<string | null> {
   const res = await apiFetch(`${BASE}/paw/setup/secrets/${encodeURIComponent(key)}`);
-  if (res.status === 404) return null;
-  if (!res.ok) throw new Error(`Get secret failed: ${res.status}`);
+  if (!res.ok) return null;
   const data = await res.json();
   return data.value ?? null;
 }
@@ -397,4 +411,74 @@ export async function disconnectSlack(): Promise<void> {
   await apiFetch(`${BASE}/paw/transports/slack/disconnect`, {
     method: 'POST',
   });
+}
+
+// ──────────────────── Railway Integration API ────────────────────
+
+export interface RailwayStatus {
+  configured: boolean;
+  project_id: string | null;
+  environment_id: string | null;
+  otel_service_id: string | null;
+}
+
+export async function getRailwayStatus(): Promise<RailwayStatus> {
+  const res = await apiFetch(`${BASE}/paw/infra/railway/status`);
+  if (!res.ok) return { configured: false, project_id: null, environment_id: null, otel_service_id: null };
+  return res.json();
+}
+
+export async function setRailwayVar(service: string, key: string, value: string): Promise<void> {
+  const res = await apiFetch(`${BASE}/paw/infra/railway/set-var`, {
+    method: 'POST',
+    headers: { ...HEADERS, 'content-type': 'application/json' },
+    body: JSON.stringify({ service, key, value }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `Set Railway var failed: ${res.status}`);
+  }
+}
+
+// ──────────────────── Chat / Session API ────────────────────
+
+export async function createSession(params: {
+  agent_id: string;
+  user_message: string;
+  system_prompt?: string;
+}): Promise<{ session_id: string }> {
+  // Create session entity
+  const res = await apiFetch(`${BASE}/tdata/Sessions`, {
+    method: 'POST',
+    headers: { ...HEADERS, 'content-type': 'application/json' },
+    body: JSON.stringify({}),
+  });
+  if (!res.ok) throw new Error(`Create session failed: ${res.status}`);
+  const data = await res.json();
+  const sessionId = data.entity_id || data.fields?.Id || data.Id;
+
+  // Configure it — which kicks off the WASM-driven loop
+  const configRes = await apiFetch(`${BASE}/tdata/Sessions('${sessionId}')/OpenPaw.Configure`, {
+    method: 'POST',
+    headers: { ...HEADERS, 'content-type': 'application/json' },
+    body: JSON.stringify({
+      agent_id: params.agent_id,
+      user_message: params.user_message,
+      system_prompt: params.system_prompt || '',
+    }),
+  });
+  if (!configRes.ok) throw new Error(`Configure session failed: ${configRes.status}`);
+
+  return { session_id: sessionId };
+}
+
+export async function steerSession(sessionId: string, message: string): Promise<void> {
+  const res = await apiFetch(`${BASE}/tdata/Sessions('${sessionId}')/OpenPaw.Steer`, {
+    method: 'POST',
+    headers: { ...HEADERS, 'content-type': 'application/json' },
+    body: JSON.stringify({
+      steering_messages: JSON.stringify([{ role: 'user', content: message }]),
+    }),
+  });
+  if (!res.ok) throw new Error(`Steer session failed: ${res.status}`);
 }

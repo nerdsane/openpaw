@@ -27,20 +27,20 @@
   .status-badge {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
+    gap: var(--sp-1);
   }
 
   .dot {
-    width: 5px; height: 5px;
+    width: 6px; height: 6px;
     border-radius: 50%;
     flex-shrink: 0;
   }
 
   .label {
     font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: var(--text-xs);
     letter-spacing: 0.04em;
     text-transform: lowercase;
-    color: var(--text-3, var(--text-secondary));
+    color: var(--text-3);
   }
 </style>

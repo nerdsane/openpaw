@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
+  import { base } from '$app/paths';
   import { SvelteFlow, Background, MiniMap, Controls } from '@xyflow/svelte';
   import '@xyflow/svelte/dist/style.css';
 
@@ -12,7 +13,6 @@
   import type { Node, Edge, NodeTypes } from '@xyflow/svelte';
   import type { CanvasNodeData } from '$lib/canvas-types';
   import type { Project, Team, Agent, Session, Soul, Skill, Harness, WorkCycle } from '$lib/types';
-  import { MOCK_ENTITIES, entitiesOfType } from '$lib/mock-data';
   import { parsePendingToolCalls, formatToolInput, computeMetrics } from '$lib/parse';
   import StatusBadge from '$lib/components/StatusBadge.svelte';
 
@@ -28,7 +28,6 @@
 
   let loaded = $state(false);
   let error = $state<string | null>(null);
-  let usingMock = $state(false);
   let nodes = $state<Node<CanvasNodeData>[]>([]);
   let edges = $state<Edge[]>([]);
   let selectedNode = $state<Node<CanvasNodeData> | null>(null);
@@ -65,28 +64,8 @@
     return calls;
   });
 
-  /** Convert mock entities to the shapes buildCanvasGraph expects */
-  function loadFromMock() {
-    const projects = entitiesOfType('Project').map(e => ({ ...e.fields, Id: e.Id, Status: e.Status }) as unknown as Project);
-    const teams = entitiesOfType('Team').map(e => ({ ...e.fields, Id: e.Id, Status: e.Status }) as unknown as Team);
-    const souls = entitiesOfType('Soul').map(e => ({ ...e.fields, Id: e.Id, Status: e.Status }) as unknown as Soul);
-    const skills = entitiesOfType('Skill').map(e => ({ ...e.fields, Id: e.Id, Status: e.Status }) as unknown as Skill);
-    const sessions = entitiesOfType('Session').map(e => ({ ...e.fields, Id: e.Id, Status: e.Status, _events: e._events, _sequence_nr: e._sequence_nr }) as unknown as Session);
-    const harnesses = entitiesOfType('ProjectHarness').map(e => ({ ...e.fields, Id: e.Id, Status: e.Status }) as unknown as Harness);
-    const workCycles = entitiesOfType('WorkCycle').map(e => ({ ...e.fields, Id: e.Id, Status: e.Status, _events: e._events }) as unknown as WorkCycle);
-    const agents = entitiesOfType('Agent').map(e => ({ ...e.fields, Id: e.Id, Status: e.Status }) as unknown as Agent);
-
-    const agentsMap: Record<string, Agent[]> = {};
-    for (const t of teams) {
-      agentsMap[t.Id] = agents.filter(a => (a as any).team_id === t.Id);
-    }
-
-    return { projects, teams, agents: agentsMap, sessions, souls, skills, harnesses, workCycles };
-  }
-
   onMount(async () => {
     try {
-      // Try real API first
       const [projectsRaw, teamsRaw, sessionsRaw, soulsRaw, skillsRaw, harnessesRaw, workCyclesRaw] = await Promise.all([
         queryEntities('Projects').catch(() => []),
         queryTeams().catch(() => []),
@@ -105,41 +84,24 @@
       const harnesses = harnessesRaw as unknown as Harness[];
       const workCycles = workCyclesRaw as unknown as WorkCycle[];
 
-      // Use real data only if there are projects
-      const hasData = projects.length > 0;
-
-      if (hasData) {
-        const agentsMap: Record<string, Agent[]> = {};
-        await Promise.all(teams.map(async (team) => {
-          if (!team.Id) return;
-          try {
-            const teamAgents = await queryAgentsForTeam(team.Id);
-            agentsMap[team.Id] = teamAgents as unknown as Agent[];
-          } catch {}
-        }));
-        buildCanvasGraph({ projects, teams, agents: agentsMap, sessions, souls, skills, harnesses, workCycles });
-      } else {
-        // Fall back to mock data for UI development
-        usingMock = true;
-        buildCanvasGraph(loadFromMock());
-      }
+      const agentsMap: Record<string, Agent[]> = {};
+      await Promise.all(teams.map(async (team) => {
+        if (!team.Id) return;
+        try {
+          const teamAgents = await queryAgentsForTeam(team.Id);
+          agentsMap[team.Id] = teamAgents as unknown as Agent[];
+        } catch {}
+      }));
+      buildCanvasGraph({ projects, teams, agents: agentsMap, sessions, souls, skills, harnesses, workCycles });
 
       canvasNodes.subscribe(v => { nodes = v; });
       canvasEdges.subscribe(v => { edges = v; });
 
       loaded = true;
-      if (!usingMock) connectSSE();
+      connectSSE();
     } catch (e) {
-      console.error('Canvas load error, falling back to mock:', e);
-      try {
-        usingMock = true;
-        buildCanvasGraph(loadFromMock());
-        canvasNodes.subscribe(v => { nodes = v; });
-        canvasEdges.subscribe(v => { edges = v; });
-      } catch (e2) {
-        console.error('Mock data also failed:', e2);
-        error = 'Failed to load data';
-      }
+      console.error('Canvas load error:', e);
+      error = 'Failed to load canvas data';
       loaded = true;
     }
   });
@@ -149,7 +111,6 @@
   // SSE live updates
   let lastSeq = $state(0);
   $effect(() => {
-    if (usingMock) return;
     const evts = $events;
     if (evts.length === 0) return;
     const latest = evts[0];
@@ -169,9 +130,6 @@
 <div class="canvas-container">
   {#if loaded}
     {#if nodes.length > 0}
-      {#if usingMock}
-        <div class="mock-banner">MOCK DATA — backend not connected</div>
-      {/if}
       <SvelteFlow
         {nodes}
         {edges}
@@ -262,10 +220,16 @@
           {/if}
         </div>
       {/if}
+    {:else if error}
+      <div class="canvas-empty">
+        <span class="empty-label">CANVAS</span>
+        <span class="empty-text">{error}</span>
+      </div>
     {:else}
       <div class="canvas-empty">
         <span class="empty-label">CANVAS</span>
-        <span class="empty-text">No entities found.</span>
+        <span class="empty-text">No activity yet. Agents will appear here when sessions are running.</span>
+        <a href="{base}/welcome" class="empty-link">Talk to Paw</a>
       </div>
     {/if}
   {:else}
@@ -282,51 +246,35 @@
     position: relative;
   }
 
-  .mock-banner {
-    position: absolute;
-    top: 8px;
-    left: 50%;
-    transform: translateX(-50%);
-    z-index: 10;
-    font-family: var(--font-mono);
-    font-size: var(--text-xs, 11px);
-    color: var(--status-warning, #eab308);
-    background: var(--surface, #141414);
-    border: 1px solid var(--status-warning, #eab308);
-    padding: 2px 12px;
-    border-radius: var(--radius, 4px);
-    letter-spacing: 0.04em;
-  }
-
   .canvas-container :global(.svelte-flow) {
-    background: var(--bg, #0a0a0a) !important;
+    background: var(--bg) !important;
   }
 
   .canvas-container :global(.svelte-flow__minimap) {
-    background: var(--surface, #141414);
-    border: 1px solid var(--border, rgba(255,255,255,0.08));
-    border-radius: var(--radius, 4px);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
   }
 
   .canvas-container :global(.svelte-flow__controls) {
-    border: 1px solid var(--border, rgba(255,255,255,0.08));
-    border-radius: var(--radius, 4px);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
     overflow: hidden;
   }
 
   .canvas-container :global(.svelte-flow__controls-button) {
-    background: var(--surface, #141414);
-    color: var(--text-2, #a0a0a0);
+    background: var(--surface);
+    color: var(--text-2);
     border: none;
-    border-bottom: 1px solid var(--border, rgba(255,255,255,0.08));
+    border-bottom: 1px solid var(--border);
   }
 
   .canvas-container :global(.svelte-flow__controls-button:hover) {
-    background: var(--surface-raised, #1c1c1c);
+    background: var(--surface-raised);
   }
 
   .canvas-container :global(.svelte-flow__controls-button svg) {
-    fill: var(--text-2, #a0a0a0);
+    fill: var(--text-2);
   }
 
   .canvas-container :global(.svelte-flow__attribution) {
@@ -340,21 +288,33 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 8px;
+    gap: var(--sp-2);
   }
 
   .empty-label {
     font-family: var(--font-mono);
-    font-size: 20px;
+    font-size: var(--text-xl);
     letter-spacing: 0.08em;
-    color: var(--text-3, #666);
+    color: var(--text-3);
     opacity: 0.3;
   }
 
   .empty-text {
     font-family: var(--font-mono);
-    font-size: 12px;
-    color: var(--text-3, #666);
+    font-size: var(--text-sm);
+    color: var(--text-3);
+  }
+
+  .empty-link {
+    font-family: var(--font-mono);
+    font-size: var(--text-base);
+    color: var(--accent);
+    text-decoration: none;
+    margin-top: var(--sp-1);
+  }
+
+  .empty-link:hover {
+    text-decoration: underline;
   }
 
   /* ── Detail Panel ── */
@@ -364,93 +324,72 @@
     right: 0;
     width: 360px;
     height: 100%;
-    background: var(--bg, #0a0a0a);
-    border-left: 1px solid var(--border, rgba(255,255,255,0.08));
+    background: var(--bg);
+    border-left: 1px solid var(--border);
     z-index: 20;
     overflow-y: auto;
-    padding: 16px;
+    padding: var(--sp-4);
     display: flex;
     flex-direction: column;
-    gap: 12px;
-    font-family: var(--font-mono, monospace);
+    gap: var(--sp-3);
+    font-family: var(--font-mono);
   }
 
   .panel-close {
     position: absolute;
-    top: 8px;
-    right: 12px;
-    font-size: 18px;
-    color: var(--text-3, #666);
+    top: var(--sp-2);
+    right: var(--sp-3);
+    font-size: var(--text-lg);
+    color: var(--text-3);
     cursor: pointer;
     background: none;
     border: none;
     line-height: 1;
   }
-  .panel-close:hover { color: var(--text-1, #eee); }
+  .panel-close:hover { color: var(--text-1); }
 
   .panel-header {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding-right: 24px;
+    gap: var(--sp-2);
+    padding-right: var(--sp-6);
   }
 
   .panel-name {
-    font-size: 15px;
+    font-size: var(--text-lg);
     font-weight: 600;
-    color: var(--accent, #00DC82);
+    color: var(--accent);
   }
 
   .panel-role {
-    font-size: 11px;
-    color: var(--text-3, #666);
+    font-size: var(--text-xs);
+    color: var(--text-3);
   }
 
   .panel-meta {
-    font-size: 10px;
-    color: var(--text-3, #666);
+    font-size: var(--text-xs);
+    color: var(--text-3);
   }
 
   .panel-section {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: var(--sp-1);
   }
 
   .panel-label {
-    font-size: 10px;
+    font-size: var(--text-xs);
     text-transform: uppercase;
     letter-spacing: 0.06em;
-    color: var(--text-3, #666);
-  }
-
-  .panel-session {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 10px;
-  }
-
-  .panel-session-id {
-    color: var(--text-2, #a0a0a0);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    flex: 1;
-    min-width: 0;
-  }
-
-  .panel-session-turns {
-    color: var(--text-3, #666);
-    flex-shrink: 0;
+    color: var(--text-3);
   }
 
   /* Terminal in panel */
   .panel-terminal {
-    background: var(--terminal-bg, #09090b);
-    border: 1px solid var(--terminal-border, rgba(255,255,255,0.05));
-    border-radius: var(--radius, 4px);
-    padding: 10px 12px;
+    background: var(--terminal-bg);
+    border: 1px solid var(--terminal-border);
+    border-radius: var(--radius);
+    padding: var(--sp-2) var(--sp-3);
     display: flex;
     flex-direction: column;
     gap: 3px;
@@ -460,59 +399,27 @@
 
   .panel-line {
     display: flex;
-    gap: 6px;
-    font-size: 10px;
+    gap: var(--sp-1);
+    font-size: var(--text-xs);
     white-space: nowrap;
     overflow: hidden;
   }
 
-  .panel-prompt { color: var(--accent, #34d399); flex-shrink: 0; user-select: none; }
-  .panel-cmd { color: var(--text-1, #fafafa); font-weight: 500; flex-shrink: 0; }
-  .panel-args { color: var(--text-3, #71717a); overflow: hidden; text-overflow: ellipsis; }
+  .panel-prompt { color: var(--accent); flex-shrink: 0; user-select: none; }
+  .panel-cmd { color: var(--text-1); font-weight: 500; flex-shrink: 0; }
+  .panel-args { color: var(--text-3); overflow: hidden; text-overflow: ellipsis; }
 
-  .panel-pills { display: flex; flex-wrap: wrap; gap: 4px; }
+  .panel-pills { display: flex; flex-wrap: wrap; gap: var(--sp-1); }
   .panel-pill {
-    font-family: var(--font-mono, monospace);
-    font-size: 10px; color: var(--text-2, #a1a1aa);
-    background: var(--surface, #18181b);
-    border: 1px solid var(--border, rgba(255,255,255,0.07));
-    padding: 1px 6px; border-radius: 3px;
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    color: var(--text-2);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    padding: 1px var(--sp-1);
+    border-radius: var(--radius);
   }
 
-  /* Tags */
-  .panel-tags {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px;
-  }
-
-  .panel-tag {
-    font-size: 10px;
-    color: var(--text-2, #a0a0a0);
-    background: var(--surface, #141414);
-    border: 1px solid var(--border, rgba(255,255,255,0.08));
-    padding: 1px 6px;
-    border-radius: 3px;
-  }
-
-  /* Authz */
-  .panel-authz {
-    display: flex;
-    gap: 12px;
-    font-size: 11px;
-  }
-
-  .panel-authz-ok { color: var(--accent, #00DC82); }
-  .panel-authz-deny { color: var(--status-error, #f87171); }
-
-  .panel-warning {
-    font-size: 10px;
-    color: var(--status-warning, #eab308);
-    background: rgba(234, 179, 8, 0.08);
-    border: 1px solid rgba(234, 179, 8, 0.2);
-    padding: 6px 10px;
-    border-radius: var(--radius, 4px);
-  }
 
   @media (max-width: 768px) {
     .detail-panel { width: 100%; }

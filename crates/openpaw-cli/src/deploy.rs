@@ -50,7 +50,6 @@ pub async fn run_deploy(
     dd_api_key: Option<String>,
     dd_app_key: Option<String>,
     dd_site: String,
-    with_datadog: bool,
 ) -> Result<()> {
     cliclack::intro("Open Paw Deploy")?;
 
@@ -99,13 +98,35 @@ pub async fn run_deploy(
         format!("BLOB_SECRET_KEY={blob_secret_key}"),
     ];
 
-    if let Some(key) = dd_api_key {
+    if let Some(key) = &dd_api_key {
         variables.push(format!("DD_API_KEY={key}"));
     }
-    if let Some(key) = dd_app_key {
+    if let Some(key) = &dd_app_key {
         variables.push(format!("DD_APP_KEY={key}"));
     }
     variables.push(format!("DD_SITE={dd_site}"));
+
+    // Seed LLM credentials so the deployed dashboard shows "LLM: Configured" on first visit.
+    // Check env vars first, then ~/.codex/auth.json for Codex OAuth token.
+    if let Some(key) = optional_env("ANTHROPIC_API_KEY") {
+        variables.push(format!("ANTHROPIC_API_KEY={key}"));
+        variables.push("LLM_PROVIDER=anthropic".to_string());
+        cliclack::log::success("LLM credential detected: Anthropic")?;
+    } else if let Some(key) = optional_env("OPENROUTER_API_KEY") {
+        variables.push(format!("OPENROUTER_API_KEY={key}"));
+        variables.push("LLM_PROVIDER=openrouter".to_string());
+        cliclack::log::success("LLM credential detected: OpenRouter")?;
+    } else if let Some(key) = optional_env("OPENAI_API_KEY") {
+        variables.push(format!("OPENAI_API_KEY={key}"));
+        variables.push("LLM_PROVIDER=openai".to_string());
+        cliclack::log::success("LLM credential detected: OpenAI")?;
+    } else if let Some(token) = optional_env("OPENAI_CODEX_TOKEN")
+        .or_else(|| read_codex_token_file().ok())
+    {
+        variables.push(format!("OPENAI_CODEX_TOKEN={token}"));
+        variables.push("LLM_PROVIDER=openai_codex".to_string());
+        cliclack::log::success("LLM credential detected: OpenAI Codex")?;
+    }
 
     let mut set_args = vec![
         "variable".to_string(),
@@ -116,21 +137,87 @@ pub async fn run_deploy(
     set_args.extend(variables);
     run_interactive("railway", &as_str_slice(&set_args))?;
 
-    if with_datadog {
-        let _ = run_interactive(
-            "railway",
-            &[
-                "add",
-                "--service",
-                "otel-collector",
-                "--image",
-                "otel/opentelemetry-collector-contrib:latest",
-            ],
-        );
+    // Get project/env IDs for all deploys
+    let (project_id, env_id) = get_railway_ids()?;
+
+    // Always deploy the OTEL collector — it auto-detects DD_API_KEY at startup.
+    // With DD_API_KEY → exports to Datadog. Without → debug exporter (logs to stdout).
+    // To enable Datadog later, just add DD_API_KEY to the otel-collector service in Railway.
+    cliclack::log::step("Deploying OTEL collector...")?;
+
+    let _ = Command::new("railway")
+        .args(["add", "--service", "otel-collector"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+
+    // Set DD vars on the collector (if available now — can be added later via Railway dashboard)
+    let mut collector_vars: Vec<String> = Vec::new();
+    if let Some(key) = &dd_api_key {
+        collector_vars.push(format!("DD_API_KEY={key}"));
+    }
+    collector_vars.push(format!("DD_SITE={dd_site}"));
+    let mut collector_set_args = vec![
+        "variable".to_string(),
+        "set".to_string(),
+        "-s".to_string(),
+        "otel-collector".to_string(),
+    ];
+    collector_set_args.extend(collector_vars);
+    run_interactive("railway", &as_str_slice(&collector_set_args))?;
+
+    deploy_otel_collector(&project_id, &env_id)?;
+
+    if dd_api_key.is_some() {
+        cliclack::log::success("OTEL collector → Datadog ✓")?;
+    } else {
+        cliclack::log::info(
+            "OTEL collector deployed in debug mode (no DD_API_KEY).\n  \
+             To enable Datadog: add DD_API_KEY to the otel-collector service in Railway.\n  \
+             The collector will auto-detect it on restart.",
+        )?;
+    }
+
+    // Point openpaw at the collector via Railway private networking
+    run_interactive(
+        "railway",
+        &[
+            "variable",
+            "set",
+            "-s",
+            "openpaw",
+            "OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector.railway.internal:4318",
+            "OTEL_ENABLED=true",
+        ],
+    )?;
+
+    // Capture Railway metadata so the deployed server can call Railway's API from the dashboard.
+    // project_id and env_id are already available. Resolve otel-collector service ID.
+    let otel_service_id = resolve_railway_service_id(&project_id, &env_id, "otel-collector")
+        .unwrap_or_default();
+    if !otel_service_id.is_empty() {
+        let mut meta_vars = vec![
+            format!("RAILWAY_PROJECT_ID={project_id}"),
+            format!("RAILWAY_ENVIRONMENT_ID={env_id}"),
+            format!("RAILWAY_OTEL_SERVICE_ID={otel_service_id}"),
+        ];
+        // Generate a project-scoped token for the server to call Railway API
+        if let Ok(project_token) = capture_trimmed("railway", &["token"]) {
+            meta_vars.push(format!("RAILWAY_TOKEN={project_token}"));
+        }
+        let mut meta_set_args = vec![
+            "variable".to_string(),
+            "set".to_string(),
+            "-s".to_string(),
+            "openpaw".to_string(),
+        ];
+        meta_set_args.extend(meta_vars);
+        run_interactive("railway", &as_str_slice(&meta_set_args))?;
+        cliclack::log::success("Railway metadata captured for dashboard integration")?;
     }
 
     cliclack::log::step("Deploying OpenPaw...")?;
-    deploy_prebuilt_image()?;
+    deploy_prebuilt_image(&project_id, &env_id)?;
 
     let domain_output = capture_trimmed("railway", &["domain", "--service", "openpaw", "--json"])?;
     let deploy_url = infer_domain(&domain_output).unwrap_or(domain_output.clone());
@@ -437,8 +524,8 @@ fn ensure_auth_wrangler(cache: &mut HashMap<String, String>) -> Result<()> {
     Ok(())
 }
 
-/// Deploy the pre-built Docker image from GHCR instead of building from source.
-fn deploy_prebuilt_image() -> Result<()> {
+/// Get Railway project and environment IDs from the linked project.
+fn get_railway_ids() -> Result<(String, String)> {
     let status_output = Command::new("railway")
         .args(["status", "--json"])
         .output()
@@ -456,7 +543,11 @@ fn deploy_prebuilt_image() -> Result<()> {
         .and_then(|e| e["node"]["id"].as_str())
         .context("No environment ID in Railway status")?
         .to_string();
+    Ok((project_id, env_id))
+}
 
+/// Deploy the pre-built Docker image from GHCR instead of building from source.
+fn deploy_prebuilt_image(project_id: &str, env_id: &str) -> Result<()> {
     let image = "ghcr.io/nerdsane/openpaw:latest";
     let tmp = std::env::temp_dir().join("openpaw-deploy");
     let _ = std::fs::create_dir_all(&tmp);
@@ -464,12 +555,12 @@ fn deploy_prebuilt_image() -> Result<()> {
     std::fs::write(
         tmp.join("railway.toml"),
         "[build]\nbuilder = \"dockerfile\"\ndockerfilePath = \"Dockerfile\"\n\n\
-         [deploy]\nhealthcheckPath = \"/healthz\"\nhealthcheckTimeout = 60\n\
+         [deploy]\nhealthcheckPath = \"/healthz\"\nhealthcheckTimeout = 300\n\
          restartPolicyType = \"ON_FAILURE\"\nrestartPolicyMaxRetries = 3\n",
     )?;
 
     let status = Command::new("railway")
-        .args(["up", "-s", "openpaw", "-p", &project_id, "-e", &env_id])
+        .args(["up", "-s", "openpaw", "-p", project_id, "-e", env_id])
         .current_dir(&tmp)
         .stdin(std::process::Stdio::inherit())
         .stdout(std::process::Stdio::inherit())
@@ -482,6 +573,140 @@ fn deploy_prebuilt_image() -> Result<()> {
     if !status.success() {
         anyhow::bail!("Railway deploy failed");
     }
+    Ok(())
+}
+
+/// Deploy the OTEL collector as a Railway service.
+/// Uses a dynamic entrypoint: if DD_API_KEY is set, exports to Datadog.
+/// Otherwise, uses a debug exporter (traces logged to stdout).
+/// Adding DD_API_KEY later via Railway dashboard auto-restarts with Datadog enabled.
+fn deploy_otel_collector(project_id: &str, env_id: &str) -> Result<()> {
+    let tmp = std::env::temp_dir().join("openpaw-otel-deploy");
+    let _ = std::fs::create_dir_all(&tmp);
+
+    // Dockerfile with both config files + a startup script that picks the right one
+    std::fs::write(
+        tmp.join("Dockerfile"),
+        "FROM otel/opentelemetry-collector-contrib:latest\n\
+         COPY otel-datadog.yaml /etc/otelcol-contrib/otel-datadog.yaml\n\
+         COPY otel-debug.yaml /etc/otelcol-contrib/otel-debug.yaml\n\
+         COPY entrypoint.sh /entrypoint.sh\n\
+         USER 0\n\
+         RUN chmod +x /entrypoint.sh\n\
+         USER nobody\n\
+         ENTRYPOINT [\"/entrypoint.sh\"]\n",
+    )?;
+
+    // Entrypoint: choose config based on DD_API_KEY presence
+    std::fs::write(
+        tmp.join("entrypoint.sh"),
+        "#!/bin/sh\n\
+         if [ -n \"$DD_API_KEY\" ]; then\n\
+         \x20 echo \"DD_API_KEY detected — exporting to Datadog\"\n\
+         \x20 exec /otelcol-contrib --config /etc/otelcol-contrib/otel-datadog.yaml\n\
+         else\n\
+         \x20 echo \"No DD_API_KEY — running in debug mode (traces logged to stdout)\"\n\
+         \x20 echo \"To enable Datadog: add DD_API_KEY to this service in Railway\"\n\
+         \x20 exec /otelcol-contrib --config /etc/otelcol-contrib/otel-debug.yaml\n\
+         fi\n",
+    )?;
+
+    // Config with Datadog exporter — used when DD_API_KEY is present
+    std::fs::write(
+        tmp.join("otel-datadog.yaml"),
+        "receivers:\n\
+         \x20 otlp:\n\
+         \x20   protocols:\n\
+         \x20     grpc:\n\
+         \x20       endpoint: 0.0.0.0:4317\n\
+         \x20     http:\n\
+         \x20       endpoint: 0.0.0.0:4318\n\
+         \n\
+         processors:\n\
+         \x20 batch:\n\
+         \x20   send_batch_size: 1000\n\
+         \x20   timeout: 5s\n\
+         \n\
+         exporters:\n\
+         \x20 datadog:\n\
+         \x20   api:\n\
+         \x20     key: ${env:DD_API_KEY}\n\
+         \x20     site: ${env:DD_SITE}\n\
+         \n\
+         service:\n\
+         \x20 pipelines:\n\
+         \x20   traces:\n\
+         \x20     receivers: [otlp]\n\
+         \x20     processors: [batch]\n\
+         \x20     exporters: [datadog]\n\
+         \x20   metrics:\n\
+         \x20     receivers: [otlp]\n\
+         \x20     processors: [batch]\n\
+         \x20     exporters: [datadog]\n\
+         \x20   logs:\n\
+         \x20     receivers: [otlp]\n\
+         \x20     processors: [batch]\n\
+         \x20     exporters: [datadog]\n",
+    )?;
+
+    // Config with debug exporter — used when DD_API_KEY is absent
+    std::fs::write(
+        tmp.join("otel-debug.yaml"),
+        "receivers:\n\
+         \x20 otlp:\n\
+         \x20   protocols:\n\
+         \x20     grpc:\n\
+         \x20       endpoint: 0.0.0.0:4317\n\
+         \x20     http:\n\
+         \x20       endpoint: 0.0.0.0:4318\n\
+         \n\
+         processors:\n\
+         \x20 batch:\n\
+         \x20   send_batch_size: 1000\n\
+         \x20   timeout: 5s\n\
+         \n\
+         exporters:\n\
+         \x20 debug:\n\
+         \x20   verbosity: basic\n\
+         \n\
+         service:\n\
+         \x20 pipelines:\n\
+         \x20   traces:\n\
+         \x20     receivers: [otlp]\n\
+         \x20     processors: [batch]\n\
+         \x20     exporters: [debug]\n\
+         \x20   metrics:\n\
+         \x20     receivers: [otlp]\n\
+         \x20     processors: [batch]\n\
+         \x20     exporters: [debug]\n\
+         \x20   logs:\n\
+         \x20     receivers: [otlp]\n\
+         \x20     processors: [batch]\n\
+         \x20     exporters: [debug]\n",
+    )?;
+
+    std::fs::write(
+        tmp.join("railway.toml"),
+        "[build]\nbuilder = \"dockerfile\"\ndockerfilePath = \"Dockerfile\"\n\n\
+         [deploy]\nrestartPolicyType = \"ON_FAILURE\"\nrestartPolicyMaxRetries = 3\n",
+    )?;
+
+    let status = Command::new("railway")
+        .args(["up", "-s", "otel-collector", "-p", project_id, "-e", env_id])
+        .current_dir(&tmp)
+        .stdin(std::process::Stdio::inherit())
+        .stdout(std::process::Stdio::inherit())
+        .stderr(std::process::Stdio::inherit())
+        .status()
+        .context("Failed to deploy OTEL collector")?;
+
+    let _ = std::fs::remove_dir_all(&tmp);
+
+    if !status.success() {
+        anyhow::bail!("OTEL collector deploy failed");
+    }
+
+    cliclack::log::success("OTEL collector deployed ✓")?;
     Ok(())
 }
 
@@ -665,6 +890,93 @@ fn slugify(input: &str) -> String {
         .filter(|segment| !segment.is_empty())
         .collect::<Vec<_>>()
         .join("-")
+}
+
+/// Resolve a Railway service ID by name using the Railway CLI.
+fn resolve_railway_service_id(
+    project_id: &str,
+    _env_id: &str,
+    service_name: &str,
+) -> Result<String> {
+    // `railway service --json` lists services in the linked project.
+    // We look for one with the matching name.
+    let output = Command::new("railway")
+        .args(["service", "--json"])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .output()
+        .context("Failed to run railway service --json")?;
+
+    if !output.status.success() {
+        // Fallback: try the status endpoint which includes service info
+        let status_output = Command::new("railway")
+            .args(["status", "--json"])
+            .output()
+            .context("Failed to get Railway status")?;
+        let status_json: serde_json::Value = serde_json::from_slice(&status_output.stdout)?;
+
+        // Look in services array
+        if let Some(services) = status_json["services"]["edges"].as_array() {
+            for service in services {
+                let name = service["node"]["name"]
+                    .as_str()
+                    .unwrap_or_default();
+                if name == service_name {
+                    if let Some(id) = service["node"]["id"].as_str() {
+                        return Ok(id.to_string());
+                    }
+                }
+            }
+        }
+        anyhow::bail!("Service {service_name} not found in project {project_id}");
+    }
+
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout)?;
+
+    // The output could be an array of services or an object with edges
+    if let Some(arr) = json.as_array() {
+        for svc in arr {
+            let name = svc["name"].as_str().unwrap_or_default();
+            if name == service_name {
+                if let Some(id) = svc["id"].as_str() {
+                    return Ok(id.to_string());
+                }
+            }
+        }
+    } else if let Some(edges) = json["edges"].as_array() {
+        for edge in edges {
+            let name = edge["node"]["name"].as_str().unwrap_or_default();
+            if name == service_name {
+                if let Some(id) = edge["node"]["id"].as_str() {
+                    return Ok(id.to_string());
+                }
+            }
+        }
+    }
+
+    anyhow::bail!("Service {service_name} not found in project {project_id}")
+}
+
+fn optional_env(name: &str) -> Option<String> {
+    std::env::var(name)
+        .ok()
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+}
+
+/// Read OpenAI Codex OAuth token from ~/.codex/auth.json.
+fn read_codex_token_file() -> Result<String> {
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
+    let auth_path = std::path::Path::new(&home).join(".codex/auth.json");
+    let data = std::fs::read_to_string(&auth_path)
+        .with_context(|| format!("Cannot read {}", auth_path.display()))?;
+    let json: serde_json::Value = serde_json::from_str(&data)?;
+    json.get("tokens")
+        .and_then(|t| t.get("access_token"))
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+        .context("~/.codex/auth.json missing tokens.access_token")
 }
 
 fn as_str_slice(values: &[String]) -> Vec<&str> {

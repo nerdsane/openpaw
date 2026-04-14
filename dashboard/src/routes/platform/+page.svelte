@@ -127,57 +127,57 @@
 </div>
 
 <style>
-  .page { display: flex; flex-direction: column; gap: var(--space-xl); }
+  .page { display: flex; flex-direction: column; gap: var(--sp-8); }
 
-  .page-header { display: flex; flex-direction: column; gap: var(--space-xs); }
+  .page-header { display: flex; flex-direction: column; gap: var(--sp-1); }
   .page-label {
-    font-family: var(--font-mono); font-size: var(--label);
-    letter-spacing: 0.08em; color: var(--text-secondary);
+    font-family: var(--font-mono); font-size: var(--text-xs);
+    letter-spacing: 0.08em; color: var(--text-2);
   }
-  .page-desc { font-size: var(--body-sm); color: var(--text-disabled); }
+  .page-desc { font-size: var(--text-sm); color: var(--text-3); }
 
-  .section { display: flex; flex-direction: column; gap: var(--space-md); }
+  .section { display: flex; flex-direction: column; gap: var(--sp-4); }
   .section-label {
-    font-family: var(--font-mono); font-size: var(--label);
-    letter-spacing: 0.08em; color: var(--text-secondary);
+    font-family: var(--font-mono); font-size: var(--text-xs);
+    letter-spacing: 0.08em; color: var(--text-2);
   }
 
-  .empty { display: flex; align-items: center; justify-content: center; padding: var(--space-3xl) 0; }
+  .empty { display: flex; align-items: center; justify-content: center; padding: var(--sp-8) 0; }
   .empty-text {
-    font-family: var(--font-mono); font-size: var(--caption);
-    color: var(--text-disabled); letter-spacing: 0.04em;
+    font-family: var(--font-mono); font-size: var(--text-xs);
+    color: var(--text-3); letter-spacing: 0.04em;
   }
 
-  .card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: var(--space-md); }
+  .card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: var(--sp-4); }
   .card {
-    display: flex; flex-direction: column; gap: 6px;
-    padding: var(--space-md); background: var(--terminal-bg);
-    border: 1px solid var(--terminal-border); border-radius: var(--radius-md);
+    display: flex; flex-direction: column; gap: var(--sp-1);
+    padding: var(--sp-4); background: var(--surface);
+    border: 1px solid var(--border); border-radius: var(--radius);
   }
-  .card-header { display: flex; align-items: center; gap: var(--space-sm); }
+  .card-header { display: flex; align-items: center; gap: var(--sp-2); }
   .card-dot {
     width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
-    background: var(--text-disabled);
+    background: var(--text-3);
   }
   .card-dot--accent { background: var(--accent); }
-  .card-name { font-size: var(--body-sm); font-weight: 500; color: var(--text-display); }
-  .card-desc { font-size: var(--caption); color: var(--text-secondary); line-height: 1.4; }
-  .card-meta-row { display: flex; flex-wrap: wrap; gap: 6px; }
+  .card-name { font-size: var(--text-sm); font-weight: 500; color: var(--text-1); }
+  .card-desc { font-size: var(--text-xs); color: var(--text-2); line-height: 1.4; }
+  .card-meta-row { display: flex; flex-wrap: wrap; gap: var(--sp-1); }
   .meta-tag {
-    font-family: var(--font-mono); font-size: var(--label); color: var(--text-secondary);
+    font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-2);
     letter-spacing: 0.04em;
-    background: var(--surface-raised); padding: 1px 8px; border-radius: var(--radius-sm);
+    background: var(--surface-raised); padding: 1px var(--sp-2); border-radius: var(--radius);
   }
   .view-btn {
-    font-family: var(--font-mono); font-size: var(--label); color: var(--terminal-dim);
-    letter-spacing: 0.06em; padding: var(--space-2xs) 0;
+    font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-3);
+    letter-spacing: 0.06em; padding: 2px 0;
     text-align: left; width: fit-content; cursor: pointer;
   }
-  .view-btn:hover { color: var(--terminal-text); }
+  .view-btn:hover { color: var(--text-1); }
   .file-content {
-    font-family: var(--font-mono); font-size: var(--label); color: var(--text-secondary);
-    background: var(--black); border: 1px solid var(--terminal-border);
-    padding: var(--space-md); border-radius: var(--radius-sm);
+    font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-2);
+    background: var(--bg); border: 1px solid var(--border);
+    padding: var(--sp-4); border-radius: var(--radius);
     white-space: pre-wrap; overflow-x: auto; max-height: 400px; overflow-y: auto;
   }
 </style>

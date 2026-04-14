@@ -1,59 +1,69 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import {
-    connectDiscord,
-    connectSlack,
-    disconnectDiscord,
-    disconnectSlack,
+    fetchSecretsSchema,
     fetchSetupStatus,
-    generateSoulPreview,
-    getCurrentSoul,
     getSecret,
-    saveGeneratedSoul,
     saveSecret,
-    type GeneratedSoul,
+    deleteSecret,
+    listSecretKeys,
+    connectDiscord,
+    disconnectDiscord,
+    connectSlack,
+    disconnectSlack,
+    type SecretSchemaEntry,
     type SetupStatus,
-    type UserInterview
   } from '$lib/api';
   import { changePassword } from '$lib/auth';
-  import { onMount } from 'svelte';
 
-  let status = $state<SetupStatus | null>(null);
+  interface VarRow {
+    key: string;
+    label: string;
+    category: string;
+    description: string;
+    value: string;
+    filled: boolean;
+    editing: boolean;
+    draft: string;
+    saving: boolean;
+    isCustom: boolean;
+    sensitive: boolean;
+  }
+
   let loading = $state(true);
-  let error = $state('');
-  let success = $state('');
+  let status = $state<SetupStatus | null>(null);
+  let vars = $state<VarRow[]>([]);
+  let feedback = $state<{ type: 'error' | 'success'; message: string } | null>(null);
 
-  let llmProvider = $state<'anthropic' | 'openrouter' | 'openai'>('anthropic');
-  let anthropicApiKey = $state('');
-  let openrouterApiKey = $state('');
-  let openaiApiKey = $state('');
+  // Add variable form
+  let addingVar = $state(false);
+  let newKey = $state('');
+  let newValue = $state('');
 
-  let discordBotToken = $state('');
-  let discordPublicKey = $state('');
-  let discordGuildId = $state('');
-  let discordFeedChannelId = $state('');
-  let discordForumChannelId = $state('');
+  // Service connect states
+  let connectingDiscord = $state(false);
+  let connectingSlack = $state(false);
 
-  let slackAppToken = $state('');
-  let slackBotToken = $state('');
-  let slackSigningSecret = $state('');
-
-  let githubToken = $state('');
-  let exaApiKey = $state('');
+  // Account
   let apiKey = $state('');
-
-  let soul = $state<{ summary: string; content: string } | null>(null);
-  let generatedSoul = $state<GeneratedSoul | null>(null);
-  let soulFeedback = $state('');
-  let interview = $state<UserInterview>({
-    name: '',
-    about_you: '',
-    ideal_paw: '',
-    followup_answers: []
-  });
-
   let showApiKey = $state(false);
   let currentPassword = $state('');
   let newPassword = $state('');
+  let accountFeedback = $state<{ type: 'error' | 'success'; message: string } | null>(null);
+
+  // Keys that should be masked (actual secrets). Non-secret config values show plain.
+  const SENSITIVE_KEYS = new Set([
+    'anthropic_api_key', 'openai_api_key', 'openai_codex_token', 'openrouter_api_key',
+    'discord_bot_token', 'slack_app_token', 'slack_bot_token', 'slack_signing_secret',
+    'github_token', 'exa_api_key', 'tensorlake_api_key', 'dd_api_key', 'temper_api_key',
+  ]);
+
+  function showFeedback(type: 'error' | 'success', message: string) {
+    feedback = { type, message };
+    if (type === 'success') {
+      setTimeout(() => { feedback = null; }, 3000);
+    }
+  }
 
   onMount(async () => {
     await load();
@@ -61,476 +71,669 @@
 
   async function load() {
     loading = true;
-    error = '';
-    success = '';
-
     try {
-      const [
-        nextStatus,
-        currentSoul,
-        savedAnthropic,
-        savedOpenRouter,
-        savedOpenAi,
-        savedDiscordBot,
-        savedDiscordPublic,
-        savedDiscordGuild,
-        savedDiscordFeed,
-        savedDiscordForum,
-        savedSlackApp,
-        savedSlackBot,
-        savedSlackSigningSecret,
-        savedGithub,
-        savedExa,
-        savedProvider,
-        savedApiKey
-      ] = await Promise.all([
+      const [schema, existingKeys, nextStatus, savedApiKey] = await Promise.all([
+        fetchSecretsSchema(),
+        listSecretKeys(),
         fetchSetupStatus(),
-        getCurrentSoul(),
-        getSecret('anthropic_api_key'),
-        getSecret('openrouter_api_key'),
-        getSecret('openai_api_key'),
-        getSecret('discord_bot_token'),
-        getSecret('discord_public_key'),
-        getSecret('discord_guild_id'),
-        getSecret('discord_feed_channel_id'),
-        getSecret('discord_forum_channel_id'),
-        getSecret('slack_app_token'),
-        getSecret('slack_bot_token'),
-        getSecret('slack_signing_secret'),
-        getSecret('github_token'),
-        getSecret('exa_api_key'),
-        getSecret('llm_provider'),
-        getSecret('temper_api_key')
+        getSecret('temper_api_key'),
       ]);
-
       status = nextStatus;
-      soul = currentSoul;
-      anthropicApiKey = savedAnthropic ?? '';
-      openrouterApiKey = savedOpenRouter ?? '';
-      openaiApiKey = savedOpenAi ?? '';
-      discordBotToken = savedDiscordBot ?? '';
-      discordPublicKey = savedDiscordPublic ?? '';
-      discordGuildId = savedDiscordGuild ?? '';
-      discordFeedChannelId = savedDiscordFeed ?? '';
-      discordForumChannelId = savedDiscordForum ?? '';
-      slackAppToken = savedSlackApp ?? '';
-      slackBotToken = savedSlackBot ?? '';
-      slackSigningSecret = savedSlackSigningSecret ?? '';
-      githubToken = savedGithub ?? '';
-      exaApiKey = savedExa ?? '';
       apiKey = savedApiKey ?? '';
-      llmProvider = (savedProvider as typeof llmProvider) || (savedOpenRouter ? 'openrouter' : savedOpenAi ? 'openai' : 'anthropic');
+
+      const schemaKeys = new Set(schema.map(s => s.key));
+      const rows: VarRow[] = [];
+
+      // Fetch values for all schema keys in parallel
+      const valueResults = await Promise.all(
+        schema.map(s => getSecret(s.key).then(v => ({ key: s.key, value: v })))
+      );
+      const valueMap = new Map(valueResults.map(r => [r.key, r.value]));
+
+      for (const s of schema) {
+        const val = valueMap.get(s.key) ?? '';
+        rows.push({
+          key: s.key,
+          label: s.label,
+          category: s.category,
+          description: s.description,
+          value: val,
+          filled: !!val,
+          editing: false,
+          draft: '',
+          saving: false,
+          isCustom: false,
+          sensitive: SENSITIVE_KEYS.has(s.key),
+        });
+      }
+
+      // Add any custom keys not in schema
+      for (const k of existingKeys) {
+        if (!schemaKeys.has(k)) {
+          const val = await getSecret(k);
+          rows.push({
+            key: k,
+            label: k,
+            category: 'custom',
+            description: '',
+            value: val ?? '',
+            filled: !!val,
+            editing: false,
+            draft: '',
+            saving: false,
+            isCustom: true,
+            sensitive: true,
+          });
+        }
+      }
+
+      vars = rows;
     } catch (err) {
-      error = err instanceof Error ? err.message : 'Could not load settings';
+      showFeedback('error', err instanceof Error ? err.message : 'Failed to load');
     } finally {
       loading = false;
     }
   }
 
-  async function saveProviderSecret(provider: 'anthropic' | 'openrouter' | 'openai') {
-    error = ''; success = '';
-    try {
-      const value =
-        provider === 'anthropic' ? anthropicApiKey :
-        provider === 'openrouter' ? openrouterApiKey :
-        openaiApiKey;
+  function startEdit(row: VarRow) {
+    row.editing = true;
+    row.draft = row.value;
+    vars = [...vars];
+  }
 
-      await saveSecret('llm_provider', provider);
-      if (provider === 'anthropic') await saveSecret('anthropic_api_key', value);
-      if (provider === 'openrouter') await saveSecret('openrouter_api_key', value);
-      if (provider === 'openai') await saveSecret('openai_api_key', value);
-      success = `${provider} configuration saved`;
-      await load();
+  function cancelEdit(row: VarRow) {
+    row.editing = false;
+    row.draft = '';
+    vars = [...vars];
+  }
+
+  async function saveVar(row: VarRow) {
+    if (!row.draft.trim()) return;
+    row.saving = true;
+    vars = [...vars];
+    try {
+      await saveSecret(row.key, row.draft.trim());
+      row.value = row.draft.trim();
+      row.filled = true;
+      row.editing = false;
+      row.draft = '';
+      status = await fetchSetupStatus();
+      showFeedback('success', `${row.key} saved`);
     } catch (err) {
-      error = err instanceof Error ? err.message : 'Failed to save provider';
+      showFeedback('error', `Failed to save ${row.key}: ${err instanceof Error ? err.message : 'unknown'}`);
+    } finally {
+      row.saving = false;
+      vars = [...vars];
     }
   }
 
-  async function saveDiscord() {
-    error = ''; success = '';
+  async function removeVar(row: VarRow) {
+    row.saving = true;
+    vars = [...vars];
     try {
-      await Promise.all([
-        saveSecret('discord_bot_token', discordBotToken),
-        saveSecret('discord_public_key', discordPublicKey),
-        saveSecret('discord_guild_id', discordGuildId),
-        saveSecret('discord_feed_channel_id', discordFeedChannelId),
-        saveSecret('discord_forum_channel_id', discordForumChannelId)
-      ]);
+      await deleteSecret(row.key);
+      if (row.isCustom) {
+        vars = vars.filter(v => v.key !== row.key);
+      } else {
+        row.value = '';
+        row.filled = false;
+        row.editing = false;
+        row.saving = false;
+        vars = [...vars];
+      }
+      status = await fetchSetupStatus();
+    } catch (err) {
+      row.saving = false;
+      vars = [...vars];
+      showFeedback('error', `Failed to delete ${row.key}`);
+    }
+  }
+
+  async function addVar() {
+    const k = newKey.trim();
+    const v = newValue.trim();
+    if (!k || !v) return;
+    try {
+      await saveSecret(k, v);
+      vars = [...vars, {
+        key: k, label: k, category: 'custom', description: '',
+        value: v, filled: true, editing: false, draft: '', saving: false,
+        isCustom: true, sensitive: true,
+      }];
+      newKey = '';
+      newValue = '';
+      addingVar = false;
+      showFeedback('success', `${k} added`);
+    } catch (err) {
+      showFeedback('error', `Failed to add ${k}: ${err instanceof Error ? err.message : 'unknown'}`);
+    }
+  }
+
+  // Group vars by category, LLM always first
+  let groupedVars = $derived.by(() => {
+    const catOrder = ['llm', 'messaging', 'integrations', 'observability', 'custom'];
+    const catMap = new Map<string, VarRow[]>();
+    for (const v of vars) {
+      const cat = v.category || 'custom';
+      if (!catMap.has(cat)) catMap.set(cat, []);
+      catMap.get(cat)!.push(v);
+    }
+    const groups: Array<{ category: string; rows: VarRow[] }> = [];
+    for (const cat of catOrder) {
+      if (catMap.has(cat)) groups.push({ category: cat, rows: catMap.get(cat)! });
+    }
+    for (const [cat, rows] of catMap) {
+      if (!catOrder.includes(cat)) groups.push({ category: cat, rows });
+    }
+    return groups;
+  });
+
+  // Discord connect
+  async function handleConnectDiscord() {
+    connectingDiscord = true;
+    feedback = null;
+    try {
+      const botToken = vars.find(v => v.key === 'discord_bot_token')?.value ?? '';
+      const publicKey = vars.find(v => v.key === 'discord_public_key')?.value ?? '';
+      const guildId = vars.find(v => v.key === 'discord_guild_id')?.value ?? '';
+      const feedChannel = vars.find(v => v.key === 'discord_feed_channel_id')?.value ?? '';
+      const forumChannel = vars.find(v => v.key === 'discord_forum_channel_id')?.value ?? '';
+      if (!botToken) { showFeedback('error', 'Set discord_bot_token first'); return; }
       await connectDiscord({
-        bot_token: discordBotToken,
-        public_key: discordPublicKey,
-        guild_id: discordGuildId || undefined,
-        feed_channel_id: discordFeedChannelId || undefined,
-        forum_channel_id: discordForumChannelId || undefined
+        bot_token: botToken,
+        public_key: publicKey || undefined,
+        guild_id: guildId || undefined,
+        feed_channel_id: feedChannel || undefined,
+        forum_channel_id: forumChannel || undefined,
       });
-      success = 'Discord connected';
-      await load();
+      status = await fetchSetupStatus();
+      showFeedback('success', 'Discord connected');
     } catch (err) {
-      error = err instanceof Error ? err.message : 'Failed to connect Discord';
-    }
+      showFeedback('error', err instanceof Error ? err.message : 'Discord connection failed');
+    } finally { connectingDiscord = false; }
   }
 
-  async function saveSlack() {
-    error = ''; success = '';
+  async function handleDisconnectDiscord() {
+    connectingDiscord = true;
     try {
-      await Promise.all([
-        saveSecret('slack_app_token', slackAppToken),
-        saveSecret('slack_bot_token', slackBotToken),
-        saveSecret('slack_signing_secret', slackSigningSecret)
-      ]);
+      await disconnectDiscord();
+      status = await fetchSetupStatus();
+      showFeedback('success', 'Discord disconnected');
+    } catch (err) {
+      showFeedback('error', err instanceof Error ? err.message : 'Failed');
+    } finally { connectingDiscord = false; }
+  }
+
+  async function handleConnectSlack() {
+    connectingSlack = true;
+    feedback = null;
+    try {
+      const appToken = vars.find(v => v.key === 'slack_app_token')?.value ?? '';
+      const botToken = vars.find(v => v.key === 'slack_bot_token')?.value ?? '';
+      const signing = vars.find(v => v.key === 'slack_signing_secret')?.value ?? '';
+      if (!appToken || !botToken) { showFeedback('error', 'Set slack_app_token and slack_bot_token first'); return; }
       await connectSlack({
-        app_token: slackAppToken,
-        bot_token: slackBotToken,
-        signing_secret: slackSigningSecret || undefined
+        app_token: appToken, bot_token: botToken,
+        signing_secret: signing || undefined,
       });
-      success = 'Slack connected';
-      await load();
+      status = await fetchSetupStatus();
+      showFeedback('success', 'Slack connected');
     } catch (err) {
-      error = err instanceof Error ? err.message : 'Failed to connect Slack';
-    }
+      showFeedback('error', err instanceof Error ? err.message : 'Slack connection failed');
+    } finally { connectingSlack = false; }
   }
 
-  async function generateSoul() {
-    error = ''; success = '';
+  async function handleDisconnectSlack() {
+    connectingSlack = true;
     try {
-      generatedSoul = await generateSoulPreview({
-        interview,
-        previous_summary: generatedSoul?.summary,
-        feedback: soulFeedback || undefined
-      });
-      soulFeedback = '';
-      success = 'New Paw preview ready';
+      await disconnectSlack();
+      status = await fetchSetupStatus();
+      showFeedback('success', 'Slack disconnected');
     } catch (err) {
-      error = err instanceof Error ? err.message : 'Failed to generate soul preview';
-    }
-  }
-
-  async function saveSoul() {
-    if (!generatedSoul) return;
-    error = ''; success = '';
-    try {
-      await saveGeneratedSoul(generatedSoul);
-      success = 'Paw soul updated';
-      soul = await getCurrentSoul();
-    } catch (err) {
-      error = err instanceof Error ? err.message : 'Failed to save soul';
-    }
+      showFeedback('error', err instanceof Error ? err.message : 'Failed');
+    } finally { connectingSlack = false; }
   }
 
   async function updatePassword() {
-    error = ''; success = '';
+    accountFeedback = null;
     try {
       await changePassword(currentPassword, newPassword);
       currentPassword = '';
       newPassword = '';
-      success = 'Password updated';
+      accountFeedback = { type: 'success', message: 'Password updated' };
+      setTimeout(() => { accountFeedback = null; }, 3000);
     } catch (err) {
-      error = err instanceof Error ? err.message : 'Failed to change password';
+      accountFeedback = { type: 'error', message: err instanceof Error ? err.message : 'Failed' };
     }
   }
+
+  function mask(val: string): string {
+    if (!val) return '';
+    if (val.length <= 8) return '\u2022'.repeat(val.length);
+    return val.slice(0, 4) + '\u2022'.repeat(Math.min(val.length - 4, 12));
+  }
+
+  const CAT_LABELS: Record<string, string> = {
+    llm: 'LLM',
+    messaging: 'Messaging',
+    integrations: 'Integrations',
+    observability: 'Observability',
+    custom: 'Custom',
+  };
 </script>
 
 <svelte:head>
-  <title>Settings • Open Paw</title>
+  <title>Settings &middot; Open Paw</title>
 </svelte:head>
 
-<section class="settings-shell">
-  <header class="hero">
-    <p class="eyebrow">SETTINGS</p>
-    <h1>Personal configuration</h1>
-    <p class="lede">Infrastructure comes from deploy-time env vars. Everything here is the live, personal layer your dashboard and terminal both read from the same vault.</p>
-  </header>
+<div class="page">
+  <h1 class="page-title">SETTINGS</h1>
 
   {#if loading}
-    <p>Loading settings…</p>
+    <p class="dim">Loading...</p>
   {:else}
-    {#if error}<p class="message error">{error}</p>{/if}
-    {#if success}<p class="message success">{success}</p>{/if}
+    {#if feedback}
+      <div class="toast" class:toast-err={feedback.type === 'error'}>{feedback.message}</div>
+    {/if}
 
-    <div class="grid">
-      <section class="card span-2">
-        <h2>Integration status</h2>
-        <div class="status-grid">
-          <article>
-            <span class:ok={status?.has_anthropic_key}>LLM</span>
-            <strong>{status?.has_anthropic_key ? 'Configured' : 'Missing'}</strong>
-          </article>
-          <article>
-            <span class:ok={status?.discord_connected}>Discord</span>
-            <strong>{status?.discord_connected ? 'Connected' : 'Disconnected'}</strong>
-          </article>
-          <article>
-            <span class:ok={status?.slack_connected}>Slack</span>
-            <strong>{status?.slack_connected ? 'Connected' : 'Disconnected'}</strong>
-          </article>
-          <article>
-            <span class:ok={status?.agent_count}>Agents</span>
-            <strong>{status?.agent_count ?? 0}</strong>
-          </article>
+    <!-- Variable list grouped by category -->
+    <div class="var-list">
+      {#each groupedVars as group}
+        <div class="cat-header">
+          <span class="cat-label">{CAT_LABELS[group.category] ?? group.category}</span>
+          <!-- Inline connect/disconnect for messaging -->
+          {#if group.category === 'messaging'}
+            <div class="cat-actions">
+              {#if status?.discord_connected}
+                <button class="cat-act" onclick={handleDisconnectDiscord} disabled={connectingDiscord}>
+                  <span class="cat-dot cat-dot--on"></span> Discord <span class="cat-act-label">Disconnect</span>
+                </button>
+              {:else}
+                <button class="cat-act" onclick={handleConnectDiscord} disabled={connectingDiscord}>
+                  <span class="cat-dot"></span> Discord <span class="cat-act-label">Connect</span>
+                </button>
+              {/if}
+              {#if status?.slack_connected}
+                <button class="cat-act" onclick={handleDisconnectSlack} disabled={connectingSlack}>
+                  <span class="cat-dot cat-dot--on"></span> Slack <span class="cat-act-label">Disconnect</span>
+                </button>
+              {:else}
+                <button class="cat-act" onclick={handleConnectSlack} disabled={connectingSlack}>
+                  <span class="cat-dot"></span> Slack <span class="cat-act-label">Connect</span>
+                </button>
+              {/if}
+            </div>
+          {/if}
         </div>
-      </section>
-
-      <section class="card span-2">
-        <h2>LLM provider</h2>
-        <div class="provider-tabs">
-          <button class:active={llmProvider === 'anthropic'} onclick={() => llmProvider = 'anthropic'} type="button">Anthropic</button>
-          <button class:active={llmProvider === 'openrouter'} onclick={() => llmProvider = 'openrouter'} type="button">OpenRouter</button>
-          <button class:active={llmProvider === 'openai'} onclick={() => llmProvider = 'openai'} type="button">OpenAI</button>
-        </div>
-
-        {#if llmProvider === 'anthropic'}
-          <label><span>Anthropic API key</span><input bind:value={anthropicApiKey} placeholder="sk-ant-..." type="password" /></label>
-        {:else if llmProvider === 'openrouter'}
-          <label><span>OpenRouter API key</span><input bind:value={openrouterApiKey} placeholder="sk-or-..." type="password" /></label>
-        {:else}
-          <label><span>OpenAI API key</span><input bind:value={openaiApiKey} placeholder="sk-..." type="password" /></label>
+        {#if group.category === 'messaging' && status?.discord_interaction_url}
+          <div class="cat-hint">Interaction URL: {status.discord_interaction_url}</div>
         {/if}
-
-        <button class="action" onclick={() => saveProviderSecret(llmProvider)} type="button">Save provider</button>
-      </section>
-
-      <section class="card">
-        <h2>Discord</h2>
-        <label><span>Bot token</span><input bind:value={discordBotToken} type="password" /></label>
-        <label><span>Public key</span><input bind:value={discordPublicKey} /></label>
-        <label><span>Guild ID</span><input bind:value={discordGuildId} /></label>
-        <label><span>Feed channel</span><input bind:value={discordFeedChannelId} /></label>
-        <label><span>Forum channel</span><input bind:value={discordForumChannelId} /></label>
-        <div class="row">
-          <button class="action" onclick={saveDiscord} type="button">Connect Discord</button>
-          <button class="ghost" onclick={disconnectDiscord} type="button">Disconnect</button>
-        </div>
-        {#if status?.discord_interaction_url}
-          <p class="muted">{status.discord_interaction_url}</p>
-        {/if}
-      </section>
-
-      <section class="card">
-        <h2>Slack</h2>
-        <label><span>App token</span><input bind:value={slackAppToken} type="password" /></label>
-        <label><span>Bot token</span><input bind:value={slackBotToken} type="password" /></label>
-        <label><span>Signing secret</span><input bind:value={slackSigningSecret} type="password" /></label>
-        <div class="row">
-          <button class="action" onclick={saveSlack} type="button">Connect Slack</button>
-          <button class="ghost" onclick={disconnectSlack} type="button">Disconnect</button>
-        </div>
-      </section>
-
-      <section class="card">
-        <h2>Other integrations</h2>
-        <label><span>GitHub token</span><input bind:value={githubToken} type="password" /></label>
-        <label><span>Exa API key</span><input bind:value={exaApiKey} type="password" /></label>
-        <div class="row">
-          <button class="action" onclick={() => saveSecret('github_token', githubToken)} type="button">Save GitHub</button>
-          <button class="action" onclick={() => saveSecret('exa_api_key', exaApiKey)} type="button">Save Exa</button>
-        </div>
-      </section>
-
-      <section class="card">
-        <h2>Account</h2>
-        <label>
-          <span>Programmatic API key</span>
-          <div class="row">
-            <input value={apiKey} readonly type={showApiKey ? 'text' : 'password'} />
-            <button class="ghost" type="button" onclick={() => showApiKey = !showApiKey}>{showApiKey ? 'Hide' : 'Show'}</button>
+        {#each group.rows as row (row.key)}
+          <div class="var-row">
+            <div class="var-main">
+              <span class="var-dot" class:var-dot--on={row.filled}></span>
+              <span class="var-key">{row.key}</span>
+              <span class="var-val">
+                {#if row.filled}
+                  {row.sensitive ? mask(row.value) : row.value}
+                {:else}
+                  <span class="var-unset">--</span>
+                {/if}
+              </span>
+              <div class="var-actions">
+                {#if row.editing}
+                  <button class="act" onclick={() => cancelEdit(row)} disabled={row.saving}>Cancel</button>
+                {:else}
+                  <button class="act" onclick={() => startEdit(row)}>{row.filled ? 'Edit' : 'Set'}</button>
+                  {#if row.filled}
+                    <button class="act act-danger" onclick={() => removeVar(row)} disabled={row.saving}>Del</button>
+                  {/if}
+                {/if}
+              </div>
+            </div>
+            {#if row.description && !row.editing}
+              <div class="var-desc">{row.description}</div>
+            {/if}
+            {#if row.editing}
+              <form class="var-edit" onsubmit={(e) => { e.preventDefault(); saveVar(row); }}>
+                <input
+                  class="var-input"
+                  type={row.sensitive ? 'password' : 'text'}
+                  bind:value={row.draft}
+                  placeholder={row.sensitive ? 'Enter value' : row.value || 'Enter value'}
+                  disabled={row.saving}
+                />
+                <button class="btn-sm" type="submit" disabled={!row.draft.trim() || row.saving}>
+                  {row.saving ? '...' : 'Save'}
+                </button>
+              </form>
+            {/if}
           </div>
-        </label>
-        <label><span>Current password</span><input bind:value={currentPassword} type="password" /></label>
-        <label><span>New password</span><input bind:value={newPassword} type="password" /></label>
-        <button class="action" onclick={updatePassword} type="button">Change password</button>
-      </section>
+        {/each}
+      {/each}
 
-      <section class="card span-2">
-        <h2>Soul personalization</h2>
-        <p class="muted">The browser now uses the same generation flow as `openpaw setup`, then saves the result into the live Paw soul file.</p>
-        {#if soul}
-          <div class="preview-block">
-            <strong>Current summary</strong>
-            <p>{soul.summary}</p>
-          </div>
-        {/if}
+      <!-- Add variable -->
+      {#if addingVar}
+        <form class="add-form" onsubmit={(e) => { e.preventDefault(); addVar(); }}>
+          <input class="var-input var-input-key" bind:value={newKey} placeholder="KEY_NAME" />
+          <input class="var-input" type="password" bind:value={newValue} placeholder="Value" />
+          <button class="btn-sm" type="submit" disabled={!newKey.trim() || !newValue.trim()}>Add</button>
+          <button class="act" type="button" onclick={() => { addingVar = false; newKey = ''; newValue = ''; }}>Cancel</button>
+        </form>
+      {:else}
+        <button class="add-btn" onclick={() => addingVar = true}>+ Add variable</button>
+      {/if}
+    </div>
 
-        <div class="soul-grid">
-          <label><span>Your name</span><input bind:value={interview.name} /></label>
-          <label class="wide"><span>About you</span><textarea bind:value={interview.about_you} rows="4"></textarea></label>
-          <label class="wide"><span>What kind of Paw do you want?</span><textarea bind:value={interview.ideal_paw} rows="4"></textarea></label>
-          <label class="wide"><span>Adjustment feedback</span><textarea bind:value={soulFeedback} rows="3" placeholder="Optional. Use this after a preview if you want a more specific revision."></textarea></label>
-        </div>
-
-        <div class="row">
-          <button class="action" onclick={generateSoul} type="button">Generate preview</button>
-          <button class="action" disabled={!generatedSoul} onclick={saveSoul} type="button">Save soul</button>
-        </div>
-
-        {#if generatedSoul}
-          <div class="preview-block">
-            <strong>Preview</strong>
-            <p>{generatedSoul.summary}</p>
-          </div>
-        {/if}
-      </section>
+    <!-- Account -->
+    <div class="section">
+      <span class="cat-label">Account</span>
+      {#if accountFeedback}
+        <span class="inline-fb" class:fb-err={accountFeedback.type === 'error'} class:fb-ok={accountFeedback.type === 'success'}>{accountFeedback.message}</span>
+      {/if}
+      <div class="acct-row">
+        <span class="var-key">temper_api_key</span>
+        <span class="var-val">{showApiKey ? apiKey : mask(apiKey)}</span>
+        <button class="act" onclick={() => showApiKey = !showApiKey}>{showApiKey ? 'Hide' : 'Show'}</button>
+      </div>
+      <form class="pw-form" onsubmit={(e) => { e.preventDefault(); updatePassword(); }}>
+        <input class="var-input" type="password" bind:value={currentPassword} placeholder="Current password" />
+        <input class="var-input" type="password" bind:value={newPassword} placeholder="New password" />
+        <button class="btn-sm" type="submit" disabled={!currentPassword || !newPassword}>Change password</button>
+      </form>
     </div>
   {/if}
-</section>
+</div>
 
 <style>
-  .settings-shell {
-    display: grid;
-    gap: 1.5rem;
+  .page { max-width: 720px; }
+
+  .page-title {
+    font-family: var(--font-sans);
+    font-size: var(--text-xl);
+    color: var(--text-1);
+    margin-bottom: var(--sp-6);
+    letter-spacing: 0.1em;
   }
 
-  .hero h1 {
-    margin: 0;
-    font-size: clamp(2rem, 4vw, 3rem);
-  }
-
-  .eyebrow {
-    margin: 0 0 0.5rem;
-    font-size: 0.75rem;
-    letter-spacing: 0.14em;
+  .dim {
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
     color: var(--text-3);
   }
 
-  .lede,
-  .muted {
-    color: var(--text-2);
-    line-height: 1.5;
+  .toast {
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    color: var(--accent);
+    padding: var(--sp-2) var(--sp-3);
+    border: 1px solid rgba(52,211,153,0.15);
+    border-radius: var(--radius);
+    margin-bottom: var(--sp-4);
   }
 
-  .grid {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 1rem;
+  .toast-err {
+    color: var(--status-error);
+    border-color: rgba(248,113,113,0.15);
   }
 
-  .card {
-    display: grid;
-    gap: 0.9rem;
-    padding: 1.25rem;
-    border: 1px solid var(--border);
-    border-radius: 22px;
-    background: color-mix(in srgb, var(--bg) 88%, white 4%);
-  }
-
-  .span-2 {
-    grid-column: span 2;
-  }
-
-  .status-grid {
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 1rem;
-  }
-
-  .status-grid article {
-    padding: 1rem;
-    border-radius: 16px;
-    background: rgba(255, 255, 255, 0.03);
-  }
-
-  .status-grid span {
-    display: block;
-    margin-bottom: 0.3rem;
-    color: var(--text-3);
-  }
-
-  .status-grid span.ok {
-    color: #58d68d;
-  }
-
-  .provider-tabs,
-  .row {
+  /* ── Var list ── */
+  .var-list {
     display: flex;
-    gap: 0.75rem;
-    flex-wrap: wrap;
+    flex-direction: column;
+    margin-bottom: var(--sp-6);
+    border-bottom: 1px solid var(--border);
+    padding-bottom: var(--sp-2);
   }
 
-  .provider-tabs button,
-  .action,
-  .ghost {
-    padding: 0.75rem 1rem;
-    border-radius: 999px;
-    border: 1px solid var(--border);
+  /* ── Category header ── */
+  .cat-header {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-3);
+    padding: var(--sp-4) 0 var(--sp-1) 0;
   }
 
-  .provider-tabs button.active,
-  .action {
-    background: linear-gradient(135deg, #53a0ff, #7a6cff);
-    color: white;
-    border-color: transparent;
+  .cat-header:first-child {
+    padding-top: 0;
   }
 
-  .ghost {
-    background: transparent;
-    color: var(--text-1);
+  .cat-label {
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    color: var(--text-3);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    flex-shrink: 0;
   }
 
-  label {
-    display: grid;
-    gap: 0.35rem;
+  .cat-actions {
+    display: flex;
+    gap: var(--sp-3);
+    margin-left: auto;
   }
 
-  label span {
+  .cat-act {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-1);
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
     color: var(--text-2);
-    font-size: 0.85rem;
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 2px var(--sp-1);
+    border-radius: var(--radius);
   }
 
-  input,
-  textarea {
-    width: 100%;
-    border-radius: 14px;
-    border: 1px solid var(--border);
-    background: rgba(255, 255, 255, 0.04);
+  .cat-act:hover { color: var(--text-1); }
+  .cat-act:disabled { opacity: 0.3; cursor: not-allowed; }
+
+  .cat-act-label {
+    color: var(--text-3);
+    margin-left: 2px;
+  }
+
+  .cat-dot {
+    width: 5px; height: 5px;
+    border-radius: 50%;
+    background: var(--text-3);
+    opacity: 0.4;
+  }
+
+  .cat-dot--on {
+    background: var(--accent);
+    opacity: 1;
+  }
+
+  .cat-hint {
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    color: var(--text-3);
+    padding: 0 0 var(--sp-1) 0;
+    word-break: break-all;
+  }
+
+  /* ── Variable row ── */
+  .var-row {
+    display: flex;
+    flex-direction: column;
+    border-top: 1px solid var(--border);
+    padding: var(--sp-1) 0;
+  }
+
+  .var-main {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    min-height: 26px;
+  }
+
+  .var-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--text-3);
+    flex-shrink: 0;
+    opacity: 0.3;
+  }
+
+  .var-dot--on {
+    background: var(--accent);
+    opacity: 1;
+  }
+
+  .var-key {
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
     color: var(--text-1);
-    padding: 0.85rem 1rem;
+    white-space: nowrap;
+    min-width: 0;
   }
 
-  .preview-block {
-    padding: 1rem;
-    border-radius: 16px;
-    background: rgba(255, 255, 255, 0.03);
+  .var-val {
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    color: var(--text-2);
+    margin-left: auto;
+    text-align: right;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 200px;
   }
 
-  .preview-block p {
-    margin-bottom: 0;
+  .var-unset {
+    color: var(--text-3);
+    opacity: 0.4;
   }
 
-  .soul-grid {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 1rem;
+  .var-desc {
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    color: var(--text-3);
+    padding-left: calc(6px + var(--sp-2));
+    opacity: 0.7;
   }
 
-  .wide {
-    grid-column: span 2;
+  .var-actions {
+    display: flex;
+    gap: var(--sp-1);
+    flex-shrink: 0;
+    margin-left: var(--sp-2);
   }
 
-  .message {
-    margin: 0;
-    padding: 0.9rem 1rem;
-    border-radius: 14px;
+  .act {
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    color: var(--text-3);
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 2px var(--sp-1);
+    border-radius: var(--radius);
   }
 
-  .message.error {
-    background: rgba(255, 104, 104, 0.12);
-    color: #ff9e9e;
+  .act:hover { color: var(--text-1); }
+  .act:disabled { opacity: 0.3; cursor: not-allowed; }
+  .act-danger:hover { color: var(--status-error); }
+
+  /* ── Inline edit ── */
+  .var-edit {
+    display: flex;
+    gap: var(--sp-2);
+    padding: var(--sp-1) 0 0 calc(6px + var(--sp-2));
   }
 
-  .message.success {
-    background: rgba(88, 214, 141, 0.12);
-    color: #8ff0b4;
+  .var-input {
+    flex: 1;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: var(--sp-1) var(--sp-2);
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    color: var(--text-1);
   }
 
-  @media (max-width: 900px) {
-    .grid,
-    .status-grid,
-    .soul-grid {
-      grid-template-columns: 1fr;
-    }
+  .var-input::placeholder { color: var(--text-3); }
+  .var-input:focus { outline: none; border-color: var(--text-2); }
 
-    .span-2,
-    .wide {
-      grid-column: span 1;
-    }
+  .var-input-key { max-width: 200px; text-transform: uppercase; }
+
+  .btn-sm {
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    letter-spacing: 0.06em;
+    padding: var(--sp-1) var(--sp-3);
+    border-radius: var(--radius);
+    border: 1px solid var(--text-1);
+    background: var(--text-1);
+    color: var(--bg);
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+
+  .btn-sm:disabled { opacity: 0.25; cursor: not-allowed; }
+
+  /* ── Add variable ── */
+  .add-form {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    padding: var(--sp-2) 0;
+    border-top: 1px solid var(--border);
+  }
+
+  .add-btn {
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    color: var(--text-3);
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: var(--sp-2) 0;
+    text-align: left;
+  }
+
+  .add-btn:hover { color: var(--text-1); }
+
+  /* ── Section ── */
+  .section {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-2);
+    padding-bottom: var(--sp-4);
+  }
+
+  .inline-fb {
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+  }
+
+  .fb-err { color: var(--status-error); }
+  .fb-ok { color: var(--accent); }
+
+  .acct-row {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    padding: var(--sp-1) 0;
+  }
+
+  .acct-row .var-val { flex: 1; text-align: left; }
+
+  .pw-form {
+    display: flex;
+    gap: var(--sp-2);
+    align-items: center;
+    padding: var(--sp-1) 0;
+  }
+
+  @media (max-width: 640px) {
+    .var-main { flex-wrap: wrap; }
+    .cat-actions { flex-wrap: wrap; }
+    .pw-form { flex-direction: column; align-items: stretch; }
   }
 </style>

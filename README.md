@@ -106,14 +106,40 @@ Agents create capabilities as tools for themselves — structured workflows that
 
 ## Get Started
 
+### Run locally
+
 ```bash
 git clone https://github.com/nerdsane/openpaw.git
 cd openpaw
 cargo build --release
-./target/release/openpaw setup
+./target/release/openpaw run
 ```
 
-The CLI walks you through everything — API key, messaging, personalizing your Paw — then asks whether to run locally or deploy to the cloud.
+The CLI walks you through everything — API key, messaging, personalizing your Paw — then boots the server.
+
+### Deploy to the cloud
+
+```bash
+cargo build -p openpaw-cli --release
+./target/release/openpaw deploy
+```
+
+Provisions Turso, Cloudflare R2, and Railway interactively — no `.env` file needed. The deploy flow prompts for all credentials.
+
+An OTEL collector is always deployed alongside OpenPaw. If `DD_API_KEY` is set in your environment, traces, metrics, and logs flow to Datadog automatically:
+
+```bash
+export DD_API_KEY=your-datadog-api-key
+./target/release/openpaw deploy
+```
+
+If you don't have a Datadog key yet, deploy without it — the collector runs in debug mode. Add `DD_API_KEY` to the otel-collector service in Railway later and it activates automatically on restart.
+
+### Diagnose
+
+```bash
+./target/release/openpaw doctor
+```
 
 ## How It's Built
 

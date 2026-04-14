@@ -34,40 +34,40 @@
   .session-tree {
     display: flex;
     align-items: center;
-    gap: var(--space-xs);
+    gap: var(--sp-1);
     font-family: var(--font-mono);
-    font-size: var(--label);
+    font-size: var(--text-xs);
     letter-spacing: 0.06em;
     text-transform: uppercase;
     flex-wrap: wrap;
   }
 
   .node {
-    color: var(--terminal-dim);
+    color: var(--text-3);
     text-decoration: none;
   }
 
   a.node:hover {
-    color: var(--terminal-text);
+    color: var(--text-1);
     text-decoration: underline;
   }
 
   .current {
-    color: var(--terminal-text);
+    color: var(--text-1);
     font-weight: 700;
   }
 
   .separator {
-    color: var(--terminal-dim);
+    color: var(--text-3);
   }
 
   .children {
     display: inline-flex;
     align-items: center;
-    gap: var(--space-xs);
+    gap: var(--sp-1);
   }
 
   .comma {
-    color: var(--terminal-dim);
+    color: var(--text-3);
   }
 </style>

@@ -15,11 +15,7 @@ enum Command {
     /// Run OpenPaw locally — configure API keys, messaging, and boot the server
     Run,
     /// Deploy OpenPaw to the cloud (Railway + Turso + R2)
-    Deploy {
-        /// Add the Datadog collector sidecar service
-        #[arg(long)]
-        with_datadog: bool,
-    },
+    Deploy,
     /// Diagnose configuration and show what's working
     Doctor,
 }
@@ -32,12 +28,12 @@ async fn main() -> anyhow::Result<()> {
         Command::Run => {
             run_server(&["run"])?;
         }
-        Command::Deploy { with_datadog } => {
+        Command::Deploy => {
             let dd_api_key = optional_env("DD_API_KEY");
             let dd_app_key = optional_env("DD_APP_KEY");
             let dd_site =
                 std::env::var("DD_SITE").unwrap_or_else(|_| "datadoghq.com".to_string());
-            deploy::run_deploy(dd_api_key, dd_app_key, dd_site, with_datadog).await?;
+            deploy::run_deploy(dd_api_key, dd_app_key, dd_site).await?;
         }
         Command::Doctor => {
             run_server(&["doctor"])?;
