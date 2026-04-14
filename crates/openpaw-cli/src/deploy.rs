@@ -50,7 +50,6 @@ pub async fn run_deploy(
     dd_api_key: Option<String>,
     dd_app_key: Option<String>,
     dd_site: String,
-    with_datadog: bool,
 ) -> Result<()> {
     cliclack::intro("Open Paw Deploy")?;
 
@@ -119,54 +118,56 @@ pub async fn run_deploy(
     // Get project/env IDs for all deploys
     let (project_id, env_id) = get_railway_ids()?;
 
-    if with_datadog {
-        let dd_key = dd_api_key.as_ref().ok_or_else(|| {
-            anyhow::anyhow!(
-                "DD_API_KEY is required for --with-datadog.\n  \
-                 Set it in your environment:  export DD_API_KEY=your-key-here"
-            )
-        })?;
+    // Always deploy the OTEL collector — it auto-detects DD_API_KEY at startup.
+    // With DD_API_KEY → exports to Datadog. Without → debug exporter (logs to stdout).
+    // To enable Datadog later, just add DD_API_KEY to the otel-collector service in Railway.
+    cliclack::log::step("Deploying OTEL collector...")?;
 
-        cliclack::log::step("Deploying OTEL collector → Datadog...")?;
+    let _ = Command::new("railway")
+        .args(["add", "--service", "otel-collector"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
 
-        // Ensure the otel-collector service exists before setting vars
-        let _ = Command::new("railway")
-            .args(["add", "--service", "otel-collector"])
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status();
+    // Set DD vars on the collector (if available now — can be added later via Railway dashboard)
+    let mut collector_vars: Vec<String> = Vec::new();
+    if let Some(key) = &dd_api_key {
+        collector_vars.push(format!("DD_API_KEY={key}"));
+    }
+    collector_vars.push(format!("DD_SITE={dd_site}"));
+    let mut collector_set_args = vec![
+        "variable".to_string(),
+        "set".to_string(),
+        "-s".to_string(),
+        "otel-collector".to_string(),
+    ];
+    collector_set_args.extend(collector_vars);
+    run_interactive("railway", &as_str_slice(&collector_set_args))?;
 
-        // Set DD_API_KEY and DD_SITE on the otel-collector service
-        let mut collector_vars: Vec<String> = Vec::new();
-        collector_vars.push(format!("DD_API_KEY={dd_key}"));
-        collector_vars.push(format!("DD_SITE={dd_site}"));
-        let mut collector_set_args = vec![
-            "variable".to_string(),
-            "set".to_string(),
-            "-s".to_string(),
-            "otel-collector".to_string(),
-        ];
-        collector_set_args.extend(collector_vars);
-        run_interactive("railway", &as_str_slice(&collector_set_args))?;
+    deploy_otel_collector(&project_id, &env_id)?;
 
-        deploy_otel_collector(&project_id, &env_id)?;
-
-        // Set OTEL endpoint on the openpaw service to point at the collector
-        // Railway private networking: <service>.railway.internal
-        let otel_vars = vec![
-            "OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector.railway.internal:4318",
-            "OTEL_ENABLED=true",
-        ];
-        let mut otel_args = vec!["variable", "set", "-s", "openpaw"];
-        otel_args.extend(otel_vars);
-        run_interactive("railway", &otel_args)?;
+    if dd_api_key.is_some() {
+        cliclack::log::success("OTEL collector → Datadog ✓")?;
     } else {
-        // No collector — disable OTEL so the server doesn't spam connection errors
-        run_interactive(
-            "railway",
-            &["variable", "set", "-s", "openpaw", "OTEL_ENABLED=false"],
+        cliclack::log::info(
+            "OTEL collector deployed in debug mode (no DD_API_KEY).\n  \
+             To enable Datadog: add DD_API_KEY to the otel-collector service in Railway.\n  \
+             The collector will auto-detect it on restart.",
         )?;
     }
+
+    // Point openpaw at the collector via Railway private networking
+    run_interactive(
+        "railway",
+        &[
+            "variable",
+            "set",
+            "-s",
+            "openpaw",
+            "OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector.railway.internal:4318",
+            "OTEL_ENABLED=true",
+        ],
+    )?;
 
     cliclack::log::step("Deploying OpenPaw...")?;
     deploy_prebuilt_image(&project_id, &env_id)?;
@@ -528,22 +529,44 @@ fn deploy_prebuilt_image(project_id: &str, env_id: &str) -> Result<()> {
     Ok(())
 }
 
-/// Deploy the OTEL collector as a Railway service with the Datadog config baked in.
-/// The service must already exist (created by the caller).
+/// Deploy the OTEL collector as a Railway service.
+/// Uses a dynamic entrypoint: if DD_API_KEY is set, exports to Datadog.
+/// Otherwise, uses a debug exporter (traces logged to stdout).
+/// Adding DD_API_KEY later via Railway dashboard auto-restarts with Datadog enabled.
 fn deploy_otel_collector(project_id: &str, env_id: &str) -> Result<()> {
     let tmp = std::env::temp_dir().join("openpaw-otel-deploy");
     let _ = std::fs::create_dir_all(&tmp);
 
-    // Dockerfile that bakes in the OTEL collector config
+    // Dockerfile with both config files + a startup script that picks the right one
     std::fs::write(
         tmp.join("Dockerfile"),
         "FROM otel/opentelemetry-collector-contrib:latest\n\
-         COPY otel-config.yaml /etc/otelcol-contrib/config.yaml\n",
+         COPY otel-datadog.yaml /etc/otelcol-contrib/otel-datadog.yaml\n\
+         COPY otel-debug.yaml /etc/otelcol-contrib/otel-debug.yaml\n\
+         COPY entrypoint.sh /entrypoint.sh\n\
+         USER 0\n\
+         RUN chmod +x /entrypoint.sh\n\
+         USER nobody\n\
+         ENTRYPOINT [\"/entrypoint.sh\"]\n",
     )?;
 
-    // The OTEL collector config — OTLP receiver → Datadog exporter
+    // Entrypoint: choose config based on DD_API_KEY presence
     std::fs::write(
-        tmp.join("otel-config.yaml"),
+        tmp.join("entrypoint.sh"),
+        "#!/bin/sh\n\
+         if [ -n \"$DD_API_KEY\" ]; then\n\
+         \x20 echo \"DD_API_KEY detected — exporting to Datadog\"\n\
+         \x20 exec /otelcol-contrib --config /etc/otelcol-contrib/otel-datadog.yaml\n\
+         else\n\
+         \x20 echo \"No DD_API_KEY — running in debug mode (traces logged to stdout)\"\n\
+         \x20 echo \"To enable Datadog: add DD_API_KEY to this service in Railway\"\n\
+         \x20 exec /otelcol-contrib --config /etc/otelcol-contrib/otel-debug.yaml\n\
+         fi\n",
+    )?;
+
+    // Config with Datadog exporter — used when DD_API_KEY is present
+    std::fs::write(
+        tmp.join("otel-datadog.yaml"),
         "receivers:\n\
          \x20 otlp:\n\
          \x20   protocols:\n\
@@ -577,6 +600,42 @@ fn deploy_otel_collector(project_id: &str, env_id: &str) -> Result<()> {
          \x20     receivers: [otlp]\n\
          \x20     processors: [batch]\n\
          \x20     exporters: [datadog]\n",
+    )?;
+
+    // Config with debug exporter — used when DD_API_KEY is absent
+    std::fs::write(
+        tmp.join("otel-debug.yaml"),
+        "receivers:\n\
+         \x20 otlp:\n\
+         \x20   protocols:\n\
+         \x20     grpc:\n\
+         \x20       endpoint: 0.0.0.0:4317\n\
+         \x20     http:\n\
+         \x20       endpoint: 0.0.0.0:4318\n\
+         \n\
+         processors:\n\
+         \x20 batch:\n\
+         \x20   send_batch_size: 1000\n\
+         \x20   timeout: 5s\n\
+         \n\
+         exporters:\n\
+         \x20 debug:\n\
+         \x20   verbosity: basic\n\
+         \n\
+         service:\n\
+         \x20 pipelines:\n\
+         \x20   traces:\n\
+         \x20     receivers: [otlp]\n\
+         \x20     processors: [batch]\n\
+         \x20     exporters: [debug]\n\
+         \x20   metrics:\n\
+         \x20     receivers: [otlp]\n\
+         \x20     processors: [batch]\n\
+         \x20     exporters: [debug]\n\
+         \x20   logs:\n\
+         \x20     receivers: [otlp]\n\
+         \x20     processors: [batch]\n\
+         \x20     exporters: [debug]\n",
     )?;
 
     std::fs::write(

@@ -126,12 +126,14 @@ cargo build -p openpaw-cli --release
 
 Provisions Turso, Cloudflare R2, and Railway interactively — no `.env` file needed. The deploy flow prompts for all credentials.
 
-Add `--with-datadog` to deploy an OTEL Collector sidecar that sends traces, metrics, and logs to Datadog. Set `DD_API_KEY` in your environment before running:
+An OTEL collector is always deployed alongside OpenPaw. If `DD_API_KEY` is set in your environment, traces, metrics, and logs flow to Datadog automatically:
 
 ```bash
 export DD_API_KEY=your-datadog-api-key
-./target/release/openpaw deploy --with-datadog
+./target/release/openpaw deploy
 ```
+
+If you don't have a Datadog key yet, deploy without it — the collector runs in debug mode. Add `DD_API_KEY` to the otel-collector service in Railway later and it activates automatically on restart.
 
 ### Diagnose
 
