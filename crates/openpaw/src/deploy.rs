@@ -45,8 +45,10 @@ pub async fn run_deploy(config: Config, with_datadog: bool) -> Result<()> {
         None => "https://dash.cloudflare.com/?to=/:account/r2/api-tokens".to_string(),
     };
     cliclack::log::info(format!(
-        "Create an R2 API token with Object Read & Write for bucket \"{bucket_name}\".\n  \
-         Opening the token creation page — paste the three values it gives you."
+        "Create an R2 API token. Set these two values:\n  \
+         Permissions: \x1b[1mObject Read & Write\x1b[0m\n  \
+         Bucket: \x1b[1m{bucket_name}\x1b[0m\n  \
+         Then paste the three values it gives you below."
     ))?;
     let _ = Command::new("open").arg(&r2_token_url).status();
 
