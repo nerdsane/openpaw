@@ -124,16 +124,11 @@ pub async fn run_deploy(config: Config, with_datadog: bool) -> Result<()> {
         );
     }
 
-    cliclack::log::step("Deploying OpenPaw (this takes a few minutes — building from Dockerfile)...")?;
-    run_interactive("railway", &["up", "-s", "openpaw", "-d"])?;
+    cliclack::log::step("Building and deploying OpenPaw (first build takes a few minutes)...")?;
+    run_interactive("railway", &["up", "-s", "openpaw"])?;
 
     let domain_output = capture_trimmed("railway", &["domain", "--service", "openpaw", "--json"])?;
     let deploy_url = infer_domain(&domain_output).unwrap_or(domain_output.clone());
-
-    cliclack::log::info(format!(
-        "Build running on Railway. Check progress at:\n  \
-         https://railway.com/project → {project_name}"
-    ))?;
 
     cliclack::log::step("Waiting for health check (may take 5-10 minutes for first build)...")?;
     match poll_health(&deploy_url).await {
