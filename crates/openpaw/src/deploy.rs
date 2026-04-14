@@ -129,13 +129,13 @@ pub async fn run_deploy(config: Config, with_datadog: bool) -> Result<()> {
         );
     }
 
-    cliclack::log::step("Building and deploying OpenPaw (first build takes a few minutes)...")?;
-    run_interactive("railway", &["up", "-s", "openpaw"])?;
+    cliclack::log::step("Deploying OpenPaw...")?;
+    deploy_prebuilt_image()?;
 
     let domain_output = capture_trimmed("railway", &["domain", "--service", "openpaw", "--json"])?;
     let deploy_url = infer_domain(&domain_output).unwrap_or(domain_output.clone());
 
-    cliclack::log::step("Waiting for health check (may take 5-10 minutes for first build)...")?;
+    cliclack::log::step("Waiting for health check...")?;
     match poll_health(&deploy_url).await {
         Ok(()) => {
             cliclack::outro(format!(
@@ -446,6 +446,41 @@ fn ensure_auth_wrangler(cache: &mut HashMap<String, String>) -> Result<()> {
     }
     cache_set(cache, "cloudflare_api_token", token.trim());
     cliclack::log::success("wrangler authenticated ✓")?;
+    Ok(())
+}
+
+/// Deploy the pre-built Docker image from GHCR instead of building from source.
+/// Creates a temp dir with a one-line Dockerfile and runs `railway up`.
+fn deploy_prebuilt_image() -> Result<()> {
+    let image = "ghcr.io/nerdsane/openpaw:latest";
+    let tmp = std::env::temp_dir().join("openpaw-deploy");
+    let _ = std::fs::create_dir_all(&tmp);
+    std::fs::write(
+        tmp.join("Dockerfile"),
+        format!("FROM {image}\n"),
+    )?;
+    std::fs::write(
+        tmp.join("railway.toml"),
+        "[build]\nbuilder = \"dockerfile\"\ndockerfilePath = \"Dockerfile\"\n\n\
+         [deploy]\nhealthcheckPath = \"/healthz\"\nhealthcheckTimeout = 60\n\
+         restartPolicyType = \"ON_FAILURE\"\nrestartPolicyMaxRetries = 3\n",
+    )?;
+
+    let status = Command::new("railway")
+        .args(["up", "-s", "openpaw"])
+        .current_dir(&tmp)
+        .stdin(std::process::Stdio::inherit())
+        .stdout(std::process::Stdio::inherit())
+        .stderr(std::process::Stdio::inherit())
+        .status()
+        .context("Failed to run railway up")?;
+
+    // Clean up temp dir
+    let _ = std::fs::remove_dir_all(&tmp);
+
+    if !status.success() {
+        anyhow::bail!("Railway deploy failed");
+    }
     Ok(())
 }
 
