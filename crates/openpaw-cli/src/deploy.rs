@@ -7,16 +7,13 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 
-use crate::config::Config;
-
 // ---------------------------------------------------------------------------
 // Credential cache — persists tokens/keys between deploy runs
 // ---------------------------------------------------------------------------
 
 fn cache_path() -> PathBuf {
     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
-    PathBuf::from(home)
-        .join(".local/share/openpaw/deploy_cache.json")
+    PathBuf::from(home).join(".local/share/openpaw/deploy_cache.json")
 }
 
 fn load_cache() -> HashMap<String, String> {
@@ -33,7 +30,6 @@ fn save_cache(cache: &HashMap<String, String>) {
         let _ = std::fs::create_dir_all(parent);
     }
     let _ = std::fs::write(&path, serde_json::to_string_pretty(cache).unwrap_or_default());
-    // Owner-only read/write — same as ~/.aws/credentials
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -50,7 +46,12 @@ fn cache_set(cache: &mut HashMap<String, String>, key: &str, value: &str) {
     save_cache(cache);
 }
 
-pub async fn run_deploy(config: Config, with_datadog: bool) -> Result<()> {
+pub async fn run_deploy(
+    dd_api_key: Option<String>,
+    dd_app_key: Option<String>,
+    dd_site: String,
+    with_datadog: bool,
+) -> Result<()> {
     cliclack::intro("Open Paw Deploy")?;
 
     let mut cache = load_cache();
@@ -83,7 +84,6 @@ pub async fn run_deploy(config: Config, with_datadog: bool) -> Result<()> {
     cliclack::log::step("Provisioning R2 bucket (free tier: 10 GB storage)...")?;
     create_r2_bucket_idempotent(&bucket_name)?;
 
-    // Use cached R2 credentials if available, otherwise prompt
     let (blob_access_key, blob_secret_key, blob_endpoint) =
         collect_r2_credentials(&bucket_name, &mut cache)?;
 
@@ -99,13 +99,13 @@ pub async fn run_deploy(config: Config, with_datadog: bool) -> Result<()> {
         format!("BLOB_SECRET_KEY={blob_secret_key}"),
     ];
 
-    if let Some(dd_api_key) = config.dd_api_key.clone() {
-        variables.push(format!("DD_API_KEY={dd_api_key}"));
+    if let Some(key) = dd_api_key {
+        variables.push(format!("DD_API_KEY={key}"));
     }
-    if let Some(dd_app_key) = config.dd_app_key.clone() {
-        variables.push(format!("DD_APP_KEY={dd_app_key}"));
+    if let Some(key) = dd_app_key {
+        variables.push(format!("DD_APP_KEY={key}"));
     }
-    variables.push(format!("DD_SITE={}", config.dd_site));
+    variables.push(format!("DD_SITE={dd_site}"));
 
     let mut set_args = vec![
         "variable".to_string(),
@@ -200,7 +200,6 @@ fn install_railway() -> Result<()> {
     if npm_exists() {
         run_install(&["npm", "install", "-g", "@railway/cli"])
     } else {
-        // Shell installer fallback
         run_shell_install("bash <(curl -fsSL cli.new)")
     }
 }
@@ -213,9 +212,7 @@ fn install_wrangler() -> Result<()> {
     if npm_exists() {
         run_install(&["npm", "install", "-g", "wrangler"])
     } else {
-        anyhow::bail!(
-            "wrangler requires npm. Install Node.js first: https://nodejs.org"
-        )
+        anyhow::bail!("wrangler requires npm. Install Node.js first: https://nodejs.org")
     }
 }
 
@@ -264,7 +261,6 @@ fn is_cli_logged_in(command: &str, check_args: &[&str]) -> bool {
         .unwrap_or(false)
 }
 
-/// Collect R2 credentials — use cache if available, otherwise prompt.
 fn collect_r2_credentials(
     bucket_name: &str,
     cache: &mut HashMap<String, String>,
@@ -278,7 +274,6 @@ fn collect_r2_credentials(
         return Ok((ak, sk, ep));
     }
 
-    // Need to prompt — open the token creation page
     let cf_account_id = get_cloudflare_account_id();
     let r2_token_url = match &cf_account_id {
         Some(id) => format!("https://dash.cloudflare.com/{id}/r2/api-tokens/create?type=account"),
@@ -322,7 +317,6 @@ fn collect_r2_credentials(
         })
         .interact()?;
 
-    // Cache for next run
     cache_set(cache, "r2_access_key", blob_access_key.trim());
     cache_set(cache, "r2_secret_key", blob_secret_key.trim());
     cache_set(cache, "r2_endpoint", blob_endpoint.trim());
@@ -330,8 +324,6 @@ fn collect_r2_credentials(
     Ok((blob_access_key, blob_secret_key, blob_endpoint))
 }
 
-/// Railway: check existing session, fall back to `railway login --browserless`
-/// which prints a pairing code — no browser callback needed.
 fn ensure_auth_railway() -> Result<()> {
     if is_cli_logged_in("railway", &["whoami"]) {
         cliclack::log::success("railway authenticated ✓")?;
@@ -354,14 +346,12 @@ fn ensure_auth_railway() -> Result<()> {
     Ok(())
 }
 
-/// Turso (database): check existing session, try cached token, fall back to token paste.
 fn ensure_auth_turso(cache: &mut HashMap<String, String>) -> Result<()> {
     if is_cli_logged_in("turso", &["auth", "whoami"]) {
         cliclack::log::success("turso authenticated ✓")?;
         return Ok(());
     }
 
-    // Try cached token first
     if let Some(cached) = cache_get(cache, "turso_api_token") {
         unsafe { std::env::set_var("TURSO_API_TOKEN", &cached); }
         if is_cli_logged_in("turso", &["auth", "whoami"]) {
@@ -401,14 +391,12 @@ fn ensure_auth_turso(cache: &mut HashMap<String, String>) -> Result<()> {
     Ok(())
 }
 
-/// Cloudflare (file storage): check existing session, try cached token, fall back to token paste.
 fn ensure_auth_wrangler(cache: &mut HashMap<String, String>) -> Result<()> {
     if is_cli_logged_in("wrangler", &["whoami"]) {
         cliclack::log::success("wrangler authenticated ✓")?;
         return Ok(());
     }
 
-    // Try cached token first
     if let Some(cached) = cache_get(cache, "cloudflare_api_token") {
         unsafe { std::env::set_var("CLOUDFLARE_API_TOKEN", &cached); }
         if is_cli_logged_in("wrangler", &["whoami"]) {
@@ -450,11 +438,7 @@ fn ensure_auth_wrangler(cache: &mut HashMap<String, String>) -> Result<()> {
 }
 
 /// Deploy the pre-built Docker image from GHCR instead of building from source.
-/// Creates a temp dir with a one-line Dockerfile and runs `railway up`.
-/// Reads the project ID from the linked Railway project so the temp dir doesn't
-/// need its own `.railway` link.
 fn deploy_prebuilt_image() -> Result<()> {
-    // Get the project ID from the linked project in the current directory
     let status_output = Command::new("railway")
         .args(["status", "--json"])
         .output()
@@ -476,10 +460,7 @@ fn deploy_prebuilt_image() -> Result<()> {
     let image = "ghcr.io/nerdsane/openpaw:latest";
     let tmp = std::env::temp_dir().join("openpaw-deploy");
     let _ = std::fs::create_dir_all(&tmp);
-    std::fs::write(
-        tmp.join("Dockerfile"),
-        format!("FROM {image}\n"),
-    )?;
+    std::fs::write(tmp.join("Dockerfile"), format!("FROM {image}\n"))?;
     std::fs::write(
         tmp.join("railway.toml"),
         "[build]\nbuilder = \"dockerfile\"\ndockerfilePath = \"Dockerfile\"\n\n\
@@ -496,7 +477,6 @@ fn deploy_prebuilt_image() -> Result<()> {
         .status()
         .context("Failed to run railway up")?;
 
-    // Clean up temp dir
     let _ = std::fs::remove_dir_all(&tmp);
 
     if !status.success() {
@@ -505,9 +485,7 @@ fn deploy_prebuilt_image() -> Result<()> {
     Ok(())
 }
 
-/// Create or reuse a Railway project, and ensure the "openpaw" service exists.
 fn create_railway_project_idempotent(project_name: &str) -> Result<()> {
-    // Check if we're already linked to a project
     let linked = Command::new("railway")
         .args(["status", "--json"])
         .output()
@@ -517,7 +495,6 @@ fn create_railway_project_idempotent(project_name: &str) -> Result<()> {
     if linked {
         cliclack::log::success("Railway project already linked ✓")?;
     } else {
-        // Try to create — if it fails because it exists, link to it instead
         let status = Command::new("railway")
             .args(["init", "--name", project_name])
             .stdin(std::process::Stdio::inherit())
@@ -527,7 +504,6 @@ fn create_railway_project_idempotent(project_name: &str) -> Result<()> {
             .context("Failed to run railway init")?;
 
         if !status.success() {
-            // Project may exist — try linking to it
             let link_status = Command::new("railway")
                 .args(["link"])
                 .stdin(std::process::Stdio::inherit())
@@ -542,7 +518,6 @@ fn create_railway_project_idempotent(project_name: &str) -> Result<()> {
         }
     }
 
-    // Ensure the "openpaw" service exists (ignore errors — it may already exist)
     let _ = Command::new("railway")
         .args(["add", "--service", "openpaw"])
         .stdout(std::process::Stdio::null())
@@ -552,14 +527,12 @@ fn create_railway_project_idempotent(project_name: &str) -> Result<()> {
     Ok(())
 }
 
-/// Try to extract the Cloudflare account ID from wrangler whoami.
 fn get_cloudflare_account_id() -> Option<String> {
     let output = Command::new("wrangler")
         .args(["whoami"])
         .output()
         .ok()?;
     let text = String::from_utf8_lossy(&output.stdout);
-    // wrangler whoami outputs a table with Account ID as a 32-char hex string
     for line in text.lines() {
         for word in line.split_whitespace() {
             let clean = word.trim_matches('│').trim_matches('|').trim();
@@ -571,7 +544,6 @@ fn get_cloudflare_account_id() -> Option<String> {
     None
 }
 
-/// Create a Turso database, treating "already exists" as success.
 fn create_turso_db_idempotent(database_name: &str) -> Result<()> {
     let output = Command::new("turso")
         .args(["db", "create", database_name, "--wait"])
@@ -595,7 +567,6 @@ fn create_turso_db_idempotent(database_name: &str) -> Result<()> {
     anyhow::bail!("Failed to create Turso database: {combined}");
 }
 
-/// Create an R2 bucket, treating "already exists" as success.
 fn create_r2_bucket_idempotent(bucket_name: &str) -> Result<()> {
     let output = Command::new("wrangler")
         .args(["r2", "bucket", "create", bucket_name])
@@ -617,7 +588,6 @@ fn create_r2_bucket_idempotent(bucket_name: &str) -> Result<()> {
     anyhow::bail!("Failed to create R2 bucket: {stderr}");
 }
 
-/// Run a command with full terminal access (stdin/stdout/stderr inherited).
 fn run_interactive(command: &str, args: &[&str]) -> Result<()> {
     let status = Command::new(command)
         .args(args)
@@ -634,8 +604,7 @@ fn run_interactive(command: &str, args: &[&str]) -> Result<()> {
     Ok(())
 }
 
-/// Run a command and capture its stdout. Stderr goes to the terminal.
-fn run_checked(command: &str, args: &[&str]) -> Result<String> {
+fn capture_trimmed(command: &str, args: &[&str]) -> Result<String> {
     let output = Command::new(command)
         .args(args)
         .stdin(std::process::Stdio::inherit())
@@ -647,15 +616,11 @@ fn run_checked(command: &str, args: &[&str]) -> Result<String> {
         anyhow::bail!("`{command} {}` failed", args.join(" "));
     }
 
-    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
-}
-
-fn capture_trimmed(command: &str, args: &[&str]) -> Result<String> {
-    let output = run_checked(command, args)?;
-    if output.is_empty() {
+    let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if text.is_empty() {
         anyhow::bail!("`{command} {}` returned no output", args.join(" "));
     }
-    Ok(output.lines().last().unwrap_or_default().trim().to_string())
+    Ok(text.lines().last().unwrap_or_default().trim().to_string())
 }
 
 fn infer_domain(raw: &str) -> Option<String> {
@@ -672,8 +637,6 @@ async fn poll_health(base_url: &str) -> Result<()> {
     let client = reqwest::Client::new();
     let health_url = format!("{base_url}/healthz");
 
-    // First build can take 5-10 minutes (Rust compile on Railway).
-    // Poll for up to 15 minutes.
     for _ in 0..90 {
         if let Ok(response) = client.get(&health_url).send().await {
             if response.status().is_success() {

@@ -3440,6 +3440,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "openpaw-cli"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "cliclack",
+ "reqwest",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "openssl"
 version = "0.10.77"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5496,6 +5508,7 @@ dependencies = [
  "temper-spec",
  "temper-store-turso",
  "temper-verify",
+ "temper-wasm",
  "thiserror 2.0.18",
  "tokio",
  "toml",
