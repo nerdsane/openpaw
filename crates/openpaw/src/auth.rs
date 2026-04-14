@@ -135,6 +135,17 @@ pub async fn middleware(
         return next.run(request).await;
     }
 
+    // Internal WASM agent calls carry principal headers but no Bearer token
+    // or session cookie. Mark as pre-authenticated so Temper's bearer_auth_check
+    // passes through.
+    if request.headers().contains_key("x-temper-principal-kind")
+        && request.headers().contains_key("x-temper-principal-id")
+    {
+        ensure_tenant_header(request.headers_mut());
+        request.extensions_mut().insert(PreAuthenticatedRequest);
+        return next.run(request).await;
+    }
+
     if path.starts_with("/dashboard") && !is_dashboard_public_path(&path) {
         return Redirect::temporary("/dashboard/login").into_response();
     }
