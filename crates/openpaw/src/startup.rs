@@ -8,7 +8,7 @@ use std::collections::HashSet;
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use temper_platform::PlatformState;
@@ -56,6 +56,24 @@ enum RuntimeRecoveryStep {
     PopulateFieldIndex(String),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LocalWasmStartupPolicy {
+    BuildIfMissing,
+    LoadPersistedOnly,
+}
+
+fn local_wasm_startup_policy(raw: Option<&str>) -> LocalWasmStartupPolicy {
+    match raw.map(|value| value.trim().to_ascii_lowercase()) {
+        Some(value) if matches!(value.as_str(), "build" | "build-if-missing" | "true" | "1") => {
+            LocalWasmStartupPolicy::BuildIfMissing
+        }
+        Some(value) if matches!(value.as_str(), "load-only" | "persisted" | "false" | "0") => {
+            LocalWasmStartupPolicy::LoadPersistedOnly
+        }
+        _ => LocalWasmStartupPolicy::LoadPersistedOnly,
+    }
+}
+
 fn runtime_recovery_plan(tenant_ids: &[TenantId]) -> Vec<RuntimeRecoveryStep> {
     let mut steps = Vec::with_capacity(tenant_ids.len() * 2);
     for tenant_id in tenant_ids {
@@ -71,15 +89,19 @@ fn runtime_recovery_plan(tenant_ids: &[TenantId]) -> Vec<RuntimeRecoveryStep> {
     steps
 }
 
-async fn recover_runtime_indexes(
-    state: &PlatformState,
-    tenant_ids: &[TenantId],
-) {
+async fn recover_runtime_indexes(state: &PlatformState, tenant_ids: &[TenantId]) {
     for step in runtime_recovery_plan(tenant_ids) {
         match step {
             RuntimeRecoveryStep::PopulateIndex(tenant) => {
                 let tenant_id = TenantId::new(&tenant);
                 state.server.populate_index_from_store(&tenant_id).await;
+                let count = state
+                    .server
+                    .active_entity_counts_by_tenant()
+                    .get(&tenant)
+                    .copied()
+                    .unwrap_or(0);
+                tracing::info!(tenant = %tenant, count, "live restore: populate_index");
             }
             RuntimeRecoveryStep::PopulateFieldIndex(tenant) => {
                 let tenant_id = TenantId::new(&tenant);
@@ -97,6 +119,7 @@ async fn recover_runtime_indexes(
 /// If `force_soul_setup` is true, the soul personalization interview runs
 /// after boot regardless of current configuration (used by `openpaw setup`).
 pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
+    let startup_started = Instant::now();
     let port = config.port;
     let tenant = config.tenant.clone();
     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
@@ -608,7 +631,16 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
     }
 
     // Phase 6: Install Paw OS apps
+    let phase_started = Instant::now();
     tracing::info!("Phase 6: Installing Paw OS apps...");
+    let wasm_policy =
+        local_wasm_startup_policy(std::env::var("OPENPAW_WASM_STARTUP_POLICY").ok().as_deref());
+    tracing::info!(?wasm_policy, "WASM startup policy selected");
+    if wasm_policy == LocalWasmStartupPolicy::BuildIfMissing
+        && let Err(error) = build_missing_wasm_modules(&os_apps_dir)
+    {
+        tracing::error!(%error, "Failed to build local OS app WASM artifacts");
+    }
     for app_name in PAW_OS_APPS {
         if temper_platform::os_apps::get_os_app(app_name).is_none() {
             tracing::warn!("Skipping OS app '{app_name}' because its bundle is missing or invalid");
@@ -634,12 +666,10 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
     } else {
         tracing::info!("Specs committed for tenant {tenant}");
     }
-
-    if let Err(error) = build_and_register_local_wasm_modules(&state, &tenant, &os_apps_dir).await {
-        tracing::error!(%error, "Failed to build/register local OS app WASM modules");
-    }
+    tracing::info!(elapsed_ms = phase_started.elapsed().as_millis(), "phase_6_os_app_reconcile complete");
 
     // Phase 7: Recovery (Cedar policies + WASM modules + secrets from store)
+    let phase_started = Instant::now();
     tracing::info!("Phase 7: Recovery...");
     recover_cedar_policies(&state, &turso_store).await;
     restore_installed_skills(&state, &turso_store).await;
@@ -654,6 +684,7 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
         registry.tenant_ids().into_iter().cloned().collect()
     };
     recover_runtime_indexes(&state, &tenant_ids).await;
+    tracing::info!(elapsed_ms = phase_started.elapsed().as_millis(), "phase_7_runtime_recovery complete");
 
     // Phase 7b: Session recovery — recover or fail orphaned sessions (ADR-0025)
     {
@@ -811,8 +842,7 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
         use tower_http::services::{ServeDir, ServeFile};
         router.nest_service(
             "/dashboard",
-            ServeDir::new("dashboard/build")
-                .fallback(ServeFile::new("dashboard/build/index.html")),
+            ServeDir::new("dashboard/build").fallback(ServeFile::new("dashboard/build/index.html")),
         )
     } else {
         router
@@ -959,6 +989,7 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
         println!();
     }
     tracing::info!("Open Paw listening on port {actual_port}");
+    tracing::info!(elapsed_ms = startup_started.elapsed().as_millis(), tenant = %tenant, "startup: time to healthy");
 
     // Phase 10: Soul personalization (post-boot, writes to TemperFS via OData)
     if needs_soul_setup {
@@ -1431,8 +1462,7 @@ async fn bootstrap_soul(
             api_key,
         )
         .await?;
-        if let Some(file_id) = entity_field_str(&soul_resp, &["ContentFileId", "content_file_id"])
-        {
+        if let Some(file_id) = entity_field_str(&soul_resp, &["ContentFileId", "content_file_id"]) {
             let upload_url = format!("{api_url}/tdata/Files('{file_id}')/$value");
             odata_put_bytes(
                 client,
@@ -1936,66 +1966,6 @@ fn entity_field_str<'a>(value: &'a serde_json::Value, names: &[&str]) -> Option<
     })
 }
 
-async fn build_and_register_local_wasm_modules(
-    state: &PlatformState,
-    tenant: &str,
-    os_apps_dir: &Path,
-) -> Result<()> {
-    build_missing_wasm_modules(os_apps_dir)?;
-
-    let tenant_id = TenantId::new(tenant);
-    let mut registered = 0usize;
-
-    for module_dir in wasm_module_dirs(os_apps_dir)? {
-        let module_name = module_dir
-            .file_name()
-            .and_then(OsStr::to_str)
-            .unwrap_or_default();
-        if module_name.is_empty() {
-            continue;
-        }
-
-        let Some(wasm_path) = find_wasm_binary(&module_dir, module_name) else {
-            continue;
-        };
-
-        let wasm_bytes = std::fs::read(&wasm_path)
-            .with_context(|| format!("Failed to read WASM binary: {}", wasm_path.display()))?;
-        let hash = state
-            .server
-            .wasm_engine
-            .compile_and_cache(&wasm_bytes)
-            .map_err(|error| {
-                anyhow::anyhow!(
-                    "Failed to compile WASM module '{module_name}' from {}: {error}",
-                    wasm_path.display()
-                )
-            })?;
-        state
-            .server
-            .upsert_wasm_module(tenant, module_name, &wasm_bytes, &hash)
-            .await
-            .map_err(|error| {
-                anyhow::anyhow!("Failed to persist WASM module '{module_name}': {error}")
-            })?;
-        {
-            let mut registry = state.server.wasm_module_registry.write().unwrap();
-            registry.register(&tenant_id, module_name, &hash);
-        }
-
-        registered += 1;
-        tracing::info!(
-            module = module_name,
-            path = %wasm_path.display(),
-            hash = %hash,
-            "Registered local WASM module"
-        );
-    }
-
-    tracing::info!("Registered {registered} local WASM modules for tenant '{tenant}'");
-    Ok(())
-}
-
 fn build_missing_wasm_modules(os_apps_dir: &Path) -> Result<()> {
     for build_script in wasm_build_scripts(os_apps_dir)? {
         let build_dir = build_script
@@ -2090,36 +2060,6 @@ fn wasm_build_needed(build_dir: &Path) -> Result<bool> {
     Ok(false)
 }
 
-fn wasm_module_dirs(os_apps_dir: &Path) -> Result<Vec<PathBuf>> {
-    let mut dirs = Vec::new();
-
-    for app_entry in std::fs::read_dir(os_apps_dir)? {
-        let app_dir = match app_entry {
-            Ok(entry) if entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false) => entry.path(),
-            _ => continue,
-        };
-        let wasm_dir = app_dir.join("wasm");
-        if !wasm_dir.is_dir() {
-            continue;
-        }
-
-        for child in std::fs::read_dir(&wasm_dir)? {
-            let child_dir = match child {
-                Ok(entry) if entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false) => {
-                    entry.path()
-                }
-                _ => continue,
-            };
-            if child_dir.join("Cargo.toml").is_file() {
-                dirs.push(child_dir);
-            }
-        }
-    }
-
-    dirs.sort();
-    Ok(dirs)
-}
-
 fn find_wasm_binary(module_dir: &Path, module_name: &str) -> Option<PathBuf> {
     if module_name.is_empty() {
         return None;
@@ -2207,8 +2147,9 @@ mod tests {
     use temper_runtime::tenant::TenantId;
 
     use super::{
-        RuntimeRecoveryStep, actor_passivation_check_interval_secs, load_or_create_temper_api_key,
-        runtime_recovery_plan, soul_lookup_filters,
+        LocalWasmStartupPolicy, RuntimeRecoveryStep, actor_passivation_check_interval_secs,
+        load_or_create_temper_api_key, local_wasm_startup_policy, runtime_recovery_plan,
+        soul_lookup_filters,
     };
 
     #[test]
@@ -2240,6 +2181,30 @@ mod tests {
     }
 
     #[test]
+    fn local_wasm_policy_defaults_and_overrides() {
+        assert_eq!(
+            local_wasm_startup_policy(Some("load-only")),
+            LocalWasmStartupPolicy::LoadPersistedOnly
+        );
+        assert_eq!(
+            local_wasm_startup_policy(Some("build")),
+            LocalWasmStartupPolicy::BuildIfMissing
+        );
+        assert_eq!(
+            local_wasm_startup_policy(Some("0")),
+            LocalWasmStartupPolicy::LoadPersistedOnly
+        );
+        assert_eq!(
+            local_wasm_startup_policy(Some("1")),
+            LocalWasmStartupPolicy::BuildIfMissing
+        );
+        assert_eq!(
+            local_wasm_startup_policy(None),
+            LocalWasmStartupPolicy::LoadPersistedOnly
+        );
+    }
+
+    #[test]
     fn datadog_configs_use_tenant_aware_entity_queries() {
         let repo_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         let dashboard_path = repo_root.join("dd-dashboards/openpaw-overview.json");
@@ -2260,7 +2225,9 @@ mod tests {
                     let definition = &inner["definition"];
                     if matches!(
                         definition["title"].as_str()?,
-                        "Active Entities" | "Indexed Entities"
+                        "Active Entities"
+                            | "Indexed Entities"
+                            | "Indexed Entities (Query Plane)"
                     ) {
                         definition["requests"][0]["q"].as_str()
                     } else {
@@ -2282,7 +2249,10 @@ mod tests {
                 let widgets = widget["definition"]["widgets"].as_array()?;
                 widgets.iter().find_map(|inner| {
                     let definition = &inner["definition"];
-                    if definition["title"].as_str()? == "Active Actors" {
+                    if matches!(
+                        definition["title"].as_str()?,
+                        "Active Actors" | "Active Actors (Hydrated)"
+                    ) {
                         definition["requests"][0]["q"].as_str()
                     } else {
                         None
@@ -2295,6 +2265,93 @@ mod tests {
             "avg:temper_active_actors{service:openpaw}"
         );
 
+        let process_memory_query = dashboard["widgets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find_map(|widget| {
+                let widgets = widget["definition"]["widgets"].as_array()?;
+                widgets.iter().find_map(|inner| {
+                    let definition = &inner["definition"];
+                    if matches!(
+                        definition["title"].as_str()?,
+                        "Process Memory (RSS)" | "OpenPaw Process Memory (RSS)"
+                    ) {
+                        definition["requests"][0]["q"].as_str()
+                    } else {
+                        None
+                    }
+                })
+            })
+            .expect("Process Memory widget query should exist");
+        assert_eq!(
+            process_memory_query,
+            "avg:process_resident_memory_bytes{service:openpaw}"
+        );
+
+        let active_entities_by_host_query = dashboard["widgets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find_map(|widget| {
+                let widgets = widget["definition"]["widgets"].as_array()?;
+                widgets.iter().find_map(|inner| {
+                    let definition = &inner["definition"];
+                    if definition["title"].as_str()? == "Indexed Entities by Host" {
+                        definition["requests"][0]["q"].as_str()
+                    } else {
+                        None
+                    }
+                })
+            })
+            .expect("Indexed Entities by Host widget query should exist");
+        assert_eq!(
+            active_entities_by_host_query,
+            "sum:temper_active_entities{service:openpaw,tenant:*} by {host}"
+        );
+
+        let active_actors_by_host_query = dashboard["widgets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find_map(|widget| {
+                let widgets = widget["definition"]["widgets"].as_array()?;
+                widgets.iter().find_map(|inner| {
+                    let definition = &inner["definition"];
+                    if definition["title"].as_str()? == "Active Actors by Host" {
+                        definition["requests"][0]["q"].as_str()
+                    } else {
+                        None
+                    }
+                })
+            })
+            .expect("Active Actors by Host widget query should exist");
+        assert_eq!(
+            active_actors_by_host_query,
+            "avg:temper_active_actors{service:openpaw} by {host}"
+        );
+
+        let process_memory_by_host_query = dashboard["widgets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find_map(|widget| {
+                let widgets = widget["definition"]["widgets"].as_array()?;
+                widgets.iter().find_map(|inner| {
+                    let definition = &inner["definition"];
+                    if definition["title"].as_str()? == "OpenPaw RSS by Host" {
+                        definition["requests"][0]["q"].as_str()
+                    } else {
+                        None
+                    }
+                })
+            })
+            .expect("OpenPaw RSS by Host widget query should exist");
+        assert_eq!(
+            process_memory_by_host_query,
+            "avg:process_resident_memory_bytes{service:openpaw} by {host}"
+        );
+
         let projected_entities_query = dashboard["widgets"]
             .as_array()
             .unwrap()
@@ -2303,7 +2360,10 @@ mod tests {
                 let widgets = widget["definition"]["widgets"].as_array()?;
                 widgets.iter().find_map(|inner| {
                     let definition = &inner["definition"];
-                    if definition["title"].as_str()? == "Projected Entities" {
+                    if matches!(
+                        definition["title"].as_str()?,
+                        "Projected Entities" | "Projected Entities (Durable Catalog)"
+                    ) {
                         definition["requests"][0]["q"].as_str()
                     } else {
                         None
@@ -2358,6 +2418,90 @@ mod tests {
             "sum:temper_projection_backfill_snapshot_misses_total{service:openpaw}.as_count().rollup(sum, 60)"
         );
 
+        let startup_phase_query = dashboard["widgets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find_map(|widget| {
+                let widgets = widget["definition"]["widgets"].as_array()?;
+                widgets.iter().find_map(|inner| {
+                    let definition = &inner["definition"];
+                    if definition["title"].as_str()? == "Startup Phase Duration" {
+                        definition["requests"][0]["q"].as_str()
+                    } else {
+                        None
+                    }
+                })
+            })
+            .expect("Startup Phase Duration widget query should exist");
+        assert_eq!(
+            startup_phase_query,
+            "avg:temper_startup_phase_duration_ms{service:openpaw} by {phase}.rollup(avg, 60)"
+        );
+
+        let startup_healthy_query = dashboard["widgets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find_map(|widget| {
+                let widgets = widget["definition"]["widgets"].as_array()?;
+                widgets.iter().find_map(|inner| {
+                    let definition = &inner["definition"];
+                    if definition["title"].as_str()? == "Startup Time To Healthy" {
+                        definition["requests"][0]["q"].as_str()
+                    } else {
+                        None
+                    }
+                })
+            })
+            .expect("Startup Time To Healthy widget query should exist");
+        assert_eq!(
+            startup_healthy_query,
+            "avg:temper_startup_time_to_healthy_ms{service:openpaw}.rollup(avg, 60)"
+        );
+
+        let reconcile_query = dashboard["widgets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find_map(|widget| {
+                let widgets = widget["definition"]["widgets"].as_array()?;
+                widgets.iter().find_map(|inner| {
+                    let definition = &inner["definition"];
+                    if definition["title"].as_str()? == "OS App Reconcile" {
+                        definition["requests"][0]["q"].as_str()
+                    } else {
+                        None
+                    }
+                })
+            })
+            .expect("OS App Reconcile widget query should exist");
+        assert_eq!(
+            reconcile_query,
+            "sum:temper_os_app_reconcile_total{service:openpaw} by {app,result}.as_count().rollup(sum, 60)"
+        );
+
+        let wasm_failure_query = dashboard["widgets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find_map(|widget| {
+                let widgets = widget["definition"]["widgets"].as_array()?;
+                widgets.iter().find_map(|inner| {
+                    let definition = &inner["definition"];
+                    if definition["title"].as_str()? == "WASM Load Failures" {
+                        definition["requests"][0]["q"].as_str()
+                    } else {
+                        None
+                    }
+                })
+            })
+            .expect("WASM Load Failures widget query should exist");
+        assert_eq!(
+            wasm_failure_query,
+            "sum:temper_wasm_module_load_failures_total{service:openpaw} by {app,module,reason,criticality}.as_count().rollup(sum, 60)"
+        );
+
         let active_entities_drop_query = monitors
             .as_array()
             .unwrap()
@@ -2373,6 +2517,57 @@ mod tests {
         assert_eq!(
             active_entities_drop_query,
             "avg(last_15m):sum:temper_active_entities{service:openpaw,tenant:*} < 1"
+        );
+
+        let startup_regression_query = monitors
+            .as_array()
+            .unwrap()
+            .iter()
+            .find_map(|monitor| {
+                if monitor["name"].as_str()? == "[OpenPaw] Startup Time Regression" {
+                    monitor["query"].as_str()
+                } else {
+                    None
+                }
+            })
+            .expect("Startup Time Regression monitor query should exist");
+        assert_eq!(
+            startup_regression_query,
+            "avg(last_15m):avg:temper_startup_time_to_healthy_ms{service:openpaw} > 120000"
+        );
+
+        let reconcile_regression_query = monitors
+            .as_array()
+            .unwrap()
+            .iter()
+            .find_map(|monitor| {
+                if monitor["name"].as_str()? == "[OpenPaw] OS App Reconcile Regression" {
+                    monitor["query"].as_str()
+                } else {
+                    None
+                }
+            })
+            .expect("OS App Reconcile Regression monitor query should exist");
+        assert_eq!(
+            reconcile_regression_query,
+            "avg(last_1h):avg:temper_startup_phase_duration_ms{service:openpaw,phase:phase_6_os_app_reconcile} > 60000"
+        );
+
+        let wasm_failure_monitor_query = monitors
+            .as_array()
+            .unwrap()
+            .iter()
+            .find_map(|monitor| {
+                if monitor["name"].as_str()? == "[OpenPaw] Required WASM Load Failures" {
+                    monitor["query"].as_str()
+                } else {
+                    None
+                }
+            })
+            .expect("Required WASM Load Failures monitor query should exist");
+        assert_eq!(
+            wasm_failure_monitor_query,
+            "sum(last_15m):sum:temper_wasm_module_load_failures_total{service:openpaw,criticality:(platform-required OR app-required)}.as_count() > 0"
         );
     }
 
