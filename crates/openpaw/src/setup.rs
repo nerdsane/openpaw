@@ -89,45 +89,6 @@ pub fn needs_setup(_data_dir: &Path, config: &Config) -> bool {
     !has_llm_credentials(config)
 }
 
-pub fn resolve_llm_credentials(config: &Config) -> Option<(String, String)> {
-    match config.llm_provider.as_deref() {
-        Some("openai") => config
-            .openai_api_key
-            .clone()
-            .map(|key| ("openai".to_string(), key)),
-        Some("openrouter") => config
-            .openrouter_api_key
-            .clone()
-            .map(|key| ("openrouter".to_string(), key)),
-        Some("anthropic") => config
-            .anthropic_api_key
-            .clone()
-            .map(|key| ("anthropic".to_string(), key)),
-        _ => config
-            .anthropic_api_key
-            .clone()
-            .map(|key| ("anthropic".to_string(), key))
-            .or_else(|| {
-                config
-                    .openrouter_api_key
-                    .clone()
-                    .map(|key| ("openrouter".to_string(), key))
-            })
-            .or_else(|| {
-                config
-                    .openai_api_key
-                    .clone()
-                    .map(|key| ("openai".to_string(), key))
-            })
-            .or_else(|| {
-                config
-                    .openai_codex_token
-                    .clone()
-                    .map(|key| ("openai".to_string(), key))
-            }),
-    }
-}
-
 /// Phase A: Collect API key and messaging config (runs pre-boot).
 pub async fn run_setup_config(config: &Config) -> anyhow::Result<SetupResult> {
     let has_api_key = has_llm_credentials(config);
@@ -679,19 +640,7 @@ mod tests {
     use axum::routing::any;
     use serde_json::json;
 
-    use super::{GeneratedSoul, SetupRequestAuth, resolve_llm_credentials, save_soul_to_temper};
-
-    #[test]
-    fn resolve_llm_credentials_respects_provider_hint() {
-        let mut config = crate::config::Config::from_env().unwrap();
-        config.llm_provider = Some("openrouter".to_string());
-        config.anthropic_api_key = Some("anthropic-key".to_string());
-        config.openrouter_api_key = Some("openrouter-key".to_string());
-
-        let resolved = resolve_llm_credentials(&config).unwrap();
-        assert_eq!(resolved.0, "openrouter");
-        assert_eq!(resolved.1, "openrouter-key");
-    }
+    use super::{GeneratedSoul, SetupRequestAuth, save_soul_to_temper};
 
     #[tokio::test]
     async fn save_soul_to_temper_forwards_cookie_auth() {

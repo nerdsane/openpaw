@@ -4,25 +4,11 @@ use std::process::Command;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use reqwest::header::{COOKIE, SET_COOKIE};
-use serde_json::json;
 
 use crate::config::Config;
-use crate::setup::{
-    SetupRequestAuth, resolve_llm_credentials, run_setup_soul_interview, save_soul_to_temper,
-};
 
-pub async fn run_deploy(mut config: Config, with_datadog: bool) -> Result<()> {
+pub async fn run_deploy(config: Config, with_datadog: bool) -> Result<()> {
     cliclack::intro("Open Paw Deploy")?;
-
-    let setup_result = crate::setup::run_setup_config(&config).await?;
-    crate::setup::merge_setup_into_config(&mut config, setup_result);
-    let generated_soul = match resolve_llm_credentials(&config) {
-        Some((provider_name, api_key)) => {
-            run_setup_soul_interview(&api_key, &provider_name).await?
-        }
-        None => None,
-    };
 
     cliclack::log::step("Checking prerequisites...")?;
     ensure_or_install("railway", &install_railway)?;
@@ -40,12 +26,6 @@ pub async fn run_deploy(mut config: Config, with_datadog: bool) -> Result<()> {
     let project_name = format!("openpaw-{owner}");
     let database_name = format!("openpaw-{owner}");
     let bucket_name = format!("openpaw-fs-{owner}");
-
-    cliclack::log::info("Create your dashboard login — this is how you'll sign into the web UI.")?;
-    let admin_email: String = cliclack::input("Email")
-        .placeholder("you@example.com")
-        .interact()?;
-    let admin_password: String = cliclack::password("Password").mask('•').interact()?;
 
     cliclack::log::step("Provisioning Turso database...")?;
     run_checked("turso", &["db", "create", &database_name, "--wait"])?;
@@ -115,15 +95,10 @@ pub async fn run_deploy(mut config: Config, with_datadog: bool) -> Result<()> {
     cliclack::log::step("Waiting for health check...")?;
     poll_health(&deploy_url).await?;
 
-    cliclack::log::step("Seeding auth and settings...")?;
-    let session_cookie = register_admin(&deploy_url, &admin_email, &admin_password).await?;
-    seed_dashboard_secrets(&deploy_url, &session_cookie, &config).await?;
-    if let Some(generated_soul) = generated_soul.as_ref() {
-        seed_dashboard_soul(&deploy_url, &session_cookie, generated_soul).await?;
-    }
-    seed_transport_connections(&deploy_url, &session_cookie, &config).await?;
-
-    cliclack::outro(format!("Paw is live at {deploy_url}/dashboard"))?;
+    cliclack::outro(format!(
+        "Paw is live → {deploy_url}/dashboard\n  \
+         Open the dashboard to create your account and finish setup."
+    ))?;
     Ok(())
 }
 
@@ -289,16 +264,6 @@ fn infer_domain(raw: &str) -> Option<String> {
         })
 }
 
-fn extract_session_cookie(set_cookie: &str) -> Result<String> {
-    set_cookie
-        .split(';')
-        .next()
-        .map(str::trim)
-        .filter(|value| value.starts_with("paw_session="))
-        .map(str::to_string)
-        .context("Deploy registration did not include a paw_session cookie")
-}
-
 async fn poll_health(base_url: &str) -> Result<()> {
     let client = reqwest::Client::new();
     let health_url = format!("{base_url}/healthz");
@@ -313,143 +278,6 @@ async fn poll_health(base_url: &str) -> Result<()> {
     }
 
     anyhow::bail!("Timed out waiting for {health_url}");
-}
-
-async fn register_admin(base_url: &str, email: &str, password: &str) -> Result<String> {
-    let client = reqwest::Client::new();
-    let response = client
-        .post(format!("{base_url}/auth/register"))
-        .json(&json!({ "email": email, "password": password }))
-        .send()
-        .await
-        .context("Failed to register admin account")?;
-
-    if !response.status().is_success() {
-        let status = response.status();
-        let body = response.text().await.unwrap_or_default();
-        anyhow::bail!("Admin registration failed ({status}): {body}");
-    }
-
-    response
-        .headers()
-        .get(SET_COOKIE)
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| extract_session_cookie(value).ok())
-        .context("Deploy registration did not return a session cookie")
-}
-
-async fn seed_dashboard_soul(
-    base_url: &str,
-    cookie: &str,
-    generated_soul: &crate::setup_llm::GeneratedSoul,
-) -> Result<()> {
-    let client = reqwest::Client::new();
-    save_soul_to_temper(
-        &client,
-        base_url,
-        "default",
-        generated_soul,
-        &SetupRequestAuth::from_cookie(cookie.to_string()),
-    )
-    .await
-}
-
-async fn seed_dashboard_secrets(base_url: &str, cookie: &str, config: &Config) -> Result<()> {
-    let client = reqwest::Client::new();
-    let secrets: [(&str, Option<String>); 12] = [
-        ("llm_provider", config.llm_provider.clone()),
-        ("anthropic_api_key", config.anthropic_api_key.clone()),
-        ("openrouter_api_key", config.openrouter_api_key.clone()),
-        ("openai_api_key", config.openai_api_key.clone()),
-        ("openai_codex_token", config.openai_codex_token.clone()),
-        ("discord_bot_token", config.discord_bot_token.clone()),
-        ("discord_public_key", config.discord_public_key.clone()),
-        ("discord_guild_id", config.discord_guild_id.clone()),
-        (
-            "discord_feed_channel_id",
-            config.discord_feed_channel_id.clone(),
-        ),
-        (
-            "discord_forum_channel_id",
-            config.discord_forum_channel_id.clone(),
-        ),
-        ("slack_app_token", config.slack_app_token.clone()),
-        ("slack_bot_token", config.slack_bot_token.clone()),
-    ];
-
-    for (key, value) in secrets {
-        if let Some(value) = value {
-            let response = client
-                .post(format!("{base_url}/paw/setup/secrets"))
-                .header(COOKIE, cookie)
-                .json(&json!({ "key": key, "value": value }))
-                .send()
-                .await
-                .with_context(|| format!("Failed to seed {key}"))?;
-
-            if !response.status().is_success() {
-                let status = response.status();
-                let body = response.text().await.unwrap_or_default();
-                anyhow::bail!("Failed to seed {key} ({status}): {body}");
-            }
-        }
-    }
-
-    Ok(())
-}
-
-async fn seed_transport_connections(base_url: &str, cookie: &str, config: &Config) -> Result<()> {
-    let client = reqwest::Client::new();
-
-    if let (Some(bot_token), Some(public_key)) = (
-        config.discord_bot_token.clone(),
-        config.discord_public_key.clone(),
-    ) {
-        let response = client
-            .post(format!("{base_url}/paw/transports/discord/connect"))
-            .header(COOKIE, cookie)
-            .json(&json!({
-                "bot_token": bot_token,
-                "public_key": public_key,
-                "guild_id": config.discord_guild_id,
-                "feed_channel_id": config.discord_feed_channel_id,
-                "forum_channel_id": config.discord_forum_channel_id,
-            }))
-            .send()
-            .await
-            .context("Failed to connect Discord transport")?;
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let body = response.text().await.unwrap_or_default();
-            anyhow::bail!("Discord connect failed ({status}): {body}");
-        }
-    }
-
-    if let (Some(app_token), Some(bot_token)) = (
-        config.slack_app_token.clone(),
-        config.slack_bot_token.clone(),
-    ) {
-        let response = client
-            .post(format!("{base_url}/paw/transports/slack/connect"))
-            .header(COOKIE, cookie)
-            .json(&json!({
-                "app_token": app_token,
-                "bot_token": bot_token,
-                "signing_secret": config.slack_signing_secret,
-            }))
-            .send()
-            .await
-            .context("Failed to connect Slack transport")?;
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let body = response.text().await.unwrap_or_default();
-            anyhow::bail!("Slack connect failed ({status}): {body}");
-        }
-    }
-
-    Ok(())
 }
 
 fn slugify(input: &str) -> String {
@@ -476,7 +304,7 @@ fn as_str_slice(values: &[String]) -> Vec<&str> {
 
 #[cfg(test)]
 mod tests {
-    use super::{extract_session_cookie, infer_domain, slugify};
+    use super::{infer_domain, slugify};
 
     #[test]
     fn slugify_normalizes_owner_names() {
@@ -491,12 +319,5 @@ mod tests {
             value.as_deref(),
             Some("https://openpaw-production.up.railway.app")
         );
-    }
-
-    #[test]
-    fn extract_session_cookie_returns_cookie_header_value() {
-        let cookie =
-            extract_session_cookie("paw_session=abc123; HttpOnly; Path=/; SameSite=Lax").unwrap();
-        assert_eq!(cookie, "paw_session=abc123");
     }
 }
