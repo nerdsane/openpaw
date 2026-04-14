@@ -38,22 +38,10 @@ pub async fn run_deploy(config: Config, with_datadog: bool) -> Result<()> {
     cliclack::log::step("Provisioning R2 bucket (free tier: 10 GB storage)...")?;
     create_r2_bucket_idempotent(&bucket_name)?;
 
-    // R2 API token credentials can't be created via CLI.
     let r2_token_url = "https://dash.cloudflare.com/?to=/:account/r2/api-tokens";
     cliclack::log::info(format!(
-        "Now create R2 credentials so Paw can read/write files.\n  \
-         A browser tab is opening to the R2 API tokens page.\n\n  \
-         1. Click \"Create API token\"\n  \
-         2. Token name: openpaw\n  \
-         3. Permissions: Object Read & Write\n  \
-         4. Under \"Specify bucket(s)\": Apply to specific buckets only\n     \
-            → choose \"{bucket_name}\"\n  \
-         5. TTL: leave as \"No expiration\"\n  \
-         6. Click \"Create API Token\"\n  \
-         7. You'll see an Access Key ID and a Secret Access Key\n  \
-         8. The endpoint URL is also shown (looks like\n     \
-            https://abc123.r2.cloudflarestorage.com)\n  \
-         9. Paste all three values below"
+        "Create an R2 API token with Object Read & Write for bucket \"{bucket_name}\".\n  \
+         Opening the R2 tokens page — paste the three values it gives you below."
     ))?;
     let _ = Command::new("open").arg(r2_token_url).status();
 
@@ -288,11 +276,7 @@ fn ensure_auth_turso() -> Result<()> {
 
     cliclack::log::info(
         "Turso provides the database (free tier, no credit card).\n  \
-         A browser tab is opening to Turso.\n\n  \
-         1. Sign up or log in if prompted\n  \
-         2. Go to API Tokens (the URL ends with /api-tokens)\n  \
-         3. Click \"Create Token\" → name it \"openpaw\" → Create\n  \
-         4. Copy the token and paste it below"
+         Opening Turso — go to API Tokens, create one, and paste it below."
     )?;
     let _ = Command::new("open")
         .arg("https://app.turso.tech")
@@ -328,18 +312,11 @@ fn ensure_auth_wrangler() -> Result<()> {
     }
 
     let token_url = "https://dash.cloudflare.com/profile/api-tokens";
-    cliclack::log::info(format!(
+    cliclack::log::info(
         "Cloudflare R2 provides file storage (free tier: 10 GB, no credit card).\n  \
-         A browser tab is opening to create an API token.\n\n  \
-         1. Sign up or log in if prompted\n  \
-         2. Click \"Create Token\"\n  \
-         3. Scroll to \"Create Custom Token\" at the bottom → click \"Get started\"\n  \
-         4. Token name: openpaw\n  \
-         5. Under Permissions, select:\n     \
-            Account → Workers R2 Storage → Edit\n  \
-         6. Click \"Continue to summary\" → \"Create Token\"\n  \
-         7. Copy the token and paste it below"
-    ))?;
+         Opening Cloudflare — create a Custom Token with permission:\n  \
+         Account → Workers R2 Storage → Edit. Paste it below."
+    )?;
     let _ = Command::new("open").arg(token_url).status();
 
     let token: String = cliclack::password("Paste Cloudflare API token")
