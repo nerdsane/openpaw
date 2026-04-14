@@ -38,30 +38,50 @@ pub async fn run_deploy(config: Config, with_datadog: bool) -> Result<()> {
     cliclack::log::step("Provisioning R2 bucket (free tier: 10 GB storage)...")?;
     create_r2_bucket_idempotent(&bucket_name)?;
 
-    // R2 S3-compatible tokens can't be created via CLI — open the browser
-    // to the exact page and walk the user through it.
+    // R2 S3-compatible credentials can't be created via CLI.
+    // Open the exact page and walk the user through it step by step.
     let r2_token_url = "https://dash.cloudflare.com/?to=/:account/r2/api-tokens";
     cliclack::log::info(format!(
-        "Create an R2 API token for file storage.\n  \
-         Opening: {r2_token_url}\n  \
-         → Permissions: Object Read & Write\n  \
-         → Specify bucket: {bucket_name}\n  \
-         → TTL: leave empty for no expiration\n  \
-         → Copy the Access Key ID and Secret Access Key below."
+        "Now create S3 credentials so Paw can read/write files.\n  \
+         A browser tab is opening to the R2 API tokens page.\n\n  \
+         1. Click \"Create API token\"\n  \
+         2. Token name: openpaw\n  \
+         3. Permissions: Object Read & Write\n  \
+         4. Under \"Specify bucket(s)\", select: Apply to specific buckets only\n     \
+            → choose \"{bucket_name}\"\n  \
+         5. TTL: leave as \"No expiration\"\n  \
+         6. Click \"Create API Token\"\n  \
+         7. You'll see an Access Key ID and a Secret Access Key — paste both below\n  \
+         8. Copy the S3 endpoint shown on the same page (looks like\n     \
+            https://abc123.r2.cloudflarestorage.com)"
     ))?;
     let _ = Command::new("open").arg(r2_token_url).status();
 
-    let blob_access_key: String = cliclack::input("R2 Access Key ID")
-        .placeholder("Paste from the token you just created")
+    let blob_access_key: String = cliclack::input("Paste R2 Access Key ID")
+        .placeholder("Starts with a short alphanumeric string")
+        .validate(|input: &String| {
+            if input.trim().is_empty() {
+                Err("Required — it's on the token page you just created")
+            } else {
+                Ok(())
+            }
+        })
         .interact()?;
-    let blob_secret_key: String = cliclack::password("R2 Secret Access Key")
+    let blob_secret_key: String = cliclack::password("Paste R2 Secret Access Key")
         .mask('•')
+        .validate(|input: &String| {
+            if input.trim().is_empty() {
+                Err("Required — it's right below the Access Key ID")
+            } else {
+                Ok(())
+            }
+        })
         .interact()?;
-    let blob_endpoint: String = cliclack::input("R2 S3 endpoint")
+    let blob_endpoint: String = cliclack::input("Paste R2 S3 endpoint")
         .placeholder("https://<account-id>.r2.cloudflarestorage.com")
         .validate(|input: &String| {
             if input.trim().is_empty() {
-                Err("Required — find it on the R2 bucket overview page")
+                Err("Required — shown on the same token page, or on the R2 bucket overview")
             } else {
                 Ok(())
             }
@@ -260,8 +280,7 @@ fn ensure_auth_railway() -> Result<()> {
     Ok(())
 }
 
-/// Turso: check existing session, fall back to token paste.
-/// Browser OAuth is unreliable, so we open the tokens page and ask for a paste.
+/// Turso (database): check existing session, fall back to token paste.
 fn ensure_auth_turso() -> Result<()> {
     if is_cli_logged_in("turso", &["auth", "whoami"]) {
         cliclack::log::success("turso authenticated ✓")?;
@@ -270,35 +289,39 @@ fn ensure_auth_turso() -> Result<()> {
 
     let token_url = "https://turso.tech/app/settings/api-tokens";
     cliclack::log::info(format!(
-        "Not logged in to Turso. Create an API token:\n  \
-         Opening: {token_url}\n  \
-         → Click \"Create Token\" → copy it below."
+        "Turso provides the database (free tier, no credit card).\n  \
+         A browser tab is opening to create an API token.\n\n  \
+         1. Sign up or log in if prompted\n  \
+         2. Click \"Create Token\"\n  \
+         3. Name: openpaw (or anything)\n  \
+         4. Click \"Create\"\n  \
+         5. Copy the token and paste it below"
     ))?;
     let _ = Command::new("open").arg(token_url).status();
 
-    let token: String = cliclack::password("Turso API token")
+    let token: String = cliclack::password("Paste Turso API token")
         .mask('•')
         .validate(|input: &String| {
             if input.trim().is_empty() {
-                Err("Required")
+                Err("Required — paste the token you just created on turso.tech")
             } else {
                 Ok(())
             }
         })
         .interact()?;
 
-    // Set for this process and all child processes
     unsafe { std::env::set_var("TURSO_API_TOKEN", token.trim()); }
 
     if !is_cli_logged_in("turso", &["auth", "whoami"]) {
-        anyhow::bail!("Turso token didn't work. Check the token and retry.");
+        anyhow::bail!(
+            "That token didn't work. Go to {token_url}, create a new token, and retry."
+        );
     }
     cliclack::log::success("turso authenticated ✓")?;
     Ok(())
 }
 
-/// Wrangler: check existing session, fall back to token paste.
-/// Same approach — open the API tokens page, paste it back.
+/// Cloudflare (file storage): check existing session, fall back to token paste.
 fn ensure_auth_wrangler() -> Result<()> {
     if is_cli_logged_in("wrangler", &["whoami"]) {
         cliclack::log::success("wrangler authenticated ✓")?;
@@ -307,18 +330,24 @@ fn ensure_auth_wrangler() -> Result<()> {
 
     let token_url = "https://dash.cloudflare.com/profile/api-tokens";
     cliclack::log::info(format!(
-        "Not logged in to Cloudflare. Create an API token:\n  \
-         Opening: {token_url}\n  \
-         → Create Token → Use \"Edit Cloudflare Workers\" template\n  \
-         → Copy the token below."
+        "Cloudflare R2 provides file storage (free tier: 10 GB, no credit card).\n  \
+         A browser tab is opening to create an API token.\n\n  \
+         1. Sign up or log in if prompted\n  \
+         2. Click \"Create Token\"\n  \
+         3. Scroll to \"Create Custom Token\" at the bottom → click \"Get started\"\n  \
+         4. Token name: openpaw\n  \
+         5. Under Permissions, select:\n     \
+            Account → Workers R2 Storage → Edit\n  \
+         6. Click \"Continue to summary\" → \"Create Token\"\n  \
+         7. Copy the token and paste it below"
     ))?;
     let _ = Command::new("open").arg(token_url).status();
 
-    let token: String = cliclack::password("Cloudflare API token")
+    let token: String = cliclack::password("Paste Cloudflare API token")
         .mask('•')
         .validate(|input: &String| {
             if input.trim().is_empty() {
-                Err("Required")
+                Err("Required — paste the token you just created on Cloudflare")
             } else {
                 Ok(())
             }
@@ -328,7 +357,10 @@ fn ensure_auth_wrangler() -> Result<()> {
     unsafe { std::env::set_var("CLOUDFLARE_API_TOKEN", token.trim()); }
 
     if !is_cli_logged_in("wrangler", &["whoami"]) {
-        anyhow::bail!("Cloudflare token didn't work. Check the token and retry.");
+        anyhow::bail!(
+            "That token didn't work. Make sure you selected \"Workers R2 Storage → Edit\".\n  \
+             Go to {token_url}, create a new token, and retry."
+        );
     }
     cliclack::log::success("wrangler authenticated ✓")?;
     Ok(())
