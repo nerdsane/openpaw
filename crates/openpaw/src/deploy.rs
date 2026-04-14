@@ -15,7 +15,11 @@ pub async fn run_deploy(config: Config, with_datadog: bool) -> Result<()> {
     ensure_or_install("turso", &install_turso)?;
     ensure_or_install("wrangler", &install_wrangler)?;
 
-    ensure_logged_in("railway", &["whoami"], &["railway", "login", "--browserless"])?;
+    ensure_logged_in(
+        "railway",
+        &["whoami"],
+        &["railway", "login", "--browserless"],
+    )?;
     ensure_logged_in("turso", &["auth", "whoami"], &["turso", "auth", "login"])?;
     ensure_logged_in("wrangler", &["whoami"], &["wrangler", "login"])?;
 
@@ -29,12 +33,12 @@ pub async fn run_deploy(config: Config, with_datadog: bool) -> Result<()> {
     let bucket_name = format!("openpaw-fs-{owner}");
 
     cliclack::log::step("Provisioning Turso database...")?;
-    run_checked("turso", &["db", "create", &database_name, "--wait"])?;
+    run_interactive("turso", &["db", "create", &database_name, "--wait"])?;
     let turso_url = capture_trimmed("turso", &["db", "show", &database_name, "--url"])?;
     let turso_auth_token = capture_trimmed("turso", &["db", "tokens", "create", &database_name])?;
 
     cliclack::log::step("Provisioning R2 bucket...")?;
-    run_checked("wrangler", &["r2", "bucket", "create", &bucket_name])?;
+    run_interactive("wrangler", &["r2", "bucket", "create", &bucket_name])?;
     let blob_access_key: String = cliclack::input("Cloudflare R2 access key ID")
         .placeholder("Create an R2 token in Cloudflare first")
         .interact()?;
@@ -46,8 +50,8 @@ pub async fn run_deploy(config: Config, with_datadog: bool) -> Result<()> {
         .interact()?;
 
     cliclack::log::step("Creating Railway project...")?;
-    run_checked("railway", &["init", "--name", &project_name])?;
-    let _ = run_checked("railway", &["add", "--service", "openpaw"]);
+    run_interactive("railway", &["init", "--name", &project_name])?;
+    let _ = run_interactive("railway", &["add", "--service", "openpaw"]);
 
     let mut variables = vec![
         format!("TURSO_URL={turso_url}"),
@@ -73,10 +77,10 @@ pub async fn run_deploy(config: Config, with_datadog: bool) -> Result<()> {
         "openpaw".to_string(),
     ];
     set_args.extend(variables);
-    run_checked("railway", &as_str_slice(&set_args))?;
+    run_interactive("railway", &as_str_slice(&set_args))?;
 
     if with_datadog {
-        let _ = run_checked(
+        let _ = run_interactive(
             "railway",
             &[
                 "add",
@@ -89,7 +93,7 @@ pub async fn run_deploy(config: Config, with_datadog: bool) -> Result<()> {
     }
 
     cliclack::log::step("Deploying OpenPaw...")?;
-    run_checked("railway", &["up", "-s", "openpaw", "-d"])?;
+    run_interactive("railway", &["up", "-s", "openpaw", "-d"])?;
     let domain_output = capture_trimmed("railway", &["domain", "--service", "openpaw", "--json"])?;
     let deploy_url = infer_domain(&domain_output).unwrap_or(domain_output);
 
@@ -162,9 +166,7 @@ fn install_wrangler() -> Result<()> {
     if npm_exists() {
         run_install(&["npm", "install", "-g", "wrangler"])
     } else {
-        anyhow::bail!(
-            "wrangler requires npm. Install Node.js first: https://nodejs.org"
-        )
+        anyhow::bail!("wrangler requires npm. Install Node.js first: https://nodejs.org")
     }
 }
 
@@ -210,9 +212,7 @@ fn ensure_logged_in(command: &str, check_args: &[&str], login_cmd: &[&str]) -> R
         _ => {}
     }
 
-    cliclack::log::info(format!(
-        "Not logged in to {command}. Opening login flow..."
-    ))?;
+    cliclack::log::info(format!("Not logged in to {command}. Opening login flow..."))?;
 
     // Run login interactively (needs user input / browser)
     let status = Command::new(login_cmd[0])
@@ -233,16 +233,35 @@ fn ensure_logged_in(command: &str, check_args: &[&str], login_cmd: &[&str]) -> R
     Ok(())
 }
 
+/// Run a command with full terminal access (stdin/stdout/stderr inherited).
+/// Use for commands that need to detect a TTY (e.g. wrangler).
+fn run_interactive(command: &str, args: &[&str]) -> Result<()> {
+    let status = Command::new(command)
+        .args(args)
+        .stdin(std::process::Stdio::inherit())
+        .stdout(std::process::Stdio::inherit())
+        .stderr(std::process::Stdio::inherit())
+        .status()
+        .with_context(|| format!("Failed to run `{command} {}`", args.join(" ")))?;
+
+    if !status.success() {
+        anyhow::bail!("`{command} {}` failed (exit {})", args.join(" "), status);
+    }
+
+    Ok(())
+}
+
+/// Run a command and capture its stdout. Stderr goes to the terminal.
 fn run_checked(command: &str, args: &[&str]) -> Result<String> {
     let output = Command::new(command)
         .args(args)
         .stdin(std::process::Stdio::inherit())
+        .stderr(std::process::Stdio::inherit())
         .output()
         .with_context(|| format!("Failed to run `{command} {}`", args.join(" ")))?;
 
     if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        anyhow::bail!("`{command} {}` failed: {stderr}", args.join(" "));
+        anyhow::bail!("`{command} {}` failed", args.join(" "));
     }
 
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
