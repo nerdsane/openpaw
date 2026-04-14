@@ -120,6 +120,13 @@ pub async fn run_deploy(
     let (project_id, env_id) = get_railway_ids()?;
 
     if with_datadog {
+        let dd_key = dd_api_key.as_ref().ok_or_else(|| {
+            anyhow::anyhow!(
+                "DD_API_KEY is required for --with-datadog.\n  \
+                 Set it in your environment:  export DD_API_KEY=your-key-here"
+            )
+        })?;
+
         cliclack::log::step("Deploying OTEL collector → Datadog...")?;
 
         // Ensure the otel-collector service exists before setting vars
@@ -131,9 +138,7 @@ pub async fn run_deploy(
 
         // Set DD_API_KEY and DD_SITE on the otel-collector service
         let mut collector_vars: Vec<String> = Vec::new();
-        if let Some(key) = &dd_api_key {
-            collector_vars.push(format!("DD_API_KEY={key}"));
-        }
+        collector_vars.push(format!("DD_API_KEY={dd_key}"));
         collector_vars.push(format!("DD_SITE={dd_site}"));
         let mut collector_set_args = vec![
             "variable".to_string(),

@@ -106,14 +106,38 @@ Agents create capabilities as tools for themselves — structured workflows that
 
 ## Get Started
 
+### Run locally
+
 ```bash
 git clone https://github.com/nerdsane/openpaw.git
 cd openpaw
 cargo build --release
-./target/release/openpaw setup
+./target/release/openpaw run
 ```
 
-The CLI walks you through everything — API key, messaging, personalizing your Paw — then asks whether to run locally or deploy to the cloud.
+The CLI walks you through everything — API key, messaging, personalizing your Paw — then boots the server.
+
+### Deploy to the cloud
+
+```bash
+cargo build -p openpaw-cli --release
+./target/release/openpaw deploy
+```
+
+Provisions Turso, Cloudflare R2, and Railway interactively — no `.env` file needed. The deploy flow prompts for all credentials.
+
+Add `--with-datadog` to deploy an OTEL Collector sidecar that sends traces, metrics, and logs to Datadog. Set `DD_API_KEY` in your environment before running:
+
+```bash
+export DD_API_KEY=your-datadog-api-key
+./target/release/openpaw deploy --with-datadog
+```
+
+### Diagnose
+
+```bash
+./target/release/openpaw doctor
+```
 
 ## How It's Built
 
