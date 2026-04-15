@@ -147,25 +147,7 @@ pub fn save_repl_to_file(
         });
         let url = format!("{temper_api_url}/tdata/Files");
         let headers = file_headers(ctx, tenant);
-        ctx.log(
-            "info",
-            &format!(
-                "monty_repl: save_repl_to_file POST url={} headers={:?} body_len={}",
-                url,
-                headers.iter().map(|(k, _)| k.as_str()).collect::<Vec<_>>(),
-                body.to_string().len()
-            ),
-        );
         let resp = ctx.http_call("POST", &url, &headers, &body.to_string())?;
-        ctx.log(
-            "info",
-            &format!(
-                "monty_repl: save_repl_to_file response status={} body_len={} body_preview={}",
-                resp.status,
-                resp.body.len(),
-                &resp.body[..resp.body.len().min(200)]
-            ),
-        );
         if resp.status >= 400 {
             return Err(format!(
                 "failed to create REPL state file (status={}): {}",
