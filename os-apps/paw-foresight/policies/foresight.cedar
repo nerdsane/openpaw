@@ -3,14 +3,14 @@
 // Broad permits matching the paw-heal pattern. All principals can perform
 // standard CRUD and actions on Foresight entities.
 
-// --- ProductModel ---
+// --- ForesightModel ---
 permit(
   principal,
   action in [Action::"create", Action::"read", Action::"list",
              Action::"Seed", Action::"SeedComplete", Action::"SeedFailed",
              Action::"RefreshSignals", Action::"RefreshComplete",
              Action::"MarkStale", Action::"Reactivate"],
-  resource is ProductModel
+  resource is ForesightModel
 );
 
 // --- Projection ---
@@ -60,7 +60,7 @@ permit(
   action == Action::"http_call",
   resource is HttpEndpoint
 ) when {
-  ["seed_model", "spawn_probes", "handle_probe_done", "handle_convergence", "handle_projection_updated"].contains(context.module)
+  ["spawn_seed_agent", "spawn_probes", "handle_probe_done", "handle_convergence", "handle_projection_updated"].contains(context.module)
 };
 
 permit(
@@ -68,5 +68,5 @@ permit(
   action == Action::"access_secret",
   resource is Secret
 ) when {
-  ["seed_model", "spawn_probes", "handle_probe_done", "handle_convergence", "handle_projection_updated"].contains(context.module)
+  ["spawn_seed_agent", "spawn_probes", "handle_probe_done", "handle_convergence", "handle_projection_updated"].contains(context.module)
 };

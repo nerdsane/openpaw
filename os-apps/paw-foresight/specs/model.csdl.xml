@@ -3,16 +3,19 @@
   <edmx:DataServices>
     <Schema Namespace="OpenPaw.Foresight" xmlns="http://docs.oasis-open.org/odata/ns/edm">
 
-      <EntityType Name="ProductModel">
+      <EntityType Name="ForesightModel">
         <Key><PropertyRef Name="Id"/></Key>
         <Property Name="Id" Type="Edm.String" Nullable="false"/>
         <Property Name="Status" Type="Edm.String"/>
-        <Property Name="ProjectHarnessId" Type="Edm.String"/>
-        <Property Name="RepoUrl" Type="Edm.String"/>
+        <Property Name="Name" Type="Edm.String"/>
+        <Property Name="ModelType" Type="Edm.String"/>
         <Property Name="SignalSourceConfig" Type="Edm.String"/>
         <Property Name="ModelSnapshotFileId" Type="Edm.String"/>
         <Property Name="LastSignalRefresh" Type="Edm.String"/>
         <Property Name="SignalCount" Type="Edm.String"/>
+        <Property Name="SeedSoulId" Type="Edm.String"/>
+        <Property Name="SeedModel" Type="Edm.String"/>
+        <Property Name="SeedProvider" Type="Edm.String"/>
         <Property Name="ErrorMessage" Type="Edm.String"/>
       </EntityType>
 
@@ -20,7 +23,7 @@
         <Key><PropertyRef Name="Id"/></Key>
         <Property Name="Id" Type="Edm.String" Nullable="false"/>
         <Property Name="Status" Type="Edm.String"/>
-        <Property Name="ProductModelId" Type="Edm.String"/>
+        <Property Name="ForesightModelId" Type="Edm.String"/>
         <Property Name="Horizon" Type="Edm.String"/>
         <Property Name="CurrentStep" Type="Edm.Int64"/>
         <Property Name="MaxSteps" Type="Edm.String"/>
@@ -88,50 +91,53 @@
         <Property Name="ResolutionNote" Type="Edm.String"/>
       </EntityType>
 
-      <!-- Bound Actions: ProductModel -->
+      <!-- Bound Actions: ForesightModel -->
       <Action Name="Seed" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.Foresight.ProductModel"/>
-        <Parameter Name="project_harness_id" Type="Edm.String" Nullable="true"/>
-        <Parameter Name="repo_url" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="bindingParameter" Type="OpenPaw.Foresight.ForesightModel"/>
+        <Parameter Name="name" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="model_type" Type="Edm.String" Nullable="true"/>
         <Parameter Name="signal_source_config" Type="Edm.String" Nullable="true"/>
-        <ReturnType Type="OpenPaw.Foresight.ProductModel"/>
+        <Parameter Name="seed_soul_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="seed_model" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="seed_provider" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="OpenPaw.Foresight.ForesightModel"/>
       </Action>
       <Action Name="SeedComplete" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.Foresight.ProductModel"/>
+        <Parameter Name="bindingParameter" Type="OpenPaw.Foresight.ForesightModel"/>
         <Parameter Name="model_snapshot_file_id" Type="Edm.String" Nullable="true"/>
         <Parameter Name="signal_count" Type="Edm.String" Nullable="true"/>
         <Parameter Name="last_signal_refresh" Type="Edm.String" Nullable="true"/>
-        <ReturnType Type="OpenPaw.Foresight.ProductModel"/>
+        <ReturnType Type="OpenPaw.Foresight.ForesightModel"/>
       </Action>
       <Action Name="SeedFailed" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.Foresight.ProductModel"/>
+        <Parameter Name="bindingParameter" Type="OpenPaw.Foresight.ForesightModel"/>
         <Parameter Name="error_message" Type="Edm.String" Nullable="true"/>
-        <ReturnType Type="OpenPaw.Foresight.ProductModel"/>
+        <ReturnType Type="OpenPaw.Foresight.ForesightModel"/>
       </Action>
       <Action Name="RefreshSignals" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.Foresight.ProductModel"/>
-        <ReturnType Type="OpenPaw.Foresight.ProductModel"/>
+        <Parameter Name="bindingParameter" Type="OpenPaw.Foresight.ForesightModel"/>
+        <ReturnType Type="OpenPaw.Foresight.ForesightModel"/>
       </Action>
       <Action Name="RefreshComplete" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.Foresight.ProductModel"/>
+        <Parameter Name="bindingParameter" Type="OpenPaw.Foresight.ForesightModel"/>
         <Parameter Name="model_snapshot_file_id" Type="Edm.String" Nullable="true"/>
         <Parameter Name="signal_count" Type="Edm.String" Nullable="true"/>
         <Parameter Name="last_signal_refresh" Type="Edm.String" Nullable="true"/>
-        <ReturnType Type="OpenPaw.Foresight.ProductModel"/>
+        <ReturnType Type="OpenPaw.Foresight.ForesightModel"/>
       </Action>
       <Action Name="MarkStale" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.Foresight.ProductModel"/>
-        <ReturnType Type="OpenPaw.Foresight.ProductModel"/>
+        <Parameter Name="bindingParameter" Type="OpenPaw.Foresight.ForesightModel"/>
+        <ReturnType Type="OpenPaw.Foresight.ForesightModel"/>
       </Action>
       <Action Name="Reactivate" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.Foresight.ProductModel"/>
-        <ReturnType Type="OpenPaw.Foresight.ProductModel"/>
+        <Parameter Name="bindingParameter" Type="OpenPaw.Foresight.ForesightModel"/>
+        <ReturnType Type="OpenPaw.Foresight.ForesightModel"/>
       </Action>
 
       <!-- Bound Actions: Projection -->
       <Action Name="Configure" IsBound="true">
         <Parameter Name="bindingParameter" Type="OpenPaw.Foresight.Projection"/>
-        <Parameter Name="product_model_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="foresight_model_id" Type="Edm.String" Nullable="true"/>
         <Parameter Name="horizon" Type="Edm.String" Nullable="true"/>
         <Parameter Name="max_steps" Type="Edm.String" Nullable="true"/>
         <Parameter Name="step_schedule" Type="Edm.String" Nullable="true"/>
@@ -288,7 +294,7 @@
       </Action>
 
       <EntityContainer Name="Service">
-        <EntitySet Name="ProductModels" EntityType="OpenPaw.Foresight.ProductModel"/>
+        <EntitySet Name="ForesightModels" EntityType="OpenPaw.Foresight.ForesightModel"/>
         <EntitySet Name="Projections" EntityType="OpenPaw.Foresight.Projection"/>
         <EntitySet Name="Observations" EntityType="OpenPaw.Foresight.Observation"/>
         <EntitySet Name="Directions" EntityType="OpenPaw.Foresight.Direction"/>

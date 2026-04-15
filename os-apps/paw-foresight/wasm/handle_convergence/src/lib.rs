@@ -28,8 +28,8 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             .get("max_steps")
             .and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
             .unwrap_or(5) as usize;
-        let product_model_id = fields
-            .get("product_model_id")
+        let foresight_model_id = fields
+            .get("foresight_model_id")
             .and_then(|v| v.as_str())
             .unwrap_or("");
         let projected_state_file_id = fields
@@ -74,8 +74,8 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         let state_file_id = if !projected_state_file_id.is_empty() {
             projected_state_file_id.to_string()
         } else {
-            // Use ProductModel's knowledge graph
-            let pm_url = format!("{temper_api_url}/tdata/ProductModels('{product_model_id}')");
+            // Use ForesightModel's knowledge graph
+            let pm_url = format!("{temper_api_url}/tdata/ForesightModels('{foresight_model_id}')");
             let pm_resp = ctx.http_call("GET", &pm_url, &headers, "")?;
             if pm_resp.status >= 200 && pm_resp.status < 300 {
                 let pm: Value = serde_json::from_str(&pm_resp.body).unwrap_or(json!({}));
@@ -196,9 +196,9 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
              directions — your job is to synthesize what WOULD HAVE HAPPENED.\n\n\
              Read the observations and directions. Based on what the probes independently \
              projected, produce a new knowledge graph that reflects:\n\
-             - What changed in the product (new features, architectural shifts)\n\
-             - What signals would exist now (new PRs, new monitors, new content)\n\
-             - How the product's trajectory shifted\n\n\
+             - What changed in this domain (new developments, structural shifts)\n\
+             - What signals would exist now (new evidence, new trends, new content)\n\
+             - How the domain's trajectory shifted\n\n\
              Structure as JSON:\n\
              {{\n\
                \"base_model\": <reference to original knowledge graph>,\n\
@@ -217,14 +217,18 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
              Then call ProjectionUpdated with the file_id as instructed above."
         );
 
-        // Detect provider
-        let has_openai = ctx.config.get("openai_codex_token")
-            .is_some_and(|v| !v.is_empty() && !v.contains("{secret:"));
-        let (model, provider) = if has_openai {
-            ("gpt-5", "openai")
+        // Read model/provider from probe_config
+        let probe_config_raw = fields.get("probe_config").cloned().unwrap_or(json!([]));
+        let probe_config: Vec<Value> = if let Some(arr) = probe_config_raw.as_array() {
+            arr.clone()
+        } else if let Some(s) = probe_config_raw.as_str() {
+            serde_json::from_str(s).unwrap_or_default()
         } else {
-            ("claude-sonnet-4-6", "anthropic")
+            vec![]
         };
+        let first_probe = probe_config.first().cloned().unwrap_or(json!({}));
+        let model = first_probe.get("model").and_then(|v| v.as_str()).unwrap_or("claude-sonnet-4-6");
+        let provider = first_probe.get("provider").and_then(|v| v.as_str()).unwrap_or("anthropic");
 
         let configure_url = format!(
             "{temper_api_url}/tdata/Sessions('{session_id}')/OpenPaw.Configure"
@@ -233,7 +237,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             "model": model,
             "provider": provider,
             "agent_name": "model-projector",
-            "tools_enabled": "temper_get,temper_list,temper_action,temper_create,file_upload",
+            "tools_enabled": "temper_get,temper_list,temper_action,temper_create,temper_write",
             "max_turns": "20",
             "user_message": user_message,
             "sandbox_url": "none",

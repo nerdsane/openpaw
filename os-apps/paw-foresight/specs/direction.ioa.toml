@@ -1,7 +1,7 @@
-# Direction — Proposed product direction with validation depth.
+# Direction — Proposed direction with validation depth.
 #
 # Directions emerge from escalated observations. They capture the reasoning,
-# grounding in ProductModel signals, and supporting observations. Directions
+# grounding in ForesightModel signals, and supporting observations. Directions
 # pass through peer review (blind feedback via DirectionFeedback), optional
 # cross-model agreement, and implementation before a human can Select them.
 #

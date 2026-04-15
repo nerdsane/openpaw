@@ -1,16 +1,16 @@
 # paw-foresight
 
-Product direction engine. Simulates a product's future through temporal projection — spawning independent probe agents to observe projected states, detecting convergence across probes, evolving the model through simulated time, and presenting actionable directions a PM can choose between.
+Domain-agnostic foresight engine. Simulates a domain's future through temporal projection — spawning independent probe agents to observe projected states, detecting convergence across probes, evolving the model through simulated time, and presenting actionable directions.
 
 ## How the Substrate Works
 
 The Foresight Engine is a **substrate, not a pipeline**. Probes are the simulation — they project what would happen, and their convergent projections become the next step's reality. Quality emerges from structural gates: independent observation, semantic convergence detection, and direction versioning.
 
 ```
-                    ┌──────────────┐
-                    │ ProductModel │ (knowledge graph: code, PRs, monitors, README)
-                    └──────┬───────┘
-                           │ Seed → seed_model WASM
+                    ┌────────────────┐
+                    │ ForesightModel │ (knowledge graph JSON — schema-free, domain-specific)
+                    └──────┬─────────┘
+                           │ Seed → spawn_seed_agent WASM (spawns agent session)
                            ▼
 STEP 0              ┌─────────────┐
 (day 1)             │  Projection │ → Start → spawn_probes
@@ -29,11 +29,16 @@ STEP 0              ┌─────────────┐
                            ▼
                  ┌───────────────────┐
                  │ Convergence       │  (LLM agent: confirms/contradicts)
-                 │ Analyst           │  (produces projected state)
+                 │ Analyst           │
                  └─────────┬─────────┘
                            │ ConvergenceComplete
                            ▼
-STEP 1          handle_convergence WASM
+                 ┌───────────────────┐
+                 │ Model Projector   │  (LLM agent: evolves projected state)
+                 └─────────┬─────────┘
+                           │ ProjectionUpdated
+                           ▼
+STEP 1          handle_projection_updated WASM
 (day 3)         (respawns probes with projected state + episodic memory)
                            │
               ┌────────────┼────────────┐
@@ -61,20 +66,21 @@ STEP 1          handle_convergence WASM
 
 ## Entity Types
 
-### ProductModel
-Living knowledge graph of a product. Aggregates signals from GitHub (code, PRs, issues, commits, README), Datadog (monitors, events), and Temper (alert history).
+### ForesightModel
+Living knowledge graph for any domain. The `model_type` field determines the domain (software_product, knowledge_domain, business, etc.). The JSON structure is schema-free — whatever the seed agent produces.
 
 - **States**: Created → Seeding → Active ↔ Stale
+- **Key fields**: `name`, `model_type`, `signal_source_config` (domain-specific JSON), `seed_model`, `seed_provider`, `seed_soul_id`
 - **Key actions**: `Seed`, `SeedComplete`, `RefreshSignals`, `MarkStale`, `Reactivate`
-- **WASM**: `seed_model` (crawls signal sources, builds JSON knowledge graph in TemperFS)
+- **WASM**: `spawn_seed_agent` (spawns an agent session to build the knowledge graph — bitter lesson applied)
 
 ### Projection
 Temporal simulation that advances through adaptive time steps. Event-driven — no polling.
 
 - **States**: Created → Running → Complete / Branched / Failed
-- **Key actions**: `Configure`, `Start`, `ProbesReady`, `ProbeStepDone`, `ConvergenceComplete`, `AdvanceStep`, `Complete`
-- **WASM**: `spawn_probes`, `handle_probe_done`, `handle_convergence`
-- **Flow**: Start → spawn_probes → ProbesReady → (probes run) → ProbeStepDone × N → handle_probe_done → Convergence Analyst → ConvergenceComplete → handle_convergence → AdvanceStep → (repeat)
+- **Key actions**: `Configure`, `Start`, `ProbesReady`, `ProbeStepDone`, `ConvergenceComplete`, `ProjectionUpdated`, `AdvanceStep`, `Complete`
+- **WASM**: `spawn_probes`, `handle_probe_done`, `handle_convergence`, `handle_projection_updated`
+- **Flow**: Start → spawn_probes → ProbesReady → (probes run) → ProbeStepDone × N → handle_probe_done → Convergence Analyst → ConvergenceComplete → handle_convergence → Model Projector → ProjectionUpdated → handle_projection_updated → AdvanceStep → (repeat)
 
 ### Observation
 Probe agents record what they see in the projected state.
@@ -83,7 +89,7 @@ Probe agents record what they see in the projected state.
 - **Key actions**: `Record`, `Confirm` (by Convergence Analyst), `Escalate`, `Fade`
 
 ### Direction
-Product direction proposed by a Probe. Versioned across steps.
+Direction proposed by a Probe. Versioned across steps.
 
 - **States**: Proposed → UnderReview → Implementing → Implemented → Selected / Archived
 - **Key actions**: `Propose`, `Archive` (when superseded by revision), `Select` (human)
@@ -98,9 +104,4 @@ Blind review feedback on Directions.
 
 Depends on `paw-agent` for probe sessions and `paw-fs` for knowledge graph storage.
 
-```bash
-# Seed a ProductModel
-python3 scripts/seed_foresight.py --base-url http://127.0.0.1:3469 --tenant default --start --probe-count 3
-```
-
-Probes can use either Anthropic (`claude-sonnet-4-6`) or OpenAI (`gpt-5` via Codex) — auto-detected from environment.
+Model and provider are configured per-probe in `probe_config` (array of `{name, model, provider}`). The seed agent's model/provider are fields on the ForesightModel entity itself (`seed_model`, `seed_provider`).

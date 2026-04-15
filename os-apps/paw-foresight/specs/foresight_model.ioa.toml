@@ -1,0 +1,145 @@
+# ForesightModel — Living knowledge graph for foresight projection.
+#
+# Domain-agnostic: the model_type field determines what kind of domain this
+# represents (software_product, knowledge_domain, business, etc.). The JSON
+# structure of the model snapshot is not predefined — it's whatever the seed
+# skill produces for that domain.
+#
+# Seeding is skill-based (bitter lesson): Seed action spawns an agent session
+# with a seed skill matching the model_type. The agent builds the JSON.
+#
+# Lifecycle: Created -> Seeding -> Active <-> Stale
+
+[automaton]
+name = "ForesightModel"
+states = ["Created", "Seeding", "Active", "Stale"]
+initial = "Created"
+
+# Human-readable name for this model
+[[state]]
+name = "name"
+type = "string"
+initial = ""
+
+# What domain this model represents: software_product, knowledge_domain, business, etc.
+[[state]]
+name = "model_type"
+type = "string"
+initial = ""
+
+# JSON: domain-specific signal source configuration
+# For software_product: { repo_url, project_harness_id, ... }
+# For knowledge_domain: { scope_id, external_feeds, ... }
+[[state]]
+name = "signal_source_config"
+type = "string"
+initial = "{}"
+
+# paw-fs File ID pointing to the model snapshot JSON
+[[state]]
+name = "model_snapshot_file_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "last_signal_refresh"
+type = "string"
+initial = ""
+
+[[state]]
+name = "signal_count"
+type = "string"
+initial = "0"
+
+# --- Agent config for seed sessions ---
+
+[[state]]
+name = "seed_soul_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "seed_model"
+type = "string"
+initial = "claude-sonnet-4-6"
+
+[[state]]
+name = "seed_provider"
+type = "string"
+initial = "anthropic"
+
+[[state]]
+name = "error_message"
+type = "string"
+initial = ""
+
+# --- Actions ---
+
+[[action]]
+name = "Seed"
+kind = "input"
+from = ["Created"]
+to = "Seeding"
+params = ["name", "model_type", "signal_source_config", "seed_soul_id", "seed_model", "seed_provider"]
+hint = "Begin initial model seeding. Spawns a seed agent session for the configured model_type."
+effect = [{ type = "trigger", name = "spawn_seed_agent" }]
+
+[[action]]
+name = "SeedComplete"
+kind = "input"
+from = ["Seeding"]
+to = "Active"
+params = ["model_snapshot_file_id", "signal_count", "last_signal_refresh"]
+hint = "Callback from seed agent. Records the snapshot and activates the model."
+
+[[action]]
+name = "SeedFailed"
+kind = "input"
+from = ["Seeding"]
+to = "Created"
+params = ["error_message"]
+hint = "Seed failed. Return to Created so operator can retry."
+
+[[action]]
+name = "RefreshSignals"
+kind = "input"
+from = ["Active"]
+params = []
+hint = "Trigger an incremental signal refresh on an active model."
+effect = [{ type = "trigger", name = "spawn_seed_agent" }]
+
+[[action]]
+name = "RefreshComplete"
+kind = "input"
+from = ["Active"]
+params = ["model_snapshot_file_id", "signal_count", "last_signal_refresh"]
+hint = "Callback after incremental refresh completes."
+
+[[action]]
+name = "MarkStale"
+kind = "input"
+from = ["Active"]
+to = "Stale"
+params = []
+hint = "Mark the model as stale when signals have not been refreshed within threshold."
+
+[[action]]
+name = "Reactivate"
+kind = "input"
+from = ["Stale"]
+to = "Seeding"
+params = []
+hint = "Re-seed a stale model to bring it back to Active."
+effect = [{ type = "trigger", name = "spawn_seed_agent" }]
+
+# --- Integrations ---
+
+[[integration]]
+name = "spawn_seed_agent"
+trigger = "spawn_seed_agent"
+type = "wasm"
+module = "spawn_seed_agent"
+on_failure = "SeedFailed"
+
+[integration.config]
+temper_api_url = "{secret:temper_api_url}"
