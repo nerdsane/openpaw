@@ -33,6 +33,7 @@ pub struct AuthState {
     turso_store: TursoEventStore,
     vault: Arc<SecretsVault>,
     jwt_secret: Arc<Vec<u8>>,
+    tenant: Arc<String>,
     cookie_secure: bool,
     register_lock: Arc<tokio::sync::Mutex<()>>,
 }
@@ -42,15 +43,21 @@ impl AuthState {
         turso_store: TursoEventStore,
         vault: Arc<SecretsVault>,
         jwt_secret: Vec<u8>,
+        tenant: String,
         cookie_secure: bool,
     ) -> Self {
         Self {
             turso_store,
             vault,
             jwt_secret: Arc::new(jwt_secret),
+            tenant: Arc::new(tenant),
             cookie_secure,
             register_lock: Arc::new(tokio::sync::Mutex::new(())),
         }
+    }
+
+    fn tenant(&self) -> &str {
+        self.tenant.as_str()
     }
 
     #[cfg(test)]
@@ -60,7 +67,7 @@ impl AuthState {
             .await
             .unwrap();
         let vault = Arc::new(SecretsVault::new(&[7; 32]));
-        Self::new(store, vault, vec![3; 32], false)
+        Self::new(store, vault, vec![3; 32], "default".to_string(), false)
     }
 }
 
@@ -125,13 +132,13 @@ pub async fn middleware(
     }
 
     if let Some(claims) = claims_from_headers(&state, request.headers()) {
-        inject_auth_headers(&mut request, &claims);
+        inject_auth_headers(&mut request, &claims, state.tenant());
         request.extensions_mut().insert(PreAuthenticatedRequest);
         return next.run(request).await;
     }
 
     if has_bearer_auth(request.headers()) {
-        ensure_tenant_header(request.headers_mut());
+        ensure_tenant_header(request.headers_mut(), state.tenant());
         return next.run(request).await;
     }
 
@@ -141,7 +148,7 @@ pub async fn middleware(
     if request.headers().contains_key("x-temper-principal-kind")
         && request.headers().contains_key("x-temper-principal-id")
     {
-        ensure_tenant_header(request.headers_mut());
+        ensure_tenant_header(request.headers_mut(), state.tenant());
         request.extensions_mut().insert(PreAuthenticatedRequest);
         return next.run(request).await;
     }
@@ -204,8 +211,8 @@ fn claims_from_headers(state: &AuthState, headers: &HeaderMap) -> Option<Session
     })
 }
 
-fn inject_auth_headers(request: &mut Request<Body>, claims: &SessionClaims) {
-    ensure_tenant_header(request.headers_mut());
+fn inject_auth_headers(request: &mut Request<Body>, claims: &SessionClaims, tenant: &str) {
+    ensure_tenant_header(request.headers_mut(), tenant);
     request
         .headers_mut()
         .insert("x-temper-principal-kind", HeaderValue::from_static("admin"));
@@ -214,10 +221,10 @@ fn inject_auth_headers(request: &mut Request<Body>, claims: &SessionClaims) {
     }
 }
 
-fn ensure_tenant_header(headers: &mut HeaderMap) {
-    headers
-        .entry("x-tenant-id")
-        .or_insert_with(|| HeaderValue::from_static("default"));
+fn ensure_tenant_header(headers: &mut HeaderMap, tenant: &str) {
+    if let Ok(value) = HeaderValue::from_str(tenant) {
+        headers.entry("x-tenant-id").or_insert(value);
+    }
 }
 
 async fn register(
@@ -450,7 +457,17 @@ async fn change_password_impl(
 }
 
 async fn load_accounts(state: &AuthState) -> Result<BTreeMap<String, LocalAccount>> {
-    if let Some(raw) = state.vault.get_secret("default", ACCOUNTS_SECRET_KEY) {
+    let raw = state
+        .vault
+        .get_secret(state.tenant(), ACCOUNTS_SECRET_KEY)
+        .or_else(|| {
+            if state.tenant() == "default" {
+                None
+            } else {
+                state.vault.get_secret("default", ACCOUNTS_SECRET_KEY)
+            }
+        });
+    if let Some(raw) = raw {
         let accounts = serde_json::from_str(&raw).context("Failed to decode auth accounts")?;
         return Ok(accounts);
     }
@@ -462,7 +479,7 @@ async fn save_accounts(state: &AuthState, accounts: &BTreeMap<String, LocalAccou
     let payload = serde_json::to_string(accounts).context("Failed to encode auth accounts")?;
     let _ = state
         .vault
-        .cache_secret("default", ACCOUNTS_SECRET_KEY, payload.clone());
+        .cache_secret(state.tenant(), ACCOUNTS_SECRET_KEY, payload.clone());
 
     let (ciphertext, nonce) = state
         .vault
@@ -471,7 +488,7 @@ async fn save_accounts(state: &AuthState, accounts: &BTreeMap<String, LocalAccou
         .context("Failed to encrypt auth accounts")?;
     state
         .turso_store
-        .upsert_secret("default", ACCOUNTS_SECRET_KEY, &ciphertext, &nonce)
+        .upsert_secret(state.tenant(), ACCOUNTS_SECRET_KEY, &ciphertext, &nonce)
         .await
         .context("Failed to persist auth accounts")?;
 
@@ -570,13 +587,13 @@ enum AuthError {
 
 #[cfg(test)]
 mod tests {
+    use axum::body::{Body, to_bytes};
     use axum::http::HeaderMap;
+    use axum::http::{Request, StatusCode};
     use axum::middleware::from_fn_with_state;
     use axum::response::IntoResponse;
     use axum::routing::get;
     use axum::{Json, Router};
-    use axum::body::{Body, to_bytes};
-    use axum::http::{Request, StatusCode};
     use serde_json::json;
     use tower::ServiceExt;
 
