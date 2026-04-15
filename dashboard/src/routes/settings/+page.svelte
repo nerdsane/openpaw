@@ -55,7 +55,7 @@
   const SENSITIVE_KEYS = new Set([
     'anthropic_api_key', 'openai_api_key', 'openai_codex_token', 'openrouter_api_key',
     'discord_bot_token', 'slack_app_token', 'slack_bot_token', 'slack_signing_secret',
-    'github_token', 'exa_api_key', 'tensorlake_api_key', 'dd_api_key', 'temper_api_key',
+    'github_token', 'exa_api_key', 'tensorlake_api_key', 'modal_api_token', 'dd_api_key', 'temper_api_key',
   ]);
 
   function showFeedback(type: 'error' | 'success', message: string) {
@@ -211,7 +211,7 @@
 
   // Group vars by category, LLM always first
   let groupedVars = $derived.by(() => {
-    const catOrder = ['llm', 'messaging', 'integrations', 'observability', 'custom'];
+    const catOrder = ['llm', 'web_search', 'sandbox', 'messaging', 'integrations', 'observability', 'custom'];
     const catMap = new Map<string, VarRow[]>();
     for (const v of vars) {
       const cat = v.category || 'custom';
@@ -315,6 +315,8 @@
 
   const CAT_LABELS: Record<string, string> = {
     llm: 'LLM',
+    web_search: 'Web Search',
+    sandbox: 'Sandbox',
     messaging: 'Messaging',
     integrations: 'Integrations',
     observability: 'Observability',
