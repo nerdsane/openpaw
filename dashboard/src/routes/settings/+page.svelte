@@ -55,7 +55,7 @@
   const SENSITIVE_KEYS = new Set([
     'anthropic_api_key', 'openai_api_key', 'openai_codex_token', 'openrouter_api_key',
     'discord_bot_token', 'slack_app_token', 'slack_bot_token', 'slack_signing_secret',
-    'github_token', 'exa_api_key', 'tensorlake_api_key', 'modal_api_token', 'dd_api_key', 'temper_api_key',
+    'github_token', 'exa_api_key', 'tensorlake_api_key', 'modal_api_token', 'dd_api_key', 'dd_app_key', 'temper_api_key',
   ]);
 
   function showFeedback(type: 'error' | 'success', message: string) {
