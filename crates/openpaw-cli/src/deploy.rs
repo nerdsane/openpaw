@@ -1163,7 +1163,7 @@ async fn fetch_models(provider: &str, api_key: &str) -> Vec<String> {
     match provider {
         "anthropic" => fetch_anthropic_models(api_key).await.unwrap_or_default(),
         "openai" => fetch_openai_models(api_key).await.unwrap_or_default(),
-        "openai_codex" => static_codex_models(),
+        "openai_codex" => read_codex_models_cache(),
         "openrouter" => fetch_openrouter_models(api_key).await.unwrap_or_default(),
         _ => Vec::new(),
     }
@@ -1227,12 +1227,37 @@ async fn fetch_openai_models(api_key: &str) -> Result<Vec<String>> {
     Ok(models)
 }
 
-fn static_codex_models() -> Vec<String> {
-    vec![
-        "gpt-4.1".into(),
-        "gpt-4.1-mini".into(),
-        "gpt-4.1-nano".into(),
-    ]
+/// Read the Codex CLI's cached model list from ~/.codex/models_cache.json.
+/// This file is maintained by the Codex CLI and is entitlement-aware (shows
+/// only models available to the user's ChatGPT plan).
+fn read_codex_models_cache() -> Vec<String> {
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
+    let cache_path = std::path::Path::new(&home).join(".codex/models_cache.json");
+    let data = match std::fs::read_to_string(&cache_path) {
+        Ok(d) => d,
+        Err(_) => return Vec::new(),
+    };
+    let json: serde_json::Value = match serde_json::from_str(&data) {
+        Ok(j) => j,
+        Err(_) => return Vec::new(),
+    };
+    json["models"]
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|m| {
+                    let slug = m["slug"].as_str()?;
+                    // Only show models visible in the picker
+                    let vis = m["visibility"].as_str().unwrap_or("list");
+                    if vis == "list" || vis == "default" {
+                        Some(slug.to_string())
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 async fn fetch_openrouter_models(api_key: &str) -> Result<Vec<String>> {
@@ -1297,7 +1322,7 @@ fn default_model_for_provider(provider: &str) -> String {
     match provider {
         "anthropic" => "claude-sonnet-4-20250514".into(),
         "openai" => "gpt-4.1".into(),
-        "openai_codex" => "gpt-4.1".into(),
+        "openai_codex" => "gpt-5.4".into(),
         "openrouter" => "anthropic/claude-sonnet-4-20250514".into(),
         _ => String::new(),
     }

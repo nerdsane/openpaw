@@ -518,7 +518,7 @@ set tenant secret and retry"
             } else {
                 match provider.as_str() {
                     "openai" => "gpt-4.1".to_string(),
-                    "openai_codex" => "gpt-4.1".to_string(),
+                    "openai_codex" => "gpt-5.4".to_string(),
                     "openrouter" => "anthropic/claude-sonnet-4".to_string(),
                     _ => "claude-sonnet-4-6".to_string(),
                 }
