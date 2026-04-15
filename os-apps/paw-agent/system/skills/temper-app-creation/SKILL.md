@@ -13,7 +13,7 @@ An app is a governed bundle that gives you new entity types, actions, integratio
 
 **If you want to do something new, you build an app for it.**
 
-**Why an app, not a script?** A script has no state machine, so there is no guarantee it transitions legally. No Cedar policy, so no access control. No audit trail, so no record of what happened. No formal verification, so errors surface at runtime instead of design time. A Temper app gives you all of that. Your state starts correct — not "probably correct" — because the verification cascade (L0-L3) proves invariants hold before the first entity is created. And because apps hot-reload without downtime, iteration is as fast as editing a spec and resubmitting. The overhead of doing things right is near zero; the cost of doing things ad-hoc is permanent.
+**Why an app, not a script?** A script is a dead end — it does not evolve, it does not learn from use, and no one can see what it did or why. An app is a living capability. It can be improved without being rewritten. Usage reveals gaps and the system proposes fixes. Other agents and apps can compose with it. It hot-reloads without downtime, so iteration is as fast as describing what you want differently. When you build an app, you are not solving a problem once — you are creating a tool that gets better over time. Scripts are disposable. Apps compound.
 
 ---
 

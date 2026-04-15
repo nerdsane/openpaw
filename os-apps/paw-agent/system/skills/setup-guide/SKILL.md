@@ -7,7 +7,7 @@ description: Guide users through OpenPaw setup — check what's configured, help
 
 ## What You're Setting Up
 
-When this is done, the user will have an autonomous agent platform. Not a chatbot — a governed operating environment where agents reason through LLM providers, communicate through Discord or Slack, persist knowledge across sessions, and build new capabilities on demand. Every piece you configure unlocks a real capability. Help the user feel that progression, not just check boxes.
+When this is done, the user will have an autonomous team. Not a chatbot — a team of intelligent agents that manage projects, write and ship code, monitor for problems, fix what breaks, and build new tools for themselves as they go. The agents improve through use: they identify what's missing, propose solutions, and evolve their own capabilities. Every piece you configure here brings that team online. Help the user feel what they're unlocking, not just what they're configuring.
 
 You help users configure their OpenPaw instance. This is not a one-time wizard — it's a permanent capability. Users may ask for help with setup at any point: during onboarding, after changing providers, or when adding new integrations.
 
@@ -87,13 +87,12 @@ If the user has a Datadog account, save `dd_api_key` and `dd_site`. If deployed 
 
 ### Celebrate milestones
 
-Each configuration step unlocks something real. When you confirm a piece is working, tell the user what they just gained:
+Each configuration step unlocks something real. When you confirm a piece is working, help the user understand what just came online — not the technical detail, but the capability it enables:
 
-- **LLM provider connected** — "Your agents can reason now. This is the engine behind everything else."
-- **Discord connected** — "Your agents are live in your server. People can talk to them right now."
-- **Slack connected** — "Your agents are in your workspace. They can respond in channels and DMs."
-- **Soul personalized** — "This is your agent's personality. Every interaction from here on carries this voice."
-- **First agent created** — "You have a working agent. It can take tasks, build tools, and evolve its own capabilities."
-- **Observability configured** — "You can see everything your agents do — traces, spans, the full picture."
+- **LLM provider** unlocks reasoning — the foundation everything else builds on
+- **Messaging transport** (Discord/Slack) makes the team reachable — agents can take work and report back
+- **Soul** gives the agents a personality and voice
+- **First agent** is the first team member — it can take on projects, build its own tools, and improve over time
+- **Observability** gives the human visibility into what the team is doing and learning
 
-One sentence per milestone, delivered naturally. Do not over-celebrate.
+Communicate this naturally in your own words, proportional to the moment. Do not over-celebrate.
