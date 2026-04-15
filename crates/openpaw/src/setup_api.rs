@@ -59,10 +59,12 @@ fn allowed_secret_keys() -> HashSet<&'static str> {
         "tensorlake_api_key",
         "temper_api_key",
         "llm_provider",
+        "llm_model",
         "sandbox_provider",
         "modal_api_token",
         "modal_api_url",
         "dd_api_key",
+        "dd_app_key",
         "dd_site",
         "railway_project_id",
         "railway_environment_id",
@@ -90,6 +92,7 @@ fn secrets_schema() -> Vec<SecretSchema> {
         SecretSchema { key: "openai_codex_token", category: "llm", label: "OpenAI Codex Token", required: false, description: "OAuth token from codex login (~/.codex/auth.json)" },
         SecretSchema { key: "openrouter_api_key", category: "llm", label: "OpenRouter API Key", required: false, description: "Multi-provider routing — openrouter.ai/keys" },
         SecretSchema { key: "llm_provider", category: "llm", label: "Active LLM Provider", required: false, description: "anthropic, openai, openai_codex, or openrouter" },
+        SecretSchema { key: "llm_model", category: "llm", label: "LLM Model", required: false, description: "Override default model (e.g. claude-sonnet-4-6, o3-mini)" },
         SecretSchema { key: "discord_bot_token", category: "messaging", label: "Discord Bot Token", required: false, description: "Bot token from Discord developer portal" },
         SecretSchema { key: "discord_public_key", category: "messaging", label: "Discord Public Key", required: false, description: "Application public key for interaction verification" },
         SecretSchema { key: "discord_guild_id", category: "messaging", label: "Discord Guild ID", required: false, description: "Server ID for slash commands" },
@@ -105,6 +108,7 @@ fn secrets_schema() -> Vec<SecretSchema> {
         SecretSchema { key: "modal_api_url", category: "sandbox", label: "Modal API URL", required: false, description: "Base URL for Modal REST bridge endpoint" },
         SecretSchema { key: "github_token", category: "integrations", label: "GitHub Token", required: false, description: "For repo cloning and PR flows" },
         SecretSchema { key: "dd_api_key", category: "observability", label: "Datadog API Key", required: false, description: "Enables traces/metrics/logs in Datadog" },
+        SecretSchema { key: "dd_app_key", category: "observability", label: "Datadog App Key", required: false, description: "For Datadog dashboard queries and management" },
         SecretSchema { key: "dd_site", category: "observability", label: "Datadog Site", required: false, description: "Datadog site (default: datadoghq.com)" },
     ]
 }
