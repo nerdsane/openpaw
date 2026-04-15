@@ -111,28 +111,6 @@ pub async fn run_deploy(
     }
     variables.push(format!("DD_SITE={dd_site}"));
 
-    // Seed LLM credentials so the deployed dashboard shows "LLM: Configured" on first visit.
-    // Check env vars first, then ~/.codex/auth.json for Codex OAuth token.
-    if let Some(key) = optional_env("ANTHROPIC_API_KEY") {
-        variables.push(format!("ANTHROPIC_API_KEY={key}"));
-        variables.push("LLM_PROVIDER=anthropic".to_string());
-        cliclack::log::success("LLM credential detected: Anthropic")?;
-    } else if let Some(key) = optional_env("OPENROUTER_API_KEY") {
-        variables.push(format!("OPENROUTER_API_KEY={key}"));
-        variables.push("LLM_PROVIDER=openrouter".to_string());
-        cliclack::log::success("LLM credential detected: OpenRouter")?;
-    } else if let Some(key) = optional_env("OPENAI_API_KEY") {
-        variables.push(format!("OPENAI_API_KEY={key}"));
-        variables.push("LLM_PROVIDER=openai".to_string());
-        cliclack::log::success("LLM credential detected: OpenAI")?;
-    } else if let Some(token) = optional_env("OPENAI_CODEX_TOKEN")
-        .or_else(|| read_codex_token_file().ok())
-    {
-        variables.push(format!("OPENAI_CODEX_TOKEN={token}"));
-        variables.push("LLM_PROVIDER=openai_codex".to_string());
-        cliclack::log::success("LLM credential detected: OpenAI Codex")?;
-    }
-
     let mut set_args = vec![
         "variable".to_string(),
         "set".to_string(),
@@ -245,10 +223,7 @@ pub async fn run_deploy(
     cliclack::log::step("Waiting for health check...")?;
     match poll_health(&deploy_url).await {
         Ok(()) => {
-            cliclack::outro(format!(
-                "Paw is live → {deploy_url}/dashboard\n  \
-                 Open the dashboard to create your account and finish setup."
-            ))?;
+            cliclack::log::success("Server is live!")?;
         }
         Err(_) => {
             anyhow::bail!(
@@ -258,6 +233,14 @@ pub async fn run_deploy(
             );
         }
     }
+
+    // Configure LLM provider, API key, and model via the secrets API (not Railway env vars).
+    configure_llm_via_api(&deploy_url).await?;
+
+    cliclack::outro(format!(
+        "Paw is live → {deploy_url}/dashboard\n  \
+         Open the dashboard to create your account and finish setup."
+    ))?;
     Ok(())
 }
 
@@ -1032,6 +1015,294 @@ fn resolve_railway_service_id(
     }
 
     anyhow::bail!("Service {service_name} not found in project {project_id}")
+}
+
+// ---------------------------------------------------------------------------
+// LLM configuration — provider, key, and model selection via secrets API
+// ---------------------------------------------------------------------------
+
+/// Interactive LLM setup: provider → API key → model (fetched from provider) → POST to secrets.
+async fn configure_llm_via_api(deploy_url: &str) -> Result<()> {
+    cliclack::log::step("Configure LLM provider")?;
+
+    let providers = vec![
+        ("anthropic", "Anthropic (Claude)"),
+        ("openai", "OpenAI"),
+        ("openai_codex", "OpenAI Codex (ChatGPT Plus)"),
+        ("openrouter", "OpenRouter (multi-provider)"),
+    ];
+
+    let provider: String = cliclack::select("Which LLM provider?")
+        .items(
+            &providers
+                .iter()
+                .map(|(val, label)| (val.to_string(), *label, ""))
+                .collect::<Vec<_>>(),
+        )
+        .interact()?;
+
+    let (secret_key, api_key) = collect_provider_key(&provider)?;
+
+    // Fetch available models from the provider API, with a spinner.
+    let spinner = cliclack::spinner();
+    spinner.start("Fetching available models...");
+    let models = fetch_models(&provider, &api_key).await;
+    spinner.stop("Models loaded");
+
+    let model = if models.is_empty() {
+        cliclack::log::warning("Could not fetch models — enter one manually.")?;
+        let default = default_model_for_provider(&provider);
+        let m: String = cliclack::input("Model name")
+            .default_input(&default)
+            .interact()?;
+        m
+    } else {
+        let items: Vec<(String, String, String)> = models
+            .iter()
+            .map(|m| (m.clone(), m.clone(), String::new()))
+            .collect();
+        cliclack::select("Which model?")
+            .items(&items)
+            .interact()?
+    };
+
+    // POST all three settings to the deployed server's secrets API.
+    let client = reqwest::Client::new();
+    post_secret(&client, deploy_url, "llm_provider", &provider).await?;
+    post_secret(&client, deploy_url, &secret_key, &api_key).await?;
+    post_secret(&client, deploy_url, "llm_model", &model).await?;
+
+    cliclack::log::success(format!("LLM configured: {provider} / {model}"))?;
+    Ok(())
+}
+
+/// Prompt the user for the API key/token for the chosen provider.
+/// Returns (secret_key_name, api_key_value).
+fn collect_provider_key(provider: &str) -> Result<(String, String)> {
+    match provider {
+        "anthropic" => {
+            // Check env first
+            if let Some(key) = optional_env("ANTHROPIC_API_KEY") {
+                cliclack::log::success("Anthropic API key detected from environment")?;
+                return Ok(("anthropic_api_key".into(), key));
+            }
+            let key: String = cliclack::password("Anthropic API Key (sk-ant-...)")
+                .mask('*')
+                .validate(|input: &String| {
+                    if input.trim().is_empty() {
+                        Err("Required — get one at console.anthropic.com")
+                    } else {
+                        Ok(())
+                    }
+                })
+                .interact()?;
+            Ok(("anthropic_api_key".into(), key.trim().to_string()))
+        }
+        "openai" => {
+            if let Some(key) = optional_env("OPENAI_API_KEY") {
+                cliclack::log::success("OpenAI API key detected from environment")?;
+                return Ok(("openai_api_key".into(), key));
+            }
+            let key: String = cliclack::password("OpenAI API Key (sk-...)")
+                .mask('*')
+                .validate(|input: &String| {
+                    if input.trim().is_empty() {
+                        Err("Required — get one at platform.openai.com/api-keys")
+                    } else {
+                        Ok(())
+                    }
+                })
+                .interact()?;
+            Ok(("openai_api_key".into(), key.trim().to_string()))
+        }
+        "openai_codex" => {
+            // Check env, then ~/.codex/auth.json
+            if let Some(token) = optional_env("OPENAI_CODEX_TOKEN") {
+                cliclack::log::success("Codex token detected from environment")?;
+                return Ok(("openai_codex_token".into(), token));
+            }
+            if let Ok(token) = read_codex_token_file() {
+                cliclack::log::success("Codex token detected from ~/.codex/auth.json")?;
+                return Ok(("openai_codex_token".into(), token));
+            }
+            let token: String = cliclack::password("Codex OAuth token")
+                .mask('*')
+                .validate(|input: &String| {
+                    if input.trim().is_empty() {
+                        Err("Required — run `codex login` first, or paste from ~/.codex/auth.json")
+                    } else {
+                        Ok(())
+                    }
+                })
+                .interact()?;
+            Ok(("openai_codex_token".into(), token.trim().to_string()))
+        }
+        "openrouter" => {
+            if let Some(key) = optional_env("OPENROUTER_API_KEY") {
+                cliclack::log::success("OpenRouter API key detected from environment")?;
+                return Ok(("openrouter_api_key".into(), key));
+            }
+            let key: String = cliclack::password("OpenRouter API Key (sk-or-...)")
+                .mask('*')
+                .validate(|input: &String| {
+                    if input.trim().is_empty() {
+                        Err("Required — get one at openrouter.ai/keys")
+                    } else {
+                        Ok(())
+                    }
+                })
+                .interact()?;
+            Ok(("openrouter_api_key".into(), key.trim().to_string()))
+        }
+        _ => anyhow::bail!("Unknown provider: {provider}"),
+    }
+}
+
+/// Fetch model list from the provider's API. Returns an empty vec on failure.
+async fn fetch_models(provider: &str, api_key: &str) -> Vec<String> {
+    match provider {
+        "anthropic" => fetch_anthropic_models(api_key).await.unwrap_or_default(),
+        "openai" => fetch_openai_models(api_key).await.unwrap_or_default(),
+        "openai_codex" => static_codex_models(),
+        "openrouter" => fetch_openrouter_models(api_key).await.unwrap_or_default(),
+        _ => Vec::new(),
+    }
+}
+
+async fn fetch_anthropic_models(api_key: &str) -> Result<Vec<String>> {
+    let client = reqwest::Client::new();
+    let resp = client
+        .get("https://api.anthropic.com/v1/models")
+        .header("x-api-key", api_key)
+        .header("anthropic-version", "2023-06-01")
+        .timeout(Duration::from_secs(15))
+        .send()
+        .await?;
+    let json: serde_json::Value = resp.json().await?;
+    let mut models: Vec<String> = json["data"]
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|m| m["id"].as_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_default();
+    // Sort so newest/most capable appear first (Claude models sort well lexically in reverse)
+    models.sort();
+    models.reverse();
+    Ok(models)
+}
+
+async fn fetch_openai_models(api_key: &str) -> Result<Vec<String>> {
+    let client = reqwest::Client::new();
+    let resp = client
+        .get("https://api.openai.com/v1/models")
+        .bearer_auth(api_key)
+        .timeout(Duration::from_secs(15))
+        .send()
+        .await?;
+    let json: serde_json::Value = resp.json().await?;
+    let mut models: Vec<String> = json["data"]
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|m| {
+                    let id = m["id"].as_str()?;
+                    // Filter to chat-capable models (gpt-*, o1-*, o3-*, o4-*)
+                    if id.starts_with("gpt-")
+                        || id.starts_with("o1-")
+                        || id.starts_with("o3-")
+                        || id.starts_with("o4-")
+                    {
+                        Some(id.to_string())
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    models.sort();
+    models.reverse();
+    Ok(models)
+}
+
+fn static_codex_models() -> Vec<String> {
+    vec![
+        "o4-mini".into(),
+        "gpt-4.1".into(),
+        "gpt-4.1-mini".into(),
+        "gpt-4.1-nano".into(),
+        "o3-mini".into(),
+    ]
+}
+
+async fn fetch_openrouter_models(api_key: &str) -> Result<Vec<String>> {
+    let client = reqwest::Client::new();
+    let resp = client
+        .get("https://openrouter.ai/api/v1/models")
+        .bearer_auth(api_key)
+        .timeout(Duration::from_secs(15))
+        .send()
+        .await?;
+    let json: serde_json::Value = resp.json().await?;
+    let mut models: Vec<String> = json["data"]
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|m| {
+                    let id = m["id"].as_str()?;
+                    // Only include well-known providers to keep the list manageable
+                    if id.starts_with("anthropic/")
+                        || id.starts_with("openai/")
+                        || id.starts_with("google/")
+                        || id.starts_with("meta-llama/")
+                        || id.starts_with("mistralai/")
+                        || id.starts_with("deepseek/")
+                    {
+                        Some(id.to_string())
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    models.sort();
+    Ok(models)
+}
+
+/// POST a single secret to the deployed server.
+async fn post_secret(
+    client: &reqwest::Client,
+    deploy_url: &str,
+    key: &str,
+    value: &str,
+) -> Result<()> {
+    let url = format!("{deploy_url}/paw/setup/secrets");
+    let resp = client
+        .post(&url)
+        .json(&serde_json::json!({ "key": key, "value": value }))
+        .timeout(Duration::from_secs(15))
+        .send()
+        .await
+        .with_context(|| format!("Failed to POST secret {key}"))?;
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        anyhow::bail!("POST {key} failed ({status}): {body}");
+    }
+    Ok(())
+}
+
+fn default_model_for_provider(provider: &str) -> String {
+    match provider {
+        "anthropic" => "claude-sonnet-4-20250514".into(),
+        "openai" => "gpt-4.1".into(),
+        "openai_codex" => "o4-mini".into(),
+        "openrouter" => "anthropic/claude-sonnet-4-20250514".into(),
+        _ => String::new(),
+    }
 }
 
 fn optional_env(name: &str) -> Option<String> {
