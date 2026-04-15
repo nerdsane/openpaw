@@ -55,11 +55,11 @@ pub struct Config {
     /// Sandbox provider name: "tensorlake" or "modal".
     pub sandbox_provider: Option<String>,
 
-    /// Modal REST bridge bearer token.
-    pub modal_api_token: Option<String>,
+    /// Modal token ID (starts with ak-…).
+    pub modal_token_id: Option<String>,
 
-    /// Modal REST bridge base URL.
-    pub modal_api_url: Option<String>,
+    /// Modal token secret (starts with as-…).
+    pub modal_token_secret: Option<String>,
 
     /// GitHub token for repo cloning and PR flows.
     pub github_token: Option<String>,
@@ -171,8 +171,8 @@ impl Config {
             llm_provider,
             tensorlake_api_key: optional_env("TL_API_KEY"),
             sandbox_provider: optional_env("SANDBOX_PROVIDER"),
-            modal_api_token: optional_env("MODAL_API_TOKEN"),
-            modal_api_url: optional_env("MODAL_API_URL"),
+            modal_token_id: optional_env("MODAL_TOKEN_ID"),
+            modal_token_secret: optional_env("MODAL_TOKEN_SECRET"),
             github_token: optional_env("GITHUB_TOKEN"),
             dd_api_key: optional_env("DD_API_KEY"),
             dd_app_key: optional_env("DD_APP_KEY"),

@@ -426,15 +426,15 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
             vault,
             &turso_store,
             &tenant,
-            "modal_api_token",
-            config.modal_api_token
+            "modal_token_id",
+            config.modal_token_id
         );
         seed_secret!(
             vault,
             &turso_store,
             &tenant,
-            "modal_api_url",
-            config.modal_api_url
+            "modal_token_secret",
+            config.modal_token_secret
         );
         seed_secret!(
             vault,
@@ -617,15 +617,12 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
                 "tensorlake" if config.tensorlake_api_key.is_some() => {
                     tracing::info!("Sandbox provider: tensorlake (API key configured)");
                 }
-                "modal" if config.modal_api_token.is_some() && config.modal_api_url.is_some() => {
-                    tracing::info!(
-                        "Sandbox provider: modal (bridge URL: {})",
-                        config.modal_api_url.as_deref().unwrap_or("?")
-                    );
+                "modal" if config.modal_token_id.is_some() && config.modal_token_secret.is_some() => {
+                    tracing::info!("Sandbox provider: modal (token configured)");
                 }
                 "modal" => {
                     tracing::warn!(
-                        "Sandbox provider is 'modal' but MODAL_API_TOKEN or MODAL_API_URL not set"
+                        "Sandbox provider is 'modal' but MODAL_TOKEN_ID or MODAL_TOKEN_SECRET not set"
                     );
                 }
                 "tensorlake" => {

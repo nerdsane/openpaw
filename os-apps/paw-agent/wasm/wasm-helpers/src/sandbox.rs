@@ -95,7 +95,7 @@ pub fn resolve_sandbox_api_key(ctx: &Context, provider: &str) -> Result<String, 
             ctx.config.get("sandbox_api_key").cloned(),
         ]),
         "modal" => first_non_empty(&[
-            ctx.config.get("modal_api_token").cloned(),
+            ctx.config.get("modal_token_id").cloned(),
             ctx.config.get("sandbox_api_key").cloned(),
         ]),
         other => return Err(format!("unsupported sandbox provider: {other}")),
@@ -491,9 +491,11 @@ fn tensorlake_exec(
 /// Resolve the Modal bridge base URL from config. This is the common prefix
 /// of the per-endpoint URLs, e.g. `https://user--openpaw-sandbox-bridge`.
 /// Each endpoint appends its label suffix: `-create.modal.run`, `-exec.modal.run`, etc.
+/// Users only need to set `modal_token_id` + `modal_token_secret`; the bridge URL
+/// is derived from a convention unless explicitly overridden via `modal_bridge_url`.
 fn modal_base_url(ctx: &Context) -> String {
     ctx.config
-        .get("modal_api_url")
+        .get("modal_bridge_url")
         .filter(|s| !s.is_empty() && !is_unresolved_secret(s))
         .cloned()
         .unwrap_or_else(|| "https://openpaw-sandbox--bridge".to_string())
