@@ -63,9 +63,8 @@ fn allowed_secret_keys() -> HashSet<&'static str> {
         "sandbox_provider",
         "modal_token_id",
         "modal_token_secret",
-        "dd_api_key",
-        "dd_app_key",
-        "dd_site",
+        // DD_* and railway_* are infrastructure config managed via Railway env vars,
+        // not dashboard secrets. They're set by `openpaw deploy` and changed in Railway.
         "railway_project_id",
         "railway_environment_id",
         "railway_otel_service_id",
@@ -107,9 +106,8 @@ fn secrets_schema() -> Vec<SecretSchema> {
         SecretSchema { key: "modal_token_id", category: "sandbox", label: "Modal Token ID", required: false, description: "Starts with ak-… — from modal.com/settings or `modal token set`" },
         SecretSchema { key: "modal_token_secret", category: "sandbox", label: "Modal Token Secret", required: false, description: "Starts with as-… — from modal.com/settings or `modal token set`" },
         SecretSchema { key: "github_token", category: "integrations", label: "GitHub Token", required: false, description: "For repo cloning and PR flows" },
-        SecretSchema { key: "dd_api_key", category: "observability", label: "Datadog API Key", required: false, description: "Enables traces/metrics/logs in Datadog" },
-        SecretSchema { key: "dd_app_key", category: "observability", label: "Datadog App Key", required: false, description: "For Datadog dashboard queries and management" },
-        SecretSchema { key: "dd_site", category: "observability", label: "Datadog Site", required: false, description: "Datadog site (default: datadoghq.com)" },
+        // DD_* keys are infrastructure config set via Railway env vars (by `openpaw deploy`).
+        // They don't belong in the dashboard — change them in Railway if needed.
     ]
 }
 

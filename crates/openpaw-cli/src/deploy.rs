@@ -46,11 +46,7 @@ fn cache_set(cache: &mut HashMap<String, String>, key: &str, value: &str) {
     save_cache(cache);
 }
 
-pub async fn run_deploy(
-    dd_api_key: Option<String>,
-    dd_app_key: Option<String>,
-    dd_site: String,
-) -> Result<()> {
+pub async fn run_deploy() -> Result<()> {
     cliclack::intro("Open Paw Deploy")?;
 
     let mut cache = load_cache();
@@ -103,13 +99,18 @@ pub async fn run_deploy(
         format!("TEMPER_VAULT_KEY={vault_key_b64}"),
     ];
 
+    // Datadog observability — optional
+    let (dd_api_key, dd_app_key, dd_site) = prompt_datadog_config(&mut cache)?;
     if let Some(key) = &dd_api_key {
         variables.push(format!("DD_API_KEY={key}"));
     }
     if let Some(key) = &dd_app_key {
         variables.push(format!("DD_APP_KEY={key}"));
     }
-    variables.push(format!("DD_SITE={dd_site}"));
+    if let Some(site) = &dd_site {
+        variables.push(format!("DD_SITE={site}"));
+    }
+    variables.push("DD_ENV=prod".to_string());
 
     let mut set_args = vec![
         "variable".to_string(),
@@ -139,7 +140,9 @@ pub async fn run_deploy(
     if let Some(key) = &dd_api_key {
         collector_vars.push(format!("DD_API_KEY={key}"));
     }
-    collector_vars.push(format!("DD_SITE={dd_site}"));
+    if let Some(site) = &dd_site {
+        collector_vars.push(format!("DD_SITE={site}"));
+    }
     let mut collector_set_args = vec![
         "variable".to_string(),
         "set".to_string(),
@@ -637,6 +640,73 @@ fn deploy_prebuilt_image(project_id: &str, env_id: &str) -> Result<()> {
 }
 
 /// Deploy the OTEL collector as a Railway service.
+/// Interactive Datadog configuration.
+///
+/// Asks the user if they want Datadog observability. If yes, collects
+/// DD_API_KEY (required), DD_APP_KEY (optional), and DD_SITE (default: datadoghq.com).
+fn prompt_datadog_config(
+    cache: &mut HashMap<String, String>,
+) -> Result<(Option<String>, Option<String>, Option<String>)> {
+    let enable: bool = cliclack::confirm("Enable Datadog observability?")
+        .initial_value(false)
+        .interact()?;
+
+    if !enable {
+        cliclack::log::info(
+            "Datadog skipped. You can enable it later by adding DD_API_KEY\n  \
+             to the otel-collector service in the Railway dashboard.",
+        )?;
+        return Ok((None, None, None));
+    }
+
+    let cached_api_key = cache_get(cache, "dd_api_key").unwrap_or_default();
+    let api_key: String = cliclack::input("Datadog API Key")
+        .placeholder("Enter your Datadog API key")
+        .default_input(&cached_api_key)
+        .validate(|input: &String| {
+            if input.trim().is_empty() {
+                Err("API key is required for Datadog")
+            } else {
+                Ok(())
+            }
+        })
+        .interact()?;
+    cache_set(cache, "dd_api_key", api_key.trim());
+
+    let cached_app_key = cache_get(cache, "dd_app_key").unwrap_or_default();
+    let app_key: String = cliclack::input("Datadog App Key (optional — for dashboard/monitor APIs)")
+        .placeholder("Press Enter to skip")
+        .default_input(&cached_app_key)
+        .required(false)
+        .interact()?;
+    let app_key = if app_key.trim().is_empty() {
+        None
+    } else {
+        cache_set(cache, "dd_app_key", app_key.trim());
+        Some(app_key.trim().to_string())
+    };
+
+    let cached_site = cache_get(cache, "dd_site").unwrap_or_else(|| "datadoghq.com".to_string());
+    let site: String = cliclack::select("Datadog Site")
+        .initial_value(cached_site.as_str())
+        .item("datadoghq.com", "datadoghq.com", "US1 (default)")
+        .item("us3.datadoghq.com", "us3.datadoghq.com", "US3")
+        .item("us5.datadoghq.com", "us5.datadoghq.com", "US5")
+        .item("datadoghq.eu", "datadoghq.eu", "EU1")
+        .item("ap1.datadoghq.com", "ap1.datadoghq.com", "AP1 — Japan")
+        .item("ap2.datadoghq.com", "ap2.datadoghq.com", "AP2 — Australia")
+        .item("ddog-gov.com", "ddog-gov.com", "US1-FED — GovCloud")
+        .interact()?
+        .to_string();
+    cache_set(cache, "dd_site", &site);
+
+    Ok((
+        Some(api_key.trim().to_string()),
+        app_key,
+        Some(site.trim().to_string()),
+    ))
+}
+
 /// Uses a dynamic entrypoint: if DD_API_KEY is set, exports to Datadog.
 /// Otherwise, uses a debug exporter (traces logged to stdout).
 /// Adding DD_API_KEY later via Railway dashboard auto-restarts with Datadog enabled.
