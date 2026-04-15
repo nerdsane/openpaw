@@ -1,6 +1,6 @@
 {
   "title": "OpenPaw — Platform Overview",
-  "description": "Single pane of glass for OpenPaw agent orchestration health.",
+  "description": "Single pane of glass for OpenPaw agent orchestration health, runtime behavior, and Temper platform metrics.",
   "layout_type": "ordered",
   "widgets": [
     {
@@ -48,6 +48,18 @@
                 }
               ]
             }
+          },
+          {
+            "definition": {
+              "title": "Metrics Pipeline Canary",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "q": "avg:temper_up{service:openpaw}",
+                  "display_type": "line"
+                }
+              ]
+            }
           }
         ]
       }
@@ -91,10 +103,22 @@
     },
     {
       "definition": {
-        "title": "Runtime Metrics",
+        "title": "Core Runtime",
         "type": "group",
         "layout_type": "ordered",
         "widgets": [
+          {
+            "definition": {
+              "title": "Active Entities",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "q": "avg:temper_active_entities{*}",
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
           {
             "definition": {
               "title": "Indexed Entities (Query Plane)",
@@ -190,39 +214,24 @@
                 }
               ]
             }
-          },
+          }
+        ]
+      }
+    },
+    {
+      "definition": {
+        "title": "Persistence & Recovery",
+        "type": "group",
+        "layout_type": "ordered",
+        "widgets": [
           {
             "definition": {
               "title": "Projection Snapshot Misses",
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "sum:temper_projection_backfill_snapshot_misses_total{service:openpaw}.as_count().rollup(sum, 60)",
+                  "q": "default_zero(sum:temper_projection_backfill_snapshot_misses_total{service:openpaw}.as_count().rollup(sum, 60))",
                   "display_type": "bars"
-                }
-              ]
-            }
-          },
-          {
-            "definition": {
-              "title": "Startup Phase Duration",
-              "type": "timeseries",
-              "requests": [
-                {
-                  "q": "avg:temper_startup_phase_duration_ms{service:openpaw} by {phase}.rollup(avg, 60)",
-                  "display_type": "line"
-                }
-              ]
-            }
-          },
-          {
-            "definition": {
-              "title": "Startup Time To Healthy",
-              "type": "timeseries",
-              "requests": [
-                {
-                  "q": "avg:temper_startup_time_to_healthy_ms{service:openpaw}.rollup(avg, 60)",
-                  "display_type": "line"
                 }
               ]
             }
@@ -233,7 +242,7 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "sum:temper_startup_live_restore_entities_total{service:openpaw} by {tenant}.as_count().rollup(sum, 60)",
+                  "q": "default_zero(sum:temper_startup_live_restore_entities_total{service:openpaw} by {tenant}.as_count().rollup(sum, 60))",
                   "display_type": "bars"
                 }
               ]
@@ -245,7 +254,7 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "sum:temper_os_app_reconcile_total{service:openpaw} by {app,result}.as_count().rollup(sum, 60)",
+                  "q": "default_zero(sum:temper_os_app_reconcile_total{service:openpaw} by {app,result}.as_count().rollup(sum, 60))",
                   "display_type": "bars"
                 }
               ]
@@ -257,7 +266,7 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "avg:temper_os_app_reconcile_duration_ms{service:openpaw} by {app,result}.rollup(avg, 60)",
+                  "q": "default_zero(avg:temper_os_app_reconcile_duration_ms{service:openpaw} by {app,result}.rollup(avg, 60))",
                   "display_type": "line"
                 }
               ]
@@ -265,23 +274,44 @@
           },
           {
             "definition": {
-              "title": "WASM Load Failures",
+              "title": "Event Replay Duration",
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "sum:temper_wasm_module_load_failures_total{service:openpaw} by {app,module,reason,criticality}.as_count().rollup(sum, 60)",
-                  "display_type": "bars"
+                  "q": "avg:temper_event_replay_duration{service:openpaw} by {tenant,entity_type}.rollup(avg, 60)",
+                  "display_type": "line"
                 }
               ]
             }
           },
           {
             "definition": {
-              "title": "WASM Modules Skipped",
+              "title": "Turso Query Duration",
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "sum:temper_wasm_module_skipped_total{service:openpaw} by {app,module,reason,criticality}.as_count().rollup(sum, 60)",
+                  "q": "avg:temper_turso_query_duration{service:openpaw} by {operation}.rollup(avg, 60)",
+                  "display_type": "line"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "definition": {
+        "title": "Authz & WASM",
+        "type": "group",
+        "layout_type": "ordered",
+        "widgets": [
+          {
+            "definition": {
+              "title": "Cedar Evaluations",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "q": "default_zero(sum:temper_cedar_evaluations_total{service:openpaw}.as_count().rollup(sum, 60))",
                   "display_type": "bars"
                 }
               ]
@@ -293,7 +323,7 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "sum:temper_wasm_invocations_total{*} by {trigger_action,success}.as_count()",
+                  "q": "default_zero(sum:temper_wasm_invocations_total{service:openpaw} by {trigger_action,success}.as_count().rollup(sum, 60))",
                   "display_type": "line"
                 }
               ]
@@ -305,7 +335,43 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "avg:temper_wasm_invocation_duration_ms{*} by {trigger_action}.rollup(avg, 60)",
+                  "q": "avg:temper_wasm_invocation_duration_ms{service:openpaw} by {trigger_action}.rollup(avg, 60)",
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "WASM Host HTTP Requests",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "q": "default_zero(sum:temper_wasm_host_http_requests_total{service:openpaw} by {call_kind,status_code_class}.as_count().rollup(sum, 60))",
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "WASM Host HTTP Duration (avg ms)",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "q": "avg:temper_wasm_host_http_duration_ms{service:openpaw} by {call_kind,status_code_class}.rollup(avg, 60)",
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "WASM Host HTTP Request Bytes",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "q": "avg:temper_wasm_host_http_request_bytes{service:openpaw} by {call_kind,status_code_class}.rollup(avg, 60)",
                   "display_type": "line"
                 }
               ]
@@ -317,19 +383,28 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "avg:temper_wasm_host_http_response_bytes{*} by {call_kind,status_code_class}",
+                  "q": "avg:temper_wasm_host_http_response_bytes{service:openpaw} by {call_kind,status_code_class}.rollup(avg, 60)",
                   "display_type": "line"
                 }
               ]
             }
-          },
+          }
+        ]
+      }
+    },
+    {
+      "definition": {
+        "title": "Blob & Monty",
+        "type": "group",
+        "layout_type": "ordered",
+        "widgets": [
           {
             "definition": {
               "title": "Blob I/O Wait (avg ms)",
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "avg:temper_blob_io_wait_duration_ms{*} by {operation}.rollup(avg, 60)",
+                  "q": "avg:temper_blob_io_wait_duration_ms{service:openpaw} by {operation}.rollup(avg, 60)",
                   "display_type": "line"
                 }
               ]
@@ -341,7 +416,7 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "sum:temper_blob_local_fast_path_requests_total{*} by {method}.as_count().rollup(sum, 60)",
+                  "q": "default_zero(sum:temper_blob_local_fast_path_requests_total{service:openpaw} by {method}.as_count().rollup(sum, 60))",
                   "display_type": "line"
                 }
               ]
@@ -353,7 +428,7 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "avg:temper_blob_transport_wait_duration_ms{*} by {backend,http_method}.rollup(avg, 60)",
+                  "q": "avg:temper_blob_transport_wait_duration_ms{service:openpaw} by {backend,http_method}.rollup(avg, 60)",
                   "display_type": "line"
                 }
               ]
@@ -365,7 +440,7 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "sum:temper_blob_transport_requests_total{*} by {backend,http_method}.as_count().rollup(sum, 60)",
+                  "q": "default_zero(sum:temper_blob_transport_requests_total{service:openpaw} by {backend,http_method}.as_count().rollup(sum, 60))",
                   "display_type": "line"
                 }
               ]
@@ -377,7 +452,7 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "sum:temper_wasm_invocations_total{trigger_action:processtoolcalls,needs_wasi:true,success:true}.as_count()",
+                  "q": "default_zero(sum:temper_wasm_invocations_total{service:openpaw,trigger_action:processtoolcalls,needs_wasi:true,success:true}.as_count().rollup(sum, 60))",
                   "display_type": "line"
                 }
               ]
@@ -389,7 +464,7 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "max:temper_monty_repl_observed_active_invocations{*}.rollup(max, 60)",
+                  "q": "max:temper_monty_repl_observed_active_invocations{service:openpaw}.rollup(max, 60)",
                   "display_type": "line"
                 }
               ]
@@ -401,7 +476,7 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "avg:temper_monty_repl_wait_duration_ms{*} by {max_concurrency}.rollup(avg, 60)",
+                  "q": "avg:temper_monty_repl_wait_duration_ms{service:openpaw} by {max_concurrency}.rollup(avg, 60)",
                   "display_type": "line"
                 }
               ]
@@ -413,7 +488,7 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "sum:temper_monty_repl_acquisitions_total{*} by {max_concurrency}.as_count().rollup(sum, 60)",
+                  "q": "default_zero(sum:temper_monty_repl_acquisitions_total{service:openpaw} by {max_concurrency}.as_count().rollup(sum, 60))",
                   "display_type": "line"
                 }
               ]

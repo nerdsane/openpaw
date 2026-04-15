@@ -2615,49 +2615,7 @@ mod tests {
             .expect("Projection Snapshot Misses widget query should exist");
         assert_eq!(
             snapshot_miss_query,
-            "sum:temper_projection_backfill_snapshot_misses_total{service:openpaw}.as_count().rollup(sum, 60)"
-        );
-
-        let startup_phase_query = dashboard["widgets"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find_map(|widget| {
-                let widgets = widget["definition"]["widgets"].as_array()?;
-                widgets.iter().find_map(|inner| {
-                    let definition = &inner["definition"];
-                    if definition["title"].as_str()? == "Startup Phase Duration" {
-                        definition["requests"][0]["q"].as_str()
-                    } else {
-                        None
-                    }
-                })
-            })
-            .expect("Startup Phase Duration widget query should exist");
-        assert_eq!(
-            startup_phase_query,
-            "avg:temper_startup_phase_duration_ms{service:openpaw} by {phase}.rollup(avg, 60)"
-        );
-
-        let startup_healthy_query = dashboard["widgets"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find_map(|widget| {
-                let widgets = widget["definition"]["widgets"].as_array()?;
-                widgets.iter().find_map(|inner| {
-                    let definition = &inner["definition"];
-                    if definition["title"].as_str()? == "Startup Time To Healthy" {
-                        definition["requests"][0]["q"].as_str()
-                    } else {
-                        None
-                    }
-                })
-            })
-            .expect("Startup Time To Healthy widget query should exist");
-        assert_eq!(
-            startup_healthy_query,
-            "avg:temper_startup_time_to_healthy_ms{service:openpaw}.rollup(avg, 60)"
+            "default_zero(sum:temper_projection_backfill_snapshot_misses_total{service:openpaw}.as_count().rollup(sum, 60))"
         );
 
         let reconcile_query = dashboard["widgets"]
@@ -2678,10 +2636,10 @@ mod tests {
             .expect("OS App Reconcile widget query should exist");
         assert_eq!(
             reconcile_query,
-            "sum:temper_os_app_reconcile_total{service:openpaw} by {app,result}.as_count().rollup(sum, 60)"
+            "default_zero(sum:temper_os_app_reconcile_total{service:openpaw} by {app,result}.as_count().rollup(sum, 60))"
         );
 
-        let wasm_failure_query = dashboard["widgets"]
+        let reconcile_duration_query = dashboard["widgets"]
             .as_array()
             .unwrap()
             .iter()
@@ -2689,17 +2647,38 @@ mod tests {
                 let widgets = widget["definition"]["widgets"].as_array()?;
                 widgets.iter().find_map(|inner| {
                     let definition = &inner["definition"];
-                    if definition["title"].as_str()? == "WASM Load Failures" {
+                    if definition["title"].as_str()? == "OS App Reconcile Duration" {
                         definition["requests"][0]["q"].as_str()
                     } else {
                         None
                     }
                 })
             })
-            .expect("WASM Load Failures widget query should exist");
+            .expect("OS App Reconcile Duration widget query should exist");
         assert_eq!(
-            wasm_failure_query,
-            "sum:temper_wasm_module_load_failures_total{service:openpaw} by {app,module,reason,criticality}.as_count().rollup(sum, 60)"
+            reconcile_duration_query,
+            "default_zero(avg:temper_os_app_reconcile_duration_ms{service:openpaw} by {app,result}.rollup(avg, 60))"
+        );
+
+        let startup_restore_query = dashboard["widgets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find_map(|widget| {
+                let widgets = widget["definition"]["widgets"].as_array()?;
+                widgets.iter().find_map(|inner| {
+                    let definition = &inner["definition"];
+                    if definition["title"].as_str()? == "Startup Live Restore Entities" {
+                        definition["requests"][0]["q"].as_str()
+                    } else {
+                        None
+                    }
+                })
+            })
+            .expect("Startup Live Restore Entities widget query should exist");
+        assert_eq!(
+            startup_restore_query,
+            "default_zero(sum:temper_startup_live_restore_entities_total{service:openpaw} by {tenant}.as_count().rollup(sum, 60))"
         );
 
         let indexed_entities_drop_query = monitors
@@ -2768,6 +2747,57 @@ mod tests {
         assert_eq!(
             wasm_failure_monitor_query,
             "sum(last_15m):sum:temper_wasm_module_load_failures_total{service:openpaw,criticality:(platform-required OR app-required)}.as_count() > 0"
+        );
+
+        let dashboard_json = dashboard.to_string();
+        assert!(
+            dashboard_json.contains("avg:temper_up{service:openpaw}"),
+            "Dashboard should include the metrics pipeline canary."
+        );
+        assert!(
+            dashboard_json.contains(
+                "sum:temper_cedar_evaluations_total{service:openpaw}.as_count().rollup(sum, 60)"
+            ),
+            "Dashboard should include Cedar evaluation volume."
+        );
+        assert!(
+            dashboard_json
+                .contains("avg:temper_turso_query_duration{service:openpaw} by {operation}.rollup(avg, 60)"),
+            "Dashboard should include Turso query duration."
+        );
+        assert!(
+            dashboard_json.contains(
+                "sum:temper_wasm_host_http_requests_total{service:openpaw} by {call_kind,status_code_class}.as_count().rollup(sum, 60)"
+            ),
+            "Dashboard should include WASM host HTTP request volume."
+        );
+        assert!(
+            dashboard_json.contains(
+                "avg:temper_wasm_host_http_duration_ms{service:openpaw} by {call_kind,status_code_class}.rollup(avg, 60)"
+            ),
+            "Dashboard should include WASM host HTTP latency."
+        );
+        assert!(
+            dashboard_json.contains(
+                "avg:temper_event_replay_duration{service:openpaw} by {tenant,entity_type}.rollup(avg, 60)"
+            ),
+            "Dashboard should include event replay duration."
+        );
+        assert!(
+            !dashboard_json.contains("temper_startup_phase_duration_ms"),
+            "Dashboard should not reference the stale startup phase duration metric."
+        );
+        assert!(
+            !dashboard_json.contains("temper_startup_time_to_healthy_ms"),
+            "Dashboard should not reference the stale startup healthy metric."
+        );
+        assert!(
+            !dashboard_json.contains("temper_wasm_module_load_failures_total"),
+            "Dashboard should not reference the stale WASM load failures metric."
+        );
+        assert!(
+            !dashboard_json.contains("temper_wasm_module_skipped_total"),
+            "Dashboard should not reference the stale WASM skipped metric."
         );
     }
 
