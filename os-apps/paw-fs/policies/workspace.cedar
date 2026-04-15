@@ -16,12 +16,16 @@ permit(
     resource.id == principal.workspaceid
 };
 
-// Agents can perform filesystem operations (FUSE-mapped: mkdir, creat, addchild, counters, path resolution)
+// Agents can perform filesystem operations (FUSE-mapped)
 permit(
     principal is Agent,
     action in [Action::"MkDir", Action::"CreateFile", Action::"DirCreated", Action::"FileCreated",
                Action::"IncrementFileCount", Action::"DecrementFileCount",
-               Action::"ResolvePath"],
+               Action::"ResolvePath", Action::"PathResolved",
+               Action::"ListDir", Action::"DirListed",
+               Action::"DeleteFile", Action::"FileDeleted",
+               Action::"Rename", Action::"FileRenamed",
+               Action::"FsOperationFailed"],
     resource is Workspace
 );
 
