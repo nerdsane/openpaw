@@ -1,6 +1,6 @@
 <script lang="ts">
   import '../app.css';
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { goto } from '$app/navigation';
   import { base } from '$app/paths';
   import PawLogo from '$lib/components/PawLogo.svelte';
@@ -9,10 +9,15 @@
   import type { VersionInfo, UpdateCheck, EdgeBuild } from '$lib/api';
   import { getCurrentUser, logout, type SessionUser } from '$lib/auth';
   import { page } from '$app/stores';
+  import PawPanel from '$lib/components/PawPanel.svelte';
+  import { pawChat, togglePanel } from '$lib/stores/paw-chat';
 
   let { children } = $props();
   let collapsed = $state(false);
   let user = $state<SessionUser | null>(null);
+  let panelOpen = $state(false);
+
+  const unsubPanel = pawChat.subscribe((s) => { panelOpen = s.panelOpen; });
   let authReady = $state(false);
   let authError = $state('');
   let version = $state<VersionInfo | null>(null);
@@ -86,6 +91,8 @@
     }
   });
 
+  onDestroy(unsubPanel);
+
   async function handleLogout() {
     await logout();
     user = null;
@@ -108,6 +115,17 @@
     }
   }
 </script>
+
+<svelte:window onkeydown={(e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+    e.preventDefault();
+    togglePanel();
+  }
+  if (e.key === 'Escape' && panelOpen) {
+    e.preventDefault();
+    togglePanel();
+  }
+}} />
 
 {#if isLoginRoute}
   <main class="auth-main">
@@ -142,10 +160,10 @@
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
         {#if !collapsed}<span>Sessions</span>{/if}
       </a>
-      <a href={appHref('/welcome')} class="nav-item" class:active={currentPath === '/welcome'}>
+      <button class="nav-item" class:active={panelOpen} onclick={togglePanel}>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
         {#if !collapsed}<span>Paw</span>{/if}
-      </a>
+      </button>
       <a href={appHref('/settings')} class="nav-item" class:active={currentPath.startsWith('/settings')}>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 1-3 0 1.7 1.7 0 0 0-1-.6 1.7 1.7 0 0 0-1.82.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 1 0-3 1.7 1.7 0 0 0 .6-1 1.7 1.7 0 0 0-.34-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 1 3 0 1.7 1.7 0 0 0 1 .6 1.7 1.7 0 0 0 1.82-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9c.26.3.46.65.6 1a1.7 1.7 0 0 1 0 3c-.14.35-.34.7-.6 1z"/></svg>
         {#if !collapsed}<span>Settings</span>{/if}
@@ -203,9 +221,19 @@
     </div>
   </aside>
 
-  <main class="main" class:main--canvas={isCanvas}>
+  <main class="main" class:main--canvas={isCanvas} class:main--panel-open={panelOpen}>
     {@render children()}
   </main>
+
+  <!-- Global Paw chat panel -->
+  <PawPanel />
+
+  <!-- FAB to open Paw -->
+  {#if !panelOpen}
+    <button class="paw-fab" onclick={togglePanel} title="Chat with Paw (Cmd+K)" aria-label="Open Paw chat">
+      <PawLogo size={20} />
+    </button>
+  {/if}
 </div>
 {:else}
   <main class="auth-main auth-main--loading">
@@ -535,6 +563,45 @@
     .main--canvas {
       padding: 0;
       margin-bottom: 64px;
+    }
+
+    .paw-fab { display: none; }
+  }
+
+  /* ── FAB ── */
+  .paw-fab {
+    position: fixed;
+    bottom: var(--sp-6);
+    right: var(--sp-6);
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: var(--text-1);
+    color: var(--bg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    z-index: 40;
+    border: none;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    transition: transform var(--duration) var(--ease), box-shadow var(--duration) var(--ease);
+  }
+
+  .paw-fab:hover {
+    transform: scale(1.1);
+    box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+  }
+
+  /* ── Panel open adjustment ── */
+  .main--panel-open {
+    margin-right: 420px;
+    transition: margin-right var(--duration) var(--ease);
+  }
+
+  @media (max-width: 640px) {
+    .main--panel-open {
+      margin-right: 0;
     }
   }
 </style>

@@ -1,17 +1,15 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { base } from '$app/paths';
-  import Chat from '$lib/components/Chat.svelte';
   import {
     fetchSetupStatus,
-    queryEntities,
     saveSecret,
     getSecret,
     type SetupStatus,
   } from '$lib/api';
+  import { openPanel } from '$lib/stores/paw-chat';
 
   let status = $state<SetupStatus | null>(null);
-  let pawAgentId = $state<string | null>(null);
   let loading = $state(true);
   let error = $state('');
 
@@ -21,9 +19,6 @@
   let savingKey = $state(false);
   let keyError = $state('');
   let showLlmForm = $state(false);
-
-  // Chat panel
-  let showChat = $state(false);
 
   const providerKeyMap: Record<string, string> = {
     anthropic: 'anthropic_api_key',
@@ -53,7 +48,6 @@
         // Detect active provider
         const savedProvider = await getSecret('llm_provider');
         if (savedProvider) llmProvider = savedProvider;
-        await findPawAgent();
       } else {
         showLlmForm = true;
       }
@@ -63,20 +57,6 @@
       loading = false;
     }
   });
-
-  async function findPawAgent() {
-    try {
-      let agents = await queryEntities('Agents', "name eq 'Paw'");
-      if (agents.length === 0) {
-        agents = await queryEntities('Agents');
-      }
-      if (agents.length > 0) {
-        pawAgentId = (agents[0] as any)._entity_id || (agents[0] as any).Id;
-      }
-    } catch {
-      // Agent may not exist yet
-    }
-  }
 
   async function saveLlmKey() {
     const key = llmKey.trim();
@@ -90,7 +70,6 @@
       status = await fetchSetupStatus();
       showLlmForm = false;
       llmKey = '';
-      await findPawAgent();
     } catch (err) {
       keyError = err instanceof Error ? err.message : 'Failed to save API key';
     } finally {
@@ -98,13 +77,8 @@
     }
   }
 
-  function handleChatComplete(_result: string) {
-    fetchSetupStatus().then(s => { status = s; });
-  }
-
   async function refresh() {
     status = await fetchSetupStatus();
-    if (status.has_anthropic_key) await findPawAgent();
   }
 </script>
 
@@ -226,28 +200,10 @@
       {#if setupComplete}
         <a class="btn" href="{base}/">Open Dashboard</a>
       {/if}
-      {#if pawAgentId}
-        <button class="btn-ghost" onclick={() => showChat = !showChat}>
-          {showChat ? 'Hide Paw' : 'Ask Paw for help'}
-        </button>
-      {/if}
+      <button class="btn-ghost" onclick={openPanel}>
+        Ask Paw for help
+      </button>
     </div>
-
-    <!-- Collapsible chat -->
-    {#if showChat && pawAgentId}
-      <div class="chat-area">
-        <Chat
-          agentId={pawAgentId}
-          systemPrompt={setupComplete
-            ? "You are Paw, the user's AI assistant for OpenPaw. Help them with anything — configuration, agents, Discord, projects, or general questions. Be conversational and concise."
-            : "You are Paw, the user's AI assistant for OpenPaw. The setup-guide skill is loaded. Check what's already configured using temper_get_secret, then help the user with what's missing. Priority: 1) Discord connection, 2) Soul personalization. Be conversational and concise — one topic at a time."}
-          greeting={setupComplete
-            ? "Hey! What can I help you with?"
-            : "Hey! I see you're setting up. Let me check what's configured and help with the rest."}
-          onComplete={handleChatComplete}
-        />
-      </div>
-    {/if}
 
     <!-- Footer links -->
     <div class="footer">
@@ -499,15 +455,6 @@
     align-items: center;
   }
 
-  /* ── Chat area ── */
-  .chat-area {
-    min-height: 350px;
-    max-height: 500px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    overflow: hidden;
-  }
-
   /* ── Footer ── */
   .footer {
     display: flex;
@@ -531,6 +478,5 @@
     .step-info { flex-direction: column; gap: 0; }
     .tab { padding: var(--sp-1); font-size: 10px; }
     .actions { flex-direction: column; align-items: stretch; }
-    .chat-area { min-height: 280px; }
   }
 </style>
