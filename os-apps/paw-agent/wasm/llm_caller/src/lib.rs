@@ -24,7 +24,7 @@ use wasm_helpers::{
 };
 
 const SESSION_ENTRY_FILE_THRESHOLD_BYTES: usize = 4096;
-const DEFAULT_TOOLS_ENABLED: &str = "temper_create,temper_get,temper_list,temper_action,temper_patch,temper_submit_specs,temper_show_spec,temper_specs,temper_upload_wasm,temper_get_trajectories,temper_get_insights,temper_get_decisions,temper_poll_decision,temper_approve_decision,temper_deny_decision,temper_submit_policy,temper_list_policies,temper_get_policy,temper_update_policy,temper_delete_policy,temper_install_app,temper_list_apps,temper_spawn_session,temper_list_sessions,temper_abort_session,temper_steer_session,temper_save_memory,temper_recall_memory,temper_write,temper_read,temper_run_coding_agent,temper_get_secret,temper_datadog_query,temper_railway,temper_vercel,temper_web_search,temper_web_fetch,read,write,edit,bash";
+const DEFAULT_TOOLS_ENABLED: &str = "temper_create,temper_get,temper_list,temper_action,temper_patch,temper_submit_specs,temper_show_spec,temper_specs,temper_upload_wasm,temper_get_trajectories,temper_get_insights,temper_get_decisions,temper_poll_decision,temper_approve_decision,temper_deny_decision,temper_submit_policy,temper_list_policies,temper_get_policy,temper_update_policy,temper_delete_policy,temper_install_app,temper_list_apps,temper_spawn_session,temper_list_sessions,temper_abort_session,temper_steer_session,temper_save_memory,temper_recall_memory,temper_write,temper_read,temper_ls,temper_grep,temper_glob,temper_edit,temper_rename,temper_search_history,temper_run_coding_agent,temper_get_secret,temper_datadog_query,temper_railway,temper_vercel,temper_web_search,temper_web_fetch,read,write,edit,bash";
 
 struct ReplMethodSpec {
     object: &'static str,
@@ -151,8 +151,50 @@ const REPL_METHOD_SPECS: &[ReplMethodSpec] = &[
         object: "temper",
         method: "read",
         signature: "(path, opts=None)",
-        description: "read file content by path",
+        description: "read file content by path. opts: {offset: int, limit: int} for partial reads (0-indexed line numbers)",
         token: Some("temper_read"),
+    },
+    ReplMethodSpec {
+        object: "temper",
+        method: "ls",
+        signature: "(path, opts=None)",
+        description: "list directory contents (files and subdirectories), returns JSON array",
+        token: Some("temper_ls"),
+    },
+    ReplMethodSpec {
+        object: "temper",
+        method: "grep",
+        signature: "(pattern, path, opts=None)",
+        description: "search file contents for pattern, returns matching lines with file paths and line numbers. opts: {case_insensitive: bool, max_results: int}",
+        token: Some("temper_grep"),
+    },
+    ReplMethodSpec {
+        object: "temper",
+        method: "glob",
+        signature: "(pattern, path='/')",
+        description: "find files matching name pattern (supports *, **, ?), returns list of matching paths",
+        token: Some("temper_glob"),
+    },
+    ReplMethodSpec {
+        object: "temper",
+        method: "edit",
+        signature: "(path, old_string, new_string, opts=None)",
+        description: "replace first occurrence of old_string with new_string in file",
+        token: Some("temper_edit"),
+    },
+    ReplMethodSpec {
+        object: "temper",
+        method: "rename",
+        signature: "(old_path, new_path, opts=None)",
+        description: "rename or move a file to a new path",
+        token: Some("temper_rename"),
+    },
+    ReplMethodSpec {
+        object: "temper",
+        method: "search_history",
+        signature: "(pattern)",
+        description: "search full conversation history including compacted entries, returns matching excerpts with entry metadata",
+        token: Some("temper_search_history"),
     },
     ReplMethodSpec {
         object: "temper",

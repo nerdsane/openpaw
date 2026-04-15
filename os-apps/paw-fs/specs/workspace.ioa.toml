@@ -211,6 +211,23 @@ params = ["last_file_id", "last_file_path"]
 hint = "File archived by WASM."
 
 [[action]]
+name = "Rename"
+kind = "input"
+from = ["Active"]
+to = "Active"
+params = ["path", "new_path"]
+hint = "Rename/move file (FUSE: rename). Moves file from path to new_path, creating intermediate directories as needed."
+effect = [{ type = "trigger", name = "fs_rename" }]
+
+[[action]]
+name = "FileRenamed"
+kind = "input"
+from = ["Active"]
+to = "Active"
+params = ["last_file_id", "last_file_path"]
+hint = "Callback: file renamed/moved successfully."
+
+[[action]]
 name = "FsOperationFailed"
 kind = "input"
 from = ["Active"]
@@ -298,3 +315,14 @@ on_failure = "FsOperationFailed"
 [integration.config]
 temper_api_url = "{secret:temper_api_url}"
 operation = "delete_file"
+
+[[integration]]
+name = "fs_rename"
+trigger = "fs_rename"
+type = "wasm"
+module = "workspace_fs"
+on_failure = "FsOperationFailed"
+
+[integration.config]
+temper_api_url = "{secret:temper_api_url}"
+operation = "rename"

@@ -256,6 +256,17 @@
         <Annotation Term="Paw.Vocab.Agent.Hint" String="Archive file at path (unlink). Dispatches FileArchive on the resolved file entity."/>
       </Action>
 
+      <Action Name="Rename" IsBound="true">
+        <Parameter Name="bindingParameter" Type="Paw.FS.Workspace"/>
+        <Parameter Name="path" Type="Edm.String" Nullable="false"/>
+        <Parameter Name="new_path" Type="Edm.String" Nullable="false"/>
+        <ReturnType Type="Paw.FS.Workspace"/>
+        <Annotation Term="Paw.Vocab.StateMachine.ValidFromStates">
+          <Collection><String>Active</String></Collection>
+        </Annotation>
+        <Annotation Term="Paw.Vocab.Agent.Hint" String="Rename/move file from path to new_path (rename). Creates intermediate directories for new_path."/>
+      </Action>
+
       <!-- Directory Actions -->
       <Action Name="AddChild" IsBound="true">
         <Parameter Name="bindingParameter" Type="Paw.FS.Directory"/>

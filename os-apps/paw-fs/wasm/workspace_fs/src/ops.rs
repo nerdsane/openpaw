@@ -397,3 +397,89 @@ pub fn delete_file(
     );
     Ok(())
 }
+
+/// `rename` — move/rename file from old path to new path.
+pub fn rename(
+    ctx: &Context,
+    api_url: &str,
+    tenant: &str,
+    ws_id: &str,
+    raw_old_path: &str,
+    raw_new_path: &str,
+) -> Result<(), String> {
+    let old_normalized = path::normalize(raw_old_path)?;
+    let new_normalized = path::normalize(raw_new_path)?;
+
+    // Find the existing file.
+    let file_id = find_file(ctx, api_url, tenant, ws_id, &old_normalized)?
+        .ok_or_else(|| format!("file not found: {old_normalized}"))?;
+
+    // Get current file metadata for the old directory.
+    let file_resp = http_get(
+        ctx,
+        &format!("{api_url}/tdata/Files('{file_id}')"),
+        tenant,
+    )?;
+    let old_dir_id = file_resp
+        .get("DirectoryId")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    // Parse new path into directory + filename.
+    let (new_dir_path, new_filename) = path::parse(&new_normalized)?;
+
+    // Ensure the new parent directory exists.
+    let new_dir_id = ensure_dirs(ctx, api_url, tenant, ws_id, new_dir_path)?;
+
+    // PATCH the File entity: update Name, Path, DirectoryId.
+    let headers = runtime_headers(tenant);
+    let patch_body = json!({
+        "Name": new_filename,
+        "Path": new_normalized,
+        "DirectoryId": new_dir_id,
+    });
+    let resp = ctx.http_call(
+        "PATCH",
+        &format!("{api_url}/tdata/Files('{file_id}')"),
+        &headers,
+        &patch_body.to_string(),
+    )?;
+    if resp.status >= 400 {
+        return Err(format!(
+            "rename: PATCH failed (HTTP {}): {}",
+            resp.status, resp.body
+        ));
+    }
+
+    // Update directory child counts if the directory changed.
+    if old_dir_id != new_dir_id {
+        // RemoveChild on old parent.
+        if !old_dir_id.is_empty() {
+            if let Err(e) = http_post(
+                ctx,
+                &format!("{api_url}/tdata/Directories('{old_dir_id}')/Temper.RemoveChild"),
+                tenant,
+                &json!({}),
+            ) {
+                ctx.log("warn", &format!("rename: RemoveChild failed on dir {old_dir_id}: {e}"));
+            }
+        }
+
+        // AddChild on new parent.
+        if let Err(e) = http_post(
+            ctx,
+            &format!("{api_url}/tdata/Directories('{new_dir_id}')/Temper.AddChild"),
+            tenant,
+            &json!({}),
+        ) {
+            ctx.log("warn", &format!("rename: AddChild failed on dir {new_dir_id}: {e}"));
+        }
+    }
+
+    set_success_result(
+        "FileRenamed",
+        &json!({"last_file_id": file_id, "last_file_path": new_normalized}),
+    );
+    Ok(())
+}
