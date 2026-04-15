@@ -1,6 +1,6 @@
 # Projection — Temporal simulation that advances through adaptive time steps.
 #
-# A projection simulates a product's future by stepping through a schedule of
+# A projection simulates a domain's future by stepping through a schedule of
 # day offsets. At each step, probe agents observe the projected state and record
 # observations. Projections can branch to explore alternative futures.
 #
@@ -20,7 +20,7 @@ initial = "Created"
 # --- State Variables ---
 
 [[state]]
-name = "product_model_id"
+name = "foresight_model_id"
 type = "string"
 initial = ""
 
@@ -90,7 +90,7 @@ initial = ""
 name = "Configure"
 kind = "input"
 from = ["Created"]
-params = ["product_model_id", "horizon", "max_steps", "step_schedule", "probe_config", "parent_projection_id", "branch_reason"]
+params = ["foresight_model_id", "horizon", "max_steps", "step_schedule", "probe_config", "parent_projection_id", "branch_reason"]
 hint = "Configure projection parameters. Self-loop on Created."
 
 [[action]]
@@ -195,7 +195,6 @@ on_failure = "Fail"
 
 [integration.config]
 temper_api_url = "{secret:temper_api_url}"
-anthropic_api_token = "{secret:anthropic_api_token}"
 
 [[integration]]
 name = "handle_probe_done"
@@ -206,7 +205,6 @@ on_failure = "Fail"
 
 [integration.config]
 temper_api_url = "{secret:temper_api_url}"
-openai_codex_token = "{secret:openai_codex_token}"
 
 [[integration]]
 name = "handle_convergence"
@@ -217,7 +215,6 @@ on_failure = "Fail"
 
 [integration.config]
 temper_api_url = "{secret:temper_api_url}"
-openai_codex_token = "{secret:openai_codex_token}"
 
 [[integration]]
 name = "handle_projection_updated"
@@ -228,4 +225,3 @@ on_failure = "Fail"
 
 [integration.config]
 temper_api_url = "{secret:temper_api_url}"
-openai_codex_token = "{secret:openai_codex_token}"

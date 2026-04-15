@@ -2,7 +2,7 @@
 //!
 //! Creates Probe Agent+Session entities for a Projection. Each probe is an
 //! independent agent configured with the Probe soul and pointed at the
-//! ProductModel knowledge graph.
+//! ForesightModel knowledge graph.
 //!
 //! Build: `cargo build --target wasm32-unknown-unknown --release`
 
@@ -30,16 +30,16 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             vec![]
         };
 
-        let product_model_id = fields
-            .get("product_model_id")
+        let foresight_model_id = fields
+            .get("foresight_model_id")
             .and_then(|v| v.as_str())
             .unwrap_or("");
 
         if probe_config.is_empty() {
             return Err("spawn_probes: probe_config is required and must not be empty".to_string());
         }
-        if product_model_id.is_empty() {
-            return Err("spawn_probes: product_model_id is required".to_string());
+        if foresight_model_id.is_empty() {
+            return Err("spawn_probes: foresight_model_id is required".to_string());
         }
 
         let entity_id = ctx
@@ -65,49 +65,40 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             ("x-temper-agent-type".to_string(), "system".to_string()),
         ];
 
-        // 2b. Read ProductModel entity for summary context
-        let pm_url = format!("{temper_api_url}/tdata/ProductModels('{product_model_id}')");
-        let pm_resp = ctx.http_call("GET", &pm_url, &headers, "")?;
-        let (pm_name, repo_url) = if pm_resp.status >= 200 && pm_resp.status < 300 {
-            let pm: Value = serde_json::from_str(&pm_resp.body).unwrap_or(json!({}));
-            let name = pm.get("fields")
-                .and_then(|f| f.get("name"))
+        // 2b. Read ForesightModel entity for context
+        let fm_url = format!("{temper_api_url}/tdata/ForesightModels('{foresight_model_id}')");
+        let fm_resp = ctx.http_call("GET", &fm_url, &headers, "")?;
+        let (fm_name, model_type, signal_source_config) = if fm_resp.status >= 200 && fm_resp.status < 300 {
+            let fm: Value = serde_json::from_str(&fm_resp.body).unwrap_or(json!({}));
+            let f = fm.get("fields").cloned().unwrap_or(json!({}));
+            let name = f.get("name")
                 .and_then(|v| v.as_str())
-                .or_else(|| pm.get("name").and_then(|v| v.as_str()))
                 .unwrap_or("unknown")
                 .to_string();
-            let url = pm.get("fields")
-                .and_then(|f| f.get("repo_url").or(f.get("RepoUrl")))
+            let mt = f.get("model_type")
                 .and_then(|v| v.as_str())
-                .unwrap_or("")
+                .unwrap_or("software_product")
                 .to_string();
-            (name, url)
+            let ssc = f.get("signal_source_config")
+                .and_then(|v| v.as_str())
+                .unwrap_or("{}")
+                .to_string();
+            (name, mt, ssc)
         } else {
             ctx.log(
                 "warn",
                 &format!(
-                    "spawn_probes: failed to fetch ProductModel (HTTP {})",
-                    pm_resp.status
+                    "spawn_probes: failed to fetch ForesightModel (HTTP {})",
+                    fm_resp.status
                 ),
             );
-            ("unknown".to_string(), String::new())
-        };
-
-        // Derive raw GitHub base URL for web_fetch code reading
-        let raw_github_base = if !repo_url.is_empty() {
-            // Convert "https://github.com/owner/repo.git" to "https://raw.githubusercontent.com/owner/repo/main"
-            repo_url
-                .replace("https://github.com/", "https://raw.githubusercontent.com/")
-                .replace(".git", "/main")
-        } else {
-            String::new()
+            ("unknown".to_string(), "software_product".to_string(), "{}".to_string())
         };
 
         // 2c. Read the knowledge graph file content so we can include it in the prompt
-        //     (Probes can't read TemperFS files via temper.read in the sandbox)
-        let knowledge_graph = if pm_resp.status >= 200 && pm_resp.status < 300 {
-            let pm: Value = serde_json::from_str(&pm_resp.body).unwrap_or(json!({}));
-            let file_id = pm
+        let knowledge_graph = if fm_resp.status >= 200 && fm_resp.status < 300 {
+            let fm: Value = serde_json::from_str(&fm_resp.body).unwrap_or(json!({}));
+            let file_id = fm
                 .get("fields")
                 .and_then(|f| f.get("model_snapshot_file_id"))
                 .and_then(|v| v.as_str())
@@ -134,10 +125,11 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         ctx.log(
             "info",
             &format!(
-                "spawn_probes: spawning {} probes for ProductModel {} ({})",
+                "spawn_probes: spawning {} probes for ForesightModel {} ({}, type={})",
                 probe_config.len(),
-                product_model_id,
-                pm_name
+                foresight_model_id,
+                fm_name,
+                model_type
             ),
         );
 
@@ -229,47 +221,37 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 knowledge_graph.clone()
             };
 
-            let raw_github_hint = if !raw_github_base.is_empty() {
-                format!(
-                    "\n\nSOURCE CODE ACCESS:\n\
-                     You can read actual source files to understand the architecture:\n\
-                     content = temper.web_fetch(\"{raw_github_base}/<path>\")\n\
-                     Read entry points, schemas, configs — follow signals, don't read randomly.\n"
-                )
-            } else {
-                String::new()
-            };
-
             let user_message = format!(
                 "IMPORTANT: You MUST use the execute tool for ALL actions. Do NOT write analysis as text. \
                  ALL observations and directions must be created via temper.create() calls inside execute.\n\n\
                  You are {probe_name}, a Foresight Probe in a temporal simulation.\n\
-                 Your job is to PROJECT WHERE THIS PRODUCT COULD GO, not just report what's broken.\n\n\
+                 Your job is to PROJECT WHERE THIS DOMAIN COULD GO, not just report what exists.\n\n\
                  Projection ID: {entity_id}\n\
-                 ProductModel ID: {product_model_id}\n\
+                 ForesightModel ID: {foresight_model_id}\n\
+                 Model Type: {model_type}\n\
+                 Domain: {fm_name}\n\
                  Your Agent ID: {agent_id}\n\
                  Step: 0 (initial)\n\n\
-                 Here is the ProductModel knowledge graph:\n\n\
-                 {kg_for_prompt}\n\
-                 {raw_github_hint}\n\
+                 == SIGNAL SOURCE CONFIGURATION ==\n\
+                 {signal_source_config}\n\n\
+                 == KNOWLEDGE GRAPH ==\n\
+                 {kg_for_prompt}\n\n\
                  YOUR TASK:\n\
-                 1. UNDERSTAND THE PRODUCT FIRST. Read the knowledge graph's 'product' and 'repo.readme' \
-                    sections. If there's a website_url, fetch it with temper.web_fetch() to see what users see. \
-                    Read actual source code files to understand the architecture.\n\
-                 2. Think about what this product IS for its users — not just its infrastructure. \
-                    What experience does it provide? What makes it unique?\n\
-                 3. Project forward: where COULD this product evolve as a product?\n\
-                 4. Create Observations about the product's TRAJECTORY — focus on product direction, \
-                    user experience, market position, not just operational concerns.\n\
+                 1. UNDERSTAND THE DOMAIN FIRST. Read the knowledge graph thoroughly. \
+                    Use temper.web_fetch() to gather additional signals from URLs in the signal source config.\n\
+                 2. Think about what this domain IS and where it's heading — trends, shifts, \
+                    emerging patterns, risks.\n\
+                 3. Project forward: where COULD this domain evolve?\n\
+                 4. Create Observations about the domain's TRAJECTORY — focus on direction, \
+                    emerging patterns, and potential shifts.\n\
                  5. Propose exactly ONE Direction — your single strongest thesis for where this \
-                    product should go. Include step_at field.\n\n\
-                 DO NOT just analyze telemetry/monitoring setup. That's infrastructure, not product direction.\n\
+                    domain is heading. Include step_at field.\n\n\
                  Work INDEPENDENTLY. Do NOT read other Probes' Observations.\n\n\
                  CRITICAL FIELD NAMES (API silently drops unknown fields):\n\n\
                  temper.create(\"Observations\", {{\n\
                    \"content\": \"What you see in the trajectory\",\n\
                    \"importance\": \"high\",\n\
-                   \"signal_refs\": '[\"commit:abc\", \"pr:42\"]',\n\
+                   \"signal_refs\": '[\"signal refs\"]',\n\
                    \"counterfactual\": \"What happens if this signal is ignored\",\n\
                    \"probe_agent_id\": \"{agent_id}\",\n\
                    \"projection_id\": \"{entity_id}\",\n\
@@ -277,7 +259,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                  }})\n\n\
                  temper.create(\"Directions\", {{\n\
                    \"title\": \"Direction title\",\n\
-                   \"reasoning\": \"Full product brief: why, what it enables, what it costs\",\n\
+                   \"reasoning\": \"Full brief: why, what it enables, what it costs\",\n\
                    \"grounding\": '[\"signal refs\"]',\n\
                    \"observation_ids\": '[\"obs_id\"]',\n\
                    \"counterfactual_summary\": \"What if this direction is NOT taken\",\n\

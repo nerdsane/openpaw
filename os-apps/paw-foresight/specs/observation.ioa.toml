@@ -2,7 +2,7 @@
 #
 # Probe agents record observations during projection steps. Each observation
 # captures what was noticed, its importance, supporting signals from the
-# ProductModel, and a counterfactual (what would happen if ignored).
+# ForesightModel, and a counterfactual (what would happen if ignored).
 #
 # Gate 1: Any probe can Record an observation (free).
 # Gate 2: A *different* probe must Confirm it (Cedar enforces confirmer != creator).

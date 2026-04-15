@@ -29,8 +29,8 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             .get("current_step")
             .and_then(|v| v.as_u64())
             .unwrap_or(0) as usize;
-        let product_model_id = fields
-            .get("product_model_id")
+        let foresight_model_id = fields
+            .get("foresight_model_id")
             .and_then(|v| v.as_str())
             .unwrap_or("");
         let probe_agent_ids_raw = fields
@@ -115,20 +115,24 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             probe_agent_ids.len()
         ));
 
-        // Detect provider
-        let has_openai = ctx.config.get("openai_codex_token")
-            .is_some_and(|v| !v.is_empty() && !v.contains("{secret:"));
-        let (probe_model, probe_provider) = if has_openai {
-            ("gpt-5", "openai")
+        // Read model/provider from probe_config (each probe has its own config)
+        let probe_config_raw = fields.get("probe_config").cloned().unwrap_or(json!([]));
+        let probe_config: Vec<Value> = if let Some(arr) = probe_config_raw.as_array() {
+            arr.clone()
+        } else if let Some(s) = probe_config_raw.as_str() {
+            serde_json::from_str(s).unwrap_or_default()
         } else {
-            ("claude-sonnet-4-6", "anthropic")
+            vec![]
         };
 
         // Respawn each Probe with episodic memory + projected state
-        for agent_id in &probe_agent_ids {
+        for (i, agent_id) in probe_agent_ids.iter().enumerate() {
+            let pc = probe_config.get(i).cloned().unwrap_or(json!({}));
+            let probe_model = pc.get("model").and_then(|v| v.as_str()).unwrap_or("claude-sonnet-4-6");
+            let probe_provider = pc.get("provider").and_then(|v| v.as_str()).unwrap_or("anthropic");
             if let Err(e) = respawn_probe(
                 &ctx, &temper_api_url, &headers, agent_id, entity_id,
-                product_model_id, next_step, next_days_offset,
+                foresight_model_id, next_step, next_days_offset,
                 &projected_state_content, probe_model, probe_provider,
             ) {
                 ctx.log("warn", &format!(
@@ -156,7 +160,7 @@ fn respawn_probe(
     headers: &[(String, String)],
     agent_id: &str,
     projection_id: &str,
-    product_model_id: &str,
+    foresight_model_id: &str,
     next_step: usize,
     days_offset: u64,
     projected_state_content: &str,
@@ -239,7 +243,7 @@ fn respawn_probe(
         "IMPORTANT: You MUST use the execute tool for ALL actions.\n\n\
          You are a Foresight Probe at step {next_step} of a temporal simulation.\n\n\
          Projection ID: {projection_id}\n\
-         ProductModel ID: {product_model_id}\n\
+         ForesightModel ID: {foresight_model_id}\n\
          Your Agent ID: {agent_id}\n\
          Simulated day offset: {days_offset} days from start\n\n\
          == PROJECTED STATE OF THE WORLD ==\n\
@@ -256,7 +260,7 @@ fn respawn_probe(
               {{\"archive_reason\": \"Revised in step {next_step}\"}})\n\
          3. Create new Observations for step {next_step}\n\
          4. Propose exactly ONE Direction with parent_direction_id pointing to the old one\n\n\
-         DO NOT just analyze telemetry. Focus on the PRODUCT — what it does for users.\n\n\
+         DO NOT just analyze telemetry. Focus on the DOMAIN — where it's heading.\n\n\
          FIELD NAMES:\n\
          temper.create(\"Observations\", {{\n\
            \"content\": \"...\", \"importance\": \"high\",\n\

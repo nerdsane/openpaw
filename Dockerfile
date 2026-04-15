@@ -28,7 +28,7 @@ RUN cd os-apps/paw-agent/wasm && bash build.sh \
     && cd /app/os-apps/paw-fs/wasm/blob_adapter && bash build.sh
 
 FROM debian:bookworm-slim
-RUN apt-get update && apt-get install -y ca-certificates libz3-4 && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y ca-certificates libz3-4 git && rm -rf /var/lib/apt/lists/*
 ARG BUILD_VERSION=dev
 ARG BUILD_SHA=unknown
 WORKDIR /app

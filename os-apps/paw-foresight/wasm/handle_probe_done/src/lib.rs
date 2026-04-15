@@ -27,8 +27,8 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             .get("current_step")
             .and_then(|v| v.as_u64())
             .unwrap_or(0) as usize;
-        let product_model_id = fields
-            .get("product_model_id")
+        let foresight_model_id = fields
+            .get("foresight_model_id")
             .and_then(|v| v.as_str())
             .unwrap_or("");
         let probe_agent_ids_raw = fields
@@ -175,13 +175,13 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         let state_file_id = if !projected_state_file_id.is_empty() {
             projected_state_file_id.to_string()
         } else {
-            // Step 0: use the ProductModel's model_snapshot_file_id
+            // Step 0: use the ForesightModel's model_snapshot_file_id
             let pm_url =
-                format!("{temper_api_url}/tdata/ProductModels('{product_model_id}')");
+                format!("{temper_api_url}/tdata/ForesightModels('{foresight_model_id}')");
             let pm_resp = ctx.http_call("GET", &pm_url, &headers, "")?;
             if pm_resp.status < 200 || pm_resp.status >= 300 {
                 return Err(format!(
-                    "handle_probe_done: failed to fetch ProductModel (HTTP {})",
+                    "handle_probe_done: failed to fetch ForesightModel (HTTP {})",
                     pm_resp.status
                 ));
             }
@@ -322,18 +322,23 @@ fn spawn_convergence_analyst(
          When done analyzing, call ConvergenceComplete as instructed above, then temper.done(\"complete\")."
     );
 
-    // Configure Session
+    // Configure Session — read model/provider from Projection's probe_config
     let configure_url = format!(
         "{temper_api_url}/tdata/Sessions('{session_id}')/OpenPaw.Configure"
     );
-    // Use OpenAI if available, otherwise Anthropic
-    let has_openai = ctx.config.get("openai_codex_token")
-        .is_some_and(|v| !v.is_empty() && !v.contains("{secret:"));
-    let (analyst_model, analyst_provider) = if has_openai {
-        ("gpt-5", "openai")
+    let fields = ctx.entity_state.get("fields").cloned().unwrap_or(json!({}));
+    let probe_config_raw = fields.get("probe_config").cloned().unwrap_or(json!([]));
+    let probe_config: Vec<Value> = if let Some(arr) = probe_config_raw.as_array() {
+        arr.clone()
+    } else if let Some(s) = probe_config_raw.as_str() {
+        serde_json::from_str(s).unwrap_or_default()
     } else {
-        ("claude-sonnet-4-6", "anthropic")
+        vec![]
     };
+    // Use first probe's model/provider as analyst defaults
+    let first_probe = probe_config.first().cloned().unwrap_or(json!({}));
+    let analyst_model = first_probe.get("model").and_then(|v| v.as_str()).unwrap_or("claude-sonnet-4-6");
+    let analyst_provider = first_probe.get("provider").and_then(|v| v.as_str()).unwrap_or("anthropic");
     let configure_body = json!({
         "model": analyst_model,
         "provider": analyst_provider,

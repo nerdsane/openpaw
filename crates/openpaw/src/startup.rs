@@ -179,6 +179,20 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
         tracing::info!("  Kotowari apps directory registered (available for install)");
     }
 
+    // Phase 3b: Sync git app sources (TEMPER_APP_SOURCES env var)
+    if std::env::var("TEMPER_APP_SOURCES").is_ok() {
+        let git_apps_cache = data_dir.join("git-apps");
+        match temper_platform::os_apps::git_sources::sync_and_register_git_sources(&git_apps_cache)
+        {
+            Ok(repos) => {
+                for name in &repos {
+                    tracing::info!("  Git app source registered: {name}");
+                }
+            }
+            Err(e) => tracing::warn!("Failed to sync git app sources: {e}"),
+        }
+    }
+
     // Phase 4: Assemble PlatformState
     tracing::info!("Phase 4: Assembling platform state...");
     let llm_api_key = config
