@@ -51,6 +51,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             ("Content-Type".to_string(), "application/json".to_string()),
             ("X-Tenant-Id".to_string(), tenant.to_string()),
             ("X-Temper-Principal-Kind".to_string(), "admin".to_string()),
+            ("X-Temper-Principal-Id".to_string(), "capability-installer-wasm".to_string()),
         ];
 
         match capability_type {

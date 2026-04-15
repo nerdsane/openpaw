@@ -285,13 +285,13 @@ pub fn apply_after_hooks(
 fn load_matching_hooks(
     ctx: &Context,
     temper_api_url: &str,
-    tenant: &str,
+    _tenant: &str,
     soul_id: &str,
     hook_type: &str,
     op_name: &str,
 ) -> Result<Vec<Value>, String> {
     let url = format!("{temper_api_url}/tdata/ToolHooks");
-    let headers = odata_headers(tenant);
+    let headers = internal_headers();
     let resp = ctx.http_call("GET", &url, &headers, "")?;
     if resp.status != 200 {
         return Ok(Vec::new());
@@ -478,12 +478,8 @@ fn should_store_entry_as_file(content: &str) -> bool {
     content.len() > SESSION_ENTRY_FILE_THRESHOLD_BYTES
 }
 
-#[allow(dead_code)]
-fn odata_headers(tenant: &str) -> Vec<(String, String)> {
-    vec![
-        ("Content-Type".to_string(), "application/json".to_string()),
-        ("X-Tenant-Id".to_string(), tenant.to_string()),
-    ]
+fn internal_headers() -> Vec<(String, String)> {
+    vec![("Content-Type".to_string(), "application/json".to_string())]
 }
 
 fn file_headers(ctx: &Context, tenant: &str) -> Vec<(String, String)> {
