@@ -141,17 +141,7 @@ impl Config {
         let openrouter_api_key = optional_env("OPENROUTER_API_KEY");
         let openai_api_key = optional_env("OPENAI_API_KEY");
         let openai_codex_token = optional_env("OPENAI_CODEX_TOKEN");
-        let llm_provider = optional_env("LLM_PROVIDER").or_else(|| {
-            if anthropic_api_key.is_some() {
-                Some("anthropic".to_string())
-            } else if openrouter_api_key.is_some() {
-                Some("openrouter".to_string())
-            } else if openai_api_key.is_some() || openai_codex_token.is_some() {
-                Some("openai".to_string())
-            } else {
-                None
-            }
-        });
+        let llm_provider = optional_env("LLM_PROVIDER");
 
         Ok(Self {
             discord_bot_token: optional_env("DISCORD_BOT_TOKEN"),

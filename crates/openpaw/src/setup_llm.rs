@@ -69,7 +69,7 @@ impl LlmProvider {
             }
             LlmProvider::OpenRouter { api_key } => {
                 let body = serde_json::json!({
-                    "model": "anthropic/claude-sonnet-4",
+                    "model": "anthropic/claude-sonnet-4.6",
                     "max_tokens": max_tokens,
                     "messages": [
                         {"role": "system", "content": system},
