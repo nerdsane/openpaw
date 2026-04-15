@@ -918,6 +918,7 @@ anthropic_api_token (or api_key) for anthropic, openrouter_api_key (or api_key) 
                 &messages,
                 &tools,
                 temperature,
+                &provider,
             )?,
             other => return Err(format!("unsupported LLM provider: {other}")),
         };
@@ -1974,6 +1975,7 @@ fn call_openai(
     messages: &[Value],
     tools: &[Value],
     temperature: f64,
+    provider: &str,
 ) -> Result<LlmResponse, String> {
     // Convert Anthropic-format messages to Responses API input format
     let pre_convert_types: Vec<String> = messages
@@ -2143,12 +2145,15 @@ fn call_openai(
         "input": input,
         "stream": true,
         "store": false,
-        "temperature": temperature,
         "reasoning": {
             "effort": "medium",
             "summary": "auto",
         },
     });
+    // Codex API does not support the temperature parameter
+    if provider != "openai_codex" {
+        body["temperature"] = json!(temperature);
+    }
     if !codex_tools.is_empty() {
         body["tools"] = json!(codex_tools);
         // "auto" lets the model choose text or tool calls. "required" forces

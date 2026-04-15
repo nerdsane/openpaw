@@ -25,7 +25,8 @@ RUN cargo build -p openpaw --release --bin openpaw-server
 RUN rustup target add wasm32-unknown-unknown wasm32-wasip1
 RUN cd os-apps/paw-agent/wasm && bash build.sh \
     && cd /app/os-apps/paw-channels/wasm && bash build.sh \
-    && cd /app/os-apps/paw-fs/wasm/blob_adapter && bash build.sh
+    && cd /app/os-apps/paw-fs/wasm/blob_adapter && bash build.sh \
+    && cd /app/os-apps/paw-fs/wasm/workspace_fs && bash build.sh
 
 FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y ca-certificates libz3-4 git && rm -rf /var/lib/apt/lists/*
