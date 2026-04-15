@@ -1,0 +1,111 @@
+[automaton]
+name = "ManagedEnvironment"
+states = ["Active", "Archived"]
+initial = "Active"
+
+[[state]]
+name = "name"
+type = "string"
+initial = ""
+
+[[state]]
+name = "description"
+type = "string"
+initial = ""
+
+[[state]]
+name = "config_type"
+type = "string"
+initial = "Cloud"
+
+[[state]]
+name = "networking_type"
+type = "string"
+initial = "Unrestricted"
+
+[[state]]
+name = "allowed_hosts_json"
+type = "string"
+initial = "[]"
+
+[[state]]
+name = "computer_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "metadata"
+type = "string"
+initial = "{}"
+
+[[state]]
+name = "archived_at"
+type = "string"
+initial = ""
+
+[[action]]
+name = "ProvisionComputer"
+kind = "input"
+from = ["Active"]
+hint = "Provision or bind the logical Computer record for this environment."
+effect = [{ type = "trigger", name = "provision_computer" }]
+
+[[action]]
+name = "BindComputer"
+kind = "input"
+from = ["Active"]
+params = ["computer_id"]
+hint = "Record the OpenPaw Computer backing this environment."
+
+[[action]]
+name = "ArchiveEnvironment"
+kind = "input"
+from = ["Active"]
+to = "Archived"
+params = ["archived_at"]
+hint = "Archive this managed environment."
+
+[[invariant]]
+name = "ArchivedIsFinal"
+when = ["Archived"]
+assert = "no_further_transitions"
+
+[[field_invariant]]
+name = "ConfigTypeMustBeCloud"
+when = { not = { field = "ConfigType", absent = true } }
+require = { field = "ConfigType", equals = "Cloud" }
+message = "ManagedEnvironment.ConfigType must currently be Cloud"
+
+[[field_invariant]]
+name = "NetworkingTypeMustBeKnown"
+when = { not = { field = "NetworkingType", absent = true } }
+require = { any_of = [
+  { field = "NetworkingType", equals = "Unrestricted" },
+  { field = "NetworkingType", equals = "Limited" },
+  { field = "NetworkingType", equals = "Disabled" },
+] }
+message = "ManagedEnvironment.NetworkingType must be Unrestricted, Limited, or Disabled"
+
+[[field_invariant]]
+name = "LimitedNetworkingRequiresAllowedHosts"
+when = { field = "NetworkingType", equals = "Limited" }
+require = { all_of = [
+  { not = { field = "AllowedHostsJson", empty = true } },
+  { not = { field = "AllowedHostsJson", equals = "[]" } },
+] }
+message = "ManagedEnvironment with Limited networking must define AllowedHostsJson"
+
+[[field_invariant]]
+name = "ArchivedRequiresArchivedAt"
+when = { field = "Status", equals = "Archived" }
+require = { not = { field = "archived_at", empty = true } }
+message = "Archived managed environments must set ArchivedAt"
+
+[[integration]]
+name = "environment_provisioner"
+trigger = "provision_computer"
+type = "wasm"
+module = "environment_provisioner"
+
+[integration.config]
+temper_api_url = "{secret:temper_api_url}"
