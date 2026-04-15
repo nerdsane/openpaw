@@ -23,7 +23,7 @@ ENV BUILD_SHA=${BUILD_SHA}
 RUN cargo build -p openpaw --release --bin openpaw-server
 
 FROM debian:bookworm-slim
-RUN apt-get update && apt-get install -y ca-certificates libz3-4 && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y ca-certificates libz3-4 git && rm -rf /var/lib/apt/lists/*
 ARG BUILD_VERSION=dev
 ARG BUILD_SHA=unknown
 WORKDIR /app
