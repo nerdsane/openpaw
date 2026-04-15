@@ -24,7 +24,7 @@ use wasm_helpers::{
 };
 
 const SESSION_ENTRY_FILE_THRESHOLD_BYTES: usize = 4096;
-const DEFAULT_TOOLS_ENABLED: &str = "temper_create,temper_get,temper_list,temper_action,temper_patch,temper_submit_specs,temper_show_spec,temper_specs,temper_upload_wasm,temper_get_trajectories,temper_get_insights,temper_get_decisions,temper_poll_decision,temper_approve_decision,temper_deny_decision,temper_submit_policy,temper_list_policies,temper_get_policy,temper_update_policy,temper_delete_policy,temper_install_app,temper_list_apps,temper_spawn_session,temper_list_sessions,temper_abort_session,temper_steer_session,temper_save_memory,temper_recall_memory,temper_write,temper_read,temper_run_coding_agent,temper_get_secret,temper_datadog_query,temper_railway,temper_vercel,temper_web_search,temper_web_fetch,read,write,edit,bash";
+const DEFAULT_TOOLS_ENABLED: &str = "temper_create,temper_get,temper_list,temper_action,temper_patch,temper_submit_specs,temper_show_spec,temper_specs,temper_upload_wasm,temper_get_trajectories,temper_get_insights,temper_get_decisions,temper_poll_decision,temper_approve_decision,temper_deny_decision,temper_submit_policy,temper_list_policies,temper_get_policy,temper_update_policy,temper_delete_policy,temper_install_app,temper_list_apps,temper_spawn_session,temper_list_sessions,temper_abort_session,temper_steer_session,temper_save_memory,temper_recall_memory,temper_write,temper_read,temper_ls,temper_grep,temper_glob,temper_edit,temper_rename,temper_search_history,temper_run_coding_agent,temper_get_secret,temper_datadog_query,temper_railway,temper_vercel,temper_web_search,temper_web_fetch,read,write,edit,bash";
 
 struct ReplMethodSpec {
     object: &'static str,
@@ -151,8 +151,50 @@ const REPL_METHOD_SPECS: &[ReplMethodSpec] = &[
         object: "temper",
         method: "read",
         signature: "(path, opts=None)",
-        description: "read file content by path",
+        description: "read file content by path. opts: {offset: int, limit: int} for partial reads (0-indexed line numbers)",
         token: Some("temper_read"),
+    },
+    ReplMethodSpec {
+        object: "temper",
+        method: "ls",
+        signature: "(path, opts=None)",
+        description: "list directory contents (files and subdirectories), returns JSON array",
+        token: Some("temper_ls"),
+    },
+    ReplMethodSpec {
+        object: "temper",
+        method: "grep",
+        signature: "(pattern, path, opts=None)",
+        description: "search file contents for pattern, returns matching lines with file paths and line numbers. opts: {case_insensitive: bool, max_results: int}",
+        token: Some("temper_grep"),
+    },
+    ReplMethodSpec {
+        object: "temper",
+        method: "glob",
+        signature: "(pattern, path='/')",
+        description: "find files matching name pattern (supports *, **, ?), returns list of matching paths",
+        token: Some("temper_glob"),
+    },
+    ReplMethodSpec {
+        object: "temper",
+        method: "edit",
+        signature: "(path, old_string, new_string, opts=None)",
+        description: "replace first occurrence of old_string with new_string in file",
+        token: Some("temper_edit"),
+    },
+    ReplMethodSpec {
+        object: "temper",
+        method: "rename",
+        signature: "(old_path, new_path, opts=None)",
+        description: "rename or move a file to a new path",
+        token: Some("temper_rename"),
+    },
+    ReplMethodSpec {
+        object: "temper",
+        method: "search_history",
+        signature: "(pattern)",
+        description: "search full conversation history including compacted entries, returns matching excerpts with entry metadata",
+        token: Some("temper_search_history"),
     },
     ReplMethodSpec {
         object: "temper",
@@ -479,7 +521,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             let key = resolve_provider_api_key(&ctx, &provider)?;
             if is_unresolved_secret_template(&key) {
                 // Try other providers
-                let alternatives = ["anthropic", "openai", "openrouter"];
+                let alternatives = ["anthropic", "openai_codex", "openai", "openrouter"];
                 let mut found = None;
                 for alt in &alternatives {
                     if *alt == provider {
@@ -522,7 +564,8 @@ set tenant secret and retry"
                 m.clone()
             } else {
                 match provider.as_str() {
-                    "openai" => "o3-mini".to_string(),
+                    "openai" => "gpt-4.1".to_string(),
+                    "openai_codex" => "gpt-5.4".to_string(),
                     "openrouter" => "anthropic/claude-sonnet-4".to_string(),
                     _ => "claude-sonnet-4-6".to_string(),
                 }
@@ -866,7 +909,7 @@ anthropic_api_token (or api_key) for anthropic, openrouter_api_key (or api_key) 
                 &openrouter_app_name,
                 temperature,
             )?,
-            "openai" => call_openai(
+            "openai" | "openai_codex" => call_openai(
                 &ctx,
                 &api_key,
                 &openai_api_url,
@@ -1452,10 +1495,10 @@ fn prefix_at_char_boundary(input: &str, max_bytes: usize) -> &str {
 
 fn normalize_provider(provider: &str) -> String {
     let norm = provider.trim().to_ascii_lowercase();
-    if norm == "open_router" {
-        "openrouter".to_string()
-    } else {
-        norm
+    match norm.as_str() {
+        "open_router" => "openrouter".to_string(),
+        "codex" | "openai-codex" => "openai_codex".to_string(),
+        _ => norm,
     }
 }
 
@@ -1481,8 +1524,10 @@ fn resolve_provider_api_key(ctx: &Context, provider: &str) -> Result<String, Str
         ]),
         "openai" => first_non_empty(&[
             ctx.config.get("openai_api_key").cloned(),
-            ctx.config.get("openai_codex_token").cloned(),
             ctx.config.get("api_key").cloned(),
+        ]),
+        "openai_codex" => first_non_empty(&[
+            ctx.config.get("openai_codex_token").cloned(),
         ]),
         "openrouter" => first_non_empty(&[
             ctx.config.get("openrouter_api_key").cloned(),
@@ -2099,6 +2144,10 @@ fn call_openai(
         "stream": true,
         "store": false,
         "temperature": temperature,
+        "reasoning": {
+            "effort": "medium",
+            "summary": "auto",
+        },
     });
     if !codex_tools.is_empty() {
         body["tools"] = json!(codex_tools);
@@ -2138,7 +2187,9 @@ fn call_openai(
     );
 
     let mut last_err = String::new();
-    let mut resp = None;
+    let mut output_items = Vec::<Value>::new();
+    let mut usage = json!({});
+
     for attempt in 0..5 {
         if attempt > 0 {
             ctx.log(
@@ -2146,11 +2197,8 @@ fn call_openai(
                 &format!("llm_caller: OpenAI Codex retry {}/{}", attempt + 1, 5),
             );
         }
-        match ctx.http_call("POST", api_url, &headers, &body_str) {
-            Ok(r) if r.status >= 200 && r.status < 300 => {
-                resp = Some(r);
-                break;
-            }
+        let resp = match ctx.http_call("POST", api_url, &headers, &body_str) {
+            Ok(r) if r.status >= 200 && r.status < 300 => r,
             Ok(r) if r.status == 429 => {
                 last_err = format!("OpenAI Codex API rate limited (429)");
                 continue;
@@ -2163,85 +2211,108 @@ fn call_openai(
                 last_err = e;
                 continue;
             }
-        }
-    }
-    let resp =
-        resp.ok_or_else(|| format!("OpenAI Codex API failed after 5 attempts: {last_err}"))?;
+        };
 
-    // Parse SSE data payloads (newline-separated JSON lines from host).
-    // The Codex endpoint streams individual events — output_item.done events
-    // contain the actual tool calls and messages. response.completed may have
-    // empty output (Codex strips it for bandwidth). So we accumulate output
-    // items from output_item.done events and usage from response.completed.
-    let body = &resp.body;
-    let mut output_items = Vec::<Value>::new();
-    let mut usage = json!({});
-    let mut streamed_text = String::new();
+        // Parse SSE data payloads (newline-separated JSON lines from host).
+        // The Codex endpoint streams individual events — output_item.done events
+        // contain the actual tool calls and messages. response.completed may have
+        // empty output (Codex strips it for bandwidth). So we accumulate output
+        // items from output_item.done events and usage from response.completed.
+        let body = &resp.body;
+        output_items.clear();
+        usage = json!({});
+        let mut streamed_text = String::new();
+        let mut saw_completed = false;
 
-    for line in body.lines() {
-        let line = line.trim();
-        if line.is_empty() || line == "[DONE]" {
-            continue;
-        }
-        let json_str = line.strip_prefix("data: ").unwrap_or(line);
-        if let Ok(event) = serde_json::from_str::<Value>(json_str) {
-            let event_type = event.get("type").and_then(Value::as_str).unwrap_or("");
-            match event_type {
-                "response.output_item.done" => {
-                    if let Some(item) = event.get("item") {
-                        output_items.push(item.clone());
+        for line in body.lines() {
+            let line = line.trim();
+            if line.is_empty() || line == "[DONE]" {
+                continue;
+            }
+            let json_str = line.strip_prefix("data: ").unwrap_or(line);
+            if let Ok(event) = serde_json::from_str::<Value>(json_str) {
+                let event_type = event.get("type").and_then(Value::as_str).unwrap_or("");
+                match event_type {
+                    "response.output_item.done" => {
+                        if let Some(item) = event.get("item") {
+                            output_items.push(item.clone());
+                        }
                     }
-                }
-                "response.output_text.delta" => {
-                    if let Some(delta) = event.get("delta").and_then(Value::as_str) {
-                        streamed_text.push_str(delta);
-                    } else if let Some(text) = event.get("text").and_then(Value::as_str) {
-                        streamed_text.push_str(text);
-                    }
-                }
-                "response.output_text.done" => {
-                    if let Some(text) = event.get("text").and_then(Value::as_str) {
-                        if streamed_text.is_empty() {
+                    "response.output_text.delta" => {
+                        if let Some(delta) = event.get("delta").and_then(Value::as_str) {
+                            streamed_text.push_str(delta);
+                        } else if let Some(text) = event.get("text").and_then(Value::as_str) {
                             streamed_text.push_str(text);
                         }
                     }
-                }
-                "response.completed" => {
-                    if let Some(resp) = event.get("response") {
-                        if let Some(u) = resp.get("usage") {
-                            usage = u.clone();
-                        }
-                        // If response has non-empty output, use it (standard API behavior)
-                        if let Some(out) = resp.get("output").and_then(Value::as_array) {
-                            if !out.is_empty() {
-                                output_items = out.clone();
+                    "response.output_text.done" => {
+                        if let Some(text) = event.get("text").and_then(Value::as_str) {
+                            if streamed_text.is_empty() {
+                                streamed_text.push_str(text);
                             }
                         }
                     }
+                    "response.completed" => {
+                        saw_completed = true;
+                        if let Some(resp) = event.get("response") {
+                            if let Some(u) = resp.get("usage") {
+                                usage = u.clone();
+                            }
+                            if let Some(out) = resp.get("output").and_then(Value::as_array) {
+                                if !out.is_empty() {
+                                    output_items = out.clone();
+                                }
+                            }
+                        }
+                    }
+                    _ => {}
                 }
-                _ => {}
             }
         }
-    }
 
-    if output_items.is_empty() {
-        let streamed_text = streamed_text.trim();
-        if !streamed_text.is_empty() {
-            output_items.push(json!({
-                "type": "message",
-                "content": [{
-                    "type": "output_text",
-                    "text": streamed_text,
-                }],
-            }));
+        if output_items.is_empty() {
+            let trimmed = streamed_text.trim();
+            if !trimmed.is_empty() {
+                output_items.push(json!({
+                    "type": "message",
+                    "content": [{
+                        "type": "output_text",
+                        "text": trimmed,
+                    }],
+                }));
+            }
         }
+
+        if !output_items.is_empty() {
+            break;
+        }
+
+        // No output items — stream was likely truncated (SSE decode error
+        // during reasoning phase). Retry if we never saw response.completed.
+        if !saw_completed {
+            last_err = format!(
+                "SSE stream truncated: {} lines ({}B) but no response.completed event",
+                body.lines().count(),
+                body.len()
+            );
+            ctx.log(
+                "warn",
+                &format!("llm_caller: {last_err}, will retry"),
+            );
+            continue;
+        }
+
+        // Saw response.completed but still no output — genuine empty response
+        return Err(format!(
+            "OpenAI: no output items found in {} lines ({}B) despite response.completed",
+            body.lines().count(),
+            body.len()
+        ));
     }
 
     if output_items.is_empty() {
         return Err(format!(
-            "OpenAI: no output items found in {} lines ({}B)",
-            body.lines().count(),
-            body.len()
+            "OpenAI Codex API failed after 5 attempts: {last_err}"
         ));
     }
 

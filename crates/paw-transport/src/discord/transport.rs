@@ -151,6 +151,118 @@ fn build_rich_fallback_text(content: &str, embeds: &[Embed]) -> String {
     parts.join("\n\n")
 }
 
+// ── Attachment helpers ───────────────────────────────────────────────
+
+/// Maximum size (bytes) of a single text attachment to inline.
+const MAX_ATTACHMENT_SIZE: u64 = 100_000;
+
+/// Check whether a Discord attachment is a text-type file worth inlining.
+///
+/// Uses `content_type` when available, otherwise falls back to file extension.
+fn is_text_attachment(att: &DiscordAttachment) -> bool {
+    if let Some(ct) = &att.content_type {
+        let ct_lower = ct.to_lowercase();
+        if ct_lower.starts_with("text/") {
+            return true;
+        }
+        if matches!(
+            ct_lower.as_str(),
+            "application/json"
+                | "application/xml"
+                | "application/toml"
+                | "application/yaml"
+                | "application/x-yaml"
+                | "application/javascript"
+                | "application/typescript"
+                | "application/x-sh"
+        ) {
+            return true;
+        }
+        return false;
+    }
+    // Fallback: check file extension.
+    let name = att.filename.to_lowercase();
+    let text_exts = [
+        ".md", ".txt", ".rs", ".py", ".ts", ".js", ".json", ".toml", ".yaml", ".yml", ".csv",
+        ".html", ".css", ".xml", ".sh", ".bash", ".go", ".java", ".c", ".cpp", ".h", ".rb",
+        ".php", ".sql", ".log", ".cfg", ".ini", ".conf", ".env", ".tsx", ".jsx", ".svelte",
+        ".vue", ".tf", ".hcl", ".prisma", ".graphql", ".proto",
+    ];
+    text_exts.iter().any(|ext| name.ends_with(ext))
+}
+
+/// Download text-type attachments from Discord CDN.
+///
+/// Skips non-text and oversized files. Returns `(filename, content)` pairs.
+/// Fault-tolerant: logs warnings on download failure, never fails the message.
+async fn fetch_text_attachments(
+    http: &reqwest::Client,
+    attachments: &[DiscordAttachment],
+) -> Vec<(String, String)> {
+    let mut results = Vec::new();
+    for att in attachments {
+        if !is_text_attachment(att) {
+            continue;
+        }
+        if att.size > MAX_ATTACHMENT_SIZE {
+            eprintln!(
+                "  [discord] Skipping oversized text attachment '{}' ({} bytes)",
+                att.filename, att.size
+            );
+            continue;
+        }
+        match http.get(&att.proxy_url).send().await {
+            Ok(resp) if resp.status().is_success() => match resp.text().await {
+                Ok(body) => results.push((att.filename.clone(), body)),
+                Err(e) => {
+                    eprintln!(
+                        "  [discord] Failed to read attachment body '{}': {e}",
+                        att.filename
+                    );
+                }
+            },
+            Ok(resp) => {
+                eprintln!(
+                    "  [discord] Attachment download '{}' returned {}",
+                    att.filename,
+                    resp.status()
+                );
+            }
+            Err(e) => {
+                eprintln!(
+                    "  [discord] Failed to download attachment '{}': {e}",
+                    att.filename
+                );
+            }
+        }
+    }
+    results
+}
+
+/// Enrich message content by inlining text-type attachment content.
+///
+/// Non-text and oversized attachments are silently skipped.
+async fn enrich_content_with_attachments(
+    http: &reqwest::Client,
+    content: &str,
+    attachments: &[DiscordAttachment],
+) -> String {
+    if attachments.is_empty() {
+        return content.to_string();
+    }
+    let text_files = fetch_text_attachments(http, attachments).await;
+    if text_files.is_empty() {
+        return content.to_string();
+    }
+    let mut enriched = content.to_string();
+    for (filename, file_content) in &text_files {
+        enriched.push_str(&format!(
+            "\n\n---\n[Attached file: {filename}]\n{file_content}\n---"
+        ));
+    }
+    enriched
+}
+
 impl DiscordTransport {
     /// Create a new Discord transport.
     pub fn new(config: DiscordConfig, api: PawApiClient) -> Self {
@@ -739,11 +851,15 @@ impl DiscordTransport {
             return;
         };
 
+        // Fetch text-type attachments and inline their content.
+        let enriched_content =
+            enrich_content_with_attachments(&self.http, &msg.content, &msg.attachments).await;
+
         let params = serde_json::json!({
             "message_id": msg.id,
             "author_id": msg.author.id,
             "thread_id": msg.author.id,  // DMs use author_id as thread
-            "content": msg.content,
+            "content": enriched_content,
         });
 
         match self
@@ -1414,4 +1530,100 @@ async fn read_payload(read: &mut WsStream) -> Result<Option<GatewayPayload>, Str
     };
     let frame = frame.map_err(|e| format!("WebSocket read error: {e}"))?;
     parse_frame(frame)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_attachment(filename: &str, content_type: Option<&str>, size: u64) -> DiscordAttachment {
+        DiscordAttachment {
+            id: "att1".to_string(),
+            filename: filename.to_string(),
+            size,
+            url: format!("https://cdn.discordapp.com/{filename}"),
+            proxy_url: format!("https://media.discordapp.net/{filename}"),
+            content_type: content_type.map(|s| s.to_string()),
+        }
+    }
+
+    #[test]
+    fn text_content_types_detected() {
+        assert!(is_text_attachment(&make_attachment("f.md", Some("text/markdown"), 100)));
+        assert!(is_text_attachment(&make_attachment("f.txt", Some("text/plain"), 100)));
+        assert!(is_text_attachment(&make_attachment("f.html", Some("text/html"), 100)));
+        assert!(is_text_attachment(&make_attachment("f.json", Some("application/json"), 100)));
+        assert!(is_text_attachment(&make_attachment("f.xml", Some("application/xml"), 100)));
+        assert!(is_text_attachment(&make_attachment("f.yaml", Some("application/yaml"), 100)));
+        assert!(is_text_attachment(&make_attachment("f.sh", Some("application/x-sh"), 100)));
+    }
+
+    #[test]
+    fn non_text_content_types_rejected() {
+        assert!(!is_text_attachment(&make_attachment("photo.png", Some("image/png"), 100)));
+        assert!(!is_text_attachment(&make_attachment("video.mp4", Some("video/mp4"), 100)));
+        assert!(!is_text_attachment(&make_attachment("archive.zip", Some("application/zip"), 100)));
+        assert!(!is_text_attachment(&make_attachment("doc.pdf", Some("application/pdf"), 100)));
+        assert!(!is_text_attachment(&make_attachment("music.mp3", Some("audio/mpeg"), 100)));
+    }
+
+    #[test]
+    fn text_extensions_detected_without_content_type() {
+        assert!(is_text_attachment(&make_attachment("readme.md", None, 100)));
+        assert!(is_text_attachment(&make_attachment("script.py", None, 100)));
+        assert!(is_text_attachment(&make_attachment("main.rs", None, 100)));
+        assert!(is_text_attachment(&make_attachment("app.tsx", None, 100)));
+        assert!(is_text_attachment(&make_attachment("config.toml", None, 100)));
+        assert!(is_text_attachment(&make_attachment("data.json", None, 100)));
+        assert!(is_text_attachment(&make_attachment("style.css", None, 100)));
+        assert!(is_text_attachment(&make_attachment("deploy.sh", None, 100)));
+        assert!(is_text_attachment(&make_attachment("schema.sql", None, 100)));
+        assert!(is_text_attachment(&make_attachment("page.svelte", None, 100)));
+    }
+
+    #[test]
+    fn non_text_extensions_rejected_without_content_type() {
+        assert!(!is_text_attachment(&make_attachment("photo.png", None, 100)));
+        assert!(!is_text_attachment(&make_attachment("archive.zip", None, 100)));
+        assert!(!is_text_attachment(&make_attachment("binary.exe", None, 100)));
+        assert!(!is_text_attachment(&make_attachment("document.pdf", None, 100)));
+        assert!(!is_text_attachment(&make_attachment("image.jpg", None, 100)));
+    }
+
+    #[test]
+    fn content_type_takes_precedence_over_extension() {
+        // File named .txt but content_type says image — should be rejected
+        assert!(!is_text_attachment(&make_attachment("file.txt", Some("image/png"), 100)));
+        // File named .png but content_type says text — should be accepted
+        assert!(is_text_attachment(&make_attachment("file.png", Some("text/plain"), 100)));
+    }
+
+    #[tokio::test]
+    async fn oversized_attachments_skipped() {
+        let attachments = vec![make_attachment("big.md", Some("text/markdown"), MAX_ATTACHMENT_SIZE + 1)];
+        let results = fetch_text_attachments(&reqwest::Client::new(), &attachments).await;
+        assert!(results.is_empty());
+    }
+
+    #[tokio::test]
+    async fn non_text_attachments_skipped() {
+        let attachments = vec![make_attachment("photo.png", Some("image/png"), 1024)];
+        let results = fetch_text_attachments(&reqwest::Client::new(), &attachments).await;
+        assert!(results.is_empty());
+    }
+
+    #[tokio::test]
+    async fn enrich_no_attachments_returns_original() {
+        let content = "hello world";
+        let result = enrich_content_with_attachments(&reqwest::Client::new(), content, &[]).await;
+        assert_eq!(result, "hello world");
+    }
+
+    #[tokio::test]
+    async fn enrich_with_only_non_text_returns_original() {
+        let attachments = vec![make_attachment("photo.png", Some("image/png"), 1024)];
+        let result =
+            enrich_content_with_attachments(&reqwest::Client::new(), "hello", &attachments).await;
+        assert_eq!(result, "hello");
+    }
 }

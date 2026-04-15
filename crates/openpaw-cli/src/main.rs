@@ -29,11 +29,7 @@ async fn main() -> anyhow::Result<()> {
             run_server(&["run"])?;
         }
         Command::Deploy => {
-            let dd_api_key = optional_env("DD_API_KEY");
-            let dd_app_key = optional_env("DD_APP_KEY");
-            let dd_site =
-                std::env::var("DD_SITE").unwrap_or_else(|_| "datadoghq.com".to_string());
-            deploy::run_deploy(dd_api_key, dd_app_key, dd_site).await?;
+            deploy::run_deploy().await?;
         }
         Command::Doctor => {
             run_server(&["doctor"])?;
@@ -78,9 +74,3 @@ fn run_server(args: &[&str]) -> anyhow::Result<()> {
     }
 }
 
-fn optional_env(name: &str) -> Option<String> {
-    std::env::var(name)
-        .ok()
-        .map(|v| v.trim().to_string())
-        .filter(|v| !v.is_empty())
-}

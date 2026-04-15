@@ -8,7 +8,7 @@ use temper_wasm_sdk::context::Context;
 
 use crate::dispatch;
 
-const DEFAULT_TOOLS_ENABLED: &str = "temper_create,temper_get,temper_list,temper_action,temper_patch,temper_submit_specs,temper_show_spec,temper_specs,temper_upload_wasm,temper_get_trajectories,temper_get_insights,temper_get_decisions,temper_poll_decision,temper_approve_decision,temper_deny_decision,temper_submit_policy,temper_list_policies,temper_get_policy,temper_update_policy,temper_delete_policy,temper_install_app,temper_create_app,temper_list_apps,temper_spawn_session,temper_list_sessions,temper_abort_session,temper_steer_session,temper_save_memory,temper_recall_memory,temper_write,temper_read,temper_run_coding_agent,temper_get_secret,temper_datadog_query,temper_railway,temper_vercel,temper_web_search,temper_web_fetch,read,write,edit,bash";
+const DEFAULT_TOOLS_ENABLED: &str = "temper_create,temper_get,temper_list,temper_action,temper_patch,temper_submit_specs,temper_show_spec,temper_specs,temper_upload_wasm,temper_get_trajectories,temper_get_insights,temper_get_decisions,temper_poll_decision,temper_approve_decision,temper_deny_decision,temper_submit_policy,temper_list_policies,temper_get_policy,temper_update_policy,temper_delete_policy,temper_install_app,temper_create_app,temper_list_apps,temper_spawn_session,temper_list_sessions,temper_abort_session,temper_steer_session,temper_save_memory,temper_recall_memory,temper_write,temper_read,temper_ls,temper_grep,temper_glob,temper_edit,temper_rename,temper_search_history,temper_run_coding_agent,temper_get_secret,temper_datadog_query,temper_railway,temper_vercel,temper_web_search,temper_web_fetch,read,write,edit,bash";
 
 // ---------------------------------------------------------------------------
 // spawn_session
@@ -542,16 +542,619 @@ pub fn read(
 
     // 3. GET $value — read content (FUSE: read).
     let url = format!("{api_url}/tdata/Files('{file_id}')/$value");
-    let headers = vec![
-        ("X-Tenant-Id".to_string(), tenant.to_string()),
-        ("Accept".to_string(), "application/octet-stream".to_string()),
-    ];
+    let headers = vec![("Accept".to_string(), "application/octet-stream".to_string())];
     let resp = ctx.http_call("GET", &url, &headers, "")?;
     if resp.status >= 400 {
         return Err(format!("temper.read(): content read failed (HTTP {})", resp.status));
     }
 
-    Ok(json!(resp.body))
+    let content = resp.body;
+
+    // Support offset/limit for partial reads (0-indexed line numbers)
+    let offset = opts.get("offset").and_then(|v| v.as_u64()).map(|v| v as usize);
+    let limit = opts.get("limit").and_then(|v| v.as_u64()).map(|v| v as usize);
+
+    if offset.is_some() || limit.is_some() {
+        let lines: Vec<&str> = content.lines().collect();
+        let start = offset.unwrap_or(0);
+        let end = limit.map(|l| (start + l).min(lines.len())).unwrap_or(lines.len());
+        if start >= lines.len() {
+            return Ok(json!({
+                "content": "",
+                "total_lines": lines.len(),
+                "offset": start,
+                "limit": limit.unwrap_or(0),
+            }));
+        }
+        let numbered: Vec<String> = lines[start..end]
+            .iter()
+            .enumerate()
+            .map(|(i, line)| format!("{}\t{}", start + i + 1, line))
+            .collect();
+        return Ok(json!({
+            "content": numbered.join("\n"),
+            "total_lines": lines.len(),
+            "offset": start,
+            "limit": end - start,
+        }));
+    }
+
+    Ok(json!(content))
+}
+
+// ---------------------------------------------------------------------------
+// ls — temper.ls(path, opts?)
+// ---------------------------------------------------------------------------
+
+pub fn ls(
+    ctx: &Context,
+    api_url: &str,
+    tenant: &str,
+    args: &[Value],
+) -> Result<Value, String> {
+    let path = pos_str(args, 0, "path", "ls")?;
+    let opts = obj_arg_or_empty(args, 1);
+    let ws_id = resolve_workspace_id(ctx, api_url, tenant, &opts, false)?;
+    let eid = ctx_entity_id(ctx);
+
+    let resp = http_post(
+        ctx,
+        api_url,
+        tenant,
+        eid,
+        &format!("/tdata/Workspaces('{ws_id}')/Temper.ListDir?await_integration=true"),
+        &json!({"path": path}),
+    )?;
+
+    let listing = resp
+        .get("fields")
+        .and_then(|f| f.get("last_listing"))
+        .or_else(|| resp.get("last_listing"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("[]");
+
+    let parsed: Value = serde_json::from_str(listing).unwrap_or(json!([]));
+    Ok(parsed)
+}
+
+// ---------------------------------------------------------------------------
+// edit — temper.edit(path, old_string, new_string, opts?)
+// ---------------------------------------------------------------------------
+
+pub fn edit(
+    ctx: &Context,
+    api_url: &str,
+    tenant: &str,
+    args: &[Value],
+) -> Result<Value, String> {
+    let path = pos_str(args, 0, "path", "edit")?;
+    let old_string = pos_str(args, 1, "old_string", "edit")?;
+    let new_string = pos_str(args, 2, "new_string", "edit")?;
+    let opts = obj_arg_or_empty(args, 3);
+
+    // Read current content
+    let read_args = vec![json!(path.clone()), opts.clone()];
+    let content_val = read(ctx, api_url, tenant, &read_args)?;
+    let content = content_val.as_str().unwrap_or("").to_string();
+
+    if !content.contains(&old_string) {
+        return Err(format!("temper.edit(): old_string not found in file at '{path}'"));
+    }
+
+    let new_content = content.replacen(&old_string, &new_string, 1);
+
+    // Write back
+    let write_args = vec![json!(path), json!(new_content), opts];
+    write(ctx, api_url, tenant, &write_args)?;
+
+    Ok(json!({"ok": true}))
+}
+
+// ---------------------------------------------------------------------------
+// rename — temper.rename(old_path, new_path, opts?)
+// ---------------------------------------------------------------------------
+
+pub fn rename(
+    ctx: &Context,
+    api_url: &str,
+    tenant: &str,
+    args: &[Value],
+) -> Result<Value, String> {
+    let old_path = pos_str(args, 0, "old_path", "rename")?;
+    let new_path = pos_str(args, 1, "new_path", "rename")?;
+    let opts = obj_arg_or_empty(args, 2);
+    let ws_id = resolve_workspace_id(ctx, api_url, tenant, &opts, false)?;
+    let eid = ctx_entity_id(ctx);
+
+    let resp = http_post(
+        ctx,
+        api_url,
+        tenant,
+        eid,
+        &format!("/tdata/Workspaces('{ws_id}')/Temper.Rename?await_integration=true"),
+        &json!({"path": old_path, "new_path": new_path}),
+    )?;
+
+    let file_id = resp
+        .get("fields")
+        .and_then(|f| f.get("last_file_id"))
+        .or_else(|| resp.get("last_file_id"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    Ok(json!({
+        "file_id": file_id,
+        "old_path": old_path,
+        "new_path": new_path,
+    }))
+}
+
+// ---------------------------------------------------------------------------
+// search_history — temper.search_history(pattern)
+// ---------------------------------------------------------------------------
+
+pub fn search_history(
+    ctx: &Context,
+    api_url: &str,
+    tenant: &str,
+    args: &[Value],
+) -> Result<Value, String> {
+    let pattern = pos_str(args, 0, "pattern", "search_history")?;
+    let eid = ctx_entity_id(ctx);
+
+    // Get session_file_id from entity state
+    let fields = ctx.entity_state.get("fields").cloned().unwrap_or(json!({}));
+    let session_file_id = fields
+        .get("session_file_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+
+    if session_file_id.is_empty() {
+        return Err("search_history: no session_file_id in entity state".into());
+    }
+
+    // Read full session JSONL
+    let url = format!("{api_url}/tdata/Files('{session_file_id}')/$value");
+    let headers = runtime_headers(tenant, eid);
+    let resp = ctx.http_call("GET", &url, &headers, "")?;
+    if resp.status >= 400 {
+        return Err(format!(
+            "search_history: failed to read session file (HTTP {})",
+            resp.status
+        ));
+    }
+
+    let tree = session_tree_lib::SessionTree::from_jsonl(&resp.body);
+    let pattern_lower = pattern.to_lowercase();
+    let mut matches: Vec<Value> = Vec::new();
+    let mut content_fetches = 0;
+    const MAX_CONTENT_FETCHES: usize = 20;
+    const MAX_RESULTS: usize = 50;
+
+    for entry_id in tree.entry_ids() {
+        if matches.len() >= MAX_RESULTS {
+            break;
+        }
+
+        let entry = match tree.get(entry_id) {
+            Some(e) => e,
+            None => continue,
+        };
+
+        // Extract role from entry data
+        let role = entry
+            .data
+            .get("role")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown");
+        let entry_type_str = entry.entry_type.as_str();
+
+        // Try inline content first
+        let inline_content = extract_entry_text(&entry.data);
+        let inline_lower = inline_content.to_lowercase();
+
+        if inline_lower.contains(&pattern_lower) {
+            // Find matching excerpt
+            let excerpt = extract_excerpt(&inline_content, &pattern, 500);
+            matches.push(json!({
+                "entry_id": entry_id,
+                "role": role,
+                "entry_type": entry_type_str,
+                "excerpt": excerpt,
+                "source": "inline",
+            }));
+            continue;
+        }
+
+        // If entry has content_file_id and no inline match, fetch the file content
+        if let Some(ref content_file_id) = entry.content_file_id {
+            if content_fetches >= MAX_CONTENT_FETCHES {
+                continue;
+            }
+            content_fetches += 1;
+
+            let file_url = format!("{api_url}/tdata/Files('{content_file_id}')/$value");
+            let file_resp = ctx.http_call("GET", &file_url, &headers, "");
+            if let Ok(file_resp) = file_resp {
+                if file_resp.status < 400 {
+                    let file_lower = file_resp.body.to_lowercase();
+                    if file_lower.contains(&pattern_lower) {
+                        let excerpt = extract_excerpt(&file_resp.body, &pattern, 500);
+                        matches.push(json!({
+                            "entry_id": entry_id,
+                            "role": role,
+                            "entry_type": entry_type_str,
+                            "excerpt": excerpt,
+                            "source": "content_file",
+                            "content_file_id": content_file_id,
+                        }));
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(json!({
+        "matches": matches,
+        "total": matches.len(),
+        "entries_searched": tree.entry_ids().len(),
+        "content_files_fetched": content_fetches,
+    }))
+}
+
+/// Extract text content from a session entry's data field.
+fn extract_entry_text(data: &Value) -> String {
+    // Try "content" as string
+    if let Some(s) = data.get("content").and_then(|v| v.as_str()) {
+        return s.to_string();
+    }
+    // Try "content" as array of content blocks (Anthropic format)
+    if let Some(arr) = data.get("content").and_then(|v| v.as_array()) {
+        let parts: Vec<String> = arr
+            .iter()
+            .filter_map(|block| {
+                if let Some(text) = block.get("text").and_then(|v| v.as_str()) {
+                    Some(text.to_string())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        if !parts.is_empty() {
+            return parts.join("\n");
+        }
+    }
+    // Try "summary" field (compaction entries)
+    if let Some(s) = data.get("summary").and_then(|v| v.as_str()) {
+        return s.to_string();
+    }
+    String::new()
+}
+
+/// Extract a truncated excerpt around the first match of pattern in text.
+fn extract_excerpt(text: &str, pattern: &str, max_len: usize) -> String {
+    let text_lower = text.to_lowercase();
+    let pattern_lower = pattern.to_lowercase();
+    if let Some(pos) = text_lower.find(&pattern_lower) {
+        let start = pos.saturating_sub(max_len / 4);
+        let end = (pos + pattern.len() + max_len * 3 / 4).min(text.len());
+        // Align to char boundaries
+        let start = text[..start]
+            .char_indices()
+            .last()
+            .map(|(i, _)| i)
+            .unwrap_or(0);
+        let end = text[..end]
+            .char_indices()
+            .last()
+            .map(|(i, c)| i + c.len_utf8())
+            .unwrap_or(text.len())
+            .min(text.len());
+        let excerpt = &text[start..end];
+        if start > 0 || end < text.len() {
+            let mut result = String::new();
+            if start > 0 {
+                result.push_str("...");
+            }
+            result.push_str(excerpt);
+            if end < text.len() {
+                result.push_str("...");
+            }
+            result
+        } else {
+            excerpt.to_string()
+        }
+    } else {
+        text[..text.len().min(max_len)].to_string()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// grep — temper.grep(pattern, path, opts?)
+// ---------------------------------------------------------------------------
+
+pub fn grep(
+    ctx: &Context,
+    api_url: &str,
+    tenant: &str,
+    args: &[Value],
+) -> Result<Value, String> {
+    let pattern = pos_str(args, 0, "pattern", "grep")?;
+    let path = pos_str(args, 1, "path", "grep")?;
+    let opts = obj_arg_or_empty(args, 2);
+    let ws_id = resolve_workspace_id(ctx, api_url, tenant, &opts, false)?;
+    let eid = ctx_entity_id(ctx);
+    let case_insensitive = opts
+        .get("case_insensitive")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let max_results = opts
+        .get("max_results")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(50) as usize;
+
+    let search_pattern = if case_insensitive {
+        pattern.to_lowercase()
+    } else {
+        pattern.clone()
+    };
+
+    // Try resolving as a single file first
+    let file_paths = resolve_grep_targets(ctx, api_url, tenant, eid, &ws_id, &path)?;
+
+    let mut matches: Vec<Value> = Vec::new();
+
+    for file_path in file_paths {
+        if matches.len() >= max_results {
+            break;
+        }
+
+        // Read file content
+        let read_args = vec![json!(file_path), json!({"workspace_id": ws_id})];
+        let content_val = match read(ctx, api_url, tenant, &read_args) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        let content = content_val.as_str().unwrap_or("");
+
+        for (line_num, line) in content.lines().enumerate() {
+            if matches.len() >= max_results {
+                break;
+            }
+            let haystack = if case_insensitive {
+                line.to_lowercase()
+            } else {
+                line.to_string()
+            };
+            if haystack.contains(&search_pattern) {
+                matches.push(json!({
+                    "file": file_path,
+                    "line_number": line_num + 1,
+                    "line": line,
+                }));
+            }
+        }
+    }
+
+    Ok(json!({ "matches": matches, "total": matches.len() }))
+}
+
+/// Resolve grep targets: if path is a file return vec![path], if dir return all files recursively.
+fn resolve_grep_targets(
+    ctx: &Context,
+    api_url: &str,
+    tenant: &str,
+    principal_id: &str,
+    ws_id: &str,
+    path: &str,
+) -> Result<Vec<String>, String> {
+    // Try to resolve as a file first
+    let resp = http_post(
+        ctx,
+        api_url,
+        tenant,
+        principal_id,
+        &format!("/tdata/Workspaces('{ws_id}')/Temper.ResolvePath?await_integration=true"),
+        &json!({"path": path}),
+    );
+
+    if let Ok(ref r) = resp {
+        let file_id = r
+            .get("fields")
+            .and_then(|f| f.get("last_file_id"))
+            .or_else(|| r.get("last_file_id"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        if !file_id.is_empty() {
+            return Ok(vec![path.to_string()]);
+        }
+    }
+
+    // It's a directory — list recursively
+    let mut files = Vec::new();
+    list_dir_recursive(ctx, api_url, tenant, principal_id, ws_id, path, 0, 5, &mut files, 500)?;
+    Ok(files)
+}
+
+// ---------------------------------------------------------------------------
+// glob — temper.glob(pattern, path?)
+// ---------------------------------------------------------------------------
+
+pub fn glob_files(
+    ctx: &Context,
+    api_url: &str,
+    tenant: &str,
+    args: &[Value],
+) -> Result<Value, String> {
+    let pattern = pos_str(args, 0, "pattern", "glob")?;
+    let path = args
+        .get(1)
+        .and_then(|v| v.as_str())
+        .unwrap_or("/")
+        .to_string();
+    let opts = obj_arg_or_empty(args, 2);
+    let ws_id = resolve_workspace_id(ctx, api_url, tenant, &opts, false)?;
+    let eid = ctx_entity_id(ctx);
+
+    let mut all_files = Vec::new();
+    list_dir_recursive(ctx, api_url, tenant, eid, &ws_id, &path, 0, 5, &mut all_files, 500)?;
+
+    let matches: Vec<&String> = all_files
+        .iter()
+        .filter(|f| glob_match(&pattern, f))
+        .collect();
+
+    Ok(json!(matches))
+}
+
+// ---------------------------------------------------------------------------
+// list_dir_recursive — shared helper for grep/glob
+// ---------------------------------------------------------------------------
+
+fn list_dir_recursive(
+    ctx: &Context,
+    api_url: &str,
+    tenant: &str,
+    principal_id: &str,
+    ws_id: &str,
+    dir_path: &str,
+    depth: usize,
+    max_depth: usize,
+    out: &mut Vec<String>,
+    max_files: usize,
+) -> Result<(), String> {
+    if depth >= max_depth || out.len() >= max_files {
+        return Ok(());
+    }
+
+    let resp = http_post(
+        ctx,
+        api_url,
+        tenant,
+        principal_id,
+        &format!("/tdata/Workspaces('{ws_id}')/Temper.ListDir?await_integration=true"),
+        &json!({"path": dir_path}),
+    )?;
+
+    let listing_str = resp
+        .get("fields")
+        .and_then(|f| f.get("last_listing"))
+        .or_else(|| resp.get("last_listing"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("[]");
+
+    let listing: Vec<Value> = serde_json::from_str(listing_str).unwrap_or_default();
+
+    for entry in &listing {
+        if out.len() >= max_files {
+            break;
+        }
+        let name = entry.get("name").and_then(|v| v.as_str()).unwrap_or("");
+        let kind = entry.get("type").and_then(|v| v.as_str()).unwrap_or("file");
+        let full_path = if dir_path == "/" {
+            format!("/{name}")
+        } else {
+            format!("{dir_path}/{name}")
+        };
+
+        if kind == "directory" || kind == "dir" {
+            list_dir_recursive(ctx, api_url, tenant, principal_id, ws_id, &full_path, depth + 1, max_depth, out, max_files)?;
+        } else {
+            out.push(full_path);
+        }
+    }
+
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// glob_match — simple glob pattern matcher (no regex crate)
+// ---------------------------------------------------------------------------
+
+fn glob_match(pattern: &str, path: &str) -> bool {
+    // Handle ** (match any path segments)
+    if pattern.contains("**") {
+        let parts: Vec<&str> = pattern.split("**").collect();
+        if parts.len() == 2 {
+            let prefix = parts[0].trim_end_matches('/');
+            let suffix = parts[1].trim_start_matches('/');
+            // Path must start with prefix (or prefix is empty)
+            let path_match = if prefix.is_empty() {
+                true
+            } else {
+                path.starts_with(prefix) || path.starts_with(&format!("{prefix}/"))
+            };
+            if !path_match {
+                return false;
+            }
+            // Suffix must match the tail of the path
+            if suffix.is_empty() {
+                return true;
+            }
+            // Match suffix as a simple glob against each possible tail
+            let check_path = if prefix.is_empty() { path } else { &path[prefix.len()..] };
+            for (i, _) in check_path.char_indices() {
+                let tail = &check_path[i..];
+                if tail.starts_with('/') || i == 0 {
+                    let tail = tail.trim_start_matches('/');
+                    if simple_glob_match(suffix, tail) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+    }
+    simple_glob_match(pattern, path)
+}
+
+/// Match a simple glob pattern (supports * and ?) against a string.
+/// * matches any characters except /. ? matches exactly one character except /.
+fn simple_glob_match(pattern: &str, text: &str) -> bool {
+    let pat: Vec<char> = pattern.chars().collect();
+    let txt: Vec<char> = text.chars().collect();
+    simple_glob_match_recursive(&pat, 0, &txt, 0)
+}
+
+fn simple_glob_match_recursive(pattern: &[char], pi: usize, text: &[char], ti: usize) -> bool {
+    if pi == pattern.len() && ti == text.len() {
+        return true;
+    }
+    if pi == pattern.len() {
+        return false;
+    }
+
+    match pattern[pi] {
+        '*' => {
+            // * matches zero or more characters (not /)
+            // Try matching zero characters, then one, then two, etc.
+            let mut t = ti;
+            loop {
+                if simple_glob_match_recursive(pattern, pi + 1, text, t) {
+                    return true;
+                }
+                if t >= text.len() || text[t] == '/' {
+                    return false;
+                }
+                t += 1;
+            }
+        }
+        '?' => {
+            if ti < text.len() && text[ti] != '/' {
+                simple_glob_match_recursive(pattern, pi + 1, text, ti + 1)
+            } else {
+                false
+            }
+        }
+        c => {
+            if ti < text.len() && text[ti] == c {
+                simple_glob_match_recursive(pattern, pi + 1, text, ti + 1)
+            } else {
+                false
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -692,26 +1295,22 @@ fn entity_field_str_val(value: &Value, key: &str) -> String {
         .to_string()
 }
 
-fn runtime_headers(tenant: &str, principal_id: &str) -> Vec<(String, String)> {
-    let pid = if principal_id.is_empty() { "system" } else { principal_id };
-    vec![
-        ("Content-Type".to_string(), "application/json".to_string()),
-        ("X-Tenant-Id".to_string(), tenant.to_string()),
-        ("x-temper-principal-kind".to_string(), "agent".to_string()),
-        ("x-temper-principal-id".to_string(), pid.to_string()),
-        ("x-temper-agent-type".to_string(), "system".to_string()),
-    ]
+/// Minimal headers for internal Temper API calls.
+/// Auth headers (tenant, principal, agent-type, bearer token) are injected
+/// by the WASM host for internal calls — see ADR-0043.
+fn internal_headers() -> Vec<(String, String)> {
+    vec![("Content-Type".to_string(), "application/json".to_string())]
 }
 
 fn http_get(
     ctx: &Context,
     api_url: &str,
-    tenant: &str,
-    principal_id: &str,
+    _tenant: &str,
+    _principal_id: &str,
     path: &str,
 ) -> Result<Value, String> {
     let url = format!("{api_url}{path}");
-    let headers = runtime_headers(tenant, principal_id);
+    let headers = internal_headers();
     let resp = ctx.http_call("GET", &url, &headers, "")?;
     if let Some(denial) = dispatch::check_cedar_denial(resp.status, &resp.body) {
         return Err(denial);
@@ -726,13 +1325,13 @@ fn http_get(
 fn http_post(
     ctx: &Context,
     api_url: &str,
-    tenant: &str,
-    principal_id: &str,
+    _tenant: &str,
+    _principal_id: &str,
     path: &str,
     body: &Value,
 ) -> Result<Value, String> {
     let url = format!("{api_url}{path}");
-    let headers = runtime_headers(tenant, principal_id);
+    let headers = internal_headers();
     let resp = ctx.http_call("POST", &url, &headers, &body.to_string())?;
     if let Some(denial) = dispatch::check_cedar_denial(resp.status, &resp.body) {
         return Err(denial);

@@ -409,9 +409,9 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
                 .as_deref()
                 .unwrap_or("anthropic");
             let default_model = match provider {
-                "openai" => std::env::var("LLM_MODEL").unwrap_or_else(|_| "o3-mini".to_string()),
+                "openai" | "openai_codex" => std::env::var("LLM_MODEL").unwrap_or_else(|_| "gpt-5.4".to_string()),
                 "openrouter" => std::env::var("LLM_MODEL")
-                    .unwrap_or_else(|_| "anthropic/claude-sonnet-4".to_string()),
+                    .unwrap_or_else(|_| "anthropic/claude-sonnet-4.6".to_string()),
                 _ => std::env::var("LLM_MODEL")
                     .unwrap_or_else(|_| "claude-sonnet-4-6".to_string()),
             };
@@ -440,15 +440,15 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
             vault,
             &turso_store,
             &tenant,
-            "modal_api_token",
-            config.modal_api_token
+            "modal_token_id",
+            config.modal_token_id
         );
         seed_secret!(
             vault,
             &turso_store,
             &tenant,
-            "modal_api_url",
-            config.modal_api_url
+            "modal_token_secret",
+            config.modal_token_secret
         );
         seed_secret!(
             vault,
@@ -631,15 +631,12 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
                 "tensorlake" if config.tensorlake_api_key.is_some() => {
                     tracing::info!("Sandbox provider: tensorlake (API key configured)");
                 }
-                "modal" if config.modal_api_token.is_some() && config.modal_api_url.is_some() => {
-                    tracing::info!(
-                        "Sandbox provider: modal (bridge URL: {})",
-                        config.modal_api_url.as_deref().unwrap_or("?")
-                    );
+                "modal" if config.modal_token_id.is_some() && config.modal_token_secret.is_some() => {
+                    tracing::info!("Sandbox provider: modal (token configured)");
                 }
                 "modal" => {
                     tracing::warn!(
-                        "Sandbox provider is 'modal' but MODAL_API_TOKEN or MODAL_API_URL not set"
+                        "Sandbox provider is 'modal' but MODAL_TOKEN_ID or MODAL_TOKEN_SECRET not set"
                     );
                 }
                 "tensorlake" => {
@@ -1843,9 +1840,9 @@ fn default_agent_config(
     llm_provider: &str,
 ) -> serde_json::Value {
     let default_model = match llm_provider {
-        "openai" => std::env::var("LLM_MODEL").unwrap_or_else(|_| "o3-mini".to_string()),
+        "openai" | "openai_codex" => std::env::var("LLM_MODEL").unwrap_or_else(|_| "gpt-5.4".to_string()),
         "openrouter" => {
-            std::env::var("LLM_MODEL").unwrap_or_else(|_| "anthropic/claude-sonnet-4".to_string())
+            std::env::var("LLM_MODEL").unwrap_or_else(|_| "anthropic/claude-sonnet-4.6".to_string())
         }
         _ => std::env::var("LLM_MODEL").unwrap_or_else(|_| "claude-sonnet-4-6".to_string()),
     };

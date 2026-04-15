@@ -302,6 +302,7 @@ fn register_gd_callback(
         ("accept".to_string(), "application/json".to_string()),
         ("x-tenant-id".to_string(), "temper-system".to_string()),
         ("x-temper-principal-kind".to_string(), "admin".to_string()),
+        ("x-temper-principal-id".to_string(), "request-approval-wasm".to_string()),
     ];
 
     let resp = ctx.http_call("GET", &gd_url, &system_headers, "")?;
@@ -343,6 +344,7 @@ fn register_gd_callback(
         ("content-type".to_string(), "application/json".to_string()),
         ("x-tenant-id".to_string(), "temper-system".to_string()),
         ("x-temper-principal-kind".to_string(), "admin".to_string()),
+        ("x-temper-principal-id".to_string(), "request-approval-wasm".to_string()),
     ];
 
     let resp = ctx.http_call(

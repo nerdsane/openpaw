@@ -106,8 +106,8 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             .unwrap_or_else(|| {
                 fields.get("model").and_then(|v| v.as_str()).unwrap_or_else(|| {
                     match provider.as_str() {
-                        "openai" => "o3-mini",
-                        "openrouter" => "anthropic/claude-sonnet-4",
+                        "openai" | "openai_codex" => "gpt-5.4",
+                        "openrouter" => "anthropic/claude-sonnet-4.6",
                         _ => "claude-sonnet-4-6",
                     }
                 })
@@ -322,10 +322,9 @@ fn call_compaction_llm(
     let system_prompt = "You are a conversation compactor. Extract distinct episodes from this conversation — each a coherent task or sub-task the agent attempted. Be concise but preserve the trajectory: what was tried, what worked, what failed, and why.\n\nOutput the summary in this exact format:\n\n## Active Goal\n<the current overarching objective>\n\n## Episodes\n\n### Episode: <short title>\n- **Goal:** <what was attempted>\n- **Worked:** <actions that succeeded and why>\n- **Failed:** <approaches tried and abandoned, what went wrong>\n- **Discoveries:** <facts learned, decisions made>\n- **Artifacts:** <files changed, entities created, useful outputs>\n\n(Repeat chronologically for each distinct episode)\n\n## Current State\n- **Where we are:** <what just completed or is in progress>\n- **Next:** <immediate next steps>\n- **Open questions:** <unresolved issues>\n\nIMPORTANT: Preserve the trajectory. A future model reading this needs to know which approaches were already tried and failed, not just what worked. This prevents repeating failed approaches.";
 
     let (url, headers, body_str) = match provider {
-        "openai" => {
+        "openai" | "openai_codex" => {
             let body = json!({
                 "model": model,
-                "max_output_tokens": 2048,
                 "instructions": system_prompt,
                 "input": format!("Summarize this conversation:\n\n{conversation_text}")
             });

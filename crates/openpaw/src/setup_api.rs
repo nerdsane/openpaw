@@ -61,11 +61,10 @@ fn allowed_secret_keys() -> HashSet<&'static str> {
         "llm_provider",
         "llm_model",
         "sandbox_provider",
-        "modal_api_token",
-        "modal_api_url",
-        "dd_api_key",
-        "dd_app_key",
-        "dd_site",
+        "modal_token_id",
+        "modal_token_secret",
+        // DD_* and railway_* are infrastructure config managed via Railway env vars,
+        // not dashboard secrets. They're set by `openpaw deploy` and changed in Railway.
         "railway_project_id",
         "railway_environment_id",
         "railway_otel_service_id",
@@ -104,12 +103,11 @@ fn secrets_schema() -> Vec<SecretSchema> {
         SecretSchema { key: "exa_api_key", category: "web_search", label: "Exa API Key", required: false, description: "Web search via exa.ai — agents can research the internet" },
         SecretSchema { key: "sandbox_provider", category: "sandbox", label: "Sandbox Provider", required: false, description: "tensorlake or modal — where agents run code" },
         SecretSchema { key: "tensorlake_api_key", category: "sandbox", label: "TensorLake API Key", required: false, description: "Cloud sandbox provisioning — tensorlake.ai" },
-        SecretSchema { key: "modal_api_token", category: "sandbox", label: "Modal API Token", required: false, description: "Bearer token for Modal REST bridge" },
-        SecretSchema { key: "modal_api_url", category: "sandbox", label: "Modal API URL", required: false, description: "Base URL for Modal REST bridge endpoint" },
+        SecretSchema { key: "modal_token_id", category: "sandbox", label: "Modal Token ID", required: false, description: "Starts with ak-… — from modal.com/settings or `modal token set`" },
+        SecretSchema { key: "modal_token_secret", category: "sandbox", label: "Modal Token Secret", required: false, description: "Starts with as-… — from modal.com/settings or `modal token set`" },
         SecretSchema { key: "github_token", category: "integrations", label: "GitHub Token", required: false, description: "For repo cloning and PR flows" },
-        SecretSchema { key: "dd_api_key", category: "observability", label: "Datadog API Key", required: false, description: "Enables traces/metrics/logs in Datadog" },
-        SecretSchema { key: "dd_app_key", category: "observability", label: "Datadog App Key", required: false, description: "For Datadog dashboard queries and management" },
-        SecretSchema { key: "dd_site", category: "observability", label: "Datadog Site", required: false, description: "Datadog site (default: datadoghq.com)" },
+        // DD_* keys are infrastructure config set via Railway env vars (by `openpaw deploy`).
+        // They don't belong in the dashboard — change them in Railway if needed.
     ]
 }
 
@@ -580,8 +578,8 @@ async fn create_agent(
         .and_then(|v| v.get_secret(&state.tenant, "llm_provider"))
         .unwrap_or_else(|| "anthropic".to_string());
     let default_model = match resolved_provider.as_str() {
-        "openai" => "o3-mini".to_string(),
-        "openrouter" => "anthropic/claude-sonnet-4".to_string(),
+        "openai" | "openai_codex" => "gpt-5.4".to_string(),
+        "openrouter" => "anthropic/claude-sonnet-4.6".to_string(),
         _ => "claude-sonnet-4-6".to_string(),
     };
     let configure_params = serde_json::json!({

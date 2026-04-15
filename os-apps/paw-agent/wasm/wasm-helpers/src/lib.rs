@@ -342,6 +342,10 @@ fn runtime_headers_with_workspace(
     headers
 }
 
+/// Derive agent type from entity type for WASM modules that construct their own headers.
+/// Session integrations act on behalf of an agent; all others are platform-internal ("system")
+/// dispatch callbacks. For modules covered by host-injected auth (ADR-0043), this is unused —
+/// the host derives agent_type from WasmInvocationContext.entity_type directly.
 fn default_agent_type(ctx: &Context) -> &'static str {
     if ctx.entity_type.eq_ignore_ascii_case("Session")
         || ctx.entity_type.eq_ignore_ascii_case("Sessions")

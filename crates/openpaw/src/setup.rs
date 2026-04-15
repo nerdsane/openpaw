@@ -509,11 +509,7 @@ pub fn merge_setup_into_config(config: &mut Config, setup: SetupResult) {
         }
     }
     if let Some(provider) = setup.provider {
-        config.llm_provider = Some(if provider == "openai_codex" {
-            "openai".to_string()
-        } else {
-            provider
-        });
+        config.llm_provider = Some(provider);
     }
     if let Some(token) = setup.discord_bot_token {
         if config.discord_bot_token.is_none() {
