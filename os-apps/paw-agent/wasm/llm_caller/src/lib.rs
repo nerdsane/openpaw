@@ -2088,7 +2088,6 @@ fn call_openai(
         "input": input,
         "stream": true,
         "store": false,
-        "max_output_tokens": 32768,
         "reasoning": {
             "effort": "medium",
             "summary": "auto",
