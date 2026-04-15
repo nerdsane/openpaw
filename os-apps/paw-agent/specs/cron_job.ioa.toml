@@ -52,6 +52,11 @@ type = "string"
 initial = "anthropic"
 
 [[state]]
+name = "temperature"
+type = "string"
+initial = "1.0"
+
+[[state]]
 name = "tools_enabled"
 type = "string"
 initial = "temper_create,temper_get,temper_list,temper_action,temper_patch,temper_submit_specs,temper_show_spec,temper_specs,temper_upload_wasm,temper_get_trajectories,temper_get_insights,temper_get_decisions,temper_poll_decision,temper_approve_decision,temper_deny_decision,temper_submit_policy,temper_list_policies,temper_get_policy,temper_update_policy,temper_delete_policy,temper_install_app,temper_list_apps,temper_spawn_session,temper_list_sessions,temper_abort_session,temper_steer_session,temper_save_memory,temper_recall_memory,temper_write,temper_read,temper_run_coding_agent,temper_get_secret,temper_datadog_query,temper_railway,temper_vercel,temper_web_search,temper_web_fetch,read,write,edit,bash"
@@ -100,7 +105,7 @@ initial = ""
 name = "Configure"
 kind = "input"
 from = ["Created"]
-params = ["name", "schedule", "soul_id", "system_prompt", "user_message_template", "model", "provider", "tools_enabled", "sandbox_url", "max_turns", "max_runs"]
+params = ["name", "schedule", "soul_id", "system_prompt", "user_message_template", "model", "provider", "temperature", "tools_enabled", "sandbox_url", "max_turns", "max_runs"]
 hint = "Configure the cron job with schedule and agent parameters."
 
 [[action]]
@@ -156,7 +161,7 @@ from = ["Active"]
 params = ["next_run_at", "user_message"]
 hint = "Cron computation complete. Spawn Session with copied fields, schedule next run."
 effect = [
-  { type = "spawn", entity_type = "Session", entity_id_source = "{uuid}", initial_action = "Configure", store_id_in = "last_session_id", copy_fields = "system_prompt,user_message,model,provider,tools_enabled,soul_id,sandbox_url,max_turns" },
+  { type = "spawn", entity_type = "Session", entity_id_source = "{uuid}", initial_action = "Configure", store_id_in = "last_session_id", copy_fields = "system_prompt,user_message,model,provider,temperature,tools_enabled,soul_id,sandbox_url,max_turns" },
   { type = "schedule_at", field = "next_run_at", action = "Trigger" },
 ]
 

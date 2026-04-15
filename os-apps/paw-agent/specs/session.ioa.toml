@@ -35,6 +35,11 @@ type = "string"
 initial = "anthropic"
 
 [[state]]
+name = "temperature"
+type = "string"
+initial = "1.0"
+
+[[state]]
 name = "conversation_file_id"
 type = "string"
 initial = ""
@@ -343,7 +348,7 @@ initial = "0"
 name = "Configure"
 kind = "input"
 from = ["Created"]
-params = ["system_prompt", "user_message", "model", "provider", "max_turns", "tools_enabled", "workdir", "sandbox_url", "sandbox_id", "sandbox_provider", "temper_api_url", "soul_id", "agent_id", "parent_session_id", "session_depth", "max_follow_ups", "hook_policy", "reserve_tokens", "keep_recent_tokens", "compaction_model", "heartbeat_timeout_seconds", "project_harness_id", "project_id", "workspace_id", "conversation_file_id", "file_manifest_id", "session_file_id", "session_leaf_id", "session_mode"]
+params = ["system_prompt", "user_message", "model", "provider", "temperature", "max_turns", "tools_enabled", "workdir", "sandbox_url", "sandbox_id", "sandbox_provider", "temper_api_url", "soul_id", "agent_id", "parent_session_id", "session_depth", "max_follow_ups", "hook_policy", "reserve_tokens", "keep_recent_tokens", "compaction_model", "heartbeat_timeout_seconds", "project_harness_id", "project_id", "workspace_id", "conversation_file_id", "file_manifest_id", "session_file_id", "session_leaf_id", "session_mode"]
 hint = "Configure session. Auto-provisions after configuration. Resume fields (workspace_id, conversation_file_id, session_file_id, session_leaf_id) are accepted so continuations carry prior conversation state."
 effect = [{ type = "schedule", action = "ProvisionWorkspace", delay_seconds = 0 }]
 

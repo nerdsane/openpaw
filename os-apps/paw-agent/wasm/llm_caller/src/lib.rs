@@ -442,6 +442,11 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             .and_then(|v| v.as_str())
             .unwrap_or("anthropic");
         let provider = normalize_provider(provider_raw);
+        let temperature: f64 = fields
+            .get("temperature")
+            .and_then(|v| v.as_str())
+            .and_then(|s| s.parse::<f64>().ok())
+            .unwrap_or(1.0);
         let tools_enabled = fields
             .get("tools_enabled")
             .and_then(|v| v.as_str())
@@ -847,6 +852,7 @@ anthropic_api_token (or api_key) for anthropic, openrouter_api_key (or api_key) 
                 &messages,
                 &tools,
                 &anthropic_auth_mode,
+                temperature,
             )?,
             "openrouter" => call_openrouter(
                 &ctx,
@@ -858,6 +864,7 @@ anthropic_api_token (or api_key) for anthropic, openrouter_api_key (or api_key) 
                 &tools,
                 &openrouter_site_url,
                 &openrouter_app_name,
+                temperature,
             )?,
             "openai" => call_openai(
                 &ctx,
@@ -867,6 +874,7 @@ anthropic_api_token (or api_key) for anthropic, openrouter_api_key (or api_key) 
                 &assembled_system_prompt,
                 &messages,
                 &tools,
+                temperature,
             )?,
             other => return Err(format!("unsupported LLM provider: {other}")),
         };
@@ -1544,6 +1552,7 @@ fn call_anthropic(
     messages: &[Value],
     tools: &[Value],
     anthropic_auth_mode: &str,
+    temperature: f64,
 ) -> Result<LlmResponse, String> {
     // Detect OAuth token (sk-ant-oat-*) vs standard API key
     let is_oauth = detect_anthropic_oauth_mode(api_key, anthropic_auth_mode);
@@ -1570,6 +1579,7 @@ fn call_anthropic(
         "model": model,
         "max_tokens": 16384,
         "messages": effective_messages,
+        "temperature": temperature,
     });
 
     if !effective_system.is_empty() {
@@ -1748,6 +1758,7 @@ fn call_openrouter(
     tools: &[Value],
     site_url: &str,
     app_name: &str,
+    temperature: f64,
 ) -> Result<LlmResponse, String> {
     let mut or_messages = Vec::<Value>::new();
     if !system_prompt.is_empty() {
@@ -1763,6 +1774,7 @@ fn call_openrouter(
         "model": model,
         "messages": or_messages,
         "max_tokens": 16384,
+        "temperature": temperature,
     });
     if !openai_tools.is_empty() {
         body["tools"] = json!(openai_tools);
@@ -1916,6 +1928,7 @@ fn call_openai(
     system_prompt: &str,
     messages: &[Value],
     tools: &[Value],
+    temperature: f64,
 ) -> Result<LlmResponse, String> {
     // Convert Anthropic-format messages to Responses API input format
     let pre_convert_types: Vec<String> = messages
@@ -2085,6 +2098,7 @@ fn call_openai(
         "input": input,
         "stream": true,
         "store": false,
+        "temperature": temperature,
     });
     if !codex_tools.is_empty() {
         body["tools"] = json!(codex_tools);

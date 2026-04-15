@@ -61,6 +61,11 @@ type = "string"
 initial = "anthropic"
 
 [[state]]
+name = "temperature"
+type = "string"
+initial = "1.0"
+
+[[state]]
 name = "tools_enabled"
 type = "string"
 initial = ""
@@ -76,14 +81,14 @@ name = "Configure"
 kind = "input"
 from = ["Created"]
 to = "Active"
-params = ["name", "role", "description", "soul_id", "instructions_file_id", "team_id", "source_app_id", "model", "provider", "tools_enabled", "max_turns"]
+params = ["name", "role", "description", "soul_id", "instructions_file_id", "team_id", "source_app_id", "model", "provider", "temperature", "tools_enabled", "max_turns"]
 hint = "Set up the agent identity and session configuration."
 
 [[action]]
 name = "Update"
 kind = "input"
 from = ["Active"]
-params = ["description", "instructions_file_id", "model", "tools_enabled", "max_turns"]
+params = ["description", "instructions_file_id", "model", "temperature", "tools_enabled", "max_turns"]
 hint = "Update agent configuration."
 
 [[action]]

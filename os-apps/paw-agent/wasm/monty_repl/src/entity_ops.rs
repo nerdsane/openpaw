@@ -39,6 +39,7 @@ pub fn spawn_session(
     // Three-tier fallback: explicit input → parent session fields → hardcoded default.
     let parent_provider = fields.get("provider").and_then(|v| v.as_str()).unwrap_or("");
     let parent_model = fields.get("model").and_then(|v| v.as_str()).unwrap_or("");
+    let parent_temperature = fields.get("temperature").and_then(|v| v.as_str()).unwrap_or("");
     let model = input
         .get("model")
         .and_then(|v| v.as_str())
@@ -51,6 +52,12 @@ pub fn spawn_session(
         .filter(|s| !s.is_empty())
         .or_else(|| if parent_provider.is_empty() { None } else { Some(parent_provider) })
         .unwrap_or("anthropic");
+    let temperature = input
+        .get("temperature")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .or_else(|| if parent_temperature.is_empty() { None } else { Some(parent_temperature) })
+        .unwrap_or("1.0");
     let tools = input
         .get("tools")
         .and_then(|v| v.as_str())
@@ -151,7 +158,7 @@ pub fn spawn_session(
     // Configure
     let config_body = json!({
         "system_prompt": input.get("system_prompt").and_then(Value::as_str).unwrap_or(""),
-        "model": model, "provider": provider, "tools_enabled": tools,
+        "model": model, "provider": provider, "temperature": temperature, "tools_enabled": tools,
         "soul_id": soul_id, "user_message": task, "parent_session_id": parent_id,
         "sandbox_url": child_sandbox_url, "workdir": child_workdir,
         "workspace_id": child_workspace_id,
