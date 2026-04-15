@@ -126,8 +126,11 @@ pub async fn middleware(
     next: Next,
 ) -> Response {
     let path = request.uri().path().to_string();
+    let method = request.method().as_str().to_string();
 
-    if is_public_path(request.method().as_str(), &path) {
+    if is_safe_setup_path_public_during_bootstrap(&state, &method, &path).await
+        || is_public_path(request.method().as_str(), &path)
+    {
         return next.run(request).await;
     }
 
@@ -160,6 +163,29 @@ pub async fn middleware(
     StatusCode::UNAUTHORIZED.into_response()
 }
 
+async fn is_safe_setup_path_public_during_bootstrap(
+    state: &AuthState,
+    method: &str,
+    path: &str,
+) -> bool {
+    let is_safe_bootstrap_path = matches!(
+        (method, path),
+        ("GET", "/paw/setup/status") | ("GET", "/paw/setup/secrets/schema")
+    );
+
+    if !is_safe_bootstrap_path {
+        return false;
+    }
+
+    match load_accounts(state).await {
+        Ok(accounts) => accounts.is_empty(),
+        Err(error) => {
+            tracing::error!(%error, path, "Could not determine bootstrap auth state");
+            false
+        }
+    }
+}
+
 fn has_bearer_auth(headers: &HeaderMap) -> bool {
     headers
         .get(axum::http::header::AUTHORIZATION)
@@ -172,7 +198,6 @@ fn is_public_path(method: &str, path: &str) -> bool {
     path.starts_with("/auth/")
         || path == "/auth"
         || path == "/healthz"
-        || path.starts_with("/paw/setup/")
         || path.starts_with("/discord/interaction")
         || (method == "GET" && (path == "/tdata" || path == "/tdata/"))
         || is_dashboard_public_path(path)
@@ -776,5 +801,117 @@ mod tests {
         let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(payload["kind"], "admin");
         assert_eq!(payload["id"], "owner@example.com");
+    }
+
+    #[tokio::test]
+    async fn safe_setup_metadata_routes_are_public_only_before_first_account() {
+        async fn setup_handler() -> impl IntoResponse {
+            StatusCode::OK
+        }
+
+        let tempdir = tempfile::tempdir().unwrap();
+        let state = AuthState::for_tests(tempdir.path()).await;
+        let app = Router::new()
+            .route("/paw/setup/status", get(setup_handler))
+            .merge(router(state.clone()))
+            .layer(from_fn_with_state(state.clone(), middleware));
+
+        let bootstrap_request = Request::builder()
+            .method("GET")
+            .uri("/paw/setup/status")
+            .body(Body::empty())
+            .unwrap();
+        let bootstrap_response = app.clone().oneshot(bootstrap_request).await.unwrap();
+        assert_eq!(bootstrap_response.status(), StatusCode::OK);
+
+        let register = Request::builder()
+            .method("POST")
+            .uri("/auth/register")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                json!({
+                    "email": "owner@example.com",
+                    "password": "correct horse battery staple"
+                })
+                .to_string(),
+            ))
+            .unwrap();
+        let register_response = app.clone().oneshot(register).await.unwrap();
+        assert_eq!(register_response.status(), StatusCode::CREATED);
+        let cookie = register_response
+            .headers()
+            .get("set-cookie")
+            .and_then(|value| value.to_str().ok())
+            .unwrap()
+            .to_string();
+
+        let locked_request = Request::builder()
+            .method("GET")
+            .uri("/paw/setup/status")
+            .body(Body::empty())
+            .unwrap();
+        let locked_response = app.clone().oneshot(locked_request).await.unwrap();
+        assert_eq!(locked_response.status(), StatusCode::UNAUTHORIZED);
+
+        let authenticated_request = Request::builder()
+            .method("GET")
+            .uri("/paw/setup/status")
+            .header("cookie", cookie)
+            .body(Body::empty())
+            .unwrap();
+        let authenticated_response = app.oneshot(authenticated_request).await.unwrap();
+        assert_eq!(authenticated_response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn setup_secret_routes_require_auth_even_before_first_account() {
+        async fn setup_handler() -> impl IntoResponse {
+            StatusCode::OK
+        }
+
+        let tempdir = tempfile::tempdir().unwrap();
+        let state = AuthState::for_tests(tempdir.path()).await;
+        let app = Router::new()
+            .route("/paw/setup/secrets/discord_bot_token", get(setup_handler))
+            .merge(router(state.clone()))
+            .layer(from_fn_with_state(state.clone(), middleware));
+
+        let bootstrap_request = Request::builder()
+            .method("GET")
+            .uri("/paw/setup/secrets/discord_bot_token")
+            .body(Body::empty())
+            .unwrap();
+        let bootstrap_response = app.clone().oneshot(bootstrap_request).await.unwrap();
+        assert_eq!(bootstrap_response.status(), StatusCode::UNAUTHORIZED);
+
+        let register = Request::builder()
+            .method("POST")
+            .uri("/auth/register")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                json!({
+                    "email": "owner@example.com",
+                    "password": "correct horse battery staple"
+                })
+                .to_string(),
+            ))
+            .unwrap();
+        let register_response = app.clone().oneshot(register).await.unwrap();
+        assert_eq!(register_response.status(), StatusCode::CREATED);
+        let cookie = register_response
+            .headers()
+            .get("set-cookie")
+            .and_then(|value| value.to_str().ok())
+            .unwrap()
+            .to_string();
+
+        let authenticated_request = Request::builder()
+            .method("GET")
+            .uri("/paw/setup/secrets/discord_bot_token")
+            .header("cookie", cookie)
+            .body(Body::empty())
+            .unwrap();
+        let authenticated_response = app.oneshot(authenticated_request).await.unwrap();
+        assert_eq!(authenticated_response.status(), StatusCode::OK);
     }
 }

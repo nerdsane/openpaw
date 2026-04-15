@@ -8,6 +8,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use tokio::sync::RwLock;
+use tokio::task::JoinHandle;
 
 use super::api;
 use super::socket;
@@ -42,6 +43,37 @@ pub struct SlackTransport {
     bot_user_id: Arc<RwLock<String>>,
 }
 
+struct WebhookListenerGuard {
+    port: u16,
+    shutdown: Option<tokio::sync::oneshot::Sender<()>>,
+    task: Option<JoinHandle<()>>,
+}
+
+impl WebhookListenerGuard {
+    fn new(port: u16, shutdown: tokio::sync::oneshot::Sender<()>, task: JoinHandle<()>) -> Self {
+        Self {
+            port,
+            shutdown: Some(shutdown),
+            task: Some(task),
+        }
+    }
+
+    fn port(&self) -> u16 {
+        self.port
+    }
+}
+
+impl Drop for WebhookListenerGuard {
+    fn drop(&mut self) {
+        if let Some(shutdown) = self.shutdown.take() {
+            let _ = shutdown.send(());
+        }
+        if let Some(task) = self.task.take() {
+            task.abort();
+        }
+    }
+}
+
 impl SlackTransport {
     /// Create a new Slack transport.
     pub fn new(config: SlackConfig, api: PawApiClient) -> Self {
@@ -57,7 +89,8 @@ impl SlackTransport {
     /// Run the transport indefinitely.
     pub async fn run(&self) -> Result<(), String> {
         // Phase 1: Start webhook listener for reply delivery.
-        let webhook_port = self.spawn_webhook_listener().await?;
+        let webhook_listener = self.spawn_webhook_listener().await?;
+        let webhook_port = webhook_listener.port();
         let webhook_url = format!("http://127.0.0.1:{webhook_port}/reply");
         println!("  [slack] Webhook listener on port {webhook_port}");
 
@@ -235,7 +268,7 @@ impl SlackTransport {
 
     /// Start a webhook HTTP listener that receives reply callbacks from
     /// the `send_reply` WASM module. Returns the bound port.
-    async fn spawn_webhook_listener(&self) -> Result<u16, String> {
+    async fn spawn_webhook_listener(&self) -> Result<WebhookListenerGuard, String> {
         use axum::{Router, extract::State, routing::post};
 
         #[derive(Clone)]
@@ -327,14 +360,19 @@ impl SlackTransport {
             .local_addr()
             .map_err(|e| format!("Failed to get listener address: {e}"))?
             .port();
-
-        tokio::spawn(async move {
-            if let Err(e) = axum::serve(listener, app).await {
+        let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
+        let task = tokio::spawn(async move {
+            if let Err(e) = axum::serve(listener, app)
+                .with_graceful_shutdown(async move {
+                    let _ = shutdown_rx.await;
+                })
+                .await
+            {
                 eprintln!("  [slack] Webhook listener error: {e}");
             }
         });
 
-        Ok(actual_port)
+        Ok(WebhookListenerGuard::new(actual_port, shutdown_tx, task))
     }
 }
 

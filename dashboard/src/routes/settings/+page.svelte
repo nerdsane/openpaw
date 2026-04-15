@@ -158,7 +158,11 @@
       row.editing = false;
       row.draft = '';
       status = await fetchSetupStatus();
-      showFeedback('success', `${row.key} saved`);
+      if (row.key.startsWith('discord_') && status?.discord_connected) {
+        showFeedback('success', `${row.key} saved and Discord reconnected`);
+      } else {
+        showFeedback('success', `${row.key} saved`);
+      }
     } catch (err) {
       showFeedback('error', `Failed to save ${row.key}: ${err instanceof Error ? err.message : 'unknown'}`);
     } finally {
@@ -367,6 +371,9 @@
             </div>
           {/if}
         </div>
+        {#if group.category === 'messaging'}
+          <div class="cat-hint">Saving Discord credentials applies them immediately. Use Connect only to retry manually.</div>
+        {/if}
         {#if group.category === 'messaging' && status?.discord_interaction_url}
           <div class="cat-hint">Interaction URL: {status.discord_interaction_url}</div>
         {/if}

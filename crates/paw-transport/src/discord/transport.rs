@@ -10,7 +10,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use futures_util::{SinkExt, StreamExt};
-use tokio::sync::RwLock;
+use tokio::sync::{RwLock, watch};
+use tokio::task::JoinHandle;
 use tokio_tungstenite::tungstenite::Message;
 
 use super::gateway::*;
@@ -55,6 +56,39 @@ pub struct DiscordTransport {
     /// Cancel senders for active typing indicator loops, keyed by thread_id (user ID for DMs).
     /// When a reply is sent, the corresponding cancel sender is triggered to stop the typing loop.
     typing_cancels: Arc<RwLock<BTreeMap<String, tokio::sync::watch::Sender<bool>>>>,
+    /// Optional notifier used by the runtime transport manager to detect the first READY event.
+    ready_signal: Option<watch::Sender<bool>>,
+}
+
+struct WebhookListenerGuard {
+    port: u16,
+    shutdown: Option<tokio::sync::oneshot::Sender<()>>,
+    task: Option<JoinHandle<()>>,
+}
+
+impl WebhookListenerGuard {
+    fn new(port: u16, shutdown: tokio::sync::oneshot::Sender<()>, task: JoinHandle<()>) -> Self {
+        Self {
+            port,
+            shutdown: Some(shutdown),
+            task: Some(task),
+        }
+    }
+
+    fn port(&self) -> u16 {
+        self.port
+    }
+}
+
+impl Drop for WebhookListenerGuard {
+    fn drop(&mut self) {
+        if let Some(shutdown) = self.shutdown.take() {
+            let _ = shutdown.send(());
+        }
+        if let Some(task) = self.task.take() {
+            task.abort();
+        }
+    }
 }
 
 fn embed_text_len(embed: &Embed) -> usize {
@@ -184,9 +218,9 @@ fn is_text_attachment(att: &DiscordAttachment) -> bool {
     let name = att.filename.to_lowercase();
     let text_exts = [
         ".md", ".txt", ".rs", ".py", ".ts", ".js", ".json", ".toml", ".yaml", ".yml", ".csv",
-        ".html", ".css", ".xml", ".sh", ".bash", ".go", ".java", ".c", ".cpp", ".h", ".rb",
-        ".php", ".sql", ".log", ".cfg", ".ini", ".conf", ".env", ".tsx", ".jsx", ".svelte",
-        ".vue", ".tf", ".hcl", ".prisma", ".graphql", ".proto",
+        ".html", ".css", ".xml", ".sh", ".bash", ".go", ".java", ".c", ".cpp", ".h", ".rb", ".php",
+        ".sql", ".log", ".cfg", ".ini", ".conf", ".env", ".tsx", ".jsx", ".svelte", ".vue", ".tf",
+        ".hcl", ".prisma", ".graphql", ".proto",
     ];
     text_exts.iter().any(|ext| name.ends_with(ext))
 }
@@ -275,13 +309,21 @@ impl DiscordTransport {
             dm_channels: Arc::new(RwLock::new(BTreeMap::new())),
             last_message_cursor: Arc::new(RwLock::new(String::new())),
             typing_cancels: Arc::new(RwLock::new(BTreeMap::new())),
+            ready_signal: None,
         }
+    }
+
+    /// Attach a notifier that flips to `true` after the first READY event.
+    pub fn with_ready_signal(mut self, ready_signal: watch::Sender<bool>) -> Self {
+        self.ready_signal = Some(ready_signal);
+        self
     }
 
     /// Run the transport indefinitely.
     pub async fn run(&self) -> Result<(), String> {
         // Phase 1: Start webhook listener for reply delivery.
-        let webhook_port = self.spawn_webhook_listener().await?;
+        let webhook_listener = self.spawn_webhook_listener().await?;
+        let webhook_port = webhook_listener.port();
         let webhook_url = format!("http://127.0.0.1:{webhook_port}/reply");
         println!("  [discord] Webhook listener on port {webhook_port}");
 
@@ -754,6 +796,9 @@ impl DiscordTransport {
                         if let Some(d) = payload.d {
                             handle_ready(&self.gateway, d).await?;
                         }
+                        if let Some(ready_signal) = self.ready_signal.as_ref() {
+                            let _ = ready_signal.send(true);
+                        }
                         // Catch up on messages missed while offline.
                         self.catch_up_missed_dms().await;
                     }
@@ -904,7 +949,7 @@ impl DiscordTransport {
     /// Routes:
     /// - POST /reply — receives reply callbacks from send_reply/request_approval WASM
     /// - POST /interaction — receives Discord button click interactions
-    async fn spawn_webhook_listener(&self) -> Result<u16, String> {
+    async fn spawn_webhook_listener(&self) -> Result<WebhookListenerGuard, String> {
         use super::types::*;
         use axum::{Router, extract::State, routing::post};
 
@@ -1470,14 +1515,19 @@ impl DiscordTransport {
             .local_addr()
             .map_err(|e| format!("Failed to get listener address: {e}"))?
             .port();
-
-        tokio::spawn(async move {
-            if let Err(e) = axum::serve(listener, app).await {
+        let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
+        let task = tokio::spawn(async move {
+            if let Err(e) = axum::serve(listener, app)
+                .with_graceful_shutdown(async move {
+                    let _ = shutdown_rx.await;
+                })
+                .await
+            {
                 eprintln!("  [discord] Webhook listener error: {e}");
             }
         });
 
-        Ok(actual_port)
+        Ok(WebhookListenerGuard::new(actual_port, shutdown_tx, task))
     }
 }
 
@@ -1534,6 +1584,8 @@ async fn read_payload(read: &mut WsStream) -> Result<Option<GatewayPayload>, Str
 
 #[cfg(test)]
 mod tests {
+    use axum::{Router, routing::get};
+
     use super::*;
 
     fn make_attachment(filename: &str, content_type: Option<&str>, size: u64) -> DiscordAttachment {
@@ -1547,24 +1599,98 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn webhook_listener_guard_releases_port_on_drop() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let app = Router::new().route("/ping", get(|| async { "ok" }));
+        let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
+        let task = tokio::spawn(async move {
+            axum::serve(listener, app)
+                .with_graceful_shutdown(async move {
+                    let _ = shutdown_rx.await;
+                })
+                .await
+                .unwrap();
+        });
+
+        let guard = WebhookListenerGuard::new(port, shutdown_tx, task);
+        drop(guard);
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let rebound = tokio::net::TcpListener::bind(format!("127.0.0.1:{port}")).await;
+        assert!(
+            rebound.is_ok(),
+            "expected port {port} to be reusable after drop"
+        );
+    }
+
     #[test]
     fn text_content_types_detected() {
-        assert!(is_text_attachment(&make_attachment("f.md", Some("text/markdown"), 100)));
-        assert!(is_text_attachment(&make_attachment("f.txt", Some("text/plain"), 100)));
-        assert!(is_text_attachment(&make_attachment("f.html", Some("text/html"), 100)));
-        assert!(is_text_attachment(&make_attachment("f.json", Some("application/json"), 100)));
-        assert!(is_text_attachment(&make_attachment("f.xml", Some("application/xml"), 100)));
-        assert!(is_text_attachment(&make_attachment("f.yaml", Some("application/yaml"), 100)));
-        assert!(is_text_attachment(&make_attachment("f.sh", Some("application/x-sh"), 100)));
+        assert!(is_text_attachment(&make_attachment(
+            "f.md",
+            Some("text/markdown"),
+            100
+        )));
+        assert!(is_text_attachment(&make_attachment(
+            "f.txt",
+            Some("text/plain"),
+            100
+        )));
+        assert!(is_text_attachment(&make_attachment(
+            "f.html",
+            Some("text/html"),
+            100
+        )));
+        assert!(is_text_attachment(&make_attachment(
+            "f.json",
+            Some("application/json"),
+            100
+        )));
+        assert!(is_text_attachment(&make_attachment(
+            "f.xml",
+            Some("application/xml"),
+            100
+        )));
+        assert!(is_text_attachment(&make_attachment(
+            "f.yaml",
+            Some("application/yaml"),
+            100
+        )));
+        assert!(is_text_attachment(&make_attachment(
+            "f.sh",
+            Some("application/x-sh"),
+            100
+        )));
     }
 
     #[test]
     fn non_text_content_types_rejected() {
-        assert!(!is_text_attachment(&make_attachment("photo.png", Some("image/png"), 100)));
-        assert!(!is_text_attachment(&make_attachment("video.mp4", Some("video/mp4"), 100)));
-        assert!(!is_text_attachment(&make_attachment("archive.zip", Some("application/zip"), 100)));
-        assert!(!is_text_attachment(&make_attachment("doc.pdf", Some("application/pdf"), 100)));
-        assert!(!is_text_attachment(&make_attachment("music.mp3", Some("audio/mpeg"), 100)));
+        assert!(!is_text_attachment(&make_attachment(
+            "photo.png",
+            Some("image/png"),
+            100
+        )));
+        assert!(!is_text_attachment(&make_attachment(
+            "video.mp4",
+            Some("video/mp4"),
+            100
+        )));
+        assert!(!is_text_attachment(&make_attachment(
+            "archive.zip",
+            Some("application/zip"),
+            100
+        )));
+        assert!(!is_text_attachment(&make_attachment(
+            "doc.pdf",
+            Some("application/pdf"),
+            100
+        )));
+        assert!(!is_text_attachment(&make_attachment(
+            "music.mp3",
+            Some("audio/mpeg"),
+            100
+        )));
     }
 
     #[test]
@@ -1573,34 +1699,78 @@ mod tests {
         assert!(is_text_attachment(&make_attachment("script.py", None, 100)));
         assert!(is_text_attachment(&make_attachment("main.rs", None, 100)));
         assert!(is_text_attachment(&make_attachment("app.tsx", None, 100)));
-        assert!(is_text_attachment(&make_attachment("config.toml", None, 100)));
+        assert!(is_text_attachment(&make_attachment(
+            "config.toml",
+            None,
+            100
+        )));
         assert!(is_text_attachment(&make_attachment("data.json", None, 100)));
         assert!(is_text_attachment(&make_attachment("style.css", None, 100)));
         assert!(is_text_attachment(&make_attachment("deploy.sh", None, 100)));
-        assert!(is_text_attachment(&make_attachment("schema.sql", None, 100)));
-        assert!(is_text_attachment(&make_attachment("page.svelte", None, 100)));
+        assert!(is_text_attachment(&make_attachment(
+            "schema.sql",
+            None,
+            100
+        )));
+        assert!(is_text_attachment(&make_attachment(
+            "page.svelte",
+            None,
+            100
+        )));
     }
 
     #[test]
     fn non_text_extensions_rejected_without_content_type() {
-        assert!(!is_text_attachment(&make_attachment("photo.png", None, 100)));
-        assert!(!is_text_attachment(&make_attachment("archive.zip", None, 100)));
-        assert!(!is_text_attachment(&make_attachment("binary.exe", None, 100)));
-        assert!(!is_text_attachment(&make_attachment("document.pdf", None, 100)));
-        assert!(!is_text_attachment(&make_attachment("image.jpg", None, 100)));
+        assert!(!is_text_attachment(&make_attachment(
+            "photo.png",
+            None,
+            100
+        )));
+        assert!(!is_text_attachment(&make_attachment(
+            "archive.zip",
+            None,
+            100
+        )));
+        assert!(!is_text_attachment(&make_attachment(
+            "binary.exe",
+            None,
+            100
+        )));
+        assert!(!is_text_attachment(&make_attachment(
+            "document.pdf",
+            None,
+            100
+        )));
+        assert!(!is_text_attachment(&make_attachment(
+            "image.jpg",
+            None,
+            100
+        )));
     }
 
     #[test]
     fn content_type_takes_precedence_over_extension() {
         // File named .txt but content_type says image — should be rejected
-        assert!(!is_text_attachment(&make_attachment("file.txt", Some("image/png"), 100)));
+        assert!(!is_text_attachment(&make_attachment(
+            "file.txt",
+            Some("image/png"),
+            100
+        )));
         // File named .png but content_type says text — should be accepted
-        assert!(is_text_attachment(&make_attachment("file.png", Some("text/plain"), 100)));
+        assert!(is_text_attachment(&make_attachment(
+            "file.png",
+            Some("text/plain"),
+            100
+        )));
     }
 
     #[tokio::test]
     async fn oversized_attachments_skipped() {
-        let attachments = vec![make_attachment("big.md", Some("text/markdown"), MAX_ATTACHMENT_SIZE + 1)];
+        let attachments = vec![make_attachment(
+            "big.md",
+            Some("text/markdown"),
+            MAX_ATTACHMENT_SIZE + 1,
+        )];
         let results = fetch_text_attachments(&reqwest::Client::new(), &attachments).await;
         assert!(results.is_empty());
     }

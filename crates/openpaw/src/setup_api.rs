@@ -394,6 +394,72 @@ struct UpsertSecretRequest {
     value: String,
 }
 
+fn discord_connect_params_for_secret_update<F>(
+    get_secret: F,
+    updated_key: &str,
+    updated_value: &str,
+) -> Option<DiscordConnectParams>
+where
+    F: Fn(&str) -> Option<String>,
+{
+    fn effective_secret<F>(
+        get_secret: &F,
+        updated_key: &str,
+        updated_value: &str,
+        key: &str,
+    ) -> Option<String>
+    where
+        F: Fn(&str) -> Option<String>,
+    {
+        let value = if key == updated_key {
+            Some(updated_value.to_string())
+        } else {
+            get_secret(key)
+        }?;
+
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        }
+    }
+
+    if !matches!(
+        updated_key,
+        "discord_bot_token"
+            | "discord_public_key"
+            | "discord_guild_id"
+            | "discord_feed_channel_id"
+            | "discord_forum_channel_id"
+    ) {
+        return None;
+    }
+
+    Some(DiscordConnectParams {
+        bot_token: effective_secret(&get_secret, updated_key, updated_value, "discord_bot_token")?,
+        public_key: effective_secret(
+            &get_secret,
+            updated_key,
+            updated_value,
+            "discord_public_key",
+        )?,
+        guild_id: effective_secret(&get_secret, updated_key, updated_value, "discord_guild_id"),
+        feed_channel_id: effective_secret(
+            &get_secret,
+            updated_key,
+            updated_value,
+            "discord_feed_channel_id",
+        ),
+        forum_channel_id: effective_secret(
+            &get_secret,
+            updated_key,
+            updated_value,
+            "discord_forum_channel_id",
+        ),
+    })
+}
+
 async fn upsert_secret(
     State(state): State<SetupApiState>,
     Json(req): Json<UpsertSecretRequest>,
@@ -411,6 +477,27 @@ async fn upsert_secret(
             Json(serde_json::json!({ "error": "Vault not initialized" })),
         );
     };
+
+    let discord_params = discord_connect_params_for_secret_update(
+        |key| {
+            vault
+                .get_secret(&state.tenant, key)
+                .or_else(|| vault.get_secret("default", key))
+        },
+        &req.key,
+        &req.value,
+    );
+
+    if let Some(params) = discord_params {
+        if let Err(error) = state.transport_manager.connect_discord(params).await {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "error": format!("Saved value would not produce a working Discord connection: {error}")
+                })),
+            );
+        }
+    }
 
     // Cache in memory + persist to Turso
     let _ = vault.cache_secret(&state.tenant, &req.key, req.value.clone());
@@ -1385,4 +1472,37 @@ async fn connect_slack(
 async fn disconnect_slack(State(state): State<SetupApiState>) -> Json<serde_json::Value> {
     state.transport_manager.disconnect_slack().await;
     Json(serde_json::json!({ "status": "disconnected" }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::discord_connect_params_for_secret_update;
+
+    #[test]
+    fn discord_secret_update_builds_reconnect_params_when_config_is_complete() {
+        let params = discord_connect_params_for_secret_update(
+            |key| match key {
+                "discord_public_key" => Some("pub-key".to_string()),
+                "discord_guild_id" => Some("guild-123".to_string()),
+                _ => None,
+            },
+            "discord_bot_token",
+            "new-token",
+        )
+        .expect("discord reconnect params should be built");
+
+        assert_eq!(params.bot_token, "new-token");
+        assert_eq!(params.public_key, "pub-key");
+        assert_eq!(params.guild_id.as_deref(), Some("guild-123"));
+        assert_eq!(params.feed_channel_id, None);
+        assert_eq!(params.forum_channel_id, None);
+    }
+
+    #[test]
+    fn discord_secret_update_skips_reconnect_when_required_values_are_missing() {
+        let params =
+            discord_connect_params_for_secret_update(|_| None, "discord_bot_token", "new-token");
+
+        assert!(params.is_none());
+    }
 }

@@ -8,10 +8,11 @@ use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::{Context, bail};
+use anyhow::{Context, anyhow, bail};
 use serde::{Deserialize, Serialize};
 use tokio::process::{Child, Command};
-use tokio::sync::RwLock;
+use tokio::sync::{RwLock, oneshot, watch};
+use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
 pub const DISCORD_WEBHOOK_PORT: u16 = 3488;
@@ -33,6 +34,7 @@ pub struct TransportManager {
 struct TransportHandle {
     status: TransportStatus,
     cancel: Option<CancellationToken>,
+    task: Option<JoinHandle<()>>,
 }
 
 struct NgrokTunnel {
@@ -109,10 +111,12 @@ impl TransportManager {
             discord: Arc::new(RwLock::new(TransportHandle {
                 status: TransportStatus::Disconnected,
                 cancel: None,
+                task: None,
             })),
             slack: Arc::new(RwLock::new(TransportHandle {
                 status: TransportStatus::Disconnected,
                 cancel: None,
+                task: None,
             })),
             ngrok: Arc::new(RwLock::new(None)),
             tenant,
@@ -278,8 +282,10 @@ impl TransportManager {
         let port = self.port;
         let api_key = self.api_key.clone();
         let guild_id_for_status = params.guild_id.clone();
+        let (ready_tx, mut ready_rx) = watch::channel(false);
+        let (startup_tx, startup_rx) = oneshot::channel();
 
-        tokio::spawn(async move {
+        let task = tokio::spawn(async move {
             use paw_transport::PawApiConfig;
             use paw_transport::discord::types::intents;
             use paw_transport::discord::{DiscordConfig, DiscordTransport};
@@ -301,51 +307,87 @@ impl TransportManager {
                 feed_channel_id: params.feed_channel_id,
                 forum_channel_id: params.forum_channel_id,
             };
+            let transport = DiscordTransport::new(config, api).with_ready_signal(ready_tx);
+            let run = transport.run();
+            tokio::pin!(run);
+            let mut startup_tx = Some(startup_tx);
+            let mut ready_observed = false;
 
-            // Mark as connected once we start the run loop
-            {
-                let mut handle = discord_handle.write().await;
-                handle.status = TransportStatus::Connected {
-                    guild_id: guild_id_for_status,
-                };
-            }
-
-            let transport = DiscordTransport::new(config, api);
-            tokio::select! {
-                result = transport.run() => {
-                    let mut handle = discord_handle.write().await;
-                    match result {
-                        Ok(()) => {
-                            handle.status = TransportStatus::Disconnected;
+            loop {
+                tokio::select! {
+                    result = &mut run => {
+                        let mut handle = discord_handle.write().await;
+                        match result {
+                            Ok(()) => {
+                                handle.status = TransportStatus::Disconnected;
+                                if let Some(startup_tx) = startup_tx.take() {
+                                    let _ = startup_tx.send(Err(anyhow!("Discord transport exited before becoming ready")));
+                                }
+                            }
+                            Err(e) => {
+                                tracing::error!("Discord transport error: {e}");
+                                handle.status = TransportStatus::Error {
+                                    message: e.to_string(),
+                                };
+                                if let Some(startup_tx) = startup_tx.take() {
+                                    let _ = startup_tx.send(Err(anyhow!(e)));
+                                }
+                            }
                         }
-                        Err(e) => {
-                            tracing::error!("Discord transport error: {e}");
-                            handle.status = TransportStatus::Error {
-                                message: e.to_string(),
-                            };
+                        handle.cancel = None;
+                        break;
+                    }
+                    changed = ready_rx.changed(), if !ready_observed => {
+                        match changed {
+                            Ok(()) if *ready_rx.borrow() => {
+                                ready_observed = true;
+                                let mut handle = discord_handle.write().await;
+                                handle.status = TransportStatus::Connected {
+                                    guild_id: guild_id_for_status.clone(),
+                                };
+                                if let Some(startup_tx) = startup_tx.take() {
+                                    let _ = startup_tx.send(Ok(()));
+                                }
+                            }
+                            Ok(()) => {}
+                            Err(_) => {}
                         }
                     }
-                    handle.cancel = None;
-                }
-                _ = cancel.cancelled() => {
-                    tracing::info!("Discord transport: shutting down (cancelled)");
-                    let mut handle = discord_handle.write().await;
-                    handle.status = TransportStatus::Disconnected;
-                    handle.cancel = None;
+                    _ = cancel.cancelled() => {
+                        tracing::info!("Discord transport: shutting down (cancelled)");
+                        let mut handle = discord_handle.write().await;
+                        handle.status = TransportStatus::Disconnected;
+                        handle.cancel = None;
+                        if let Some(startup_tx) = startup_tx.take() {
+                            let _ = startup_tx.send(Err(anyhow!("Discord transport startup was cancelled")));
+                        }
+                        break;
+                    }
                 }
             }
         });
+
+        {
+            let mut handle = self.discord.write().await;
+            handle.task = Some(task);
+        }
+
+        match tokio::time::timeout(Duration::from_secs(30), startup_rx).await {
+            Ok(Ok(Ok(()))) => {}
+            Ok(Ok(Err(error))) => return Err(error),
+            Ok(Err(_)) => bail!("Discord transport startup task ended unexpectedly"),
+            Err(_) => {
+                self.disconnect_discord().await;
+                bail!("Timed out waiting for Discord to reach READY");
+            }
+        }
 
         Ok(interaction_url)
     }
 
     /// Stop the Discord transport gracefully.
     pub async fn disconnect_discord(&self) {
-        let mut handle = self.discord.write().await;
-        if let Some(cancel) = handle.cancel.take() {
-            cancel.cancel();
-        }
-        handle.status = TransportStatus::Disconnected;
+        self.stop_transport(&self.discord, "discord").await;
     }
 
     /// Start the Slack transport. If already connected, disconnects first.
@@ -364,7 +406,7 @@ impl TransportManager {
         let port = self.port;
         let api_key = self.api_key.clone();
 
-        tokio::spawn(async move {
+        let task = tokio::spawn(async move {
             use paw_transport::PawApiConfig;
             use paw_transport::slack::{SlackConfig, SlackTransport};
 
@@ -413,15 +455,16 @@ impl TransportManager {
                 }
             }
         });
+
+        {
+            let mut handle = self.slack.write().await;
+            handle.task = Some(task);
+        }
     }
 
     /// Stop the Slack transport gracefully.
     pub async fn disconnect_slack(&self) {
-        let mut handle = self.slack.write().await;
-        if let Some(cancel) = handle.cancel.take() {
-            cancel.cancel();
-        }
-        handle.status = TransportStatus::Disconnected;
+        self.stop_transport(&self.slack, "slack").await;
     }
 
     /// Get the current status of all transports.
@@ -435,9 +478,30 @@ impl TransportManager {
     pub fn discord_interaction_proxy_url(&self) -> String {
         format!("http://127.0.0.1:{DISCORD_WEBHOOK_PORT}/interaction")
     }
+
+    async fn stop_transport(&self, handle_lock: &Arc<RwLock<TransportHandle>>, label: &str) {
+        let (cancel, task) = {
+            let mut handle = handle_lock.write().await;
+            handle.status = TransportStatus::Disconnected;
+            (handle.cancel.take(), handle.task.take())
+        };
+
+        if let Some(cancel) = cancel {
+            cancel.cancel();
+        }
+
+        if let Some(task) = task {
+            match task.await {
+                Ok(()) => {}
+                Err(error) if error.is_cancelled() => {}
+                Err(error) => {
+                    tracing::warn!(transport = label, %error, "transport task join failed");
+                }
+            }
+        }
+    }
 }
 
 pub fn ngrok_available(ngrok_bin: &str) -> bool {
     TransportManager::ngrok_available(ngrok_bin)
 }
-

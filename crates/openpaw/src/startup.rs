@@ -70,6 +70,19 @@ fn startup_os_apps() -> Vec<String> {
     list_startup_os_apps()
 }
 
+fn startup_discord_connect_result(result: anyhow::Result<String>) -> Option<String> {
+    match result {
+        Ok(interaction_url) => Some(interaction_url),
+        Err(error) => {
+            tracing::error!(
+                error = %error,
+                "Discord transport failed during startup; continuing without Discord"
+            );
+            None
+        }
+    }
+}
+
 async fn recover_runtime_indexes(state: &PlatformState, tenant_ids: &[TenantId]) {
     for step in runtime_recovery_plan(tenant_ids) {
         match step {
@@ -929,40 +942,45 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
                 .and_then(|v| v.get_secret(&tenant, "discord_forum_channel_id"))
                 .or_else(|| config.discord_forum_channel_id.clone());
 
-            let interaction_url = transport_manager
-                .connect_discord(crate::transport_manager::DiscordConnectParams {
-                    bot_token: token,
-                    public_key,
-                    guild_id: guild_id.clone(),
-                    feed_channel_id: feed_channel_id.clone(),
-                    forum_channel_id: forum_channel_id.clone(),
-                })
-                .await?;
-            tracing::info!(%interaction_url, "Discord transport ready");
+            if let Some(interaction_url) = startup_discord_connect_result(
+                transport_manager
+                    .connect_discord(crate::transport_manager::DiscordConnectParams {
+                        bot_token: token,
+                        public_key,
+                        guild_id: guild_id.clone(),
+                        feed_channel_id: feed_channel_id.clone(),
+                        forum_channel_id: forum_channel_id.clone(),
+                    })
+                    .await,
+            ) {
+                tracing::info!(%interaction_url, "Discord transport ready");
 
-            // Spawn Discord observer (SSE → Discord feed/forum).
-            if feed_channel_id.is_some() || forum_channel_id.is_some() {
-                let bot_token_for_observer = vault
-                    .and_then(|v| v.get_secret(&tenant, "discord_bot_token"))
-                    .unwrap_or_default();
-                let observer_api = paw_transport::PawApiClient::new(paw_transport::PawApiConfig {
-                    base_url: format!("http://127.0.0.1:{actual_port}"),
-                    tenant: tenant.clone(),
-                    api_key: config.temper_api_key.clone(),
-                });
-                let observer_config = paw_transport::discord::ObserverConfig {
-                    bot_token: bot_token_for_observer,
-                    feed_channel_id,
-                    forum_channel_id,
-                };
-                tokio::spawn(async move {
-                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-                    if let Err(e) =
-                        paw_transport::discord::run_observer(observer_api, observer_config).await
-                    {
-                        tracing::error!("Discord observer failed: {e}");
-                    }
-                });
+                // Spawn Discord observer (SSE → Discord feed/forum).
+                if feed_channel_id.is_some() || forum_channel_id.is_some() {
+                    let bot_token_for_observer = vault
+                        .and_then(|v| v.get_secret(&tenant, "discord_bot_token"))
+                        .unwrap_or_default();
+                    let observer_api =
+                        paw_transport::PawApiClient::new(paw_transport::PawApiConfig {
+                            base_url: format!("http://127.0.0.1:{actual_port}"),
+                            tenant: tenant.clone(),
+                            api_key: config.temper_api_key.clone(),
+                        });
+                    let observer_config = paw_transport::discord::ObserverConfig {
+                        bot_token: bot_token_for_observer,
+                        feed_channel_id,
+                        forum_channel_id,
+                    };
+                    tokio::spawn(async move {
+                        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                        if let Err(e) =
+                            paw_transport::discord::run_observer(observer_api, observer_config)
+                                .await
+                        {
+                            tracing::error!("Discord observer failed: {e}");
+                        }
+                    });
+                }
             }
         } else {
             tracing::warn!("No discord_bot_token in vault — Discord transport not started");
@@ -2305,13 +2323,14 @@ fn spawn_actor_passivation_loop(state: &PlatformState) {
 mod tests {
     use std::path::Path;
 
+    use anyhow::anyhow;
     use serde_json::Value;
     use temper_runtime::tenant::TenantId;
 
     use super::{
         LocalWasmStartupPolicy, RuntimeRecoveryStep, actor_passivation_check_interval_secs,
         load_or_create_temper_api_key, local_wasm_startup_policy, runtime_recovery_plan,
-        soul_lookup_filters, startup_os_apps,
+        soul_lookup_filters, startup_discord_connect_result, startup_os_apps,
     };
 
     #[test]
@@ -2364,6 +2383,19 @@ mod tests {
             local_wasm_startup_policy(None),
             LocalWasmStartupPolicy::LoadPersistedOnly
         );
+    }
+
+    #[test]
+    fn startup_discord_connect_result_keeps_success() {
+        assert_eq!(
+            startup_discord_connect_result(Ok("https://example.com/discord/interaction".into())),
+            Some("https://example.com/discord/interaction".into())
+        );
+    }
+
+    #[test]
+    fn startup_discord_connect_result_drops_failure() {
+        assert_eq!(startup_discord_connect_result(Err(anyhow!("boom"))), None);
     }
 
     #[test]
