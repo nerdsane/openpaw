@@ -317,15 +317,12 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
                 &config.railway_service_id,
             ) {
                 use base64::Engine as _;
-                let key_b64 =
-                    base64::engine::general_purpose::STANDARD.encode(&key_bytes);
+                let key_b64 = base64::engine::general_purpose::STANDARD.encode(&key_bytes);
                 match persist_vault_key_to_railway(token, project_id, env_id, service_id, &key_b64)
                     .await
                 {
                     Ok(()) => {
-                        tracing::info!(
-                            "Vault key persisted to Railway env var TEMPER_VAULT_KEY"
-                        );
+                        tracing::info!("Vault key persisted to Railway env var TEMPER_VAULT_KEY");
                     }
                     Err(e) => {
                         tracing::warn!(
@@ -344,9 +341,11 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
 
     // Phase 5b: Restore secrets from Turso (before env seeding so env vars take priority)
     if let Some(ref vault) = state.server.secrets_vault {
-        restore_secrets_from_turso(vault, &turso_store, "default").await;
+        restore_secrets_from_turso_as_platform(vault, &turso_store, &tenant).await;
         if tenant != "default" {
-            restore_secrets_from_turso(vault, &turso_store, &tenant).await;
+            // Migration shim for older deployments that stored shared startup
+            // secrets under the legacy "default" tenant bucket.
+            restore_secrets_from_turso_as_platform(vault, &turso_store, "default").await;
         }
     }
 
@@ -355,14 +354,12 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
     // Each secret is cached in-memory AND persisted to Turso so it survives
     // restarts even if the env var is later removed.
     if let Some(ref vault) = state.server.secrets_vault {
-        /// Helper to seed a secret from an optional env value into both tenants.
+        /// Helper to seed a shared platform secret from an optional env value.
         macro_rules! seed_secret {
             ($vault:expr, $store:expr, $tenant:expr, $key:expr, $value:expr) => {
                 if let Some(ref val) = $value {
-                    cache_and_persist_secret($vault, $store, "default", $key, val.clone()).await;
-                    if $tenant != "default" {
-                        cache_and_persist_secret($vault, $store, $tenant, $key, val.clone()).await;
-                    }
+                    cache_platform_and_persist_secret($vault, $store, $tenant, $key, val.clone())
+                        .await;
                 }
             };
         }
@@ -404,23 +401,23 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
         );
         // Seed llm_model derived from llm_provider
         {
-            let provider = config
-                .llm_provider
-                .as_deref()
-                .unwrap_or("anthropic");
+            let provider = config.llm_provider.as_deref().unwrap_or("anthropic");
             let default_model = match provider {
-                "openai" | "openai_codex" => std::env::var("LLM_MODEL").unwrap_or_else(|_| "gpt-5.4".to_string()),
+                "openai" | "openai_codex" => {
+                    std::env::var("LLM_MODEL").unwrap_or_else(|_| "gpt-5.4".to_string())
+                }
                 "openrouter" => std::env::var("LLM_MODEL")
                     .unwrap_or_else(|_| "anthropic/claude-sonnet-4.6".to_string()),
-                _ => std::env::var("LLM_MODEL")
-                    .unwrap_or_else(|_| "claude-sonnet-4-6".to_string()),
+                _ => std::env::var("LLM_MODEL").unwrap_or_else(|_| "claude-sonnet-4-6".to_string()),
             };
-            cache_and_persist_secret(vault, &turso_store, "default", "llm_model", default_model.clone())
-                .await;
-            if tenant != "default" {
-                cache_and_persist_secret(vault, &turso_store, &tenant, "llm_model", default_model)
-                    .await;
-            }
+            cache_platform_and_persist_secret(
+                vault,
+                &turso_store,
+                &tenant,
+                "llm_model",
+                default_model,
+            )
+            .await;
         }
         seed_secret!(
             vault,
@@ -585,53 +582,38 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
         );
 
         // dd_site always has a value (defaults to "datadoghq.com")
-        cache_and_persist_secret(
+        cache_platform_and_persist_secret(
             vault,
             &turso_store,
-            "default",
+            &tenant,
             "dd_site",
             config.dd_site.clone(),
         )
         .await;
-        if tenant != "default" {
-            cache_and_persist_secret(
-                vault,
-                &turso_store,
-                &tenant,
-                "dd_site",
-                config.dd_site.clone(),
-            )
-            .await;
-        }
 
         // temper_api_url — always set to local server
         let api_url = format!("http://127.0.0.1:{actual_port}");
-        let _ = vault.cache_secret("default", "temper_api_url", api_url.clone());
-        if tenant != "default" {
-            let _ = vault.cache_secret(&tenant, "temper_api_url", api_url);
-        }
+        let _ = vault.cache_platform_secret("temper_api_url", api_url);
 
         // Sandbox URL: explicit override for testing, otherwise Tensorlake provisions on demand.
         if let Some(sandbox_url) = std::env::var("SANDBOX_URL").ok().filter(|s| !s.is_empty()) {
-            cache_and_persist_secret(
+            cache_platform_and_persist_secret(
                 vault,
                 &turso_store,
-                "default",
+                &tenant,
                 "sandbox_url",
                 sandbox_url.clone(),
             )
             .await;
-            if tenant != "default" {
-                cache_and_persist_secret(vault, &turso_store, &tenant, "sandbox_url", sandbox_url)
-                    .await;
-            }
         } else {
             let provider = config.sandbox_provider.as_deref().unwrap_or("tensorlake");
             match provider {
                 "tensorlake" if config.tensorlake_api_key.is_some() => {
                     tracing::info!("Sandbox provider: tensorlake (API key configured)");
                 }
-                "modal" if config.modal_token_id.is_some() && config.modal_token_secret.is_some() => {
+                "modal"
+                    if config.modal_token_id.is_some() && config.modal_token_secret.is_some() =>
+                {
                     tracing::info!("Sandbox provider: modal (token configured)");
                 }
                 "modal" => {
@@ -662,41 +644,29 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
             format!("http://127.0.0.1:{actual_port}/_internal/blobs")
         };
         let blob_bucket = std::env::var("BLOB_BUCKET").unwrap_or_else(|_| "temper-fs".into());
-        let _ = vault.cache_secret("default", "blob_endpoint", blob_endpoint.clone());
-        let _ = vault.cache_secret("default", "blob_bucket", blob_bucket.clone());
-        if tenant != "default" {
-            let _ = vault.cache_secret(&tenant, "blob_endpoint", blob_endpoint);
-            let _ = vault.cache_secret(&tenant, "blob_bucket", blob_bucket);
-        }
+        let _ = vault.cache_platform_secret("blob_endpoint", blob_endpoint);
+        let _ = vault.cache_platform_secret("blob_bucket", blob_bucket);
 
         // HMAC credentials for GCS (or any S3-compatible blob store).
         if let Ok(key) = std::env::var("BLOB_ACCESS_KEY") {
-            cache_and_persist_secret(
+            cache_platform_and_persist_secret(
                 vault,
                 &turso_store,
-                "default",
+                &tenant,
                 "blob_access_key",
                 key.clone(),
             )
             .await;
-            if tenant != "default" {
-                cache_and_persist_secret(vault, &turso_store, &tenant, "blob_access_key", key)
-                    .await;
-            }
         }
         if let Ok(key) = std::env::var("BLOB_SECRET_KEY") {
-            cache_and_persist_secret(
+            cache_platform_and_persist_secret(
                 vault,
                 &turso_store,
-                "default",
+                &tenant,
                 "blob_secret_key",
                 key.clone(),
             )
             .await;
-            if tenant != "default" {
-                cache_and_persist_secret(vault, &turso_store, &tenant, "blob_secret_key", key)
-                    .await;
-            }
         }
     }
 
@@ -738,7 +708,10 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
     } else {
         tracing::info!("Specs committed for tenant {tenant}");
     }
-    tracing::info!(elapsed_ms = phase_started.elapsed().as_millis(), "phase_6_os_app_reconcile complete");
+    tracing::info!(
+        elapsed_ms = phase_started.elapsed().as_millis(),
+        "phase_6_os_app_reconcile complete"
+    );
 
     // Phase 7: Recovery (Cedar policies + WASM modules + secrets from store)
     let phase_started = Instant::now();
@@ -756,7 +729,10 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
         registry.tenant_ids().into_iter().cloned().collect()
     };
     recover_runtime_indexes(&state, &tenant_ids).await;
-    tracing::info!(elapsed_ms = phase_started.elapsed().as_millis(), "phase_7_runtime_recovery complete");
+    tracing::info!(
+        elapsed_ms = phase_started.elapsed().as_millis(),
+        "phase_7_runtime_recovery complete"
+    );
 
     // Phase 7b: Session recovery — recover or fail orphaned sessions (ADR-0025)
     {
@@ -889,6 +865,7 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
             .context("Vault must be initialized before auth")?
             .clone(),
         vault_key_bytes.to_vec(),
+        tenant.clone(),
         cookie_secure,
     );
 
@@ -1123,15 +1100,16 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
     Ok(())
 }
 
-/// Cache a secret in the in-memory vault AND persist it to Turso so it survives restarts.
-async fn cache_and_persist_secret(
+/// Cache a shared platform secret in-memory and persist it under the configured
+/// tenant bucket so it survives restarts without a Turso schema change.
+async fn cache_platform_and_persist_secret(
     vault: &temper_server::secrets::vault::SecretsVault,
     store: &TursoEventStore,
     tenant: &str,
     key: &str,
     value: String,
 ) {
-    let _ = vault.cache_secret(tenant, key, value.clone());
+    let _ = vault.cache_platform_secret(key, value.clone());
     match vault.encrypt(value.as_bytes()) {
         Ok((ciphertext, nonce)) => {
             if let Err(e) = store.upsert_secret(tenant, key, &ciphertext, &nonce).await {
@@ -1144,8 +1122,11 @@ async fn cache_and_persist_secret(
     }
 }
 
-/// Restore secrets from Turso into the in-memory vault.
-async fn restore_secrets_from_turso(
+/// Restore persisted shared secrets from Turso into the platform cache.
+///
+/// The first restored value wins so a configured tenant bucket takes
+/// precedence over the legacy `"default"` bucket during migration.
+async fn restore_secrets_from_turso_as_platform(
     vault: &temper_server::secrets::vault::SecretsVault,
     store: &TursoEventStore,
     tenant: &str,
@@ -1157,8 +1138,10 @@ async fn restore_secrets_from_turso(
                 match vault.decrypt(&ciphertext, &nonce) {
                     Ok(plaintext) => {
                         if let Ok(value) = String::from_utf8(plaintext) {
-                            let _ = vault.cache_secret(tenant, &key_name, value);
-                            restored += 1;
+                            if vault.get_platform_secret(&key_name).is_none() {
+                                let _ = vault.cache_platform_secret(&key_name, value);
+                                restored += 1;
+                            }
                         }
                     }
                     Err(e) => {
@@ -1806,8 +1789,7 @@ async fn set_default_agent(
             if !route_id.is_empty() {
                 let resolved_provider =
                     std::env::var("LLM_PROVIDER").unwrap_or_else(|_| "anthropic".to_string());
-                let agent_config =
-                    default_agent_config(api_url, api_key, &resolved_provider);
+                let agent_config = default_agent_config(api_url, api_key, &resolved_provider);
                 odata_post(
                     client,
                     &format!("{api_url}/tdata/AgentRoutes('{route_id}')/Paw.Channel.Register"),
@@ -1840,7 +1822,9 @@ fn default_agent_config(
     llm_provider: &str,
 ) -> serde_json::Value {
     let default_model = match llm_provider {
-        "openai" | "openai_codex" => std::env::var("LLM_MODEL").unwrap_or_else(|_| "gpt-5.4".to_string()),
+        "openai" | "openai_codex" => {
+            std::env::var("LLM_MODEL").unwrap_or_else(|_| "gpt-5.4".to_string())
+        }
         "openrouter" => {
             std::env::var("LLM_MODEL").unwrap_or_else(|_| "anthropic/claude-sonnet-4.6".to_string())
         }
@@ -2327,8 +2311,7 @@ mod tests {
     use super::{
         LocalWasmStartupPolicy, RuntimeRecoveryStep, actor_passivation_check_interval_secs,
         load_or_create_temper_api_key, local_wasm_startup_policy, runtime_recovery_plan,
-        soul_lookup_filters,
-        startup_os_apps,
+        soul_lookup_filters, startup_os_apps,
     };
 
     #[test]

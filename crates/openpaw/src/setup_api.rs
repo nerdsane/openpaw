@@ -86,26 +86,146 @@ struct SecretSchema {
 
 fn secrets_schema() -> Vec<SecretSchema> {
     vec![
-        SecretSchema { key: "anthropic_api_key", category: "llm", label: "Anthropic API Key", required: false, description: "Claude models — console.anthropic.com" },
-        SecretSchema { key: "openai_api_key", category: "llm", label: "OpenAI API Key", required: false, description: "GPT models — platform.openai.com/api-keys" },
-        SecretSchema { key: "openai_codex_token", category: "llm", label: "OpenAI Codex Token", required: false, description: "OAuth token from codex login (~/.codex/auth.json)" },
-        SecretSchema { key: "openrouter_api_key", category: "llm", label: "OpenRouter API Key", required: false, description: "Multi-provider routing — openrouter.ai/keys" },
-        SecretSchema { key: "llm_provider", category: "llm", label: "Active LLM Provider", required: false, description: "anthropic, openai, openai_codex, or openrouter" },
-        SecretSchema { key: "llm_model", category: "llm", label: "LLM Model", required: false, description: "Override default model (e.g. claude-sonnet-4-6, o3-mini)" },
-        SecretSchema { key: "discord_bot_token", category: "messaging", label: "Discord Bot Token", required: false, description: "Bot token from Discord developer portal" },
-        SecretSchema { key: "discord_public_key", category: "messaging", label: "Discord Public Key", required: false, description: "Application public key for interaction verification" },
-        SecretSchema { key: "discord_guild_id", category: "messaging", label: "Discord Guild ID", required: false, description: "Server ID for slash commands" },
-        SecretSchema { key: "discord_feed_channel_id", category: "messaging", label: "Discord Feed Channel", required: false, description: "Channel for activity feed" },
-        SecretSchema { key: "discord_forum_channel_id", category: "messaging", label: "Discord Forum Channel", required: false, description: "Forum channel for agent threads" },
-        SecretSchema { key: "slack_app_token", category: "messaging", label: "Slack App Token", required: false, description: "xapp-... token for Socket Mode" },
-        SecretSchema { key: "slack_bot_token", category: "messaging", label: "Slack Bot Token", required: false, description: "xoxb-... token for Web API" },
-        SecretSchema { key: "slack_signing_secret", category: "messaging", label: "Slack Signing Secret", required: false, description: "Webhook signature verification" },
-        SecretSchema { key: "exa_api_key", category: "web_search", label: "Exa API Key", required: false, description: "Web search via exa.ai — agents can research the internet" },
-        SecretSchema { key: "sandbox_provider", category: "sandbox", label: "Sandbox Provider", required: false, description: "tensorlake or modal — where agents run code" },
-        SecretSchema { key: "tensorlake_api_key", category: "sandbox", label: "TensorLake API Key", required: false, description: "Cloud sandbox provisioning — tensorlake.ai" },
-        SecretSchema { key: "modal_token_id", category: "sandbox", label: "Modal Token ID", required: false, description: "Starts with ak-… — from modal.com/settings or `modal token set`" },
-        SecretSchema { key: "modal_token_secret", category: "sandbox", label: "Modal Token Secret", required: false, description: "Starts with as-… — from modal.com/settings or `modal token set`" },
-        SecretSchema { key: "github_token", category: "integrations", label: "GitHub Token", required: false, description: "For repo cloning and PR flows" },
+        SecretSchema {
+            key: "anthropic_api_key",
+            category: "llm",
+            label: "Anthropic API Key",
+            required: false,
+            description: "Claude models — console.anthropic.com",
+        },
+        SecretSchema {
+            key: "openai_api_key",
+            category: "llm",
+            label: "OpenAI API Key",
+            required: false,
+            description: "GPT models — platform.openai.com/api-keys",
+        },
+        SecretSchema {
+            key: "openai_codex_token",
+            category: "llm",
+            label: "OpenAI Codex Token",
+            required: false,
+            description: "OAuth token from codex login (~/.codex/auth.json)",
+        },
+        SecretSchema {
+            key: "openrouter_api_key",
+            category: "llm",
+            label: "OpenRouter API Key",
+            required: false,
+            description: "Multi-provider routing — openrouter.ai/keys",
+        },
+        SecretSchema {
+            key: "llm_provider",
+            category: "llm",
+            label: "Active LLM Provider",
+            required: false,
+            description: "anthropic, openai, openai_codex, or openrouter",
+        },
+        SecretSchema {
+            key: "llm_model",
+            category: "llm",
+            label: "LLM Model",
+            required: false,
+            description: "Override default model (e.g. claude-sonnet-4-6, o3-mini)",
+        },
+        SecretSchema {
+            key: "discord_bot_token",
+            category: "messaging",
+            label: "Discord Bot Token",
+            required: false,
+            description: "Bot token from Discord developer portal",
+        },
+        SecretSchema {
+            key: "discord_public_key",
+            category: "messaging",
+            label: "Discord Public Key",
+            required: false,
+            description: "Application public key for interaction verification",
+        },
+        SecretSchema {
+            key: "discord_guild_id",
+            category: "messaging",
+            label: "Discord Guild ID",
+            required: false,
+            description: "Server ID for slash commands",
+        },
+        SecretSchema {
+            key: "discord_feed_channel_id",
+            category: "messaging",
+            label: "Discord Feed Channel",
+            required: false,
+            description: "Channel for activity feed",
+        },
+        SecretSchema {
+            key: "discord_forum_channel_id",
+            category: "messaging",
+            label: "Discord Forum Channel",
+            required: false,
+            description: "Forum channel for agent threads",
+        },
+        SecretSchema {
+            key: "slack_app_token",
+            category: "messaging",
+            label: "Slack App Token",
+            required: false,
+            description: "xapp-... token for Socket Mode",
+        },
+        SecretSchema {
+            key: "slack_bot_token",
+            category: "messaging",
+            label: "Slack Bot Token",
+            required: false,
+            description: "xoxb-... token for Web API",
+        },
+        SecretSchema {
+            key: "slack_signing_secret",
+            category: "messaging",
+            label: "Slack Signing Secret",
+            required: false,
+            description: "Webhook signature verification",
+        },
+        SecretSchema {
+            key: "exa_api_key",
+            category: "web_search",
+            label: "Exa API Key",
+            required: false,
+            description: "Web search via exa.ai — agents can research the internet",
+        },
+        SecretSchema {
+            key: "sandbox_provider",
+            category: "sandbox",
+            label: "Sandbox Provider",
+            required: false,
+            description: "tensorlake or modal — where agents run code",
+        },
+        SecretSchema {
+            key: "tensorlake_api_key",
+            category: "sandbox",
+            label: "TensorLake API Key",
+            required: false,
+            description: "Cloud sandbox provisioning — tensorlake.ai",
+        },
+        SecretSchema {
+            key: "modal_token_id",
+            category: "sandbox",
+            label: "Modal Token ID",
+            required: false,
+            description: "Starts with ak-… — from modal.com/settings or `modal token set`",
+        },
+        SecretSchema {
+            key: "modal_token_secret",
+            category: "sandbox",
+            label: "Modal Token Secret",
+            required: false,
+            description: "Starts with as-… — from modal.com/settings or `modal token set`",
+        },
+        SecretSchema {
+            key: "github_token",
+            category: "integrations",
+            label: "GitHub Token",
+            required: false,
+            description: "For repo cloning and PR flows",
+        },
         // DD_* keys are infrastructure config set via Railway env vars (by `openpaw deploy`).
         // They don't belong in the dashboard — change them in Railway if needed.
     ]
@@ -169,10 +289,7 @@ async fn get_setup_status(State(state): State<SetupApiState>) -> Json<SetupStatu
                 .or_else(|| v.get_secret(&state.tenant, "openrouter_api_key"))
         })
         .is_some();
-    let llm_provider = vault.and_then(|v| {
-        v.get_secret(&state.tenant, "llm_provider")
-            .or_else(|| v.get_secret("default", "llm_provider"))
-    });
+    let llm_provider = vault.and_then(|v| v.get_secret(&state.tenant, "llm_provider"));
     let has_discord = vault
         .and_then(|v| v.get_secret(&state.tenant, "discord_bot_token"))
         .is_some();
@@ -227,17 +344,14 @@ struct SecretValueResponse {
 }
 
 async fn list_secrets(State(state): State<SetupApiState>) -> Json<SecretKeyList> {
-    match state
-        .turso_store
-        .load_secrets_for_tenant(&state.tenant)
-        .await
-    {
-        Ok(rows) => {
-            let keys: Vec<String> = rows.into_iter().map(|(name, _, _)| name).collect();
-            Json(SecretKeyList { keys })
-        }
-        Err(_) => Json(SecretKeyList { keys: vec![] }),
-    }
+    let keys = state
+        .platform
+        .server
+        .secrets_vault
+        .as_ref()
+        .map(|vault| vault.list_keys(&state.tenant))
+        .unwrap_or_default();
+    Json(SecretKeyList { keys })
 }
 
 async fn get_secrets_schema() -> Json<Vec<SecretSchema>> {
@@ -262,10 +376,7 @@ async fn get_secret(
         );
     };
 
-    match vault
-        .get_secret(&state.tenant, &key)
-        .or_else(|| vault.get_secret("default", &key))
-    {
+    match vault.get_secret(&state.tenant, &key) {
         Some(value) => (
             StatusCode::OK,
             Json(serde_json::to_value(SecretValueResponse { key, value }).unwrap()),
@@ -303,21 +414,12 @@ async fn upsert_secret(
 
     // Cache in memory + persist to Turso
     let _ = vault.cache_secret(&state.tenant, &req.key, req.value.clone());
-    if state.tenant != "default" {
-        let _ = vault.cache_secret("default", &req.key, req.value.clone());
-    }
 
     if let Ok((ciphertext, nonce)) = vault.encrypt(req.value.as_bytes()) {
         let _ = state
             .turso_store
             .upsert_secret(&state.tenant, &req.key, &ciphertext, &nonce)
             .await;
-        if state.tenant != "default" {
-            let _ = state
-                .turso_store
-                .upsert_secret("default", &req.key, &ciphertext, &nonce)
-                .await;
-        }
     }
 
     (
@@ -332,14 +434,8 @@ async fn delete_secret(
 ) -> impl IntoResponse {
     if let Some(vault) = state.platform.server.secrets_vault.as_ref() {
         vault.remove_secret(&state.tenant, &key);
-        if state.tenant != "default" {
-            vault.remove_secret("default", &key);
-        }
     }
     let _ = state.turso_store.delete_secret(&state.tenant, &key).await;
-    if state.tenant != "default" {
-        let _ = state.turso_store.delete_secret("default", &key).await;
-    }
 
     (StatusCode::OK, Json(serde_json::json!({ "deleted": key })))
 }
@@ -445,7 +541,6 @@ async fn resolve_llm_provider(state: &SetupApiState) -> Result<LlmProvider> {
 
     let provider_hint = vault
         .get_secret(&state.tenant, "llm_provider")
-        .or_else(|| vault.get_secret("default", "llm_provider"))
         .unwrap_or_else(|| "anthropic".to_string());
 
     let api_key = [
@@ -455,11 +550,7 @@ async fn resolve_llm_provider(state: &SetupApiState) -> Result<LlmProvider> {
         "openai_codex_token",
     ]
     .into_iter()
-    .find_map(|key| {
-        vault
-            .get_secret(&state.tenant, key)
-            .or_else(|| vault.get_secret("default", key))
-    })
+    .find_map(|key| vault.get_secret(&state.tenant, key))
     .context("Configure an LLM API key before personalizing Paw")?;
 
     Ok(LlmProvider::detect(&api_key, &provider_hint))
@@ -633,10 +724,7 @@ struct RailwayStatus {
 async fn get_railway_status(State(state): State<SetupApiState>) -> Json<RailwayStatus> {
     let vault = state.platform.server.secrets_vault.as_ref();
     let has_token = vault
-        .and_then(|v| {
-            v.get_secret(&state.tenant, "railway_token")
-                .or_else(|| v.get_secret("default", "railway_token"))
-        })
+        .and_then(|v| v.get_secret(&state.tenant, "railway_token"))
         .is_some();
     let project_id = vault.and_then(|v| v.get_secret(&state.tenant, "railway_project_id"));
     let environment_id = vault.and_then(|v| v.get_secret(&state.tenant, "railway_environment_id"));
@@ -695,19 +783,13 @@ async fn set_railway_var(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({ "error": "Vault not initialized" })),
             )
-                .into_response()
+                .into_response();
         }
     };
 
-    let railway_token = vault
-        .get_secret(&state.tenant, "railway_token")
-        .or_else(|| vault.get_secret("default", "railway_token"));
-    let project_id = vault
-        .get_secret(&state.tenant, "railway_project_id")
-        .or_else(|| vault.get_secret("default", "railway_project_id"));
-    let environment_id = vault
-        .get_secret(&state.tenant, "railway_environment_id")
-        .or_else(|| vault.get_secret("default", "railway_environment_id"));
+    let railway_token = vault.get_secret(&state.tenant, "railway_token");
+    let project_id = vault.get_secret(&state.tenant, "railway_project_id");
+    let environment_id = vault.get_secret(&state.tenant, "railway_environment_id");
 
     let (Some(token), Some(project), Some(env)) = (railway_token, project_id, environment_id)
     else {
@@ -722,9 +804,7 @@ async fn set_railway_var(
 
     // Resolve service ID — for otel-collector, read from vault
     let service_id = if req.service == "otel-collector" {
-        vault
-            .get_secret(&state.tenant, "railway_otel_service_id")
-            .or_else(|| vault.get_secret("default", "railway_otel_service_id"))
+        vault.get_secret(&state.tenant, "railway_otel_service_id")
     } else {
         None
     };
@@ -979,22 +1059,14 @@ async fn railway_redeploy(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({ "error": "Vault not initialized" })),
             )
-                .into_response()
+                .into_response();
         }
     };
 
-    let railway_token = vault
-        .get_secret(&state.tenant, "railway_token")
-        .or_else(|| vault.get_secret("default", "railway_token"));
-    let project_id = vault
-        .get_secret(&state.tenant, "railway_project_id")
-        .or_else(|| vault.get_secret("default", "railway_project_id"));
-    let environment_id = vault
-        .get_secret(&state.tenant, "railway_environment_id")
-        .or_else(|| vault.get_secret("default", "railway_environment_id"));
-    let service_id = vault
-        .get_secret(&state.tenant, "railway_service_id")
-        .or_else(|| vault.get_secret("default", "railway_service_id"));
+    let railway_token = vault.get_secret(&state.tenant, "railway_token");
+    let project_id = vault.get_secret(&state.tenant, "railway_project_id");
+    let environment_id = vault.get_secret(&state.tenant, "railway_environment_id");
+    let service_id = vault.get_secret(&state.tenant, "railway_service_id");
 
     let (Some(token), Some(project), Some(env), Some(svc)) =
         (railway_token, project_id, environment_id, service_id)
