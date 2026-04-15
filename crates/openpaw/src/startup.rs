@@ -395,9 +395,9 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
                 .as_deref()
                 .unwrap_or("anthropic");
             let default_model = match provider {
-                "openai" => std::env::var("LLM_MODEL").unwrap_or_else(|_| "o3-mini".to_string()),
+                "openai" | "openai_codex" => std::env::var("LLM_MODEL").unwrap_or_else(|_| "gpt-5.4".to_string()),
                 "openrouter" => std::env::var("LLM_MODEL")
-                    .unwrap_or_else(|_| "anthropic/claude-sonnet-4".to_string()),
+                    .unwrap_or_else(|_| "anthropic/claude-sonnet-4.6".to_string()),
                 _ => std::env::var("LLM_MODEL")
                     .unwrap_or_else(|_| "claude-sonnet-4-6".to_string()),
             };
@@ -1826,9 +1826,9 @@ fn default_agent_config(
     llm_provider: &str,
 ) -> serde_json::Value {
     let default_model = match llm_provider {
-        "openai" => std::env::var("LLM_MODEL").unwrap_or_else(|_| "o3-mini".to_string()),
+        "openai" | "openai_codex" => std::env::var("LLM_MODEL").unwrap_or_else(|_| "gpt-5.4".to_string()),
         "openrouter" => {
-            std::env::var("LLM_MODEL").unwrap_or_else(|_| "anthropic/claude-sonnet-4".to_string())
+            std::env::var("LLM_MODEL").unwrap_or_else(|_| "anthropic/claude-sonnet-4.6".to_string())
         }
         _ => std::env::var("LLM_MODEL").unwrap_or_else(|_| "claude-sonnet-4-6".to_string()),
     };

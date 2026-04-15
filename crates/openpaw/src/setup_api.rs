@@ -578,8 +578,8 @@ async fn create_agent(
         .and_then(|v| v.get_secret(&state.tenant, "llm_provider"))
         .unwrap_or_else(|| "anthropic".to_string());
     let default_model = match resolved_provider.as_str() {
-        "openai" => "o3-mini".to_string(),
-        "openrouter" => "anthropic/claude-sonnet-4".to_string(),
+        "openai" | "openai_codex" => "gpt-5.4".to_string(),
+        "openrouter" => "anthropic/claude-sonnet-4.6".to_string(),
         _ => "claude-sonnet-4-6".to_string(),
     };
     let configure_params = serde_json::json!({
