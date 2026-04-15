@@ -293,6 +293,36 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
             );
             generate_and_save_vault_key(&vault_key_path)?
         };
+        // If we generated a new key (no env var) and Railway is available, persist it
+        // so the key survives across container redeploys (Railway has no persistent disk).
+        if config.vault_key.is_none() {
+            if let (Some(token), Some(project_id), Some(env_id), Some(service_id)) = (
+                &config.railway_token,
+                &config.railway_project_id,
+                &config.railway_environment_id,
+                &config.railway_service_id,
+            ) {
+                use base64::Engine as _;
+                let key_b64 =
+                    base64::engine::general_purpose::STANDARD.encode(&key_bytes);
+                match persist_vault_key_to_railway(token, project_id, env_id, service_id, &key_b64)
+                    .await
+                {
+                    Ok(()) => {
+                        tracing::info!(
+                            "Vault key persisted to Railway env var TEMPER_VAULT_KEY"
+                        );
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            %e,
+                            "Failed to persist vault key to Railway — account data will be lost on next redeploy"
+                        );
+                    }
+                }
+            }
+        }
+
         let vault = temper_server::secrets::vault::SecretsVault::new(&key_bytes);
         state.server.secrets_vault = Some(Arc::new(vault));
         key_bytes
@@ -1161,6 +1191,53 @@ fn generate_and_save_vault_key(path: &Path) -> Result<[u8; 32]> {
 
     tracing::info!(path = %path.display(), "Saved new vault key to file");
     Ok(key)
+}
+
+/// Persist the vault key to Railway as an environment variable so it survives container redeploys.
+/// Railway containers have no persistent disk, so without this the vault key is regenerated
+/// on every deploy and all encrypted secrets (including user accounts) become unreadable.
+async fn persist_vault_key_to_railway(
+    token: &str,
+    project_id: &str,
+    environment_id: &str,
+    service_id: &str,
+    vault_key_b64: &str,
+) -> Result<()> {
+    let client = reqwest::Client::new();
+    let query = serde_json::json!({
+        "query": "mutation($input: VariableCollectionUpsertInput!) { variableCollectionUpsert(input: $input) }",
+        "variables": {
+            "input": {
+                "projectId": project_id,
+                "environmentId": environment_id,
+                "serviceId": service_id,
+                "variables": {
+                    "TEMPER_VAULT_KEY": vault_key_b64
+                }
+            }
+        }
+    });
+
+    let resp = client
+        .post("https://backboard.railway.com/graphql/v2")
+        .bearer_auth(token)
+        .json(&query)
+        .send()
+        .await
+        .context("Railway GraphQL request failed")?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        anyhow::bail!("Railway API returned {status}: {body}");
+    }
+
+    let body: serde_json::Value = resp.json().await.unwrap_or_default();
+    if let Some(errors) = body.get("errors") {
+        anyhow::bail!("Railway GraphQL errors: {errors}");
+    }
+
+    Ok(())
 }
 
 fn load_or_create_temper_api_key(explicit_key: Option<String>, path: &Path) -> Result<String> {

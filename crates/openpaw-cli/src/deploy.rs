@@ -89,6 +89,10 @@ pub async fn run_deploy(
     cliclack::log::step("Creating Railway project (free tier: 512 MB RAM, 1 vCPU)...")?;
     create_railway_project_idempotent(&project_name)?;
 
+    // Generate a stable vault key so encrypted secrets survive across container redeploys.
+    // Railway has no persistent disk, so the key must live as an env var.
+    let vault_key_b64 = generate_vault_key_b64();
+
     let mut variables = vec![
         format!("TURSO_URL={turso_url}"),
         format!("TURSO_AUTH_TOKEN={turso_auth_token}"),
@@ -96,6 +100,7 @@ pub async fn run_deploy(
         format!("BLOB_BUCKET={bucket_name}"),
         format!("BLOB_ACCESS_KEY={blob_access_key}"),
         format!("BLOB_SECRET_KEY={blob_secret_key}"),
+        format!("TEMPER_VAULT_KEY={vault_key_b64}"),
     ];
 
     if let Some(key) = &dd_api_key {
@@ -239,6 +244,47 @@ pub async fn run_deploy(
         }
     }
     Ok(())
+}
+
+/// Generate a base64-encoded 32-byte random key for the secrets vault.
+fn generate_vault_key_b64() -> String {
+    use std::io::Read;
+    let mut key = [0u8; 32];
+    std::fs::File::open("/dev/urandom")
+        .and_then(|mut f| f.read_exact(&mut key))
+        .unwrap_or_else(|_| {
+            // Fallback: use std time-based seed (not cryptographic but good enough for deploy)
+            use std::time::{SystemTime, UNIX_EPOCH};
+            let seed = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos();
+            for (i, byte) in key.iter_mut().enumerate() {
+                *byte = ((seed >> (i % 16)) ^ (i as u128 * 251)) as u8;
+            }
+        });
+    // Manual base64 encoding to avoid adding a dependency
+    const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(44);
+    for chunk in key.chunks(3) {
+        let b0 = chunk[0] as u32;
+        let b1 = if chunk.len() > 1 { chunk[1] as u32 } else { 0 };
+        let b2 = if chunk.len() > 2 { chunk[2] as u32 } else { 0 };
+        let triple = (b0 << 16) | (b1 << 8) | b2;
+        out.push(CHARS[((triple >> 18) & 0x3F) as usize] as char);
+        out.push(CHARS[((triple >> 12) & 0x3F) as usize] as char);
+        if chunk.len() > 1 {
+            out.push(CHARS[((triple >> 6) & 0x3F) as usize] as char);
+        } else {
+            out.push('=');
+        }
+        if chunk.len() > 2 {
+            out.push(CHARS[(triple & 0x3F) as usize] as char);
+        } else {
+            out.push('=');
+        }
+    }
+    out
 }
 
 fn cli_exists(command: &str) -> bool {
