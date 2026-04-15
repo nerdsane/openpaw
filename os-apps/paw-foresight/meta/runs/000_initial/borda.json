@@ -1,0 +1,22 @@
+{
+  "run": "000",
+  "methodology_note": "Single evaluator (meta-agent) due to automated judge failure. Borda computed for 1 judge (max 24 per output, 36 total).",
+  "engine_borda": 14,
+  "baseline_borda": 22,
+  "max_per_output": 24,
+  "winner": "baseline",
+  "per_criterion": [
+    {"criterion": "Specificity", "engine": 1, "baseline": 2, "delta": -1},
+    {"criterion": "Novelty", "engine": 1.5, "baseline": 1.5, "delta": 0},
+    {"criterion": "Internal Consistency", "engine": 1.5, "baseline": 1.5, "delta": 0},
+    {"criterion": "Breadth", "engine": 1, "baseline": 2, "delta": -1},
+    {"criterion": "Plausibility", "engine": 1, "baseline": 2, "delta": -1},
+    {"criterion": "Progression", "engine": 1, "baseline": 2, "delta": -1},
+    {"criterion": "Actionability", "engine": 1, "baseline": 2, "delta": -1},
+    {"criterion": "Human Readability", "engine": 1.5, "baseline": 1.5, "delta": 0},
+    {"criterion": "Completeness", "engine": 1, "baseline": 2, "delta": -1},
+    {"criterion": "Transparency", "engine": 1, "baseline": 2, "delta": -1},
+    {"criterion": "Challenge", "engine": 1, "baseline": 2, "delta": -1},
+    {"criterion": "Parsimony", "engine": 1.5, "baseline": 1.5, "delta": 0}
+  ]
+}

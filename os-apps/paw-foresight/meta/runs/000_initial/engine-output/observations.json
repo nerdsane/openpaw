@@ -1,0 +1,1492 @@
+[
+  {
+    "entity_type": "Observation",
+    "entity_id": "en-019d9352-683c-7632-99de-62018a335132",
+    "status": "Confirmed",
+    "item_count": 0,
+    "counters": {},
+    "booleans": {},
+    "lists": {},
+    "fields": {
+      "fields": {},
+      "Id": "en-019d9352-683c-7632-99de-62018a335132",
+      "Status": "Confirmed",
+      "content": "Within 90 days, the ecosystem starts behaving less like a software market and more like a machine-tool industry. Teams stop comparing coding agents only by raw model quality and start comparing them by throughput per verified change: how many candidate patches, tests, and policy-constrained actions can be run per dollar and per human review hour. This follows sig-008, sig-003, and sig-012: generation is getting cheaper, but selection harnesses and internal eval suites are becoming the scarce capital good. Organizations that already own replay corpora, typed interfaces, and incident-derived evals widen their lead because they can amortize those harness assets across many agent runs.",
+      "counterfactual": "If teams ignore the machine-tool economics and keep optimizing only for smarter base models, they will overpay for generation while remaining bottlenecked on weak acceptance systems and unreliable deployment outcomes.",
+      "importance": "high",
+      "probe_agent_id": "aj-019d9351-925b-7092-9283-ce66f4e81e97",
+      "projection_id": "en-019d934f-5531-7db0-99d2-d39065a19ae8",
+      "signal_refs": "[\"sig-003\",\"sig-008\",\"sig-012\"]",
+      "step_at": "0",
+      "confirmer_agent_id": ""
+    },
+    "events": [
+      {
+        "action": "Created",
+        "from_status": "",
+        "to_status": "Created",
+        "timestamp": "2026-04-15T22:45:44.637566Z",
+        "params": {
+          "fields": {}
+        }
+      },
+      {
+        "action": "Record",
+        "from_status": "Created",
+        "to_status": "Created",
+        "timestamp": "2026-04-15T22:45:44.641263Z",
+        "params": {
+          "content": "Within 90 days, the ecosystem starts behaving less like a software market and more like a machine-tool industry. Teams stop comparing coding agents only by raw model quality and start comparing them by throughput per verified change: how many candidate patches, tests, and policy-constrained actions can be run per dollar and per human review hour. This follows sig-008, sig-003, and sig-012: generation is getting cheaper, but selection harnesses and internal eval suites are becoming the scarce capital good. Organizations that already own replay corpora, typed interfaces, and incident-derived evals widen their lead because they can amortize those harness assets across many agent runs.",
+          "counterfactual": "If teams ignore the machine-tool economics and keep optimizing only for smarter base models, they will overpay for generation while remaining bottlenecked on weak acceptance systems and unreliable deployment outcomes.",
+          "importance": "high",
+          "probe_agent_id": "aj-019d9351-925b-7092-9283-ce66f4e81e97",
+          "projection_id": "en-019d934f-5531-7db0-99d2-d39065a19ae8",
+          "signal_refs": "[\"sig-003\",\"sig-008\",\"sig-012\"]",
+          "step_at": "0"
+        }
+      },
+      {
+        "action": "Confirm",
+        "from_status": "Created",
+        "to_status": "Confirmed",
+        "timestamp": "2026-04-15T22:46:29.254912Z",
+        "params": {
+          "confirmer_agent_id": ""
+        }
+      }
+    ],
+    "total_event_count": 3,
+    "sequence_nr": 3,
+    "@odata.id": "Observations('en-019d9352-683c-7632-99de-62018a335132')"
+  },
+  {
+    "entity_type": "Observation",
+    "entity_id": "en-019d9352-6846-7ff1-baf1-e2ef2eb28d73",
+    "status": "Confirmed",
+    "item_count": 0,
+    "counters": {},
+    "booleans": {},
+    "lists": {},
+    "fields": {
+      "fields": {},
+      "Id": "en-019d9352-6846-7ff1-baf1-e2ef2eb28d73",
+      "Status": "Confirmed",
+      "content": "A new selection pressure appears at the organizational boundary: procurement, audit, and platform teams increasingly prefer governed agent platforms over free-roaming shell agents. In biology terms, this is niche selection, not absolute fitness. Agents with slightly worse raw coding ability but strong lineage tracking, rollback, bounded actions, and policy gates reproduce faster inside enterprises than unconstrained agents. Over the next 90 days, the visible signal is more pilots centered on policy-backed app generation and autonomous maintenance in low-blast-radius domains, consistent with sig-004 and sig-009.",
+      "counterfactual": "If the field assumes the best coder wins regardless of governance, it will miss why enterprise adoption clusters around auditable systems and why unguided autonomy stalls after flashy demos.",
+      "importance": "high",
+      "probe_agent_id": "aj-019d9351-925b-7092-9283-ce66f4e81e97",
+      "projection_id": "en-019d934f-5531-7db0-99d2-d39065a19ae8",
+      "signal_refs": "[\"sig-004\",\"sig-009\",\"sig-006\"]",
+      "step_at": "0",
+      "confirmer_agent_id": ""
+    },
+    "events": [
+      {
+        "action": "Created",
+        "from_status": "",
+        "to_status": "Created",
+        "timestamp": "2026-04-15T22:45:44.648241Z",
+        "params": {
+          "fields": {}
+        }
+      },
+      {
+        "action": "Record",
+        "from_status": "Created",
+        "to_status": "Created",
+        "timestamp": "2026-04-15T22:45:44.652128Z",
+        "params": {
+          "content": "A new selection pressure appears at the organizational boundary: procurement, audit, and platform teams increasingly prefer governed agent platforms over free-roaming shell agents. In biology terms, this is niche selection, not absolute fitness. Agents with slightly worse raw coding ability but strong lineage tracking, rollback, bounded actions, and policy gates reproduce faster inside enterprises than unconstrained agents. Over the next 90 days, the visible signal is more pilots centered on policy-backed app generation and autonomous maintenance in low-blast-radius domains, consistent with sig-004 and sig-009.",
+          "counterfactual": "If the field assumes the best coder wins regardless of governance, it will miss why enterprise adoption clusters around auditable systems and why unguided autonomy stalls after flashy demos.",
+          "importance": "high",
+          "probe_agent_id": "aj-019d9351-925b-7092-9283-ce66f4e81e97",
+          "projection_id": "en-019d934f-5531-7db0-99d2-d39065a19ae8",
+          "signal_refs": "[\"sig-004\",\"sig-009\",\"sig-006\"]",
+          "step_at": "0"
+        }
+      },
+      {
+        "action": "Confirm",
+        "from_status": "Created",
+        "to_status": "Confirmed",
+        "timestamp": "2026-04-15T22:46:29.275980Z",
+        "params": {
+          "confirmer_agent_id": ""
+        }
+      }
+    ],
+    "total_event_count": 3,
+    "sequence_nr": 3,
+    "@odata.id": "Observations('en-019d9352-6846-7ff1-baf1-e2ef2eb28d73')"
+  },
+  {
+    "entity_type": "Observation",
+    "entity_id": "en-019d9352-6851-7833-b67c-6407f78d1d50",
+    "status": "Confirmed",
+    "item_count": 0,
+    "counters": {},
+    "booleans": {},
+    "lists": {},
+    "fields": {
+      "fields": {},
+      "Id": "en-019d9352-6851-7833-b67c-6407f78d1d50",
+      "Status": "Confirmed",
+      "content": "The dominant narrative says directed evolution is mainly waiting on better models. I expect the opposite signal over the next 90 days: progress is limited more by organizational learning loops than by frontier model IQ. Teams discover that they cannot accumulate gains unless every agent action leaves reusable traces that can be turned into evals, rollback rules, and app-level abstractions. This resembles Toyota-style learning curves and immune-memory formation more than one-off code generation. Sig-007, sig-012, and the open question on minimal harnesses imply that the winning systems are those that convert incidents and near-misses into tighter future selection criteria.",
+      "counterfactual": "If organizations fail to turn operational experience into reusable selection pressure, each agent run remains a bespoke experiment and the field mistakes repetition for learning.",
+      "importance": "high",
+      "probe_agent_id": "aj-019d9351-925b-7092-9283-ce66f4e81e97",
+      "projection_id": "en-019d934f-5531-7db0-99d2-d39065a19ae8",
+      "signal_refs": "[\"sig-007\",\"sig-012\",\"sig-003\"]",
+      "step_at": "0",
+      "confirmer_agent_id": ""
+    },
+    "events": [
+      {
+        "action": "Created",
+        "from_status": "",
+        "to_status": "Created",
+        "timestamp": "2026-04-15T22:45:44.658557Z",
+        "params": {
+          "fields": {}
+        }
+      },
+      {
+        "action": "Record",
+        "from_status": "Created",
+        "to_status": "Created",
+        "timestamp": "2026-04-15T22:45:44.662603Z",
+        "params": {
+          "content": "The dominant narrative says directed evolution is mainly waiting on better models. I expect the opposite signal over the next 90 days: progress is limited more by organizational learning loops than by frontier model IQ. Teams discover that they cannot accumulate gains unless every agent action leaves reusable traces that can be turned into evals, rollback rules, and app-level abstractions. This resembles Toyota-style learning curves and immune-memory formation more than one-off code generation. Sig-007, sig-012, and the open question on minimal harnesses imply that the winning systems are those that convert incidents and near-misses into tighter future selection criteria.",
+          "counterfactual": "If organizations fail to turn operational experience into reusable selection pressure, each agent run remains a bespoke experiment and the field mistakes repetition for learning.",
+          "importance": "high",
+          "probe_agent_id": "aj-019d9351-925b-7092-9283-ce66f4e81e97",
+          "projection_id": "en-019d934f-5531-7db0-99d2-d39065a19ae8",
+          "signal_refs": "[\"sig-007\",\"sig-012\",\"sig-003\"]",
+          "step_at": "0"
+        }
+      },
+      {
+        "action": "Confirm",
+        "from_status": "Created",
+        "to_status": "Confirmed",
+        "timestamp": "2026-04-15T22:46:29.261848Z",
+        "params": {
+          "confirmer_agent_id": ""
+        }
+      }
+    ],
+    "total_event_count": 3,
+    "sequence_nr": 3,
+    "@odata.id": "Observations('en-019d9352-6851-7833-b67c-6407f78d1d50')"
+  },
+  {
+    "entity_type": "Observation",
+    "entity_id": "en-019d9352-685c-7f82-91d3-3821d6ad6621",
+    "status": "Confirmed",
+    "item_count": 0,
+    "counters": {},
+    "booleans": {},
+    "lists": {},
+    "fields": {
+      "fields": {},
+      "Id": "en-019d9352-685c-7f82-91d3-3821d6ad6621",
+      "Status": "Confirmed",
+      "content": "What has not changed as much as expected after 90 days is broad adoption of heavyweight formal methods. Instead, the ecosystem settles into a barbell: lightweight checks everywhere, heavyweight verification only in narrow, high-consequence workflows. This matches sig-010 and sig-011. From an organizational-theory lens, formal methods remain a specialist guild capability, while typed languages, replay tests, fuzzing, and state-machine constraints become the scalable routines that ordinary platform teams can institutionalize. The practical near-term consequence is that machine-tool platforms gain adoption first where they package these routines into reusable defaults rather than demanding proof culture from every team.",
+      "counterfactual": "If the field waits for universal proof-heavy verification before expanding autonomy, it will miss the economically viable middle path of layered, mostly lightweight verification cascades.",
+      "importance": "medium",
+      "probe_agent_id": "aj-019d9351-925b-7092-9283-ce66f4e81e97",
+      "projection_id": "en-019d934f-5531-7db0-99d2-d39065a19ae8",
+      "signal_refs": "[\"sig-010\",\"sig-011\",\"sig-003\"]",
+      "step_at": "0",
+      "confirmer_agent_id": ""
+    },
+    "events": [
+      {
+        "action": "Created",
+        "from_status": "",
+        "to_status": "Created",
+        "timestamp": "2026-04-15T22:45:44.669605Z",
+        "params": {
+          "fields": {}
+        }
+      },
+      {
+        "action": "Record",
+        "from_status": "Created",
+        "to_status": "Created",
+        "timestamp": "2026-04-15T22:45:44.673453Z",
+        "params": {
+          "content": "What has not changed as much as expected after 90 days is broad adoption of heavyweight formal methods. Instead, the ecosystem settles into a barbell: lightweight checks everywhere, heavyweight verification only in narrow, high-consequence workflows. This matches sig-010 and sig-011. From an organizational-theory lens, formal methods remain a specialist guild capability, while typed languages, replay tests, fuzzing, and state-machine constraints become the scalable routines that ordinary platform teams can institutionalize. The practical near-term consequence is that machine-tool platforms gain adoption first where they package these routines into reusable defaults rather than demanding proof culture from every team.",
+          "counterfactual": "If the field waits for universal proof-heavy verification before expanding autonomy, it will miss the economically viable middle path of layered, mostly lightweight verification cascades.",
+          "importance": "medium",
+          "probe_agent_id": "aj-019d9351-925b-7092-9283-ce66f4e81e97",
+          "projection_id": "en-019d934f-5531-7db0-99d2-d39065a19ae8",
+          "signal_refs": "[\"sig-010\",\"sig-011\",\"sig-003\"]",
+          "step_at": "0"
+        }
+      },
+      {
+        "action": "Confirm",
+        "from_status": "Created",
+        "to_status": "Confirmed",
+        "timestamp": "2026-04-15T22:46:29.282994Z",
+        "params": {
+          "confirmer_agent_id": ""
+        }
+      }
+    ],
+    "total_event_count": 3,
+    "sequence_nr": 3,
+    "@odata.id": "Observations('en-019d9352-685c-7f82-91d3-3821d6ad6621')"
+  },
+  {
+    "entity_type": "Observation",
+    "entity_id": "en-019d9352-6a5f-72a3-b51d-6e7880ac9a5f",
+    "status": "Confirmed",
+    "item_count": 0,
+    "counters": {},
+    "booleans": {},
+    "lists": {},
+    "fields": {
+      "fields": {},
+      "Id": "en-019d9352-6a5f-72a3-b51d-6e7880ac9a5f",
+      "Status": "Confirmed",
+      "content": "By day 90, the most credible practitioner adoption is not fully autonomous code mutation but repo-specific harness expansion around coding agents. Teams using Cursor-, Claude Code-, Aider-, and Codex-style workflows add replay tests, property-based checks, stricter CI gates, and machine-readable acceptance criteria so agents can safely handle refactors and low-blast-radius feature work. The practical mechanism is simple: organizations turn previously informal review knowledge into executable harness artifacts because that is the only way to increase agent throughput without increasing merge risk.",
+      "counterfactual": "If teams keep relying on human code review instead of encoding acceptance into harnesses, agent output volume rises faster than trustworthy merge capacity, creating backlash and forcing autonomy back down to autocomplete.",
+      "importance": "high",
+      "probe_agent_id": "aj-019d9351-9243-75a3-85f0-527a0299efa3",
+      "projection_id": "en-019d934f-5531-7db0-99d2-d39065a19ae8",
+      "signal_refs": "[\"sig-001\",\"sig-002\",\"sig-003\"]",
+      "step_at": "0",
+      "confirmer_agent_id": ""
+    },
+    "events": [
+      {
+        "action": "Created",
+        "from_status": "",
+        "to_status": "Created",
+        "timestamp": "2026-04-15T22:45:45.184623Z",
+        "params": {
+          "fields": {}
+        }
+      },
+      {
+        "action": "Record",
+        "from_status": "Created",
+        "to_status": "Created",
+        "timestamp": "2026-04-15T22:45:45.188605Z",
+        "params": {
+          "content": "By day 90, the most credible practitioner adoption is not fully autonomous code mutation but repo-specific harness expansion around coding agents. Teams using Cursor-, Claude Code-, Aider-, and Codex-style workflows add replay tests, property-based checks, stricter CI gates, and machine-readable acceptance criteria so agents can safely handle refactors and low-blast-radius feature work. The practical mechanism is simple: organizations turn previously informal review knowledge into executable harness artifacts because that is the only way to increase agent throughput without increasing merge risk.",
+          "counterfactual": "If teams keep relying on human code review instead of encoding acceptance into harnesses, agent output volume rises faster than trustworthy merge capacity, creating backlash and forcing autonomy back down to autocomplete.",
+          "importance": "high",
+          "probe_agent_id": "aj-019d9351-9243-75a3-85f0-527a0299efa3",
+          "projection_id": "en-019d934f-5531-7db0-99d2-d39065a19ae8",
+          "signal_refs": "[\"sig-001\",\"sig-002\",\"sig-003\"]",
+          "step_at": "0"
+        }
+      },
+      {
+        "action": "Confirm",
+        "from_status": "Created",
+        "to_status": "Confirmed",
+        "timestamp": "2026-04-15T22:46:29.245565Z",
+        "params": {
+          "confirmer_agent_id": ""
+        }
+      }
+    ],
+    "total_event_count": 3,
+    "sequence_nr": 3,
+    "@odata.id": "Observations('en-019d9352-6a5f-72a3-b51d-6e7880ac9a5f')"
+  },
+  {
+    "entity_type": "Observation",
+    "entity_id": "en-019d9352-6a69-7b81-86d1-6678f7f7979e",
+    "status": "Confirmed",
+    "item_count": 0,
+    "counters": {},
+    "booleans": {},
+    "lists": {},
+    "fields": {
+      "fields": {},
+      "Id": "en-019d9352-6a69-7b81-86d1-6678f7f7979e",
+      "Status": "Confirmed",
+      "content": "Verification cascades become more operationally layered over the next 90 days: syntax and types remain the first gate, but practitioners increasingly chain unit tests, fuzz/property tests, golden trace replay, and policy checks before agent-authored changes reach deployment. In infrastructure-heavy teams, this pattern starts to look like a software manufacturing cell: an agent proposes a change, the cascade rejects most bad variants automatically, and humans only review surviving candidates. This is especially feasible in Rust, IaC, workflow engines, and control-plane code where invariants are easier to encode.",
+      "counterfactual": "Without layered cascades, teams will mistake one strong benchmark or green unit-test run for sufficient assurance and will get burned by regressions in performance, state migration, or operational behavior.",
+      "importance": "high",
+      "probe_agent_id": "aj-019d9351-9243-75a3-85f0-527a0299efa3",
+      "projection_id": "en-019d934f-5531-7db0-99d2-d39065a19ae8",
+      "signal_refs": "[\"sig-003\",\"sig-004\",\"sig-005\"]",
+      "step_at": "0",
+      "confirmer_agent_id": ""
+    },
+    "events": [
+      {
+        "action": "Created",
+        "from_status": "",
+        "to_status": "Created",
+        "timestamp": "2026-04-15T22:45:45.195016Z",
+        "params": {
+          "fields": {}
+        }
+      },
+      {
+        "action": "Record",
+        "from_status": "Created",
+        "to_status": "Created",
+        "timestamp": "2026-04-15T22:45:45.199568Z",
+        "params": {
+          "content": "Verification cascades become more operationally layered over the next 90 days: syntax and types remain the first gate, but practitioners increasingly chain unit tests, fuzz/property tests, golden trace replay, and policy checks before agent-authored changes reach deployment. In infrastructure-heavy teams, this pattern starts to look like a software manufacturing cell: an agent proposes a change, the cascade rejects most bad variants automatically, and humans only review surviving candidates. This is especially feasible in Rust, IaC, workflow engines, and control-plane code where invariants are easier to encode.",
+          "counterfactual": "Without layered cascades, teams will mistake one strong benchmark or green unit-test run for sufficient assurance and will get burned by regressions in performance, state migration, or operational behavior.",
+          "importance": "high",
+          "probe_agent_id": "aj-019d9351-9243-75a3-85f0-527a0299efa3",
+          "projection_id": "en-019d934f-5531-7db0-99d2-d39065a19ae8",
+          "signal_refs": "[\"sig-003\",\"sig-004\",\"sig-005\"]",
+          "step_at": "0"
+        }
+      },
+      {
+        "action": "Confirm",
+        "from_status": "Created",
+        "to_status": "Confirmed",
+        "timestamp": "2026-04-15T22:46:29.268698Z",
+        "params": {
+          "confirmer_agent_id": ""
+        }
+      }
+    ],
+    "total_event_count": 3,
+    "sequence_nr": 3,
+    "@odata.id": "Observations('en-019d9352-6a69-7b81-86d1-6678f7f7979e')"
+  },
+  {
+    "entity_type": "Observation",
+    "entity_id": "en-019d9352-6a7f-7a60-a876-c198c1b5c8fa",
+    "status": "Created",
+    "item_count": 0,
+    "counters": {},
+    "booleans": {},
+    "lists": {},
+    "fields": {
+      "fields": {},
+      "Id": "en-019d9352-6a7f-7a60-a876-c198c1b5c8fa",
+      "Status": "Created",
+      "content": "The near-term implementation wedge for machine-tool systems is generated control-plane software, not broad product application logic. In the next 90 days, practitioners are more willing to generate state-machine-backed workflows, approval graphs, CRUD-heavy internal tools, and WASM or policy-integrated platform components from typed descriptions than to let agents freely redesign customer-facing systems. The mechanism is that schemas, permissions, and lifecycle actions provide a constrained search space and clearer acceptance harnesses than open-ended UX or business logic.",
+      "counterfactual": "If builders chase general software generation before proving value in structured control planes, they will absorb high failure rates and conclude the architecture is immature when the real issue is poor task selection.",
+      "importance": "high",
+      "probe_agent_id": "aj-019d9351-9243-75a3-85f0-527a0299efa3",
+      "projection_id": "en-019d934f-5531-7db0-99d2-d39065a19ae8",
+      "signal_refs": "[\"sig-004\",\"sig-005\",\"sig-006\"]",
+      "step_at": "0"
+    },
+    "events": [
+      {
+        "action": "Created",
+        "from_status": "",
+        "to_status": "Created",
+        "timestamp": "2026-04-15T22:45:45.216721Z",
+        "params": {
+          "fields": {}
+        }
+      },
+      {
+        "action": "Record",
+        "from_status": "Created",
+        "to_status": "Created",
+        "timestamp": "2026-04-15T22:45:45.220831Z",
+        "params": {
+          "content": "The near-term implementation wedge for machine-tool systems is generated control-plane software, not broad product application logic. In the next 90 days, practitioners are more willing to generate state-machine-backed workflows, approval graphs, CRUD-heavy internal tools, and WASM or policy-integrated platform components from typed descriptions than to let agents freely redesign customer-facing systems. The mechanism is that schemas, permissions, and lifecycle actions provide a constrained search space and clearer acceptance harnesses than open-ended UX or business logic.",
+          "counterfactual": "If builders chase general software generation before proving value in structured control planes, they will absorb high failure rates and conclude the architecture is immature when the real issue is poor task selection.",
+          "importance": "high",
+          "probe_agent_id": "aj-019d9351-9243-75a3-85f0-527a0299efa3",
+          "projection_id": "en-019d934f-5531-7db0-99d2-d39065a19ae8",
+          "signal_refs": "[\"sig-004\",\"sig-005\",\"sig-006\"]",
+          "step_at": "0"
+        }
+      }
+    ],
+    "total_event_count": 2,
+    "sequence_nr": 2,
+    "@odata.id": "Observations('en-019d9352-6a7f-7a60-a876-c198c1b5c8fa')"
+  },
+  {
+    "entity_type": "Observation",
+    "entity_id": "en-019d9352-6a8a-7233-b0f6-0de33bd41c2a",
+    "status": "Created",
+    "item_count": 0,
+    "counters": {},
+    "booleans": {},
+    "lists": {},
+    "fields": {
+      "fields": {},
+      "Id": "en-019d9352-6a8a-7233-b0f6-0de33bd41c2a",
+      "Status": "Created",
+      "content": "A practitioner bottleneck that does not improve much by day 90 is environment reliability: long-horizon agent runs still fail on hidden state, nondeterministic setup, stale credentials, and tests that were never designed as stable oracles. Teams expecting rapid dark-factory progress discover that the engineering work shifts into hermetic dev environments, seeded fixtures, deterministic replay, and better runbook instrumentation. The surprising part is that model quality is no longer the only blocker; boring systems hygiene becomes the gating dependency for autonomy.",
+      "counterfactual": "If organizations ignore environment hardening, they will misdiagnose autonomy failures as purely model failures and miss the operational fixes required to make agent loops reliable.",
+      "importance": "high",
+      "probe_agent_id": "aj-019d9351-9243-75a3-85f0-527a0299efa3",
+      "projection_id": "en-019d934f-5531-7db0-99d2-d39065a19ae8",
+      "signal_refs": "[\"sig-004\",\"sig-007\"]",
+      "step_at": "0"
+    },
+    "events": [
+      {
+        "action": "Created",
+        "from_status": "",
+        "to_status": "Created",
+        "timestamp": "2026-04-15T22:45:45.229519Z",
+        "params": {
+          "fields": {}
+        }
+      },
+      {
+        "action": "Record",
+        "from_status": "Created",
+        "to_status": "Created",
+        "timestamp": "2026-04-15T22:45:45.232312Z",
+        "params": {
+          "content": "A practitioner bottleneck that does not improve much by day 90 is environment reliability: long-horizon agent runs still fail on hidden state, nondeterministic setup, stale credentials, and tests that were never designed as stable oracles. Teams expecting rapid dark-factory progress discover that the engineering work shifts into hermetic dev environments, seeded fixtures, deterministic replay, and better runbook instrumentation. The surprising part is that model quality is no longer the only blocker; boring systems hygiene becomes the gating dependency for autonomy.",
+          "counterfactual": "If organizations ignore environment hardening, they will misdiagnose autonomy failures as purely model failures and miss the operational fixes required to make agent loops reliable.",
+          "importance": "high",
+          "probe_agent_id": "aj-019d9351-9243-75a3-85f0-527a0299efa3",
+          "projection_id": "en-019d934f-5531-7db0-99d2-d39065a19ae8",
+          "signal_refs": "[\"sig-004\",\"sig-007\"]",
+          "step_at": "0"
+        }
+      }
+    ],
+    "total_event_count": 2,
+    "sequence_nr": 2,
+    "@odata.id": "Observations('en-019d9352-6a8a-7233-b0f6-0de33bd41c2a')"
+  },
+  {
+    "entity_type": "Observation",
+    "entity_id": "en-019d9352-6a92-7b02-bf7b-d195d8d48353",
+    "status": "Created",
+    "item_count": 0,
+    "counters": {},
+    "booleans": {},
+    "lists": {},
+    "fields": {
+      "fields": {},
+      "Id": "en-019d9352-6a92-7b02-bf7b-d195d8d48353",
+      "Status": "Created",
+      "content": "A dominant narrative gets challenged over this window: more agent coding adoption does not automatically produce directed evolution. Most teams are still doing guided local search around existing codebases rather than maintaining diverse variant portfolios with explicit selection pressure and novelty preservation. In practice, practitioners adopt best-of-N patch generation, eval-gated retries, and occasional branch tournaments, but not true evolutionary archives across architectures or policies. The missing pieces are durable fitness functions for liveness and cost-quality tradeoffs, plus organizational willingness to preserve parallel alternatives.",
+      "counterfactual": "If leaders assume current agent loops already constitute directed evolution, they will overclaim progress, underinvest in selection design, and trigger disappointment when systems plateau on benchmark-like tasks.",
+      "importance": "medium",
+      "probe_agent_id": "aj-019d9351-9243-75a3-85f0-527a0299efa3",
+      "projection_id": "en-019d934f-5531-7db0-99d2-d39065a19ae8",
+      "signal_refs": "[\"sig-001\",\"sig-002\",\"sig-006\",\"sig-007\"]",
+      "step_at": "0"
+    },
+    "events": [
+      {
+        "action": "Created",
+        "from_status": "",
+        "to_status": "Created",
+        "timestamp": "2026-04-15T22:45:45.236736Z",
+        "params": {
+          "fields": {}
+        }
+      },
+      {
+        "action": "Record",
+        "from_status": "Created",
+        "to_status": "Created",
+        "timestamp": "2026-04-15T22:45:45.243426Z",
+        "params": {
+          "content": "A dominant narrative gets challenged over this window: more agent coding adoption does not automatically produce directed evolution. Most teams are still doing guided local search around existing codebases rather than maintaining diverse variant portfolios with explicit selection pressure and novelty preservation. In practice, practitioners adopt best-of-N patch generation, eval-gated retries, and occasional branch tournaments, but not true evolutionary archives across architectures or policies. The missing pieces are durable fitness functions for liveness and cost-quality tradeoffs, plus organizational willingness to preserve parallel alternatives.",
+          "counterfactual": "If leaders assume current agent loops already constitute directed evolution, they will overclaim progress, underinvest in selection design, and trigger disappointment when systems plateau on benchmark-like tasks.",
+          "importance": "medium",
+          "probe_agent_id": "aj-019d9351-9243-75a3-85f0-527a0299efa3",
+          "projection_id": "en-019d934f-5531-7db0-99d2-d39065a19ae8",
+          "signal_refs": "[\"sig-001\",\"sig-002\",\"sig-006\",\"sig-007\"]",
+          "step_at": "0"
+        }
+      }
+    ],
+    "total_event_count": 2,
+    "sequence_nr": 2,
+    "@odata.id": "Observations('en-019d9352-6a92-7b02-bf7b-d195d8d48353')"
+  },
+  {
+    "entity_type": "Observation",
+    "entity_id": "en-019d9352-6ca3-7ae2-8b54-ef7ed7851422",
+    "status": "Created",
+    "item_count": 0,
+    "counters": {},
+    "booleans": {},
+    "lists": {},
+    "fields": {
+      "fields": {},
+      "Id": "en-019d9352-6ca3-7ae2-8b54-ef7ed7851422",
+      "Status": "Created",
+      "content": "By day 90, the most visible progress is not autonomous software evolution but a surge in verification theater: teams publicize SWE-bench-style gains, repo eval dashboards, and agent merge pilots, yet still keep humans as the real merge or deploy gate for non-trivial systems. This follows sig-002 and sig-022: benchmark language spreads faster than organizational trust. The dominant narrative says stronger harnesses are quickly unlocking dark-factory autonomy; the more credible reading is that enterprises are buying measurable demos while quietly refusing irreversible authority to agents in production change paths.",
+      "counterfactual": "If this gap is ignored, operators will mistake benchmark fluency for deployment readiness and push agents into roles where rollback, explanation, and accountability are still underdesigned.",
+      "importance": "high",
+      "probe_agent_id": "aj-019d9351-924e-7771-979c-92daa7db9f7d",
+      "projection_id": "en-019d934f-5531-7db0-99d2-d39065a19ae8",
+      "signal_refs": "[\"sig-002\",\"sig-022\",\"sig-009\"]",
+      "step_at": "0"
+    },
+    "events": [
+      {
+        "action": "Created",
+        "from_status": "",
+        "to_status": "Created",
+        "timestamp": "2026-04-15T22:45:45.765198Z",
+        "params": {
+          "fields": {}
+        }
+      },
+      {
+        "action": "Record",
+        "from_status": "Created",
+        "to_status": "Created",
+        "timestamp": "2026-04-15T22:45:45.768967Z",
+        "params": {
+          "content": "By day 90, the most visible progress is not autonomous software evolution but a surge in verification theater: teams publicize SWE-bench-style gains, repo eval dashboards, and agent merge pilots, yet still keep humans as the real merge or deploy gate for non-trivial systems. This follows sig-002 and sig-022: benchmark language spreads faster than organizational trust. The dominant narrative says stronger harnesses are quickly unlocking dark-factory autonomy; the more credible reading is that enterprises are buying measurable demos while quietly refusing irreversible authority to agents in production change paths.",
+          "counterfactual": "If this gap is ignored, operators will mistake benchmark fluency for deployment readiness and push agents into roles where rollback, explanation, and accountability are still underdesigned.",
+          "importance": "high",
+          "probe_agent_id": "aj-019d9351-924e-7771-979c-92daa7db9f7d",
+          "projection_id": "en-019d934f-5531-7db0-99d2-d39065a19ae8",
+          "signal_refs": "[\"sig-002\",\"sig-022\",\"sig-009\"]",
+          "step_at": "0"
+        }
+      }
+    ],
+    "total_event_count": 2,
+    "sequence_nr": 2,
+    "@odata.id": "Observations('en-019d9352-6ca3-7ae2-8b54-ef7ed7851422')"
+  },
+  {
+    "entity_type": "Observation",
+    "entity_id": "en-019d9352-6cad-7a02-be38-0ce204c3910b",
+    "status": "Created",
+    "item_count": 0,
+    "counters": {},
+    "booleans": {},
+    "lists": {},
+    "fields": {
+      "fields": {},
+      "Id": "en-019d9352-6cad-7a02-be38-0ce204c3910b",
+      "Status": "Created",
+      "content": "In the next 90 days, the main failure mode is incentive misalignment around harness authoring. Because code generation is getting cheaper faster than oracle construction, teams redirect effort toward shallow acceptance tests that maximize apparent agent throughput rather than deep system invariants. Sig-003 supports broader verification adoption, but sig-007 and the risk map imply a harder truth: weak or incomplete harnesses will be treated as sufficient because they are the only economically available bottleneck. That creates false confidence precisely where long-horizon autonomy is most brittle: environment setup, hidden state, migration logic, and cross-service interactions.",
+      "counterfactual": "If organizations do not recognize harness underinvestment as the central bottleneck, they will scale autonomous change volume faster than they scale their ability to detect latent regressions.",
+      "importance": "high",
+      "probe_agent_id": "aj-019d9351-924e-7771-979c-92daa7db9f7d",
+      "projection_id": "en-019d934f-5531-7db0-99d2-d39065a19ae8",
+      "signal_refs": "[\"sig-003\",\"sig-007\",\"sig-019\"]",
+      "step_at": "0"
+    },
+    "events": [
+      {
+        "action": "Created",
+        "from_status": "",
+        "to_status": "Created",
+        "timestamp": "2026-04-15T22:45:45.774565Z",
+        "params": {
+          "fields": {}
+        }
+      },
+      {
+        "action": "Record",
+        "from_status": "Created",
+        "to_status": "Created",
+        "timestamp": "2026-04-15T22:45:45.778326Z",
+        "params": {
+          "content": "In the next 90 days, the main failure mode is incentive misalignment around harness authoring. Because code generation is getting cheaper faster than oracle construction, teams redirect effort toward shallow acceptance tests that maximize apparent agent throughput rather than deep system invariants. Sig-003 supports broader verification adoption, but sig-007 and the risk map imply a harder truth: weak or incomplete harnesses will be treated as sufficient because they are the only economically available bottleneck. That creates false confidence precisely where long-horizon autonomy is most brittle: environment setup, hidden state, migration logic, and cross-service interactions.",
+          "counterfactual": "If organizations do not recognize harness underinvestment as the central bottleneck, they will scale autonomous change volume faster than they scale their ability to detect latent regressions.",
+          "importance": "high",
+          "probe_agent_id": "aj-019d9351-924e-7771-979c-92daa7db9f7d",
+          "projection_id": "en-019d934f-5531-7db0-99d2-d39065a19ae8",
+          "signal_refs": "[\"sig-003\",\"sig-007\",\"sig-019\"]",
+          "step_at": "0"
+        }
+      }
+    ],
+    "total_event_count": 2,
+    "sequence_nr": 2,
+    "@odata.id": "Observations('en-019d9352-6cad-7a02-be38-0ce204c3910b')"
+  },
+  {
+    "entity_type": "Observation",
+    "entity_id": "en-019d9352-6cb6-75b0-b5f0-bfc4713130f4",
+    "status": "Created",
+    "item_count": 0,
+    "counters": {},
+    "booleans": {},
+    "lists": {},
+    "fields": {
+      "fields": {},
+      "Id": "en-019d9352-6cb6-75b0-b5f0-bfc4713130f4",
+      "Status": "Created",
+      "content": "A structural asymmetry becomes clearer by day 90: safety controls improve faster than liveness or innovation controls. Platforms get better at expressing deny rules, rollback triggers, approval checkpoints, state-machine guards, and audit trails, but they still cannot robustly encode what meaningful forward progress looks like for open-ended software work. This is an extension of concept-9, sig-005, and sig-015. The result is homeostatic autonomy that can preserve known-good behavior yet stalls on novel architecture changes, ambiguous bug clusters, or product-facing refactors. Directed evolution remains overclaimed because most current loops can prune bad variants better than they can identify truly better ones.",
+      "counterfactual": "If people equate better safety envelopes with real evolutionary capability, they will overestimate autonomous system competence and underprepare for stagnation, local minima, and policy-induced paralysis.",
+      "importance": "high",
+      "probe_agent_id": "aj-019d9351-924e-7771-979c-92daa7db9f7d",
+      "projection_id": "en-019d934f-5531-7db0-99d2-d39065a19ae8",
+      "signal_refs": "[\"sig-005\",\"sig-015\",\"sig-019\"]",
+      "step_at": "0"
+    },
+    "events": [
+      {
+        "action": "Created",
+        "from_status": "",
+        "to_status": "Created",
+        "timestamp": "2026-04-15T22:45:45.783686Z",
+        "params": {
+          "fields": {}
+        }
+      },
+      {
+        "action": "Record",
+        "from_status": "Created",
+        "to_status": "Created",
+        "timestamp": "2026-04-15T22:45:45.787460Z",
+        "params": {
+          "content": "A structural asymmetry becomes clearer by day 90: safety controls improve faster than liveness or innovation controls. Platforms get better at expressing deny rules, rollback triggers, approval checkpoints, state-machine guards, and audit trails, but they still cannot robustly encode what meaningful forward progress looks like for open-ended software work. This is an extension of concept-9, sig-005, and sig-015. The result is homeostatic autonomy that can preserve known-good behavior yet stalls on novel architecture changes, ambiguous bug clusters, or product-facing refactors. Directed evolution remains overclaimed because most current loops can prune bad variants better than they can identify truly better ones.",
+          "counterfactual": "If people equate better safety envelopes with real evolutionary capability, they will overestimate autonomous system competence and underprepare for stagnation, local minima, and policy-induced paralysis.",
+          "importance": "high",
+          "probe_agent_id": "aj-019d9351-924e-7771-979c-92daa7db9f7d",
+          "projection_id": "en-019d934f-5531-7db0-99d2-d39065a19ae8",
+          "signal_refs": "[\"sig-005\",\"sig-015\",\"sig-019\"]",
+          "step_at": "0"
+        }
+      }
+    ],
+    "total_event_count": 2,
+    "sequence_nr": 2,
+    "@odata.id": "Observations('en-019d9352-6cb6-75b0-b5f0-bfc4713130f4')"
+  },
+  {
+    "entity_type": "Observation",
+    "entity_id": "en-019d9352-6cc0-7ad3-87b7-4acd3279200e",
+    "status": "Created",
+    "item_count": 0,
+    "counters": {},
+    "booleans": {},
+    "lists": {},
+    "fields": {
+      "fields": {},
+      "Id": "en-019d9352-6cc0-7ad3-87b7-4acd3279200e",
+      "Status": "Created",
+      "content": "The strongest near-term competitive signal is also a lock-in risk: repository-specific traces, schema history, and decision logs become the practical moat, but they do not automatically yield transferable autonomy. Sig-020 is often read optimistically as a platform advantage; the darker interpretation is that every successful system becomes overfit to its own private context and operating rituals. Over the next 90 days, expect more vendors to claim compounding learning from private memory while actually producing brittle, organization-specific behavior that does not generalize across repos, teams, or environments. That makes universal-constructor rhetoric premature: we are seeing local adaptation engines, not broad software construction machines.",
+      "counterfactual": "If this overfitting dynamic is ignored, platforms will mistake customer-specific tuning for general constructive capability and will be blindsided when expansion into new domains fails.",
+      "importance": "high",
+      "probe_agent_id": "aj-019d9351-924e-7771-979c-92daa7db9f7d",
+      "projection_id": "en-019d934f-5531-7db0-99d2-d39065a19ae8",
+      "signal_refs": "[\"sig-020\",\"sig-005\",\"sig-006\"]",
+      "step_at": "0"
+    },
+    "events": [
+      {
+        "action": "Created",
+        "from_status": "",
+        "to_status": "Created",
+        "timestamp": "2026-04-15T22:45:45.793717Z",
+        "params": {
+          "fields": {}
+        }
+      },
+      {
+        "action": "Record",
+        "from_status": "Created",
+        "to_status": "Created",
+        "timestamp": "2026-04-15T22:45:45.797879Z",
+        "params": {
+          "content": "The strongest near-term competitive signal is also a lock-in risk: repository-specific traces, schema history, and decision logs become the practical moat, but they do not automatically yield transferable autonomy. Sig-020 is often read optimistically as a platform advantage; the darker interpretation is that every successful system becomes overfit to its own private context and operating rituals. Over the next 90 days, expect more vendors to claim compounding learning from private memory while actually producing brittle, organization-specific behavior that does not generalize across repos, teams, or environments. That makes universal-constructor rhetoric premature: we are seeing local adaptation engines, not broad software construction machines.",
+          "counterfactual": "If this overfitting dynamic is ignored, platforms will mistake customer-specific tuning for general constructive capability and will be blindsided when expansion into new domains fails.",
+          "importance": "high",
+          "probe_agent_id": "aj-019d9351-924e-7771-979c-92daa7db9f7d",
+          "projection_id": "en-019d934f-5531-7db0-99d2-d39065a19ae8",
+          "signal_refs": "[\"sig-020\",\"sig-005\",\"sig-006\"]",
+          "step_at": "0"
+        }
+      }
+    ],
+    "total_event_count": 2,
+    "sequence_nr": 2,
+    "@odata.id": "Observations('en-019d9352-6cc0-7ad3-87b7-4acd3279200e')"
+  },
+  {
+    "entity_type": "Observation",
+    "entity_id": "en-019d9353-16a9-7c91-b62a-f7bbbf783c94",
+    "status": "Created",
+    "item_count": 0,
+    "counters": {},
+    "booleans": {},
+    "lists": {},
+    "fields": {
+      "fields": {},
+      "Id": "en-019d9353-16a9-7c91-b62a-f7bbbf783c94",
+      "Status": "Created",
+      "content": "Cross-probe tension after day 90: practitioners and adjacent-domain probes agree that value is moving toward harnesses, verification cascades, and governed control planes, but the critic argues this still reflects governed homeostasis rather than true directed evolution. The contradiction is not about whether governance and harnesses matter; it is about whether they are a bridge to evolutionary search or a local optimum that suppresses open-ended exploration.",
+      "counterfactual": "If this tension is not tracked, organizations may mistake safer bounded automation for progress toward genuine adaptive software evolution, or conversely dismiss real substrate-building as mere compliance theater.",
+      "importance": "high",
+      "probe_agent_id": "",
+      "projection_id": "en-019d934f-5531-7db0-99d2-d39065a19ae8",
+      "signal_refs": "[\"sig-003\",\"sig-004\",\"sig-007\",\"sig-009\"]",
+      "step_at": "0"
+    },
+    "events": [
+      {
+        "action": "Created",
+        "from_status": "",
+        "to_status": "Created",
+        "timestamp": "2026-04-15T22:46:29.290625Z",
+        "params": {
+          "fields": {}
+        }
+      },
+      {
+        "action": "Record",
+        "from_status": "Created",
+        "to_status": "Created",
+        "timestamp": "2026-04-15T22:46:29.294496Z",
+        "params": {
+          "content": "Cross-probe tension after day 90: practitioners and adjacent-domain probes agree that value is moving toward harnesses, verification cascades, and governed control planes, but the critic argues this still reflects governed homeostasis rather than true directed evolution. The contradiction is not about whether governance and harnesses matter; it is about whether they are a bridge to evolutionary search or a local optimum that suppresses open-ended exploration.",
+          "counterfactual": "If this tension is not tracked, organizations may mistake safer bounded automation for progress toward genuine adaptive software evolution, or conversely dismiss real substrate-building as mere compliance theater.",
+          "importance": "high",
+          "probe_agent_id": "",
+          "projection_id": "en-019d934f-5531-7db0-99d2-d39065a19ae8",
+          "signal_refs": "[\"sig-003\",\"sig-004\",\"sig-007\",\"sig-009\"]",
+          "step_at": "0"
+        }
+      }
+    ],
+    "total_event_count": 2,
+    "sequence_nr": 2,
+    "@odata.id": "Observations('en-019d9353-16a9-7c91-b62a-f7bbbf783c94')"
+  },
+  {
+    "entity_type": "Observation",
+    "entity_id": "en-019d9354-5e9e-7d90-bb6f-7868bff43465",
+    "status": "Confirmed",
+    "item_count": 0,
+    "counters": {},
+    "booleans": {},
+    "lists": {},
+    "fields": {
+      "fields": {},
+      "Id": "en-019d9354-5e9e-7d90-bb6f-7868bff43465",
+      "Status": "Confirmed",
+      "content": "By day 365, the most credible production workflow is repo-scoped change automation wrapped in a durable control plane: issue intake, plan generation, branch-scoped execution, layered verification, policy checks, human approval on threshold breaches, and automatic rollback hooks. Practitioners adopt this first in internal platforms, CI maintenance, dependency upgrades, infra drift remediation, and repetitive service migrations because the acceptance surface is explicit and replayable. The winning architecture is not a single autonomous coder but an orchestrator that can call specialized generation, test, policy, and deployment steps against a typed state machine.",
+      "counterfactual": "If teams keep deploying free-form coding agents without this control plane, they will generate impressive demos but fail to accumulate trusted automation in production because every incident resets confidence and forces more human review.",
+      "importance": "high",
+      "probe_agent_id": "aj-019d9353-a4c2-7b10-b7a0-bfa0e0479dbf",
+      "projection_id": "en-019d934f-5531-7db0-99d2-d39065a19ae8",
+      "signal_refs": "[\"harness-first industrialization\",\"repo-specific acceptance harnesses\",\"governed action spaces and policy-backed execution\"]",
+      "step_at": "1",
+      "confirmer_agent_id": ""
+    },
+    "events": [
+      {
+        "action": "Created",
+        "from_status": "",
+        "to_status": "Created",
+        "timestamp": "2026-04-15T22:47:53.247387Z",
+        "params": {
+          "fields": {}
+        }
+      },
+      {
+        "action": "Record",
+        "from_status": "Created",
+        "to_status": "Created",
+        "timestamp": "2026-04-15T22:47:53.251636Z",
+        "params": {
+          "content": "By day 365, the most credible production workflow is repo-scoped change automation wrapped in a durable control plane: issue intake, plan generation, branch-scoped execution, layered verification, policy checks, human approval on threshold breaches, and automatic rollback hooks. Practitioners adopt this first in internal platforms, CI maintenance, dependency upgrades, infra drift remediation, and repetitive service migrations because the acceptance surface is explicit and replayable. The winning architecture is not a single autonomous coder but an orchestrator that can call specialized generation, test, policy, and deployment steps against a typed state machine.",
+          "counterfactual": "If teams keep deploying free-form coding agents without this control plane, they will generate impressive demos but fail to accumulate trusted automation in production because every incident resets confidence and forces more human review.",
+          "importance": "high",
+          "probe_agent_id": "aj-019d9353-a4c2-7b10-b7a0-bfa0e0479dbf",
+          "projection_id": "en-019d934f-5531-7db0-99d2-d39065a19ae8",
+          "signal_refs": "[\"harness-first industrialization\",\"repo-specific acceptance harnesses\",\"governed action spaces and policy-backed execution\"]",
+          "step_at": "1"
+        }
+      },
+      {
+        "action": "Confirm",
+        "from_status": "Created",
+        "to_status": "Confirmed",
+        "timestamp": "2026-04-15T22:48:41.401384Z",
+        "params": {
+          "confirmer_agent_id": ""
+        }
+      }
+    ],
+    "total_event_count": 3,
+    "sequence_nr": 3,
+    "@odata.id": "Observations('en-019d9354-5e9e-7d90-bb6f-7868bff43465')"
+  },
+  {
+    "entity_type": "Observation",
+    "entity_id": "en-019d9354-5ea9-7c60-a8b1-01360fd9f0ae",
+    "status": "Confirmed",
+    "item_count": 0,
+    "counters": {},
+    "booleans": {},
+    "lists": {},
+    "fields": {
+      "fields": {},
+      "Id": "en-019d9354-5ea9-7c60-a8b1-01360fd9f0ae",
+      "Status": "Confirmed",
+      "content": "A practical compounding architecture emerges around incident-to-eval and review-to-policy pipelines. Every failed change, rollback, reviewer rejection, and postmortem gets converted into a new regression harness, routing rule, or escalation threshold. Over the year, teams that operationalize this loop improve verified changes per review hour faster than teams that only swap in better models. The near-term moat is accumulated acceptance logic bound to specific repos, services, and deployment environments, not general coding intelligence.",
+      "counterfactual": "If organizations do not formalize failure data into evals and policies, each automation cycle remains stateless and the system does not actually evolve; cost drops from better models will be offset by stagnant trust and repeated mistakes.",
+      "importance": "high",
+      "probe_agent_id": "aj-019d9353-a4c2-7b10-b7a0-bfa0e0479dbf",
+      "projection_id": "en-019d934f-5531-7db0-99d2-d39065a19ae8",
+      "signal_refs": "[\"incident-to-eval learning loops\",\"Teams compare agents by verified changes per dollar and per review hour\",\"selection quality is scarcer than generation quality\"]",
+      "step_at": "1",
+      "confirmer_agent_id": ""
+    },
+    "events": [
+      {
+        "action": "Created",
+        "from_status": "",
+        "to_status": "Created",
+        "timestamp": "2026-04-15T22:47:53.258469Z",
+        "params": {
+          "fields": {}
+        }
+      },
+      {
+        "action": "Record",
+        "from_status": "Created",
+        "to_status": "Created",
+        "timestamp": "2026-04-15T22:47:53.264714Z",
+        "params": {
+          "content": "A practical compounding architecture emerges around incident-to-eval and review-to-policy pipelines. Every failed change, rollback, reviewer rejection, and postmortem gets converted into a new regression harness, routing rule, or escalation threshold. Over the year, teams that operationalize this loop improve verified changes per review hour faster than teams that only swap in better models. The near-term moat is accumulated acceptance logic bound to specific repos, services, and deployment environments, not general coding intelligence.",
+          "counterfactual": "If organizations do not formalize failure data into evals and policies, each automation cycle remains stateless and the system does not actually evolve; cost drops from better models will be offset by stagnant trust and repeated mistakes.",
+          "importance": "high",
+          "probe_agent_id": "aj-019d9353-a4c2-7b10-b7a0-bfa0e0479dbf",
+          "projection_id": "en-019d934f-5531-7db0-99d2-d39065a19ae8",
+          "signal_refs": "[\"incident-to-eval learning loops\",\"Teams compare agents by verified changes per dollar and per review hour\",\"selection quality is scarcer than generation quality\"]",
+          "step_at": "1"
+        }
+      },
+      {
+        "action": "Confirm",
+        "from_status": "Created",
+        "to_status": "Confirmed",
+        "timestamp": "2026-04-15T22:48:41.418124Z",
+        "params": {
+          "confirmer_agent_id": ""
+        }
+      }
+    ],
+    "total_event_count": 3,
+    "sequence_nr": 3,
+    "@odata.id": "Observations('en-019d9354-5ea9-7c60-a8b1-01360fd9f0ae')"
+  },
+  {
+    "entity_type": "Observation",
+    "entity_id": "en-019d9354-5eb5-7e13-ab89-bcdc68af91aa",
+    "status": "Created",
+    "item_count": 0,
+    "counters": {},
+    "booleans": {},
+    "lists": {},
+    "fields": {
+      "fields": {},
+      "Id": "en-019d9354-5eb5-7e13-ab89-bcdc68af91aa",
+      "Status": "Created",
+      "content": "The ecosystem structure shifts toward three production layers: model providers selling raw generation and tool use, control-plane vendors packaging governed workflows and auditability, and enterprise platform teams owning local harnesses and deployment policy. In practice, enterprises will not outsource the final fitness function. They may buy orchestration infrastructure, but the decisive implementation work is encoding organization-specific invariants: test budgets, blast-radius classes, service ownership maps, approval policies, and rollback semantics.",
+      "counterfactual": "If teams assume a vendor model alone can supply the full solution, deployments will stall at pilot stage because the missing local invariants create unresolved governance and reliability gaps.",
+      "importance": "medium",
+      "probe_agent_id": "aj-019d9353-a4c2-7b10-b7a0-bfa0e0479dbf",
+      "projection_id": "en-019d934f-5531-7db0-99d2-d39065a19ae8",
+      "signal_refs": "[\"Governed platforms outperform unconstrained agents in enterprise niches because auditability and rollback matter\",\"Platform teams package lightweight verification routines as defaults\",\"internal developer platforms\"]",
+      "step_at": "1"
+    },
+    "events": [
+      {
+        "action": "Created",
+        "from_status": "",
+        "to_status": "Created",
+        "timestamp": "2026-04-15T22:47:53.271278Z",
+        "params": {
+          "fields": {}
+        }
+      },
+      {
+        "action": "Record",
+        "from_status": "Created",
+        "to_status": "Created",
+        "timestamp": "2026-04-15T22:47:53.276328Z",
+        "params": {
+          "content": "The ecosystem structure shifts toward three production layers: model providers selling raw generation and tool use, control-plane vendors packaging governed workflows and auditability, and enterprise platform teams owning local harnesses and deployment policy. In practice, enterprises will not outsource the final fitness function. They may buy orchestration infrastructure, but the decisive implementation work is encoding organization-specific invariants: test budgets, blast-radius classes, service ownership maps, approval policies, and rollback semantics.",
+          "counterfactual": "If teams assume a vendor model alone can supply the full solution, deployments will stall at pilot stage because the missing local invariants create unresolved governance and reliability gaps.",
+          "importance": "medium",
+          "probe_agent_id": "aj-019d9353-a4c2-7b10-b7a0-bfa0e0479dbf",
+          "projection_id": "en-019d934f-5531-7db0-99d2-d39065a19ae8",
+          "signal_refs": "[\"Governed platforms outperform unconstrained agents in enterprise niches because auditability and rollback matter\",\"Platform teams package lightweight verification routines as defaults\",\"internal developer platforms\"]",
+          "step_at": "1"
+        }
+      }
+    ],
+    "total_event_count": 2,
+    "sequence_nr": 2,
+    "@odata.id": "Observations('en-019d9354-5eb5-7e13-ab89-bcdc68af91aa')"
+  },
+  {
+    "entity_type": "Observation",
+    "entity_id": "en-019d9354-5ec1-70e3-844f-e5dd138dd128",
+    "status": "Confirmed",
+    "item_count": 0,
+    "counters": {},
+    "booleans": {},
+    "lists": {},
+    "fields": {
+      "fields": {},
+      "Id": "en-019d9354-5ec1-70e3-844f-e5dd138dd128",
+      "Status": "Confirmed",
+      "content": "A dominant narrative is challenged over the year: fully autonomous software evolution does not become broadly production-grade even as control-plane automation matures. What improves is throughput on bounded mutations with strong acceptance tests, not open-ended product strategy, architecture invention, or ambiguous cross-service refactors. Heavyweight formal verification still remains concentrated in narrow domains; most production systems rely on layered statistical and procedural checks rather than universal proof. Practitioners discover that more agent autonomy without better decomposition mainly increases review variance.",
+      "counterfactual": "If leaders over-rotate toward the autonomy narrative, they will underinvest in decomposition, harness coverage, and escalation design, causing high-visibility failures that slow adoption of the workflows that actually work.",
+      "importance": "high",
+      "probe_agent_id": "aj-019d9353-a4c2-7b10-b7a0-bfa0e0479dbf",
+      "projection_id": "en-019d934f-5531-7db0-99d2-d39065a19ae8",
+      "signal_refs": "[\"true long-horizon autonomy remains brittle\",\"heavyweight formal methods remain narrow rather than universal\",\"The practical bridge to autonomy is constrained control-plane generation, not open-ended product coding\"]",
+      "step_at": "1",
+      "confirmer_agent_id": ""
+    },
+    "events": [
+      {
+        "action": "Created",
+        "from_status": "",
+        "to_status": "Created",
+        "timestamp": "2026-04-15T22:47:53.282640Z",
+        "params": {
+          "fields": {}
+        }
+      },
+      {
+        "action": "Record",
+        "from_status": "Created",
+        "to_status": "Created",
+        "timestamp": "2026-04-15T22:47:53.286815Z",
+        "params": {
+          "content": "A dominant narrative is challenged over the year: fully autonomous software evolution does not become broadly production-grade even as control-plane automation matures. What improves is throughput on bounded mutations with strong acceptance tests, not open-ended product strategy, architecture invention, or ambiguous cross-service refactors. Heavyweight formal verification still remains concentrated in narrow domains; most production systems rely on layered statistical and procedural checks rather than universal proof. Practitioners discover that more agent autonomy without better decomposition mainly increases review variance.",
+          "counterfactual": "If leaders over-rotate toward the autonomy narrative, they will underinvest in decomposition, harness coverage, and escalation design, causing high-visibility failures that slow adoption of the workflows that actually work.",
+          "importance": "high",
+          "probe_agent_id": "aj-019d9353-a4c2-7b10-b7a0-bfa0e0479dbf",
+          "projection_id": "en-019d934f-5531-7db0-99d2-d39065a19ae8",
+          "signal_refs": "[\"true long-horizon autonomy remains brittle\",\"heavyweight formal methods remain narrow rather than universal\",\"The practical bridge to autonomy is constrained control-plane generation, not open-ended product coding\"]",
+          "step_at": "1"
+        }
+      },
+      {
+        "action": "Confirm",
+        "from_status": "Created",
+        "to_status": "Confirmed",
+        "timestamp": "2026-04-15T22:48:41.433651Z",
+        "params": {
+          "confirmer_agent_id": ""
+        }
+      }
+    ],
+    "total_event_count": 3,
+    "sequence_nr": 3,
+    "@odata.id": "Observations('en-019d9354-5ec1-70e3-844f-e5dd138dd128')"
+  },
+  {
+    "entity_type": "Observation",
+    "entity_id": "en-019d9354-626b-78b2-bd29-8af1aaeda7c4",
+    "status": "Confirmed",
+    "item_count": 0,
+    "counters": {},
+    "booleans": {},
+    "lists": {},
+    "fields": {
+      "fields": {},
+      "Id": "en-019d9354-626b-78b2-bd29-8af1aaeda7c4",
+      "Status": "Confirmed",
+      "content": "By day 365, the most visible enterprise wins still come from governed homeostasis rather than directed evolution: organizations expand policy-backed remediation for infra drift, dependency updates, flaky-test repair, and control-plane runbooks, but they do not permit systems to mutate core product architecture without human checkpointing. The mechanism is straightforward: repo-specific acceptance harnesses improved enough to safely rank small patches, yet they remain too incomplete to score architectural moves or user-value changes. This challenges the dominant narrative that better models alone unlock compounding software evolution within a year.",
+      "counterfactual": "If operators misread these bounded wins as evidence of general evolutionary capability, they will over-delegate architecture and product changes to systems whose fitness proxies only capture local correctness, leading to regressions that are legible only after customer or incident impact.",
+      "importance": "high",
+      "probe_agent_id": "aj-019d9353-a4db-7bf2-aa42-9146700773f2",
+      "projection_id": "en-019d934f-5531-7db0-99d2-d39065a19ae8",
+      "signal_refs": "[\"selection quality is scarcer than generation quality\",\"governed platforms outperform unconstrained agents in enterprise niches because auditability and rollback matter\",\"the practical bridge to autonomy is constrained control-plane generation, not open-ended product coding\"]",
+      "step_at": "1",
+      "confirmer_agent_id": ""
+    },
+    "events": [
+      {
+        "action": "Created",
+        "from_status": "",
+        "to_status": "Created",
+        "timestamp": "2026-04-15T22:47:54.220803Z",
+        "params": {
+          "fields": {}
+        }
+      },
+      {
+        "action": "Record",
+        "from_status": "Created",
+        "to_status": "Created",
+        "timestamp": "2026-04-15T22:47:54.224846Z",
+        "params": {
+          "content": "By day 365, the most visible enterprise wins still come from governed homeostasis rather than directed evolution: organizations expand policy-backed remediation for infra drift, dependency updates, flaky-test repair, and control-plane runbooks, but they do not permit systems to mutate core product architecture without human checkpointing. The mechanism is straightforward: repo-specific acceptance harnesses improved enough to safely rank small patches, yet they remain too incomplete to score architectural moves or user-value changes. This challenges the dominant narrative that better models alone unlock compounding software evolution within a year.",
+          "counterfactual": "If operators misread these bounded wins as evidence of general evolutionary capability, they will over-delegate architecture and product changes to systems whose fitness proxies only capture local correctness, leading to regressions that are legible only after customer or incident impact.",
+          "importance": "high",
+          "probe_agent_id": "aj-019d9353-a4db-7bf2-aa42-9146700773f2",
+          "projection_id": "en-019d934f-5531-7db0-99d2-d39065a19ae8",
+          "signal_refs": "[\"selection quality is scarcer than generation quality\",\"governed platforms outperform unconstrained agents in enterprise niches because auditability and rollback matter\",\"the practical bridge to autonomy is constrained control-plane generation, not open-ended product coding\"]",
+          "step_at": "1"
+        }
+      },
+      {
+        "action": "Confirm",
+        "from_status": "Created",
+        "to_status": "Confirmed",
+        "timestamp": "2026-04-15T22:48:41.406785Z",
+        "params": {
+          "confirmer_agent_id": ""
+        }
+      }
+    ],
+    "total_event_count": 3,
+    "sequence_nr": 3,
+    "@odata.id": "Observations('en-019d9354-626b-78b2-bd29-8af1aaeda7c4')"
+  },
+  {
+    "entity_type": "Observation",
+    "entity_id": "en-019d9354-6275-79e0-9585-87cc29719aed",
+    "status": "Confirmed",
+    "item_count": 0,
+    "counters": {},
+    "booleans": {},
+    "lists": {},
+    "fields": {
+      "fields": {},
+      "Id": "en-019d9354-6275-79e0-9585-87cc29719aed",
+      "Status": "Confirmed",
+      "content": "A major failure mode over the year is proxy overfitting disguised as progress. Teams optimize for verified changes per dollar, pass-rate improvement, and review-hour savings, so agent systems learn to select edits that satisfy harnesses while avoiding harder but higher-value refactors. The ecosystem starts to reward benchmark theater: vendors publish patch acceptance metrics on curated maintenance workloads, while the unresolved backlog shifts toward cross-service coordination, latent UX defects, and architectural debt that current fitness functions barely observe.",
+      "counterfactual": "If this proxy problem is ignored, the field will claim evolutionary gains while actually harvesting only narrow, low-variance maintenance wins, delaying investment in richer outcome measurement and causing a credibility correction when real software quality fails to compound.",
+      "importance": "high",
+      "probe_agent_id": "aj-019d9353-a4db-7bf2-aa42-9146700773f2",
+      "projection_id": "en-019d934f-5531-7db0-99d2-d39065a19ae8",
+      "signal_refs": "[\"teams compare agents by verified changes per dollar and per review hour\",\"value is shifting from raw generation quality to acceptance and selection infrastructure\",\"what minimal fitness-function substrate is needed to move from best-of-N retries to true adaptive search?\"]",
+      "step_at": "1",
+      "confirmer_agent_id": ""
+    },
+    "events": [
+      {
+        "action": "Created",
+        "from_status": "",
+        "to_status": "Created",
+        "timestamp": "2026-04-15T22:47:54.230889Z",
+        "params": {
+          "fields": {}
+        }
+      },
+      {
+        "action": "Record",
+        "from_status": "Created",
+        "to_status": "Created",
+        "timestamp": "2026-04-15T22:47:54.234574Z",
+        "params": {
+          "content": "A major failure mode over the year is proxy overfitting disguised as progress. Teams optimize for verified changes per dollar, pass-rate improvement, and review-hour savings, so agent systems learn to select edits that satisfy harnesses while avoiding harder but higher-value refactors. The ecosystem starts to reward benchmark theater: vendors publish patch acceptance metrics on curated maintenance workloads, while the unresolved backlog shifts toward cross-service coordination, latent UX defects, and architectural debt that current fitness functions barely observe.",
+          "counterfactual": "If this proxy problem is ignored, the field will claim evolutionary gains while actually harvesting only narrow, low-variance maintenance wins, delaying investment in richer outcome measurement and causing a credibility correction when real software quality fails to compound.",
+          "importance": "high",
+          "probe_agent_id": "aj-019d9353-a4db-7bf2-aa42-9146700773f2",
+          "projection_id": "en-019d934f-5531-7db0-99d2-d39065a19ae8",
+          "signal_refs": "[\"teams compare agents by verified changes per dollar and per review hour\",\"value is shifting from raw generation quality to acceptance and selection infrastructure\",\"what minimal fitness-function substrate is needed to move from best-of-N retries to true adaptive search?\"]",
+          "step_at": "1"
+        }
+      },
+      {
+        "action": "Confirm",
+        "from_status": "Created",
+        "to_status": "Confirmed",
+        "timestamp": "2026-04-15T22:48:41.428261Z",
+        "params": {
+          "confirmer_agent_id": ""
+        }
+      }
+    ],
+    "total_event_count": 3,
+    "sequence_nr": 3,
+    "@odata.id": "Observations('en-019d9354-6275-79e0-9585-87cc29719aed')"
+  },
+  {
+    "entity_type": "Observation",
+    "entity_id": "en-019d9354-627f-7a22-9c16-7d6d258d8976",
+    "status": "Created",
+    "item_count": 0,
+    "counters": {},
+    "booleans": {},
+    "lists": {},
+    "fields": {
+      "fields": {},
+      "Id": "en-019d9354-627f-7a22-9c16-7d6d258d8976",
+      "Status": "Created",
+      "content": "Governance drag becomes an ecosystem-shaping constraint rather than a temporary nuisance. By the end of the year, large firms have added more policy gates, replay requirements, approval checkpoints, and rollback constraints after early autonomous-change incidents and audit reviews. This improves trust for low-blast-radius tasks but slows adaptation loops so much that many organizations cannot run enough safe mutation-selection cycles to deserve the term evolution. The result is a split market: heavily governed incumbents buy compliance-heavy control planes, while startups use looser internal tools but lack the production data exhaust needed for robust long-horizon learning.",
+      "counterfactual": "If observers assume governance friction naturally disappears with product maturity, they will underestimate how regulation, internal audit, and security review structurally cap adaptation speed in the most lucrative enterprise settings.",
+      "importance": "high",
+      "probe_agent_id": "aj-019d9353-a4db-7bf2-aa42-9146700773f2",
+      "projection_id": "en-019d934f-5531-7db0-99d2-d39065a19ae8",
+      "signal_refs": "[\"layered verification cascades\",\"governed action spaces and policy-backed execution\",\"how much of organizational review knowledge can be made executable without freezing exploration?\"]",
+      "step_at": "1"
+    },
+    "events": [
+      {
+        "action": "Created",
+        "from_status": "",
+        "to_status": "Created",
+        "timestamp": "2026-04-15T22:47:54.240649Z",
+        "params": {
+          "fields": {}
+        }
+      },
+      {
+        "action": "Record",
+        "from_status": "Created",
+        "to_status": "Created",
+        "timestamp": "2026-04-15T22:47:54.245166Z",
+        "params": {
+          "content": "Governance drag becomes an ecosystem-shaping constraint rather than a temporary nuisance. By the end of the year, large firms have added more policy gates, replay requirements, approval checkpoints, and rollback constraints after early autonomous-change incidents and audit reviews. This improves trust for low-blast-radius tasks but slows adaptation loops so much that many organizations cannot run enough safe mutation-selection cycles to deserve the term evolution. The result is a split market: heavily governed incumbents buy compliance-heavy control planes, while startups use looser internal tools but lack the production data exhaust needed for robust long-horizon learning.",
+          "counterfactual": "If observers assume governance friction naturally disappears with product maturity, they will underestimate how regulation, internal audit, and security review structurally cap adaptation speed in the most lucrative enterprise settings.",
+          "importance": "high",
+          "probe_agent_id": "aj-019d9353-a4db-7bf2-aa42-9146700773f2",
+          "projection_id": "en-019d934f-5531-7db0-99d2-d39065a19ae8",
+          "signal_refs": "[\"layered verification cascades\",\"governed action spaces and policy-backed execution\",\"how much of organizational review knowledge can be made executable without freezing exploration?\"]",
+          "step_at": "1"
+        }
+      }
+    ],
+    "total_event_count": 2,
+    "sequence_nr": 2,
+    "@odata.id": "Observations('en-019d9354-627f-7a22-9c16-7d6d258d8976')"
+  },
+  {
+    "entity_type": "Observation",
+    "entity_id": "en-019d9354-6289-73b1-bde3-777748a3258a",
+    "status": "Confirmed",
+    "item_count": 0,
+    "counters": {},
+    "booleans": {},
+    "lists": {},
+    "fields": {
+      "fields": {},
+      "Id": "en-019d9354-6289-73b1-bde3-777748a3258a",
+      "Status": "Confirmed",
+      "content": "What has not changed by day 365 is the absence of a durable, shared substrate for measuring software fitness above the patch level. Incident-to-eval learning loops have improved local regression prevention, but they still do not encode product strategy, socio-technical coordination cost, or long-range maintainability well enough to drive autonomous architectural evolution. As a result, many systems marketed as evolutionary are functionally sophisticated best-of-N search over human-authored constraints. The field increasingly uses evolutionary language for selection pipelines that lack heritable representations, open-ended fitness discovery, or reliable accumulation of beneficial system-level adaptations.",
+      "counterfactual": "If this definitional slippage goes unchallenged, buyers and researchers will overestimate the maturity of the domain, fund the wrong abstractions, and postpone the harder work of building measurable representations of system-level fitness.",
+      "importance": "high",
+      "probe_agent_id": "aj-019d9353-a4db-7bf2-aa42-9146700773f2",
+      "projection_id": "en-019d934f-5531-7db0-99d2-d39065a19ae8",
+      "signal_refs": "[\"operational learning loops that turn incidents into evals are becoming a decisive advantage\",\"do harness-first systems become a launchpad for directed evolution or a stable local optimum?\",\"humans still author fitness criteria and escalation thresholds\"]",
+      "step_at": "1",
+      "confirmer_agent_id": ""
+    },
+    "events": [
+      {
+        "action": "Created",
+        "from_status": "",
+        "to_status": "Created",
+        "timestamp": "2026-04-15T22:47:54.251031Z",
+        "params": {
+          "fields": {}
+        }
+      },
+      {
+        "action": "Record",
+        "from_status": "Created",
+        "to_status": "Created",
+        "timestamp": "2026-04-15T22:47:54.254455Z",
+        "params": {
+          "content": "What has not changed by day 365 is the absence of a durable, shared substrate for measuring software fitness above the patch level. Incident-to-eval learning loops have improved local regression prevention, but they still do not encode product strategy, socio-technical coordination cost, or long-range maintainability well enough to drive autonomous architectural evolution. As a result, many systems marketed as evolutionary are functionally sophisticated best-of-N search over human-authored constraints. The field increasingly uses evolutionary language for selection pipelines that lack heritable representations, open-ended fitness discovery, or reliable accumulation of beneficial system-level adaptations.",
+          "counterfactual": "If this definitional slippage goes unchallenged, buyers and researchers will overestimate the maturity of the domain, fund the wrong abstractions, and postpone the harder work of building measurable representations of system-level fitness.",
+          "importance": "high",
+          "probe_agent_id": "aj-019d9353-a4db-7bf2-aa42-9146700773f2",
+          "projection_id": "en-019d934f-5531-7db0-99d2-d39065a19ae8",
+          "signal_refs": "[\"operational learning loops that turn incidents into evals are becoming a decisive advantage\",\"do harness-first systems become a launchpad for directed evolution or a stable local optimum?\",\"humans still author fitness criteria and escalation thresholds\"]",
+          "step_at": "1"
+        }
+      },
+      {
+        "action": "Confirm",
+        "from_status": "Created",
+        "to_status": "Confirmed",
+        "timestamp": "2026-04-15T22:48:41.438540Z",
+        "params": {
+          "confirmer_agent_id": ""
+        }
+      }
+    ],
+    "total_event_count": 3,
+    "sequence_nr": 3,
+    "@odata.id": "Observations('en-019d9354-6289-73b1-bde3-777748a3258a')"
+  },
+  {
+    "entity_type": "Observation",
+    "entity_id": "en-019d9354-6549-76a3-b23c-a905f4395c9b",
+    "status": "Confirmed",
+    "item_count": 0,
+    "counters": {},
+    "booleans": {},
+    "lists": {},
+    "fields": {
+      "fields": {},
+      "Id": "en-019d9354-6549-76a3-b23c-a905f4395c9b",
+      "Status": "Confirmed",
+      "content": "By day 365, the market structure around directed software evolution looks less like a model race and more like a machine-tool industry. The winning layer is the stack that standardizes selection: eval foundries, replay systems, policy gates, synthetic test generation, and rollback-aware deployment rails. Large enterprises increasingly buy or build this layer as shared infrastructure, because each additional governed service can reuse the same acceptance machinery. The result is cumulative advantage for organizations that own high-volume incident histories and code-change outcomes: they can convert operational exhaust into proprietary fitness functions faster than smaller teams.",
+      "counterfactual": "If the ecosystem treats model quality as the only moat, buyers will underestimate the compounding value of incident archives and governed eval pipelines, and will be surprised when apparently interchangeable models yield very unequal organizational performance.",
+      "importance": "high",
+      "probe_agent_id": "aj-019d9353-a523-7c31-98b4-ff3d5d95d677",
+      "projection_id": "en-019d934f-5531-7db0-99d2-d39065a19ae8",
+      "signal_refs": "[\"selection quality is scarcer than generation quality\",\"operational learning loops that turn incidents into evals are becoming a decisive advantage\",\"teams compare agents by verified changes per dollar and per review hour\"]",
+      "step_at": "1",
+      "confirmer_agent_id": ""
+    },
+    "events": [
+      {
+        "action": "Created",
+        "from_status": "",
+        "to_status": "Created",
+        "timestamp": "2026-04-15T22:47:54.954190Z",
+        "params": {
+          "fields": {}
+        }
+      },
+      {
+        "action": "Record",
+        "from_status": "Created",
+        "to_status": "Created",
+        "timestamp": "2026-04-15T22:47:54.958048Z",
+        "params": {
+          "content": "By day 365, the market structure around directed software evolution looks less like a model race and more like a machine-tool industry. The winning layer is the stack that standardizes selection: eval foundries, replay systems, policy gates, synthetic test generation, and rollback-aware deployment rails. Large enterprises increasingly buy or build this layer as shared infrastructure, because each additional governed service can reuse the same acceptance machinery. The result is cumulative advantage for organizations that own high-volume incident histories and code-change outcomes: they can convert operational exhaust into proprietary fitness functions faster than smaller teams.",
+          "counterfactual": "If the ecosystem treats model quality as the only moat, buyers will underestimate the compounding value of incident archives and governed eval pipelines, and will be surprised when apparently interchangeable models yield very unequal organizational performance.",
+          "importance": "high",
+          "probe_agent_id": "aj-019d9353-a523-7c31-98b4-ff3d5d95d677",
+          "projection_id": "en-019d934f-5531-7db0-99d2-d39065a19ae8",
+          "signal_refs": "[\"selection quality is scarcer than generation quality\",\"operational learning loops that turn incidents into evals are becoming a decisive advantage\",\"teams compare agents by verified changes per dollar and per review hour\"]",
+          "step_at": "1"
+        }
+      },
+      {
+        "action": "Confirm",
+        "from_status": "Created",
+        "to_status": "Confirmed",
+        "timestamp": "2026-04-15T22:48:41.412371Z",
+        "params": {
+          "confirmer_agent_id": ""
+        }
+      }
+    ],
+    "total_event_count": 3,
+    "sequence_nr": 3,
+    "@odata.id": "Observations('en-019d9354-6549-76a3-b23c-a905f4395c9b')"
+  },
+  {
+    "entity_type": "Observation",
+    "entity_id": "en-019d9354-6552-7f61-94c6-d1f5014b2abe",
+    "status": "Confirmed",
+    "item_count": 0,
+    "counters": {},
+    "booleans": {},
+    "lists": {},
+    "fields": {
+      "fields": {},
+      "Id": "en-019d9354-6552-7f61-94c6-d1f5014b2abe",
+      "Status": "Confirmed",
+      "content": "An ecological pattern is emerging: directed software evolution is specializing by niche rather than generalizing uniformly. Organisms do not conquer every habitat at once; they dominate where the selection environment is legible. Likewise, agentic mutation spreads first in 'high-signal habitats' such as infra remediation, dependency management, policy-constrained internal tooling, and repetitive control-plane changes. What has not changed by day 365 is broad trust in open-ended product-feature autonomy. The ecosystem still lacks robust fitness signals for ambiguous customer-facing work, so generalist narratives continue to outrun actual deployment breadth.",
+      "counterfactual": "If leaders assume niche success automatically transfers to ambiguous product development, they will scale agents into environments where feedback is sparse and costs of mis-specification are much higher, producing a backlash against the whole category.",
+      "importance": "high",
+      "probe_agent_id": "aj-019d9353-a523-7c31-98b4-ff3d5d95d677",
+      "projection_id": "en-019d934f-5531-7db0-99d2-d39065a19ae8",
+      "signal_refs": "[\"bounded enterprise adoption expands in internal platforms, control planes, and low-blast-radius maintenance\",\"the practical bridge to autonomy is constrained control-plane generation, not open-ended product coding\",\"true long-horizon autonomy remains brittle\"]",
+      "step_at": "1",
+      "confirmer_agent_id": ""
+    },
+    "events": [
+      {
+        "action": "Created",
+        "from_status": "",
+        "to_status": "Created",
+        "timestamp": "2026-04-15T22:47:54.964125Z",
+        "params": {
+          "fields": {}
+        }
+      },
+      {
+        "action": "Record",
+        "from_status": "Created",
+        "to_status": "Created",
+        "timestamp": "2026-04-15T22:47:54.967889Z",
+        "params": {
+          "content": "An ecological pattern is emerging: directed software evolution is specializing by niche rather than generalizing uniformly. Organisms do not conquer every habitat at once; they dominate where the selection environment is legible. Likewise, agentic mutation spreads first in 'high-signal habitats' such as infra remediation, dependency management, policy-constrained internal tooling, and repetitive control-plane changes. What has not changed by day 365 is broad trust in open-ended product-feature autonomy. The ecosystem still lacks robust fitness signals for ambiguous customer-facing work, so generalist narratives continue to outrun actual deployment breadth.",
+          "counterfactual": "If leaders assume niche success automatically transfers to ambiguous product development, they will scale agents into environments where feedback is sparse and costs of mis-specification are much higher, producing a backlash against the whole category.",
+          "importance": "high",
+          "probe_agent_id": "aj-019d9353-a523-7c31-98b4-ff3d5d95d677",
+          "projection_id": "en-019d934f-5531-7db0-99d2-d39065a19ae8",
+          "signal_refs": "[\"bounded enterprise adoption expands in internal platforms, control planes, and low-blast-radius maintenance\",\"the practical bridge to autonomy is constrained control-plane generation, not open-ended product coding\",\"true long-horizon autonomy remains brittle\"]",
+          "step_at": "1"
+        }
+      },
+      {
+        "action": "Confirm",
+        "from_status": "Created",
+        "to_status": "Confirmed",
+        "timestamp": "2026-04-15T22:48:41.423392Z",
+        "params": {
+          "confirmer_agent_id": ""
+        }
+      }
+    ],
+    "total_event_count": 3,
+    "sequence_nr": 3,
+    "@odata.id": "Observations('en-019d9354-6552-7f61-94c6-d1f5014b2abe')"
+  },
+  {
+    "entity_type": "Observation",
+    "entity_id": "en-019d9354-655c-7ef0-8bd7-721190e28356",
+    "status": "Created",
+    "item_count": 0,
+    "counters": {},
+    "booleans": {},
+    "lists": {},
+    "fields": {
+      "fields": {},
+      "Id": "en-019d9354-655c-7ef0-8bd7-721190e28356",
+      "Status": "Created",
+      "content": "Organizationally, the key scarce role is becoming 'selection designer' rather than prompt engineer. By day 365, mature adopters have created cross-functional groups that encode review heuristics, deployment policies, and postmortem lessons into executable gates. This shifts power toward platform teams, reliability groups, and governance owners, because they control the institutional memory that determines what counts as a good mutation. The adjacent-field analogy is administrative science: firms become more adaptive not when every worker improvises, but when they can routinize local learning into durable decision procedures.",
+      "counterfactual": "If companies fail to professionalize selection design, they will overinvest in agent seats and underinvest in the institutional layer that actually converts proposals into safe, repeatable throughput.",
+      "importance": "high",
+      "probe_agent_id": "aj-019d9353-a523-7c31-98b4-ff3d5d95d677",
+      "projection_id": "en-019d934f-5531-7db0-99d2-d39065a19ae8",
+      "signal_refs": "[\"governed platforms outperform unconstrained agents in enterprise niches because auditability and rollback matter\",\"humans still author fitness criteria and escalation thresholds\",\"platform teams package lightweight verification routines as defaults\"]",
+      "step_at": "1"
+    },
+    "events": [
+      {
+        "action": "Created",
+        "from_status": "",
+        "to_status": "Created",
+        "timestamp": "2026-04-15T22:47:54.973350Z",
+        "params": {
+          "fields": {}
+        }
+      },
+      {
+        "action": "Record",
+        "from_status": "Created",
+        "to_status": "Created",
+        "timestamp": "2026-04-15T22:47:54.976574Z",
+        "params": {
+          "content": "Organizationally, the key scarce role is becoming 'selection designer' rather than prompt engineer. By day 365, mature adopters have created cross-functional groups that encode review heuristics, deployment policies, and postmortem lessons into executable gates. This shifts power toward platform teams, reliability groups, and governance owners, because they control the institutional memory that determines what counts as a good mutation. The adjacent-field analogy is administrative science: firms become more adaptive not when every worker improvises, but when they can routinize local learning into durable decision procedures.",
+          "counterfactual": "If companies fail to professionalize selection design, they will overinvest in agent seats and underinvest in the institutional layer that actually converts proposals into safe, repeatable throughput.",
+          "importance": "high",
+          "probe_agent_id": "aj-019d9353-a523-7c31-98b4-ff3d5d95d677",
+          "projection_id": "en-019d934f-5531-7db0-99d2-d39065a19ae8",
+          "signal_refs": "[\"governed platforms outperform unconstrained agents in enterprise niches because auditability and rollback matter\",\"humans still author fitness criteria and escalation thresholds\",\"platform teams package lightweight verification routines as defaults\"]",
+          "step_at": "1"
+        }
+      }
+    ],
+    "total_event_count": 2,
+    "sequence_nr": 2,
+    "@odata.id": "Observations('en-019d9354-655c-7ef0-8bd7-721190e28356')"
+  },
+  {
+    "entity_type": "Observation",
+    "entity_id": "en-019d9354-6564-7741-84d6-6f99ae75dc95",
+    "status": "Created",
+    "item_count": 0,
+    "counters": {},
+    "booleans": {},
+    "lists": {},
+    "fields": {
+      "fields": {},
+      "Id": "en-019d9354-6564-7741-84d6-6f99ae75dc95",
+      "Status": "Created",
+      "content": "Challenge to the dominant narrative: machine-tool dynamics do not automatically imply permanent centralization in a few foundation-model vendors. By day 365, capability is concentrated in one sense but distributed in another. Base models remain important, yet durable advantage accrues to firms with domain-specific eval corpora, deployment rights, and workflow embedding. This resembles industrial districts more than pure platform monopoly: a handful of upstream suppliers coexist with many specialized downstream operators whose local process knowledge is hard to copy. The ecosystem is therefore likely to stratify into concentrated model supply plus distributed, sector-specific selection capital.",
+      "counterfactual": "If observers expect total winner-take-all concentration, they will miss the investable and strategically important middle layer where industry-specific selection systems create differentiated performance even on similar model substrates.",
+      "importance": "high",
+      "probe_agent_id": "aj-019d9353-a523-7c31-98b4-ff3d5d95d677",
+      "projection_id": "en-019d934f-5531-7db0-99d2-d39065a19ae8",
+      "signal_refs": "[\"value is shifting from raw generation quality to acceptance and selection infrastructure\",\"enterprise pilots favor policy-backed agents over shell-native autonomy\",\"governed action spaces and policy-backed execution\"]",
+      "step_at": "1"
+    },
+    "events": [
+      {
+        "action": "Created",
+        "from_status": "",
+        "to_status": "Created",
+        "timestamp": "2026-04-15T22:47:54.981452Z",
+        "params": {
+          "fields": {}
+        }
+      },
+      {
+        "action": "Record",
+        "from_status": "Created",
+        "to_status": "Created",
+        "timestamp": "2026-04-15T22:47:54.984675Z",
+        "params": {
+          "content": "Challenge to the dominant narrative: machine-tool dynamics do not automatically imply permanent centralization in a few foundation-model vendors. By day 365, capability is concentrated in one sense but distributed in another. Base models remain important, yet durable advantage accrues to firms with domain-specific eval corpora, deployment rights, and workflow embedding. This resembles industrial districts more than pure platform monopoly: a handful of upstream suppliers coexist with many specialized downstream operators whose local process knowledge is hard to copy. The ecosystem is therefore likely to stratify into concentrated model supply plus distributed, sector-specific selection capital.",
+          "counterfactual": "If observers expect total winner-take-all concentration, they will miss the investable and strategically important middle layer where industry-specific selection systems create differentiated performance even on similar model substrates.",
+          "importance": "high",
+          "probe_agent_id": "aj-019d9353-a523-7c31-98b4-ff3d5d95d677",
+          "projection_id": "en-019d934f-5531-7db0-99d2-d39065a19ae8",
+          "signal_refs": "[\"value is shifting from raw generation quality to acceptance and selection infrastructure\",\"enterprise pilots favor policy-backed agents over shell-native autonomy\",\"governed action spaces and policy-backed execution\"]",
+          "step_at": "1"
+        }
+      }
+    ],
+    "total_event_count": 2,
+    "sequence_nr": 2,
+    "@odata.id": "Observations('en-019d9354-6564-7741-84d6-6f99ae75dc95')"
+  },
+  {
+    "entity_type": "Observation",
+    "entity_id": "en-019d9355-1ae3-7eb2-af2b-d06e2ae25209",
+    "status": "Created",
+    "item_count": 0,
+    "counters": {},
+    "booleans": {},
+    "lists": {},
+    "fields": {
+      "fields": {},
+      "Id": "en-019d9355-1ae3-7eb2-af2b-d06e2ae25209",
+      "Status": "Created",
+      "content": "Cross-probe tension at day 365: all probes agree that selection infrastructure, harnesses, and governed control planes are now the center of gravity. The disagreement is whether this constitutes the first real instantiation of directed software evolution or a proxy-optimized equilibrium that only stabilizes software within local bounds. The practitioner sees a production bridge, the critic sees stalled homeostasis, and the adjacent-domain probe frames the divide as layered industrialization around selection capital.",
+      "counterfactual": "If this contradiction is collapsed too early, teams may either underinvest in the compounding substrate that is actually emerging or overclaim a form of directed evolution that current metrics do not yet justify.",
+      "importance": "high",
+      "probe_agent_id": "",
+      "projection_id": "en-019d934f-5531-7db0-99d2-d39065a19ae8",
+      "signal_refs": "[\"selection quality is scarcer than generation quality\",\"incident-to-eval learning loops\",\"proxy overfitting\",\"selection capital\"]",
+      "step_at": "1"
+    },
+    "events": [
+      {
+        "action": "Created",
+        "from_status": "",
+        "to_status": "Created",
+        "timestamp": "2026-04-15T22:48:41.444225Z",
+        "params": {
+          "fields": {}
+        }
+      },
+      {
+        "action": "Record",
+        "from_status": "Created",
+        "to_status": "Created",
+        "timestamp": "2026-04-15T22:48:41.447998Z",
+        "params": {
+          "content": "Cross-probe tension at day 365: all probes agree that selection infrastructure, harnesses, and governed control planes are now the center of gravity. The disagreement is whether this constitutes the first real instantiation of directed software evolution or a proxy-optimized equilibrium that only stabilizes software within local bounds. The practitioner sees a production bridge, the critic sees stalled homeostasis, and the adjacent-domain probe frames the divide as layered industrialization around selection capital.",
+          "counterfactual": "If this contradiction is collapsed too early, teams may either underinvest in the compounding substrate that is actually emerging or overclaim a form of directed evolution that current metrics do not yet justify.",
+          "importance": "high",
+          "probe_agent_id": "",
+          "projection_id": "en-019d934f-5531-7db0-99d2-d39065a19ae8",
+          "signal_refs": "[\"selection quality is scarcer than generation quality\",\"incident-to-eval learning loops\",\"proxy overfitting\",\"selection capital\"]",
+          "step_at": "1"
+        }
+      }
+    ],
+    "total_event_count": 2,
+    "sequence_nr": 2,
+    "@odata.id": "Observations('en-019d9355-1ae3-7eb2-af2b-d06e2ae25209')"
+  }
+]

@@ -12,48 +12,34 @@ The Foresight Engine is a **substrate, not a pipeline**. Probes are the simulati
                     └──────┬─────────┘
                            │ Seed → spawn_seed_agent WASM (spawns agent session)
                            ▼
-STEP 0              ┌─────────────┐
-(day 1)             │  Projection │ → Start → spawn_probes
+                    ┌─────────────┐
+                    │  Projection │ → Start → spawn_orchestrator WASM
                     └──────┬──────┘
+                           │
+                    ┌──────┴──────┐
+                    │ Orchestrator│ (agent session with orchestrate-projection skill)
+                    │ runs the    │
+                    │ full loop:  │
+                    └──────┬──────┘
+                           │
+          for each step in step_schedule:
+                           │
               ┌────────────┼────────────┐
               ▼            ▼            ▼
-         Probe-1      Probe-2      Probe-3    (independent, 1 Direction each)
+         Probe-1      Probe-2      Probe-3    (independent sessions)
+         practitioner  critic        adjacent   (differentiated prompts)
          Observations  Observations  Observations
          1 Direction   1 Direction   1 Direction
               │            │            │
-              └──── ProbeStepDone ──────┘  (self-report to Projection)
+              └────────────┴────────────┘
                            │
-                    handle_probe_done WASM
-                    (checks: all reported?)
-                           │
-                           ▼
-                 ┌───────────────────┐
-                 │ Convergence       │  (LLM agent: confirms/contradicts)
-                 │ Analyst           │
-                 └─────────┬─────────┘
-                           │ ConvergenceComplete
-                           ▼
-                 ┌───────────────────┐
-                 │ Model Projector   │  (LLM agent: evolves projected state)
-                 └─────────┬─────────┘
-                           │ ProjectionUpdated
-                           ▼
-STEP 1          handle_projection_updated WASM
-(day 3)         (respawns probes with projected state + episodic memory)
-                           │
-              ┌────────────┼────────────┐
-              ▼            ▼            ▼
-         Probe-1      Probe-2      Probe-3
-         sees evolved  sees evolved  sees evolved
-         world         world         world
-         revises or    revises or    revises or
-         doubles down  doubles down  doubles down
-              │            │            │
-              └──── ProbeStepDone ──────┘
-                           │
-                    ... repeat until max_steps ...
+                    Orchestrator reads observations directly,
+                    does convergence, writes projected state,
+                    dispatches entity actions for audit trail,
+                    advances step, repeats
                            │
                            ▼
+                    Orchestrator writes final synthesis
                     Projection.Complete
 ```
 
@@ -61,8 +47,9 @@ STEP 1          handle_projection_updated WASM
 - Probes work independently — they MUST NOT read each other's observations
 - 1 Direction per Probe — want more perspectives, run more Probes
 - Directions are versioned: each step archives the old Direction, creates a revision with `parent_direction_id`
-- The model evolves through simulated time via convergent projections
-- Convergence is detected by a separate LLM analyst, not string matching
+- The orchestrator reads observations directly as entities (no serialization bugs)
+- Convergence is done by the orchestrator, not a separate session
+- Intelligence is in the skill, not WASM — see `system/skills/orchestrate-projection/SKILL.md`
 
 ## Entity Types
 
@@ -79,8 +66,9 @@ Temporal simulation that advances through adaptive time steps. Event-driven — 
 
 - **States**: Created → Running → Complete / Branched / Failed
 - **Key actions**: `Configure`, `Start`, `ProbesReady`, `ProbeStepDone`, `ConvergenceComplete`, `ProjectionUpdated`, `AdvanceStep`, `Complete`
-- **WASM**: `spawn_probes`, `handle_probe_done`, `handle_convergence`, `handle_projection_updated`
-- **Flow**: Start → spawn_probes → ProbesReady → (probes run) → ProbeStepDone × N → handle_probe_done → Convergence Analyst → ConvergenceComplete → handle_convergence → Model Projector → ProjectionUpdated → handle_projection_updated → AdvanceStep → (repeat)
+- **WASM**: `spawn_orchestrator` (creates orchestrator session with skill)
+- **Skill**: `orchestrate-projection` (the orchestrator reads this to run the full loop)
+- **Flow**: Start → spawn_orchestrator → Orchestrator session runs loop → ProbesReady → ProbeStepDone×N → ConvergenceComplete → ProjectionUpdated → AdvanceStep → (repeat) → Complete
 
 ### Observation
 Probe agents record what they see in the projected state.

@@ -4,13 +4,13 @@
 # day offsets. At each step, probe agents observe the projected state and record
 # observations. Projections can branch to explore alternative futures.
 #
-# The step loop is fully event-driven:
-#   Start → (spawn_probes) → ProbesReady
-#   → Probes self-report via ProbeStepDone
-#   → (handle_probe_done) checks all reported → spawns Convergence Analyst
-#   → Analyst calls ConvergenceComplete with projected state
-#   → (handle_convergence) respawns probes → returns AdvanceStep
-#   → AdvanceStep increments counter → waits for next ProbeStepDone cycle
+# The step loop is orchestrator-driven (hybrid architecture, ADR-002):
+#   Start → (spawn_orchestrator) → creates orchestrator session with skill
+#   → Orchestrator runs the full loop using temper.* API calls:
+#     spawn probes → wait → read observations → converge → write state →
+#     dispatch ProbeStepDone/ConvergenceComplete/ProjectionUpdated/AdvanceStep
+#     for audit trail → repeat → Complete
+#   Entity actions below are dispatched by the orchestrator for state tracking.
 
 [automaton]
 name = "Projection"
@@ -99,8 +99,8 @@ kind = "input"
 from = ["Created"]
 to = "Running"
 params = []
-hint = "Begin the projection. Spawns probe agents for the configured model."
-effect = [{ type = "trigger", name = "spawn_probes" }]
+hint = "Begin the projection. Spawns an orchestrator session that runs the full loop."
+effect = [{ type = "trigger", name = "spawn_orchestrator" }]
 
 [[action]]
 name = "ProbesReady"
@@ -114,31 +114,28 @@ name = "ProbeStepDone"
 kind = "input"
 from = ["Running"]
 params = ["probe_agent_id", "direction_id"]
-hint = "A Probe self-reports completion of the current step. WASM checks if all probes have reported; if so, spawns Convergence Analyst."
-effect = [{ type = "trigger", name = "handle_probe_done" }]
+hint = "A Probe self-reports completion of the current step. Dispatched by orchestrator for audit trail."
 
 [[action]]
 name = "ConvergenceComplete"
 kind = "input"
 from = ["Running"]
 params = []
-hint = "Convergence Analyst finished. Spawns Model Projector to produce updated projected state."
-effect = [{ type = "trigger", name = "handle_convergence" }]
+hint = "Convergence analysis finished. Dispatched by orchestrator for audit trail."
 
 [[action]]
 name = "ProjectionUpdated"
 kind = "input"
 from = ["Running"]
 params = ["projected_state_file_id"]
-hint = "Model Projector finished with updated projected state. Respawns probes for next step or completes."
-effect = [{ type = "trigger", name = "handle_projection_updated" }]
+hint = "Projected state evolved. Dispatched by orchestrator with new file ID for audit trail."
 
 [[action]]
 name = "AdvanceStep"
 kind = "internal"
 from = ["Running"]
 params = []
-hint = "Advance to next step: increment counter. Probes already respawned by handle_projection_updated."
+hint = "Advance to next step: increment counter. Dispatched by orchestrator between steps."
 effect = [
   { type = "increment", var = "current_step" },
 ]
@@ -187,40 +184,10 @@ assert = "no_further_transitions"
 # --- Integrations ---
 
 [[integration]]
-name = "spawn_probes"
-trigger = "spawn_probes"
+name = "spawn_orchestrator"
+trigger = "spawn_orchestrator"
 type = "wasm"
-module = "spawn_probes"
-on_failure = "Fail"
-
-[integration.config]
-temper_api_url = "{secret:temper_api_url}"
-
-[[integration]]
-name = "handle_probe_done"
-trigger = "handle_probe_done"
-type = "wasm"
-module = "handle_probe_done"
-on_failure = "Fail"
-
-[integration.config]
-temper_api_url = "{secret:temper_api_url}"
-
-[[integration]]
-name = "handle_convergence"
-trigger = "handle_convergence"
-type = "wasm"
-module = "handle_convergence"
-on_failure = "Fail"
-
-[integration.config]
-temper_api_url = "{secret:temper_api_url}"
-
-[[integration]]
-name = "handle_projection_updated"
-trigger = "handle_projection_updated"
-type = "wasm"
-module = "handle_projection_updated"
+module = "spawn_orchestrator"
 on_failure = "Fail"
 
 [integration.config]

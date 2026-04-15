@@ -1,0 +1,126 @@
+{
+  "run": "000",
+  "engine_version": "foresight-v000",
+  "methodology_note": "Automated 3-judge sessions failed (v1: models hallucinated scores without reading files; v2: REPL tool calls stuck in processing pipeline). Scored manually by meta-agent (Claude Code) as single evaluator. Judge infrastructure fix tracked for future iteration.",
+  "engine_session": "ss-019d9350-9059-73b2-b040-19b4c04c42b4",
+  "baseline_session": "ss-019d9356-99c7-71c2-b801-99481b69f928",
+  "projection_id": "en-019d934f-5531-7db0-99d2-d39065a19ae8",
+  "scores": [
+    {
+      "criterion": "Specificity",
+      "engine_score": 2,
+      "baseline_score": 3,
+      "engine_reasoning": "Names mechanisms (harnesses, policy gates, incident-to-eval loops) and uses time horizons (90 days, 1 year), but no named companies, specific dates, or actor-level commitments.",
+      "baseline_reasoning": "Names specific companies (Anthropic, OpenAI, Cursor, Cognition/Devin, Aider, Cline, Continue, OpenHands), references late 2026, names technologies (Cedar/OPA, Kubernetes, SWE-bench), provides percentage thresholds (20-30% of tasks).",
+      "engine_evidence": "\"By 90 days...By 1 year\"; mechanisms like \"incident-to-eval loops,\" \"policy evaluation,\" \"staged rollout\"",
+      "baseline_evidence": "\"Anthropic, OpenAI, Cursor, Cognition/Devin, Aider, Cline, Continue, and OpenHands-class systems\"; \"By late 2026\"; \"Cedar/OPA-style controls\""
+    },
+    {
+      "criterion": "Novelty",
+      "engine_score": 3,
+      "baseline_score": 3,
+      "engine_reasoning": "Original reframings: 'selection infrastructure' as compounding asset, 'capital-goods market' analogy, vendor overclaiming creating misleading equilibrium, biology analogy for layered industrial organization.",
+      "baseline_reasoning": "Similar level of original insight: safety-liveness asymmetry as decisive, portfolio optimization framing, private memory as moat, bounded portfolio optimization as first evolutionary form.",
+      "engine_evidence": "\"the domain is maturing into a capital-goods market\"; \"conceptual premature closure\"",
+      "baseline_evidence": "\"safety-liveness asymmetry is decisive\"; \"managed selection pipelines with memory: candidate portfolios\""
+    },
+    {
+      "criterion": "Internal Consistency",
+      "engine_score": 4,
+      "baseline_score": 4,
+      "engine_reasoning": "Highly coherent. Explicitly manages tension between practitioner/critic/adjacent-domain views. Disagreements are acknowledged and reconciled into a stable synthesis.",
+      "baseline_reasoning": "Also highly coherent. Consistent narrative throughout with explicit management of homeostasis vs exploration tension across all sections.",
+      "engine_evidence": "\"The major disagreement was interpretive, not descriptive.\"",
+      "baseline_evidence": "\"strong homeostatic autonomy, moderate machine-tool generation, and only early, bounded forms of directed evolution\""
+    },
+    {
+      "criterion": "Breadth",
+      "engine_score": 3,
+      "baseline_score": 4,
+      "engine_reasoning": "Covers 6+ connected themes: generation vs selection, governance, enterprise adoption, vendor dynamics, industrial organization, biology/economics analogies. Good connections but not comprehensive.",
+      "baseline_reasoning": "Covers more dimensions: generation vs selection, governance, enterprise adoption, vendor dynamics, formal methods, multi-agent coordination, benchmark vs trust gap, typed vs untyped environments, private memory, portfolio optimization, organizational politics. Cross-theme synthesis is strong.",
+      "engine_evidence": "Themes span \"governed mutation pipelines,\" \"industrial organization,\" \"selection capital,\" and \"capital-goods market\"",
+      "baseline_evidence": "Adds themes not in engine: \"Formal methods do not become universal\"; \"Multi-agent systems remain coordination-heavy\"; \"Typed and strongly verified environments\""
+    },
+    {
+      "criterion": "Plausibility",
+      "engine_score": 3,
+      "baseline_score": 4,
+      "engine_reasoning": "Most claims grounded in mechanisms and uncertainty signaled via counterarguments. However, no explicit confidence levels attached to predictions.",
+      "baseline_reasoning": "Most claims grounded AND includes explicit confidence levels (high/medium/medium-high) for each key finding and prediction. Also states what would change confidence up or down.",
+      "engine_evidence": "\"This architecture is technically feasible now because each component is already maturing independently\"",
+      "baseline_evidence": "Every key finding has \"Confidence: high/medium\" and Confidence Levels section states \"Would increase if... Would decrease if...\""
+    },
+    {
+      "criterion": "Progression",
+      "engine_score": 3,
+      "baseline_score": 4,
+      "engine_reasoning": "Clear temporal development from 90 days to 1 year with causal links. But only 2 time points summarized in executive summary, not deeply developed phase-by-phase.",
+      "baseline_reasoning": "Explicit 3-phase temporal progression (0-3m, 3-6m, 6-12m) with detailed sub-sections for each: What changes, Signals expected, What hasn't changed, Causal links to next phase. Each phase transforms understanding.",
+      "engine_evidence": "\"By 90 days... By 1 year, that pattern intensified\"",
+      "baseline_evidence": "Full Phase 1/2/3 structure with \"Causal links to next phase\" connecting each to the next"
+    },
+    {
+      "criterion": "Actionability",
+      "engine_score": 2,
+      "baseline_score": 4,
+      "engine_reasoning": "Has 4 decision point bullets, but they are recommendations without triggers, options, or tradeoffs. \"Invest first in...\", \"Track...\", \"Treat... as a strategic metric\".",
+      "baseline_reasoning": "Has 4 full decision points, each with: specific timing trigger, 3 options (A/B/C), and explicit tradeoffs for each option. Full decision framework a VP could use directly.",
+      "engine_evidence": "\"Invest first in repo- and service-specific harness coverage\"; \"Track verified changes per review hour\"",
+      "baseline_evidence": "\"When more than 20-30% of engineering tasks involve coding agents\"; Options A/B/C with \"A is cheapest short term but creates fragile, non-compounding usage\""
+    },
+    {
+      "criterion": "Human Readability",
+      "engine_score": 4,
+      "baseline_score": 4,
+      "engine_reasoning": "Well-structured with clear headings. Executive summary is excellent — concise and insightful. Polished prose throughout. A VP could act on this.",
+      "baseline_reasoning": "Also well-structured with even more comprehensive sections. Executive summary is excellent. Polished prose. More granular structure with temporal phases.",
+      "engine_evidence": "Clear headings: Executive Summary, Key Findings, Active Directions, What Surprised Us, Decision Points, Methodology",
+      "baseline_evidence": "Same quality plus Temporal Progression, Confidence Levels sections; Decision Points have sub-structure"
+    },
+    {
+      "criterion": "Completeness",
+      "engine_score": 3,
+      "baseline_score": 4,
+      "engine_reasoning": "Has observations (via synthesis), directions (3), state evolution (narrative), methodology. Missing explicit assumptions, limitations, and confidence levels.",
+      "baseline_reasoning": "Full pipeline: observations, directions (5 with counterfactuals), temporal progression, explicit confidence levels with what-would-change conditions, 5 challenged assumptions, methodology note.",
+      "engine_evidence": "Methodology: \"3 independent probes per step, 2 time steps, 27 observations, 3 directions\"",
+      "baseline_evidence": "Includes Confidence Levels section, counterfactuals for each direction, What Might Surprise section with 5 challenged assumptions"
+    },
+    {
+      "criterion": "Transparency",
+      "engine_score": 1,
+      "baseline_score": 2,
+      "engine_reasoning": "References 3 probes and 27 total observations in methodology. Broad attribution ('All three probes converged'). No specific observation IDs, signal references, or provenance chains.",
+      "baseline_reasoning": "References 'the knowledge graph' and specific graph elements (signals, patterns) repeatedly. Grounded in named graph concepts. But no formal citation system or IDs.",
+      "engine_evidence": "Only provenance: \"27 total observations, 3 total directions\" and \"All three probes converged\"",
+      "baseline_evidence": "\"The graph's homeostasis-versus-exploration distinction\"; \"Signals around spec-first and policy-first architectures\"; references specific graph signals"
+    },
+    {
+      "criterion": "Challenge",
+      "engine_score": 3,
+      "baseline_score": 4,
+      "engine_reasoning": "Genuinely pushes against bullish narrative: field may be mistaking bounded maintenance for real evolution, vendors overclaim, credibility correction risk. Stronger than token disagreement.",
+      "baseline_reasoning": "Explicitly challenges 5 named assumptions with reasoning. Overturns 'better models = viable directed evolution' and 'human approvals are temporary friction' with evidence from the graph.",
+      "engine_evidence": "\"the field has improved selection infrastructure without solving the measurement problem required for true directed evolution\"",
+      "baseline_evidence": "\"Better models automatically produce viable directed evolution\" challenged; \"Human approvals are temporary friction\" challenged with \"they encode real accountability, regulatory boundaries, and political legitimacy\""
+    },
+    {
+      "criterion": "Parsimony",
+      "engine_score": 3,
+      "baseline_score": 3,
+      "engine_reasoning": "Concise at 8K chars. Each section adds value. Some repetition of 'selection infrastructure' theme across sections, but restrained.",
+      "baseline_reasoning": "Much longer at 24K chars. More thorough but also more repetitive: the same core themes (selection > generation, governance, bounded autonomy) recur across executive summary, key findings, phases, directions, and decision points.",
+      "engine_evidence": "Selection infrastructure/capital theme repeats across summary, directions, and decision points but each section extends the argument",
+      "baseline_evidence": "Governed control-plane theme appears in every major section with similar framing; length adds some redundancy"
+    }
+  ],
+  "summary": {
+    "engine_total": 34,
+    "baseline_total": 43,
+    "max_possible": 48,
+    "engine_wins": 0,
+    "baseline_wins": 8,
+    "ties": 4
+  }
+}

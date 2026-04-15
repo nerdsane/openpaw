@@ -1,0 +1,213 @@
+[
+  {
+    "action": "Created",
+    "from_status": "",
+    "to_status": "Created",
+    "timestamp": "2026-04-15T22:42:23.154978Z",
+    "params": {
+      "fields": {}
+    }
+  },
+  {
+    "action": "Configure",
+    "from_status": "Created",
+    "to_status": "Created",
+    "timestamp": "2026-04-15T22:43:37.357931Z",
+    "params": {
+      "foresight_model_id": "en-019d92cd-41e7-7aa0-8436-e0532786bfcf",
+      "horizon": "1 year",
+      "max_steps": "2",
+      "step_schedule": "[90, 365]",
+      "probe_config": "[{\"name\":\"probe-1\",\"model\":\"gpt-5.4\",\"provider\":\"openai_codex\"},{\"name\":\"probe-2\",\"model\":\"gpt-5.4\",\"provider\":\"openai_codex\"},{\"name\":\"probe-3\",\"model\":\"gpt-5.4\",\"provider\":\"openai_codex\"}]"
+    }
+  },
+  {
+    "action": "Start",
+    "from_status": "Created",
+    "to_status": "Running",
+    "timestamp": "2026-04-15T22:43:43.795206Z",
+    "params": {}
+  },
+  {
+    "action": "ProbesReady",
+    "from_status": "Running",
+    "to_status": "Running",
+    "timestamp": "2026-04-15T22:44:50.035972Z",
+    "params": {
+      "probe_agent_ids": "['aj-019d9351-9243-75a3-85f0-527a0299efa3', 'aj-019d9351-924e-7771-979c-92daa7db9f7d', 'aj-019d9351-925b-7092-9283-ce66f4e81e97']"
+    }
+  },
+  {
+    "action": "ProbeStepDone",
+    "from_status": "Running",
+    "to_status": "Running",
+    "timestamp": "2026-04-15T22:45:44.690110Z",
+    "params": {
+      "direction_id": "en-019d9352-6866-7703-9068-83895f0ce08e",
+      "probe_agent_id": "aj-019d9351-925b-7092-9283-ce66f4e81e97"
+    }
+  },
+  {
+    "action": "ProbeStepDone",
+    "from_status": "Running",
+    "to_status": "Running",
+    "timestamp": "2026-04-15T22:45:45.260365Z",
+    "params": {
+      "direction_id": "en-019d9352-6aa0-7af1-9fbc-4da653b54d16",
+      "probe_agent_id": "aj-019d9351-9243-75a3-85f0-527a0299efa3"
+    }
+  },
+  {
+    "action": "ProbeStepDone",
+    "from_status": "Running",
+    "to_status": "Running",
+    "timestamp": "2026-04-15T22:45:45.814238Z",
+    "params": {
+      "direction_id": "en-019d9352-6ccb-75e3-b3ce-54dfd112faef",
+      "probe_agent_id": "aj-019d9351-924e-7771-979c-92daa7db9f7d"
+    }
+  },
+  {
+    "action": "ConvergenceComplete",
+    "from_status": "Running",
+    "to_status": "Running",
+    "timestamp": "2026-04-15T22:46:29.300731Z",
+    "params": {}
+  },
+  {
+    "action": "ProjectionUpdated",
+    "from_status": "Running",
+    "to_status": "Running",
+    "timestamp": "2026-04-15T22:46:29.428296Z",
+    "params": {
+      "projected_state_file_id": "fl-019d9353-16fd-7ce0-8dc9-234ff4c9b3b2"
+    }
+  },
+  {
+    "action": "ProbeStepDone",
+    "from_status": "Running",
+    "to_status": "Running",
+    "timestamp": "2026-04-15T22:46:29.434558Z",
+    "params": {
+      "direction_id": "en-019d9352-6aa0-7af1-9fbc-4da653b54d16",
+      "probe_agent_id": "aj-019d9351-9243-75a3-85f0-527a0299efa3"
+    }
+  },
+  {
+    "action": "ProbeStepDone",
+    "from_status": "Running",
+    "to_status": "Running",
+    "timestamp": "2026-04-15T22:46:29.440220Z",
+    "params": {
+      "direction_id": "en-019d9352-6ccb-75e3-b3ce-54dfd112faef",
+      "probe_agent_id": "aj-019d9351-924e-7771-979c-92daa7db9f7d"
+    }
+  },
+  {
+    "action": "ProbeStepDone",
+    "from_status": "Running",
+    "to_status": "Running",
+    "timestamp": "2026-04-15T22:46:29.447187Z",
+    "params": {
+      "direction_id": "en-019d9352-6866-7703-9068-83895f0ce08e",
+      "probe_agent_id": "aj-019d9351-925b-7092-9283-ce66f4e81e97"
+    }
+  },
+  {
+    "action": "AdvanceStep",
+    "from_status": "Running",
+    "to_status": "Running",
+    "timestamp": "2026-04-15T22:46:29.455687Z",
+    "params": {}
+  },
+  {
+    "action": "ProbesReady",
+    "from_status": "Running",
+    "to_status": "Running",
+    "timestamp": "2026-04-15T22:47:05.932528Z",
+    "params": {
+      "probe_agent_ids": "['aj-019d9353-a4c2-7b10-b7a0-bfa0e0479dbf', 'aj-019d9353-a4db-7bf2-aa42-9146700773f2', 'aj-019d9353-a523-7c31-98b4-ff3d5d95d677']"
+    }
+  },
+  {
+    "action": "ProbeStepDone",
+    "from_status": "Running",
+    "to_status": "Running",
+    "timestamp": "2026-04-15T22:47:53.301063Z",
+    "params": {
+      "direction_id": "en-019d9354-5ecb-7e21-94b1-c3bee840f0bf",
+      "probe_agent_id": "aj-019d9353-a4c2-7b10-b7a0-bfa0e0479dbf"
+    }
+  },
+  {
+    "action": "ProbeStepDone",
+    "from_status": "Running",
+    "to_status": "Running",
+    "timestamp": "2026-04-15T22:47:54.269205Z",
+    "params": {
+      "direction_id": "en-019d9354-6293-7ab2-a565-7234c63da260",
+      "probe_agent_id": "aj-019d9353-a4db-7bf2-aa42-9146700773f2"
+    }
+  },
+  {
+    "action": "ProbeStepDone",
+    "from_status": "Running",
+    "to_status": "Running",
+    "timestamp": "2026-04-15T22:47:54.998136Z",
+    "params": {
+      "direction_id": "en-019d9354-656c-7413-914e-088c1d446e2f",
+      "probe_agent_id": "aj-019d9353-a523-7c31-98b4-ff3d5d95d677"
+    }
+  },
+  {
+    "action": "ConvergenceComplete",
+    "from_status": "Running",
+    "to_status": "Running",
+    "timestamp": "2026-04-15T22:48:41.453264Z",
+    "params": {}
+  },
+  {
+    "action": "ProbeStepDone",
+    "from_status": "Running",
+    "to_status": "Running",
+    "timestamp": "2026-04-15T22:48:41.458045Z",
+    "params": {
+      "direction_id": "en-019d9354-5ecb-7e21-94b1-c3bee840f0bf",
+      "probe_agent_id": "aj-019d9353-a4c2-7b10-b7a0-bfa0e0479dbf"
+    }
+  },
+  {
+    "action": "ProbeStepDone",
+    "from_status": "Running",
+    "to_status": "Running",
+    "timestamp": "2026-04-15T22:48:41.462851Z",
+    "params": {
+      "direction_id": "en-019d9354-6293-7ab2-a565-7234c63da260",
+      "probe_agent_id": "aj-019d9353-a4db-7bf2-aa42-9146700773f2"
+    }
+  },
+  {
+    "action": "ProbeStepDone",
+    "from_status": "Running",
+    "to_status": "Running",
+    "timestamp": "2026-04-15T22:48:41.467761Z",
+    "params": {
+      "direction_id": "en-019d9354-656c-7413-914e-088c1d446e2f",
+      "probe_agent_id": "aj-019d9353-a523-7c31-98b4-ff3d5d95d677"
+    }
+  },
+  {
+    "action": "AdvanceStep",
+    "from_status": "Running",
+    "to_status": "Running",
+    "timestamp": "2026-04-15T22:48:41.472130Z",
+    "params": {}
+  },
+  {
+    "action": "Complete",
+    "from_status": "Running",
+    "to_status": "Complete",
+    "timestamp": "2026-04-15T22:48:41.570947Z",
+    "params": {}
+  }
+]
