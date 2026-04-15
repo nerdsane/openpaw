@@ -21,6 +21,11 @@ ENV CARGO_BUILD_JOBS=2
 ENV BUILD_VERSION=${BUILD_VERSION}
 ENV BUILD_SHA=${BUILD_SHA}
 RUN cargo build -p openpaw --release --bin openpaw-server
+# Build WASM modules for os-apps (requires wasm32 targets)
+RUN rustup target add wasm32-unknown-unknown wasm32-wasip1
+RUN cd os-apps/paw-agent/wasm && bash build.sh \
+    && cd /app/os-apps/paw-channels/wasm && bash build.sh \
+    && cd /app/os-apps/paw-fs/wasm/blob_adapter && bash build.sh
 
 FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y ca-certificates libz3-4 && rm -rf /var/lib/apt/lists/*
@@ -29,7 +34,7 @@ ARG BUILD_SHA=unknown
 WORKDIR /app
 COPY --from=rust-build /app/target/release/openpaw-server ./openpaw
 COPY --from=rust-build /app/dashboard/build ./dashboard/build
-COPY os-apps ./os-apps
+COPY --from=rust-build /app/os-apps ./os-apps
 ENV BUILD_VERSION=${BUILD_VERSION}
 ENV BUILD_SHA=${BUILD_SHA}
 EXPOSE 3467
