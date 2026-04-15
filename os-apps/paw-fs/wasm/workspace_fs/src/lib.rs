@@ -53,6 +53,14 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             "resolve_path" => ops::resolve_path(&ctx, &api_url, &tenant, &ws_id, raw_path),
             "list_dir" => ops::list_dir(&ctx, &api_url, &tenant, &ws_id, raw_path),
             "delete_file" => ops::delete_file(&ctx, &api_url, &tenant, &ws_id, raw_path),
+            "rename" => {
+                let new_path = ctx
+                    .trigger_params
+                    .get("new_path")
+                    .and_then(|v| v.as_str())
+                    .ok_or("workspace_fs: missing new_path parameter")?;
+                ops::rename(&ctx, &api_url, &tenant, &ws_id, raw_path, new_path)
+            }
             other => Err(format!("workspace_fs: unknown operation: {other}")),
         }
     })();

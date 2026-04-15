@@ -12,12 +12,12 @@ use serde_json::{Value, json};
 use std::{cell::RefCell, collections::BTreeSet};
 use temper_wasm_sdk::context::Context;
 
-const DEFAULT_TOOLS_ENABLED: &str = "temper_create,temper_get,temper_list,temper_action,temper_patch,temper_submit_specs,temper_show_spec,temper_specs,temper_upload_wasm,temper_get_trajectories,temper_get_insights,temper_get_decisions,temper_poll_decision,temper_approve_decision,temper_deny_decision,temper_submit_policy,temper_list_policies,temper_get_policy,temper_update_policy,temper_delete_policy,temper_install_app,temper_list_apps,temper_spawn_session,temper_list_sessions,temper_abort_session,temper_steer_session,temper_save_memory,temper_recall_memory,temper_write,temper_read,temper_run_coding_agent,temper_get_secret,temper_datadog_query,temper_railway,temper_vercel,temper_web_search,temper_web_fetch,read,write,edit,bash";
+const DEFAULT_TOOLS_ENABLED: &str = "temper_create,temper_get,temper_list,temper_action,temper_patch,temper_submit_specs,temper_show_spec,temper_specs,temper_upload_wasm,temper_get_trajectories,temper_get_insights,temper_get_decisions,temper_poll_decision,temper_approve_decision,temper_deny_decision,temper_submit_policy,temper_list_policies,temper_get_policy,temper_update_policy,temper_delete_policy,temper_install_app,temper_list_apps,temper_spawn_session,temper_list_sessions,temper_abort_session,temper_steer_session,temper_save_memory,temper_recall_memory,temper_write,temper_read,temper_ls,temper_grep,temper_glob,temper_edit,temper_rename,temper_search_history,temper_run_coding_agent,temper_get_secret,temper_datadog_query,temper_railway,temper_vercel,temper_web_search,temper_web_fetch,read,write,edit,bash";
 
 /// Tools available in plan mode (ADR-004). Blocks sandbox mutation (write, edit)
 /// and governance writes. Allows read ops, research, memory, Plan CRUD, and
 /// TemperFS writes (for plan documents).
-pub const PLAN_MODE_TOOLS: &str = "temper_create,temper_get,temper_list,temper_action,temper_specs,temper_show_spec,temper_save_memory,temper_recall_memory,temper_read,temper_write,temper_web_search,temper_web_fetch,temper_get_trajectories,temper_get_insights,read,bash";
+pub const PLAN_MODE_TOOLS: &str = "temper_create,temper_get,temper_list,temper_action,temper_specs,temper_show_spec,temper_save_memory,temper_recall_memory,temper_read,temper_write,temper_ls,temper_grep,temper_glob,temper_search_history,temper_web_search,temper_web_fetch,temper_get_trajectories,temper_get_insights,read,bash";
 
 // Thread-local storage for the done signal. When an agent calls
 // temper.done(result), the result is stored here. After all tool
@@ -298,6 +298,12 @@ fn temper_method_token(method: &str) -> Option<&'static str> {
         "recall_memory" => Some("temper_recall_memory"),
         "write" => Some("temper_write"),
         "read" => Some("temper_read"),
+        "ls" => Some("temper_ls"),
+        "grep" => Some("temper_grep"),
+        "glob" => Some("temper_glob"),
+        "edit" => Some("temper_edit"),
+        "rename" => Some("temper_rename"),
+        "search_history" => Some("temper_search_history"),
         "run_coding_agent" => Some("temper_run_coding_agent"),
         "get_secret" => Some("temper_get_secret"),
         "datadog_query" => Some("temper_datadog_query"),
@@ -489,6 +495,12 @@ fn dispatch_temper(
         "recall_memory" => super::entity_ops::recall_memory(ctx, api_url, tenant, args),
         "write" => super::entity_ops::write(ctx, api_url, tenant, args),
         "read" => super::entity_ops::read(ctx, api_url, tenant, args),
+        "ls" => super::entity_ops::ls(ctx, api_url, tenant, args),
+        "grep" => super::entity_ops::grep(ctx, api_url, tenant, args),
+        "glob" => super::entity_ops::glob_files(ctx, api_url, tenant, args),
+        "edit" => super::entity_ops::edit(ctx, api_url, tenant, args),
+        "rename" => super::entity_ops::rename(ctx, api_url, tenant, args),
+        "search_history" => super::entity_ops::search_history(ctx, api_url, tenant, args),
         "run_coding_agent" => {
             super::entity_ops::run_coding_agent(ctx, api_url, tenant, sandbox_url, workdir, args)
         }
@@ -516,8 +528,8 @@ fn dispatch_temper(
              submit_policy, list_policies, get_policy, update_policy, delete_policy, \
              get_secret, done, install_app, list_apps, get_agent_id, get_session_id, \
              spawn_session, list_sessions, abort_session, steer_session, \
-             save_memory, recall_memory, write, read, \
-             run_coding_agent, datadog_query, railway, vercel, \
+             save_memory, recall_memory, write, read, ls, grep, glob, edit, rename, \
+             search_history, run_coding_agent, datadog_query, railway, vercel, \
              web_search, web_fetch"
         )),
     }
