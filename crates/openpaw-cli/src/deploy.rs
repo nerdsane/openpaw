@@ -1229,11 +1229,9 @@ async fn fetch_openai_models(api_key: &str) -> Result<Vec<String>> {
 
 fn static_codex_models() -> Vec<String> {
     vec![
-        "o4-mini".into(),
         "gpt-4.1".into(),
         "gpt-4.1-mini".into(),
         "gpt-4.1-nano".into(),
-        "o3-mini".into(),
     ]
 }
 
@@ -1299,7 +1297,7 @@ fn default_model_for_provider(provider: &str) -> String {
     match provider {
         "anthropic" => "claude-sonnet-4-20250514".into(),
         "openai" => "gpt-4.1".into(),
-        "openai_codex" => "o4-mini".into(),
+        "openai_codex" => "gpt-4.1".into(),
         "openrouter" => "anthropic/claude-sonnet-4-20250514".into(),
         _ => String::new(),
     }
