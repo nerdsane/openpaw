@@ -197,29 +197,44 @@ pub async fn run_deploy(
     )?;
 
     // Capture Railway metadata so the deployed server can call Railway's API from the dashboard.
-    // project_id and env_id are already available. Resolve otel-collector service ID.
-    let otel_service_id = resolve_railway_service_id(&project_id, &env_id, "otel-collector")
-        .unwrap_or_default();
-    if !otel_service_id.is_empty() {
-        let mut meta_vars = vec![
-            format!("RAILWAY_PROJECT_ID={project_id}"),
-            format!("RAILWAY_ENVIRONMENT_ID={env_id}"),
-            format!("RAILWAY_OTEL_SERVICE_ID={otel_service_id}"),
-        ];
-        // Generate a project-scoped token for the server to call Railway API
-        if let Ok(project_token) = capture_trimmed("railway", &["token"]) {
-            meta_vars.push(format!("RAILWAY_TOKEN={project_token}"));
-        }
-        let mut meta_set_args = vec![
-            "variable".to_string(),
-            "set".to_string(),
-            "-s".to_string(),
-            "openpaw".to_string(),
-        ];
-        meta_set_args.extend(meta_vars);
-        run_interactive("railway", &as_str_slice(&meta_set_args))?;
-        cliclack::log::success("Railway metadata captured for dashboard integration")?;
+    // These enable the Update / Deploy buttons in the sidebar.
+    let mut meta_vars = vec![
+        format!("RAILWAY_PROJECT_ID={project_id}"),
+        format!("RAILWAY_ENVIRONMENT_ID={env_id}"),
+    ];
+
+    // Resolve service IDs for both services
+    if let Ok(openpaw_service_id) =
+        resolve_railway_service_id(&project_id, &env_id, "openpaw")
+    {
+        meta_vars.push(format!("RAILWAY_SERVICE_ID={openpaw_service_id}"));
     }
+    if let Ok(otel_service_id) =
+        resolve_railway_service_id(&project_id, &env_id, "otel-collector")
+    {
+        meta_vars.push(format!("RAILWAY_OTEL_SERVICE_ID={otel_service_id}"));
+    }
+
+    // Use the locally-authenticated Railway CLI token for API calls.
+    // `railway token` was removed in newer CLI versions, so read from the config file.
+    if let Some(token) = read_railway_cli_token() {
+        meta_vars.push(format!("RAILWAY_TOKEN={token}"));
+    } else {
+        cliclack::log::warning(
+            "Could not read Railway CLI token — dashboard deploy buttons will be disabled.\n  \
+             You can add RAILWAY_TOKEN manually in the Railway dashboard.",
+        )?;
+    }
+
+    let mut meta_set_args = vec![
+        "variable".to_string(),
+        "set".to_string(),
+        "-s".to_string(),
+        "openpaw".to_string(),
+    ];
+    meta_set_args.extend(meta_vars);
+    run_interactive("railway", &as_str_slice(&meta_set_args))?;
+    cliclack::log::success("Railway metadata captured for dashboard integration")?;
 
     cliclack::log::step("Deploying OpenPaw...")?;
     deploy_prebuilt_image(&project_id, &env_id)?;
@@ -244,6 +259,20 @@ pub async fn run_deploy(
         }
     }
     Ok(())
+}
+
+/// Read the Railway CLI authentication token from its config file.
+/// Works with both old (`~/.railway/config.json`) and new CLI versions.
+fn read_railway_cli_token() -> Option<String> {
+    let home = std::env::var("HOME").ok()?;
+    let config_path = PathBuf::from(&home).join(".railway/config.json");
+    let data = std::fs::read_to_string(config_path).ok()?;
+    let json: serde_json::Value = serde_json::from_str(&data).ok()?;
+    json.get("user")
+        .and_then(|u| u.get("token"))
+        .and_then(|t| t.as_str())
+        .filter(|t| !t.is_empty())
+        .map(|t| t.to_string())
 }
 
 /// Generate a base64-encoded 32-byte random key for the secrets vault.
