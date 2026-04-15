@@ -474,7 +474,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             let key = resolve_provider_api_key(&ctx, &provider)?;
             if is_unresolved_secret_template(&key) {
                 // Try other providers
-                let alternatives = ["anthropic", "openai", "openrouter"];
+                let alternatives = ["anthropic", "openai_codex", "openai", "openrouter"];
                 let mut found = None;
                 for alt in &alternatives {
                     if *alt == provider {
@@ -518,6 +518,7 @@ set tenant secret and retry"
             } else {
                 match provider.as_str() {
                     "openai" => "o3-mini".to_string(),
+                    "openai_codex" => "o4-mini".to_string(),
                     "openrouter" => "anthropic/claude-sonnet-4".to_string(),
                     _ => "claude-sonnet-4-6".to_string(),
                 }
@@ -859,7 +860,7 @@ anthropic_api_token (or api_key) for anthropic, openrouter_api_key (or api_key) 
                 &openrouter_site_url,
                 &openrouter_app_name,
             )?,
-            "openai" => call_openai(
+            "openai" | "openai_codex" => call_openai(
                 &ctx,
                 &api_key,
                 &openai_api_url,
@@ -1444,10 +1445,10 @@ fn prefix_at_char_boundary(input: &str, max_bytes: usize) -> &str {
 
 fn normalize_provider(provider: &str) -> String {
     let norm = provider.trim().to_ascii_lowercase();
-    if norm == "open_router" {
-        "openrouter".to_string()
-    } else {
-        norm
+    match norm.as_str() {
+        "open_router" => "openrouter".to_string(),
+        "codex" | "openai-codex" => "openai_codex".to_string(),
+        _ => norm,
     }
 }
 
@@ -1473,8 +1474,10 @@ fn resolve_provider_api_key(ctx: &Context, provider: &str) -> Result<String, Str
         ]),
         "openai" => first_non_empty(&[
             ctx.config.get("openai_api_key").cloned(),
-            ctx.config.get("openai_codex_token").cloned(),
             ctx.config.get("api_key").cloned(),
+        ]),
+        "openai_codex" => first_non_empty(&[
+            ctx.config.get("openai_codex_token").cloned(),
         ]),
         "openrouter" => first_non_empty(&[
             ctx.config.get("openrouter_api_key").cloned(),
