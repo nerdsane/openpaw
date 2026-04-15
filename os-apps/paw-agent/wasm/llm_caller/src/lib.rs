@@ -2182,10 +2182,15 @@ fn call_openai(
             t.to_string()
         })
         .collect();
+    // Log top-level body keys (not full body — system prompt can be huge)
+    let body_keys: Vec<&str> = body
+        .as_object()
+        .map(|m| m.keys().map(|k| k.as_str()).collect())
+        .unwrap_or_default();
     ctx.log(
         "info",
         &format!(
-            "llm_caller: calling OpenAI API, model={model}, input={}, types={:?}, url={api_url}",
+            "llm_caller: calling OpenAI API, model={model}, input={}, types={:?}, url={api_url}, body_keys={body_keys:?}",
             input.len(),
             input_types,
         ),
@@ -2210,6 +2215,13 @@ fn call_openai(
             }
             Ok(r) => {
                 let snippet = &r.body[..r.body.len().min(300)];
+                ctx.log(
+                    "error",
+                    &format!(
+                        "llm_caller: OpenAI Codex API error status={} body={snippet}",
+                        r.status
+                    ),
+                );
                 return Err(format!("OpenAI Codex API returned {}: {snippet}", r.status));
             }
             Err(e) => {

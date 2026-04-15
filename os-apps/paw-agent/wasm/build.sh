@@ -20,7 +20,7 @@ copy_artifact() {
     fi
 }
 
-for module in llm_caller sandbox_provisioner workspace_provisioner context_compactor steering_checker coding_agent_runner heartbeat_scan heartbeat_scheduler cron_compute_next workspace_restorer agent_reply request_approval request_plan_review capability_installer plan_approval_handler plan_review_feedback_handler; do
+for module in llm_caller sandbox_provisioner workspace_provisioner context_compactor steering_checker coding_agent_runner heartbeat_scan heartbeat_scheduler heartbeat_typing cron_compute_next workspace_restorer agent_reply request_approval request_plan_review capability_installer plan_approval_handler plan_review_feedback_handler; do
     echo "Building $module..."
     if (cd "$SCRIPT_DIR/$module" && cargo build --target wasm32-unknown-unknown --release 2>&1); then
         copy_artifact "$module" "wasm32-unknown-unknown"
@@ -50,7 +50,7 @@ fi
 
 echo ""
 echo "All WASM modules built. Binaries at:"
-for module in llm_caller sandbox_provisioner workspace_provisioner context_compactor steering_checker coding_agent_runner heartbeat_scan heartbeat_scheduler cron_compute_next workspace_restorer agent_reply request_approval request_plan_review capability_installer plan_approval_handler plan_review_feedback_handler; do
+for module in llm_caller sandbox_provisioner workspace_provisioner context_compactor steering_checker coding_agent_runner heartbeat_scan heartbeat_scheduler heartbeat_typing cron_compute_next workspace_restorer agent_reply request_approval request_plan_review capability_installer plan_approval_handler plan_review_feedback_handler; do
     wasm_file="$SCRIPT_DIR/$module/target/wasm32-unknown-unknown/release/${module/-/_}.wasm"
     if [ -f "$wasm_file" ]; then
         size=$(wc -c < "$wasm_file" | tr -d ' ')
