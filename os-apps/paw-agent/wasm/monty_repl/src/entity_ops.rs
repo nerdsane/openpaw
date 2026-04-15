@@ -535,10 +535,8 @@ pub fn read(
 
     // 3. GET $value — read content (FUSE: read).
     let url = format!("{api_url}/tdata/Files('{file_id}')/$value");
-    let headers = vec![
-        ("X-Tenant-Id".to_string(), tenant.to_string()),
-        ("Accept".to_string(), "application/octet-stream".to_string()),
-    ];
+    let mut headers = runtime_headers(tenant, eid);
+    headers.push(("Accept".to_string(), "application/octet-stream".to_string()));
     let resp = ctx.http_call("GET", &url, &headers, "")?;
     if resp.status >= 400 {
         return Err(format!("temper.read(): content read failed (HTTP {})", resp.status));
