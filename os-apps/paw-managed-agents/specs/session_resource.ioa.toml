@@ -1,0 +1,72 @@
+[automaton]
+name = "SessionResource"
+states = ["Active"]
+initial = "Active"
+
+[[state]]
+name = "session_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "kind"
+type = "string"
+initial = ""
+
+[[state]]
+name = "name"
+type = "string"
+initial = ""
+
+[[state]]
+name = "mount_path"
+type = "string"
+initial = ""
+
+[[state]]
+name = "repository_url"
+type = "string"
+initial = ""
+
+[[state]]
+name = "branch"
+type = "string"
+initial = ""
+
+[[state]]
+name = "file_id"
+type = "string"
+initial = ""
+
+[[field_invariant]]
+name = "KindMustBeKnown"
+when = { not = { field = "Kind", absent = true } }
+require = { any_of = [
+  { field = "Kind", equals = "github_repository" },
+  { field = "Kind", equals = "file" },
+] }
+message = "SessionResource.Kind must be github_repository or file"
+
+[[field_invariant]]
+name = "GitHubResourceRequiresUrl"
+when = { field = "Kind", equals = "github_repository" }
+require = { not = { field = "RepositoryUrl", empty = true } }
+message = "github_repository SessionResource rows must set RepositoryUrl"
+
+[[field_invariant]]
+name = "GitHubResourceRequiresMountPath"
+when = { field = "Kind", equals = "github_repository" }
+require = { not = { field = "MountPath", empty = true } }
+message = "github_repository SessionResource rows must set MountPath"
+
+[[field_invariant]]
+name = "FileResourceRequiresFileId"
+when = { field = "Kind", equals = "file" }
+require = { not = { field = "FileId", empty = true } }
+message = "file SessionResource rows must set FileId"
+
+[[field_invariant]]
+name = "FileResourceRequiresMountPath"
+when = { field = "Kind", equals = "file" }
+require = { not = { field = "MountPath", empty = true } }
+message = "file SessionResource rows must set MountPath"

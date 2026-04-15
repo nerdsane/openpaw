@@ -1,0 +1,211 @@
+[automaton]
+name = "SessionEvent"
+states = ["Active"]
+initial = "Active"
+
+[[state]]
+name = "session_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "sequence"
+type = "counter"
+initial = "0"
+
+[[state]]
+name = "kind"
+type = "string"
+initial = ""
+
+[[state]]
+name = "content"
+type = "string"
+initial = ""
+
+[[state]]
+name = "tool_use_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "confirmation_result"
+type = "string"
+initial = ""
+
+[[state]]
+name = "deny_message"
+type = "string"
+initial = ""
+
+[[state]]
+name = "custom_tool_use_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "tool_name"
+type = "string"
+initial = ""
+
+[[state]]
+name = "evaluated_permission"
+type = "string"
+initial = ""
+
+[[state]]
+name = "mcp_server_name"
+type = "string"
+initial = ""
+
+[[state]]
+name = "mcp_tool_use_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "stop_reason"
+type = "string"
+initial = ""
+
+[[state]]
+name = "stop_reason_event_ids"
+type = "string"
+initial = "[]"
+
+[[state]]
+name = "error_kind"
+type = "string"
+initial = ""
+
+[[state]]
+name = "error_message"
+type = "string"
+initial = ""
+
+[[field_invariant]]
+name = "KindMustBeKnown"
+when = { not = { field = "Kind", absent = true } }
+require = { any_of = [
+  { field = "Kind", equals = "user.message" },
+  { field = "Kind", equals = "user.interrupt" },
+  { field = "Kind", equals = "user.tool_confirmation" },
+  { field = "Kind", equals = "user.custom_tool_result" },
+  { field = "Kind", equals = "agent.message" },
+  { field = "Kind", equals = "agent.thinking" },
+  { field = "Kind", equals = "agent.tool_use" },
+  { field = "Kind", equals = "agent.tool_result" },
+  { field = "Kind", equals = "agent.mcp_tool_use" },
+  { field = "Kind", equals = "agent.mcp_tool_result" },
+  { field = "Kind", equals = "agent.custom_tool_use" },
+  { field = "Kind", equals = "session.status_rescheduling" },
+  { field = "Kind", equals = "session.status_running" },
+  { field = "Kind", equals = "session.status_idle" },
+  { field = "Kind", equals = "session.status_terminated" },
+] }
+message = "SessionEvent.Kind must be one of the managed-agents event kinds"
+
+[[field_invariant]]
+name = "UserToolConfirmationRequiresToolUseId"
+when = { field = "Kind", equals = "user.tool_confirmation" }
+require = { not = { field = "ToolUseId", empty = true } }
+message = "user.tool_confirmation must reference ToolUseId"
+
+[[field_invariant]]
+name = "UserToolConfirmationRequiresResult"
+when = { field = "Kind", equals = "user.tool_confirmation" }
+require = { not = { field = "ConfirmationResult", empty = true } }
+message = "user.tool_confirmation must set ConfirmationResult"
+
+[[field_invariant]]
+name = "UserCustomToolResultRequiresCustomToolUseId"
+when = { field = "Kind", equals = "user.custom_tool_result" }
+require = { not = { field = "CustomToolUseId", empty = true } }
+message = "user.custom_tool_result must reference CustomToolUseId"
+
+[[field_invariant]]
+name = "AgentToolUseRequiresName"
+when = { field = "Kind", equals = "agent.tool_use" }
+require = { not = { field = "ToolName", empty = true } }
+message = "agent.tool_use must set ToolName"
+
+[[field_invariant]]
+name = "AgentToolResultRequiresToolUseId"
+when = { field = "Kind", equals = "agent.tool_result" }
+require = { not = { field = "ToolUseId", empty = true } }
+message = "agent.tool_result must reference ToolUseId"
+
+[[field_invariant]]
+name = "AgentMcpToolUseRequiresServerAndTool"
+when = { field = "Kind", equals = "agent.mcp_tool_use" }
+require = { all_of = [
+  { not = { field = "McpServerName", empty = true } },
+  { not = { field = "ToolName", empty = true } },
+] }
+message = "agent.mcp_tool_use must set McpServerName and ToolName"
+
+[[field_invariant]]
+name = "AgentMcpToolResultRequiresMcpToolUseId"
+when = { field = "Kind", equals = "agent.mcp_tool_result" }
+require = { not = { field = "McpToolUseId", empty = true } }
+message = "agent.mcp_tool_result must reference McpToolUseId"
+
+[[field_invariant]]
+name = "AgentCustomToolUseRequiresName"
+when = { field = "Kind", equals = "agent.custom_tool_use" }
+require = { not = { field = "ToolName", empty = true } }
+message = "agent.custom_tool_use must set ToolName"
+
+[[field_invariant]]
+name = "ConfirmationResultMustBeKnown"
+when = { not = { field = "ConfirmationResult", absent = true } }
+require = { any_of = [
+  { field = "ConfirmationResult", equals = "allow" },
+  { field = "ConfirmationResult", equals = "deny" },
+] }
+message = "ConfirmationResult must be allow or deny"
+
+[[field_invariant]]
+name = "EvaluatedPermissionMustBeKnown"
+when = { not = { field = "EvaluatedPermission", absent = true } }
+require = { any_of = [
+  { field = "EvaluatedPermission", equals = "allow" },
+  { field = "EvaluatedPermission", equals = "ask" },
+  { field = "EvaluatedPermission", equals = "deny" },
+] }
+message = "EvaluatedPermission must be allow, ask, or deny"
+
+[[field_invariant]]
+name = "IdleRequiresStopReason"
+when = { field = "Kind", equals = "session.status_idle" }
+require = { not = { field = "StopReason", empty = true } }
+message = "session.status_idle must set StopReason"
+
+[[field_invariant]]
+name = "StopReasonMustBeKnown"
+when = { not = { field = "StopReason", absent = true } }
+require = { any_of = [
+  { field = "StopReason", equals = "user_input_required" },
+  { field = "StopReason", equals = "tool_confirmation_required" },
+  { field = "StopReason", equals = "custom_tool_required" },
+  { field = "StopReason", equals = "error" },
+] }
+message = "SessionEvent.StopReason must be one of the documented idle reasons"
+
+[[field_invariant]]
+name = "ConfirmationOrCustomIdleRequiresEventIds"
+when = { all_of = [
+  { field = "Kind", equals = "session.status_idle" },
+  { any_of = [
+    { field = "StopReason", equals = "tool_confirmation_required" },
+    { field = "StopReason", equals = "custom_tool_required" },
+  ] },
+] }
+require = { not = { field = "StopReasonEventIds", empty = true } }
+message = "session.status_idle with confirmation/custom tool stop reason must set StopReasonEventIds"
+
+[[field_invariant]]
+name = "ErrorFieldsRequireSessionEventKinds"
+when = { not = { field = "ErrorKind", empty = true } }
+require = { field = "Kind", equals = "session.status_idle" }
+message = "ErrorKind is currently only used on idle error events"
