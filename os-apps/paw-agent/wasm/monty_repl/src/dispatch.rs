@@ -401,13 +401,7 @@ fn dispatch_temper(
                 body.insert("provider".into(), json!(provider));
             }
             let url = format!("{api_url}/tdata/Sessions('{agent_id}')/OpenPaw.SwitchProvider");
-            let headers: Vec<(String, String)> = vec![
-                ("Content-Type".into(), "application/json".into()),
-                ("X-Tenant-Id".into(), tenant.to_string()),
-                ("x-temper-principal-kind".into(), "agent".into()),
-                ("x-temper-principal-id".into(), agent_id.to_string()),
-                ("x-temper-agent-type".into(), "agent".into()),
-            ];
+            let headers = internal_headers();
             let resp = ctx.http_call("POST", &url, &headers, &json!(body).to_string())?;
             if let Some(denial) = check_cedar_denial(resp.status, &resp.body) {
                 return Err(denial);
@@ -465,13 +459,7 @@ fn dispatch_temper(
             }
 
             let url = format!("{api_url}/tdata/Sessions('{agent_id}')/OpenPaw.SwitchMode");
-            let headers: Vec<(String, String)> = vec![
-                ("Content-Type".into(), "application/json".into()),
-                ("X-Tenant-Id".into(), tenant.to_string()),
-                ("x-temper-principal-kind".into(), "agent".into()),
-                ("x-temper-principal-id".into(), agent_id.to_string()),
-                ("x-temper-agent-type".into(), "agent".into()),
-            ];
+            let headers = internal_headers();
             let resp = ctx.http_call("POST", &url, &headers, &json!(body).to_string())?;
             if let Some(denial) = check_cedar_denial(resp.status, &resp.body) {
                 return Err(denial);
@@ -889,16 +877,9 @@ fn web_query_dispatch(
         .filter(|s| !s.is_empty());
 
     if let Some(file_id) = result_file_id {
-        let admin_headers = vec![
-            ("X-Tenant-Id".to_string(), tenant.to_string()),
-            ("x-temper-principal-kind".to_string(), "agent".to_string()),
-            ("x-temper-agent-type".to_string(), "system".to_string()),
+        let read_headers = vec![
+            ("Accept".to_string(), "text/plain".to_string()),
         ];
-        let read_headers = {
-            let mut h = admin_headers.clone();
-            h.push(("Accept".to_string(), "text/plain".to_string()));
-            h
-        };
         let read_url = format!("{api_url}/tdata/Files('{file_id}')/$value");
         let content = match ctx.http_call("GET", &read_url, &read_headers, "") {
             Ok(resp) if resp.status >= 200 && resp.status < 300 => Some(resp.body),
@@ -914,11 +895,7 @@ fn web_query_dispatch(
 
         // Delete the ephemeral file — best effort, don't fail the query if cleanup fails.
         let archive_url = format!("{api_url}/tdata/Files('{file_id}')/Temper.Archive");
-        let archive_headers = {
-            let mut h = admin_headers;
-            h.push(("Content-Type".to_string(), "application/json".to_string()));
-            h
-        };
+        let archive_headers = internal_headers();
         let _ = ctx.http_call("POST", &archive_url, &archive_headers, "{}");
 
         if let Some(text) = content {
@@ -1423,20 +1400,10 @@ fn escape_odata_key(key: &str) -> String {
     key.replace('\'', "''")
 }
 
-fn runtime_headers(ctx: &Context, tenant: &str) -> Vec<(String, String)> {
-    let principal_id = ctx
-        .entity_state
-        .get("entity_id")
-        .and_then(|v| v.as_str())
-        .filter(|s| !s.is_empty())
-        .unwrap_or("system");
-    vec![
-        ("Content-Type".to_string(), "application/json".to_string()),
-        ("X-Tenant-Id".to_string(), tenant.to_string()),
-        ("x-temper-principal-kind".to_string(), "agent".to_string()),
-        ("x-temper-principal-id".to_string(), principal_id.to_string()),
-        ("x-temper-agent-type".to_string(), "system".to_string()),
-    ]
+/// Minimal headers for internal Temper API calls.
+/// Auth headers are injected by the WASM host — see ADR-0043.
+fn internal_headers() -> Vec<(String, String)> {
+    vec![("Content-Type".to_string(), "application/json".to_string())]
 }
 
 pub fn check_cedar_denial(status: u16, body: &str) -> Option<String> {
@@ -1475,9 +1442,9 @@ pub fn check_cedar_denial(status: u16, body: &str) -> Option<String> {
     None
 }
 
-fn http_get(ctx: &Context, api_url: &str, tenant: &str, path: &str) -> Result<Value, String> {
+fn http_get(ctx: &Context, api_url: &str, _tenant: &str, path: &str) -> Result<Value, String> {
     let url = format!("{api_url}{path}");
-    let headers = runtime_headers(ctx, tenant);
+    let headers = internal_headers();
     let resp = ctx.http_call("GET", &url, &headers, "")?;
     if let Some(denial) = check_cedar_denial(resp.status, &resp.body) {
         return Err(denial);
@@ -1492,12 +1459,12 @@ fn http_get(ctx: &Context, api_url: &str, tenant: &str, path: &str) -> Result<Va
 fn http_post(
     ctx: &Context,
     api_url: &str,
-    tenant: &str,
+    _tenant: &str,
     path: &str,
     body: &Value,
 ) -> Result<Value, String> {
     let url = format!("{api_url}{path}");
-    let headers = runtime_headers(ctx, tenant);
+    let headers = internal_headers();
     let resp = ctx.http_call("POST", &url, &headers, &body.to_string())?;
     if let Some(denial) = check_cedar_denial(resp.status, &resp.body) {
         return Err(denial);
@@ -1515,12 +1482,12 @@ fn http_post(
 fn http_patch(
     ctx: &Context,
     api_url: &str,
-    tenant: &str,
+    _tenant: &str,
     path: &str,
     body: &Value,
 ) -> Result<Value, String> {
     let url = format!("{api_url}{path}");
-    let headers = runtime_headers(ctx, tenant);
+    let headers = internal_headers();
     let resp = ctx.http_call("PATCH", &url, &headers, &body.to_string())?;
     if let Some(denial) = check_cedar_denial(resp.status, &resp.body) {
         return Err(denial);
@@ -1535,9 +1502,9 @@ fn http_patch(
         .map_err(|e| format!("failed to parse response from {path}: {e}"))
 }
 
-fn http_delete(ctx: &Context, api_url: &str, tenant: &str, path: &str) -> Result<Value, String> {
+fn http_delete(ctx: &Context, api_url: &str, _tenant: &str, path: &str) -> Result<Value, String> {
     let url = format!("{api_url}{path}");
-    let headers = runtime_headers(ctx, tenant);
+    let headers = internal_headers();
     let resp = ctx.http_call("DELETE", &url, &headers, "")?;
     if let Some(denial) = check_cedar_denial(resp.status, &resp.body) {
         return Err(denial);

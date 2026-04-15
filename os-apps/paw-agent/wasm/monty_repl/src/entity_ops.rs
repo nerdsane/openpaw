@@ -535,8 +535,7 @@ pub fn read(
 
     // 3. GET $value — read content (FUSE: read).
     let url = format!("{api_url}/tdata/Files('{file_id}')/$value");
-    let mut headers = runtime_headers(tenant, eid);
-    headers.push(("Accept".to_string(), "application/octet-stream".to_string()));
+    let headers = vec![("Accept".to_string(), "application/octet-stream".to_string())];
     let resp = ctx.http_call("GET", &url, &headers, "")?;
     if resp.status >= 400 {
         return Err(format!("temper.read(): content read failed (HTTP {})", resp.status));
@@ -683,26 +682,22 @@ fn entity_field_str_val(value: &Value, key: &str) -> String {
         .to_string()
 }
 
-fn runtime_headers(tenant: &str, principal_id: &str) -> Vec<(String, String)> {
-    let pid = if principal_id.is_empty() { "system" } else { principal_id };
-    vec![
-        ("Content-Type".to_string(), "application/json".to_string()),
-        ("X-Tenant-Id".to_string(), tenant.to_string()),
-        ("x-temper-principal-kind".to_string(), "agent".to_string()),
-        ("x-temper-principal-id".to_string(), pid.to_string()),
-        ("x-temper-agent-type".to_string(), "system".to_string()),
-    ]
+/// Minimal headers for internal Temper API calls.
+/// Auth headers (tenant, principal, agent-type, bearer token) are injected
+/// by the WASM host for internal calls — see ADR-0043.
+fn internal_headers() -> Vec<(String, String)> {
+    vec![("Content-Type".to_string(), "application/json".to_string())]
 }
 
 fn http_get(
     ctx: &Context,
     api_url: &str,
-    tenant: &str,
-    principal_id: &str,
+    _tenant: &str,
+    _principal_id: &str,
     path: &str,
 ) -> Result<Value, String> {
     let url = format!("{api_url}{path}");
-    let headers = runtime_headers(tenant, principal_id);
+    let headers = internal_headers();
     let resp = ctx.http_call("GET", &url, &headers, "")?;
     if let Some(denial) = dispatch::check_cedar_denial(resp.status, &resp.body) {
         return Err(denial);
@@ -717,13 +712,13 @@ fn http_get(
 fn http_post(
     ctx: &Context,
     api_url: &str,
-    tenant: &str,
-    principal_id: &str,
+    _tenant: &str,
+    _principal_id: &str,
     path: &str,
     body: &Value,
 ) -> Result<Value, String> {
     let url = format!("{api_url}{path}");
-    let headers = runtime_headers(tenant, principal_id);
+    let headers = internal_headers();
     let resp = ctx.http_call("POST", &url, &headers, &body.to_string())?;
     if let Some(denial) = dispatch::check_cedar_denial(resp.status, &resp.body) {
         return Err(denial);
