@@ -94,6 +94,24 @@ pub struct DiscordUser {
     pub bot: bool,
 }
 
+/// A file attachment on a Discord message.
+#[derive(Debug, Clone, Deserialize)]
+pub struct DiscordAttachment {
+    /// Attachment snowflake ID.
+    pub id: String,
+    /// Original filename.
+    pub filename: String,
+    /// File size in bytes.
+    pub size: u64,
+    /// Source URL (CDN).
+    pub url: String,
+    /// Proxied URL (more reliable for fetching).
+    pub proxy_url: String,
+    /// MIME type (e.g. "text/plain", "image/png").
+    #[serde(default)]
+    pub content_type: Option<String>,
+}
+
 /// MESSAGE_CREATE event data.
 #[derive(Debug, Deserialize)]
 pub struct MessageCreateData {
@@ -108,6 +126,9 @@ pub struct MessageCreateData {
     /// Guild ID (None for DMs).
     #[serde(default)]
     pub guild_id: Option<String>,
+    /// File attachments.
+    #[serde(default)]
+    pub attachments: Vec<DiscordAttachment>,
 }
 
 // ── Outbound payloads (Client → Server) ──────────────────────────────
@@ -383,4 +404,105 @@ pub struct GatewayBotResponse {
 pub struct ForumThreadResponse {
     /// The thread (channel) ID.
     pub id: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn message_create_without_attachments() {
+        let json = serde_json::json!({
+            "id": "123",
+            "channel_id": "456",
+            "author": { "id": "789", "username": "testuser" },
+            "content": "hello world"
+        });
+        let msg: MessageCreateData = serde_json::from_value(json).unwrap();
+        assert_eq!(msg.id, "123");
+        assert_eq!(msg.content, "hello world");
+        assert!(msg.attachments.is_empty());
+    }
+
+    #[test]
+    fn message_create_with_attachments() {
+        let json = serde_json::json!({
+            "id": "100",
+            "channel_id": "200",
+            "author": { "id": "300", "username": "arni" },
+            "content": "check this doc",
+            "attachments": [
+                {
+                    "id": "att1",
+                    "filename": "the-people-side.md",
+                    "size": 22528,
+                    "url": "https://cdn.discordapp.com/attachments/200/att1/the-people-side.md",
+                    "proxy_url": "https://media.discordapp.net/attachments/200/att1/the-people-side.md",
+                    "content_type": "text/markdown"
+                }
+            ]
+        });
+        let msg: MessageCreateData = serde_json::from_value(json).unwrap();
+        assert_eq!(msg.content, "check this doc");
+        assert_eq!(msg.attachments.len(), 1);
+        let att = &msg.attachments[0];
+        assert_eq!(att.id, "att1");
+        assert_eq!(att.filename, "the-people-side.md");
+        assert_eq!(att.size, 22528);
+        assert_eq!(att.content_type.as_deref(), Some("text/markdown"));
+    }
+
+    #[test]
+    fn message_create_with_multiple_attachments() {
+        let json = serde_json::json!({
+            "id": "100",
+            "channel_id": "200",
+            "author": { "id": "300", "username": "arni" },
+            "content": "",
+            "attachments": [
+                {
+                    "id": "att1",
+                    "filename": "readme.md",
+                    "size": 1024,
+                    "url": "https://cdn.discordapp.com/att1/readme.md",
+                    "proxy_url": "https://media.discordapp.net/att1/readme.md",
+                    "content_type": "text/markdown"
+                },
+                {
+                    "id": "att2",
+                    "filename": "photo.png",
+                    "size": 204800,
+                    "url": "https://cdn.discordapp.com/att2/photo.png",
+                    "proxy_url": "https://media.discordapp.net/att2/photo.png",
+                    "content_type": "image/png"
+                }
+            ]
+        });
+        let msg: MessageCreateData = serde_json::from_value(json).unwrap();
+        assert_eq!(msg.attachments.len(), 2);
+        assert_eq!(msg.attachments[0].filename, "readme.md");
+        assert_eq!(msg.attachments[1].filename, "photo.png");
+    }
+
+    #[test]
+    fn attachment_without_content_type() {
+        let json = serde_json::json!({
+            "id": "100",
+            "channel_id": "200",
+            "author": { "id": "300", "username": "arni" },
+            "content": "here",
+            "attachments": [
+                {
+                    "id": "att1",
+                    "filename": "script.py",
+                    "size": 512,
+                    "url": "https://cdn.discordapp.com/att1/script.py",
+                    "proxy_url": "https://media.discordapp.net/att1/script.py"
+                }
+            ]
+        });
+        let msg: MessageCreateData = serde_json::from_value(json).unwrap();
+        assert_eq!(msg.attachments.len(), 1);
+        assert!(msg.attachments[0].content_type.is_none());
+    }
 }
