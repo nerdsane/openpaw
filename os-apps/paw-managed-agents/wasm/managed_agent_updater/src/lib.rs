@@ -2,7 +2,7 @@
 mod common;
 
 use common::{
-    field_i64, field_string, get_entity, managed_tools_enabled, patch_entity,
+    escape_odata_string, field_i64, field_string, get_entity, managed_tools_enabled, patch_entity,
     post_absolute_action, system_json_headers,
 };
 use temper_wasm_sdk::prelude::*;
@@ -12,7 +12,11 @@ use wasm_helpers::resolve_temper_api_url;
 pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
     let result = (|| -> Result<(), String> {
         let ctx = Context::from_host()?;
-        let fields = ctx.entity_state.get("fields").cloned().unwrap_or_else(|| json!({}));
+        let fields = ctx
+            .entity_state
+            .get("fields")
+            .cloned()
+            .unwrap_or_else(|| json!({}));
         let base_url = resolve_temper_api_url(&ctx, &fields);
         let headers = system_json_headers(&ctx, &ctx.tenant, &fields);
         let next_version = next_version(&fields);
@@ -34,17 +38,18 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 &headers,
                 &format!(
                     "/tdata/AgentTools?$filter=AgentId%20eq%20'{}'&$orderby=Kind%20asc",
-                    ctx.entity_id.replace('\'', "''")
+                    escape_odata_string(&ctx.entity_id)
                 ),
             )?;
             let tool_config_rows = common::list_entities(
                 &ctx,
                 &base_url,
                 &headers,
-                "/tdata/AgentToolConfigs?$orderby=ToolName%20asc",
+                &agent_tool_config_query(&tool_rows),
             )?;
             let tools_enabled = managed_tools_enabled(&tool_rows, &tool_config_rows);
-            let current_agent = get_entity(&ctx, &base_url, &headers, "ManagedAgents", &ctx.entity_id)?;
+            let current_agent =
+                get_entity(&ctx, &base_url, &headers, "ManagedAgents", &ctx.entity_id)?;
             let current_fields = current_agent
                 .get("fields")
                 .cloned()
@@ -71,7 +76,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             )?;
         }
 
-        temper_wasm_sdk::set_success_result("", &json!({"updated": true}));
+        temper_wasm_sdk::set_success_result("SyncComplete", &json!({"updated": true}));
         Ok(())
     })();
 
@@ -79,6 +84,24 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         temper_wasm_sdk::set_error_result(&error);
     }
     0
+}
+
+fn agent_tool_config_query(tool_rows: &[Value]) -> String {
+    let tool_ids = tool_rows
+        .iter()
+        .filter_map(common::entity_id)
+        .collect::<Vec<_>>();
+    if tool_ids.is_empty() {
+        return "/tdata/AgentToolConfigs?$filter=ToolId%20eq%20'__none__'&$orderby=ToolName%20asc"
+            .to_string();
+    }
+
+    let filter = tool_ids
+        .iter()
+        .map(|tool_id| format!("ToolId%20eq%20'{}'", escape_odata_string(tool_id)))
+        .collect::<Vec<_>>()
+        .join("%20or%20");
+    format!("/tdata/AgentToolConfigs?$filter={filter}&$orderby=ToolName%20asc")
 }
 
 fn next_version(fields: &Value) -> i64 {
@@ -101,8 +124,35 @@ mod tests {
             "ModelId": "claude-opus-4-1",
         });
 
-        assert_eq!(field_string(&fields, &["Description", "description"]), "after desc");
-        assert_eq!(field_string(&fields, &["ModelId", "model_id"]), "claude-opus-4-1");
+        assert_eq!(
+            field_string(&fields, &["Description", "description"]),
+            "after desc"
+        );
+        assert_eq!(
+            field_string(&fields, &["ModelId", "model_id"]),
+            "claude-opus-4-1"
+        );
+    }
+
+    #[test]
+    fn agent_tool_config_query_scopes_to_tool_ids() {
+        let tool_rows = vec![
+            json!({"entity_id": "tool-1"}),
+            json!({"entity_id": "tool-2"}),
+        ];
+
+        let query = agent_tool_config_query(&tool_rows);
+
+        assert!(query.contains("ToolId%20eq%20'tool-1'"));
+        assert!(query.contains("ToolId%20eq%20'tool-2'"));
+        assert!(query.contains("%20or%20"));
+    }
+
+    #[test]
+    fn agent_tool_config_query_handles_empty_tool_list() {
+        let query = agent_tool_config_query(&[]);
+
+        assert!(query.contains("__none__"));
     }
 
     #[test]

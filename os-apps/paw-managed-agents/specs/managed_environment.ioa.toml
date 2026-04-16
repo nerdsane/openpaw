@@ -39,11 +39,6 @@ type = "bool"
 initial = "false"
 
 [[state]]
-name = "computer_id"
-type = "string"
-initial = ""
-
-[[state]]
 name = "metadata"
 type = "string"
 initial = "{}"
@@ -52,20 +47,6 @@ initial = "{}"
 name = "archived_at"
 type = "string"
 initial = ""
-
-[[action]]
-name = "ProvisionComputer"
-kind = "input"
-from = ["Active"]
-hint = "Provision or bind the logical Computer record for this environment."
-effect = [{ type = "trigger", name = "provision_computer" }]
-
-[[action]]
-name = "BindComputer"
-kind = "input"
-from = ["Active"]
-params = ["ComputerId"]
-hint = "Record the OpenPaw Computer backing this environment."
 
 [[action]]
 name = "Archive"
@@ -103,12 +84,3 @@ require = { any_of = [
   { not = { field = "ArchivedAt", empty = true } },
 ] }
 message = "Archived managed environments must set ArchivedAt"
-
-[[integration]]
-name = "environment_provisioner"
-trigger = "provision_computer"
-type = "wasm"
-module = "environment_provisioner"
-
-[integration.config]
-temper_api_url = "{secret:temper_api_url}"

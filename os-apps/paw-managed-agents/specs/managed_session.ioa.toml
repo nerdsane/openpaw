@@ -29,11 +29,6 @@ type = "string"
 initial = ""
 
 [[state]]
-name = "computer_id"
-type = "string"
-initial = ""
-
-[[state]]
 name = "vault_ids"
 type = "string"
 initial = "[]"
@@ -120,7 +115,7 @@ effect = [{ type = "trigger", name = "orchestrate_start" }]
 name = "InnerSessionReady"
 kind = "input"
 from = ["Running"]
-params = ["InnerSessionId", "InnerAgentId", "ComputerId", "LastConsumedUserSequence", "InnerSessionCheckCount"]
+params = ["InnerSessionId", "InnerAgentId", "LastConsumedUserSequence", "InnerSessionCheckCount"]
 hint = "Record the ids used for the bridged session."
 effect = [{ type = "schedule", action = "CheckInnerSession", delay_seconds = 2 }]
 

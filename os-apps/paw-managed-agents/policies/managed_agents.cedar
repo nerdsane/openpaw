@@ -2,12 +2,12 @@
 //
 // This app is currently intended as an internal orchestration surface, so the
 // policy stays permissive for the managed-agent entities while still granting
-// the extra OpenPaw/Paw.Compute permissions the WASM bridge needs.
+// the extra OpenPaw permissions the WASM bridge needs.
 
 permit(
   principal,
   action in [Action::"create", Action::"read", Action::"list",
-             Action::"Archive", Action::"BindComputer", Action::"ProvisionComputer"],
+             Action::"Archive"],
   resource is ManagedEnvironment
 );
 
@@ -15,6 +15,7 @@ permit(
   principal,
   action in [Action::"create", Action::"read", Action::"list",
              Action::"Archive", Action::"BindInnerAgent",
+             Action::"SyncComplete",
              Action::"UpdateManagedAgent"],
   resource is ManagedAgent
 );
@@ -87,16 +88,6 @@ permit(
              Action::"Configure", Action::"Steer", Action::"Cancel", Action::"Fail",
              Action::"RecordResult"],
   resource is Session
-) when {
-  principal.agent_type == "agent" || principal.agent_type == "system"
-};
-
-permit(
-  principal,
-  action in [Action::"create", Action::"read", Action::"list",
-             Action::"Configure", Action::"Provision",
-             Action::"ProvisionFailed", Action::"Sleep", Action::"Wake", Action::"Destroy"],
-  resource is Computer
 ) when {
   principal.agent_type == "agent" || principal.agent_type == "system"
 };

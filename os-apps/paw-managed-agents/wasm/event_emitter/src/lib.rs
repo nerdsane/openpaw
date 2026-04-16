@@ -13,7 +13,11 @@ use wasm_helpers::{read_content_file, read_session_from_temperfs, resolve_temper
 pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
     let result = (|| -> Result<(), String> {
         let ctx = Context::from_host()?;
-        let fields = ctx.entity_state.get("fields").cloned().unwrap_or_else(|| json!({}));
+        let fields = ctx
+            .entity_state
+            .get("fields")
+            .cloned()
+            .unwrap_or_else(|| json!({}));
         let base_url = resolve_temper_api_url(&ctx, &fields);
         let headers = system_json_headers(&ctx, &ctx.tenant, &fields);
 
@@ -42,7 +46,8 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 "event_emitter only supports completed inner sessions, got status {inner_status}"
             ));
         }
-        let result_text = resolve_result_text(&ctx, &base_url, &inner_fields)?;
+        let tree_snapshot = load_session_tree_snapshot(&ctx, &base_url, &inner_fields)?;
+        let result_text = resolve_result_text(&inner_fields, tree_snapshot.as_ref());
         let stop_reason = {
             let existing = field_string(&fields, &["StopReason", "stop_reason"]);
             if existing.is_empty() {
@@ -52,32 +57,46 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             }
         };
         let result_hash = format!("{inner_session_id}:{inner_status}:{result_text}");
-        let previous_hash =
-            field_string(&fields, &["LastEmittedResultHash", "last_emitted_result_hash"]);
+        let previous_hash = field_string(
+            &fields,
+            &["LastEmittedResultHash", "last_emitted_result_hash"],
+        );
         let previous_inner_session_id = field_string(
             &fields,
             &["LastEmittedInnerSessionId", "last_emitted_inner_session_id"],
         );
-        let previous_tree_index =
-            field_i64(&fields, &["LastEmittedTreeIndex", "last_emitted_tree_index"]).max(0)
-                as usize;
-        let tree_index = current_tree_index(&ctx, &base_url, &inner_fields)?;
-        let emit_from_index =
-            emission_start_index(&inner_session_id, &previous_inner_session_id, previous_tree_index);
+        let previous_tree_index = field_i64(
+            &fields,
+            &["LastEmittedTreeIndex", "last_emitted_tree_index"],
+        )
+        .max(0) as usize;
+        let tree_index = tree_snapshot
+            .as_ref()
+            .map(|snapshot| snapshot.tree_index)
+            .unwrap_or(0);
+        let emit_from_index = emission_start_index(
+            &inner_session_id,
+            &previous_inner_session_id,
+            previous_tree_index,
+        );
         let has_new_tree_entries = (tree_index as usize) > emit_from_index;
 
         if previous_hash != result_hash || has_new_tree_entries {
-            let mut sequence = next_session_event_sequence(&ctx, &base_url, &headers, &ctx.entity_id)?;
+            let mut sequence =
+                next_session_event_sequence(&ctx, &base_url, &headers, &ctx.entity_id)?;
             if has_new_tree_entries {
-                emit_tree_events(
-                    &ctx,
-                    &base_url,
-                    &headers,
-                    &inner_fields,
-                    &ctx.entity_id,
-                    emit_from_index,
-                    &mut sequence,
-                )?;
+                if let Some(snapshot) = tree_snapshot.as_ref() {
+                    emit_tree_events(
+                        &ctx,
+                        &base_url,
+                        &headers,
+                        &inner_fields,
+                        &ctx.entity_id,
+                        &snapshot.tree,
+                        emit_from_index,
+                        &mut sequence,
+                    )?;
+                }
             }
 
             if previous_hash != result_hash && !result_text.trim().is_empty() {
@@ -130,21 +149,55 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
     0
 }
 
-fn resolve_result_text(ctx: &Context, base_url: &str, inner_fields: &Value) -> Result<String, String> {
-    let direct = field_string(inner_fields, &["Result", "result"]);
-    if !direct.is_empty() {
-        return Ok(direct);
-    }
+struct LoadedSessionTree {
+    tree: SessionTree,
+    result_text: String,
+    tree_index: i64,
+}
 
+fn load_session_tree_snapshot(
+    ctx: &Context,
+    base_url: &str,
+    inner_fields: &Value,
+) -> Result<Option<LoadedSessionTree>, String> {
     let session_file_id = field_string(inner_fields, &["SessionFileId", "session_file_id"]);
     let session_leaf_id = field_string(inner_fields, &["SessionLeafId", "session_leaf_id"]);
     if session_file_id.is_empty() || session_leaf_id.is_empty() {
-        return Ok(String::new());
+        return Ok(None);
     }
 
-    let jsonl = read_session_from_temperfs(ctx, base_url, &ctx.tenant, inner_fields, &session_file_id)?;
+    let jsonl =
+        read_session_from_temperfs(ctx, base_url, &ctx.tenant, inner_fields, &session_file_id)?;
     let tree = SessionTree::from_jsonl(&jsonl);
-    let refs = tree.build_context_refs(&session_leaf_id);
+    let result_text =
+        resolve_tree_result_text(ctx, base_url, inner_fields, &tree, &session_leaf_id)?;
+
+    Ok(Some(LoadedSessionTree {
+        tree_index: tree.entry_ids().len() as i64,
+        tree,
+        result_text,
+    }))
+}
+
+fn resolve_result_text(inner_fields: &Value, snapshot: Option<&LoadedSessionTree>) -> String {
+    let direct = field_string(inner_fields, &["Result", "result"]);
+    if !direct.is_empty() {
+        return direct;
+    }
+
+    snapshot
+        .map(|tree| tree.result_text.clone())
+        .unwrap_or_default()
+}
+
+fn resolve_tree_result_text(
+    ctx: &Context,
+    base_url: &str,
+    inner_fields: &Value,
+    tree: &SessionTree,
+    session_leaf_id: &str,
+) -> Result<String, String> {
+    let refs = tree.build_context_refs(session_leaf_id);
     for item in refs.iter().rev() {
         if item.role != "assistant" {
             continue;
@@ -173,16 +226,10 @@ fn emit_tree_events(
     headers: &[(String, String)],
     inner_fields: &Value,
     session_id: &str,
+    tree: &SessionTree,
     start_index: usize,
     sequence: &mut i64,
 ) -> Result<(), String> {
-    let session_file_id = field_string(inner_fields, &["SessionFileId", "session_file_id"]);
-    if session_file_id.is_empty() {
-        return Ok(());
-    }
-
-    let jsonl = read_session_from_temperfs(ctx, base_url, &ctx.tenant, inner_fields, &session_file_id)?;
-    let tree = SessionTree::from_jsonl(&jsonl);
     for entry_id in tree.entry_ids().iter().skip(start_index) {
         let Some(entry) = tree.get(entry_id) else {
             continue;
@@ -191,11 +238,7 @@ fn emit_tree_events(
             continue;
         }
 
-        let role = entry
-            .data
-            .get("role")
-            .and_then(Value::as_str)
-            .unwrap_or("");
+        let role = entry.data.get("role").and_then(Value::as_str).unwrap_or("");
         let content = load_entry_content(ctx, base_url, inner_fields, entry)?;
         let Some(blocks) = content.as_array() else {
             continue;
@@ -272,18 +315,6 @@ fn emit_tree_events(
 
     Ok(())
 }
-
-fn current_tree_index(ctx: &Context, base_url: &str, inner_fields: &Value) -> Result<i64, String> {
-    let session_file_id = field_string(inner_fields, &["SessionFileId", "session_file_id"]);
-    if session_file_id.is_empty() {
-        return Ok(0);
-    }
-
-    let jsonl = read_session_from_temperfs(ctx, base_url, &ctx.tenant, inner_fields, &session_file_id)?;
-    let tree = SessionTree::from_jsonl(&jsonl);
-    Ok(tree.entry_ids().len() as i64)
-}
-
 fn emission_start_index(
     current_inner_session_id: &str,
     previous_inner_session_id: &str,
@@ -307,7 +338,11 @@ fn load_entry_content(
         return serde_json::from_str(&raw).or_else(|_| Ok(json!(raw)));
     }
 
-    Ok(entry.data.get("content").cloned().unwrap_or_else(|| json!(null)))
+    Ok(entry
+        .data
+        .get("content")
+        .cloned()
+        .unwrap_or_else(|| json!(null)))
 }
 
 #[cfg(test)]

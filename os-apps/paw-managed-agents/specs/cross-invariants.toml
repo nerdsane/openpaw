@@ -5,46 +5,46 @@ default_delete_policy = "restrict"
 name = "SessionRequiresActiveManagedAgent"
 kind = "hard"
 on = "ManagedSession.*"
-assert = 'related(ManagedAgent, AgentId).Status not in ["Archived"]'
+assert = 'related(ManagedAgent, AgentId).status not in ["Archived"]'
 
 [[invariant]]
 name = "SessionRequiresActiveEnvironment"
 kind = "hard"
 on = "ManagedSession.*"
-assert = 'related(ManagedEnvironment, EnvironmentId).Status not in ["Archived"]'
+assert = 'related(ManagedEnvironment, EnvironmentId).status not in ["Archived"]'
 
 [[invariant]]
 name = "EventRequiresNonArchivedManagedSession"
 kind = "hard"
 on = "SessionEvent.*"
-assert = 'related(ManagedSession, SessionId).Status not in ["Terminated"] or Kind in ["session.status_terminated"]'
+assert = 'related(ManagedSession, SessionId).status not in ["Terminated"] or Kind in ["session.status_terminated"]'
 
 [[invariant]]
 name = "ResourceRequiresNonArchivedManagedSession"
 kind = "hard"
 on = "SessionResource.*"
-assert = 'related(ManagedSession, SessionId).Status not in ["Terminated"]'
+assert = 'related(ManagedSession, SessionId).status not in ["Terminated"]'
 
 [[invariant]]
 name = "McpServerRequiresActiveManagedAgent"
 kind = "hard"
 on = "AgentMcpServer.*"
-assert = 'related(ManagedAgent, AgentId).Status not in ["Archived"]'
+assert = 'related(ManagedAgent, AgentId).status not in ["Archived"]'
 
 [[invariant]]
 name = "SkillRequiresActiveManagedAgent"
 kind = "hard"
 on = "AgentSkill.*"
-assert = 'related(ManagedAgent, AgentId).Status not in ["Archived"]'
+assert = 'related(ManagedAgent, AgentId).status not in ["Archived"]'
 
 [[invariant]]
 name = "ToolRequiresActiveManagedAgent"
 kind = "hard"
 on = "AgentTool.*"
-assert = 'related(ManagedAgent, AgentId).Status not in ["Archived"]'
+assert = 'related(ManagedAgent, AgentId).status not in ["Archived"]'
 
 [[invariant]]
 name = "PackageRequiresActiveEnvironment"
 kind = "hard"
 on = "EnvironmentPackage.*"
-assert = 'related(ManagedEnvironment, EnvironmentId).Status not in ["Archived"]'
+assert = 'related(ManagedEnvironment, EnvironmentId).status not in ["Archived"]'

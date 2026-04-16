@@ -67,6 +67,12 @@ effect = [
 ]
 
 [[action]]
+name = "SyncComplete"
+kind = "input"
+from = ["Active"]
+hint = "Internal callback used after the managed-agent bridge syncs the inner agent."
+
+[[action]]
 name = "Archive"
 kind = "input"
 from = ["Active"]

@@ -14,7 +14,6 @@
         <Property Name="AllowedHostsJson" Type="Edm.String"/>
         <Property Name="AllowMcpServers" Type="Edm.Boolean"/>
         <Property Name="AllowPackageManagers" Type="Edm.Boolean"/>
-        <Property Name="ComputerId" Type="Edm.String"/>
         <Property Name="Metadata" Type="Edm.String"/>
         <Property Name="ArchivedAt" Type="Edm.String"/>
       </EntityType>
@@ -22,17 +21,6 @@
       <Action Name="Archive" IsBound="true">
         <Parameter Name="bindingParameter" Type="ManagedAgents.ManagedEnvironment"/>
         <Parameter Name="ArchivedAt" Type="Edm.String" Nullable="true"/>
-        <ReturnType Type="ManagedAgents.ManagedEnvironment"/>
-      </Action>
-
-      <Action Name="ProvisionComputer" IsBound="true">
-        <Parameter Name="bindingParameter" Type="ManagedAgents.ManagedEnvironment"/>
-        <ReturnType Type="ManagedAgents.ManagedEnvironment"/>
-      </Action>
-
-      <Action Name="BindComputer" IsBound="true">
-        <Parameter Name="bindingParameter" Type="ManagedAgents.ManagedEnvironment"/>
-        <Parameter Name="ComputerId" Type="Edm.String" Nullable="false"/>
         <ReturnType Type="ManagedAgents.ManagedEnvironment"/>
       </Action>
 
@@ -74,6 +62,11 @@
         <ReturnType Type="ManagedAgents.ManagedAgent"/>
       </Action>
 
+      <Action Name="SyncComplete" IsBound="true">
+        <Parameter Name="bindingParameter" Type="ManagedAgents.ManagedAgent"/>
+        <ReturnType Type="ManagedAgents.ManagedAgent"/>
+      </Action>
+
       <EntityType Name="ManagedSession">
         <Key><PropertyRef Name="Id"/></Key>
         <Property Name="Id" Type="Edm.String" Nullable="false"/>
@@ -83,7 +76,6 @@
         <Property Name="EnvironmentId" Type="Edm.String"/>
         <Property Name="InnerSessionId" Type="Edm.String"/>
         <Property Name="InnerAgentId" Type="Edm.String"/>
-        <Property Name="ComputerId" Type="Edm.String"/>
         <Property Name="VaultIds" Type="Edm.String"/>
         <Property Name="StopReason" Type="Edm.String"/>
         <Property Name="TerminationReason" Type="Edm.String"/>
@@ -110,7 +102,6 @@
         <Parameter Name="bindingParameter" Type="ManagedAgents.ManagedSession"/>
         <Parameter Name="InnerSessionId" Type="Edm.String" Nullable="false"/>
         <Parameter Name="InnerAgentId" Type="Edm.String" Nullable="true"/>
-        <Parameter Name="ComputerId" Type="Edm.String" Nullable="true"/>
         <Parameter Name="LastConsumedUserSequence" Type="Edm.Int64" Nullable="true"/>
         <Parameter Name="InnerSessionCheckCount" Type="Edm.Int64" Nullable="true"/>
         <ReturnType Type="ManagedAgents.ManagedSession"/>

@@ -3,8 +3,9 @@ mod common;
 
 use common::{
     create_entity, create_session_event, entity_id, escape_odata_string, field_i64, field_string,
-    get_entity, infer_provider, is_terminal_status, managed_tools_enabled, next_session_event_sequence,
-    pending_user_prompt, post_absolute_action, post_action, status_of, system_json_headers,
+    get_entity, is_terminal_status, managed_agent_provider, managed_environment_sandbox_params,
+    managed_tools_enabled, next_session_event_sequence, pending_user_prompt, post_absolute_action,
+    post_action, status_of, system_json_headers,
 };
 use temper_wasm_sdk::prelude::*;
 use wasm_helpers::resolve_temper_api_url;
@@ -13,11 +14,20 @@ use wasm_helpers::resolve_temper_api_url;
 pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
     let result = (|| -> Result<(), String> {
         let ctx = Context::from_host()?;
-        let fields = ctx.entity_state.get("fields").cloned().unwrap_or_else(|| json!({}));
+        let fields = ctx
+            .entity_state
+            .get("fields")
+            .cloned()
+            .unwrap_or_else(|| json!({}));
         let base_url = resolve_temper_api_url(&ctx, &fields);
         let headers = system_json_headers(&ctx, &ctx.tenant, &fields);
 
-        match ctx.config.get("mode").map(String::as_str).unwrap_or("start") {
+        match ctx
+            .config
+            .get("mode")
+            .map(String::as_str)
+            .unwrap_or("start")
+        {
             "check" => check_inner_session(&ctx, &fields, &base_url, &headers),
             "resume" => start_or_resume(&ctx, &fields, &base_url, &headers, true),
             _ => start_or_resume(&ctx, &fields, &base_url, &headers, false),
@@ -52,8 +62,22 @@ fn start_or_resume(
     }
 
     let managed_agent = get_entity(ctx, base_url, headers, "ManagedAgents", &managed_agent_id)?;
-    let managed_environment =
-        get_entity(ctx, base_url, headers, "ManagedEnvironments", &environment_id)?;
+    let managed_environment = get_entity(
+        ctx,
+        base_url,
+        headers,
+        "ManagedEnvironments",
+        &environment_id,
+    )?;
+    let environment_package_rows = common::list_entities(
+        ctx,
+        base_url,
+        headers,
+        &format!(
+            "/tdata/EnvironmentPackages?$filter=EnvironmentId%20eq%20'{}'&$orderby=Name%20asc",
+            escape_odata_string(&environment_id)
+        ),
+    )?;
 
     let tool_rows = common::list_entities(
         ctx,
@@ -64,10 +88,7 @@ fn start_or_resume(
             escape_odata_string(&managed_agent_id)
         ),
     )?;
-    let tool_ids = tool_rows
-        .iter()
-        .filter_map(entity_id)
-        .collect::<Vec<_>>();
+    let tool_ids = tool_rows.iter().filter_map(entity_id).collect::<Vec<_>>();
     let tool_config_rows = if tool_ids.is_empty() {
         Vec::new()
     } else {
@@ -93,10 +114,11 @@ fn start_or_resume(
         &tool_rows,
         &tool_config_rows,
     )?;
-    let computer_id =
-        ensure_computer(ctx, base_url, headers, &managed_environment, &environment_id)?;
 
-    let last_consumed = field_i64(fields, &["LastConsumedUserSequence", "last_consumed_user_sequence"]);
+    let last_consumed = field_i64(
+        fields,
+        &["LastConsumedUserSequence", "last_consumed_user_sequence"],
+    );
     let pending_events = common::list_entities(
         ctx,
         base_url,
@@ -109,20 +131,31 @@ fn start_or_resume(
     )?;
     let (prompt, last_sequence) = pending_user_prompt(&pending_events, last_consumed);
     if prompt.trim().is_empty() {
-        temper_wasm_sdk::set_success_result("IdleSession", &json!({
-            "StopReason": "user_input_required",
-        }));
+        temper_wasm_sdk::set_success_result(
+            "IdleSession",
+            &json!({
+                "StopReason": "user_input_required",
+            }),
+        );
         return Ok(());
     }
 
     let existing_inner_session_id = field_string(fields, &["InnerSessionId", "inner_session_id"]);
     if is_resume && !existing_inner_session_id.is_empty() {
-        if let Ok(existing_inner) = get_entity(ctx, base_url, headers, "Sessions", &existing_inner_session_id) {
+        if let Ok(existing_inner) = get_entity(
+            ctx,
+            base_url,
+            headers,
+            "Sessions",
+            &existing_inner_session_id,
+        ) {
             if !is_terminal_status(&status_of(&existing_inner)) {
                 let _ = post_absolute_action(
                     ctx,
                     headers,
-                    &format!("{base_url}/tdata/Sessions('{existing_inner_session_id}')/OpenPaw.Steer"),
+                    &format!(
+                        "{base_url}/tdata/Sessions('{existing_inner_session_id}')/OpenPaw.Steer"
+                    ),
                     &json!({
                         "steering_messages": serde_json::to_string(&vec![json!({ "content": prompt })])
                             .unwrap_or_else(|_| "[]".to_string())
@@ -135,7 +168,6 @@ fn start_or_resume(
                     &json!({
                         "InnerSessionId": existing_inner_session_id,
                         "InnerAgentId": inner_agent_id,
-                        "ComputerId": computer_id,
                         "LastConsumedUserSequence": last_sequence,
                         "InnerSessionCheckCount": 0,
                     }),
@@ -169,7 +201,7 @@ fn start_or_resume(
             value
         }
     };
-    let provider = infer_provider(&model_id);
+    let provider = managed_agent_provider(&managed_agent);
     let system_prompt = {
         let value = field_string(&managed_agent, &["System", "system"]);
         if value.is_empty() {
@@ -191,6 +223,15 @@ fn start_or_resume(
         "temper_api_url": base_url,
         "agent_id": inner_agent_id,
     });
+    if let Some(configure_object) = configure_body.as_object_mut() {
+        let sandbox_params =
+            managed_environment_sandbox_params(&managed_environment, &environment_package_rows);
+        if let Some(sandbox_object) = sandbox_params.as_object() {
+            for (key, value) in sandbox_object {
+                configure_object.insert(key.clone(), value.clone());
+            }
+        }
+    }
     if !workspace_id.is_empty() {
         configure_body["workspace_id"] = json!(workspace_id);
     }
@@ -209,7 +250,6 @@ fn start_or_resume(
         &json!({
             "InnerSessionId": inner_session_id,
             "InnerAgentId": inner_agent_id,
-            "ComputerId": computer_id,
             "LastConsumedUserSequence": last_sequence,
             "InnerSessionCheckCount": 0,
         }),
@@ -235,10 +275,16 @@ fn check_inner_session(
         return Ok(());
     }
 
-    let check_count = field_i64(fields, &["InnerSessionCheckCount", "inner_session_check_count"]);
-    let max_checks = field_string(fields, &["MaxInnerSessionChecks", "max_inner_session_checks"])
-        .parse::<i64>()
-        .unwrap_or(180);
+    let check_count = field_i64(
+        fields,
+        &["InnerSessionCheckCount", "inner_session_check_count"],
+    );
+    let max_checks = field_string(
+        fields,
+        &["MaxInnerSessionChecks", "max_inner_session_checks"],
+    )
+    .parse::<i64>()
+    .unwrap_or(180);
     if check_count >= max_checks {
         temper_wasm_sdk::set_success_result(
             "InnerSessionFailed",
@@ -321,7 +367,7 @@ fn ensure_inner_agent(
         }
     };
     let tools_enabled = managed_tools_enabled(tool_rows, tool_config_rows);
-    let provider = infer_provider(&model_id);
+    let provider = managed_agent_provider(managed_agent);
 
     if existing.is_empty() {
         let created = create_entity(ctx, base_url, headers, "Agents", &json!({}))?;
@@ -368,43 +414,6 @@ fn ensure_inner_agent(
             "update inner agent",
         )?;
         Ok(existing)
-    }
-}
-
-fn ensure_computer(
-    ctx: &Context,
-    base_url: &str,
-    headers: &[(String, String)],
-    managed_environment: &Value,
-    environment_id: &str,
-) -> Result<String, String> {
-    let existing = field_string(managed_environment, &["ComputerId", "computer_id"]);
-    if !existing.is_empty() {
-        return Ok(existing);
-    }
-
-    let provisioned = post_action(
-        ctx,
-        base_url,
-        headers,
-        "ManagedEnvironments",
-        environment_id,
-        "ProvisionComputer",
-        &json!({}),
-        true,
-    )?;
-
-    let computer_id = field_string(&provisioned, &["ComputerId", "computer_id"]);
-    if !computer_id.is_empty() {
-        return Ok(computer_id);
-    }
-
-    let refreshed = get_entity(ctx, base_url, headers, "ManagedEnvironments", environment_id)?;
-    let computer_id = field_string(&refreshed, &["ComputerId", "computer_id"]);
-    if computer_id.is_empty() {
-        Err("ProvisionComputer completed without binding a ComputerId.".to_string())
-    } else {
-        Ok(computer_id)
     }
 }
 
