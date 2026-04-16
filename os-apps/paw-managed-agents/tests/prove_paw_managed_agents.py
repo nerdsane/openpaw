@@ -19,6 +19,7 @@ import urllib.request
 SERVER = os.environ.get("OPENPAW_SERVER", "http://127.0.0.1:3000")
 TENANT = os.environ.get("OPENPAW_TENANT", "default")
 API_KEY = os.environ.get("OPENPAW_API_KEY", "")
+REQUEST_TIMEOUT = int(os.environ.get("OPENPAW_REQUEST_TIMEOUT", "90"))
 HEADERS = {
     "content-type": "application/json",
     "x-tenant-id": TENANT,
@@ -35,7 +36,7 @@ def request(method: str, path: str, body: dict | None = None) -> dict | list | s
     for key, value in HEADERS.items():
         req.add_header(key, value)
     try:
-        with urllib.request.urlopen(req, timeout=30) as response:
+        with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT) as response:
             raw = response.read().decode()
             if not raw:
                 return {}
@@ -84,6 +85,28 @@ def main() -> int:
     )
     env_id = env["entity_id"]
 
+    print("Adding environment packages...")
+    request(
+        "POST",
+        "/tdata/EnvironmentPackages",
+        {
+            "EnvironmentId": env_id,
+            "Manager": "apt",
+            "Name": "jq",
+            "Version": "1.7",
+        },
+    )
+    request(
+        "POST",
+        "/tdata/EnvironmentPackages",
+        {
+            "EnvironmentId": env_id,
+            "Manager": "pip",
+            "Name": "rich",
+            "Version": "13.9.4",
+        },
+    )
+
     print("Creating managed agent...")
     agent = request(
         "POST",
@@ -94,6 +117,7 @@ def main() -> int:
             "System": "You are a concise proof assistant.",
             "ModelId": "claude-sonnet-4-6",
             "ModelSpeed": "standard",
+            "Metadata": json.dumps({"provider": "mock"}),
             "Version": 1,
         },
     )
@@ -108,6 +132,7 @@ def main() -> int:
             "System": "You are a concise proof assistant. Keep answers to one word.",
             "ModelId": "claude-sonnet-4-6",
             "ModelSpeed": "standard",
+            "Metadata": json.dumps({"provider": "mock"}),
         },
     )
     updated_agent = request("GET", f"/tdata/ManagedAgents('{agent_id}')")
@@ -169,7 +194,14 @@ def main() -> int:
             "SessionId": session_id,
             "Sequence": 1,
             "Kind": "user.message",
-            "Content": json.dumps([{"type": "text", "text": "Reply with the word proof."}]),
+            "Content": json.dumps(
+                [
+                    {
+                        "type": "text",
+                        "text": json.dumps({"steps": [{"final_text": "proof"}]}),
+                    }
+                ]
+            ),
         },
     )
 
@@ -200,25 +232,32 @@ def main() -> int:
     if field_value(idle_fields, "VaultIds", "vault_ids") != "[\"vault-proof\"]":
         raise RuntimeError("managed session did not retain VaultIds")
 
-    print("Checking bound computer and inner agent state...")
+    print("Checking bridged inner session and inner agent state...")
     env_current = request("GET", f"/tdata/ManagedEnvironments('{env_id}')")
     env_fields = entity_fields(env_current)
-    computer_id = env_fields.get("ComputerId")
-    if not computer_id:
-        raise RuntimeError("managed environment did not bind a ComputerId")
+    if field_value(env_fields, "ComputerId", "computer_id"):
+        raise RuntimeError("managed environment should remain a pure template and not bind ComputerId")
 
-    computer = request("GET", f"/tdata/Computers('{computer_id}')")
-    computer_fields = entity_fields(computer)
-    if field_value(computer_fields, "Status", "status") != "Provisioning":
-        raise RuntimeError("managed environment computer should remain in Provisioning")
-    network_allow_raw = field_value(computer_fields, "NetworkAllow", "network_allow") or ""
-    network_allow = json.loads(network_allow_raw)
-    if network_allow != {
-        "allowed_hosts": ["github.com"],
-        "allow_mcp_servers": True,
-        "allow_package_managers": False,
-    }:
-        raise RuntimeError("computer network_allow did not reflect managed environment settings")
+    inner_session_id = field_value(idle_fields, "InnerSessionId", "inner_session_id")
+    if not inner_session_id:
+        raise RuntimeError("managed session did not bind an InnerSessionId")
+    inner_session = request("GET", f"/tdata/Sessions('{inner_session_id}')")
+    inner_session_fields = entity_fields(inner_session)
+    if field_value(inner_session_fields, "SandboxNetworkingType", "sandbox_networking_type") != "Limited":
+        raise RuntimeError("inner session did not receive SandboxNetworkingType from ManagedEnvironment")
+    if field_value(inner_session_fields, "SandboxAllowedHostsJson", "sandbox_allowed_hosts_json") != "[\"github.com\"]":
+        raise RuntimeError("inner session did not receive SandboxAllowedHostsJson from ManagedEnvironment")
+    if field_value(inner_session_fields, "SandboxAllowMcpServers", "sandbox_allow_mcp_servers") is not True:
+        raise RuntimeError("inner session did not receive SandboxAllowMcpServers from ManagedEnvironment")
+    if field_value(inner_session_fields, "SandboxAllowPackageManagers", "sandbox_allow_package_managers") is not False:
+        raise RuntimeError("inner session did not receive SandboxAllowPackageManagers from ManagedEnvironment")
+    packages_json = field_value(inner_session_fields, "SandboxPackagesJson", "sandbox_packages_json") or "[]"
+    packages = json.loads(packages_json)
+    if packages != [
+        {"manager": "apt", "name": "jq", "version": "1.7"},
+        {"manager": "pip", "name": "rich", "version": "13.9.4"},
+    ]:
+        raise RuntimeError(f"inner session did not receive environment packages: {packages}")
 
     managed_agent_current = request("GET", f"/tdata/ManagedAgents('{agent_id}')")
     managed_agent_fields = entity_fields(managed_agent_current)
@@ -259,7 +298,26 @@ def main() -> int:
             "Sequence": len(values) + 1,
             "Kind": "user.message",
             "Content": json.dumps(
-                [{"type": "text", "text": "Reply again with the word proof."}]
+                [
+                    {
+                        "type": "text",
+                        "text": json.dumps(
+                            {
+                                "steps": [
+                                    {
+                                        "tool_calls": [
+                                            {
+                                                "name": "bash",
+                                                "input": {"command": "printf proof"},
+                                            }
+                                        ]
+                                    },
+                                    {"final_text": "proof"},
+                                ]
+                            }
+                        ),
+                    }
+                ]
             ),
         },
     )
@@ -298,6 +356,10 @@ def main() -> int:
         raise RuntimeError("second running event missing")
     if resumed_kinds.count("session.status_idle") < 2:
         raise RuntimeError("second idle event missing")
+    if "agent.tool_use" not in resumed_kinds:
+        raise RuntimeError("agent.tool_use missing after tool-driven resume")
+    if "agent.tool_result" not in resumed_kinds:
+        raise RuntimeError("agent.tool_result missing after tool-driven resume")
 
     print("Terminating session...")
     request(
@@ -398,9 +460,9 @@ def main() -> int:
             "/tdata/SessionResources",
             {
                 "SessionId": session_id,
-                "Kind": "file",
-                "Name": "blocked.txt",
-                "MountPath": "/tmp/blocked.txt",
+                "Kind": "github_repository",
+                "RepositoryUrl": "https://github.com/example/repo.git",
+                "MountPath": "/workspace/repo",
             },
         )
     except RuntimeError as exc:
@@ -409,6 +471,29 @@ def main() -> int:
         print("Archive gate rejection observed as expected.")
     else:
         raise RuntimeError("archived session unexpectedly accepted a child row")
+
+    print("Negative check: archived agent should block new sessions...")
+    request(
+        "POST",
+        f"/tdata/ManagedAgents('{agent_id}')/ManagedAgents.Archive",
+        {"ArchivedAt": "2026-04-15T22:45:00Z"},
+    )
+    try:
+        request(
+            "POST",
+            "/tdata/ManagedSessions",
+            {
+                "Title": "blocked-by-archived-agent",
+                "AgentId": agent_id,
+                "EnvironmentId": env_id,
+            },
+        )
+    except RuntimeError as exc:
+        if "409" not in str(exc):
+            raise
+        print("Archived-agent session rejection observed as expected.")
+    else:
+        raise RuntimeError("archived managed agent unexpectedly accepted a new session")
 
     print("Proof completed successfully.")
     return 0

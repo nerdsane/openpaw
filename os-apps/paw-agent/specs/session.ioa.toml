@@ -120,6 +120,31 @@ type = "string"
 initial = ""
 
 [[state]]
+name = "sandbox_networking_type"
+type = "string"
+initial = ""
+
+[[state]]
+name = "sandbox_allowed_hosts_json"
+type = "string"
+initial = "[]"
+
+[[state]]
+name = "sandbox_allow_mcp_servers"
+type = "bool"
+initial = "false"
+
+[[state]]
+name = "sandbox_allow_package_managers"
+type = "bool"
+initial = "false"
+
+[[state]]
+name = "sandbox_packages_json"
+type = "string"
+initial = "[]"
+
+[[state]]
 name = "provision_check_count"
 type = "counter"
 initial = "0"
@@ -424,7 +449,7 @@ initial = "0"
 name = "Configure"
 kind = "input"
 from = ["Created"]
-params = ["system_prompt", "user_message", "model", "provider", "temperature", "max_turns", "tools_enabled", "workdir", "sandbox_url", "sandbox_id", "sandbox_provider", "temper_api_url", "soul_id", "agent_id", "parent_session_id", "session_depth", "max_follow_ups", "hook_policy", "reserve_tokens", "keep_recent_tokens", "compaction_model", "heartbeat_timeout_seconds", "project_harness_id", "project_id", "workspace_id", "conversation_file_id", "file_manifest_id", "session_file_id", "session_leaf_id", "session_mode"]
+params = ["system_prompt", "user_message", "model", "provider", "temperature", "max_turns", "tools_enabled", "workdir", "sandbox_url", "sandbox_id", "sandbox_provider", "sandbox_networking_type", "sandbox_allowed_hosts_json", "sandbox_allow_mcp_servers", "sandbox_allow_package_managers", "sandbox_packages_json", "temper_api_url", "soul_id", "agent_id", "parent_session_id", "session_depth", "max_follow_ups", "hook_policy", "reserve_tokens", "keep_recent_tokens", "compaction_model", "heartbeat_timeout_seconds", "project_harness_id", "project_id", "workspace_id", "conversation_file_id", "file_manifest_id", "session_file_id", "session_leaf_id", "session_mode"]
 hint = "Configure session. Auto-provisions after configuration. Resume fields (workspace_id, conversation_file_id, session_file_id, session_leaf_id) are accepted so continuations carry prior conversation state."
 effect = [{ type = "schedule", action = "ProvisionWorkspace", delay_seconds = 0 }]
 

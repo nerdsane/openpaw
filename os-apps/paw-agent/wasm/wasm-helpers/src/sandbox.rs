@@ -29,6 +29,11 @@ pub struct SandboxConfig {
     pub memory_mb: u32,
     pub timeout_seconds: u32,
     pub internet_access: bool,
+    pub networking_type: String,
+    pub allowed_hosts: Vec<String>,
+    pub allow_mcp_servers: bool,
+    pub allow_package_managers: bool,
+    pub packages: Vec<SandboxPackage>,
 }
 
 impl Default for SandboxConfig {
@@ -38,8 +43,20 @@ impl Default for SandboxConfig {
             memory_mb: 4096,
             timeout_seconds: 3600,
             internet_access: true,
+            networking_type: String::new(),
+            allowed_hosts: Vec::new(),
+            allow_mcp_servers: false,
+            allow_package_managers: false,
+            packages: Vec::new(),
         }
     }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SandboxPackage {
+    pub manager: String,
+    pub name: String,
+    pub version: String,
 }
 
 /// Result of a bash command execution.
@@ -107,6 +124,68 @@ pub fn resolve_sandbox_api_key(ctx: &Context, provider: &str) -> Result<String, 
         ))
     } else {
         Ok(key)
+    }
+}
+
+pub fn sandbox_config_from_fields(fields: &Value) -> SandboxConfig {
+    let networking_type = entity_field_str(
+        fields,
+        &["sandbox_networking_type", "SandboxNetworkingType"],
+    )
+    .unwrap_or("")
+    .to_string();
+    let allowed_hosts = entity_field_str(
+        fields,
+        &["sandbox_allowed_hosts_json", "SandboxAllowedHostsJson"],
+    )
+    .and_then(|raw| serde_json::from_str::<Vec<String>>(raw).ok())
+    .unwrap_or_default();
+    let allow_mcp_servers = entity_field_bool(
+        fields,
+        &["sandbox_allow_mcp_servers", "SandboxAllowMcpServers"],
+    );
+    let allow_package_managers = entity_field_bool(
+        fields,
+        &[
+            "sandbox_allow_package_managers",
+            "SandboxAllowPackageManagers",
+        ],
+    );
+    let packages = entity_field_str(fields, &["sandbox_packages_json", "SandboxPackagesJson"])
+        .and_then(|raw| serde_json::from_str::<Vec<Value>>(raw).ok())
+        .unwrap_or_default()
+        .into_iter()
+        .map(|package| SandboxPackage {
+            manager: package
+                .get("manager")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string(),
+            name: package
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string(),
+            version: package
+                .get("version")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string(),
+        })
+        .filter(|package| !package.manager.is_empty() && !package.name.is_empty())
+        .collect::<Vec<_>>();
+
+    SandboxConfig {
+        internet_access: !matches!(
+            networking_type.trim().to_ascii_lowercase().as_str(),
+            "disabled"
+        ),
+        networking_type,
+        allowed_hosts,
+        allow_mcp_servers,
+        allow_package_managers,
+        packages,
+        ..SandboxConfig::default()
     }
 }
 
@@ -275,6 +354,27 @@ fn first_non_empty(values: &[Option<String>]) -> String {
         }
     }
     String::new()
+}
+
+fn entity_field_bool(fields: &Value, keys: &[&str]) -> bool {
+    for key in keys {
+        if let Some(raw) = fields.get(*key) {
+            if let Some(boolean) = raw.as_bool() {
+                return boolean;
+            }
+            if let Some(text) = raw.as_str() {
+                match text.trim().to_ascii_lowercase().as_str() {
+                    "true" => return true,
+                    "false" => return false,
+                    _ => {}
+                }
+            }
+        }
+    }
+    if let Some(nested) = fields.get("fields") {
+        return entity_field_bool(nested, keys);
+    }
+    false
 }
 
 fn bearer_headers(api_key: &str) -> Vec<(String, String)> {
@@ -558,7 +658,7 @@ fn modal_create(
 }
 
 fn modal_health_check(ctx: &Context, api_key: &str, sandbox_id: &str) -> Result<bool, String> {
-    let base = modal_base_url(ctx)?;
+    let base = modal_base_url(ctx);
     let params = format!("sandbox_id={}", url_encode(sandbox_id));
     let url = modal_url(&base, "health", api_key, &params);
     match ctx.http_call("GET", &url, &[], "") {
@@ -580,7 +680,7 @@ fn modal_file_read(
     sandbox_id: &str,
     path: &str,
 ) -> Result<String, String> {
-    let base = modal_base_url(ctx)?;
+    let base = modal_base_url(ctx);
     let params = format!(
         "sandbox_id={}&path={}",
         url_encode(sandbox_id),
@@ -637,7 +737,7 @@ fn modal_file_delete(
     sandbox_id: &str,
     path: &str,
 ) -> Result<(), String> {
-    let base = modal_base_url(ctx)?;
+    let base = modal_base_url(ctx);
     let params = format!(
         "sandbox_id={}&path={}",
         url_encode(sandbox_id),
@@ -816,5 +916,40 @@ mod tests {
 
         let err = resolve_modal_base_url(None).unwrap_err();
         assert!(err.contains("modal_bridge_url"));
+    }
+
+    #[test]
+    fn test_sandbox_config_from_fields_reads_managed_environment_settings() {
+        let fields = json!({
+            "SandboxNetworkingType": "Limited",
+            "SandboxAllowedHostsJson": "[\"github.com\",\"api.anthropic.com\"]",
+            "SandboxAllowMcpServers": true,
+            "SandboxAllowPackageManagers": false,
+            "SandboxPackagesJson": r#"[{"manager":"apt","name":"jq","version":"1.7"},{"manager":"pip","name":"rich","version":"13.9.4"}]"#,
+        });
+
+        let config = sandbox_config_from_fields(&fields);
+        assert_eq!(config.networking_type, "Limited");
+        assert_eq!(
+            config.allowed_hosts,
+            vec!["github.com".to_string(), "api.anthropic.com".to_string()]
+        );
+        assert!(config.allow_mcp_servers);
+        assert!(!config.allow_package_managers);
+        assert_eq!(
+            config.packages,
+            vec![
+                SandboxPackage {
+                    manager: "apt".to_string(),
+                    name: "jq".to_string(),
+                    version: "1.7".to_string(),
+                },
+                SandboxPackage {
+                    manager: "pip".to_string(),
+                    name: "rich".to_string(),
+                    version: "13.9.4".to_string(),
+                },
+            ]
+        );
     }
 }

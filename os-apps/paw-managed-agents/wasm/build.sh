@@ -16,7 +16,7 @@ copy_artifact() {
     fi
 }
 
-for module in session_orchestrator event_emitter environment_provisioner session_terminator managed_agent_updater; do
+for module in session_orchestrator event_emitter session_terminator managed_agent_updater; do
     echo "Building $module..."
     if (cd "$SCRIPT_DIR/$module" && cargo build --target wasm32-unknown-unknown --release 2>&1); then
         copy_artifact "$module"

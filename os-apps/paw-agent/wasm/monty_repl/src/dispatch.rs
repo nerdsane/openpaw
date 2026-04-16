@@ -1528,7 +1528,7 @@ fn lazy_provision_sandbox(
     temper_api_url: &str,
     tenant: &str,
 ) -> Result<String, String> {
-    use wasm_helpers::sandbox::{self, SandboxConfig};
+    use wasm_helpers::sandbox::{self, sandbox_config_from_fields};
 
     let fields = ctx.entity_state.get("fields").cloned().unwrap_or(json!({}));
     let provider = sandbox::resolve_sandbox_provider(ctx, &fields)?;
@@ -1542,7 +1542,8 @@ fn lazy_provision_sandbox(
     super::session::send_heartbeat(ctx, temper_api_url, tenant);
 
     // Create sandbox
-    let handle = sandbox::sandbox_create(ctx, &provider, &SandboxConfig::default())?;
+    let config = sandbox_config_from_fields(&fields);
+    let handle = sandbox::sandbox_create(ctx, &provider, &config)?;
 
     // Poll for readiness (max 12 retries = ~60s)
     let max_checks = 12;

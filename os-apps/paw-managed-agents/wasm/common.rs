@@ -34,11 +34,7 @@ pub const MANAGED_AGENT_ALLOWED_TOOLS: &[&str] = &[
     "write",
 ];
 
-pub fn system_json_headers(
-    ctx: &Context,
-    tenant: &str,
-    fields: &Value,
-) -> Vec<(String, String)> {
+pub fn system_json_headers(ctx: &Context, tenant: &str, fields: &Value) -> Vec<(String, String)> {
     runtime_headers_as(
         ctx,
         tenant,
@@ -106,7 +102,10 @@ pub fn status_of(value: &Value) -> String {
 }
 
 pub fn is_terminal_status(status: &str) -> bool {
-    matches!(status, "Completed" | "Failed" | "Cancelled" | "Archived" | "Destroyed")
+    matches!(
+        status,
+        "Completed" | "Failed" | "Cancelled" | "Archived" | "Destroyed"
+    )
 }
 
 pub fn infer_provider(model_id: &str) -> &'static str {
@@ -117,6 +116,29 @@ pub fn infer_provider(model_id: &str) -> &'static str {
     } else {
         "anthropic"
     }
+}
+
+pub fn managed_agent_provider(managed_agent: &Value) -> String {
+    let metadata = field_string(managed_agent, &["Metadata", "metadata"]);
+    if !metadata.trim().is_empty() {
+        if let Ok(parsed) = serde_json::from_str::<Value>(&metadata) {
+            if let Some(provider) = json_string(&parsed, &["provider", "llm_provider"])
+                .split_whitespace()
+                .next()
+                .map(str::to_ascii_lowercase)
+                .filter(|value| {
+                    matches!(
+                        value.as_str(),
+                        "anthropic" | "openai" | "openai_codex" | "openrouter" | "mock"
+                    )
+                })
+            {
+                return provider;
+            }
+        }
+    }
+
+    infer_provider(&field_string(managed_agent, &["ModelId", "model_id"])).to_string()
 }
 
 pub fn escape_odata_string(value: &str) -> String {
@@ -228,7 +250,8 @@ pub fn post_action(
     body: &Value,
     await_integration: bool,
 ) -> Result<Value, String> {
-    let mut url = format!("{base_url}/tdata/{entity_set}('{entity_id}')/{MANAGED_NAMESPACE}.{action}");
+    let mut url =
+        format!("{base_url}/tdata/{entity_set}('{entity_id}')/{MANAGED_NAMESPACE}.{action}");
     if await_integration {
         url.push_str("?await_integration=true");
     }
@@ -347,13 +370,134 @@ pub fn managed_tools_enabled(tool_rows: &[Value], config_rows: &[Value]) -> Stri
             .collect::<BTreeSet<_>>();
 
         if explicit.is_empty() {
-            enabled.extend(SAFE_DEFAULT_OPENPAW_TOOLS.iter().map(|tool| (*tool).to_string()));
+            enabled.extend(
+                SAFE_DEFAULT_OPENPAW_TOOLS
+                    .iter()
+                    .map(|tool| (*tool).to_string()),
+            );
         } else {
             enabled.extend(explicit);
         }
     }
 
     enabled.into_iter().collect::<Vec<_>>().join(",")
+}
+
+pub fn managed_environment_sandbox_params(
+    managed_environment: &Value,
+    package_rows: &[Value],
+) -> Value {
+    let metadata = parsed_environment_metadata(&field_string(
+        managed_environment,
+        &["Metadata", "metadata"],
+    ));
+    let allowed_hosts_json = {
+        let raw = field_string(
+            managed_environment,
+            &["AllowedHostsJson", "allowed_hosts_json"],
+        );
+        if raw.is_empty() {
+            "[]".to_string()
+        } else {
+            raw
+        }
+    };
+    let packages = package_rows
+        .iter()
+        .map(|package| {
+            json!({
+                "manager": field_string(package, &["Manager", "manager"]),
+                "name": field_string(package, &["Name", "name"]),
+                "version": field_string(package, &["Version", "version"]),
+            })
+        })
+        .filter(|package| {
+            package
+                .get("manager")
+                .and_then(Value::as_str)
+                .is_some_and(|value| !value.is_empty())
+                && package
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .is_some_and(|value| !value.is_empty())
+        })
+        .collect::<Vec<_>>();
+
+    let mut params = serde_json::Map::new();
+    params.insert(
+        "sandbox_networking_type".to_string(),
+        json!(field_string(
+            managed_environment,
+            &["NetworkingType", "networking_type"]
+        )),
+    );
+    params.insert(
+        "sandbox_allowed_hosts_json".to_string(),
+        json!(allowed_hosts_json),
+    );
+    params.insert(
+        "sandbox_allow_mcp_servers".to_string(),
+        json!(field_bool(
+            managed_environment,
+            &["AllowMcpServers", "allow_mcp_servers"]
+        )),
+    );
+    params.insert(
+        "sandbox_allow_package_managers".to_string(),
+        json!(field_bool(
+            managed_environment,
+            &["AllowPackageManagers", "allow_package_managers"]
+        )),
+    );
+    params.insert(
+        "sandbox_packages_json".to_string(),
+        json!(serde_json::to_string(&packages).unwrap_or_else(|_| "[]".to_string())),
+    );
+
+    if !metadata.sandbox_provider.is_empty() {
+        params.insert(
+            "sandbox_provider".to_string(),
+            json!(metadata.sandbox_provider),
+        );
+    }
+    if !metadata.sandbox_url.is_empty() {
+        params.insert("sandbox_url".to_string(), json!(metadata.sandbox_url));
+    }
+    if !metadata.sandbox_id.is_empty() {
+        params.insert("sandbox_id".to_string(), json!(metadata.sandbox_id));
+    }
+
+    Value::Object(params)
+}
+
+#[derive(Default)]
+struct EnvironmentMetadata {
+    sandbox_provider: String,
+    sandbox_url: String,
+    sandbox_id: String,
+}
+
+fn parsed_environment_metadata(raw: &str) -> EnvironmentMetadata {
+    if raw.trim().is_empty() {
+        return EnvironmentMetadata::default();
+    }
+    let Ok(parsed) = serde_json::from_str::<Value>(raw) else {
+        return EnvironmentMetadata::default();
+    };
+    EnvironmentMetadata {
+        sandbox_provider: json_string(&parsed, &["sandbox_provider", "sandboxProvider"]),
+        sandbox_url: json_string(&parsed, &["sandbox_url", "sandboxUrl"]),
+        sandbox_id: json_string(&parsed, &["sandbox_id", "sandboxId"]),
+    }
+}
+
+fn json_string(value: &Value, keys: &[&str]) -> String {
+    for key in keys {
+        if let Some(text) = value.get(*key).and_then(Value::as_str) {
+            return text.to_string();
+        }
+    }
+    String::new()
 }
 
 pub fn message_blocks_json(text: &str) -> String {
@@ -438,7 +582,9 @@ pub fn pending_user_prompt(events: &[Value], last_consumed_sequence: i64) -> (St
 
         let kind = field_string(&event, &["Kind", "kind"]);
         let rendered = match kind.as_str() {
-            "user.message" => content_string_to_text(&field_string(&event, &["Content", "content"])),
+            "user.message" => {
+                content_string_to_text(&field_string(&event, &["Content", "content"]))
+            }
             "user.interrupt" => {
                 let detail = content_string_to_text(&field_string(&event, &["Content", "content"]));
                 if detail.is_empty() {
@@ -449,27 +595,25 @@ pub fn pending_user_prompt(events: &[Value], last_consumed_sequence: i64) -> (St
             }
             "user.tool_confirmation" => {
                 let tool_use_id = field_string(&event, &["ToolUseId", "tool_use_id"]);
-                let confirmation = field_string(
-                    &event,
-                    &["ConfirmationResult", "confirmation_result"],
-                );
+                let confirmation =
+                    field_string(&event, &["ConfirmationResult", "confirmation_result"]);
                 let deny_message = field_string(&event, &["DenyMessage", "deny_message"]);
                 if confirmation == "deny" && !deny_message.is_empty() {
-                    format!(
-                        "The user denied tool call {tool_use_id}. Reason: {deny_message}"
-                    )
+                    format!("The user denied tool call {tool_use_id}. Reason: {deny_message}")
                 } else {
                     format!("The user marked tool call {tool_use_id} as {confirmation}.")
                 }
             }
             "user.custom_tool_result" => {
-                let tool_id = field_string(
-                    &event,
-                    &["CustomToolUseId", "custom_tool_use_id"],
-                );
+                let tool_id = field_string(&event, &["CustomToolUseId", "custom_tool_use_id"]);
                 let tool_name = field_string(&event, &["ToolName", "tool_name"]);
-                let content = content_string_to_text(&field_string(&event, &["Content", "content"]));
-                let label = if tool_name.is_empty() { tool_id } else { format!("{tool_name} ({tool_id})") };
+                let content =
+                    content_string_to_text(&field_string(&event, &["Content", "content"]));
+                let label = if tool_name.is_empty() {
+                    tool_id
+                } else {
+                    format!("{tool_name} ({tool_id})")
+                };
                 format!("Custom tool result for {label}:\n\n{content}")
             }
             _ => String::new(),
@@ -550,6 +694,16 @@ mod tests {
     }
 
     #[test]
+    fn managed_agent_provider_honors_metadata_override() {
+        let managed_agent = json!({
+            "ModelId": "claude-sonnet-4-6",
+            "Metadata": r#"{"provider":"mock"}"#,
+        });
+
+        assert_eq!(managed_agent_provider(&managed_agent), "mock");
+    }
+
+    #[test]
     fn managed_tools_enabled_uses_explicit_agent_tool_config_rows() {
         let tool_rows = vec![json!({
             "entity_id": "toolset-1",
@@ -595,5 +749,33 @@ mod tests {
         assert!(!enabled.contains("temper_approve_decision"));
         assert!(!enabled.contains("temper_deny_decision"));
         assert!(!enabled.contains("temper_delete_policy"));
+    }
+
+    #[test]
+    fn managed_environment_sandbox_params_include_template_settings_and_packages() {
+        let managed_environment = json!({
+            "NetworkingType": "Limited",
+            "AllowedHostsJson": "[\"github.com\"]",
+            "AllowMcpServers": true,
+            "AllowPackageManagers": false,
+            "Metadata": r#"{"sandbox_provider":"modal","sandbox_url":"https://sandbox.example","sandbox_id":"sb-123"}"#,
+        });
+        let package_rows = vec![
+            json!({ "Manager": "apt", "Name": "jq", "Version": "1.7" }),
+            json!({ "Manager": "pip", "Name": "rich", "Version": "13.9.4" }),
+        ];
+
+        let params = managed_environment_sandbox_params(&managed_environment, &package_rows);
+        assert_eq!(params["sandbox_networking_type"], "Limited");
+        assert_eq!(params["sandbox_allowed_hosts_json"], "[\"github.com\"]");
+        assert_eq!(params["sandbox_allow_mcp_servers"], true);
+        assert_eq!(params["sandbox_allow_package_managers"], false);
+        assert_eq!(params["sandbox_provider"], "modal");
+        assert_eq!(params["sandbox_url"], "https://sandbox.example");
+        assert_eq!(params["sandbox_id"], "sb-123");
+        assert_eq!(
+            params["sandbox_packages_json"],
+            r#"[{"manager":"apt","name":"jq","version":"1.7"},{"manager":"pip","name":"rich","version":"13.9.4"}]"#
+        );
     }
 }
