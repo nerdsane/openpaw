@@ -13,7 +13,7 @@
 set -e
 cd "$(dirname "$0")/../../.."  # project root (openpaw-codex)
 
-MAX_ROUNDS="${1:-10}"
+MAX_ROUNDS="${1:-50}"
 ROUND=1
 LOGDIR="os-apps/paw-foresight/meta/logs"
 META_DIR="os-apps/paw-foresight/meta"
@@ -141,17 +141,22 @@ Everything must be recorded for posterity. Each run MUST produce ALL of these:
 
 1. plan.md — what you're changing and why (BEFORE implementing)
 2. changelog.md — what you actually changed (with diff or before/after)
-3. engine-output/synthesis.md — the engine's output
+3. engine-output/synthesis.md — the engine's output narrative
 4. engine-output/observations.json — raw observations from API
 5. engine-output/directions.json — raw directions from API
-6. transcripts/*.jsonl — ALL session transcripts extracted from paw.db via sqlite3
+6. transcripts/*.jsonl — ALL session transcripts (orchestrator, probes, synthesis) via sqlite3
 7. transcripts/MANIFEST.md — listing each session, its role, turn count, status
-8. scores.json — per-criterion scores with reasoning AND evidence for BOTH outputs
-9. borda.json — Borda point aggregation
+8. scores.json — 3 independent blind judge scores with reasoning + evidence per criterion
+9. borda.json — Borda aggregation across 3 judges (max 72 per output)
 10. diagnosis.md — root cause analysis tying scores to specific engine components
 11. Updated progress.md — new row in score table with all columns filled
 12. Git commit with descriptive message + push
 13. Git tag (foresight-vNNN) if challenger wins
+
+JUDGES: You MUST create 3 independent paw-agent judge sessions (see Step 5 in the skill).
+Inline both outputs in the judge prompt (DO NOT use file references — they fail).
+Randomize X/Y assignment across judges. Collect scores, de-anonymize, aggregate via Borda.
+Only fall back to self-scoring if ALL 3 judge sessions fail.
 
 A run without ALL artifacts is incomplete. Do not skip any step.
 
