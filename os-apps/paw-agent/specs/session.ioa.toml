@@ -293,6 +293,14 @@ name = "repl_file_id"
 type = "string"
 initial = ""
 
+# --- State Variables: Tool Span History (ADR-0035) ---
+# Append-only JSONL file per session recording every tool call for OTS trajectory emission.
+
+[[state]]
+name = "tool_spans_file_id"
+type = "string"
+initial = ""
+
 # --- State Variables: Tool Hooks (Phase 6) ---
 
 [[state]]
@@ -479,7 +487,7 @@ name = "HandleToolResults"
 kind = "input"
 from = ["Executing"]
 to = "PreparingContext"
-params = ["pending_tool_calls", "conversation", "session_leaf_id", "repl_file_id", "sandbox_url", "sandbox_id", "sandbox_provider", "system_prompt_hash", "system_prompt_file_id", "pending_tool_context", "pending_decision_id"]
+params = ["pending_tool_calls", "conversation", "session_leaf_id", "repl_file_id", "tool_spans_file_id", "sandbox_url", "sandbox_id", "sandbox_provider", "system_prompt_hash", "system_prompt_file_id", "pending_tool_context", "pending_decision_id"]
 hint = "Tool results received. Increment turn, transition to PreparingContext, and assemble the next bounded provider turn."
 effect = [
   { type = "increment", var = "turn_count" },
@@ -635,7 +643,7 @@ name = "RecordResult"
 kind = "input"
 from = ["ApplyingProviderResponse", "Executing"]
 to = "Completed"
-params = ["result", "conversation", "input_tokens", "output_tokens", "session_leaf_id", "repl_file_id", "system_prompt_hash", "system_prompt_file_id"]
+params = ["result", "conversation", "input_tokens", "output_tokens", "session_leaf_id", "repl_file_id", "tool_spans_file_id", "system_prompt_hash", "system_prompt_file_id"]
 hint = "Session complete. Triggered by LLM end_turn or agent calling temper.done(result)."
 effect = [
   { type = "increment", var = "input_tokens" },
