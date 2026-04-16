@@ -13,6 +13,15 @@
 # Server isolation: this loop uses its OWN openpaw-server on port 3468 with
 # HOME=/tmp/paw-foresight-home so it doesn't collide with the live :3467
 # instance that other agents may be using.
+#
+# Integrity enforcement (what the loop does that the meta-agent cannot bypass):
+#   * before each round: if the prior run's borda shows incumbent won, revert
+#     the change commits mechanically. Agent cannot forget.
+#   * after each round: run verify_run.py. If any of the 12 invariants fails,
+#     the loop stops. Next round will NOT start.
+#   * tags are created HERE (loop.sh), not by the agent, using diagnosis.md as
+#     annotation. Tag name = foresight-v(100 + run_num) for run 001+.
+#   * git push uses plain push (never --force); verify_run.py checks reflog.
 
 set -e
 cd "$(dirname "$0")/../../.."  # project root (openpaw-foresight worktree)
@@ -21,6 +30,7 @@ MAX_ROUNDS="${1:-50}"
 ROUND=1
 LOGDIR="os-apps/paw-foresight/meta/logs"
 META_DIR="os-apps/paw-foresight/meta"
+TOOLS_DIR="$META_DIR/tools"
 SERVER_PORT=3468
 FORESIGHT_HOME=/tmp/paw-foresight-home
 API_KEY_FILE="$FORESIGHT_HOME/.local/share/openpaw/api.key"
@@ -71,14 +81,93 @@ current_run_count() {
     ls -d "$META_DIR/runs"/*/ 2>/dev/null | wc -l | tr -d ' '
 }
 
-last_diagnosis() {
-    local last_dir=$(ls -d "$META_DIR/runs"/*/ 2>/dev/null | sort | tail -1)
-    [ -n "$last_dir" ] && cat "${last_dir}diagnosis.md" 2>/dev/null || echo "(no prior diagnosis)"
+latest_run_dir() {
+    ls -d "$META_DIR/runs"/*/ 2>/dev/null | sort | tail -1
 }
 
-last_scores() {
-    local last_dir=$(ls -d "$META_DIR/runs"/*/ 2>/dev/null | sort | tail -1)
-    [ -n "$last_dir" ] && cat "${last_dir}scores.json" 2>/dev/null || echo "{}"
+prior_run_dir_for() {
+    # $1 = current run number (integer); find dir matching (N-1)_*
+    local prev_num=$(printf '%03d' $(( $1 - 1 )))
+    ls -d "$META_DIR/runs/${prev_num}_"*/ 2>/dev/null | head -1
+}
+
+# ─── Post-round enforcement ────────────────────────────────────────────
+# gap #6 (revert-on-loss), #8 (borda reproduction), #11 (tag from artifact),
+# and the umbrella verify_run.py (#1–#12) all run here.
+
+enforce_post_round() {
+    local run_dir="$1"
+    local run_num=$(basename "$run_dir" | cut -d_ -f1 | sed 's/^0*//')
+    [ -z "$run_num" ] && run_num=0
+
+    local head_sha=$(git rev-parse HEAD)
+    echo "[$(date +%H:%M)] Running post-round verification on $run_dir (HEAD=$head_sha)..."
+    if ! python3 "$TOOLS_DIR/verify_run.py" --run-dir "$run_dir" --head-sha "$head_sha"; then
+        echo "[$(date +%H:%M)] VERIFICATION FAILED — loop stopping. Fix invariants in $run_dir and re-launch."
+        exit 2
+    fi
+
+    # Run 000 is measurement-only; no borda, no tag, no revert
+    if [ "$run_num" -eq 0 ]; then
+        echo "[$(date +%H:%M)] Run 000 is measurement-only — skipping tournament-dependent enforcement"
+        return 0
+    fi
+
+    local borda="$run_dir/borda.json"
+    if [ ! -f "$borda" ]; then
+        echo "[$(date +%H:%M)] FATAL: $borda missing after verification passed — this should be impossible"
+        exit 2
+    fi
+
+    local winner=$(python3 -c "import json; print(json.load(open('$borda'))['winner'])")
+    echo "[$(date +%H:%M)] Run $run_num winner: $winner"
+
+    if [ "$winner" = "challenger" ]; then
+        # Create the tag from the run's diagnosis.md (gap #11)
+        local tag_num=$(( 100 + run_num ))
+        local tag_name="foresight-v${tag_num}"
+        local diag="$run_dir/diagnosis.md"
+        if [ -f "$diag" ]; then
+            echo "[$(date +%H:%M)] Tagging $tag_name from diagnosis.md"
+            git tag -a "$tag_name" -F "$diag" HEAD 2>&1 | head -3 || true
+            git push origin "$tag_name" 2>&1 | tail -3 || true
+        else
+            echo "[$(date +%H:%M)] WARN: diagnosis.md missing — skipping tag creation"
+        fi
+    elif [ "$winner" = "incumbent" ] || [ "$winner" = "tie" ]; then
+        # Revert the change commits so the next challenger starts from the last winning state (gap #6).
+        # The meta-agent is instructed to make all their code changes between the plan commit and the final docs commit.
+        # We revert everything from (plan commit exclusive) to HEAD that touches files outside meta/runs/.
+        echo "[$(date +%H:%M)] Incumbent/tie — reverting non-artifact changes from this round"
+        # Find the plan commit (first commit of this run dir)
+        local plan_commit=$(git log --diff-filter=A --format="%H" -- "$run_dir/plan.md" 2>/dev/null | tail -1)
+        if [ -n "$plan_commit" ]; then
+            # Revert commits touching code outside meta/runs/. Use a single revert commit.
+            local code_changes=$(git diff --name-only "${plan_commit}..HEAD" | grep -v "^os-apps/paw-foresight/meta/runs/" || true)
+            if [ -n "$code_changes" ]; then
+                echo "[$(date +%H:%M)] Reverting engine changes (files outside meta/runs/):"
+                echo "$code_changes" | sed 's/^/    /'
+                # Checkout those files from the plan commit's parent (= pre-change state)
+                git checkout "${plan_commit}^" -- $code_changes 2>&1 | head -3 || true
+                git add $code_changes
+                git commit -m "revert: Run $run_num change reverted (incumbent/tie won)
+
+Automatic revert by loop.sh post-round enforcement. See:
+  $run_dir/diagnosis.md
+  $run_dir/borda.json
+
+Reverted files:
+$(echo "$code_changes" | sed 's/^/  /')" 2>&1 | tail -3 || true
+                git push origin claude/paw-foresight-meta 2>&1 | tail -3 || true
+            else
+                echo "[$(date +%H:%M)] No code changes to revert (run only touched meta/runs/)"
+            fi
+        else
+            echo "[$(date +%H:%M)] WARN: could not find plan commit for $run_dir — skipping revert"
+        fi
+    else
+        echo "[$(date +%H:%M)] WARN: unrecognized winner '$winner' — no tag, no revert"
+    fi
 }
 
 # ─── Main ──────────────────────────────────────────────────────────────
@@ -103,15 +192,25 @@ while [ $ROUND -le $MAX_ROUNDS ]; do
     RUN_NUM=$(current_run_count)
     KEY=$(api_key)
     TIMESTAMP=$(date +%Y%m%dT%H%M%S)
+    HEAD_SHA=$(git rev-parse HEAD)
 
     echo ""
     echo "=== ROUND $ROUND / $MAX_ROUNDS (will be Run $RUN_NUM) — $(date) ==="
 
-    # Re-check server health each round
     if ! check_server; then
         echo "[$(date +%H:%M)] Server down between rounds. Restarting..."
         ensure_server
     fi
+
+    # Run 000 is special: measurement-only. No tournament, no judges.
+    SCORING_MODE="tournament"
+    if [ "$RUN_NUM" -eq 0 ]; then
+        SCORING_MODE="measurement-only"
+    fi
+
+    # Emit the deterministic X/Y assignments for the agent to read (it MUST use these,
+    # not invent its own). verify_run.py checks scores.json matches.
+    ASSIGN_JSON=$(python3 "$TOOLS_DIR/assign_judges.py" --run $RUN_NUM --head $HEAD_SHA 2>/dev/null || echo '{}')
 
     PROMPT="You are the meta-agent for the paw-foresight engine improvement loop.
 
@@ -125,65 +224,75 @@ Then read these files:
 1. os-apps/paw-foresight/meta/program.md — the evaluation rubric (IMMUTABLE — do not modify)
 2. os-apps/paw-foresight/meta/progress.md — score history and convergence status
 3. The most recent run's diagnosis.md — what to fix and why (read ALL transcripts, not just orchestrator)
-4. os-apps/paw-foresight/meta/baseline/synthesis.md — the single-shot baseline output (reference)
+4. os-apps/paw-foresight/meta/baseline/scores.json — the single-shot baseline (reference only)
 
-Native OTS trajectories (post-Track-3) are emitted by the emit_ots_trajectory WASM —
-query the ots_trajectories table directly. Fall back to the JSONL→OTS converter for
-archived pre-Track-3 runs only:
-  python3 meta/tools/jsonl_to_ots.py meta/runs/<latest>/transcripts/ --summary
+Post-Track-3: OTS trajectories emit natively into the ots_trajectories table via the
+emit_ots_trajectory WASM. Query that table first. Fall back to the JSONL→OTS
+converter only for archived pre-Track-3 runs.
 
 ## Server (ISOLATED — do NOT use the live :3467 instance)
 - Temper API: http://localhost:$SERVER_PORT
 - API key: $KEY  (file: $API_KEY_FILE)
 - Tenant: rita-agents
 - Data dir: $FORESIGHT_HOME/.local/share/openpaw/
-- All API calls use: -H 'Authorization: Bearer <key>' -H 'x-temper-tenant: rita-agents'
-
-## Engine base
-- Tag: foresight-v100-base (Post-Track-1-reliability era)
-- Orchestrator max_fuel: 120B (Track 1 checkpointing landed; old 500B band-aid removed)
-- Native OTS trajectory emission via emit_ots_trajectory WASM
 
 ## This Run
 - Run number: $RUN_NUM
 - Run directory: os-apps/paw-foresight/meta/runs/$(printf '%03d' $RUN_NUM)_<description>/
+- Scoring mode: $SCORING_MODE
+- git HEAD sha: $HEAD_SHA
+- Deterministic X/Y assignments (use these, DO NOT randomize yourself):
+$ASSIGN_JSON
 
-NOTE: The DSE v2 ForesightModel should already exist on the isolated server (seeded
-from a backup of the live DB, runtime tables purged). If it's missing, the knowledge
-graph blob is in $FORESIGHT_HOME/.local/share/openpaw/paw.db — see the skill file
-for the exact recreation procedure.
+## Integrity requirements — your run WILL be rejected by verify_run.py if ANY of these fails
 
-## CRITICAL: Documentation Requirements
+1. plan.md MUST contain a '## Scope' bullet list of every file you will modify outside meta/runs/.
+   Files changed but not in scope → run rejected.
+2. engine-output/synthesis.md must be copied VERBATIM from the orchestrator session's final
+   output. The synthesis content must be found as a substring in the orchestrator blob. Hand-
+   written content → run rejected.
+3. Build judge prompts by substituting {{RUBRIC}}, {{OUTPUT_X}}, {{OUTPUT_Y}} into
+   meta/judge_prompt_template.md WITHOUT altering any other text. Record
+   judge_prompt_template_sha256 in scores.json (sha256 of the template file). Mismatch → rejected.
+4. Use the deterministic X/Y assignments above verbatim; write them into scores.json.judges[i].x_is_challenger.
+   verify_run.py re-derives from (run, judge, HEAD sha) and compares.
+5. Compute Borda ONLY by invoking 'python3 $TOOLS_DIR/borda.py --run-dir <rundir>'. Do not reimplement.
+   verify_run.py re-runs and must match.
+6. If a judge invocation fails, capture the failure output to judge_N_attempt.log in the run dir
+   and set scores.json.self_scored=true. Only then may you self-score.
+7. If Run > 000 and the prior run directory has no engine-output/synthesis.md, HALT — do not
+   fall back to baseline. Report the missing incumbent.
+8. Do NOT create the foresight-v{NNN} tag. loop.sh does that from diagnosis.md after verification passes.
+9. Do NOT force-push. Plain 'git push origin claude/paw-foresight-meta' only.
 
-Everything must be recorded for posterity. Each run MUST produce ALL of these:
+## Run 000 / measurement-only mode ($SCORING_MODE)
 
-1. plan.md — what you're changing and why (BEFORE implementing)
-2. changelog.md — what you actually changed (with diff or before/after)
-3. engine-output/synthesis.md — the engine's output narrative
-4. engine-output/observations.json — raw observations from API
-5. engine-output/directions.json — raw directions from API
-6. transcripts/*.jsonl — ALL session transcripts (orchestrator, probes, synthesis) via sqlite3
-7. transcripts/MANIFEST.md — listing each session, its role, turn count, status
-8. scores.json — 3 independent blind judge scores with reasoning + evidence per criterion
-9. borda.json — Borda aggregation across 3 judges (max 72 per output)
-10. diagnosis.md — root cause analysis tying scores to specific engine components
-11. Updated progress.md — new row in score table with all columns filled
-12. Git commit with descriptive message + push
-13. Git tag (foresight-vNNN) if challenger wins — NNN starts at 101 in this era
+If this is measurement-only (Run 000 of the era), you:
+  - produce plan.md, changelog.md, engine-output/*, transcripts/*, diagnosis.md
+  - do NOT run judges, do NOT produce scores.json or borda.json
+  - update progress.md with engine absolute score left blank (measurement recorded as the
+    first incumbent for Run 001 to score against)
 
-JUDGES: You MUST create 3 independent Claude Code subagent judges using 'claude -p'.
-Each judge receives BOTH outputs side-by-side plus the full rubric (no size limit).
-Randomize X/Y assignment per judge. See Step 5 in the skill for exact commands.
-Side-by-side comparison is MANDATORY — a judge seeing only one output is invalid.
-Only fall back to self-scoring if ALL 3 judge subagents fail.
+## Documentation Required (each run MUST produce)
+
+1. plan.md (with '## Scope' bullet list)
+2. changelog.md
+3. engine-output/synthesis.md  (provenance-verified)
+4. engine-output/observations.json
+5. engine-output/directions.json
+6. transcripts/*.jsonl  (all sessions)
+7. transcripts/MANIFEST.md  (MUST identify orchestrator session id as 'orchestrator ss-<uuid>')
+8. scores.json  (tournament runs only)
+9. borda.json  (tournament runs only, via borda.py)
+10. diagnosis.md (rich enough that the tag annotation reads cleanly from it)
+11. Updated progress.md
+12. Git commit + plain push
 
 CONSTRAINTS:
-- Domain-agnostic: do NOT hard-code domain-specific logic. Changes must generalize.
-- No authoring: do NOT pre-compute content. Score what the engine actually produces.
+- Domain-agnostic: do NOT hard-code domain-specific logic.
+- No authoring: do NOT pre-compute engine content. Score what the engine actually produces.
 - Prefer architecture: try structural changes (WASM, entities, sessions) before prompt edits.
-- Rubric v4: criteria 10=Grounding (reasoning chain validity), 12=Information Density (no redundancy).
-
-A run without ALL artifacts is incomplete. Do not skip any step.
+- Rubric v4: criteria 10=Grounding, 12=Information Density.
 
 Execute the full iteration now. Do not stop early or ask for clarification."
 
@@ -191,14 +300,23 @@ Execute the full iteration now. Do not stop early or ask for clarification."
     claude --dangerously-skip-permissions -p "$PROMPT" \
         2>&1 | tee "$LOGDIR/round_${ROUND}_${TIMESTAMP}.log"
 
-    EXIT_CODE=$?
+    EXIT_CODE=${PIPESTATUS[0]}
     if [ $EXIT_CODE -ne 0 ]; then
-        echo "[$(date +%H:%M)] Claude exited with code $EXIT_CODE — continuing to next round"
+        echo "[$(date +%H:%M)] Claude exited with code $EXIT_CODE"
     fi
+
+    # Locate this run's directory — must match the expected run number
+    CURRENT_RUN_DIR=$(ls -d "$META_DIR/runs/$(printf '%03d' $RUN_NUM)_"*/ 2>/dev/null | head -1)
+    if [ -z "$CURRENT_RUN_DIR" ]; then
+        echo "[$(date +%H:%M)] FATAL: agent did not create a run directory for run $RUN_NUM — stopping"
+        exit 3
+    fi
+
+    # Post-round enforcement: verify invariants, tag (or revert), then advance
+    enforce_post_round "$CURRENT_RUN_DIR"
 
     ROUND=$((ROUND + 1))
 
-    # Pause between rounds (let server settle, avoid rate limits)
     echo "[$(date +%H:%M)] Sleeping 30s before next round..."
     sleep 30
 done

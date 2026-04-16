@@ -1,0 +1,13 @@
+{
+  "description": "LOCKED single-shot baseline scores for the foresight meta-loop. Reference only — baseline does NOT participate in tournament judging. See program.md.",
+  "rubric_version": "v4",
+  "baseline_synthesis_file": "meta/baseline/synthesis.md",
+  "baseline_synthesis_sha256": "127bf09b7342bfb14b528612c7ba0303c5b25260849b6ffb506199e3507e4c09",
+  "baseline_raw_score": 25.0,
+  "baseline_raw_max": 48,
+  "baseline_borda": 51.0,
+  "baseline_borda_max": 72,
+  "scored_at": "2026-04-16",
+  "locked": true,
+  "locking_note": "This file is tracked in git. verify_run.py checks that the synthesis file sha256 matches baseline_synthesis_sha256; any mismatch invalidates the run. Do not modify without also updating the sha."
+}

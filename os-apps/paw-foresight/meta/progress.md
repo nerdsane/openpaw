@@ -9,10 +9,13 @@ Pre-Track-1 runs are archived under `meta/archive_v4_pre_track1/` for historical
 ## Rubric & Methodology
 
 - **Rubric:** v4 — 12 criteria (Grounding replaces Transparency, Information Density replaces Quantitative Precision) — see `program.md` (immutable)
-- **Judges:** 3 Claude Code subagents (`claude -p`), side-by-side comparison, randomized X/Y
-- **Baseline (locked):** 25.0/48 raw, 51.0/72 Borda (scored 2026-04-16, single-shot reference — does NOT participate in tournament)
+- **Judges:** 3 Claude Code subagents (`claude -p`), side-by-side blind comparison, **deterministic** X/Y via `tools/assign_judges.py`
+- **Judge prompt:** LOCKED template at `meta/judge_prompt_template.md` — sha recorded in each `scores.json`
+- **Baseline (locked):** see `meta/baseline/scores.json` (25.0/48 raw, 51.0/72 Borda — single-shot reference, does NOT participate in tournament)
 - **Constraints:** domain-agnostic, no-authoring, prefer-architecture
 - **Convergence:** 2 consecutive incumbent wins
+- **Run 000:** measurement-only; first tournament round is Run 001 (incumbent = Run 000 engine output)
+- **Integrity enforcement:** `meta/tools/verify_run.py` gates every round — 12 invariants, fail-closed (see `.claude/skills/foresight-meta.md` for the full list)
 
 ## Engine Base
 

@@ -29,15 +29,41 @@ If the server isn't running, start it — don't fall back to the live :3467 inst
 - **Provider for orchestrator sessions:** chosen by the meta-agent when configuring ForesightModel; not constrained to match `seed_provider`
 - **Session reliability:** heartbeat, steering, mid-turn checkpoint resume, OTS trajectory emission are all landed — the pre-merge workarounds (openpaw#63, #66, #129) are no longer relevant
 
+## Integrity enforcement — read this before anything else
+
+Your run will be checked by `meta/tools/verify_run.py` after you finish. If any of the
+following fails, the loop stops and your next round will not start:
+
+| # | Invariant | How verify_run.py checks it |
+|---|-----------|-----------------------------|
+| 1 | Judge evidence present | `judge_{1,2,3}_raw.json` exist, parseable, 12 criteria each. Self-scoring fallback requires `judge_N_attempt.log` showing actual invocation failure. |
+| 2 | Synthesis provenance | `engine-output/synthesis.md` mid-chunk must appear in the orchestrator session's JSONL blob. Hand-authored content fails. |
+| 3 | Judge prompt template locked | `scores.json.judge_prompt_template_sha256` must match the committed `meta/judge_prompt_template.md`. |
+| 4 | Deterministic X/Y | `scores.json.judges[].x_is_challenger` must equal `assign_judges.py`'s derivation from (run, judge, HEAD sha). |
+| 5 | One-change scope | Every file changed in this run's commits must be listed in `plan.md`'s `## Scope` bullet list (meta/runs/ is auto-excluded). |
+| 6 | Incumbent exists | Prior run's `engine-output/synthesis.md` must exist and be ≥100 bytes (hard fail — no silent fallback). |
+| 7 | Revert on loss | **Loop.sh handles this mechanically.** If incumbent/tie wins, your change is reverted automatically after verification. |
+| 8 | Borda correctness | `verify_run.py` reruns `borda.py --run-dir <dir>` and must produce an identical borda.json. |
+| 9 | Baseline lock | `meta/baseline/synthesis.md` sha256 must match `meta/baseline/scores.json`. Don't touch either. |
+| 10 | Domain-agnostic | Honor-system for now (single test domain). Keep changes generic. |
+| 11 | Tag integrity | **Loop.sh creates the tag from `diagnosis.md`** — you do NOT run `git tag`. |
+| 12 | No force-push | Plain `git push` only. Reflog is audited. |
+
+**The fast way to make all of this work: use the provided tools exactly as documented.**
+
+- `meta/tools/assign_judges.py --run N --head <sha>` → JSON block with X/Y for each judge. Use these values verbatim.
+- `meta/tools/borda.py --run-dir meta/runs/NNN_foo/` → writes `borda.json`. Do not reimplement.
+- `meta/tools/verify_run.py --run-dir ...` → run yourself before committing to catch issues early.
+
 ## Before Starting — Read These Files
 
 1. `os-apps/paw-foresight/meta/program.md` — the immutable rubric (12 criteria, 0-4 anchors)
 2. `os-apps/paw-foresight/meta/progress.md` — score history, convergence status
 3. `os-apps/paw-foresight/meta/DESIGN.md` — system architecture
-4. The most recent `meta/runs/{N-1}/diagnosis.md` — what to fix
-5. The most recent `meta/runs/{N-1}/transcripts/` — raw agent traces (read at least orchestrator.jsonl)
-6. `os-apps/paw-foresight/meta/baseline/synthesis.md` — the single-shot baseline (for reference in progress.md ONLY — it does NOT participate in the tournament)
-7. `os-apps/paw-foresight/meta/baseline/prompt.md` — what the baseline prompt looked like (learn from it)
+4. `os-apps/paw-foresight/meta/judge_prompt_template.md` — the LOCKED judge prompt. You substitute placeholders, nothing else.
+5. `os-apps/paw-foresight/meta/baseline/scores.json` — locked baseline reference (does NOT participate in tournament)
+6. The most recent `meta/runs/{N-1}/diagnosis.md` — what to fix
+7. The most recent `meta/runs/{N-1}/transcripts/` — raw agent traces (read at least orchestrator.jsonl)
 8. The previous run's `meta/runs/{N-1}/engine-output/synthesis.md` — this is the INCUMBENT output that judges compare against
 
 ## Step 1: Determine Run Number
@@ -61,9 +87,18 @@ Read the previous diagnosis. Identify:
 - What's the root cause? (cite specific lines from transcripts)
 - What ONE change addresses the most criteria?
 
-Write the plan to `meta/runs/{NNN}/plan.md` BEFORE implementing:
+Write the plan to `meta/runs/{NNN}/plan.md` BEFORE implementing. The `## Scope` block
+is **required** and **enforced** (gap #5) — list every file you will modify outside
+`meta/runs/`. Files changed but not declared in Scope will cause `verify_run.py` to
+fail the run.
+
 ```markdown
 # Run {NNN} Plan
+
+## Scope
+- os-apps/paw-foresight/system/skills/orchestrate-projection/SKILL.md
+- os-apps/paw-foresight/specs/projection.ioa.toml
+(list every file you intend to touch, one per line, bullet-prefixed)
 
 ## Target Criteria
 - {criterion}: engine scored {X}, root cause: {specific component}
@@ -74,6 +109,9 @@ Write the plan to `meta/runs/{NNN}/plan.md` BEFORE implementing:
 ## Expected Impact
 {which scores should improve and why}
 ```
+
+Commit plan.md first (before implementing). This is what `loop.sh` uses as the "plan
+commit" anchor when reverting on loss.
 
 ## Step 3: Implement the Change
 
@@ -300,7 +338,14 @@ entities they created).
 
 ## Step 5: Score — 3 Independent Blind Judges (Claude Code Subagents)
 
-This follows the Judge Protocol in program.md exactly. DO NOT skip judges and self-score.
+### Skip if this is Run 000
+
+Run 000 of a new era is **measurement-only**: no tournament, no judges, no scores.json,
+no borda.json. Produce everything else (plan, changelog, engine-output, transcripts,
+diagnosis), but Run 000's engine output becomes the first incumbent for Run 001 to
+score against. Tournament begins at Run 001.
+
+If `RUN_NUM == 0`, skip the rest of Step 5. Go straight to Step 6 (Diagnosis) and Step 7 (Progress).
 
 ### Why Claude Code Subagents
 
@@ -314,209 +359,145 @@ and can receive BOTH outputs side-by-side — which is required for valid compar
 > "A = incumbent output (starts as v000). B = challenger output. Baseline score is
 > tracked but does NOT participate in the tournament."
 
-The judges compare **incumbent engine output vs challenger engine output**:
-
 ```bash
 CHALLENGER=$(cat "meta/runs/{NNN}/engine-output/synthesis.md")
 
-# INCUMBENT = the PREVIOUS run's engine output, NOT the baseline.
-# For Run 001: incumbent is Run 000's engine output (or baseline if Run 000 had no valid engine output)
-# For Run 002+: incumbent is always the previous run's engine-output/synthesis.md
+# INCUMBENT is ALWAYS the previous run's engine output. No fallback to baseline.
+# verify_run.py (gap #6) enforces this — if the incumbent file is missing, the run is rejected.
 PREV_RUN=$(printf '%03d' $((N - 1)))
 PREV_DIR=$(ls -d meta/runs/${PREV_RUN}_*/ 2>/dev/null | head -1)
+if [ -z "$PREV_DIR" ] || [ ! -s "${PREV_DIR}engine-output/synthesis.md" ]; then
+    echo "FATAL: incumbent missing. Run $PREV_RUN has no engine-output/synthesis.md."
+    exit 1
+fi
 INCUMBENT=$(cat "${PREV_DIR}engine-output/synthesis.md")
-
-# The baseline is ONLY used for the "Baseline Score" column in progress.md — never sent to judges.
-# BASELINE=$(cat "meta/baseline/synthesis.md")  # reference only, do NOT send to judges
 ```
 
-Read `meta/program.md` to get the full rubric with all 12 criteria and anchors.
+### 5b. Build the Judge Prompt — use the LOCKED template
 
-### 5b. Build the Judge Prompt
-
-Each judge sees the FULL rubric + BOTH outputs (incumbent vs challenger) side-by-side.
-Randomize the assignment of incumbent/challenger to X/Y for each judge.
+Do **not** compose the judge prompt from scratch. Load the committed template and
+substitute three placeholders: `{{RUBRIC}}`, `{{OUTPUT_X}}`, `{{OUTPUT_Y}}`. Anything
+else is a gameability gap and `verify_run.py` (gap #3) will reject the run.
 
 ```bash
-# Randomize assignment per judge (flip a coin)
-# Judge 1: X=challenger, Y=incumbent
-# Judge 2: X=incumbent, Y=challenger
-# Judge 3: X=challenger, Y=incumbent
-# (or use: $((RANDOM % 2)) to decide per judge)
+TEMPLATE=meta/judge_prompt_template.md
+TEMPLATE_SHA=$(shasum -a 256 "$TEMPLATE" | awk '{print $1}')
+
+# Load the rubric's criteria section from program.md — the meta-agent does NOT paraphrase
+RUBRIC=$(sed -n '/^## Criteria/,/^## /p' meta/program.md | head -n -1)
+
+build_prompt() {
+    local x="$1"
+    local y="$2"
+    python3 -c "
+import sys
+tpl = open('$TEMPLATE').read()
+rubric = sys.stdin.read()
+out = tpl.replace('{{RUBRIC}}', rubric)
+out = out.replace('{{OUTPUT_X}}', open('$x').read())
+out = out.replace('{{OUTPUT_Y}}', open('$y').read())
+sys.stdout.write(out)
+" <<< "$RUBRIC"
+}
 ```
 
-The prompt template:
-
-```
-You are an independent evaluator of two foresight projection outputs.
-Score BOTH outputs on all 12 criteria (0-4). Be strict. Enforce the 3+ cap rule.
-
-## Evaluation Criteria (0-4 scale, 12 criteria, max 48)
-
-Calibration: 2=competent median, 3=genuinely impressive, 4=exceptional and rare.
-
-**3+ CAP RULE:** No more than 3 criteria may score 3+ for any single output.
-If more than 3 qualify, demote the weakest to 2. Document demotions.
-
-[Full 12 criteria with anchors from program.md — include the complete anchor
-tables, not abbreviated versions. The prompt has no size limit.]
-
-## Output X
-
-[full text of output X]
-
-## Output Y
-
-[full text of output Y]
-
-## Task
-
-Score both outputs on all 12 criteria. For each criterion, explain your
-reasoning with specific evidence from both outputs. Return JSON only:
-
-{"criteria": [
-  {
-    "criterion": "Specificity",
-    "output_x_score": 2,
-    "output_y_score": 3,
-    "reasoning": "Output Y names 4 specific actors with dates while Output X uses generic categories...",
-    "evidence_x": ["Section 2 says 'companies will...' without naming any"],
-    "evidence_y": ["Section 3 names 'GitHub Copilot by Q3 2026' and 'Vercel integration by...'"]
-  },
-  ...
-]}
-```
-
-### 5c. Launch 3 Judge Subagents
+### 5c. Get the deterministic X/Y assignments — use the tool, do NOT invent
 
 ```bash
-# Write the judge prompt to a temp file (avoids shell escaping issues)
-JUDGE_PROMPT_FILE=$(mktemp)
-cat > "$JUDGE_PROMPT_FILE" << 'PROMPT_EOF'
-[full judge prompt with rubric + both outputs]
-PROMPT_EOF
+HEAD_SHA=$(git rev-parse HEAD)
+ASSIGNMENTS=$(python3 meta/tools/assign_judges.py --run $N --head $HEAD_SHA)
+# ASSIGNMENTS is a JSON blob with x_is_challenger per judge.
+# verify_run.py re-derives from (N, judge, HEAD) and compares — if you fudge this,
+# your run is rejected (gap #4).
+```
 
-# Launch 3 judges sequentially (each is a fresh Claude Code session)
+Save per-judge assignments into scores.json exactly as derived. Do not flip coins.
+
+### 5d. Launch 3 Judge Subagents
+
+```bash
 for JUDGE_NUM in 1 2 3; do
-    RESULT_FILE="meta/runs/{NNN}/judge_${JUDGE_NUM}_raw.json"
-
-    # Swap X/Y assignment for even-numbered judges
-    # Build the specific prompt with the right X/Y mapping
-
-    claude -p "$(cat $JUDGE_PROMPT_FILE)" \
-        --output-format json \
-        2>/dev/null | python3 -c "
+    X_IS_CHAL=$(echo "$ASSIGNMENTS" | python3 -c "
 import sys, json
-data = json.load(sys.stdin)
-# Extract the JSON from the result field
-print(data.get('result', ''))
-" > "$RESULT_FILE"
+a = json.load(sys.stdin)
+print('true' if a['judges'][$JUDGE_NUM - 1]['x_is_challenger'] else 'false')")
 
-    echo "Judge $JUDGE_NUM complete: $RESULT_FILE"
+    if [ "$X_IS_CHAL" = "true" ]; then
+        X_FILE="meta/runs/{NNN}/engine-output/synthesis.md"
+        Y_FILE="${PREV_DIR}engine-output/synthesis.md"
+    else
+        X_FILE="${PREV_DIR}engine-output/synthesis.md"
+        Y_FILE="meta/runs/{NNN}/engine-output/synthesis.md"
+    fi
+
+    PROMPT_FILE=$(mktemp)
+    build_prompt "$X_FILE" "$Y_FILE" > "$PROMPT_FILE"
+
+    RESULT_FILE="meta/runs/{NNN}/judge_${JUDGE_NUM}_raw.json"
+    ATTEMPT_LOG="meta/runs/{NNN}/judge_${JUDGE_NUM}_attempt.log"
+
+    # Capture both stdout and stderr; on success, extract .result
+    if claude -p "$(cat $PROMPT_FILE)" --output-format json > "${RESULT_FILE}.tmp" 2> "$ATTEMPT_LOG"; then
+        python3 -c "
+import sys, json
+data = json.load(open('${RESULT_FILE}.tmp'))
+# Extract inner JSON from the 'result' field
+inner = data.get('result', '')
+parsed = json.loads(inner) if isinstance(inner, str) else inner
+json.dump(parsed, open('$RESULT_FILE','w'), indent=2)
+" || echo "Judge $JUDGE_NUM: unparseable result" >> "$ATTEMPT_LOG"
+    else
+        echo "Judge $JUDGE_NUM: claude -p exited non-zero" >> "$ATTEMPT_LOG"
+    fi
+    rm -f "${RESULT_FILE}.tmp" "$PROMPT_FILE"
 done
 ```
 
-**Note:** Each `claude -p` call is a fresh session with no shared context. This ensures
-independence. If a judge fails (exits non-zero, empty output, unparseable JSON), retry
-once. If still fails, log it and continue with remaining judges. 2 of 3 is acceptable.
-
-### 5d. Parse and Combine Scores
-
-```python
-import json, os
-
-criteria_names = [
-    "Specificity", "Novelty", "Falsifiability", "Breadth", "Plausibility",
-    "Progression", "Actionability", "Decision Clarity", "Completeness",
-    "Grounding", "Challenge", "Information Density"
-]
-
-judges = {}
-for judge_num in [1, 2, 3]:
-    raw_file = f"meta/runs/{{NNN}}/judge_{judge_num}_raw.json"
-    if not os.path.exists(raw_file):
-        continue
-    with open(raw_file) as f:
-        data = json.load(f)
-
-    # Map X/Y back to challenger/incumbent based on this judge's assignment
-    x_is_challenger = (judge_num % 2 == 1)  # odd judges: X=challenger
-    judges[f"judge_{judge_num}"] = {
-        "x_is_challenger": x_is_challenger,
-        "criteria": data["criteria"]
-    }
-
-# Compute Borda per criterion per judge
-# "challenger" = this run's engine output, "incumbent" = previous run's engine output
-borda = {"challenger": 0, "incumbent": 0, "per_criterion": []}
-for crit in criteria_names:
-    crit_challenger_borda = 0
-    crit_incumbent_borda = 0
-    for jname, jdata in judges.items():
-        for c in jdata["criteria"]:
-            if c["criterion"] == crit:
-                x_score = c["output_x_score"]
-                y_score = c["output_y_score"]
-                if jdata["x_is_challenger"]:
-                    ch_score, inc_score = x_score, y_score
-                else:
-                    ch_score, inc_score = y_score, x_score
-
-                if ch_score > inc_score:
-                    crit_challenger_borda += 2; crit_incumbent_borda += 1
-                elif inc_score > ch_score:
-                    crit_incumbent_borda += 2; crit_challenger_borda += 1
-                else:
-                    crit_challenger_borda += 1.5; crit_incumbent_borda += 1.5
-    borda["challenger"] += crit_challenger_borda
-    borda["incumbent"] += crit_incumbent_borda
-    borda["per_criterion"].append({
-        "criterion": crit,
-        "challenger": crit_challenger_borda,
-        "incumbent": crit_incumbent_borda,
-        "delta": crit_challenger_borda - crit_incumbent_borda
-    })
-```
+**attempt log is required.** verify_run.py (gap #1) uses the presence of `judge_N_attempt.log`
+to distinguish real invocation failures from silent skips. If a judge succeeded, the log
+exists but will be near-empty — that's fine. If a judge failed, the log shows why, and
+the fallback path is allowed.
 
 ### 5e. Fallback: Meta-Agent Self-Scoring
 
-If ALL 3 judge subagents fail (crashes, empty output, unparseable):
-1. Log the failure in scores.json methodology_note
-2. Fall back to meta-agent (you) scoring directly
-3. Note this as a methodology limitation — results are less trustworthy
+If ALL 3 judge subagents genuinely failed (exits non-zero or unparseable JSON, evidenced
+by `judge_N_attempt.log` content):
+1. Set `scores.json.self_scored = true`
+2. Log the failure evidence in `scores.json.methodology_note`
+3. Score directly yourself, but keep the same X/Y assignments from `assign_judges.py`
+4. verify_run.py (gap #1) will reject self_scored=true if attempt logs are missing
 
-### scores.json Format
+### 5f. Compute Borda via the locked tool — do NOT reimplement
+
+```bash
+python3 meta/tools/borda.py --run-dir "meta/runs/{NNN}_<description>/"
+# Writes borda.json into the run dir. verify_run.py (gap #8) re-runs and must match exactly.
+```
+
+### scores.json Format (required fields)
 
 ```json
 {
-  "methodology": "3 independent Claude Code subagent judges (claude -p). Side-by-side comparison. Rubric v4 (Grounding, Information Density). 3+ cap rule.",
+  "methodology": "3 independent Claude Code subagent judges (claude -p). Side-by-side blind comparison. Rubric v4. 3+ cap rule.",
   "rubric_version": "v4",
+  "judge_prompt_template_sha256": "<sha256 of meta/judge_prompt_template.md>",
+  "assign_judges_head_sha": "<git HEAD sha used for X/Y derivation>",
+  "self_scored": false,
   "judges": {
     "judge_1": {
-      "x_is_engine": true,
-      "criteria": [{"criterion": "...", "output_x_score": 2, "output_y_score": 3, "reasoning": "...", "evidence_x": [...], "evidence_y": [...]}]
-    }
+      "x_is_challenger": false,
+      "derivation": "sha256('1:1:<HEAD>')[0] % 2 == 0",
+      "criteria": [{"criterion": "Specificity", "output_x_score": 2, "output_y_score": 3, "reasoning": "...", "evidence_x": ["..."], "evidence_y": ["..."]}, ...]
+    },
+    "judge_2": {...},
+    "judge_3": {...}
   }
 }
 ```
 
 ### borda.json Format
 
-```json
-{
-  "run": "NNN",
-  "rubric_version": "v4",
-  "methodology_note": "3 Claude Code subagent judges, side-by-side. Borda: winner=2pts, loser=1pt, tie=1.5. Max 6 per criterion, 72 total.",
-  "engine_borda": 42,
-  "baseline_borda": 30,
-  "max_per_output": 72,
-  "winner": "engine",
-  "per_criterion": [
-    {"criterion": "Specificity", "engine": 3.0, "baseline": 6.0, "delta": -3.0},
-    {"criterion": "Novelty", "engine": 4.5, "baseline": 4.5, "delta": 0}
-  ]
-}
-```
+Generated by `borda.py`. Do not edit by hand — if you need a different shape, change the tool and commit it.
 
 ## Step 6: Write Diagnosis
 
@@ -589,11 +570,23 @@ EOF
 git push
 ```
 
-If challenger won, also tag:
+**Do NOT tag** the run yourself (gap #11). `loop.sh` creates `foresight-v{100+NNN}`
+from `diagnosis.md` after `verify_run.py` passes. If you run `git tag`, verify_run.py
+will reject the tag as untrusted and the loop will halt.
+
+**Do NOT force-push** (gap #12). Plain `git push origin claude/paw-foresight-meta` only.
+Reflog is audited.
+
+## Step 8: Self-Verify Before Handing Off
+
+Before ending your session, run the verifier yourself so you catch issues:
+
 ```bash
-git tag foresight-v{NNN}
-git push --tags
+python3 meta/tools/verify_run.py --run-dir "meta/runs/{NNN}_<description>/"
 ```
+
+Exit 0 → ok. Exit 1 → fix the listed issues (in the same session or commit fixes) and re-run.
+The loop.sh wrapper runs this again after you finish, and halts the next round if it still fails.
 
 ## Key Reminders
 
