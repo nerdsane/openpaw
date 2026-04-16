@@ -16,8 +16,9 @@ Each invocation is a fresh session — read all state from files, leave all stat
 3. `os-apps/paw-foresight/meta/DESIGN.md` — system architecture
 4. The most recent `meta/runs/{N-1}/diagnosis.md` — what to fix
 5. The most recent `meta/runs/{N-1}/transcripts/` — raw agent traces (read at least orchestrator.jsonl)
-6. `os-apps/paw-foresight/meta/baseline/synthesis.md` — the incumbent output to beat
+6. `os-apps/paw-foresight/meta/baseline/synthesis.md` — the single-shot baseline (for reference in progress.md ONLY — it does NOT participate in the tournament)
 7. `os-apps/paw-foresight/meta/baseline/prompt.md` — what the baseline prompt looked like (learn from it)
+8. The previous run's `meta/runs/{N-1}/engine-output/synthesis.md` — this is the INCUMBENT output that judges compare against
 
 ## Step 1: Determine Run Number
 
@@ -72,9 +73,32 @@ Most changes will be to the **orchestration skill** (SKILL.md). This controls:
 - How convergence analysis works
 - How the final synthesis is structured (this is where most Run 000 weaknesses live)
 
-After making changes:
-- If WASM changed: `cd os-apps/paw-foresight/wasm/spawn_orchestrator && cargo build --target wasm32-unknown-unknown --release && cp target/wasm32-unknown-unknown/release/spawn_orchestrator.wasm .`
-- Reinstall the app: use curl to POST to the app install endpoint, or restart the server
+After making changes — you MUST reload for changes to take effect:
+
+**If ONLY SKILL.md or specs changed** (most common case):
+```bash
+curl -s -X POST "http://localhost:3467/api/os-apps/paw-foresight/install" \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"tenant":"rita-agents"}'
+```
+This hot-reloads skills, specs, Cedar policies, and WASM from disk. No server restart needed.
+
+**If WASM source changed** — recompile first, then reinstall:
+```bash
+cd os-apps/paw-foresight/wasm/spawn_orchestrator && \
+  cargo build --target wasm32-unknown-unknown --release && \
+  cp target/wasm32-unknown-unknown/release/spawn_orchestrator.wasm .
+```
+Then either reinstall the full app (command above), or upload just the one module:
+```bash
+curl -s -X POST "http://localhost:3467/api/wasm/modules/spawn_orchestrator" \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "x-temper-tenant: rita-agents" \
+  --data-binary @os-apps/paw-foresight/wasm/spawn_orchestrator/target/wasm32-unknown-unknown/release/spawn_orchestrator.wasm
+```
+
+**CRITICAL: If you skip the reinstall/upload, the server keeps using the OLD version of your changes. This is the #1 cause of "my change did nothing" failures.**
 
 Save `meta/runs/{NNN}/changelog.md`:
 ```markdown
@@ -151,7 +175,7 @@ for i in $(seq 1 40); do
   STATUS=$(curl -s "$BASE/tdata/Projections('$PROJ_ID')" -H "$AUTH" -H "$TENANT" \
     | python3 -c "import sys,json; print(json.load(sys.stdin).get('status','?'))")
   echo "[$i] Projection status: $STATUS"
-  [ "$STATUS" = "Completed" ] && break
+  [ "$STATUS" = "Complete" ] && break
   [ "$STATUS" = "Failed" ] && echo "FAILED" && break
   sleep 30
 done
@@ -252,25 +276,40 @@ Paw-agent sessions route user_message through WASM (32KB field limit). Two fores
 outputs + rubric exceed 32KB. Claude Code subagents (`claude -p`) have no size limit
 and can receive BOTH outputs side-by-side — which is required for valid comparison.
 
-### 5a. Read Both Outputs
+### 5a. Read Both Outputs — TOURNAMENT PROTOCOL
+
+**CRITICAL: The baseline does NOT participate in the tournament.** Per program.md:
+> "A = incumbent output (starts as v000). B = challenger output. Baseline score is
+> tracked but does NOT participate in the tournament."
+
+The judges compare **incumbent engine output vs challenger engine output**:
 
 ```bash
 CHALLENGER=$(cat "meta/runs/{NNN}/engine-output/synthesis.md")
-INCUMBENT=$(cat "meta/baseline/synthesis.md")  # or previous winner
+
+# INCUMBENT = the PREVIOUS run's engine output, NOT the baseline.
+# For Run 001: incumbent is Run 000's engine output (or baseline if Run 000 had no valid engine output)
+# For Run 002+: incumbent is always the previous run's engine-output/synthesis.md
+PREV_RUN=$(printf '%03d' $((N - 1)))
+PREV_DIR=$(ls -d meta/runs/${PREV_RUN}_*/ 2>/dev/null | head -1)
+INCUMBENT=$(cat "${PREV_DIR}engine-output/synthesis.md")
+
+# The baseline is ONLY used for the "Baseline Score" column in progress.md — never sent to judges.
+# BASELINE=$(cat "meta/baseline/synthesis.md")  # reference only, do NOT send to judges
 ```
 
 Read `meta/program.md` to get the full rubric with all 12 criteria and anchors.
 
 ### 5b. Build the Judge Prompt
 
-Each judge sees the FULL rubric + BOTH outputs side-by-side. Randomize the
-assignment of incumbent/challenger to X/Y for each judge.
+Each judge sees the FULL rubric + BOTH outputs (incumbent vs challenger) side-by-side.
+Randomize the assignment of incumbent/challenger to X/Y for each judge.
 
 ```bash
 # Randomize assignment per judge (flip a coin)
-# Judge 1: X=engine, Y=baseline
-# Judge 2: X=baseline, Y=engine
-# Judge 3: X=engine, Y=baseline
+# Judge 1: X=challenger, Y=incumbent
+# Judge 2: X=incumbent, Y=challenger
+# Judge 3: X=challenger, Y=incumbent
 # (or use: $((RANDOM % 2)) to decide per judge)
 ```
 
@@ -368,41 +407,42 @@ for judge_num in [1, 2, 3]:
     with open(raw_file) as f:
         data = json.load(f)
 
-    # Map X/Y back to engine/baseline based on this judge's assignment
-    x_is_engine = (judge_num % 2 == 1)  # odd judges: X=engine
+    # Map X/Y back to challenger/incumbent based on this judge's assignment
+    x_is_challenger = (judge_num % 2 == 1)  # odd judges: X=challenger
     judges[f"judge_{judge_num}"] = {
-        "x_is_engine": x_is_engine,
+        "x_is_challenger": x_is_challenger,
         "criteria": data["criteria"]
     }
 
 # Compute Borda per criterion per judge
-borda = {"engine": 0, "baseline": 0, "per_criterion": []}
+# "challenger" = this run's engine output, "incumbent" = previous run's engine output
+borda = {"challenger": 0, "incumbent": 0, "per_criterion": []}
 for crit in criteria_names:
-    crit_engine_borda = 0
-    crit_baseline_borda = 0
+    crit_challenger_borda = 0
+    crit_incumbent_borda = 0
     for jname, jdata in judges.items():
         for c in jdata["criteria"]:
             if c["criterion"] == crit:
                 x_score = c["output_x_score"]
                 y_score = c["output_y_score"]
-                if jdata["x_is_engine"]:
-                    e_score, b_score = x_score, y_score
+                if jdata["x_is_challenger"]:
+                    ch_score, inc_score = x_score, y_score
                 else:
-                    e_score, b_score = y_score, x_score
+                    ch_score, inc_score = y_score, x_score
 
-                if e_score > b_score:
-                    crit_engine_borda += 2; crit_baseline_borda += 1
-                elif b_score > e_score:
-                    crit_baseline_borda += 2; crit_engine_borda += 1
+                if ch_score > inc_score:
+                    crit_challenger_borda += 2; crit_incumbent_borda += 1
+                elif inc_score > ch_score:
+                    crit_incumbent_borda += 2; crit_challenger_borda += 1
                 else:
-                    crit_engine_borda += 1.5; crit_baseline_borda += 1.5
-    borda["engine"] += crit_engine_borda
-    borda["baseline"] += crit_baseline_borda
+                    crit_challenger_borda += 1.5; crit_incumbent_borda += 1.5
+    borda["challenger"] += crit_challenger_borda
+    borda["incumbent"] += crit_incumbent_borda
     borda["per_criterion"].append({
         "criterion": crit,
-        "engine": crit_engine_borda,
-        "baseline": crit_baseline_borda,
-        "delta": crit_engine_borda - crit_baseline_borda
+        "challenger": crit_challenger_borda,
+        "incumbent": crit_incumbent_borda,
+        "delta": crit_challenger_borda - crit_incumbent_borda
     })
 ```
 
@@ -535,8 +575,10 @@ git push --tags
   score for competent output. Don't give 3s unless genuinely earned.
 - **Evidence for every score.** Quote or cite specific content from the output.
   "The output has good breadth" is not evidence. "Covers 6 themes: X, Y, Z..." is.
-- **The baseline is your reality check.** If the engine can't beat a single prompt,
-  the engine needs fundamental rethinking, not tuning.
+- **The baseline is your reality check** — but it does NOT participate in the tournament.
+  Judges compare challenger (this run's engine output) vs incumbent (previous run's engine
+  output). The baseline score is tracked in progress.md for reference only. If the engine
+  can't beat a single prompt, the engine needs fundamental rethinking, not tuning.
 - **Simpler wins at equal scores.** If you can remove a component and maintain scores,
   remove it.
 - **Document everything for the vlog.** Someone reading `progress.md` + each run's
