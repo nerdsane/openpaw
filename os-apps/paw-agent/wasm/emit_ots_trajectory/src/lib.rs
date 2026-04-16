@@ -64,6 +64,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             &status,
             &fields,
             &tool_spans_jsonl,
+            &ctx.entity_state,
         );
 
         let body = trajectory.to_string();
