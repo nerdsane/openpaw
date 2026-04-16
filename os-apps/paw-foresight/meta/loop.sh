@@ -115,10 +115,11 @@ documentation templates. Follow it step by step.
 Then read these files:
 1. os-apps/paw-foresight/meta/program.md — the evaluation rubric (IMMUTABLE — do not modify)
 2. os-apps/paw-foresight/meta/progress.md — score history and convergence status
-3. The most recent run's diagnosis.md — what to fix and why
-4. The most recent run's transcripts/orchestrator.jsonl — raw agent reasoning trace
-5. os-apps/paw-foresight/meta/baseline/synthesis.md — the incumbent to beat
-6. os-apps/paw-foresight/meta/baseline/prompt.md — the baseline prompt (learn from its structure)
+3. The most recent run's diagnosis.md — what to fix and why (read ALL transcripts, not just orchestrator)
+4. os-apps/paw-foresight/meta/baseline/synthesis.md — the single-shot baseline output (reference)
+
+Use the OTS converter for structured transcript analysis:
+  python3 meta/tools/jsonl_to_ots.py meta/runs/<latest>/transcripts/ --summary
 
 ## Server
 - Temper API: http://localhost:$SERVER_PORT

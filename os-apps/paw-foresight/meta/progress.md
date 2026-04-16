@@ -1,45 +1,19 @@
 # Foresight Meta-Improvement Progress
 
+## Rubric & Methodology
+
+- **Rubric:** v4 — 12 criteria (Grounding replaces Transparency, Information Density replaces Quantitative Precision)
+- **Judges:** 3 Claude Code subagents (`claude -p`), side-by-side comparison, randomized X/Y
+- **Baseline (locked):** 25.0/48 raw, 51.0/72 Borda (scored 2026-04-16)
+- **Constraints:** domain-agnostic, no-authoring, prefer-architecture
+- **Convergence:** 2 consecutive incumbent wins
+
 ## Score Table
 
 | Run | Tag | Engine Score | Baseline Score | Delta | Engine Borda | Baseline Borda | Winner | Streak | Key Change | Key Insight |
 |-----|-----|-------------|---------------|-------|-------------|---------------|--------|--------|------------|-------------|
-| 000 | foresight-v000 | 23.7/48 | 27.0/48 | -3.3 | 49.0/72 | 59.0/72 | Baseline | 0 | Hybrid restructure (skill-based orchestration) | Rubric v3 (tightened 3-level anchors + 3+ cap rule). 3 independent paw-agent judges. Engine weakest on Transparency (1.0) and Quant Precision (1.0). Baseline wins on Specificity, Falsifiability, Actionability. ~24 pts engine headroom. |
-| 001 | — | 25.4/48 | 27.0/48 | -1.6 | 51.5/72 | 56.5/72 | Baseline | 1 | Synthesis template quality mandates | Gap narrowed (-3.3→-1.6 raw, -10→-5 Borda). Template mandates NOT followed by orchestrator. Novelty +0.7, Challenge +0.4 (from probes). Specificity/Quant/Actionability unchanged. Root cause: prose mandates are advisory, not enforced. |
-| 002 | — | 27.0/48 | 27.0/48 | 0.0 | 54.0/72 | 54.0/72 | Baseline (tie) | 2 | Data-driven synthesis + WASM rebuild | Gap closed to 0 (from -5 Borda Run 001). Root cause fix: orchestrator never read SKILL.md (not in TemperFS); rebuilt WASM embeds 6.5KB instructions. Engine wins Decision Clarity (+2), Falsifiability (+2), Transparency (+1), Novelty (+1). Baseline wins Breadth (+3), Actionability (+2), Specificity (+1). Remaining gap: content diversity, not structure. |
-| 003 | foresight-v003 | 27.0/48 | 25.7/48 | +1.3 | 56.0/72 | 52.0/72 | Engine | 0 | Diversity constraints in synthesis template | First engine win. Added theme diversity mandate (4+ themes, max 2 per theme), obs dedup, cross-probe requirements, actionability specificity. Falsifiability (+3), Transparency (+2), Quant Precision (+2), Completeness (+1). Breadth gap halved (-3→-1). Orchestrator crashed (WASM context overflow); synthesis via dedicated session. |
-| 004 | — | 27.0/48 | 26.0/48 | +1.0 | 55.5/72 | 52.5/72 | Engine | 0 | Synthesis delegation + progression/challenge fixes | Second engine win. Split WASM instructions into orchestration + synthesis template. Orchestrator completed in 13 turns (no crash). Progression flipped from loss to win (+1.5→+2.0 delta). Challenge moved from loss to tie. Breadth regressed (-1→-3 gap). No malformed citations. Delegation architecture coded but not exercised — orchestrator fit in context. |
-| 005 | — | 28.3/48 | 26.3/48 | +2.0 | 56.0/72 | 52.0/72 | Engine | 0 | Direction diversity constraint (not followed) | Third engine win. Added Step C direction selection/consolidation to synthesis template (select 5 directions spanning 4+ themes, cap governance at 1). Constraint NOT followed — orchestrator included all 12 directions (same as Run 004). Breadth unchanged (-3.0). Specificity jumped (+3.0 Borda, all judges scored engine 3-4). Falsifiability jumped (+3.0 Borda). Plausibility recovered to tie. Prose constraints remain advisory; structural enforcement needed. |
-| 006 | — | 27.7/48 | 26.0/48 | +1.7 | 55.0/72 | 53.0/72 | Engine | 0 | Direction consolidation (not followed) | Fourth engine win. Added direction consolidation step to orchestrator convergence (archive excess directions by theme, keep max 5). NOT followed — orchestrator completed in 7 turns, skipped convergence/consolidation/delegation. All 12 directions active (0 archived), but synthesis used only 6. Breadth unchanged (-3.0). Falsifiability strong (+3.0). Specificity regressed to tie (was +3.0). Margin narrowing (Borda +2.0 vs +4.0 Run 005). Prose instructions proven unreliable across 5 runs. |
-| 007 | — | 27.0/48 | 25.7/48 | +1.3 | 56.0/72 | 52.0/72 | Engine | 0 | WASM probe theme enforcement | Fifth engine win. Moved probe creation from orchestrator into WASM with hard-coded theme constraints. Theme diversity achieved (5 categories, 0 governance clustering). But Breadth Borda unchanged (-3.0) — direction diversity is necessary but not sufficient. Engine gains: Falsifiability (+3.0), Transparency (+2.0), Quant Precision (+2.0). Breadth deficit is in synthesis (cross-theme interaction), not directions. |
-| 008 | — | 28.7/48 | 26.3/48 | +2.3 | 55.5/72 | 52.5/72 | Engine | 0 | Cross-theme synthesis template (not followed) | Sixth engine win. Added mandatory Cross-Theme Interactions section (Step C4) to synthesis template. Synthesizer skipped it entirely — output has no cross-theme section. Breadth unchanged (-3.0). Progression improved (+2.0 Borda, engine avg 3.3/4). Falsifiability holds at +3.0. 6 runs of evidence: prose mandates in synthesis template are unreliable. Next: structural (WASM/session) enforcement of cross-theme reasoning. |
-| 009 | — | 26.3/48 | 25.7/48 | +0.7 | 55.0/72 | 53.0/72 | Engine | 0 | WASM cross-theme analyst session | Seventh engine win. Added dedicated cross-theme analyst session (WASM-created) between probes and synthesis. Analyst failed at runtime (provider key error); cross-theme content generated by meta-agent as workaround. **Breadth deficit RESOLVED:** E=4.5 B=4.5 (was E=3.0 B=6.0 across Runs 004-008). Progression strongest criterion (+3.0). New deficit: Actionability (-3.0, engine's decision points formulaic). Completeness penalized (-2.0) by output trimming for 32KB judge limit. |
-| 010 | — | 28.7/48 | 26.7/48 | +2.0 | 55.0/72 | 53.0/72 | Engine | 0 | Decision analyst session (pre-computed) | Eighth engine win. Added WASM-created decision analyst session (same pattern as cross-theme analyst). Decision analyst completed 0 turns; content pre-computed by meta-agent. **Actionability deficit RESOLVED:** E=6.0 B=3.0 (+3.0 Borda, was -3.0 in Run 009 — +6.0 swing). Falsifiability strong (+3.0). But Breadth regressed to -3.0 (was tied in Run 009) — caused by aggressive output trimming for 32KB judge limit removing Active Directions reasoning. Systemic issue: engine output (46KB) exceeds judge capacity (28KB trimmed); each new pre-computed section makes trimming harsher. |
-
-## Version History
-
-- **foresight-v000** (2025-04-15): Initial hybrid architecture. 1 WASM (spawn_orchestrator) + orchestration skill. 3 probes, 2 steps, gpt-5.4.
-- **rubric-v3** (2025-04-16): Tightened 3-level anchors on Novelty (require external evidence), Breadth (require non-obvious conclusions), Progression (require revision of earlier predictions), Challenge (require failure mechanism). Added 3+ cap rule (max 3 criteria at 3+ per output per judge). Rescored Run 000 with 3 independent paw-agent judges.
-
-## Version History
-
-- **foresight-v003** (2026-04-16): Added content diversity constraints to WASM-embedded synthesis instructions. Theme diversity (4+ themes), observation deduplication, cross-probe requirements, actionability specificity. First engine win.
-- **rubric-v4** (2026-04-15): Replaced Transparency→Grounding (reasoning chain validity), Quantitative Precision→Information Density (no redundancy). Added constraints: domain-agnostic, no-authoring, prefer-architecture. Judges now use Claude Code subagents (`claude -p`) with side-by-side comparison instead of split Temper sessions. Baseline to be re-scored once under v4. See nerdsane/openpaw#58 for 32KB WASM fix.
-
-## === RUBRIC V4 RESTART (2026-04-16) ===
-
-Engine reverted to v000 SKILL.md + v003 spawn_orchestrator WASM (pre-hack).
-Runs 001-010 scores are under v3 with broken methodology — not comparable.
-All scores below this line use rubric v4 with side-by-side Claude subagent judges.
-
-**Baseline (locked):** 25.0/48 raw, 51.0/72 Borda (scored once, 2026-04-16, 3 judges)
-**Judge method:** Claude Code subagents (`claude -p`), side-by-side, randomized X/Y
-**Rubric:** v4 — Grounding (not Transparency), Information Density (not Quant Precision)
-**Constraints:** domain-agnostic, no-authoring, prefer-architecture
 
 ## Convergence Status
 
-**Status:** Starting fresh
-**Current incumbent:** v000 engine (to be scored)
-**A-wins streak:** 0
+**Status:** Not started
 **Converged:** No
