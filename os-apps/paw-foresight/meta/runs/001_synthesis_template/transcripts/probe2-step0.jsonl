@@ -1,6 +1,0 @@
-{"id":"h-ss-019d945a-3d9b-7da2-98e2-7576e82fa926","parentId":null,"tokens":0,"type":"header","version":1}
-{"content_file_id":"fl-019d945a-3df1-7db0-9cf1-3e7fb8e84f51","id":"u-ss-019d945a-3d9b-7da2-98e2-7576e82fa926-0","parentId":"h-ss-019d945a-3d9b-7da2-98e2-7576e82fa926","role":"user","tokens":460,"type":"message"}
-{"content":[{"id":"call_sRlLoMJJFhfEnCg824N0N2mK","input":{"code":"state = temper.read('current_state_step_0.json', {'workspace_id': 'ws-019d9456-542c-7eb1-8274-3202a04b884d'})\nprint(type(state))\nif isinstance(state, str):\n    print(state[:8000])\nelse:\n    print(state)\n"},"name":"execute","type":"tool_use"}],"id":"a-2","parentId":"u-ss-019d945a-3d9b-7da2-98e2-7576e82fa926-0","role":"assistant","tokens":170,"type":"message"}
-{"content_file_id":"fl-019d945a-518c-7213-ba32-a76335c25db7","id":"t-3","parentId":"a-2","role":"user","tokens":1266,"type":"message"}
-{"content_file_id":"fl-019d945a-d2a0-7bb1-af97-19b4dfc148e3","id":"a-4","parentId":"t-3","role":"assistant","tokens":1760,"type":"message"}
-{"content":[{"content":"{\"done\":true}","is_error":false,"tool_use_id":"call_baNWTA8lhqxIBKIDec5aIbUz","type":"tool_result"}],"id":"t-5","parentId":"a-4","role":"user","tokens":28,"type":"message"}

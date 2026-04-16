@@ -1,3 +1,0 @@
-{"id":"h-ss-019d9354-3f9b-7731-8cba-10eda3e0e637","parentId":null,"tokens":0,"type":"header","version":1}
-{"content_file_id":"fl-019d9356-61d8-7e90-9e00-29162e1e01c4","id":"u-ss-019d9354-3f9b-7731-8cba-10eda3e0e637-0","parentId":"h-ss-019d9354-3f9b-7731-8cba-10eda3e0e637","role":"user","tokens":1,"type":"message"}
-{"content":[{"text":"Test received. How can I help?","type":"text"}],"id":"a-2","parentId":"u-ss-019d9354-3f9b-7731-8cba-10eda3e0e637-0","role":"assistant","tokens":29,"type":"message"}

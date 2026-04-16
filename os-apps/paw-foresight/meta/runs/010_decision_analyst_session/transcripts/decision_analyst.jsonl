@@ -1,4 +1,0 @@
-{"id":"h-ss-019d95de-6e5b-7bc3-81da-16da2067a307","parentId":null,"tokens":0,"type":"header","version":1}
-{"content_file_id":"fl-019d95de-6fda-7ce1-b411-0c7a34d2ec3a","id":"u-ss-019d95de-6e5b-7bc3-81da-16da2067a307-0","parentId":"h-ss-019d95de-6e5b-7bc3-81da-16da2067a307","role":"user","tokens":1450,"type":"message"}
-{"content_file_id":"fl-019d95df-b41f-7ff3-a5e8-c7a50dc731c3","id":"a-2","parentId":"u-ss-019d95de-6e5b-7bc3-81da-16da2067a307-0","role":"assistant","tokens":4430,"type":"message"}
-{"content":[{"content":"{\"done\":true}","is_error":false,"tool_use_id":"call_w5E6fAcpHcTh7CvPrkHjyV48","type":"tool_result"}],"id":"t-3","parentId":"a-2","role":"user","tokens":28,"type":"message"}

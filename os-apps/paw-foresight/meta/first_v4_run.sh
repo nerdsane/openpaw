@@ -26,7 +26,8 @@ This is Run 000 — the initial scoring run before any evolution begins.
 5. Run the engine:
    - Check for existing ForesightModel (DSE essay knowledge graph)
    - Create a Projection, Configure with foresight_model_id and horizon '1 year', Start
-   - Poll for completion (up to 20 min)
+   - IMPORTANT: Poll for status 'Complete' (NOT 'Completed') — the Projection entity uses 'Complete'
+   - The engine takes 10-20 min. spawn_orchestrator WASM creates 1 orchestrator session which runs the full loop.
    - Extract: synthesis narrative, observations JSON, directions JSON
 
 6. Extract ALL session transcripts via sqlite3 (orchestrator, every probe, any analysts)

@@ -1,4 +1,0 @@
-{"id":"h-ss-019d950d-a628-7182-8d9b-6cd0132ceea8","parentId":null,"tokens":0,"type":"header","version":1}
-{"content_file_id":"fl-019d950d-a68a-7b00-ad11-f5c5ab414021","id":"u-ss-019d950d-a628-7182-8d9b-6cd0132ceea8-0","parentId":"h-ss-019d950d-a628-7182-8d9b-6cd0132ceea8","role":"user","tokens":440,"type":"message"}
-{"content_file_id":"fl-019d950e-53ea-7cd0-9ca3-1d406072f245","id":"a-2","parentId":"u-ss-019d950d-a628-7182-8d9b-6cd0132ceea8-0","role":"assistant","tokens":1999,"type":"message"}
-{"content":[{"content":"{\"done\":true}","is_error":false,"tool_use_id":"call_gt9TQs5FLmENxPgPHzcwlsrn","type":"tool_result"}],"id":"t-3","parentId":"a-2","role":"user","tokens":28,"type":"message"}
