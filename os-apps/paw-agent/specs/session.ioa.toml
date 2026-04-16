@@ -736,6 +736,15 @@ hint = "Session tree repaired after restart. Re-enter bounded context preparatio
 effect = [{ type = "trigger", name = "prepare_context" }]
 
 [[action]]
+name = "ResumeFromCheckpoint"
+kind = "input"
+from = ["Recovering"]
+to = "Executing"
+params = ["pending_tool_calls", "pending_tool_context", "repl_file_id", "session_leaf_id"]
+hint = "Session was in an active tool-call checkpoint when the server restarted. Resume directly into tool execution with the preserved pending_tool_context instead of re-entering the LLM loop. See OpenPaw Track 1 Phase 3 follow-up (session_recoverer mid-turn resume)."
+effect = [{ type = "trigger", name = "run_tools" }]
+
+[[action]]
 name = "Resume"
 kind = "input"
 from = ["Created"]
