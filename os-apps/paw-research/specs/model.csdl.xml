@@ -10,6 +10,7 @@
         <Property Name="Query" Type="Edm.String"/>
         <Property Name="Url" Type="Edm.String"/>
         <Property Name="Results" Type="Edm.String"/>
+        <Property Name="TruncatedBytes" Type="Edm.String"/>
         <Property Name="Error" Type="Edm.String"/>
         <Annotation Term="Paw.Vocab.AuthZ.CedarPolicy" String="policies/research.cedar"/>
         <Annotation Term="Paw.Vocab.Agent.Hint" String="Execute web search or URL fetch as a governed, auditable entity."/>
@@ -30,6 +31,7 @@
       <Action Name="RecordResults" IsBound="true">
         <Parameter Name="bindingParameter" Type="OpenPaw.Research.WebQuery"/>
         <Parameter Name="results" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="truncated_bytes" Type="Edm.String" Nullable="true"/>
         <ReturnType Type="OpenPaw.Research.WebQuery"/>
       </Action>
 

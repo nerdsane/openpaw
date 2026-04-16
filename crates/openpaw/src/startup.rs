@@ -904,6 +904,11 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
         }
     }
 
+    // ADR-0047: spawn the background blob sweeper. Opt-in by default (runs at
+    // the 6h cadence, reads TEMPER_BLOB_SWEEP_DISABLED to turn off). Detached
+    // — the task loops until process exit.
+    let _blob_sweeper = temper_server::blob_sweeper::spawn_blob_sweeper(state.server.clone());
+
     // Phase 8: Banner (printed after bind so we show the actual port)
     tracing::info!("Phase 8: Bootstrap complete");
 

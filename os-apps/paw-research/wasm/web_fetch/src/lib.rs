@@ -20,6 +20,13 @@ use temper_wasm_sdk::prelude::*;
 /// field-overflow blob path for any value above the 128KB inline ceiling.
 const MAX_CONTENT_LEN: usize = 100_000;
 
+/// Hard cap on the raw response body before HTML stripping. Pathological
+/// responses (HTML bombs, CDN dumps) that exceed this are truncated with a
+/// marker and a `WebFetchTruncated` event is dispatched for observability.
+/// The result ALSO still goes through `MAX_CONTENT_LEN` after stripping.
+/// See openpaw ADR-0033.
+const WEB_FETCH_MAX_BYTES: usize = 10 * 1024 * 1024; // 10 MB
+
 /// Entry point.
 #[unsafe(no_mangle)]
 pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
@@ -66,11 +73,16 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             return Ok(());
         }
 
+        // Enforce the 10MB upstream cap before any parsing/allocation.
+        // Oversize bodies are truncated with a marker and truncated_bytes is
+        // recorded on the entity for observability. See openpaw ADR-0033.
+        let (body_text, truncated_upstream) = apply_upstream_cap(resp.body, WEB_FETCH_MAX_BYTES);
+
         // Strip HTML if the response looks like HTML
-        let text = if looks_like_html(&resp.body) {
-            html_to_markdown(&resp.body)
+        let text = if looks_like_html(&body_text) {
+            html_to_markdown(&body_text)
         } else {
-            resp.body
+            body_text
         };
 
         // Truncate to max size
@@ -93,7 +105,27 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         // (ADR-0040 / ADR-0045) handles values above the 128KB inline ceiling
         // by writing to the content-addressed blob store, and consumers
         // resolve via ctx.read_field_string (ADR-0046).
-        set_success_result("RecordResults", &json!({"results": truncated}));
+        //
+        // `truncated_bytes` carries the original upstream size when the 10MB
+        // cap fired (openpaw ADR-0033); empty string means no truncation.
+        let truncated_bytes_param = truncated_upstream
+            .map(|n| n.to_string())
+            .unwrap_or_default();
+        if !truncated_bytes_param.is_empty() {
+            ctx.log(
+                "warn",
+                &format!(
+                    "web_fetch: upstream truncated at {WEB_FETCH_MAX_BYTES} bytes; original was {truncated_bytes_param} bytes"
+                ),
+            );
+        }
+        set_success_result(
+            "RecordResults",
+            &json!({
+                "results": truncated,
+                "truncated_bytes": truncated_bytes_param,
+            }),
+        );
 
         Ok(())
     })();
@@ -105,6 +137,31 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
 }
 
 /// Check if the response body looks like HTML.
+/// Enforce an upstream byte cap on the response body before any parsing.
+///
+/// Returns `(body_or_truncated, Some(original_size))` when the body exceeded
+/// `max_bytes`; returns `(body, None)` otherwise. When truncated, a trailing
+/// marker is appended so downstream consumers can see the boundary. The
+/// `Some(original_size)` value is written to `WebQuery.truncated_bytes`.
+///
+/// Char-boundary safe: truncation walks back to the nearest valid UTF-8 char
+/// boundary so the resulting string is well-formed. See openpaw ADR-0033.
+fn apply_upstream_cap(body: String, max_bytes: usize) -> (String, Option<usize>) {
+    let body_len = body.len();
+    if body_len <= max_bytes {
+        return (body, None);
+    }
+    let mut boundary = max_bytes;
+    while boundary > 0 && !body.is_char_boundary(boundary) {
+        boundary -= 1;
+    }
+    let mut cut = body[..boundary].to_string();
+    cut.push_str(&format!(
+        "\n\n[web_fetch: truncated upstream at {max_bytes} bytes; response was {body_len} bytes]"
+    ));
+    (cut, Some(body_len))
+}
+
 fn looks_like_html(body: &str) -> bool {
     let lower: String = body.chars().take(500).collect::<String>().to_lowercase();
     lower.contains("<html") || lower.contains("<!doctype html")
@@ -644,5 +701,64 @@ mod tests {
         assert!(!has_readable_web_content(""));
         assert!(!has_readable_web_content("   \n\t"));
         assert!(has_readable_web_content("headline"));
+    }
+
+    // --- Red-green tests for openpaw ADR-0033 (10MB upstream cap) ---
+    //
+    // Red phase would fail before the cap was introduced because the module
+    // would allocate the entire oversized body and attempt to parse it as
+    // HTML, spending an unbounded amount of fuel + heap. With the cap the
+    // oversize path short-circuits and the original size is surfaced to the
+    // caller as `truncated_bytes`.
+
+    #[test]
+    fn apply_upstream_cap_under_cap_returns_untouched() {
+        let body = "hello world".repeat(10);
+        let (out, original) = apply_upstream_cap(body.clone(), 1024);
+        assert_eq!(out, body, "small body passes through unmodified");
+        assert!(original.is_none(), "small body is not flagged as truncated");
+    }
+
+    #[test]
+    fn apply_upstream_cap_over_cap_truncates_and_marks() {
+        let body = "a".repeat(2048);
+        let (out, original) = apply_upstream_cap(body, 512);
+        assert_eq!(original, Some(2048), "original size reported");
+        assert!(out.len() < 2048, "output is shorter than input");
+        assert!(
+            out.contains("truncated upstream at 512 bytes"),
+            "truncation marker present: {out}"
+        );
+        assert!(
+            out.contains("response was 2048 bytes"),
+            "original size in marker: {out}"
+        );
+    }
+
+    #[test]
+    fn apply_upstream_cap_respects_utf8_char_boundaries() {
+        // Build a body where the nominal byte cap falls in the middle of a
+        // multi-byte UTF-8 sequence (4-byte emoji 🦀 = 0xF0 0x9F 0xA6 0x80).
+        // apply_upstream_cap must walk back to a char boundary so the
+        // resulting string is well-formed.
+        let mut body = String::new();
+        for _ in 0..100 {
+            body.push('🦀');
+        }
+        // 🦀 is 4 bytes; 100 crabs = 400 bytes. Cap at 101 falls mid-crab.
+        let (out, original) = apply_upstream_cap(body, 101);
+        assert_eq!(original, Some(400));
+        // The cut portion should be all complete crabs (100/4 = 25 crabs = 100 bytes).
+        assert!(out.starts_with("🦀🦀🦀🦀🦀"));
+        // Must be valid UTF-8 (String guarantees, but cross-check).
+        assert_eq!(out.chars().next(), Some('🦀'));
+    }
+
+    #[test]
+    fn apply_upstream_cap_at_exact_cap_returns_untouched() {
+        let body = "x".repeat(512);
+        let (out, original) = apply_upstream_cap(body.clone(), 512);
+        assert_eq!(out, body, "body at exactly cap passes through");
+        assert!(original.is_none());
     }
 }

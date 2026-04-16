@@ -44,6 +44,14 @@ initial = ""
 overflow_ttl_seconds = "3600"
 
 [[state]]
+name = "truncated_bytes"
+type = "string"
+initial = ""
+# When web_fetch hits its 10MB upstream cap (WEB_FETCH_MAX_BYTES), the
+# original response size is recorded here for observability. Empty means
+# no truncation. openpaw ADR-0033.
+
+[[state]]
 name = "error"
 type = "string"
 initial = ""
@@ -73,8 +81,8 @@ name = "RecordResults"
 kind = "input"
 from = ["Executing"]
 to = "Complete"
-params = ["results"]
-hint = "WASM module completed successfully; store results."
+params = ["results", "truncated_bytes"]
+hint = "WASM module completed successfully; store results. `truncated_bytes` is non-empty when web_fetch hit its 10MB upstream cap."
 
 [[action]]
 name = "RecordError"
