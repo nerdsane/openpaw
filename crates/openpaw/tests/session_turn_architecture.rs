@@ -7,10 +7,8 @@ fn repo_root() -> std::path::PathBuf {
 
 #[test]
 fn session_spec_defines_bounded_turn_pipeline() {
-    let spec = fs::read_to_string(
-        repo_root().join("os-apps/paw-agent/specs/session.ioa.toml"),
-    )
-    .expect("session.ioa.toml should exist");
+    let spec = fs::read_to_string(repo_root().join("os-apps/paw-agent/specs/session.ioa.toml"))
+        .expect("session.ioa.toml should exist");
 
     for needle in [
         "PreparingContext",
