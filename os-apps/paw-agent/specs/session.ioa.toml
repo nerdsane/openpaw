@@ -377,6 +377,17 @@ name = "recovery_count"
 type = "counter"
 initial = "0"
 
+# --- State Variables: Tool-Call Checkpointing (OpenPaw Track 1 Phase 3) ---
+
+# Counter of CheckpointToolBatch transitions within the current turn. Resets
+# implicitly on HandleToolResults (new turn dispatches a fresh monty_repl).
+# Used as a runaway-guard signal: monty_repl refuses to checkpoint past 50
+# (~= 1000 tool calls at chunk size 20) and fails the session instead.
+[[state]]
+name = "checkpoint_count"
+type = "counter"
+initial = "0"
+
 # --- Actions: Core Session Loop ---
 
 [[action]]
@@ -484,6 +495,18 @@ hint = "Tool results received. Increment turn, transition to PreparingContext, a
 effect = [
   { type = "increment", var = "turn_count" },
   { type = "trigger", name = "prepare_context" }
+]
+
+[[action]]
+name = "CheckpointToolBatch"
+kind = "input"
+from = ["Executing"]
+to = "Executing"
+params = ["pending_tool_calls", "pending_tool_context", "repl_file_id", "session_leaf_id"]
+hint = "monty_repl reached a tool-batch checkpoint boundary inside run_tools. Persist partial results via `pending_tool_context` and re-dispatch run_tools with the remainder. Self-loop on Executing; increments checkpoint_count for the runaway guard. See OpenPaw Track 1 Phase 3 / openpaw#66."
+effect = [
+  { type = "increment", var = "checkpoint_count" },
+  { type = "trigger", name = "run_tools" }
 ]
 
 # --- Actions: Compaction (Phase 3) ---
@@ -651,8 +674,7 @@ name = "Heartbeat"
 kind = "input"
 from = ["Thinking", "PreparingContext", "CallingProvider", "ApplyingProviderResponse", "Executing", "Steering", "Compacting", "WaitingForApproval", "Recovering"]
 params = ["last_heartbeat_at"]
-hint = "Record session liveness. Called by WASM modules during long operations. Self-loop."
-effect = [{ type = "trigger", name = "heartbeat_typing" }]
+hint = "Record session liveness. Called by WASM modules during long operations. Self-loop. Typing indicator is posted inline by the caller (see wasm-helpers::send_typing_indicator) — no trigger effect, to avoid racing ProcessToolCalls callbacks on the entity sequence."
 
 [[action]]
 name = "TimeoutFail"
@@ -852,7 +874,11 @@ sandbox_provider = "{secret:sandbox_provider}"
 modal_token_id = "{secret:modal_token_id}"
 modal_token_secret = "{secret:modal_token_secret}"
 timeout_secs = "900"
-max_fuel = "50000000000"
+# Raised from 50B to 120B (OpenPaw Track 1 Phase 4). Gives headroom for
+# orchestrator sessions that process many tool calls per turn; once tool-call
+# checkpointing lands (Phase 3 / openpaw#66) each chunk stays well under this
+# ceiling and the budget is rarely approached.
+max_fuel = "120000000000"
 max_memory = "268435456"
 max_response_bytes = "16777216"
 spawn_session_wait_timeout_ms = "840000"
@@ -920,15 +946,6 @@ trigger = "notify_approval_needed"
 type = "wasm"
 module = "request_approval"
 on_failure = "Fail"
-
-[integration.config]
-temper_api_url = "{secret:temper_api_url}"
-
-[[integration]]
-name = "heartbeat_typing"
-trigger = "heartbeat_typing"
-type = "wasm"
-module = "heartbeat_typing"
 
 [integration.config]
 temper_api_url = "{secret:temper_api_url}"
