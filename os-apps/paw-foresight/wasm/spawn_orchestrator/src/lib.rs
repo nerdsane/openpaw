@@ -359,6 +359,44 @@ If merging directions: combine reasoning into a single entry, cite all supportin
 observation IDs, and keep the strongest counterfactual. Title the merged direction
 to reflect its broader scope.
 
+**Step C4: Cross-Theme Interactions (BREADTH-CRITICAL)**
+
+After writing the Active Directions, you MUST produce a separate "Cross-Theme Interactions"
+section with exactly 4-5 interaction entries. Each entry connects TWO DIFFERENT themes
+from the directions/observations and derives a NON-OBVIOUS conclusion.
+
+This section is the PRIMARY driver of Breadth score. The rubric requires:
+"6+ themes with explicit cross-theme interactions where the interaction produces
+a non-obvious conclusion (e.g., 'governance constraints reshape vendor economics'
+leading to a specific predicted outcome neither theme implies alone)."
+
+For each interaction, use this EXACT format:
+
+```
+#### Interaction N: [Theme A] x [Theme B]
+**Themes connected:** [theme A from C1 list] + [theme B from C1 list]
+**Observation bridge:** [obs: ID_from_theme_A] + [obs: ID_from_theme_B]
+
+[2-3 sentences explaining HOW these two themes interact. Name specific companies,
+tools, or mechanisms. The conclusion MUST be something neither theme implies alone.]
+
+**Non-obvious conclusion:** [One specific, falsifiable prediction that ONLY emerges
+from combining these two themes. Example: "Cedar-style policy gates (governance) will
+compress vendor pricing margins (economics) by 15-20% within 12 months because
+policy-as-code makes agent vendors interchangeable."]
+
+**Implication:** [What a decision-maker should do differently because of this interaction]
+```
+
+Rules for Cross-Theme Interactions:
+- Each interaction MUST connect 2 DIFFERENT themes (no same-theme pairs)
+- Each of the 4-5 interactions MUST use a DIFFERENT theme pair (no repeated pairs)
+- At least 4 of the 6 themes must appear across the interactions
+- Each interaction MUST cite observations from at least 2 different probes
+- The "non-obvious conclusion" MUST be a specific prediction, not a vague implication
+- At least 1 interaction MUST involve cross-domain (connecting an external analogy to a software theme)
+- At least 1 interaction MUST involve economics/market
+
 ### Step D: Build Top 5 Predictions
 
 For each of the top 5 directions, create a prediction with this EXACT format:
@@ -420,12 +458,13 @@ The MANDATORY section order is:
 3. Temporal Progression (4 phases: 0-3mo, 3-6mo, 6-9mo, 9-12mo)
    - Phases 2-4 MUST have a "Revisions to earlier predictions" subsection
    - Each revision must explain WHAT changed and WHY — not formulaic confirm/qualify/revise
-4. Active Directions (from Step C)
-5. Source Thesis Challenges (from Step F)
-6. Top 5 Predictions with Falsification Criteria (from Step D)
-7. Decision Points (from Step E)
-8. Assumptions & Limitations (3 assumptions with If-wrong and Confidence)
-9. Methodology
+4. Active Directions (from Step C, Steps C1-C3)
+5. Cross-Theme Interactions (from Step C4 — THIS SECTION IS MANDATORY, DO NOT SKIP)
+6. Source Thesis Challenges (from Step F)
+7. Top 5 Predictions with Falsification Criteria (from Step D)
+8. Decision Points (from Step E)
+9. Assumptions & Limitations (3 assumptions with If-wrong and Confidence)
+10. Methodology
 
 Write the complete synthesis to a file:
 ```python
@@ -456,6 +495,8 @@ temper.done("Projection complete. Synthesis: " + result["file_id"])
     open-source: Aider/Cline/OpenHands; platforms: Kubernetes/Terraform/Temper).
 14. Temporal Progression phases must each introduce at least 1 NEW company or tool
     not mentioned in prior phases.
+15. Cross-Theme Interactions section MUST have 4-5 entries connecting different theme pairs.
+    Each must produce a non-obvious conclusion and cite observations from 2+ probes.
 "###;
 
 /// Create an Agent + Session, configure the session, and return the session ID.

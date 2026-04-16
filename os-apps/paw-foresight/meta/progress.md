@@ -12,6 +12,7 @@
 | 005 | — | 28.3/48 | 26.3/48 | +2.0 | 56.0/72 | 52.0/72 | Engine | 0 | Direction diversity constraint (not followed) | Third engine win. Added Step C direction selection/consolidation to synthesis template (select 5 directions spanning 4+ themes, cap governance at 1). Constraint NOT followed — orchestrator included all 12 directions (same as Run 004). Breadth unchanged (-3.0). Specificity jumped (+3.0 Borda, all judges scored engine 3-4). Falsifiability jumped (+3.0 Borda). Plausibility recovered to tie. Prose constraints remain advisory; structural enforcement needed. |
 | 006 | — | 27.7/48 | 26.0/48 | +1.7 | 55.0/72 | 53.0/72 | Engine | 0 | Direction consolidation (not followed) | Fourth engine win. Added direction consolidation step to orchestrator convergence (archive excess directions by theme, keep max 5). NOT followed — orchestrator completed in 7 turns, skipped convergence/consolidation/delegation. All 12 directions active (0 archived), but synthesis used only 6. Breadth unchanged (-3.0). Falsifiability strong (+3.0). Specificity regressed to tie (was +3.0). Margin narrowing (Borda +2.0 vs +4.0 Run 005). Prose instructions proven unreliable across 5 runs. |
 | 007 | — | 27.0/48 | 25.7/48 | +1.3 | 56.0/72 | 52.0/72 | Engine | 0 | WASM probe theme enforcement | Fifth engine win. Moved probe creation from orchestrator into WASM with hard-coded theme constraints. Theme diversity achieved (5 categories, 0 governance clustering). But Breadth Borda unchanged (-3.0) — direction diversity is necessary but not sufficient. Engine gains: Falsifiability (+3.0), Transparency (+2.0), Quant Precision (+2.0). Breadth deficit is in synthesis (cross-theme interaction), not directions. |
+| 008 | — | 28.7/48 | 26.3/48 | +2.3 | 55.5/72 | 52.5/72 | Engine | 0 | Cross-theme synthesis template (not followed) | Sixth engine win. Added mandatory Cross-Theme Interactions section (Step C4) to synthesis template. Synthesizer skipped it entirely — output has no cross-theme section. Breadth unchanged (-3.0). Progression improved (+2.0 Borda, engine avg 3.3/4). Falsifiability holds at +3.0. 6 runs of evidence: prose mandates in synthesis template are unreliable. Next: structural (WASM/session) enforcement of cross-theme reasoning. |
 
 ## Version History
 
@@ -25,9 +26,9 @@
 ## Convergence Status
 
 **Status:** In progress
-**Current incumbent:** Engine (Run 007)
-**A-wins streak:** 0 (engine won again — five consecutive engine wins, Runs 003-007)
+**Current incumbent:** Engine (Run 008)
+**A-wins streak:** 0 (engine won again — six consecutive engine wins, Runs 003-008)
 **Converged:** No
 **Judge infrastructure:** Operational — 3 independent paw-agent sessions per scoring round (split-session: 6 total, one per output per judge, to stay under 32KB WASM field limit). Engine output must be condensed to <29KB for judging (obs refs removed) due to 32KB WASM field limit.
-**Key persistent deficit:** Breadth (E=3.0 B=6.0 Borda, unchanged across Runs 004-007). Run 007 proved direction diversity (WASM theme enforcement) is necessary but not sufficient — the deficit is in synthesis (cross-theme interaction), not direction coverage.
-**Margin trend:** Engine Borda margin: +4.0 (Run 003) → +3.0 (Run 004) → +4.0 (Run 005) → +2.0 (Run 006) → +4.0 (Run 007).
+**Key persistent deficit:** Breadth (E=3.0 B=6.0 Borda, unchanged across Runs 004-008). Run 008 proved prose-based synthesis template additions are unreliable (synthesizer skipped new Cross-Theme Interactions section). 6 runs confirm: WASM-level interventions work, prose-level interventions do not. Next step: structural enforcement of cross-theme reasoning via dedicated WASM-created session or pre-synthesis analysis.
+**Margin trend:** Engine Borda margin: +4.0 (Run 003) → +3.0 (Run 004) → +4.0 (Run 005) → +2.0 (Run 006) → +4.0 (Run 007) → +3.0 (Run 008).
