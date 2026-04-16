@@ -1,0 +1,1180 @@
+{
+  "@odata.context": "$metadata#Observations",
+  "value": [
+    {
+      "entity_type": "Observation",
+      "entity_id": "en-019d9548-03d5-7e41-b9ad-e606a6d27bef",
+      "status": "Created",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "Id": "en-019d9548-03d5-7e41-b9ad-e606a6d27bef",
+        "Status": "Created",
+        "content": "Between 180 and 365 days, directed software evolution will look less like isolated benchmark tuning and more like ecological portfolio management, similar to how hedge funds evaluate strategies in competitive market games rather than single backtests. Research such as FinEvo and Imbue's Darwinian Evolver suggests enterprises will begin running 10-50 agent or code variants against shared task pools, budget caps, and adversarial regression suites; the winning metric will shift from peak score to risk-adjusted yield such as pass-rate stability, rollback frequency below 2%, and marginal cost per accepted diff.",
+        "counterfactual": "If teams keep evaluating agent variants in isolation, they will overfit to canned tasks, misprice operational risk, and deploy systems that look strong in demo environments but fail when multiple agents compete for the same tools, context, and review bandwidth.",
+        "importance": "high",
+        "probe_agent_id": "aj-019d9547-bcb1-7f83-b179-dec0ecc977f0",
+        "projection_id": "en-019d9547-bc13-7601-b382-750595cfa3b8",
+        "signal_refs": "[]",
+        "step_at": "1"
+      },
+      "events": [
+        {
+          "action": "Created",
+          "from_status": "",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T07:53:38.007080Z",
+          "params": {}
+        },
+        {
+          "action": "Record",
+          "from_status": "Created",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T07:53:38.010890Z",
+          "params": {
+            "content": "Between 180 and 365 days, directed software evolution will look less like isolated benchmark tuning and more like ecological portfolio management, similar to how hedge funds evaluate strategies in competitive market games rather than single backtests. Research such as FinEvo and Imbue's Darwinian Evolver suggests enterprises will begin running 10-50 agent or code variants against shared task pools, budget caps, and adversarial regression suites; the winning metric will shift from peak score to risk-adjusted yield such as pass-rate stability, rollback frequency below 2%, and marginal cost per accepted diff.",
+            "counterfactual": "If teams keep evaluating agent variants in isolation, they will overfit to canned tasks, misprice operational risk, and deploy systems that look strong in demo environments but fail when multiple agents compete for the same tools, context, and review bandwidth.",
+            "importance": "high",
+            "probe_agent_id": "aj-019d9547-bcb1-7f83-b179-dec0ecc977f0",
+            "projection_id": "en-019d9547-bc13-7601-b382-750595cfa3b8",
+            "signal_refs": "[]",
+            "step_at": "1"
+          }
+        }
+      ],
+      "total_event_count": 2,
+      "sequence_nr": 2,
+      "@odata.id": "Observations('en-019d9548-03d5-7e41-b9ad-e606a6d27bef')"
+    },
+    {
+      "entity_type": "Observation",
+      "entity_id": "en-019d9548-0927-7860-97e9-78274e6fcfa2",
+      "status": "Created",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "Id": "en-019d9548-0927-7860-97e9-78274e6fcfa2",
+        "Status": "Created",
+        "content": "Across the next 180 days, enterprise adoption of coding agents will bottleneck on unit economics rather than model capability. Tools like Cursor, GitHub Copilot, and internal agents at Stripe- and Coinbase-like firms can show dramatic PR throughput gains, but CFOs will scrutinize fully loaded cost per merged pull request, including model inference, code review, security scanning, and rework from failed generations; teams that cannot show at least a double-digit cycle-time reduction or measurable labor deflection will face pilot freezes.",
+        "counterfactual": "If leaders ignore the unit economics constraint, they will mistake enthusiastic developer usage for durable budget approval and overcommit to vendor contracts that fail renewal tests.",
+        "importance": "high",
+        "probe_agent_id": "aj-019d9547-bc91-7cc3-a79e-6e4d11546e68",
+        "projection_id": "en-019d9547-bc13-7601-b382-750595cfa3b8",
+        "signal_refs": "[]",
+        "step_at": "0"
+      },
+      "events": [
+        {
+          "action": "Created",
+          "from_status": "",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T07:53:39.368855Z",
+          "params": {}
+        },
+        {
+          "action": "Record",
+          "from_status": "Created",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T07:53:39.373322Z",
+          "params": {
+            "content": "Across the next 180 days, enterprise adoption of coding agents will bottleneck on unit economics rather than model capability. Tools like Cursor, GitHub Copilot, and internal agents at Stripe- and Coinbase-like firms can show dramatic PR throughput gains, but CFOs will scrutinize fully loaded cost per merged pull request, including model inference, code review, security scanning, and rework from failed generations; teams that cannot show at least a double-digit cycle-time reduction or measurable labor deflection will face pilot freezes.",
+            "counterfactual": "If leaders ignore the unit economics constraint, they will mistake enthusiastic developer usage for durable budget approval and overcommit to vendor contracts that fail renewal tests.",
+            "importance": "high",
+            "probe_agent_id": "aj-019d9547-bc91-7cc3-a79e-6e4d11546e68",
+            "projection_id": "en-019d9547-bc13-7601-b382-750595cfa3b8",
+            "signal_refs": "[]",
+            "step_at": "0"
+          }
+        }
+      ],
+      "total_event_count": 2,
+      "sequence_nr": 2,
+      "@odata.id": "Observations('en-019d9548-0927-7860-97e9-78274e6fcfa2')"
+    },
+    {
+      "entity_type": "Observation",
+      "entity_id": "en-019d9548-1b71-7553-8ccb-d7ab0ed8b68e",
+      "status": "Created",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "Id": "en-019d9548-1b71-7553-8ccb-d7ab0ed8b68e",
+        "Status": "Created",
+        "content": "By the 180-365 day window, enterprise coding-agent stacks will standardize on scaffold architectures that separate planner, code executor, test runner, and repo-memory services rather than shipping monolithic agents. The practical signal is that teams using internal platforms or vendors like Cursor, Cognition, and OpenHands will expose policy-controlled execution layers in CI with containerized sandboxes, cached dependency layers, and repo-specific retrieval indexes because bug-fix throughput collapses once agent runs exceed about 10-15 minutes or touch more than one service boundary without structured handoff.",
+        "counterfactual": "If teams ignore scaffold decomposition, coding agents will look impressive in demos but fail in production repos due to long-tail tool errors, slow feedback loops, and inability to isolate which component caused a bad patch.",
+        "importance": "high",
+        "probe_agent_id": "aj-019d9547-bc7d-7031-9834-4c55e8fbb7ce",
+        "projection_id": "en-019d9547-bc13-7601-b382-750595cfa3b8",
+        "signal_refs": "[]",
+        "step_at": "1"
+      },
+      "events": [
+        {
+          "action": "Created",
+          "from_status": "",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T07:53:44.050890Z",
+          "params": {}
+        },
+        {
+          "action": "Record",
+          "from_status": "Created",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T07:53:44.055059Z",
+          "params": {
+            "content": "By the 180-365 day window, enterprise coding-agent stacks will standardize on scaffold architectures that separate planner, code executor, test runner, and repo-memory services rather than shipping monolithic agents. The practical signal is that teams using internal platforms or vendors like Cursor, Cognition, and OpenHands will expose policy-controlled execution layers in CI with containerized sandboxes, cached dependency layers, and repo-specific retrieval indexes because bug-fix throughput collapses once agent runs exceed about 10-15 minutes or touch more than one service boundary without structured handoff.",
+            "counterfactual": "If teams ignore scaffold decomposition, coding agents will look impressive in demos but fail in production repos due to long-tail tool errors, slow feedback loops, and inability to isolate which component caused a bad patch.",
+            "importance": "high",
+            "probe_agent_id": "aj-019d9547-bc7d-7031-9834-4c55e8fbb7ce",
+            "projection_id": "en-019d9547-bc13-7601-b382-750595cfa3b8",
+            "signal_refs": "[]",
+            "step_at": "1"
+          }
+        }
+      ],
+      "total_event_count": 2,
+      "sequence_nr": 2,
+      "@odata.id": "Observations('en-019d9548-1b71-7553-8ccb-d7ab0ed8b68e')"
+    },
+    {
+      "entity_type": "Observation",
+      "entity_id": "en-019d9548-1f28-7122-ab4f-a289579f5c6d",
+      "status": "Created",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "Id": "en-019d9548-1f28-7122-ab4f-a289579f5c6d",
+        "Status": "Created",
+        "content": "Within 180 days, production coding-agent teams will standardize on branch-scoped execution pipelines where tools like Claude Code, SWE-agent, and internal patching bots generate isolated diffs and then hand off to containerized CI jobs before merge. The operational pattern is converging on ephemeral preview environments, repo-local sandboxes, and pull-request gates because teams have learned that direct edits without replayable test runs collapse once patch volume exceeds roughly 20-30 agent-generated changes per engineer per week.",
+        "counterfactual": "If teams ignore branch-scoped execution and replayable CI handoff, coding agents will appear productive in demos but create merge debt, flaky regressions, and rollback-heavy release trains that erase most of the throughput gain.",
+        "importance": "high",
+        "probe_agent_id": "aj-019d9547-bc6f-7403-ae59-48e5e6815fe6",
+        "projection_id": "en-019d9547-bc13-7601-b382-750595cfa3b8",
+        "signal_refs": "[]",
+        "step_at": "0"
+      },
+      "events": [
+        {
+          "action": "Created",
+          "from_status": "",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T07:53:45.001102Z",
+          "params": {}
+        },
+        {
+          "action": "Record",
+          "from_status": "Created",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T07:53:45.005023Z",
+          "params": {
+            "content": "Within 180 days, production coding-agent teams will standardize on branch-scoped execution pipelines where tools like Claude Code, SWE-agent, and internal patching bots generate isolated diffs and then hand off to containerized CI jobs before merge. The operational pattern is converging on ephemeral preview environments, repo-local sandboxes, and pull-request gates because teams have learned that direct edits without replayable test runs collapse once patch volume exceeds roughly 20-30 agent-generated changes per engineer per week.",
+            "counterfactual": "If teams ignore branch-scoped execution and replayable CI handoff, coding agents will appear productive in demos but create merge debt, flaky regressions, and rollback-heavy release trains that erase most of the throughput gain.",
+            "importance": "high",
+            "probe_agent_id": "aj-019d9547-bc6f-7403-ae59-48e5e6815fe6",
+            "projection_id": "en-019d9547-bc13-7601-b382-750595cfa3b8",
+            "signal_refs": "[]",
+            "step_at": "0"
+          }
+        }
+      ],
+      "total_event_count": 2,
+      "sequence_nr": 2,
+      "@odata.id": "Observations('en-019d9548-1f28-7122-ab4f-a289579f5c6d')"
+    },
+    {
+      "entity_type": "Observation",
+      "entity_id": "en-019d9548-200d-71a2-abcb-aca0489dc45d",
+      "status": "Created",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "Id": "en-019d9548-200d-71a2-abcb-aca0489dc45d",
+        "Status": "Created",
+        "content": "A second pattern will come from biology: selection pressure will move upstream from generation to assay design, because software evolution systems will only improve as fast as their evaluation environments become richer. By late in the 180-365 day window, vendors like Anthropic, OpenAI, and platform teams building verifier stacks will invest more in mutation screens, sandbox assays, and policy gates than in raw code generation, with practical thresholds such as 3-5 independent evaluators per task family, mandatory security-policy screening, and longitudinal replay sets that catch epistatic failures across coupled changes.",
+        "counterfactual": "If organizations focus on generating more variants without improving assays, they will breed fast but brittle systems, analogous to biological selection on the wrong phenotype: apparent gains will collapse when code meets production dependencies, compliance checks, or interacting services.",
+        "importance": "high",
+        "probe_agent_id": "aj-019d9547-bcb1-7f83-b179-dec0ecc977f0",
+        "projection_id": "en-019d9547-bc13-7601-b382-750595cfa3b8",
+        "signal_refs": "[]",
+        "step_at": "1"
+      },
+      "events": [
+        {
+          "action": "Created",
+          "from_status": "",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T07:53:45.230361Z",
+          "params": {}
+        },
+        {
+          "action": "Record",
+          "from_status": "Created",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T07:53:45.234005Z",
+          "params": {
+            "content": "A second pattern will come from biology: selection pressure will move upstream from generation to assay design, because software evolution systems will only improve as fast as their evaluation environments become richer. By late in the 180-365 day window, vendors like Anthropic, OpenAI, and platform teams building verifier stacks will invest more in mutation screens, sandbox assays, and policy gates than in raw code generation, with practical thresholds such as 3-5 independent evaluators per task family, mandatory security-policy screening, and longitudinal replay sets that catch epistatic failures across coupled changes.",
+            "counterfactual": "If organizations focus on generating more variants without improving assays, they will breed fast but brittle systems, analogous to biological selection on the wrong phenotype: apparent gains will collapse when code meets production dependencies, compliance checks, or interacting services.",
+            "importance": "high",
+            "probe_agent_id": "aj-019d9547-bcb1-7f83-b179-dec0ecc977f0",
+            "projection_id": "en-019d9547-bc13-7601-b382-750595cfa3b8",
+            "signal_refs": "[]",
+            "step_at": "1"
+          }
+        }
+      ],
+      "total_event_count": 2,
+      "sequence_nr": 2,
+      "@odata.id": "Observations('en-019d9548-200d-71a2-abcb-aca0489dc45d')"
+    },
+    {
+      "entity_type": "Observation",
+      "entity_id": "en-019d9548-2242-77e2-b3ae-3ee95899e256",
+      "status": "Created",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "Id": "en-019d9548-2242-77e2-b3ae-3ee95899e256",
+        "Status": "Created",
+        "content": "Directed Software Evolution teams will start separating exploration from production the way biopharma separates high-variance discovery from GMP manufacturing. In the next 180 days, enterprises using Anthropic Claude Code, OpenAI Codex-style agents, or Cursor-like coding workflows will run many speculative code variants in sandboxes, but only promote a small fraction through deterministic gates such as unit-test pass rates above 95%, policy checks, and reproducible build attestation. The operational pattern will look less like autonomous coding and more like automated lab screening.",
+        "counterfactual": "If this separation is ignored, organizations will either overconstrain experimentation and lose the yield advantage of evolutionary search, or let ungoverned variants leak into production and trigger trust, compliance, and rollback crises.",
+        "importance": "high",
+        "probe_agent_id": "aj-019d9547-bca6-7d30-b6be-3442dcc9bed1",
+        "projection_id": "en-019d9547-bc13-7601-b382-750595cfa3b8",
+        "signal_refs": "[]",
+        "step_at": "0"
+      },
+      "events": [
+        {
+          "action": "Created",
+          "from_status": "",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T07:53:45.795511Z",
+          "params": {}
+        },
+        {
+          "action": "Record",
+          "from_status": "Created",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T07:53:45.799281Z",
+          "params": {
+            "content": "Directed Software Evolution teams will start separating exploration from production the way biopharma separates high-variance discovery from GMP manufacturing. In the next 180 days, enterprises using Anthropic Claude Code, OpenAI Codex-style agents, or Cursor-like coding workflows will run many speculative code variants in sandboxes, but only promote a small fraction through deterministic gates such as unit-test pass rates above 95%, policy checks, and reproducible build attestation. The operational pattern will look less like autonomous coding and more like automated lab screening.",
+            "counterfactual": "If this separation is ignored, organizations will either overconstrain experimentation and lose the yield advantage of evolutionary search, or let ungoverned variants leak into production and trigger trust, compliance, and rollback crises.",
+            "importance": "high",
+            "probe_agent_id": "aj-019d9547-bca6-7d30-b6be-3442dcc9bed1",
+            "projection_id": "en-019d9547-bc13-7601-b382-750595cfa3b8",
+            "signal_refs": "[]",
+            "step_at": "0"
+          }
+        }
+      ],
+      "total_event_count": 2,
+      "sequence_nr": 2,
+      "@odata.id": "Observations('en-019d9548-2242-77e2-b3ae-3ee95899e256')"
+    },
+    {
+      "entity_type": "Observation",
+      "entity_id": "en-019d9548-268f-7a83-9c59-f3870d39230f",
+      "status": "Created",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "Id": "en-019d9548-268f-7a83-9c59-f3870d39230f",
+        "Status": "Created",
+        "content": "The market narrative will consolidate around a handful of vendors, but procurement behavior will become more fragmented, not less. Even as GitHub Copilot, Cursor, Anthropic-powered tooling, and platform bundles advertise end-to-end agent workflows, large firms will split spend across IDE copilots, background coding agents, and internal orchestration layers to preserve bargaining leverage and avoid being trapped in per-seat plus per-token pricing models that are still moving quarter to quarter.",
+        "counterfactual": "If buyers ignore emerging vendor lock-in and pricing fragmentation, they will discover too late that switching costs sit in workflow integration and developer habit formation, not just in model APIs.",
+        "importance": "high",
+        "probe_agent_id": "aj-019d9547-bc91-7cc3-a79e-6e4d11546e68",
+        "projection_id": "en-019d9547-bc13-7601-b382-750595cfa3b8",
+        "signal_refs": "[]",
+        "step_at": "0"
+      },
+      "events": [
+        {
+          "action": "Created",
+          "from_status": "",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T07:53:46.896842Z",
+          "params": {}
+        },
+        {
+          "action": "Record",
+          "from_status": "Created",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T07:53:46.900533Z",
+          "params": {
+            "content": "The market narrative will consolidate around a handful of vendors, but procurement behavior will become more fragmented, not less. Even as GitHub Copilot, Cursor, Anthropic-powered tooling, and platform bundles advertise end-to-end agent workflows, large firms will split spend across IDE copilots, background coding agents, and internal orchestration layers to preserve bargaining leverage and avoid being trapped in per-seat plus per-token pricing models that are still moving quarter to quarter.",
+            "counterfactual": "If buyers ignore emerging vendor lock-in and pricing fragmentation, they will discover too late that switching costs sit in workflow integration and developer habit formation, not just in model APIs.",
+            "importance": "high",
+            "probe_agent_id": "aj-019d9547-bc91-7cc3-a79e-6e4d11546e68",
+            "projection_id": "en-019d9547-bc13-7601-b382-750595cfa3b8",
+            "signal_refs": "[]",
+            "step_at": "0"
+          }
+        }
+      ],
+      "total_event_count": 2,
+      "sequence_nr": 2,
+      "@odata.id": "Observations('en-019d9548-268f-7a83-9c59-f3870d39230f')"
+    },
+    {
+      "entity_type": "Observation",
+      "entity_id": "en-019d9548-39c2-71d2-9d28-5fc0789fbc79",
+      "status": "Created",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "Id": "en-019d9548-39c2-71d2-9d28-5fc0789fbc79",
+        "Status": "Created",
+        "content": "Evaluation harnesses for coding agents will move from benchmark-only scoring to staged acceptance pipelines that replay real tickets, run differential tests, and score patch risk before merge. Expect practitioner teams to adopt production-derived suites similar in spirit to ProdCodeBench and commercial eval platforms, with promotion thresholds such as 80%+ task completion on golden issue sets, zero critical regression failures, and median verification cost below the engineer review time they are supposed to save.",
+        "counterfactual": "If organizations keep evaluating agents on public benchmarks alone, they will overestimate repo fitness, ship brittle automation, and trigger rollbacks when agent-generated changes hit undocumented internal constraints.",
+        "importance": "high",
+        "probe_agent_id": "aj-019d9547-bc7d-7031-9834-4c55e8fbb7ce",
+        "projection_id": "en-019d9547-bc13-7601-b382-750595cfa3b8",
+        "signal_refs": "[]",
+        "step_at": "1"
+      },
+      "events": [
+        {
+          "action": "Created",
+          "from_status": "",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T07:53:51.811538Z",
+          "params": {}
+        },
+        {
+          "action": "Record",
+          "from_status": "Created",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T07:53:51.815955Z",
+          "params": {
+            "content": "Evaluation harnesses for coding agents will move from benchmark-only scoring to staged acceptance pipelines that replay real tickets, run differential tests, and score patch risk before merge. Expect practitioner teams to adopt production-derived suites similar in spirit to ProdCodeBench and commercial eval platforms, with promotion thresholds such as 80%+ task completion on golden issue sets, zero critical regression failures, and median verification cost below the engineer review time they are supposed to save.",
+            "counterfactual": "If organizations keep evaluating agents on public benchmarks alone, they will overestimate repo fitness, ship brittle automation, and trigger rollbacks when agent-generated changes hit undocumented internal constraints.",
+            "importance": "high",
+            "probe_agent_id": "aj-019d9547-bc7d-7031-9834-4c55e8fbb7ce",
+            "projection_id": "en-019d9547-bc13-7601-b382-750595cfa3b8",
+            "signal_refs": "[]",
+            "step_at": "1"
+          }
+        }
+      ],
+      "total_event_count": 2,
+      "sequence_nr": 2,
+      "@odata.id": "Observations('en-019d9548-39c2-71d2-9d28-5fc0789fbc79')"
+    },
+    {
+      "entity_type": "Observation",
+      "entity_id": "en-019d9548-3acf-7f83-b927-86ecd754e8d7",
+      "status": "Created",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "Id": "en-019d9548-3acf-7f83-b927-86ecd754e8d7",
+        "Status": "Created",
+        "content": "Manufacturing analogies will become more predictive than pure software analogies: the leading enterprises will treat evolving code as a statistical process control problem, not a heroic coding problem. Over the next 6-12 months, software factories using Cursor, Devin-style agents, or internal coding agents will begin setting control limits on defect escape, review latency, and reproducibility, and they will freeze or roll back evolutionary runs when variance exceeds thresholds such as a 20% week-over-week jump in flaky tests or a doubling of mean remediation time.",
+        "counterfactual": "If firms fail to impose process-control style limits, they will mistake throughput for capability and accumulate hidden process drift, causing procurement, audit, and release teams to slow adoption even when headline agent productivity looks strong.",
+        "importance": "high",
+        "probe_agent_id": "aj-019d9547-bcb1-7f83-b179-dec0ecc977f0",
+        "projection_id": "en-019d9547-bc13-7601-b382-750595cfa3b8",
+        "signal_refs": "[]",
+        "step_at": "1"
+      },
+      "events": [
+        {
+          "action": "Created",
+          "from_status": "",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T07:53:52.080998Z",
+          "params": {}
+        },
+        {
+          "action": "Record",
+          "from_status": "Created",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T07:53:52.084861Z",
+          "params": {
+            "content": "Manufacturing analogies will become more predictive than pure software analogies: the leading enterprises will treat evolving code as a statistical process control problem, not a heroic coding problem. Over the next 6-12 months, software factories using Cursor, Devin-style agents, or internal coding agents will begin setting control limits on defect escape, review latency, and reproducibility, and they will freeze or roll back evolutionary runs when variance exceeds thresholds such as a 20% week-over-week jump in flaky tests or a doubling of mean remediation time.",
+            "counterfactual": "If firms fail to impose process-control style limits, they will mistake throughput for capability and accumulate hidden process drift, causing procurement, audit, and release teams to slow adoption even when headline agent productivity looks strong.",
+            "importance": "high",
+            "probe_agent_id": "aj-019d9547-bcb1-7f83-b179-dec0ecc977f0",
+            "projection_id": "en-019d9547-bc13-7601-b382-750595cfa3b8",
+            "signal_refs": "[]",
+            "step_at": "1"
+          }
+        }
+      ],
+      "total_event_count": 2,
+      "sequence_nr": 2,
+      "@odata.id": "Observations('en-019d9548-3acf-7f83-b927-86ecd754e8d7')"
+    },
+    {
+      "entity_type": "Observation",
+      "entity_id": "en-019d9548-3c17-76e2-8369-20bc2e42db57",
+      "status": "Created",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "Id": "en-019d9548-3c17-76e2-8369-20bc2e42db57",
+        "Status": "Created",
+        "content": "Manufacturing-style statistical process control will become a hidden differentiator for coding-agent platforms within 0-180 days. Teams will stop judging systems only by demo quality and begin tracking batch metrics such as variance in benchmark scores, rollback frequency per 100 generated changes, and mean evaluation cost per accepted patch; vendors that cannot show stable process capability will struggle in enterprise pilots even if their best-case demos are strong. This mirrors how factories win on yield and repeatability, not just prototype brilliance.",
+        "counterfactual": "If buyers ignore process stability, they will purchase on headline benchmark gains and then discover that operational variance destroys ROI through expensive review queues and unpredictable release quality.",
+        "importance": "high",
+        "probe_agent_id": "aj-019d9547-bca6-7d30-b6be-3442dcc9bed1",
+        "projection_id": "en-019d9547-bc13-7601-b382-750595cfa3b8",
+        "signal_refs": "[]",
+        "step_at": "0"
+      },
+      "events": [
+        {
+          "action": "Created",
+          "from_status": "",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T07:53:52.408991Z",
+          "params": {}
+        },
+        {
+          "action": "Record",
+          "from_status": "Created",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T07:53:52.412680Z",
+          "params": {
+            "content": "Manufacturing-style statistical process control will become a hidden differentiator for coding-agent platforms within 0-180 days. Teams will stop judging systems only by demo quality and begin tracking batch metrics such as variance in benchmark scores, rollback frequency per 100 generated changes, and mean evaluation cost per accepted patch; vendors that cannot show stable process capability will struggle in enterprise pilots even if their best-case demos are strong. This mirrors how factories win on yield and repeatability, not just prototype brilliance.",
+            "counterfactual": "If buyers ignore process stability, they will purchase on headline benchmark gains and then discover that operational variance destroys ROI through expensive review queues and unpredictable release quality.",
+            "importance": "high",
+            "probe_agent_id": "aj-019d9547-bca6-7d30-b6be-3442dcc9bed1",
+            "projection_id": "en-019d9547-bc13-7601-b382-750595cfa3b8",
+            "signal_refs": "[]",
+            "step_at": "0"
+          }
+        }
+      ],
+      "total_event_count": 2,
+      "sequence_nr": 2,
+      "@odata.id": "Observations('en-019d9548-3c17-76e2-8369-20bc2e42db57')"
+    },
+    {
+      "entity_type": "Observation",
+      "entity_id": "en-019d9548-4035-75e2-818b-e748b42bb794",
+      "status": "Created",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "Id": "en-019d9548-4035-75e2-818b-e748b42bb794",
+        "Status": "Created",
+        "content": "Within 180 days, production coding-agent teams will standardize on branch-scoped execution pipelines where tools like Claude Code, SWE-agent, and internal patching bots generate isolated diffs and then hand off to containerized CI jobs before merge. The operational pattern is converging on ephemeral preview environments, repo-local sandboxes, and pull-request gates because teams have learned that direct edits without replayable test runs collapse once patch volume exceeds roughly 20-30 agent-generated changes per engineer per week.",
+        "counterfactual": "If teams ignore branch-scoped execution and replayable CI handoff, coding agents will appear productive in demos but create merge debt, flaky regressions, and rollback-heavy release trains that erase most of the throughput gain.",
+        "importance": "high",
+        "probe_agent_id": "aj-019d9547-bc6f-7403-ae59-48e5e6815fe6",
+        "projection_id": "en-019d9547-bc13-7601-b382-750595cfa3b8",
+        "signal_refs": "[]",
+        "step_at": "0"
+      },
+      "events": [
+        {
+          "action": "Created",
+          "from_status": "",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T07:53:53.461765Z",
+          "params": {}
+        },
+        {
+          "action": "Record",
+          "from_status": "Created",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T07:53:53.464605Z",
+          "params": {
+            "content": "Within 180 days, production coding-agent teams will standardize on branch-scoped execution pipelines where tools like Claude Code, SWE-agent, and internal patching bots generate isolated diffs and then hand off to containerized CI jobs before merge. The operational pattern is converging on ephemeral preview environments, repo-local sandboxes, and pull-request gates because teams have learned that direct edits without replayable test runs collapse once patch volume exceeds roughly 20-30 agent-generated changes per engineer per week.",
+            "counterfactual": "If teams ignore branch-scoped execution and replayable CI handoff, coding agents will appear productive in demos but create merge debt, flaky regressions, and rollback-heavy release trains that erase most of the throughput gain.",
+            "importance": "high",
+            "probe_agent_id": "aj-019d9547-bc6f-7403-ae59-48e5e6815fe6",
+            "projection_id": "en-019d9547-bc13-7601-b382-750595cfa3b8",
+            "signal_refs": "[]",
+            "step_at": "0"
+          }
+        }
+      ],
+      "total_event_count": 2,
+      "sequence_nr": 2,
+      "@odata.id": "Observations('en-019d9548-4035-75e2-818b-e748b42bb794')"
+    },
+    {
+      "entity_type": "Observation",
+      "entity_id": "en-019d9548-4bb4-70b1-b61c-740c62187d81",
+      "status": "Created",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "Id": "en-019d9548-4bb4-70b1-b61c-740c62187d81",
+        "Status": "Created",
+        "content": "Organizational adoption will lag individual developer enthusiasm because managers must redesign review, accountability, and staffing norms before scaling agent usage. In the next 0-180 days, many engineering orgs will permit coding agents for low-risk maintenance or test generation while blocking autonomous work on revenue-critical systems, because a manager can defend a 5 to 15 percent productivity gain but not an incident caused by unclear ownership between engineer, agent, and platform team.",
+        "counterfactual": "If organizations ignore change-management frictions, rollout will stall in the gap between successful demos and production operating models, creating backlash against the category.",
+        "importance": "high",
+        "probe_agent_id": "aj-019d9547-bc91-7cc3-a79e-6e4d11546e68",
+        "projection_id": "en-019d9547-bc13-7601-b382-750595cfa3b8",
+        "signal_refs": "[]",
+        "step_at": "0"
+      },
+      "events": [
+        {
+          "action": "Created",
+          "from_status": "",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T07:53:56.405486Z",
+          "params": {}
+        },
+        {
+          "action": "Record",
+          "from_status": "Created",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T07:53:56.409341Z",
+          "params": {
+            "content": "Organizational adoption will lag individual developer enthusiasm because managers must redesign review, accountability, and staffing norms before scaling agent usage. In the next 0-180 days, many engineering orgs will permit coding agents for low-risk maintenance or test generation while blocking autonomous work on revenue-critical systems, because a manager can defend a 5 to 15 percent productivity gain but not an incident caused by unclear ownership between engineer, agent, and platform team.",
+            "counterfactual": "If organizations ignore change-management frictions, rollout will stall in the gap between successful demos and production operating models, creating backlash against the category.",
+            "importance": "high",
+            "probe_agent_id": "aj-019d9547-bc91-7cc3-a79e-6e4d11546e68",
+            "projection_id": "en-019d9547-bc13-7601-b382-750595cfa3b8",
+            "signal_refs": "[]",
+            "step_at": "0"
+          }
+        }
+      ],
+      "total_event_count": 2,
+      "sequence_nr": 2,
+      "@odata.id": "Observations('en-019d9548-4bb4-70b1-b61c-740c62187d81')"
+    },
+    {
+      "entity_type": "Observation",
+      "entity_id": "en-019d9548-53f4-7e32-875e-93f08945c4f7",
+      "status": "Created",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "Id": "en-019d9548-53f4-7e32-875e-93f08945c4f7",
+        "Status": "Created",
+        "content": "Over the next 180-365 days, enterprise adoption of coding agents will slow from broad experimentation to CFO-governed consolidation. Microsoft GitHub Copilot, Cursor, and Anthropic Claude Code will keep winning pilots, but many firms will cap deployment after discovering that per-seat subscription savings are swamped by review, sandbox, and infra costs unless teams can show at least 15-20% cycle-time improvement or a measurable reduction in contractor spend.",
+        "counterfactual": "If leaders ignore the cost-accounting gap, they will mistake trial usage for durable adoption and overinvest in tools that never clear procurement or budget review.",
+        "importance": "high",
+        "probe_agent_id": "aj-019d9547-bc9e-77d2-9ed5-e410310511d5",
+        "projection_id": "en-019d9547-bc13-7601-b382-750595cfa3b8",
+        "signal_refs": "[]",
+        "step_at": "1"
+      },
+      "events": [
+        {
+          "action": "Created",
+          "from_status": "",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T07:53:58.517721Z",
+          "params": {}
+        },
+        {
+          "action": "Record",
+          "from_status": "Created",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T07:53:58.521375Z",
+          "params": {
+            "content": "Over the next 180-365 days, enterprise adoption of coding agents will slow from broad experimentation to CFO-governed consolidation. Microsoft GitHub Copilot, Cursor, and Anthropic Claude Code will keep winning pilots, but many firms will cap deployment after discovering that per-seat subscription savings are swamped by review, sandbox, and infra costs unless teams can show at least 15-20% cycle-time improvement or a measurable reduction in contractor spend.",
+            "counterfactual": "If leaders ignore the cost-accounting gap, they will mistake trial usage for durable adoption and overinvest in tools that never clear procurement or budget review.",
+            "importance": "high",
+            "probe_agent_id": "aj-019d9547-bc9e-77d2-9ed5-e410310511d5",
+            "projection_id": "en-019d9547-bc13-7601-b382-750595cfa3b8",
+            "signal_refs": "[]",
+            "step_at": "1"
+          }
+        }
+      ],
+      "total_event_count": 2,
+      "sequence_nr": 2,
+      "@odata.id": "Observations('en-019d9548-53f4-7e32-875e-93f08945c4f7')"
+    },
+    {
+      "entity_type": "Observation",
+      "entity_id": "en-019d9548-557e-7ac1-b937-e8886ebc40bb",
+      "status": "Created",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "Id": "en-019d9548-557e-7ac1-b937-e8886ebc40bb",
+        "Status": "Created",
+        "content": "The winning technical pattern will be branch-level parallel variation: agents generate multiple candidate patches, then CI farms evaluate them concurrently with unit, integration, and policy checks before a reviewer sees only the top-ranked survivors. Within 6-12 months, mature teams will routinely run 3-10 candidate branches per nontrivial ticket using ephemeral preview environments, deterministic seed replay, and artifact logging because one-shot generation leaves too much performance on the table compared with selection across variants.",
+        "counterfactual": "If teams do not operationalize parallel candidate evaluation, they will mistake model quality for system quality and miss the compounding gains that come from selection pressure over multiple executable variants.",
+        "importance": "high",
+        "probe_agent_id": "aj-019d9547-bc7d-7031-9834-4c55e8fbb7ce",
+        "projection_id": "en-019d9547-bc13-7601-b382-750595cfa3b8",
+        "signal_refs": "[]",
+        "step_at": "1"
+      },
+      "events": [
+        {
+          "action": "Created",
+          "from_status": "",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T07:53:58.912112Z",
+          "params": {}
+        },
+        {
+          "action": "Record",
+          "from_status": "Created",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T07:53:58.916356Z",
+          "params": {
+            "content": "The winning technical pattern will be branch-level parallel variation: agents generate multiple candidate patches, then CI farms evaluate them concurrently with unit, integration, and policy checks before a reviewer sees only the top-ranked survivors. Within 6-12 months, mature teams will routinely run 3-10 candidate branches per nontrivial ticket using ephemeral preview environments, deterministic seed replay, and artifact logging because one-shot generation leaves too much performance on the table compared with selection across variants.",
+            "counterfactual": "If teams do not operationalize parallel candidate evaluation, they will mistake model quality for system quality and miss the compounding gains that come from selection pressure over multiple executable variants.",
+            "importance": "high",
+            "probe_agent_id": "aj-019d9547-bc7d-7031-9834-4c55e8fbb7ce",
+            "projection_id": "en-019d9547-bc13-7601-b382-750595cfa3b8",
+            "signal_refs": "[]",
+            "step_at": "1"
+          }
+        }
+      ],
+      "total_event_count": 2,
+      "sequence_nr": 2,
+      "@odata.id": "Observations('en-019d9548-557e-7ac1-b937-e8886ebc40bb')"
+    },
+    {
+      "entity_type": "Observation",
+      "entity_id": "en-019d9548-56e6-7ad0-8cfd-fd3ccc82df68",
+      "status": "Created",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "Id": "en-019d9548-56e6-7ad0-8cfd-fd3ccc82df68",
+        "Status": "Created",
+        "content": "Organizational ecology suggests a barbell market structure in the 180-365 day period: a few firms with enough task volume, proprietary telemetry, and governance capital will sustain in-house evolution loops, while many others will depend on managed platforms. Expect large banks, cloud vendors, and regulated platform teams to internalize evaluation assets as strategic habitat, while midsize enterprises increasingly buy packaged evolutionary infrastructure; a measurable sign will be procurement language shifting from single-model quality claims to requirements for lineage tracking, replayability, and evidence retention over 12-month audit windows.",
+        "counterfactual": "If leaders assume every organization can run software evolution as a generic capability, they will underinvest in the habitat requirements\u2014data, review capacity, and governance memory\u2014and many programs will stall after pilot success.",
+        "importance": "high",
+        "probe_agent_id": "aj-019d9547-bcb1-7f83-b179-dec0ecc977f0",
+        "projection_id": "en-019d9547-bc13-7601-b382-750595cfa3b8",
+        "signal_refs": "[]",
+        "step_at": "1"
+      },
+      "events": [
+        {
+          "action": "Created",
+          "from_status": "",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T07:53:59.271896Z",
+          "params": {}
+        },
+        {
+          "action": "Record",
+          "from_status": "Created",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T07:53:59.275478Z",
+          "params": {
+            "content": "Organizational ecology suggests a barbell market structure in the 180-365 day period: a few firms with enough task volume, proprietary telemetry, and governance capital will sustain in-house evolution loops, while many others will depend on managed platforms. Expect large banks, cloud vendors, and regulated platform teams to internalize evaluation assets as strategic habitat, while midsize enterprises increasingly buy packaged evolutionary infrastructure; a measurable sign will be procurement language shifting from single-model quality claims to requirements for lineage tracking, replayability, and evidence retention over 12-month audit windows.",
+            "counterfactual": "If leaders assume every organization can run software evolution as a generic capability, they will underinvest in the habitat requirements\u2014data, review capacity, and governance memory\u2014and many programs will stall after pilot success.",
+            "importance": "high",
+            "probe_agent_id": "aj-019d9547-bcb1-7f83-b179-dec0ecc977f0",
+            "projection_id": "en-019d9547-bc13-7601-b382-750595cfa3b8",
+            "signal_refs": "[]",
+            "step_at": "1"
+          }
+        }
+      ],
+      "total_event_count": 2,
+      "sequence_nr": 2,
+      "@odata.id": "Observations('en-019d9548-56e6-7ad0-8cfd-fd3ccc82df68')"
+    },
+    {
+      "entity_type": "Observation",
+      "entity_id": "en-019d9548-5965-73e3-a653-92a1f7f5783d",
+      "status": "Created",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "Id": "en-019d9548-5965-73e3-a653-92a1f7f5783d",
+        "Status": "Created",
+        "content": "A portfolio-management logic from finance will begin shaping how large firms deploy software evolution systems over the next 180 days. Instead of betting on one general coding agent, platform teams will allocate risk budgets across multiple model-policy-evaluator stacks, treating them like correlated assets and measuring which combination produces the best risk-adjusted acceptance rate after review; a practical threshold will be whether a second stack reduces severe defect exposure or review load by 20% or more. The winners will be orchestration layers that can compare and rebalance these portfolios rather than single-model copilots alone.",
+        "counterfactual": "If organizations keep making single-vendor, single-agent bets, they will misread model volatility as capability and remain exposed to concentrated failure modes when one stack regresses, changes pricing, or misses a critical domain.",
+        "importance": "high",
+        "probe_agent_id": "aj-019d9547-bca6-7d30-b6be-3442dcc9bed1",
+        "projection_id": "en-019d9547-bc13-7601-b382-750595cfa3b8",
+        "signal_refs": "[]",
+        "step_at": "0"
+      },
+      "events": [
+        {
+          "action": "Created",
+          "from_status": "",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T07:53:59.910883Z",
+          "params": {}
+        },
+        {
+          "action": "Record",
+          "from_status": "Created",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T07:53:59.915118Z",
+          "params": {
+            "content": "A portfolio-management logic from finance will begin shaping how large firms deploy software evolution systems over the next 180 days. Instead of betting on one general coding agent, platform teams will allocate risk budgets across multiple model-policy-evaluator stacks, treating them like correlated assets and measuring which combination produces the best risk-adjusted acceptance rate after review; a practical threshold will be whether a second stack reduces severe defect exposure or review load by 20% or more. The winners will be orchestration layers that can compare and rebalance these portfolios rather than single-model copilots alone.",
+            "counterfactual": "If organizations keep making single-vendor, single-agent bets, they will misread model volatility as capability and remain exposed to concentrated failure modes when one stack regresses, changes pricing, or misses a critical domain.",
+            "importance": "high",
+            "probe_agent_id": "aj-019d9547-bca6-7d30-b6be-3442dcc9bed1",
+            "projection_id": "en-019d9547-bc13-7601-b382-750595cfa3b8",
+            "signal_refs": "[]",
+            "step_at": "0"
+          }
+        }
+      ],
+      "total_event_count": 2,
+      "sequence_nr": 2,
+      "@odata.id": "Observations('en-019d9548-5965-73e3-a653-92a1f7f5783d')"
+    },
+    {
+      "entity_type": "Observation",
+      "entity_id": "en-019d9548-65f9-7923-b8a4-cb4562b0f48b",
+      "status": "Created",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "Id": "en-019d9548-65f9-7923-b8a4-cb4562b0f48b",
+        "Status": "Created",
+        "content": "Workforce impact in the next six months will show up first as role rebundling, not net headcount collapse. Firms piloting directed software evolution will quietly shift senior engineers toward evaluation design, repository policy, and agent supervision while expecting junior engineers to produce more output per person; this raises the bar for entry-level learning and can reduce hiring velocity even if no formal layoffs are attributed to coding agents.",
+        "counterfactual": "If executives ignore the rebundling effect, they will misread stable headcount as evidence of low disruption while weakening mentorship pipelines and future talent supply.",
+        "importance": "high",
+        "probe_agent_id": "aj-019d9547-bc91-7cc3-a79e-6e4d11546e68",
+        "projection_id": "en-019d9547-bc13-7601-b382-750595cfa3b8",
+        "signal_refs": "[]",
+        "step_at": "0"
+      },
+      "events": [
+        {
+          "action": "Created",
+          "from_status": "",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T07:54:03.130654Z",
+          "params": {}
+        },
+        {
+          "action": "Record",
+          "from_status": "Created",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T07:54:03.134593Z",
+          "params": {
+            "content": "Workforce impact in the next six months will show up first as role rebundling, not net headcount collapse. Firms piloting directed software evolution will quietly shift senior engineers toward evaluation design, repository policy, and agent supervision while expecting junior engineers to produce more output per person; this raises the bar for entry-level learning and can reduce hiring velocity even if no formal layoffs are attributed to coding agents.",
+            "counterfactual": "If executives ignore the rebundling effect, they will misread stable headcount as evidence of low disruption while weakening mentorship pipelines and future talent supply.",
+            "importance": "high",
+            "probe_agent_id": "aj-019d9547-bc91-7cc3-a79e-6e4d11546e68",
+            "projection_id": "en-019d9547-bc13-7601-b382-750595cfa3b8",
+            "signal_refs": "[]",
+            "step_at": "0"
+          }
+        }
+      ],
+      "total_event_count": 2,
+      "sequence_nr": 2,
+      "@odata.id": "Observations('en-019d9548-65f9-7923-b8a4-cb4562b0f48b')"
+    },
+    {
+      "entity_type": "Observation",
+      "entity_id": "en-019d9548-6f3e-7c30-bb85-8028128aa26c",
+      "status": "Created",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "Id": "en-019d9548-6f3e-7c30-bb85-8028128aa26c",
+        "Status": "Created",
+        "content": "Repository-specific memory and execution telemetry will become first-class infrastructure for coding agents, with teams storing failing traces, prior fix attempts, architectural constraints, and reviewer feedback as retrieval data tied to file paths and services. The measurable shift is that high-performing installations will log every agent run as a reproducible bundle of prompt context, tool calls, test outputs, and final diff so that bad behaviors can be debugged like CI failures rather than debated as model mysteries.",
+        "counterfactual": "If agent memory and telemetry remain ad hoc, organizations will not be able to improve failure modes systematically and each rollout wave will repeat the same integration mistakes across repos and teams.",
+        "importance": "high",
+        "probe_agent_id": "aj-019d9547-bc7d-7031-9834-4c55e8fbb7ce",
+        "projection_id": "en-019d9547-bc13-7601-b382-750595cfa3b8",
+        "signal_refs": "[]",
+        "step_at": "1"
+      },
+      "events": [
+        {
+          "action": "Created",
+          "from_status": "",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T07:54:05.503657Z",
+          "params": {}
+        },
+        {
+          "action": "Record",
+          "from_status": "Created",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T07:54:05.507428Z",
+          "params": {
+            "content": "Repository-specific memory and execution telemetry will become first-class infrastructure for coding agents, with teams storing failing traces, prior fix attempts, architectural constraints, and reviewer feedback as retrieval data tied to file paths and services. The measurable shift is that high-performing installations will log every agent run as a reproducible bundle of prompt context, tool calls, test outputs, and final diff so that bad behaviors can be debugged like CI failures rather than debated as model mysteries.",
+            "counterfactual": "If agent memory and telemetry remain ad hoc, organizations will not be able to improve failure modes systematically and each rollout wave will repeat the same integration mistakes across repos and teams.",
+            "importance": "high",
+            "probe_agent_id": "aj-019d9547-bc7d-7031-9834-4c55e8fbb7ce",
+            "projection_id": "en-019d9547-bc13-7601-b382-750595cfa3b8",
+            "signal_refs": "[]",
+            "step_at": "1"
+          }
+        }
+      ],
+      "total_event_count": 2,
+      "sequence_nr": 2,
+      "@odata.id": "Observations('en-019d9548-6f3e-7c30-bb85-8028128aa26c')"
+    },
+    {
+      "entity_type": "Observation",
+      "entity_id": "en-019d9548-7350-7821-a991-73c82f762af0",
+      "status": "Created",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "Id": "en-019d9548-7350-7821-a991-73c82f762af0",
+        "Status": "Created",
+        "content": "The vendor market will start repricing away from simple seat-based AI coding licenses toward usage-bundled enterprise contracts, because agents consume review labor, inference, and orchestration capacity unevenly across teams. By late in the 180-365 day window, buyers will pressure vendors such as GitHub, OpenAI, Anthropic, and Cognition to offer spend caps, pooled usage tiers, or outcome-linked discounts after early adopters discover that a 500-seat rollout can create unexpectedly volatile monthly bills.",
+        "counterfactual": "If this pricing shift is ignored, both vendors and buyers will misread churn as product weakness rather than a packaging failure, delaying viable market structure.",
+        "importance": "high",
+        "probe_agent_id": "aj-019d9547-bc9e-77d2-9ed5-e410310511d5",
+        "projection_id": "en-019d9547-bc13-7601-b382-750595cfa3b8",
+        "signal_refs": "[]",
+        "step_at": "1"
+      },
+      "events": [
+        {
+          "action": "Created",
+          "from_status": "",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T07:54:06.546591Z",
+          "params": {}
+        },
+        {
+          "action": "Record",
+          "from_status": "Created",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T07:54:06.551093Z",
+          "params": {
+            "content": "The vendor market will start repricing away from simple seat-based AI coding licenses toward usage-bundled enterprise contracts, because agents consume review labor, inference, and orchestration capacity unevenly across teams. By late in the 180-365 day window, buyers will pressure vendors such as GitHub, OpenAI, Anthropic, and Cognition to offer spend caps, pooled usage tiers, or outcome-linked discounts after early adopters discover that a 500-seat rollout can create unexpectedly volatile monthly bills.",
+            "counterfactual": "If this pricing shift is ignored, both vendors and buyers will misread churn as product weakness rather than a packaging failure, delaying viable market structure.",
+            "importance": "high",
+            "probe_agent_id": "aj-019d9547-bc9e-77d2-9ed5-e410310511d5",
+            "projection_id": "en-019d9547-bc13-7601-b382-750595cfa3b8",
+            "signal_refs": "[]",
+            "step_at": "1"
+          }
+        }
+      ],
+      "total_event_count": 2,
+      "sequence_nr": 2,
+      "@odata.id": "Observations('en-019d9548-7350-7821-a991-73c82f762af0')"
+    },
+    {
+      "entity_type": "Observation",
+      "entity_id": "en-019d9548-7682-7031-9d42-4844989c0d03",
+      "status": "Created",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "Id": "en-019d9548-7682-7031-9d42-4844989c0d03",
+        "Status": "Created",
+        "content": "Evaluation harnesses for coding agents will move from simple pass-fail unit tests to CI-native task suites modeled on repositories like vercel-labs/agent-eval, SWE-CI, and OmniCode, with every candidate patch scored on test pass rate, latency, token cost, and retry count. In practice, teams shipping agentic development systems will keep promotion thresholds such as greater than 95 percent deterministic test success, no net increase in flaky tests, and median wall-clock completion under 15 minutes per issue before an agent run is allowed to auto-open or auto-update a pull request.",
+        "counterfactual": "If engineering teams keep evaluating coding agents with only anecdotal wins and offline benchmarks, they will overestimate capability, push unstable automation into core repos, and lose trust when real CI behavior diverges from benchmark claims.",
+        "importance": "high",
+        "probe_agent_id": "aj-019d9547-bc6f-7403-ae59-48e5e6815fe6",
+        "projection_id": "en-019d9547-bc13-7601-b382-750595cfa3b8",
+        "signal_refs": "[]",
+        "step_at": "0"
+      },
+      "events": [
+        {
+          "action": "Created",
+          "from_status": "",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T07:54:07.363924Z",
+          "params": {}
+        },
+        {
+          "action": "Record",
+          "from_status": "Created",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T07:54:07.368059Z",
+          "params": {
+            "content": "Evaluation harnesses for coding agents will move from simple pass-fail unit tests to CI-native task suites modeled on repositories like vercel-labs/agent-eval, SWE-CI, and OmniCode, with every candidate patch scored on test pass rate, latency, token cost, and retry count. In practice, teams shipping agentic development systems will keep promotion thresholds such as greater than 95 percent deterministic test success, no net increase in flaky tests, and median wall-clock completion under 15 minutes per issue before an agent run is allowed to auto-open or auto-update a pull request.",
+            "counterfactual": "If engineering teams keep evaluating coding agents with only anecdotal wins and offline benchmarks, they will overestimate capability, push unstable automation into core repos, and lose trust when real CI behavior diverges from benchmark claims.",
+            "importance": "high",
+            "probe_agent_id": "aj-019d9547-bc6f-7403-ae59-48e5e6815fe6",
+            "projection_id": "en-019d9547-bc13-7601-b382-750595cfa3b8",
+            "signal_refs": "[]",
+            "step_at": "0"
+          }
+        }
+      ],
+      "total_event_count": 2,
+      "sequence_nr": 2,
+      "@odata.id": "Observations('en-019d9548-7682-7031-9d42-4844989c0d03')"
+    },
+    {
+      "entity_type": "Observation",
+      "entity_id": "en-019d9548-789e-7500-a6dc-cee22334bb89",
+      "status": "Created",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "Id": "en-019d9548-789e-7500-a6dc-cee22334bb89",
+        "Status": "Created",
+        "content": "Organizational ecology suggests a shakeout between fast-breeding local toolchains and slower but better-defended enterprise platforms in the next 0-180 days. Small teams will rapidly evolve bespoke pipelines around open-source evaluators, SWE-bench-style tests, and internal coding agents, but larger firms will favor ecosystems that create survivable niches through audit trails, policy gates, and procurement-friendly controls; the measurable signal will be pilot expansions tied to governance artifacts rather than raw model scores. In ecological terms, selection pressure will reward fitness to the institution, not just speed of mutation.",
+        "counterfactual": "If observers treat adoption as a pure model-performance contest, they will underestimate how many technically impressive systems die because they cannot survive the selection environment of security review, legal approval, and change-management routines.",
+        "importance": "high",
+        "probe_agent_id": "aj-019d9547-bca6-7d30-b6be-3442dcc9bed1",
+        "projection_id": "en-019d9547-bc13-7601-b382-750595cfa3b8",
+        "signal_refs": "[]",
+        "step_at": "0"
+      },
+      "events": [
+        {
+          "action": "Created",
+          "from_status": "",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T07:54:07.903612Z",
+          "params": {}
+        },
+        {
+          "action": "Record",
+          "from_status": "Created",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T07:54:07.907794Z",
+          "params": {
+            "content": "Organizational ecology suggests a shakeout between fast-breeding local toolchains and slower but better-defended enterprise platforms in the next 0-180 days. Small teams will rapidly evolve bespoke pipelines around open-source evaluators, SWE-bench-style tests, and internal coding agents, but larger firms will favor ecosystems that create survivable niches through audit trails, policy gates, and procurement-friendly controls; the measurable signal will be pilot expansions tied to governance artifacts rather than raw model scores. In ecological terms, selection pressure will reward fitness to the institution, not just speed of mutation.",
+            "counterfactual": "If observers treat adoption as a pure model-performance contest, they will underestimate how many technically impressive systems die because they cannot survive the selection environment of security review, legal approval, and change-management routines.",
+            "importance": "high",
+            "probe_agent_id": "aj-019d9547-bca6-7d30-b6be-3442dcc9bed1",
+            "projection_id": "en-019d9547-bc13-7601-b382-750595cfa3b8",
+            "signal_refs": "[]",
+            "step_at": "0"
+          }
+        }
+      ],
+      "total_event_count": 2,
+      "sequence_nr": 2,
+      "@odata.id": "Observations('en-019d9548-789e-7500-a6dc-cee22334bb89')"
+    },
+    {
+      "entity_type": "Observation",
+      "entity_id": "en-019d9548-917f-7c00-b2b4-f2d5efcd9c79",
+      "status": "Created",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "Id": "en-019d9548-917f-7c00-b2b4-f2d5efcd9c79",
+        "Status": "Created",
+        "content": "The next 0-180 days will favor multi-stage agent pipelines over single monolithic coding agents: planner-reviewer-tester-deployer patterns are becoming the default architecture because they make failures observable and allow different models or tools to specialize by step. Teams running these systems daily will wire static analysis, repository search, patch synthesis, and regression triage into explicit stages, and they will treat failed handoffs and rollback frequency as first-class metrics alongside code acceptance rate.",
+        "counterfactual": "If builders stick with single-agent black boxes, they will struggle to localize failures, cannot improve weak stages independently, and will hit a reliability ceiling long before they can trust agents with larger backlog slices.",
+        "importance": "high",
+        "probe_agent_id": "aj-019d9547-bc6f-7403-ae59-48e5e6815fe6",
+        "projection_id": "en-019d9547-bc13-7601-b382-750595cfa3b8",
+        "signal_refs": "[]",
+        "step_at": "0"
+      },
+      "events": [
+        {
+          "action": "Created",
+          "from_status": "",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T07:54:14.272559Z",
+          "params": {}
+        },
+        {
+          "action": "Record",
+          "from_status": "Created",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T07:54:14.276038Z",
+          "params": {
+            "content": "The next 0-180 days will favor multi-stage agent pipelines over single monolithic coding agents: planner-reviewer-tester-deployer patterns are becoming the default architecture because they make failures observable and allow different models or tools to specialize by step. Teams running these systems daily will wire static analysis, repository search, patch synthesis, and regression triage into explicit stages, and they will treat failed handoffs and rollback frequency as first-class metrics alongside code acceptance rate.",
+            "counterfactual": "If builders stick with single-agent black boxes, they will struggle to localize failures, cannot improve weak stages independently, and will hit a reliability ceiling long before they can trust agents with larger backlog slices.",
+            "importance": "high",
+            "probe_agent_id": "aj-019d9547-bc6f-7403-ae59-48e5e6815fe6",
+            "projection_id": "en-019d9547-bc13-7601-b382-750595cfa3b8",
+            "signal_refs": "[]",
+            "step_at": "0"
+          }
+        }
+      ],
+      "total_event_count": 2,
+      "sequence_nr": 2,
+      "@odata.id": "Observations('en-019d9548-917f-7c00-b2b4-f2d5efcd9c79')"
+    },
+    {
+      "entity_type": "Observation",
+      "entity_id": "en-019d9548-b044-74e0-9bc2-d74dd28af3f0",
+      "status": "Created",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "Id": "en-019d9548-b044-74e0-9bc2-d74dd28af3f0",
+        "Status": "Created",
+        "content": "Repository-specific retrieval and execution telemetry will become mandatory infrastructure for serious coding-agent deployments, because generic prompting is no longer enough once agents touch large polyglot codebases with legacy constraints. Over the next six months, leading teams will persist traces linking prompt context, retrieved files, commands executed, failing tests, and final diff quality, then use those traces to tune retrieval windows, cache hot paths, and suppress recurring failure modes like repeated edits to the same brittle modules.",
+        "counterfactual": "If teams do not capture repository-specific context and execution telemetry, they will misdiagnose agent failures as model weakness, waste compute on repeated blind attempts, and fail to accumulate the local knowledge needed for compounding improvement.",
+        "importance": "high",
+        "probe_agent_id": "aj-019d9547-bc6f-7403-ae59-48e5e6815fe6",
+        "projection_id": "en-019d9547-bc13-7601-b382-750595cfa3b8",
+        "signal_refs": "[]",
+        "step_at": "0"
+      },
+      "events": [
+        {
+          "action": "Created",
+          "from_status": "",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T07:54:22.150176Z",
+          "params": {}
+        },
+        {
+          "action": "Record",
+          "from_status": "Created",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T07:54:22.153258Z",
+          "params": {
+            "content": "Repository-specific retrieval and execution telemetry will become mandatory infrastructure for serious coding-agent deployments, because generic prompting is no longer enough once agents touch large polyglot codebases with legacy constraints. Over the next six months, leading teams will persist traces linking prompt context, retrieved files, commands executed, failing tests, and final diff quality, then use those traces to tune retrieval windows, cache hot paths, and suppress recurring failure modes like repeated edits to the same brittle modules.",
+            "counterfactual": "If teams do not capture repository-specific context and execution telemetry, they will misdiagnose agent failures as model weakness, waste compute on repeated blind attempts, and fail to accumulate the local knowledge needed for compounding improvement.",
+            "importance": "high",
+            "probe_agent_id": "aj-019d9547-bc6f-7403-ae59-48e5e6815fe6",
+            "projection_id": "en-019d9547-bc13-7601-b382-750595cfa3b8",
+            "signal_refs": "[]",
+            "step_at": "0"
+          }
+        }
+      ],
+      "total_event_count": 2,
+      "sequence_nr": 2,
+      "@odata.id": "Observations('en-019d9548-b044-74e0-9bc2-d74dd28af3f0')"
+    },
+    {
+      "entity_type": "Observation",
+      "entity_id": "en-019d9548-b86f-7390-b814-7bc188145b72",
+      "status": "Created",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "Id": "en-019d9548-b86f-7390-b814-7bc188145b72",
+        "Status": "Created",
+        "content": "Organizational bottlenecks, not model quality, will become the main adoption constraint during the next 6-12 months. Firms that report 20-55% faster task completion in pilots will still struggle to scale beyond 10-25% of engineering workflows because managers have not redesigned code review norms, incident ownership, promotion criteria, or training for AI-supervising roles, causing local gains to stall at the team boundary.",
+        "counterfactual": "If companies ignore the org-design bottleneck, they will blame the tools for disappointing ROI when the real failure is unchanged management practice.",
+        "importance": "high",
+        "probe_agent_id": "aj-019d9547-bc9e-77d2-9ed5-e410310511d5",
+        "projection_id": "en-019d9547-bc13-7601-b382-750595cfa3b8",
+        "signal_refs": "[]",
+        "step_at": "1"
+      },
+      "events": [
+        {
+          "action": "Created",
+          "from_status": "",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T07:54:24.240283Z",
+          "params": {}
+        },
+        {
+          "action": "Record",
+          "from_status": "Created",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T07:54:24.243649Z",
+          "params": {
+            "content": "Organizational bottlenecks, not model quality, will become the main adoption constraint during the next 6-12 months. Firms that report 20-55% faster task completion in pilots will still struggle to scale beyond 10-25% of engineering workflows because managers have not redesigned code review norms, incident ownership, promotion criteria, or training for AI-supervising roles, causing local gains to stall at the team boundary.",
+            "counterfactual": "If companies ignore the org-design bottleneck, they will blame the tools for disappointing ROI when the real failure is unchanged management practice.",
+            "importance": "high",
+            "probe_agent_id": "aj-019d9547-bc9e-77d2-9ed5-e410310511d5",
+            "projection_id": "en-019d9547-bc13-7601-b382-750595cfa3b8",
+            "signal_refs": "[]",
+            "step_at": "1"
+          }
+        }
+      ],
+      "total_event_count": 2,
+      "sequence_nr": 2,
+      "@odata.id": "Observations('en-019d9548-b86f-7390-b814-7bc188145b72')"
+    },
+    {
+      "entity_type": "Observation",
+      "entity_id": "en-019d9548-d37d-76f2-9900-8081414a3ab4",
+      "status": "Created",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "Id": "en-019d9548-d37d-76f2-9900-8081414a3ab4",
+        "Status": "Created",
+        "content": "Labor-market signaling around software roles will bifurcate before broad headcount displacement is visible in official statistics. Large employers will freeze some junior hiring, raise expectations for AI-assisted throughput, and reclassify portions of engineering work toward technical leads, platform engineers, and evaluation owners, while still avoiding explicit layoff narratives because productivity gains remain noisy and politically sensitive.",
+        "counterfactual": "If executives ignore this labor-market bifurcation, they will underinvest in retraining and create morale shocks when informal role changes outrun formal workforce planning.",
+        "importance": "high",
+        "probe_agent_id": "aj-019d9547-bc9e-77d2-9ed5-e410310511d5",
+        "projection_id": "en-019d9547-bc13-7601-b382-750595cfa3b8",
+        "signal_refs": "[]",
+        "step_at": "1"
+      },
+      "events": [
+        {
+          "action": "Created",
+          "from_status": "",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T07:54:31.167187Z",
+          "params": {}
+        },
+        {
+          "action": "Record",
+          "from_status": "Created",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T07:54:31.170758Z",
+          "params": {
+            "content": "Labor-market signaling around software roles will bifurcate before broad headcount displacement is visible in official statistics. Large employers will freeze some junior hiring, raise expectations for AI-assisted throughput, and reclassify portions of engineering work toward technical leads, platform engineers, and evaluation owners, while still avoiding explicit layoff narratives because productivity gains remain noisy and politically sensitive.",
+            "counterfactual": "If executives ignore this labor-market bifurcation, they will underinvest in retraining and create morale shocks when informal role changes outrun formal workforce planning.",
+            "importance": "high",
+            "probe_agent_id": "aj-019d9547-bc9e-77d2-9ed5-e410310511d5",
+            "projection_id": "en-019d9547-bc13-7601-b382-750595cfa3b8",
+            "signal_refs": "[]",
+            "step_at": "1"
+          }
+        }
+      ],
+      "total_event_count": 2,
+      "sequence_nr": 2,
+      "@odata.id": "Observations('en-019d9548-d37d-76f2-9900-8081414a3ab4')"
+    }
+  ]
+}

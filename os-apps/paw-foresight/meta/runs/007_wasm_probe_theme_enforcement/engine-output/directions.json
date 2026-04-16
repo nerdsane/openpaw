@@ -1,0 +1,593 @@
+{
+  "@odata.context": "$metadata#Directions",
+  "value": [
+    {
+      "entity_type": "Direction",
+      "entity_id": "en-019d9548-9398-7d63-b736-5fcc997395b0",
+      "status": "Proposed",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "Id": "en-019d9548-9398-7d63-b736-5fcc997395b0",
+        "Status": "Proposed",
+        "counterfactual_summary": "If this is wrong, vendor consolidation and pricing standardization arrive faster than expected, and enterprises accept single-platform bundles without extended ROI disputes.",
+        "grounding": "[]",
+        "observation_ids": "[\"en-019d9548-0927-7860-97e9-78274e6fcfa2\",\"en-019d9548-268f-7a83-9c59-f3870d39230f\"]",
+        "projection_id": "en-019d9547-bc13-7601-b382-750595cfa3b8",
+        "proposer_agent_id": "aj-019d9547-bc91-7cc3-a79e-6e4d11546e68",
+        "reasoning": "Economics/market direction: over the next 180 days, the coding-agent category will enter a buyer-pushback phase in which vendor growth stories remain strong but realized enterprise expansion slows unless pricing maps cleanly to auditable business value. Search signals point to a market with eye-catching valuations, strong ARR growth, and case studies from firms like Stripe, Coinbase, Cursor, and GitHub Copilot, yet those same signals imply rising procurement scrutiny because the product is no longer a novelty purchase. Once coding agents move from discretionary developer tooling into line items reviewed by engineering leadership, finance, and procurement, the comparison set changes from IDE convenience to labor substitution, cycle-time compression, and avoided contractor spend.\n\nThe crucial friction is that vendor pricing is still unstable across seats, usage, and premium model access, while enterprise outcomes are uneven across codebase type and team maturity. That mismatch will drive more mixed deployments: companies will keep a mainstream seat-based tool for broad coverage, test higher-autonomy agents in narrow workflows, and build internal orchestration to preserve leverage over vendors. If vendors cannot show metrics like cost per merged PR, incident-free automation rates, or sustained cycle-time reduction above 10 to 20 percent in production teams, expansion revenue will underperform top-of-funnel excitement.",
+        "step_at": "0",
+        "title": "Economics/Market: Enterprise coding-agent spend shifts from enthusiasm-led pilots to ROI-gated multi-vendor portfolios"
+      },
+      "events": [
+        {
+          "action": "Created",
+          "from_status": "",
+          "to_status": "Proposed",
+          "timestamp": "2026-04-16T07:54:14.810369Z",
+          "params": {}
+        },
+        {
+          "action": "Propose",
+          "from_status": "Proposed",
+          "to_status": "Proposed",
+          "timestamp": "2026-04-16T07:54:14.814206Z",
+          "params": {
+            "counterfactual_summary": "If this is wrong, vendor consolidation and pricing standardization arrive faster than expected, and enterprises accept single-platform bundles without extended ROI disputes.",
+            "grounding": "[]",
+            "observation_ids": "[\"en-019d9548-0927-7860-97e9-78274e6fcfa2\",\"en-019d9548-268f-7a83-9c59-f3870d39230f\"]",
+            "projection_id": "en-019d9547-bc13-7601-b382-750595cfa3b8",
+            "proposer_agent_id": "aj-019d9547-bc91-7cc3-a79e-6e4d11546e68",
+            "reasoning": "Economics/market direction: over the next 180 days, the coding-agent category will enter a buyer-pushback phase in which vendor growth stories remain strong but realized enterprise expansion slows unless pricing maps cleanly to auditable business value. Search signals point to a market with eye-catching valuations, strong ARR growth, and case studies from firms like Stripe, Coinbase, Cursor, and GitHub Copilot, yet those same signals imply rising procurement scrutiny because the product is no longer a novelty purchase. Once coding agents move from discretionary developer tooling into line items reviewed by engineering leadership, finance, and procurement, the comparison set changes from IDE convenience to labor substitution, cycle-time compression, and avoided contractor spend.\n\nThe crucial friction is that vendor pricing is still unstable across seats, usage, and premium model access, while enterprise outcomes are uneven across codebase type and team maturity. That mismatch will drive more mixed deployments: companies will keep a mainstream seat-based tool for broad coverage, test higher-autonomy agents in narrow workflows, and build internal orchestration to preserve leverage over vendors. If vendors cannot show metrics like cost per merged PR, incident-free automation rates, or sustained cycle-time reduction above 10 to 20 percent in production teams, expansion revenue will underperform top-of-funnel excitement.",
+            "step_at": "0",
+            "title": "Economics/Market: Enterprise coding-agent spend shifts from enthusiasm-led pilots to ROI-gated multi-vendor portfolios"
+          }
+        }
+      ],
+      "total_event_count": 2,
+      "sequence_nr": 2,
+      "@odata.id": "Directions('en-019d9548-9398-7d63-b736-5fcc997395b0')"
+    },
+    {
+      "entity_type": "Direction",
+      "entity_id": "en-019d9548-95e5-7c92-8641-c270337ecf1b",
+      "status": "Proposed",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "Id": "en-019d9548-95e5-7c92-8641-c270337ecf1b",
+        "Status": "Proposed",
+        "counterfactual_summary": "If this direction is wrong, software evolution may remain mostly a generation problem, and simple benchmark-plus-human-review workflows will outperform richer multi-assay evaluation stacks for longer than expected.",
+        "grounding": "[]",
+        "observation_ids": "[\"en-019d9548-200d-71a2-abcb-aca0489dc45d\",\"en-019d9548-03d5-7e41-b9ad-e606a6d27bef\"]",
+        "projection_id": "en-019d9547-bc13-7601-b382-750595cfa3b8",
+        "proposer_agent_id": "aj-019d9547-bcb1-7f83-b179-dec0ecc977f0",
+        "reasoning": "Theme: evolutionary biology and experimental ecology applied to software evolution. In biology, the rate-limiting step in directed evolution is rarely the ability to generate mutations; it is the quality of the selection environment and the ability to detect fitness across interacting traits. The same pattern is now emerging in software: Imbue's Darwinian Evolver points toward broad search over code and agent variants, while adjacent work like protein-directed evolution and self-evolving scientific agents shows that better assay design compounds faster than larger search alone. Observations en-019d9548-200d-71a2-abcb-aca0489dc45d and en-019d9548-03d5-7e41-b9ad-e606a6d27bef indicate that by the end of the 1-year horizon, successful teams will build multi-layer fitness functions with security, regression, cost, and durability screens rather than rely on a single benchmark.\n\nThe cross-domain implication is that software evolution platforms will start to resemble wet-lab assay stacks: cheap broad screens first, then expensive confirmatory tests, then preservation of the highest-fitness lineages. That means the strategic asset is not just the coding agent but the curated evaluation habitat: replay corpora, mutation operators, adversarial tasks, and lineage memory. Firms that behave like experimental biologists will improve faster because they can distinguish true fitness gains from local adaptation; firms that behave like benchmark marketers will select for flashy but fragile phenotypes that fail under production epistasis.",
+        "step_at": "1",
+        "title": "Cross-domain Biology Pattern: Software evolution becomes an assay-design race before it becomes a model race"
+      },
+      "events": [
+        {
+          "action": "Created",
+          "from_status": "",
+          "to_status": "Proposed",
+          "timestamp": "2026-04-16T07:54:15.398095Z",
+          "params": {}
+        },
+        {
+          "action": "Propose",
+          "from_status": "Proposed",
+          "to_status": "Proposed",
+          "timestamp": "2026-04-16T07:54:15.401412Z",
+          "params": {
+            "counterfactual_summary": "If this direction is wrong, software evolution may remain mostly a generation problem, and simple benchmark-plus-human-review workflows will outperform richer multi-assay evaluation stacks for longer than expected.",
+            "grounding": "[]",
+            "observation_ids": "[\"en-019d9548-200d-71a2-abcb-aca0489dc45d\",\"en-019d9548-03d5-7e41-b9ad-e606a6d27bef\"]",
+            "projection_id": "en-019d9547-bc13-7601-b382-750595cfa3b8",
+            "proposer_agent_id": "aj-019d9547-bcb1-7f83-b179-dec0ecc977f0",
+            "reasoning": "Theme: evolutionary biology and experimental ecology applied to software evolution. In biology, the rate-limiting step in directed evolution is rarely the ability to generate mutations; it is the quality of the selection environment and the ability to detect fitness across interacting traits. The same pattern is now emerging in software: Imbue's Darwinian Evolver points toward broad search over code and agent variants, while adjacent work like protein-directed evolution and self-evolving scientific agents shows that better assay design compounds faster than larger search alone. Observations en-019d9548-200d-71a2-abcb-aca0489dc45d and en-019d9548-03d5-7e41-b9ad-e606a6d27bef indicate that by the end of the 1-year horizon, successful teams will build multi-layer fitness functions with security, regression, cost, and durability screens rather than rely on a single benchmark.\n\nThe cross-domain implication is that software evolution platforms will start to resemble wet-lab assay stacks: cheap broad screens first, then expensive confirmatory tests, then preservation of the highest-fitness lineages. That means the strategic asset is not just the coding agent but the curated evaluation habitat: replay corpora, mutation operators, adversarial tasks, and lineage memory. Firms that behave like experimental biologists will improve faster because they can distinguish true fitness gains from local adaptation; firms that behave like benchmark marketers will select for flashy but fragile phenotypes that fail under production epistasis.",
+            "step_at": "1",
+            "title": "Cross-domain Biology Pattern: Software evolution becomes an assay-design race before it becomes a model race"
+          }
+        }
+      ],
+      "total_event_count": 2,
+      "sequence_nr": 2,
+      "@odata.id": "Directions('en-019d9548-95e5-7c92-8641-c270337ecf1b')"
+    },
+    {
+      "entity_type": "Direction",
+      "entity_id": "en-019d9548-ab45-7950-aa69-54df6422e536",
+      "status": "Proposed",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "Id": "en-019d9548-ab45-7950-aa69-54df6422e536",
+        "Status": "Proposed",
+        "counterfactual_summary": "If this is wrong, coding-agent adoption will remain centered on monolithic assistants rather than pipeline separation, and enterprises will accept loosely governed end-to-end autonomy much faster than other high-variance industries usually do.",
+        "grounding": "[]",
+        "observation_ids": "[\"en-019d9548-2242-77e2-b3ae-3ee95899e256\",\"en-019d9548-3c17-76e2-8369-20bc2e42db57\"]",
+        "projection_id": "en-019d9547-bc13-7601-b382-750595cfa3b8",
+        "proposer_agent_id": "aj-019d9547-bca6-7d30-b6be-3442dcc9bed1",
+        "reasoning": "The strongest adjacent-domain analogy is industrial biology: productive systems do not optimize for a single perfect design, they optimize the loop that generates, screens, and scales variants. Recent signals around automated protein evolution and adaptive laboratory evolution point to a pattern where high-throughput search is only valuable when tightly coupled to measurable selection criteria and a clean handoff into a more controlled production environment. Directed Software Evolution is moving into the same shape. Over the next 180 days, the important innovation will not be one more coding agent, but workflow architectures that treat generated code like candidate strains in a programmable lab: abundant variation upstream, ruthless selection in the middle, and conservative release machinery downstream.\n\nThat implies vendor and enterprise behavior will start converging on separation of concerns. Cursor-, Anthropic-, and OpenAI-centered coding workflows may still produce the raw variation, but evaluation harnesses, policy engines, and release attestations will become the equivalent of assay systems and manufacturing validation. Teams that can quantify promotion thresholds such as >95% test pass rates, rollback rates per accepted patch, or reproducibility guarantees will look far more mature than teams promising agent autonomy alone. The near-term winners will therefore resemble foundries or biotech platforms more than IDE plugins: they will sell controlled evolutionary throughput, not just model access.",
+        "step_at": "0",
+        "title": "Biology Analogy: Directed Software Evolution will split into discovery pipelines and production-grade manufacturing loops"
+      },
+      "events": [
+        {
+          "action": "Created",
+          "from_status": "",
+          "to_status": "Proposed",
+          "timestamp": "2026-04-16T07:54:20.871016Z",
+          "params": {}
+        },
+        {
+          "action": "Propose",
+          "from_status": "Proposed",
+          "to_status": "Proposed",
+          "timestamp": "2026-04-16T07:54:20.875242Z",
+          "params": {
+            "counterfactual_summary": "If this is wrong, coding-agent adoption will remain centered on monolithic assistants rather than pipeline separation, and enterprises will accept loosely governed end-to-end autonomy much faster than other high-variance industries usually do.",
+            "grounding": "[]",
+            "observation_ids": "[\"en-019d9548-2242-77e2-b3ae-3ee95899e256\",\"en-019d9548-3c17-76e2-8369-20bc2e42db57\"]",
+            "projection_id": "en-019d9547-bc13-7601-b382-750595cfa3b8",
+            "proposer_agent_id": "aj-019d9547-bca6-7d30-b6be-3442dcc9bed1",
+            "reasoning": "The strongest adjacent-domain analogy is industrial biology: productive systems do not optimize for a single perfect design, they optimize the loop that generates, screens, and scales variants. Recent signals around automated protein evolution and adaptive laboratory evolution point to a pattern where high-throughput search is only valuable when tightly coupled to measurable selection criteria and a clean handoff into a more controlled production environment. Directed Software Evolution is moving into the same shape. Over the next 180 days, the important innovation will not be one more coding agent, but workflow architectures that treat generated code like candidate strains in a programmable lab: abundant variation upstream, ruthless selection in the middle, and conservative release machinery downstream.\n\nThat implies vendor and enterprise behavior will start converging on separation of concerns. Cursor-, Anthropic-, and OpenAI-centered coding workflows may still produce the raw variation, but evaluation harnesses, policy engines, and release attestations will become the equivalent of assay systems and manufacturing validation. Teams that can quantify promotion thresholds such as >95% test pass rates, rollback rates per accepted patch, or reproducibility guarantees will look far more mature than teams promising agent autonomy alone. The near-term winners will therefore resemble foundries or biotech platforms more than IDE plugins: they will sell controlled evolutionary throughput, not just model access.",
+            "step_at": "0",
+            "title": "Biology Analogy: Directed Software Evolution will split into discovery pipelines and production-grade manufacturing loops"
+          }
+        }
+      ],
+      "total_event_count": 2,
+      "sequence_nr": 2,
+      "@odata.id": "Directions('en-019d9548-ab45-7950-aa69-54df6422e536')"
+    },
+    {
+      "entity_type": "Direction",
+      "entity_id": "en-019d9548-bbde-7f80-bed6-360a1da2ad1c",
+      "status": "Proposed",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "Id": "en-019d9548-bbde-7f80-bed6-360a1da2ad1c",
+        "Status": "Proposed",
+        "counterfactual_summary": "If this is wrong, organizations absorb coding agents with minimal role redesign, junior training remains intact, and adoption spreads primarily through bottom-up developer pull.",
+        "grounding": "[]",
+        "observation_ids": "[\"en-019d9548-4bb4-70b1-b61c-740c62187d81\",\"en-019d9548-65f9-7923-b8a4-cb4562b0f48b\"]",
+        "projection_id": "en-019d9547-bc13-7601-b382-750595cfa3b8",
+        "proposer_agent_id": "aj-019d9547-bc91-7cc3-a79e-6e4d11546e68",
+        "reasoning": "Organizational/adoption direction: directed software evolution will diffuse through engineering organizations more like an operating-model change than a tooling rollout. Search and market signals suggest strong individual appetite for copilots and agents, but those signals overstate how quickly enterprises can institutionalize autonomous code generation. The blocker is managerial accountability: once an agent proposes code, writes tests, or opens pull requests, teams need explicit norms for who reviews, who owns regressions, how performance is measured, and which work categories are safe to delegate.\n\nThat means the next 180 days will favor organizations willing to redesign roles rather than merely purchase licenses. Senior engineers and staff-level platform teams will gain influence because they can define evaluation harnesses, guardrails, and acceptable-use patterns, while frontline managers will ration agent autonomy to protect service reliability. The short-run outcome is not wholesale workforce replacement but a re-bundling of labor: fewer purely apprenticeship tasks, more supervision and evaluation work, and growing tension if junior engineers are expected to deliver more without equivalent opportunities to learn from messy implementation work.",
+        "step_at": "0",
+        "title": "Organizational/Adoption: Coding-agent scale-up will be constrained more by management redesign than by developer willingness"
+      },
+      "events": [
+        {
+          "action": "Created",
+          "from_status": "",
+          "to_status": "Proposed",
+          "timestamp": "2026-04-16T07:54:25.120422Z",
+          "params": {}
+        },
+        {
+          "action": "Propose",
+          "from_status": "Proposed",
+          "to_status": "Proposed",
+          "timestamp": "2026-04-16T07:54:25.124261Z",
+          "params": {
+            "counterfactual_summary": "If this is wrong, organizations absorb coding agents with minimal role redesign, junior training remains intact, and adoption spreads primarily through bottom-up developer pull.",
+            "grounding": "[]",
+            "observation_ids": "[\"en-019d9548-4bb4-70b1-b61c-740c62187d81\",\"en-019d9548-65f9-7923-b8a4-cb4562b0f48b\"]",
+            "projection_id": "en-019d9547-bc13-7601-b382-750595cfa3b8",
+            "proposer_agent_id": "aj-019d9547-bc91-7cc3-a79e-6e4d11546e68",
+            "reasoning": "Organizational/adoption direction: directed software evolution will diffuse through engineering organizations more like an operating-model change than a tooling rollout. Search and market signals suggest strong individual appetite for copilots and agents, but those signals overstate how quickly enterprises can institutionalize autonomous code generation. The blocker is managerial accountability: once an agent proposes code, writes tests, or opens pull requests, teams need explicit norms for who reviews, who owns regressions, how performance is measured, and which work categories are safe to delegate.\n\nThat means the next 180 days will favor organizations willing to redesign roles rather than merely purchase licenses. Senior engineers and staff-level platform teams will gain influence because they can define evaluation harnesses, guardrails, and acceptable-use patterns, while frontline managers will ration agent autonomy to protect service reliability. The short-run outcome is not wholesale workforce replacement but a re-bundling of labor: fewer purely apprenticeship tasks, more supervision and evaluation work, and growing tension if junior engineers are expected to deliver more without equivalent opportunities to learn from messy implementation work.",
+            "step_at": "0",
+            "title": "Organizational/Adoption: Coding-agent scale-up will be constrained more by management redesign than by developer willingness"
+          }
+        }
+      ],
+      "total_event_count": 2,
+      "sequence_nr": 2,
+      "@odata.id": "Directions('en-019d9548-bbde-7f80-bed6-360a1da2ad1c')"
+    },
+    {
+      "entity_type": "Direction",
+      "entity_id": "en-019d9548-c30b-7671-ab79-6e331bab63e1",
+      "status": "Proposed",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "Id": "en-019d9548-c30b-7671-ab79-6e331bab63e1",
+        "Status": "Proposed",
+        "counterfactual_summary": "If this direction is wrong, software evolution may diffuse as a lightweight commodity layer, with little advantage accruing to firms that own evaluation telemetry or invest in industrial-style process controls.",
+        "grounding": "[]",
+        "observation_ids": "[\"en-019d9548-3acf-7f83-b927-86ecd754e8d7\",\"en-019d9548-56e6-7ad0-8cfd-fd3ccc82df68\"]",
+        "projection_id": "en-019d9547-bc13-7601-b382-750595cfa3b8",
+        "proposer_agent_id": "aj-019d9547-bcb1-7f83-b179-dec0ecc977f0",
+        "reasoning": "Theme: finance, manufacturing, and organizational ecology applied to software evolution. In finance, durable firms are not the ones with the single best strategy on paper; they are the ones that manage portfolios under drawdown limits, stress tests, and capital allocation rules. In manufacturing, statistical process control matters more than isolated heroic output. Observations en-019d9548-3acf-7f83-b927-86ecd754e8d7 and en-019d9548-56e6-7ad0-8cfd-fd3ccc82df68 suggest software evolution will follow the same path: enterprises will govern populations of code-generating agents the way factories govern process variance and funds govern strategy risk, with explicit kill-switch thresholds, lineage tracking, and budgeted exploration.\n\nThe non-obvious consequence is market stratification. Organizations with enough internal flow to estimate variance\u2014banks, hyperscalers, defense, and large SaaS platforms\u2014will accumulate proprietary telemetry and become the equivalent of vertically integrated manufacturers or multi-strategy funds. Smaller firms will not compete by building their own evolutionary habitat from scratch; they will rent managed infrastructure that offers process controls, evidence packs, and replay systems. Directed software evolution therefore scales less like open-source tooling adoption and more like capital-intensive quality systems, where control of the measurement regime determines who captures surplus.",
+        "step_at": "1",
+        "title": "Cross-domain Finance and Manufacturing Pattern: Software evolution consolidates around portfolio risk control and statistical process discipline"
+      },
+      "events": [
+        {
+          "action": "Created",
+          "from_status": "",
+          "to_status": "Proposed",
+          "timestamp": "2026-04-16T07:54:26.957010Z",
+          "params": {}
+        },
+        {
+          "action": "Propose",
+          "from_status": "Proposed",
+          "to_status": "Proposed",
+          "timestamp": "2026-04-16T07:54:26.960603Z",
+          "params": {
+            "counterfactual_summary": "If this direction is wrong, software evolution may diffuse as a lightweight commodity layer, with little advantage accruing to firms that own evaluation telemetry or invest in industrial-style process controls.",
+            "grounding": "[]",
+            "observation_ids": "[\"en-019d9548-3acf-7f83-b927-86ecd754e8d7\",\"en-019d9548-56e6-7ad0-8cfd-fd3ccc82df68\"]",
+            "projection_id": "en-019d9547-bc13-7601-b382-750595cfa3b8",
+            "proposer_agent_id": "aj-019d9547-bcb1-7f83-b179-dec0ecc977f0",
+            "reasoning": "Theme: finance, manufacturing, and organizational ecology applied to software evolution. In finance, durable firms are not the ones with the single best strategy on paper; they are the ones that manage portfolios under drawdown limits, stress tests, and capital allocation rules. In manufacturing, statistical process control matters more than isolated heroic output. Observations en-019d9548-3acf-7f83-b927-86ecd754e8d7 and en-019d9548-56e6-7ad0-8cfd-fd3ccc82df68 suggest software evolution will follow the same path: enterprises will govern populations of code-generating agents the way factories govern process variance and funds govern strategy risk, with explicit kill-switch thresholds, lineage tracking, and budgeted exploration.\n\nThe non-obvious consequence is market stratification. Organizations with enough internal flow to estimate variance\u2014banks, hyperscalers, defense, and large SaaS platforms\u2014will accumulate proprietary telemetry and become the equivalent of vertically integrated manufacturers or multi-strategy funds. Smaller firms will not compete by building their own evolutionary habitat from scratch; they will rent managed infrastructure that offers process controls, evidence packs, and replay systems. Directed software evolution therefore scales less like open-source tooling adoption and more like capital-intensive quality systems, where control of the measurement regime determines who captures surplus.",
+            "step_at": "1",
+            "title": "Cross-domain Finance and Manufacturing Pattern: Software evolution consolidates around portfolio risk control and statistical process discipline"
+          }
+        }
+      ],
+      "total_event_count": 2,
+      "sequence_nr": 2,
+      "@odata.id": "Directions('en-019d9548-c30b-7671-ab79-6e331bab63e1')"
+    },
+    {
+      "entity_type": "Direction",
+      "entity_id": "en-019d9548-d5ac-7fb1-8577-ba334d158724",
+      "status": "Proposed",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "Id": "en-019d9548-d5ac-7fb1-8577-ba334d158724",
+        "Status": "Proposed",
+        "counterfactual_summary": "If this is wrong, enterprises will consolidate quickly around one dominant coding stack, and institutional constraints will not materially slow technically superior systems from taking most of the market.",
+        "grounding": "[]",
+        "observation_ids": "[\"en-019d9548-5965-73e3-a653-92a1f7f5783d\",\"en-019d9548-789e-7500-a6dc-cee22334bb89\"]",
+        "projection_id": "en-019d9547-bc13-7601-b382-750595cfa3b8",
+        "proposer_agent_id": "aj-019d9547-bca6-7d30-b6be-3442dcc9bed1",
+        "reasoning": "A second cross-domain pattern comes from finance and organizational ecology: robust performance under uncertainty usually comes from portfolios adapted to the environment, not from a single dominant instrument. In capital allocation, institutions diversify because correlation, regime shifts, and tail risk matter more than headline return. Directed Software Evolution is entering a similar phase. Large organizations will begin treating model-policy-evaluator combinations as portfolios of evolutionary strategies, asking which mix produces the best risk-adjusted output after review rather than which standalone model tops a leaderboard. This is why orchestration and comparison layers will matter disproportionately in the next 180 days.\n\nThe ecological extension is that selection acts on fit to the whole environment. A stack that is slightly weaker on benchmark performance but much better aligned with procurement, auditability, and human review can outcompete a technically stronger rival because it survives institutional selection pressure. That pattern is already familiar in finance, manufacturing, and healthcare, where resilient systems beat fragile peak performers. In software evolution, this means multi-stack governance, budget allocation across variant generators, and dynamic rebalancing across vendors will emerge sooner than many software-native analysts expect. The category leader may look less like a single super-agent and more like a portfolio manager for evolving code.",
+        "step_at": "0",
+        "title": "Finance and Ecology Analogy: software evolution platforms will behave like portfolio managers under institutional selection pressure"
+      },
+      "events": [
+        {
+          "action": "Created",
+          "from_status": "",
+          "to_status": "Proposed",
+          "timestamp": "2026-04-16T07:54:31.725572Z",
+          "params": {}
+        },
+        {
+          "action": "Propose",
+          "from_status": "Proposed",
+          "to_status": "Proposed",
+          "timestamp": "2026-04-16T07:54:31.729553Z",
+          "params": {
+            "counterfactual_summary": "If this is wrong, enterprises will consolidate quickly around one dominant coding stack, and institutional constraints will not materially slow technically superior systems from taking most of the market.",
+            "grounding": "[]",
+            "observation_ids": "[\"en-019d9548-5965-73e3-a653-92a1f7f5783d\",\"en-019d9548-789e-7500-a6dc-cee22334bb89\"]",
+            "projection_id": "en-019d9547-bc13-7601-b382-750595cfa3b8",
+            "proposer_agent_id": "aj-019d9547-bca6-7d30-b6be-3442dcc9bed1",
+            "reasoning": "A second cross-domain pattern comes from finance and organizational ecology: robust performance under uncertainty usually comes from portfolios adapted to the environment, not from a single dominant instrument. In capital allocation, institutions diversify because correlation, regime shifts, and tail risk matter more than headline return. Directed Software Evolution is entering a similar phase. Large organizations will begin treating model-policy-evaluator combinations as portfolios of evolutionary strategies, asking which mix produces the best risk-adjusted output after review rather than which standalone model tops a leaderboard. This is why orchestration and comparison layers will matter disproportionately in the next 180 days.\n\nThe ecological extension is that selection acts on fit to the whole environment. A stack that is slightly weaker on benchmark performance but much better aligned with procurement, auditability, and human review can outcompete a technically stronger rival because it survives institutional selection pressure. That pattern is already familiar in finance, manufacturing, and healthcare, where resilient systems beat fragile peak performers. In software evolution, this means multi-stack governance, budget allocation across variant generators, and dynamic rebalancing across vendors will emerge sooner than many software-native analysts expect. The category leader may look less like a single super-agent and more like a portfolio manager for evolving code.",
+            "step_at": "0",
+            "title": "Finance and Ecology Analogy: software evolution platforms will behave like portfolio managers under institutional selection pressure"
+          }
+        }
+      ],
+      "total_event_count": 2,
+      "sequence_nr": 2,
+      "@odata.id": "Directions('en-019d9548-d5ac-7fb1-8577-ba334d158724')"
+    },
+    {
+      "entity_type": "Direction",
+      "entity_id": "en-019d9548-e5cd-7592-96c0-92a3fe083eb5",
+      "status": "Proposed",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "Id": "en-019d9548-e5cd-7592-96c0-92a3fe083eb5",
+        "Status": "Proposed",
+        "counterfactual_summary": "If scaffolded execution planes do not become the dominant pattern, coding-agent systems will remain brittle monoliths and the operational cost of debugging and securing them will outweigh the delivery gains from autonomous code generation.",
+        "grounding": "[]",
+        "observation_ids": "[\"en-019d9548-1b71-7553-8ccb-d7ab0ed8b68e\",\"en-019d9548-557e-7ac1-b937-e8886ebc40bb\",\"en-019d9548-6f3e-7c30-bb85-8028128aa26c\"]",
+        "projection_id": "en-019d9547-bc13-7601-b382-750595cfa3b8",
+        "proposer_agent_id": "aj-019d9547-bc7d-7031-9834-4c55e8fbb7ce",
+        "reasoning": "The near-term architecture winner is not a single super-agent but a scaffolded execution plane that composes specialized services: planning, repo retrieval, isolated code execution, test orchestration, and ranking. Current research and industry signals already point this way: source-code taxonomy work is treating the scaffold itself as the differentiator, and practitioner writeups increasingly describe harness patterns as the real product. In production, this is the only pattern that lets teams swap models, tighten permissions, and debug failures without rebuilding the whole stack every quarter.\n\nOver the next 180-365 days, teams pushing agent-driven development into multi-service repositories will add branch-level parallelism as a default primitive. Rather than asking one agent for one patch, they will launch several bounded candidate branches, run them through containerized CI, and keep only candidates that pass deterministic test and policy gates. This maps directly to directed evolution: variation is candidate generation, selection is CI plus ranking, and retention is the logging of successful patch patterns and execution traces. The result is a more stable software factory where infrastructure quality matters as much as model quality.",
+        "step_at": "1",
+        "title": "Technical-architecture direction: coding agents converge on scaffolded execution planes with parallel branch evaluation"
+      },
+      "events": [
+        {
+          "action": "Created",
+          "from_status": "",
+          "to_status": "Proposed",
+          "timestamp": "2026-04-16T07:54:35.854799Z",
+          "params": {}
+        },
+        {
+          "action": "Propose",
+          "from_status": "Proposed",
+          "to_status": "Proposed",
+          "timestamp": "2026-04-16T07:54:35.858552Z",
+          "params": {
+            "counterfactual_summary": "If scaffolded execution planes do not become the dominant pattern, coding-agent systems will remain brittle monoliths and the operational cost of debugging and securing them will outweigh the delivery gains from autonomous code generation.",
+            "grounding": "[]",
+            "observation_ids": "[\"en-019d9548-1b71-7553-8ccb-d7ab0ed8b68e\",\"en-019d9548-557e-7ac1-b937-e8886ebc40bb\",\"en-019d9548-6f3e-7c30-bb85-8028128aa26c\"]",
+            "projection_id": "en-019d9547-bc13-7601-b382-750595cfa3b8",
+            "proposer_agent_id": "aj-019d9547-bc7d-7031-9834-4c55e8fbb7ce",
+            "reasoning": "The near-term architecture winner is not a single super-agent but a scaffolded execution plane that composes specialized services: planning, repo retrieval, isolated code execution, test orchestration, and ranking. Current research and industry signals already point this way: source-code taxonomy work is treating the scaffold itself as the differentiator, and practitioner writeups increasingly describe harness patterns as the real product. In production, this is the only pattern that lets teams swap models, tighten permissions, and debug failures without rebuilding the whole stack every quarter.\n\nOver the next 180-365 days, teams pushing agent-driven development into multi-service repositories will add branch-level parallelism as a default primitive. Rather than asking one agent for one patch, they will launch several bounded candidate branches, run them through containerized CI, and keep only candidates that pass deterministic test and policy gates. This maps directly to directed evolution: variation is candidate generation, selection is CI plus ranking, and retention is the logging of successful patch patterns and execution traces. The result is a more stable software factory where infrastructure quality matters as much as model quality.",
+            "step_at": "1",
+            "title": "Technical-architecture direction: coding agents converge on scaffolded execution planes with parallel branch evaluation"
+          }
+        }
+      ],
+      "total_event_count": 2,
+      "sequence_nr": 2,
+      "@odata.id": "Directions('en-019d9548-e5cd-7592-96c0-92a3fe083eb5')"
+    },
+    {
+      "entity_type": "Direction",
+      "entity_id": "en-019d9548-eb69-7fd2-8a25-68950c9b6dae",
+      "status": "Proposed",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "Id": "en-019d9548-eb69-7fd2-8a25-68950c9b6dae",
+        "Status": "Proposed",
+        "counterfactual_summary": "If this direction is wrong, teams will keep preferring loosely coupled chat or IDE workflows, and the extra orchestration around branch isolation, staging, and telemetry will look like unnecessary platform overhead rather than required production infrastructure.",
+        "grounding": "[]",
+        "observation_ids": "[\"en-019d9548-4035-75e2-818b-e748b42bb794\",\"en-019d9548-917f-7c00-b2b4-f2d5efcd9c79\",\"en-019d9548-b044-74e0-9bc2-d74dd28af3f0\"]",
+        "projection_id": "en-019d9547-bc13-7601-b382-750595cfa3b8",
+        "proposer_agent_id": "aj-019d9547-bc6f-7403-ae59-48e5e6815fe6",
+        "reasoning": "Technical-architecture direction: the winning implementation pattern for coding agents in the next 180 days is not a single IDE copilot but a branch-native execution fabric tied to Git, containers, and CI. The strongest practitioners are converging on agent runs that start from a reproducible repository snapshot, operate in an isolated workspace, emit a reviewable diff, and then pass through the same test and policy machinery used for human code. That pattern fits what teams already know how to scale: pull requests, ephemeral environments, cached builds, and deterministic rollback. It also explains why systems built around Claude Code, SWE-agent, and internal patch bots are becoming more operationally credible than chat-first coding experiences once the task moves beyond toy examples.\n\nThe architecture consequence is that platform teams will invest in orchestration layers around the model, not just in better prompts. Multi-stage pipelines with planner, coder, reviewer, and tester roles will outperform monolithic agents because they expose failure boundaries and let teams swap components independently. Repository-aware retrieval, execution traces, and per-stage metrics will become standard so teams can see where latency, flakiness, or bad edits originate. In practice, the technical stack that wins is the one that can replay an agent run end to end, compare variants, and merge only when CI evidence is stronger than a senior engineer would require from a human contributor.",
+        "step_at": "0",
+        "title": "Technical-architecture direction: branch-native coding-agent pipelines become the default deployment pattern"
+      },
+      "events": [
+        {
+          "action": "Created",
+          "from_status": "",
+          "to_status": "Proposed",
+          "timestamp": "2026-04-16T07:54:37.290834Z",
+          "params": {}
+        },
+        {
+          "action": "Propose",
+          "from_status": "Proposed",
+          "to_status": "Proposed",
+          "timestamp": "2026-04-16T07:54:37.294982Z",
+          "params": {
+            "counterfactual_summary": "If this direction is wrong, teams will keep preferring loosely coupled chat or IDE workflows, and the extra orchestration around branch isolation, staging, and telemetry will look like unnecessary platform overhead rather than required production infrastructure.",
+            "grounding": "[]",
+            "observation_ids": "[\"en-019d9548-4035-75e2-818b-e748b42bb794\",\"en-019d9548-917f-7c00-b2b4-f2d5efcd9c79\",\"en-019d9548-b044-74e0-9bc2-d74dd28af3f0\"]",
+            "projection_id": "en-019d9547-bc13-7601-b382-750595cfa3b8",
+            "proposer_agent_id": "aj-019d9547-bc6f-7403-ae59-48e5e6815fe6",
+            "reasoning": "Technical-architecture direction: the winning implementation pattern for coding agents in the next 180 days is not a single IDE copilot but a branch-native execution fabric tied to Git, containers, and CI. The strongest practitioners are converging on agent runs that start from a reproducible repository snapshot, operate in an isolated workspace, emit a reviewable diff, and then pass through the same test and policy machinery used for human code. That pattern fits what teams already know how to scale: pull requests, ephemeral environments, cached builds, and deterministic rollback. It also explains why systems built around Claude Code, SWE-agent, and internal patch bots are becoming more operationally credible than chat-first coding experiences once the task moves beyond toy examples.\n\nThe architecture consequence is that platform teams will invest in orchestration layers around the model, not just in better prompts. Multi-stage pipelines with planner, coder, reviewer, and tester roles will outperform monolithic agents because they expose failure boundaries and let teams swap components independently. Repository-aware retrieval, execution traces, and per-stage metrics will become standard so teams can see where latency, flakiness, or bad edits originate. In practice, the technical stack that wins is the one that can replay an agent run end to end, compare variants, and merge only when CI evidence is stronger than a senior engineer would require from a human contributor.",
+            "step_at": "0",
+            "title": "Technical-architecture direction: branch-native coding-agent pipelines become the default deployment pattern"
+          }
+        }
+      ],
+      "total_event_count": 2,
+      "sequence_nr": 2,
+      "@odata.id": "Directions('en-019d9548-eb69-7fd2-8a25-68950c9b6dae')"
+    },
+    {
+      "entity_type": "Direction",
+      "entity_id": "en-019d9548-fc4b-7ff1-a348-9d5d36a847e6",
+      "status": "Proposed",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "Id": "en-019d9548-fc4b-7ff1-a348-9d5d36a847e6",
+        "Status": "Proposed",
+        "counterfactual_summary": "If this direction is wrong, seat-based growth remains strong without major repricing pressure, implying hidden operating costs were overstated and enterprise value is easier to capture than skeptics expect.",
+        "grounding": "[]",
+        "observation_ids": "[\"en-019d9548-53f4-7e32-875e-93f08945c4f7\",\"en-019d9548-7350-7821-a991-73c82f762af0\"]",
+        "projection_id": "en-019d9547-bc13-7601-b382-750595cfa3b8",
+        "proposer_agent_id": "aj-019d9547-bc9e-77d2-9ed5-e410310511d5",
+        "reasoning": "Economics/market direction: the coding-agent market will enter a consolidation and repricing phase rather than a clean hypergrowth phase. The leading vendors will continue to win attention, but enterprise buyers will become more selective once finance teams compare license spend with the hidden operating costs of review, integration, model usage, and compliance scaffolding. That shifts vendor competition away from demo quality and toward total-cost-of-ownership arguments, budget predictability, and bundled enterprise distribution.\n\nThis matters because market leaders such as GitHub, Anthropic, OpenAI, Cursor, and Cognition are not selling a simple SaaS seat; they are selling a variable-cost labor system whose economics are still being discovered by buyers. As those costs surface, procurement teams will demand pooled usage, spend ceilings, and proof that deployments reduce outsourcing, defect-remediation cost, or cycle time by double digits. Vendors that cannot translate agent output into CFO-legible ROI will see slower expansion even if engineers like the tools.",
+        "step_at": "1",
+        "title": "Economics/Market: coding-agent growth shifts from seat expansion to ROI-driven repricing and vendor consolidation"
+      },
+      "events": [
+        {
+          "action": "Created",
+          "from_status": "",
+          "to_status": "Proposed",
+          "timestamp": "2026-04-16T07:54:41.612697Z",
+          "params": {}
+        },
+        {
+          "action": "Propose",
+          "from_status": "Proposed",
+          "to_status": "Proposed",
+          "timestamp": "2026-04-16T07:54:41.616551Z",
+          "params": {
+            "counterfactual_summary": "If this direction is wrong, seat-based growth remains strong without major repricing pressure, implying hidden operating costs were overstated and enterprise value is easier to capture than skeptics expect.",
+            "grounding": "[]",
+            "observation_ids": "[\"en-019d9548-53f4-7e32-875e-93f08945c4f7\",\"en-019d9548-7350-7821-a991-73c82f762af0\"]",
+            "projection_id": "en-019d9547-bc13-7601-b382-750595cfa3b8",
+            "proposer_agent_id": "aj-019d9547-bc9e-77d2-9ed5-e410310511d5",
+            "reasoning": "Economics/market direction: the coding-agent market will enter a consolidation and repricing phase rather than a clean hypergrowth phase. The leading vendors will continue to win attention, but enterprise buyers will become more selective once finance teams compare license spend with the hidden operating costs of review, integration, model usage, and compliance scaffolding. That shifts vendor competition away from demo quality and toward total-cost-of-ownership arguments, budget predictability, and bundled enterprise distribution.\n\nThis matters because market leaders such as GitHub, Anthropic, OpenAI, Cursor, and Cognition are not selling a simple SaaS seat; they are selling a variable-cost labor system whose economics are still being discovered by buyers. As those costs surface, procurement teams will demand pooled usage, spend ceilings, and proof that deployments reduce outsourcing, defect-remediation cost, or cycle time by double digits. Vendors that cannot translate agent output into CFO-legible ROI will see slower expansion even if engineers like the tools.",
+            "step_at": "1",
+            "title": "Economics/Market: coding-agent growth shifts from seat expansion to ROI-driven repricing and vendor consolidation"
+          }
+        }
+      ],
+      "total_event_count": 2,
+      "sequence_nr": 2,
+      "@odata.id": "Directions('en-019d9548-fc4b-7ff1-a348-9d5d36a847e6')"
+    },
+    {
+      "entity_type": "Direction",
+      "entity_id": "en-019d9549-1cf2-7973-b8eb-8a0719936ee1",
+      "status": "Proposed",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "Id": "en-019d9549-1cf2-7973-b8eb-8a0719936ee1",
+        "Status": "Proposed",
+        "counterfactual_summary": "If replayable evaluation harnesses do not mature, teams will cap coding agents at low-risk autocomplete and small bug fixes because no one will trust autonomous patches on complex repository tasks.",
+        "grounding": "[]",
+        "observation_ids": "[\"en-019d9548-39c2-71d2-9d28-5fc0789fbc79\",\"en-019d9548-557e-7ac1-b937-e8886ebc40bb\",\"en-019d9548-6f3e-7c30-bb85-8028128aa26c\"]",
+        "projection_id": "en-019d9547-bc13-7601-b382-750595cfa3b8",
+        "proposer_agent_id": "aj-019d9547-bc7d-7031-9834-4c55e8fbb7ce",
+        "reasoning": "The key technical bottleneck for coding-agent adoption is no longer code generation; it is reliable acceptance testing. Public benchmarks helped bootstrap the market, but they are too clean and too static for real repositories with flaky tests, undocumented invariants, and organization-specific quality bars. Teams that get value from agents in the next year will therefore invest in replayable harnesses built from their own ticket streams, historical incidents, and CI artifacts. They will measure pass rates on real maintenance tasks, diff risk, rerun stability, and review burden, not just benchmark solve rates.\n\nThis changes the shape of CI/CD. Agent-generated diffs will be screened by differential test selection, regression-focused integration runs, and artifact bundles that let engineers reproduce the exact tool trajectory that led to a patch. Once these harnesses mature, evaluation becomes a continuous infrastructure layer rather than a quarterly benchmark exercise. That is the enabling condition for directed software evolution, because you cannot apply selection pressure across generated variants unless the verification loop is cheap, repeatable, and trusted by the engineers who own the repo.",
+        "step_at": "1",
+        "title": "Evaluation/testing direction: merge gates shift to replayable task harnesses and differential verification for coding agents"
+      },
+      "events": [
+        {
+          "action": "Created",
+          "from_status": "",
+          "to_status": "Proposed",
+          "timestamp": "2026-04-16T07:54:49.971670Z",
+          "params": {}
+        },
+        {
+          "action": "Propose",
+          "from_status": "Proposed",
+          "to_status": "Proposed",
+          "timestamp": "2026-04-16T07:54:49.975071Z",
+          "params": {
+            "counterfactual_summary": "If replayable evaluation harnesses do not mature, teams will cap coding agents at low-risk autocomplete and small bug fixes because no one will trust autonomous patches on complex repository tasks.",
+            "grounding": "[]",
+            "observation_ids": "[\"en-019d9548-39c2-71d2-9d28-5fc0789fbc79\",\"en-019d9548-557e-7ac1-b937-e8886ebc40bb\",\"en-019d9548-6f3e-7c30-bb85-8028128aa26c\"]",
+            "projection_id": "en-019d9547-bc13-7601-b382-750595cfa3b8",
+            "proposer_agent_id": "aj-019d9547-bc7d-7031-9834-4c55e8fbb7ce",
+            "reasoning": "The key technical bottleneck for coding-agent adoption is no longer code generation; it is reliable acceptance testing. Public benchmarks helped bootstrap the market, but they are too clean and too static for real repositories with flaky tests, undocumented invariants, and organization-specific quality bars. Teams that get value from agents in the next year will therefore invest in replayable harnesses built from their own ticket streams, historical incidents, and CI artifacts. They will measure pass rates on real maintenance tasks, diff risk, rerun stability, and review burden, not just benchmark solve rates.\n\nThis changes the shape of CI/CD. Agent-generated diffs will be screened by differential test selection, regression-focused integration runs, and artifact bundles that let engineers reproduce the exact tool trajectory that led to a patch. Once these harnesses mature, evaluation becomes a continuous infrastructure layer rather than a quarterly benchmark exercise. That is the enabling condition for directed software evolution, because you cannot apply selection pressure across generated variants unless the verification loop is cheap, repeatable, and trusted by the engineers who own the repo.",
+            "step_at": "1",
+            "title": "Evaluation/testing direction: merge gates shift to replayable task harnesses and differential verification for coding agents"
+          }
+        }
+      ],
+      "total_event_count": 2,
+      "sequence_nr": 2,
+      "@odata.id": "Directions('en-019d9549-1cf2-7973-b8eb-8a0719936ee1')"
+    },
+    {
+      "entity_type": "Direction",
+      "entity_id": "en-019d9549-1ff1-7a32-a06b-c3d5010c566b",
+      "status": "Proposed",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "Id": "en-019d9549-1ff1-7a32-a06b-c3d5010c566b",
+        "Status": "Proposed",
+        "counterfactual_summary": "If this direction is wrong, teams will continue adopting coding agents through informal trust and anecdotal success, and rigorous evaluation harnesses will remain optional research tooling instead of becoming a default CI requirement.",
+        "grounding": "[]",
+        "observation_ids": "[\"en-019d9548-7682-7031-9d42-4844989c0d03\",\"en-019d9548-b044-74e0-9bc2-d74dd28af3f0\"]",
+        "projection_id": "en-019d9547-bc13-7601-b382-750595cfa3b8",
+        "proposer_agent_id": "aj-019d9547-bc6f-7403-ae59-48e5e6815fe6",
+        "reasoning": "Evaluation/testing direction: coding-agent adoption will accelerate only where teams install CI-native evaluation harnesses that score real repository tasks rather than relying on generalized benchmark marketing. Over the next 180 days, the practical frontier is not simply higher benchmark numbers but better acceptance criteria: deterministic test pass rates, flaky-test deltas, issue completion latency, retry counts, token cost, and rollback incidence on real change requests. The teams that trust agents with meaningful backlog volume will be the teams that can measure these variables continuously and compare agent variants against human baselines in the same repository conditions.\n\nThis means evaluation infrastructure becomes part of the software delivery stack. Agent runners will execute against curated task suites, open pull requests only after crossing quality thresholds, and feed failure traces back into retrieval and prompt tuning loops. The most important technical shift is that evaluation stops being an offline research function and becomes an always-on release gate, similar to unit tests or security scanning. Once that happens, directed software evolution becomes feasible in practice: multiple code variants can compete under shared selection pressure, and the organization can retain winning patterns because the harness makes quality differences visible and reproducible.",
+        "step_at": "0",
+        "title": "Evaluation/testing direction: CI-native harnesses become the selection engine for coding-agent systems"
+      },
+      "events": [
+        {
+          "action": "Created",
+          "from_status": "",
+          "to_status": "Proposed",
+          "timestamp": "2026-04-16T07:54:50.738126Z",
+          "params": {}
+        },
+        {
+          "action": "Propose",
+          "from_status": "Proposed",
+          "to_status": "Proposed",
+          "timestamp": "2026-04-16T07:54:50.741669Z",
+          "params": {
+            "counterfactual_summary": "If this direction is wrong, teams will continue adopting coding agents through informal trust and anecdotal success, and rigorous evaluation harnesses will remain optional research tooling instead of becoming a default CI requirement.",
+            "grounding": "[]",
+            "observation_ids": "[\"en-019d9548-7682-7031-9d42-4844989c0d03\",\"en-019d9548-b044-74e0-9bc2-d74dd28af3f0\"]",
+            "projection_id": "en-019d9547-bc13-7601-b382-750595cfa3b8",
+            "proposer_agent_id": "aj-019d9547-bc6f-7403-ae59-48e5e6815fe6",
+            "reasoning": "Evaluation/testing direction: coding-agent adoption will accelerate only where teams install CI-native evaluation harnesses that score real repository tasks rather than relying on generalized benchmark marketing. Over the next 180 days, the practical frontier is not simply higher benchmark numbers but better acceptance criteria: deterministic test pass rates, flaky-test deltas, issue completion latency, retry counts, token cost, and rollback incidence on real change requests. The teams that trust agents with meaningful backlog volume will be the teams that can measure these variables continuously and compare agent variants against human baselines in the same repository conditions.\n\nThis means evaluation infrastructure becomes part of the software delivery stack. Agent runners will execute against curated task suites, open pull requests only after crossing quality thresholds, and feed failure traces back into retrieval and prompt tuning loops. The most important technical shift is that evaluation stops being an offline research function and becomes an always-on release gate, similar to unit tests or security scanning. Once that happens, directed software evolution becomes feasible in practice: multiple code variants can compete under shared selection pressure, and the organization can retain winning patterns because the harness makes quality differences visible and reproducible.",
+            "step_at": "0",
+            "title": "Evaluation/testing direction: CI-native harnesses become the selection engine for coding-agent systems"
+          }
+        }
+      ],
+      "total_event_count": 2,
+      "sequence_nr": 2,
+      "@odata.id": "Directions('en-019d9549-1ff1-7a32-a06b-c3d5010c566b')"
+    },
+    {
+      "entity_type": "Direction",
+      "entity_id": "en-019d9549-2454-75d3-ae3d-138da91373cc",
+      "status": "Proposed",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "Id": "en-019d9549-2454-75d3-ae3d-138da91373cc",
+        "Status": "Proposed",
+        "counterfactual_summary": "If this direction is wrong, organizations can scale coding-agent adoption with minimal managerial change, meaning current team structures are already sufficient to absorb large amounts of AI-generated work.",
+        "grounding": "[]",
+        "observation_ids": "[\"en-019d9548-b86f-7390-b814-7bc188145b72\",\"en-019d9548-d37d-76f2-9900-8081414a3ab4\"]",
+        "projection_id": "en-019d9547-bc13-7601-b382-750595cfa3b8",
+        "proposer_agent_id": "aj-019d9547-bc9e-77d2-9ed5-e410310511d5",
+        "reasoning": "Organizational/adoption direction: the primary limit on directed software evolution over the next 180-365 days will be managerial redesign, not raw model capability. Pilot teams can show meaningful productivity gains on bounded tasks, but those gains will not compound across the enterprise unless organizations change review authority, redefine what junior engineers are expected to do, and create explicit roles for evaluation ownership and AI workflow supervision.\n\nIn practice, adoption will split between firms that treat coding agents as a workflow redesign program and firms that treat them as a developer perk. The first group will rewrite incentives, training, and delivery metrics, allowing higher sustained usage. The second group will get scattered wins but rising coordination cost, uneven quality, and quiet resistance from teams whose workload shifts toward oversight rather than creation. That organizational friction will make the market look technically ready but institutionally immature.",
+        "step_at": "1",
+        "title": "Organizational/Adoption: coding-agent ROI depends on redesigning management systems, not just deploying better tools"
+      },
+      "events": [
+        {
+          "action": "Created",
+          "from_status": "",
+          "to_status": "Proposed",
+          "timestamp": "2026-04-16T07:54:51.861457Z",
+          "params": {}
+        },
+        {
+          "action": "Propose",
+          "from_status": "Proposed",
+          "to_status": "Proposed",
+          "timestamp": "2026-04-16T07:54:51.864488Z",
+          "params": {
+            "counterfactual_summary": "If this direction is wrong, organizations can scale coding-agent adoption with minimal managerial change, meaning current team structures are already sufficient to absorb large amounts of AI-generated work.",
+            "grounding": "[]",
+            "observation_ids": "[\"en-019d9548-b86f-7390-b814-7bc188145b72\",\"en-019d9548-d37d-76f2-9900-8081414a3ab4\"]",
+            "projection_id": "en-019d9547-bc13-7601-b382-750595cfa3b8",
+            "proposer_agent_id": "aj-019d9547-bc9e-77d2-9ed5-e410310511d5",
+            "reasoning": "Organizational/adoption direction: the primary limit on directed software evolution over the next 180-365 days will be managerial redesign, not raw model capability. Pilot teams can show meaningful productivity gains on bounded tasks, but those gains will not compound across the enterprise unless organizations change review authority, redefine what junior engineers are expected to do, and create explicit roles for evaluation ownership and AI workflow supervision.\n\nIn practice, adoption will split between firms that treat coding agents as a workflow redesign program and firms that treat them as a developer perk. The first group will rewrite incentives, training, and delivery metrics, allowing higher sustained usage. The second group will get scattered wins but rising coordination cost, uneven quality, and quiet resistance from teams whose workload shifts toward oversight rather than creation. That organizational friction will make the market look technically ready but institutionally immature.",
+            "step_at": "1",
+            "title": "Organizational/Adoption: coding-agent ROI depends on redesigning management systems, not just deploying better tools"
+          }
+        }
+      ],
+      "total_event_count": 2,
+      "sequence_nr": 2,
+      "@odata.id": "Directions('en-019d9549-2454-75d3-ae3d-138da91373cc')"
+    }
+  ]
+}
