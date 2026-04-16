@@ -46,149 +46,154 @@ horizon into steps, how many agents to use, and what strategy to employ.
 
 12 criteria. Each scored 0-4. Maximum: 48 points.
 
+Scoring calibration: a 2 is "competent." A 3 is "genuinely impressive — most
+outputs will not reach this." A 4 is "exceptional — requires something a
+well-prompted single model would rarely produce." Judges should expect the
+median criterion score for a good output to be 2, not 3.
+
 ### 1. Specificity
 
-How concrete and actionable are the predictions?
+Does it name real actors, dates, and quantitative thresholds?
 
 | Score | Anchor |
 |-------|--------|
 | 0 | No named entities, timelines, or mechanisms |
-| 1 | Some names but vague timing ("soon", "eventually") |
-| 2 | Named actors + approximate timelines ("within months") |
-| 3 | Named actors + specific timelines + causal mechanisms |
-| 4 | Named actors doing specific things by specific dates with causal chains |
+| 1 | Generic categories ("companies", "teams") with vague timing ("soon") |
+| 2 | Named actors OR approximate timelines, but not both together |
+| 3 | Named actors + specific timelines + causal mechanisms connecting them |
+| 4 | Named actors doing specific things by specific dates with quantitative thresholds (e.g. "when >30% of CI pipelines include agent-generated patches") |
 
 ### 2. Novelty
 
-Does the output go beyond restating the input?
+Does the output produce insights that are not in the input AND not obvious from general domain knowledge?
 
 | Score | Anchor |
 |-------|--------|
 | 0 | Only restates or paraphrases the input |
-| 1 | Minor extensions of input themes |
-| 2 | Some original insights not in the source material |
-| 3 | Multiple original insights grounded in evidence |
-| 4 | Reframes the domain in a way the input didn't anticipate |
+| 1 | Minor extensions of input themes using common knowledge |
+| 2 | 1-2 original insights not in the source material |
+| 3 | Multiple original insights grounded in evidence, at least one connecting signals the input didn't connect |
+| 4 | Introduces a framework, concept, or connection that reframes the domain AND is not an obvious extension of the source material |
 
-### 3. Internal Consistency
+### 3. Falsifiability
 
-Are predictions coherent with each other?
+Are predictions stated so they can be proven wrong?
 
 | Score | Anchor |
 |-------|--------|
-| 0 | Contradictions unacknowledged |
-| 1 | Major contradictions, some acknowledged |
-| 2 | Minor contradictions only |
-| 3 | Consistent with noted tensions |
-| 4 | Fully coherent narrative with explicit tension management |
+| 0 | All predictions are hedged, vague, or unfalsifiable ("X may happen") |
+| 1 | A few predictions could in principle be checked, but most are too vague |
+| 2 | Several predictions have clear enough conditions to be evaluated after the fact |
+| 3 | Most predictions name what would confirm or disconfirm them |
+| 4 | Predictions include explicit falsification criteria: "If X has not happened by [date], this prediction is wrong because [reason]" |
 
 ### 4. Breadth
 
-How many distinct themes or dimensions are covered?
+How many distinct analytical dimensions are covered, and are they connected?
 
 | Score | Anchor |
 |-------|--------|
-| 0 | Single theme |
-| 1 | 2-3 themes |
-| 2 | 4-5 themes |
-| 3 | 6+ themes with connections between them |
-| 4 | Comprehensive coverage with cross-theme synthesis |
+| 0 | Single theme or dimension |
+| 1 | 2-3 themes, treated independently |
+| 2 | 4-5 themes with some connections noted |
+| 3 | 6+ themes with explicit cross-theme interactions (e.g. "governance constraints reshape vendor economics") |
+| 4 | Comprehensive multi-dimensional coverage where themes form a coherent system — removing one theme would weaken the others |
 
 ### 5. Plausibility
 
-Are claims grounded or floating?
+Are claims grounded in named evidence, or floating assertions?
 
 | Score | Anchor |
 |-------|--------|
-| 0 | Unsupported assertions |
-| 1 | Mix of grounded and ungrounded claims |
-| 2 | Mostly grounded, few unsupported leaps |
-| 3 | Well-grounded with explicit uncertainty markers |
-| 4 | Every claim traced to evidence with confidence levels |
+| 0 | Unsupported assertions presented as fact |
+| 1 | Mix of grounded and floating claims; uncertainty rarely acknowledged |
+| 2 | Most claims reference mechanisms or evidence; some explicit uncertainty |
+| 3 | Claims grounded in named signals or evidence with explicit confidence levels and stated assumptions |
+| 4 | Every substantive claim traced to evidence, with confidence levels, stated assumptions, AND what would change the confidence |
 
 ### 6. Progression
 
-Does the output show temporal development, not just a static snapshot?
+Does the output show genuine temporal development where later predictions build on earlier ones?
 
 | Score | Anchor |
 |-------|--------|
 | 0 | No temporal structure |
-| 1 | Time mentioned but predictions are static |
-| 2 | Clear temporal phases but shallow development |
-| 3 | Strong development with causal links between phases |
-| 4 | Each phase transforms understanding based on prior analysis |
+| 1 | Time periods mentioned but predictions are independent snapshots |
+| 2 | Clear temporal phases; later phases reference earlier ones superficially |
+| 3 | Each phase causally depends on prior phases; removing an early phase would break later predictions |
+| 4 | Temporal development where later phases explicitly confirm, falsify, or revise earlier predictions — the analysis evolves, not just the timeline |
 
 ### 7. Actionability
 
-Can a decision-maker act on this?
+Could a specific decision-maker take a specific action based on this?
 
 | Score | Anchor |
 |-------|--------|
 | 0 | No decision-relevant content |
-| 1 | Vague implications ("companies should watch this") |
-| 2 | Some "if X then Y" conditional structures |
-| 3 | Multiple conditional recommendations with timing |
-| 4 | Decision framework with triggers, options, and tradeoffs |
+| 1 | Vague implications ("companies should watch this space") |
+| 2 | Conditional recommendations without timing or tradeoffs |
+| 3 | Decision points with timing triggers AND options, but tradeoffs are generic |
+| 4 | Decision framework naming who decides, when (with observable triggers), what options exist, and what each option costs or risks in concrete terms |
 
-### 8. Human Readability
+### 8. Decision Clarity
 
-Could a VP read this and act on it?
+Could a VP read this in 15 minutes and know the #1 thing to do, by when, and what it costs?
 
 | Score | Anchor |
 |-------|--------|
-| 0 | Raw data or JSON only |
-| 1 | Structured data but no narrative |
-| 2 | Summary exists but dense or jargon-heavy |
-| 3 | Clear narrative with logical structure |
-| 4 | Polished brief with executive summary, findings, and recommendations |
+| 0 | Raw data, JSON, or unstructured notes |
+| 1 | Structured but requires domain expertise to extract decisions |
+| 2 | Clear narrative with findings, but the "so what" is implicit |
+| 3 | Prioritized findings with explicit top recommendation and timing |
+| 4 | Opens with the single most important decision, names the deadline, quantifies the tradeoff, and structures everything else as supporting evidence |
 
 ### 9. Completeness
 
-Does it cover the full analysis pipeline?
+Does it cover the full foresight pipeline from evidence to recommendation?
 
 | Score | Anchor |
 |-------|--------|
-| 0 | Observations only, no synthesis |
-| 1 | Observations + some directions |
-| 2 | Observations + directions + state evolution |
-| 3 | Full pipeline + explicit assumptions stated |
-| 4 | Full pipeline + assumptions + limitations + confidence levels |
+| 0 | Observations only, no synthesis or direction |
+| 1 | Observations + some theses, but no temporal development or assumptions |
+| 2 | Observations + theses + temporal development; assumptions implicit |
+| 3 | Full pipeline with explicit assumptions, limitations, and confidence levels |
+| 4 | Full pipeline + explicit assumptions + limitations + confidence + what-would-change-my-mind for each major claim |
 
 ### 10. Transparency
 
-Can the reader trace claims back to sources?
+Can the reader trace every claim back to its source?
 
 | Score | Anchor |
 |-------|--------|
-| 0 | No sources cited |
-| 1 | Some vague references |
-| 2 | Most claims reference source material |
-| 3 | All claims traced to knowledge graph or external sources |
-| 4 | Full provenance chain from claim to observation to signal to source |
+| 0 | No sources or evidence cited |
+| 1 | Vague attribution ("the data suggests", "signals indicate") |
+| 2 | Most claims name their source category (knowledge graph section, signal type) |
+| 3 | Claims cite specific named signals, observations, or external references |
+| 4 | Full provenance chain: claim → supporting observation → underlying signal → original source, for every substantive claim |
 
 ### 11. Challenge
 
-Does the output push back on the input's assumptions?
+Does it make predictions that go against the source material's thesis?
 
 | Score | Anchor |
 |-------|--------|
-| 0 | Echo chamber — input restated uncritically |
-| 1 | Token disagreements without substance |
-| 2 | Genuine tensions with input identified |
-| 3 | Contradicts input assumptions with evidence |
-| 4 | Overturns an input assumption with strong evidence and reasoning |
+| 0 | Echo chamber — input thesis restated and reinforced |
+| 1 | Token caveats ("risks exist") without substantive disagreement |
+| 2 | Identifies genuine tensions or fragile assumptions in the source |
+| 3 | Makes a specific prediction that contradicts the source, with evidence from the source itself |
+| 4 | Overturns a source assumption using evidence from OUTSIDE the source (external signals, analogies, or domain knowledge the source lacks) |
 
-### 12. Parsimony
+### 12. Quantitative Precision
 
-Is every piece of the output earning its place?
+Does it use specific numbers, thresholds, and measurable indicators?
 
 | Score | Anchor |
 |-------|--------|
-| 0 | >80% redundancy across observations/predictions |
-| 1 | >50% redundancy |
-| 2 | ~30% redundancy |
-| 3 | <20% redundancy |
-| 4 | Every observation/prediction adds unique information |
+| 0 | No quantitative content; all qualitative assertions |
+| 1 | Rare use of numbers, mostly decorative ("many companies", "significant growth") |
+| 2 | Some specific numbers or thresholds, but most claims remain qualitative |
+| 3 | Multiple predictions include measurable indicators or thresholds that could be tracked |
+| 4 | Predictions are grounded in quantitative frameworks: market sizes, adoption percentages, timeline distributions, or measurable proxy metrics with named data sources |
 
 ## Judge Protocol
 
