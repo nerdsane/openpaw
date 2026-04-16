@@ -34,11 +34,14 @@ initial = ""
 name = "results"
 type = "string"
 initial = ""
-
-[[state]]
-name = "result_file_id"
-type = "string"
-initial = ""
+# Web-fetch results can run up to ~400KB (100K chars in UTF-8 worst case).
+# Temper's field-overflow primitive (temper ADR-0040 / ADR-0045) routes
+# values above 128KB to the content-addressed blob store and consumers
+# resolve via ctx.read_field_string (ADR-0046). No TemperFS File detour.
+# `overflow_ttl_seconds` is declared for forward-compatibility with
+# temper ADR-0047b (spec-declared TTL wiring); it is inert until that
+# lands, after which WebQuery.result blobs expire after 1h.
+overflow_ttl_seconds = "3600"
 
 [[state]]
 name = "error"
@@ -70,7 +73,7 @@ name = "RecordResults"
 kind = "input"
 from = ["Executing"]
 to = "Complete"
-params = ["results", "result_file_id"]
+params = ["results"]
 hint = "WASM module completed successfully; store results."
 
 [[action]]

@@ -916,51 +916,14 @@ fn web_query_dispatch(
         &action_params,
     )?;
 
-    // 3. Read the entity back — WASM integration has run by this point
+    // 3. Read the entity back — WASM integration has run by this point.
+    // OData GET hydrates blob refs transparently (temper ADR-0040), so the
+    // `results` field arrives fully resolved regardless of size. The prior
+    // TemperFS File workaround (result_file_id + delete-after-read) is
+    // retired — see temper ADR-0045 / ADR-0046 and openpaw ADR-0033.
     let result = http_get(ctx, api_url, tenant, &format!("/tdata/WebQueries('{key}')"))?;
     let result_fields = result.get("fields").cloned().unwrap_or(result.clone());
-    let (status, result_file_id, results_raw) =
-        interpret_web_query_entity_result(query_type, &result_fields)?;
-
-    // If result_file_id is set, the full content is in TemperFS (large results).
-    // Read the file content, then delete the file — it's ephemeral transport only.
-    // WORKAROUND: This delete-after-read pattern exists because Temper's entity field
-    // sync truncates values >32KB. The proper fix is platform-level blob-backed fields
-    // with TTL. See: https://github.com/nerdsane/temper/issues/106
-    if let Some(file_id) = result_file_id {
-        let read_headers = vec![("Accept".to_string(), "text/plain".to_string())];
-        let read_url = format!("{api_url}/tdata/Files('{file_id}')/$value");
-        let content = match ctx.http_call("GET", &read_url, &read_headers, "") {
-            Ok(resp) if resp.status >= 200 && resp.status < 300 => Some(resp.body),
-            Ok(resp) => {
-                ctx.log(
-                    "warn",
-                    &format!(
-                        "web_query: failed to read result file {file_id} (HTTP {})",
-                        resp.status
-                    ),
-                );
-                None
-            }
-            Err(e) => {
-                ctx.log(
-                    "warn",
-                    &format!("web_query: failed to read result file {file_id}: {e}"),
-                );
-                None
-            }
-        };
-
-        // Delete the ephemeral file — best effort, don't fail the query if cleanup fails.
-        let archive_url = format!("{api_url}/tdata/Files('{file_id}')/Temper.Archive");
-        let archive_headers = internal_headers();
-        let _ = ctx.http_call("POST", &archive_url, &archive_headers, "{}");
-
-        if let Some(text) = content {
-            return Ok(json!(text));
-        }
-        // Fall through to inline results if file read fails
-    }
+    let (status, results_raw) = interpret_web_query_entity_result(query_type, &result_fields)?;
 
     // Try to parse as JSON array; if not, return as plain text
     match serde_json::from_str::<Value>(results_raw) {
@@ -1042,7 +1005,7 @@ fn web_search_results_empty(result: &Value) -> bool {
 fn interpret_web_query_entity_result<'a>(
     query_type: &str,
     fields: &'a Value,
-) -> Result<(&'a str, Option<&'a str>, &'a str), String> {
+) -> Result<(&'a str, &'a str), String> {
     let status = fields
         .get("Status")
         .or_else(|| fields.get("status"))
@@ -1066,16 +1029,12 @@ fn interpret_web_query_entity_result<'a>(
         }
     }
 
-    let result_file_id = fields
-        .get("result_file_id")
-        .and_then(|v| v.as_str())
-        .filter(|s| !s.is_empty());
     let results_raw = fields
         .get("results")
         .and_then(|v| v.as_str())
         .unwrap_or("[]");
 
-    Ok((status, result_file_id, results_raw))
+    Ok((status, results_raw))
 }
 
 fn fallback_web_search_query(query: &str, recent_user_messages: &[String]) -> Option<String> {
