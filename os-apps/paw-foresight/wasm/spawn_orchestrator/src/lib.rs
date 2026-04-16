@@ -1,16 +1,17 @@
 //! Spawn Orchestrator — WASM module for the Projection.Start integration.
 //!
-//! Run 009: Cross-theme analyst session added between probes and synthesis.
-//! 6 runs proved prose template instructions unreliable (Runs 003-008).
-//! WASM-level interventions work (Run 007 theme enforcement followed).
-//! Now WASM creates a dedicated cross-theme analyst session that reads all
-//! observations/directions, produces structured cross-theme interactions,
-//! and writes them to a file. The orchestrator reads this file and injects
-//! the content into the synthesis template as a pre-filled variable —
-//! the synthesizer includes it without needing to generate it.
+//! Run 010: Decision analyst session added alongside cross-theme analyst.
+//! Run 009 resolved the persistent Breadth deficit via a WASM-created
+//! cross-theme analyst session. Run 010 applies the same proven pattern
+//! to fix the Actionability deficit (-3.0 Borda across Run 009).
+//! The decision analyst reads all observations/directions, identifies
+//! top 3 decision points, and produces rich decision frameworks with
+//! strategic cost-benefit-risk framing. The orchestrator injects this
+//! pre-computed content into the synthesis template.
 //!
-//! Creates: 6 probe sessions (theme-constrained) + 1 cross-theme analyst + 1 orchestrator.
-//! Probes run concurrently. Analyst waits for probes. Orchestrator waits for both.
+//! Creates: 6 probe sessions (theme-constrained) + 1 cross-theme analyst
+//!          + 1 decision analyst + 1 orchestrator.
+//! Probes run concurrently. Both analysts wait for probes. Orchestrator waits for all.
 //!
 //! Build: `cargo build --target wasm32-unknown-unknown --release`
 
@@ -244,22 +245,168 @@ temper.done(_json.dumps({"workspace_id": ws_id, "file_id": file_id, "path": "cro
 ```
 "###;
 
-/// Orchestrator instructions — modified for Run 009.
-/// Probes are already running (created by WASM). Cross-theme analyst also running.
-/// Orchestrator waits for both, reads analyst output, injects into template, delegates synthesis.
+/// Decision analyst — WASM-created session that runs after probes complete.
+/// Reads all observations and directions, identifies top 3 decision points,
+/// and produces rich decision frameworks with strategic cost-benefit-risk framing.
+/// The orchestrator reads this file and injects it into the synthesis template.
+const DECISION_ANALYST_PROMPT: &str = r###"You are a decision analyst for a foresight projection about Directed Software Evolution.
+IMPORTANT: Use the execute tool for ALL entity operations via temper.* calls.
+
+Projection ID: DECISION_PROJ_ID
+
+## Step 1: Wait for All Probes to Complete
+
+6 probe sessions are running concurrently. Wait for ALL to finish before proceeding.
+
+```python
+import time
+
+probe_ids = [DECISION_PROBE_IDS_PYTHON]
+
+for attempt in range(60):
+    all_done = True
+    for pid in probe_ids:
+        s = temper.get("Sessions", pid)
+        status = s.get("status", "")
+        result = s.get("fields", {}).get("result", "")
+        if status not in ("Completed", "Failed") and (not result or len(str(result)) < 10):
+            all_done = False
+    print(f"Attempt {attempt+1}: all_done={all_done}")
+    if all_done:
+        print("All probes complete!")
+        break
+    time.sleep(15)
+```
+
+## Step 2: Read All Observations and Directions
+
+```python
+import json as _json
+
+projection_id = "DECISION_PROJ_ID"
+all_obs = temper.list("Observations", "$filter=projection_id eq '" + projection_id + "'")
+all_dirs = temper.list("Directions", "$filter=projection_id eq '" + projection_id + "'")
+
+obs_data = {}
+for obs in all_obs:
+    oid = obs["entity_id"]
+    f = obs.get("fields", {})
+    obs_data[oid] = {
+        "content": f.get("content", ""),
+        "probe_id": f.get("probe_agent_id", ""),
+        "importance": f.get("importance", "medium"),
+        "counterfactual": f.get("counterfactual", ""),
+    }
+
+dir_data = {}
+for d in all_dirs:
+    did = d["entity_id"]
+    f = d.get("fields", {})
+    try:
+        obs_ids = _json.loads(f.get("observation_ids", "[]")) if isinstance(f.get("observation_ids"), str) else f.get("observation_ids", [])
+    except:
+        obs_ids = []
+    dir_data[did] = {
+        "title": f.get("title", ""),
+        "reasoning": f.get("reasoning", ""),
+        "obs_ids": obs_ids if isinstance(obs_ids, list) else [],
+        "counterfactual": f.get("counterfactual_summary", ""),
+    }
+
+print(f"Loaded {len(obs_data)} observations, {len(dir_data)} directions")
+```
+
+## Step 3: Identify the Top 3 Decision Points
+
+Analyze the observations and directions to identify the 3 MOST ACTIONABLE decision
+points for someone working in this domain. Each decision point must:
+- Be grounded in specific observations (cite obs IDs)
+- Address a real choice a decision-maker faces in the next 12 months
+- Have genuinely different options with different strategic implications
+
+Good decision points are where the WRONG choice has significant consequences and
+where the observations reveal enough information to make an informed recommendation.
+
+## Step 4: Produce Decision Frameworks
+
+For each of the 3 decision points, use this EXACT format:
+
+```
+#### Decision Point N: [Title — what must be decided]
+**Who decides:** [Named role — e.g., VP Engineering, Platform Lead, CTO, Head of DevOps]
+**Timing trigger:** [Observable event with approximate date — e.g., "When agent-generated
+PRs exceed 20% of total PRs, likely by Q3 2026"]
+**Supporting evidence:** [obs: OBS_ID_1] [obs: OBS_ID_2]
+
+**Option A: [Specific tool/platform/config/action — e.g., "Deploy Cedar policy gates on CI"]**
+- Cost: [Quantified — engineering-weeks, dollar amount, or FTE commitment]
+- Risk: [Specific named risk — e.g., "vendor lock-in to GitHub Actions ecosystem"]
+- Opportunity cost: [What you give up — e.g., "delays replay harness investment by 2 months"]
+- Strategic consequence: [1-2 sentences on where this leaves you in 12 months]
+
+**Option B: [Different specific tool/platform/config/action]**
+- Cost: [Quantified]
+- Risk: [Specific named risk]
+- Opportunity cost: [What you give up]
+- Strategic consequence: [1-2 sentences]
+
+**Option C: [Different specific tool/platform/config/action]**
+- Cost: [Quantified]
+- Risk: [Specific named risk]
+- Opportunity cost: [What you give up]
+- Strategic consequence: [1-2 sentences]
+
+**Comparative analysis:** Option A is best when [condition]. Option B is best when
+[different condition]. Option C is the right choice if [third condition].
+
+**Recommended:** [Which option] — [One sentence quantified justification citing
+specific observations. E.g., "because replay harnesses reduce defect escape by
+~40% based on early-adopter data [obs: ID], justifying the 4-8 week investment."]
+```
+
+MANDATORY RULES:
+- Exactly 3 decision points
+- Each decision point MUST cite at least 2 observation IDs
+- Each option MUST name a specific tool, platform, configuration, or organizational action
+  (NOT generic advice like "invest in governance" or "improve testing")
+- Each option MUST have all 4 fields: Cost, Risk, Opportunity cost, Strategic consequence
+- Costs MUST be quantified (engineering-weeks, dollar ranges, FTE counts)
+- Risks MUST name specific failure modes (not "things could go wrong")
+- The comparative analysis MUST distinguish WHEN each option is right (not just rank them)
+- The recommendation MUST cite a specific observation and quantify the expected benefit
+- Each decision point should address a DIFFERENT strategic concern:
+  one about infrastructure/platform, one about evaluation/governance, one about organizational design
+
+## Step 5: Write to File
+
+```python
+import json as _json
+
+analysis_text = "## Decision Points\n\n" + all_decision_text
+result = temper.write("decision_analysis.md", analysis_text)
+ws_id = result.get("workspace_id", "")
+file_id = result.get("file_id", "")
+temper.done(_json.dumps({"workspace_id": ws_id, "file_id": file_id, "path": "decision_analysis.md"}))
+```
+"###;
+
+/// Orchestrator instructions — modified for Run 010.
+/// Probes are already running (created by WASM). Cross-theme analyst and decision analyst also running.
+/// Orchestrator waits for all, reads both analyst outputs, injects into template, delegates synthesis.
 const ORCHESTRATOR_INSTRUCTIONS: &str = r###"You are orchestrating a foresight projection. Follow these steps exactly.
 
-## IMPORTANT: Probes AND Cross-Theme Analyst Are Already Running
+## IMPORTANT: Probes, Cross-Theme Analyst, AND Decision Analyst Are Already Running
 
-6 probe sessions and 1 cross-theme analyst session have been created by WASM.
-They are running concurrently. You MUST wait for ALL of them.
+6 probe sessions, 1 cross-theme analyst session, and 1 decision analyst session
+have been created by WASM. They are running concurrently. You MUST wait for ALL of them.
 
 Probe session IDs:
 ORCH_PROBE_IDS_LIST
 
 Cross-theme analyst session ID: ORCH_ANALYST_SID
+Decision analyst session ID: ORCH_DECISION_SID
 
-## Step 1: Wait for ALL Probes AND the Cross-Theme Analyst to Complete
+## Step 1: Wait for ALL Probes AND Both Analysts to Complete
 
 This is your FIRST and MOST IMPORTANT task. Do NOT proceed until ALL are done.
 
@@ -269,7 +416,8 @@ import json as _json
 
 probe_ids = [ORCH_PROBE_IDS_PYTHON]
 analyst_sid = "ORCH_ANALYST_SID"
-all_session_ids = probe_ids + [analyst_sid]
+decision_sid = "ORCH_DECISION_SID"
+all_session_ids = probe_ids + [analyst_sid, decision_sid]
 
 for attempt in range(60):
     all_done = True
@@ -283,7 +431,7 @@ for attempt in range(60):
             all_done = False
     print(f"Attempt {attempt+1}: {statuses}")
     if all_done:
-        print("All probes and analyst complete!")
+        print("All probes and both analysts complete!")
         break
     time.sleep(15)
 ```
@@ -317,6 +465,35 @@ if not cross_theme_content or len(cross_theme_content) < 100:
     print("WARNING: No cross-theme analysis available")
 ```
 
+## Step 2b: Read Decision Analyst Output
+
+The decision analyst wrote a decision analysis file. Read it from its workspace.
+
+```python
+decision_session = temper.get("Sessions", decision_sid)
+decision_result_raw = decision_session.get("fields", {}).get("result", "{}")
+try:
+    decision_result = _json.loads(decision_result_raw)
+    decision_ws = decision_result.get("workspace_id", "")
+    decision_path = decision_result.get("path", "decision_analysis.md")
+except:
+    decision_ws = ""
+    decision_path = "decision_analysis.md"
+
+decision_content = ""
+if decision_ws:
+    try:
+        decision_content = temper.read("/" + decision_path, {"workspace_id": decision_ws})
+        print(f"Read decision analysis: {len(decision_content)} chars")
+    except Exception as e:
+        print(f"Failed to read decision analyst output: {e}")
+        decision_content = ""
+
+if not decision_content or len(decision_content) < 100:
+    decision_content = "## Decision Points\n\n(Decision analyst session did not produce output. Generate decision points from observations.)\n"
+    print("WARNING: No decision analysis available")
+```
+
 ## Step 3: Load Domain Knowledge
 
 ```python
@@ -341,9 +518,9 @@ for d in all_dirs:
     print(f"Direction: {f.get('title', '')} | Step: {f.get('step_at', '')}")
 ```
 
-## Step 5: Store Synthesis Template WITH Cross-Theme Content
+## Step 5: Store Synthesis Template WITH Pre-Computed Content
 
-Inject the cross-theme analyst's output into the template before storing.
+Inject the cross-theme analyst's AND decision analyst's output into the template.
 
 ```python
 template_text = """PASTE THE EXACT TEXT BETWEEN ===SYNTHESIS_TEMPLATE=== AND ===END_SYNTHESIS_TEMPLATE=== HERE"""
@@ -351,9 +528,12 @@ template_text = """PASTE THE EXACT TEXT BETWEEN ===SYNTHESIS_TEMPLATE=== AND ===
 # Inject pre-computed cross-theme analysis into the template
 template_text = template_text.replace("===CROSS_THEME_CONTENT===", cross_theme_content)
 
+# Inject pre-computed decision analysis into the template
+template_text = template_text.replace("===DECISION_CONTENT===", decision_content)
+
 _tf = temper.write("synthesis_template.md", template_text)
 _ws = _tf["workspace_id"]
-print(f"Template stored with cross-theme content injected ({len(template_text)} chars)")
+print(f"Template stored with cross-theme + decision content injected ({len(template_text)} chars)")
 ```
 
 ## Step 6: Delegate Synthesis to a Dedicated Session
@@ -372,8 +552,8 @@ synth_prompt = (
     "## Setup\n\n"
     "FIRST, read the synthesis template from the orchestrator workspace:\n\n"
     "  template = temper.read('/synthesis_template.md', {'workspace_id': '" + _ws + "'})\n\n"
-    "The template contains a pre-computed Cross-Theme Interactions section.\n"
-    "Include it AS-IS in the final synthesis. Do NOT regenerate or modify it.\n\n"
+    "The template contains pre-computed Cross-Theme Interactions and Decision Points sections.\n"
+    "Include both AS-IS in the final synthesis. Do NOT regenerate or modify them.\n\n"
     "Follow the synthesis template step by step.\n"
     "Load observations and directions from the API using temper.list().\n\n"
     "Write the complete synthesis to a file with temper.write().\n"
@@ -558,27 +738,26 @@ N. **Prediction:** [specific, dated prediction derived from the direction]
 
 EVERY prediction MUST have a falsification condition with a specific date.
 
-### Step E: Build Decision Points
+### Step E: Decision Points (PRE-COMPUTED — DO NOT REGENERATE)
 
-Create exactly 3 decision points with this EXACT format:
+The decision points have been pre-computed by a dedicated decision analyst session
+and injected into this template. They are stored in the `decision_section` variable below.
 
+```python
+# Decision content was pre-computed and injected by the orchestrator.
+# DO NOT modify, regenerate, or skip this section. Include it AS-IS in Step G.
+decision_section = """===DECISION_CONTENT==="""
 ```
-#### Decision Point N
-- **Decision:** [what must be decided — name the specific tool, config, or org action]
+
+If the decision_section is empty or says "did not produce output", fall back to
+generating your own decision points using the observations and directions.
+In that case, create exactly 3 decision points with this format:
+- **Decision:** [what must be decided]
+- **Who decides:** [named role]
 - **Timing trigger:** [observable event with approximate date]
-- **Option A:** [name a specific tool/config/action, e.g. "deploy Cedar policy gates on CI pipelines"]
-  — **Tradeoff:** [specific cost in engineering-weeks, dollar amount, or named risk]
-- **Option B:** [name a specific tool/config/action]
-  — **Tradeoff:** [specific cost in engineering-weeks, dollar amount, or named risk]
-- **Option C:** [name a specific tool/config/action]
-  — **Tradeoff:** [specific cost in engineering-weeks, dollar amount, or named risk]
-- **Recommended:** [which option and one-sentence justification]
-```
-
-**ACTIONABILITY RULE:** Each option MUST name a specific tool, configuration, platform, or
-organizational action. "Invest in governance" is NOT acceptable. "Deploy OPA/Cedar policy-as-code
-gates on the CI pipeline by Q3 2026" IS acceptable. Each tradeoff MUST include an estimated
-effort level (e.g., "2-4 engineering-weeks", "$50K-100K annual", "requires dedicated platform team").
+- **3 options** each with Cost, Risk, Opportunity cost, and Strategic consequence
+- **Comparative analysis:** when each option is best
+- **Recommended:** [which option with quantified justification citing obs IDs]
 
 ### Step F: Source Thesis Challenges
 
@@ -608,7 +787,7 @@ The MANDATORY section order is:
 5. Cross-Theme Interactions (from Step C4 — PRE-COMPUTED, include cross_theme_section AS-IS)
 6. Source Thesis Challenges (from Step F)
 7. Top 5 Predictions with Falsification Criteria (from Step D)
-8. Decision Points (from Step E)
+8. Decision Points (from Step E — PRE-COMPUTED, include decision_section AS-IS)
 9. Assumptions & Limitations (3 assumptions with If-wrong and Confidence)
 10. Methodology
 
@@ -635,7 +814,8 @@ temper.done("Projection complete. Synthesis: " + result["file_id"])
 9. No single observation may be cited in more than 2 Key Findings.
 10. Use at least 60% of available observations across the full synthesis.
 11. At least 2 findings must come from adjacent-domain probe observations.
-12. Decision Point options MUST name specific tools/configs/actions with effort estimates.
+12. Decision Points section is PRE-COMPUTED. Include the decision_section variable
+    AS-IS in the synthesis. Do NOT regenerate or modify it.
 13. Executive Summary MUST name 6+ distinct entities across 3+ categories
     (e.g., vendors: Anthropic/OpenAI/Cursor; governance: Cedar/OPA/Sentinel;
     open-source: Aider/Cline/OpenHands; platforms: Kubernetes/Terraform/Temper).
@@ -765,7 +945,7 @@ fn build_probe_prompt(
 pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
     let result = (|| -> Result<(), String> {
         let ctx = Context::from_host()?;
-        ctx.log("info", "spawn_orchestrator v009: starting (WASM cross-theme analyst)");
+        ctx.log("info", "spawn_orchestrator v010: starting (WASM decision analyst)");
 
         let fields = ctx.entity_state.get("fields").cloned().unwrap_or(json!({}));
 
@@ -1038,7 +1218,38 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         );
 
         // ========================================================
-        // Phase 3: Create orchestrator session (waits for probes + analyst, synthesizes)
+        // Phase 2b: Create decision analyst session (waits for probes, runs concurrently with cross-theme analyst)
+        // ========================================================
+
+        let decision_prompt = DECISION_ANALYST_PROMPT
+            .replace("DECISION_PROJ_ID", entity_id)
+            .replace("DECISION_PROBE_IDS_PYTHON", &probe_ids_python);
+
+        let decision_tools = "temper_get,temper_list,temper_write,temper_read";
+
+        let decision_sid = create_configured_session(
+            &ctx,
+            &headers,
+            &temper_api_url,
+            "DecisionAnalyst",
+            "analyst",
+            &decision_prompt,
+            &seed_model,
+            &provider_codex,
+            decision_tools,
+            "30",
+        )?;
+
+        ctx.log(
+            "info",
+            &format!(
+                "spawn_orchestrator: created decision analyst session: {}",
+                decision_sid
+            ),
+        );
+
+        // ========================================================
+        // Phase 3: Create orchestrator session (waits for probes + both analysts, synthesizes)
         // ========================================================
 
         // Build probe ID references for the orchestrator prompt
@@ -1057,6 +1268,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             .replace("ORCH_PROBE_IDS_LIST", &probe_ids_list)
             .replace("ORCH_PROBE_IDS_PYTHON", &probe_ids_python)
             .replace("ORCH_ANALYST_SID", &analyst_sid)
+            .replace("ORCH_DECISION_SID", &decision_sid)
             .replace("ORCH_PROJ_ID", entity_id)
             .replace("ORCH_FM_ID", foresight_model_id);
 
@@ -1094,9 +1306,10 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         ctx.log(
             "info",
             &format!(
-                "spawn_orchestrator v009: done. Orchestrator: {}, Analyst: {}, Probes: [{}]",
+                "spawn_orchestrator v010: done. Orchestrator: {}, CrossThemeAnalyst: {}, DecisionAnalyst: {}, Probes: [{}]",
                 orch_sid,
                 analyst_sid,
+                decision_sid,
                 probe_session_ids.join(", ")
             ),
         );

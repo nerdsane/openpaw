@@ -1,0 +1,107 @@
+{
+  "run": "010",
+  "rubric_version": "v3",
+  "methodology_note": "3 judges. Borda: winner=2pts, loser=1pt, tie=1.5. Max 6 per criterion, 72 total per output.",
+  "engine_borda": 55.0,
+  "baseline_borda": 53.0,
+  "max_per_output": 72,
+  "winner": "engine",
+  "per_criterion": [
+    {
+      "criterion": "Specificity",
+      "engine": 5.5,
+      "baseline": 3.5,
+      "delta": 2.0,
+      "engine_avg": 3.7,
+      "baseline_avg": 2.7
+    },
+    {
+      "criterion": "Novelty",
+      "engine": 4.5,
+      "baseline": 4.5,
+      "delta": 0.0,
+      "engine_avg": 2.0,
+      "baseline_avg": 2.0
+    },
+    {
+      "criterion": "Falsifiability",
+      "engine": 6,
+      "baseline": 3,
+      "delta": 3,
+      "engine_avg": 3.7,
+      "baseline_avg": 2.0
+    },
+    {
+      "criterion": "Breadth",
+      "engine": 3,
+      "baseline": 6,
+      "delta": -3,
+      "engine_avg": 2.0,
+      "baseline_avg": 3.0
+    },
+    {
+      "criterion": "Plausibility",
+      "engine": 4.5,
+      "baseline": 4.5,
+      "delta": 0.0,
+      "engine_avg": 2.0,
+      "baseline_avg": 2.0
+    },
+    {
+      "criterion": "Progression",
+      "engine": 4.0,
+      "baseline": 5.0,
+      "delta": -1.0,
+      "engine_avg": 2.0,
+      "baseline_avg": 2.3
+    },
+    {
+      "criterion": "Actionability",
+      "engine": 6,
+      "baseline": 3,
+      "delta": 3,
+      "engine_avg": 3.7,
+      "baseline_avg": 2.3
+    },
+    {
+      "criterion": "Decision Clarity",
+      "engine": 4.5,
+      "baseline": 4.5,
+      "delta": 0.0,
+      "engine_avg": 2.0,
+      "baseline_avg": 2.0
+    },
+    {
+      "criterion": "Completeness",
+      "engine": 4.5,
+      "baseline": 4.5,
+      "delta": 0.0,
+      "engine_avg": 2.0,
+      "baseline_avg": 2.0
+    },
+    {
+      "criterion": "Transparency",
+      "engine": 4.5,
+      "baseline": 4.5,
+      "delta": 0.0,
+      "engine_avg": 1.7,
+      "baseline_avg": 1.7
+    },
+    {
+      "criterion": "Challenge",
+      "engine": 3.5,
+      "baseline": 5.5,
+      "delta": -2.0,
+      "engine_avg": 2.0,
+      "baseline_avg": 2.7
+    },
+    {
+      "criterion": "Quant Precision",
+      "engine": 4.5,
+      "baseline": 4.5,
+      "delta": 0.0,
+      "engine_avg": 2.0,
+      "baseline_avg": 2.0
+    }
+  ]
+}
