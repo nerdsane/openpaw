@@ -11,6 +11,7 @@ Rust/WASM modules can interact with Modal sandboxes via standard HTTP.
 import modal
 import os
 import shlex
+import json
 from datetime import datetime
 
 app = modal.App("openpaw-sandbox-bridge")
@@ -48,6 +49,35 @@ def _ensure_dir(sb, path: str):
     return result
 
 
+def _sandbox_policy(body: dict) -> dict:
+    return {
+        "networking_type": body.get("networking_type", ""),
+        "allowed_hosts": body.get("allowed_hosts", []),
+        "allow_mcp_servers": body.get("allow_mcp_servers", False),
+        "allow_package_managers": body.get("allow_package_managers", False),
+        "packages": body.get("packages", []),
+    }
+
+
+def _write_policy_file(sb, body: dict):
+    policy = _sandbox_policy(body)
+    if not any(
+        [
+            policy["networking_type"],
+            policy["allowed_hosts"],
+            policy["allow_mcp_servers"],
+            policy["allow_package_managers"],
+            policy["packages"],
+        ]
+    ):
+        return
+
+    _ensure_dir(sb, "/workspace")
+    f = sb.open("/workspace/.openpaw-sandbox-config.json", "w")
+    f.write(json.dumps(policy, indent=2))
+    f.close()
+
+
 @app.function(image=bridge_image, secrets=[modal.Secret.from_name("openpaw-bridge-auth")], timeout=600)
 @modal.concurrent(max_inputs=100)
 @modal.fastapi_endpoint(method="POST", label="openpaw-sandbox-bridge-create")
@@ -63,7 +93,12 @@ def create_sandbox(body: dict, authorization: str = ""):
         app=app,
     )
     _ensure_dir(sb, "/workspace")
-    return {"sandbox_id": sb.object_id, "status": "running", "created_at": datetime.utcnow().isoformat()}
+    _write_policy_file(sb, body)
+    return {
+        "sandbox_id": sb.object_id,
+        "status": "running",
+        "created_at": datetime.utcnow().isoformat(),
+    }
 
 
 @app.function(image=bridge_image, secrets=[modal.Secret.from_name("openpaw-bridge-auth")], timeout=30)

@@ -7,6 +7,15 @@ Date: 2026-04-15
 Implemented `os-apps/paw-managed-agents` as an OpenPaw app aligned to the
 Anthropic `managed-agents-2026-04-01` beta shape.
 
+Follow-up review fixes on 2026-04-15 also addressed:
+
+- removal of the stale `os-apps/paw-managed-agents/wasm/environment_provisioner/`
+  build residue
+- provider-level sandbox policy propagation in `paw-agent`, including
+  provider request serialization and package-install setup hooks
+- cleanup of pre-existing `paw-agent` CSDL drift so the XML matches the live
+  `Session` runtime contract
+
 The final architecture is:
 
 - `ManagedEnvironment` is a reusable sandbox configuration template
@@ -74,15 +83,10 @@ Fixes applied in Temper:
 ### Focused unit tests
 
 ```text
-$ cargo test --manifest-path os-apps/paw-managed-agents/wasm/managed_agent_updater/Cargo.toml --quiet
-running 12 tests
-............
-test result: ok. 12 passed; 0 failed
-
 $ cargo test --manifest-path os-apps/paw-agent/wasm/wasm-helpers/Cargo.toml --quiet
-running 12 tests
-............
-test result: ok. 12 passed; 0 failed
+running 17 tests
+.................
+test result: ok. 17 passed; 0 failed
 
 $ cargo test -p temper-platform test_load_app_bundle_reads_cross_invariants --quiet
 running 1 test
@@ -97,7 +101,31 @@ $ bash os-apps/paw-managed-agents/wasm/build.sh
 -> session_orchestrator built successfully
 -> event_emitter built successfully
 -> session_terminator built successfully
--> managed_agent_updater built successfully
+  -> managed_agent_updater built successfully
+```
+
+### paw-agent WASM rebuild
+
+```text
+$ bash os-apps/paw-agent/wasm/build.sh
+-> llm_caller built successfully
+-> sandbox_provisioner built successfully
+-> workspace_provisioner built successfully
+-> context_compactor built successfully
+-> steering_checker built successfully
+-> coding_agent_runner built successfully
+-> heartbeat_scan built successfully
+-> heartbeat_scheduler built successfully
+-> heartbeat_typing built successfully
+-> cron_compute_next built successfully
+-> workspace_restorer built successfully
+-> agent_reply built successfully
+-> request_approval built successfully
+-> request_plan_review built successfully
+-> capability_installer built successfully
+-> plan_approval_handler built successfully
+-> plan_review_feedback_handler built successfully
+-> monty_repl built successfully
 ```
 
 ### OpenPaw server build against patched Temper
@@ -114,18 +142,17 @@ checkout for verification only.
 
 ### End-to-end lifecycle proof
 
-Fresh local server:
+Fresh tenant on the existing local server:
 
-- binary: `/tmp/openpaw-managed-agents-target/release/openpaw-server`
+- server: `http://127.0.0.1:3113`
 - port: `3113`
-- tenant: `managed-agents-review-11`
+- tenant: `managed-agents-review-12`
 
 Proof command:
 
 ```text
 $ OPENPAW_SERVER=http://127.0.0.1:3113 \
-  OPENPAW_TENANT=managed-agents-review-11 \
-  OPENPAW_API_KEY=<local-dev-key> \
+  OPENPAW_TENANT=managed-agents-review-12 \
   OPENPAW_REQUEST_TIMEOUT=120 \
   python3 -u os-apps/paw-managed-agents/tests/prove_paw_managed_agents.py
 ```
@@ -162,6 +189,16 @@ Negative check: archived agent should block new sessions...
 Archived-agent session rejection observed as expected.
 Proof completed successfully.
 ```
+
+### Additional follow-up checks
+
+- `os-apps/paw-managed-agents/wasm/environment_provisioner/` no longer exists on
+  disk after cleanup
+- the rebuilt `paw-agent` bundle now includes sandbox policy serialization and
+  setup logic from `wasm-helpers/src/sandbox.rs`
+- `paw-agent` CSDL now exposes a single copy of `SessionMode`,
+  `PrePlanToolsEnabled`, and `ActivePlanId`, and `HandleToolResults` now includes
+  `sandbox_provider`, `pending_tool_context`, and `pending_decision_id`
 
 ### What the proof explicitly verified
 

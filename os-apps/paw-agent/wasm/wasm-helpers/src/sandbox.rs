@@ -189,6 +189,130 @@ pub fn sandbox_config_from_fields(fields: &Value) -> SandboxConfig {
     }
 }
 
+fn sandbox_policy_payload(config: &SandboxConfig) -> Value {
+    json!({
+        "networking_type": config.networking_type,
+        "allowed_hosts": config.allowed_hosts,
+        "allow_mcp_servers": config.allow_mcp_servers,
+        "allow_package_managers": config.allow_package_managers,
+        "packages": config
+            .packages
+            .iter()
+            .map(|package| {
+                json!({
+                    "manager": package.manager,
+                    "name": package.name,
+                    "version": package.version,
+                })
+            })
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn tensorlake_create_body(config: &SandboxConfig) -> Value {
+    let mut body = json!({
+        "resources": {
+            "cpus": config.cpus,
+            "memory_mb": config.memory_mb
+        },
+        "timeout_seconds": config.timeout_seconds,
+        "internet_access": config.internet_access
+    });
+
+    body["network"] = json!({
+        "allow_internet_access": config.internet_access,
+        "allow_out": config.allowed_hosts,
+    });
+
+    body
+}
+
+fn modal_create_body(config: &SandboxConfig) -> Value {
+    let mut body = json!({
+        "cpus": config.cpus,
+        "memory_mb": config.memory_mb,
+        "timeout_seconds": config.timeout_seconds,
+    });
+
+    if let Some(object) = body.as_object_mut() {
+        let policy = sandbox_policy_payload(config);
+        if let Some(policy_object) = policy.as_object() {
+            for (key, value) in policy_object {
+                object.insert(key.clone(), value.clone());
+            }
+        }
+    }
+
+    body
+}
+
+fn sandbox_policy_file_contents(config: &SandboxConfig) -> String {
+    serde_json::to_string_pretty(&sandbox_policy_payload(config))
+        .unwrap_or_else(|_| "{}".to_string())
+}
+
+fn package_spec(package: &SandboxPackage, separator: &str) -> String {
+    if package.version.trim().is_empty() {
+        package.name.clone()
+    } else {
+        format!("{}{}{}", package.name, separator, package.version)
+    }
+}
+
+fn sandbox_package_install_script(config: &SandboxConfig) -> Option<String> {
+    if config.packages.is_empty() {
+        return None;
+    }
+
+    let apt_packages = config
+        .packages
+        .iter()
+        .filter(|package| package.manager.eq_ignore_ascii_case("apt"))
+        .map(|package| package_spec(package, "="))
+        .collect::<Vec<_>>();
+    let pip_packages = config
+        .packages
+        .iter()
+        .filter(|package| package.manager.eq_ignore_ascii_case("pip"))
+        .map(|package| package_spec(package, "=="))
+        .collect::<Vec<_>>();
+    let npm_packages = config
+        .packages
+        .iter()
+        .filter(|package| package.manager.eq_ignore_ascii_case("npm"))
+        .map(|package| package_spec(package, "@"))
+        .collect::<Vec<_>>();
+
+    let mut commands = Vec::new();
+
+    if !apt_packages.is_empty() {
+        commands.push(format!(
+            "apt-get update && apt-get install -y --no-install-recommends {}",
+            apt_packages.join(" ")
+        ));
+    }
+
+    if !pip_packages.is_empty() {
+        commands.push(format!(
+            "python3 -m ensurepip --upgrade >/dev/null 2>&1 || true\npython3 -m pip install --disable-pip-version-check --no-input {}",
+            pip_packages.join(" ")
+        ));
+    }
+
+    if !npm_packages.is_empty() {
+        commands.push(format!(
+            "command -v npm >/dev/null 2>&1 || (apt-get update && apt-get install -y --no-install-recommends nodejs npm)\nnpm install -g {}",
+            npm_packages.join(" ")
+        ));
+    }
+
+    if commands.is_empty() {
+        return None;
+    }
+
+    Some(format!("set -e\n{}", commands.join("\n")))
+}
+
 // ---------------------------------------------------------------------------
 // Sandbox lifecycle
 // ---------------------------------------------------------------------------
@@ -291,6 +415,57 @@ pub fn sandbox_exec(
 pub fn sandbox_setup(ctx: &Context, handle: &SandboxHandle) {
     if handle.sandbox_url.is_empty() {
         return;
+    }
+
+    let fields = ctx.entity_state.get("fields").cloned().unwrap_or(json!({}));
+    let config = sandbox_config_from_fields(&fields);
+    let has_policy = !config.networking_type.trim().is_empty()
+        || !config.allowed_hosts.is_empty()
+        || config.allow_mcp_servers
+        || config.allow_package_managers
+        || !config.packages.is_empty();
+
+    if has_policy {
+        let policy_file = "/workspace/.openpaw-sandbox-config.json";
+        match sandbox_file_write(
+            ctx,
+            handle,
+            policy_file,
+            &sandbox_policy_file_contents(&config),
+        ) {
+            Ok(()) => ctx.log(
+                "info",
+                &format!("sandbox_setup: wrote sandbox policy file to {policy_file}"),
+            ),
+            Err(e) => ctx.log(
+                "warn",
+                &format!("sandbox_setup: failed to persist sandbox policy file: {e}"),
+            ),
+        }
+    }
+
+    if let Some(install_script) = sandbox_package_install_script(&config) {
+        match sandbox_exec(ctx, handle, &install_script, "/") {
+            Ok(result) if result.exit_code == 0 => ctx.log(
+                "info",
+                &format!(
+                    "sandbox_setup: installed {} requested package(s)",
+                    config.packages.len()
+                ),
+            ),
+            Ok(result) => ctx.log(
+                "warn",
+                &format!(
+                    "sandbox_setup: package installation exited {}: {}",
+                    result.exit_code,
+                    result.stderr.trim()
+                ),
+            ),
+            Err(e) => ctx.log(
+                "warn",
+                &format!("sandbox_setup: package installation failed: {e}"),
+            ),
+        }
     }
 
     let gh_setup = r#"
@@ -409,14 +584,7 @@ fn tensorlake_create(
 ) -> Result<SandboxHandle, String> {
     let create_url = "https://api.tensorlake.ai/sandboxes";
     let headers = bearer_headers_json(api_key);
-    let body = json!({
-        "resources": {
-            "cpus": config.cpus,
-            "memory_mb": config.memory_mb
-        },
-        "timeout_seconds": config.timeout_seconds,
-        "internet_access": config.internet_access
-    });
+    let body = tensorlake_create_body(config);
 
     let resp = ctx.http_call("POST", create_url, &headers, &body.to_string())?;
     if resp.status < 200 || resp.status >= 300 {
@@ -627,11 +795,7 @@ fn modal_create(
     let base = modal_base_url(ctx)?;
     let url = modal_url(&base, "create", api_key, "");
     let headers = vec![("content-type".to_string(), "application/json".to_string())];
-    let body = json!({
-        "cpus": config.cpus,
-        "memory_mb": config.memory_mb,
-        "timeout_seconds": config.timeout_seconds
-    });
+    let body = modal_create_body(config);
 
     let resp = ctx.http_call("POST", &url, &headers, &body.to_string())?;
     if resp.status < 200 || resp.status >= 300 {
@@ -951,5 +1115,131 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn test_tensorlake_create_body_includes_network_policy() {
+        let config = SandboxConfig {
+            cpus: 4,
+            memory_mb: 8192,
+            timeout_seconds: 7200,
+            internet_access: true,
+            networking_type: "Limited".to_string(),
+            allowed_hosts: vec!["github.com".to_string(), "api.anthropic.com".to_string()],
+            allow_mcp_servers: true,
+            allow_package_managers: false,
+            packages: vec![SandboxPackage {
+                manager: "apt".to_string(),
+                name: "jq".to_string(),
+                version: "1.7".to_string(),
+            }],
+        };
+
+        let body = tensorlake_create_body(&config);
+        assert_eq!(body["resources"]["cpus"], json!(4));
+        assert_eq!(body["resources"]["memory_mb"], json!(8192));
+        assert_eq!(body["timeout_seconds"], json!(7200));
+        assert_eq!(body["network"]["allow_internet_access"], json!(true));
+        assert_eq!(
+            body["network"]["allow_out"],
+            json!(["github.com", "api.anthropic.com"])
+        );
+    }
+
+    #[test]
+    fn test_modal_create_body_includes_policy_fields() {
+        let config = SandboxConfig {
+            networking_type: "Limited".to_string(),
+            allowed_hosts: vec!["github.com".to_string()],
+            allow_mcp_servers: true,
+            allow_package_managers: true,
+            packages: vec![SandboxPackage {
+                manager: "pip".to_string(),
+                name: "rich".to_string(),
+                version: "13.9.4".to_string(),
+            }],
+            ..SandboxConfig::default()
+        };
+
+        let body = modal_create_body(&config);
+        assert_eq!(body["networking_type"], json!("Limited"));
+        assert_eq!(body["allowed_hosts"], json!(["github.com"]));
+        assert_eq!(body["allow_mcp_servers"], json!(true));
+        assert_eq!(body["allow_package_managers"], json!(true));
+        assert_eq!(
+            body["packages"],
+            json!([{
+                "manager": "pip",
+                "name": "rich",
+                "version": "13.9.4",
+            }])
+        );
+    }
+
+    #[test]
+    fn test_sandbox_package_install_script_groups_supported_package_managers() {
+        let config = SandboxConfig {
+            packages: vec![
+                SandboxPackage {
+                    manager: "apt".to_string(),
+                    name: "jq".to_string(),
+                    version: "1.7".to_string(),
+                },
+                SandboxPackage {
+                    manager: "pip".to_string(),
+                    name: "rich".to_string(),
+                    version: "13.9.4".to_string(),
+                },
+                SandboxPackage {
+                    manager: "npm".to_string(),
+                    name: "typescript".to_string(),
+                    version: "5.9.2".to_string(),
+                },
+            ],
+            ..SandboxConfig::default()
+        };
+
+        let script =
+            sandbox_package_install_script(&config).expect("expected package install script");
+        assert!(script.contains("apt-get install -y --no-install-recommends jq=1.7"));
+        assert!(script.contains(
+            "python3 -m pip install --disable-pip-version-check --no-input rich==13.9.4"
+        ));
+        assert!(script.contains("npm install -g typescript@5.9.2"));
+    }
+
+    #[test]
+    fn test_paw_agent_csdl_has_single_session_properties() {
+        let csdl = include_str!("../../../specs/model.csdl.xml");
+        for property in ["SessionMode", "PrePlanToolsEnabled", "ActivePlanId"] {
+            let needle = format!("<Property Name=\"{property}\"");
+            assert_eq!(
+                csdl.matches(&needle).count(),
+                1,
+                "expected exactly one {property} property in paw-agent CSDL"
+            );
+        }
+    }
+
+    #[test]
+    fn test_paw_agent_csdl_handle_tool_results_matches_runtime_params() {
+        let csdl = include_str!("../../../specs/model.csdl.xml");
+        let handle_tool_results = csdl
+            .split("<Action Name=\"HandleToolResults\" IsBound=\"true\">")
+            .nth(1)
+            .and_then(|block| block.split("</Action>").next())
+            .expect("HandleToolResults action block should exist");
+
+        for parameter in [
+            "sandbox_provider",
+            "pending_tool_context",
+            "pending_decision_id",
+        ] {
+            let needle = format!("<Parameter Name=\"{parameter}\"");
+            assert!(
+                handle_tool_results.contains(&needle),
+                "expected HandleToolResults to expose {parameter}"
+            );
+        }
     }
 }

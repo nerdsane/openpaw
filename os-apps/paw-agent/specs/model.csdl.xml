@@ -74,9 +74,6 @@
         <Property Name="ActivePlanId" Type="Edm.String"/>
         <Property Name="ProjectHarnessId" Type="Edm.String"/>
         <Property Name="ProjectId" Type="Edm.String"/>
-        <Property Name="SessionMode" Type="Edm.String"/>
-        <Property Name="PrePlanToolsEnabled" Type="Edm.String"/>
-        <Property Name="ActivePlanId" Type="Edm.String"/>
       </EntityType>
 
       <EntityType Name="Soul">
@@ -252,8 +249,11 @@
         <Parameter Name="repl_file_id" Type="Edm.String" Nullable="true"/>
         <Parameter Name="sandbox_url" Type="Edm.String" Nullable="true"/>
         <Parameter Name="sandbox_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="sandbox_provider" Type="Edm.String" Nullable="true"/>
         <Parameter Name="system_prompt_hash" Type="Edm.String" Nullable="true"/>
         <Parameter Name="system_prompt_file_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="pending_tool_context" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="pending_decision_id" Type="Edm.String" Nullable="true"/>
         <ReturnType Type="OpenPaw.Session"/>
       </Action>
 
