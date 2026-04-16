@@ -1,0 +1,23 @@
+{
+  "run": "002",
+  "rubric_version": "v4",
+  "methodology_note": "3 Claude Code subagent judges, side-by-side. Borda: winner=2pts, loser=1pt, tie=1.5. Max 6 per criterion, 72 total.",
+  "engine_borda": 58.5,
+  "baseline_borda": 49.5,
+  "max_per_output": 72,
+  "winner": "engine",
+  "per_criterion": [
+    {"criterion": "Specificity", "engine": 6.0, "baseline": 3.0, "delta": 3.0},
+    {"criterion": "Novelty", "engine": 5.5, "baseline": 3.5, "delta": 2.0},
+    {"criterion": "Falsifiability", "engine": 6.0, "baseline": 3.0, "delta": 3.0},
+    {"criterion": "Breadth", "engine": 4.5, "baseline": 4.5, "delta": 0.0},
+    {"criterion": "Plausibility", "engine": 4.5, "baseline": 4.5, "delta": 0.0},
+    {"criterion": "Progression", "engine": 5.0, "baseline": 4.0, "delta": 1.0},
+    {"criterion": "Actionability", "engine": 4.5, "baseline": 4.5, "delta": 0.0},
+    {"criterion": "Decision Clarity", "engine": 4.5, "baseline": 4.5, "delta": 0.0},
+    {"criterion": "Completeness", "engine": 4.5, "baseline": 4.5, "delta": 0.0},
+    {"criterion": "Grounding", "engine": 4.5, "baseline": 4.5, "delta": 0.0},
+    {"criterion": "Challenge", "engine": 4.5, "baseline": 4.5, "delta": 0.0},
+    {"criterion": "Information Density", "engine": 4.5, "baseline": 4.5, "delta": 0.0}
+  ]
+}

@@ -1,0 +1,80 @@
+[
+  {
+    "entity_type": "Direction",
+    "entity_id": "en-019d96c8-6c88-7622-9d55-1fbaec332390",
+    "status": "Proposed",
+    "item_count": 0,
+    "counters": {},
+    "booleans": {},
+    "lists": {},
+    "fields": {
+      "fields": {},
+      "Id": "en-019d96c8-6c88-7622-9d55-1fbaec332390",
+      "Status": "Proposed",
+      "counterfactual_summary": "If the market instead jumps directly to broad autonomous engineering without stronger harnesses, adoption will outrun governance and trigger a trust backlash that slows the whole category.",
+      "grounding": "[\"https://github.com/newsroom/press-releases/coding-agent-for-github-copilot\", \"https://code.visualstudio.com/blogs/2025/06/12/full-mcp-spec-support\", \"https://www.harness.io/blog/mcp-announcement\", \"https://openai.com/blog/openai-codex/\"]",
+      "observation_ids": "[\"en-019d96c8-6c59-77f2-b638-f47eafd6fbee\",\"en-019d96c8-6c65-7462-8407-a79a48c4a2a3\",\"en-019d96c8-6c71-7bb3-853e-0b4db03f7bd9\",\"en-019d96c8-6c7d-7862-a56c-210563f8f6e6\"]",
+      "projection_id": "en-019d96c3-2eb0-7c41-b3d3-f2f0d43f6392",
+      "proposer_agent_id": "aj-019d96c7-27a6-7c13-8741-0a66157bb3b4",
+      "reasoning": "The most likely 90-day trajectory is a rapid shift from standalone coding demos toward harness-centered agent workflows embedded in existing developer control planes. The external evidence points the same way: GitHub is shipping an asynchronous coding agent inside Copilot and pairing it with workflow surfaces developers already trust, while VS Code and vendors such as Harness are standardizing the tool boundary through MCP. OpenAI's open-source Codex CLI further strengthens the local, inspectable execution path. Together these moves make it technically feasible to run agents where tests, policy, telemetry, and approvals already exist. That is the operational substrate directed software evolution needs.\n\nWhat practitioners will actually adopt first is not open-ended self-improving software, but bounded loops: issue triage to draft PR, failing test to candidate fix, dependency bump to verification run, deployment anomaly to proposed rollback or config patch. The winning teams will invest in machine-checkable acceptance criteria, reproducible sandboxes, and repo-specific evals so multiple candidate solutions can be generated and filtered automatically. In other words, the next 90 days favor stage-1 and stage-2 maturation with selective stage-3 construction patterns. Directed evolution advances when the harness becomes a first-class product artifact.\n\nThe main risk is category error. If leaders interpret current product launches as proof that autonomy has already been solved, they will give agents tasks without adequate state models, approval boundaries, or regression harnesses. That will produce visible failures and stall adoption. If instead they narrow task scopes and standardize tool/context interfaces, they can accumulate the exact feedback loops required for later stage-4 evolutionary behavior.",
+      "step_at": "0",
+      "title": "The next 90 days will reward teams that treat coding agents as harness-bound workflow components, not autonomous replacements for engineers."
+    },
+    "events": [],
+    "total_event_count": 2,
+    "sequence_nr": 2,
+    "@odata.id": "Directions('en-019d96c8-6c88-7622-9d55-1fbaec332390')"
+  },
+  {
+    "entity_type": "Direction",
+    "entity_id": "en-019d96c8-929d-7000-9ad3-2dab7fc7e4a2",
+    "status": "Proposed",
+    "item_count": 0,
+    "counters": {},
+    "booleans": {},
+    "lists": {},
+    "fields": {
+      "fields": {},
+      "Id": "en-019d96c8-929d-7000-9ad3-2dab7fc7e4a2",
+      "Status": "Proposed",
+      "counterfactual_summary": "If this thesis is wrong, autonomy will scale primarily on the strength of generation and test harnesses, and organizations will rapidly relax approval and policy controls without suffering trust-destroying incidents.",
+      "grounding": "[\"https://den.dev/blog/mcp-november-authorization-spec/\",\"https://genai.owasp.org/llmrisk/llm01-prompt-injection/\",\"https://cheatsheetseries.owasp.org/cheatsheets/AI_Agent_Security_Cheat_Sheet.html\",\"https://www.nist.gov/caisi/ai-agent-standards-initiative\"]",
+      "observation_ids": "[\"en-019d96c8-926f-72b3-98f1-858a5a5d888f\",\"en-019d96c8-927c-78a3-a224-1cb1b9a701a6\",\"en-019d96c8-9287-7650-99c6-4b0bcfbf34f0\",\"en-019d96c8-9292-7f73-8d88-743d00768948\"]",
+      "projection_id": "en-019d96c3-2eb0-7c41-b3d3-f2f0d43f6392",
+      "proposer_agent_id": "aj-019d96c7-27b8-75c2-8665-e3398741ea9f",
+      "reasoning": "My strongest thesis is that directed software evolution will hit a trust bottleneck before it hits a capability bottleneck. The field already has enough model quality and tooling to generate patches, wire workflows, and operate inside narrow harnesses, but the external evidence points to unfinished security and governance foundations. MCP authorization is still stabilizing around client registration and discovery conventions, which indicates that machine-to-machine trust boundaries are not yet boring infrastructure. OWASP continues to treat prompt injection, tool abuse, memory poisoning, and approval routing as first-order agent risks, which means the attack surface is not incidental to autonomous engineering systems; it is the central design problem.\n\nIn the next 90 days, the winning teams will not be the ones that maximize autonomous patch volume. They will be the ones that aggressively narrow tool scopes, isolate memory, require approval for boundary-crossing actions, and treat every retrieved artifact as hostile until proven otherwise. This directly challenges the dominant narrative that better harnesses alone unlock safe dark factories. Harnesses are necessary, but not sufficient: the harness must itself be policy-aware, identity-aware, and adversarially tested. Without that, directed evolution selects for whatever can satisfy local checks, including exploitably brittle behaviors.\n\nThe practical implication is that progress will look slower and more bureaucratic than enthusiasts expect. Enterprises will keep agentic systems in semi-autonomous modes, especially around deployment, secrets, production data, and cross-system writes. That slowdown is not failure; it is the price of converting impressive code generation into operationally trustworthy software evolution.",
+      "step_at": "0",
+      "title": "Directed software evolution will be constrained by trust architecture, not model capability, over the next 90 days."
+    },
+    "events": [],
+    "total_event_count": 2,
+    "sequence_nr": 2,
+    "@odata.id": "Directions('en-019d96c8-929d-7000-9ad3-2dab7fc7e4a2')"
+  },
+  {
+    "entity_type": "Direction",
+    "entity_id": "en-019d96c9-851f-7eb0-8ad5-9b0e1f21bc68",
+    "status": "Proposed",
+    "item_count": 0,
+    "counters": {},
+    "booleans": {},
+    "lists": {},
+    "fields": {
+      "fields": {},
+      "Id": "en-019d96c9-851f-7eb0-8ad5-9b0e1f21bc68",
+      "Status": "Proposed",
+      "counterfactual_summary": "If this thesis is wrong, the next 90 days will show broad durable productivity gains from agentic coding even in weakly governed teams, with little need for new review mechanisms, incentive changes, or approval boundaries.",
+      "grounding": "[]",
+      "observation_ids": "[\"en-019d96c9-84e3-7ea3-8a5f-9ddc163ede76\",\"en-019d96c9-84ee-7e63-b849-99c34bb878ab\",\"en-019d96c9-84fb-7a31-9cb9-b2248cff4574\",\"en-019d96c9-8507-7fa0-99a4-418658c68c40\",\"en-019d96c9-8513-7fd0-987e-8530f98276c9\"]",
+      "projection_id": "en-019d96c3-2eb0-7c41-b3d3-f2f0d43f6392",
+      "proposer_agent_id": "aj-019d96c7-27ca-7411-932c-a3431cc534df",
+      "reasoning": "Directed software evolution will advance fastest where firms redesign coordination rather than merely adding autonomous coding tools. In the next 90 days, the key competitive advantage will come from decomposing work into evaluable units, formalizing approval paths, and building durable interfaces between humans, agents, and repositories. Adjacent fields give a clear analogy: when the cost of production drops, bottlenecks move to selection, governance, and allocation. In biology, selection environments matter as much as raw generative capacity. In economics and organizational design, lower transaction cost exposes hidden coordination cost. That is the shape of the next quarter.\n\nThe external signals reinforce this interpretation. Stack Overflow data shows high AI use but weaker trust, which means verification remains central. Anthropic's economic evidence shows software work is highly exposed to AI assistance, but that should be read as job recomposition, not instant full replacement. DORA emphasizes that AI amplifies existing system quality rather than rescuing weak systems by itself. So the strongest thesis is that social and institutional redesign will determine adoption speed: the winners will improve governance, incentives, review capacity, and workflow architecture before they maximize autonomy.",
+      "step_at": "0",
+      "title": "Directed software evolution will advance fastest where firms redesign coordination, not where they simply deploy more autonomous coding tools."
+    },
+    "events": [],
+    "total_event_count": 2,
+    "sequence_nr": 2,
+    "@odata.id": "Directions('en-019d96c9-851f-7eb0-8ad5-9b0e1f21bc68')"
+  }
+]

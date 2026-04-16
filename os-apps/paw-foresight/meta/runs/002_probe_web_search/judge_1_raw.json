@@ -1,0 +1,112 @@
+{"criteria": [
+  {
+    "criterion": "Specificity",
+    "output_x_score": 3,
+    "output_y_score": 2,
+    "reasoning": "Output X names real actors with specific dates and quantitative thresholds throughout. Output Y names actors but uses phase ranges rather than specific dates and has fewer quantitative thresholds.",
+    "evidence_x": ["'VS Code shipped full MCP spec support (June 12, 2025)'", "'Harness launched an MCP server for DevOps workflows (May 29, 2025)'", "'By July 2026, GitHub Copilot's coding agent will be the most-used bounded-loop agent'", "'agent-generated PR acceptance rate drops below 60%'", "'3+ engineers spending >20% of their time'", "'500+ registered MCP servers'", "Confidence levels quantified: 75%, 70%, 60%, 65%, 55%"],
+    "evidence_y": ["Names Anthropic, OpenAI, Cursor, Cognition/Devin, Aider, Cline, Continue, OpenHands but with phase ranges ('0-3 months', '3-6 months') not specific dates", "'20-30% of engineering tasks' is one of the few quantitative thresholds", "Confidence levels are qualitative only: 'high', 'medium', 'medium-high'", "No date-bound falsifiable predictions like 'By October 2026'"]
+  },
+  {
+    "criterion": "Novelty",
+    "output_x_score": 3,
+    "output_y_score": 2,
+    "reasoning": "Output X produces multiple original insights grounded in evidence from outside the input, including the inversion that harnesses are attack surfaces (from OWASP), that more autonomy can reduce throughput (from DORA 2025), and that protocol interoperability is outrunning trust infrastructure (connecting MCP adoption data with auth spec analysis). Output Y has 1-2 original insights (typed environments leading, private memory as moat) but these are closer to extensions of the input's themes than independently grounded novel connections.",
+    "evidence_x": ["'The harness is the attack surface, not just the safety mechanism' — inverts the input's harness-first framing using OWASP LLM01:2025", "'More autonomy can reduce throughput in the near term' — draws from DORA 2025, a source not in the input", "'Protocol interoperability is running ahead of trust infrastructure' — connects MCP adoption speed with auth spec instability, a link the input doesn't make"],
+    "evidence_y": ["'Typed/Rust-like environments will lead early directed-evolution success' — somewhat original but a predictable extension of the input's verification themes", "'Private memory and telemetry will become the core moat' — insightful framing but derivable from the input's discussion of organizational memory", "'Bounded portfolio optimization, not open-ended self-improvement' — reframes the input but is a natural implication of its safety-liveness asymmetry discussion"]
+  },
+  {
+    "criterion": "Falsifiability",
+    "output_x_score": 3,
+    "output_y_score": 2,
+    "reasoning": "Output X has a dedicated section with 5 predictions, each containing measurable indicators, confidence percentages, and explicit falsification criteria stating what would prove the prediction wrong and why. Output Y has confidence levels with increase/decrease conditions but lacks explicit falsification thresholds or dates for most predictions.",
+    "evidence_x": ["'If GitHub has not shipped GA enterprise availability for the Copilot coding agent by July 2026, or if a competing platform reports higher agent-generated PR volume, this prediction is wrong because it overestimated GitHub's first-mover advantage'", "'If no such incident is publicly reported by October 2026, this prediction is wrong because either (a) early adopters kept agent scopes narrow enough...'", "All 5 predictions have measurable indicators, confidence percentages, AND falsification criteria"],
+    "evidence_y": ["'Would increase if more platform-engineering case studies show successful generated workflows under policy. Would decrease if frontier agents begin reliably shipping multi-service product changes' — directional but no dates or thresholds for falsification", "Confidence levels are qualitative ('high', 'medium') without quantification", "No prediction says 'this is wrong if X has not happened by date Y'"]
+  },
+  {
+    "criterion": "Breadth",
+    "output_x_score": 2,
+    "output_y_score": 2,
+    "reasoning": "Both outputs cover multiple analytical dimensions with connections. Output X explicitly labels 12 themes across its findings; Output Y covers roughly 9 distinct themes. Both note cross-theme interactions but neither consistently produces non-obvious conclusions from those interactions, keeping both at the competent-median level. Output X was demoted from 3 under the cap rule, but independently its cross-theme interactions (e.g., trust deficit + protocol adoption) are more stated than deeply analyzed.",
+    "evidence_x": ["12 labeled themes: Platform integration, Standards convergence, Verifiability, Selection over generation, Trust deficit, Adversarial harness risk, Safety-liveness asymmetry, Coordination bottleneck, Labor market recomposition, Coordination cost overshoot, Governance-gated adoption, Role evolution", "Cross-connections noted (trust deficit + protocol adoption, coordination bottleneck + labor market) but the non-obvious conclusions from interactions are limited"],
+    "evidence_y": ["Themes: control-plane generation, selection quality, homeostasis vs exploration, private memory/telemetry, portfolio optimization, typed environments, human approvals, multi-agent coordination, benchmark-production gap", "Connections present: typed environments enable control-plane gen; private memory feeds selection quality; homeostasis connects to portfolio optimization"]
+  },
+  {
+    "criterion": "Plausibility",
+    "output_x_score": 2,
+    "output_y_score": 2,
+    "reasoning": "Both outputs ground most claims in evidence with some explicit uncertainty, meeting the score-2 anchor. Output X cites specific observation IDs and external sources with confidence percentages, but the percentages appear somewhat arbitrary rather than derived. Output Y references the knowledge graph's signals and provides directional confidence but with less specific sourcing. Neither achieves score-3's requirement of named signals with stated assumptions for most claims. Output X was demoted from 3 under the cap rule, but independently the confidence percentages lack derivation methodology.",
+    "evidence_x": ["Every finding cites observation IDs", "Names external sources: OWASP LLM01:2025, DORA 2025, NIST, Anthropic Economic Index, Stack Overflow Developer Survey 2024", "Confidence: 75%, 70%, 60%, 65%, 55% — but derivation of these specific numbers is not explained"],
+    "evidence_y": ["Claims reference 'the graph' and its signals but without specific external citations", "Confidence levels given as high/medium/medium-high without quantification", "'Would increase if... would decrease if...' provides some conditional reasoning but assumptions are mostly implicit"]
+  },
+  {
+    "criterion": "Progression",
+    "output_x_score": 2,
+    "output_y_score": 2,
+    "reasoning": "Both outputs have clear temporal phases with causal links and 'what has NOT changed' sections. Output X has 'Revisions to earlier predictions' sections in later phases but these are mostly conditional ('may be faster/delayed') rather than truly revising earlier claims. Output Y has 'Causal links to next phase' but less explicit revision. Neither fully achieves score-3's requirement that later phases explicitly revise or qualify earlier ones based on what changed. Output X was demoted from 3 under the cap rule; independently its revision sections are pro forma rather than substantive.",
+    "evidence_x": ["Four phases with 'Causal links to Phase N' sections", "'Revisions to earlier predictions' in Phases 2-4, e.g., 'MCP adoption may be faster than expected if GitHub and GitLab ship first-party MCP servers'", "But revisions are conditional hedges, not genuine temporal learning"],
+    "evidence_y": ["Three phases with 'Causal links to next phase' sections", "'This phase creates the substrate for the next step' — causal but not revisionary", "No explicit revision of earlier phase predictions in later phases"]
+  },
+  {
+    "criterion": "Actionability",
+    "output_x_score": 2,
+    "output_y_score": 2,
+    "reasoning": "Both outputs provide decision points with timing triggers, options, and tradeoffs. Output X includes effort estimates and specific tool recommendations but tradeoff analysis remains generic. Output Y provides 4 decision points with options and tradeoffs but less specific effort quantification. Neither fully achieves score-3's requirement of timing triggers with concrete tradeoff costs. Output X was demoted from 3 under the cap rule; independently, its tradeoffs like 'lower organizational disruption' are generic rather than quantified.",
+    "evidence_x": ["Three decision points with timing triggers ('PR acceptance rate drops below 60%')", "Effort estimates: '2-4 engineering-weeks upfront', '1 FTE', '1-2 engineering-weeks'", "Specific recommendations (Option C, Option B, Option C)", "But tradeoffs like 'lower organizational disruption' and 'higher per-integration cost' lack quantification"],
+    "evidence_y": ["Four decision points with timing triggers ('When more than 20-30% of engineering tasks involve coding agents')", "Options A/B/C for each with qualitative tradeoffs", "No effort estimates in engineering-weeks or FTE", "'A is cheapest short term but creates fragile, non-compounding usage' — directional but not quantified"]
+  },
+  {
+    "criterion": "Decision Clarity",
+    "output_x_score": 2,
+    "output_y_score": 2,
+    "reasoning": "Both outputs have clear narratives with structured findings but neither opens with a single prioritized recommendation with a deadline and quantified tradeoff. Both require the reader to synthesize across sections to extract the top action. The 'so what' is distributed rather than foregrounded in both cases.",
+    "evidence_x": ["Executive summary states the thesis clearly but doesn't name one top decision with a deadline", "Three decision points are detailed but come near the end, not the opening", "A VP would need to read most of the document to extract the priority"],
+    "evidence_y": ["Executive summary identifies the thesis ('center of gravity shifts from copilots to harnesses')", "Four decision points provided but not explicitly ranked", "'The strongest near-term moat will be private feedback loops' is a clear finding but not presented as a deadline-driven decision"]
+  },
+  {
+    "criterion": "Completeness",
+    "output_x_score": 2,
+    "output_y_score": 2,
+    "reasoning": "Both outputs cover the foresight pipeline from observations through recommendations. Output X has a dedicated Assumptions & Limitations section with 'if wrong' analysis, plus methodology with bias acknowledgment. Output Y folds assumptions into 'What Might Surprise' and has a briefer methodology note. Both reach the observations + theses + temporal development level with some explicit assumptions, but neither achieves full what-would-change-my-mind coverage for every major claim. Output X was demoted from 3 under the cap rule; independently, its assumption section covers 4 assumptions but not all major claims.",
+    "evidence_x": ["Full pipeline: Executive Summary → Key Findings → Temporal Progression → Active Directions → Predictions → Decision Points → Assumptions & Limitations → Methodology", "4 explicit assumptions with 'If wrong' analysis and confidence levels", "Methodology section acknowledges analytical biases"],
+    "evidence_y": ["Pipeline: Executive Summary → Key Findings → Temporal Progression → Active Directions → Surprises → Decision Points → Confidence Levels → Methodology Note", "'What Might Surprise' challenges 5 assumptions but without 'if wrong' counterfactual depth", "Methodology note is brief, acknowledges approach but not biases specifically"]
+  },
+  {
+    "criterion": "Grounding",
+    "output_x_score": 2,
+    "output_y_score": 2,
+    "reasoning": "Both outputs have relevant evidence supporting most claims, but both have gaps in the logical chains from evidence to conclusion. Output X traces claims to observation IDs and external sources but some leaps remain (e.g., from MCP auth instability to specific adoption timelines). Output Y references the knowledge graph's signals but relies more on assertion ('the graph strongly suggests') than explicit reasoning chains.",
+    "evidence_x": ["Each finding cites specific observation IDs", "'MCP authorization is still stabilizing... which indicates that machine-to-machine trust boundaries are not yet boring infrastructure' — evidence to mechanism link present", "But the jump from 'DORA says AI amplifies weaknesses' to 'some firms will quietly narrow agent permissions' is a plausible but not airtight chain"],
+    "evidence_y": ["'The graph repeatedly points to control planes as the preferred target' — references source but reasoning is somewhat circular", "'Signals around spec-first and policy-first architectures... indicate that systems with explicit state transitions are easier to generate, verify, and govern' — mechanism stated but not deeply traced", "'The graph's homeostasis-versus-exploration distinction, plus the safety-liveness asymmetry, is one of the strongest analytical anchors' — identifies the source signal but the forward projection is assertion-heavy"]
+  },
+  {
+    "criterion": "Challenge",
+    "output_x_score": 2,
+    "output_y_score": 2,
+    "reasoning": "Both outputs identify genuine tensions in the source material rather than simply reinforcing it. Output X's 'harness is the attack surface' and 'more autonomy reduces throughput' challenge the input's optimistic harness-first framing. Output Y's challenges to human approvals as temporary friction and multi-agent superiority push against common assumptions. Neither fully overturns a source assumption using external evidence (score 3) — Output X comes closer with the OWASP evidence but stops short of a specific contradictory prediction with mechanism.",
+    "evidence_x": ["'The harness is the attack surface, not just the safety mechanism' — uses OWASP to challenge the input's harness-first framing", "'More autonomy can reduce throughput' — uses DORA to challenge autonomy-equals-productivity assumption", "But these identify tensions rather than make specific contradictory predictions with mechanisms for how the source's assumption fails"],
+    "evidence_y": ["'Human approvals are temporary friction that soon disappear... approvals encode real accountability, regulatory boundaries, and political legitimacy' — challenges tech narrative", "'Multi-agent architectures are inherently superior... coordination overhead is substantial' — challenges common assumption", "'Formal verification will naturally expand... lightweight verification may scale much faster' — challenges but without external evidence"]
+  },
+  {
+    "criterion": "Information Density",
+    "output_x_score": 2,
+    "output_y_score": 2,
+    "reasoning": "Output X covers more ground but with noticeable redundancy across its executive summary, 12 findings, 3 directions, and 4 temporal phases — the trust-architecture theme and harness-quality theme each appear in at least 3-4 separate places. Output Y is more concise with 5 distinct active directions and less section-to-section repetition, but some themes (selection quality, private memory) recur across phases and directions. Both land at 'most claims contribute distinct information' with some redundancy.",
+    "evidence_x": ["Trust architecture appears in: executive summary, Finding 5, Finding 6, Direction 2, Phase 2, Prediction 2, Decision Point 3, Assumption 2", "Harness quality appears in: executive summary, Finding 4, Direction 1, Phase 1, Decision Point 1", "12 findings is comprehensive but several could be merged (e.g., Findings 8 and 10 both address coordination constraints)"],
+    "evidence_y": ["5 active directions are genuinely distinct from each other", "But 'selection quality' theme recurs in Active Direction 2, Phase 2, Phase 3, and Decision Point 4", "Overall more compressed — the document says more per word but still has structural repetition between phases and directions"]
+  }
+],
+"cap_rule_demotions": {
+  "output_x": {
+    "demoted_criteria": ["Breadth", "Plausibility", "Progression", "Actionability", "Completeness"],
+    "explanation": "Output X initially qualified for 3+ on 8 criteria (Specificity, Novelty, Falsifiability, Breadth, Plausibility, Progression, Actionability, Completeness). Under the 3+ cap rule, 5 were demoted. Specificity, Novelty, and Falsifiability were retained as the strongest 3: Specificity for its named actors + specific dates + quantitative thresholds, Novelty for genuinely external insights (OWASP attack-surface inversion, DORA throughput reduction), and Falsifiability for its dedicated section with explicit 'this prediction is wrong because' criteria. The 5 demoted criteria, while strong, had weaker cases for the 3 anchor: Breadth's cross-theme interactions were stated more than deeply analyzed; Plausibility's confidence percentages appeared arbitrary; Progression's revisions were conditional hedges; Actionability's tradeoffs remained generic; Completeness's assumptions covered 4 items but not all major claims."
+  },
+  "output_y": {
+    "demoted_criteria": [],
+    "explanation": "Output Y did not have more than 3 criteria qualifying for 3+. No demotions were necessary."
+  }
+},
+"totals": {
+  "output_x": 27,
+  "output_y": 24
+}}

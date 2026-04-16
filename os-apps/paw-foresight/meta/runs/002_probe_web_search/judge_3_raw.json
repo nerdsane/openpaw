@@ -1,0 +1,241 @@
+{
+  "criteria": [
+    {
+      "criterion": "Specificity",
+      "output_x_score": 3,
+      "output_y_score": 2,
+      "reasoning": "Output X consistently pairs named actors with specific dates and quantitative thresholds: 'By July 2026, GitHub Copilot's coding agent will be the most-used bounded-loop agent,' 'at least 3 Fortune 500 companies,' 'PR acceptance rate drops below 60%,' '500+ registered MCP servers,' '2-4 engineering-weeks upfront.' It cites precise product launch dates (VS Code MCP support June 12 2025, Harness MCP server May 29 2025, Codex CLI April 16 2025). Output Y names more actors in aggregate (Anthropic, OpenAI, Cursor, Cognition/Devin, Aider, Cline, Continue, OpenHands) but rarely ties them to specific dates or quantitative thresholds. Its temporal references are phase-level ('0-3 months,' 'by late 2026') and it has only one quantitative trigger ('20-30% of engineering tasks'). Output Y provides named actors OR approximate timelines but rarely both together with measurable thresholds.",
+      "evidence_x": [
+        "'By July 2026, GitHub Copilot's coding agent will be the most-used bounded-loop agent in production, measured by PR volume'",
+        "'at least 3 Fortune 500 companies will have created a dedicated AI workflow engineer role'",
+        "'500+ registered MCP servers across CI/CD, project management, observability'",
+        "'VS Code shipped full MCP spec support (June 12, 2025)'",
+        "'When your team's agent-generated PR acceptance rate drops below 60%'",
+        "'2-4 engineering-weeks upfront, ongoing maintenance of ~5 hours/week'"
+      ],
+      "evidence_y": [
+        "'Anthropic, OpenAI, Cursor, Cognition/Devin, Aider, Cline, Continue, and OpenHands-class systems' \u2014 actors named but no dates or thresholds attached",
+        "'By late 2026' \u2014 approximate timing without specific dates",
+        "'When more than 20-30% of engineering tasks involve coding agents' \u2014 sole quantitative threshold",
+        "Phase labels '0-3 months,' '3-6 months,' '6-12 months' without dated predictions"
+      ]
+    },
+    {
+      "criterion": "Novelty",
+      "output_x_score": 2,
+      "output_y_score": 2,
+      "reasoning": "Output X produces several insights not in the input by connecting external evidence to directed-evolution concepts: the harness-as-attack-surface inversion (OWASP + harness-first framing), autonomy-reduces-throughput in mixed-maturity orgs (DORA 2025 + coordination theory), and protocol-interoperability outrunning trust infrastructure (MCP adoption pace vs. authorization maturity). These are grounded in external signals. However, under the 3+ cap rule, Novelty was demoted from 3 to 2 for Output X because Falsifiability, Specificity, and Completeness were stronger 3+ candidates. Output Y derives most insights from the knowledge graph itself rather than external evidence. Its novel contributions \u2014 typed environments leading directed-evolution success, private memory as strategic moat via commoditization logic, and portfolio optimization as the first form of directed evolution \u2014 are interesting but largely extend input themes rather than connecting external signals the input didn't contain. Both outputs produce some original insights but neither introduces a genuinely reframing concept from outside the source.",
+      "evidence_x": [
+        "'The harness is the attack surface, not just the safety mechanism' \u2014 inverts the source's framing using OWASP data",
+        "'More autonomy can reduce throughput in the near term' \u2014 connects DORA 2025 amplification thesis to coordination theory",
+        "'Protocol interoperability is running ahead of trust infrastructure' \u2014 connects MCP adoption to authorization churn"
+      ],
+      "evidence_y": [
+        "'Typed/Rust-like and strongly verified environments will outperform loosely typed app stacks' \u2014 somewhat novel but derivable from the graph's verification signals",
+        "'Private telemetry and repo memory become the main moat' \u2014 extends the graph's memory signals via commoditization logic",
+        "'Directed evolution will appear first as bounded portfolio optimization' \u2014 synthesizes variation/selection concepts already in the graph"
+      ]
+    },
+    {
+      "criterion": "Falsifiability",
+      "output_x_score": 4,
+      "output_y_score": 2,
+      "reasoning": "Output X has an explicit 'Top 5 Predictions with Falsification Criteria' section where every prediction includes a measurable indicator, numeric confidence level, and a detailed falsification statement of the form 'If X has not happened by [date], this prediction is wrong because [reason].' This is the gold standard for falsifiable foresight. Output Y states predictions with directional confidence labels (high, medium, medium-high) and includes 'would increase if / would decrease if' conditions that describe confidence-shifting signals, but these are not hard falsification criteria \u2014 they describe a sliding scale rather than a binary pass/fail test. Most of Y's predictions are trend statements ('control-plane generation outpaces broad product-code autonomy') that could be evaluated post-hoc but lack the explicit date-bound, binary-outcome falsification structure of X.",
+      "evidence_x": [
+        "'If GitHub has not shipped GA enterprise availability for the Copilot coding agent by July 2026, or if a competing platform reports higher agent-generated PR volume, this prediction is wrong because...'",
+        "'A CVE, public post-mortem, or security advisory explicitly attributing a code-level incident to prompt injection via repository artifacts processed by a coding agent'",
+        "Each prediction includes: measurable indicator, numeric confidence (75%, 70%, 60%, 65%, 55%), and explicit falsification criteria"
+      ],
+      "evidence_y": [
+        "'Confidence: high. Would increase if more platform-engineering case studies show successful generated workflows under policy. Would decrease if frontier agents begin reliably shipping multi-service product changes with minimal scaffolding.' \u2014 describes confidence shifts, not binary falsification",
+        "'Prediction: Private telemetry and repo memory become the main moat. Confidence: high.' \u2014 directional label without measurable threshold or deadline",
+        "No prediction includes 'if X has not happened by [date], this prediction is wrong'"
+      ]
+    },
+    {
+      "criterion": "Breadth",
+      "output_x_score": 2,
+      "output_y_score": 2,
+      "reasoning": "Output X explicitly labels 12 themes (platform integration, standards convergence, verifiability, selection over generation, trust deficit, adversarial harness risk, safety-liveness asymmetry, coordination bottleneck, labor market recomposition, coordination cost overshoot, governance-gated adoption, role evolution) with cross-connections noted. However, several themes are closely related (coordination bottleneck, coordination cost overshoot, and role evolution all concern organizational design; trust deficit and adversarial harness risk both concern security). Under the 3+ cap rule, this was demoted from 3 to 2. Output Y covers approximately 10 themes (control-plane generation, selection quality, homeostasis vs exploration, private memory, portfolio optimization, typed environments, human approvals, multi-agent coordination, benchmark-production gap, governance) with connections drawn between them. Both outputs cover substantial analytical ground but the connections between themes, while present, do not consistently produce non-obvious conclusions that emerge specifically from the interaction.",
+      "evidence_x": [
+        "12 explicitly labeled themes across key findings",
+        "Cross-connections: coordination bottleneck informs governance-gated adoption; trust deficit connects to adversarial harness risk",
+        "Several themes overlap: findings 8, 9, 10 all address organizational/coordination issues"
+      ],
+      "evidence_y": [
+        "~10 themes across key findings and active directions",
+        "Cross-connections: selection quality connects to private memory moat; homeostasis-exploration links to safety-liveness asymmetry",
+        "Active Direction 5 (portfolio optimization) connects selection, diversity, and enterprise tolerance themes"
+      ]
+    },
+    {
+      "criterion": "Plausibility",
+      "output_x_score": 2,
+      "output_y_score": 2,
+      "reasoning": "Output X traces every key finding to specific observation IDs and cites named external sources (GitHub newsroom, VS Code blog, Harness blog, OWASP LLM01:2025, NIST AI Agent Standards Initiative, DORA 2025, Stack Overflow Developer Survey 2024, Anthropic Economic Index). It provides numeric confidence levels (75%, 70%, 60%, 65%, 55%) and states 4 explicit assumptions with 'if wrong' scenarios. This warranted a 3 pre-cap but was demoted because Falsifiability, Specificity, and Completeness were stronger. Output Y references the knowledge graph's signals throughout and uses directional confidence labels (high, medium, medium-high). Its claims are grounded in mechanisms (commoditization logic for memory moat, verifiability argument for control planes) but does not cite specific external sources or name evidence beyond the input graph. Both outputs acknowledge uncertainty, but X does so more explicitly.",
+      "evidence_x": [
+        "'DORA's 2025 research frames AI as an amplifier of existing organizational strengths and weaknesses' \u2014 named external source with specific claim",
+        "Numeric confidence levels: 'Confidence: High (75%)'",
+        "'Assumption 1: Model capability is sufficient... If wrong: A major model regression could re-establish model capability as the binding constraint'"
+      ],
+      "evidence_y": [
+        "'Confidence: high. Would increase if wider adoption of replay/eval suites and policy-gated CI.' \u2014 directional confidence without numeric precision",
+        "'Signals such as daily coding-agent usage, benchmark-centered evaluation, broader verification stacks' \u2014 references knowledge graph signals without naming external sources",
+        "Mechanism-based reasoning: 'Once variation is cheap, the bottleneck moves to the selection harness' \u2014 logical but not grounded in named evidence"
+      ]
+    },
+    {
+      "criterion": "Progression",
+      "output_x_score": 2,
+      "output_y_score": 2,
+      "reasoning": "Output X has 4 temporal phases with explicit 'Causal links to Phase N' sections and 'Revisions to earlier predictions' in Phases 2, 3, and 4. For example, Phase 2 revises: 'MCP adoption may be faster than expected if GitHub and GitLab ship first-party MCP servers' and 'The prompt-injection incident predicted for Phase 1 may be delayed.' This warranted 3 pre-cap but was demoted because Falsifiability, Specificity, and Completeness were stronger. Output Y has 3 temporal phases with 'Causal links to next phase' sections and 'What has NOT changed' repetitions, but later phases do not explicitly revise or qualify earlier predictions. Its causal links are brief and general ('This phase creates the substrate for the next step'). Both show clear temporal structure, but Output X's explicit revision mechanism is notably stronger, though capped.",
+      "evidence_x": [
+        "Phase 2 'Revisions to earlier predictions: MCP adoption may be faster than expected if GitHub and GitLab ship first-party MCP servers, reducing the integration burden below Phase 1 projections'",
+        "Phase 3 'If DORA's AI amplifies dysfunction finding proves stronger than expected, some organizations may be in active agent rollback rather than expansion'",
+        "Phase 4 'If the labor-market recomposition effect from Phase 3 proves more disruptive than expected, regulatory responses may introduce new constraints'"
+      ],
+      "evidence_y": [
+        "'Causal links to next phase: This phase creates the substrate for the next step: once teams have evals, traces, and approval logic, they can begin to safely compare multiple generated variants' \u2014 causal but not revisionary",
+        "'What has NOT changed' sections repeat similar points across phases (agents don't reliably own complex changes; benchmark improvements don't translate to deploy permissions)",
+        "No explicit revision of Phase 1 predictions in Phase 2 or 3"
+      ]
+    },
+    {
+      "criterion": "Actionability",
+      "output_x_score": 2,
+      "output_y_score": 2,
+      "reasoning": "Output X provides 3 decision points with quantitative timing triggers ('PR acceptance rate drops below 60%,' '3+ engineers spending >20% of their time,' 'need to access 3+ external systems'), 3 options per decision with effort estimates ('2-4 engineering-weeks upfront, ongoing maintenance of ~5 hours/week,' '1 FTE, recruiting or internal transfer'), and specific tool recommendations (Cedar, OPA, MCP SDK). This warranted 3 pre-cap but was demoted. Output Y provides 4 decision points with qualitative timing triggers ('When internal agent usage becomes routine,' 'When production-facing autonomy is requested') and options with directional tradeoffs ('A is cheapest short term but creates fragile, non-compounding usage') but without effort estimates or specific tools. Both provide conditional recommendations, but X's are more concrete while Y's are more general.",
+      "evidence_x": [
+        "'When your team's agent-generated PR acceptance rate drops below 60%' \u2014 quantitative trigger",
+        "'2-4 engineering-weeks upfront, ongoing maintenance of ~5 hours/week' \u2014 concrete effort estimate",
+        "'Recommended: Option C. Start with vendor defaults for bounded tasks and invest custom harness effort where the safety-liveness asymmetry is most acute'",
+        "'Tools: Cedar, OPA, MCP SDK, OAuth server configuration, scope-narrowing policies'"
+      ],
+      "evidence_y": [
+        "'When more than 20-30% of engineering tasks involve coding agents, or when teams begin depending on them for maintenance/refactoring work' \u2014 qualitative trigger with one rough quantitative range",
+        "'A is cheapest short term but creates fragile, non-compounding usage' \u2014 directional tradeoff without cost/effort estimate",
+        "'B best supports enterprise trust and long-horizon autonomy' \u2014 evaluative but not quantified",
+        "No specific tools or effort estimates in any decision point"
+      ]
+    },
+    {
+      "criterion": "Decision Clarity",
+      "output_x_score": 2,
+      "output_y_score": 2,
+      "reasoning": "Output X opens with an executive summary that identifies the core thesis (trust architecture > model capability) and the binding constraint (organizational coordination), but the #1 decision is not stated as a single action with a deadline and cost until the Decision Points section near the end of a very long document. A VP would need to read through 12 key findings, 4 temporal phases, 3 directions, 4 surprises, and 5 predictions before reaching actionable decisions. Output Y's executive summary is clearer and more concise, stating 'the center of gravity will shift from copilots to harnesses, policies, replay systems, and private eval suites,' but similarly buries its decision points at the end. Neither output opens with the single most important decision, deadline, and quantified tradeoff that would give a VP immediate clarity.",
+      "evidence_x": [
+        "Executive summary identifies thesis but does not name the #1 decision upfront",
+        "Decision points appear after ~3500 words of analysis",
+        "The recommended actions (Option C for harness investment, Option B for role design, Option C for MCP adoption) are clear but not prioritized against each other"
+      ],
+      "evidence_y": [
+        "Executive summary: 'the center of gravity will shift from copilots to harnesses' \u2014 clear thesis but not framed as a decision",
+        "Decision points appear after ~2500 words of analysis",
+        "'Option B: Invest in private evals, replay harnesses, and acceptance gates' is implied as the top recommendation but not stated as such"
+      ]
+    },
+    {
+      "criterion": "Completeness",
+      "output_x_score": 3,
+      "output_y_score": 2,
+      "reasoning": "Output X covers the full foresight pipeline: 13 observations with IDs, 12 synthesized key findings, 4 temporal phases with causal links and revisions, 3 active directions with counterfactuals, 4 surprises, 5 predictions with falsification criteria, 3 decision points with options and recommendations, 4 explicit assumptions with 'if wrong' scenarios and confidence levels, and a methodology section acknowledging analytical biases. Output Y covers findings, 3 temporal phases, 5 directions with counterfactuals, 5 surprise challenges, 4 decision points, 7 confidence items, and a methodology note. However, Y's assumptions are implicit rather than explicitly stated with 'if wrong' scenarios, its methodology note is a single paragraph rather than a detailed accounting, and it lacks the explicit limitations acknowledgment that X provides.",
+      "evidence_x": [
+        "'Assumption 1: Model capability is sufficient... If wrong: A major model regression could re-establish model capability as the binding constraint' \u2014 explicit assumption with falsification",
+        "'Analytical biases acknowledged: The probe structure emphasizes trust and coordination constraints, which may underweight the speed at which competitive pressure drives organizations to accept higher risk' \u2014 explicit limitation",
+        "Methodology section details 3 probes, 1 projection step, 13 observations, and names all external sources"
+      ],
+      "evidence_y": [
+        "Methodology note: 'This projection uses a structured synthesis of the provided knowledge graph, emphasizing stage progression, signal interaction, bottlenecks, and asymmetries' \u2014 one paragraph",
+        "No explicit 'Assumptions' section with 'if wrong' scenarios",
+        "Confidence levels section partially captures assumptions via 'would decrease if' conditions but does not name baseline assumptions or limitations"
+      ]
+    },
+    {
+      "criterion": "Grounding",
+      "output_x_score": 2,
+      "output_y_score": 2,
+      "reasoning": "Output X traces claims to named evidence with observation IDs and external sources. The chain from 'OWASP LLM01:2025 frames prompt injection as the top risk' to 'every artifact in the harness loop is a potential hostile control channel' to 'expect at least one high-visibility incident' is followable. However, some later-phase predictions (Phase 3-4) rely on causal extrapolation from earlier phases rather than independent evidence, introducing gaps. Demoted from 3 under the cap rule. Output Y grounds claims in the knowledge graph's conceptual framework (safety-liveness asymmetry, homeostasis vs exploration) with logical reasoning chains, but the evidence is internal to the graph rather than independently sourced. The chain from 'variation is becoming cheap' to 'bottleneck moves to selection' to 'private evals become strategic' is logical but not traced to specific named evidence.",
+      "evidence_x": [
+        "'OWASP LLM01:2025 frames prompt injection as the top risk' \u2192 'every artifact in the harness loop is a potential hostile control channel' \u2192 'expect at least one high-visibility incident' \u2014 traceable chain",
+        "'DORA 2025 emphasizes AI amplifies existing weaknesses' \u2192 'unmanaged agent autonomy generates excess diffs' \u2192 'some firms will quietly narrow agent permissions' \u2014 logical chain grounded in named source",
+        "Phase 4 predictions ('stage-3 construction patterns become operational at 5+ publicly visible organizations') rely on causal extrapolation without new evidence"
+      ],
+      "evidence_y": [
+        "'Once variation is cheap, the bottleneck moves to the selection harness' \u2014 logical mechanism but not traced to specific named evidence",
+        "'The graph's homeostasis-versus-exploration distinction, plus the safety-liveness asymmetry, is one of the strongest analytical anchors' \u2014 grounded in the graph's framework",
+        "'Private telemetry becomes strategic' \u2014 supported by commoditization logic but the evidence chain has a gap: why does agent commoditization necessarily make local context more valuable than improved general models?"
+      ]
+    },
+    {
+      "criterion": "Challenge",
+      "output_x_score": 2,
+      "output_y_score": 2,
+      "reasoning": "Output X challenges the source's harness-first framing by arguing the harness itself is the primary attack surface, using OWASP evidence from within the source's own evidence base. It also challenges the assumption that more agents = more output by citing DORA 2025 on amplification of dysfunction. However, both challenges ultimately reinforce the source's broader thesis (trust > capability) rather than overturning it. Output Y challenges 5 assumptions in its 'What Might Surprise' section: better models don't automatically produce directed evolution, human approvals aren't temporary friction, formal verification won't naturally expand, multi-agent isn't inherently superior, benchmarks don't convert to enterprise dominance. These identify genuine tensions but most are already implied by the source material (the graph already emphasizes selection over generation, safety-liveness asymmetry, and coordination overhead). Neither output makes a specific prediction that contradicts the source with external evidence.",
+      "evidence_x": [
+        "'The harness is the attack surface, not just the safety mechanism' \u2014 inverts the source's framing using evidence the source itself cites (OWASP)",
+        "'More autonomy can reduce throughput in the near term' \u2014 challenges a common assumption but reinforces the source's coordination-over-capability thesis",
+        "No prediction directly contradicts the source's core thesis"
+      ],
+      "evidence_y": [
+        "'Human approvals are not temporary friction that soon disappear... they encode real accountability, regulatory boundaries, and political legitimacy' \u2014 genuine tension with the source's trajectory toward increasing autonomy",
+        "'Multi-agent architectures are not inherently superior... Simpler, narrow-role agents with explicit handoffs may outperform' \u2014 challenges a common assumption",
+        "'Better models automatically produce viable directed evolution' is challenged, but the source already argues selection > generation"
+      ]
+    },
+    {
+      "criterion": "Information Density",
+      "output_x_score": 2,
+      "output_y_score": 2,
+      "reasoning": "Output X contains 12 key findings where some overlap (findings 8, 9, and 10 all address coordination and organizational constraints from slightly different angles; findings 5 and 6 both address trust/security gaps). The 3 active directions partially restate the key findings in longer form. The temporal progression section adds unique value but also restates themes from the findings. Output Y is more compressed with 8 key findings and less per-finding redundancy, but its 5 active directions also partially overlap with findings (Direction 2 on selection quality restates finding about review authority shifting to harnesses; Direction 4 on private memory restates the moat finding). Both outputs have moderate redundancy where merging related claims would reduce word count without losing analytical value, but most individual claims still contribute distinct information.",
+      "evidence_x": [
+        "Findings 8 ('managerial span-of-control is the limiting factor'), 9 ('amplifies senior engineers faster than replaces junior headcount'), and 10 ('more autonomy may reduce throughput') all concern organizational/coordination constraints",
+        "Findings 5 ('MCP authorization trust gap') and 6 ('harness is the primary attack surface') both concern security/trust deficits",
+        "3 active directions restate the 3 core theses from the findings in extended form"
+      ],
+      "evidence_y": [
+        "Key finding on review authority shifting to harnesses partially restated in Direction 2 on selection quality",
+        "Key finding on private feedback loops as moat partially restated in Direction 4",
+        "8 findings are more compressed than X's 12, with less overlap between them",
+        "Decision points are somewhat generic relative to the analytical depth of the directions"
+      ]
+    }
+  ],
+  "cap_rule_demotions": {
+    "output_x": {
+      "criteria_qualifying_for_3_plus": [
+        "Specificity (3)",
+        "Novelty (3)",
+        "Falsifiability (4)",
+        "Breadth (3)",
+        "Plausibility (3)",
+        "Progression (3)",
+        "Actionability (3)",
+        "Completeness (3)",
+        "Grounding (3)"
+      ],
+      "kept_at_3_plus": [
+        "Falsifiability (4)",
+        "Specificity (3)",
+        "Completeness (3)"
+      ],
+      "demoted_to_2": [
+        "Novelty (3\u21922): while external evidence generates new insights, these are extensions of the source's framework rather than reframing connections",
+        "Breadth (3\u21922): 12 themes labeled but several are closely related subvariants of coordination and trust concerns",
+        "Plausibility (3\u21922): strong evidence grounding but some later-phase confidence levels appear arbitrary",
+        "Progression (3\u21922): explicit revision mechanism is notable but revisions are modest qualifications rather than substantive pivots",
+        "Actionability (3\u21922): effort estimates and tools are concrete but tradeoff analysis remains somewhat generic",
+        "Grounding (3\u21922): reasoning chains are present but later temporal phases rely on causal extrapolation without new evidence"
+      ]
+    },
+    "output_y": {
+      "criteria_qualifying_for_3_plus": [],
+      "kept_at_3_plus": [],
+      "demoted_to_2": [],
+      "note": "No criteria qualified for 3+. No demotions needed."
+    }
+  },
+  "totals": {
+    "output_x": 28,
+    "output_y": 24
+  }
+}

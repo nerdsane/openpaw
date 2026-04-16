@@ -1,0 +1,69 @@
+{
+  "methodology": "3 independent Claude Code subagent judges (claude -p). Side-by-side comparison. Rubric v4 (Grounding, Information Density). 3+ cap rule.",
+  "rubric_version": "v4",
+  "methodology_note": "Judges 2 and 3 were re-launched after initial background tasks failed silently (output files contained only echo line). All 3 final judge runs completed successfully with valid JSON output.",
+  "judges": {
+    "judge_1": {
+      "x_is_engine": true,
+      "criteria": [
+        {"criterion": "Specificity", "output_x_score": 3, "output_y_score": 2},
+        {"criterion": "Novelty", "output_x_score": 3, "output_y_score": 2},
+        {"criterion": "Falsifiability", "output_x_score": 3, "output_y_score": 2},
+        {"criterion": "Breadth", "output_x_score": 2, "output_y_score": 2},
+        {"criterion": "Plausibility", "output_x_score": 2, "output_y_score": 2},
+        {"criterion": "Progression", "output_x_score": 2, "output_y_score": 2},
+        {"criterion": "Actionability", "output_x_score": 2, "output_y_score": 2},
+        {"criterion": "Decision Clarity", "output_x_score": 2, "output_y_score": 2},
+        {"criterion": "Completeness", "output_x_score": 2, "output_y_score": 2},
+        {"criterion": "Grounding", "output_x_score": 2, "output_y_score": 2},
+        {"criterion": "Challenge", "output_x_score": 2, "output_y_score": 2},
+        {"criterion": "Information Density", "output_x_score": 2, "output_y_score": 2}
+      ],
+      "engine_total": 27,
+      "baseline_total": 24,
+      "cap_demotions": "Output X: 5 criteria demoted from 3 (Breadth, Plausibility, Progression, Actionability, Completeness). Retained: Specificity, Novelty, Falsifiability. Output Y: no demotions needed."
+    },
+    "judge_2": {
+      "x_is_engine": false,
+      "criteria": [
+        {"criterion": "Specificity", "output_x_score": 2, "output_y_score": 3},
+        {"criterion": "Novelty", "output_x_score": 2, "output_y_score": 3},
+        {"criterion": "Falsifiability", "output_x_score": 2, "output_y_score": 3},
+        {"criterion": "Breadth", "output_x_score": 2, "output_y_score": 2},
+        {"criterion": "Plausibility", "output_x_score": 2, "output_y_score": 2},
+        {"criterion": "Progression", "output_x_score": 2, "output_y_score": 2},
+        {"criterion": "Actionability", "output_x_score": 2, "output_y_score": 2},
+        {"criterion": "Decision Clarity", "output_x_score": 2, "output_y_score": 2},
+        {"criterion": "Completeness", "output_x_score": 2, "output_y_score": 2},
+        {"criterion": "Grounding", "output_x_score": 2, "output_y_score": 2},
+        {"criterion": "Challenge", "output_x_score": 2, "output_y_score": 2},
+        {"criterion": "Information Density", "output_x_score": 2, "output_y_score": 2}
+      ],
+      "engine_total": 27,
+      "baseline_total": 24,
+      "cap_demotions": "Output X (baseline): no demotions needed. Output Y (engine): 7 criteria demoted from 3 (Breadth, Plausibility, Progression, Actionability, Completeness, Grounding, Challenge). Retained: Specificity, Novelty, Falsifiability."
+    },
+    "judge_3": {
+      "x_is_engine": true,
+      "criteria": [
+        {"criterion": "Specificity", "output_x_score": 3, "output_y_score": 2},
+        {"criterion": "Novelty", "output_x_score": 2, "output_y_score": 2},
+        {"criterion": "Falsifiability", "output_x_score": 4, "output_y_score": 2},
+        {"criterion": "Breadth", "output_x_score": 2, "output_y_score": 2},
+        {"criterion": "Plausibility", "output_x_score": 2, "output_y_score": 2},
+        {"criterion": "Progression", "output_x_score": 3, "output_y_score": 2},
+        {"criterion": "Actionability", "output_x_score": 2, "output_y_score": 2},
+        {"criterion": "Decision Clarity", "output_x_score": 2, "output_y_score": 2},
+        {"criterion": "Completeness", "output_x_score": 2, "output_y_score": 2},
+        {"criterion": "Grounding", "output_x_score": 2, "output_y_score": 2},
+        {"criterion": "Challenge", "output_x_score": 2, "output_y_score": 2},
+        {"criterion": "Information Density", "output_x_score": 2, "output_y_score": 2}
+      ],
+      "engine_total": 28,
+      "baseline_total": 24,
+      "cap_demotions": "Output X (engine): Specificity(3), Falsifiability(4), Progression(3) retained — exactly 3 at cap. Breadth, Plausibility, Actionability, Completeness, Grounding demoted. Output Y (baseline): no demotions needed."
+    }
+  },
+  "engine_mean": 27.33,
+  "baseline_mean": 24.0
+}

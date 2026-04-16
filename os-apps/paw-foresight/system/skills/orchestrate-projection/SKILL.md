@@ -20,7 +20,15 @@ fields = projection["fields"]
 model_id = fields["foresight_model_id"]
 max_steps = int(fields["max_steps"])
 step_schedule = json.loads(fields["step_schedule"])  # e.g. [1, 6, 18]
-probe_config = json.loads(fields["probe_config"])     # e.g. [{"name":"practitioner","model":"claude-sonnet-4-6","provider":"anthropic"}, ...]
+probe_config = json.loads(fields["probe_config"])     # e.g. [{"name":"practitioner"}, ...]
+
+# Read THIS session's model/provider — probes inherit it by default.
+# The orchestrator was configured by spawn_orchestrator WASM with the correct
+# codex provider. Never default to "anthropic" or bare "openai" — only the
+# codex token is available on this tenant.
+my_session = temper.get("Sessions", temper.get_session_id(), "$select=model,provider")
+my_model = my_session.get("fields", my_session).get("model", "gpt-5.4")
+my_provider = my_session.get("fields", my_session).get("provider", "openai_codex")
 
 fmodel = temper.get("ForesightModels", model_id)
 kg_file_id = fmodel["fields"]["model_snapshot_file_id"]
@@ -110,11 +118,11 @@ for i, pc in enumerate(probe_config):
 
     temper.action("Sessions", session_id, "Configure", {
         "user_message": probe_user_message,
-        "model": pc.get("model", "claude-sonnet-4-6"),
-        "provider": pc.get("provider", "anthropic"),
+        "model": pc.get("model", my_model),
+        "provider": pc.get("provider", my_provider),
         "agent_id": agent_id,
         "parent_session_id": my_session_id,
-        "tools_enabled": "temper_get,temper_list,temper_action,temper_create,temper_read",
+        "tools_enabled": "temper_get,temper_list,temper_action,temper_create,temper_read,temper_web_search,temper_web_fetch",
         "max_turns": "30"
     })
     probe_sessions.append({"session_id": session_id, "agent_id": agent_id})
@@ -137,7 +145,7 @@ import time
 while True:
     all_done = True
     for ps in probe_sessions:
-        s = temper.get("Sessions", ps["session_id"])
+        s = temper.get("Sessions", ps["session_id"], "$select=Status,error_message,turn_count")
         status = s.get("status", s.get("fields", {}).get("Status", ""))
         if status not in ["Completed", "Failed", "Cancelled"]:
             all_done = False
@@ -285,11 +293,26 @@ This file is in the orchestrator's workspace, not yours. You MUST pass the works
 
 1. FIRST, read the current state file using the temper.read() call above. Study it carefully.
 
-2. PROJECT forward {days_offset} days from the current state.
+2. SEARCH FOR EXTERNAL EVIDENCE. Before making any observations, run at least 2 web searches
+   to find real, recent signals NOT in the knowledge graph. Use temper.web_search() to search
+   and temper.web_fetch() to read promising results. Look for:
+   - Recent news, announcements, or product launches relevant to the domain
+   - Research papers, blog posts, or industry reports with data or findings
+   - Events, conferences, or community signals that confirm or contradict the KG themes
+   
+   Example:
+     results = temper.web_search("directed software evolution 2026 trends")
+     page = temper.web_fetch("https://example.com/relevant-article")
+   
+   You MUST cite external sources in your observations. An observation grounded in both
+   the knowledge graph AND an external signal is stronger than one grounded in only the KG.
+   Include the source URL or title in your observation content.
+
+3. PROJECT forward {days_offset} days from the current state.
    What has changed? What signals would you expect to see?
    What has NOT changed that you expected to?
 
-3. Create 3-6 Observations. First create the entity, then pass ALL fields to the Record action:
+4. Create 3-6 Observations. First create the entity, then pass ALL fields to the Record action:
 
    obs = temper.create("Observations", {{"fields": {{}}}})
    obs_id = obs["entity_id"]
@@ -306,7 +329,7 @@ This file is in the orchestrator's workspace, not yours. You MUST pass the works
    IMPORTANT: Fields MUST be passed to the Record action, NOT to create.
    The create call uses empty fields. The Record action stores the state variables.
 
-4. Create exactly ONE Direction — your single strongest thesis.
+5. Create exactly ONE Direction — your single strongest thesis.
    First create, then pass ALL fields to the Propose action:
 
    dir = temper.create("Directions", {{"fields": {{}}}})
@@ -325,7 +348,7 @@ This file is in the orchestrator's workspace, not yours. You MUST pass the works
 
    IMPORTANT: Fields MUST be passed to Propose, NOT to create.
 
-5. Report done:
+6. Report done:
    temper.action("Projections", "{projection_id}", "ProbeStepDone", {{
        "probe_agent_id": "{agent_id}",
        "direction_id": "<your direction ID>"
@@ -337,6 +360,9 @@ This file is in the orchestrator's workspace, not yours. You MUST pass the works
 - Be SPECIFIC. Name technologies, companies, mechanisms, dates.
 - At least one observation should CHALLENGE the dominant narrative in the state.
 - Ground claims in signals from the knowledge graph where possible.
+- At least 2 observations MUST cite external evidence found via web search (not in the KG).
+  Include the source URL or title. An observation with only KG grounding scores lower than
+  one with KG + external corroboration.
 ```
 
 For steps > 0, add previous context:
