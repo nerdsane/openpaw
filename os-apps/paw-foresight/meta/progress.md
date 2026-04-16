@@ -6,6 +6,7 @@
 |-----|-----|-------------|---------------|-------|-------------|---------------|--------|--------|------------|-------------|
 | 000 | foresight-v000 | 23.7/48 | 27.0/48 | -3.3 | 49.0/72 | 59.0/72 | Baseline | 0 | Hybrid restructure (skill-based orchestration) | Rubric v3 (tightened 3-level anchors + 3+ cap rule). 3 independent paw-agent judges. Engine weakest on Transparency (1.0) and Quant Precision (1.0). Baseline wins on Specificity, Falsifiability, Actionability. ~24 pts engine headroom. |
 | 001 | — | 25.4/48 | 27.0/48 | -1.6 | 51.5/72 | 56.5/72 | Baseline | 1 | Synthesis template quality mandates | Gap narrowed (-3.3→-1.6 raw, -10→-5 Borda). Template mandates NOT followed by orchestrator. Novelty +0.7, Challenge +0.4 (from probes). Specificity/Quant/Actionability unchanged. Root cause: prose mandates are advisory, not enforced. |
+| 002 | — | 27.0/48 | 27.0/48 | 0.0 | 54.0/72 | 54.0/72 | Baseline (tie) | 2 | Data-driven synthesis + WASM rebuild | Gap closed to 0 (from -5 Borda Run 001). Root cause fix: orchestrator never read SKILL.md (not in TemperFS); rebuilt WASM embeds 6.5KB instructions. Engine wins Decision Clarity (+2), Falsifiability (+2), Transparency (+1), Novelty (+1). Baseline wins Breadth (+3), Actionability (+2), Specificity (+1). Remaining gap: content diversity, not structure. |
 
 ## Version History
 
@@ -16,6 +17,6 @@
 
 **Status:** In progress
 **Current incumbent:** Baseline (single-shot)
-**A-wins streak:** 1
+**A-wins streak:** 2
 **Converged:** No
 **Judge infrastructure:** Operational — 3 independent paw-agent sessions per scoring round (split-session: 6 total, one per output per judge, to stay under 32KB WASM field limit)

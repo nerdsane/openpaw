@@ -357,137 +357,210 @@ Then create new Direction with parent_direction_id = "{old_direction_id}"
 
 ## Final Synthesis
 
-After the last step completes, produce a human-readable synthesis.
+After the last step completes, build the synthesis from actual observation and direction data.
 
-**Quality mandates — the synthesis MUST satisfy all of the following:**
-
-1. **Transparency (cite sources):** Every substantive claim must include an inline
-   reference to the observation(s) or signal(s) that support it. Use the format
-   `[obs: OBS_ENTITY_ID]` or `[signal: signal_name]`. A claim without a citation
-   is an unsupported assertion — do not include it.
-
-2. **Quantitative Precision:** Every major prediction must include at least one
-   measurable indicator: an adoption percentage, a market-size threshold, a timeline
-   in months, a proxy metric with a threshold, or a named data source. Qualitative-only
-   predictions ("growth will happen") are not acceptable — add a number.
-
-3. **Specificity (name actors):** Name real companies, tools, projects, standards,
-   and approximate dates. Do NOT use generic categories ("companies", "teams", "tools")
-   when specific actors can be named from the knowledge graph or general domain knowledge.
-   Example: "Anthropic, OpenAI, Cursor, Cognition/Devin" not "major AI companies."
-
-4. **Falsifiability:** Each of the top 5 predictions must include an explicit
-   falsification condition: "If [observable condition] has not occurred by [date],
-   this prediction is wrong because [mechanism]."
-
-5. **Actionability (structured decisions):** Each Decision Point must follow the format:
-   - **Timing trigger:** An observable event that makes the decision urgent
-   - **Options:** 2-3 concrete options
-   - **Tradeoffs:** For each option, what it costs or risks in specific terms
-
-6. **Progression (revise earlier predictions):** The Temporal Progression must use
-   4 quarterly phases (0-3mo, 3-6mo, 6-9mo, 9-12mo). Later phases MUST explicitly
-   revisit and revise, qualify, or confirm earlier predictions — not just extend them.
-   Each phase after the first must contain a "Revisions to earlier predictions" subsection.
-
-7. **Completeness:** Include an Assumptions & Limitations section that lists:
-   - Key assumptions the projection rests on
-   - What would change the analysis if wrong
-   - Confidence level (high/medium/low) for each major prediction
+**IMPORTANT:** The code below constructs the synthesis string section by section from
+real entity data. Observation IDs, direction text, and structural fields are PRE-INSERTED
+by the code. Where you see `[FILL: instruction]`, replace the marker with your content
+but do NOT remove any pre-inserted `[obs: ID]` citations or structural fields.
 
 ```python
-# Read all final observations and directions
+# ---- STEP A: Load and index all entity data ----
 all_obs = temper.list("Observations", f"$filter=projection_id eq '{projection_id}'")
 all_dirs = temper.list("Directions",
     f"$filter=projection_id eq '{projection_id}' and Status ne 'Archived'")
 
-# Build observation index for citation
-obs_index = {}
+obs_data = {}
 for obs in all_obs:
     oid = obs["entity_id"]
-    content = obs.get("fields", {}).get("content", "")
-    obs_index[oid] = content[:120]  # short reference for inline use
+    f = obs.get("fields", {})
+    obs_data[oid] = {
+        "content": f.get("content", ""),
+        "importance": f.get("importance", "medium"),
+        "step": f.get("step_at", "0"),
+        "probe": f.get("probe_agent_id", ""),
+        "counterfactual": f.get("counterfactual", ""),
+        "signal_refs": f.get("signal_refs", "[]")
+    }
 
-# Write a synthesis narrative following ALL quality mandates above
+dir_data = {}
+for d in all_dirs:
+    did = d["entity_id"]
+    f = d.get("fields", {})
+    dir_data[did] = {
+        "title": f.get("title", ""),
+        "reasoning": f.get("reasoning", ""),
+        "obs_ids": json.loads(f.get("observation_ids", "[]")),
+        "counterfactual": f.get("counterfactual_summary", "")
+    }
+
+high_obs = [(oid, o) for oid, o in obs_data.items() if o["importance"] == "high"]
+all_obs_ids = list(obs_data.keys())
+
+# ---- STEP B: Build Key Findings from high-importance observations ----
+# Each finding has pre-inserted observation content and ID.
+# You MUST fill in the specific-claim and measurable-indicator fields.
+finding_lines = []
+for i, (oid, o) in enumerate(high_obs[:8], 1):
+    finding_lines.append(
+        f"{i}. **[FILL: one-sentence finding naming a real company, tool, or standard — "
+        f"e.g. Anthropic, Cursor, Kubernetes, Cedar, OPA, Temper — not generic categories]**\n"
+        f"   - Evidence: \"{o['content'][:150]}\" [obs: {oid}]\n"
+        f"   - Measurable indicator: [FILL: a specific number — adoption %, dollar amount, "
+        f"month count, threshold, or named data source]\n"
+    )
+finding_section = "\n".join(finding_lines)
+
+# ---- STEP C: Build Active Directions with full reasoning ----
+# Direction text is pre-inserted from the entity. Do NOT summarize or truncate.
+direction_lines = []
+for did, d in dir_data.items():
+    obs_refs = ", ".join([f"[obs: {oid}]" for oid in d["obs_ids"]]) or "[cite relevant obs IDs]"
+    direction_lines.append(
+        f"#### {d['title']}\n"
+        f"**Direction ID:** {did}\n\n"
+        f"{d['reasoning']}\n\n"
+        f"Supporting observations: {obs_refs}\n\n"
+        f"**Counterfactual:** {d['counterfactual']}\n"
+    )
+direction_section = "\n".join(direction_lines)
+
+# ---- STEP D: Build Top 5 Predictions with mandatory falsification fields ----
+# Each prediction has pre-structured fields. You MUST fill every [FILL:] marker.
+prediction_lines = []
+for i, (did, d) in enumerate(list(dir_data.items())[:5], 1):
+    obs_refs = ", ".join([f"[obs: {oid}]" for oid in d["obs_ids"]]) or "[cite relevant obs IDs]"
+    prediction_lines.append(
+        f"{i}. **Prediction:** [FILL: specific dated prediction derived from \"{d['title'][:80]}\"]\n"
+        f"   - **Measurable indicator:** [FILL: quantitative threshold, adoption %, or proxy metric]\n"
+        f"   - **Confidence:** [FILL: high/medium/low]\n"
+        f"   - **Falsification:** If [FILL: observable condition] has not occurred by "
+        f"[FILL: specific date e.g. Q1 2027], this prediction is wrong because [FILL: mechanism]\n"
+        f"   - **Supporting observations:** {obs_refs}\n"
+    )
+prediction_section = "\n".join(prediction_lines)
+
+# ---- STEP E: Build Decision Points with mandatory structure ----
+# 3 decision points with pre-structured trigger/options/tradeoffs fields.
+decision_section = ""
+for i in range(1, 4):
+    decision_section += (
+        f"#### Decision Point {i}\n"
+        f"- **Decision:** [FILL: what must be decided]\n"
+        f"- **Timing trigger:** [FILL: observable event with approximate date]\n"
+        f"- **Option A:** [FILL: concrete option] — **Tradeoff:** [FILL: specific cost or risk]\n"
+        f"- **Option B:** [FILL: concrete option] — **Tradeoff:** [FILL: specific cost or risk]\n"
+        f"- **Option C:** [FILL: concrete option] — **Tradeoff:** [FILL: specific cost or risk]\n"
+        f"- **Recommended:** [FILL: which option and one-sentence justification]\n\n"
+    )
+
+# ---- STEP F: Build What Surprised Us from observations ----
+surprise_lines = []
+for oid, o in obs_data.items():
+    content_lower = o["content"].lower()
+    if any(w in content_lower for w in ["challenge", "risk", "surprise", "counter", "wrong",
+                                         "fragile", "plateau", "fail", "unlikely", "overestimate"]):
+        surprise_lines.append(
+            f"- **{o['content'][:120]}** [obs: {oid}]\n"
+            f"  Why surprising: [FILL: what assumption this challenges]\n"
+        )
+if len(surprise_lines) < 3:
+    # Add remaining observations as surprises
+    for oid, o in obs_data.items():
+        if len(surprise_lines) >= 5:
+            break
+        if not any(oid in s for s in surprise_lines):
+            surprise_lines.append(
+                f"- **{o['content'][:120]}** [obs: {oid}]\n"
+                f"  Why surprising: [FILL: what assumption this challenges]\n"
+            )
+surprise_section = "\n".join(surprise_lines[:5])
+
+# ---- STEP G: Assemble complete synthesis ----
+# The structure below is MANDATORY. Do not rearrange, merge, or skip sections.
+# Fill every [FILL:] marker. Do not remove pre-inserted [obs: ID] citations.
+
 synthesis = f"""# Foresight Projection: {model_name}
-## Horizon: {horizon} | Steps: {max_steps}
-## Date: {today}
+## Horizon: {horizon} | Steps: {max_steps} | Date: {today}
 
 ### Executive Summary
-[2-3 paragraphs synthesizing the most important findings. Name specific actors,
-tools, and timelines. Every claim must reference at least one observation ID using
-[obs: ID] format. Include at least 2 quantitative indicators.]
+
+[FILL: Write exactly 3 paragraphs:
+Paragraph 1 — The dominant trajectory. Name at least 3 specific companies or tools
+(e.g., Anthropic, OpenAI, Cursor, Cognition/Devin, Kubernetes, Cedar, OPA, Temper).
+Cite at least 2 observations: [obs: {all_obs_ids[0]}], [obs: {all_obs_ids[1]}].
+Paragraph 2 — The main counterargument or surprise. Cite at least 1 observation.
+Paragraph 3 — What this means for decision-makers. Include at least 1 quantitative
+claim (percentage, dollar amount, or timeline in months).]
 
 ### Key Findings
-[Bulleted list of the strongest convergent observations. Each bullet must:
-- Name a specific actor, tool, or mechanism
-- Include a measurable indicator or threshold
-- Cite the observation(s) that support it: [obs: ID]]
+
+{finding_section}
 
 ### Temporal Progression
 
-#### Phase 1: 0-3 Months
-- What changes (with named actors and quantitative indicators)
-- Expected signals (observable, checkable)
-- What has NOT changed that was expected to
-- Causal links to Phase 2
+#### Phase 1: 0-3 Months (days 0-90)
+- [FILL: What changes — name specific companies, tools, and quantitative indicators]
+- [FILL: Expected signals — observable checkable events with approximate dates]
+- [FILL: What has NOT changed that was expected to]
+- [FILL: Causal link to Phase 2]
 
-#### Phase 2: 3-6 Months
-- What changes
-- Expected signals
-- **Revisions to Phase 1 predictions:** [explicitly confirm, qualify, or revise]
-- Causal links to Phase 3
+#### Phase 2: 3-6 Months (days 90-180)
+- [FILL: What changes]
+- [FILL: Expected signals]
+- **Revisions to Phase 1 predictions:** [FILL: For each Phase 1 prediction, state
+  whether it is confirmed, qualified, or revised. This subsection is mandatory.]
+- [FILL: Causal link to Phase 3]
 
-#### Phase 3: 6-9 Months
-- What changes
-- Expected signals
-- **Revisions to earlier predictions:** [explicitly confirm, qualify, or revise]
-- Causal links to Phase 4
+#### Phase 3: 6-9 Months (days 180-270)
+- [FILL: What changes]
+- [FILL: Expected signals]
+- **Revisions to earlier predictions:** [FILL: Revisit Phase 1 and 2 predictions.
+  State which are confirmed, which need qualification, which are revised.]
+- [FILL: Causal link to Phase 4]
 
-#### Phase 4: 9-12 Months
-- What changes
-- Expected signals
-- **Revisions to earlier predictions:** [explicitly confirm, qualify, or revise]
-- Final state assessment
+#### Phase 4: 9-12 Months (days 270-365)
+- [FILL: What changes]
+- [FILL: Expected signals]
+- **Revisions to earlier predictions:** [FILL: Final assessment of all earlier
+  predictions — confirmed, revised, or falsified.]
+- **Final state assessment:** [FILL: Where the field stands at day 365]
 
 ### Active Directions
-[For each active direction: title + FULL reasoning text from the direction entity.
-Do NOT truncate reasoning. Include the complete text as stored in the direction's
-"reasoning" field. Each direction should have its full argument, not a summary.
-Add inline observation citations [obs: ID] throughout.]
+
+{direction_section}
 
 ### What Surprised Us
-[Observations that challenged initial assumptions. Cite the specific observation
-IDs and explain why they were surprising.]
+
+{surprise_section}
 
 ### Top 5 Predictions with Falsification Criteria
-[For each prediction:
-- **Prediction:** [specific, named, dated]
-- **Measurable indicator:** [quantitative threshold]
-- **Confidence:** [high/medium/low]
-- **Falsification:** If [condition] has not occurred by [date], this is wrong because [mechanism]
-- **Supporting observations:** [obs: ID1], [obs: ID2]]
+
+{prediction_section}
 
 ### Decision Points
-[For each decision point:
-- **Decision:** [what must be decided]
-- **Timing trigger:** [observable event that makes this urgent]
-- **Option A:** [description] — Tradeoff: [specific cost/risk]
-- **Option B:** [description] — Tradeoff: [specific cost/risk]
-- **Option C:** [description] — Tradeoff: [specific cost/risk]
-- **Recommended:** [which option and why]]
+
+{decision_section}
 
 ### Assumptions & Limitations
-[For each key assumption:
-- **Assumption:** [what we assume is true]
-- **If wrong:** [how the analysis changes]
-- **Confidence:** [high/medium/low]]
+
+1. **Assumption:** [FILL: first key assumption]
+   - **If wrong:** [FILL: how the analysis changes]
+   - **Confidence:** [FILL: high/medium/low]
+
+2. **Assumption:** [FILL: second key assumption]
+   - **If wrong:** [FILL: how the analysis changes]
+   - **Confidence:** [FILL: high/medium/low]
+
+3. **Assumption:** [FILL: third key assumption]
+   - **If wrong:** [FILL: how the analysis changes]
+   - **Confidence:** [FILL: high/medium/low]
 
 ### Methodology
-- {{len(probe_config)}} independent probes per step
-- {{max_steps}} time steps over {{horizon}}
-- {{len(all_obs)}} total observations, {{len(all_dirs)}} total directions
-- Observation index: {{list(obs_index.keys())}}
+- {len(probe_config)} independent probes per step
+- {max_steps} time steps over {horizon}
+- {len(all_obs)} total observations, {len(all_dirs)} active directions
+- Observation IDs: {all_obs_ids}
 """
 
 result = temper.write(f"projection_synthesis_{projection_id}.md", synthesis)
