@@ -1,0 +1,87 @@
+{
+  "run": "v4_baseline",
+  "rubric_version": "v4",
+  "methodology_note": "3 Claude Code subagent judges (claude -p), side-by-side. Rubric v4 (Grounding, Information Density). Borda: winner=2pts, loser=1pt, tie=1.5. Max 6/criterion, 72 total.",
+  "engine_output": "runs/010_decision_analyst_session/engine-output/synthesis.md",
+  "baseline_output": "baseline/synthesis.md",
+  "engine_borda": 57.0,
+  "baseline_borda": 51.0,
+  "engine_raw_avg": 27.7,
+  "baseline_raw_avg": 25.0,
+  "max_per_output": 72,
+  "winner": "engine",
+  "per_criterion": [
+    {
+      "criterion": "Specificity",
+      "engine": 6,
+      "baseline": 3,
+      "delta": 3
+    },
+    {
+      "criterion": "Novelty",
+      "engine": 3.5,
+      "baseline": 5.5,
+      "delta": -2.0
+    },
+    {
+      "criterion": "Falsifiability",
+      "engine": 6,
+      "baseline": 3,
+      "delta": 3
+    },
+    {
+      "criterion": "Breadth",
+      "engine": 4.5,
+      "baseline": 4.5,
+      "delta": 0.0
+    },
+    {
+      "criterion": "Plausibility",
+      "engine": 4.5,
+      "baseline": 4.5,
+      "delta": 0.0
+    },
+    {
+      "criterion": "Progression",
+      "engine": 4.5,
+      "baseline": 4.5,
+      "delta": 0.0
+    },
+    {
+      "criterion": "Actionability",
+      "engine": 6,
+      "baseline": 3,
+      "delta": 3
+    },
+    {
+      "criterion": "Decision Clarity",
+      "engine": 4.5,
+      "baseline": 4.5,
+      "delta": 0.0
+    },
+    {
+      "criterion": "Completeness",
+      "engine": 4.0,
+      "baseline": 5.0,
+      "delta": -1.0
+    },
+    {
+      "criterion": "Grounding",
+      "engine": 4.5,
+      "baseline": 4.5,
+      "delta": 0.0
+    },
+    {
+      "criterion": "Challenge",
+      "engine": 4.5,
+      "baseline": 4.5,
+      "delta": 0.0
+    },
+    {
+      "criterion": "Information Density",
+      "engine": 4.5,
+      "baseline": 4.5,
+      "delta": 0.0
+    }
+  ]
+}

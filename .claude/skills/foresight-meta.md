@@ -220,6 +220,28 @@ for session_id, name in sessions.items():
 
 Write a MANIFEST.md in the transcripts/ directory listing each session and its role.
 
+### Convert to OTS (structured analysis)
+
+After extracting raw JSONL transcripts, convert them for structured analysis:
+
+```bash
+# Diagnostic summary — shows all sessions, turns, errors, what each agent did
+python3 meta/tools/jsonl_to_ots.py "meta/runs/{NNN}/transcripts/" --summary
+
+# Full OTS output — structured turns with decisions, tool calls, consequences
+python3 meta/tools/jsonl_to_ots.py "meta/runs/{NNN}/transcripts/" -o "meta/runs/{NNN}/trajectories.json"
+```
+
+The summary shows per-session: role, outcome, turn count, token usage, error rate,
+top temper methods called, first/last actions. Use this to quickly identify which
+sessions failed, which were most active, and where errors occurred.
+
+The full OTS output gives turn-by-turn detail: each LLM call → tool selection →
+code executed → result/error. Use this for root cause analysis when a specific
+criterion scores poorly (e.g., "why is Breadth weak?" → check what probes actually
+observed → find the probe transcripts → see what web searches they ran and what
+entities they created).
+
 ## Step 5: Score — 3 Independent Blind Judges (Claude Code Subagents)
 
 This follows the Judge Protocol in program.md exactly. DO NOT skip judges and self-score.
@@ -503,9 +525,11 @@ git push --tags
 
 ## Key Reminders
 
-- **Read RAW transcripts** for diagnosis. The orchestrator.jsonl shows exactly what
-  the orchestrator agent did, what tools it called, what it wrote. This is where you
-  find the root cause.
+- **Read ALL transcripts** for diagnosis, not just the orchestrator. Read every JSONL
+  in the transcripts/ directory: orchestrator, probes, analysts, synthesizer. Each
+  reveals different failure modes. The orchestrator shows dispatch logic, probes show
+  observation quality, analysts show reasoning, synthesizer shows final composition.
+  Root causes often live in probe or analyst transcripts, not the orchestrator.
 - **ONE change per iteration.** Not two, not "a few related changes." One.
 - **Score honestly.** The calibration exists to prevent inflation. A 2 is the expected
   score for competent output. Don't give 3s unless genuinely earned.

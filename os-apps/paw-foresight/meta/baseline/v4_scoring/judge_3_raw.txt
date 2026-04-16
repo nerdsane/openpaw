@@ -1,0 +1,222 @@
+```json
+{
+  "criteria": [
+    {
+      "criterion": "Specificity",
+      "output_x_score": 4,
+      "output_y_score": 2,
+      "reasoning": "X names real actors, specific calendar dates, and quantitative thresholds throughout every section. Y names actors and uses approximate phase-based timing but rarely provides specific dates or quantitative thresholds.",
+      "evidence_x": [
+        "Named actors throughout: Cursor, GitHub Copilot, Claude Code, OpenAI, Anthropic, Cedar, OPA, GitHub Actions, Buildkite, SWE-bench",
+        "Specific dates: 2026-03-31, 2026-06-30, 2026-09-30, 2026-12-31 tied to falsifiable predictions",
+        "Quantitative thresholds: '10-point swings in task success rates', '20+ historical task replays', '3-10 candidate patches per task', 'false-pass target below 1%', '15% increase in staff-plus openings', '30% of enterprise pilots above 200 seats', '$400K-700K annually', '4-8 engineering-weeks', '$30K-60K/year runner infrastructure'"
+      ],
+      "evidence_y": [
+        "Named actors: Anthropic, OpenAI, Cursor, Cognition/Devin, Aider, Cline, Continue, OpenHands, Temper, Kubernetes, Cedar/OPA, SWE-bench",
+        "Timing is phase-based ('0-3 months', '3-6 months', '6-12 months') with no specific dates",
+        "Only one quantitative threshold: '20-30% of engineering tasks'; otherwise qualitative descriptors like 'more', 'broader', 'increased'"
+      ]
+    },
+    {
+      "criterion": "Novelty",
+      "output_x_score": 2,
+      "output_y_score": 3,
+      "reasoning": "X contributes the cross-domain analogy (biology/finance/manufacturing → software evolution) and the market bifurcation thesis, which are useful but largely extend common domain knowledge. Y introduces the safety-liveness asymmetry as an analytical framework, the homeostatic vs exploratory autonomy distinction, and the typed-environment advantage prediction—multiple original insights drawn from outside the source material with genuine cross-signal connections.",
+      "evidence_x": [
+        "Cross-domain finding: 'Biology, finance, and manufacturing all point to the same conclusion: advantage comes from assay quality, risk budgeting, and process capability rather than from raw model cleverness'",
+        "Market bifurcation: 'The market will bifurcate between broad-seat SaaS adoption and internal platform buildout at the largest firms'"
+      ],
+      "evidence_y": [
+        "Safety-liveness asymmetry: 'teams can encode what must not happen faster than they can encode what genuinely better future behavior looks like'—a non-obvious analytical framework imported from distributed systems theory",
+        "Homeostatic vs exploratory autonomy: 'expect strong commercial progress in autonomous maintenance and bounded optimization, but only selective progress in exploration systems'—original framing not present in source",
+        "Typed-environment prediction: 'Typed and strongly verified environments—especially Rust-heavy, infrastructure, security-sensitive, and protocol-like domains—will outperform loosely typed app stacks in early directed-evolution experiments'—a specific cross-signal connection"
+      ]
+    },
+    {
+      "criterion": "Falsifiability",
+      "output_x_score": 3,
+      "output_y_score": 2,
+      "reasoning": "X has a dedicated 'Top 5 Predictions with Falsification Criteria' section where each prediction includes a specific date, measurable indicator, confidence level, and an explicit 'Falsification:' subsection explaining exactly what would prove the prediction wrong and why. Y provides confidence levels with directional modifiers ('would increase if... would decrease if...') but no explicit falsification criteria, no specific dates for evaluation, and no clear thresholds for determining wrongness.",
+      "evidence_x": [
+        "Prediction 1: 'Falsification: If by 2026-03-31 no major vendor or internal platform team publicly or internally versions the harness against replay thresholds, this prediction is wrong because the control plane has not separated from the model layer.'",
+        "Prediction 2: 'Falsification: If by 2026-06-30 most large renewals still expand seats without spend controls or ROI thresholds, this prediction is wrong because pricing predictability did not become a procurement bottleneck.'",
+        "All 5 predictions follow this pattern: date + measurable indicator + explicit falsification statement + reason"
+      ],
+      "evidence_y": [
+        "Confidence format: 'Confidence: high. Would increase if more platform-engineering case studies show successful generated workflows under policy. Would decrease if frontier agents begin reliably shipping multi-service product changes with minimal scaffolding.'",
+        "No specific dates for evaluation, no explicit 'this is wrong if...' statements, no quantitative thresholds for falsification"
+      ]
+    },
+    {
+      "criterion": "Breadth",
+      "output_x_score": 2,
+      "output_y_score": 2,
+      "reasoning": "X initially merits a 3 with 6 explicit theme categories (Technical architecture, Evaluation/testing, Governance/policy, Economics/market, Organizational/adoption, Cross-domain) plus a dedicated Cross-Theme Interactions section with 5 interactions producing non-obvious conclusions. DEMOTED from 3 to 2 under the 3+ cap rule because Specificity (4), Falsifiability (3), and Actionability (4) are X's three strongest criteria. Y covers 7 distinct analytical dimensions (control-plane generation, selection vs generation quality, homeostatic vs exploratory autonomy, private memory as moat, portfolio optimization, typed environments, governance) with implicit connections between them but no dedicated cross-theme section.",
+      "evidence_x": [
+        "6 explicit categories in Key Findings: Technical architecture (findings 1-2), Evaluation/testing (3), Governance/policy (4), Economics/market (5-6), Organizational/adoption (7), Cross-domain (8)",
+        "5 Cross-Theme Interactions section entries connecting distinct themes into non-obvious conclusions",
+        "DEMOTED from 3→2: weakest of X's six criteria that initially qualified for 3, as the cross-theme conclusions sometimes restate findings from Key Findings"
+      ],
+      "evidence_y": [
+        "7 themes across Active Directions: control-plane generation, selection quality, homeostatic vs exploratory autonomy, private memory/telemetry, portfolio optimization, typed environments, governance/enterprise trust",
+        "Connections between themes are implicit within Active Directions but not made explicit in a dedicated cross-theme section"
+      ]
+    },
+    {
+      "criterion": "Plausibility",
+      "output_x_score": 2,
+      "output_y_score": 2,
+      "reasoning": "X initially merits a 3 with extensive observation citations, confidence levels on predictions, and a dedicated Assumptions and Limitations section. DEMOTED from 3 to 2 under the 3+ cap rule. Y references 'the graph' generally and provides confidence levels (high, medium, medium-high) with directional modifiers but does not cite specific observations or signals by ID. Both outputs reference mechanisms and provide some explicit uncertainty.",
+      "evidence_x": [
+        "Observation citations throughout: '[obs: en-019d95de-bb81-7aa3-97ea-d63ced0fafd7]' etc., linking each claim to specific evidence",
+        "Confidence levels: 'Confidence: medium-high', 'Confidence: medium'",
+        "Assumptions section: 3 stated assumptions with 'If wrong:' explanations",
+        "DEMOTED from 3→2: citations are extensive but some claims are assertion-heavy despite having observation tags"
+      ],
+      "evidence_y": [
+        "General references: 'The graph repeatedly points to control planes', 'The graph's signals on falling cost/performance'",
+        "Confidence levels per prediction with directional modifiers",
+        "No specific observation IDs cited"
+      ]
+    },
+    {
+      "criterion": "Progression",
+      "output_x_score": 2,
+      "output_y_score": 2,
+      "reasoning": "X initially merits a 3 with 4 temporal phases, explicit 'Causal link to Phase N+1' sections, and 'Revisions to Phase N predictions' in Phases 2-4 where later phases explicitly qualify and sometimes falsify earlier predictions. DEMOTED from 3 to 2 under the 3+ cap rule. Y has 3 phases with 'What has NOT changed' and 'Causal links to next phase' sections, providing adequate temporal structure but without explicit revision of earlier predictions.",
+      "evidence_x": [
+        "Phase 4 revises Phase 1: 'The strongest early claim—that better models alone would drive the category—is effectively falsified in mature enterprises'",
+        "Phase 3 revises Phase 1: 'Phase 1's model that adoption would be driven mainly by developer pull is revised; management redesign and reviewer capacity become the harder scaling constraint'",
+        "Phase 2 revises Phase 1: 'The expectation that CI-native execution alone would unlock scale is qualified; deterministic execution proves necessary but insufficient'",
+        "DEMOTED from 3→2: genuine revision exists but some revisions are incremental restatements rather than fundamental qualifications"
+      ],
+      "evidence_y": [
+        "3 phases with causal links: 'This phase creates the substrate for the next step: once teams have evals, traces, and approval logic, they can begin to safely compare multiple generated variants'",
+        "'What has NOT changed' in each phase provides useful context but does not explicitly revise earlier predictions",
+        "Phase 3 consolidates but states 'Strong progress in governed autonomy... early progress in bounded directed evolution' without revising Phase 1/2 claims"
+      ]
+    },
+    {
+      "criterion": "Actionability",
+      "output_x_score": 4,
+      "output_y_score": 2,
+      "reasoning": "X provides a full decision framework across 3 decision points, each specifying who decides, observable timing triggers, 3 options with quantified costs/risks/opportunity costs/strategic consequences, comparative analysis, and a specific recommendation with reasoning. Y provides 4 decision points with timing triggers and options but without quantified costs, without specifying who decides, and with qualitative tradeoffs only.",
+      "evidence_x": [
+        "Decision Point 1: 'Who decides: VP Engineering or Head of Platform Engineering. Timing trigger: When 3+ repositories actively use coding agents... Option A: Deploy a versioned external harness layer... Cost: 4-6 engineering-weeks... Risk: Tight coupling to GitHub Actions... Option B: Cost: 6-10 engineering-weeks plus $30K-60K/year...'",
+        "Decision Point 3: '$400K-700K annual loaded cost for a 2-3 person team; requires staff-plus engineering hires with evaluation and reliability backgrounds'",
+        "Each decision point ends with 'Recommended:' plus reasoning: 'Option A — because harness versioning reduces model-switching cost by ~40%'"
+      ],
+      "evidence_y": [
+        "Decision Point 1: 'Timing trigger: When more than 20-30% of engineering tasks involve coding agents'. Options A/B/C described qualitatively",
+        "Tradeoffs are directional: 'A is cheapest short term but creates fragile, non-compounding usage' — no dollar figures, no time estimates, no specific roles named as decision-maker",
+        "No comparative analysis or explicit recommendations across decision points"
+      ]
+    },
+    {
+      "criterion": "Decision Clarity",
+      "output_x_score": 2,
+      "output_y_score": 2,
+      "reasoning": "X initially merits a 3: the executive summary opens with a clear prioritized recommendation ('fund selection infrastructure before seat expansion') with specific costs ('$400K-700K annually') and timing ('4-8 engineering-weeks'). DEMOTED from 3 to 2 under the 3+ cap rule. Y's executive summary provides a clear analytical narrative but embeds the 'so what' implicitly rather than leading with a single prioritized action and cost.",
+      "evidence_x": [
+        "Executive summary: 'For decision-makers, the message is to fund selection infrastructure before seat expansion: repository-local replay corpora, staged autonomy, branch-level cost accounting, and a small evaluation team produce more durable advantage than a larger spend on premium seats alone'",
+        "Costs stated: '$400K-700K annually for a centralized evaluation function once usage passes roughly 200 engineers'",
+        "DEMOTED from 3→2: while the top recommendation is clear, it doesn't open the document — it's buried in the third paragraph of the executive summary"
+      ],
+      "evidence_y": [
+        "Executive summary leads with analytical framing: 'the center of gravity will shift from copilots to harnesses, policies, replay systems, and private eval suites'",
+        "Actionable implication is diffuse: 'The winners will be organizations that treat private telemetry, replay corpora, schema histories, and approval logic as strategic assets' — no single prioritized action, deadline, or cost"
+      ]
+    },
+    {
+      "criterion": "Completeness",
+      "output_x_score": 2,
+      "output_y_score": 2,
+      "reasoning": "X initially merits a 3 with a full pipeline: observations (cited), theses (8 key findings), temporal development (4 phases with revision), active directions (5), cross-theme interactions (5), source challenges (5), falsifiable predictions (5), decision points (3), assumptions/limitations (3), and methodology. DEMOTED from 3 to 2 under the 3+ cap rule. Y has a reasonable pipeline: key findings, temporal progression, active directions with counterfactuals, assumptions challenged, decision points, confidence levels, and methodology — but lacks an explicit assumptions/limitations section and has no cross-theme interactions section.",
+      "evidence_x": [
+        "10 named sections covering the full foresight pipeline from evidence through recommendations",
+        "Explicit 'Assumptions and Limitations' section with 3 entries, each with 'If wrong:' explanations",
+        "DEMOTED from 3→2: while the pipeline is comprehensive, the Assumptions section is thin (3 entries) relative to the scope of claims made"
+      ],
+      "evidence_y": [
+        "7 sections: Executive Summary, Key Findings, Temporal Progression, Active Directions (with counterfactuals), What Might Surprise, Decision Points, Confidence Levels, Methodology Note",
+        "No dedicated assumptions/limitations section; partially covered by counterfactuals in Active Directions and 'What Might Surprise'",
+        "No cross-theme interactions section"
+      ]
+    },
+    {
+      "criterion": "Grounding",
+      "output_x_score": 2,
+      "output_y_score": 2,
+      "reasoning": "X initially merits a 3 with observation citations backing claims and reasoning chains visible in the Cross-Theme Interactions and Temporal Progression sections. DEMOTED from 3 to 2 under the 3+ cap rule. Y provides well-articulated reasoning chains (particularly for the safety-liveness and selection-quality arguments) but without specific evidence citations, relying instead on general references to 'the graph' and 'signals.'",
+      "evidence_x": [
+        "Cross-Theme Interaction 1: 'The external harness layer only becomes defensible once it can be benchmarked against repository-specific sequential task replay' — evidence→mechanism→conclusion chain with observation citations",
+        "Temporal Phase 2: 'The early belief that vendor momentum would translate directly into standardized deployment is revised downward because procurement now demands cost-per-accepted-change' — explicit because-link",
+        "DEMOTED from 3→2: reasoning chains vary in depth; some claims are tagged with observation IDs but the connection between evidence and conclusion is thin"
+      ],
+      "evidence_y": [
+        "Direction 2: 'Once variation is cheap, the bottleneck moves to the selection harness' — clear evidence→mechanism→conclusion",
+        "Direction 3: 'Organizations can encode \"do not violate policy\"... much sooner than they can encode \"discover a meaningfully better architecture\"' — well-articulated asymmetry argument",
+        "Evidence is conceptual rather than cited from specific observations; 'the graph repeatedly points to' is the typical attribution"
+      ]
+    },
+    {
+      "criterion": "Challenge",
+      "output_x_score": 2,
+      "output_y_score": 2,
+      "reasoning": "Both outputs identify genuine tensions with the source material's implicit assumptions. X has 5 explicit 'Source Thesis Challenges' with evidence citations. Y has 5 'Assumptions to challenge' in the 'What Might Surprise' section. Both identify real tensions (model quality vs harness quality, autonomy vs governance, vendor adoption vs enterprise readiness) but neither produces a specific contradicting prediction backed by evidence from outside the source material.",
+      "evidence_x": [
+        "Challenge 1: 'Challenge to the implicit \"smarter model = better software evolution\" thesis: The evidence says harness quality, deterministic environments, and repo-local replay matter more than raw frontier-model gains'",
+        "Challenge 4: 'The nearer-term effect is selective substitution and a rise in demand for senior evaluators... rather than broad near-term headcount collapse'",
+        "Challenges are grounded in source observations but do not introduce outside evidence to overturn source assumptions"
+      ],
+      "evidence_y": [
+        "Challenge 2: 'Human approvals are temporary friction that soon disappear... In many enterprises, approvals are not just immature UX; they encode real accountability, regulatory boundaries, and political legitimacy. Some approvals may remain durable features, not transitional bugs.'",
+        "Challenge 4: 'Multi-agent architectures are inherently superior... coordination overhead is substantial. Simpler, narrow-role agents with explicit handoffs may outperform elaborate agent societies'",
+        "Challenges include mechanism explanations but do not cite external evidence; Y's human-approval challenge is the most genuinely contrarian claim across both outputs"
+      ]
+    },
+    {
+      "criterion": "Information Density",
+      "output_x_score": 2,
+      "output_y_score": 2,
+      "reasoning": "X is significantly longer and has noticeable redundancy: the harness-as-product-layer thesis appears in the Executive Summary, Key Findings 1 and 3, Temporal Progression Phases 1-4, Active Direction 1, Cross-Theme Interaction 1, and Decision Point 1. However, each section adds enough contextual framing that most claims contribute distinct analytical value. Y is more concise and avoids heavy repetition, but some overlap exists between the Executive Summary and Active Directions, and the Key Findings partially preview the Active Directions content. Neither output achieves maximum compression.",
+      "evidence_x": [
+        "Harness thesis repeated in at least 6 sections with similar framing each time",
+        "Key Finding 1 and Key Finding 3 both address the harness as evaluation infrastructure from slightly different angles but with substantial overlap",
+        "Cross-Theme Interactions add unique value by combining themes, but some conclusions restate Key Findings"
+      ],
+      "evidence_y": [
+        "Executive Summary previews Active Directions: 'center of gravity will shift from copilots to harnesses' appears in both",
+        "Key Findings are more concise and less redundant than X's",
+        "'What Might Surprise' section adds unique analytical content not repeated elsewhere",
+        "Active Direction counterfactuals are non-redundant additions"
+      ]
+    }
+  ],
+  "demotions": {
+    "output_x": {
+      "criteria_initially_at_3_plus": ["Specificity (4)", "Falsifiability (3)", "Breadth (3)", "Plausibility (3)", "Progression (3)", "Actionability (4)", "Decision Clarity (3)", "Completeness (3)", "Grounding (3)"],
+      "retained_at_3_plus": ["Specificity (4)", "Actionability (4)", "Falsifiability (3)"],
+      "demoted_to_2": {
+        "Breadth": "Cross-theme conclusions sometimes restate Key Findings rather than producing fully independent non-obvious insights; weakest of the six 3-candidates because the interaction logic is the least differentiated from the sections it connects",
+        "Plausibility": "Observation citations are abundant but some claims carry assertion weight despite the tags; weaker than Falsifiability because the citations are mechanical (tags appended) rather than integrated into reasoning chains",
+        "Progression": "Genuine revision exists but some phase-over-phase qualifications are incremental restatements rather than fundamental redirections; weaker than Falsifiability because the revision pattern is narrower in scope",
+        "Decision Clarity": "Top recommendation is clear but appears in the third paragraph of the executive summary rather than opening the document; weaker than Actionability because the prioritization is less immediate",
+        "Completeness": "Full pipeline is present but the Assumptions section is thin (3 entries) relative to the breadth of claims; weaker than Falsifiability because the self-limitation is less rigorous",
+        "Grounding": "Reasoning chains vary in depth; some observation-tagged claims have thin connections between evidence and conclusion; weaker than Falsifiability because the chains are less consistently explicit"
+      }
+    },
+    "output_y": {
+      "criteria_initially_at_3_plus": ["Novelty (3)"],
+      "retained_at_3_plus": ["Novelty (3)"],
+      "demoted_to_2": {},
+      "note": "Only 1 criterion initially at 3+; no demotion required"
+    }
+  },
+  "totals": {
+    "output_x": 29,
+    "output_y": 25,
+    "max_possible": 48
+  }
+}
+```
