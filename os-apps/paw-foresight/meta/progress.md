@@ -10,6 +10,7 @@
 | 003 | foresight-v003 | 27.0/48 | 25.7/48 | +1.3 | 56.0/72 | 52.0/72 | Engine | 0 | Diversity constraints in synthesis template | First engine win. Added theme diversity mandate (4+ themes, max 2 per theme), obs dedup, cross-probe requirements, actionability specificity. Falsifiability (+3), Transparency (+2), Quant Precision (+2), Completeness (+1). Breadth gap halved (-3→-1). Orchestrator crashed (WASM context overflow); synthesis via dedicated session. |
 | 004 | — | 27.0/48 | 26.0/48 | +1.0 | 55.5/72 | 52.5/72 | Engine | 0 | Synthesis delegation + progression/challenge fixes | Second engine win. Split WASM instructions into orchestration + synthesis template. Orchestrator completed in 13 turns (no crash). Progression flipped from loss to win (+1.5→+2.0 delta). Challenge moved from loss to tie. Breadth regressed (-1→-3 gap). No malformed citations. Delegation architecture coded but not exercised — orchestrator fit in context. |
 | 005 | — | 28.3/48 | 26.3/48 | +2.0 | 56.0/72 | 52.0/72 | Engine | 0 | Direction diversity constraint (not followed) | Third engine win. Added Step C direction selection/consolidation to synthesis template (select 5 directions spanning 4+ themes, cap governance at 1). Constraint NOT followed — orchestrator included all 12 directions (same as Run 004). Breadth unchanged (-3.0). Specificity jumped (+3.0 Borda, all judges scored engine 3-4). Falsifiability jumped (+3.0 Borda). Plausibility recovered to tie. Prose constraints remain advisory; structural enforcement needed. |
+| 006 | — | 27.7/48 | 26.0/48 | +1.7 | 55.0/72 | 53.0/72 | Engine | 0 | Direction consolidation (not followed) | Fourth engine win. Added direction consolidation step to orchestrator convergence (archive excess directions by theme, keep max 5). NOT followed — orchestrator completed in 7 turns, skipped convergence/consolidation/delegation. All 12 directions active (0 archived), but synthesis used only 6. Breadth unchanged (-3.0). Falsifiability strong (+3.0). Specificity regressed to tie (was +3.0). Margin narrowing (Borda +2.0 vs +4.0 Run 005). Prose instructions proven unreliable across 5 runs. |
 
 ## Version History
 
@@ -23,8 +24,9 @@
 ## Convergence Status
 
 **Status:** In progress
-**Current incumbent:** Engine (Run 005)
-**A-wins streak:** 0 (engine won again — three consecutive engine wins, Runs 003-005)
+**Current incumbent:** Engine (Run 006)
+**A-wins streak:** 0 (engine won again — four consecutive engine wins, Runs 003-006)
 **Converged:** No
 **Judge infrastructure:** Operational — 3 independent paw-agent sessions per scoring round (split-session: 6 total, one per output per judge, to stay under 32KB WASM field limit). Engine output must be condensed to <29KB for judging due to 32KB WASM field limit.
-**Key persistent deficit:** Breadth (E=3.0 B=6.0 Borda, unchanged across Runs 004-005). Root cause: prose-based direction diversity constraints are advisory. Next step requires structural enforcement.
+**Key persistent deficit:** Breadth (E=3.0 B=6.0 Borda, unchanged across Runs 004-006). Root cause: prose-based constraints are advisory — proven across 5 runs (001, 005, 006). Structural enforcement (WASM or probe-level theme mandates) needed.
+**Margin trend:** Engine Borda margin narrowing: +4.0 (Run 003) → +3.0 (Run 004) → +4.0 (Run 005) → +2.0 (Run 006).

@@ -1,0 +1,278 @@
+{
+  "methodology": "3 independent paw-agent judges (gpt-5.4), split-session (one per output per judge). Rubric v3 with tightened anchors + 3+ cap rule.",
+  "rubric_version": "v3",
+  "session_ids": {
+    "judge1_engine": "ss-019d952e-93de-7992-b08f-b6a1052bd1e2",
+    "judge1_baseline": "ss-019d952e-93e9-7c41-85af-2efb373d1f67",
+    "judge2_engine": "ss-019d952e-93f3-7ba3-9899-88e03cd6f2cb",
+    "judge2_baseline": "ss-019d952e-93fb-7d41-bb89-c0a8863f6912",
+    "judge3_engine": "ss-019d952e-9400-7ab0-af93-9e19d30ef401",
+    "judge3_baseline": "ss-019d952e-9406-77e1-b376-147e778a0602"
+  },
+  "judges": {
+    "judge_1": {
+      "criteria": [
+        {
+          "criterion": "Specificity",
+          "engine_score": 3,
+          "baseline_score": 3,
+          "engine_reasoning": 3,
+          "baseline_reasoning": 3
+        },
+        {
+          "criterion": "Novelty",
+          "engine_score": 2,
+          "baseline_score": 2,
+          "engine_reasoning": 2,
+          "baseline_reasoning": 2
+        },
+        {
+          "criterion": "Falsifiability",
+          "engine_score": 4,
+          "baseline_score": 2,
+          "engine_reasoning": 4,
+          "baseline_reasoning": 2
+        },
+        {
+          "criterion": "Breadth",
+          "engine_score": 2,
+          "baseline_score": 3,
+          "engine_reasoning": 2,
+          "baseline_reasoning": 3
+        },
+        {
+          "criterion": "Plausibility",
+          "engine_score": 2,
+          "baseline_score": 2,
+          "engine_reasoning": 2,
+          "baseline_reasoning": 2
+        },
+        {
+          "criterion": "Progression",
+          "engine_score": 3,
+          "baseline_score": 2,
+          "engine_reasoning": 3,
+          "baseline_reasoning": 2
+        },
+        {
+          "criterion": "Actionability",
+          "engine_score": 2,
+          "baseline_score": 3,
+          "engine_reasoning": 2,
+          "baseline_reasoning": 3
+        },
+        {
+          "criterion": "Decision Clarity",
+          "engine_score": 2,
+          "baseline_score": 2,
+          "engine_reasoning": 2,
+          "baseline_reasoning": 2
+        },
+        {
+          "criterion": "Completeness",
+          "engine_score": 2,
+          "baseline_score": 2,
+          "engine_reasoning": 2,
+          "baseline_reasoning": 2
+        },
+        {
+          "criterion": "Transparency",
+          "engine_score": 1,
+          "baseline_score": 1,
+          "engine_reasoning": 1,
+          "baseline_reasoning": 1
+        },
+        {
+          "criterion": "Challenge",
+          "engine_score": 2,
+          "baseline_score": 2,
+          "engine_reasoning": 2,
+          "baseline_reasoning": 2
+        },
+        {
+          "criterion": "Quantitative Precision",
+          "engine_score": 2,
+          "baseline_score": 2,
+          "engine_reasoning": 2,
+          "baseline_reasoning": 2
+        }
+      ]
+    },
+    "judge_2": {
+      "criteria": [
+        {
+          "criterion": "Specificity",
+          "engine_score": 3,
+          "baseline_score": 3,
+          "engine_reasoning": 3,
+          "baseline_reasoning": 3
+        },
+        {
+          "criterion": "Novelty",
+          "engine_score": 3,
+          "baseline_score": 2,
+          "engine_reasoning": 3,
+          "baseline_reasoning": 2
+        },
+        {
+          "criterion": "Falsifiability",
+          "engine_score": 4,
+          "baseline_score": 2,
+          "engine_reasoning": 4,
+          "baseline_reasoning": 2
+        },
+        {
+          "criterion": "Breadth",
+          "engine_score": 2,
+          "baseline_score": 3,
+          "engine_reasoning": 2,
+          "baseline_reasoning": 3
+        },
+        {
+          "criterion": "Plausibility",
+          "engine_score": 2,
+          "baseline_score": 2,
+          "engine_reasoning": 2,
+          "baseline_reasoning": 2
+        },
+        {
+          "criterion": "Progression",
+          "engine_score": 2,
+          "baseline_score": 3,
+          "engine_reasoning": 2,
+          "baseline_reasoning": 3
+        },
+        {
+          "criterion": "Actionability",
+          "engine_score": 2,
+          "baseline_score": 2,
+          "engine_reasoning": 2,
+          "baseline_reasoning": 2
+        },
+        {
+          "criterion": "Decision Clarity",
+          "engine_score": 2,
+          "baseline_score": 2,
+          "engine_reasoning": 2,
+          "baseline_reasoning": 2
+        },
+        {
+          "criterion": "Completeness",
+          "engine_score": 2,
+          "baseline_score": 2,
+          "engine_reasoning": 2,
+          "baseline_reasoning": 2
+        },
+        {
+          "criterion": "Transparency",
+          "engine_score": 1,
+          "baseline_score": 1,
+          "engine_reasoning": 1,
+          "baseline_reasoning": 1
+        },
+        {
+          "criterion": "Challenge",
+          "engine_score": 2,
+          "baseline_score": 2,
+          "engine_reasoning": 2,
+          "baseline_reasoning": 2
+        },
+        {
+          "criterion": "Quantitative Precision",
+          "engine_score": 2,
+          "baseline_score": 1,
+          "engine_reasoning": 2,
+          "baseline_reasoning": 1
+        }
+      ]
+    },
+    "judge_3": {
+      "criteria": [
+        {
+          "criterion": "Specificity",
+          "engine_score": 3,
+          "baseline_score": 3,
+          "engine_reasoning": 3,
+          "baseline_reasoning": 3
+        },
+        {
+          "criterion": "Novelty",
+          "engine_score": 2,
+          "baseline_score": 2,
+          "engine_reasoning": 2,
+          "baseline_reasoning": 2
+        },
+        {
+          "criterion": "Falsifiability",
+          "engine_score": 4,
+          "baseline_score": 2,
+          "engine_reasoning": 4,
+          "baseline_reasoning": 2
+        },
+        {
+          "criterion": "Breadth",
+          "engine_score": 2,
+          "baseline_score": 3,
+          "engine_reasoning": 2,
+          "baseline_reasoning": 3
+        },
+        {
+          "criterion": "Plausibility",
+          "engine_score": 2,
+          "baseline_score": 2,
+          "engine_reasoning": 2,
+          "baseline_reasoning": 2
+        },
+        {
+          "criterion": "Progression",
+          "engine_score": 3,
+          "baseline_score": 2,
+          "engine_reasoning": 3,
+          "baseline_reasoning": 2
+        },
+        {
+          "criterion": "Actionability",
+          "engine_score": 2,
+          "baseline_score": 3,
+          "engine_reasoning": 2,
+          "baseline_reasoning": 3
+        },
+        {
+          "criterion": "Decision Clarity",
+          "engine_score": 2,
+          "baseline_score": 2,
+          "engine_reasoning": 2,
+          "baseline_reasoning": 2
+        },
+        {
+          "criterion": "Completeness",
+          "engine_score": 3,
+          "baseline_score": 2,
+          "engine_reasoning": 3,
+          "baseline_reasoning": 2
+        },
+        {
+          "criterion": "Transparency",
+          "engine_score": 2,
+          "baseline_score": 2,
+          "engine_reasoning": 2,
+          "baseline_reasoning": 2
+        },
+        {
+          "criterion": "Challenge",
+          "engine_score": 2,
+          "baseline_score": 2,
+          "engine_reasoning": 2,
+          "baseline_reasoning": 2
+        },
+        {
+          "criterion": "Quantitative Precision",
+          "engine_score": 2,
+          "baseline_score": 2,
+          "engine_reasoning": 2,
+          "baseline_reasoning": 2
+        }
+      ]
+    }
+  }
+}

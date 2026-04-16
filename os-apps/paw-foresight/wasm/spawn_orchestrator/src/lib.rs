@@ -59,9 +59,92 @@ then converge their observations. Use the same spawn_probes pattern as previous 
 6. Dispatch audit actions: ProbeStepDone, ConvergenceComplete, ProjectionUpdated, AdvanceStep
 7. If not final step, write projected state and advance
 
+## CRITICAL: Direction Consolidation (After Final Step, Before Synthesis)
+
+After ALL probe steps are complete, you MUST consolidate directions before synthesis.
+The probes generate ~12 directions (3 probes x 2 steps x 2 per probe). These tend to
+cluster on governance themes, creating monothematic output. You MUST archive excess
+directions so the synthesis template only sees a diverse subset.
+
+### Consolidation Procedure
+
+```python
+import json as _json
+
+# 1. Load all non-archived directions
+all_dirs = temper.list("Directions",
+    "$filter=projection_id eq '" + projection_id + "' and Status ne 'Archived'")
+
+# 2. Classify each direction by primary theme
+#    Themes: governance/policy, technical-architecture, economics/market,
+#            organizational/adoption, evaluation/testing, cross-domain
+#    Read each direction's title and reasoning. Assign EXACTLY ONE theme.
+#    Store as: {dir_id: {"theme": "...", "title": "...", "quality": 1-5}}
+#    Rate quality 1-5 based on specificity, evidence grounding, and novelty.
+
+classified = {}
+for d in all_dirs:
+    did = d["entity_id"]
+    f = d.get("fields", {})
+    title = f.get("title", "")
+    reasoning = f.get("reasoning", "")
+    # Classify by theme and rate quality (use your judgment)
+    # ... assign theme and quality score ...
+    classified[did] = {"theme": theme, "title": title, "quality": quality}
+
+# 3. Select at most 5 directions spanning at least 4 distinct themes
+#    Rules:
+#    - Maximum 1 direction per theme (pick highest quality)
+#    - If governance/policy has the most directions, it gets at most 1 slot
+#    - At least 1 must be economics/market or cross-domain
+#    - At least 1 must be technical-architecture
+#    - Maximum 5 total
+
+# Group by theme, pick best per theme
+by_theme = {}
+for did, info in classified.items():
+    t = info["theme"]
+    if t not in by_theme or info["quality"] > by_theme[t]["quality"]:
+        by_theme[t] = {"did": did, "quality": info["quality"], "title": info["title"]}
+
+# Select top 5 themes by quality of best direction
+selected_dids = set()
+# First ensure required themes are represented
+for required in ["technical-architecture", "economics/market", "cross-domain"]:
+    if required in by_theme:
+        selected_dids.add(by_theme[required]["did"])
+# Then fill remaining slots
+remaining = [(info["quality"], t, info["did"]) for t, info in by_theme.items()
+             if info["did"] not in selected_dids]
+remaining.sort(reverse=True)
+for quality, theme, did in remaining:
+    if len(selected_dids) >= 5:
+        break
+    selected_dids.add(did)
+
+# 4. Archive all non-selected directions
+for d in all_dirs:
+    did = d["entity_id"]
+    if did not in selected_dids:
+        temper.action("Directions", did, "Archive", {
+            "archive_reason": "Consolidated: theme overlap or lower quality. Kept " + str(len(selected_dids)) + " diverse directions."
+        })
+
+# Log what was kept vs archived
+kept = [classified[did]["title"] for did in selected_dids if did in classified]
+archived_count = len(all_dirs) - len(selected_dids)
+```
+
+**This step is NON-NEGOTIABLE.** The synthesis template queries `$filter=Status ne 'Archived'`
+and will only see the directions you keep. If you skip this step, the synthesis will have
+12+ governance-themed directions and score poorly on Breadth.
+
+After consolidation, verify: `temper.list("Directions", "$filter=projection_id eq '...' and Status ne 'Archived'")`
+should return at most 5 directions spanning 4+ themes.
+
 ## CRITICAL: After Probes — Delegate Synthesis (DO NOT Synthesize In-Context)
 
-After the last step completes, DO NOT attempt to build the synthesis in this session.
+After direction consolidation, DO NOT attempt to build the synthesis in this session.
 The accumulated context from probe management will overflow the WASM context parser (~64KB limit).
 Instead, delegate synthesis to a dedicated session with clean context.
 
