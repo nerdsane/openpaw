@@ -1,0 +1,30 @@
+[automaton]
+name = "AgentMcpServer"
+states = ["Active"]
+initial = "Active"
+
+[[state]]
+name = "agent_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "name"
+type = "string"
+initial = ""
+
+[[state]]
+name = "server_type"
+type = "string"
+initial = "url"
+
+[[state]]
+name = "url"
+type = "string"
+initial = ""
+
+[[field_invariant]]
+name = "ServerTypeMustBeUrl"
+when = { not = { field = "ServerType", absent = true } }
+require = { field = "ServerType", equals = "url" }
+message = "AgentMcpServer.ServerType must be url"

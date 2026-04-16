@@ -1,0 +1,24 @@
+name = "paw-managed-agents"
+description = "Temper-native managed agents API bridge built on paw-agent sessions"
+version = "0.1.0"
+dependencies = ["paw-agent"]
+
+[[wasm_modules]]
+name = "session_orchestrator"
+criticality = "app-required"
+startup_loading = "lazy"
+
+[[wasm_modules]]
+name = "event_emitter"
+criticality = "app-required"
+startup_loading = "lazy"
+
+[[wasm_modules]]
+name = "session_terminator"
+criticality = "app-required"
+startup_loading = "lazy"
+
+[[wasm_modules]]
+name = "managed_agent_updater"
+criticality = "app-required"
+startup_loading = "lazy"

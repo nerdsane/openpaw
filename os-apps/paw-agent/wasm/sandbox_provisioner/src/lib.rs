@@ -103,9 +103,10 @@ fn provision_sandbox(ctx: &Context, fields: &Value) -> Result<ProvisionStatus, S
     if let (Some(sandbox_url), Some(sandbox_id)) =
         (existing_sandbox_url, existing_sandbox_id.clone())
     {
-        let provider = existing_provider
-            .clone()
-            .unwrap_or_else(|| sandbox::resolve_sandbox_provider(ctx, fields).unwrap_or_else(|_| "tensorlake".to_string()));
+        let provider = existing_provider.clone().unwrap_or_else(|| {
+            sandbox::resolve_sandbox_provider(ctx, fields)
+                .unwrap_or_else(|_| "tensorlake".to_string())
+        });
         let handle = SandboxHandle {
             sandbox_url,
             sandbox_id,
@@ -151,7 +152,8 @@ fn provision_sandbox(ctx: &Context, fields: &Value) -> Result<ProvisionStatus, S
         "info",
         &format!("sandbox_provisioner: provisioning via {provider} provider"),
     );
-    let handle = sandbox::sandbox_create(ctx, &provider, &SandboxConfig::default())?;
+    let config = sandbox::sandbox_config_from_fields(fields);
+    let handle = sandbox::sandbox_create(ctx, &provider, &config)?;
     check_sandbox_ready(ctx, fields, handle)
 }
 

@@ -1,0 +1,296 @@
+[automaton]
+name = "ManagedSession"
+states = ["Rescheduling", "Running", "Idle", "Terminated"]
+initial = "Rescheduling"
+
+[[state]]
+name = "title"
+type = "string"
+initial = ""
+
+[[state]]
+name = "agent_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "environment_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "inner_session_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "inner_agent_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "vault_ids"
+type = "string"
+initial = "[]"
+
+[[state]]
+name = "stop_reason"
+type = "string"
+initial = ""
+
+[[state]]
+name = "termination_reason"
+type = "string"
+initial = ""
+
+[[state]]
+name = "stop_reason_event_ids"
+type = "string"
+initial = "[]"
+
+[[state]]
+name = "input_tokens"
+type = "counter"
+initial = "0"
+
+[[state]]
+name = "output_tokens"
+type = "counter"
+initial = "0"
+
+[[state]]
+name = "last_consumed_user_sequence"
+type = "counter"
+initial = "0"
+
+[[state]]
+name = "last_emitted_result_hash"
+type = "string"
+initial = ""
+
+[[state]]
+name = "last_emitted_inner_session_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "last_emitted_tree_index"
+type = "counter"
+initial = "0"
+
+[[state]]
+name = "error_message"
+type = "string"
+initial = ""
+
+[[state]]
+name = "inner_session_check_count"
+type = "counter"
+initial = "0"
+
+[[state]]
+name = "max_inner_session_checks"
+type = "string"
+initial = "180"
+
+[[state]]
+name = "metadata"
+type = "string"
+initial = "{}"
+
+[[state]]
+name = "archived_at"
+type = "string"
+initial = ""
+
+[[action]]
+name = "StartSession"
+kind = "input"
+from = ["Rescheduling"]
+to = "Running"
+hint = "Create or resume the bridged OpenPaw session and begin processing."
+effect = [{ type = "trigger", name = "orchestrate_start" }]
+
+[[action]]
+name = "InnerSessionReady"
+kind = "input"
+from = ["Running"]
+params = ["InnerSessionId", "InnerAgentId", "LastConsumedUserSequence", "InnerSessionCheckCount"]
+hint = "Record the ids used for the bridged session."
+effect = [{ type = "schedule", action = "CheckInnerSession", delay_seconds = 2 }]
+
+[[action]]
+name = "InnerSessionFailed"
+kind = "input"
+from = ["Running"]
+to = "Terminated"
+params = ["ErrorMessage", "TerminationReason"]
+hint = "Record an inner-session failure and terminate the managed session."
+effect = [{ type = "trigger", name = "terminate_inner" }]
+
+[[action]]
+name = "IdleSession"
+kind = "input"
+from = ["Running"]
+to = "Idle"
+params = ["StopReason"]
+hint = "Mark the managed session idle and emit derived session events."
+effect = [{ type = "trigger", name = "emit_idle_event" }]
+
+[[action]]
+name = "ResumeSession"
+kind = "input"
+from = ["Idle"]
+to = "Running"
+hint = "Resume an idle managed session with any pending user input."
+effect = [{ type = "trigger", name = "orchestrate_resume" }]
+
+[[action]]
+name = "InnerSessionPending"
+kind = "input"
+from = ["Running"]
+hint = "The bridged OpenPaw session is still running. Re-check shortly."
+effect = [
+  { type = "increment", var = "inner_session_check_count" },
+  { type = "schedule", action = "CheckInnerSession", delay_seconds = 2 },
+]
+
+[[action]]
+name = "CheckInnerSession"
+kind = "input"
+from = ["Running"]
+hint = "Poll the bridged OpenPaw session state through a bounded self-loop."
+effect = [{ type = "trigger", name = "orchestrate_check" }]
+
+[[action]]
+name = "UpdateUsage"
+kind = "input"
+from = ["Running", "Idle"]
+params = ["InputTokens", "OutputTokens", "StopReason", "StopReasonEventIds", "LastEmittedResultHash", "LastEmittedInnerSessionId", "LastEmittedTreeIndex"]
+hint = "Update token counters and derived event metadata."
+effect = [
+  { type = "increment", var = "input_tokens" },
+  { type = "increment", var = "output_tokens" },
+]
+
+[[action]]
+name = "TerminateSession"
+kind = "input"
+from = ["Rescheduling", "Running", "Idle"]
+to = "Terminated"
+params = ["TerminationReason"]
+hint = "Terminate the bridged session."
+effect = [{ type = "trigger", name = "terminate_inner" }]
+
+[[action]]
+name = "Archive"
+kind = "input"
+from = ["Terminated"]
+to = "Terminated"
+params = ["ArchivedAt"]
+hint = "Soft-delete this managed session while retaining its status history."
+
+[[field_invariant]]
+name = "IdleRequiresStopReason"
+when = { field = "Status", equals = "Idle" }
+require = { any_of = [
+  { not = { field = "stop_reason", empty = true } },
+  { not = { field = "StopReason", empty = true } },
+] }
+message = "ManagedSession in Idle must set StopReason"
+
+[[field_invariant]]
+name = "StopReasonMustBeKnown"
+when = { any_of = [
+  { not = { field = "stop_reason", absent = true } },
+  { not = { field = "StopReason", absent = true } },
+] }
+require = { any_of = [
+  { field = "stop_reason", equals = "user_input_required" },
+  { field = "stop_reason", equals = "tool_confirmation_required" },
+  { field = "stop_reason", equals = "custom_tool_required" },
+  { field = "StopReason", equals = "user_input_required" },
+  { field = "StopReason", equals = "tool_confirmation_required" },
+  { field = "StopReason", equals = "custom_tool_required" },
+] }
+message = "ManagedSession.StopReason must be one of the documented pause reasons"
+
+[[field_invariant]]
+name = "TerminationReasonMustBeKnown"
+when = { any_of = [
+  { not = { field = "termination_reason", absent = true } },
+  { not = { field = "TerminationReason", absent = true } },
+] }
+require = { any_of = [
+  { field = "termination_reason", equals = "cancelled" },
+  { field = "termination_reason", equals = "error" },
+  { field = "TerminationReason", equals = "cancelled" },
+  { field = "TerminationReason", equals = "error" },
+] }
+message = "ManagedSession.TerminationReason must be cancelled or error"
+
+[[field_invariant]]
+name = "TerminatedRequiresTerminationReason"
+when = { field = "Status", equals = "Terminated" }
+require = { any_of = [
+  { not = { field = "termination_reason", empty = true } },
+  { not = { field = "TerminationReason", empty = true } },
+] }
+message = "ManagedSession in Terminated must set TerminationReason"
+
+[[field_invariant]]
+name = "ArchivedAtRequiresTerminatedStatus"
+when = { any_of = [
+  { not = { field = "archived_at", empty = true } },
+  { not = { field = "ArchivedAt", empty = true } },
+] }
+require = { field = "Status", equals = "Terminated" }
+message = "ManagedSession.ArchivedAt may only be set once the session is Terminated"
+
+[[integration]]
+name = "session_orchestrator_start"
+trigger = "orchestrate_start"
+type = "wasm"
+module = "session_orchestrator"
+
+[integration.config]
+mode = "start"
+temper_api_url = "{secret:temper_api_url}"
+
+[[integration]]
+name = "session_orchestrator_resume"
+trigger = "orchestrate_resume"
+type = "wasm"
+module = "session_orchestrator"
+
+[integration.config]
+mode = "resume"
+temper_api_url = "{secret:temper_api_url}"
+
+[[integration]]
+name = "session_orchestrator_check"
+trigger = "orchestrate_check"
+type = "wasm"
+module = "session_orchestrator"
+
+[integration.config]
+mode = "check"
+temper_api_url = "{secret:temper_api_url}"
+
+[[integration]]
+name = "event_emitter"
+trigger = "emit_idle_event"
+type = "wasm"
+module = "event_emitter"
+
+[integration.config]
+temper_api_url = "{secret:temper_api_url}"
+
+[[integration]]
+name = "session_terminator"
+trigger = "terminate_inner"
+type = "wasm"
+module = "session_terminator"
+
+[integration.config]
+temper_api_url = "{secret:temper_api_url}"

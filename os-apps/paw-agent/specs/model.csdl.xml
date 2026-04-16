@@ -23,6 +23,12 @@
         <Property Name="SandboxUrl" Type="Edm.String"/>
         <Property Name="TemperApiUrl" Type="Edm.String"/>
         <Property Name="SandboxId" Type="Edm.String"/>
+        <Property Name="SandboxProvider" Type="Edm.String"/>
+        <Property Name="SandboxNetworkingType" Type="Edm.String"/>
+        <Property Name="SandboxAllowedHostsJson" Type="Edm.String"/>
+        <Property Name="SandboxAllowMcpServers" Type="Edm.Boolean"/>
+        <Property Name="SandboxAllowPackageManagers" Type="Edm.Boolean"/>
+        <Property Name="SandboxPackagesJson" Type="Edm.String"/>
         <Property Name="ProvisionCheckCount" Type="Edm.Int64"/>
         <Property Name="MaxProvisionChecks" Type="Edm.String"/>
         <Property Name="FileManifestId" Type="Edm.String"/>
@@ -68,9 +74,6 @@
         <Property Name="ActivePlanId" Type="Edm.String"/>
         <Property Name="ProjectHarnessId" Type="Edm.String"/>
         <Property Name="ProjectId" Type="Edm.String"/>
-        <Property Name="SessionMode" Type="Edm.String"/>
-        <Property Name="PrePlanToolsEnabled" Type="Edm.String"/>
-        <Property Name="ActivePlanId" Type="Edm.String"/>
       </EntityType>
 
       <EntityType Name="Soul">
@@ -159,6 +162,12 @@
         <Parameter Name="workdir" Type="Edm.String" Nullable="true"/>
         <Parameter Name="sandbox_url" Type="Edm.String" Nullable="true"/>
         <Parameter Name="sandbox_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="sandbox_provider" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="sandbox_networking_type" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="sandbox_allowed_hosts_json" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="sandbox_allow_mcp_servers" Type="Edm.Boolean" Nullable="true"/>
+        <Parameter Name="sandbox_allow_package_managers" Type="Edm.Boolean" Nullable="true"/>
+        <Parameter Name="sandbox_packages_json" Type="Edm.String" Nullable="true"/>
         <Parameter Name="temper_api_url" Type="Edm.String" Nullable="true"/>
         <Parameter Name="soul_id" Type="Edm.String" Nullable="true"/>
         <Parameter Name="parent_session_id" Type="Edm.String" Nullable="true"/>
@@ -240,8 +249,11 @@
         <Parameter Name="repl_file_id" Type="Edm.String" Nullable="true"/>
         <Parameter Name="sandbox_url" Type="Edm.String" Nullable="true"/>
         <Parameter Name="sandbox_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="sandbox_provider" Type="Edm.String" Nullable="true"/>
         <Parameter Name="system_prompt_hash" Type="Edm.String" Nullable="true"/>
         <Parameter Name="system_prompt_file_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="pending_tool_context" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="pending_decision_id" Type="Edm.String" Nullable="true"/>
         <ReturnType Type="OpenPaw.Session"/>
       </Action>
 
