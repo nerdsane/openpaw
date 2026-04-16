@@ -3,8 +3,8 @@
 # The session turn cycle is expressed as state transitions with WASM integration
 # triggers. No Rust while loop — the platform's dispatch pipeline drives
 # iteration through callback chaining:
-#   Thinking → (call_llm) → ProcessToolCalls → Executing → (run_tools) →
-#   HandleToolResults → Thinking → ...
+#   PreparingContext → (prepare_context) → CallingProvider → (call_provider) →
+#   ApplyingProviderResponse → ProcessToolCalls/CheckSteering/RecordResult
 #
 # Pi architecture additions:
 #   - Session tree: JSONL append-only tree with branching (session_file_id)
@@ -19,7 +19,7 @@
 
 [automaton]
 name = "Session"
-states = ["Created", "Provisioning", "Thinking", "Executing", "Compacting", "Steering", "WaitingForApproval", "Recovering", "Completed", "Failed", "Cancelled"]
+states = ["Created", "Provisioning", "Thinking", "PreparingContext", "CallingProvider", "ApplyingProviderResponse", "Executing", "Compacting", "Steering", "WaitingForApproval", "Recovering", "Completed", "Failed", "Cancelled"]
 initial = "Created"
 
 # --- State Variables: Core ---
@@ -173,6 +173,41 @@ initial = ""
 
 [[state]]
 name = "context_tokens"
+type = "counter"
+initial = "0"
+
+[[state]]
+name = "prepared_context_file_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "prepared_context_bytes"
+type = "counter"
+initial = "0"
+
+[[state]]
+name = "prepared_context_entries_loaded"
+type = "counter"
+initial = "0"
+
+[[state]]
+name = "prepared_context_content_files_loaded"
+type = "counter"
+initial = "0"
+
+[[state]]
+name = "provider_response_file_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "provider_request_bytes"
+type = "counter"
+initial = "0"
+
+[[state]]
+name = "provider_response_bytes"
 type = "counter"
 initial = "0"
 
@@ -364,10 +399,10 @@ effect = [{ type = "trigger", name = "provision_workspace" }]
 name = "WorkspaceReady"
 kind = "input"
 from = ["Provisioning"]
-to = "Thinking"
+to = "PreparingContext"
 params = ["workspace_id", "conversation_file_id", "file_manifest_id", "session_file_id", "session_leaf_id"]
-hint = "Workspace provisioned. Start LLM loop. Sandbox provisioned lazily on demand (ADR-0022)."
-effect = [{ type = "trigger", name = "call_llm" }]
+hint = "Workspace provisioned. Start the bounded context preparation stage. Sandbox provisioned lazily on demand (ADR-0022)."
+effect = [{ type = "trigger", name = "prepare_context" }]
 
 [[action]]
 name = "Provision"
@@ -402,15 +437,33 @@ effect = [{ type = "trigger", name = "provision_sandbox" }]
 name = "SandboxReady"
 kind = "input"
 from = ["Provisioning"]
-to = "Thinking"
+to = "PreparingContext"
 params = ["sandbox_url", "sandbox_id", "sandbox_provider", "workspace_id", "conversation_file_id", "file_manifest_id", "session_file_id", "session_leaf_id"]
-hint = "Callback from sandbox provisioner. Sets sandbox connection, TemperFS workspace/file/manifest/session, and starts think loop."
-effect = [{ type = "trigger", name = "call_llm" }]
+hint = "Callback from sandbox provisioner. Sets sandbox connection, TemperFS workspace/file/manifest/session, and starts bounded context preparation."
+effect = [{ type = "trigger", name = "prepare_context" }]
+
+[[action]]
+name = "ContextReady"
+kind = "input"
+from = ["PreparingContext"]
+to = "CallingProvider"
+params = ["prepared_context_file_id", "prepared_context_bytes", "prepared_context_entries_loaded", "prepared_context_content_files_loaded", "context_tokens", "system_prompt_hash", "system_prompt_file_id"]
+hint = "Prepared context artifact is ready. Persist artifact references and call the provider."
+effect = [{ type = "trigger", name = "call_provider" }]
+
+[[action]]
+name = "ProviderResponseReady"
+kind = "input"
+from = ["CallingProvider"]
+to = "ApplyingProviderResponse"
+params = ["provider_response_file_id", "provider_request_bytes", "provider_response_bytes"]
+hint = "Provider response artifact is ready. Apply the response back into Session state."
+effect = [{ type = "trigger", name = "apply_provider_response" }]
 
 [[action]]
 name = "ProcessToolCalls"
 kind = "input"
-from = ["Thinking"]
+from = ["ApplyingProviderResponse"]
 to = "Executing"
 params = ["pending_tool_calls", "conversation", "input_tokens", "output_tokens", "session_leaf_id", "context_tokens", "system_prompt_hash", "system_prompt_file_id", "gen_ai_parent_trace_id", "gen_ai_parent_span_id"]
 hint = "LLM returned tool_use blocks. Record token usage, transition to Executing, and run tools."
@@ -425,12 +478,12 @@ effect = [
 name = "HandleToolResults"
 kind = "input"
 from = ["Executing"]
-to = "Thinking"
+to = "PreparingContext"
 params = ["pending_tool_calls", "conversation", "session_leaf_id", "repl_file_id", "sandbox_url", "sandbox_id", "sandbox_provider", "system_prompt_hash", "system_prompt_file_id", "pending_tool_context", "pending_decision_id"]
-hint = "Tool results received. Increment turn, transition to Thinking, and call LLM again."
+hint = "Tool results received. Increment turn, transition to PreparingContext, and assemble the next bounded provider turn."
 effect = [
   { type = "increment", var = "turn_count" },
-  { type = "trigger", name = "call_llm" }
+  { type = "trigger", name = "prepare_context" }
 ]
 
 # --- Actions: Compaction (Phase 3) ---
@@ -438,10 +491,10 @@ effect = [
 [[action]]
 name = "NeedsCompaction"
 kind = "input"
-from = ["Thinking"]
+from = ["PreparingContext"]
 to = "Compacting"
-params = ["input_tokens", "output_tokens", "system_prompt_hash", "system_prompt_file_id"]
-hint = "LLM caller detected context tokens exceeds window minus reserve. Trigger compaction."
+params = ["input_tokens", "output_tokens", "context_tokens", "prepared_context_bytes", "prepared_context_entries_loaded", "prepared_context_content_files_loaded", "system_prompt_hash", "system_prompt_file_id"]
+hint = "Context preparation detected that the bounded context budget was exceeded. Trigger compaction."
 effect = [
   { type = "increment", var = "input_tokens" },
   { type = "increment", var = "output_tokens" },
@@ -452,12 +505,12 @@ effect = [
 name = "CompactionComplete"
 kind = "input"
 from = ["Compacting"]
-to = "Thinking"
+to = "PreparingContext"
 params = ["session_leaf_id", "context_tokens", "system_prompt_hash", "system_prompt_file_id"]
-hint = "Compaction finished. Resume LLM call with compacted context."
+hint = "Compaction finished. Resume bounded context preparation with the compacted session tree."
 effect = [
   { type = "increment", var = "compaction_count" },
-  { type = "trigger", name = "call_llm" }
+  { type = "trigger", name = "prepare_context" }
 ]
 
 # --- Actions: Steering (Phase 4) ---
@@ -465,7 +518,7 @@ effect = [
 [[action]]
 name = "CheckSteering"
 kind = "input"
-from = ["Thinking"]
+from = ["ApplyingProviderResponse"]
 to = "Steering"
 params = ["input_tokens", "output_tokens", "session_leaf_id", "context_tokens", "system_prompt_hash", "system_prompt_file_id"]
 hint = "LLM returned end_turn. Check for queued steering messages before completing."
@@ -480,14 +533,14 @@ effect = [
 name = "ContinueWithSteering"
 kind = "input"
 from = ["Steering"]
-to = "Thinking"
+to = "PreparingContext"
 params = ["session_leaf_id", "steering_messages", "conversation"]
 guard = "follow_up_count < 100"
 hint = "Steering message found. Inject into conversation and continue. Dynamic max_follow_ups enforced by steering_checker."
 effect = [
   { type = "increment", var = "turn_count" },
   { type = "increment", var = "follow_up_count" },
-  { type = "trigger", name = "call_llm" }
+  { type = "trigger", name = "prepare_context" }
 ]
 
 [[action]]
@@ -505,14 +558,14 @@ effect = [
 [[action]]
 name = "Steer"
 kind = "input"
-from = ["Thinking", "Executing", "Steering", "Compacting", "WaitingForApproval", "Recovering"]
+from = ["Thinking", "PreparingContext", "CallingProvider", "ApplyingProviderResponse", "Executing", "Steering", "Compacting", "WaitingForApproval", "Recovering"]
 params = ["steering_messages"]
 hint = "Queue a steering message for mid-run injection. External callers append messages while session runs. Self-loop — does not change state."
 
 [[action]]
 name = "SwitchProvider"
 kind = "input"
-from = ["Thinking", "Executing", "Steering", "Compacting", "WaitingForApproval", "Provisioning", "Recovering"]
+from = ["Thinking", "PreparingContext", "CallingProvider", "ApplyingProviderResponse", "Executing", "Steering", "Compacting", "WaitingForApproval", "Provisioning", "Recovering"]
 params = ["model", "provider"]
 hint = "Change LLM provider and/or model mid-session. Self-loop — takes effect on the next LLM call. Callable by the session itself or by parent/supervisor."
 
@@ -521,7 +574,7 @@ hint = "Change LLM provider and/or model mid-session. Self-loop — takes effect
 [[action]]
 name = "SwitchMode"
 kind = "input"
-from = ["Thinking", "Executing", "Steering", "Compacting", "WaitingForApproval", "Provisioning"]
+from = ["Thinking", "PreparingContext", "CallingProvider", "ApplyingProviderResponse", "Executing", "Steering", "Compacting", "WaitingForApproval", "Provisioning"]
 params = ["session_mode", "tools_enabled", "pre_plan_tools_enabled", "active_plan_id"]
 hint = "Switch between plan and execute modes. Self-loop — takes effect on next tool call."
 
@@ -538,22 +591,22 @@ effect = [{ type = "trigger", name = "notify_plan_approval_needed" }]
 name = "ResumeWithPlanApproval"
 kind = "input"
 from = ["WaitingForApproval"]
-to = "Thinking"
+to = "PreparingContext"
 params = ["session_mode", "tools_enabled", "pre_plan_tools_enabled"]
-hint = "Plan approved. Switch to execute mode and resume LLM loop."
-effect = [{ type = "trigger", name = "call_llm" }]
+hint = "Plan approved. Switch to execute mode and resume bounded context preparation."
+effect = [{ type = "trigger", name = "prepare_context" }]
 
 [[action]]
 name = "ResumeWithPlanChanges"
 kind = "input"
 from = ["WaitingForApproval"]
-to = "Thinking"
+to = "PreparingContext"
 params = ["session_leaf_id", "conversation"]
 hint = "Plan changes requested. Inject reviewer feedback and resume the planning loop."
 effect = [
   { type = "increment", var = "turn_count" },
   { type = "increment", var = "follow_up_count" },
-  { type = "trigger", name = "call_llm" }
+  { type = "trigger", name = "prepare_context" }
 ]
 
 # --- Actions: Cedar Approval Pause-Resume ---
@@ -580,7 +633,7 @@ effect = [{ type = "trigger", name = "run_tools" }]
 [[action]]
 name = "RecordResult"
 kind = "input"
-from = ["Thinking", "Executing"]
+from = ["ApplyingProviderResponse", "Executing"]
 to = "Completed"
 params = ["result", "conversation", "input_tokens", "output_tokens", "session_leaf_id", "repl_file_id", "system_prompt_hash", "system_prompt_file_id"]
 hint = "Session complete. Triggered by LLM end_turn or agent calling temper.done(result)."
@@ -596,7 +649,7 @@ effect = [
 [[action]]
 name = "Heartbeat"
 kind = "input"
-from = ["Thinking", "Executing", "Steering", "Compacting", "WaitingForApproval", "Recovering"]
+from = ["Thinking", "PreparingContext", "CallingProvider", "ApplyingProviderResponse", "Executing", "Steering", "Compacting", "WaitingForApproval", "Recovering"]
 params = ["last_heartbeat_at"]
 hint = "Record session liveness. Called by WASM modules during long operations. Self-loop."
 effect = [{ type = "trigger", name = "heartbeat_typing" }]
@@ -604,7 +657,7 @@ effect = [{ type = "trigger", name = "heartbeat_typing" }]
 [[action]]
 name = "TimeoutFail"
 kind = "input"
-from = ["Thinking", "Executing", "Steering", "Compacting"]
+from = ["Thinking", "PreparingContext", "CallingProvider", "ApplyingProviderResponse", "Executing", "Steering", "Compacting"]
 to = "Failed"
 params = ["error_message"]
 hint = "Session timed out — no heartbeat within timeout period."
@@ -615,7 +668,7 @@ effect = [{ type = "trigger", name = "deliver_reply" }]
 [[action]]
 name = "Fail"
 kind = "input"
-from = ["Created", "Provisioning", "Thinking", "Executing", "Compacting", "Steering", "WaitingForApproval", "Recovering"]
+from = ["Created", "Provisioning", "Thinking", "PreparingContext", "CallingProvider", "ApplyingProviderResponse", "Executing", "Compacting", "Steering", "WaitingForApproval", "Recovering"]
 to = "Failed"
 params = ["error_message"]
 hint = "Mark session run as failed."
@@ -624,7 +677,7 @@ effect = [{ type = "trigger", name = "deliver_reply" }]
 [[action]]
 name = "Cancel"
 kind = "input"
-from = ["Created", "Provisioning", "Thinking", "Executing", "Compacting", "Steering", "WaitingForApproval", "Recovering"]
+from = ["Created", "Provisioning", "Thinking", "PreparingContext", "CallingProvider", "ApplyingProviderResponse", "Executing", "Compacting", "Steering", "WaitingForApproval", "Recovering"]
 to = "Cancelled"
 hint = "Cancel session execution."
 effect = [{ type = "trigger", name = "deliver_reply" }]
@@ -641,7 +694,7 @@ hint = "Reply delivery failed after the session reached a terminal state."
 [[action]]
 name = "RecoverFromRestart"
 kind = "input"
-from = ["Thinking", "Executing", "Compacting", "Steering", "WaitingForApproval"]
+from = ["Thinking", "PreparingContext", "CallingProvider", "ApplyingProviderResponse", "Executing", "Compacting", "Steering", "WaitingForApproval"]
 to = "Recovering"
 params = ["error_message"]
 guard = "recovery_count < 3"
@@ -655,10 +708,10 @@ effect = [
 name = "RecoveryComplete"
 kind = "input"
 from = ["Recovering"]
-to = "Thinking"
+to = "PreparingContext"
 params = ["session_leaf_id"]
-hint = "Session tree repaired after restart. Re-enter LLM loop."
-effect = [{ type = "trigger", name = "call_llm" }]
+hint = "Session tree repaired after restart. Re-enter bounded context preparation."
+effect = [{ type = "trigger", name = "prepare_context" }]
 
 [[action]]
 name = "Resume"
@@ -682,7 +735,7 @@ assert = "has_result"
 
 [[invariant]]
 name = "TurnCountNonNegative"
-when = ["Created", "Provisioning", "Thinking", "Executing", "Compacting", "Steering", "WaitingForApproval", "Recovering", "Completed", "Failed", "Cancelled"]
+when = ["Created", "Provisioning", "Thinking", "PreparingContext", "CallingProvider", "ApplyingProviderResponse", "Executing", "Compacting", "Steering", "WaitingForApproval", "Recovering", "Completed", "Failed", "Cancelled"]
 assert = "turn_count >= 0"
 
 # --- Integrations ---
@@ -735,6 +788,55 @@ default_llm_model = "{secret:llm_model}"
 temper_api_url = "{secret:temper_api_url}"
 timeout_secs = "600"
 max_response_bytes = "4194304"
+max_memory = "268435456"
+
+[[integration]]
+name = "prepare_context"
+trigger = "prepare_context"
+type = "wasm"
+module = "context_preparer"
+on_failure = "Fail"
+
+[integration.config]
+temper_api_url = "{secret:temper_api_url}"
+max_live_context_bytes = "50331648"
+max_memory = "268435456"
+
+[[integration]]
+name = "call_provider"
+trigger = "call_provider"
+type = "wasm"
+module = "provider_caller"
+on_failure = "Fail"
+
+[integration.config]
+api_key = "{secret:anthropic_api_key}"
+anthropic_api_key = "{secret:anthropic_api_key}"
+openai_codex_token = "{secret:openai_codex_token}"
+openrouter_api_key = "{secret:openrouter_api_key}"
+anthropic_api_url = "https://api.anthropic.com/v1/messages"
+openai_api_url = "https://chatgpt.com/backend-api/codex/responses"
+openrouter_api_url = "https://openrouter.ai/api/v1/chat/completions"
+anthropic_auth_mode = "auto"
+openrouter_site_url = ""
+openrouter_app_name = "openpaw-agent"
+default_llm_provider = "{secret:llm_provider}"
+default_llm_model = "{secret:llm_model}"
+temper_api_url = "{secret:temper_api_url}"
+timeout_secs = "600"
+max_response_bytes = "4194304"
+max_memory = "268435456"
+
+[[integration]]
+name = "apply_provider_response"
+trigger = "apply_provider_response"
+type = "wasm"
+module = "provider_response_applier"
+on_failure = "Fail"
+
+[integration.config]
+temper_api_url = "{secret:temper_api_url}"
+max_memory = "134217728"
 
 [[integration]]
 name = "run_tools"

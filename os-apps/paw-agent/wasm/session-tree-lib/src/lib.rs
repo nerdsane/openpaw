@@ -507,6 +507,7 @@ impl SessionTree {
         first_kept: &str,
     ) -> (String, String) {
         let id = format!("c-{}", self.order.len());
+        let summary_tokens = estimate_summary_tokens(summary);
         let extra = json!({
             "summary": summary,
             "first_kept": first_kept,
@@ -517,7 +518,7 @@ impl SessionTree {
             EntryType::Compaction,
             None,
             None,
-            0,
+            summary_tokens,
             Some(&extra),
         );
         (id, line)
@@ -529,6 +530,7 @@ impl SessionTree {
         parent_id: &str,
         content_file_id: &str,
         first_kept: &str,
+        summary_tokens: usize,
     ) -> (String, String) {
         let id = format!("c-{}", self.order.len());
         let extra = json!({
@@ -540,7 +542,7 @@ impl SessionTree {
             EntryType::Compaction,
             None,
             content_file_id,
-            0,
+            summary_tokens,
             Some(&extra),
         );
         (id, line)
@@ -656,6 +658,15 @@ impl SessionTree {
     }
 }
 
+fn estimate_summary_tokens(summary: &str) -> usize {
+    let trimmed = summary.trim();
+    if trimmed.is_empty() {
+        0
+    } else {
+        usize::max(1, trimmed.len().div_ceil(4))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -741,5 +752,19 @@ mod tests {
         assert_eq!(refs.len(), 2);
         assert_eq!(refs[0].content_file_id.as_deref(), Some("file-1"));
         assert_eq!(refs[1].content_file_id.as_deref(), Some("file-2"));
+    }
+
+    #[test]
+    fn test_compaction_entries_contribute_to_estimated_tokens() {
+        let mut tree = SessionTree::new("test-compaction");
+        let header_id = "h-test-compaction".to_string();
+        let (user_id, _) = tree.append_user_message(&header_id, "Hello there", 10);
+        let (compaction_id, _) =
+            tree.append_compaction(&user_id, "Summary of previous work", &user_id);
+
+        assert!(
+            tree.estimate_tokens(&compaction_id) > 0,
+            "compaction summaries should contribute to future token estimation"
+        );
     }
 }

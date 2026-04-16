@@ -125,6 +125,8 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         ));
 
         // 5. Append compaction entry to session tree
+        let summary_tokens = estimate_summary_tokens(&summary);
+
         let (compaction_id, _line) = if !workspace_id.is_empty() {
             match create_content_file(
                 &ctx,
@@ -135,7 +137,12 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 &summary,
             ) {
                 Ok(summary_file_id) => {
-                    tree.append_compaction_file(session_leaf_id, &summary_file_id, &cut_point)
+                    tree.append_compaction_file(
+                        session_leaf_id,
+                        &summary_file_id,
+                        &cut_point,
+                        summary_tokens,
+                    )
                 }
                 Err(_) => tree.append_compaction(session_leaf_id, &summary, &cut_point),
             }
@@ -221,6 +228,15 @@ fn resolve_context_refs_for_compaction(
     }
 
     messages
+}
+
+fn estimate_summary_tokens(summary: &str) -> usize {
+    let trimmed = summary.trim();
+    if trimmed.is_empty() {
+        0
+    } else {
+        usize::max(1, trimmed.len().div_ceil(4))
+    }
 }
 
 fn build_mock_summary(conversation_text: &str) -> String {

@@ -84,5 +84,17 @@
       "notify_no_data": false,
       "renotify_interval": 60
     }
+  },
+  {
+    "name": "[OpenPaw] Session Memory Budget Exceeded",
+    "type": "metric alert",
+    "query": "sum(last_15m):sum:temper_session_memory_limit_exceeded_total{service:openpaw}.as_count() > 0",
+    "message": "OpenPaw sessions exceeded the bounded context memory budget in the last 15 minutes.\n\n@slack-openpaw-alerts",
+    "tags": ["team:openpaw", "severity:high"],
+    "options": {
+      "thresholds": { "critical": 0, "warning": 0 },
+      "notify_no_data": false,
+      "renotify_interval": 60
+    }
   }
 ]
