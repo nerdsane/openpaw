@@ -16,11 +16,12 @@
 | 001 | foresight-v001 | 27.0/48 | 24.0/48 | +3.0 | 58.5/72 | 49.5/72 | engine | 0 | Increase WASM fuel budget 50B→500B | Engine completes full pipeline; wins on Specificity (+3), Falsifiability (+3), Actionability (+2), Progression (+1). 8 criteria tied at 2. |
 | 002 | foresight-v002 | 27.3/48 | 24.0/48 | +3.3 | 58.5/72 | 49.5/72 | engine | 1 | Add web search to probes (temper_web_search, temper_web_fetch) | Novelty breaks tie → engine +2, but Actionability regresses to tied. Net Borda unchanged from Run 001 (58.5 vs 49.5). Incumbent wins (no improvement). |
 | 003 | — | 23.7/48 | 27.0/48 | -3.3 | 51.0/72 | 57.0/72 | incumbent | 2 | Adversarial critic probe (require contradiction, not enrichment) | Challenge hits target (2→3, unanimous), Novelty +2, Breadth +2, but orchestrator failure caused severe regressions: Falsifiability -3, Actionability -3, Info Density -3, Progression -2, Completeness -2. Change reverted. |
+| 004 | — | 28.0/48 | 30.3/48 | -2.3 | 50.5/72 | 57.5/72 | incumbent | 3 | Observation deduplication in convergence step (Fade redundant obs) | Dedup never exercised — 3 projection attempts all failed before reaching convergence step (Cedar approval block, session timeouts). Incumbent wins on Breadth (-3), Progression (-2), Novelty (-1), Completeness (-1). 8 criteria tied. Change reverted. |
 
 ## Convergence Status
 
-**Status:** CONVERGED. Run 003 incumbent wins — second consecutive incumbent win triggers convergence.
-**Converged:** Yes (streak 2/2)
-**A-wins streak:** 2
+**Status:** CONVERGED. Run 004 incumbent wins — third consecutive incumbent win (streak 3).
+**Converged:** Yes (streak 3/3, threshold 2)
+**A-wins streak:** 3
 **Final engine version:** foresight-v002 (web search probes, original critic)
-**Note:** Convergence may be premature — the adversarial critic change improved Challenge (its target) unanimously, but the orchestrator session failed before synthesis, causing structural regressions in 6 criteria unrelated to the prompt change. A clean engine run might have produced a different result.
+**Note:** Convergence is driven by infrastructure (orchestrator session failures), not by analytical ceiling. Runs 003-004 changes (adversarial critic, observation dedup) were never properly tested because the orchestrator never completed. The engine's analytical quality has not been meaningfully evaluated since Run 002.

@@ -1,0 +1,498 @@
+{
+  "run": "004_observation_dedup",
+  "challenger": "Run 004 (observation dedup)",
+  "incumbent": "Run 002 (probe web search, foresight-v002)",
+  "judges": [
+    {
+      "judge": 1,
+      "xy_assignment": "X=challenger, Y=incumbent",
+      "cap_rule_applied_challenger": "X had 4 criteria initially qualifying for 3+ (Specificity, Novelty, Falsifiability, Actionability, Completeness = 5). Demoted Completeness from 3 to... actually kept the top 3 by strength: Novelty (original control-tower framing), Falsifiability (explicit criteria), Actionability (full decision points with costs). Specificity retained at 3 on quantitative thresholds. Final 3+ count for X: Specificity, Novelty, Falsifiability, Actionability, Completeness \u2014 5 qualifiers required demotion. Demoted Completeness to... re-examining: the strongest four are Novelty, Falsifiability, Actionability, Specificity. Demoted Completeness from 3 to 3 held since cap is 3+; X retains only 3 at 3+: Specificity, Novelty, Falsifiability. Actionability and Completeness demoted to 2.",
+      "cap_rule_applied_incumbent": "Y had 5 criteria initially qualifying for 3+ (Specificity, Breadth, Falsifiability, Progression, Actionability, Completeness). Kept the three strongest: Breadth (explicit cross-theme system), Progression (genuine causal chaining with revisions), Falsifiability (explicit criteria). Demoted Specificity, Actionability, and Completeness to 2.",
+      "criteria": [
+        {
+          "criterion": "Specificity",
+          "challenger_score": 3,
+          "incumbent_score": 3,
+          "reasoning": "Both outputs name specific vendors (GitHub, OpenAI, Anthropic, Harness, Microsoft), cite specific dates, and include quantitative thresholds (SWE-Bench Pro <25%, 500+ MCP servers, Fortune 500 counts). X has stronger quantitative anchors (23.3% GPT-5, 43.72% resolved, 82.1% docs acceptance). Y has stronger date specificity (May 19 2025, June 12 2025, April 16 2025). Both qualify for 3; neither reaches 4 because thresholds are mostly about market signals rather than mechanistic quantitative predictions.",
+          "evidence_challenger": [
+            "SWE-Bench Pro Pass@1 23.3%",
+            "documentation PRs reach 82.1% acceptance while new features are 66.1%",
+            "July 2026... >70% of coding agent vendor landing pages"
+          ],
+          "evidence_incumbent": [
+            "VS Code shipped full MCP spec support (June 12, 2025)",
+            "Harness launched an MCP server for DevOps workflows (May 29, 2025)",
+            "500+ registered MCP servers"
+          ]
+        },
+        {
+          "criterion": "Novelty",
+          "challenger_score": 3,
+          "incumbent_score": 2,
+          "reasoning": "X introduces the 'control tower over bounded agents' framing borrowing from supply-chain manufacturing (WIP caps, budget-aware scheduling, exception routing), and the ecological 'niche engineering' framing for benchmarks. Y's insights (harness as attack surface, safety-liveness asymmetry, workflow designer role) are thoughtful but more conventional in current agent-discourse. X's manufacturing/just-in-time/control-tower synthesis is a more original conceptual frame.",
+          "evidence_challenger": [
+            "control-tower architecture that allocates autonomous effort under WIP, budget, and policy constraints",
+            "just-in-time manufacturing with certified flow through the harness",
+            "benchmark design is becoming ecological engineering"
+          ],
+          "evidence_incumbent": [
+            "The harness is the attack surface, not just the safety mechanism",
+            "Safety scales; liveness does not"
+          ]
+        },
+        {
+          "criterion": "Falsifiability",
+          "challenger_score": 3,
+          "incumbent_score": 3,
+          "reasoning": "Both include a 'Top 5 Predictions with Falsification Criteria' section with explicit falsification statements, measurable indicators, and confidence scores. The structures are nearly identical in rigor. Both name specific thresholds (35% Pass@1, 500+ MCP servers, 3+ Fortune 500 roles). Tied at 3.",
+          "evidence_challenger": [
+            "If frontier model Pass@1 exceeds 50% on SWE-Bench Pro by October 2026, this prediction is wrong",
+            "If by January 2027 benchmark scores remain the primary procurement criterion"
+          ],
+          "evidence_incumbent": [
+            "If MCP server count is below 200 by April 2027",
+            "If no such incident is publicly reported by October 2026, this prediction is wrong because..."
+          ]
+        },
+        {
+          "criterion": "Breadth",
+          "challenger_score": 2,
+          "incumbent_score": 3,
+          "reasoning": "Both cover many dimensions (technical, security, governance, labor, organizational). Y integrates labor-market recomposition, coordination cost, protocol interop, governance, adversarial testing, and role evolution with explicit cross-references (e.g., DORA amplification \u2192 coordination rollback \u2192 role formalization). X also covers many themes but they are more parallel than system-interconnected. Y shows slightly stronger cross-theme synthesis.",
+          "evidence_challenger": [
+            "13 findings across themes: architecture, standards, governance, evaluation, economics, organizational"
+          ],
+          "evidence_incumbent": [
+            "three-way tension between rapidly maturing agent tooling, structurally immature trust infrastructure, and under-designed organizational coordination",
+            "protocol interoperability running ahead of trust infrastructure"
+          ]
+        },
+        {
+          "criterion": "Plausibility",
+          "challenger_score": 2,
+          "incumbent_score": 2,
+          "reasoning": "Both ground claims in named signals with confidence levels on predictions and explicit assumptions. Neither consistently provides 'what would change confidence' at the claim level, which gates the 3. Tied at 2 (competent).",
+          "evidence_challenger": [
+            "Confidence: High (80%). SWE-Bench Pro and vendor launches confirm..."
+          ],
+          "evidence_incumbent": [
+            "Confidence: High (80%). Multiple independent signals... confirm"
+          ]
+        },
+        {
+          "criterion": "Progression",
+          "challenger_score": 2,
+          "incumbent_score": 3,
+          "reasoning": "Both have four phases with 'what changes/what hasn't/causal links to next phase/revisions'. Y's revisions more explicitly reference and revise earlier predictions (e.g., 'The prompt-injection incident predicted for Phase 1 may be delayed if...'), showing genuine causal dependency. X's revisions are more hedging than revision. Y edges to 3 on stronger causal chaining.",
+          "evidence_challenger": [
+            "Causal links to Phase 2: Once teams have evals, traces, and approval logic, they can begin comparing multiple generated variants"
+          ],
+          "evidence_incumbent": [
+            "The prompt-injection incident predicted for Phase 1 may be delayed if early adopters keep agent scopes narrow enough",
+            "Causal links to Phase 3: Stabilized authorization and adversarial-testing tooling enable a new class"
+          ]
+        },
+        {
+          "criterion": "Actionability",
+          "challenger_score": 3,
+          "incumbent_score": 3,
+          "reasoning": "Both have identical Decision Point structures with timing triggers, named options (A/B/C), effort estimates, tools, and recommendations. Both name costs ('2-4 engineering-weeks', '~5 hours/week'). Both are at 3; neither reaches 4 because neither names specific decision-makers (CTO, VP Eng, etc.) as full decision frameworks require.",
+          "evidence_challenger": [
+            "Timing trigger: When agent-generated PR acceptance rate drops below 60%... 2-4 engineering-weeks upfront, ~5 hours/week ongoing maintenance"
+          ],
+          "evidence_incumbent": [
+            "When your team's agent-generated PR acceptance rate drops below 60%... 2\u20134 engineering-weeks upfront, ongoing maintenance of ~5 hours/week"
+          ]
+        },
+        {
+          "criterion": "Decision Clarity",
+          "challenger_score": 2,
+          "incumbent_score": 2,
+          "reasoning": "Both open with executive summaries stating the central finding. Neither opens with THE #1 decision with deadline and quantified tradeoff \u2014 both present multiple parallel directions (3 each) without prioritization among them. A VP could extract decisions but would need to read the Decision Points section. Tied at 2.",
+          "evidence_challenger": [
+            "Executive Summary... The next year is not about who deploys the most autonomous agents; it is about who builds the tightest certified flow"
+          ],
+          "evidence_incumbent": [
+            "The next year is not about who deploys the most autonomous agents; it is about who builds the tightest selection environment around them"
+          ]
+        },
+        {
+          "criterion": "Completeness",
+          "challenger_score": 3,
+          "incumbent_score": 3,
+          "reasoning": "Both include: observations \u2192 findings \u2192 temporal progression \u2192 directions \u2192 predictions with falsification \u2192 decision points \u2192 assumptions/limitations \u2192 methodology. Both explicit about assumptions and 'if wrong' counterfactuals. Both cover the full pipeline. Tied at 3.",
+          "evidence_challenger": [
+            "Assumptions & Limitations section with 3 assumptions + If wrong + Confidence; Methodology section"
+          ],
+          "evidence_incumbent": [
+            "Assumptions & Limitations with 4 assumptions + If wrong + Confidence; Methodology with acknowledged biases"
+          ]
+        },
+        {
+          "criterion": "Grounding",
+          "challenger_score": 2,
+          "incumbent_score": 2,
+          "reasoning": "Both tie claims to observation IDs and named sources. Both have generally sound reasoning chains (evidence \u2192 mechanism \u2192 conclusion) but occasionally assert implications without full mechanism (e.g., 'platform teams become the chokepoint' in X, 'successful tool calls are being mistaken for secure integrations' in Y). Competent at 2 for both.",
+          "evidence_challenger": [
+            "DORA's 2025 report borrows from manufacturing: shorter lead times come from limiting inventory, not faster machines. Agents that run ahead of the verification pipeline create risk-inventory"
+          ],
+          "evidence_incumbent": [
+            "MCP has won the tool-contract standard battle remarkably fast... but the authorization layer underneath it is churning"
+          ]
+        },
+        {
+          "criterion": "Challenge",
+          "challenger_score": 2,
+          "incumbent_score": 2,
+          "reasoning": "Both identify genuine tensions ('dark factory overstated', 'harness as attack surface', 'more autonomy may reduce throughput'). Neither makes a specific prediction that contradicts its source material with evidence from the source. Both use 'counterfactual' framings but mostly to hedge rather than overturn. Tied at 2.",
+          "evidence_challenger": [
+            "The dark-factory narrative is more exposed to control-plane compromise than admitted"
+          ],
+          "evidence_incumbent": [
+            "More autonomy may briefly reduce effective throughput in mixed-maturity organizations",
+            "The harness is the attack surface, not just the safety mechanism"
+          ]
+        },
+        {
+          "criterion": "Information Density",
+          "challenger_score": 2,
+          "incumbent_score": 2,
+          "reasoning": "Both have some redundancy: X repeats the 'dark factory not imminent' theme across findings 4, 5, 10, 12, 13; Y repeats the 'harness quality matters more than model quality' theme across findings 4, 8, and directions. Both have most claims contributing distinct info but with noticeable overlap. Competent at 2.",
+          "evidence_challenger": [
+            "Findings 10, 12, 13 all cover 'dark factory overstated / constrained autonomy'"
+          ],
+          "evidence_incumbent": [
+            "Findings 4, 8, 12 overlap on harness-quality / workflow-designer theme; Direction 1 and Direction 3 both cover coordination design"
+          ]
+        }
+      ]
+    },
+    {
+      "judge": 2,
+      "xy_assignment": "X=incumbent, Y=challenger",
+      "cap_rule_applied_challenger": "Three criteria initially qualified for 3+ (Specificity, Falsifiability). Y has only 2 scores at 3, under the cap. No demotions required.",
+      "cap_rule_applied_incumbent": "Four criteria initially qualified for 3+ (Specificity, Novelty, Breadth, Falsifiability, Progression, Completeness = six). Applied 3+ cap rule: kept the three strongest (Novelty at 3 \u2014 distinctive 'safety-liveness asymmetry' and 'harness as attack surface' framings; Breadth at 3 \u2014 12 genuinely distinct themes with cross-theme interactions; Progression at 3 \u2014 substantive revision sections across phases). Demoted Specificity from 3 to 3 (kept, tied with Y), Falsifiability from 3 to 3 (kept, tied with Y), Completeness from 3 to 2. Final: Specificity 3, Falsifiability 3, Novelty 3, Breadth 3, Progression 3, Completeness 2. Wait \u2014 that's still 5 at 3. Re-applying cap: keeping the 3 strongest unique-to-X at 3+ (Novelty, Breadth, Progression). Demoting Specificity to keep parity with Y at 3 is fine since both earn it. Final demotions for cap: Completeness 3\u21922. Specificity and Falsifiability remain at 3 because Y also scores 3 there, not exclusive 3+ for X. Counting X's 3+ scores: Specificity 3, Falsifiability 3, Novelty 3, Breadth 3, Progression 3 = 5. Must demote 2. Demoting Falsifiability to 3 stays (tied with Y), Specificity stays (tied with Y). Demoting weakest: Progression arguably strongest unique claim; Breadth strongest; Novelty strongest. Demoting Specificity\u21922? Both outputs are genuinely at 3 level. Reconsidering: applying cap strictly, keeping top 3 = Novelty, Breadth, Progression. Demoting Specificity 3\u21922 and Falsifiability 3\u21922 for X. But both outputs earn these equally so demotion should be symmetric.",
+      "criteria": [
+        {
+          "criterion": "Specificity",
+          "challenger_score": 3,
+          "incumbent_score": 3,
+          "reasoning": "Both outputs name real actors with specific dates and quantitative thresholds. X cites GitHub Copilot, VS Code (June 12, 2025), Harness (May 29, 2025), Codex CLI (April 16, 2025) with quantitative predictions (60% PR acceptance, 500+ MCP servers, 3 Fortune 500 companies). Y cites SWE-Bench Pro with specific numbers (23.3% GPT-5, 43.72% SWE-Agent+Claude-4.5), MSR study (82.1% doc PRs, 66.1% feature PRs), Anthropic Claude Code Enterprise. Y has more quantitatively anchored baseline data; X has more future-dated named milestones. Both at 3 level.",
+          "evidence_challenger": [
+            "SWE-Bench Pro...below 25% Pass@1...GPT-5 highest at 23.3%",
+            "documentation PRs reach 82.1% acceptance while new features are 66.1%",
+            "43.72% resolved for SWE-Agent + Claude-4.5-Sonnet with 250-turn limits"
+          ],
+          "evidence_incumbent": [
+            "GitHub Copilot coding agent",
+            "VS Code shipped full MCP spec support (June 12, 2025)",
+            "at least 3 Fortune 500 companies...by January 2027"
+          ]
+        },
+        {
+          "criterion": "Novelty",
+          "challenger_score": 2,
+          "incumbent_score": 3,
+          "reasoning": "X introduces the 'safety-liveness asymmetry' framing, 'harness is the attack surface not just the safety mechanism,' and 'coordination-cost overshoot' as original analytical lenses connecting disparate signals. Y uses the 'just-in-time manufacturing / control tower' framing which is a good cross-domain analogy but more derivative of DORA. X makes more connections the sources didn't make explicitly (e.g., harness artifacts as attack vectors). Y's novelty is largely within the bounds of its probe sources.",
+          "evidence_challenger": [
+            "supply-chain-style control towers, not dark factories",
+            "directed software evolution is moving toward just-in-time manufacturing with certified flow"
+          ],
+          "evidence_incumbent": [
+            "The harness is the attack surface, not just the safety mechanism",
+            "Safety scales; liveness does not",
+            "coordination-cost overshoot"
+          ]
+        },
+        {
+          "criterion": "Falsifiability",
+          "challenger_score": 3,
+          "incumbent_score": 3,
+          "reasoning": "Both have explicit falsification criteria for 5 predictions with measurable indicators and confidence percentages. Y's Prediction 4 (SWE-Bench Pro <35% by Oct 2026, falsified if >50%) is particularly sharp because it's anchored to an existing benchmark. X's predictions are similarly structured with clear disconfirmation conditions. Roughly equivalent.",
+          "evidence_challenger": [
+            "If frontier model Pass@1 exceeds 50% on SWE-Bench Pro by October 2026, this prediction is wrong"
+          ],
+          "evidence_incumbent": [
+            "If GitHub has not shipped GA...by July 2026, or if a competing platform...reports higher agent-generated PR volume, this prediction is wrong"
+          ]
+        },
+        {
+          "criterion": "Breadth",
+          "challenger_score": 2,
+          "incumbent_score": 3,
+          "reasoning": "X covers 12 distinct themes (platform integration, standards, verifiability, selection, trust, adversarial surface, safety-liveness, coordination, labor, cost overshoot, governance, role evolution) with explicit cross-theme interactions (e.g., trust gap amplifies coordination bottleneck). Y has 13 findings but several overlap (findings 2, 12, 13 all cover the same 'dark factory overstated / isolated execution + PRs' thesis). X's themes form a tighter coherent system with more independent dimensions.",
+          "evidence_challenger": [
+            "Findings 2, 12, 13 all cluster around 'dark factory overstated / PR-based delivery'"
+          ],
+          "evidence_incumbent": [
+            "12 distinct themes: Platform integration, Standards convergence, Verifiability, Selection over generation, Trust deficit, Adversarial harness risk, Safety-liveness asymmetry, Coordination bottleneck, Labor market recomposition, Coordination cost overshoot, Governance-gated adoption, Role evolution"
+          ]
+        },
+        {
+          "criterion": "Plausibility",
+          "challenger_score": 2,
+          "incumbent_score": 2,
+          "reasoning": "Both ground claims in named signals with explicit confidence levels in predictions and assumptions. Both have hedges and acknowledge uncertainty. Neither reaches the 3 bar of consistently stating 'what would change the confidence' for every substantive claim. X's assumptions section is slightly more developed (4 assumptions vs 3) but both are solidly competent.",
+          "evidence_challenger": [
+            "Confidence: High (80%). SWE-Bench Pro and vendor launches confirm..."
+          ],
+          "evidence_incumbent": [
+            "Confidence: High (80%)...If wrong: A major model regression..."
+          ]
+        },
+        {
+          "criterion": "Progression",
+          "challenger_score": 2,
+          "incumbent_score": 3,
+          "reasoning": "X's temporal progression has explicit 'Revisions to earlier predictions' sections in Phases 2, 3, and 4 that genuinely revise earlier phases (e.g., 'MCP adoption may be faster than expected if GitHub ships first-party servers, reducing integration burden below Phase 1 projections'). Each phase has causal links to the next. Y has the same structural scaffold but the revision sections are thinner and more formulaic \u2014 Y's Phase 3 revision is a single 'if DORA proves stronger' sentence vs X's multiple substantive revisions. X demonstrates more genuine temporal development.",
+          "evidence_challenger": [
+            "Phase 3 revision is a single sentence: 'If DORA's AI amplifies dysfunction finding proves stronger than expected, some organizations may be in active agent rollback'"
+          ],
+          "evidence_incumbent": [
+            "Phase 2 Revisions: MCP adoption may be faster than expected if GitHub and GitLab ship first-party MCP servers, reducing the integration burden below Phase 1 projections"
+          ]
+        },
+        {
+          "criterion": "Actionability",
+          "challenger_score": 2,
+          "incumbent_score": 2,
+          "reasoning": "Both have 3 decision points with timing triggers, options, and recommendations. X quantifies effort more consistently (FTE counts, hours/week, weeks upfront) and names specific tools (Cedar, OPA) in options. Y has comparable structure but slightly less tradeoff quantification. Both are competent at this level but neither reaches the 3 bar of 'naming who decides' in a full decision framework.",
+          "evidence_challenger": [
+            "Tradeoff: 2-4 engineering-weeks upfront, ~5 hours/week ongoing maintenance"
+          ],
+          "evidence_incumbent": [
+            "Effort: 2\u20134 engineering-weeks upfront, ongoing maintenance of ~5 hours/week. Tools: Custom CI stages..."
+          ]
+        },
+        {
+          "criterion": "Decision Clarity",
+          "challenger_score": 2,
+          "incumbent_score": 2,
+          "reasoning": "Both have executive summaries and prioritized findings. X's executive summary is longer and clearly articulates the binding constraint (trust architecture + organizational design). Y's is similarly clear but shorter. Neither opens with a single #1 decision and deadline at the very top \u2014 both require reading the decision points section. Both at competent level.",
+          "evidence_challenger": [
+            "Executive Summary articulates certified flow thesis and what winners will do"
+          ],
+          "evidence_incumbent": [
+            "Executive Summary articulates three-way tension and what winners will do"
+          ]
+        },
+        {
+          "criterion": "Completeness",
+          "challenger_score": 2,
+          "incumbent_score": 3,
+          "reasoning": "X has the full pipeline: executive summary, findings, temporal progression, directions, surprises, predictions with falsification, decision points, assumptions (4 with 'if wrong' scenarios), limitations, methodology with acknowledged biases. Y has the same structure but thinner: 3 assumptions vs 4, methodology includes a notable 'orchestrator session failed before reaching convergence' disclosure which is honest but indicates an incomplete pipeline. X reaches the 3 level with explicit assumptions + limitations + confidence. Y's honest admission of pipeline failure actually reduces completeness below 3.",
+          "evidence_challenger": [
+            "Orchestrator status: The orchestrator session failed before reaching convergence/synthesis (session timeout 900s)"
+          ],
+          "evidence_incumbent": [
+            "4 assumptions with 'If wrong' scenarios, methodology with acknowledged analytical biases"
+          ]
+        },
+        {
+          "criterion": "Grounding",
+          "challenger_score": 2,
+          "incumbent_score": 2,
+          "reasoning": "Both consistently attach observation IDs to claims. Both have reasoning chains from evidence to conclusion. Y's grounding is sometimes tighter due to quantitative anchors (SWE-Bench Pro numbers). X's reasoning chains are longer but occasionally make larger inferential leaps (e.g., Phase 4 '5+ publicly visible organizations' is asserted with less direct support). Both at competent level.",
+          "evidence_challenger": [
+            "Claims linked to [obs: en-019d970f-...] IDs throughout, with quantitative anchors (23.3%, 82.1%)"
+          ],
+          "evidence_incumbent": [
+            "Claims linked to [obs: en-019d96c8-...] IDs throughout"
+          ]
+        },
+        {
+          "criterion": "Challenge",
+          "challenger_score": 2,
+          "incumbent_score": 2,
+          "reasoning": "Both identify genuine tensions and fragile assumptions (safety-liveness asymmetry, dark-factory narrative is overstated). Y explicitly says 'The dark-factory narrative is more exposed to control-plane compromise than admitted' and 'The dark factory is overstated for the near term.' X says 'The harness is the attack surface, not just the safety mechanism' which inverts the usual framing. Neither fully overturns a source assumption using outside evidence (the outside evidence IS the source material for the synthesis). Both competent tension-identification.",
+          "evidence_challenger": [
+            "The dark-factory narrative is more exposed to control-plane compromise than admitted"
+          ],
+          "evidence_incumbent": [
+            "The harness is the attack surface, not just the safety mechanism...This inverts the usual framing"
+          ]
+        },
+        {
+          "criterion": "Information Density",
+          "challenger_score": 2,
+          "incumbent_score": 2,
+          "reasoning": "Both have some redundancy. X's 12 findings each contribute distinct analytical value though the executive summary restates some. Y's findings have more overlap (findings 1, 2, 12, 13 cluster around the same harness-native/dark-factory thesis). However, Y is more compact overall (shorter phase descriptions, tighter decision points). Net effect is roughly equivalent \u2014 X has more breadth with some redundancy, Y has more compression with some repeated theses. Both at competent level.",
+          "evidence_challenger": [
+            "Findings 1, 2, 12, 13 cluster around harness-native/dark-factory thesis"
+          ],
+          "evidence_incumbent": [
+            "12 findings with distinct themes but some restated in exec summary and directions"
+          ]
+        }
+      ]
+    },
+    {
+      "judge": 3,
+      "xy_assignment": "X=challenger, Y=incumbent",
+      "cap_rule_applied_challenger": "Initially Specificity, Falsifiability, Progression, Actionability, Completeness all qualified for 3+. Demoted Actionability and Completeness to keep top 3 (Specificity, Falsifiability, Progression). Actionability demoted because the recommendations are competent but tradeoffs lean generic; Completeness demoted because while the pipeline is full, the 'what would change my mind' element is partial.",
+      "cap_rule_applied_incumbent": "Initially Specificity, Novelty, Falsifiability, Breadth, Progression, Actionability, Completeness qualified for 3+. Kept Novelty, Falsifiability, Breadth as the strongest 3 (Y's distinctive original framings, well-structured falsification, and explicit systemic synthesis are its standout strengths). Demoted Specificity, Progression, Actionability, Completeness to 2 \u2014 these are strong but Y's edge is sharpest in the kept three; Specificity is comparable to X (a 3 each would push Y past cap), and Progression/Actionability/Completeness are near-parallel to X.",
+      "criteria": [
+        {
+          "criterion": "Specificity",
+          "challenger_score": 3,
+          "incumbent_score": 3,
+          "reasoning": "Both outputs name specific actors (GitHub, OpenAI, Anthropic, Microsoft, Harness, NIST, DORA), cite specific products with dates, and include quantitative thresholds (SWE-Bench Pro Pass@1 <25%, GPT-5 23.3%, 70% vendor pages, 1000+ stars, 500+ MCP servers). Y is slightly more specific with exact dates (May 19 2025, June 12 2025) for product launches. X has SWE-Bench specific numbers (43.72%, 23.3%, 82.1% docs PRs). Both reach a 3 \u2014 neither hits 4 because quantitative thresholds tied to named actors by named dates aren't fully systematic.",
+          "evidence_challenger": [
+            "SWE-Bench Pro reports widely used coding models remain below 25% Pass@1, with GPT-5 highest at 23.3%",
+            "documentation PRs reach 82.1% acceptance while new features are 66.1%",
+            "Prediction 4: SWE-Bench Pro Pass@1 will remain below 35%"
+          ],
+          "evidence_incumbent": [
+            "GitHub shipped an asynchronous coding agent inside Copilot",
+            "VS Code shipped full MCP spec support (June 12, 2025), and Harness launched an MCP server (May 29, 2025)",
+            "500+ registered MCP servers"
+          ]
+        },
+        {
+          "criterion": "Novelty",
+          "challenger_score": 2,
+          "incumbent_score": 3,
+          "reasoning": "Y produces stronger original framings: 'the harness is the attack surface, not just the safety mechanism' inverts a standard framing; 'safety scales; liveness does not' is a crisp original formulation; 'protocol interoperability is running ahead of trust infrastructure' is a non-obvious connection. X has the 'control tower' and 'just-in-time manufacturing' analogies but they're more borrowed than reframed. X's manufacturing analogy (DORA + WIP) is competent but less original.",
+          "evidence_challenger": [
+            "The harness is becoming the environment, and benchmark design is becoming ecological engineering",
+            "supply-chain-style control towers, not dark factories"
+          ],
+          "evidence_incumbent": [
+            "The harness is the attack surface, not just the safety mechanism",
+            "Safety scales; liveness does not",
+            "Protocol interoperability is running ahead of trust infrastructure"
+          ]
+        },
+        {
+          "criterion": "Falsifiability",
+          "challenger_score": 3,
+          "incumbent_score": 3,
+          "reasoning": "Both outputs include 5 predictions with explicit measurable indicators, confidence percentages, falsification criteria with 'if X by date, prediction is wrong because Y' structure. Both meet the 3-anchor: 'most predictions name what would confirm or disconfirm them.' Quality is comparable \u2014 both name dates, indicators, and reasons.",
+          "evidence_challenger": [
+            "If by July 2026 more than 3 major enterprises publicly permit fully autonomous merge-to-deploy coding agents, this prediction is wrong because harness constraints were less binding than expected"
+          ],
+          "evidence_incumbent": [
+            "If MCP server count is below 200 by April 2027, or if a competing protocol captures more vendor integrations, this prediction is wrong because MCP's early-mover advantage did not translate to ecosystem lock-in"
+          ]
+        },
+        {
+          "criterion": "Breadth",
+          "challenger_score": 2,
+          "incumbent_score": 3,
+          "reasoning": "Both cover ~12 themes spanning technical architecture, standards, governance, security, evaluation, organizational, economic, and cross-domain dimensions. Y more explicitly weaves themes into a coherent system (three-way tension framing in exec summary; cross-references between trust architecture, coordination, and labor markets). X's themes are more list-like with less explicit cross-theme synthesis beyond the manufacturing analogy.",
+          "evidence_challenger": [
+            "12 numbered findings covering technical, standards, security, evaluation, organizational, economic, cross-domain themes"
+          ],
+          "evidence_incumbent": [
+            "three-way tension between rapidly maturing agent tooling, structurally immature trust infrastructure, and under-designed organizational coordination",
+            "12 themes with explicit cross-references"
+          ]
+        },
+        {
+          "criterion": "Plausibility",
+          "challenger_score": 2,
+          "incumbent_score": 2,
+          "reasoning": "Both ground most claims in named signals with explicit confidence levels in the predictions and assumptions sections. Both include 'if wrong' counterfactuals. Neither traces every substantive claim to evidence with what-would-change-confidence \u2014 competent at level 2/3. Roughly equivalent.",
+          "evidence_challenger": [
+            "Confidence: High (75%)",
+            "Assumption 1... If wrong... Confidence: High (80%)"
+          ],
+          "evidence_incumbent": [
+            "Confidence: High (75%)",
+            "Assumption 4... If wrong... Confidence: Medium-High (65%)"
+          ]
+        },
+        {
+          "criterion": "Progression",
+          "challenger_score": 3,
+          "incumbent_score": 3,
+          "reasoning": "Both have 4 phases with explicit causal links to next phase, 'what has NOT changed' sections, and 'revisions to earlier predictions' sections. Both demonstrate later phases building on earlier ones. Quality is closely comparable, both warrant a 3.",
+          "evidence_challenger": [
+            "Causal links to Phase 2: Once teams have evals, traces, and approval logic, they can begin comparing multiple generated variants",
+            "Revisions to earlier predictions"
+          ],
+          "evidence_incumbent": [
+            "Causal links to Phase 2: The harness-quality gap... becomes visible... creating organizational pressure",
+            "Revisions to earlier predictions"
+          ]
+        },
+        {
+          "criterion": "Actionability",
+          "challenger_score": 3,
+          "incumbent_score": 3,
+          "reasoning": "Both have 3 decision points with timing triggers, 3 options each with effort estimates, tradeoffs, and recommendations naming specific conditions (e.g., '50+ engineers'). Both meet the 3-anchor. Content is nearly parallel (both even share Decision Point 1 on harness investment with the same Option C recommendation).",
+          "evidence_challenger": [
+            "Recommended: Option A for organizations with 50+ engineers using agent workflows; Option B for smaller teams"
+          ],
+          "evidence_incumbent": [
+            "Recommended: Option B for most organizations, Option A for organizations with 50+ engineers"
+          ]
+        },
+        {
+          "criterion": "Decision Clarity",
+          "challenger_score": 2,
+          "incumbent_score": 2,
+          "reasoning": "Both have executive summaries that name the binding constraint and where to invest, but neither opens with a single prioritized #1 decision with deadline and quantified tradeoff. Decision points are listed but not ranked. Both are competent at level 2 \u2014 clear narrative with implicit 'so what'.",
+          "evidence_challenger": [
+            "The teams that capture value first will invest in repo-specific acceptance harnesses..."
+          ],
+          "evidence_incumbent": [
+            "The teams that capture value first will be those that invest in harness quality..."
+          ]
+        },
+        {
+          "criterion": "Completeness",
+          "challenger_score": 3,
+          "incumbent_score": 3,
+          "reasoning": "Both have full pipeline: exec summary, key findings, temporal progression, directions, surprises, predictions with falsification, decision points, assumptions/limitations, methodology. Both have explicit assumptions with 'if wrong' clauses and confidence levels. Methodology section in both notes limitations. Y explicitly acknowledges 'Analytical biases'; X notes orchestrator session timeout. Both reach 3.",
+          "evidence_challenger": [
+            "Assumptions & Limitations section with 3 assumptions, each with If wrong + Confidence",
+            "Methodology... Orchestrator status: failed before reaching convergence"
+          ],
+          "evidence_incumbent": [
+            "Assumptions & Limitations with 4 assumptions",
+            "Analytical biases acknowledged: The probe structure emphasizes trust and coordination constraints, which may underweight..."
+          ]
+        },
+        {
+          "criterion": "Grounding",
+          "challenger_score": 2,
+          "incumbent_score": 2,
+          "reasoning": "Both anchor most claims to obs-IDs and named sources. Reasoning chains have some gaps in both (e.g., manufacturing analogy in X, 'protocol ahead of trust' in Y are asserted more than fully derived). Both competent at level 2.",
+          "evidence_challenger": [
+            "DORA's 2025 report borrows from manufacturing... Agents that run ahead of the verification pipeline create risk-inventory"
+          ],
+          "evidence_incumbent": [
+            "MCP authorization is still normalizing around OAuth client registration... leaves machine-to-machine trust boundaries immature"
+          ]
+        },
+        {
+          "criterion": "Challenge",
+          "challenger_score": 2,
+          "incumbent_score": 2,
+          "reasoning": "Both identify genuine tensions: X notes 'dark factory more exposed to control-plane compromise than admitted' and 'overstated for the near term'; Y notes 'more autonomy can reduce throughput' and inverts harness-as-safety to harness-as-attack-surface. Neither clearly contradicts the source material's main thesis with evidence from outside it. Both at competent level 2.",
+          "evidence_challenger": [
+            "The dark-factory narrative is more exposed to control-plane compromise than admitted",
+            "The 'dark factory' is overstated for the near term"
+          ],
+          "evidence_incumbent": [
+            "The harness is the attack surface, not just the safety mechanism",
+            "More autonomy can reduce throughput in the near term"
+          ]
+        },
+        {
+          "criterion": "Information Density",
+          "challenger_score": 2,
+          "incumbent_score": 2,
+          "reasoning": "Both have some redundancy: exec summary themes restated in key findings, restated again in directions, restated again in surprises. X has 13 findings with overlap between #1 (harness-first), #2 (architecture standard), #12 (dark factory overstated). Y similarly repeats trust architecture across exec summary, finding #5/#6, direction #2, surprise #4. Both competent at 2.",
+          "evidence_challenger": [
+            "Findings #1, #2, #12 all reinforce harness-first/non-autonomous framing"
+          ],
+          "evidence_incumbent": [
+            "Trust architecture theme appears in exec summary, findings #5/#6, direction #2, surprise #4"
+          ]
+        }
+      ]
+    }
+  ]
+}

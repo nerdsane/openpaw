@@ -208,68 +208,6 @@ for probe_a, obs_a_list in by_probe.items():
                         confirmed.add(obs_a["entity_id"])
 ```
 
-### Observation Deduplication (after confirmation)
-
-After cross-probe confirmation, deduplicate semantically overlapping observations to
-improve information density in the final synthesis. This is MANDATORY before synthesis.
-
-```python
-# Re-read all observations (some may now be Confirmed)
-all_step_obs = temper.list("Observations",
-    "$filter=projection_id eq '" + projection_id + "' and step_at eq '" + str(step) + "'")
-
-# Filter to non-Faded observations only
-live_obs = [o for o in all_step_obs if o.get("status", "") != "Faded"]
-
-# Group by semantic theme. For each observation, extract the core claim.
-# A "theme" is the central phenomenon described (e.g., "harness quality > model quality",
-# "coordination bottleneck", "trust architecture gap", "dark factory won't happen").
-# Two observations share a theme if removing either would NOT reduce the set of
-# distinct analytical conclusions in the synthesis.
-
-themes = {}  # theme_label -> [obs list]
-for obs in live_obs:
-    content = obs.get("fields", {}).get("content", "")
-    # Assign to a theme based on the core claim. Use your judgment.
-    # If an observation fits multiple themes, assign to its PRIMARY theme.
-    theme = classify_theme(content)  # your judgment call
-    themes.setdefault(theme, []).append(obs)
-
-# For each theme with 3+ observations: keep the 2 strongest, Fade the rest.
-# "Strongest" = best external evidence (URLs, named sources) + most specific claims
-# (named actors, dates, quantitative thresholds) + highest importance rating.
-faded_count = 0
-for theme, obs_list in themes.items():
-    if len(obs_list) <= 2:
-        continue  # no dedup needed for small clusters
-
-    # Rank by quality: external evidence > specificity > importance
-    ranked = sorted(obs_list, key=lambda o: (
-        # Prefer observations with external URLs/sources
-        1 if "http" in o.get("fields", {}).get("content", "") else 0,
-        # Prefer high importance
-        1 if o.get("fields", {}).get("importance", "") == "high" else 0,
-        # Prefer longer, more detailed content
-        len(o.get("fields", {}).get("content", ""))
-    ), reverse=True)
-
-    keep = ranked[:2]
-    keep_ids = [o["entity_id"] for o in keep]
-    fade = ranked[2:]
-
-    for obs in fade:
-        obs_id = obs["entity_id"]
-        temper.action("Observations", obs_id, "Fade", {
-            "fade_reason": "Deduplicated: same theme '" + theme + "' as " + keep_ids[0] + ". Kept stronger observations with better evidence."
-        })
-        faded_count += 1
-
-# Log dedup results
-print(f"Deduplication: {faded_count} observations faded, {len(live_obs) - faded_count} remain")
-# Target: ≤15 observations after dedup. If still above 15, do a second pass
-# with stricter theme merging.
-```
-
 Report convergence:
 ```python
 temper.action("Projections", projection_id, "ConvergenceComplete", {})

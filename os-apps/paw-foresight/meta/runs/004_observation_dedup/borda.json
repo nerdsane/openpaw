@@ -1,0 +1,211 @@
+{
+  "run": "004_observation_dedup",
+  "challenger": "Run 004 (observation dedup)",
+  "incumbent": "Run 002 (probe web search, foresight-v002)",
+  "xy_assignment": {
+    "judge_1": "X=challenger, Y=incumbent",
+    "judge_2": "X=incumbent, Y=challenger",
+    "judge_3": "X=challenger, Y=incumbent"
+  },
+  "criteria": {
+    "Specificity": {
+      "challenger_scores": [
+        3,
+        3,
+        3
+      ],
+      "incumbent_scores": [
+        3,
+        3,
+        3
+      ],
+      "challenger_avg": 3.0,
+      "incumbent_avg": 3.0,
+      "challenger_borda": 4.5,
+      "incumbent_borda": 4.5
+    },
+    "Novelty": {
+      "challenger_scores": [
+        3,
+        2,
+        2
+      ],
+      "incumbent_scores": [
+        2,
+        3,
+        3
+      ],
+      "challenger_avg": 2.33,
+      "incumbent_avg": 2.67,
+      "challenger_borda": 4,
+      "incumbent_borda": 5
+    },
+    "Falsifiability": {
+      "challenger_scores": [
+        3,
+        3,
+        3
+      ],
+      "incumbent_scores": [
+        3,
+        3,
+        3
+      ],
+      "challenger_avg": 3.0,
+      "incumbent_avg": 3.0,
+      "challenger_borda": 4.5,
+      "incumbent_borda": 4.5
+    },
+    "Breadth": {
+      "challenger_scores": [
+        2,
+        2,
+        2
+      ],
+      "incumbent_scores": [
+        3,
+        3,
+        3
+      ],
+      "challenger_avg": 2.0,
+      "incumbent_avg": 3.0,
+      "challenger_borda": 3,
+      "incumbent_borda": 6
+    },
+    "Plausibility": {
+      "challenger_scores": [
+        2,
+        2,
+        2
+      ],
+      "incumbent_scores": [
+        2,
+        2,
+        2
+      ],
+      "challenger_avg": 2.0,
+      "incumbent_avg": 2.0,
+      "challenger_borda": 4.5,
+      "incumbent_borda": 4.5
+    },
+    "Progression": {
+      "challenger_scores": [
+        2,
+        2,
+        3
+      ],
+      "incumbent_scores": [
+        3,
+        3,
+        3
+      ],
+      "challenger_avg": 2.33,
+      "incumbent_avg": 3.0,
+      "challenger_borda": 3.5,
+      "incumbent_borda": 5.5
+    },
+    "Actionability": {
+      "challenger_scores": [
+        3,
+        2,
+        3
+      ],
+      "incumbent_scores": [
+        3,
+        2,
+        3
+      ],
+      "challenger_avg": 2.67,
+      "incumbent_avg": 2.67,
+      "challenger_borda": 4.5,
+      "incumbent_borda": 4.5
+    },
+    "Decision Clarity": {
+      "challenger_scores": [
+        2,
+        2,
+        2
+      ],
+      "incumbent_scores": [
+        2,
+        2,
+        2
+      ],
+      "challenger_avg": 2.0,
+      "incumbent_avg": 2.0,
+      "challenger_borda": 4.5,
+      "incumbent_borda": 4.5
+    },
+    "Completeness": {
+      "challenger_scores": [
+        3,
+        2,
+        3
+      ],
+      "incumbent_scores": [
+        3,
+        3,
+        3
+      ],
+      "challenger_avg": 2.67,
+      "incumbent_avg": 3.0,
+      "challenger_borda": 4.0,
+      "incumbent_borda": 5.0
+    },
+    "Grounding": {
+      "challenger_scores": [
+        2,
+        2,
+        2
+      ],
+      "incumbent_scores": [
+        2,
+        2,
+        2
+      ],
+      "challenger_avg": 2.0,
+      "incumbent_avg": 2.0,
+      "challenger_borda": 4.5,
+      "incumbent_borda": 4.5
+    },
+    "Challenge": {
+      "challenger_scores": [
+        2,
+        2,
+        2
+      ],
+      "incumbent_scores": [
+        2,
+        2,
+        2
+      ],
+      "challenger_avg": 2.0,
+      "incumbent_avg": 2.0,
+      "challenger_borda": 4.5,
+      "incumbent_borda": 4.5
+    },
+    "Information Density": {
+      "challenger_scores": [
+        2,
+        2,
+        2
+      ],
+      "incumbent_scores": [
+        2,
+        2,
+        2
+      ],
+      "challenger_avg": 2.0,
+      "incumbent_avg": 2.0,
+      "challenger_borda": 4.5,
+      "incumbent_borda": 4.5
+    }
+  },
+  "totals": {
+    "challenger_raw_avg": 28.0,
+    "incumbent_raw_avg": 30.3,
+    "challenger_borda": 50.5,
+    "incumbent_borda": 57.5,
+    "winner": "incumbent"
+  }
+}

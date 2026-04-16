@@ -1,0 +1,83 @@
+{
+  "value": [
+    {
+      "entity_type": "Direction",
+      "entity_id": "en-019d970f-0833-79d1-a6bb-ea914af63210",
+      "status": "Proposed",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "fields": {},
+        "Id": "en-019d970f-0833-79d1-a6bb-ea914af63210",
+        "Status": "Proposed",
+        "counterfactual_summary": "If this thesis is wrong, model capability will outrun harness constraints quickly and teams will skip pipeline-centric guardrails in favor of broader unattended codebase modification. In that world, CI and policy systems become secondary rather than primary control surfaces.",
+        "grounding": "[]",
+        "observation_ids": "[\"en-019d970f-07ea-7ca0-9846-844c8520637e\",\"en-019d970f-07f6-7b83-847e-e410c8e3c805\",\"en-019d970f-0802-7a93-ab7c-093505b8013a\",\"en-019d970f-080f-79d0-b88f-2bcc1f58b8a1\",\"en-019d970f-081d-7d03-82cf-516737ae590f\"]",
+        "projection_id": "en-019d970c-4498-7a20-bf38-4d77273cf900",
+        "proposer_agent_id": "aj-019d970e-1583-75e3-938b-e225aea7dda6",
+        "reasoning": "Over the next 90 days, directed software evolution advances through platformized harnesses rather than through a jump to fully autonomous software factories. The implementation pattern that crosses from novelty to routine practice is: scoped tools via MCP or equivalent interfaces, isolated execution environments, repo-specific evals, and PR-based delivery with machine-generated evidence. This is feasible now because it aligns with the assets organizations already trust: CI pipelines, branch protection, audit logs, and human approval points.\n\nThe strongest evidence from current market signals is that vendors are converging on validation and remediation workflows. Harness is embedding AI agents inside pull request and pipeline operations, and Codex materials are standardizing repeatable agent workflows around MCP and traceable orchestration. That means the real competitive advantage in this period is not having the most powerful model, but having the best acceptance harness: deterministic repro, good test coverage, policy enforcement, environment simulation, and clean rollback paths. Teams that invest there will accumulate a compounding advantage because each successful agent task strengthens the next selection loop; teams that chase open-ended autonomy without that substrate will generate more patches but fewer trusted changes.",
+        "step_at": "0",
+        "title": "The next 90 days belong to harness-native coding agents: platform teams will adopt PR-producing, evidence-backed automation before they trust autonomous repo evolution."
+      },
+      "events": [],
+      "total_event_count": 2,
+      "sequence_nr": 2,
+      "@odata.id": "Directions('en-019d970f-0833-79d1-a6bb-ea914af63210')"
+    },
+    {
+      "entity_type": "Direction",
+      "entity_id": "en-019d970f-3146-7dc1-a4cb-0a898347d7dd",
+      "status": "Proposed",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "fields": {},
+        "Id": "en-019d970f-3146-7dc1-a4cb-0a898347d7dd",
+        "Status": "Proposed",
+        "counterfactual_summary": "If governance and flow control are not the binding constraints, then raw model quality should dominate outcomes in the next 90 days and organizations should see reliable autonomy scale without major new budgeting, policy, or orchestration layers.",
+        "grounding": "[\"https://dora.dev/dora-report-2025/\",\"https://dora.dev/capabilities/wip-limits\",\"https://www.anthropic.com/news/claude-code-on-team-and-enterprise\",\"https://www.swebench.com/verified.html\"]",
+        "observation_ids": "[\"en-019d970f-3112-7a60-b9d7-276ac8db1e66\",\"en-019d970f-311e-78d1-ab76-cce58a36ae1e\",\"en-019d970f-312b-7982-ab8b-5695f4ddc9c4\",\"en-019d970f-3139-7350-a020-5fca7cd98766\"]",
+        "projection_id": "en-019d970c-4498-7a20-bf38-4d77273cf900",
+        "proposer_agent_id": "aj-019d970e-15ad-7af2-b06d-bc2a1535fc00",
+        "reasoning": "My strongest thesis is that directed software evolution will advance in the next 90 days primarily through better economic and cybernetic governance, not through a sudden leap in autonomous coding intelligence. Across manufacturing, supply chains, and organizational economics, systems scale when they convert invisible work into managed flow: WIP limits, queue visibility, spend ceilings, and exception-routing all matter because they keep the system near an operating point where local optimizers do not destabilize the whole. The current knowledge graph correctly emphasizes harness-first engineering, but the adjacent-field lesson is that the harness is only one layer of the control loop. The other layer is institutional: who is allowed to spend compute, which repos get autonomous effort, what policies bind tool use, and how exceptions escalate.\n\nRecent external signals reinforce this. DORA's 2025 AI-assisted development framing says AI amplifies organizational strengths and weaknesses, which means firms with poor flow discipline will simply automate disorder. Anthropic's enterprise Claude Code rollout adds spend controls, analytics, managed policy settings, and a Compliance API, signaling that the market is converging on governance infrastructure as a prerequisite to scale. SWE-bench Verified likewise shows that outcomes depend heavily on the evaluation niche and scaffold, not only the base model. So the near-term winning architecture for directed software evolution is a control tower over a bounded set of agents: repo-specific fitness functions, explicit WIP caps, budget-aware scheduling, and human authority over rare but high-cost exceptions. If this thesis is wrong and teams bet only on model improvement, they will generate more patches but not a reliable evolutionary system.",
+        "step_at": "0",
+        "title": "The next breakthrough is not a smarter coding agent but a control-tower architecture that allocates autonomous effort under WIP, budget, and policy constraints."
+      },
+      "events": [],
+      "total_event_count": 2,
+      "sequence_nr": 2,
+      "@odata.id": "Directions('en-019d970f-3146-7dc1-a4cb-0a898347d7dd')"
+    },
+    {
+      "entity_type": "Direction",
+      "entity_id": "en-019d970f-63c5-7cf0-984c-8d29b07296d3",
+      "status": "Proposed",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "fields": {},
+        "Id": "en-019d970f-63c5-7cf0-984c-8d29b07296d3",
+        "Status": "Proposed",
+        "counterfactual_summary": "If broad autonomous software delivery becomes reliable faster than these signals suggest, organizations that keep tight human gates may underexploit a real window for compounding speed gains.",
+        "grounding": "[]",
+        "observation_ids": "[\"en-019d970f-6391-79c1-a767-f8478d5d0a9c\",\"en-019d970f-639e-7370-9b86-d3932886880b\",\"en-019d970f-63ab-7391-853e-806adcd09e9a\",\"en-019d970f-63b9-7870-be30-d1cd6a6bbefa\"]",
+        "projection_id": "en-019d970c-4498-7a20-bf38-4d77273cf900",
+        "proposer_agent_id": "aj-019d970e-1596-79a1-9344-2a641d80ca6d",
+        "reasoning": "My strongest thesis is that directed software evolution will make visible progress in the next 90 days, but mostly by tightening harnesses and narrowing action scopes rather than by delivering true dark-factory autonomy. External signals point in the same direction: MCP-related security guidance from Microsoft and the Kilo Code prompt-injection vulnerability both show that the control plane around coding agents is still fragile. When untrusted text can influence tool choice or permission boundaries, scaling autonomy increases blast radius faster than it increases useful output.\n\nThe performance data is equally constraining. SWE-Bench Pro shows long-horizon software tasks remain difficult even for strong models and scaffolds, while task-stratified PR acceptance data suggests that outcome quality is driven heavily by task type and evaluation design. So the strategically correct move is not to assume general autonomous software factories are imminent; it is to build governed, repo-specific evolutionary loops where agents generate candidates, run strong tests, and hand off irreversible decisions. If this thesis is wrong and broad autonomy is actually ready, organizations that over-constrain agents may leave productivity on the table. But if the thesis is right, then the winners are the teams that treat harness quality, permission design, and rollbackability as the main product surface.",
+        "step_at": "0",
+        "title": "The next 90 days favor constrained evolutionary loops, not true dark factories"
+      },
+      "events": [],
+      "total_event_count": 2,
+      "sequence_nr": 2,
+      "@odata.id": "Directions('en-019d970f-63c5-7cf0-984c-8d29b07296d3')"
+    }
+  ],
+  "count": 3
+}
