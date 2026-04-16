@@ -4,7 +4,7 @@
 //! agent state machine's conversation and session tracking.
 
 use temper_wasm_sdk::prelude::*;
-use wasm_helpers::{create_content_file, entity_field_str, runtime_headers_as};
+use wasm_helpers::{create_content_file, entity_field_str, runtime_headers_as, send_typing_indicator};
 
 const SESSION_ENTRY_FILE_THRESHOLD_BYTES: usize = 4096;
 
@@ -100,7 +100,14 @@ pub fn persist_results(
     Ok(params)
 }
 
-/// Send heartbeat to keep agent alive.
+/// Send heartbeat to keep agent alive, and post the Discord typing indicator
+/// inline on the same cadence.
+///
+/// The Heartbeat action no longer fires the `heartbeat_typing` trigger
+/// (OpenPaw Track 1 Phase 2b — removed to eliminate the sequence-advance
+/// race with ProcessToolCalls). This helper now owns both responsibilities:
+///   1. POST to `OpenPaw.Heartbeat` so `last_heartbeat_at` is recorded.
+///   2. Directly POST the typing indicator via `send_typing_indicator`.
 pub fn send_heartbeat(ctx: &Context, temper_api_url: &str, tenant: &str) {
     let fields = ctx
         .entity_state
@@ -121,6 +128,14 @@ pub fn send_heartbeat(ctx: &Context, temper_api_url: &str, tenant: &str) {
         None,
     );
     let _ = ctx.http_call("POST", &url, &headers, &body.to_string());
+
+    // Post typing indicator directly (replaces the old `heartbeat_typing`
+    // trigger cascade). Uses the persistent Agent entity ID from session
+    // fields, falling back to the session's own id — same resolution the
+    // deleted `heartbeat_typing` WASM module used.
+    let typing_agent_id =
+        entity_field_str(&fields, &["agent_id", "AgentId"]).unwrap_or(&ctx.entity_id);
+    send_typing_indicator(ctx, temper_api_url, tenant, typing_agent_id);
 }
 
 /// Encode a tool-span JSONL document by appending new events to the existing content.

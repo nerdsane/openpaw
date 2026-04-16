@@ -245,6 +245,19 @@
         <ReturnType Type="OpenPaw.Session"/>
       </Action>
 
+      <!-- Tool-call checkpointing: self-loop on Executing. Persists partial
+           progress mid-run_tools so long tool batches do not exhaust the WASM
+           fuel budget in a single invocation. See session.ioa.toml action
+           CheckpointToolBatch (OpenPaw Track 1 Phase 3 / openpaw#66). -->
+      <Action Name="CheckpointToolBatch" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Session"/>
+        <Parameter Name="pending_tool_calls" Type="Edm.String" Nullable="false"/>
+        <Parameter Name="pending_tool_context" Type="Edm.String" Nullable="false"/>
+        <Parameter Name="repl_file_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="session_leaf_id" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="OpenPaw.Session"/>
+      </Action>
+
       <Action Name="NeedsCompaction" IsBound="true">
         <Parameter Name="bindingParameter" Type="OpenPaw.Session"/>
         <Parameter Name="input_tokens" Type="Edm.Int64" Nullable="true"/>
