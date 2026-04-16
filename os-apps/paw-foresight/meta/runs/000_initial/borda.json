@@ -1,32 +1,205 @@
 {
-  "engine": {
-    "Specificity": 3,
-    "Novelty": 4.5,
-    "Falsifiability": 4.0,
-    "Breadth": 4.5,
-    "Plausibility": 4.5,
-    "Progression": 4.0,
-    "Actionability": 3.5,
-    "Decision Clarity": 5.0,
-    "Completeness": 4.5,
-    "Transparency": 3,
-    "Challenge": 5.0,
-    "Quantitative Precision": 3.5
-  },
-  "baseline": {
-    "Specificity": 6,
-    "Novelty": 4.5,
-    "Falsifiability": 5.0,
-    "Breadth": 4.5,
-    "Plausibility": 4.5,
-    "Progression": 5.0,
-    "Actionability": 5.5,
-    "Decision Clarity": 4.0,
-    "Completeness": 4.5,
-    "Transparency": 6,
-    "Challenge": 4.0,
-    "Quantitative Precision": 5.5
-  },
-  "engine_total": 49.0,
-  "baseline_total": 59.0
+  "run": "000",
+  "rubric_version": "v4",
+  "methodology_note": "3 Claude Code subagent judges, side-by-side, randomized X/Y. Borda: winner=2pts, loser=1pt, tie=1.5. Max 6 per criterion, 72 total.",
+  "engine_raw_avg": 21.3,
+  "baseline_raw_avg": 27.0,
+  "engine_borda": 48.0,
+  "baseline_borda": 60.0,
+  "max_per_output": 72,
+  "winner": "baseline",
+  "per_criterion": [
+    {
+      "criterion": "Specificity",
+      "engine_scores": [
+        3,
+        2,
+        3
+      ],
+      "baseline_scores": [
+        2,
+        2,
+        2
+      ],
+      "engine_borda": 5.5,
+      "baseline_borda": 3.5,
+      "delta": 2.0
+    },
+    {
+      "criterion": "Novelty",
+      "engine_scores": [
+        2,
+        2,
+        2
+      ],
+      "baseline_scores": [
+        2,
+        2,
+        2
+      ],
+      "engine_borda": 4.5,
+      "baseline_borda": 4.5,
+      "delta": 0.0
+    },
+    {
+      "criterion": "Falsifiability",
+      "engine_scores": [
+        2,
+        2,
+        2
+      ],
+      "baseline_scores": [
+        2,
+        2,
+        2
+      ],
+      "engine_borda": 4.5,
+      "baseline_borda": 4.5,
+      "delta": 0.0
+    },
+    {
+      "criterion": "Breadth",
+      "engine_scores": [
+        2,
+        2,
+        2
+      ],
+      "baseline_scores": [
+        3,
+        3,
+        3
+      ],
+      "engine_borda": 3,
+      "baseline_borda": 6,
+      "delta": -3
+    },
+    {
+      "criterion": "Plausibility",
+      "engine_scores": [
+        2,
+        2,
+        2
+      ],
+      "baseline_scores": [
+        2,
+        2,
+        2
+      ],
+      "engine_borda": 4.5,
+      "baseline_borda": 4.5,
+      "delta": 0.0
+    },
+    {
+      "criterion": "Progression",
+      "engine_scores": [
+        1,
+        1,
+        1
+      ],
+      "baseline_scores": [
+        3,
+        2,
+        3
+      ],
+      "engine_borda": 3,
+      "baseline_borda": 6,
+      "delta": -3
+    },
+    {
+      "criterion": "Actionability",
+      "engine_scores": [
+        2,
+        2,
+        2
+      ],
+      "baseline_scores": [
+        2,
+        3,
+        2
+      ],
+      "engine_borda": 4.0,
+      "baseline_borda": 5.0,
+      "delta": -1.0
+    },
+    {
+      "criterion": "Decision Clarity",
+      "engine_scores": [
+        1,
+        1,
+        1
+      ],
+      "baseline_scores": [
+        2,
+        2,
+        2
+      ],
+      "engine_borda": 3,
+      "baseline_borda": 6,
+      "delta": -3
+    },
+    {
+      "criterion": "Completeness",
+      "engine_scores": [
+        1,
+        1,
+        1
+      ],
+      "baseline_scores": [
+        3,
+        3,
+        3
+      ],
+      "engine_borda": 3,
+      "baseline_borda": 6,
+      "delta": -3
+    },
+    {
+      "criterion": "Grounding",
+      "engine_scores": [
+        2,
+        2,
+        2
+      ],
+      "baseline_scores": [
+        2,
+        2,
+        2
+      ],
+      "engine_borda": 4.5,
+      "baseline_borda": 4.5,
+      "delta": 0.0
+    },
+    {
+      "criterion": "Challenge",
+      "engine_scores": [
+        2,
+        2,
+        2
+      ],
+      "baseline_scores": [
+        2,
+        2,
+        2
+      ],
+      "engine_borda": 4.5,
+      "baseline_borda": 4.5,
+      "delta": 0.0
+    },
+    {
+      "criterion": "Information Density",
+      "engine_scores": [
+        1,
+        2,
+        2
+      ],
+      "baseline_scores": [
+        2,
+        2,
+        2
+      ],
+      "engine_borda": 4.0,
+      "baseline_borda": 5.0,
+      "delta": -1.0
+    }
+  ]
 }

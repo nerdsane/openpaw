@@ -12,8 +12,9 @@
 
 | Run | Tag | Engine Score | Baseline Score | Delta | Engine Borda | Baseline Borda | Winner | Streak | Key Change | Key Insight |
 |-----|-----|-------------|---------------|-------|-------------|---------------|--------|--------|------------|-------------|
+| 000 | foresight-v000 | 21.3/48 | 27.0/48 | -5.7 | 48.0/72 | 60.0/72 | baseline | 0 | Initial scoring (no changes) | Orchestrator WASM fuel exhaustion after 3 turns — no synthesis, convergence, or step 1. Engine wins only on Specificity (+2). Biggest gaps: Progression, Breadth, Decision Clarity, Completeness (all -3). |
 
 ## Convergence Status
 
-**Status:** Not started
+**Status:** Run 000 complete — baseline wins initial scoring
 **Converged:** No

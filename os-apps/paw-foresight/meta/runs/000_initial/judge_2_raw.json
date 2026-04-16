@@ -1,0 +1,174 @@
+{
+  "criteria": [
+    {
+      "criterion": "Specificity",
+      "output_x_score": 2,
+      "output_y_score": 2,
+      "reasoning": "Both outputs name real actors and technologies but rely predominantly on qualitative predictions rather than precise dates and quantitative thresholds. X names Anthropic, OpenAI, Cursor, Cognition/Devin, Aider, Cline, Continue, OpenHands and provides one quantitative trigger (20-30% of engineering tasks) but most predictions are directional trends without sharp numbers. Y names a similar actor set and provides more specific quantitative thresholds (70% PR approval, 5% rollback rate, 2-week onboarding) but covers only a 90-day window with no temporal granularity within it. Neither output consistently delivers named actors doing specific things by specific dates with quantitative thresholds throughout.",
+      "evidence_x": [
+        "'when more than 20-30% of engineering tasks involve coding agents'",
+        "'Anthropic, OpenAI, Cursor, Cognition/Devin, Aider, Cline, Continue, and OpenHands-class systems'",
+        "'By late 2026, the most credible deployments...' \u2014 approximate timing without specific dates"
+      ],
+      "evidence_y": [
+        "'if fewer than 70% of agent-generated pull requests pass mandatory human review on the first pass'",
+        "'rollback frequency exceeds 5% of agent-touched changes'",
+        "'onboarding a governed workflow takes >2 weeks'"
+      ]
+    },
+    {
+      "criterion": "Novelty",
+      "output_x_score": 2,
+      "output_y_score": 2,
+      "reasoning": "Both produce 1-2 original insights beyond the input but neither introduces a framework that reframes the domain. X's most original contributions are the safety-liveness asymmetry as an analytical anchor explaining why homeostatic autonomy will outpace exploration, and the framing of private telemetry as a compounding moat analogous to data infrastructure in earlier AI waves. Y's most original contributions are the four cross-domain analogies (immune system, portfolio economics, industrial process control, supply chain management) and the 'approval economics' concept. Both extend input themes meaningfully but stay within the domain's conceptual orbit.",
+      "evidence_x": [
+        "'the center of gravity will shift from copilots to harnesses, policies, replay systems, and private eval suites' \u2014 original reframing of the competitive landscape",
+        "'The graph's safety-liveness asymmetry is decisive' \u2014 connects to a non-obvious conclusion about what scales first"
+      ],
+      "evidence_y": [
+        "'Cedar or OPA policies act like innate immunity and verification harnesses act like adaptive screening' \u2014 novel cross-domain analogy",
+        "'the cost of supervising action chains is still higher than the value of delegating them' \u2014 approval economics concept not in source"
+      ]
+    },
+    {
+      "criterion": "Falsifiability",
+      "output_x_score": 2,
+      "output_y_score": 2,
+      "reasoning": "Both outputs produce predictions that could in principle be checked after the fact, but neither consistently includes explicit falsification criteria with dates and disconfirmation conditions. X provides 'would increase if / would decrease if' conditions in its confidence section, which are informative but describe sensitivity rather than bright-line falsification. Most X predictions are stated as trends ('will outpace,' 'will scale faster') without thresholds for what counts as confirmation. Y provides sharper numeric triggers (70%, 5%, 2 weeks) that are more directly testable, but only within a 90-day window and without stating 'if X has not happened by Y, this is wrong.' Both land at the same level: several predictions are evaluable but most lack explicit falsification criteria.",
+      "evidence_x": [
+        "'Would increase if more platform-engineering case studies show successful generated workflows under policy. Would decrease if frontier agents begin reliably shipping multi-service product changes with minimal scaffolding.'",
+        "'Control-plane generation outpaces broad product-code autonomy. Confidence: high.' \u2014 direction stated but falsification threshold undefined"
+      ],
+      "evidence_y": [
+        "'if fewer than 70% of agent-generated pull requests pass mandatory human review on the first pass, security and platform teams will cap usage to low-risk repos' \u2014 testable threshold",
+        "'If enterprises unexpectedly accept higher review overhead and tolerate imperfect auditability, full-stack autonomous coding platforms could expand faster than this thesis predicts' \u2014 counterfactual condition"
+      ]
+    },
+    {
+      "criterion": "Breadth",
+      "output_x_score": 3,
+      "output_y_score": 2,
+      "reasoning": "X covers 6+ distinct themes \u2014 governance/policy, control-plane generation, verification harnesses, market competition, organizational memory, safety-liveness asymmetry, typed environments, multi-agent coordination, enterprise adoption patterns, formal methods \u2014 with explicit cross-theme interactions that produce non-obvious conclusions. The chain from safety-liveness asymmetry \u2192 homeostatic autonomy dominance \u2192 control-plane preference \u2192 verification as strategic asset \u2192 private memory as moat is a connected analytical system. Y covers technology, governance, market dynamics, and four cross-domain analogies, giving it good thematic range, but the incomplete state (only 90-day window, no convergence analysis) prevents the themes from being developed into a connected system. The analogies are juxtaposed rather than woven together.",
+      "evidence_x": [
+        "Five distinct active directions each covering different analytical dimensions, plus temporal phases that cross-reference themes",
+        "'the safety-liveness asymmetry is decisive... organizations can encode what must not happen faster than they can encode what genuinely better future behavior looks like' \u2014 connects to control-plane preference, homeostatic autonomy, and moat analysis"
+      ],
+      "evidence_y": [
+        "Four cross-domain analogies (biology, economics, industrial process control, organizational theory) plus technology and governance themes",
+        "No convergence analysis was performed (orchestrator crashed). The individual probe observations contain challenges to the dominant narrative' \u2014 themes remain disconnected"
+      ]
+    },
+    {
+      "criterion": "Plausibility",
+      "output_x_score": 2,
+      "output_y_score": 2,
+      "reasoning": "Both outputs ground most claims in mechanisms and evidence from the knowledge graph, with some explicit uncertainty. X references 'the graph repeatedly points to,' cites specific signal patterns, and provides confidence levels (high, medium-high, medium) for major predictions. However, the confidence levels are coarse and assumptions are embedded in counterfactuals rather than stated upfront as premises. Y grounds claims in observable market patterns and specific actor behaviors, with counterfactuals that acknowledge alternative outcomes. But Y lacks formal confidence levels and its grounding is thinner due to the incomplete analysis. Neither output reaches the level of explicit confidence levels with stated assumptions for most claims.",
+      "evidence_x": [
+        "'Confidence: high. Would increase if vendors and enterprises invest more in incident-derived evals and context retention.'",
+        "'The graph's signals on falling cost/performance, pass@k generation, self-repair loops, and the convergence of synthesis and search all imply...' \u2014 grounds claim in specific signals"
+      ],
+      "evidence_y": [
+        "'Cedar and OPA can restrict who is allowed to act, but they do not by themselves prove that the chosen action sequence is safe, cost-effective, or reviewable under production conditions' \u2014 mechanism-grounded claim",
+        "'If enterprises unexpectedly accept higher review overhead...' \u2014 acknowledges uncertainty via counterfactual"
+      ]
+    },
+    {
+      "criterion": "Progression",
+      "output_x_score": 2,
+      "output_y_score": 1,
+      "reasoning": "X has clear three-phase temporal structure (0-3, 3-6, 6-12 months) with explicit causal links between phases and 'What has NOT changed' sections tracking expectations over time. However, later phases build on earlier ones without explicitly revising, qualifying, or strengthening earlier predictions based on new developments \u2014 the analysis progresses but does not evolve in the revisionary sense required for a 3. Y covers only 0-90 days with no temporal development beyond a single time slice. The orchestrator crash eliminated step 1 (91-365 days) and all synthesis. Within the 90-day window, predictions are presented as independent observations without temporal staging.",
+      "evidence_x": [
+        "'This phase creates the substrate for the next step: once teams have evals, traces, and approval logic, they can begin to safely compare multiple generated variants'",
+        "'Once organizations operationalize governed multi-candidate selection in bounded loops, they can begin limited forms of evolutionary retention'"
+      ],
+      "evidence_y": [
+        "'1 of 2 planned time steps completed (0-90 days only; 91-365 days never reached)'",
+        "'No convergence analysis (orchestrator failed)' \u2014 explicit acknowledgment of missing temporal development"
+      ]
+    },
+    {
+      "criterion": "Actionability",
+      "output_x_score": 3,
+      "output_y_score": 2,
+      "reasoning": "X provides four structured decision points with observable timing triggers, labeled options (A/B/C), and stated tradeoffs. Each decision point names when to act and what the alternatives cost relative to each other, though the tradeoff descriptions remain qualitative rather than quantified. This fits the 3 anchor well: decision points with timing triggers and options, but generic tradeoffs. Y provides three implicit decision thresholds (70% approval rate, 2-week onboarding, 5% rollback rate) that function as action triggers, but without structured option sets or tradeoff analysis \u2014 they are threshold-based recommendations rather than decision frameworks.",
+      "evidence_x": [
+        "Decision Point 1 with trigger: 'When more than 20-30% of engineering tasks involve coding agents,' three options with tradeoffs: 'A is cheapest short term but creates fragile, non-compounding usage. B improves reliability quickly...'",
+        "Decision Point 2 with trigger: 'When teams want agents to merge, deploy, patch infra, or remediate incidents without ticket-by-ticket supervision'"
+      ],
+      "evidence_y": [
+        "'When agent-generated PR approval rates drop below 70%, restrict to low-risk repos'",
+        "'When rollback frequency exceeds 5% of agent-touched changes, pause and invest in harnesses' \u2014 threshold-based recommendation without option analysis"
+      ]
+    },
+    {
+      "criterion": "Decision Clarity",
+      "output_x_score": 2,
+      "output_y_score": 1,
+      "reasoning": "X has a clear executive summary that conveys the main thesis ('the center of gravity will shift from copilots to harnesses'), prioritized key findings with confidence labels, and structured decision points. A VP could extract the main message within 15 minutes. However, it does not open with THE single most important decision, name a deadline, or quantify the tradeoff upfront \u2014 the executive summary presents a thesis, not a decision. Y opens with a failure notice ('NOTE: The orchestrator session failed') which immediately undermines executive readability. The findings require domain expertise to parse and extract actionable conclusions. No explicit prioritization of what matters most.",
+      "evidence_x": [
+        "Executive summary provides clear thesis: 'the next frontier is not raw generation quality, but selection quality'",
+        "Key findings labeled with confidence levels but not explicitly ranked by decision urgency"
+      ],
+      "evidence_y": [
+        "Opens with: 'NOTE: The orchestrator session failed with fuel exhausted' \u2014 engineering detail, not executive communication",
+        "'No explicit decision points were synthesized (orchestrator crashed before synthesis phase)' \u2014 self-acknowledged gap"
+      ]
+    },
+    {
+      "criterion": "Completeness",
+      "output_x_score": 3,
+      "output_y_score": 1,
+      "reasoning": "X covers the full foresight pipeline: observations (key findings) \u2192 theses (active directions with reasoning) \u2192 temporal development (three phases) \u2192 assumptions (embedded in counterfactuals per direction) \u2192 confidence levels (dedicated section with sensitivity conditions) \u2192 decision points \u2192 methodology note explaining analytical approach. Limitations are acknowledged throughout ('What has NOT changed' sections, counterfactuals, and the surprise-risk discussion). Y explicitly acknowledges it is incomplete: only step 0 of 2 completed, no convergence analysis, no temporal progression beyond 90 days, no final synthesis. It delivers observations and three thematic directions but lacks the pipeline stages that would constitute a complete foresight product.",
+      "evidence_x": [
+        "Methodology Note: 'This projection uses a structured synthesis... I also stress-tested the dominant thesis against its explicit risks'",
+        "Each active direction includes reasoning, evidence from the graph, and a counterfactual that serves as an assumption test"
+      ],
+      "evidence_y": [
+        "'No convergence analysis was performed (orchestrator crashed)'",
+        "'This document compiles the raw engine output from step 0 only' \u2014 explicitly partial output"
+      ]
+    },
+    {
+      "criterion": "Grounding",
+      "output_x_score": 2,
+      "output_y_score": 2,
+      "reasoning": "Both outputs provide reasoning chains from evidence to claims, but both have gaps in the logical chains. X consistently references 'the graph' and specific signal patterns but the reasoning from signal to prediction often involves unstated intermediate assumptions. For example, 'the graph's signals on falling cost/performance imply that producing many candidate patches is becoming cheap' \u2014 the mechanism connecting cost reduction to patch volume is asserted rather than demonstrated. Y grounds claims in observable market patterns with clearer mechanism statements in places ('the cost of supervising action chains is still higher than the value of delegating them') but the incomplete analysis means many observations lack the full reasoning chain from evidence to conclusion.",
+      "evidence_x": [
+        "'The graph repeatedly points to control planes as the preferred target for high-autonomy generation. Signals around spec-first and policy-first architectures...' \u2014 named signals but the leap from 'signals exist' to 'control planes will be the winning wedge' involves gaps",
+        "'once variation is cheap, the bottleneck moves to the selection harness' \u2014 logical chain stated but intermediate mechanism assumed"
+      ],
+      "evidence_y": [
+        "'When agent output moves from draft code into Kubernetes changes, Terraform plans, or CI remediation, the real unit of work becomes approval and rollback, not generation' \u2014 mechanism clearly stated",
+        "'generators are only one half of an evolutionary machine' \u2014 claim grounded in the biology/economics analogies but the analogical reasoning itself is not validated"
+      ]
+    },
+    {
+      "criterion": "Challenge",
+      "output_x_score": 2,
+      "output_y_score": 2,
+      "reasoning": "Both outputs identify genuine tensions and fragile assumptions in the source material without making predictions that fully contradict it with external evidence. X's 'What Might Surprise' section challenges five assumptions including 'Better models automatically produce viable directed evolution,' 'Human approvals are temporary friction,' and 'Multi-agent architectures are inherently superior.' These are real tensions but mostly use the source's own logic rather than external counter-evidence. Y's Direction 1 ('attention will outpace operational trust') challenges the optimistic narrative about directed evolution's near-term viability, and the 'instrumentation density' framing reframes the bottleneck. Both identify where assumptions are fragile but neither overturns a source assumption using evidence from outside the source.",
+      "evidence_x": [
+        "'Assumption to challenge #2: Human approvals are temporary friction that soon disappear. In many enterprises, approvals are not just immature UX; they encode real accountability, regulatory boundaries, and political legitimacy.'",
+        "'Assumption to challenge #4: Multi-agent architectures are inherently superior. The graph indicates coordination overhead is substantial.'"
+      ],
+      "evidence_y": [
+        "'Anthropic, OpenAI, Cursor, and Cognition or Devin will not make fully autonomous software factories common in the next 90 days; instead, the winning teams will narrow scope and reduce ambition'",
+        "'the nearer-term bottleneck is instrumentation density' \u2014 reframes the constraint away from model capability"
+      ]
+    },
+    {
+      "criterion": "Information Density",
+      "output_x_score": 2,
+      "output_y_score": 2,
+      "reasoning": "Both outputs have moderate redundancy. X is substantially longer and repeats core themes (governed control-plane generation, selection > generation, private memory as moat, homeostatic > exploratory) across the executive summary, key findings, active directions, temporal phases, and confidence levels. Each section adds some nuance but the thematic repetition is notable \u2014 the 'governed control-plane' point appears in at least five distinct locations. Y has less total redundancy due to its shorter length, but the 12 observations overlap thematically (governance concerns, harness-first patterns, and copilot preference recur across multiple observations). Both contribute distinct information per claim in most cases but could be compressed without analytical loss.",
+      "evidence_x": [
+        "'Control-plane generation' appears as: key finding, temporal phase theme, active direction #1, confidence prediction, and decision point context \u2014 five restatements with incremental nuance",
+        "Active directions #1 and #2 substantially overlap: both argue that generation is becoming commodity and selection/governance is the differentiator"
+      ],
+      "evidence_y": [
+        "Observations 1, 4, 9, and 12 all address variations of 'harness-first / governed control-plane > broad autonomy' \u2014 could be merged",
+        "The four cross-domain analogies each contribute unique framing, adding compression efficiency within that section"
+      ]
+    }
+  ]
+}
