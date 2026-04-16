@@ -497,14 +497,13 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             .unwrap_or(DEFAULT_TOOLS_ENABLED);
         // `system_prompt` is the Anthropic API system parameter (agent persona/behavior).
         // `user_message` is the actual user task from the Provision action.
-        let system_prompt = fields
-            .get("system_prompt")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        let user_message = fields
-            .get("user_message")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+        //
+        // Read via the ceiling-aware SDK helper so values stored as blob refs
+        // (>128KB, see temper ADR-0045 / ADR-0046) resolve transparently.
+        let system_prompt_owned = ctx.read_field_string("system_prompt").unwrap_or_default();
+        let system_prompt: &str = &system_prompt_owned;
+        let user_message_owned = ctx.read_field_string("user_message").unwrap_or_default();
+        let user_message: &str = &user_message_owned;
         let sandbox_url = fields
             .get("sandbox_url")
             .and_then(|v| v.as_str())

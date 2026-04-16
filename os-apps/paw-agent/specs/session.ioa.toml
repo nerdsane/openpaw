@@ -148,11 +148,19 @@ initial = "temper_create,temper_get,temper_list,temper_action,temper_patch,tempe
 name = "system_prompt"
 type = "string"
 initial = ""
+# Agent persona / behavior prompt. Audit-trail data for the session lifetime,
+# so no TTL; raise the inline ceiling to 128KB (declared explicitly so future
+# edits won't silently fall below the value). See temper ADR-0045.
+overflow_inline_max_bytes = "131072"
 
 [[state]]
 name = "user_message"
 type = "string"
 initial = ""
+# Initial user prompt. Up to a few hundred KB in practice (foresight judge,
+# long research pastes). Audit-trail data → no TTL; ceiling declared for
+# explicitness. See temper ADR-0045.
+overflow_inline_max_bytes = "131072"
 
 [[state]]
 name = "conversation"

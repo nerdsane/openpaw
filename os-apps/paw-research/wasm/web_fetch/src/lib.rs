@@ -4,20 +4,28 @@
 //! fetches the page, converts HTML to structured markdown, and transitions to
 //! Complete with content or Failed with error.
 //!
-//! Results under 30KB are stored inline in the entity's `results` field.
-//! Larger results are written to a TemperFS File and the `result_file_id`
-//! is stored instead — this avoids the platform's 32KB entity field limit.
+//! Results are stored inline in the entity's `results` field. Temper's
+//! field-overflow primitive (temper ADR-0040 / ADR-0045) automatically
+//! writes oversize values to the blob store and resolves them on read
+//! via ctx.read_field_string (ADR-0046), so modules no longer need the
+//! hand-rolled TemperFS File workaround.
 //!
 //! Build: `cargo build --target wasm32-unknown-unknown --release`
 
 use temper_wasm_sdk::prelude::*;
 
-/// Maximum response size to keep (100KB).
+/// Maximum response size to keep (100KB of chars; ~400KB bytes worst-case UTF-8).
+/// Worst-case still fits within typical invocation heap budgets (WASM
+/// max_memory >= 256MB in paw-agent specs) and is routed through Temper's
+/// field-overflow blob path for any value above the 128KB inline ceiling.
 const MAX_CONTENT_LEN: usize = 100_000;
 
-/// Inline threshold — results smaller than this go directly in the entity field.
-/// Must be under Temper's MAX_FIELD_VALUE_BYTES (32KB) to avoid truncation.
-const INLINE_THRESHOLD: usize = 30_000;
+/// Hard cap on the raw response body before HTML stripping. Pathological
+/// responses (HTML bombs, CDN dumps) that exceed this are truncated with a
+/// marker and a `WebFetchTruncated` event is dispatched for observability.
+/// The result ALSO still goes through `MAX_CONTENT_LEN` after stripping.
+/// See openpaw ADR-0033.
+const WEB_FETCH_MAX_BYTES: usize = 10 * 1024 * 1024; // 10 MB
 
 /// Entry point.
 #[unsafe(no_mangle)]
@@ -65,11 +73,16 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             return Ok(());
         }
 
+        // Enforce the 10MB upstream cap before any parsing/allocation.
+        // Oversize bodies are truncated with a marker and truncated_bytes is
+        // recorded on the entity for observability. See openpaw ADR-0033.
+        let (body_text, truncated_upstream) = apply_upstream_cap(resp.body, WEB_FETCH_MAX_BYTES);
+
         // Strip HTML if the response looks like HTML
-        let text = if looks_like_html(&resp.body) {
-            html_to_markdown(&resp.body)
+        let text = if looks_like_html(&body_text) {
+            html_to_markdown(&body_text)
         } else {
-            resp.body
+            body_text
         };
 
         // Truncate to max size
@@ -88,49 +101,31 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             &format!("web_fetch: got {} chars of text", truncated.len()),
         );
 
-        if truncated.len() <= INLINE_THRESHOLD {
-            // Small result — store inline in entity field
-            set_success_result("RecordResults", &json!({"results": truncated}));
-        } else {
-            // Large result — write to TemperFS File, store file_id in entity
-            let temper_api_url = ctx
-                .config
-                .get("temper_api_url")
-                .filter(|s| !s.is_empty() && !s.contains("{secret:"))
-                .cloned()
-                .unwrap_or_else(|| "http://127.0.0.1:3467".to_string());
-            let tenant = &ctx.tenant;
-
-            match write_to_temperfs(&ctx, &temper_api_url, tenant, &truncated) {
-                Ok(file_id) => {
-                    ctx.log(
-                        "info",
-                        &format!(
-                            "web_fetch: stored {} chars in TemperFS file {file_id}",
-                            truncated.len()
-                        ),
-                    );
-                    // Store a summary inline + file_id for the full content
-                    let summary: String = truncated.chars().take(500).collect();
-                    set_success_result(
-                        "RecordResults",
-                        &json!({
-                            "results": format!("{summary}\n\n[... {} total chars — full content in file {file_id}]", truncated.len()),
-                            "result_file_id": file_id,
-                        }),
-                    );
-                }
-                Err(e) => {
-                    ctx.log("warn", &format!("web_fetch: TemperFS write failed: {e}, falling back to truncated inline"));
-                    // Fallback: store what fits inline
-                    let inline: String = truncated.chars().take(INLINE_THRESHOLD).collect();
-                    set_success_result(
-                        "RecordResults",
-                        &json!({"results": format!("{inline}\n\n[... truncated at {} chars, full content was {} chars]", INLINE_THRESHOLD, truncated.len())}),
-                    );
-                }
-            }
+        // Store inline regardless of size — Temper's field-overflow path
+        // (ADR-0040 / ADR-0045) handles values above the 128KB inline ceiling
+        // by writing to the content-addressed blob store, and consumers
+        // resolve via ctx.read_field_string (ADR-0046).
+        //
+        // `truncated_bytes` carries the original upstream size when the 10MB
+        // cap fired (openpaw ADR-0033); empty string means no truncation.
+        let truncated_bytes_param = truncated_upstream
+            .map(|n| n.to_string())
+            .unwrap_or_default();
+        if !truncated_bytes_param.is_empty() {
+            ctx.log(
+                "warn",
+                &format!(
+                    "web_fetch: upstream truncated at {WEB_FETCH_MAX_BYTES} bytes; original was {truncated_bytes_param} bytes"
+                ),
+            );
         }
+        set_success_result(
+            "RecordResults",
+            &json!({
+                "results": truncated,
+                "truncated_bytes": truncated_bytes_param,
+            }),
+        );
 
         Ok(())
     })();
@@ -141,75 +136,32 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
     0
 }
 
-/// Write content to a TemperFS File and return the file_id.
-fn write_to_temperfs(
-    ctx: &Context,
-    temper_api_url: &str,
-    tenant: &str,
-    content: &str,
-) -> Result<String, String> {
-    let headers = vec![
-        ("Content-Type".to_string(), "application/json".to_string()),
-        ("X-Tenant-Id".to_string(), tenant.to_string()),
-        ("x-temper-principal-kind".to_string(), "agent".to_string()),
-        ("x-temper-agent-type".to_string(), "system".to_string()),
-    ];
-
-    // Create File entity
-    let entity_id = ctx
-        .entity_state
-        .get("entity_id")
-        .and_then(|v| v.as_str())
-        .unwrap_or("unknown");
-    let file_body = json!({
-        "name": format!("web-fetch-{entity_id}.md"),
-        "mime_type": "text/markdown",
-    });
-    let create_resp = ctx.http_call(
-        "POST",
-        &format!("{temper_api_url}/tdata/Files"),
-        &headers,
-        &file_body.to_string(),
-    )?;
-    if create_resp.status < 200 || create_resp.status >= 300 {
-        return Err(format!(
-            "File creation failed (HTTP {})",
-            create_resp.status
-        ));
+/// Check if the response body looks like HTML.
+/// Enforce an upstream byte cap on the response body before any parsing.
+///
+/// Returns `(body_or_truncated, Some(original_size))` when the body exceeded
+/// `max_bytes`; returns `(body, None)` otherwise. When truncated, a trailing
+/// marker is appended so downstream consumers can see the boundary. The
+/// `Some(original_size)` value is written to `WebQuery.truncated_bytes`.
+///
+/// Char-boundary safe: truncation walks back to the nearest valid UTF-8 char
+/// boundary so the resulting string is well-formed. See openpaw ADR-0033.
+fn apply_upstream_cap(body: String, max_bytes: usize) -> (String, Option<usize>) {
+    let body_len = body.len();
+    if body_len <= max_bytes {
+        return (body, None);
     }
-
-    let parsed: serde_json::Value =
-        serde_json::from_str(&create_resp.body).map_err(|e| format!("parse file response: {e}"))?;
-    let file_id = parsed
-        .get("entity_id")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
-    if file_id.is_empty() {
-        return Err("File entity missing entity_id".to_string());
+    let mut boundary = max_bytes;
+    while boundary > 0 && !body.is_char_boundary(boundary) {
+        boundary -= 1;
     }
-
-    // Write content via $value endpoint
-    let write_headers = vec![
-        ("Content-Type".to_string(), "text/plain".to_string()),
-        ("X-Tenant-Id".to_string(), tenant.to_string()),
-        ("x-temper-principal-kind".to_string(), "agent".to_string()),
-        ("x-temper-agent-type".to_string(), "system".to_string()),
-    ];
-    let write_resp = ctx.http_call(
-        "PUT",
-        &format!("{temper_api_url}/tdata/Files('{file_id}')/$value"),
-        &write_headers,
-        content,
-    )?;
-    if write_resp.status < 200 || write_resp.status >= 300 {
-        return Err(format!("File write failed (HTTP {})", write_resp.status));
-    }
-
-    Ok(file_id)
+    let mut cut = body[..boundary].to_string();
+    cut.push_str(&format!(
+        "\n\n[web_fetch: truncated upstream at {max_bytes} bytes; response was {body_len} bytes]"
+    ));
+    (cut, Some(body_len))
 }
 
-/// Check if the response body looks like HTML.
 fn looks_like_html(body: &str) -> bool {
     let lower: String = body.chars().take(500).collect::<String>().to_lowercase();
     lower.contains("<html") || lower.contains("<!doctype html")
@@ -749,5 +701,64 @@ mod tests {
         assert!(!has_readable_web_content(""));
         assert!(!has_readable_web_content("   \n\t"));
         assert!(has_readable_web_content("headline"));
+    }
+
+    // --- Red-green tests for openpaw ADR-0033 (10MB upstream cap) ---
+    //
+    // Red phase would fail before the cap was introduced because the module
+    // would allocate the entire oversized body and attempt to parse it as
+    // HTML, spending an unbounded amount of fuel + heap. With the cap the
+    // oversize path short-circuits and the original size is surfaced to the
+    // caller as `truncated_bytes`.
+
+    #[test]
+    fn apply_upstream_cap_under_cap_returns_untouched() {
+        let body = "hello world".repeat(10);
+        let (out, original) = apply_upstream_cap(body.clone(), 1024);
+        assert_eq!(out, body, "small body passes through unmodified");
+        assert!(original.is_none(), "small body is not flagged as truncated");
+    }
+
+    #[test]
+    fn apply_upstream_cap_over_cap_truncates_and_marks() {
+        let body = "a".repeat(2048);
+        let (out, original) = apply_upstream_cap(body, 512);
+        assert_eq!(original, Some(2048), "original size reported");
+        assert!(out.len() < 2048, "output is shorter than input");
+        assert!(
+            out.contains("truncated upstream at 512 bytes"),
+            "truncation marker present: {out}"
+        );
+        assert!(
+            out.contains("response was 2048 bytes"),
+            "original size in marker: {out}"
+        );
+    }
+
+    #[test]
+    fn apply_upstream_cap_respects_utf8_char_boundaries() {
+        // Build a body where the nominal byte cap falls in the middle of a
+        // multi-byte UTF-8 sequence (4-byte emoji 🦀 = 0xF0 0x9F 0xA6 0x80).
+        // apply_upstream_cap must walk back to a char boundary so the
+        // resulting string is well-formed.
+        let mut body = String::new();
+        for _ in 0..100 {
+            body.push('🦀');
+        }
+        // 🦀 is 4 bytes; 100 crabs = 400 bytes. Cap at 101 falls mid-crab.
+        let (out, original) = apply_upstream_cap(body, 101);
+        assert_eq!(original, Some(400));
+        // The cut portion should be all complete crabs (100/4 = 25 crabs = 100 bytes).
+        assert!(out.starts_with("🦀🦀🦀🦀🦀"));
+        // Must be valid UTF-8 (String guarantees, but cross-check).
+        assert_eq!(out.chars().next(), Some('🦀'));
+    }
+
+    #[test]
+    fn apply_upstream_cap_at_exact_cap_returns_untouched() {
+        let body = "x".repeat(512);
+        let (out, original) = apply_upstream_cap(body.clone(), 512);
+        assert_eq!(out, body, "body at exactly cap passes through");
+        assert!(original.is_none());
     }
 }

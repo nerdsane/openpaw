@@ -21,10 +21,11 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
 
         let fields = ctx.entity_state.get("fields").cloned().unwrap_or(json!({}));
 
-        let user_message = fields
-            .get("user_message")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+        // Read user_message via the ceiling-aware SDK helper so the read works
+        // whether Temper stored the value inline or as a blob ref (>128KB).
+        // See temper ADR-0045 and ADR-0046.
+        let user_message_owned = ctx.read_field_string("user_message").unwrap_or_default();
+        let user_message: &str = &user_message_owned;
 
         if user_message.is_empty() {
             return Err("agent not configured — user_message is empty".to_string());
