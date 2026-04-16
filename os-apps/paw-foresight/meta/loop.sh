@@ -220,7 +220,22 @@ Read .claude/skills/foresight-meta.md FIRST — it contains your complete instru
 including exact API commands, transcript extraction queries, scoring formats, and
 documentation templates. Follow it step by step.
 
-Then read these files:
+## Temper context — READ BEFORE touching the engine
+
+The paw-foresight engine is a Temper app. You cannot improve it competently without
+understanding Temper's primitives (entities, WASM integrations, Cedar policies, triggers).
+The 'foresight-meta' skill tells you this too, but surfacing it here so you don't skip it:
+
+- ~/.claude/skills/temper-agent/SKILL.md — 'Temper is your operating layer' deep primer
+- AGENTS.md (in the repo root) — OpenPaw's Entity-First Rule, Trigger Boundary, anti-patterns
+- CLAUDE.md (in the repo root) — worktree rules, TDD, E2E verification
+
+Skim temper-agent through the 'Sandbox Environment' section at minimum; read AGENTS.md
+in full. Without this context you will default to prompt edits and miss the actual
+editable surface (state machines, WASM logic, Cedar authorization, entity invariants).
+
+## Foresight-specific reading
+
 1. os-apps/paw-foresight/meta/program.md — the evaluation rubric (IMMUTABLE — do not modify)
 2. os-apps/paw-foresight/meta/progress.md — score history and convergence status
 3. The most recent run's diagnosis.md — what to fix and why (read ALL transcripts, not just orchestrator)

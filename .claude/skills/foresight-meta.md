@@ -55,16 +55,27 @@ following fails, the loop stops and your next round will not start:
 - `meta/tools/borda.py --run-dir meta/runs/NNN_foo/` → writes `borda.json`. Do not reimplement.
 - `meta/tools/verify_run.py --run-dir ...` → run yourself before committing to catch issues early.
 
-## Before Starting — Read These Files
+## Before Starting — Temper primer (READ FIRST)
+
+The paw-foresight engine **is** a Temper app. Understanding Temper is a prerequisite — if you jump straight to prompt edits without knowing what an entity, WASM integration, Cedar policy, or trigger is, you'll make shallow changes. Read these **in order** before touching anything:
+
+1. `~/.claude/skills/temper-agent/SKILL.md` — Temper as your operating layer: state machines, specs (IOA + CSDL), WASM integrations, Cedar authorization, the evolution loop. This is the "what is Temper" primer; 459 lines but you only need the first ~200 to get oriented.
+2. `AGENTS.md` (worktree root) — OpenPaw-specific Temper guide: the Entity-First Rule, Trigger Boundary, Self-Reporting, the anti-patterns table (no `tokio::spawn` for business logic, no polling loops in Rust, no orchestration in `crates/openpaw/`). Short — 98 lines.
+3. `CLAUDE.md` (worktree root) — worktree discipline, red-green TDD, end-to-end verification rules, proof requirement. Short.
+
+These give you the full editable surface at conceptual depth. Without them, you'll miss that e.g. "probe count" isn't a config knob — it's a WASM loop you can change — and that "require sources" isn't a prompt rule — it's an entity invariant you can add.
+
+## Before Starting — Read These Files (foresight-specific)
 
 1. `os-apps/paw-foresight/meta/program.md` — the immutable rubric (12 criteria, 0-4 anchors)
 2. `os-apps/paw-foresight/meta/progress.md` — score history, convergence status
-3. `os-apps/paw-foresight/meta/DESIGN.md` — system architecture
-4. `os-apps/paw-foresight/meta/judge_prompt_template.md` — the LOCKED judge prompt. You substitute placeholders, nothing else.
-5. `os-apps/paw-foresight/meta/baseline/scores.json` — locked baseline reference (does NOT participate in tournament)
-6. The most recent `meta/runs/{N-1}/diagnosis.md` — what to fix
-7. The most recent `meta/runs/{N-1}/transcripts/` — raw agent traces (read at least orchestrator.jsonl)
-8. The previous run's `meta/runs/{N-1}/engine-output/synthesis.md` — this is the INCUMBENT output that judges compare against
+3. `os-apps/paw-foresight/meta/DESIGN.md` — foresight system architecture (entity graph, probe→synthesis flow)
+4. `os-apps/paw-foresight/APP.md` — app manifest overview
+5. `os-apps/paw-foresight/meta/judge_prompt_template.md` — the LOCKED judge prompt. You substitute placeholders, nothing else.
+6. `os-apps/paw-foresight/meta/baseline/scores.json` — locked baseline reference (does NOT participate in tournament)
+7. The most recent `meta/runs/{N-1}/diagnosis.md` — what to fix
+8. The most recent `meta/runs/{N-1}/transcripts/` — raw agent traces (read at least orchestrator.jsonl)
+9. The previous run's `meta/runs/{N-1}/engine-output/synthesis.md` — this is the INCUMBENT output that judges compare against
 
 ## Step 1: Determine Run Number
 
@@ -671,6 +682,11 @@ The loop.sh wrapper runs this again after you finish, and halts the next round i
   Score what the engine actually produced.
 - **Prefer architecture.** Try structural changes (WASM, entities, sessions, data flows)
   before prompt edits. Prose instructions are advisory; LLMs ignore them ~80% of the time.
+  State machine invariants, Cedar policies, and WASM logic are ENFORCED — use them.
+- **Edit the whole app, not just prompts.** You can change WASM integrations, entity
+  state machines, Cedar policies, app.toml, skill files — anything under
+  `os-apps/paw-foresight/`. If you find yourself only ever editing a SKILL.md,
+  you're leaving leverage on the table. Re-read AGENTS.md and temper-agent skill.
 
 ## Reference: Run 000 Results
 
