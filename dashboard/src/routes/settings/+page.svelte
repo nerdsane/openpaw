@@ -65,6 +65,17 @@
     }
   }
 
+  async function copyDiscordInteractionUrl() {
+    const interactionUrl = status?.discord_interaction_url;
+    if (!interactionUrl) return;
+    try {
+      await navigator.clipboard.writeText(interactionUrl);
+      showFeedback('success', 'Copied Discord Interaction URL. Paste it into Discord Developer Portal -> General Information -> Interactions Endpoint URL.');
+    } catch {
+      showFeedback('error', 'Failed to copy the Discord Interaction URL');
+    }
+  }
+
   onMount(async () => {
     await load();
   });
@@ -243,7 +254,8 @@
       const feedChannel = vars.find(v => v.key === 'discord_feed_channel_id')?.value ?? '';
       const forumChannel = vars.find(v => v.key === 'discord_forum_channel_id')?.value ?? '';
       if (!botToken) { showFeedback('error', 'Set discord_bot_token first'); return; }
-      await connectDiscord({
+      if (!publicKey) { showFeedback('error', 'Set discord_public_key first'); return; }
+      const result = await connectDiscord({
         bot_token: botToken,
         public_key: publicKey || undefined,
         guild_id: guildId || undefined,
@@ -251,7 +263,12 @@
         forum_channel_id: forumChannel || undefined,
       });
       status = await fetchSetupStatus();
-      showFeedback('success', 'Discord connected');
+      const interactionUrl = result.discord_interaction_url ?? status?.discord_interaction_url;
+      if (interactionUrl) {
+        showFeedback('success', 'Discord connected. Copy the Interaction URL below into Discord Developer Portal -> General Information -> Interactions Endpoint URL, then save.');
+      } else {
+        showFeedback('success', 'Discord connected');
+      }
     } catch (err) {
       showFeedback('error', err instanceof Error ? err.message : 'Discord connection failed');
     } finally { connectingDiscord = false; }
@@ -375,7 +392,14 @@
           <div class="cat-hint">Saving Discord credentials applies them immediately. Use Connect only to retry manually.</div>
         {/if}
         {#if group.category === 'messaging' && status?.discord_interaction_url}
-          <div class="cat-hint">Interaction URL: {status.discord_interaction_url}</div>
+          <div class="cat-hint">
+            <div class="interaction-copy-row">
+              <span class="interaction-copy-label">Discord Interaction URL</span>
+              <button class="act" onclick={copyDiscordInteractionUrl}>Copy</button>
+            </div>
+            <code class="interaction-url">{status.discord_interaction_url}</code>
+            <div>Paste this into Discord Developer Portal -> General Information -> Interactions Endpoint URL, then click Save Changes.</div>
+          </div>
         {/if}
         {#each group.rows as row (row.key)}
           <div class="var-row">
@@ -610,6 +634,25 @@
     overflow: hidden;
     text-overflow: ellipsis;
     max-width: 200px;
+  }
+
+  .interaction-copy-row {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    justify-content: space-between;
+    margin-bottom: var(--sp-1);
+  }
+
+  .interaction-copy-label {
+    color: var(--text-2);
+  }
+
+  .interaction-url {
+    display: block;
+    color: var(--text-1);
+    margin-bottom: var(--sp-1);
+    word-break: break-all;
   }
 
   .var-unset {

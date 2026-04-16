@@ -368,6 +368,11 @@ export interface TransportStatusResponse {
   slack: { status: string; message?: string };
 }
 
+export interface DiscordConnectResponse {
+  status: string;
+  discord_interaction_url?: string;
+}
+
 export async function getTransportStatus(): Promise<TransportStatusResponse> {
   const res = await apiFetch(`${BASE}/paw/transports/status`);
   if (!res.ok) throw new Error(`Transport status failed: ${res.status}`);
@@ -380,13 +385,17 @@ export async function connectDiscord(params: {
   guild_id?: string;
   feed_channel_id?: string;
   forum_channel_id?: string;
-}): Promise<void> {
+}): Promise<DiscordConnectResponse> {
   const res = await apiFetch(`${BASE}/paw/transports/discord/connect`, {
     method: 'POST',
     headers: { ...HEADERS, 'content-type': 'application/json' },
     body: JSON.stringify(params),
   });
-  if (!res.ok) throw new Error(`Connect Discord failed: ${res.status}`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `Connect Discord failed: ${res.status}`);
+  }
+  return res.json();
 }
 
 export async function disconnectDiscord(): Promise<void> {

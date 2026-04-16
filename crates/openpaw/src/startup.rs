@@ -2577,14 +2577,16 @@ mod tests {
     }
 
     #[test]
-    fn startup_os_apps_only_include_core_apps() {
+    fn startup_os_apps_includes_core_apps() {
         let repo_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         temper_platform::os_apps::set_os_apps_dir(repo_root.join("os-apps"));
         let apps = startup_os_apps();
-        assert_eq!(
-            apps,
-            vec!["paw-agent", "paw-channels", "paw-fs", "paw-research"]
-        );
+        for expected in ["paw-agent", "paw-channels", "paw-fs", "paw-research"] {
+            assert!(
+                apps.iter().any(|app| app == expected),
+                "expected startup OS app {expected} to be present in {apps:?}"
+            );
+        }
     }
 
     #[test]

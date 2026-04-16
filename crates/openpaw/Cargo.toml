@@ -48,6 +48,7 @@ dotenvy = "0.15"
 
 # Crypto / encoding (for vault key)
 base64 = "0.22"
+ed25519-dalek = { version = "2", features = ["std"] }
 hex = "0.4"
 hmac = "0.12"
 rand = "0.9"
