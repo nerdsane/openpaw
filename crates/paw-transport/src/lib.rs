@@ -63,6 +63,12 @@ impl PawApiClient {
             .await
             .map_err(|e| format!("POST {url} failed: {e}"))?;
 
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            return Err(format!("POST {url} returned {status}: {body}"));
+        }
+
         resp.json()
             .await
             .map_err(|e| format!("parse response: {e}"))
@@ -217,13 +223,24 @@ impl PawApiClient {
     fn build_request(&self, method: reqwest::Method, url: &str) -> reqwest::RequestBuilder {
         let mut req = self.http.request(method, url);
         req = req.header("x-tenant-id", &self.config.tenant);
-        if let Some(ref key) = self.config.api_key {
+        if self.uses_internal_loopback(url) {
+            req = req.header("x-temper-principal-kind", "admin");
+            req = req.header("x-temper-principal-id", "openpaw-transport");
+        } else if let Some(ref key) = self.config.api_key {
             req = req.header("authorization", format!("Bearer {key}"));
         } else {
             req = req.header("x-temper-principal-kind", "admin");
             req = req.header("x-temper-principal-id", "openpaw-transport");
         }
         req
+    }
+
+    fn uses_internal_loopback(&self, url: &str) -> bool {
+        reqwest::Url::parse(url)
+            .ok()
+            .and_then(|parsed| parsed.host_str().map(|host| host.to_ascii_lowercase()))
+            .map(|host| host == "127.0.0.1" || host == "::1" || host == "localhost")
+            .unwrap_or(false)
     }
 }
 
@@ -244,6 +261,7 @@ mod tests {
         last_kind: Arc<std::sync::Mutex<Option<String>>>,
         last_id: Arc<std::sync::Mutex<Option<String>>>,
         last_tenant: Arc<std::sync::Mutex<Option<String>>>,
+        last_auth: Arc<std::sync::Mutex<Option<String>>>,
     }
 
     async fn spawn_test_server(app: Router) -> String {
@@ -273,6 +291,10 @@ mod tests {
                             .map(|v| v.to_string());
                         *probe.last_tenant.lock().unwrap() = headers
                             .get("x-tenant-id")
+                            .and_then(|v| v.to_str().ok())
+                            .map(|v| v.to_string());
+                        *probe.last_auth.lock().unwrap() = headers
+                            .get("authorization")
                             .and_then(|v| v.to_str().ok())
                             .map(|v| v.to_string());
 
@@ -315,6 +337,73 @@ mod tests {
             probe.last_tenant.lock().unwrap().as_deref(),
             Some("default"),
         );
+        assert_eq!(probe.last_auth.lock().unwrap().as_deref(), None);
+    }
+
+    #[tokio::test]
+    async fn paw_api_client_with_api_key_still_uses_internal_admin_identity_for_loopback() {
+        let probe = HeaderProbe::default();
+        let app = Router::new()
+            .route(
+                "/tdata/Channels",
+                post(
+                    |State(probe): State<HeaderProbe>, headers: HeaderMap| async move {
+                        *probe.last_kind.lock().unwrap() = headers
+                            .get("x-temper-principal-kind")
+                            .and_then(|v| v.to_str().ok())
+                            .map(|v| v.to_string());
+                        *probe.last_id.lock().unwrap() = headers
+                            .get("x-temper-principal-id")
+                            .and_then(|v| v.to_str().ok())
+                            .map(|v| v.to_string());
+                        *probe.last_tenant.lock().unwrap() = headers
+                            .get("x-tenant-id")
+                            .and_then(|v| v.to_str().ok())
+                            .map(|v| v.to_string());
+                        *probe.last_auth.lock().unwrap() = headers
+                            .get("authorization")
+                            .and_then(|v| v.to_str().ok())
+                            .map(|v| v.to_string());
+
+                        (
+                            StatusCode::CREATED,
+                            Json(json!({"entity_id":"ch_456","ChannelType":"discord"})),
+                        )
+                    },
+                ),
+            )
+            .with_state(probe.clone());
+
+        let base_url = spawn_test_server(app).await;
+        let client = PawApiClient::new(PawApiConfig {
+            base_url,
+            tenant: "default".to_string(),
+            api_key: Some("test-token".to_string()),
+        });
+
+        let created = client
+            .create_entity("Channels", json!({"ChannelType":"discord"}))
+            .await
+            .unwrap();
+
+        assert_eq!(
+            created.get("entity_id").and_then(|v| v.as_str()),
+            Some("ch_456")
+        );
+        assert_eq!(probe.last_kind.lock().unwrap().as_deref(), Some("admin"));
+        assert_eq!(
+            probe.last_id.lock().unwrap().as_deref(),
+            Some("openpaw-transport")
+        );
+        assert_eq!(
+            probe.last_tenant.lock().unwrap().as_deref(),
+            Some("default"),
+        );
+        assert_eq!(
+            probe.last_auth.lock().unwrap().as_deref(),
+            None,
+            "loopback requests should bypass bearer auth and use internal admin headers",
+        );
     }
 
     #[tokio::test]
@@ -343,6 +432,45 @@ mod tests {
         assert!(
             error.contains("query Channels returned 401"),
             "expected status-bearing error, got: {error}"
+        );
+    }
+
+    #[tokio::test]
+    async fn paw_api_raw_post_surfaces_non_success_responses() {
+        let app = Router::new().route(
+            "/api/tenants/default/decisions/PD-123/approve",
+            post(|| async move {
+                (
+                    StatusCode::FORBIDDEN,
+                    Json(json!({"error":{"message":"missing manage_policies"}})),
+                )
+            }),
+        );
+        let base_url = spawn_test_server(app).await;
+        let client = PawApiClient::new(PawApiConfig {
+            base_url,
+            tenant: "default".to_string(),
+            api_key: Some("test-token".to_string()),
+        });
+
+        let error = client
+            .raw_post(
+                &format!(
+                    "{}/api/tenants/default/decisions/PD-123/approve",
+                    client.config().base_url
+                ),
+                json!({"scope":{"principal":"this_agent","action":"this_action","resource":"any_of_type","duration":"always"}}),
+            )
+            .await
+            .expect_err("403 responses should bubble up to the transport");
+
+        assert!(
+            error.contains("returned 403"),
+            "expected status-bearing error, got: {error}"
+        );
+        assert!(
+            error.contains("missing manage_policies"),
+            "expected response body in error, got: {error}"
         );
     }
 }
