@@ -138,6 +138,90 @@ pub fn send_heartbeat(ctx: &Context, temper_api_url: &str, tenant: &str) {
     send_typing_indicator(ctx, temper_api_url, tenant, typing_agent_id);
 }
 
+/// Encode a tool-span JSONL document by appending new events to the existing content.
+///
+/// Each event in `new_events` is serialized as a single JSON object on its own line,
+/// separated by '\n'. The returned string always ends with '\n' so that subsequent
+/// appends stay line-delimited.
+pub fn encode_tool_spans_jsonl(existing: &str, new_events: &[Value]) -> String {
+    let mut out = String::with_capacity(existing.len() + new_events.len() * 128);
+    if !existing.is_empty() {
+        out.push_str(existing);
+        if !existing.ends_with('\n') {
+            out.push('\n');
+        }
+    }
+    for event in new_events {
+        let line = serde_json::to_string(event).unwrap_or_else(|_| "{}".to_string());
+        out.push_str(&line);
+        out.push('\n');
+    }
+    out
+}
+
+/// Append tool-span JSONL events to the session's tool_spans_file_id file.
+///
+/// Creates the file on first call (when `existing_file_id` is empty). Reads existing
+/// JSONL, appends new events, writes back. Returns the file id on success. Returns
+/// an empty string when `workspace_id` is empty (no workspace — spans are not persisted).
+pub fn append_tool_spans_to_file(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+    workspace_id: &str,
+    existing_file_id: &str,
+    new_events: &[Value],
+) -> Result<String, String> {
+    if workspace_id.is_empty() || new_events.is_empty() {
+        return Ok(existing_file_id.to_string());
+    }
+
+    let file_id = if existing_file_id.is_empty() {
+        let body = json!({
+            "Name": "tool_spans.jsonl",
+            "path": "/tool_spans.jsonl",
+            "WorkspaceId": workspace_id,
+        });
+        let url = format!("{temper_api_url}/tdata/Files");
+        let headers = file_headers(ctx, tenant);
+        let resp = ctx.http_call("POST", &url, &headers, &body.to_string())?;
+        if resp.status >= 400 {
+            return Err(format!(
+                "failed to create tool_spans file (status={}): {}",
+                resp.status, resp.body
+            ));
+        }
+        let created: Value = serde_json::from_str(&resp.body)
+            .map_err(|e| format!("failed to parse file create response: {e}"))?;
+        created
+            .get("entity_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string()
+    } else {
+        existing_file_id.to_string()
+    };
+
+    if file_id.is_empty() {
+        return Ok(String::new());
+    }
+
+    let existing_content = read_temperfs_file_safe(ctx, temper_api_url, tenant, &file_id)?;
+    let updated = encode_tool_spans_jsonl(&existing_content, new_events);
+
+    let url = format!("{temper_api_url}/tdata/Files('{file_id}')/$value");
+    let headers = workspace_headers(ctx, tenant, workspace_id);
+    write_temperfs_file_with_retry(
+        ctx,
+        &url,
+        &headers,
+        &updated,
+        "failed to write tool_spans file",
+    )?;
+
+    Ok(file_id)
+}
+
 /// Save REPL state to a TemperFS file. Creates the file on first call,
 /// overwrites on subsequent calls. Returns the file ID.
 pub fn save_repl_to_file(
@@ -527,4 +611,62 @@ fn file_headers_text(ctx: &Context, tenant: &str) -> Vec<(String, String)> {
         Some("text/plain"),
         None,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn encode_tool_spans_jsonl_creates_three_lines_from_empty() {
+        let events = vec![
+            json!({"tool_call_id": "a", "tool_name": "read", "duration_ms": 12}),
+            json!({"tool_call_id": "b", "tool_name": "write", "duration_ms": 45}),
+            json!({"tool_call_id": "c", "tool_name": "bash", "duration_ms": 78}),
+        ];
+        let out = encode_tool_spans_jsonl("", &events);
+        let lines: Vec<&str> = out.split_terminator('\n').collect();
+        assert_eq!(lines.len(), 3, "expected 3 JSONL lines, got {}\n{}", lines.len(), out);
+        for (i, line) in lines.iter().enumerate() {
+            let parsed: Value =
+                serde_json::from_str(line).expect("each line must be valid JSON");
+            assert_eq!(parsed["tool_call_id"], events[i]["tool_call_id"]);
+        }
+        assert!(out.ends_with('\n'), "output must end with newline");
+    }
+
+    #[test]
+    fn encode_tool_spans_jsonl_appends_to_existing() {
+        let existing = "{\"tool_call_id\":\"prev\"}\n";
+        let new_events = vec![json!({"tool_call_id": "next"})];
+        let out = encode_tool_spans_jsonl(existing, &new_events);
+        let lines: Vec<&str> = out.split_terminator('\n').collect();
+        assert_eq!(lines.len(), 2);
+        assert_eq!(
+            serde_json::from_str::<Value>(lines[0]).unwrap()["tool_call_id"],
+            "prev"
+        );
+        assert_eq!(
+            serde_json::from_str::<Value>(lines[1]).unwrap()["tool_call_id"],
+            "next"
+        );
+    }
+
+    #[test]
+    fn encode_tool_spans_jsonl_handles_existing_without_trailing_newline() {
+        let existing = "{\"tool_call_id\":\"prev\"}";
+        let new_events = vec![json!({"tool_call_id": "next"})];
+        let out = encode_tool_spans_jsonl(existing, &new_events);
+        assert!(
+            out.contains("{\"tool_call_id\":\"prev\"}\n{\"tool_call_id\":\"next\"}"),
+            "missing newline separator between existing content and new event: {out}"
+        );
+    }
+
+    #[test]
+    fn encode_tool_spans_jsonl_empty_events_returns_existing() {
+        let existing = "{\"tool_call_id\":\"prev\"}\n";
+        let out = encode_tool_spans_jsonl(existing, &[]);
+        assert_eq!(out, existing);
+    }
 }

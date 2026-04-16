@@ -108,7 +108,7 @@ permit(
   action == Action::"http_call",
   resource is HttpEndpoint
 ) when {
-  ["agent_reply", "sandbox_provisioner", "workspace_provisioner", "llm_caller", "context_preparer", "provider_caller", "provider_response_applier", "tool_runner", "monty_repl", "capability_installer", "workspace_restorer", "context_compactor", "steering_checker", "heartbeat_scan", "heartbeat_scheduler", "cron_scheduler_check", "cron_scheduler_heartbeat", "request_approval", "request_plan_review", "plan_approval_handler", "plan_review_feedback_handler", "session_recoverer"].contains(context.module)
+  ["agent_reply", "sandbox_provisioner", "workspace_provisioner", "llm_caller", "context_preparer", "provider_caller", "provider_response_applier", "tool_runner", "monty_repl", "capability_installer", "workspace_restorer", "context_compactor", "steering_checker", "heartbeat_scan", "heartbeat_scheduler", "cron_scheduler_check", "cron_scheduler_heartbeat", "request_approval", "request_plan_review", "plan_approval_handler", "plan_review_feedback_handler", "session_recoverer", "emit_ots_trajectory"].contains(context.module)
 };
 
 // Allow agent WASM modules to access secrets

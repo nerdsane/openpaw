@@ -293,6 +293,36 @@ name = "repl_file_id"
 type = "string"
 initial = ""
 
+# --- State Variables: Tool Span History (ADR-0035) ---
+# Append-only JSONL file per session recording every tool call for OTS trajectory emission.
+
+[[state]]
+name = "tool_spans_file_id"
+type = "string"
+initial = ""
+
+# --- State Variables: OTS Trajectory Emission (ADR-0035) ---
+
+[[state]]
+name = "trajectory_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "trajectory_emission_status"
+type = "string"
+initial = "pending"
+
+[[state]]
+name = "trajectory_emission_error"
+type = "string"
+initial = ""
+
+[[state]]
+name = "trajectory_retry_count"
+type = "counter"
+initial = "0"
+
 # --- State Variables: Tool Hooks (Phase 6) ---
 
 [[state]]
@@ -490,7 +520,7 @@ name = "HandleToolResults"
 kind = "input"
 from = ["Executing"]
 to = "PreparingContext"
-params = ["pending_tool_calls", "conversation", "session_leaf_id", "repl_file_id", "sandbox_url", "sandbox_id", "sandbox_provider", "system_prompt_hash", "system_prompt_file_id", "pending_tool_context", "pending_decision_id"]
+params = ["pending_tool_calls", "conversation", "session_leaf_id", "repl_file_id", "tool_spans_file_id", "sandbox_url", "sandbox_id", "sandbox_provider", "system_prompt_hash", "system_prompt_file_id", "pending_tool_context", "pending_decision_id"]
 hint = "Tool results received. Increment turn, transition to PreparingContext, and assemble the next bounded provider turn."
 effect = [
   { type = "increment", var = "turn_count" },
@@ -575,7 +605,8 @@ params = ["result", "conversation", "session_leaf_id"]
 hint = "No steering messages queued. Set result and complete."
 effect = [
   { type = "set_bool", var = "has_result", value = "true" },
-  { type = "trigger", name = "deliver_reply" }
+  { type = "trigger", name = "deliver_reply" },
+  { type = "trigger", name = "emit_ots_trajectory" }
 ]
 
 [[action]]
@@ -658,13 +689,14 @@ name = "RecordResult"
 kind = "input"
 from = ["ApplyingProviderResponse", "Executing"]
 to = "Completed"
-params = ["result", "conversation", "input_tokens", "output_tokens", "session_leaf_id", "repl_file_id", "system_prompt_hash", "system_prompt_file_id"]
+params = ["result", "conversation", "input_tokens", "output_tokens", "session_leaf_id", "repl_file_id", "tool_spans_file_id", "system_prompt_hash", "system_prompt_file_id"]
 hint = "Session complete. Triggered by LLM end_turn or agent calling temper.done(result)."
 effect = [
   { type = "increment", var = "input_tokens" },
   { type = "increment", var = "output_tokens" },
   { type = "set_bool", var = "has_result", value = "true" },
-  { type = "trigger", name = "deliver_reply" }
+  { type = "trigger", name = "deliver_reply" },
+  { type = "trigger", name = "emit_ots_trajectory" }
 ]
 
 # --- Actions: Heartbeat (Phase 8) ---
@@ -683,7 +715,10 @@ from = ["Thinking", "PreparingContext", "CallingProvider", "ApplyingProviderResp
 to = "Failed"
 params = ["error_message"]
 hint = "Session timed out — no heartbeat within timeout period."
-effect = [{ type = "trigger", name = "deliver_reply" }]
+effect = [
+  { type = "trigger", name = "deliver_reply" },
+  { type = "trigger", name = "emit_ots_trajectory" }
+]
 
 # --- Actions: Failure, Cancellation, Resume ---
 
@@ -694,7 +729,10 @@ from = ["Created", "Provisioning", "Thinking", "PreparingContext", "CallingProvi
 to = "Failed"
 params = ["error_message"]
 hint = "Mark session run as failed."
-effect = [{ type = "trigger", name = "deliver_reply" }]
+effect = [
+  { type = "trigger", name = "deliver_reply" },
+  { type = "trigger", name = "emit_ots_trajectory" }
+]
 
 [[action]]
 name = "Cancel"
@@ -702,7 +740,10 @@ kind = "input"
 from = ["Created", "Provisioning", "Thinking", "PreparingContext", "CallingProvider", "ApplyingProviderResponse", "Executing", "Compacting", "Steering", "WaitingForApproval", "Recovering"]
 to = "Cancelled"
 hint = "Cancel session execution."
-effect = [{ type = "trigger", name = "deliver_reply" }]
+effect = [
+  { type = "trigger", name = "deliver_reply" },
+  { type = "trigger", name = "emit_ots_trajectory" }
+]
 
 [[action]]
 name = "DeliveryFailed"
@@ -710,6 +751,37 @@ kind = "input"
 from = ["Completed", "Failed", "Cancelled"]
 params = ["error_message"]
 hint = "Reply delivery failed after the session reached a terminal state."
+
+# --- Actions: OTS Trajectory Emission (ADR-0035) ---
+# The emit_ots_trajectory integration dispatches MarkTrajectoryEmitted on success
+# (passing both trajectory_id and trajectory_emission_status="emitted" as params,
+# which the framework applies as field updates). On failure, the integration's
+# on_failure hook fires TrajectoryEmissionFailed which records the error.
+
+[[action]]
+name = "MarkTrajectoryEmitted"
+kind = "input"
+from = ["Completed", "Failed", "Cancelled"]
+params = ["trajectory_id", "trajectory_emission_status"]
+hint = "emit_ots_trajectory succeeded — record the trajectory_id and mark emission complete."
+
+[[action]]
+name = "TrajectoryEmissionFailed"
+kind = "input"
+from = ["Completed", "Failed", "Cancelled"]
+params = ["trajectory_emission_error", "trajectory_emission_status"]
+hint = "emit_ots_trajectory POST failed. Records the error so the Evolution Engine can sweep failed emissions later."
+
+[[action]]
+name = "RetryTrajectoryEmission"
+kind = "input"
+from = ["Completed", "Failed", "Cancelled"]
+guard = "trajectory_retry_count < 1"
+hint = "Manually retry OTS emission once after a prior failure. Guarded to a single retry; further failures wait for Evolution Engine sweep."
+effect = [
+  { type = "increment", var = "trajectory_retry_count" },
+  { type = "trigger", name = "emit_ots_trajectory" }
+]
 
 # --- Actions: Session Recovery (ADR-0025) ---
 
@@ -936,6 +1008,20 @@ trigger = "deliver_reply"
 type = "wasm"
 module = "agent_reply"
 on_failure = "DeliveryFailed"
+
+[integration.config]
+temper_api_url = "{secret:temper_api_url}"
+
+[[integration]]
+name = "emit_ots_trajectory"
+trigger = "emit_ots_trajectory"
+type = "wasm"
+module = "emit_ots_trajectory"
+# No on_failure — the module dispatches TrajectoryEmissionFailed itself via
+# set_success_result on HTTP failure so it can populate the custom error fields.
+# WASM panics / preflight crashes fall through without recording an OTS failure
+# signal; that's acceptable since retries can be driven manually via
+# RetryTrajectoryEmission until the Evolution Engine sweep lands.
 
 [integration.config]
 temper_api_url = "{secret:temper_api_url}"

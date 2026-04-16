@@ -549,7 +549,27 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             params["sandbox_provider"] = json!(provider);
         }
         if !tool_span_events.is_empty() {
-            params["_dd_llmobs_tool_spans"] = json!(tool_span_events);
+            let existing_tool_spans_file_id = fields
+                .get("tool_spans_file_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            match session::append_tool_spans_to_file(
+                &ctx,
+                &temper_api_url,
+                tenant,
+                workspace_id,
+                existing_tool_spans_file_id,
+                &tool_span_events,
+            ) {
+                Ok(id) if !id.is_empty() => {
+                    params["tool_spans_file_id"] = json!(id);
+                }
+                Ok(_) => {}
+                Err(e) => ctx.log(
+                    "warn",
+                    &format!("monty_repl: tool_spans append failed: {e}"),
+                ),
+            }
         }
 
         // Clear Cedar approval state after successful resume so the next
