@@ -1,0 +1,199 @@
+{
+    "entity_type": "Projection",
+    "entity_id": "en-019d9883-8942-7362-a5af-65333221b52e",
+    "status": "Complete",
+    "item_count": 0,
+    "counters": {
+        "current_step": 1
+    },
+    "booleans": {},
+    "lists": {},
+    "fields": {
+        "Id": "en-019d9883-8942-7362-a5af-65333221b52e",
+        "Status": "Complete",
+        "foresight_model_id": "en-019d92cd-41e7-7aa0-8436-e0532786bfcf",
+        "horizon": "1 year",
+        "probe_agent_ids": "['aj-019d9887-8118-7983-a31e-72894e0fe5d9', 'aj-019d9887-8126-7e12-83e5-6a6d0320f659', 'aj-019d9887-8135-7f11-a08f-e4a43d9c57e9']",
+        "direction_id": "en-019d9889-1858-7371-9aa4-9ad8ef8389f1",
+        "probe_agent_id": "aj-019d9887-8135-7f11-a08f-e4a43d9c57e9",
+        "projected_state_file_id": "fl-019d9887-80e6-7632-8f09-f55adadf68f4",
+        "current_step": 1
+    },
+    "events": [
+        {
+            "action": "Created",
+            "from_status": "",
+            "to_status": "Created",
+            "timestamp": "2026-04-16T22:57:30.435547Z",
+            "params": {}
+        },
+        {
+            "action": "Configure",
+            "from_status": "Created",
+            "to_status": "Created",
+            "timestamp": "2026-04-16T22:57:30.472424Z",
+            "params": {
+                "foresight_model_id": "en-019d92cd-41e7-7aa0-8436-e0532786bfcf",
+                "horizon": "1 year"
+            }
+        },
+        {
+            "action": "Start",
+            "from_status": "Created",
+            "to_status": "Running",
+            "timestamp": "2026-04-16T22:57:30.483416Z",
+            "params": {}
+        },
+        {
+            "action": "ProbesReady",
+            "from_status": "Running",
+            "to_status": "Running",
+            "timestamp": "2026-04-16T22:58:42.080799Z",
+            "params": {
+                "probe_agent_ids": "['aj-019d9884-a0e1-7533-bf5d-59f0a83ba6c3', 'aj-019d9884-a0f2-7063-9e4d-6d496fc112bd', 'aj-019d9884-a109-7e63-beca-22b48fb01275']"
+            }
+        },
+        {
+            "action": "ProbeStepDone",
+            "from_status": "Running",
+            "to_status": "Running",
+            "timestamp": "2026-04-16T22:59:34.729921Z",
+            "params": {
+                "direction_id": "en-019d9885-6ebd-7e30-bfd6-541628591258",
+                "probe_agent_id": "aj-019d9884-a0e1-7533-bf5d-59f0a83ba6c3"
+            }
+        },
+        {
+            "action": "ProbeStepDone",
+            "from_status": "Running",
+            "to_status": "Running",
+            "timestamp": "2026-04-16T22:59:50.356348Z",
+            "params": {
+                "direction_id": "en-019d9885-abca-7900-8d79-f75b9480de20",
+                "probe_agent_id": "aj-019d9884-a109-7e63-beca-22b48fb01275"
+            }
+        },
+        {
+            "action": "ProbeStepDone",
+            "from_status": "Running",
+            "to_status": "Running",
+            "timestamp": "2026-04-16T22:59:57.562895Z",
+            "params": {
+                "direction_id": "en-019d9885-c7f1-7c61-a428-027806530e0b",
+                "probe_agent_id": "aj-019d9884-a0f2-7063-9e4d-6d496fc112bd"
+            }
+        },
+        {
+            "action": "ConvergenceComplete",
+            "from_status": "Running",
+            "to_status": "Running",
+            "timestamp": "2026-04-16T23:01:50.366848Z",
+            "params": {}
+        },
+        {
+            "action": "ProjectionUpdated",
+            "from_status": "Running",
+            "to_status": "Running",
+            "timestamp": "2026-04-16T23:01:50.478765Z",
+            "params": {
+                "projected_state_file_id": "fl-019d9887-80e6-7632-8f09-f55adadf68f4"
+            }
+        },
+        {
+            "action": "AdvanceStep",
+            "from_status": "Running",
+            "to_status": "Running",
+            "timestamp": "2026-04-16T23:01:50.483669Z",
+            "params": {}
+        },
+        {
+            "action": "ProbesReady",
+            "from_status": "Running",
+            "to_status": "Running",
+            "timestamp": "2026-04-16T23:01:50.543448Z",
+            "params": {
+                "probe_agent_ids": "['aj-019d9887-8118-7983-a31e-72894e0fe5d9', 'aj-019d9887-8126-7e12-83e5-6a6d0320f659', 'aj-019d9887-8135-7f11-a08f-e4a43d9c57e9']"
+            }
+        },
+        {
+            "action": "ProbeStepDone",
+            "from_status": "Running",
+            "to_status": "Running",
+            "timestamp": "2026-04-16T23:03:03.028856Z",
+            "params": {
+                "direction_id": "en-019d9888-9c5e-7183-be71-1c73f43f74f6",
+                "probe_agent_id": "aj-019d9887-8118-7983-a31e-72894e0fe5d9"
+            }
+        },
+        {
+            "action": "ProbeStepDone",
+            "from_status": "Running",
+            "to_status": "Running",
+            "timestamp": "2026-04-16T23:03:34.754997Z",
+            "params": {
+                "direction_id": "en-019d9889-1858-7371-9aa4-9ad8ef8389f1",
+                "probe_agent_id": "aj-019d9887-8135-7f11-a08f-e4a43d9c57e9"
+            }
+        },
+        {
+            "action": "ProbeStepDone",
+            "from_status": "Running",
+            "to_status": "Running",
+            "timestamp": "2026-04-16T23:03:38.888595Z",
+            "params": {
+                "direction_id": "en-019d9889-2879-7531-8329-df78e3de615a",
+                "probe_agent_id": "aj-019d9887-8126-7e12-83e5-6a6d0320f659"
+            }
+        },
+        {
+            "action": "ProbeStepDone",
+            "from_status": "Running",
+            "to_status": "Running",
+            "timestamp": "2026-04-16T23:03:57.073238Z",
+            "params": {
+                "direction_id": "en-019d9888-9c5e-7183-be71-1c73f43f74f6",
+                "probe_agent_id": "aj-019d9887-8118-7983-a31e-72894e0fe5d9"
+            }
+        },
+        {
+            "action": "ProbeStepDone",
+            "from_status": "Running",
+            "to_status": "Running",
+            "timestamp": "2026-04-16T23:03:57.086968Z",
+            "params": {
+                "direction_id": "en-019d9889-2879-7531-8329-df78e3de615a",
+                "probe_agent_id": "aj-019d9887-8126-7e12-83e5-6a6d0320f659"
+            }
+        },
+        {
+            "action": "ProbeStepDone",
+            "from_status": "Running",
+            "to_status": "Running",
+            "timestamp": "2026-04-16T23:03:57.102140Z",
+            "params": {
+                "direction_id": "en-019d9889-1858-7371-9aa4-9ad8ef8389f1",
+                "probe_agent_id": "aj-019d9887-8135-7f11-a08f-e4a43d9c57e9"
+            }
+        },
+        {
+            "action": "ConvergenceComplete",
+            "from_status": "Running",
+            "to_status": "Running",
+            "timestamp": "2026-04-16T23:03:57.112105Z",
+            "params": {}
+        },
+        {
+            "action": "Complete",
+            "from_status": "Running",
+            "to_status": "Complete",
+            "timestamp": "2026-04-16T23:07:46.131379Z",
+            "params": {}
+        }
+    ],
+    "total_event_count": 19,
+    "sequence_nr": 19,
+    "@odata.context": "$metadata#Projections/$entity",
+    "@odata.id": "Projections('en-019d9883-8942-7362-a5af-65333221b52e')",
+    "@odata.actions": [],
+    "@odata.children": {}
+}

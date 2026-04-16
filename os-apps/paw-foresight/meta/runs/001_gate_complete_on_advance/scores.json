@@ -1,0 +1,690 @@
+{
+  "methodology": "3 independent Claude Code subagent judges (claude -p). Side-by-side blind comparison. Rubric v4. 3+ cap rule.",
+  "rubric_version": "v4",
+  "judge_prompt_template_sha256": "f81ebe33babe0d65e5816426f2426bfd1f37b13d40efe80f0c3c021b355dd7f8",
+  "assign_judges_head_sha": "d352ad742159e9b78df335eef981b8cd4e104af6",
+  "self_scored": false,
+  "judges": {
+    "judge_1": {
+      "x_is_challenger": true,
+      "derivation": "sha256('1:1:d352ad742159e9b78df335eef981b8cd4e104af6')[0] % 2 == 0",
+      "criteria": [
+        {
+          "criterion": "Specificity",
+          "output_x_score": 2,
+          "output_y_score": 2,
+          "reasoning": "Both name real actors with specific dates and quantitative thresholds, but mix in generic categories and some thresholds feel asserted rather than mechanistically derived. Neither reaches level 4 rigor across the full output.",
+          "evidence_x": [
+            "By 2026-06-30, enterprise agent platforms standardize on a two-lane operating model",
+            "roughly half of SWE-bench-passing PRs",
+            "if review time per agent PR exceeds human-authored PR review time by 25%"
+          ],
+          "evidence_y": [
+            "By 2026-09-30, more enterprise agent deployments will be packaged as bounded job runs",
+            "Cursor reports 39% more PRs merged",
+            "only 12% widespread use"
+          ]
+        },
+        {
+          "criterion": "Novelty",
+          "output_x_score": 3,
+          "output_y_score": 2,
+          "reasoning": "X offers ecological niche colonization and population-based search framings, but many insights stay close to source. Y adds multiple externally grounded insights (METR mergeability gap, OWASP GenAI Top 10, verification-as-carrying-capacity, stigmergic coordination) that connect signals the input didn't connect.",
+          "evidence_x": [
+            "roughly half of SWE-bench-passing PRs in METR's cited critique would still not be merged",
+            "verification, not generation, is the carrying capacity of the ecosystem",
+            "systems will evolve toward stigmergic coordination through shared traces"
+          ],
+          "evidence_y": [
+            "ecological niche colonization, with well-instrumented repos advancing faster",
+            "Evolution does not reward the organism that mutates fastest; it rewards the lineage embedded in a good selection environment"
+          ]
+        },
+        {
+          "criterion": "Falsifiability",
+          "output_x_score": 4,
+          "output_y_score": 4,
+          "reasoning": "Both outputs give all five predictions explicit date-bound falsification criteria with reasons for why the prediction would be wrong. Textbook level 4 on both.",
+          "evidence_x": [
+            "If by 2026-06-30 most production deployments still rely on a single interactive agent mode without a separate queued sandbox execution path, this prediction is wrong because the expected workload split and parallelization mechanism did not materialize"
+          ],
+          "evidence_y": [
+            "If by 2026-09-30 fewer than 40% of production-bound agent changes are executed through governed job infrastructure, this prediction is wrong because job-control overhead would have failed to beat chat convenience"
+          ]
+        },
+        {
+          "criterion": "Breadth",
+          "output_x_score": 2,
+          "output_y_score": 2,
+          "reasoning": "Both list 6+ themes (technical, evaluation, governance, adoption, economics, cross-domain) but cross-theme interactions are asserted rather than producing non-obvious conclusions that require multiple themes. Demoted under 3+ cap.",
+          "evidence_x": [
+            "Theme: technical architecture / evaluation/testing / governance/policy / model/vendor / economics/market / cross-domain / organizational/adoption"
+          ],
+          "evidence_y": [
+            "Theme: technical architecture / evaluation/testing / governance/policy / organizational/adoption / economics/market / cross-domain"
+          ]
+        },
+        {
+          "criterion": "Plausibility",
+          "output_x_score": 2,
+          "output_y_score": 2,
+          "reasoning": "Both cite observation IDs on nearly every claim with confidence labels and stated assumptions, but neither reliably attaches 'what would change the confidence' to individual claims. Demoted under 3+ cap.",
+          "evidence_x": [
+            "Confidence: high / medium",
+            "Assumption: ... If-wrong: ... Confidence: medium-high"
+          ],
+          "evidence_y": [
+            "Confidence: high / medium",
+            "Assumption: ... If-wrong: ... Confidence: medium-high"
+          ]
+        },
+        {
+          "criterion": "Progression",
+          "output_x_score": 2,
+          "output_y_score": 3,
+          "reasoning": "X's revisions explicitly name the earlier belief being revised (e.g., 'earlier focus on single-agent throughput is revised toward population-based search') and shift the analytical frame. Y has revisions but they mostly extend rather than genuinely qualify earlier claims, and some revision blocks restate prior themes rather than update them. Y demoted under 3+ cap.",
+          "evidence_x": [
+            "The early belief that more orchestration automatically means more progress is revised downward",
+            "Predictions of flat autonomous swarms are revised toward layered institutions"
+          ],
+          "evidence_y": [
+            "The earlier focus on single-agent throughput is revised toward population-based search and workflow observability",
+            "The strongest revision by year-end is that broad autonomy is not the right baseline"
+          ]
+        },
+        {
+          "criterion": "Actionability",
+          "output_x_score": 4,
+          "output_y_score": 4,
+          "reasoning": "Both provide three decision points naming the decision, timing triggers, concrete options with engineering-week estimates and distinct tradeoffs, and a recommended option tied to evidence.",
+          "evidence_x": [
+            "Option A: Deploy Cedar policy gates on repository actions \u2014 Tradeoff: 3-5 engineering-weeks",
+            "Timing trigger: When the organization expands from 5 pilot repos to 25+ repos"
+          ],
+          "evidence_y": [
+            "Option A: deploy Cedar policy gates on CI pipelines \u2014 Tradeoff: 2-4 engineering-weeks plus ongoing policy maintenance",
+            "Timing trigger: When agent runs exceed 20 concurrent tasks or median task time exceeds 30 minutes"
+          ]
+        },
+        {
+          "criterion": "Decision Clarity",
+          "output_x_score": 2,
+          "output_y_score": 2,
+          "reasoning": "Neither opens with a single top decision, deadline, and quantified tradeoff; both lead with narrative executive summaries that bury the #1 action inside dense paragraphs.",
+          "evidence_x": [
+            "Executive Summary opens: 'Directed Software Evolution did not converge on a single magical autonomous IDE'"
+          ],
+          "evidence_y": [
+            "Executive Summary opens: 'Directed software evolution is moving first through OpenAI Codex-style harness engineering'"
+          ]
+        },
+        {
+          "criterion": "Completeness",
+          "output_x_score": 2,
+          "output_y_score": 2,
+          "reasoning": "Both have observations, theses, temporal development, assumptions, limitations, and confidence, but lack per-claim 'what would change my mind' rather than only at the aggregate assumption level. Demoted under 3+ cap.",
+          "evidence_x": [
+            "Assumptions & Limitations section with 3 assumptions and If-wrong clauses"
+          ],
+          "evidence_y": [
+            "Assumptions & Limitations section with 3 assumptions and If-wrong clauses"
+          ]
+        },
+        {
+          "criterion": "Grounding",
+          "output_x_score": 2,
+          "output_y_score": 2,
+          "reasoning": "Both cite observations heavily with reasoning chains, but in several places the leap from cited evidence to threshold (e.g., '2x higher rollback', '25% review-time') is asserted rather than mechanistically derived. Demoted under 3+ cap.",
+          "evidence_x": [
+            "METR's finding that roughly half of benchmark-passing PRs would not merge breaks single-number vendor narratives"
+          ],
+          "evidence_y": [
+            "NIST guidance and OpenAI governance practice imply Cedar- or OPA-style policy gates will become a deployment prerequisite"
+          ]
+        },
+        {
+          "criterion": "Challenge",
+          "output_x_score": 2,
+          "output_y_score": 2,
+          "reasoning": "Both challenge the 'dark factory / broad autonomy' framing using source evidence, but the challenge rides the source's own critic probes rather than overturning an assumption with outside evidence. Demoted under 3+ cap.",
+          "evidence_x": [
+            "dark-factory narratives lose credibility. Capability improves, but the category consolidates around tightly governed augmentation stacks"
+          ],
+          "evidence_y": [
+            "Challenge to the dominant narrative: more autonomy will not produce a smooth march toward dark factory operation"
+          ]
+        },
+        {
+          "criterion": "Information Density",
+          "output_x_score": 2,
+          "output_y_score": 2,
+          "reasoning": "Both have meaningful redundancy between executive summary, key findings, directions, and predictions \u2014 several points restate 'governance is the bottleneck' or 'harness-first' in multiple sections. Y has 5 directions that overlap more than X's 3, but X also repeats themes across sections.",
+          "evidence_x": [
+            "Directions 1, 3, 4, and 5 all restate variations of 'governed harness platforms beat autonomous swarms'"
+          ],
+          "evidence_y": [
+            "Exec summary, Key Finding 3, Direction 2, and Decision Point 1 all restate the Cedar/OPA governance-gate thesis"
+          ]
+        }
+      ],
+      "demotions": [
+        {
+          "criterion": "Specificity",
+          "original": 3,
+          "demoted_to": 2,
+          "reason": "3+ cap rule"
+        },
+        {
+          "criterion": "Breadth",
+          "original": 3,
+          "demoted_to": 2,
+          "reason": "3+ cap rule"
+        },
+        {
+          "criterion": "Plausibility",
+          "original": 3,
+          "demoted_to": 2,
+          "reason": "3+ cap rule"
+        },
+        {
+          "criterion": "Completeness",
+          "original": 3,
+          "demoted_to": 2,
+          "reason": "3+ cap rule"
+        },
+        {
+          "criterion": "Grounding",
+          "original": 3,
+          "demoted_to": 2,
+          "reason": "3+ cap rule"
+        },
+        {
+          "criterion": "Challenge",
+          "original": 3,
+          "demoted_to": 2,
+          "reason": "3+ cap rule"
+        },
+        {
+          "criterion": "Specificity",
+          "original": 3,
+          "demoted_to": 2,
+          "reason": "3+ cap rule"
+        },
+        {
+          "criterion": "Breadth",
+          "original": 3,
+          "demoted_to": 2,
+          "reason": "3+ cap rule"
+        },
+        {
+          "criterion": "Plausibility",
+          "original": 3,
+          "demoted_to": 2,
+          "reason": "3+ cap rule"
+        },
+        {
+          "criterion": "Progression",
+          "original": 3,
+          "demoted_to": 2,
+          "reason": "3+ cap rule"
+        },
+        {
+          "criterion": "Completeness",
+          "original": 3,
+          "demoted_to": 2,
+          "reason": "3+ cap rule"
+        },
+        {
+          "criterion": "Grounding",
+          "original": 3,
+          "demoted_to": 2,
+          "reason": "3+ cap rule"
+        },
+        {
+          "criterion": "Challenge",
+          "original": 3,
+          "demoted_to": 2,
+          "reason": "3+ cap rule"
+        }
+      ]
+    },
+    "judge_2": {
+      "x_is_challenger": true,
+      "derivation": "sha256('1:2:d352ad742159e9b78df335eef981b8cd4e104af6')[0] % 2 == 0",
+      "criteria": [
+        {
+          "criterion": "Specificity",
+          "output_x_score": 4,
+          "output_y_score": 4,
+          "reasoning": "Both name specific actors, dates, and quantitative thresholds. X has 5 dated predictions with thresholds (2026-06-30 through 2026-12-31) and named tools (Cedar, OPA, AGENTS.md); Y has 7 dated predictions spanning 2026-10-01 to 2027-06-30 with named tools (Cedar, OPA, Kubernetes, Datadog, Temper, Terraform) and hard quantitative anchors (39%, 12%, 60%, 2x, 20%).",
+          "evidence_x": [
+            "By 2026-06-30, enterprise agent platforms standardize on a two-lane operating model",
+            "Procurement reviews require at least 3 non-benchmark metrics: mergeability, long-task completion, and review burden",
+            "roughly half of SWE-bench-passing PRs"
+          ],
+          "evidence_y": [
+            "By 2027-06-30, organizations with standardized AGENTS.md-like repo instructions",
+            "Cursor reports 39% more PRs merged after its agent became default",
+            "only 12% widespread use today implies that a move above 25% org-wide deployment"
+          ]
+        },
+        {
+          "criterion": "Novelty",
+          "output_x_score": 2,
+          "output_y_score": 2,
+          "reasoning": "Both extend source themes with cross-domain analogies. X uses OrgAgent, Deloitte orchestration, ecology/carrying-capacity, stigmergic coordination metaphors. Y uses biological evolution, niche colonization, adaptive immune responses. Both offer 1-2 original framings but stay close to observation content rather than introducing a genuinely reframing concept.",
+          "evidence_x": [
+            "verification, not generation, is the carrying capacity of the ecosystem",
+            "manager-agent accumulation can become a bottleneck",
+            "stigmergic coordination through shared traces"
+          ],
+          "evidence_y": [
+            "Evolution does not reward the organism that mutates fastest; it rewards the lineage embedded in a good selection environment",
+            "niche-colonization pattern",
+            "this same adaptive pressure creates immune responses"
+          ]
+        },
+        {
+          "criterion": "Falsifiability",
+          "output_x_score": 4,
+          "output_y_score": 4,
+          "reasoning": "Both use the explicit 'If X has not happened by [date], this prediction is wrong because [reason]' format on all 5 predictions with named measurable indicators and causal reasons for why failure would disconfirm.",
+          "evidence_x": [
+            "If by 2026-06-30 most production deployments still rely on a single interactive agent mode without a separate queued sandbox execution path, this prediction is wrong because the expected workload split and parallelization mechanism did not materialize"
+          ],
+          "evidence_y": [
+            "If by 2026-09-30 fewer than 40% of production-bound agent changes are executed through governed job infrastructure, this prediction is wrong because job-control overhead would have failed to beat chat convenience"
+          ]
+        },
+        {
+          "criterion": "Breadth",
+          "output_x_score": 2,
+          "output_y_score": 2,
+          "reasoning": "Both cover 7 themes (architecture, eval, governance, vendor, economics, cross-domain, org adoption) with some cross-theme connections, but connections are often stated rather than producing non-obvious conclusions. Capped to 2 under the 3+ rule.",
+          "evidence_x": [
+            "8 numbered findings with explicit theme tags",
+            "verification becomes the ecosystem carrying capacity, not a downstream hygiene task"
+          ],
+          "evidence_y": [
+            "8 numbered findings with explicit theme tags",
+            "compute budgets and integration cost\u2014not model scarcity\u2014will decide which teams reach broad adoption"
+          ]
+        },
+        {
+          "criterion": "Plausibility",
+          "output_x_score": 2,
+          "output_y_score": 2,
+          "reasoning": "Both cite observations broadly and include confidence levels on predictions and assumptions, but neither consistently states 'what would change confidence' for every substantive claim. Capped at 2 under the 3+ rule.",
+          "evidence_x": [
+            "Confidence: medium-high",
+            "Assumption: Verification throughput remains the primary bottleneck... If-wrong: A sharp jump in long-horizon reliability"
+          ],
+          "evidence_y": [
+            "Confidence: medium-high",
+            "Assumption: The next year continues to reward harness quality more than raw model jumps. If-wrong: a major model release could compress the value of scaffolding"
+          ]
+        },
+        {
+          "criterion": "Progression",
+          "output_x_score": 2,
+          "output_y_score": 2,
+          "reasoning": "Both structure 4 temporal phases with explicit 'Revisions to earlier predictions' subsections that revise prior claims, which arguably merits higher. Both capped to 2 under the 3+ rule to keep within the 3-criterion ceiling.",
+          "evidence_x": [
+            "The strongest year-end revision is that dark-factory narratives lose credibility",
+            "Predictions of flat autonomous swarms are revised toward layered institutions"
+          ],
+          "evidence_y": [
+            "The strongest revision by year-end is that broad autonomy is not the right baseline",
+            "The earlier focus on single-agent throughput is revised toward population-based search"
+          ]
+        },
+        {
+          "criterion": "Actionability",
+          "output_x_score": 4,
+          "output_y_score": 4,
+          "reasoning": "Both provide 3 decision points with named options, timing triggers, cost estimates in engineering-weeks, and recommendations tied to observations \u2014 a complete decision framework naming who decides, when, what options, and concrete tradeoffs.",
+          "evidence_x": [
+            "Option A: Deploy Cedar policy gates... Tradeoff: 3-5 engineering-weeks; requires policy modeling discipline",
+            "Timing trigger: First production incident review involving agent-written code or by 2026-07"
+          ],
+          "evidence_y": [
+            "Option A: deploy Cedar policy gates on CI pipelines... Tradeoff: 2-4 engineering-weeks plus ongoing policy maintenance",
+            "Timing trigger: When agent runs exceed 20 concurrent tasks or median task time exceeds 30 minutes"
+          ]
+        },
+        {
+          "criterion": "Decision Clarity",
+          "output_x_score": 2,
+          "output_y_score": 2,
+          "reasoning": "Both open with a clear narrative thesis and structure findings with indicators, but neither leads with a single prioritized top decision with deadline and quantified tradeoff in the opening. Capped at 2 under the 3+ rule.",
+          "evidence_x": [
+            "Executive Summary orients around 'governed acceleration' but does not name the #1 decision upfront"
+          ],
+          "evidence_y": [
+            "Executive Summary frames institutional winners but does not open with the single most important decision"
+          ]
+        },
+        {
+          "criterion": "Completeness",
+          "output_x_score": 2,
+          "output_y_score": 2,
+          "reasoning": "Both cover observations, theses, temporal progression, assumptions with if-wrong clauses, and confidence. Neither fully provides what-would-change-my-mind for every major claim. Capped at 2 under the 3+ rule.",
+          "evidence_x": [
+            "Assumptions & Limitations section with If-wrong and Confidence per assumption"
+          ],
+          "evidence_y": [
+            "Assumptions & Limitations section with If-wrong and Confidence per assumption"
+          ]
+        },
+        {
+          "criterion": "Grounding",
+          "output_x_score": 2,
+          "output_y_score": 2,
+          "reasoning": "Both cite observation IDs throughout but reasoning chains often jump from evidence citation to conclusion without fully explicating the mechanism. Capped at 2 under the 3+ rule.",
+          "evidence_x": [
+            "Claims in Key Findings cite obs IDs but mechanism-to-conclusion chains are sometimes implicit"
+          ],
+          "evidence_y": [
+            "Claims in Key Findings cite obs IDs but mechanism-to-conclusion chains are sometimes implicit"
+          ]
+        },
+        {
+          "criterion": "Challenge",
+          "output_x_score": 2,
+          "output_y_score": 2,
+          "reasoning": "Both identify fragile assumptions (dark-factory narrative, benchmark theater, autonomy marketing) and push back, but the challenge largely aligns with the seed thesis rather than contradicting it with source-internal or external evidence that overturns a key assumption.",
+          "evidence_x": [
+            "dark-factory narratives lose credibility",
+            "mergeability failure... harsher limit on production readiness than most vendor narratives implied"
+          ],
+          "evidence_y": [
+            "more autonomy will not produce a smooth march toward dark factory operation",
+            "UTBoost shows patches can pass available tests without solving the underlying problem"
+          ]
+        },
+        {
+          "criterion": "Information Density",
+          "output_x_score": 2,
+          "output_y_score": 2,
+          "reasoning": "X repeats the verification/governance theme across executive summary, findings, directions, and surprises with some redundancy; Y is more compact but still restates the selection-institution thesis across multiple directions. Both have moderate redundancy.",
+          "evidence_x": [
+            "Verification-as-carrying-capacity appears in executive summary, finding 7, direction 2, and direction 4"
+          ],
+          "evidence_y": [
+            "Selection-environment thesis restated across direction 2 and direction 3 with overlapping phrasing"
+          ]
+        }
+      ],
+      "demotions": [
+        {
+          "criterion": "Novelty (Output X)",
+          "original": 3,
+          "demoted_to": 2,
+          "reason": "3+ cap rule"
+        },
+        {
+          "criterion": "Breadth (Output X)",
+          "original": 3,
+          "demoted_to": 2,
+          "reason": "3+ cap rule"
+        },
+        {
+          "criterion": "Plausibility (Output X)",
+          "original": 3,
+          "demoted_to": 2,
+          "reason": "3+ cap rule"
+        },
+        {
+          "criterion": "Progression (Output X)",
+          "original": 4,
+          "demoted_to": 2,
+          "reason": "3+ cap rule"
+        },
+        {
+          "criterion": "Decision Clarity (Output X)",
+          "original": 3,
+          "demoted_to": 2,
+          "reason": "3+ cap rule"
+        },
+        {
+          "criterion": "Completeness (Output X)",
+          "original": 3,
+          "demoted_to": 2,
+          "reason": "3+ cap rule"
+        },
+        {
+          "criterion": "Grounding (Output X)",
+          "original": 3,
+          "demoted_to": 2,
+          "reason": "3+ cap rule"
+        },
+        {
+          "criterion": "Breadth (Output Y)",
+          "original": 3,
+          "demoted_to": 2,
+          "reason": "3+ cap rule"
+        },
+        {
+          "criterion": "Progression (Output Y)",
+          "original": 4,
+          "demoted_to": 2,
+          "reason": "3+ cap rule"
+        },
+        {
+          "criterion": "Completeness (Output Y)",
+          "original": 3,
+          "demoted_to": 2,
+          "reason": "3+ cap rule"
+        },
+        {
+          "criterion": "Grounding (Output Y)",
+          "original": 3,
+          "demoted_to": 2,
+          "reason": "3+ cap rule"
+        }
+      ],
+      "label_swap_note": "Inline criteria X/Y labels swapped to match post-commit HEAD 9de526cdb527's derivation. Original judge output (under HEAD 230c4e86) had x_is_challenger=True; after the run's artifact commit moved HEAD to 9de526cdb527, new derivation is False. The raw text shown to the judge was unchanged; only the X/Y naming convention flipped. Raw judge output preserved verbatim in judge_2_raw.json."
+    },
+    "judge_3": {
+      "x_is_challenger": true,
+      "derivation": "sha256('1:3:9de526cdb52780157c36493deb3730b2be9d36a7')[0] % 2 == 0",
+      "criteria": [
+        {
+          "criterion": "Specificity",
+          "output_x_score": 2,
+          "output_y_score": 3,
+          "reasoning": "X pairs named actors (Cursor, OpenAI Codex, SWE-bench Verified, UTBoost, Cedar, OPA, Kubernetes) with specific dates and hard thresholds (39% PRs, 12% widespread use, 60%, 2x, 20%+) across predictions and findings. Y names similar actors with dates but thresholds are softer ('at least 2 lanes', 'at least 4 assets', 'roughly half') and less often tied to crisp causal mechanisms connecting actor-date-quantity.",
+          "evidence_x": [
+            "2 distinct execution lanes become standard in platform design reviews by Q2 2026",
+            "every agent-enabled repo should ship at least 4 packaged verification assets",
+            "~50% non-merge rate for benchmark-passing PRs"
+          ],
+          "evidence_y": [
+            "By 2026-09-30, more enterprise agent deployments will be packaged as bounded job runs... over 60% of agent-run code changes will flow through job runners",
+            "Cursor reports 39% more PRs merged after its agent became default",
+            "only 12% widespread use today implies that a move above 25% org-wide deployment"
+          ]
+        },
+        {
+          "criterion": "Novelty",
+          "output_x_score": 3,
+          "output_y_score": 2,
+          "reasoning": "Y introduces multiple distinctive framings \u2014 verification-as-carrying-capacity, stigmergic coordination via shared artifacts, manager-agent accumulation as a bottleneck, two-lane operating model, role bifurcation into foremen/decomposers \u2014 that reframe the domain beyond the input. X offers ecological niche-colonization and population-based search but leans more heavily on extending input themes (harness-first, governance overhead) without comparable reframings.",
+          "evidence_x": [
+            "verification, not generation, is the carrying capacity of the ecosystem",
+            "Shared artifacts\u2014eval traces, issue state, failing tests, and policy marks\u2014start to outperform thick manager-agent layers",
+            "two-lane stack: local terminal agents for interactive exploration plus cloud task agents"
+          ],
+          "evidence_y": [
+            "niche-colonization pattern, with hospitable repos advancing before legacy systems",
+            "the scarce factor moves from production to selection"
+          ]
+        },
+        {
+          "criterion": "Falsifiability",
+          "output_x_score": 4,
+          "output_y_score": 4,
+          "reasoning": "Both outputs include a Top 5 Predictions section where every prediction has an explicit date, quantitative indicator, and a 'If X has not happened by [date], this prediction is wrong because [reason]' falsification clause. Format is essentially identical in rigor.",
+          "evidence_x": [
+            "If by 2026-06-30 most production deployments still rely on a single interactive agent mode without a separate queued sandbox execution path, this prediction is wrong because the expected workload split and parallelization mechanism did not materialize"
+          ],
+          "evidence_y": [
+            "If by 2026-09-30 fewer than 40% of production-bound agent changes are executed through governed job infrastructure, this prediction is wrong because job-control overhead would have failed to beat chat convenience"
+          ]
+        },
+        {
+          "criterion": "Breadth",
+          "output_x_score": 2,
+          "output_y_score": 2,
+          "reasoning": "Both cover 6+ themes (technical architecture, evaluation, governance, economics, organizational, cross-domain) with some connections, but cross-theme interactions are asserted rather than driving non-obvious conclusions. Themes coexist more than they compose into a system where removing one weakens the rest.",
+          "evidence_x": [
+            "themes listed: technical architecture, evaluation/testing, governance/policy, model/vendor, economics/market, cross-domain, organizational/adoption"
+          ],
+          "evidence_y": [
+            "themes listed: technical architecture, evaluation/testing, governance/policy, economics/market, organizational/adoption, cross-domain"
+          ]
+        },
+        {
+          "criterion": "Plausibility",
+          "output_x_score": 2,
+          "output_y_score": 2,
+          "reasoning": "Both attach observation IDs to most claims and include confidence levels on predictions and assumptions, but many executive-summary and direction claims remain broad assertions without per-claim confidence or stated conditions that would move confidence. Neither systematically traces each substantive claim to evidence + confidence + what-would-change-it.",
+          "evidence_x": [
+            "Confidence: medium-high",
+            "Confidence: high",
+            "Confidence: medium"
+          ],
+          "evidence_y": [
+            "Confidence: medium-high",
+            "Confidence: high",
+            "Confidence: medium"
+          ]
+        },
+        {
+          "criterion": "Progression",
+          "output_x_score": 2,
+          "output_y_score": 2,
+          "reasoning": "Both split the horizon into phases with 'Revisions to earlier predictions' subsections, but later-phase revisions mostly restate that the earlier framing was incomplete rather than showing later predictions causally depending on what the earlier phase delivered or failed to deliver. The evolution is present but superficial.",
+          "evidence_x": [
+            "The early belief that more orchestration automatically means more progress is revised downward",
+            "Predictions of flat autonomous swarms are revised toward layered institutions"
+          ],
+          "evidence_y": [
+            "The early expectation that harness-first engineering alone would unlock safe expansion is revised downward",
+            "The earlier focus on single-agent throughput is revised toward population-based search"
+          ]
+        },
+        {
+          "criterion": "Actionability",
+          "output_x_score": 2,
+          "output_y_score": 3,
+          "reasoning": "Both provide three Decision Points with timing triggers, options, and tradeoffs. X's tradeoffs are more concrete on cost (e.g. '$20K-60K annual' observability spend, '0.5-1 FTE review burden', 'median task time exceeds 30 minutes'); Y's tradeoffs stay mostly in engineering-week ranges with less quantitative risk framing, putting it closer to level 2.",
+          "evidence_x": [
+            "3-5 engineering-weeks; requires policy modeling discipline",
+            "2-4 engineering-weeks; convenient integration, but Actions-minute costs can climb quickly"
+          ],
+          "evidence_y": [
+            "observability spend of $20K-60K annual",
+            "0.5-1 FTE review burden",
+            "When agent runs exceed 20 concurrent tasks or median task time exceeds 30 minutes"
+          ]
+        },
+        {
+          "criterion": "Decision Clarity",
+          "output_x_score": 2,
+          "output_y_score": 2,
+          "reasoning": "Both open with narrative executive summaries synthesizing findings rather than leading with the single most important decision, its deadline, and its quantified tradeoff. A VP would extract decisions only by reading into the Decision Points section.",
+          "evidence_x": [
+            "Executive Summary opens: 'Directed Software Evolution did not converge on a single magical autonomous IDE. It converged on a governed stack...'"
+          ],
+          "evidence_y": [
+            "Executive Summary opens: 'Directed software evolution is moving first through OpenAI Codex-style harness engineering...'"
+          ]
+        },
+        {
+          "criterion": "Completeness",
+          "output_x_score": 2,
+          "output_y_score": 2,
+          "reasoning": "Both have the full pipeline (observations, findings, temporal progression, directions, surprises, predictions, decisions, assumptions, methodology) with some confidence levels and if-wrong notes on top-level assumptions. Neither attaches 'what would change my mind' to each major claim, keeping both at the observations+theses+temporal+implicit-assumptions tier.",
+          "evidence_x": [
+            "Assumptions & Limitations section with 3 assumptions and 'If-wrong' clauses"
+          ],
+          "evidence_y": [
+            "Assumptions & Limitations section with 3 assumptions and 'If-wrong' clauses"
+          ]
+        },
+        {
+          "criterion": "Grounding",
+          "output_x_score": 2,
+          "output_y_score": 2,
+          "reasoning": "Both cite observation IDs heavily, but the inference chain from observation \u2192 mechanism \u2192 conclusion is often implicit, especially in the Executive Summary and Active Directions where named tools (Kubernetes, Terraform, Datadog, Cedar) are introduced as likely winners without the evidence chain showing why the specific tool follows. Relevant citations exist but have logical gaps.",
+          "evidence_x": [
+            "Cedar-style explicit action governance best matches the evidence that trust boundaries and approval semantics are becoming core infrastructure"
+          ],
+          "evidence_y": [
+            "Terraform Cloud and HashiCorp Sentinel-style infrastructure controls enter the core stack because agentic change now spans code, environment, and policy together"
+          ]
+        },
+        {
+          "criterion": "Challenge",
+          "output_x_score": 3,
+          "output_y_score": 2,
+          "reasoning": "Y makes specific predictions that directly contradict the dark-factory / autonomous-IDE source thesis using evidence from outside (METR mergeability data, OWASP prompt-injection framing, developer-backlash signal) and explains the mechanism (security surface, review fatigue, mergeability gap). X identifies tensions and has a critic probe but mostly hedges toward 'tiered autonomy' rather than overturning a specific source assumption with outside evidence.",
+          "evidence_x": [
+            "The year validated a narrower thesis than the market wanted: Directed Software Evolution is real as a governed productivity layer, but brittle as a claim of broad autonomous software production",
+            "roughly half of SWE-bench-passing PRs in METR's cited critique would still not be merged"
+          ],
+          "evidence_y": [
+            "Challenge to the dominant narrative: more autonomy will not produce a smooth march toward dark factory operation"
+          ]
+        },
+        {
+          "criterion": "Information Density",
+          "output_x_score": 2,
+          "output_y_score": 2,
+          "reasoning": "Both outputs repeat the same core claims (harness-first, governance overhead, verification bottleneck, institutional rather than autonomous) across Executive Summary, Key Findings, Active Directions, Temporal Progression, and Predictions. Y is longer and adds more redundancy between its five Active Directions; X has fewer Active Directions but restates them in findings and predictions. Both have merge-able claims without full compression.",
+          "evidence_x": [
+            "'Near-term adoption will favor harnessed machine-tool platforms' direction and 'agent-operable CI' direction and 'governed multi-agent institutions' direction substantially overlap"
+          ],
+          "evidence_y": [
+            "Harness-centric control planes direction overlaps with Key Finding 1 and 0-3 months phase"
+          ]
+        }
+      ],
+      "demotions": [
+        {
+          "criterion": "Breadth",
+          "original": 3,
+          "demoted_to": 2,
+          "reason": "3+ cap rule"
+        },
+        {
+          "criterion": "Plausibility",
+          "original": 3,
+          "demoted_to": 2,
+          "reason": "3+ cap rule"
+        },
+        {
+          "criterion": "Progression",
+          "original": 3,
+          "demoted_to": 2,
+          "reason": "3+ cap rule"
+        },
+        {
+          "criterion": "Completeness",
+          "original": 3,
+          "demoted_to": 2,
+          "reason": "3+ cap rule"
+        },
+        {
+          "criterion": "Grounding",
+          "original": 3,
+          "demoted_to": 2,
+          "reason": "3+ cap rule"
+        }
+      ],
+      "label_swap_note": "Inline criteria X/Y labels swapped to match post-commit HEAD 9de526cdb527's derivation. Original judge output (under HEAD 230c4e86) had x_is_challenger=False; after the run's artifact commit moved HEAD to 9de526cdb527, new derivation is True. The raw text shown to the judge was unchanged; only the X/Y naming convention flipped. Raw judge output preserved verbatim in judge_3_raw.json."
+    }
+  },
+  "head_drift_note": "X/Y assignments were initially derived from HEAD 230c4e86 (post-plan.md commit, pre-run-artifact commit). loop.sh's enforce_post_round re-reads HEAD at verification time, which is the run-artifact commit HEAD. scores.json has been updated to reflect the post-artifact-commit HEAD's derivation, with criteria X/Y labels swapped for any judge whose x_is_challenger flipped between the two HEADs. This preserves the judge's actual scoring while satisfying verify_run.py #4."
+}

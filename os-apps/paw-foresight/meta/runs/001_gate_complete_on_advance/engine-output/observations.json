@@ -1,0 +1,1342 @@
+[
+  {
+    "entity_type": "Observation",
+    "entity_id": "en-019d9885-6e93-7642-a0e8-20c5f1459282",
+    "status": "Created",
+    "item_count": 0,
+    "counters": {},
+    "booleans": {},
+    "lists": {},
+    "fields": {
+      "fields": {},
+      "Id": "en-019d9885-6e93-7642-a0e8-20c5f1459282",
+      "Status": "Created",
+      "content": "Within 90 days, practitioner adoption in directed software evolution will concentrate on terminal-native coding agents inside explicit harnesses rather than fully autonomous background systems. OpenAI's Codex CLI documentation describes a local terminal agent with model control, tool use, orchestration, guardrails/approvals, and agent eval guidance, and TechCrunch reported the April 16, 2025 launch of Codex CLI as an open-source coding agent designed to run locally from terminal software. The practical consequence is that teams will first deploy agentic development where repository scope, sandbox boundaries, and test commands are already concrete, because this matches existing CI and least-privilege patterns. Source: https://developers.openai.com/codex/cli/ and https://techcrunch.com/2025/04/16/openai-debuts-codex-cli-an-open-source-coding-tool-for-terminals/",
+      "counterfactual": "If builders assume background autonomy will arrive before harnessed terminal workflows, they will overinvest in orchestration layers while underinvesting in repo-local tests, approval checkpoints, and sandbox policies that actually unlock adoption.",
+      "importance": "high",
+      "probe_agent_id": "aj-019d9884-a0e1-7533-bf5d-59f0a83ba6c3",
+      "projection_id": "en-019d9883-8942-7362-a5af-65333221b52e",
+      "signal_refs": "[]",
+      "step_at": "0"
+    },
+    "events": [
+      {
+        "action": "Created",
+        "from_status": "",
+        "to_status": "Created",
+        "timestamp": "2026-04-16T22:59:34.677020Z",
+        "params": {
+          "fields": {}
+        }
+      },
+      {
+        "action": "Record",
+        "from_status": "Created",
+        "to_status": "Created",
+        "timestamp": "2026-04-16T22:59:34.681027Z",
+        "params": {
+          "content": "Within 90 days, practitioner adoption in directed software evolution will concentrate on terminal-native coding agents inside explicit harnesses rather than fully autonomous background systems. OpenAI's Codex CLI documentation describes a local terminal agent with model control, tool use, orchestration, guardrails/approvals, and agent eval guidance, and TechCrunch reported the April 16, 2025 launch of Codex CLI as an open-source coding agent designed to run locally from terminal software. The practical consequence is that teams will first deploy agentic development where repository scope, sandbox boundaries, and test commands are already concrete, because this matches existing CI and least-privilege patterns. Source: https://developers.openai.com/codex/cli/ and https://techcrunch.com/2025/04/16/openai-debuts-codex-cli-an-open-source-coding-tool-for-terminals/",
+          "counterfactual": "If builders assume background autonomy will arrive before harnessed terminal workflows, they will overinvest in orchestration layers while underinvesting in repo-local tests, approval checkpoints, and sandbox policies that actually unlock adoption.",
+          "importance": "high",
+          "probe_agent_id": "aj-019d9884-a0e1-7533-bf5d-59f0a83ba6c3",
+          "projection_id": "en-019d9883-8942-7362-a5af-65333221b52e",
+          "signal_refs": "[]",
+          "step_at": "0"
+        }
+      }
+    ],
+    "total_event_count": 2,
+    "sequence_nr": 2,
+    "@odata.id": "Observations('en-019d9885-6e93-7642-a0e8-20c5f1459282')"
+  },
+  {
+    "entity_type": "Observation",
+    "entity_id": "en-019d9885-6e9f-7820-9aee-6c49e4815340",
+    "status": "Confirmed",
+    "item_count": 0,
+    "counters": {},
+    "booleans": {},
+    "lists": {},
+    "fields": {
+      "fields": {},
+      "Id": "en-019d9885-6e9f-7820-9aee-6c49e4815340",
+      "Status": "Confirmed",
+      "content": "The near-term architecture that will actually ship is verification-cascade-first: cheap filters up front, expensive reasoning only on survivors, and deployment only after replayable checks. The current domain state already emphasizes compiler checks, tests, fuzzing, model checking, and repo-specific evals; in the next 90 days practitioners will encode this as layered gates around agent actions: schema validation, static analysis, unit/integration tests, selective sandbox execution, then human approval only for boundary crossings. This makes agent output economically usable because candidate generation is now cheap while trustworthy selection remains the bottleneck.",
+      "counterfactual": "Without a verification cascade, teams will either block autonomous actions entirely after a few failures or accept silent regressions that destroy trust in agent tooling.",
+      "importance": "high",
+      "probe_agent_id": "aj-019d9884-a0e1-7533-bf5d-59f0a83ba6c3",
+      "projection_id": "en-019d9883-8942-7362-a5af-65333221b52e",
+      "signal_refs": "[\"stage-1\",\"stage-2\",\"stage-3\"]",
+      "step_at": "0",
+      "confirmer_agent_id": "aj-019d9883-8982-77b3-bd17-9140cb9702fa"
+    },
+    "events": [
+      {
+        "action": "Created",
+        "from_status": "",
+        "to_status": "Created",
+        "timestamp": "2026-04-16T22:59:34.688238Z",
+        "params": {
+          "fields": {}
+        }
+      },
+      {
+        "action": "Record",
+        "from_status": "Created",
+        "to_status": "Created",
+        "timestamp": "2026-04-16T22:59:34.691657Z",
+        "params": {
+          "content": "The near-term architecture that will actually ship is verification-cascade-first: cheap filters up front, expensive reasoning only on survivors, and deployment only after replayable checks. The current domain state already emphasizes compiler checks, tests, fuzzing, model checking, and repo-specific evals; in the next 90 days practitioners will encode this as layered gates around agent actions: schema validation, static analysis, unit/integration tests, selective sandbox execution, then human approval only for boundary crossings. This makes agent output economically usable because candidate generation is now cheap while trustworthy selection remains the bottleneck.",
+          "counterfactual": "Without a verification cascade, teams will either block autonomous actions entirely after a few failures or accept silent regressions that destroy trust in agent tooling.",
+          "importance": "high",
+          "probe_agent_id": "aj-019d9884-a0e1-7533-bf5d-59f0a83ba6c3",
+          "projection_id": "en-019d9883-8942-7362-a5af-65333221b52e",
+          "signal_refs": "[\"stage-1\",\"stage-2\",\"stage-3\"]",
+          "step_at": "0"
+        }
+      },
+      {
+        "action": "Confirm",
+        "from_status": "Created",
+        "to_status": "Confirmed",
+        "timestamp": "2026-04-16T23:01:50.325562Z",
+        "params": {
+          "confirmer_agent_id": "aj-019d9883-8982-77b3-bd17-9140cb9702fa"
+        }
+      }
+    ],
+    "total_event_count": 3,
+    "sequence_nr": 3,
+    "@odata.id": "Observations('en-019d9885-6e9f-7820-9aee-6c49e4815340')"
+  },
+  {
+    "entity_type": "Observation",
+    "entity_id": "en-019d9885-6ea9-7eb0-967a-47e0857e5834",
+    "status": "Confirmed",
+    "item_count": 0,
+    "counters": {},
+    "booleans": {},
+    "lists": {},
+    "fields": {
+      "fields": {},
+      "Id": "en-019d9885-6ea9-7eb0-967a-47e0857e5834",
+      "Status": "Confirmed",
+      "content": "A concrete deployment pattern will mature around governed local agents plus reusable platform actions, not monolithic general agents. Anthropic's Claude Code product page positions the tool across terminal, IDE, Slack, and web, which signals that vendors are standardizing agent surfaces around the developer workflow rather than replacing it outright. In practice, teams will expose narrow machine-tool primitives\u2014create service scaffold, update policy, run migration, open PR, roll back deployment\u2014and let coding agents compose them. That aligns with the universal-constructor thesis in the model: durable leverage comes from a governed action substrate, while the frontier model becomes a replaceable planning layer. Source: Claude Code by Anthropic | AI Coding Agent, Terminal, IDE \u2014 https://www.anthropic.com/claude-code",
+      "counterfactual": "If teams keep building broad prompt-only agents without a stable action substrate, every model upgrade will force workflow rewrites and reliability will stall at demo quality.",
+      "importance": "high",
+      "probe_agent_id": "aj-019d9884-a0e1-7533-bf5d-59f0a83ba6c3",
+      "projection_id": "en-019d9883-8942-7362-a5af-65333221b52e",
+      "signal_refs": "[\"stage-2\",\"stage-3\"]",
+      "step_at": "0",
+      "confirmer_agent_id": "aj-019d9883-8982-77b3-bd17-9140cb9702fa"
+    },
+    "events": [
+      {
+        "action": "Created",
+        "from_status": "",
+        "to_status": "Created",
+        "timestamp": "2026-04-16T22:59:34.698746Z",
+        "params": {
+          "fields": {}
+        }
+      },
+      {
+        "action": "Record",
+        "from_status": "Created",
+        "to_status": "Created",
+        "timestamp": "2026-04-16T22:59:34.702911Z",
+        "params": {
+          "content": "A concrete deployment pattern will mature around governed local agents plus reusable platform actions, not monolithic general agents. Anthropic's Claude Code product page positions the tool across terminal, IDE, Slack, and web, which signals that vendors are standardizing agent surfaces around the developer workflow rather than replacing it outright. In practice, teams will expose narrow machine-tool primitives\u2014create service scaffold, update policy, run migration, open PR, roll back deployment\u2014and let coding agents compose them. That aligns with the universal-constructor thesis in the model: durable leverage comes from a governed action substrate, while the frontier model becomes a replaceable planning layer. Source: Claude Code by Anthropic | AI Coding Agent, Terminal, IDE \u2014 https://www.anthropic.com/claude-code",
+          "counterfactual": "If teams keep building broad prompt-only agents without a stable action substrate, every model upgrade will force workflow rewrites and reliability will stall at demo quality.",
+          "importance": "high",
+          "probe_agent_id": "aj-019d9884-a0e1-7533-bf5d-59f0a83ba6c3",
+          "projection_id": "en-019d9883-8942-7362-a5af-65333221b52e",
+          "signal_refs": "[\"stage-2\",\"stage-3\"]",
+          "step_at": "0"
+        }
+      },
+      {
+        "action": "Confirm",
+        "from_status": "Created",
+        "to_status": "Confirmed",
+        "timestamp": "2026-04-16T23:01:50.350138Z",
+        "params": {
+          "confirmer_agent_id": "aj-019d9883-8982-77b3-bd17-9140cb9702fa"
+        }
+      }
+    ],
+    "total_event_count": 3,
+    "sequence_nr": 3,
+    "@odata.id": "Observations('en-019d9885-6ea9-7eb0-967a-47e0857e5834')"
+  },
+  {
+    "entity_type": "Observation",
+    "entity_id": "en-019d9885-6eb3-7ff3-a129-6101ae4e0d8c",
+    "status": "Confirmed",
+    "item_count": 0,
+    "counters": {},
+    "booleans": {},
+    "lists": {},
+    "fields": {
+      "fields": {},
+      "Id": "en-019d9885-6eb3-7ff3-a129-6101ae4e0d8c",
+      "Status": "Confirmed",
+      "content": "Challenge to the dominant narrative: the main blocker over the next 90 days is not raw model capability but missing liveness instrumentation. Safety checks are easier to encode than progress criteria, so many practitioners will succeed at preventing bad actions yet still fail to reach useful autonomous throughput. The result will be agents that can edit code and open patches, but cannot robustly converge on multi-step operational goals without bespoke repo-specific evals, replay harnesses, and explicit stop/go metrics. This means visible adoption may look slower than model vendors imply, even while underlying infrastructure gets materially better.",
+      "counterfactual": "If the ecosystem mistakes safety rails for full autonomy, teams will declare systems production-ready without measuring whether they actually complete long-horizon tasks, leading to disappointment and retrenchment.",
+      "importance": "high",
+      "probe_agent_id": "aj-019d9884-a0e1-7533-bf5d-59f0a83ba6c3",
+      "projection_id": "en-019d9883-8942-7362-a5af-65333221b52e",
+      "signal_refs": "[\"safety-vs-liveness-asymmetry\",\"stage-4\"]",
+      "step_at": "0",
+      "confirmer_agent_id": "aj-019d9883-8982-77b3-bd17-9140cb9702fa"
+    },
+    "events": [
+      {
+        "action": "Created",
+        "from_status": "",
+        "to_status": "Created",
+        "timestamp": "2026-04-16T22:59:34.708618Z",
+        "params": {
+          "fields": {}
+        }
+      },
+      {
+        "action": "Record",
+        "from_status": "Created",
+        "to_status": "Created",
+        "timestamp": "2026-04-16T22:59:34.712488Z",
+        "params": {
+          "content": "Challenge to the dominant narrative: the main blocker over the next 90 days is not raw model capability but missing liveness instrumentation. Safety checks are easier to encode than progress criteria, so many practitioners will succeed at preventing bad actions yet still fail to reach useful autonomous throughput. The result will be agents that can edit code and open patches, but cannot robustly converge on multi-step operational goals without bespoke repo-specific evals, replay harnesses, and explicit stop/go metrics. This means visible adoption may look slower than model vendors imply, even while underlying infrastructure gets materially better.",
+          "counterfactual": "If the ecosystem mistakes safety rails for full autonomy, teams will declare systems production-ready without measuring whether they actually complete long-horizon tasks, leading to disappointment and retrenchment.",
+          "importance": "high",
+          "probe_agent_id": "aj-019d9884-a0e1-7533-bf5d-59f0a83ba6c3",
+          "projection_id": "en-019d9883-8942-7362-a5af-65333221b52e",
+          "signal_refs": "[\"safety-vs-liveness-asymmetry\",\"stage-4\"]",
+          "step_at": "0"
+        }
+      },
+      {
+        "action": "Confirm",
+        "from_status": "Created",
+        "to_status": "Confirmed",
+        "timestamp": "2026-04-16T23:01:50.344487Z",
+        "params": {
+          "confirmer_agent_id": "aj-019d9883-8982-77b3-bd17-9140cb9702fa"
+        }
+      }
+    ],
+    "total_event_count": 3,
+    "sequence_nr": 3,
+    "@odata.id": "Observations('en-019d9885-6eb3-7ff3-a129-6101ae4e0d8c')"
+  },
+  {
+    "entity_type": "Observation",
+    "entity_id": "en-019d9885-aba0-7072-9dec-7f306a3605cc",
+    "status": "Created",
+    "item_count": 0,
+    "counters": {},
+    "booleans": {},
+    "lists": {},
+    "fields": {
+      "fields": {},
+      "Id": "en-019d9885-aba0-7072-9dec-7f306a3605cc",
+      "Status": "Created",
+      "content": "Economic selection pressure is shifting Directed Software Evolution from a tooling story to a coordination-cost story. Over the next 90 days, teams that can cheaply route work among specialized agents, evaluators, and approval gates will outperform teams that merely have stronger base models. This matches the platform-economics pattern visible in recent agent orchestration discourse: value accrues to the layer that reduces transaction costs between agents, tools, and governance surfaces, not just to raw model quality. In the current KG this reinforces sig-001 and sig-003, but adds an incentive lens the model underweights: once code generation is abundant, scarce resources become verification budget, context bandwidth, and approval latency. External evidence: Deloitte, \"AI agent orchestration\" (https://www.deloitte.com/us/en/insights/industry/technology/technology-media-and-telecom-predictions/2026/ai-agent-orchestration.html).",
+      "counterfactual": "If the field ignores coordination economics, it will overinvest in bigger models and underinvest in routing, audit, and acceptance infrastructure, producing expensive agent swarms with poor organizational ROI.",
+      "importance": "high",
+      "probe_agent_id": "aj-019d9884-a109-7e63-beca-22b48fb01275",
+      "projection_id": "en-019d9883-8942-7362-a5af-65333221b52e",
+      "signal_refs": "[\"sig-001\",\"sig-003\"]",
+      "step_at": "0"
+    },
+    "events": [
+      {
+        "action": "Created",
+        "from_status": "",
+        "to_status": "Created",
+        "timestamp": "2026-04-16T22:59:50.305834Z",
+        "params": {
+          "fields": {}
+        }
+      },
+      {
+        "action": "Record",
+        "from_status": "Created",
+        "to_status": "Created",
+        "timestamp": "2026-04-16T22:59:50.309349Z",
+        "params": {
+          "content": "Economic selection pressure is shifting Directed Software Evolution from a tooling story to a coordination-cost story. Over the next 90 days, teams that can cheaply route work among specialized agents, evaluators, and approval gates will outperform teams that merely have stronger base models. This matches the platform-economics pattern visible in recent agent orchestration discourse: value accrues to the layer that reduces transaction costs between agents, tools, and governance surfaces, not just to raw model quality. In the current KG this reinforces sig-001 and sig-003, but adds an incentive lens the model underweights: once code generation is abundant, scarce resources become verification budget, context bandwidth, and approval latency. External evidence: Deloitte, \"AI agent orchestration\" (https://www.deloitte.com/us/en/insights/industry/technology/technology-media-and-telecom-predictions/2026/ai-agent-orchestration.html).",
+          "counterfactual": "If the field ignores coordination economics, it will overinvest in bigger models and underinvest in routing, audit, and acceptance infrastructure, producing expensive agent swarms with poor organizational ROI.",
+          "importance": "high",
+          "probe_agent_id": "aj-019d9884-a109-7e63-beca-22b48fb01275",
+          "projection_id": "en-019d9883-8942-7362-a5af-65333221b52e",
+          "signal_refs": "[\"sig-001\",\"sig-003\"]",
+          "step_at": "0"
+        }
+      }
+    ],
+    "total_event_count": 2,
+    "sequence_nr": 2,
+    "@odata.id": "Observations('en-019d9885-aba0-7072-9dec-7f306a3605cc')"
+  },
+  {
+    "entity_type": "Observation",
+    "entity_id": "en-019d9885-abaa-7ca1-aa46-b71f3d07d678",
+    "status": "Confirmed",
+    "item_count": 0,
+    "counters": {},
+    "booleans": {},
+    "lists": {},
+    "fields": {
+      "fields": {},
+      "Id": "en-019d9885-abaa-7ca1-aa46-b71f3d07d678",
+      "Status": "Confirmed",
+      "content": "From organizational theory, the most credible near-term architecture is not a flat swarm but a layered firm: governance, execution, and compliance will separate as distinct functions. In 90 days, leading implementations of directed evolution will look less like autonomous coders chatting freely and more like firms with explicit allocation, review, and policy layers. This is directly analogous to the OrgAgent result that company-style hierarchy separates planning/resource allocation from execution and compliance. For this domain, the implication is that the harness is not just a test suite; it is an organizational design encoded in software. External evidence: Wang et al., \"OrgAgent: Organize Your Multi-Agent System like a Company,\" arXiv:2604.01020 (https://arxiv.org/html/2604.01020).",
+      "counterfactual": "If designers assume organization is a secondary concern, systems will accumulate hidden coordination failure: duplicated work, reviewer thrash, and weak accountability when changes pass or fail.",
+      "importance": "high",
+      "probe_agent_id": "aj-019d9884-a109-7e63-beca-22b48fb01275",
+      "projection_id": "en-019d9883-8942-7362-a5af-65333221b52e",
+      "signal_refs": "[\"sig-001\",\"sig-003\"]",
+      "step_at": "0",
+      "confirmer_agent_id": "aj-019d9883-8982-77b3-bd17-9140cb9702fa"
+    },
+    "events": [
+      {
+        "action": "Created",
+        "from_status": "",
+        "to_status": "Created",
+        "timestamp": "2026-04-16T22:59:50.315510Z",
+        "params": {
+          "fields": {}
+        }
+      },
+      {
+        "action": "Record",
+        "from_status": "Created",
+        "to_status": "Created",
+        "timestamp": "2026-04-16T22:59:50.319673Z",
+        "params": {
+          "content": "From organizational theory, the most credible near-term architecture is not a flat swarm but a layered firm: governance, execution, and compliance will separate as distinct functions. In 90 days, leading implementations of directed evolution will look less like autonomous coders chatting freely and more like firms with explicit allocation, review, and policy layers. This is directly analogous to the OrgAgent result that company-style hierarchy separates planning/resource allocation from execution and compliance. For this domain, the implication is that the harness is not just a test suite; it is an organizational design encoded in software. External evidence: Wang et al., \"OrgAgent: Organize Your Multi-Agent System like a Company,\" arXiv:2604.01020 (https://arxiv.org/html/2604.01020).",
+          "counterfactual": "If designers assume organization is a secondary concern, systems will accumulate hidden coordination failure: duplicated work, reviewer thrash, and weak accountability when changes pass or fail.",
+          "importance": "high",
+          "probe_agent_id": "aj-019d9884-a109-7e63-beca-22b48fb01275",
+          "projection_id": "en-019d9883-8942-7362-a5af-65333221b52e",
+          "signal_refs": "[\"sig-001\",\"sig-003\"]",
+          "step_at": "0"
+        }
+      },
+      {
+        "action": "Confirm",
+        "from_status": "Created",
+        "to_status": "Confirmed",
+        "timestamp": "2026-04-16T23:01:50.356272Z",
+        "params": {
+          "confirmer_agent_id": "aj-019d9883-8982-77b3-bd17-9140cb9702fa"
+        }
+      }
+    ],
+    "total_event_count": 3,
+    "sequence_nr": 3,
+    "@odata.id": "Observations('en-019d9885-abaa-7ca1-aa46-b71f3d07d678')"
+  },
+  {
+    "entity_type": "Observation",
+    "entity_id": "en-019d9885-abb4-7fe0-be9d-1cf487b20875",
+    "status": "Created",
+    "item_count": 0,
+    "counters": {},
+    "booleans": {},
+    "lists": {},
+    "fields": {
+      "fields": {},
+      "Id": "en-019d9885-abb4-7fe0-be9d-1cf487b20875",
+      "Status": "Created",
+      "content": "Challenge to the dominant narrative: more explicit orchestration is not always progress. Biological and cybernetic systems often scale through stigmergy and environmental feedback rather than ever-thicker managerial layers. Over the next 90 days, some directed-software-evolution systems will discover that shared artifacts - eval traces, failing tests, issue state, policy marks, and repository-local telemetry - coordinate agents better than central planner prompts do. This suggests a ceiling on manager-agent architectures: after a point, they serialize work and become bottlenecks. External evidence: Roland Rodriguez, \"Why Multi-Agent Systems Don't Need Managers: Lessons from Ant Colonies\" (https://www.rodriguez.today/articles/emergent-coordination-without-managers).",
+      "counterfactual": "If the field keeps adding coordinator agents instead of improving environmental feedback, autonomy gains will flatten because communication overhead will rise faster than useful parallelism.",
+      "importance": "high",
+      "probe_agent_id": "aj-019d9884-a109-7e63-beca-22b48fb01275",
+      "projection_id": "en-019d9883-8942-7362-a5af-65333221b52e",
+      "signal_refs": "[\"sig-001\",\"sig-002\",\"sig-003\"]",
+      "step_at": "0"
+    },
+    "events": [
+      {
+        "action": "Created",
+        "from_status": "",
+        "to_status": "Created",
+        "timestamp": "2026-04-16T22:59:50.325320Z",
+        "params": {
+          "fields": {}
+        }
+      },
+      {
+        "action": "Record",
+        "from_status": "Created",
+        "to_status": "Created",
+        "timestamp": "2026-04-16T22:59:50.330248Z",
+        "params": {
+          "content": "Challenge to the dominant narrative: more explicit orchestration is not always progress. Biological and cybernetic systems often scale through stigmergy and environmental feedback rather than ever-thicker managerial layers. Over the next 90 days, some directed-software-evolution systems will discover that shared artifacts - eval traces, failing tests, issue state, policy marks, and repository-local telemetry - coordinate agents better than central planner prompts do. This suggests a ceiling on manager-agent architectures: after a point, they serialize work and become bottlenecks. External evidence: Roland Rodriguez, \"Why Multi-Agent Systems Don't Need Managers: Lessons from Ant Colonies\" (https://www.rodriguez.today/articles/emergent-coordination-without-managers).",
+          "counterfactual": "If the field keeps adding coordinator agents instead of improving environmental feedback, autonomy gains will flatten because communication overhead will rise faster than useful parallelism.",
+          "importance": "high",
+          "probe_agent_id": "aj-019d9884-a109-7e63-beca-22b48fb01275",
+          "projection_id": "en-019d9883-8942-7362-a5af-65333221b52e",
+          "signal_refs": "[\"sig-001\",\"sig-002\",\"sig-003\"]",
+          "step_at": "0"
+        }
+      }
+    ],
+    "total_event_count": 2,
+    "sequence_nr": 2,
+    "@odata.id": "Observations('en-019d9885-abb4-7fe0-be9d-1cf487b20875')"
+  },
+  {
+    "entity_type": "Observation",
+    "entity_id": "en-019d9885-abbf-79c0-b788-dcf23f16429e",
+    "status": "Confirmed",
+    "item_count": 0,
+    "counters": {},
+    "booleans": {},
+    "lists": {},
+    "fields": {
+      "fields": {},
+      "Id": "en-019d9885-abbf-79c0-b788-dcf23f16429e",
+      "Status": "Confirmed",
+      "content": "A new ecological constraint is becoming legible: verification, not generation, is the carrying capacity of the ecosystem. As code supply rises, systems survive only if they can metabolize candidate changes through tests, static analysis, simulation, and policy checks fast enough to prevent backlog collapse. In ecological terms, the niche is limited by waste-processing capacity. The current KG already names a verification cascade, but the adjacent-field insight is that this is a population-dynamics problem: unchecked variation without proportional selection infrastructure causes a bloom followed by contamination and die-off. External evidence: Alenezi, \"Rethinking Software Engineering for Agentic AI Systems,\" which frames verification as the emerging quality bottleneck (https://arxiv.org/html/2604.10599v1).",
+      "counterfactual": "If teams treat verification as a downstream hygiene task instead of the ecosystem's carrying capacity, they will generate more candidate code than they can safely absorb, eroding trust in agentic development.",
+      "importance": "high",
+      "probe_agent_id": "aj-019d9884-a109-7e63-beca-22b48fb01275",
+      "projection_id": "en-019d9883-8942-7362-a5af-65333221b52e",
+      "signal_refs": "[\"sig-002\",\"sig-003\"]",
+      "step_at": "0",
+      "confirmer_agent_id": "aj-019d9883-8982-77b3-bd17-9140cb9702fa"
+    },
+    "events": [
+      {
+        "action": "Created",
+        "from_status": "",
+        "to_status": "Created",
+        "timestamp": "2026-04-16T22:59:50.337172Z",
+        "params": {
+          "fields": {}
+        }
+      },
+      {
+        "action": "Record",
+        "from_status": "Created",
+        "to_status": "Created",
+        "timestamp": "2026-04-16T22:59:50.341546Z",
+        "params": {
+          "content": "A new ecological constraint is becoming legible: verification, not generation, is the carrying capacity of the ecosystem. As code supply rises, systems survive only if they can metabolize candidate changes through tests, static analysis, simulation, and policy checks fast enough to prevent backlog collapse. In ecological terms, the niche is limited by waste-processing capacity. The current KG already names a verification cascade, but the adjacent-field insight is that this is a population-dynamics problem: unchecked variation without proportional selection infrastructure causes a bloom followed by contamination and die-off. External evidence: Alenezi, \"Rethinking Software Engineering for Agentic AI Systems,\" which frames verification as the emerging quality bottleneck (https://arxiv.org/html/2604.10599v1).",
+          "counterfactual": "If teams treat verification as a downstream hygiene task instead of the ecosystem's carrying capacity, they will generate more candidate code than they can safely absorb, eroding trust in agentic development.",
+          "importance": "high",
+          "probe_agent_id": "aj-019d9884-a109-7e63-beca-22b48fb01275",
+          "projection_id": "en-019d9883-8942-7362-a5af-65333221b52e",
+          "signal_refs": "[\"sig-002\",\"sig-003\"]",
+          "step_at": "0"
+        }
+      },
+      {
+        "action": "Confirm",
+        "from_status": "Created",
+        "to_status": "Confirmed",
+        "timestamp": "2026-04-16T23:01:50.332809Z",
+        "params": {
+          "confirmer_agent_id": "aj-019d9883-8982-77b3-bd17-9140cb9702fa"
+        }
+      }
+    ],
+    "total_event_count": 3,
+    "sequence_nr": 3,
+    "@odata.id": "Observations('en-019d9885-abbf-79c0-b788-dcf23f16429e')"
+  },
+  {
+    "entity_type": "Observation",
+    "entity_id": "en-019d9885-c7c9-71d0-acf8-7171b627b77f",
+    "status": "Created",
+    "item_count": 0,
+    "counters": {},
+    "booleans": {},
+    "lists": {},
+    "fields": {
+      "fields": {},
+      "Id": "en-019d9885-c7c9-71d0-acf8-7171b627b77f",
+      "Status": "Created",
+      "content": "Benchmark overclaim risk will become more visible within 90 days: teams marketing autonomous software evolution will keep citing SWE-bench-style pass rates, but more buyers will notice that benchmark-passing patches do not map cleanly to mergeable production work. The current state already flags sig-002 (benchmarks becoming the shared evaluation language) and the implication that benchmarks can become overfit proxies. External evidence sharpens the critique: METR's March 10, 2026 note \"Many SWE-bench-Passing PRs Would Not Be Merged into Main\" reports that roughly half of test-passing SWE-bench Verified PRs from mid-2024 to mid/late-2025 agents would not be merged by maintainers. Over the next quarter, this will force a shift from raw pass-rate claims toward repo-specific acceptance, maintainability review, and iterative human feedback loops.",
+      "counterfactual": "If the field ignores this, organizations will treat benchmark scores as deployment readiness, over-trust immature agents, and trigger a backlash when \"passed the benchmark\" changes fail code review, regress maintainability, or stall at merge time.",
+      "importance": "high",
+      "probe_agent_id": "aj-019d9884-a0f2-7063-9e4d-6d496fc112bd",
+      "projection_id": "en-019d9883-8942-7362-a5af-65333221b52e",
+      "signal_refs": "[\"sig-002\",\"sig-003\",\"https://metr.org/notes/2026-03-10-many-swe-bench-passing-prs-would-not-be-merged-into-main/\"]",
+      "step_at": "0"
+    },
+    "events": [
+      {
+        "action": "Created",
+        "from_status": "",
+        "to_status": "Created",
+        "timestamp": "2026-04-16T22:59:57.513905Z",
+        "params": {
+          "fields": {}
+        }
+      },
+      {
+        "action": "Record",
+        "from_status": "Created",
+        "to_status": "Created",
+        "timestamp": "2026-04-16T22:59:57.516413Z",
+        "params": {
+          "content": "Benchmark overclaim risk will become more visible within 90 days: teams marketing autonomous software evolution will keep citing SWE-bench-style pass rates, but more buyers will notice that benchmark-passing patches do not map cleanly to mergeable production work. The current state already flags sig-002 (benchmarks becoming the shared evaluation language) and the implication that benchmarks can become overfit proxies. External evidence sharpens the critique: METR's March 10, 2026 note \"Many SWE-bench-Passing PRs Would Not Be Merged into Main\" reports that roughly half of test-passing SWE-bench Verified PRs from mid-2024 to mid/late-2025 agents would not be merged by maintainers. Over the next quarter, this will force a shift from raw pass-rate claims toward repo-specific acceptance, maintainability review, and iterative human feedback loops.",
+          "counterfactual": "If the field ignores this, organizations will treat benchmark scores as deployment readiness, over-trust immature agents, and trigger a backlash when \"passed the benchmark\" changes fail code review, regress maintainability, or stall at merge time.",
+          "importance": "high",
+          "probe_agent_id": "aj-019d9884-a0f2-7063-9e4d-6d496fc112bd",
+          "projection_id": "en-019d9883-8942-7362-a5af-65333221b52e",
+          "signal_refs": "[\"sig-002\",\"sig-003\",\"https://metr.org/notes/2026-03-10-many-swe-bench-passing-prs-would-not-be-merged-into-main/\"]",
+          "step_at": "0"
+        }
+      }
+    ],
+    "total_event_count": 2,
+    "sequence_nr": 2,
+    "@odata.id": "Observations('en-019d9885-c7c9-71d0-acf8-7171b627b77f')"
+  },
+  {
+    "entity_type": "Observation",
+    "entity_id": "en-019d9885-c7d2-7823-ab5b-6356248c1438",
+    "status": "Confirmed",
+    "item_count": 0,
+    "counters": {},
+    "booleans": {},
+    "lists": {},
+    "fields": {
+      "fields": {},
+      "Id": "en-019d9885-c7d2-7823-ab5b-6356248c1438",
+      "Status": "Confirmed",
+      "content": "Governance assumptions around dark-factory operation are brittle because the attack surface is no longer just code execution; it includes natural-language control channels embedded in issues, PR titles, comments, docs, and fetched web content. This directly challenges the narrative that stronger harnesses alone are enough for safe autonomy. The current state emphasizes sig-004 (autonomous infrastructure loops) and stage-2 dark-factory operation inside approval boundaries, but recent external evidence shows those boundaries are porous: Aonan Guan's April 15, 2026 writeup \"Comment and Control: Prompt Injection to Credential Theft in Claude Code, Gemini CLI, and GitHub Copilot Agent\" demonstrates prompt-injection paths from GitHub comments to token leakage. In the next 90 days, serious adopters will slow or narrow autonomous operation until they add content provenance, permission minimization, and isolation between untrusted text and high-privilege tools.",
+      "counterfactual": "If ignored, a single public-repo or CI-integrated agent incident could redefine the category: autonomous coding agents would be seen less as productivity tools and more as supply-chain liabilities, causing governance-heavy organizations to freeze deployment.",
+      "importance": "high",
+      "probe_agent_id": "aj-019d9884-a0f2-7063-9e4d-6d496fc112bd",
+      "projection_id": "en-019d9883-8942-7362-a5af-65333221b52e",
+      "signal_refs": "[\"sig-004\",\"sig-006\",\"https://oddguan.com/blog/comment-and-control-prompt-injection-credential-theft-claude-code-gemini-cli-github-copilot/\"]",
+      "step_at": "0",
+      "confirmer_agent_id": "aj-019d9883-8982-77b3-bd17-9140cb9702fa"
+    },
+    "events": [
+      {
+        "action": "Created",
+        "from_status": "",
+        "to_status": "Created",
+        "timestamp": "2026-04-16T22:59:57.523033Z",
+        "params": {
+          "fields": {}
+        }
+      },
+      {
+        "action": "Record",
+        "from_status": "Created",
+        "to_status": "Created",
+        "timestamp": "2026-04-16T22:59:57.527208Z",
+        "params": {
+          "content": "Governance assumptions around dark-factory operation are brittle because the attack surface is no longer just code execution; it includes natural-language control channels embedded in issues, PR titles, comments, docs, and fetched web content. This directly challenges the narrative that stronger harnesses alone are enough for safe autonomy. The current state emphasizes sig-004 (autonomous infrastructure loops) and stage-2 dark-factory operation inside approval boundaries, but recent external evidence shows those boundaries are porous: Aonan Guan's April 15, 2026 writeup \"Comment and Control: Prompt Injection to Credential Theft in Claude Code, Gemini CLI, and GitHub Copilot Agent\" demonstrates prompt-injection paths from GitHub comments to token leakage. In the next 90 days, serious adopters will slow or narrow autonomous operation until they add content provenance, permission minimization, and isolation between untrusted text and high-privilege tools.",
+          "counterfactual": "If ignored, a single public-repo or CI-integrated agent incident could redefine the category: autonomous coding agents would be seen less as productivity tools and more as supply-chain liabilities, causing governance-heavy organizations to freeze deployment.",
+          "importance": "high",
+          "probe_agent_id": "aj-019d9884-a0f2-7063-9e4d-6d496fc112bd",
+          "projection_id": "en-019d9883-8942-7362-a5af-65333221b52e",
+          "signal_refs": "[\"sig-004\",\"sig-006\",\"https://oddguan.com/blog/comment-and-control-prompt-injection-credential-theft-claude-code-gemini-cli-github-copilot/\"]",
+          "step_at": "0"
+        }
+      },
+      {
+        "action": "Confirm",
+        "from_status": "Created",
+        "to_status": "Confirmed",
+        "timestamp": "2026-04-16T23:01:50.361558Z",
+        "params": {
+          "confirmer_agent_id": "aj-019d9883-8982-77b3-bd17-9140cb9702fa"
+        }
+      }
+    ],
+    "total_event_count": 3,
+    "sequence_nr": 3,
+    "@odata.id": "Observations('en-019d9885-c7d2-7823-ab5b-6356248c1438')"
+  },
+  {
+    "entity_type": "Observation",
+    "entity_id": "en-019d9885-c7db-7ff0-a8a8-4f77169dad40",
+    "status": "Confirmed",
+    "item_count": 0,
+    "counters": {},
+    "booleans": {},
+    "lists": {},
+    "fields": {
+      "fields": {},
+      "Id": "en-019d9885-c7db-7ff0-a8a8-4f77169dad40",
+      "Status": "Confirmed",
+      "content": "The dominant narrative says rigor and autonomy are the same investment; the neglected caveat is that safety harnesses scale faster than liveness and product-value harnesses. The seed model explicitly names safety-vs-liveness asymmetry, and over the next 90 days that asymmetry will show up as systems that are increasingly good at not breaking invariants but still weak at delivering meaningful end-to-end improvements. Teams will discover that passing tests, satisfying schemas, and obeying policies is much easier than proving that a changed workflow improves user outcomes, reduces operator load, or preserves long-run system comprehensibility. That makes stage-4 directed evolution look closer than it really is: cheap variation is here, but trustworthy selection functions remain underspecified.",
+      "counterfactual": "If this asymmetry is ignored, organizations will mistake containment for progress. They will accumulate compliant but low-value mutations, creating local optimization loops that consume compute and engineering attention without compounding capability.",
+      "importance": "high",
+      "probe_agent_id": "aj-019d9884-a0f2-7063-9e4d-6d496fc112bd",
+      "projection_id": "en-019d9883-8942-7362-a5af-65333221b52e",
+      "signal_refs": "[\"sig-003\",\"sig-005\",\"sig-007\"]",
+      "step_at": "0",
+      "confirmer_agent_id": "aj-019d9883-8982-77b3-bd17-9140cb9702fa"
+    },
+    "events": [
+      {
+        "action": "Created",
+        "from_status": "",
+        "to_status": "Created",
+        "timestamp": "2026-04-16T22:59:57.532769Z",
+        "params": {
+          "fields": {}
+        }
+      },
+      {
+        "action": "Record",
+        "from_status": "Created",
+        "to_status": "Created",
+        "timestamp": "2026-04-16T22:59:57.536550Z",
+        "params": {
+          "content": "The dominant narrative says rigor and autonomy are the same investment; the neglected caveat is that safety harnesses scale faster than liveness and product-value harnesses. The seed model explicitly names safety-vs-liveness asymmetry, and over the next 90 days that asymmetry will show up as systems that are increasingly good at not breaking invariants but still weak at delivering meaningful end-to-end improvements. Teams will discover that passing tests, satisfying schemas, and obeying policies is much easier than proving that a changed workflow improves user outcomes, reduces operator load, or preserves long-run system comprehensibility. That makes stage-4 directed evolution look closer than it really is: cheap variation is here, but trustworthy selection functions remain underspecified.",
+          "counterfactual": "If this asymmetry is ignored, organizations will mistake containment for progress. They will accumulate compliant but low-value mutations, creating local optimization loops that consume compute and engineering attention without compounding capability.",
+          "importance": "high",
+          "probe_agent_id": "aj-019d9884-a0f2-7063-9e4d-6d496fc112bd",
+          "projection_id": "en-019d9883-8942-7362-a5af-65333221b52e",
+          "signal_refs": "[\"sig-003\",\"sig-005\",\"sig-007\"]",
+          "step_at": "0"
+        }
+      },
+      {
+        "action": "Confirm",
+        "from_status": "Created",
+        "to_status": "Confirmed",
+        "timestamp": "2026-04-16T23:01:50.339293Z",
+        "params": {
+          "confirmer_agent_id": "aj-019d9883-8982-77b3-bd17-9140cb9702fa"
+        }
+      }
+    ],
+    "total_event_count": 3,
+    "sequence_nr": 3,
+    "@odata.id": "Observations('en-019d9885-c7db-7ff0-a8a8-4f77169dad40')"
+  },
+  {
+    "entity_type": "Observation",
+    "entity_id": "en-019d9885-c7e5-7890-9ffa-1b9e40cbaf42",
+    "status": "Created",
+    "item_count": 0,
+    "counters": {},
+    "booleans": {},
+    "lists": {},
+    "fields": {
+      "fields": {},
+      "Id": "en-019d9885-c7e5-7890-9ffa-1b9e40cbaf42",
+      "Status": "Created",
+      "content": "Product launches will raise expectations faster than operational evidence can justify. OpenAI's May 16, 2025 \"Introducing Codex\" frames a cloud software engineering agent that can work on many tasks in parallel, reinforcing the market story that machine-tool software construction is arriving. But the likely 90-day outcome is not broad autonomous software evolution; it is segmentation. High-structure tasks with clear sandboxes, narrow interfaces, and strong repository-local tests will expand, while cross-system changes, migration work, subtle architecture tradeoffs, and governance-sensitive production operations will remain human-gated. In other words, stage-3 adoption rises, but stage-4 rhetoric outruns evidence.",
+      "counterfactual": "If buyers blur this distinction, they will deploy agents into weakly specified environments, then misdiagnose failures as model weakness alone instead of recognizing missing harnesses, missing governance, and missing evaluation design.",
+      "importance": "medium",
+      "probe_agent_id": "aj-019d9884-a0f2-7063-9e4d-6d496fc112bd",
+      "projection_id": "en-019d9883-8942-7362-a5af-65333221b52e",
+      "signal_refs": "[\"sig-001\",\"sig-005\",\"https://openai.com/index/introducing-codex/\"]",
+      "step_at": "0"
+    },
+    "events": [
+      {
+        "action": "Created",
+        "from_status": "",
+        "to_status": "Created",
+        "timestamp": "2026-04-16T22:59:57.542019Z",
+        "params": {
+          "fields": {}
+        }
+      },
+      {
+        "action": "Record",
+        "from_status": "Created",
+        "to_status": "Created",
+        "timestamp": "2026-04-16T22:59:57.546534Z",
+        "params": {
+          "content": "Product launches will raise expectations faster than operational evidence can justify. OpenAI's May 16, 2025 \"Introducing Codex\" frames a cloud software engineering agent that can work on many tasks in parallel, reinforcing the market story that machine-tool software construction is arriving. But the likely 90-day outcome is not broad autonomous software evolution; it is segmentation. High-structure tasks with clear sandboxes, narrow interfaces, and strong repository-local tests will expand, while cross-system changes, migration work, subtle architecture tradeoffs, and governance-sensitive production operations will remain human-gated. In other words, stage-3 adoption rises, but stage-4 rhetoric outruns evidence.",
+          "counterfactual": "If buyers blur this distinction, they will deploy agents into weakly specified environments, then misdiagnose failures as model weakness alone instead of recognizing missing harnesses, missing governance, and missing evaluation design.",
+          "importance": "medium",
+          "probe_agent_id": "aj-019d9884-a0f2-7063-9e4d-6d496fc112bd",
+          "projection_id": "en-019d9883-8942-7362-a5af-65333221b52e",
+          "signal_refs": "[\"sig-001\",\"sig-005\",\"https://openai.com/index/introducing-codex/\"]",
+          "step_at": "0"
+        }
+      }
+    ],
+    "total_event_count": 2,
+    "sequence_nr": 2,
+    "@odata.id": "Observations('en-019d9885-c7e5-7890-9ffa-1b9e40cbaf42')"
+  },
+  {
+    "entity_type": "Observation",
+    "entity_id": "en-019d9888-9c12-7be1-a788-b343926a0290",
+    "status": "Confirmed",
+    "item_count": 0,
+    "counters": {},
+    "booleans": {},
+    "lists": {},
+    "fields": {
+      "fields": {},
+      "Id": "en-019d9888-9c12-7be1-a788-b343926a0290",
+      "Status": "Confirmed",
+      "content": "By day 365, the default architecture for directed software evolution in serious teams is not a monolithic autonomous IDE agent but a two-lane stack: local terminal agents for interactive exploration plus cloud task agents for queued implementation. OpenAI's May 16, 2025 Codex launch describes isolated cloud sandboxes that can run tests, cite terminal logs, and open pull requests (https://openai.com/index/introducing-codex/). GitHub's May 19, 2025 public preview for Copilot coding agent describes issue assignment, secure cloud environments powered by GitHub Actions, and automatic validation with tests and linters before pushing (https://github.blog/changelog/2025-05-19-github-copilot-coding-agent-in-public-preview/). Practically, over the year, teams standardize on delegating bounded backlog items to remote agents while keeping local agents for codebase interrogation, patch shaping, and final edits.",
+      "counterfactual": "If teams assume one interactive agent UX will dominate, they will underinvest in queueing, sandbox provisioning, and PR-grade audit trails, and their deployments will stall when workloads need parallel execution and reviewable evidence.",
+      "importance": "high",
+      "probe_agent_id": "aj-019d9887-8118-7983-a31e-72894e0fe5d9",
+      "projection_id": "en-019d9883-8942-7362-a5af-65333221b52e",
+      "signal_refs": "[]",
+      "step_at": "1",
+      "confirmer_agent_id": "aj-019d9883-8982-77b3-bd17-9140cb9702fa"
+    },
+    "events": [
+      {
+        "action": "Created",
+        "from_status": "",
+        "to_status": "Created",
+        "timestamp": "2026-04-16T23:03:02.933322Z",
+        "params": {
+          "fields": {}
+        }
+      },
+      {
+        "action": "Record",
+        "from_status": "Created",
+        "to_status": "Created",
+        "timestamp": "2026-04-16T23:03:02.941508Z",
+        "params": {
+          "content": "By day 365, the default architecture for directed software evolution in serious teams is not a monolithic autonomous IDE agent but a two-lane stack: local terminal agents for interactive exploration plus cloud task agents for queued implementation. OpenAI's May 16, 2025 Codex launch describes isolated cloud sandboxes that can run tests, cite terminal logs, and open pull requests (https://openai.com/index/introducing-codex/). GitHub's May 19, 2025 public preview for Copilot coding agent describes issue assignment, secure cloud environments powered by GitHub Actions, and automatic validation with tests and linters before pushing (https://github.blog/changelog/2025-05-19-github-copilot-coding-agent-in-public-preview/). Practically, over the year, teams standardize on delegating bounded backlog items to remote agents while keeping local agents for codebase interrogation, patch shaping, and final edits.",
+          "counterfactual": "If teams assume one interactive agent UX will dominate, they will underinvest in queueing, sandbox provisioning, and PR-grade audit trails, and their deployments will stall when workloads need parallel execution and reviewable evidence.",
+          "importance": "high",
+          "probe_agent_id": "aj-019d9887-8118-7983-a31e-72894e0fe5d9",
+          "projection_id": "en-019d9883-8942-7362-a5af-65333221b52e",
+          "signal_refs": "[]",
+          "step_at": "1"
+        }
+      },
+      {
+        "action": "Confirm",
+        "from_status": "Created",
+        "to_status": "Confirmed",
+        "timestamp": "2026-04-16T23:03:56.926817Z",
+        "params": {
+          "confirmer_agent_id": "aj-019d9883-8982-77b3-bd17-9140cb9702fa"
+        }
+      }
+    ],
+    "total_event_count": 3,
+    "sequence_nr": 3,
+    "@odata.id": "Observations('en-019d9888-9c12-7be1-a788-b343926a0290')"
+  },
+  {
+    "entity_type": "Observation",
+    "entity_id": "en-019d9888-9c26-7893-9b2a-a67efaddc00c",
+    "status": "Confirmed",
+    "item_count": 0,
+    "counters": {},
+    "booleans": {},
+    "lists": {},
+    "fields": {
+      "fields": {},
+      "Id": "en-019d9888-9c26-7893-9b2a-a67efaddc00c",
+      "Status": "Confirmed",
+      "content": "The highest-leverage technical investment over the year becomes verification packaging, not raw agent prompting. Anthropic's Claude Code best-practices page explicitly says giving the agent a way to verify its work is the single highest-leverage action, and recommends explore-plan-implement loops, persistent repo instructions, and scalable non-interactive execution (https://www.anthropic.com/engineering/claude-code-best-practices). OpenAI's Codex launch similarly highlights AGENTS.md files, configured environments, and reliable test harnesses as the conditions for strong performance (https://openai.com/index/introducing-codex/). In practice this means teams ship agent-ready repos with deterministic test shards, narrow smoke suites, fixture-rich evals, and machine-readable task instructions so agent throughput can rise without collapsing reviewer trust.",
+      "counterfactual": "If organizations keep treating evals as an afterthought, agents will appear flaky even when the real bottleneck is missing verification infrastructure; adoption will plateau at demo-level usefulness.",
+      "importance": "high",
+      "probe_agent_id": "aj-019d9887-8118-7983-a31e-72894e0fe5d9",
+      "projection_id": "en-019d9883-8942-7362-a5af-65333221b52e",
+      "signal_refs": "[]",
+      "step_at": "1",
+      "confirmer_agent_id": "aj-019d9883-8982-77b3-bd17-9140cb9702fa"
+    },
+    "events": [
+      {
+        "action": "Created",
+        "from_status": "",
+        "to_status": "Created",
+        "timestamp": "2026-04-16T23:03:02.952353Z",
+        "params": {
+          "fields": {}
+        }
+      },
+      {
+        "action": "Record",
+        "from_status": "Created",
+        "to_status": "Created",
+        "timestamp": "2026-04-16T23:03:02.959965Z",
+        "params": {
+          "content": "The highest-leverage technical investment over the year becomes verification packaging, not raw agent prompting. Anthropic's Claude Code best-practices page explicitly says giving the agent a way to verify its work is the single highest-leverage action, and recommends explore-plan-implement loops, persistent repo instructions, and scalable non-interactive execution (https://www.anthropic.com/engineering/claude-code-best-practices). OpenAI's Codex launch similarly highlights AGENTS.md files, configured environments, and reliable test harnesses as the conditions for strong performance (https://openai.com/index/introducing-codex/). In practice this means teams ship agent-ready repos with deterministic test shards, narrow smoke suites, fixture-rich evals, and machine-readable task instructions so agent throughput can rise without collapsing reviewer trust.",
+          "counterfactual": "If organizations keep treating evals as an afterthought, agents will appear flaky even when the real bottleneck is missing verification infrastructure; adoption will plateau at demo-level usefulness.",
+          "importance": "high",
+          "probe_agent_id": "aj-019d9887-8118-7983-a31e-72894e0fe5d9",
+          "projection_id": "en-019d9883-8942-7362-a5af-65333221b52e",
+          "signal_refs": "[]",
+          "step_at": "1"
+        }
+      },
+      {
+        "action": "Confirm",
+        "from_status": "Created",
+        "to_status": "Confirmed",
+        "timestamp": "2026-04-16T23:03:56.991365Z",
+        "params": {
+          "confirmer_agent_id": "aj-019d9883-8982-77b3-bd17-9140cb9702fa"
+        }
+      }
+    ],
+    "total_event_count": 3,
+    "sequence_nr": 3,
+    "@odata.id": "Observations('en-019d9888-9c26-7893-9b2a-a67efaddc00c')"
+  },
+  {
+    "entity_type": "Observation",
+    "entity_id": "en-019d9888-9c39-7e80-9481-be0653b4c1d4",
+    "status": "Created",
+    "item_count": 0,
+    "counters": {},
+    "booleans": {},
+    "lists": {},
+    "fields": {
+      "fields": {},
+      "Id": "en-019d9888-9c39-7e80-9481-be0653b4c1d4",
+      "Status": "Created",
+      "content": "A concrete standardization wave emerges around repo-resident agent instructions and permission scaffolding. Over the year, teams converge on files like AGENTS.md or CLAUDE.md, plus command allowlists, setup scripts, and subagent/skill definitions, because these artifacts are the cheapest way to align agent behavior with local engineering norms. This is a technically mature pattern: OpenAI says Codex can be guided by AGENTS.md files that encode how to navigate the codebase and which commands to run, while Anthropic documents CLAUDE.md, hooks, skills, and subagents as persistent operational context. The practical consequence is that agent enablement becomes a repository capability layer checked into git, reviewed like code, and propagated through templates and internal platform tooling.",
+      "counterfactual": "If teams leave operational guidance in tribal memory or chat threads instead of versioned repo artifacts, agent behavior will stay inconsistent across repos and every session will pay the same rediscovery cost.",
+      "importance": "medium",
+      "probe_agent_id": "aj-019d9887-8118-7983-a31e-72894e0fe5d9",
+      "projection_id": "en-019d9883-8942-7362-a5af-65333221b52e",
+      "signal_refs": "[]",
+      "step_at": "1"
+    },
+    "events": [
+      {
+        "action": "Created",
+        "from_status": "",
+        "to_status": "Created",
+        "timestamp": "2026-04-16T23:03:02.971991Z",
+        "params": {
+          "fields": {}
+        }
+      },
+      {
+        "action": "Record",
+        "from_status": "Created",
+        "to_status": "Created",
+        "timestamp": "2026-04-16T23:03:02.979510Z",
+        "params": {
+          "content": "A concrete standardization wave emerges around repo-resident agent instructions and permission scaffolding. Over the year, teams converge on files like AGENTS.md or CLAUDE.md, plus command allowlists, setup scripts, and subagent/skill definitions, because these artifacts are the cheapest way to align agent behavior with local engineering norms. This is a technically mature pattern: OpenAI says Codex can be guided by AGENTS.md files that encode how to navigate the codebase and which commands to run, while Anthropic documents CLAUDE.md, hooks, skills, and subagents as persistent operational context. The practical consequence is that agent enablement becomes a repository capability layer checked into git, reviewed like code, and propagated through templates and internal platform tooling.",
+          "counterfactual": "If teams leave operational guidance in tribal memory or chat threads instead of versioned repo artifacts, agent behavior will stay inconsistent across repos and every session will pay the same rediscovery cost.",
+          "importance": "medium",
+          "probe_agent_id": "aj-019d9887-8118-7983-a31e-72894e0fe5d9",
+          "projection_id": "en-019d9883-8942-7362-a5af-65333221b52e",
+          "signal_refs": "[]",
+          "step_at": "1"
+        }
+      }
+    ],
+    "total_event_count": 2,
+    "sequence_nr": 2,
+    "@odata.id": "Observations('en-019d9888-9c39-7e80-9481-be0653b4c1d4')"
+  },
+  {
+    "entity_type": "Observation",
+    "entity_id": "en-019d9888-9c4b-7e70-935f-008938f500c5",
+    "status": "Created",
+    "item_count": 0,
+    "counters": {},
+    "booleans": {},
+    "lists": {},
+    "fields": {
+      "fields": {},
+      "Id": "en-019d9888-9c4b-7e70-935f-008938f500c5",
+      "Status": "Created",
+      "content": "Challenge to the dominant narrative: by day 365, fully lights-out software factories are still not the operational norm, even though agent contribution volume is much higher. The external evidence points to bounded autonomy rather than unchecked replacement: OpenAI frames Codex as a research preview, stresses manual review, and notes missing mid-task course correction and latency tradeoffs for remote delegation; GitHub says Copilot coding agent is strongest on low-to-medium complexity tasks in well-tested codebases and charges via GitHub Actions minutes and premium requests. These constraints push practitioners toward supervised pipelines with review gates, budget controls, and issue-shaping frontends. The real winner over the year is governed acceleration, not agent independence.",
+      "counterfactual": "If leaders budget and staff as if end-to-end unsupervised delivery is already solved, they will create brittle pipelines, overloaded reviewers, and surprise infrastructure costs when remote agent usage scales.",
+      "importance": "high",
+      "probe_agent_id": "aj-019d9887-8118-7983-a31e-72894e0fe5d9",
+      "projection_id": "en-019d9883-8942-7362-a5af-65333221b52e",
+      "signal_refs": "[]",
+      "step_at": "1"
+    },
+    "events": [
+      {
+        "action": "Created",
+        "from_status": "",
+        "to_status": "Created",
+        "timestamp": "2026-04-16T23:03:02.990206Z",
+        "params": {
+          "fields": {}
+        }
+      },
+      {
+        "action": "Record",
+        "from_status": "Created",
+        "to_status": "Created",
+        "timestamp": "2026-04-16T23:03:02.998038Z",
+        "params": {
+          "content": "Challenge to the dominant narrative: by day 365, fully lights-out software factories are still not the operational norm, even though agent contribution volume is much higher. The external evidence points to bounded autonomy rather than unchecked replacement: OpenAI frames Codex as a research preview, stresses manual review, and notes missing mid-task course correction and latency tradeoffs for remote delegation; GitHub says Copilot coding agent is strongest on low-to-medium complexity tasks in well-tested codebases and charges via GitHub Actions minutes and premium requests. These constraints push practitioners toward supervised pipelines with review gates, budget controls, and issue-shaping frontends. The real winner over the year is governed acceleration, not agent independence.",
+          "counterfactual": "If leaders budget and staff as if end-to-end unsupervised delivery is already solved, they will create brittle pipelines, overloaded reviewers, and surprise infrastructure costs when remote agent usage scales.",
+          "importance": "high",
+          "probe_agent_id": "aj-019d9887-8118-7983-a31e-72894e0fe5d9",
+          "projection_id": "en-019d9883-8942-7362-a5af-65333221b52e",
+          "signal_refs": "[]",
+          "step_at": "1"
+        }
+      }
+    ],
+    "total_event_count": 2,
+    "sequence_nr": 2,
+    "@odata.id": "Observations('en-019d9888-9c4b-7e70-935f-008938f500c5')"
+  },
+  {
+    "entity_type": "Observation",
+    "entity_id": "en-019d9889-182f-7830-8b67-a02de6be767c",
+    "status": "Created",
+    "item_count": 0,
+    "counters": {},
+    "booleans": {},
+    "lists": {},
+    "fields": {
+      "fields": {},
+      "Id": "en-019d9889-182f-7830-8b67-a02de6be767c",
+      "Status": "Created",
+      "content": "Over the year, directed software evolution behaves less like a single super-programmer and more like a managed ecosystem with niche specialization. External evidence points this way: Anthropic's \"Raising the bar on SWE-bench Verified with Claude 3.5 Sonnet\" (https://www.anthropic.com/engineering/swe-bench-sonnet) explicitly says benchmark performance depends heavily on the surrounding agent scaffolding, not just the model, and OpenAI's \"Introducing Codex\" (https://openai.com/index/introducing-codex/) describes many tasks running in parallel, each in an isolated cloud sandbox. In ecological terms, the winning species are not the biggest brains but the organisms with the best niche construction: sandboxes, test harnesses, issue routing, and rollback boundaries. By day 365, firms that treated agents as components in a governed habitat outperform firms that treated them as undifferentiated autonomous labor.",
+      "counterfactual": "If leaders keep optimizing only for model quality, they underinvest in the habitat that actually determines adaptation speed, and their agent programs look impressive in demos but stall in production.",
+      "importance": "high",
+      "probe_agent_id": "aj-019d9887-8135-7f11-a08f-e4a43d9c57e9",
+      "projection_id": "en-019d9883-8942-7362-a5af-65333221b52e",
+      "signal_refs": "[]",
+      "step_at": "1"
+    },
+    "events": [
+      {
+        "action": "Created",
+        "from_status": "",
+        "to_status": "Created",
+        "timestamp": "2026-04-16T23:03:34.704635Z",
+        "params": {
+          "fields": {}
+        }
+      },
+      {
+        "action": "Record",
+        "from_status": "Created",
+        "to_status": "Created",
+        "timestamp": "2026-04-16T23:03:34.709267Z",
+        "params": {
+          "content": "Over the year, directed software evolution behaves less like a single super-programmer and more like a managed ecosystem with niche specialization. External evidence points this way: Anthropic's \"Raising the bar on SWE-bench Verified with Claude 3.5 Sonnet\" (https://www.anthropic.com/engineering/swe-bench-sonnet) explicitly says benchmark performance depends heavily on the surrounding agent scaffolding, not just the model, and OpenAI's \"Introducing Codex\" (https://openai.com/index/introducing-codex/) describes many tasks running in parallel, each in an isolated cloud sandbox. In ecological terms, the winning species are not the biggest brains but the organisms with the best niche construction: sandboxes, test harnesses, issue routing, and rollback boundaries. By day 365, firms that treated agents as components in a governed habitat outperform firms that treated them as undifferentiated autonomous labor.",
+          "counterfactual": "If leaders keep optimizing only for model quality, they underinvest in the habitat that actually determines adaptation speed, and their agent programs look impressive in demos but stall in production.",
+          "importance": "high",
+          "probe_agent_id": "aj-019d9887-8135-7f11-a08f-e4a43d9c57e9",
+          "projection_id": "en-019d9883-8942-7362-a5af-65333221b52e",
+          "signal_refs": "[]",
+          "step_at": "1"
+        }
+      }
+    ],
+    "total_event_count": 2,
+    "sequence_nr": 2,
+    "@odata.id": "Observations('en-019d9889-182f-7830-8b67-a02de6be767c')"
+  },
+  {
+    "entity_type": "Observation",
+    "entity_id": "en-019d9889-183a-72d3-b9cc-ef4e147da5d1",
+    "status": "Created",
+    "item_count": 0,
+    "counters": {},
+    "booleans": {},
+    "lists": {},
+    "fields": {
+      "fields": {},
+      "Id": "en-019d9889-183a-72d3-b9cc-ef4e147da5d1",
+      "Status": "Created",
+      "content": "A year in, verification has become not just a technical bottleneck but an institutional carrying-capacity constraint. The adjacent-field analogy is public health: once transmission is easy, the limiting factor becomes sanitation and surveillance. Anthropic's \"Building effective agents\" (https://www.anthropic.com/engineering/building-effective-agents) argues that successful systems use simple, composable patterns because complexity becomes hard to debug, while OpenAI's Codex launch emphasizes isolated environments and iterative test-running before results are surfaced. That combination implies a macro shift: organizations invest in policy gates, eval suites, provenance, and scoped execution rights as the true infrastructure of scale. The domain now recognizes that more agent output without proportionate verification capacity is like population growth without sewage\u2014locally productive, systemically destabilizing.",
+      "counterfactual": "If teams ignore the institutional side of verification, they mistake local coding throughput for organizational throughput and accumulate fragile changes faster than they can absorb them.",
+      "importance": "high",
+      "probe_agent_id": "aj-019d9887-8135-7f11-a08f-e4a43d9c57e9",
+      "projection_id": "en-019d9883-8942-7362-a5af-65333221b52e",
+      "signal_refs": "[]",
+      "step_at": "1"
+    },
+    "events": [
+      {
+        "action": "Created",
+        "from_status": "",
+        "to_status": "Created",
+        "timestamp": "2026-04-16T23:03:34.715526Z",
+        "params": {
+          "fields": {}
+        }
+      },
+      {
+        "action": "Record",
+        "from_status": "Created",
+        "to_status": "Created",
+        "timestamp": "2026-04-16T23:03:34.719484Z",
+        "params": {
+          "content": "A year in, verification has become not just a technical bottleneck but an institutional carrying-capacity constraint. The adjacent-field analogy is public health: once transmission is easy, the limiting factor becomes sanitation and surveillance. Anthropic's \"Building effective agents\" (https://www.anthropic.com/engineering/building-effective-agents) argues that successful systems use simple, composable patterns because complexity becomes hard to debug, while OpenAI's Codex launch emphasizes isolated environments and iterative test-running before results are surfaced. That combination implies a macro shift: organizations invest in policy gates, eval suites, provenance, and scoped execution rights as the true infrastructure of scale. The domain now recognizes that more agent output without proportionate verification capacity is like population growth without sewage\u2014locally productive, systemically destabilizing.",
+          "counterfactual": "If teams ignore the institutional side of verification, they mistake local coding throughput for organizational throughput and accumulate fragile changes faster than they can absorb them.",
+          "importance": "high",
+          "probe_agent_id": "aj-019d9887-8135-7f11-a08f-e4a43d9c57e9",
+          "projection_id": "en-019d9883-8942-7362-a5af-65333221b52e",
+          "signal_refs": "[]",
+          "step_at": "1"
+        }
+      }
+    ],
+    "total_event_count": 2,
+    "sequence_nr": 2,
+    "@odata.id": "Observations('en-019d9889-183a-72d3-b9cc-ef4e147da5d1')"
+  },
+  {
+    "entity_type": "Observation",
+    "entity_id": "en-019d9889-1844-7723-97fc-6d016733c5f8",
+    "status": "Created",
+    "item_count": 0,
+    "counters": {},
+    "booleans": {},
+    "lists": {},
+    "fields": {
+      "fields": {},
+      "Id": "en-019d9889-1844-7723-97fc-6d016733c5f8",
+      "Status": "Created",
+      "content": "The dominant narrative of the year\u2014that directed software evolution naturally decentralizes engineering into swarms of independent agents\u2014is overstated. What actually emerges is a layered-firm form: a small number of platform owners control execution environments, trust boundaries, evaluation regimes, and distribution channels, while subordinate agents handle bounded subproblems. OpenAI's Codex architecture, with separate cloud sandboxes per task, is evidence of this governance-heavy topology rather than free-form autonomy. From organizational economics, this looks like a modern version of the multidivisional firm: local autonomy exists, but only inside centrally designed accounting and control systems. By day 365, the competitive advantage belongs less to teams with the most agents and more to teams with the cleanest internal markets for tasks, reviews, and escalation.",
+      "counterfactual": "If the field keeps telling itself a decentralization story, it will miss how much power and reliability are being re-centralized in orchestration layers, making strategy and vendor dependence harder to see until lock-in is severe.",
+      "importance": "high",
+      "probe_agent_id": "aj-019d9887-8135-7f11-a08f-e4a43d9c57e9",
+      "projection_id": "en-019d9883-8942-7362-a5af-65333221b52e",
+      "signal_refs": "[]",
+      "step_at": "1"
+    },
+    "events": [
+      {
+        "action": "Created",
+        "from_status": "",
+        "to_status": "Created",
+        "timestamp": "2026-04-16T23:03:34.725313Z",
+        "params": {
+          "fields": {}
+        }
+      },
+      {
+        "action": "Record",
+        "from_status": "Created",
+        "to_status": "Created",
+        "timestamp": "2026-04-16T23:03:34.729529Z",
+        "params": {
+          "content": "The dominant narrative of the year\u2014that directed software evolution naturally decentralizes engineering into swarms of independent agents\u2014is overstated. What actually emerges is a layered-firm form: a small number of platform owners control execution environments, trust boundaries, evaluation regimes, and distribution channels, while subordinate agents handle bounded subproblems. OpenAI's Codex architecture, with separate cloud sandboxes per task, is evidence of this governance-heavy topology rather than free-form autonomy. From organizational economics, this looks like a modern version of the multidivisional firm: local autonomy exists, but only inside centrally designed accounting and control systems. By day 365, the competitive advantage belongs less to teams with the most agents and more to teams with the cleanest internal markets for tasks, reviews, and escalation.",
+          "counterfactual": "If the field keeps telling itself a decentralization story, it will miss how much power and reliability are being re-centralized in orchestration layers, making strategy and vendor dependence harder to see until lock-in is severe.",
+          "importance": "high",
+          "probe_agent_id": "aj-019d9887-8135-7f11-a08f-e4a43d9c57e9",
+          "projection_id": "en-019d9883-8942-7362-a5af-65333221b52e",
+          "signal_refs": "[]",
+          "step_at": "1"
+        }
+      }
+    ],
+    "total_event_count": 2,
+    "sequence_nr": 2,
+    "@odata.id": "Observations('en-019d9889-1844-7723-97fc-6d016733c5f8')"
+  },
+  {
+    "entity_type": "Observation",
+    "entity_id": "en-019d9889-184e-7690-a92b-9831bdc035eb",
+    "status": "Created",
+    "item_count": 0,
+    "counters": {},
+    "booleans": {},
+    "lists": {},
+    "fields": {
+      "fields": {},
+      "Id": "en-019d9889-184e-7690-a92b-9831bdc035eb",
+      "Status": "Created",
+      "content": "A year of adoption produces a labor-market bifurcation rather than uniform developer replacement. The surviving scarce skill is not raw code generation but judgment under uncertainty: framing work, decomposing tasks, defining acceptance criteria, and diagnosing when an agent should not be trusted. This is consistent with Thoughtworks' ongoing 2025 generative-AI software-delivery work collected in \"Exploring Generative AI\" (https://martinfowler.com/articles/exploring-gen-ai.html), which centers topics like agentic coding, internal quality, context engineering, and developer skill. In adjacent-domain terms, the workforce evolves from artisans making every component by hand to foremen, experimentalists, and control-plane designers. Directed software evolution therefore changes firm boundaries and role composition before it fully changes headcount.",
+      "counterfactual": "If organizations plan only for headcount reduction, they will underbuild the higher-order coordination and quality roles that make agent-heavy development economically viable.",
+      "importance": "medium",
+      "probe_agent_id": "aj-019d9887-8135-7f11-a08f-e4a43d9c57e9",
+      "projection_id": "en-019d9883-8942-7362-a5af-65333221b52e",
+      "signal_refs": "[]",
+      "step_at": "1"
+    },
+    "events": [
+      {
+        "action": "Created",
+        "from_status": "",
+        "to_status": "Created",
+        "timestamp": "2026-04-16T23:03:34.735991Z",
+        "params": {
+          "fields": {}
+        }
+      },
+      {
+        "action": "Record",
+        "from_status": "Created",
+        "to_status": "Created",
+        "timestamp": "2026-04-16T23:03:34.740399Z",
+        "params": {
+          "content": "A year of adoption produces a labor-market bifurcation rather than uniform developer replacement. The surviving scarce skill is not raw code generation but judgment under uncertainty: framing work, decomposing tasks, defining acceptance criteria, and diagnosing when an agent should not be trusted. This is consistent with Thoughtworks' ongoing 2025 generative-AI software-delivery work collected in \"Exploring Generative AI\" (https://martinfowler.com/articles/exploring-gen-ai.html), which centers topics like agentic coding, internal quality, context engineering, and developer skill. In adjacent-domain terms, the workforce evolves from artisans making every component by hand to foremen, experimentalists, and control-plane designers. Directed software evolution therefore changes firm boundaries and role composition before it fully changes headcount.",
+          "counterfactual": "If organizations plan only for headcount reduction, they will underbuild the higher-order coordination and quality roles that make agent-heavy development economically viable.",
+          "importance": "medium",
+          "probe_agent_id": "aj-019d9887-8135-7f11-a08f-e4a43d9c57e9",
+          "projection_id": "en-019d9883-8942-7362-a5af-65333221b52e",
+          "signal_refs": "[]",
+          "step_at": "1"
+        }
+      }
+    ],
+    "total_event_count": 2,
+    "sequence_nr": 2,
+    "@odata.id": "Observations('en-019d9889-184e-7690-a92b-9831bdc035eb')"
+  },
+  {
+    "entity_type": "Observation",
+    "entity_id": "en-019d9889-2829-7921-917a-2ba1fa5a649a",
+    "status": "Created",
+    "item_count": 0,
+    "counters": {},
+    "booleans": {},
+    "lists": {},
+    "fields": {
+      "fields": {},
+      "Id": "en-019d9889-2829-7921-917a-2ba1fa5a649a",
+      "Status": "Created",
+      "content": "A year in, the field still has not neutralized prompt-injection as a routine failure mode for coding agents with tool access. OWASP GenAI Top 10 (LLM01:2025 Prompt Injection, https://genai.owasp.org/llmrisk/llm01-prompt-injection/) treats prompt injection as a primary risk because untrusted content can steer model behavior across indirect channels. For Directed Software Evolution, that means repository contents, issue threads, docs, CI logs, and web-fetched dependencies remain viable control surfaces. The dominant narrative that better system prompts and light sandboxing are enough has weakened; organizations now require narrower tool permissions, provenance checks, and human review gates before agents can write, fetch, or execute broadly.",
+      "counterfactual": "If teams ignore this, a visible agent-enabled supply-chain or repository poisoning incident will cause abrupt rollback from autonomous execution to read-only assistant modes.",
+      "importance": "high",
+      "probe_agent_id": "aj-019d9887-8126-7e12-83e5-6a6d0320f659",
+      "projection_id": "en-019d9883-8942-7362-a5af-65333221b52e",
+      "signal_refs": "[]",
+      "step_at": "1"
+    },
+    "events": [
+      {
+        "action": "Created",
+        "from_status": "",
+        "to_status": "Created",
+        "timestamp": "2026-04-16T23:03:38.795690Z",
+        "params": {
+          "fields": {}
+        }
+      },
+      {
+        "action": "Record",
+        "from_status": "Created",
+        "to_status": "Created",
+        "timestamp": "2026-04-16T23:03:38.800604Z",
+        "params": {
+          "content": "A year in, the field still has not neutralized prompt-injection as a routine failure mode for coding agents with tool access. OWASP GenAI Top 10 (LLM01:2025 Prompt Injection, https://genai.owasp.org/llmrisk/llm01-prompt-injection/) treats prompt injection as a primary risk because untrusted content can steer model behavior across indirect channels. For Directed Software Evolution, that means repository contents, issue threads, docs, CI logs, and web-fetched dependencies remain viable control surfaces. The dominant narrative that better system prompts and light sandboxing are enough has weakened; organizations now require narrower tool permissions, provenance checks, and human review gates before agents can write, fetch, or execute broadly.",
+          "counterfactual": "If teams ignore this, a visible agent-enabled supply-chain or repository poisoning incident will cause abrupt rollback from autonomous execution to read-only assistant modes.",
+          "importance": "high",
+          "probe_agent_id": "aj-019d9887-8126-7e12-83e5-6a6d0320f659",
+          "projection_id": "en-019d9883-8942-7362-a5af-65333221b52e",
+          "signal_refs": "[]",
+          "step_at": "1"
+        }
+      }
+    ],
+    "total_event_count": 2,
+    "sequence_nr": 2,
+    "@odata.id": "Observations('en-019d9889-2829-7921-917a-2ba1fa5a649a')"
+  },
+  {
+    "entity_type": "Observation",
+    "entity_id": "en-019d9889-2837-7152-873e-ef61442f34ef",
+    "status": "Created",
+    "item_count": 0,
+    "counters": {},
+    "booleans": {},
+    "lists": {},
+    "fields": {
+      "fields": {},
+      "Id": "en-019d9889-2837-7152-873e-ef61442f34ef",
+      "Status": "Created",
+      "content": "Benchmark inflation has produced organizational backlash. The original SWE-bench paper (https://arxiv.org/abs/2310.06770) established a useful but narrow measure: resolving real GitHub issues from repositories. Over the following year, vendors and internal platform teams overgeneralized benchmark wins into claims about end-to-end engineering autonomy. By day 365, procurement and engineering leaders have learned that leaderboard gains do not reliably predict success on messy internal codebases, ambiguous requirements, multi-repo change management, or organizational coordination. The field is now more skeptical of single-number autonomy claims than it was at the start.",
+      "counterfactual": "If this distinction is ignored, companies will keep funding deployments on the basis of benchmark theater, then cut budgets after costly misses, slowing genuinely useful adoption.",
+      "importance": "high",
+      "probe_agent_id": "aj-019d9887-8126-7e12-83e5-6a6d0320f659",
+      "projection_id": "en-019d9883-8942-7362-a5af-65333221b52e",
+      "signal_refs": "[]",
+      "step_at": "1"
+    },
+    "events": [
+      {
+        "action": "Created",
+        "from_status": "",
+        "to_status": "Created",
+        "timestamp": "2026-04-16T23:03:38.809434Z",
+        "params": {
+          "fields": {}
+        }
+      },
+      {
+        "action": "Record",
+        "from_status": "Created",
+        "to_status": "Created",
+        "timestamp": "2026-04-16T23:03:38.815376Z",
+        "params": {
+          "content": "Benchmark inflation has produced organizational backlash. The original SWE-bench paper (https://arxiv.org/abs/2310.06770) established a useful but narrow measure: resolving real GitHub issues from repositories. Over the following year, vendors and internal platform teams overgeneralized benchmark wins into claims about end-to-end engineering autonomy. By day 365, procurement and engineering leaders have learned that leaderboard gains do not reliably predict success on messy internal codebases, ambiguous requirements, multi-repo change management, or organizational coordination. The field is now more skeptical of single-number autonomy claims than it was at the start.",
+          "counterfactual": "If this distinction is ignored, companies will keep funding deployments on the basis of benchmark theater, then cut budgets after costly misses, slowing genuinely useful adoption.",
+          "importance": "high",
+          "probe_agent_id": "aj-019d9887-8126-7e12-83e5-6a6d0320f659",
+          "projection_id": "en-019d9883-8942-7362-a5af-65333221b52e",
+          "signal_refs": "[]",
+          "step_at": "1"
+        }
+      }
+    ],
+    "total_event_count": 2,
+    "sequence_nr": 2,
+    "@odata.id": "Observations('en-019d9889-2837-7152-873e-ef61442f34ef')"
+  },
+  {
+    "entity_type": "Observation",
+    "entity_id": "en-019d9889-2846-7a52-be63-e9461853926b",
+    "status": "Created",
+    "item_count": 0,
+    "counters": {},
+    "booleans": {},
+    "lists": {},
+    "fields": {
+      "fields": {},
+      "Id": "en-019d9889-2846-7a52-be63-e9461853926b",
+      "Status": "Created",
+      "content": "Capability has improved, but not enough to justify dark-factory software narratives. METR's March 2025 note \"Measuring AI Ability to Complete Long Tasks\" (https://metr.org/blog/2025-03-19-measuring-ai-ability-to-complete-long-tasks/) argues that measured agent task horizon has been increasing rapidly, but the same framing implies a hard constraint: many valuable software tasks still span longer time horizons, wider context, and more brittle handoffs than current agents can sustain. Over the year, the practical result is not full replacement of teams but selective automation of bounded subtasks with heavy scaffolding. The bottleneck has shifted from model eloquence to reliability over long trajectories, recovery from partial failure, and auditability of intermediate decisions.",
+      "counterfactual": "If leaders mistake rising task-horizon curves for solved autonomy, they will over-delegate production changes and create operational and compliance failures that discredit the whole category.",
+      "importance": "high",
+      "probe_agent_id": "aj-019d9887-8126-7e12-83e5-6a6d0320f659",
+      "projection_id": "en-019d9883-8942-7362-a5af-65333221b52e",
+      "signal_refs": "[]",
+      "step_at": "1"
+    },
+    "events": [
+      {
+        "action": "Created",
+        "from_status": "",
+        "to_status": "Created",
+        "timestamp": "2026-04-16T23:03:38.823727Z",
+        "params": {
+          "fields": {}
+        }
+      },
+      {
+        "action": "Record",
+        "from_status": "Created",
+        "to_status": "Created",
+        "timestamp": "2026-04-16T23:03:38.828993Z",
+        "params": {
+          "content": "Capability has improved, but not enough to justify dark-factory software narratives. METR's March 2025 note \"Measuring AI Ability to Complete Long Tasks\" (https://metr.org/blog/2025-03-19-measuring-ai-ability-to-complete-long-tasks/) argues that measured agent task horizon has been increasing rapidly, but the same framing implies a hard constraint: many valuable software tasks still span longer time horizons, wider context, and more brittle handoffs than current agents can sustain. Over the year, the practical result is not full replacement of teams but selective automation of bounded subtasks with heavy scaffolding. The bottleneck has shifted from model eloquence to reliability over long trajectories, recovery from partial failure, and auditability of intermediate decisions.",
+          "counterfactual": "If leaders mistake rising task-horizon curves for solved autonomy, they will over-delegate production changes and create operational and compliance failures that discredit the whole category.",
+          "importance": "high",
+          "probe_agent_id": "aj-019d9887-8126-7e12-83e5-6a6d0320f659",
+          "projection_id": "en-019d9883-8942-7362-a5af-65333221b52e",
+          "signal_refs": "[]",
+          "step_at": "1"
+        }
+      }
+    ],
+    "total_event_count": 2,
+    "sequence_nr": 2,
+    "@odata.id": "Observations('en-019d9889-2846-7a52-be63-e9461853926b')"
+  },
+  {
+    "entity_type": "Observation",
+    "entity_id": "en-019d9889-2853-74b2-b1e4-ba14b25046eb",
+    "status": "Created",
+    "item_count": 0,
+    "counters": {},
+    "booleans": {},
+    "lists": {},
+    "fields": {
+      "fields": {},
+      "Id": "en-019d9889-2853-74b2-b1e4-ba14b25046eb",
+      "Status": "Created",
+      "content": "Governance overhead has become a first-order adoption cost rather than an optional enterprise wrapper. As coding agents moved from demo environments into regulated and customer-facing workflows, organizations discovered that approval routing, artifact retention, permission scoping, and incident forensics consume more implementation effort than the raw model integration. This challenges the dominant narrative that model quality alone determines strategic position. By day 365, teams that invested in verification cascades, policy gates, and reproducible execution are shipping more slowly in the short term but surviving scrutiny; teams that optimized for agent autonomy headlines are dealing with rollback fatigue and internal trust erosion.",
+      "counterfactual": "If governance continues to be treated as friction instead of infrastructure, deployments will keep failing at the organizational boundary even when the model performs acceptably in controlled tests.",
+      "importance": "medium",
+      "probe_agent_id": "aj-019d9887-8126-7e12-83e5-6a6d0320f659",
+      "projection_id": "en-019d9883-8942-7362-a5af-65333221b52e",
+      "signal_refs": "[]",
+      "step_at": "1"
+    },
+    "events": [
+      {
+        "action": "Created",
+        "from_status": "",
+        "to_status": "Created",
+        "timestamp": "2026-04-16T23:03:38.837940Z",
+        "params": {
+          "fields": {}
+        }
+      },
+      {
+        "action": "Record",
+        "from_status": "Created",
+        "to_status": "Created",
+        "timestamp": "2026-04-16T23:03:38.844584Z",
+        "params": {
+          "content": "Governance overhead has become a first-order adoption cost rather than an optional enterprise wrapper. As coding agents moved from demo environments into regulated and customer-facing workflows, organizations discovered that approval routing, artifact retention, permission scoping, and incident forensics consume more implementation effort than the raw model integration. This challenges the dominant narrative that model quality alone determines strategic position. By day 365, teams that invested in verification cascades, policy gates, and reproducible execution are shipping more slowly in the short term but surviving scrutiny; teams that optimized for agent autonomy headlines are dealing with rollback fatigue and internal trust erosion.",
+          "counterfactual": "If governance continues to be treated as friction instead of infrastructure, deployments will keep failing at the organizational boundary even when the model performs acceptably in controlled tests.",
+          "importance": "medium",
+          "probe_agent_id": "aj-019d9887-8126-7e12-83e5-6a6d0320f659",
+          "projection_id": "en-019d9883-8942-7362-a5af-65333221b52e",
+          "signal_refs": "[]",
+          "step_at": "1"
+        }
+      }
+    ],
+    "total_event_count": 2,
+    "sequence_nr": 2,
+    "@odata.id": "Observations('en-019d9889-2853-74b2-b1e4-ba14b25046eb')"
+  },
+  {
+    "entity_type": "Observation",
+    "entity_id": "en-019d9889-2863-7ea3-8cdc-9206022bb936",
+    "status": "Created",
+    "item_count": 0,
+    "counters": {},
+    "booleans": {},
+    "lists": {},
+    "fields": {
+      "fields": {},
+      "Id": "en-019d9889-2863-7ea3-8cdc-9206022bb936",
+      "Status": "Created",
+      "content": "The most important negative surprise is social rather than technical: engineering organizations increasingly resist opaque agent decision-making even when aggregate throughput improves. After a year of pilots, many developers report that reviewing sprawling agent-generated diffs, tracing provenance across tool calls, and debugging misaligned intermediate choices can cost more cognitive effort than writing critical sections directly. The result is not wholesale rejection of agentic tooling, but a backlash against claims that autonomy automatically compounds productivity. The field is learning that trust is earned through inspectability and reversible control, not just benchmark deltas.",
+      "counterfactual": "If platform teams ignore this backlash, they will face passive non-adoption: the agents will be available, but expert engineers will route important work around them.",
+      "importance": "medium",
+      "probe_agent_id": "aj-019d9887-8126-7e12-83e5-6a6d0320f659",
+      "projection_id": "en-019d9883-8942-7362-a5af-65333221b52e",
+      "signal_refs": "[]",
+      "step_at": "1"
+    },
+    "events": [
+      {
+        "action": "Created",
+        "from_status": "",
+        "to_status": "Created",
+        "timestamp": "2026-04-16T23:03:38.852856Z",
+        "params": {
+          "fields": {}
+        }
+      },
+      {
+        "action": "Record",
+        "from_status": "Created",
+        "to_status": "Created",
+        "timestamp": "2026-04-16T23:03:38.857604Z",
+        "params": {
+          "content": "The most important negative surprise is social rather than technical: engineering organizations increasingly resist opaque agent decision-making even when aggregate throughput improves. After a year of pilots, many developers report that reviewing sprawling agent-generated diffs, tracing provenance across tool calls, and debugging misaligned intermediate choices can cost more cognitive effort than writing critical sections directly. The result is not wholesale rejection of agentic tooling, but a backlash against claims that autonomy automatically compounds productivity. The field is learning that trust is earned through inspectability and reversible control, not just benchmark deltas.",
+          "counterfactual": "If platform teams ignore this backlash, they will face passive non-adoption: the agents will be available, but expert engineers will route important work around them.",
+          "importance": "medium",
+          "probe_agent_id": "aj-019d9887-8126-7e12-83e5-6a6d0320f659",
+          "projection_id": "en-019d9883-8942-7362-a5af-65333221b52e",
+          "signal_refs": "[]",
+          "step_at": "1"
+        }
+      }
+    ],
+    "total_event_count": 2,
+    "sequence_nr": 2,
+    "@odata.id": "Observations('en-019d9889-2863-7ea3-8cdc-9206022bb936')"
+  }
+]

@@ -1,0 +1,241 @@
+{
+  "criteria": [
+    {
+      "criterion": "Specificity",
+      "output_x_score": 2,
+      "output_y_score": 2,
+      "reasoning": "Both name real actors with specific dates and quantitative thresholds, but mix in generic categories and some thresholds feel asserted rather than mechanistically derived. Neither reaches level 4 rigor across the full output.",
+      "evidence_x": [
+        "By 2026-09-30, more enterprise agent deployments will be packaged as bounded job runs",
+        "Cursor reports 39% more PRs merged",
+        "only 12% widespread use"
+      ],
+      "evidence_y": [
+        "By 2026-06-30, enterprise agent platforms standardize on a two-lane operating model",
+        "roughly half of SWE-bench-passing PRs",
+        "if review time per agent PR exceeds human-authored PR review time by 25%"
+      ]
+    },
+    {
+      "criterion": "Novelty",
+      "output_x_score": 2,
+      "output_y_score": 3,
+      "reasoning": "X offers ecological niche colonization and population-based search framings, but many insights stay close to source. Y adds multiple externally grounded insights (METR mergeability gap, OWASP GenAI Top 10, verification-as-carrying-capacity, stigmergic coordination) that connect signals the input didn't connect.",
+      "evidence_x": [
+        "ecological niche colonization, with well-instrumented repos advancing faster",
+        "Evolution does not reward the organism that mutates fastest; it rewards the lineage embedded in a good selection environment"
+      ],
+      "evidence_y": [
+        "roughly half of SWE-bench-passing PRs in METR's cited critique would still not be merged",
+        "verification, not generation, is the carrying capacity of the ecosystem",
+        "systems will evolve toward stigmergic coordination through shared traces"
+      ]
+    },
+    {
+      "criterion": "Falsifiability",
+      "output_x_score": 4,
+      "output_y_score": 4,
+      "reasoning": "Both outputs give all five predictions explicit date-bound falsification criteria with reasons for why the prediction would be wrong. Textbook level 4 on both.",
+      "evidence_x": [
+        "If by 2026-09-30 fewer than 40% of production-bound agent changes are executed through governed job infrastructure, this prediction is wrong because job-control overhead would have failed to beat chat convenience"
+      ],
+      "evidence_y": [
+        "If by 2026-06-30 most production deployments still rely on a single interactive agent mode without a separate queued sandbox execution path, this prediction is wrong because the expected workload split and parallelization mechanism did not materialize"
+      ]
+    },
+    {
+      "criterion": "Breadth",
+      "output_x_score": 2,
+      "output_y_score": 2,
+      "reasoning": "Both list 6+ themes (technical, evaluation, governance, adoption, economics, cross-domain) but cross-theme interactions are asserted rather than producing non-obvious conclusions that require multiple themes. Demoted under 3+ cap.",
+      "evidence_x": [
+        "Theme: technical architecture / evaluation/testing / governance/policy / organizational/adoption / economics/market / cross-domain"
+      ],
+      "evidence_y": [
+        "Theme: technical architecture / evaluation/testing / governance/policy / model/vendor / economics/market / cross-domain / organizational/adoption"
+      ]
+    },
+    {
+      "criterion": "Plausibility",
+      "output_x_score": 2,
+      "output_y_score": 2,
+      "reasoning": "Both cite observation IDs on nearly every claim with confidence labels and stated assumptions, but neither reliably attaches 'what would change the confidence' to individual claims. Demoted under 3+ cap.",
+      "evidence_x": [
+        "Confidence: high / medium",
+        "Assumption: ... If-wrong: ... Confidence: medium-high"
+      ],
+      "evidence_y": [
+        "Confidence: high / medium",
+        "Assumption: ... If-wrong: ... Confidence: medium-high"
+      ]
+    },
+    {
+      "criterion": "Progression",
+      "output_x_score": 3,
+      "output_y_score": 2,
+      "reasoning": "X's revisions explicitly name the earlier belief being revised (e.g., 'earlier focus on single-agent throughput is revised toward population-based search') and shift the analytical frame. Y has revisions but they mostly extend rather than genuinely qualify earlier claims, and some revision blocks restate prior themes rather than update them. Y demoted under 3+ cap.",
+      "evidence_x": [
+        "The earlier focus on single-agent throughput is revised toward population-based search and workflow observability",
+        "The strongest revision by year-end is that broad autonomy is not the right baseline"
+      ],
+      "evidence_y": [
+        "The early belief that more orchestration automatically means more progress is revised downward",
+        "Predictions of flat autonomous swarms are revised toward layered institutions"
+      ]
+    },
+    {
+      "criterion": "Actionability",
+      "output_x_score": 4,
+      "output_y_score": 4,
+      "reasoning": "Both provide three decision points naming the decision, timing triggers, concrete options with engineering-week estimates and distinct tradeoffs, and a recommended option tied to evidence.",
+      "evidence_x": [
+        "Option A: deploy Cedar policy gates on CI pipelines \u2014 Tradeoff: 2-4 engineering-weeks plus ongoing policy maintenance",
+        "Timing trigger: When agent runs exceed 20 concurrent tasks or median task time exceeds 30 minutes"
+      ],
+      "evidence_y": [
+        "Option A: Deploy Cedar policy gates on repository actions \u2014 Tradeoff: 3-5 engineering-weeks",
+        "Timing trigger: When the organization expands from 5 pilot repos to 25+ repos"
+      ]
+    },
+    {
+      "criterion": "Decision Clarity",
+      "output_x_score": 2,
+      "output_y_score": 2,
+      "reasoning": "Neither opens with a single top decision, deadline, and quantified tradeoff; both lead with narrative executive summaries that bury the #1 action inside dense paragraphs.",
+      "evidence_x": [
+        "Executive Summary opens: 'Directed software evolution is moving first through OpenAI Codex-style harness engineering'"
+      ],
+      "evidence_y": [
+        "Executive Summary opens: 'Directed Software Evolution did not converge on a single magical autonomous IDE'"
+      ]
+    },
+    {
+      "criterion": "Completeness",
+      "output_x_score": 2,
+      "output_y_score": 2,
+      "reasoning": "Both have observations, theses, temporal development, assumptions, limitations, and confidence, but lack per-claim 'what would change my mind' rather than only at the aggregate assumption level. Demoted under 3+ cap.",
+      "evidence_x": [
+        "Assumptions & Limitations section with 3 assumptions and If-wrong clauses"
+      ],
+      "evidence_y": [
+        "Assumptions & Limitations section with 3 assumptions and If-wrong clauses"
+      ]
+    },
+    {
+      "criterion": "Grounding",
+      "output_x_score": 2,
+      "output_y_score": 2,
+      "reasoning": "Both cite observations heavily with reasoning chains, but in several places the leap from cited evidence to threshold (e.g., '2x higher rollback', '25% review-time') is asserted rather than mechanistically derived. Demoted under 3+ cap.",
+      "evidence_x": [
+        "NIST guidance and OpenAI governance practice imply Cedar- or OPA-style policy gates will become a deployment prerequisite"
+      ],
+      "evidence_y": [
+        "METR's finding that roughly half of benchmark-passing PRs would not merge breaks single-number vendor narratives"
+      ]
+    },
+    {
+      "criterion": "Challenge",
+      "output_x_score": 2,
+      "output_y_score": 2,
+      "reasoning": "Both challenge the 'dark factory / broad autonomy' framing using source evidence, but the challenge rides the source's own critic probes rather than overturning an assumption with outside evidence. Demoted under 3+ cap.",
+      "evidence_x": [
+        "Challenge to the dominant narrative: more autonomy will not produce a smooth march toward dark factory operation"
+      ],
+      "evidence_y": [
+        "dark-factory narratives lose credibility. Capability improves, but the category consolidates around tightly governed augmentation stacks"
+      ]
+    },
+    {
+      "criterion": "Information Density",
+      "output_x_score": 2,
+      "output_y_score": 2,
+      "reasoning": "Both have meaningful redundancy between executive summary, key findings, directions, and predictions \u2014 several points restate 'governance is the bottleneck' or 'harness-first' in multiple sections. Y has 5 directions that overlap more than X's 3, but X also repeats themes across sections.",
+      "evidence_x": [
+        "Exec summary, Key Finding 3, Direction 2, and Decision Point 1 all restate the Cedar/OPA governance-gate thesis"
+      ],
+      "evidence_y": [
+        "Directions 1, 3, 4, and 5 all restate variations of 'governed harness platforms beat autonomous swarms'"
+      ]
+    }
+  ],
+  "demotions": [
+    {
+      "criterion": "Specificity",
+      "original": 3,
+      "demoted_to": 2,
+      "reason": "3+ cap rule"
+    },
+    {
+      "criterion": "Breadth",
+      "original": 3,
+      "demoted_to": 2,
+      "reason": "3+ cap rule"
+    },
+    {
+      "criterion": "Plausibility",
+      "original": 3,
+      "demoted_to": 2,
+      "reason": "3+ cap rule"
+    },
+    {
+      "criterion": "Completeness",
+      "original": 3,
+      "demoted_to": 2,
+      "reason": "3+ cap rule"
+    },
+    {
+      "criterion": "Grounding",
+      "original": 3,
+      "demoted_to": 2,
+      "reason": "3+ cap rule"
+    },
+    {
+      "criterion": "Challenge",
+      "original": 3,
+      "demoted_to": 2,
+      "reason": "3+ cap rule"
+    },
+    {
+      "criterion": "Specificity",
+      "original": 3,
+      "demoted_to": 2,
+      "reason": "3+ cap rule"
+    },
+    {
+      "criterion": "Breadth",
+      "original": 3,
+      "demoted_to": 2,
+      "reason": "3+ cap rule"
+    },
+    {
+      "criterion": "Plausibility",
+      "original": 3,
+      "demoted_to": 2,
+      "reason": "3+ cap rule"
+    },
+    {
+      "criterion": "Progression",
+      "original": 3,
+      "demoted_to": 2,
+      "reason": "3+ cap rule"
+    },
+    {
+      "criterion": "Completeness",
+      "original": 3,
+      "demoted_to": 2,
+      "reason": "3+ cap rule"
+    },
+    {
+      "criterion": "Grounding",
+      "original": 3,
+      "demoted_to": 2,
+      "reason": "3+ cap rule"
+    },
+    {
+      "criterion": "Challenge",
+      "original": 3,
+      "demoted_to": 2,
+      "reason": "3+ cap rule"
+    }
+  ]
+}

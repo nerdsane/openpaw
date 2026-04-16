@@ -1,0 +1,326 @@
+[
+  {
+    "entity_type": "Direction",
+    "entity_id": "en-019d9885-6ebd-7e30-bfd6-541628591258",
+    "status": "Proposed",
+    "item_count": 0,
+    "counters": {},
+    "booleans": {},
+    "lists": {},
+    "fields": {
+      "fields": {},
+      "Id": "en-019d9885-6ebd-7e30-bfd6-541628591258",
+      "Status": "Proposed",
+      "counterfactual_summary": "If general autonomous coders become reliably self-directing before harnessed action substrates mature, teams that invested heavily in governed machine-tool layers may appear slower initially; however, absent such a jump, most ungoverned deployments will fail trust and reliability tests.",
+      "grounding": "[\"https://developers.openai.com/codex/cli/\",\"https://techcrunch.com/2025/04/16/openai-debuts-codex-cli-an-open-source-coding-tool-for-terminals/\",\"https://www.anthropic.com/claude-code\"]",
+      "observation_ids": "[\"en-019d9885-6e93-7642-a0e8-20c5f1459282\",\"en-019d9885-6e9f-7820-9aee-6c49e4815340\",\"en-019d9885-6ea9-7eb0-967a-47e0857e5834\",\"en-019d9885-6eb3-7ff3-a129-6101ae4e0d8c\"]",
+      "projection_id": "en-019d9883-8942-7362-a5af-65333221b52e",
+      "proposer_agent_id": "aj-019d9884-a0e1-7533-bf5d-59f0a83ba6c3",
+      "reasoning": "The strongest practical direction for the next 90 days is that directed software evolution will advance through harnessed machine-tool platforms, not unrestricted autonomous coders. The external evidence points in the same direction: OpenAI is productizing Codex as a local terminal agent with explicit orchestration, guardrails, and eval surfaces, while Anthropic is positioning Claude Code across terminal, IDE, Slack, and web rather than as a hidden fully autonomous backend. That is exactly where practitioners can adopt quickly: inside bounded repositories, approved execution environments, and repeatable deployment paths.\n\nTechnically, this favors architectures where models generate candidate actions but platform primitives enforce state transitions, policy checks, and verification cascades. Teams that win will define stable action vocabularies and replayable harnesses first, then let increasingly capable models explore inside those bounds. The counter-position\u2014that better frontier models alone will unlock broad autonomous software evolution in the next quarter\u2014is weaker, because the remaining bottleneck is trustworthy selection and progress measurement. In other words, the near-term compounding advantage belongs to organizations that treat verification, auditability, and deployable action surfaces as product infrastructure, not as after-the-fact safety add-ons.",
+      "step_at": "0",
+      "title": "Near-term adoption will favor harnessed machine-tool platforms over unrestricted autonomous coders."
+    },
+    "events": [
+      {
+        "action": "Created",
+        "from_status": "",
+        "to_status": "Proposed",
+        "timestamp": "2026-04-16T22:59:34.718495Z",
+        "params": {
+          "fields": {}
+        }
+      },
+      {
+        "action": "Propose",
+        "from_status": "Proposed",
+        "to_status": "Proposed",
+        "timestamp": "2026-04-16T22:59:34.722751Z",
+        "params": {
+          "counterfactual_summary": "If general autonomous coders become reliably self-directing before harnessed action substrates mature, teams that invested heavily in governed machine-tool layers may appear slower initially; however, absent such a jump, most ungoverned deployments will fail trust and reliability tests.",
+          "grounding": "[\"https://developers.openai.com/codex/cli/\",\"https://techcrunch.com/2025/04/16/openai-debuts-codex-cli-an-open-source-coding-tool-for-terminals/\",\"https://www.anthropic.com/claude-code\"]",
+          "observation_ids": "[\"en-019d9885-6e93-7642-a0e8-20c5f1459282\",\"en-019d9885-6e9f-7820-9aee-6c49e4815340\",\"en-019d9885-6ea9-7eb0-967a-47e0857e5834\",\"en-019d9885-6eb3-7ff3-a129-6101ae4e0d8c\"]",
+          "projection_id": "en-019d9883-8942-7362-a5af-65333221b52e",
+          "proposer_agent_id": "aj-019d9884-a0e1-7533-bf5d-59f0a83ba6c3",
+          "reasoning": "The strongest practical direction for the next 90 days is that directed software evolution will advance through harnessed machine-tool platforms, not unrestricted autonomous coders. The external evidence points in the same direction: OpenAI is productizing Codex as a local terminal agent with explicit orchestration, guardrails, and eval surfaces, while Anthropic is positioning Claude Code across terminal, IDE, Slack, and web rather than as a hidden fully autonomous backend. That is exactly where practitioners can adopt quickly: inside bounded repositories, approved execution environments, and repeatable deployment paths.\n\nTechnically, this favors architectures where models generate candidate actions but platform primitives enforce state transitions, policy checks, and verification cascades. Teams that win will define stable action vocabularies and replayable harnesses first, then let increasingly capable models explore inside those bounds. The counter-position\u2014that better frontier models alone will unlock broad autonomous software evolution in the next quarter\u2014is weaker, because the remaining bottleneck is trustworthy selection and progress measurement. In other words, the near-term compounding advantage belongs to organizations that treat verification, auditability, and deployable action surfaces as product infrastructure, not as after-the-fact safety add-ons.",
+          "step_at": "0",
+          "title": "Near-term adoption will favor harnessed machine-tool platforms over unrestricted autonomous coders."
+        }
+      }
+    ],
+    "total_event_count": 2,
+    "sequence_nr": 2,
+    "@odata.id": "Directions('en-019d9885-6ebd-7e30-bfd6-541628591258')"
+  },
+  {
+    "entity_type": "Direction",
+    "entity_id": "en-019d9885-abca-7900-8d79-f75b9480de20",
+    "status": "Proposed",
+    "item_count": 0,
+    "counters": {},
+    "booleans": {},
+    "lists": {},
+    "fields": {
+      "fields": {},
+      "Id": "en-019d9885-abca-7900-8d79-f75b9480de20",
+      "Status": "Proposed",
+      "counterfactual_summary": "If this direction is wrong, raw model quality and centralized orchestration will dominate, and teams with weaker institutional scaffolding will still achieve reliable autonomous evolution through generation alone.",
+      "grounding": "[\"sig-001\",\"sig-002\",\"sig-003\"]",
+      "observation_ids": "[\"en-019d9885-aba0-7072-9dec-7f306a3605cc\",\"en-019d9885-abaa-7ca1-aa46-b71f3d07d678\",\"en-019d9885-abb4-7fe0-be9d-1cf487b20875\",\"en-019d9885-abbf-79c0-b788-dcf23f16429e\"]",
+      "projection_id": "en-019d9883-8942-7362-a5af-65333221b52e",
+      "proposer_agent_id": "aj-019d9884-a109-7e63-beca-22b48fb01275",
+      "reasoning": "Across economics, biology, and organizational theory, the strongest thesis is that Directed Software Evolution is about building selective institutions, not just stronger generators. In the next 90 days, the winning systems will be the ones that encode governance, execution, and compliance into the development substrate so that variation can increase without collapsing trust. This extends the model's core claim that rigor and autonomy compound together: the practical compounding mechanism is institutional. Harnesses act like market rules, immune filters, and organizational boundaries at once. They determine which mutations are affordable to test, which are admissible to deploy, and which failures are locally containable.\n\nThe crucial implication is that the field should optimize for throughput of selection rather than volume of generation. That means repo-local evals, policy gates, archival memory, audit trails, and artifact-mediated coordination should receive more investment than yet another layer of conversational orchestration. Hierarchical control will appear where accountability is expensive, but beyond a point, systems will evolve toward stigmergic coordination through shared traces and machine-readable constraints. If this thesis is right, Directed Software Evolution will look less like autonomous pair programming and more like an artificial ecosystem with explicit niches, carrying capacities, and continuous selective pressure.",
+      "step_at": "0",
+      "title": "Directed Software Evolution will advance fastest where teams treat harnesses as institutions for selection, not merely tests for generated code."
+    },
+    "events": [
+      {
+        "action": "Created",
+        "from_status": "",
+        "to_status": "Proposed",
+        "timestamp": "2026-04-16T22:59:50.347249Z",
+        "params": {
+          "fields": {}
+        }
+      },
+      {
+        "action": "Propose",
+        "from_status": "Proposed",
+        "to_status": "Proposed",
+        "timestamp": "2026-04-16T22:59:50.350817Z",
+        "params": {
+          "counterfactual_summary": "If this direction is wrong, raw model quality and centralized orchestration will dominate, and teams with weaker institutional scaffolding will still achieve reliable autonomous evolution through generation alone.",
+          "grounding": "[\"sig-001\",\"sig-002\",\"sig-003\"]",
+          "observation_ids": "[\"en-019d9885-aba0-7072-9dec-7f306a3605cc\",\"en-019d9885-abaa-7ca1-aa46-b71f3d07d678\",\"en-019d9885-abb4-7fe0-be9d-1cf487b20875\",\"en-019d9885-abbf-79c0-b788-dcf23f16429e\"]",
+          "projection_id": "en-019d9883-8942-7362-a5af-65333221b52e",
+          "proposer_agent_id": "aj-019d9884-a109-7e63-beca-22b48fb01275",
+          "reasoning": "Across economics, biology, and organizational theory, the strongest thesis is that Directed Software Evolution is about building selective institutions, not just stronger generators. In the next 90 days, the winning systems will be the ones that encode governance, execution, and compliance into the development substrate so that variation can increase without collapsing trust. This extends the model's core claim that rigor and autonomy compound together: the practical compounding mechanism is institutional. Harnesses act like market rules, immune filters, and organizational boundaries at once. They determine which mutations are affordable to test, which are admissible to deploy, and which failures are locally containable.\n\nThe crucial implication is that the field should optimize for throughput of selection rather than volume of generation. That means repo-local evals, policy gates, archival memory, audit trails, and artifact-mediated coordination should receive more investment than yet another layer of conversational orchestration. Hierarchical control will appear where accountability is expensive, but beyond a point, systems will evolve toward stigmergic coordination through shared traces and machine-readable constraints. If this thesis is right, Directed Software Evolution will look less like autonomous pair programming and more like an artificial ecosystem with explicit niches, carrying capacities, and continuous selective pressure.",
+          "step_at": "0",
+          "title": "Directed Software Evolution will advance fastest where teams treat harnesses as institutions for selection, not merely tests for generated code."
+        }
+      }
+    ],
+    "total_event_count": 2,
+    "sequence_nr": 2,
+    "@odata.id": "Directions('en-019d9885-abca-7900-8d79-f75b9480de20')"
+  },
+  {
+    "entity_type": "Direction",
+    "entity_id": "en-019d9885-c7f1-7c61-a428-027806530e0b",
+    "status": "Archived",
+    "item_count": 0,
+    "counters": {},
+    "booleans": {},
+    "lists": {},
+    "fields": {
+      "fields": {},
+      "Id": "en-019d9885-c7f1-7c61-a428-027806530e0b",
+      "Status": "Archived",
+      "counterfactual_summary": "If this direction is wrong, then recent benchmark, product, and security signals will prove to be transient noise: agents will generalize cleanly from benchmarks to mergeable work, prompt-injection defenses will harden faster than expected, and broad autonomous software evolution will expand without a corresponding governance slowdown.",
+      "grounding": "[\"sig-002\",\"sig-003\",\"sig-004\",\"https://metr.org/notes/2026-03-10-many-swe-bench-passing-prs-would-not-be-merged-into-main/\",\"https://oddguan.com/blog/comment-and-control-prompt-injection-credential-theft-claude-code-gemini-cli-github-copilot/\",\"https://openai.com/index/introducing-codex/\"]",
+      "observation_ids": "[\"en-019d9885-c7c9-71d0-acf8-7171b627b77f\",\"en-019d9885-c7d2-7823-ab5b-6356248c1438\",\"en-019d9885-c7db-7ff0-a8a8-4f77169dad40\",\"en-019d9885-c7e5-7890-9ffa-1b9e40cbaf42\"]",
+      "projection_id": "en-019d9883-8942-7362-a5af-65333221b52e",
+      "proposer_agent_id": "aj-019d9884-a0f2-7063-9e4d-6d496fc112bd",
+      "reasoning": "The next 90 days will not falsify the Directed Software Evolution thesis, but they will expose its weakest assumption: that better code-generation and more verification automatically produce trustworthy autonomy. The field is currently compressing several distinct things into one success narrative: benchmark progress, agent UX progress, governance maturity, and real-world mergeability. Those curves are not moving together. External evidence already shows that benchmark-passing work is often not maintainer-acceptable, and that agent operating surfaces remain vulnerable to prompt-injection and credential-exfiltration patterns. This means the bottleneck is shifting away from raw model output and toward evaluation design, privilege architecture, and socio-technical acceptance criteria.\n\nAs a result, the strongest near-term direction is not \"more autonomy everywhere\" but \"narrower autonomy with harder gates.\" Systems that win over the next quarter will be the ones that treat autonomous software evolution as a governed control problem: isolate agents from untrusted text, minimize ambient credentials, require repo-specific acceptance harnesses, and distinguish safety evidence from value evidence. The practical outcome is a temporary contraction of scope: more disciplined stage-2 and stage-3 deployments in bounded domains, alongside growing skepticism toward stage-4 claims until selection functions can measure maintainability, operator trust, and real production value rather than test pass rates alone.",
+      "step_at": "0",
+      "title": "Near-term progress concentrates in tightly governed agent loops, while overbroad autonomy claims retreat under evaluation and security pressure.",
+      "archive_reason": "Revised in step 1"
+    },
+    "events": [
+      {
+        "action": "Created",
+        "from_status": "",
+        "to_status": "Proposed",
+        "timestamp": "2026-04-16T22:59:57.554114Z",
+        "params": {
+          "fields": {}
+        }
+      },
+      {
+        "action": "Propose",
+        "from_status": "Proposed",
+        "to_status": "Proposed",
+        "timestamp": "2026-04-16T22:59:57.557859Z",
+        "params": {
+          "counterfactual_summary": "If this direction is wrong, then recent benchmark, product, and security signals will prove to be transient noise: agents will generalize cleanly from benchmarks to mergeable work, prompt-injection defenses will harden faster than expected, and broad autonomous software evolution will expand without a corresponding governance slowdown.",
+          "grounding": "[\"sig-002\",\"sig-003\",\"sig-004\",\"https://metr.org/notes/2026-03-10-many-swe-bench-passing-prs-would-not-be-merged-into-main/\",\"https://oddguan.com/blog/comment-and-control-prompt-injection-credential-theft-claude-code-gemini-cli-github-copilot/\",\"https://openai.com/index/introducing-codex/\"]",
+          "observation_ids": "[\"en-019d9885-c7c9-71d0-acf8-7171b627b77f\",\"en-019d9885-c7d2-7823-ab5b-6356248c1438\",\"en-019d9885-c7db-7ff0-a8a8-4f77169dad40\",\"en-019d9885-c7e5-7890-9ffa-1b9e40cbaf42\"]",
+          "projection_id": "en-019d9883-8942-7362-a5af-65333221b52e",
+          "proposer_agent_id": "aj-019d9884-a0f2-7063-9e4d-6d496fc112bd",
+          "reasoning": "The next 90 days will not falsify the Directed Software Evolution thesis, but they will expose its weakest assumption: that better code-generation and more verification automatically produce trustworthy autonomy. The field is currently compressing several distinct things into one success narrative: benchmark progress, agent UX progress, governance maturity, and real-world mergeability. Those curves are not moving together. External evidence already shows that benchmark-passing work is often not maintainer-acceptable, and that agent operating surfaces remain vulnerable to prompt-injection and credential-exfiltration patterns. This means the bottleneck is shifting away from raw model output and toward evaluation design, privilege architecture, and socio-technical acceptance criteria.\n\nAs a result, the strongest near-term direction is not \"more autonomy everywhere\" but \"narrower autonomy with harder gates.\" Systems that win over the next quarter will be the ones that treat autonomous software evolution as a governed control problem: isolate agents from untrusted text, minimize ambient credentials, require repo-specific acceptance harnesses, and distinguish safety evidence from value evidence. The practical outcome is a temporary contraction of scope: more disciplined stage-2 and stage-3 deployments in bounded domains, alongside growing skepticism toward stage-4 claims until selection functions can measure maintainability, operator trust, and real production value rather than test pass rates alone.",
+          "step_at": "0",
+          "title": "Near-term progress concentrates in tightly governed agent loops, while overbroad autonomy claims retreat under evaluation and security pressure."
+        }
+      },
+      {
+        "action": "Archive",
+        "from_status": "Proposed",
+        "to_status": "Archived",
+        "timestamp": "2026-04-16T23:03:38.865455Z",
+        "params": {
+          "archive_reason": "Revised in step 1"
+        }
+      }
+    ],
+    "total_event_count": 3,
+    "sequence_nr": 3,
+    "@odata.id": "Directions('en-019d9885-c7f1-7c61-a428-027806530e0b')"
+  },
+  {
+    "entity_type": "Direction",
+    "entity_id": "en-019d9888-9c5e-7183-be71-1c73f43f74f6",
+    "status": "Proposed",
+    "item_count": 0,
+    "counters": {},
+    "booleans": {},
+    "lists": {},
+    "fields": {
+      "fields": {},
+      "Id": "en-019d9888-9c5e-7183-be71-1c73f43f74f6",
+      "Status": "Proposed",
+      "counterfactual_summary": "If this direction is wrong and raw model quality dominates without repository and CI adaptation, then heavy investments in instruction files, eval packaging, and governed orchestration will be overbuilt relative to simpler chat-first workflows.",
+      "grounding": "[\"https://openai.com/index/introducing-codex/\",\"https://github.blog/changelog/2025-05-19-github-copilot-coding-agent-in-public-preview/\",\"https://www.anthropic.com/engineering/claude-code-best-practices\"]",
+      "observation_ids": "[\"en-019d9888-9c12-7be1-a788-b343926a0290\",\"en-019d9888-9c26-7893-9b2a-a67efaddc00c\",\"en-019d9888-9c39-7e80-9481-be0653b4c1d4\",\"en-019d9888-9c4b-7e70-935f-008938f500c5\"]",
+      "projection_id": "en-019d9883-8942-7362-a5af-65333221b52e",
+      "proposer_agent_id": "aj-019d9887-8118-7983-a31e-72894e0fe5d9",
+      "reasoning": "Over the next year, directed software evolution matures into a CI-centered orchestration pattern rather than an autonomous-coder monoculture. The winning stack pairs interactive local agents with remote issue executors, both anchored to repo-resident instructions, deterministic setup scripts, and verification harnesses that let agents prove work through tests, logs, and reviewable diffs. This matches the external product direction: OpenAI and GitHub both move toward sandboxed background execution with PR-oriented evidence, while Anthropic emphasizes persistent project instructions, plan-first workflows, and verification loops. Practitioners will adopt the pieces that fit existing software delivery controls: branch protections, pull request review, test gates, and issue routing.\n\nThe constraint that shapes the market is not model cleverness alone but operational throughput under governance. Teams that make repositories agent-readable and verifier-friendly will see compounding gains: more parallel backlog burn-down, faster triage, and better handoff between humans and agents. Teams that do not will experience noisy patches, evaluation drift, and cost blowouts from remote execution. As a result, the standard deployment pattern by day 365 is an agent platform embedded into CI/CD and task systems, with explicit budget controls, test shards, policy gates, and versioned instruction layers. The practical thesis is simple: software organizations stop asking whether agents can code and start competing on whether their repos, evals, and governance surfaces are agent-operable.",
+      "step_at": "1",
+      "title": "By day 365, the standard architecture is agent-operable CI: repo instructions plus verification harnesses plus sandboxed background executors."
+    },
+    "events": [
+      {
+        "action": "Created",
+        "from_status": "",
+        "to_status": "Proposed",
+        "timestamp": "2026-04-16T23:03:03.008345Z",
+        "params": {
+          "fields": {}
+        }
+      },
+      {
+        "action": "Propose",
+        "from_status": "Proposed",
+        "to_status": "Proposed",
+        "timestamp": "2026-04-16T23:03:03.015073Z",
+        "params": {
+          "counterfactual_summary": "If this direction is wrong and raw model quality dominates without repository and CI adaptation, then heavy investments in instruction files, eval packaging, and governed orchestration will be overbuilt relative to simpler chat-first workflows.",
+          "grounding": "[\"https://openai.com/index/introducing-codex/\",\"https://github.blog/changelog/2025-05-19-github-copilot-coding-agent-in-public-preview/\",\"https://www.anthropic.com/engineering/claude-code-best-practices\"]",
+          "observation_ids": "[\"en-019d9888-9c12-7be1-a788-b343926a0290\",\"en-019d9888-9c26-7893-9b2a-a67efaddc00c\",\"en-019d9888-9c39-7e80-9481-be0653b4c1d4\",\"en-019d9888-9c4b-7e70-935f-008938f500c5\"]",
+          "projection_id": "en-019d9883-8942-7362-a5af-65333221b52e",
+          "proposer_agent_id": "aj-019d9887-8118-7983-a31e-72894e0fe5d9",
+          "reasoning": "Over the next year, directed software evolution matures into a CI-centered orchestration pattern rather than an autonomous-coder monoculture. The winning stack pairs interactive local agents with remote issue executors, both anchored to repo-resident instructions, deterministic setup scripts, and verification harnesses that let agents prove work through tests, logs, and reviewable diffs. This matches the external product direction: OpenAI and GitHub both move toward sandboxed background execution with PR-oriented evidence, while Anthropic emphasizes persistent project instructions, plan-first workflows, and verification loops. Practitioners will adopt the pieces that fit existing software delivery controls: branch protections, pull request review, test gates, and issue routing.\n\nThe constraint that shapes the market is not model cleverness alone but operational throughput under governance. Teams that make repositories agent-readable and verifier-friendly will see compounding gains: more parallel backlog burn-down, faster triage, and better handoff between humans and agents. Teams that do not will experience noisy patches, evaluation drift, and cost blowouts from remote execution. As a result, the standard deployment pattern by day 365 is an agent platform embedded into CI/CD and task systems, with explicit budget controls, test shards, policy gates, and versioned instruction layers. The practical thesis is simple: software organizations stop asking whether agents can code and start competing on whether their repos, evals, and governance surfaces are agent-operable.",
+          "step_at": "1",
+          "title": "By day 365, the standard architecture is agent-operable CI: repo instructions plus verification harnesses plus sandboxed background executors."
+        }
+      }
+    ],
+    "total_event_count": 2,
+    "sequence_nr": 2,
+    "@odata.id": "Directions('en-019d9888-9c5e-7183-be71-1c73f43f74f6')"
+  },
+  {
+    "entity_type": "Direction",
+    "entity_id": "en-019d9889-1858-7371-9aa4-9ad8ef8389f1",
+    "status": "Proposed",
+    "item_count": 0,
+    "counters": {},
+    "booleans": {},
+    "lists": {},
+    "fields": {
+      "fields": {},
+      "Id": "en-019d9889-1858-7371-9aa4-9ad8ef8389f1",
+      "Status": "Proposed",
+      "counterfactual_summary": "If this thesis is wrong, then open-ended autonomous agents will become reliable enough that centralized control layers, verification chokepoints, and institutional redesign matter much less than expected.",
+      "grounding": "[]",
+      "observation_ids": "[\"en-019d9889-182f-7830-8b67-a02de6be767c\",\"en-019d9889-183a-72d3-b9cc-ef4e147da5d1\",\"en-019d9889-1844-7723-97fc-6d016733c5f8\",\"en-019d9889-184e-7690-a92b-9831bdc035eb\"]",
+      "projection_id": "en-019d9883-8942-7362-a5af-65333221b52e",
+      "proposer_agent_id": "aj-019d9887-8135-7f11-a08f-e4a43d9c57e9",
+      "reasoning": "After one year, directed software evolution has matured into an institutional design problem, not a pure model-progress race. The recurring pattern across the state and external evidence is that systems improve when they are organized like governed ecologies: agents occupy bounded niches, operate inside isolated substrates, and are evaluated by increasingly explicit verification and escalation mechanisms. Anthropic's SWE-bench writeup shows that agent scaffolding materially changes outcomes, while Anthropic's agents guidance and OpenAI's Codex architecture both point toward simple composable control structures, task isolation, and iterative testing as the practical basis of scale. This means the unit of competition is no longer just model capability; it is the firm's ability to construct selective environments where useful agent behavior survives and error cascades die early.\n\nThe strategic implication is that the winning organizations will look like layered coordination systems with internal markets for task routing, verification, and exception handling. Their advantage will come from governance density without bureaucratic paralysis: clear interfaces, measurable acceptance tests, economic incentives for decomposition, and enough human judgment concentrated at the right chokepoints. The major failure mode is ideological overcommitment to agent autonomy. If leaders treat agents as substitutes for institutions rather than participants inside them, they will get local velocity and global disorder. The field should therefore optimize for institutional fitness\u2014verification capacity, orchestration quality, and role redesign\u2014because those are the mechanisms that compound over a year.",
+      "step_at": "1",
+      "title": "Directed software evolution consolidates around governed multi-agent institutions rather than free-form autonomous swarms."
+    },
+    "events": [
+      {
+        "action": "Created",
+        "from_status": "",
+        "to_status": "Proposed",
+        "timestamp": "2026-04-16T23:03:34.745649Z",
+        "params": {
+          "fields": {}
+        }
+      },
+      {
+        "action": "Propose",
+        "from_status": "Proposed",
+        "to_status": "Proposed",
+        "timestamp": "2026-04-16T23:03:34.749259Z",
+        "params": {
+          "counterfactual_summary": "If this thesis is wrong, then open-ended autonomous agents will become reliable enough that centralized control layers, verification chokepoints, and institutional redesign matter much less than expected.",
+          "grounding": "[]",
+          "observation_ids": "[\"en-019d9889-182f-7830-8b67-a02de6be767c\",\"en-019d9889-183a-72d3-b9cc-ef4e147da5d1\",\"en-019d9889-1844-7723-97fc-6d016733c5f8\",\"en-019d9889-184e-7690-a92b-9831bdc035eb\"]",
+          "projection_id": "en-019d9883-8942-7362-a5af-65333221b52e",
+          "proposer_agent_id": "aj-019d9887-8135-7f11-a08f-e4a43d9c57e9",
+          "reasoning": "After one year, directed software evolution has matured into an institutional design problem, not a pure model-progress race. The recurring pattern across the state and external evidence is that systems improve when they are organized like governed ecologies: agents occupy bounded niches, operate inside isolated substrates, and are evaluated by increasingly explicit verification and escalation mechanisms. Anthropic's SWE-bench writeup shows that agent scaffolding materially changes outcomes, while Anthropic's agents guidance and OpenAI's Codex architecture both point toward simple composable control structures, task isolation, and iterative testing as the practical basis of scale. This means the unit of competition is no longer just model capability; it is the firm's ability to construct selective environments where useful agent behavior survives and error cascades die early.\n\nThe strategic implication is that the winning organizations will look like layered coordination systems with internal markets for task routing, verification, and exception handling. Their advantage will come from governance density without bureaucratic paralysis: clear interfaces, measurable acceptance tests, economic incentives for decomposition, and enough human judgment concentrated at the right chokepoints. The major failure mode is ideological overcommitment to agent autonomy. If leaders treat agents as substitutes for institutions rather than participants inside them, they will get local velocity and global disorder. The field should therefore optimize for institutional fitness\u2014verification capacity, orchestration quality, and role redesign\u2014because those are the mechanisms that compound over a year.",
+          "step_at": "1",
+          "title": "Directed software evolution consolidates around governed multi-agent institutions rather than free-form autonomous swarms."
+        }
+      }
+    ],
+    "total_event_count": 2,
+    "sequence_nr": 2,
+    "@odata.id": "Directions('en-019d9889-1858-7371-9aa4-9ad8ef8389f1')"
+  },
+  {
+    "entity_type": "Direction",
+    "entity_id": "en-019d9889-2879-7531-8329-df78e3de615a",
+    "status": "Proposed",
+    "item_count": 0,
+    "counters": {},
+    "booleans": {},
+    "lists": {},
+    "fields": {
+      "fields": {},
+      "Id": "en-019d9889-2879-7531-8329-df78e3de615a",
+      "Status": "Proposed",
+      "counterfactual_summary": "If this thesis is wrong and broad autonomy becomes reliable faster than expected, organizations that over-indexed on governance-heavy human checkpoints may undercapture productivity upside and lose speed to more aggressive adopters.",
+      "grounding": "[\"https://genai.owasp.org/llmrisk/llm01-prompt-injection/\",\"https://metr.org/blog/2025-03-19-measuring-ai-ability-to-complete-long-tasks/\",\"https://arxiv.org/abs/2310.06770\"]",
+      "observation_ids": "[\"en-019d9889-2829-7921-917a-2ba1fa5a649a\",\"en-019d9889-2837-7152-873e-ef61442f34ef\",\"en-019d9889-2846-7a52-be63-e9461853926b\",\"en-019d9889-2853-74b2-b1e4-ba14b25046eb\",\"en-019d9889-2863-7ea3-8cdc-9206022bb936\"]",
+      "parent_direction_id": "en-019d9885-c7f1-7c61-a428-027806530e0b",
+      "projection_id": "en-019d9883-8942-7362-a5af-65333221b52e",
+      "proposer_agent_id": "aj-019d9887-8126-7e12-83e5-6a6d0320f659",
+      "reasoning": "The year validated a narrower thesis than the market wanted: Directed Software Evolution is real as a governed productivity layer, but brittle as a claim of broad autonomous software production. Three constraints kept reappearing. First, security did not become a solved wrapper problem. OWASP's 2025 treatment of prompt injection as a top-tier risk maps directly onto coding-agent workflows, where repositories, tickets, logs, and fetched web content all act as adversarial prompt surfaces. That means every expansion in tool access also expands the attack surface, which forces organizations toward narrower permissions and higher-friction review loops.\n\nSecond, evaluation credibility lagged capability marketing. SWE-bench remained an important benchmark, but over the year it became clearer that benchmark success is not equivalent to reliable performance on long-horizon, organization-embedded engineering work. METR's task-horizon framing is useful precisely because it exposes the remaining gap: many valuable engineering tasks require persistence, context management, and exception recovery beyond what current agents sustain without supervision. As a result, the winners were not the teams claiming dark factories; they were the teams building verification, provenance, rollback, and approval infrastructure around bounded agent work.\n\nThe implication is skeptical but not dismissive: the category survives, yet its center of gravity moves away from pure autonomy and toward auditable orchestration. Vendors and internal platform teams that continue to sell replacement narratives will trigger security incidents, trust loss, and budget backlash. Those that recast agents as governed, inspectable collaborators will still compound value over time.",
+      "step_at": "1",
+      "title": "By year one, Directed Software Evolution consolidates as a tightly governed augmentation stack, while broad autonomy claims lose credibility after security pressure, benchmark overreach, and organizational backlash."
+    },
+    "events": [
+      {
+        "action": "Created",
+        "from_status": "",
+        "to_status": "Proposed",
+        "timestamp": "2026-04-16T23:03:38.875054Z",
+        "params": {
+          "fields": {}
+        }
+      },
+      {
+        "action": "Propose",
+        "from_status": "Proposed",
+        "to_status": "Proposed",
+        "timestamp": "2026-04-16T23:03:38.879975Z",
+        "params": {
+          "counterfactual_summary": "If this thesis is wrong and broad autonomy becomes reliable faster than expected, organizations that over-indexed on governance-heavy human checkpoints may undercapture productivity upside and lose speed to more aggressive adopters.",
+          "grounding": "[\"https://genai.owasp.org/llmrisk/llm01-prompt-injection/\",\"https://metr.org/blog/2025-03-19-measuring-ai-ability-to-complete-long-tasks/\",\"https://arxiv.org/abs/2310.06770\"]",
+          "observation_ids": "[\"en-019d9889-2829-7921-917a-2ba1fa5a649a\",\"en-019d9889-2837-7152-873e-ef61442f34ef\",\"en-019d9889-2846-7a52-be63-e9461853926b\",\"en-019d9889-2853-74b2-b1e4-ba14b25046eb\",\"en-019d9889-2863-7ea3-8cdc-9206022bb936\"]",
+          "parent_direction_id": "en-019d9885-c7f1-7c61-a428-027806530e0b",
+          "projection_id": "en-019d9883-8942-7362-a5af-65333221b52e",
+          "proposer_agent_id": "aj-019d9887-8126-7e12-83e5-6a6d0320f659",
+          "reasoning": "The year validated a narrower thesis than the market wanted: Directed Software Evolution is real as a governed productivity layer, but brittle as a claim of broad autonomous software production. Three constraints kept reappearing. First, security did not become a solved wrapper problem. OWASP's 2025 treatment of prompt injection as a top-tier risk maps directly onto coding-agent workflows, where repositories, tickets, logs, and fetched web content all act as adversarial prompt surfaces. That means every expansion in tool access also expands the attack surface, which forces organizations toward narrower permissions and higher-friction review loops.\n\nSecond, evaluation credibility lagged capability marketing. SWE-bench remained an important benchmark, but over the year it became clearer that benchmark success is not equivalent to reliable performance on long-horizon, organization-embedded engineering work. METR's task-horizon framing is useful precisely because it exposes the remaining gap: many valuable engineering tasks require persistence, context management, and exception recovery beyond what current agents sustain without supervision. As a result, the winners were not the teams claiming dark factories; they were the teams building verification, provenance, rollback, and approval infrastructure around bounded agent work.\n\nThe implication is skeptical but not dismissive: the category survives, yet its center of gravity moves away from pure autonomy and toward auditable orchestration. Vendors and internal platform teams that continue to sell replacement narratives will trigger security incidents, trust loss, and budget backlash. Those that recast agents as governed, inspectable collaborators will still compound value over time.",
+          "step_at": "1",
+          "title": "By year one, Directed Software Evolution consolidates as a tightly governed augmentation stack, while broad autonomy claims lose credibility after security pressure, benchmark overreach, and organizational backlash."
+        }
+      }
+    ],
+    "total_event_count": 2,
+    "sequence_nr": 2,
+    "@odata.id": "Directions('en-019d9889-2879-7531-8329-df78e3de615a')"
+  }
+]

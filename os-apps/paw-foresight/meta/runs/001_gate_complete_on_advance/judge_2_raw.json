@@ -1,0 +1,234 @@
+{
+  "criteria": [
+    {
+      "criterion": "Specificity",
+      "output_x_score": 4,
+      "output_y_score": 4,
+      "reasoning": "Both name specific actors, dates, and quantitative thresholds. X has 5 dated predictions with thresholds (2026-06-30 through 2026-12-31) and named tools (Cedar, OPA, AGENTS.md); Y has 7 dated predictions spanning 2026-10-01 to 2027-06-30 with named tools (Cedar, OPA, Kubernetes, Datadog, Temper, Terraform) and hard quantitative anchors (39%, 12%, 60%, 2x, 20%).",
+      "evidence_x": [
+        "By 2026-06-30, enterprise agent platforms standardize on a two-lane operating model",
+        "Procurement reviews require at least 3 non-benchmark metrics: mergeability, long-task completion, and review burden",
+        "roughly half of SWE-bench-passing PRs"
+      ],
+      "evidence_y": [
+        "By 2027-06-30, organizations with standardized AGENTS.md-like repo instructions",
+        "Cursor reports 39% more PRs merged after its agent became default",
+        "only 12% widespread use today implies that a move above 25% org-wide deployment"
+      ]
+    },
+    {
+      "criterion": "Novelty",
+      "output_x_score": 2,
+      "output_y_score": 2,
+      "reasoning": "Both extend source themes with cross-domain analogies. X uses OrgAgent, Deloitte orchestration, ecology/carrying-capacity, stigmergic coordination metaphors. Y uses biological evolution, niche colonization, adaptive immune responses. Both offer 1-2 original framings but stay close to observation content rather than introducing a genuinely reframing concept.",
+      "evidence_x": [
+        "verification, not generation, is the carrying capacity of the ecosystem",
+        "manager-agent accumulation can become a bottleneck",
+        "stigmergic coordination through shared traces"
+      ],
+      "evidence_y": [
+        "Evolution does not reward the organism that mutates fastest; it rewards the lineage embedded in a good selection environment",
+        "niche-colonization pattern",
+        "this same adaptive pressure creates immune responses"
+      ]
+    },
+    {
+      "criterion": "Falsifiability",
+      "output_x_score": 4,
+      "output_y_score": 4,
+      "reasoning": "Both use the explicit 'If X has not happened by [date], this prediction is wrong because [reason]' format on all 5 predictions with named measurable indicators and causal reasons for why failure would disconfirm.",
+      "evidence_x": [
+        "If by 2026-06-30 most production deployments still rely on a single interactive agent mode without a separate queued sandbox execution path, this prediction is wrong because the expected workload split and parallelization mechanism did not materialize"
+      ],
+      "evidence_y": [
+        "If by 2026-09-30 fewer than 40% of production-bound agent changes are executed through governed job infrastructure, this prediction is wrong because job-control overhead would have failed to beat chat convenience"
+      ]
+    },
+    {
+      "criterion": "Breadth",
+      "output_x_score": 2,
+      "output_y_score": 2,
+      "reasoning": "Both cover 7 themes (architecture, eval, governance, vendor, economics, cross-domain, org adoption) with some cross-theme connections, but connections are often stated rather than producing non-obvious conclusions. Capped to 2 under the 3+ rule.",
+      "evidence_x": [
+        "8 numbered findings with explicit theme tags",
+        "verification becomes the ecosystem carrying capacity, not a downstream hygiene task"
+      ],
+      "evidence_y": [
+        "8 numbered findings with explicit theme tags",
+        "compute budgets and integration cost\u2014not model scarcity\u2014will decide which teams reach broad adoption"
+      ]
+    },
+    {
+      "criterion": "Plausibility",
+      "output_x_score": 2,
+      "output_y_score": 2,
+      "reasoning": "Both cite observations broadly and include confidence levels on predictions and assumptions, but neither consistently states 'what would change confidence' for every substantive claim. Capped at 2 under the 3+ rule.",
+      "evidence_x": [
+        "Confidence: medium-high",
+        "Assumption: Verification throughput remains the primary bottleneck... If-wrong: A sharp jump in long-horizon reliability"
+      ],
+      "evidence_y": [
+        "Confidence: medium-high",
+        "Assumption: The next year continues to reward harness quality more than raw model jumps. If-wrong: a major model release could compress the value of scaffolding"
+      ]
+    },
+    {
+      "criterion": "Progression",
+      "output_x_score": 2,
+      "output_y_score": 2,
+      "reasoning": "Both structure 4 temporal phases with explicit 'Revisions to earlier predictions' subsections that revise prior claims, which arguably merits higher. Both capped to 2 under the 3+ rule to keep within the 3-criterion ceiling.",
+      "evidence_x": [
+        "The strongest year-end revision is that dark-factory narratives lose credibility",
+        "Predictions of flat autonomous swarms are revised toward layered institutions"
+      ],
+      "evidence_y": [
+        "The strongest revision by year-end is that broad autonomy is not the right baseline",
+        "The earlier focus on single-agent throughput is revised toward population-based search"
+      ]
+    },
+    {
+      "criterion": "Actionability",
+      "output_x_score": 4,
+      "output_y_score": 4,
+      "reasoning": "Both provide 3 decision points with named options, timing triggers, cost estimates in engineering-weeks, and recommendations tied to observations \u2014 a complete decision framework naming who decides, when, what options, and concrete tradeoffs.",
+      "evidence_x": [
+        "Option A: Deploy Cedar policy gates... Tradeoff: 3-5 engineering-weeks; requires policy modeling discipline",
+        "Timing trigger: First production incident review involving agent-written code or by 2026-07"
+      ],
+      "evidence_y": [
+        "Option A: deploy Cedar policy gates on CI pipelines... Tradeoff: 2-4 engineering-weeks plus ongoing policy maintenance",
+        "Timing trigger: When agent runs exceed 20 concurrent tasks or median task time exceeds 30 minutes"
+      ]
+    },
+    {
+      "criterion": "Decision Clarity",
+      "output_x_score": 2,
+      "output_y_score": 2,
+      "reasoning": "Both open with a clear narrative thesis and structure findings with indicators, but neither leads with a single prioritized top decision with deadline and quantified tradeoff in the opening. Capped at 2 under the 3+ rule.",
+      "evidence_x": [
+        "Executive Summary orients around 'governed acceleration' but does not name the #1 decision upfront"
+      ],
+      "evidence_y": [
+        "Executive Summary frames institutional winners but does not open with the single most important decision"
+      ]
+    },
+    {
+      "criterion": "Completeness",
+      "output_x_score": 2,
+      "output_y_score": 2,
+      "reasoning": "Both cover observations, theses, temporal progression, assumptions with if-wrong clauses, and confidence. Neither fully provides what-would-change-my-mind for every major claim. Capped at 2 under the 3+ rule.",
+      "evidence_x": [
+        "Assumptions & Limitations section with If-wrong and Confidence per assumption"
+      ],
+      "evidence_y": [
+        "Assumptions & Limitations section with If-wrong and Confidence per assumption"
+      ]
+    },
+    {
+      "criterion": "Grounding",
+      "output_x_score": 2,
+      "output_y_score": 2,
+      "reasoning": "Both cite observation IDs throughout but reasoning chains often jump from evidence citation to conclusion without fully explicating the mechanism. Capped at 2 under the 3+ rule.",
+      "evidence_x": [
+        "Claims in Key Findings cite obs IDs but mechanism-to-conclusion chains are sometimes implicit"
+      ],
+      "evidence_y": [
+        "Claims in Key Findings cite obs IDs but mechanism-to-conclusion chains are sometimes implicit"
+      ]
+    },
+    {
+      "criterion": "Challenge",
+      "output_x_score": 2,
+      "output_y_score": 2,
+      "reasoning": "Both identify fragile assumptions (dark-factory narrative, benchmark theater, autonomy marketing) and push back, but the challenge largely aligns with the seed thesis rather than contradicting it with source-internal or external evidence that overturns a key assumption.",
+      "evidence_x": [
+        "dark-factory narratives lose credibility",
+        "mergeability failure... harsher limit on production readiness than most vendor narratives implied"
+      ],
+      "evidence_y": [
+        "more autonomy will not produce a smooth march toward dark factory operation",
+        "UTBoost shows patches can pass available tests without solving the underlying problem"
+      ]
+    },
+    {
+      "criterion": "Information Density",
+      "output_x_score": 2,
+      "output_y_score": 2,
+      "reasoning": "X repeats the verification/governance theme across executive summary, findings, directions, and surprises with some redundancy; Y is more compact but still restates the selection-institution thesis across multiple directions. Both have moderate redundancy.",
+      "evidence_x": [
+        "Verification-as-carrying-capacity appears in executive summary, finding 7, direction 2, and direction 4"
+      ],
+      "evidence_y": [
+        "Selection-environment thesis restated across direction 2 and direction 3 with overlapping phrasing"
+      ]
+    }
+  ],
+  "demotions": [
+    {
+      "criterion": "Novelty (Output X)",
+      "original": 3,
+      "demoted_to": 2,
+      "reason": "3+ cap rule"
+    },
+    {
+      "criterion": "Breadth (Output X)",
+      "original": 3,
+      "demoted_to": 2,
+      "reason": "3+ cap rule"
+    },
+    {
+      "criterion": "Plausibility (Output X)",
+      "original": 3,
+      "demoted_to": 2,
+      "reason": "3+ cap rule"
+    },
+    {
+      "criterion": "Progression (Output X)",
+      "original": 4,
+      "demoted_to": 2,
+      "reason": "3+ cap rule"
+    },
+    {
+      "criterion": "Decision Clarity (Output X)",
+      "original": 3,
+      "demoted_to": 2,
+      "reason": "3+ cap rule"
+    },
+    {
+      "criterion": "Completeness (Output X)",
+      "original": 3,
+      "demoted_to": 2,
+      "reason": "3+ cap rule"
+    },
+    {
+      "criterion": "Grounding (Output X)",
+      "original": 3,
+      "demoted_to": 2,
+      "reason": "3+ cap rule"
+    },
+    {
+      "criterion": "Breadth (Output Y)",
+      "original": 3,
+      "demoted_to": 2,
+      "reason": "3+ cap rule"
+    },
+    {
+      "criterion": "Progression (Output Y)",
+      "original": 4,
+      "demoted_to": 2,
+      "reason": "3+ cap rule"
+    },
+    {
+      "criterion": "Completeness (Output Y)",
+      "original": 3,
+      "demoted_to": 2,
+      "reason": "3+ cap rule"
+    },
+    {
+      "criterion": "Grounding (Output Y)",
+      "original": 3,
+      "demoted_to": 2,
+      "reason": "3+ cap rule"
+    }
+  ]
+}
