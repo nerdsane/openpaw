@@ -18,7 +18,7 @@
   let inputEl = $state<HTMLTextAreaElement | null>(null);
 
   // Subscribe to store
-  let state = $state({
+  let panelState = $state({
     sessionId: null as string | null,
     agentId: null as string | null,
     messages: [] as PawMessage[],
@@ -26,7 +26,7 @@
     panelOpen: false,
   });
 
-  const unsub = pawChat.subscribe((s) => { state = s; });
+  const unsub = pawChat.subscribe((s) => { panelState = s; });
   onDestroy(unsub);
 
   // Auto-scroll tracking
@@ -47,13 +47,13 @@
 
   // Scroll when messages change
   $effect(() => {
-    state.messages;
+    panelState.messages;
     scrollToBottom();
   });
 
   // Focus input when panel opens
   $effect(() => {
-    if (state.panelOpen && inputEl) {
+    if (panelState.panelOpen && inputEl) {
       requestAnimationFrame(() => inputEl!.focus());
     }
   });
@@ -65,7 +65,7 @@
 
   async function handleSend() {
     const text = input.trim();
-    if (!text || sending || state.status === 'thinking' || state.status === 'executing') return;
+    if (!text || sending || panelState.status === 'thinking' || panelState.status === 'executing') return;
 
     input = '';
     sending = true;
@@ -89,7 +89,7 @@
   }
 
   let isActive = $derived(
-    state.status === 'thinking' || state.status === 'executing' || state.status === 'compacting'
+    panelState.status === 'thinking' || panelState.status === 'executing' || panelState.status === 'compacting'
   );
 
   function escapeHtml(s: string): string {
@@ -121,7 +121,7 @@
   }
 </script>
 
-{#if state.panelOpen}
+{#if panelState.panelOpen}
   <!-- Backdrop on mobile -->
   <button class="backdrop" onclick={closePanel} aria-label="Close chat panel"></button>
 
@@ -136,7 +136,7 @@
         {/if}
       </div>
       <div class="panel-actions">
-        {#if state.messages.length > 0}
+        {#if panelState.messages.length > 0}
           <button class="panel-btn" onclick={handleClear} title="Clear conversation">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 6h18M8 6V4h8v2M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg>
           </button>
@@ -149,13 +149,13 @@
 
     <!-- Messages -->
     <div class="panel-body" bind:this={bodyEl} onscroll={onBodyScroll} role="log" aria-live="polite">
-      {#if state.messages.length === 0}
+      {#if panelState.messages.length === 0}
         <div class="empty">
           <PawLogo size={32} />
           <p class="empty-text">Ask Paw anything about OpenPaw, your agents, or your setup.</p>
         </div>
       {:else}
-        {#each state.messages as msg (msg.id)}
+        {#each panelState.messages as msg (msg.id)}
           <div
             class="msg"
             class:msg-user={msg.role === 'user'}
@@ -206,15 +206,15 @@
         bind:this={inputEl}
         bind:value={input}
         onkeydown={handleKeydown}
-        placeholder={state.agentId ? 'Message Paw...' : 'Setting up...'}
-        disabled={!state.agentId || isActive}
+        placeholder={panelState.agentId ? 'Message Paw...' : 'Setting up...'}
+        disabled={!panelState.agentId || isActive}
         rows="1"
         autocomplete="off"
       ></textarea>
       <button
         class="send-btn"
         type="submit"
-        disabled={!input.trim() || !state.agentId || isActive}
+        disabled={!input.trim() || !panelState.agentId || isActive}
         aria-label="Send message"
       >
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
