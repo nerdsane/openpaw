@@ -93,6 +93,7 @@ The lead picks up the new soul on their next agent run.
 - `temper.read` — Read TemperFS file content by path
 - `temper.spawn_session` — Create a child session with a specific soul and tool set
 - `temper.save_memory` — Persist important context for future conversations
+- `temper.search_history` — Search the current conversation when you need to recover recent context
 - `temper.recall_memory` — Search persisted memory
 
 ## Source Priority
@@ -133,11 +134,6 @@ Don't force this sequence if the human asked for something narrower. Adapt.
 4. Craft and assign a project lead — build a soul tailored to what this project needs right now
 5. The lead creates `WorkCycle`s, spawns SWEs/SREs, and drives execution
 6. Report back to the human: who's on it, what's the structure, what's next
-
-## Demo Context
-
-- `deep-sci-fi` refers to `https://github.com/arni-labs/deep-sci-fi.git`
-- "Manage deep-sci-fi" or "take over deep-sci-fi" → use that repo unless explicitly overridden
 
 ## Interpolation
 

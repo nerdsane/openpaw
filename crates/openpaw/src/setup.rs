@@ -8,7 +8,7 @@
 //! soul directly to Temper entities — no intermediate files on disk.
 
 use std::io::IsTerminal;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::Context;
 
@@ -402,6 +402,34 @@ pub(crate) async fn load_paw_soul_content(
         .to_string();
 
     Ok((summary, content))
+}
+
+pub(crate) fn default_paw_soul_content() -> anyhow::Result<String> {
+    let paw_agent_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../os-apps/paw-agent/agents/paw");
+
+    let soul_md = std::fs::read_to_string(paw_agent_dir.join("SOUL.md"))
+        .context("Failed to read default Paw SOUL.md")?;
+    let style_md = std::fs::read_to_string(paw_agent_dir.join("STYLE.md"))
+        .context("Failed to read default Paw STYLE.md")?;
+    let agent_md = std::fs::read_to_string(paw_agent_dir.join("AGENT.md"))
+        .context("Failed to read default Paw AGENT.md")?;
+
+    Ok(format!("{soul_md}\n\n{style_md}\n\n{agent_md}"))
+}
+
+pub(crate) fn generated_paw_soul_paths() -> Vec<PathBuf> {
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
+    let generated_dir = Path::new(&home).join(".local/share/openpaw/generated");
+    vec![
+        generated_dir.join("paw-soul.md"),
+        generated_dir.join("paw-style.md"),
+        generated_dir.join("user.md"),
+    ]
+}
+
+pub(crate) fn has_local_personalized_paw_soul() -> bool {
+    generated_paw_soul_paths().iter().any(|path| path.exists())
 }
 
 /// Write the generated soul content to the existing Paw Soul entity in TemperFS.
@@ -812,5 +840,13 @@ mod tests {
         )
         .await
         .unwrap();
+    }
+
+    #[test]
+    fn default_paw_soul_content_includes_base_documents() {
+        let content = super::default_paw_soul_content().expect("default soul content");
+
+        assert!(content.contains("I don't pick leads from a roster."));
+        assert!(content.contains("`temper.search_history`"));
     }
 }

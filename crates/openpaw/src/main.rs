@@ -64,6 +64,8 @@ async fn main() -> anyhow::Result<()> {
         }
     };
 
+    ensure_dd_env();
+
     // In a terminal, suppress noisy logs — only show warnings and errors.
     // Full debug logs when RUST_LOG is explicitly set or not in a terminal.
     let is_terminal = std::io::stderr().is_terminal();
@@ -116,4 +118,37 @@ async fn main() -> anyhow::Result<()> {
     }
 
     result
+}
+
+fn ensure_dd_env() {
+    if std::env::var_os("DD_ENV").is_none() {
+        unsafe {
+            std::env::set_var("DD_ENV", "local");
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ensure_dd_env;
+
+    #[test]
+    fn ensure_dd_env_defaults_to_local_without_override() {
+        unsafe {
+            std::env::remove_var("DD_ENV");
+        }
+
+        ensure_dd_env();
+        assert_eq!(std::env::var("DD_ENV").ok().as_deref(), Some("local"));
+    }
+
+    #[test]
+    fn ensure_dd_env_preserves_existing_value() {
+        unsafe {
+            std::env::set_var("DD_ENV", "prod");
+        }
+
+        ensure_dd_env();
+        assert_eq!(std::env::var("DD_ENV").ok().as_deref(), Some("prod"));
+    }
 }

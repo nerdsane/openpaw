@@ -1,4 +1,5 @@
 name = "paw-research"
 description = "Governed web search for agent research"
 version = "0.1.0"
+startup_install = "core"
 dependencies = ["paw-agent"]

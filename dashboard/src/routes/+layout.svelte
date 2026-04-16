@@ -66,7 +66,11 @@
         if (!onWelcomePage) {
           try {
             const setupStatus = await fetchSetupStatus();
-            if (!setupStatus.has_anthropic_key || !setupStatus.has_agents) {
+            if (
+              !setupStatus.has_anthropic_key
+              || !setupStatus.has_agents
+              || !setupStatus.has_personalized_soul
+            ) {
               await goto(appHref('/welcome'));
               return;
             }

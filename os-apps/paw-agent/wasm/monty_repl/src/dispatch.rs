@@ -8,9 +8,10 @@
 //! Mirrors the method signatures from `temper-sandbox/src/dispatch.rs`
 //! so agents see the exact same Python interface as `mcp__temper__execute`.
 
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use std::{cell::RefCell, collections::BTreeSet};
 use temper_wasm_sdk::context::Context;
+use wasm_helpers::runtime_headers;
 
 const DEFAULT_TOOLS_ENABLED: &str = "temper_create,temper_get,temper_list,temper_action,temper_patch,temper_submit_specs,temper_show_spec,temper_specs,temper_upload_wasm,temper_get_trajectories,temper_get_insights,temper_get_decisions,temper_poll_decision,temper_approve_decision,temper_deny_decision,temper_submit_policy,temper_list_policies,temper_get_policy,temper_update_policy,temper_delete_policy,temper_install_app,temper_list_apps,temper_spawn_session,temper_list_sessions,temper_abort_session,temper_steer_session,temper_save_memory,temper_recall_memory,temper_write,temper_read,temper_ls,temper_grep,temper_glob,temper_edit,temper_rename,temper_search_history,temper_run_coding_agent,temper_get_secret,temper_datadog_query,temper_railway,temper_vercel,temper_web_search,temper_web_fetch,read,write,edit,bash";
 
@@ -81,7 +82,11 @@ pub fn peek_lazy_sandbox_url() -> Option<String> {
 
 /// Peek at the lazily provisioned sandbox provider without consuming it.
 pub fn peek_lazy_sandbox_provider() -> Option<String> {
-    LAZY_SANDBOX.with(|cell| cell.borrow().as_ref().map(|(_, _, provider)| provider.clone()))
+    LAZY_SANDBOX.with(|cell| {
+        cell.borrow()
+            .as_ref()
+            .map(|(_, _, provider)| provider.clone())
+    })
 }
 
 /// Dispatch a `temper.<method>()` or `sandbox.<method>()` call.
@@ -101,8 +106,8 @@ pub fn dispatch(
 ) -> Result<Value, String> {
     // Lazy sandbox provisioning (ADR-0022): if this tool needs a sandbox and
     // none is attached, provision one on-demand instead of failing.
-    let needs_sandbox = obj_name == "sandbox"
-        || (obj_name == "temper" && method == "run_coding_agent");
+    let needs_sandbox =
+        obj_name == "sandbox" || (obj_name == "temper" && method == "run_coding_agent");
 
     let effective_sandbox_url = if needs_sandbox && sandbox_url.is_empty() {
         // Check thread-local cache first (already provisioned this invocation)
@@ -153,7 +158,15 @@ pub fn dispatch(
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string();
-            dispatch_sandbox(ctx, &effective_sandbox_url, &sandbox_id, &provider, workdir, method, args)
+            dispatch_sandbox(
+                ctx,
+                &effective_sandbox_url,
+                &sandbox_id,
+                &provider,
+                workdir,
+                method,
+                args,
+            )
         }
         _ => Err(format!("unknown object: {obj_name}")),
     };
@@ -388,7 +401,11 @@ fn dispatch_temper(
 
         // Switch own LLM provider/model mid-session
         "switch_provider" => {
-            let input = args.first().and_then(|v| v.as_object()).cloned().unwrap_or_default();
+            let input = args
+                .first()
+                .and_then(|v| v.as_object())
+                .cloned()
+                .unwrap_or_default();
             let model = input.get("model").and_then(|v| v.as_str()).unwrap_or("");
             let provider = input.get("provider").and_then(|v| v.as_str()).unwrap_or("");
             if model.is_empty() && provider.is_empty() {
@@ -419,13 +436,21 @@ fn dispatch_temper(
                     "provider": if provider.is_empty() { "unchanged" } else { provider },
                 }))
             } else {
-                Err(format!("SwitchProvider failed (HTTP {}): {}", resp.status, &resp.body[..resp.body.len().min(200)]))
+                Err(format!(
+                    "SwitchProvider failed (HTTP {}): {}",
+                    resp.status,
+                    &resp.body[..resp.body.len().min(200)]
+                ))
             }
         }
 
         // Switch session mode between plan and execute (ADR-004)
         "switch_mode" => {
-            let input = args.first().and_then(|v| v.as_object()).cloned().unwrap_or_default();
+            let input = args
+                .first()
+                .and_then(|v| v.as_object())
+                .cloned()
+                .unwrap_or_default();
             let target_mode = input.get("mode").and_then(|v| v.as_str()).unwrap_or("");
             if target_mode != "plan" && target_mode != "execute" {
                 return Err("switch_mode requires mode='plan' or mode='execute'".into());
@@ -667,11 +692,17 @@ fn temper_submit_specs(
     if let Some(obj) = specs.as_object() {
         for (key, val) in obj {
             if !val.is_string() {
-                let vtype = if val.is_object() { "object" }
-                    else if val.is_array() { "array" }
-                    else if val.is_number() { "number" }
-                    else if val.is_boolean() { "boolean" }
-                    else { "non-string" };
+                let vtype = if val.is_object() {
+                    "object"
+                } else if val.is_array() {
+                    "array"
+                } else if val.is_number() {
+                    "number"
+                } else if val.is_boolean() {
+                    "boolean"
+                } else {
+                    "non-string"
+                };
                 return Err(format!(
                     "temper.submit_specs(): spec value for '{}' must be a TOML/XML/JSON string, \
                      not a {} value. Wrap the content in a string.",
@@ -802,7 +833,26 @@ fn temper_web_search(
     args: &[Value],
 ) -> Result<Value, String> {
     let query = str_arg(args, 0, "query", "web_search")?;
-    web_query_dispatch(ctx, api_url, tenant, "search", &query, "")
+    let primary_result = web_query_dispatch(ctx, api_url, tenant, "search", &query, "")?;
+    if !web_search_results_empty(&primary_result) {
+        return Ok(primary_result);
+    }
+
+    if let Some(retry_query) =
+        fallback_web_search_query(&query, &recent_user_messages(ctx, api_url, tenant, 8))
+    {
+        ctx.log(
+            "info",
+            &format!("web_search: retrying vague zero-result query '{query}' as '{retry_query}'"),
+        );
+
+        let retry_result = web_query_dispatch(ctx, api_url, tenant, "search", &retry_query, "")?;
+        if !web_search_results_empty(&retry_result) {
+            return Ok(retry_result);
+        }
+    }
+
+    Ok(primary_result)
 }
 
 /// Fetch a URL via WebQuery entity + web_fetch WASM module.
@@ -814,7 +864,13 @@ fn temper_web_fetch(
     args: &[Value],
 ) -> Result<Value, String> {
     let url = str_arg(args, 0, "url", "web_fetch")?;
-    web_query_dispatch(ctx, api_url, tenant, "fetch", "", &url)
+    let result = web_query_dispatch(ctx, api_url, tenant, "fetch", "", &url)?;
+    if web_search_results_empty(&result) {
+        return Err(format!(
+            "web_fetch: fetched no readable content from {url}; try a more specific page or search first"
+        ));
+    }
+    Ok(result)
 }
 
 /// Shared implementation: create WebQuery entity, dispatch action, return results.
@@ -852,55 +908,45 @@ fn web_query_dispatch(
         json!({"url": url})
     };
     let key = escape_odata_key(entity_id);
-    let _ = http_post(
+    http_post(
         ctx,
         api_url,
         tenant,
         &format!("/tdata/WebQueries('{key}')/Temper.{action_name}?await_integration=true"),
         &action_params,
-    );
+    )?;
 
     // 3. Read the entity back — WASM integration has run by this point
     let result = http_get(ctx, api_url, tenant, &format!("/tdata/WebQueries('{key}')"))?;
     let result_fields = result.get("fields").cloned().unwrap_or(result.clone());
-
-    let status = result_fields
-        .get("Status")
-        .or_else(|| result_fields.get("status"))
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
-
-    if status == "Failed" {
-        let error = result_fields
-            .get("error")
-            .and_then(|v| v.as_str())
-            .unwrap_or("unknown error");
-        return Err(format!("web_{query_type}: {error}"));
-    }
+    let (status, result_file_id, results_raw) =
+        interpret_web_query_entity_result(query_type, &result_fields)?;
 
     // If result_file_id is set, the full content is in TemperFS (large results).
     // Read the file content, then delete the file — it's ephemeral transport only.
     // WORKAROUND: This delete-after-read pattern exists because Temper's entity field
     // sync truncates values >32KB. The proper fix is platform-level blob-backed fields
     // with TTL. See: https://github.com/nerdsane/temper/issues/106
-    let result_file_id = result_fields
-        .get("result_file_id")
-        .and_then(|v| v.as_str())
-        .filter(|s| !s.is_empty());
-
     if let Some(file_id) = result_file_id {
-        let read_headers = vec![
-            ("Accept".to_string(), "text/plain".to_string()),
-        ];
+        let read_headers = vec![("Accept".to_string(), "text/plain".to_string())];
         let read_url = format!("{api_url}/tdata/Files('{file_id}')/$value");
         let content = match ctx.http_call("GET", &read_url, &read_headers, "") {
             Ok(resp) if resp.status >= 200 && resp.status < 300 => Some(resp.body),
             Ok(resp) => {
-                ctx.log("warn", &format!("web_query: failed to read result file {file_id} (HTTP {})", resp.status));
+                ctx.log(
+                    "warn",
+                    &format!(
+                        "web_query: failed to read result file {file_id} (HTTP {})",
+                        resp.status
+                    ),
+                );
                 None
             }
             Err(e) => {
-                ctx.log("warn", &format!("web_query: failed to read result file {file_id}: {e}"));
+                ctx.log(
+                    "warn",
+                    &format!("web_query: failed to read result file {file_id}: {e}"),
+                );
                 None
             }
         };
@@ -916,16 +962,288 @@ fn web_query_dispatch(
         // Fall through to inline results if file read fails
     }
 
-    let results_raw = result_fields
+    // Try to parse as JSON array; if not, return as plain text
+    match serde_json::from_str::<Value>(results_raw) {
+        Ok(parsed) => {
+            ctx.log(
+                "info",
+                &format!("web_query: {query_type} completed with status {status}"),
+            );
+            Ok(parsed)
+        }
+        Err(_) => {
+            ctx.log(
+                "info",
+                &format!("web_query: {query_type} completed with status {status}"),
+            );
+            Ok(json!(results_raw))
+        }
+    }
+}
+
+const GENERIC_SEARCH_TOKENS: &[&str] = &[
+    "a",
+    "an",
+    "and",
+    "as",
+    "before",
+    "can",
+    "could",
+    "do",
+    "does",
+    "easily",
+    "famous",
+    "find",
+    "for",
+    "from",
+    "github",
+    "it",
+    "just",
+    "look",
+    "of",
+    "open",
+    "please",
+    "repo",
+    "repository",
+    "same",
+    "search",
+    "super",
+    "that",
+    "the",
+    "this",
+    "up",
+    "use",
+    "web",
+    "you",
+    "your",
+];
+
+const SUBJECT_CONTEXT_STOPWORDS: &[&str] = &[
+    "asked", "clone", "cloned", "don't", "dont", "find", "look", "remember", "search", "searched",
+    "use", "using", "web",
+];
+
+fn web_search_results_empty(result: &Value) -> bool {
+    match result {
+        Value::Array(items) => items.is_empty(),
+        Value::String(text) => {
+            let trimmed = text.trim();
+            if trimmed.is_empty() {
+                return true;
+            }
+            serde_json::from_str::<Value>(trimmed)
+                .ok()
+                .is_some_and(|parsed| matches!(parsed, Value::Array(ref items) if items.is_empty()))
+        }
+        _ => false,
+    }
+}
+
+fn interpret_web_query_entity_result<'a>(
+    query_type: &str,
+    fields: &'a Value,
+) -> Result<(&'a str, Option<&'a str>, &'a str), String> {
+    let status = fields
+        .get("Status")
+        .or_else(|| fields.get("status"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+
+    match status {
+        "Complete" => {}
+        "Failed" => {
+            let error = fields
+                .get("error")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown error");
+            return Err(format!("web_{query_type}: {error}"));
+        }
+        other => {
+            return Err(format!(
+                "web_{query_type}: query never completed (status={})",
+                if other.is_empty() { "unknown" } else { other }
+            ));
+        }
+    }
+
+    let result_file_id = fields
+        .get("result_file_id")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty());
+    let results_raw = fields
         .get("results")
         .and_then(|v| v.as_str())
         .unwrap_or("[]");
 
-    // Try to parse as JSON array; if not, return as plain text
-    match serde_json::from_str::<Value>(results_raw) {
-        Ok(parsed) => Ok(parsed),
-        Err(_) => Ok(json!(results_raw)),
+    Ok((status, result_file_id, results_raw))
+}
+
+fn fallback_web_search_query(query: &str, recent_user_messages: &[String]) -> Option<String> {
+    if !is_vague_web_search_query(query) {
+        return None;
     }
+
+    let query_lower = query.to_lowercase();
+    let explicit_subject = recent_user_messages
+        .iter()
+        .rev()
+        .find_map(|message| extract_explicit_repo_subject(message));
+
+    let fallback_subject = explicit_subject.or_else(|| {
+        recent_user_messages
+            .iter()
+            .rev()
+            .find_map(|message| extract_search_subject(message))
+    })?;
+
+    if query_lower.contains(&fallback_subject.to_lowercase()) {
+        return None;
+    }
+
+    Some(format!("{fallback_subject} github repo"))
+}
+
+fn is_vague_web_search_query(query: &str) -> bool {
+    let tokens = search_tokens(query);
+    !tokens.iter().any(|token| !is_generic_search_token(token))
+}
+
+fn extract_search_subject(message: &str) -> Option<String> {
+    extract_explicit_repo_subject(message).or_else(|| {
+        search_tokens(message).into_iter().rev().find(|token| {
+            !is_generic_search_token(token) && !SUBJECT_CONTEXT_STOPWORDS.contains(&token.as_str())
+        })
+    })
+}
+
+fn extract_explicit_repo_subject(message: &str) -> Option<String> {
+    if let Some(repo) = extract_github_repo(message) {
+        return Some(repo);
+    }
+
+    let tokens = search_tokens(message);
+    if tokens.is_empty() {
+        return None;
+    }
+
+    for window in tokens.windows(2) {
+        if matches!(window[1].as_str(), "repo" | "repository")
+            && !is_generic_search_token(&window[0])
+            && !SUBJECT_CONTEXT_STOPWORDS.contains(&window[0].as_str())
+        {
+            return Some(window[0].clone());
+        }
+    }
+
+    None
+}
+
+fn extract_github_repo(message: &str) -> Option<String> {
+    let marker = "github.com/";
+    let start = message.find(marker)?;
+    let remainder = &message[start + marker.len()..];
+    let repo = remainder
+        .split(|ch: char| ch.is_whitespace() || matches!(ch, '?' | '#' | ')' | ']' | '"' | '\''))
+        .next()?
+        .trim_matches('/');
+    if repo.is_empty() {
+        return None;
+    }
+
+    let repo_name = repo.rsplit('/').next()?.trim();
+    if repo_name.is_empty() {
+        return None;
+    }
+    Some(repo_name.to_string())
+}
+
+fn search_tokens(text: &str) -> Vec<String> {
+    text.split_whitespace()
+        .map(clean_search_token)
+        .filter(|token| !token.is_empty())
+        .collect()
+}
+
+fn clean_search_token(raw: &str) -> String {
+    raw.trim_matches(|ch: char| {
+        !(ch.is_ascii_alphanumeric() || matches!(ch, '/' | '-' | '_' | '.'))
+    })
+    .to_lowercase()
+}
+
+fn is_generic_search_token(token: &str) -> bool {
+    token.len() < 3 || GENERIC_SEARCH_TOKENS.contains(&token)
+}
+
+fn recent_user_messages(ctx: &Context, api_url: &str, tenant: &str, limit: usize) -> Vec<String> {
+    let fields = ctx.entity_state.get("fields").cloned().unwrap_or(json!({}));
+    let session_file_id = fields
+        .get("session_file_id")
+        .and_then(|value| value.as_str())
+        .unwrap_or("");
+
+    let mut messages = Vec::new();
+    if let Some(current_user_message) = fields.get("user_message").and_then(Value::as_str) {
+        if !current_user_message.trim().is_empty() {
+            messages.push(current_user_message.trim().to_string());
+        }
+    }
+
+    if session_file_id.is_empty() {
+        return messages;
+    }
+
+    let headers = runtime_headers(ctx, tenant, &fields, None, Some("text/plain"));
+    let file_url = format!("{api_url}/tdata/Files('{session_file_id}')/$value");
+    let Ok(resp) = ctx.http_call("GET", &file_url, &headers, "") else {
+        return messages;
+    };
+    if resp.status >= 400 {
+        return messages;
+    }
+
+    let tree = session_tree_lib::SessionTree::from_jsonl(&resp.body);
+    for entry_id in tree.entry_ids() {
+        let Some(entry) = tree.get(entry_id) else {
+            continue;
+        };
+        if entry.data.get("role").and_then(Value::as_str) != Some("user") {
+            continue;
+        }
+        let content = extract_search_entry_text(&entry.data);
+        if !content.trim().is_empty() {
+            messages.push(content.trim().to_string());
+        }
+    }
+
+    if messages.len() > limit {
+        messages.drain(0..messages.len().saturating_sub(limit));
+    }
+    messages
+}
+
+fn extract_search_entry_text(data: &Value) -> String {
+    if let Some(text) = data.get("content").and_then(Value::as_str) {
+        return text.to_string();
+    }
+    if let Some(arr) = data.get("content").and_then(Value::as_array) {
+        let parts: Vec<String> = arr
+            .iter()
+            .filter_map(|block| {
+                block
+                    .get("text")
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+            })
+            .collect();
+        if !parts.is_empty() {
+            return parts.join("\n");
+        }
+    }
+    if let Some(summary) = data.get("summary").and_then(Value::as_str) {
+        return summary.to_string();
+    }
+    String::new()
 }
 
 // --- Session completion ---
@@ -1127,23 +1445,21 @@ fn temper_create_app(
     tenant: &str,
     args: &[Value],
 ) -> Result<Value, String> {
-    let input = args
-        .first()
-        .ok_or_else(|| "temper.create_app() requires an object argument with at least 'name' and 'specs'".to_string())?;
+    let input = args.first().ok_or_else(|| {
+        "temper.create_app() requires an object argument with at least 'name' and 'specs'"
+            .to_string()
+    })?;
 
     let app_name = input
         .get("name")
         .and_then(|v| v.as_str())
         .ok_or_else(|| "temper.create_app(): 'name' (string) is required".to_string())?;
-    let specs = input
-        .get("specs")
-        .ok_or_else(|| "temper.create_app(): 'specs' (object of filename→content strings) is required".to_string())?;
+    let specs = input.get("specs").ok_or_else(|| {
+        "temper.create_app(): 'specs' (object of filename→content strings) is required".to_string()
+    })?;
     let policies = input.get("policies").cloned().unwrap_or(json!({}));
     let wasm_modules = input.get("wasm_modules").cloned().unwrap_or(json!({}));
-    let reason = input
-        .get("reason")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
+    let reason = input.get("reason").and_then(|v| v.as_str()).unwrap_or("");
 
     // Validate specs values are strings (same check as temper_submit_specs).
     if let Some(obj) = specs.as_object() {
@@ -1533,7 +1849,11 @@ fn http_delete(ctx: &Context, api_url: &str, _tenant: &str, path: &str) -> Resul
 
 #[cfg(test)]
 mod tests {
-    use super::has_model_csdl;
+    use super::{
+        fallback_web_search_query, has_model_csdl, interpret_web_query_entity_result,
+        is_vague_web_search_query, web_search_results_empty,
+    };
+    use serde_json::json;
 
     #[test]
     fn detects_model_csdl_at_root() {
@@ -1551,5 +1871,70 @@ mod tests {
     #[test]
     fn rejects_bundle_without_model_csdl() {
         assert!(!has_model_csdl(&["bookmark.ioa.toml".to_string()]));
+    }
+
+    #[test]
+    fn vague_web_search_query_detects_meta_follow_ups() {
+        assert!(is_vague_web_search_query("super famous"));
+        assert!(is_vague_web_search_query("that repo"));
+        assert!(!is_vague_web_search_query("openclaw github repo"));
+    }
+
+    #[test]
+    fn fallback_web_search_query_uses_recent_repo_subject() {
+        let retry = fallback_web_search_query(
+            "super famous",
+            &[
+                "Can you clone openclaw repo".to_string(),
+                "I asked you to clone openclaw you don't remember?".to_string(),
+            ],
+        );
+
+        assert_eq!(retry.as_deref(), Some("openclaw github repo"));
+    }
+
+    #[test]
+    fn fallback_web_search_query_ignores_specific_queries() {
+        let retry = fallback_web_search_query(
+            "openclaw github repo",
+            &["Can you clone openclaw repo".to_string()],
+        );
+
+        assert_eq!(retry, None);
+    }
+
+    #[test]
+    fn interpret_web_query_entity_result_requires_complete_status() {
+        let err = interpret_web_query_entity_result(
+            "search",
+            &json!({
+                "status": "Created",
+                "results": "[]",
+            }),
+        )
+        .unwrap_err();
+
+        assert_eq!(err, "web_search: query never completed (status=Created)");
+    }
+
+    #[test]
+    fn interpret_web_query_entity_result_surfaces_recorded_errors() {
+        let err = interpret_web_query_entity_result(
+            "fetch",
+            &json!({
+                "status": "Failed",
+                "error": "missing exa_api_key",
+            }),
+        )
+        .unwrap_err();
+
+        assert_eq!(err, "web_fetch: missing exa_api_key");
+    }
+
+    #[test]
+    fn web_search_results_empty_treats_blank_strings_as_empty() {
+        assert!(web_search_results_empty(&json!("")));
+        assert!(web_search_results_empty(&json!("[]")));
+        assert!(!web_search_results_empty(&json!("headline text")));
     }
 }

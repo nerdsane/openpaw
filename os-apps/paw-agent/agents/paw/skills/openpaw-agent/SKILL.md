@@ -42,7 +42,8 @@ Check whether the app providing that entity type is installed: `temper.specs()`.
 - `temper.web_search("query")` — search the web for docs, tutorials, APIs
 - `temper.web_fetch("url")` — read a specific page
 - `sandbox.bash("cat file")` — read code you'll modify
-- `temper.recall_memory("topic")` — check what's been done before
+- `temper.search_history("pattern")` — check what was said earlier in this same conversation
+- `temper.recall_memory("topic")` — search persisted memory from earlier work
 - **Budget: 3-5 searches max.** Stop researching when you have enough to plan.
 
 **2. Plan** — Write a concrete plan and submit it for review.
@@ -119,7 +120,7 @@ temper.steer_session(session_id, message)
 ### Memory
 ```
 temper.save_memory(key, content, memory_type="project")  # persist knowledge
-temper.recall_memory(query)                               # search past knowledge
+temper.recall_memory(query)                               # search persisted memory
 ```
 
 ### Secrets (Cedar-gated)
@@ -174,7 +175,7 @@ temper.grep(pattern, path)                 # search file contents
 temper.glob(pattern, path?)                # find files by pattern
 temper.edit(path, old_string, new_string)  # search-and-replace in file
 temper.rename(old_path, new_path)          # rename/move file
-temper.search_history(pattern)             # search conversation history
+temper.search_history(pattern)             # search this conversation history
 ```
 
 ### Sub-Agents

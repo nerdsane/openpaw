@@ -61,6 +61,9 @@ pub struct Config {
     /// Modal token secret (starts with as-…).
     pub modal_token_secret: Option<String>,
 
+    /// Modal bridge base URL used by the sandbox helper.
+    pub modal_bridge_url: Option<String>,
+
     /// GitHub token for repo cloning and PR flows.
     pub github_token: Option<String>,
 
@@ -163,6 +166,7 @@ impl Config {
             sandbox_provider: optional_env("SANDBOX_PROVIDER"),
             modal_token_id: optional_env("MODAL_TOKEN_ID"),
             modal_token_secret: optional_env("MODAL_TOKEN_SECRET"),
+            modal_bridge_url: optional_env("MODAL_BRIDGE_URL"),
             github_token: optional_env("GITHUB_TOKEN"),
             dd_api_key: optional_env("DD_API_KEY"),
             dd_app_key: optional_env("DD_APP_KEY"),

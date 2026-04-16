@@ -18,7 +18,10 @@ use serde::{Deserialize, Serialize};
 use temper_platform::PlatformState;
 use temper_store_turso::TursoEventStore;
 
-use crate::setup::{SetupRequestAuth, load_paw_soul_content, save_soul_to_temper};
+use crate::setup::{
+    SetupRequestAuth, default_paw_soul_content, has_local_personalized_paw_soul,
+    load_paw_soul_content, save_soul_to_temper,
+};
 use crate::setup_llm::{
     GeneratedSoul, LlmProvider, UserInterview, generate_personalized_soul, refine_soul,
 };
@@ -63,6 +66,7 @@ fn allowed_secret_keys() -> HashSet<&'static str> {
         "sandbox_provider",
         "modal_token_id",
         "modal_token_secret",
+        "modal_bridge_url",
         // DD_* and railway_* are infrastructure config managed via Railway env vars,
         // not dashboard secrets. They're set by `openpaw deploy` and changed in Railway.
         "railway_project_id",
@@ -220,6 +224,13 @@ fn secrets_schema() -> Vec<SecretSchema> {
             description: "Starts with as-… — from modal.com/settings or `modal token set`",
         },
         SecretSchema {
+            key: "modal_bridge_url",
+            category: "sandbox",
+            label: "Modal Bridge URL",
+            required: false,
+            description: "Base URL for the deployed Modal bridge, for example https://user--openpaw-sandbox-bridge",
+        },
+        SecretSchema {
             key: "github_token",
             category: "integrations",
             label: "GitHub Token",
@@ -273,6 +284,7 @@ struct SetupStatus {
     has_slack: bool,
     has_agents: bool,
     agent_count: usize,
+    has_personalized_soul: bool,
     discord_connected: bool,
     slack_connected: bool,
     discord_interaction_url: Option<String>,
@@ -313,6 +325,7 @@ async fn get_setup_status(State(state): State<SetupApiState>) -> Json<SetupStatu
         transport_status.slack,
         crate::transport_manager::TransportStatus::Connected { .. }
     );
+    let has_personalized_soul = has_personalized_paw_soul(&state).await;
 
     Json(SetupStatus {
         has_anthropic_key,
@@ -321,6 +334,7 @@ async fn get_setup_status(State(state): State<SetupApiState>) -> Json<SetupStatu
         has_slack,
         has_agents: agent_count > 0,
         agent_count,
+        has_personalized_soul,
         discord_connected,
         slack_connected,
         discord_interaction_url: state
@@ -328,6 +342,39 @@ async fn get_setup_status(State(state): State<SetupApiState>) -> Json<SetupStatu
             .discord_interaction_public_url()
             .await,
     })
+}
+
+fn personalized_soul_flag_value(value: Option<&str>) -> bool {
+    value.is_some_and(|value| matches!(value.trim(), "1" | "true" | "yes"))
+}
+
+fn persisted_personalized_soul_flag(state: &SetupApiState) -> bool {
+    personalized_soul_flag_value(
+        state
+            .platform
+            .server
+            .secrets_vault
+            .as_ref()
+            .and_then(|vault| vault.get_secret(&state.tenant, "paw_personalized_soul"))
+            .as_deref(),
+    )
+}
+
+async fn has_personalized_paw_soul(state: &SetupApiState) -> bool {
+    if persisted_personalized_soul_flag(state) || has_local_personalized_paw_soul() {
+        return true;
+    }
+
+    let Ok(default_content) = default_paw_soul_content() else {
+        return false;
+    };
+    let Ok((_, current_content)) =
+        load_current_paw_soul(state, &SetupRequestAuth::default()).await
+    else {
+        return false;
+    };
+
+    current_content.trim() != default_content.trim()
 }
 
 // ──────────────────────────────── Secrets ────────────────────────────────────
@@ -609,7 +656,28 @@ async fn save_soul(
     let client = reqwest::Client::new();
     let auth = SetupRequestAuth::from_headers(&headers);
     match save_soul_to_temper(&client, &state.base_url, &state.tenant, &generated, &auth).await {
-        Ok(()) => (StatusCode::OK, Json(serde_json::json!({ "saved": true }))).into_response(),
+        Ok(()) => {
+            if let Some(vault) = state.platform.server.secrets_vault.as_ref() {
+                let _ = vault.cache_secret(
+                    &state.tenant,
+                    "paw_personalized_soul",
+                    "true".to_string(),
+                );
+                if let Ok((ciphertext, nonce)) = vault.encrypt(b"true") {
+                    let _ = state
+                        .turso_store
+                        .upsert_secret(
+                            &state.tenant,
+                            "paw_personalized_soul",
+                            &ciphertext,
+                            &nonce,
+                        )
+                        .await;
+                }
+            }
+
+            (StatusCode::OK, Json(serde_json::json!({ "saved": true }))).into_response()
+        }
         Err(error) => {
             tracing::warn!(%error, "Saving personalized soul failed");
             (
@@ -1476,7 +1544,9 @@ async fn disconnect_slack(State(state): State<SetupApiState>) -> Json<serde_json
 
 #[cfg(test)]
 mod tests {
-    use super::discord_connect_params_for_secret_update;
+    use super::{
+        discord_connect_params_for_secret_update, personalized_soul_flag_value,
+    };
 
     #[test]
     fn discord_secret_update_builds_reconnect_params_when_config_is_complete() {
@@ -1504,5 +1574,14 @@ mod tests {
             discord_connect_params_for_secret_update(|_| None, "discord_bot_token", "new-token");
 
         assert!(params.is_none());
+    }
+
+    #[test]
+    fn personalized_soul_flag_value_accepts_truthy_values() {
+        assert!(personalized_soul_flag_value(Some("true")));
+        assert!(personalized_soul_flag_value(Some("1")));
+        assert!(personalized_soul_flag_value(Some("yes")));
+        assert!(!personalized_soul_flag_value(Some("false")));
+        assert!(!personalized_soul_flag_value(None));
     }
 }

@@ -109,7 +109,7 @@ const REPL_METHOD_SPECS: &[ReplMethodSpec] = &[
         object: "temper",
         method: "list_sessions",
         signature: "(filter=None, top=50)",
-        description: "list sessions",
+        description: "list recent sessions; add a filter to narrow the results",
         token: Some("temper_list_sessions"),
     },
     ReplMethodSpec {
@@ -130,14 +130,14 @@ const REPL_METHOD_SPECS: &[ReplMethodSpec] = &[
         object: "temper",
         method: "save_memory",
         signature: "(key, content, memory_type='project')",
-        description: "persist memory",
+        description: "persist long-lived memory",
         token: Some("temper_save_memory"),
     },
     ReplMethodSpec {
         object: "temper",
         method: "recall_memory",
         signature: "(query)",
-        description: "search memories, returns list",
+        description: "search persisted memories, returns list",
         token: Some("temper_recall_memory"),
     },
     ReplMethodSpec {
@@ -193,7 +193,7 @@ const REPL_METHOD_SPECS: &[ReplMethodSpec] = &[
         object: "temper",
         method: "search_history",
         signature: "(pattern)",
-        description: "search full conversation history including compacted entries, returns matching excerpts with entry metadata",
+        description: "search recent conversation history in this session, including compacted entries",
         token: Some("temper_search_history"),
     },
     ReplMethodSpec {

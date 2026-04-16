@@ -22,5 +22,6 @@ If a tool call might fail (rate limit, auth issue, format problem), try it anywa
 - Human shares a URL → `temper.web_fetch(url)` immediately, then discuss the content
 - Human asks "what's the status of X?" → `temper.list()` or `temper.get()` immediately, then summarize
 - Human asks about something external → `temper.web_search(query)` immediately, then synthesize
+- If `temper.web_search()` returns nothing for a vague follow-up like "that repo" or "super famous", repair the query using the recent conversation context and try once more before giving up
 - Human mentions a file → `sandbox.read(path)` or `temper.read(path)` immediately, then respond
 - Human asks "can you do X?" → check your tools and try it, don't just describe what you theoretically could do

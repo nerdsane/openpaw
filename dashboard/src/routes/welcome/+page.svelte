@@ -3,9 +3,15 @@
   import { base } from '$app/paths';
   import {
     fetchSetupStatus,
+    generateSoulPreview,
+    getCurrentSoul,
+    saveGeneratedSoul,
     saveSecret,
     getSecret,
+    type CurrentSoul,
+    type GeneratedSoul,
     type SetupStatus,
+    type UserInterview,
   } from '$lib/api';
   import { openPanel } from '$lib/stores/paw-chat';
 
@@ -20,6 +26,19 @@
   let keyError = $state('');
   let showLlmForm = $state(false);
 
+  // Soul personalization
+  let currentSoul = $state<CurrentSoul | null>(null);
+  let showSoulForm = $state(false);
+  let soulPreview = $state<GeneratedSoul | null>(null);
+  let soulFeedback = $state('');
+  let soulError = $state('');
+  let generatingSoul = $state(false);
+  let savingSoul = $state(false);
+  let interviewName = $state('');
+  let interviewAbout = $state('');
+  let interviewIdeal = $state('');
+  let interviewWorkingStyle = $state('');
+  let interviewPushback = $state('');
   const providerKeyMap: Record<string, string> = {
     anthropic: 'anthropic_api_key',
     openai: 'openai_api_key',
@@ -28,7 +47,10 @@
   };
 
   let setupComplete = $derived(
-    status?.has_anthropic_key && status?.has_agents && status?.discord_connected
+    status?.has_anthropic_key
+      && status?.has_agents
+      && status?.discord_connected
+      && status?.has_personalized_soul
   );
 
   let completedSteps = $derived.by(() => {
@@ -37,6 +59,7 @@
     if (status.has_anthropic_key) n++;
     if (status.discord_connected) n++;
     if (status.has_agents) n++;
+    if (status.has_personalized_soul) n++;
     return n;
   });
 
@@ -48,6 +71,8 @@
         // Detect active provider
         const savedProvider = await getSecret('llm_provider');
         if (savedProvider) llmProvider = savedProvider;
+        currentSoul = await getCurrentSoul();
+        showSoulForm = !status.has_personalized_soul;
       } else {
         showLlmForm = true;
       }
@@ -69,7 +94,9 @@
       await saveSecret('llm_provider', llmProvider);
       status = await fetchSetupStatus();
       showLlmForm = false;
+      showSoulForm = true;
       llmKey = '';
+      currentSoul = await getCurrentSoul();
     } catch (err) {
       keyError = err instanceof Error ? err.message : 'Failed to save API key';
     } finally {
@@ -79,6 +106,57 @@
 
   async function refresh() {
     status = await fetchSetupStatus();
+    currentSoul = await getCurrentSoul();
+  }
+
+  function buildInterview(): UserInterview {
+    return {
+      name: interviewName.trim(),
+      about_you: interviewAbout.trim(),
+      ideal_paw: interviewIdeal.trim(),
+      followup_answers: [
+        ['How should Paw adapt to how you work?', interviewWorkingStyle.trim()],
+        ['When should Paw challenge or push back on your thinking?', interviewPushback.trim()],
+      ],
+    };
+  }
+
+  let canGenerateSoul = $derived(
+    !!interviewName.trim() && !!interviewAbout.trim() && !!interviewIdeal.trim()
+  );
+
+  async function generateSoul(feedback?: string) {
+    if (!canGenerateSoul) return;
+    generatingSoul = true;
+    soulError = '';
+    try {
+      soulPreview = await generateSoulPreview({
+        interview: buildInterview(),
+        previous_summary: soulPreview?.summary,
+        feedback: feedback?.trim() || undefined,
+      });
+    } catch (err) {
+      soulError = err instanceof Error ? err.message : 'Failed to generate soul';
+    } finally {
+      generatingSoul = false;
+    }
+  }
+
+  async function saveSoul() {
+    if (!soulPreview) return;
+    savingSoul = true;
+    soulError = '';
+    try {
+      await saveGeneratedSoul(soulPreview);
+      status = await fetchSetupStatus();
+      currentSoul = await getCurrentSoul();
+      showSoulForm = false;
+      soulFeedback = '';
+    } catch (err) {
+      soulError = err instanceof Error ? err.message : 'Failed to save soul';
+    } finally {
+      savingSoul = false;
+    }
   }
 </script>
 
@@ -100,7 +178,7 @@
       <h1 class="title">{setupComplete ? 'Open Paw' : 'Setup'}</h1>
       <p class="subtitle">{setupComplete
         ? 'Your instance is ready.'
-        : `${completedSteps} of 3 steps complete. Configure below or ask Paw for help.`}</p>
+        : `${completedSteps} of 4 steps complete. Configure below or ask Paw for help.`}</p>
     </div>
 
     <!-- Setup checklist -->
@@ -165,7 +243,7 @@
           </a>
         </div>
         {#if !status?.discord_connected}
-          <p class="step-hint">Add your Discord bot token and guild ID in Settings, then click Connect.</p>
+          <p class="step-hint">Add your Discord bot token and guild ID in Settings. Saving Discord values now reconnects automatically.</p>
         {/if}
       </div>
 
@@ -191,6 +269,95 @@
         </div>
         {#if !status?.has_agents && status?.has_anthropic_key}
           <p class="step-hint">Agents bootstrap automatically when an LLM is configured. Try refreshing.</p>
+        {/if}
+      </div>
+
+      <!-- 4. Paw soul -->
+      <div class="step" class:step-done={status?.has_personalized_soul}>
+        <div class="step-row">
+          <span class="step-dot" class:step-dot--on={status?.has_personalized_soul}></span>
+          <div class="step-info">
+            <span class="step-name">Paw Personality</span>
+            <span class="step-status">
+              {#if status?.has_personalized_soul}
+                Personalized
+              {:else}
+                Interview needed
+              {/if}
+            </span>
+          </div>
+          {#if status?.has_anthropic_key}
+            <button class="step-act" onclick={() => showSoulForm = !showSoulForm}>
+              {showSoulForm ? 'Close' : status?.has_personalized_soul ? 'Review' : 'Start'}
+            </button>
+          {/if}
+        </div>
+        {#if status?.has_personalized_soul && currentSoul && !showSoulForm}
+          <p class="step-hint">{currentSoul.summary}</p>
+        {/if}
+        {#if !status?.has_anthropic_key}
+          <p class="step-hint">Configure an LLM first so Paw can interview you and generate a personalized operating style.</p>
+        {/if}
+        {#if showSoulForm && status?.has_anthropic_key}
+          <div class="step-form soul-form">
+            <div class="soul-grid">
+              <label>
+                <span>Name</span>
+                <input type="text" bind:value={interviewName} placeholder="What should Paw call you?" />
+              </label>
+              <label>
+                <span>About You</span>
+                <textarea bind:value={interviewAbout} rows="3" placeholder="Your role, what you're building, and what matters most."></textarea>
+              </label>
+              <label>
+                <span>Ideal Paw</span>
+                <textarea bind:value={interviewIdeal} rows="3" placeholder="Describe the kind of teammate you want Paw to be."></textarea>
+              </label>
+              <label>
+                <span>Working Style</span>
+                <textarea bind:value={interviewWorkingStyle} rows="2" placeholder="How should Paw adapt to your pace, context, and communication style?"></textarea>
+              </label>
+              <label>
+                <span>Pushback</span>
+                <textarea bind:value={interviewPushback} rows="2" placeholder="When should Paw challenge your assumptions or slow you down?"></textarea>
+              </label>
+            </div>
+
+            <div class="soul-actions">
+              <button class="btn" type="button" onclick={() => generateSoul()} disabled={!canGenerateSoul || generatingSoul}>
+                {generatingSoul ? 'Generating…' : soulPreview ? 'Regenerate' : 'Generate'}
+              </button>
+              {#if soulPreview}
+                <button class="btn-ghost" type="button" onclick={saveSoul} disabled={savingSoul}>
+                  {savingSoul ? 'Saving…' : 'Save Soul'}
+                </button>
+              {/if}
+            </div>
+
+            {#if soulPreview}
+              <div class="soul-preview">
+                <p class="step-hint">{soulPreview.summary}</p>
+                <textarea
+                  bind:value={soulFeedback}
+                  rows="2"
+                  placeholder="Optional feedback for a revision, for example: make Paw more concise and more willing to push back."
+                ></textarea>
+                <button class="step-act" type="button" onclick={() => generateSoul(soulFeedback)} disabled={!soulFeedback.trim() || generatingSoul}>
+                  Refine
+                </button>
+                <pre>{soulPreview.soul_md}</pre>
+              </div>
+            {:else if currentSoul}
+              <div class="soul-preview">
+                <p class="step-hint">{currentSoul.summary}</p>
+                <pre>{currentSoul.content}</pre>
+              </div>
+            {/if}
+
+            {#if soulError}
+              <p class="err">{soulError}</p>
+            {/if}
+          </div>
         {/if}
       </div>
     </div>
@@ -414,6 +581,64 @@
   input::placeholder { color: var(--text-3); }
   input:focus { outline: none; border-color: var(--text-2); }
   input:disabled { opacity: 0.5; }
+
+  textarea {
+    width: 100%;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: var(--sp-2);
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    color: var(--text-1);
+    resize: vertical;
+    min-height: 4rem;
+    box-sizing: border-box;
+  }
+
+  textarea::placeholder { color: var(--text-3); }
+  textarea:focus { outline: none; border-color: var(--text-2); }
+
+  .soul-form {
+    gap: var(--sp-3);
+  }
+
+  .soul-grid {
+    display: grid;
+    gap: var(--sp-2);
+  }
+
+  .soul-grid label {
+    display: grid;
+    gap: var(--sp-1);
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    color: var(--text-2);
+  }
+
+  .soul-actions {
+    display: flex;
+    gap: var(--sp-2);
+    align-items: center;
+  }
+
+  .soul-preview {
+    display: grid;
+    gap: var(--sp-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: var(--sp-3);
+  }
+
+  .soul-preview pre {
+    margin: 0;
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    color: var(--text-2);
+    white-space: pre-wrap;
+    max-height: 16rem;
+    overflow: auto;
+  }
 
   /* ── Buttons ── */
   .btn {

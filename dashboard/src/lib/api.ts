@@ -215,6 +215,7 @@ export interface SetupStatus {
   has_slack: boolean;
   has_agents: boolean;
   agent_count: number;
+  has_personalized_soul: boolean;
   discord_connected: boolean;
   slack_connected: boolean;
   discord_interaction_url?: string;

@@ -464,6 +464,13 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
             vault,
             &turso_store,
             &tenant,
+            "modal_bridge_url",
+            config.modal_bridge_url
+        );
+        seed_secret!(
+            vault,
+            &turso_store,
+            &tenant,
             "github_token",
             config.github_token
         );
@@ -619,15 +626,37 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
             )
             .await;
         } else {
-            let provider = config.sandbox_provider.as_deref().unwrap_or("tensorlake");
-            match provider {
-                "tensorlake" if config.tensorlake_api_key.is_some() => {
+            let provider = vault
+                .get_secret(&tenant, "sandbox_provider")
+                .or_else(|| config.sandbox_provider.clone())
+                .unwrap_or_else(|| "tensorlake".to_string());
+            let tensorlake_api_key = vault
+                .get_secret(&tenant, "tensorlake_api_key")
+                .or_else(|| config.tensorlake_api_key.clone());
+            let modal_token_id = vault
+                .get_secret(&tenant, "modal_token_id")
+                .or_else(|| config.modal_token_id.clone());
+            let modal_token_secret = vault
+                .get_secret(&tenant, "modal_token_secret")
+                .or_else(|| config.modal_token_secret.clone());
+            let modal_bridge_url = vault
+                .get_secret(&tenant, "modal_bridge_url")
+                .or_else(|| config.modal_bridge_url.clone());
+            match provider.as_str() {
+                "tensorlake" if tensorlake_api_key.is_some() => {
                     tracing::info!("Sandbox provider: tensorlake (API key configured)");
                 }
                 "modal"
-                    if config.modal_token_id.is_some() && config.modal_token_secret.is_some() =>
+                    if modal_token_id.is_some()
+                        && modal_token_secret.is_some()
+                        && modal_bridge_url.is_some() =>
                 {
-                    tracing::info!("Sandbox provider: modal (token configured)");
+                    tracing::info!("Sandbox provider: modal (token + bridge configured)");
+                }
+                "modal" if modal_token_id.is_some() && modal_token_secret.is_some() => {
+                    tracing::warn!(
+                        "Sandbox provider is 'modal' but MODAL_BRIDGE_URL / modal_bridge_url is not set"
+                    );
                 }
                 "modal" => {
                     tracing::warn!(
@@ -1017,12 +1046,19 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
         .and_then(|v| v.get_secret(&tenant, "llm_provider"))
         .or_else(|| config.llm_provider.clone())
         .unwrap_or_else(|| "anthropic".to_string());
+    let preserve_personalized_paw_soul = state
+        .server
+        .secrets_vault
+        .as_ref()
+        .and_then(|v| v.get_secret(&tenant, "paw_personalized_soul"))
+        .is_some_and(|value| matches!(value.trim(), "1" | "true" | "yes"));
 
     spawn_soul_bootstrap(
         actual_port,
         tenant.clone(),
         config.temper_api_key.clone(),
         resolved_llm_provider,
+        preserve_personalized_paw_soul,
     );
 
     // Print startup summary
@@ -1345,7 +1381,13 @@ async fn persist_os_app_verification(
 /// Reads soul files from `os-apps/paw-agent/agents/` directory, creates TemperFS File entities
 /// for the content, and registers Soul entities. Runs once on first boot;
 /// skips if souls already exist.
-fn spawn_soul_bootstrap(port: u16, tenant: String, api_key: Option<String>, llm_provider: String) {
+fn spawn_soul_bootstrap(
+    port: u16,
+    tenant: String,
+    api_key: Option<String>,
+    llm_provider: String,
+    preserve_personalized_paw_soul: bool,
+) {
     tokio::spawn(async move {
         tokio::time::sleep(Duration::from_millis(500)).await;
 
@@ -1444,6 +1486,7 @@ fn spawn_soul_bootstrap(port: u16, tenant: String, api_key: Option<String>, llm_
                     name,
                     description,
                     paths,
+                    preserve_personalized_paw_soul && *name == "Paw",
                 )
                 .await
                 {
@@ -1574,6 +1617,7 @@ async fn bootstrap_soul(
     name: &str,
     description: &str,
     paths: &[&str],
+    preserve_existing_content: bool,
 ) -> Result<String> {
     let content = paths
         .iter()
@@ -1599,6 +1643,20 @@ async fn bootstrap_soul(
         )
         .await?;
         if let Some(file_id) = entity_field_str(&soul_resp, &["ContentFileId", "content_file_id"]) {
+            if should_preserve_paw_soul_content(
+                client,
+                api_url,
+                tenant,
+                api_key,
+                name,
+                file_id,
+                preserve_existing_content,
+            )
+            .await
+            {
+                tracing::info!("  Preserving existing soul '{name}': {attached_soul_id}");
+                return Ok(attached_soul_id.to_string());
+            }
             let upload_url = format!("{api_url}/tdata/Files('{file_id}')/$value");
             odata_put_bytes(
                 client,
@@ -1622,6 +1680,20 @@ async fn bootstrap_soul(
             let id = entity_id_from_json(existing).unwrap_or("unknown");
             if let Some(file_id) = entity_field_str(existing, &["ContentFileId", "content_file_id"])
             {
+                if should_preserve_paw_soul_content(
+                    client,
+                    api_url,
+                    tenant,
+                    api_key,
+                    name,
+                    file_id,
+                    preserve_existing_content,
+                )
+                .await
+                {
+                    tracing::info!("  Preserving existing soul '{name}': {id}");
+                    return Ok(id.to_string());
+                }
                 let upload_url = format!("{api_url}/tdata/Files('{file_id}')/$value");
                 odata_put_bytes(
                     client,
@@ -1697,6 +1769,44 @@ async fn bootstrap_soul(
     .await?;
 
     Ok(soul_id)
+}
+
+async fn should_preserve_paw_soul_content(
+    client: &reqwest::Client,
+    api_url: &str,
+    tenant: &str,
+    api_key: &Option<String>,
+    name: &str,
+    file_id: &str,
+    preserve_existing_content: bool,
+) -> bool {
+    if preserve_existing_content {
+        return true;
+    }
+
+    if name != "Paw" {
+        return false;
+    }
+
+    let Ok(default_content) = crate::setup::default_paw_soul_content() else {
+        return false;
+    };
+    let Ok(current_content) = odata_get_text(
+        client,
+        &format!("{api_url}/tdata/Files('{file_id}')/$value"),
+        tenant,
+        api_key,
+    )
+    .await
+    else {
+        return false;
+    };
+
+    paw_soul_content_is_personalized(&current_content, &default_content)
+}
+
+fn paw_soul_content_is_personalized(current_content: &str, default_content: &str) -> bool {
+    current_content.trim() != default_content.trim()
 }
 
 fn soul_lookup_filters(name: &str) -> [String; 2] {
@@ -2111,6 +2221,29 @@ async fn odata_put_bytes(
     Ok(())
 }
 
+async fn odata_get_text(
+    client: &reqwest::Client,
+    url: &str,
+    tenant: &str,
+    api_key: &Option<String>,
+) -> Result<String> {
+    let mut req = client
+        .get(url)
+        .header("x-tenant-id", tenant)
+        .header("x-temper-principal-kind", "admin");
+    if let Some(key) = api_key {
+        req = req.header("authorization", format!("Bearer {key}"));
+    }
+
+    let resp = req.send().await.context("OData text GET failed")?;
+    let status = resp.status();
+    let body = resp.text().await.context("Failed to read text response")?;
+    if !status.is_success() {
+        anyhow::bail!("OData GET {url} returned {status}: {body}");
+    }
+    Ok(body)
+}
+
 fn entity_id_from_json(value: &serde_json::Value) -> Option<&str> {
     value
         .get("entity_id")
@@ -2321,7 +2454,14 @@ fn spawn_actor_passivation_loop(state: &PlatformState) {
 
 #[cfg(test)]
 mod tests {
+    use axum::body::Body;
+    use axum::extract::State;
+    use axum::http::{Method, Request, StatusCode};
+    use axum::response::IntoResponse;
+    use axum::routing::any;
+    use axum::Router;
     use std::path::Path;
+    use std::sync::{Arc, Mutex};
 
     use anyhow::anyhow;
     use serde_json::Value;
@@ -2329,8 +2469,9 @@ mod tests {
 
     use super::{
         LocalWasmStartupPolicy, RuntimeRecoveryStep, actor_passivation_check_interval_secs,
-        load_or_create_temper_api_key, local_wasm_startup_policy, runtime_recovery_plan,
-        soul_lookup_filters, startup_discord_connect_result, startup_os_apps,
+        bootstrap_soul, load_or_create_temper_api_key, local_wasm_startup_policy,
+        paw_soul_content_is_personalized, runtime_recovery_plan, soul_lookup_filters,
+        startup_discord_connect_result, startup_os_apps,
     };
 
     #[test]
@@ -2403,7 +2544,10 @@ mod tests {
         let repo_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         temper_platform::os_apps::set_os_apps_dir(repo_root.join("os-apps"));
         let apps = startup_os_apps();
-        assert_eq!(apps, vec!["paw-agent", "paw-channels", "paw-fs"]);
+        assert_eq!(
+            apps,
+            vec!["paw-agent", "paw-channels", "paw-fs", "paw-research"]
+        );
     }
 
     #[test]
@@ -2827,5 +2971,94 @@ mod tests {
 
         let explicit = load_or_create_temper_api_key(Some("env-token".to_string()), &path).unwrap();
         assert_eq!(explicit, "env-token");
+    }
+
+    #[test]
+    fn paw_soul_content_personalization_detection_matches_non_default_content() {
+        let default_content = crate::setup::default_paw_soul_content().expect("default content");
+
+        assert!(!paw_soul_content_is_personalized(
+            &default_content,
+            &default_content
+        ));
+        assert!(paw_soul_content_is_personalized(
+            "## Who I Am\nI am tailored for Arni.",
+            &default_content
+        ));
+    }
+
+    #[tokio::test]
+    async fn bootstrap_soul_preserves_existing_personalized_paw_content() {
+        #[derive(Clone, Default)]
+        struct Seen {
+            upload_attempted: Arc<Mutex<bool>>,
+        }
+
+        async fn handler(
+            State(seen): State<Seen>,
+            request: Request<Body>,
+        ) -> impl IntoResponse {
+            match (request.method(), request.uri().path(), request.uri().query()) {
+                (&Method::GET, "/tdata/Agents('agent-1')", _) => (
+                    StatusCode::OK,
+                    axum::Json(serde_json::json!({
+                        "fields": {
+                            "soul_id": "soul-1"
+                        }
+                    })),
+                )
+                    .into_response(),
+                (&Method::GET, "/tdata/Souls('soul-1')", _) => (
+                    StatusCode::OK,
+                    axum::Json(serde_json::json!({
+                        "fields": {
+                            "ContentFileId": "file-1"
+                        }
+                    })),
+                )
+                    .into_response(),
+                (&Method::GET, "/tdata/Files('file-1')/$value", _) => (
+                    StatusCode::OK,
+                    "## Who I Am\nI am tailored for Arni.".to_string(),
+                )
+                    .into_response(),
+                (&Method::PUT, "/tdata/Files('file-1')/$value", _) => {
+                    *seen.upload_attempted.lock().unwrap() = true;
+                    StatusCode::OK.into_response()
+                }
+                _ => StatusCode::NOT_FOUND.into_response(),
+            }
+        }
+
+        let temp = tempfile::tempdir().unwrap();
+        let soul_path = temp.path().join("SOUL.md");
+        std::fs::write(&soul_path, "# Default soul").unwrap();
+
+        let seen = Seen::default();
+        let app = Router::new()
+            .fallback(any(handler))
+            .with_state(seen.clone());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+
+        let soul_id = bootstrap_soul(
+            &reqwest::Client::new(),
+            &format!("http://{addr}"),
+            "default",
+            &None,
+            "agent-1",
+            "Paw",
+            "Paw soul",
+            &[soul_path.to_str().unwrap()],
+            false,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(soul_id, "soul-1");
+        assert!(!*seen.upload_attempted.lock().unwrap());
     }
 }

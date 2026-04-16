@@ -3,8 +3,9 @@
 //! These methods are dispatched from `temper.<method>()` calls in Monty code.
 //! They use the same HTTP patterns as dispatch.rs (ctx.http_call, JSON serialization).
 
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use temper_wasm_sdk::context::Context;
+use wasm_helpers::runtime_headers;
 
 use crate::dispatch;
 
@@ -22,7 +23,7 @@ pub fn spawn_session(
     workdir: &str,
     args: &[Value],
 ) -> Result<Value, String> {
-    let input = obj_arg(args, 0, "opts", "spawn_session")?;
+    let input = spawn_session_input(args)?;
 
     let task = require_str(&input, "task", "spawn_session")?;
     let requested_id = input.get("agent_id").and_then(|v| v.as_str()).unwrap_or("");
@@ -37,26 +38,50 @@ pub fn spawn_session(
         .unwrap_or("");
 
     // Three-tier fallback: explicit input → parent session fields → hardcoded default.
-    let parent_provider = fields.get("provider").and_then(|v| v.as_str()).unwrap_or("");
+    let parent_provider = fields
+        .get("provider")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
     let parent_model = fields.get("model").and_then(|v| v.as_str()).unwrap_or("");
-    let parent_temperature = fields.get("temperature").and_then(|v| v.as_str()).unwrap_or("");
+    let parent_temperature = fields
+        .get("temperature")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
     let model = input
         .get("model")
         .and_then(|v| v.as_str())
         .filter(|s| !s.is_empty())
-        .or_else(|| if parent_model.is_empty() { None } else { Some(parent_model) })
+        .or_else(|| {
+            if parent_model.is_empty() {
+                None
+            } else {
+                Some(parent_model)
+            }
+        })
         .unwrap_or("claude-sonnet-4-6");
     let provider = input
         .get("provider")
         .and_then(|v| v.as_str())
         .filter(|s| !s.is_empty())
-        .or_else(|| if parent_provider.is_empty() { None } else { Some(parent_provider) })
+        .or_else(|| {
+            if parent_provider.is_empty() {
+                None
+            } else {
+                Some(parent_provider)
+            }
+        })
         .unwrap_or("anthropic");
     let temperature = input
         .get("temperature")
         .and_then(|v| v.as_str())
         .filter(|s| !s.is_empty())
-        .or_else(|| if parent_temperature.is_empty() { None } else { Some(parent_temperature) })
+        .or_else(|| {
+            if parent_temperature.is_empty() {
+                None
+            } else {
+                Some(parent_temperature)
+            }
+        })
         .unwrap_or("1.0");
     let tools = input
         .get("tools")
@@ -144,7 +169,14 @@ pub fn spawn_session(
     if !requested_id.is_empty() {
         create_body["Id"] = Value::String(requested_id.to_string());
     }
-    let resp = http_post(ctx, api_url, tenant, parent_id, "/tdata/Sessions", &create_body)?;
+    let resp = http_post(
+        ctx,
+        api_url,
+        tenant,
+        parent_id,
+        "/tdata/Sessions",
+        &create_body,
+    )?;
     let child_id = resp
         .get("entity_id")
         .or_else(|| resp.get("Id"))
@@ -220,7 +252,7 @@ pub fn list_sessions(
     tenant: &str,
     args: &[Value],
 ) -> Result<Value, String> {
-    let input = obj_arg_or_empty(args, 0);
+    let input = list_sessions_input(args);
     let eid = ctx_entity_id(ctx);
 
     let filter = input.get("filter").and_then(|v| v.as_str()).unwrap_or("");
@@ -230,11 +262,6 @@ pub fn list_sessions(
     let mut query_parts: Vec<String> = Vec::new();
     if !filter.is_empty() {
         query_parts.push(format!("$filter={}", urlenc(filter)));
-    } else if !eid.is_empty() {
-        query_parts.push(format!(
-            "$filter=ParentSessionId%20eq%20'{}'",
-            urlenc(eid)
-        ));
     }
     if top > 0 {
         query_parts.push(format!("$top={top}"));
@@ -258,7 +285,7 @@ pub fn abort_session(
     tenant: &str,
     args: &[Value],
 ) -> Result<Value, String> {
-    let input = obj_arg(args, 0, "opts", "abort_session")?;
+    let input = abort_session_input(args)?;
     let session_id = require_str(&input, "session_id", "abort_session")?;
     let eid = ctx_entity_id(ctx);
     http_post(
@@ -282,7 +309,7 @@ pub fn steer_session(
     tenant: &str,
     args: &[Value],
 ) -> Result<Value, String> {
-    let input = obj_arg(args, 0, "opts", "steer_session")?;
+    let input = steer_session_input(args)?;
     let session_id = require_str(&input, "session_id", "steer_session")?;
     let message = require_str(&input, "message", "steer_session")?;
     let eid = ctx_entity_id(ctx);
@@ -324,7 +351,7 @@ pub fn save_memory(
     tenant: &str,
     args: &[Value],
 ) -> Result<Value, String> {
-    let input = obj_arg(args, 0, "opts", "save_memory")?;
+    let input = save_memory_input(args)?;
     let key = require_str(&input, "key", "save_memory")?;
     let content = require_str(&input, "content", "save_memory")?;
     let memory_type = input
@@ -375,7 +402,7 @@ pub fn recall_memory(
     tenant: &str,
     args: &[Value],
 ) -> Result<Value, String> {
-    let input = obj_arg(args, 0, "opts", "recall_memory")?;
+    let input = recall_memory_input(args)?;
     let query = require_str(&input, "query", "recall_memory")?;
     let fields = ctx.entity_state.get("fields").cloned().unwrap_or(json!({}));
     let agent_id = fields
@@ -407,12 +434,7 @@ pub fn recall_memory(
 // write — temper.write(path, content, opts?)
 // ---------------------------------------------------------------------------
 
-pub fn write(
-    ctx: &Context,
-    api_url: &str,
-    tenant: &str,
-    args: &[Value],
-) -> Result<Value, String> {
+pub fn write(ctx: &Context, api_url: &str, tenant: &str, args: &[Value]) -> Result<Value, String> {
     let path = pos_str(args, 0, "path", "write")?;
     let content = pos_str(args, 1, "content", "write")?;
     let opts = obj_arg_or_empty(args, 2);
@@ -443,9 +465,7 @@ pub fn write(
         api_url,
         tenant,
         eid,
-        &format!(
-            "/tdata/Workspaces('{ws_id}')/Temper.MkDir?await_integration=true"
-        ),
+        &format!("/tdata/Workspaces('{ws_id}')/Temper.MkDir?await_integration=true"),
         &json!({"path": dir_path}),
     )?;
 
@@ -455,9 +475,7 @@ pub fn write(
         api_url,
         tenant,
         eid,
-        &format!(
-            "/tdata/Workspaces('{ws_id}')/Temper.CreateFile?await_integration=true"
-        ),
+        &format!("/tdata/Workspaces('{ws_id}')/Temper.CreateFile?await_integration=true"),
         &json!({"path": path, "mime_type": mime_type}),
     )?;
 
@@ -501,12 +519,7 @@ pub fn write(
 // read — temper.read(path, opts?)
 // ---------------------------------------------------------------------------
 
-pub fn read(
-    ctx: &Context,
-    api_url: &str,
-    tenant: &str,
-    args: &[Value],
-) -> Result<Value, String> {
+pub fn read(ctx: &Context, api_url: &str, tenant: &str, args: &[Value]) -> Result<Value, String> {
     let path = pos_str(args, 0, "path", "read")?;
     let opts = obj_arg_or_empty(args, 1);
 
@@ -523,9 +536,7 @@ pub fn read(
         api_url,
         tenant,
         eid,
-        &format!(
-            "/tdata/Workspaces('{ws_id}')/Temper.ResolvePath?await_integration=true"
-        ),
+        &format!("/tdata/Workspaces('{ws_id}')/Temper.ResolvePath?await_integration=true"),
         &json!({"path": path}),
     )?;
 
@@ -545,19 +556,30 @@ pub fn read(
     let headers = vec![("Accept".to_string(), "application/octet-stream".to_string())];
     let resp = ctx.http_call("GET", &url, &headers, "")?;
     if resp.status >= 400 {
-        return Err(format!("temper.read(): content read failed (HTTP {})", resp.status));
+        return Err(format!(
+            "temper.read(): content read failed (HTTP {})",
+            resp.status
+        ));
     }
 
     let content = resp.body;
 
     // Support offset/limit for partial reads (0-indexed line numbers)
-    let offset = opts.get("offset").and_then(|v| v.as_u64()).map(|v| v as usize);
-    let limit = opts.get("limit").and_then(|v| v.as_u64()).map(|v| v as usize);
+    let offset = opts
+        .get("offset")
+        .and_then(|v| v.as_u64())
+        .map(|v| v as usize);
+    let limit = opts
+        .get("limit")
+        .and_then(|v| v.as_u64())
+        .map(|v| v as usize);
 
     if offset.is_some() || limit.is_some() {
         let lines: Vec<&str> = content.lines().collect();
         let start = offset.unwrap_or(0);
-        let end = limit.map(|l| (start + l).min(lines.len())).unwrap_or(lines.len());
+        let end = limit
+            .map(|l| (start + l).min(lines.len()))
+            .unwrap_or(lines.len());
         if start >= lines.len() {
             return Ok(json!({
                 "content": "",
@@ -586,12 +608,7 @@ pub fn read(
 // ls — temper.ls(path, opts?)
 // ---------------------------------------------------------------------------
 
-pub fn ls(
-    ctx: &Context,
-    api_url: &str,
-    tenant: &str,
-    args: &[Value],
-) -> Result<Value, String> {
+pub fn ls(ctx: &Context, api_url: &str, tenant: &str, args: &[Value]) -> Result<Value, String> {
     let path = pos_str(args, 0, "path", "ls")?;
     let opts = obj_arg_or_empty(args, 1);
     let ws_id = resolve_workspace_id(ctx, api_url, tenant, &opts, false)?;
@@ -621,12 +638,7 @@ pub fn ls(
 // edit — temper.edit(path, old_string, new_string, opts?)
 // ---------------------------------------------------------------------------
 
-pub fn edit(
-    ctx: &Context,
-    api_url: &str,
-    tenant: &str,
-    args: &[Value],
-) -> Result<Value, String> {
+pub fn edit(ctx: &Context, api_url: &str, tenant: &str, args: &[Value]) -> Result<Value, String> {
     let path = pos_str(args, 0, "path", "edit")?;
     let old_string = pos_str(args, 1, "old_string", "edit")?;
     let new_string = pos_str(args, 2, "new_string", "edit")?;
@@ -638,7 +650,9 @@ pub fn edit(
     let content = content_val.as_str().unwrap_or("").to_string();
 
     if !content.contains(&old_string) {
-        return Err(format!("temper.edit(): old_string not found in file at '{path}'"));
+        return Err(format!(
+            "temper.edit(): old_string not found in file at '{path}'"
+        ));
     }
 
     let new_content = content.replacen(&old_string, &new_string, 1);
@@ -654,12 +668,7 @@ pub fn edit(
 // rename — temper.rename(old_path, new_path, opts?)
 // ---------------------------------------------------------------------------
 
-pub fn rename(
-    ctx: &Context,
-    api_url: &str,
-    tenant: &str,
-    args: &[Value],
-) -> Result<Value, String> {
+pub fn rename(ctx: &Context, api_url: &str, tenant: &str, args: &[Value]) -> Result<Value, String> {
     let old_path = pos_str(args, 0, "old_path", "rename")?;
     let new_path = pos_str(args, 1, "new_path", "rename")?;
     let opts = obj_arg_or_empty(args, 2);
@@ -701,8 +710,6 @@ pub fn search_history(
     args: &[Value],
 ) -> Result<Value, String> {
     let pattern = pos_str(args, 0, "pattern", "search_history")?;
-    let eid = ctx_entity_id(ctx);
-
     // Get session_file_id from entity state
     let fields = ctx.entity_state.get("fields").cloned().unwrap_or(json!({}));
     let session_file_id = fields
@@ -716,7 +723,7 @@ pub fn search_history(
 
     // Read full session JSONL
     let url = format!("{api_url}/tdata/Files('{session_file_id}')/$value");
-    let headers = runtime_headers(tenant, eid);
+    let headers = runtime_headers(ctx, tenant, &fields, None, Some("text/plain"));
     let resp = ctx.http_call("GET", &url, &headers, "")?;
     if resp.status >= 400 {
         return Err(format!(
@@ -874,12 +881,7 @@ fn extract_excerpt(text: &str, pattern: &str, max_len: usize) -> String {
 // grep — temper.grep(pattern, path, opts?)
 // ---------------------------------------------------------------------------
 
-pub fn grep(
-    ctx: &Context,
-    api_url: &str,
-    tenant: &str,
-    args: &[Value],
-) -> Result<Value, String> {
+pub fn grep(ctx: &Context, api_url: &str, tenant: &str, args: &[Value]) -> Result<Value, String> {
     let pattern = pos_str(args, 0, "pattern", "grep")?;
     let path = pos_str(args, 1, "path", "grep")?;
     let opts = obj_arg_or_empty(args, 2);
@@ -973,7 +975,18 @@ fn resolve_grep_targets(
 
     // It's a directory — list recursively
     let mut files = Vec::new();
-    list_dir_recursive(ctx, api_url, tenant, principal_id, ws_id, path, 0, 5, &mut files, 500)?;
+    list_dir_recursive(
+        ctx,
+        api_url,
+        tenant,
+        principal_id,
+        ws_id,
+        path,
+        0,
+        5,
+        &mut files,
+        500,
+    )?;
     Ok(files)
 }
 
@@ -998,7 +1011,18 @@ pub fn glob_files(
     let eid = ctx_entity_id(ctx);
 
     let mut all_files = Vec::new();
-    list_dir_recursive(ctx, api_url, tenant, eid, &ws_id, &path, 0, 5, &mut all_files, 500)?;
+    list_dir_recursive(
+        ctx,
+        api_url,
+        tenant,
+        eid,
+        &ws_id,
+        &path,
+        0,
+        5,
+        &mut all_files,
+        500,
+    )?;
 
     let matches: Vec<&String> = all_files
         .iter()
@@ -1059,7 +1083,18 @@ fn list_dir_recursive(
         };
 
         if kind == "directory" || kind == "dir" {
-            list_dir_recursive(ctx, api_url, tenant, principal_id, ws_id, &full_path, depth + 1, max_depth, out, max_files)?;
+            list_dir_recursive(
+                ctx,
+                api_url,
+                tenant,
+                principal_id,
+                ws_id,
+                &full_path,
+                depth + 1,
+                max_depth,
+                out,
+                max_files,
+            )?;
         } else {
             out.push(full_path);
         }
@@ -1093,7 +1128,11 @@ fn glob_match(pattern: &str, path: &str) -> bool {
                 return true;
             }
             // Match suffix as a simple glob against each possible tail
-            let check_path = if prefix.is_empty() { path } else { &path[prefix.len()..] };
+            let check_path = if prefix.is_empty() {
+                path
+            } else {
+                &path[prefix.len()..]
+            };
             for (i, _) in check_path.char_indices() {
                 let tail = &check_path[i..];
                 if tail.starts_with('/') || i == 0 {
@@ -1280,6 +1319,118 @@ fn obj_arg_or_empty(args: &[Value], idx: usize) -> Value {
         .unwrap_or(json!({}))
 }
 
+fn value_as_string(value: &Value) -> Option<String> {
+    match value {
+        Value::String(s) if !s.trim().is_empty() => Some(s.trim().to_string()),
+        Value::Number(n) => Some(n.to_string()),
+        Value::Bool(b) => Some(b.to_string()),
+        _ => None,
+    }
+}
+
+fn value_as_i64(value: &Value) -> Option<i64> {
+    match value {
+        Value::Number(n) => n.as_i64(),
+        Value::String(s) => s.trim().parse::<i64>().ok(),
+        _ => None,
+    }
+}
+
+fn spawn_session_input(args: &[Value]) -> Result<Value, String> {
+    if let Ok(input) = obj_arg(args, 0, "opts", "spawn_session") {
+        return Ok(input);
+    }
+
+    let task = pos_str(args, 0, "task", "spawn_session")?;
+    let mut input = json!({ "task": task });
+
+    if let Some(soul_id) = args.get(1).and_then(value_as_string) {
+        input["soul_id"] = json!(soul_id);
+    }
+    if let Some(model) = args.get(2).and_then(value_as_string) {
+        input["model"] = json!(model);
+    }
+    if let Some(tools) = args.get(3).and_then(value_as_string) {
+        input["tools"] = json!(tools);
+    }
+    if let Some(legacy_workdir) = args.get(4).and_then(value_as_string) {
+        input["workdir"] = json!(legacy_workdir);
+    }
+    if let Some(legacy_sandbox_url) = args.get(5).and_then(value_as_string) {
+        input["sandbox_url"] = json!(legacy_sandbox_url);
+    }
+    if let Some(max_turns) = args.get(6).and_then(value_as_string) {
+        input["max_turns"] = json!(max_turns);
+    }
+    if let Some(background) = args.get(7).and_then(|value| value.as_bool()) {
+        input["background"] = json!(background);
+    }
+
+    Ok(input)
+}
+
+fn list_sessions_input(args: &[Value]) -> Value {
+    let input = obj_arg_or_empty(args, 0);
+    if input.is_object() && !input.as_object().is_none_or(|obj| obj.is_empty()) {
+        return input;
+    }
+
+    let mut legacy = json!({});
+    if let Some(filter) = args.get(0).and_then(value_as_string) {
+        legacy["filter"] = json!(filter);
+    }
+    if let Some(top) = args.get(1).and_then(value_as_i64) {
+        legacy["top"] = json!(top);
+    }
+    legacy
+}
+
+fn abort_session_input(args: &[Value]) -> Result<Value, String> {
+    if let Ok(input) = obj_arg(args, 0, "opts", "abort_session") {
+        return Ok(input);
+    }
+
+    Ok(json!({
+        "session_id": pos_str(args, 0, "session_id", "abort_session")?
+    }))
+}
+
+fn steer_session_input(args: &[Value]) -> Result<Value, String> {
+    if let Ok(input) = obj_arg(args, 0, "opts", "steer_session") {
+        return Ok(input);
+    }
+
+    Ok(json!({
+        "session_id": pos_str(args, 0, "session_id", "steer_session")?,
+        "message": pos_str(args, 1, "message", "steer_session")?
+    }))
+}
+
+fn save_memory_input(args: &[Value]) -> Result<Value, String> {
+    if let Ok(input) = obj_arg(args, 0, "opts", "save_memory") {
+        return Ok(input);
+    }
+
+    let mut input = json!({
+        "key": pos_str(args, 0, "key", "save_memory")?,
+        "content": pos_str(args, 1, "content", "save_memory")?,
+    });
+    if let Some(memory_type) = args.get(2).and_then(value_as_string) {
+        input["memory_type"] = json!(memory_type);
+    }
+    Ok(input)
+}
+
+fn recall_memory_input(args: &[Value]) -> Result<Value, String> {
+    if let Ok(input) = obj_arg(args, 0, "opts", "recall_memory") {
+        return Ok(input);
+    }
+
+    Ok(json!({
+        "query": pos_str(args, 0, "query", "recall_memory")?
+    }))
+}
+
 fn ctx_entity_id(ctx: &Context) -> &str {
     ctx.entity_state
         .get("entity_id")
@@ -1389,6 +1540,73 @@ fn session_workspace_id(ctx: &Context) -> Option<String> {
         .map(|value| value.to_string())
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn spawn_session_input_accepts_legacy_positional_arguments() {
+        let input = spawn_session_input(&[
+            json!("clone the repo"),
+            json!("SWE"),
+            json!("claude-sonnet-4-6"),
+            json!("bash,read"),
+            json!("/workspace/repo"),
+            json!("https://sandbox.example"),
+            json!(12),
+            json!(true),
+        ])
+        .unwrap();
+
+        assert_eq!(input["task"], "clone the repo");
+        assert_eq!(input["soul_id"], "SWE");
+        assert_eq!(input["model"], "claude-sonnet-4-6");
+        assert_eq!(input["tools"], "bash,read");
+        assert_eq!(input["workdir"], "/workspace/repo");
+        assert_eq!(input["sandbox_url"], "https://sandbox.example");
+        assert_eq!(input["max_turns"], "12");
+        assert_eq!(input["background"], true);
+    }
+
+    #[test]
+    fn list_sessions_input_accepts_legacy_filter_and_top_arguments() {
+        let input = list_sessions_input(&[json!("Status eq 'Active'"), json!(25)]);
+
+        assert_eq!(input["filter"], "Status eq 'Active'");
+        assert_eq!(input["top"], 25);
+    }
+
+    #[test]
+    fn abort_session_input_accepts_legacy_session_id() {
+        let input = abort_session_input(&[json!("sess-123")]).unwrap();
+        assert_eq!(input["session_id"], "sess-123");
+    }
+
+    #[test]
+    fn steer_session_input_accepts_legacy_session_id_and_message() {
+        let input = steer_session_input(&[json!("sess-123"), json!("Please continue")]).unwrap();
+        assert_eq!(input["session_id"], "sess-123");
+        assert_eq!(input["message"], "Please continue");
+    }
+
+    #[test]
+    fn save_memory_input_accepts_legacy_positional_arguments() {
+        let input =
+            save_memory_input(&[json!("repo"), json!("openclaw/openclaw"), json!("project")])
+                .unwrap();
+
+        assert_eq!(input["key"], "repo");
+        assert_eq!(input["content"], "openclaw/openclaw");
+        assert_eq!(input["memory_type"], "project");
+    }
+
+    #[test]
+    fn recall_memory_input_accepts_legacy_query_argument() {
+        let input = recall_memory_input(&[json!("openclaw")]).unwrap();
+        assert_eq!(input["query"], "openclaw");
+    }
+}
+
 fn resolve_workspace_id(
     ctx: &Context,
     api_url: &str,
@@ -1412,9 +1630,8 @@ fn resolve_workspace_id(
         return if create_if_missing {
             ensure_workspace(ctx, api_url, tenant, workspace_name)
         } else {
-            find_workspace(ctx, api_url, tenant, workspace_name)?.ok_or_else(|| {
-                format!("workspace '{}' not found", workspace_name)
-            })
+            find_workspace(ctx, api_url, tenant, workspace_name)?
+                .ok_or_else(|| format!("workspace '{}' not found", workspace_name))
         };
     }
 

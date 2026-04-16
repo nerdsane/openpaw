@@ -12,13 +12,13 @@ path = "src/main.rs"
 
 [dependencies]
 # Temper platform engine
-temper-platform = { git = "https://github.com/nerdsane/temper.git", branch = "main" }
-temper-observe = { git = "https://github.com/nerdsane/temper.git", branch = "main" }
-temper-server = { git = "https://github.com/nerdsane/temper.git", branch = "main", features = ["observe"] }
-temper-runtime = { git = "https://github.com/nerdsane/temper.git", branch = "main" }
-temper-jit = { git = "https://github.com/nerdsane/temper.git", branch = "main" }
-temper-authz = { git = "https://github.com/nerdsane/temper.git", branch = "main" }
-temper-store-turso = { git = "https://github.com/nerdsane/temper.git", branch = "main" }
+temper-platform = { git = "https://github.com/nerdsane/temper.git", rev = "9f8696f4577e63f19db22f4682cdba6a8165d44c" }
+temper-observe = { git = "https://github.com/nerdsane/temper.git", rev = "9f8696f4577e63f19db22f4682cdba6a8165d44c" }
+temper-server = { git = "https://github.com/nerdsane/temper.git", rev = "9f8696f4577e63f19db22f4682cdba6a8165d44c", features = ["observe"] }
+temper-runtime = { git = "https://github.com/nerdsane/temper.git", rev = "9f8696f4577e63f19db22f4682cdba6a8165d44c" }
+temper-jit = { git = "https://github.com/nerdsane/temper.git", rev = "9f8696f4577e63f19db22f4682cdba6a8165d44c" }
+temper-authz = { git = "https://github.com/nerdsane/temper.git", rev = "9f8696f4577e63f19db22f4682cdba6a8165d44c" }
+temper-store-turso = { git = "https://github.com/nerdsane/temper.git", rev = "9f8696f4577e63f19db22f4682cdba6a8165d44c" }
 
 # Paw transport (local)
 paw-transport = { path = "../paw-transport" }

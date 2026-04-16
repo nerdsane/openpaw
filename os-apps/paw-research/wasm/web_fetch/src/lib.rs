@@ -28,16 +28,10 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
 
         let fields = ctx.entity_state.get("fields").cloned().unwrap_or(json!({}));
 
-        let url = fields
-            .get("url")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+        let url = fields.get("url").and_then(|v| v.as_str()).unwrap_or("");
 
         if url.is_empty() {
-            set_success_result(
-                "RecordError",
-                &json!({"error": "web_fetch: url is empty"}),
-            );
+            set_success_result("RecordError", &json!({"error": "web_fetch: url is empty"}));
             return Ok(());
         }
 
@@ -52,7 +46,10 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
 
         let headers = vec![
             ("User-Agent".to_string(), "OpenPaw/1.0".to_string()),
-            ("Accept".to_string(), "text/html, text/plain, */*".to_string()),
+            (
+                "Accept".to_string(),
+                "text/html, text/plain, */*".to_string(),
+            ),
         ];
 
         ctx.log("info", &format!("web_fetch: fetching {url}"));
@@ -78,6 +75,14 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         // Truncate to max size
         let truncated: String = text.chars().take(MAX_CONTENT_LEN).collect();
 
+        if !has_readable_web_content(&truncated) {
+            set_success_result(
+                "RecordError",
+                &json!({"error": format!("web_fetch: fetched {url} but no readable text was extracted")}),
+            );
+            return Ok(());
+        }
+
         ctx.log(
             "info",
             &format!("web_fetch: got {} chars of text", truncated.len()),
@@ -85,13 +90,11 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
 
         if truncated.len() <= INLINE_THRESHOLD {
             // Small result — store inline in entity field
-            set_success_result(
-                "RecordResults",
-                &json!({"results": truncated}),
-            );
+            set_success_result("RecordResults", &json!({"results": truncated}));
         } else {
             // Large result — write to TemperFS File, store file_id in entity
-            let temper_api_url = ctx.config
+            let temper_api_url = ctx
+                .config
                 .get("temper_api_url")
                 .filter(|s| !s.is_empty() && !s.contains("{secret:"))
                 .cloned()
@@ -100,7 +103,13 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
 
             match write_to_temperfs(&ctx, &temper_api_url, tenant, &truncated) {
                 Ok(file_id) => {
-                    ctx.log("info", &format!("web_fetch: stored {} chars in TemperFS file {file_id}", truncated.len()));
+                    ctx.log(
+                        "info",
+                        &format!(
+                            "web_fetch: stored {} chars in TemperFS file {file_id}",
+                            truncated.len()
+                        ),
+                    );
                     // Store a summary inline + file_id for the full content
                     let summary: String = truncated.chars().take(500).collect();
                     set_success_result(
@@ -147,7 +156,8 @@ fn write_to_temperfs(
     ];
 
     // Create File entity
-    let entity_id = ctx.entity_state
+    let entity_id = ctx
+        .entity_state
         .get("entity_id")
         .and_then(|v| v.as_str())
         .unwrap_or("unknown");
@@ -162,11 +172,14 @@ fn write_to_temperfs(
         &file_body.to_string(),
     )?;
     if create_resp.status < 200 || create_resp.status >= 300 {
-        return Err(format!("File creation failed (HTTP {})", create_resp.status));
+        return Err(format!(
+            "File creation failed (HTTP {})",
+            create_resp.status
+        ));
     }
 
-    let parsed: serde_json::Value = serde_json::from_str(&create_resp.body)
-        .map_err(|e| format!("parse file response: {e}"))?;
+    let parsed: serde_json::Value =
+        serde_json::from_str(&create_resp.body).map_err(|e| format!("parse file response: {e}"))?;
     let file_id = parsed
         .get("entity_id")
         .and_then(|v| v.as_str())
@@ -200,6 +213,10 @@ fn write_to_temperfs(
 fn looks_like_html(body: &str) -> bool {
     let lower: String = body.chars().take(500).collect::<String>().to_lowercase();
     lower.contains("<html") || lower.contains("<!doctype html")
+}
+
+fn has_readable_web_content(text: &str) -> bool {
+    text.chars().any(|ch| !ch.is_whitespace())
 }
 
 /// Track ordered vs unordered list nesting for markdown conversion.
@@ -564,7 +581,9 @@ fn extract_attr(attrs: &str, name: &str) -> Option<String> {
             }
         } else {
             // Unquoted attribute value
-            let end = after.find(|c: char| c.is_whitespace() || c == '>' || c == '/').unwrap_or(after.len());
+            let end = after
+                .find(|c: char| c.is_whitespace() || c == '>' || c == '/')
+                .unwrap_or(after.len());
             return Some(after[..end].to_string());
         }
     }
@@ -723,5 +742,12 @@ mod tests {
         assert!(md.contains("## API Reference"), "heading: {md}");
         assert!(md.contains("[Documentation](/docs)"), "link: {md}");
         assert!(md.contains("**docs**"), "bold: {md}");
+    }
+
+    #[test]
+    fn readable_content_rejects_blank_text() {
+        assert!(!has_readable_web_content(""));
+        assert!(!has_readable_web_content("   \n\t"));
+        assert!(has_readable_web_content("headline"));
     }
 }

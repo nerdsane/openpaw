@@ -5,7 +5,7 @@
 //! entity field → config → error. No dynamic dispatch (`dyn Trait`),
 //! WASM-compatible throughout.
 
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use std::path::Path;
 use temper_wasm_sdk::context::Context;
 
@@ -231,7 +231,10 @@ gh --version 2>/dev/null || echo 'gh: not installed'
         Ok(result) => {
             ctx.log(
                 "info",
-                &format!("sandbox_setup: gh CLI setup completed (exit {})", result.exit_code),
+                &format!(
+                    "sandbox_setup: gh CLI setup completed (exit {})",
+                    result.exit_code
+                ),
             );
         }
         Err(e) => {
@@ -491,14 +494,19 @@ fn tensorlake_exec(
 /// Resolve the Modal bridge base URL from config. This is the common prefix
 /// of the per-endpoint URLs, e.g. `https://user--openpaw-sandbox-bridge`.
 /// Each endpoint appends its label suffix: `-create.modal.run`, `-exec.modal.run`, etc.
-/// Users only need to set `modal_token_id` + `modal_token_secret`; the bridge URL
-/// is derived from a convention unless explicitly overridden via `modal_bridge_url`.
-fn modal_base_url(ctx: &Context) -> String {
-    ctx.config
-        .get("modal_bridge_url")
+/// Users must configure `modal_bridge_url` explicitly because the workspace prefix
+/// is deployment-specific and cannot be derived safely from the token alone.
+fn resolve_modal_base_url(config_value: Option<&String>) -> Result<String, String> {
+    config_value
         .filter(|s| !s.is_empty() && !is_unresolved_secret(s))
         .cloned()
-        .unwrap_or_else(|| "https://openpaw-sandbox--bridge".to_string())
+        .ok_or_else(|| {
+            "Modal sandbox requires modal_bridge_url. Configure MODAL_BRIDGE_URL or the modal_bridge_url dashboard setting.".to_string()
+        })
+}
+
+fn modal_base_url(ctx: &Context) -> Result<String, String> {
+    resolve_modal_base_url(ctx.config.get("modal_bridge_url"))
 }
 
 /// Build a Modal bridge endpoint URL with auth as query parameter.
@@ -516,7 +524,7 @@ fn modal_create(
     api_key: &str,
     config: &SandboxConfig,
 ) -> Result<SandboxHandle, String> {
-    let base = modal_base_url(ctx);
+    let base = modal_base_url(ctx)?;
     let url = modal_url(&base, "create", api_key, "");
     let headers = vec![("content-type".to_string(), "application/json".to_string())];
     let body = json!({
@@ -549,18 +557,17 @@ fn modal_create(
     })
 }
 
-fn modal_health_check(
-    ctx: &Context,
-    api_key: &str,
-    sandbox_id: &str,
-) -> Result<bool, String> {
-    let base = modal_base_url(ctx);
+fn modal_health_check(ctx: &Context, api_key: &str, sandbox_id: &str) -> Result<bool, String> {
+    let base = modal_base_url(ctx)?;
     let params = format!("sandbox_id={}", url_encode(sandbox_id));
     let url = modal_url(&base, "health", api_key, &params);
     match ctx.http_call("GET", &url, &[], "") {
         Ok(r) if r.status >= 200 && r.status < 300 => {
             let parsed: Value = serde_json::from_str(&r.body).unwrap_or(json!({}));
-            Ok(parsed.get("ready").and_then(|v| v.as_bool()).unwrap_or(false))
+            Ok(parsed
+                .get("ready")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false))
         }
         Ok(_) => Ok(false),
         Err(e) => Err(format!("Modal health check failed: {e}")),
@@ -573,15 +580,23 @@ fn modal_file_read(
     sandbox_id: &str,
     path: &str,
 ) -> Result<String, String> {
-    let base = modal_base_url(ctx);
-    let params = format!("sandbox_id={}&path={}", url_encode(sandbox_id), url_encode(path));
+    let base = modal_base_url(ctx)?;
+    let params = format!(
+        "sandbox_id={}&path={}",
+        url_encode(sandbox_id),
+        url_encode(path)
+    );
     let url = modal_url(&base, "file-read", api_key, &params);
     let resp = ctx.http_call("GET", &url, &[], "")?;
     if resp.status >= 400 {
         return Err(format!("sandbox.read({path}): {}", resp.body));
     }
     let parsed: Value = serde_json::from_str(&resp.body).unwrap_or(json!({}));
-    Ok(parsed.get("content").and_then(|v| v.as_str()).unwrap_or("").to_string())
+    Ok(parsed
+        .get("content")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string())
 }
 
 fn modal_file_write(
@@ -601,7 +616,7 @@ fn modal_file_write(
         })?;
     }
 
-    let base = modal_base_url(ctx);
+    let base = modal_base_url(ctx)?;
     let url = modal_url(&base, "file-write", api_key, "");
     let headers = vec![("content-type".to_string(), "application/json".to_string())];
     let body = json!({
@@ -622,8 +637,12 @@ fn modal_file_delete(
     sandbox_id: &str,
     path: &str,
 ) -> Result<(), String> {
-    let base = modal_base_url(ctx);
-    let params = format!("sandbox_id={}&path={}", url_encode(sandbox_id), url_encode(path));
+    let base = modal_base_url(ctx)?;
+    let params = format!(
+        "sandbox_id={}&path={}",
+        url_encode(sandbox_id),
+        url_encode(path)
+    );
     let url = modal_url(&base, "file-delete", api_key, &params);
     let _ = ctx.http_call("DELETE", &url, &[], "");
     Ok(())
@@ -636,7 +655,11 @@ fn modal_exec(
     command: &str,
     workdir: &str,
 ) -> Result<ExecResult, String> {
-    let effective_workdir = if workdir.trim().is_empty() { "/" } else { workdir };
+    let effective_workdir = if workdir.trim().is_empty() {
+        "/"
+    } else {
+        workdir
+    };
     modal_ensure_dir(ctx, api_key, sandbox_id, effective_workdir)
         .map_err(|e| format!("sandbox.exec: failed to prepare workdir {effective_workdir}: {e}"))?;
 
@@ -656,7 +679,7 @@ fn modal_exec_raw(
     command: &str,
     workdir: &str,
 ) -> Result<ExecResult, String> {
-    let base = modal_base_url(ctx);
+    let base = modal_base_url(ctx)?;
     let url = modal_url(&base, "exec", api_key, "");
     let headers = vec![("content-type".to_string(), "application/json".to_string())];
     let body = json!({
@@ -765,7 +788,10 @@ mod tests {
     #[test]
     fn test_first_non_empty() {
         assert_eq!(first_non_empty(&[None, Some("abc".into())]), "abc");
-        assert_eq!(first_non_empty(&[Some("".into()), Some("def".into())]), "def");
+        assert_eq!(
+            first_non_empty(&[Some("".into()), Some("def".into())]),
+            "def"
+        );
         assert_eq!(
             first_non_empty(&[Some("{secret:key}".into()), Some("real".into())]),
             "real"
@@ -778,5 +804,17 @@ mod tests {
         assert_eq!(shell_single_quote("/workspace"), "'/workspace'");
         assert_eq!(shell_single_quote(""), "''");
         assert_eq!(shell_single_quote("it's fine"), "'it'\"'\"'s fine'");
+    }
+
+    #[test]
+    fn test_resolve_modal_base_url_requires_explicit_value() {
+        let configured = "https://user--openpaw-sandbox-bridge".to_string();
+        assert_eq!(
+            resolve_modal_base_url(Some(&configured)).unwrap(),
+            configured
+        );
+
+        let err = resolve_modal_base_url(None).unwrap_err();
+        assert!(err.contains("modal_bridge_url"));
     }
 }
