@@ -47,6 +47,17 @@ def request(method: str, path: str, body: dict | None = None) -> dict | list | s
         raise RuntimeError(f"{method} {path} failed: HTTP {exc.code}: {detail}") from exc
 
 
+def entity_fields(payload: dict) -> dict:
+    return payload.get("fields", payload)
+
+
+def field_value(fields: dict, *names: str):
+    for name in names:
+        if name in fields:
+            return fields[name]
+    return None
+
+
 def main() -> int:
     print("== paw-managed-agents proof ==")
 
@@ -65,8 +76,10 @@ def main() -> int:
             "Name": "proof-env",
             "Description": "managed agents proof environment",
             "ConfigType": "Cloud",
-            "NetworkingType": "Unrestricted",
-            "AllowedHostsJson": "[]",
+            "NetworkingType": "Limited",
+            "AllowedHostsJson": "[\"github.com\"]",
+            "AllowMcpServers": True,
+            "AllowPackageManagers": False,
         },
     )
     env_id = env["entity_id"]
@@ -86,13 +99,52 @@ def main() -> int:
     )
     agent_id = agent["entity_id"]
 
-    print("Adding a built-in tool row...")
+    print("Updating managed agent...")
     request(
+        "POST",
+        f"/tdata/ManagedAgents('{agent_id}')/ManagedAgents.UpdateManagedAgent?await_integration=true",
+        {
+            "Description": "managed agents proof agent updated",
+            "System": "You are a concise proof assistant. Keep answers to one word.",
+            "ModelId": "claude-sonnet-4-6",
+            "ModelSpeed": "standard",
+        },
+    )
+    updated_agent = request("GET", f"/tdata/ManagedAgents('{agent_id}')")
+    updated_agent_fields = entity_fields(updated_agent)
+    if updated_agent_fields.get("Version") != 2:
+        raise RuntimeError("managed agent version did not increment after update")
+    if updated_agent_fields.get("Description") != "managed agents proof agent updated":
+        raise RuntimeError("managed agent description was not updated")
+
+    print("Adding a built-in tool row...")
+    tool = request(
         "POST",
         "/tdata/AgentTools",
         {
             "AgentId": agent_id,
-            "Kind": "agent_toolset",
+            "Kind": "agent_toolset_20260401",
+        },
+    )
+    tool_id = tool["entity_id"]
+
+    print("Adding explicit tool config rows...")
+    request(
+        "POST",
+        "/tdata/AgentToolConfigs",
+        {
+            "ToolId": tool_id,
+            "ToolName": "bash",
+            "PermissionPolicy": "always_allow",
+        },
+    )
+    request(
+        "POST",
+        "/tdata/AgentToolConfigs",
+        {
+            "ToolId": tool_id,
+            "ToolName": "temper_get",
+            "PermissionPolicy": "always_ask",
         },
     )
 
@@ -104,6 +156,7 @@ def main() -> int:
             "Title": "proof-session",
             "AgentId": agent_id,
             "EnvironmentId": env_id,
+            "VaultIds": "[\"vault-proof\"]",
         },
     )
     session_id = session["entity_id"]
@@ -140,6 +193,44 @@ def main() -> int:
 
     if idle is None:
         raise RuntimeError("managed session did not reach Idle within timeout")
+
+    idle_fields = entity_fields(idle)
+    if field_value(idle_fields, "StopReason", "stop_reason") != "user_input_required":
+        raise RuntimeError("managed session idle stop reason was not user_input_required")
+    if field_value(idle_fields, "VaultIds", "vault_ids") != "[\"vault-proof\"]":
+        raise RuntimeError("managed session did not retain VaultIds")
+
+    print("Checking bound computer and inner agent state...")
+    env_current = request("GET", f"/tdata/ManagedEnvironments('{env_id}')")
+    env_fields = entity_fields(env_current)
+    computer_id = env_fields.get("ComputerId")
+    if not computer_id:
+        raise RuntimeError("managed environment did not bind a ComputerId")
+
+    computer = request("GET", f"/tdata/Computers('{computer_id}')")
+    computer_fields = entity_fields(computer)
+    if field_value(computer_fields, "Status", "status") != "Provisioning":
+        raise RuntimeError("managed environment computer should remain in Provisioning")
+    network_allow_raw = field_value(computer_fields, "NetworkAllow", "network_allow") or ""
+    network_allow = json.loads(network_allow_raw)
+    if network_allow != {
+        "allowed_hosts": ["github.com"],
+        "allow_mcp_servers": True,
+        "allow_package_managers": False,
+    }:
+        raise RuntimeError("computer network_allow did not reflect managed environment settings")
+
+    managed_agent_current = request("GET", f"/tdata/ManagedAgents('{agent_id}')")
+    managed_agent_fields = entity_fields(managed_agent_current)
+    inner_agent_id = managed_agent_fields.get("InnerAgentId")
+    if not inner_agent_id:
+        raise RuntimeError("managed agent did not bind an InnerAgentId")
+    inner_agent = request("GET", f"/tdata/Agents('{inner_agent_id}')")
+    inner_agent_fields = entity_fields(inner_agent)
+    enabled_tools_raw = field_value(inner_agent_fields, "ToolsEnabled", "tools_enabled") or ""
+    enabled_tools = set(filter(None, enabled_tools_raw.split(",")))
+    if enabled_tools != {"bash", "temper_get"}:
+        raise RuntimeError(f"inner agent tools did not match config rows: {enabled_tools}")
 
     print("Fetching emitted events...")
     filter_expr = urllib.parse.quote(f"SessionId eq '{session_id}'", safe="'()")
@@ -212,7 +303,7 @@ def main() -> int:
     request(
         "POST",
         f"/tdata/ManagedSessions('{session_id}')/ManagedAgents.TerminateSession",
-        {"stop_reason": "error"},
+        {"TerminationReason": "cancelled"},
     )
 
     deadline = time.time() + 60
@@ -227,22 +318,64 @@ def main() -> int:
     if terminated is None:
         raise RuntimeError("managed session did not terminate within timeout")
 
+    terminated_fields = entity_fields(terminated)
+    if field_value(terminated_fields, "TerminationReason", "termination_reason") != "cancelled":
+        raise RuntimeError("managed session termination reason was not recorded")
+
+    action_names = [action.get("name") for action in terminated.get("@odata.actions", [])]
+    if "Archive" not in action_names:
+        raise RuntimeError(f"terminated managed session did not advertise Archive action: {action_names}")
+    if "ArchivedAtRequiresTerminatedStatus" in action_names:
+        raise RuntimeError("field invariant leaked into @odata.actions")
+
     archive_target = None
     for action in terminated.get("@odata.actions", []):
         name = action.get("name")
-        if name in {"ArchiveManagedSession", "ArchivedRequiresTerminatedState", "Archive"}:
+        if name == "Archive":
             archive_target = action.get("target")
             break
 
     if not archive_target:
-        raise RuntimeError("archive action target missing from terminated session metadata")
+        archive_target = f"ManagedSessions('{session_id}')/Temper.Archive"
 
     print("Archiving session...")
     request(
         "POST",
         f"/tdata/{archive_target}",
-        {"archived_at": "2026-04-15T22:30:00Z"},
+        {"ArchivedAt": "2026-04-15T22:30:00Z"},
     )
+
+    print("Checking terminated event semantics...")
+    terminated_status_events = []
+    event_deadline = time.time() + 30
+    while time.time() < event_deadline:
+        terminated_events = request(
+            "GET",
+            f"/tdata/SessionEvents?$filter={filter_expr}&$orderby={orderby}",
+        )
+        terminated_values = terminated_events.get("value", [])
+        terminated_status_events = [
+            entity_fields(item)
+            for item in terminated_values
+            if entity_fields(item).get("Kind") == "session.status_terminated"
+        ]
+        if len(terminated_status_events) == 1:
+            break
+        time.sleep(1)
+
+    if len(terminated_status_events) != 1:
+        raise RuntimeError(
+            f"expected exactly one session.status_terminated event, got {len(terminated_status_events)}"
+        )
+    if (
+        field_value(
+            terminated_status_events[0],
+            "TerminationReason",
+            "termination_reason",
+        )
+        != "cancelled"
+    ):
+        raise RuntimeError("terminated event did not store TerminationReason")
 
     print("Negative check: bogus event kind should fail...")
     try:
@@ -267,7 +400,7 @@ def main() -> int:
                 "SessionId": session_id,
                 "Kind": "file",
                 "Name": "blocked.txt",
-                "Path": "/tmp/blocked.txt",
+                "MountPath": "/tmp/blocked.txt",
             },
         )
     except RuntimeError as exc:

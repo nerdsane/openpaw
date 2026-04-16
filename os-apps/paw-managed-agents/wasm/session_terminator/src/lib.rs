@@ -32,9 +32,14 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
 
         let stop_reason = ctx
             .trigger_params
-            .get("stop_reason")
+            .get("TerminationReason")
             .and_then(Value::as_str)
-            .unwrap_or("terminated")
+            .or_else(|| {
+                ctx.trigger_params
+                    .get("termination_reason")
+                    .and_then(Value::as_str)
+            })
+            .unwrap_or("cancelled")
             .to_string();
 
         let sequence = next_session_event_sequence(&ctx, &base_url, &headers, &ctx.entity_id)?;
@@ -45,10 +50,16 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             &ctx.entity_id,
             sequence,
             "session.status_terminated",
-            json!({ "StopReason": stop_reason }),
+            json!({ "TerminationReason": stop_reason }),
         )?;
 
-        temper_wasm_sdk::set_success_result("", &json!({ "status": "terminated" }));
+        temper_wasm_sdk::set_success_result(
+            "",
+            &json!({
+                "status": "terminated",
+                "TerminationReason": stop_reason,
+            }),
+        );
         Ok(())
     })();
 

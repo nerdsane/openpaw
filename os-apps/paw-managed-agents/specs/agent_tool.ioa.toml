@@ -29,6 +29,11 @@ type = "string"
 initial = ""
 
 [[state]]
+name = "input"
+type = "string"
+initial = ""
+
+[[state]]
 name = "mcp_server_name"
 type = "string"
 initial = ""
@@ -37,11 +42,11 @@ initial = ""
 name = "KindMustBeKnown"
 when = { not = { field = "Kind", absent = true } }
 require = { any_of = [
-  { field = "Kind", equals = "agent_toolset" },
+  { field = "Kind", equals = "agent_toolset_20260401" },
   { field = "Kind", equals = "mcp_toolset" },
   { field = "Kind", equals = "custom" },
 ] }
-message = "AgentTool.Kind must be agent_toolset, mcp_toolset, or custom"
+message = "AgentTool.Kind must be agent_toolset_20260401, mcp_toolset, or custom"
 
 [[field_invariant]]
 name = "CustomToolRequiresName"
@@ -69,11 +74,11 @@ message = "mcp_toolset AgentTool rows must define McpServerName"
 
 [[field_invariant]]
 name = "AgentToolsetForbidsKindSpecificFields"
-when = { field = "Kind", equals = "agent_toolset" }
+when = { field = "Kind", equals = "agent_toolset_20260401" }
 require = { all_of = [
   { field = "Name", absent = true },
   { field = "Description", absent = true },
   { field = "InputSchema", absent = true },
   { field = "McpServerName", absent = true },
 ] }
-message = "agent_toolset rows must not set custom or MCP-only fields"
+message = "agent_toolset_20260401 rows must not set custom or MCP-only fields"

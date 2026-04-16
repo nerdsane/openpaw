@@ -24,6 +24,11 @@ type = "string"
 initial = ""
 
 [[state]]
+name = "input"
+type = "string"
+initial = ""
+
+[[state]]
 name = "tool_use_id"
 type = "string"
 initial = ""
@@ -65,6 +70,11 @@ initial = ""
 
 [[state]]
 name = "stop_reason"
+type = "string"
+initial = ""
+
+[[state]]
+name = "termination_reason"
 type = "string"
 initial = ""
 
@@ -188,7 +198,6 @@ require = { any_of = [
   { field = "StopReason", equals = "user_input_required" },
   { field = "StopReason", equals = "tool_confirmation_required" },
   { field = "StopReason", equals = "custom_tool_required" },
-  { field = "StopReason", equals = "error" },
 ] }
 message = "SessionEvent.StopReason must be one of the documented idle reasons"
 
@@ -203,6 +212,21 @@ when = { all_of = [
 ] }
 require = { not = { field = "StopReasonEventIds", empty = true } }
 message = "session.status_idle with confirmation/custom tool stop reason must set StopReasonEventIds"
+
+[[field_invariant]]
+name = "TerminatedRequiresTerminationReason"
+when = { field = "Kind", equals = "session.status_terminated" }
+require = { not = { field = "TerminationReason", empty = true } }
+message = "session.status_terminated must set TerminationReason"
+
+[[field_invariant]]
+name = "TerminationReasonMustBeKnown"
+when = { not = { field = "TerminationReason", absent = true } }
+require = { any_of = [
+  { field = "TerminationReason", equals = "cancelled" },
+  { field = "TerminationReason", equals = "error" },
+] }
+message = "SessionEvent.TerminationReason must be cancelled or error"
 
 [[field_invariant]]
 name = "ErrorFieldsRequireSessionEventKinds"

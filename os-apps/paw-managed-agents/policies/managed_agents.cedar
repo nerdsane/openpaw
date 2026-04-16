@@ -7,14 +7,15 @@
 permit(
   principal,
   action in [Action::"create", Action::"read", Action::"list",
-             Action::"ArchiveEnvironment", Action::"BindComputer", Action::"ProvisionComputer"],
+             Action::"Archive", Action::"BindComputer", Action::"ProvisionComputer"],
   resource is ManagedEnvironment
 );
 
 permit(
   principal,
   action in [Action::"create", Action::"read", Action::"list",
-             Action::"ArchiveManagedAgent", Action::"BindInnerAgent"],
+             Action::"Archive", Action::"BindInnerAgent",
+             Action::"UpdateManagedAgent"],
   resource is ManagedAgent
 );
 
@@ -22,8 +23,8 @@ permit(
   principal,
   action in [Action::"create", Action::"read", Action::"list",
              Action::"StartSession", Action::"IdleSession", Action::"ResumeSession",
-             Action::"TerminateSession", Action::"ArchiveManagedSession",
-             Action::"ArchivedRequiresTerminatedState", Action::"InnerSessionReady",
+             Action::"TerminateSession", Action::"Archive",
+             Action::"InnerSessionReady",
              Action::"InnerSessionPending", Action::"CheckInnerSession",
              Action::"InnerSessionFailed", Action::"UpdateUsage"],
   resource is ManagedSession
@@ -93,7 +94,7 @@ permit(
 permit(
   principal,
   action in [Action::"create", Action::"read", Action::"list",
-             Action::"Configure", Action::"Provision", Action::"ProvisionComplete",
+             Action::"Configure", Action::"Provision",
              Action::"ProvisionFailed", Action::"Sleep", Action::"Wake", Action::"Destroy"],
   resource is Computer
 ) when {

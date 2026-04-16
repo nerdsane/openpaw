@@ -5,7 +5,7 @@ permit(
   action == Action::"http_call",
   resource is HttpEndpoint
 ) when {
-  ["session_orchestrator", "event_emitter", "environment_provisioner", "session_terminator"].contains(context.module)
+  ["session_orchestrator", "event_emitter", "environment_provisioner", "session_terminator", "managed_agent_updater"].contains(context.module)
 };
 
 permit(
@@ -13,5 +13,5 @@ permit(
   action == Action::"access_secret",
   resource is Secret
 ) when {
-  ["session_orchestrator", "event_emitter", "environment_provisioner", "session_terminator"].contains(context.module)
+  ["session_orchestrator", "event_emitter", "environment_provisioner", "session_terminator", "managed_agent_updater"].contains(context.module)
 };

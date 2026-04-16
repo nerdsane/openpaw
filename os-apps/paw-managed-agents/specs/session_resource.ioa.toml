@@ -38,6 +38,11 @@ name = "file_id"
 type = "string"
 initial = ""
 
+[[state]]
+name = "auth_token"
+type = "string"
+initial = ""
+
 [[field_invariant]]
 name = "KindMustBeKnown"
 when = { not = { field = "Kind", absent = true } }
