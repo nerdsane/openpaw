@@ -173,6 +173,15 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             // Extract the result text from the last assistant message
             let result_text = extract_last_result(&ctx, &fields, &temper_api_url, tenant, session_file_id, session_leaf_id)?;
 
+            // Track FinalizeResult dispatches — paired with openpaw#60 fix.
+            // Before Phase 2a + 2b landed, the callback for this action could be
+            // dropped under heartbeat contention. This log line lets Datadog
+            // confirm the dispatch actually reached the server.
+            ctx.log("info", &format!(
+                "steering_checker: dispatching FinalizeResult session_id={} follow_up_count={} result_len={}",
+                ctx.entity_id, follow_up_count, result_text.len()
+            ));
+
             set_success_result("FinalizeResult", &json!({
                 "result": result_text,
                 "session_leaf_id": session_leaf_id,
