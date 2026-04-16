@@ -106,49 +106,56 @@ while [ $ROUND -le $MAX_ROUNDS ]; do
 
     PROMPT="You are the meta-agent for the paw-foresight engine improvement loop.
 
-## Instructions
+## Your Process
 
-Read these files in order, then execute one full iteration:
+Read .claude/skills/foresight-meta.md FIRST — it contains your complete instructions
+including exact API commands, transcript extraction queries, scoring formats, and
+documentation templates. Follow it step by step.
 
-1. .claude/skills/foresight-meta.md — your process (the skill)
-2. os-apps/paw-foresight/meta/program.md — the evaluation rubric (immutable, do not modify)
-3. os-apps/paw-foresight/meta/progress.md — score history and convergence status
-4. The most recent run's diagnosis.md and transcripts/ — what went wrong and why
+Then read these files:
+1. os-apps/paw-foresight/meta/program.md — the evaluation rubric (IMMUTABLE — do not modify)
+2. os-apps/paw-foresight/meta/progress.md — score history and convergence status
+3. The most recent run's diagnosis.md — what to fix and why
+4. The most recent run's transcripts/orchestrator.jsonl — raw agent reasoning trace
+5. os-apps/paw-foresight/meta/baseline/synthesis.md — the incumbent to beat
+6. os-apps/paw-foresight/meta/baseline/prompt.md — the baseline prompt (learn from its structure)
 
 ## Server
+- Temper API: http://localhost:$SERVER_PORT
+- API key: $KEY
+- Tenant: rita-agents
+- All API calls use: -H 'Authorization: Bearer <key>' -H 'x-temper-tenant: rita-agents'
 
-- Temper API at http://localhost:$SERVER_PORT
-- Auth header: Authorization: Bearer $KEY
-- Tenant header: x-temper-tenant: rita-agents
-- Use curl for all Temper API calls (creating projections, polling sessions, reading entities)
+## This Run
+- Run number: $RUN_NUM
+- Run directory: os-apps/paw-foresight/meta/runs/$(printf '%03d' $RUN_NUM)_<description>/
 
-## Current State
+NOTE: The server may have been restarted. Entities (ForesightModels, Projections) may
+be empty. Check first. If the DSE ForesightModel doesn't exist, recreate it — the
+knowledge graph blob persists in ~/.local/share/openpaw/paw.db even if the entity is gone.
+See the skill file for the exact recreation procedure.
 
-This is iteration $ROUND. The next run directory should be: meta/runs/$(printf '%03d' $RUN_NUM)_<short_description>/
+## CRITICAL: Documentation Requirements
 
-NOTE: The server may have been restarted since the last run. Entities (Projections,
-ForesightModels, Sessions) may be empty. If the ForesightModel for DSE doesn't exist,
-you'll need to recreate it — check the orchestration skill and previous run artifacts
-for the knowledge graph file. The knowledge graph content is likely still in the blobs
-table even if the entity is gone.
+Everything must be recorded for posterity. Each run MUST produce ALL of these:
 
-## Process
+1. plan.md — what you're changing and why (BEFORE implementing)
+2. changelog.md — what you actually changed (with diff or before/after)
+3. engine-output/synthesis.md — the engine's output
+4. engine-output/observations.json — raw observations from API
+5. engine-output/directions.json — raw directions from API
+6. transcripts/*.jsonl — ALL session transcripts extracted from paw.db via sqlite3
+7. transcripts/MANIFEST.md — listing each session, its role, turn count, status
+8. scores.json — per-criterion scores with reasoning AND evidence for BOTH outputs
+9. borda.json — Borda point aggregation
+10. diagnosis.md — root cause analysis tying scores to specific engine components
+11. Updated progress.md — new row in score table with all columns filled
+12. Git commit with descriptive message + push
+13. Git tag (foresight-vNNN) if challenger wins
 
-1. Read the diagnosis from the last run — what's the weakest criterion and root cause?
-2. Plan ONE targeted change. Write it to meta/runs/{NNN}/plan.md BEFORE implementing.
-3. Implement the change (edit skill text, entity specs, WASM, etc.)
-4. If WASM changed: recompile (cargo build --target wasm32-unknown-unknown --release)
-5. Reinstall the app if needed
-6. Run the foresight engine on the DSE essay (create Projection, Start, poll until Complete)
-7. Extract all artifacts (synthesis, observations, directions, transcripts)
-8. Score the engine output against the rubric (all 12 criteria, 0-4 scale with strict calibration)
-9. Compare against the incumbent output (read from meta/baseline/synthesis.md or the previous run's winner)
-10. Record: scores.json, borda.json, diagnosis.md → meta/runs/{NNN}/
-11. Update progress.md
-12. If challenger wins: git tag foresight-v{NNN}, reset streak. If incumbent wins: increment streak.
-13. Git commit and push all changes.
+A run without ALL artifacts is incomplete. Do not skip any step.
 
-Do the full iteration now. Do not stop early or ask for clarification."
+Execute the full iteration now. Do not stop early or ask for clarification."
 
     # Run Claude Code — fresh session, full permissions, all tools
     claude --dangerously-skip-permissions -p "$PROMPT" \
