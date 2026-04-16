@@ -41,22 +41,30 @@ Run directory: meta/runs/{NNN}_{short_description}/
 
 ## Step 4: Run the Engine
 
-1. Ensure the server is running (openpaw-server on port 3467)
+Use curl for all Temper API interactions. The API key is at `~/.local/share/openpaw/api.key`.
+Headers: `Authorization: Bearer <key>`, `x-temper-tenant: rita-agents`.
+
+1. Ensure the server is running on port 3467: `curl http://localhost:3467/tdata/ForesightModels`
 2. Check the ForesightModel entity is Active with the DSE knowledge graph
-3. Create a new Projection entity
-4. Configure it:
-   - foresight_model_id: the DSE model
+   - If no ForesightModel exists (server was restarted), recreate it:
+     a. `POST /tdata/ForesightModels` with `{"Name": "Directed Software Evolution v2", "ModelType": "knowledge_domain"}`
+     b. Seed it with the knowledge graph (check `meta/runs/000_initial/engine-output/` for reference)
+   - The knowledge graph content persists in the database blobs table even if entities are cleared
+3. Create a new Projection entity: `POST /tdata/Projections`
+4. Configure it: `POST /tdata/Projections('{id}')/Temper.Configure` with:
+   - foresight_model_id: the DSE model ID
    - horizon: "1 year"
    - (Do NOT prescribe steps, probes, or schedule — the engine decides)
-5. Start the projection
-6. Monitor until Complete or Failed
+5. Start the projection: `POST /tdata/Projections('{id}')/Temper.Start`
+6. Poll until Complete or Failed: `GET /tdata/Projections('{id}')` in a loop (every 30s, max 15min)
 7. Save all artifacts to `meta/runs/{NNN}/engine-output/`:
-   - synthesis.md
-   - observations (by step)
-   - directions (by step)
+   - synthesis.md (from the synthesis session's result or projected state)
+   - observations: `GET /tdata/Observations?$filter=ProjectionId eq '{id}'`
+   - directions: `GET /tdata/Directions?$filter=ProjectionId eq '{id}'`
    - projected state files
    - event trail
-   - orchestrator session transcript
+   - Session transcripts: extract from `~/.local/share/openpaw/paw.db` using sqlite3
+     (see `meta/runs/000_initial/transcripts/MANIFEST.md` for the extraction pattern)
 
 ## Step 5: Run the Baseline (only for run 000)
 
@@ -71,49 +79,33 @@ Run directory: meta/runs/{NNN}_{short_description}/
 
 ## Step 6: Judge
 
-### Setup Judge Sessions
+### Current Method: Meta-Agent Scoring
 
-Create 3 independent paw-agent sessions. Each receives:
+Automated 3-judge sessions failed in Run 000 (file delivery bug + processing timeouts).
+Until fixed, the meta-agent scores both outputs directly.
 
-1. The rubric from program.md (12 criteria with anchors)
-2. Two outputs, anonymized as "Output X" and "Output Y"
-3. Randomize which is X and which is Y (flip per judge or per pair)
-4. The judge prompt (see below)
+Score BOTH the challenger (engine output from this run) and the incumbent
+(baseline at `meta/baseline/synthesis.md`, or the previous winner if engine has won before).
 
-### Judge Prompt Template
+For each of the 12 criteria in program.md:
+1. Read the criterion anchors carefully
+2. Apply the calibration: 2 = competent, 3 = genuinely impressive, 4 = exceptional
+3. Score both outputs independently
+4. Write reasoning and evidence for each score
 
-```
-You are an independent evaluator of foresight projections.
+### Compute Borda
 
-Below are two projections about the same domain. Score each against the rubric.
+1. Per criterion: higher score = Rank 1 (2 Borda points), lower = Rank 2 (1 point)
+2. If scores tied on a criterion: each gets 1.5 points
+3. Sum across 12 criteria (max 24 Borda points per output for 1 judge)
+4. If overall tied: incumbent wins (conservative)
+5. Save raw scores to `meta/runs/{NNN}/scores.json`
+6. Save Borda aggregation to `meta/runs/{NNN}/borda.json`
 
-For each criterion (12 total), for each output (X and Y), provide:
-- Score (0-4, using the anchors below)
-- Reasoning (1-2 sentences explaining the score)
-- Evidence (specific quotes or references from the output)
+### Future: Automated Judges
 
-Output your scores as a JSON array.
-
-## Rubric
-{paste 12 criteria with anchors from program.md}
-
-## Output X
-{anonymized output}
-
-## Output Y
-{anonymized output}
-```
-
-### Aggregate Scores
-
-1. Collect 3 judge responses
-2. Per criterion: rank X vs Y by score. Rank 1 = 2 Borda points, Rank 2 = 1 point.
-3. If scores tied on a criterion: each gets 1.5 points.
-4. Sum across 3 judges per criterion (max 6 points per criterion per output)
-5. Sum across 12 criteria (max 72 Borda points per output)
-6. If overall tied: incumbent (A) wins
-7. Save raw scores to `meta/runs/{NNN}/scores.json`
-8. Save Borda aggregation to `meta/runs/{NNN}/borda.json`
+When paw-agent file delivery is fixed, switch to 3 independent blind judge sessions.
+See program.md Judge Protocol for the full specification.
 
 ## Step 7: Record Results
 
