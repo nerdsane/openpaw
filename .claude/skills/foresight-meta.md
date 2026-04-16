@@ -9,6 +9,26 @@ user_invocable: true
 Run one iteration of the meta-improvement loop for paw-foresight.
 Each invocation is a fresh session — read all state from files, leave all state in files.
 
+## Isolated Server (REQUIRED — do NOT use the live :3467 server)
+
+The foresight loop runs against a dedicated `openpaw-server` process isolated from any other agent's work. Do not hit the live :3467 server — another agent may be using it and will kill/restart it on their schedule.
+
+- **Port:** 3468
+- **Tenant:** rita-agents
+- **Data dir:** `/tmp/paw-foresight-home/.local/share/openpaw/` (isolated `HOME` — DB, api.key, vault.key, git-apps cache all live here)
+- **API key file:** `/tmp/paw-foresight-home/.local/share/openpaw/api.key`
+- **CWD:** `~/Development/openpaw-foresight` (binary at `./target/release/openpaw-server`, os-apps loaded from `./os-apps/`)
+- **Binary launch:** `HOME=/tmp/paw-foresight-home PORT=3468 PAW_TENANT=rita-agents ./target/release/openpaw-server run`
+
+If the server isn't running, start it — don't fall back to the live :3467 instance.
+
+## Engine Base (Post-Track-1-reliability era)
+
+- **Base tag:** `foresight-v100-base`
+- **Orchestrator max_fuel:** 120B (not 500B — Track 1 checkpointing makes the old band-aid unnecessary)
+- **Provider for orchestrator sessions:** chosen by the meta-agent when configuring ForesightModel; not constrained to match `seed_provider`
+- **Session reliability:** heartbeat, steering, mid-turn checkpoint resume, OTS trajectory emission are all landed — the pre-merge workarounds (openpaw#63, #66, #129) are no longer relevant
+
 ## Before Starting — Read These Files
 
 1. `os-apps/paw-foresight/meta/program.md` — the immutable rubric (12 criteria, 0-4 anchors)
@@ -77,7 +97,7 @@ After making changes — you MUST reload for changes to take effect:
 
 **If ONLY SKILL.md or specs changed** (most common case):
 ```bash
-curl -s -X POST "http://localhost:3467/api/os-apps/paw-foresight/install" \
+curl -s -X POST "http://localhost:3468/api/os-apps/paw-foresight/install" \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"tenant":"rita-agents"}'
@@ -92,7 +112,7 @@ cd os-apps/paw-foresight/wasm/spawn_orchestrator && \
 ```
 Then either reinstall the full app (command above), or upload just the one module:
 ```bash
-curl -s -X POST "http://localhost:3467/api/wasm/modules/spawn_orchestrator" \
+curl -s -X POST "http://localhost:3468/api/wasm/modules/spawn_orchestrator" \
   -H "Authorization: Bearer $API_KEY" \
   -H "x-temper-tenant: rita-agents" \
   --data-binary @os-apps/paw-foresight/wasm/spawn_orchestrator/target/wasm32-unknown-unknown/release/spawn_orchestrator.wasm
@@ -119,10 +139,10 @@ Save `meta/runs/{NNN}/changelog.md`:
 ### API Setup
 
 ```bash
-API_KEY=$(cat ~/.local/share/openpaw/api.key)
+API_KEY=$(cat /tmp/paw-foresight-home/.local/share/openpaw/api.key)
 AUTH="Authorization: Bearer $API_KEY"
 TENANT="x-temper-tenant: rita-agents"
-BASE="http://localhost:3467"
+BASE="http://localhost:3468"
 ```
 
 ### Check Server Health
@@ -143,7 +163,7 @@ curl -s "$BASE/tdata/ForesightModels" -H "$AUTH" -H "$TENANT"
 If the DSE model doesn't exist (server was restarted), you need to recreate it.
 The knowledge graph is a large JSON file. Check if it's still in the blobs table:
 ```bash
-sqlite3 ~/.local/share/openpaw/paw.db "SELECT blob_key, size_bytes FROM blobs WHERE size_bytes > 500000 ORDER BY size_bytes DESC LIMIT 5;"
+sqlite3 /tmp/paw-foresight-home/.local/share/openpaw/paw.db "SELECT blob_key, size_bytes FROM blobs WHERE size_bytes > 500000 ORDER BY size_bytes DESC LIMIT 5;"
 ```
 The knowledge graph blob is ~720KB. If found, you can create a new ForesightModel and
 attach it. If not found, the original essay source file may need to be re-ingested.
@@ -202,9 +222,9 @@ curl -s "$BASE/tdata/Directions" -H "$AUTH" -H "$TENANT" \
 This is CRITICAL for diagnosis. The transcripts are in the SQLite database.
 
 ```python
-import subprocess, json, os
+import subprocess, json
 
-db = os.path.expanduser("~/.local/share/openpaw/paw.db")
+db = "/tmp/paw-foresight-home/.local/share/openpaw/paw.db"
 
 def sql(query):
     r = subprocess.run(["sqlite3", db, query], capture_output=True, text=True)
@@ -246,7 +266,19 @@ Write a MANIFEST.md in the transcripts/ directory listing each session and its r
 
 ### Convert to OTS (structured analysis)
 
-After extracting raw JSONL transcripts, convert them for structured analysis:
+**Prefer native OTS emission** when available. Post-Track-3 (openpaw track-3/ots-trajectories merged 2026-04-16), paw-agent sessions emit OTS trajectories directly via the `emit_ots_trajectory` WASM integration. Query them from the `ots_trajectories` table first:
+
+```python
+import sqlite3, json
+db = "/tmp/paw-foresight-home/.local/share/openpaw/paw.db"
+con = sqlite3.connect(db)
+rows = con.execute(
+    "SELECT entity_id, trajectory_json FROM ots_trajectories WHERE entity_id LIKE 'ss-<projection_prefix>%' ORDER BY entity_id"
+).fetchall()
+# Write each into meta/runs/{NNN}/trajectories/<session>.ots.json
+```
+
+Fall back to the JSONL→OTS converter only when native OTS is missing (pre-Track-3 archived runs, or if a session died before emit):
 
 ```bash
 # Diagnostic summary — shows all sessions, turns, errors, what each agent did

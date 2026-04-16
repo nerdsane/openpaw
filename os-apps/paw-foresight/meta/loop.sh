@@ -9,22 +9,28 @@
 #   tmux new -s foresight './os-apps/paw-foresight/meta/loop.sh'
 #
 # Modeled after turbomoe/autoresearch.sh (Karpathy pattern).
+#
+# Server isolation: this loop uses its OWN openpaw-server on port 3468 with
+# HOME=/tmp/paw-foresight-home so it doesn't collide with the live :3467
+# instance that other agents may be using.
 
 set -e
-cd "$(dirname "$0")/../../.."  # project root (openpaw-codex)
+cd "$(dirname "$0")/../../.."  # project root (openpaw-foresight worktree)
 
 MAX_ROUNDS="${1:-50}"
 ROUND=1
 LOGDIR="os-apps/paw-foresight/meta/logs"
 META_DIR="os-apps/paw-foresight/meta"
-SERVER_PORT=3467
+SERVER_PORT=3468
+FORESIGHT_HOME=/tmp/paw-foresight-home
+API_KEY_FILE="$FORESIGHT_HOME/.local/share/openpaw/api.key"
 
 mkdir -p "$LOGDIR"
 
 # ─── Helpers ───────────────────────────────────────────────────────────
 
 api_key() {
-    cat ~/.local/share/openpaw/api.key 2>/dev/null || echo ""
+    cat "$API_KEY_FILE" 2>/dev/null || echo ""
 }
 
 check_server() {
@@ -39,19 +45,20 @@ check_server() {
 
 ensure_server() {
     if check_server; then
-        echo "[$(date +%H:%M)] Server healthy on port $SERVER_PORT"
+        echo "[$(date +%H:%M)] Isolated server healthy on port $SERVER_PORT"
         return 0
     fi
 
-    echo "[$(date +%H:%M)] Server not responding. Starting..."
-    PAW_TENANT=rita-agents ./target/release/openpaw-server run &
+    echo "[$(date +%H:%M)] Isolated server not responding. Starting..."
+    HOME="$FORESIGHT_HOME" PORT=$SERVER_PORT PAW_TENANT=rita-agents OTEL_ENABLED=false \
+        ./target/release/openpaw-server run > "$FORESIGHT_HOME/server.log" 2>&1 &
     SERVER_PID=$!
-    sleep 15
+    sleep 20
 
     if check_server; then
-        echo "[$(date +%H:%M)] Server started (PID $SERVER_PID)"
+        echo "[$(date +%H:%M)] Isolated server started (PID $SERVER_PID)"
     else
-        echo "[$(date +%H:%M)] FATAL: Server failed to start."
+        echo "[$(date +%H:%M)] FATAL: Isolated server failed to start. See $FORESIGHT_HOME/server.log"
         exit 1
     fi
 }
@@ -80,6 +87,8 @@ echo "========================================"
 echo "  FORESIGHT META-IMPROVEMENT LOOP"
 echo "  Started: $(date)"
 echo "  Max rounds: $MAX_ROUNDS"
+echo "  Server: http://localhost:$SERVER_PORT (isolated)"
+echo "  HOME:   $FORESIGHT_HOME"
 echo "========================================"
 
 ensure_server
@@ -118,23 +127,31 @@ Then read these files:
 3. The most recent run's diagnosis.md — what to fix and why (read ALL transcripts, not just orchestrator)
 4. os-apps/paw-foresight/meta/baseline/synthesis.md — the single-shot baseline output (reference)
 
-Use the OTS converter for structured transcript analysis:
+Native OTS trajectories (post-Track-3) are emitted by the emit_ots_trajectory WASM —
+query the ots_trajectories table directly. Fall back to the JSONL→OTS converter for
+archived pre-Track-3 runs only:
   python3 meta/tools/jsonl_to_ots.py meta/runs/<latest>/transcripts/ --summary
 
-## Server
+## Server (ISOLATED — do NOT use the live :3467 instance)
 - Temper API: http://localhost:$SERVER_PORT
-- API key: $KEY
+- API key: $KEY  (file: $API_KEY_FILE)
 - Tenant: rita-agents
+- Data dir: $FORESIGHT_HOME/.local/share/openpaw/
 - All API calls use: -H 'Authorization: Bearer <key>' -H 'x-temper-tenant: rita-agents'
+
+## Engine base
+- Tag: foresight-v100-base (Post-Track-1-reliability era)
+- Orchestrator max_fuel: 120B (Track 1 checkpointing landed; old 500B band-aid removed)
+- Native OTS trajectory emission via emit_ots_trajectory WASM
 
 ## This Run
 - Run number: $RUN_NUM
 - Run directory: os-apps/paw-foresight/meta/runs/$(printf '%03d' $RUN_NUM)_<description>/
 
-NOTE: The server may have been restarted. Entities (ForesightModels, Projections) may
-be empty. Check first. If the DSE ForesightModel doesn't exist, recreate it — the
-knowledge graph blob persists in ~/.local/share/openpaw/paw.db even if the entity is gone.
-See the skill file for the exact recreation procedure.
+NOTE: The DSE v2 ForesightModel should already exist on the isolated server (seeded
+from a backup of the live DB, runtime tables purged). If it's missing, the knowledge
+graph blob is in $FORESIGHT_HOME/.local/share/openpaw/paw.db — see the skill file
+for the exact recreation procedure.
 
 ## CRITICAL: Documentation Requirements
 
@@ -152,7 +169,7 @@ Everything must be recorded for posterity. Each run MUST produce ALL of these:
 10. diagnosis.md — root cause analysis tying scores to specific engine components
 11. Updated progress.md — new row in score table with all columns filled
 12. Git commit with descriptive message + push
-13. Git tag (foresight-vNNN) if challenger wins
+13. Git tag (foresight-vNNN) if challenger wins — NNN starts at 101 in this era
 
 JUDGES: You MUST create 3 independent Claude Code subagent judges using 'claude -p'.
 Each judge receives BOTH outputs side-by-side plus the full rubric (no size limit).
