@@ -684,7 +684,7 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
                 }
                 "modal" if modal_token_id.is_some() && modal_token_secret.is_some() => {
                     tracing::warn!(
-                        "Sandbox provider is 'modal' but MODAL_BRIDGE_URL / modal_bridge_url is not set"
+                        "Sandbox provider is 'modal' but MODAL_BRIDGE_URL / modal_bridge_url is not set; OpenPaw deploy should provision it automatically"
                     );
                 }
                 "modal" => {

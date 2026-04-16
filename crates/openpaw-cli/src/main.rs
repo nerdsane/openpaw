@@ -73,4 +73,3 @@ fn run_server(args: &[&str]) -> anyhow::Result<()> {
         Err(e) => anyhow::bail!("Failed to start openpaw-server: {e}"),
     }
 }
-

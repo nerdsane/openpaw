@@ -7,6 +7,10 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 
+const MODAL_BRIDGE_SECRET_NAME: &str = "openpaw-bridge-auth";
+const MODAL_BRIDGE_SECRET_KEY: &str = "BRIDGE_AUTH_TOKEN";
+const MODAL_BRIDGE_APP_NAME: &str = "openpaw-sandbox-bridge";
+
 // ---------------------------------------------------------------------------
 // Credential cache — persists tokens/keys between deploy runs
 // ---------------------------------------------------------------------------
@@ -29,7 +33,10 @@ fn save_cache(cache: &HashMap<String, String>) {
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    let _ = std::fs::write(&path, serde_json::to_string_pretty(cache).unwrap_or_default());
+    let _ = std::fs::write(
+        &path,
+        serde_json::to_string_pretty(cache).unwrap_or_default(),
+    );
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -46,6 +53,26 @@ fn cache_set(cache: &mut HashMap<String, String>, key: &str, value: &str) {
     save_cache(cache);
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ModalCredentials {
+    profile: String,
+    token_id: String,
+    token_secret: String,
+}
+
+#[derive(Debug, Default)]
+struct ModalProfileConfig {
+    token_id: Option<String>,
+    token_secret: Option<String>,
+    active: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ModalBridgeConfig {
+    credentials: ModalCredentials,
+    bridge_url: String,
+}
+
 pub async fn run_deploy() -> Result<()> {
     cliclack::intro("Open Paw Deploy")?;
 
@@ -57,10 +84,20 @@ pub async fn run_deploy() -> Result<()> {
     ensure_or_install("railway", &install_railway)?;
     ensure_or_install("turso", &install_turso)?;
     ensure_or_install("wrangler", &install_wrangler)?;
+    ensure_or_install("modal", &install_modal)?;
 
     ensure_auth_railway()?;
     ensure_auth_turso(&mut cache)?;
     ensure_auth_wrangler(&mut cache)?;
+
+    let modal_bridge = match configure_modal_bridge() {
+        Ok(config) => config,
+        Err(error) => {
+            return Err(error.context(
+                "Failed to provision the Modal sandbox bridge. The deploy flow should own this automatically.",
+            ));
+        }
+    };
 
     let owner = slugify(
         &std::env::var("USER")
@@ -98,6 +135,23 @@ pub async fn run_deploy() -> Result<()> {
         format!("BLOB_SECRET_KEY={blob_secret_key}"),
         format!("TEMPER_VAULT_KEY={vault_key_b64}"),
     ];
+
+    if let Some(modal_bridge) = &modal_bridge {
+        variables.push("SANDBOX_PROVIDER=modal".to_string());
+        variables.push(format!(
+            "MODAL_TOKEN_ID={}",
+            modal_bridge.credentials.token_id
+        ));
+        variables.push(format!(
+            "MODAL_TOKEN_SECRET={}",
+            modal_bridge.credentials.token_secret
+        ));
+        variables.push(format!("MODAL_BRIDGE_URL={}", modal_bridge.bridge_url));
+    } else {
+        cliclack::log::warning(
+            "Modal credentials were not found locally, so this deploy is continuing without automatic Modal sandbox provisioning.\n  Run `modal token set` once and redeploy to let OpenPaw provision and persist the bridge automatically.",
+        )?;
+    }
 
     // Datadog observability — optional
     let (dd_api_key, dd_app_key, dd_site) = prompt_datadog_config(&mut cache)?;
@@ -185,13 +239,10 @@ pub async fn run_deploy() -> Result<()> {
     ];
 
     // Resolve service IDs for both services
-    if let Ok(openpaw_service_id) =
-        resolve_railway_service_id(&project_id, &env_id, "openpaw")
-    {
+    if let Ok(openpaw_service_id) = resolve_railway_service_id(&project_id, &env_id, "openpaw") {
         meta_vars.push(format!("RAILWAY_SERVICE_ID={openpaw_service_id}"));
     }
-    if let Ok(otel_service_id) =
-        resolve_railway_service_id(&project_id, &env_id, "otel-collector")
+    if let Ok(otel_service_id) = resolve_railway_service_id(&project_id, &env_id, "otel-collector")
     {
         meta_vars.push(format!("RAILWAY_OTEL_SERVICE_ID={otel_service_id}"));
     }
@@ -364,6 +415,18 @@ fn install_wrangler() -> Result<()> {
     }
 }
 
+fn install_modal() -> Result<()> {
+    if cli_exists("uv") {
+        run_install(&["uv", "tool", "install", "modal"])
+    } else if cli_exists("python3") {
+        run_install(&["python3", "-m", "pip", "install", "--user", "modal"])
+    } else if cli_exists("pip3") {
+        run_install(&["pip3", "install", "--user", "modal"])
+    } else {
+        anyhow::bail!("modal requires either uv, python3, or pip3 to auto-install")
+    }
+}
+
 fn run_install(args: &[&str]) -> Result<()> {
     let status = Command::new(args[0])
         .args(&args[1..])
@@ -501,7 +564,9 @@ fn ensure_auth_turso(cache: &mut HashMap<String, String>) -> Result<()> {
     }
 
     if let Some(cached) = cache_get(cache, "turso_api_token") {
-        unsafe { std::env::set_var("TURSO_API_TOKEN", &cached); }
+        unsafe {
+            std::env::set_var("TURSO_API_TOKEN", &cached);
+        }
         if is_cli_logged_in("turso", &["auth", "whoami"]) {
             cliclack::log::success("turso authenticated (cached token) ✓")?;
             return Ok(());
@@ -510,11 +575,9 @@ fn ensure_auth_turso(cache: &mut HashMap<String, String>) -> Result<()> {
 
     cliclack::log::info(
         "Turso provides the database (free tier, no credit card).\n  \
-         Opening Turso — go to API Tokens, create one, and paste it below."
+         Opening Turso — go to API Tokens, create one, and paste it below.",
     )?;
-    let _ = Command::new("open")
-        .arg("https://app.turso.tech")
-        .status();
+    let _ = Command::new("open").arg("https://app.turso.tech").status();
 
     let token: String = cliclack::password("Paste Turso API token")
         .mask('•')
@@ -527,7 +590,9 @@ fn ensure_auth_turso(cache: &mut HashMap<String, String>) -> Result<()> {
         })
         .interact()?;
 
-    unsafe { std::env::set_var("TURSO_API_TOKEN", token.trim()); }
+    unsafe {
+        std::env::set_var("TURSO_API_TOKEN", token.trim());
+    }
 
     if !is_cli_logged_in("turso", &["auth", "whoami"]) {
         anyhow::bail!(
@@ -546,7 +611,9 @@ fn ensure_auth_wrangler(cache: &mut HashMap<String, String>) -> Result<()> {
     }
 
     if let Some(cached) = cache_get(cache, "cloudflare_api_token") {
-        unsafe { std::env::set_var("CLOUDFLARE_API_TOKEN", &cached); }
+        unsafe {
+            std::env::set_var("CLOUDFLARE_API_TOKEN", &cached);
+        }
         if is_cli_logged_in("wrangler", &["whoami"]) {
             cliclack::log::success("wrangler authenticated (cached token) ✓")?;
             return Ok(());
@@ -557,7 +624,7 @@ fn ensure_auth_wrangler(cache: &mut HashMap<String, String>) -> Result<()> {
     cliclack::log::info(
         "Cloudflare R2 provides file storage (free tier: 10 GB, no credit card).\n  \
          Opening Cloudflare — create a Custom Token with permission:\n  \
-         Account → Workers R2 Storage → Edit. Paste it below."
+         Account → Workers R2 Storage → Edit. Paste it below.",
     )?;
     let _ = Command::new("open").arg(token_url).status();
 
@@ -572,7 +639,9 @@ fn ensure_auth_wrangler(cache: &mut HashMap<String, String>) -> Result<()> {
         })
         .interact()?;
 
-    unsafe { std::env::set_var("CLOUDFLARE_API_TOKEN", token.trim()); }
+    unsafe {
+        std::env::set_var("CLOUDFLARE_API_TOKEN", token.trim());
+    }
 
     if !is_cli_logged_in("wrangler", &["whoami"]) {
         anyhow::bail!(
@@ -585,15 +654,236 @@ fn ensure_auth_wrangler(cache: &mut HashMap<String, String>) -> Result<()> {
     Ok(())
 }
 
+fn configure_modal_bridge() -> Result<Option<ModalBridgeConfig>> {
+    let Some(credentials) = read_modal_credentials()? else {
+        return Ok(None);
+    };
+
+    cliclack::log::step("Provisioning Modal sandbox bridge...")?;
+    ensure_modal_bridge_auth_secret(&credentials)?;
+    let bridge_url = deploy_modal_bridge(&credentials)?;
+    cliclack::log::success(format!("Modal bridge ready ✓ {bridge_url}"))?;
+
+    Ok(Some(ModalBridgeConfig {
+        credentials,
+        bridge_url,
+    }))
+}
+
+fn read_modal_credentials() -> Result<Option<ModalCredentials>> {
+    if let (Some(token_id), Some(token_secret)) = (
+        optional_env("MODAL_TOKEN_ID"),
+        optional_env("MODAL_TOKEN_SECRET"),
+    ) {
+        return Ok(Some(ModalCredentials {
+            profile: "env".to_string(),
+            token_id,
+            token_secret,
+        }));
+    }
+
+    let config_path = modal_config_path();
+    let data = match std::fs::read_to_string(&config_path) {
+        Ok(data) => data,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(err) => {
+            return Err(err).with_context(|| {
+                format!("Failed to read Modal config from {}", config_path.display())
+            });
+        }
+    };
+
+    read_modal_credentials_from_str(&data, std::env::var("MODAL_PROFILE").ok().as_deref())
+}
+
+fn modal_config_path() -> PathBuf {
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
+    PathBuf::from(home).join(".modal.toml")
+}
+
+fn read_modal_credentials_from_str(
+    config: &str,
+    profile_override: Option<&str>,
+) -> Result<Option<ModalCredentials>> {
+    let mut profiles: HashMap<String, ModalProfileConfig> = HashMap::new();
+    let mut current_profile: Option<String> = None;
+
+    for raw_line in config.lines() {
+        let line = raw_line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        if line.starts_with('[') && line.ends_with(']') {
+            let profile = line
+                .trim_start_matches('[')
+                .trim_end_matches(']')
+                .trim()
+                .to_string();
+            profiles.entry(profile.clone()).or_default();
+            current_profile = Some(profile);
+            continue;
+        }
+
+        let Some(profile_name) = current_profile.as_ref() else {
+            continue;
+        };
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        let key = key.trim();
+        let value = parse_modal_value(value.trim());
+        let profile = profiles.entry(profile_name.clone()).or_default();
+
+        match key {
+            "token_id" => profile.token_id = Some(value),
+            "token_secret" => profile.token_secret = Some(value),
+            "active" => profile.active = value.eq_ignore_ascii_case("true"),
+            _ => {}
+        }
+    }
+
+    if profiles.is_empty() {
+        return Ok(None);
+    }
+
+    let selected_profile = if let Some(profile) = profile_override {
+        profile.to_string()
+    } else if let Some((name, _)) = profiles.iter().find(|(_, profile)| profile.active) {
+        name.clone()
+    } else if profiles.contains_key("default") {
+        "default".to_string()
+    } else if let Some((name, _)) = profiles
+        .iter()
+        .find(|(_, profile)| profile.token_id.is_some() && profile.token_secret.is_some())
+    {
+        name.clone()
+    } else {
+        return Ok(None);
+    };
+
+    let profile = profiles
+        .get(&selected_profile)
+        .with_context(|| format!("Modal profile `{selected_profile}` was not found"))?;
+
+    match (profile.token_id.as_ref(), profile.token_secret.as_ref()) {
+        (Some(token_id), Some(token_secret)) => Ok(Some(ModalCredentials {
+            profile: selected_profile,
+            token_id: token_id.clone(),
+            token_secret: token_secret.clone(),
+        })),
+        _ => Ok(None),
+    }
+}
+
+fn parse_modal_value(value: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.len() >= 2 && trimmed.starts_with('"') && trimmed.ends_with('"') {
+        trimmed[1..trimmed.len() - 1].to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+fn ensure_modal_bridge_auth_secret(credentials: &ModalCredentials) -> Result<()> {
+    let key_value = format!("{MODAL_BRIDGE_SECRET_KEY}={}", credentials.token_id);
+
+    let output = Command::new("modal")
+        .args([
+            "secret",
+            "create",
+            "--force",
+            MODAL_BRIDGE_SECRET_NAME,
+            &key_value,
+        ])
+        .env("MODAL_TOKEN_ID", &credentials.token_id)
+        .env("MODAL_TOKEN_SECRET", &credentials.token_secret)
+        .output()
+        .context("Failed to run `modal secret create`")?;
+
+    if !output.status.success() {
+        let combined = format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        anyhow::bail!("Failed to create/update Modal bridge auth secret: {combined}");
+    }
+
+    Ok(())
+}
+
+fn deploy_modal_bridge(credentials: &ModalCredentials) -> Result<String> {
+    let script_path = modal_bridge_script_path();
+    let output = Command::new("modal")
+        .arg("deploy")
+        .arg(&script_path)
+        .env("MODAL_TOKEN_ID", &credentials.token_id)
+        .env("MODAL_TOKEN_SECRET", &credentials.token_secret)
+        .output()
+        .with_context(|| format!("Failed to run `modal deploy {}`", script_path.display()))?;
+
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    if !output.status.success() {
+        anyhow::bail!("Modal bridge deploy failed: {combined}");
+    }
+
+    infer_modal_bridge_base_url(&combined).with_context(|| {
+        format!(
+            "Modal bridge deploy succeeded but the base URL could not be inferred from output:\n{combined}"
+        )
+    })
+}
+
+fn modal_bridge_script_path() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .join("os-apps/paw-agent/modal-bridge/modal_bridge.py")
+}
+
+fn infer_modal_bridge_base_url(output: &str) -> Option<String> {
+    const ENDPOINT_SUFFIXES: &[&str] = &[
+        "-create",
+        "-health",
+        "-file-read",
+        "-file-write",
+        "-file-delete",
+        "-exec",
+        "-terminate",
+    ];
+
+    for line in output.lines() {
+        let trimmed = line.trim();
+        let Some(start) = trimmed.find("https://") else {
+            continue;
+        };
+        let url = &trimmed[start..];
+        if !url.contains(MODAL_BRIDGE_APP_NAME) || !url.contains(".modal.run") {
+            continue;
+        }
+        let base = url.strip_suffix(".modal.run").unwrap_or(url);
+        for suffix in ENDPOINT_SUFFIXES {
+            if let Some(prefix) = base.strip_suffix(suffix) {
+                return Some(prefix.to_string());
+            }
+        }
+    }
+
+    None
+}
+
 /// Get Railway project and environment IDs from the linked project.
 fn get_railway_ids() -> Result<(String, String)> {
     let status_output = Command::new("railway")
         .args(["status", "--json"])
         .output()
         .context("Failed to get Railway project status")?;
-    let status_json: serde_json::Value =
-        serde_json::from_slice(&status_output.stdout)
-            .context("Failed to parse Railway status JSON")?;
+    let status_json: serde_json::Value = serde_json::from_slice(&status_output.stdout)
+        .context("Failed to parse Railway status JSON")?;
     let project_id = status_json["id"]
         .as_str()
         .context("No project ID in Railway status")?
@@ -674,11 +964,12 @@ fn prompt_datadog_config(
     cache_set(cache, "dd_api_key", api_key.trim());
 
     let cached_app_key = cache_get(cache, "dd_app_key").unwrap_or_default();
-    let app_key: String = cliclack::input("Datadog App Key (optional — for dashboard/monitor APIs)")
-        .placeholder("Press Enter to skip")
-        .default_input(&cached_app_key)
-        .required(false)
-        .interact()?;
+    let app_key: String =
+        cliclack::input("Datadog App Key (optional — for dashboard/monitor APIs)")
+            .placeholder("Press Enter to skip")
+            .default_input(&cached_app_key)
+            .required(false)
+            .interact()?;
     let app_key = if app_key.trim().is_empty() {
         None
     } else {
@@ -883,10 +1174,7 @@ fn create_railway_project_idempotent(project_name: &str) -> Result<()> {
 }
 
 fn get_cloudflare_account_id() -> Option<String> {
-    let output = Command::new("wrangler")
-        .args(["whoami"])
-        .output()
-        .ok()?;
+    let output = Command::new("wrangler").args(["whoami"]).output().ok()?;
     let text = String::from_utf8_lossy(&output.stdout);
     for line in text.lines() {
         for word in line.split_whitespace() {
@@ -1048,9 +1336,7 @@ fn resolve_railway_service_id(
         // Look in services array
         if let Some(services) = status_json["services"]["edges"].as_array() {
             for service in services {
-                let name = service["node"]["name"]
-                    .as_str()
-                    .unwrap_or_default();
+                let name = service["node"]["name"].as_str().unwrap_or_default();
                 if name == service_name {
                     if let Some(id) = service["node"]["id"].as_str() {
                         return Ok(id.to_string());
@@ -1131,9 +1417,7 @@ async fn configure_llm_via_api(deploy_url: &str) -> Result<()> {
             .iter()
             .map(|m| (m.clone(), m.clone(), String::new()))
             .collect();
-        cliclack::select("Which model?")
-            .items(&items)
-            .interact()?
+        cliclack::select("Which model?").items(&items).interact()?
     };
 
     // POST all three settings to the deployed server's secrets API.
@@ -1426,7 +1710,10 @@ fn as_str_slice(values: &[String]) -> Vec<&str> {
 
 #[cfg(test)]
 mod tests {
-    use super::{infer_domain, slugify};
+    use super::{
+        infer_domain, infer_modal_bridge_base_url, modal_bridge_script_path,
+        read_modal_credentials_from_str, slugify,
+    };
 
     #[test]
     fn slugify_normalizes_owner_names() {
@@ -1441,5 +1728,74 @@ mod tests {
             value.as_deref(),
             Some("https://openpaw-production.up.railway.app")
         );
+    }
+
+    #[test]
+    fn read_modal_credentials_prefers_active_profile() {
+        let config = r#"
+[default]
+token_id = "ak-default"
+token_secret = "as-default"
+
+[team-profile]
+token_id = "ak-team"
+token_secret = "as-team"
+active = true
+"#;
+
+        let credentials = read_modal_credentials_from_str(config, None)
+            .unwrap()
+            .unwrap();
+        assert_eq!(credentials.profile, "team-profile");
+        assert_eq!(credentials.token_id, "ak-team");
+        assert_eq!(credentials.token_secret, "as-team");
+    }
+
+    #[test]
+    fn read_modal_credentials_supports_explicit_profile_override() {
+        let config = r#"
+[default]
+token_id = "ak-default"
+token_secret = "as-default"
+
+[team-profile]
+token_id = "ak-team"
+token_secret = "as-team"
+active = true
+"#;
+
+        let credentials = read_modal_credentials_from_str(config, Some("default"))
+            .unwrap()
+            .unwrap();
+        assert_eq!(credentials.profile, "default");
+        assert_eq!(credentials.token_id, "ak-default");
+        assert_eq!(credentials.token_secret, "as-default");
+    }
+
+    #[test]
+    fn infer_modal_bridge_base_url_from_modal_deploy_output() {
+        let output = r#"
+✓ Created objects.
+├── 🔨 Created web function create_sandbox =>
+│   https://n-seshendra--openpaw-sandbox-bridge-create.modal.run
+├── 🔨 Created web function health_check =>
+│   https://n-seshendra--openpaw-sandbox-bridge-health.modal.run
+└── 🔨 Created web function terminate_sandbox =>
+    https://n-seshendra--openpaw-sandbox-bridge-terminate.modal.run
+✓ App deployed in 2.140s! 🎉
+"#;
+
+        let base_url = infer_modal_bridge_base_url(output);
+        assert_eq!(
+            base_url.as_deref(),
+            Some("https://n-seshendra--openpaw-sandbox-bridge")
+        );
+    }
+
+    #[test]
+    fn modal_bridge_script_path_points_to_repo_bridge() {
+        let script_path = modal_bridge_script_path();
+        assert!(script_path.ends_with("os-apps/paw-agent/modal-bridge/modal_bridge.py"));
+        assert!(script_path.exists(), "{script_path:?} should exist");
     }
 }

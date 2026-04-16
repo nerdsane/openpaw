@@ -113,10 +113,26 @@ pub async fn run_setup_config(config: &Config) -> anyhow::Result<SetupResult> {
         cliclack::log::success("API key configured")?;
     } else {
         let provider: &str = cliclack::select("Which AI provider do you use?")
-            .item("anthropic", "Anthropic", "Pay-per-token · console.anthropic.com → API Keys")
-            .item("openai", "OpenAI (API key)", "Pay-per-token · platform.openai.com/api-keys")
-            .item("openai_codex", "OpenAI (Codex subscription)", "Included in ChatGPT Plus/Pro · ~/.codex/auth.json")
-            .item("openrouter", "OpenRouter", "Pay-per-token · openrouter.ai/keys")
+            .item(
+                "anthropic",
+                "Anthropic",
+                "Pay-per-token · console.anthropic.com → API Keys",
+            )
+            .item(
+                "openai",
+                "OpenAI (API key)",
+                "Pay-per-token · platform.openai.com/api-keys",
+            )
+            .item(
+                "openai_codex",
+                "OpenAI (Codex subscription)",
+                "Included in ChatGPT Plus/Pro · ~/.codex/auth.json",
+            )
+            .item(
+                "openrouter",
+                "OpenRouter",
+                "Pay-per-token · openrouter.ai/keys",
+            )
             .interact()?;
 
         if provider == "openai_codex" {
@@ -149,7 +165,9 @@ pub async fn run_setup_config(config: &Config) -> anyhow::Result<SetupResult> {
         }
     }
 
-    cliclack::log::info("Connect Discord, Slack, and other integrations in the dashboard after boot.")?;
+    cliclack::log::info(
+        "Connect Discord, Slack, and other integrations in the dashboard after boot.",
+    )?;
     Ok(result)
 }
 
@@ -338,7 +356,10 @@ async fn resolve_paw_soul_entity(
         .json()
         .await?;
 
-    if let Some(agent) = agent_response["value"].as_array().and_then(|items| items.first()) {
+    if let Some(agent) = agent_response["value"]
+        .as_array()
+        .and_then(|items| items.first())
+    {
         if let Some(soul_id) = entity_field_str(agent, &["soul_id", "SoulId"]) {
             let soul_url = format!("{base}/tdata/Souls('{soul_id}')");
             let soul_response: serde_json::Value = auth
@@ -367,7 +388,10 @@ async fn resolve_paw_soul_entity(
             .json()
             .await?;
 
-        if let Some(soul) = soul_response["value"].as_array().and_then(|items| items.first()) {
+        if let Some(soul) = soul_response["value"]
+            .as_array()
+            .and_then(|items| items.first())
+        {
             return Ok(soul.clone());
         }
     }
@@ -405,8 +429,8 @@ pub(crate) async fn load_paw_soul_content(
 }
 
 pub(crate) fn default_paw_soul_content() -> anyhow::Result<String> {
-    let paw_agent_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../os-apps/paw-agent/agents/paw");
+    let paw_agent_dir =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../os-apps/paw-agent/agents/paw");
 
     let soul_md = std::fs::read_to_string(paw_agent_dir.join("SOUL.md"))
         .context("Failed to read default Paw SOUL.md")?;
@@ -496,10 +520,12 @@ fn read_codex_token() -> anyhow::Result<String> {
         .get("tokens")
         .and_then(|t| t.get("access_token"))
         .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow::anyhow!(
-            "~/.codex/auth.json missing tokens.access_token.\n\
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "~/.codex/auth.json missing tokens.access_token.\n\
              Try running \x1b[1mcodex login\x1b[0m again."
-        ))?;
+            )
+        })?;
 
     if token.is_empty() {
         anyhow::bail!(
@@ -778,7 +804,11 @@ mod tests {
     #[tokio::test]
     async fn save_soul_to_temper_falls_back_to_named_paw_soul() {
         async fn handler(request: Request<Body>) -> impl IntoResponse {
-            match (request.method(), request.uri().path(), request.uri().query()) {
+            match (
+                request.method(),
+                request.uri().path(),
+                request.uri().query(),
+            ) {
                 (&Method::GET, "/tdata/Agents", _) => (
                     StatusCode::OK,
                     axum::Json(json!({
