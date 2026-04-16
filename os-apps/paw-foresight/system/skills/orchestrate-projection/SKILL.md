@@ -357,7 +357,43 @@ Then create new Direction with parent_direction_id = "{old_direction_id}"
 
 ## Final Synthesis
 
-After the last step completes, produce a human-readable synthesis:
+After the last step completes, produce a human-readable synthesis.
+
+**Quality mandates — the synthesis MUST satisfy all of the following:**
+
+1. **Transparency (cite sources):** Every substantive claim must include an inline
+   reference to the observation(s) or signal(s) that support it. Use the format
+   `[obs: OBS_ENTITY_ID]` or `[signal: signal_name]`. A claim without a citation
+   is an unsupported assertion — do not include it.
+
+2. **Quantitative Precision:** Every major prediction must include at least one
+   measurable indicator: an adoption percentage, a market-size threshold, a timeline
+   in months, a proxy metric with a threshold, or a named data source. Qualitative-only
+   predictions ("growth will happen") are not acceptable — add a number.
+
+3. **Specificity (name actors):** Name real companies, tools, projects, standards,
+   and approximate dates. Do NOT use generic categories ("companies", "teams", "tools")
+   when specific actors can be named from the knowledge graph or general domain knowledge.
+   Example: "Anthropic, OpenAI, Cursor, Cognition/Devin" not "major AI companies."
+
+4. **Falsifiability:** Each of the top 5 predictions must include an explicit
+   falsification condition: "If [observable condition] has not occurred by [date],
+   this prediction is wrong because [mechanism]."
+
+5. **Actionability (structured decisions):** Each Decision Point must follow the format:
+   - **Timing trigger:** An observable event that makes the decision urgent
+   - **Options:** 2-3 concrete options
+   - **Tradeoffs:** For each option, what it costs or risks in specific terms
+
+6. **Progression (revise earlier predictions):** The Temporal Progression must use
+   4 quarterly phases (0-3mo, 3-6mo, 6-9mo, 9-12mo). Later phases MUST explicitly
+   revisit and revise, qualify, or confirm earlier predictions — not just extend them.
+   Each phase after the first must contain a "Revisions to earlier predictions" subsection.
+
+7. **Completeness:** Include an Assumptions & Limitations section that lists:
+   - Key assumptions the projection rests on
+   - What would change the analysis if wrong
+   - Confidence level (high/medium/low) for each major prediction
 
 ```python
 # Read all final observations and directions
@@ -365,32 +401,93 @@ all_obs = temper.list("Observations", f"$filter=projection_id eq '{projection_id
 all_dirs = temper.list("Directions",
     f"$filter=projection_id eq '{projection_id}' and Status ne 'Archived'")
 
-# Write a synthesis narrative
+# Build observation index for citation
+obs_index = {}
+for obs in all_obs:
+    oid = obs["entity_id"]
+    content = obs.get("fields", {}).get("content", "")
+    obs_index[oid] = content[:120]  # short reference for inline use
+
+# Write a synthesis narrative following ALL quality mandates above
 synthesis = f"""# Foresight Projection: {model_name}
 ## Horizon: {horizon} | Steps: {max_steps}
 ## Date: {today}
 
 ### Executive Summary
-[2-3 paragraph synthesis of the most important findings]
+[2-3 paragraphs synthesizing the most important findings. Name specific actors,
+tools, and timelines. Every claim must reference at least one observation ID using
+[obs: ID] format. Include at least 2 quantitative indicators.]
 
 ### Key Findings
-[Bulleted list of the strongest convergent observations]
+[Bulleted list of the strongest convergent observations. Each bullet must:
+- Name a specific actor, tool, or mechanism
+- Include a measurable indicator or threshold
+- Cite the observation(s) that support it: [obs: ID]]
+
+### Temporal Progression
+
+#### Phase 1: 0-3 Months
+- What changes (with named actors and quantitative indicators)
+- Expected signals (observable, checkable)
+- What has NOT changed that was expected to
+- Causal links to Phase 2
+
+#### Phase 2: 3-6 Months
+- What changes
+- Expected signals
+- **Revisions to Phase 1 predictions:** [explicitly confirm, qualify, or revise]
+- Causal links to Phase 3
+
+#### Phase 3: 6-9 Months
+- What changes
+- Expected signals
+- **Revisions to earlier predictions:** [explicitly confirm, qualify, or revise]
+- Causal links to Phase 4
+
+#### Phase 4: 9-12 Months
+- What changes
+- Expected signals
+- **Revisions to earlier predictions:** [explicitly confirm, qualify, or revise]
+- Final state assessment
 
 ### Active Directions
 [For each active direction: title + FULL reasoning text from the direction entity.
 Do NOT truncate reasoning. Include the complete text as stored in the direction's
-"reasoning" field. Each direction should have its full argument, not a summary.]
+"reasoning" field. Each direction should have its full argument, not a summary.
+Add inline observation citations [obs: ID] throughout.]
 
 ### What Surprised Us
-[Observations that challenged initial assumptions]
+[Observations that challenged initial assumptions. Cite the specific observation
+IDs and explain why they were surprising.]
+
+### Top 5 Predictions with Falsification Criteria
+[For each prediction:
+- **Prediction:** [specific, named, dated]
+- **Measurable indicator:** [quantitative threshold]
+- **Confidence:** [high/medium/low]
+- **Falsification:** If [condition] has not occurred by [date], this is wrong because [mechanism]
+- **Supporting observations:** [obs: ID1], [obs: ID2]]
 
 ### Decision Points
-[Actionable recommendations with timing triggers]
+[For each decision point:
+- **Decision:** [what must be decided]
+- **Timing trigger:** [observable event that makes this urgent]
+- **Option A:** [description] — Tradeoff: [specific cost/risk]
+- **Option B:** [description] — Tradeoff: [specific cost/risk]
+- **Option C:** [description] — Tradeoff: [specific cost/risk]
+- **Recommended:** [which option and why]]
+
+### Assumptions & Limitations
+[For each key assumption:
+- **Assumption:** [what we assume is true]
+- **If wrong:** [how the analysis changes]
+- **Confidence:** [high/medium/low]]
 
 ### Methodology
-- {len(probe_config)} independent probes per step
-- {max_steps} time steps over {horizon}
-- {len(all_obs)} total observations, {len(all_dirs)} total directions
+- {{len(probe_config)}} independent probes per step
+- {{max_steps}} time steps over {{horizon}}
+- {{len(all_obs)}} total observations, {{len(all_dirs)}} total directions
+- Observation index: {{list(obs_index.keys())}}
 """
 
 result = temper.write(f"projection_synthesis_{projection_id}.md", synthesis)
