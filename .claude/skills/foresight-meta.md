@@ -220,9 +220,15 @@ for session_id, name in sessions.items():
 
 Write a MANIFEST.md in the transcripts/ directory listing each session and its role.
 
-## Step 5: Score — 3 Independent Blind Judges
+## Step 5: Score — 3 Independent Blind Judges (Claude Code Subagents)
 
 This follows the Judge Protocol in program.md exactly. DO NOT skip judges and self-score.
+
+### Why Claude Code Subagents
+
+Paw-agent sessions route user_message through WASM (32KB field limit). Two foresight
+outputs + rubric exceed 32KB. Claude Code subagents (`claude -p`) have no size limit
+and can receive BOTH outputs side-by-side — which is required for valid comparison.
 
 ### 5a. Read Both Outputs
 
@@ -233,162 +239,184 @@ INCUMBENT=$(cat "meta/baseline/synthesis.md")  # or previous winner
 
 Read `meta/program.md` to get the full rubric with all 12 criteria and anchors.
 
-### 5b. Build the Judge Prompt — SPLIT-SESSION APPROACH
+### 5b. Build the Judge Prompt
 
-**IMPORTANT: 32KB WASM field limit.** The user_message field is truncated when WASM reads entity
-state. With both outputs inlined (~30KB combined) plus rubric, the prompt exceeds 32KB and the
-session fails with "user_message is empty". 
+Each judge sees the FULL rubric + BOTH outputs side-by-side. Randomize the
+assignment of incumbent/challenger to X/Y for each judge.
 
-**Solution: Split-session scoring.** Each judge gets 2 sessions — one per output. Each session
-scores one output independently. Combine scores afterward to compute Borda.
+```bash
+# Randomize assignment per judge (flip a coin)
+# Judge 1: X=engine, Y=baseline
+# Judge 2: X=baseline, Y=engine
+# Judge 3: X=engine, Y=baseline
+# (or use: $((RANDOM % 2)) to decide per judge)
+```
 
-Build a COMPACT rubric (criteria + anchors only, no preamble/protocol sections from program.md).
-Include the 3+ cap rule and calibration note. Target: <2KB for the rubric portion.
+The prompt template:
 
-```python
-# Read outputs
-CHALLENGER = open("meta/runs/{NNN}/engine-output/synthesis.md").read()
-INCUMBENT = open("meta/baseline/synthesis.md").read()   # or previous winner
+```
+You are an independent evaluator of two foresight projection outputs.
+Score BOTH outputs on all 12 criteria (0-4). Be strict. Enforce the 3+ cap rule.
 
-# Build compact rubric from program.md (criteria + anchors only)
-# Include: calibration note, 3+ cap rule, all 12 criteria with anchor tables
-# Exclude: preamble, boundary constraints, judge protocol, tournament protocol
-# Target: under 2KB
+## Evaluation Criteria (0-4 scale, 12 criteria, max 48)
 
-COMPACT_RUBRIC = """## Evaluation Criteria (0-4 scale, 12 criteria, max 48)
 Calibration: 2=competent median, 3=genuinely impressive, 4=exceptional and rare.
 
 **3+ CAP RULE:** No more than 3 criteria may score 3+ for any single output.
 If more than 3 qualify, demote the weakest to 2. Document demotions.
 
-1. Specificity: 0=none | 1=generic | 2=named actors OR timelines | 3=actors+timelines+mechanisms | 4=dates+thresholds
-2. Novelty: 0=restates | 1=extensions | 2=1-2 insights | 3=multiple from OUTSIDE input | 4=reframes domain
-... (all 12 with compact anchors) ..."""
+[Full 12 criteria with anchors from program.md — include the complete anchor
+tables, not abbreviated versions. The prompt has no size limit.]
 
-def build_prompt(output_text):
-    return f"""You are an independent evaluator of a foresight projection output.
-Score strictly. Enforce the 3+ cap rule.
+## Output X
 
-{COMPACT_RUBRIC}
+[full text of output X]
 
-## Output to Score
+## Output Y
 
-{output_text}
+[full text of output Y]
 
 ## Task
-Score all 12 criteria (0-4). Return JSON only:
-{{"criteria": [{{"criterion": "Specificity", "score": 2, "reasoning": "...", "evidence": "..."}}...]}}"""
+
+Score both outputs on all 12 criteria. For each criterion, explain your
+reasoning with specific evidence from both outputs. Return JSON only:
+
+{"criteria": [
+  {
+    "criterion": "Specificity",
+    "output_x_score": 2,
+    "output_y_score": 3,
+    "reasoning": "Output Y names 4 specific actors with dates while Output X uses generic categories...",
+    "evidence_x": ["Section 2 says 'companies will...' without naming any"],
+    "evidence_y": ["Section 3 names 'GitHub Copilot by Q3 2026' and 'Vercel integration by...'"]
+  },
+  ...
+]}
 ```
 
-### 5c. Create 6 Judge Sessions (3 judges × 2 outputs)
+### 5c. Launch 3 Judge Subagents
 
-Use Python `urllib.request` for proper HTTP — shell curl has JSON encoding issues with large prompts.
+```bash
+# Write the judge prompt to a temp file (avoids shell escaping issues)
+JUDGE_PROMPT_FILE=$(mktemp)
+cat > "$JUDGE_PROMPT_FILE" << 'PROMPT_EOF'
+[full judge prompt with rubric + both outputs]
+PROMPT_EOF
+
+# Launch 3 judges sequentially (each is a fresh Claude Code session)
+for JUDGE_NUM in 1 2 3; do
+    RESULT_FILE="meta/runs/{NNN}/judge_${JUDGE_NUM}_raw.json"
+
+    # Swap X/Y assignment for even-numbered judges
+    # Build the specific prompt with the right X/Y mapping
+
+    claude -p "$(cat $JUDGE_PROMPT_FILE)" \
+        --output-format json \
+        2>/dev/null | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+# Extract the JSON from the result field
+print(data.get('result', ''))
+" > "$RESULT_FILE"
+
+    echo "Judge $JUDGE_NUM complete: $RESULT_FILE"
+done
+```
+
+**Note:** Each `claude -p` call is a fresh session with no shared context. This ensures
+independence. If a judge fails (exits non-zero, empty output, unparseable JSON), retry
+once. If still fails, log it and continue with remaining judges. 2 of 3 is acceptable.
+
+### 5d. Parse and Combine Scores
 
 ```python
-import json, urllib.request
+import json, os
 
-API_KEY = open("~/.local/share/openpaw/api.key").read().strip()
-BASE = "http://localhost:3467"
-HEADERS = {"Authorization": f"Bearer {API_KEY}", "x-temper-tenant": "rita-agents", "Content-Type": "application/json"}
+criteria_names = [
+    "Specificity", "Novelty", "Falsifiability", "Breadth", "Plausibility",
+    "Progression", "Actionability", "Decision Clarity", "Completeness",
+    "Grounding", "Challenge", "Information Density"
+]
 
-def api_post(path, data):
-    req = urllib.request.Request(f"{BASE}{path}", json.dumps(data).encode(), HEADERS, method='POST')
-    return json.loads(urllib.request.urlopen(req).read())
-
-sessions = {}
+judges = {}
 for judge_num in [1, 2, 3]:
-    for output_name, output_text in [("engine", CHALLENGER), ("baseline", INCUMBENT)]:
-        label = f"judge{judge_num}_{output_name}"
-        result = api_post("/tdata/Sessions", {})
-        sess_id = result["entity_id"]
-        sessions[label] = sess_id
-        
-        prompt = build_prompt(output_text)
-        api_post(f"/tdata/Sessions('{sess_id}')/Temper.Configure", {
-            "user_message": prompt,
-            "model": "gpt-5.4",
-            "provider": "openai_codex",
-            "max_turns": "5"
-        })
-        print(f"{label}: {sess_id} ({len(prompt)} bytes)")
+    raw_file = f"meta/runs/{{NNN}}/judge_{judge_num}_raw.json"
+    if not os.path.exists(raw_file):
+        continue
+    with open(raw_file) as f:
+        data = json.load(f)
+
+    # Map X/Y back to engine/baseline based on this judge's assignment
+    x_is_engine = (judge_num % 2 == 1)  # odd judges: X=engine
+    judges[f"judge_{judge_num}"] = {
+        "x_is_engine": x_is_engine,
+        "criteria": data["criteria"]
+    }
+
+# Compute Borda per criterion per judge
+borda = {"engine": 0, "baseline": 0, "per_criterion": []}
+for crit in criteria_names:
+    crit_engine_borda = 0
+    crit_baseline_borda = 0
+    for jname, jdata in judges.items():
+        for c in jdata["criteria"]:
+            if c["criterion"] == crit:
+                x_score = c["output_x_score"]
+                y_score = c["output_y_score"]
+                if jdata["x_is_engine"]:
+                    e_score, b_score = x_score, y_score
+                else:
+                    e_score, b_score = y_score, x_score
+
+                if e_score > b_score:
+                    crit_engine_borda += 2; crit_baseline_borda += 1
+                elif b_score > e_score:
+                    crit_baseline_borda += 2; crit_engine_borda += 1
+                else:
+                    crit_engine_borda += 1.5; crit_baseline_borda += 1.5
+    borda["engine"] += crit_engine_borda
+    borda["baseline"] += crit_baseline_borda
+    borda["per_criterion"].append({
+        "criterion": crit,
+        "engine": crit_engine_borda,
+        "baseline": crit_baseline_borda,
+        "delta": crit_engine_borda - crit_baseline_borda
+    })
 ```
 
-### 5d. Poll for Results
+### 5e. Fallback: Meta-Agent Self-Scoring
 
-Sessions may stay in "Steering" state but still have results in the `result` field.
-Poll for the `result` field rather than waiting for "Completed" status.
-
-```python
-import time
-
-for attempt in range(40):
-    time.sleep(30)
-    all_have_results = True
-    for label, sid in sessions.items():
-        data = api_get(f"/tdata/Sessions('{sid}')")
-        result = data.get("fields", {}).get("result", "")
-        if not result or len(result) < 50:
-            all_have_results = False
-    if all_have_results:
-        break
-```
-
-### 5e. Extract and Combine Scores
-
-```python
-# Extract from result field (NOT transcript — sessions may not finalize JSONL)
-for label, sid in sessions.items():
-    data = api_get(f"/tdata/Sessions('{sid}')")
-    result_str = data["fields"]["result"]
-    scores = json.loads(result_str)
-    # scores["criteria"] = [{criterion, score, reasoning, evidence}, ...]
-
-# Combine per-judge: merge engine + baseline sessions
-# Compute Borda: per criterion, per judge, higher score = 2 pts, lower = 1, tie = 1.5
-```
-
-### 5f. Fallback: Meta-Agent Self-Scoring
-
-If ALL 3 judge sessions fail (stuck, no result field, unparseable output):
+If ALL 3 judge subagents fail (crashes, empty output, unparseable):
 1. Log the failure in scores.json methodology_note
 2. Fall back to meta-agent (you) scoring directly
-3. Note this as a methodology limitation
-
-### 5g. Aggregate via Borda Count
-
-Per criterion, per judge: rank the two outputs by score.
-- Winner (higher score) gets 2 Borda points
-- Loser gets 1 Borda point
-- Tie: 1.5 each
-
-Sum across 3 judges per criterion (max 6 per criterion per output).
-Sum across 12 criteria (max 72 Borda points per output).
-Ties in overall Borda: incumbent wins (conservative).
+3. Note this as a methodology limitation — results are less trustworthy
 
 ### scores.json Format
 
 ```json
 {
-  "methodology": "3 independent paw-agent judges (gpt-5.4), split-session (one per output per judge). Rubric v3 with tightened anchors + 3+ cap rule.",
-  "rubric_version": "v3",
-  "session_ids": {"judge1_engine": "ss-...", "judge1_baseline": "ss-...", ...},
+  "methodology": "3 independent Claude Code subagent judges (claude -p). Side-by-side comparison. Rubric v4 (Grounding, Information Density). 3+ cap rule.",
+  "rubric_version": "v4",
   "judges": {
-    "judge_1": {"criteria": [{"criterion": "...", "engine_score": 2, "baseline_score": 3, ...}]}
+    "judge_1": {
+      "x_is_engine": true,
+      "criteria": [{"criterion": "...", "output_x_score": 2, "output_y_score": 3, "reasoning": "...", "evidence_x": [...], "evidence_y": [...]}]
+    }
   }
 }
 ```
 
-### borda.json Format (3-judge version)
+### borda.json Format
 
 ```json
 {
   "run": "NNN",
-  "rubric_version": "v2",
-  "methodology_note": "3 judges. Borda: winner=2pts, loser=1pt, tie=1.5. Max 6 per criterion, 72 total per output.",
-  "engine_borda": 28,
-  "baseline_borda": 44,
+  "rubric_version": "v4",
+  "methodology_note": "3 Claude Code subagent judges, side-by-side. Borda: winner=2pts, loser=1pt, tie=1.5. Max 6 per criterion, 72 total.",
+  "engine_borda": 42,
+  "baseline_borda": 30,
   "max_per_output": 72,
-  "winner": "baseline",
+  "winner": "engine",
   "per_criterion": [
     {"criterion": "Specificity", "engine": 3.0, "baseline": 6.0, "delta": -3.0},
     {"criterion": "Novelty", "engine": 4.5, "baseline": 4.5, "delta": 0}
@@ -490,9 +518,14 @@ git push --tags
 - **Document everything for the vlog.** Someone reading `progress.md` + each run's
   `plan.md` + `changelog.md` + `scores.json` + `diagnosis.md` should be able to
   reconstruct the full story of how the engine evolved.
-- **The 12 criteria** (from program.md v2): Specificity, Novelty, Falsifiability,
+- **The 12 criteria** (from program.md v4): Specificity, Novelty, Falsifiability,
   Breadth, Plausibility, Progression, Actionability, Decision Clarity, Completeness,
-  Transparency, Challenge, Quantitative Precision.
+  Grounding, Challenge, Information Density.
+- **Domain-agnostic.** Do NOT hard-code domain-specific logic. Changes must generalize.
+- **No authoring.** Do NOT pre-compute or inject content the engine failed to generate.
+  Score what the engine actually produced.
+- **Prefer architecture.** Try structural changes (WASM, entities, sessions, data flows)
+  before prompt edits. Prose instructions are advisory; LLMs ignore them ~80% of the time.
 
 ## Reference: Run 000 Results
 
@@ -509,9 +542,13 @@ For calibration, here are the Run 000 scores under rubric v2:
 | Actionability | 1 | 2 |
 | Decision Clarity | 2 | 2 |
 | Completeness | 2 | 3 |
-| Transparency | 1 | 2 |
+| Grounding | 1 | 2 |
 | Challenge | 2 | 3 |
-| Quant. Precision | 0 | 1 |
+| Info. Density | 0 | 1 |
 | **Total** | **18** | **27** |
 
-Engine weakest: Quant. Precision (0), Falsifiability (1), Transparency (1), Actionability (1), Progression (1).
+Engine weakest: Info. Density (0), Falsifiability (1), Grounding (1), Actionability (1), Progression (1).
+
+**Note:** These are rubric v2/v3 scores. Under rubric v4, criterion 10 (Transparency→Grounding)
+and criterion 12 (Quantitative Precision→Information Density) have changed anchors. Baseline
+will be re-scored ONCE under v4. Use v4 scores going forward.

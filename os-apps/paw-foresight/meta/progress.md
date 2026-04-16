@@ -24,6 +24,7 @@
 ## Version History
 
 - **foresight-v003** (2026-04-16): Added content diversity constraints to WASM-embedded synthesis instructions. Theme diversity (4+ themes), observation deduplication, cross-probe requirements, actionability specificity. First engine win.
+- **rubric-v4** (2026-04-15): Replaced Transparency→Grounding (reasoning chain validity), Quantitative Precision→Information Density (no redundancy). Added constraints: domain-agnostic, no-authoring, prefer-architecture. Judges now use Claude Code subagents (`claude -p`) with side-by-side comparison instead of split Temper sessions. Baseline to be re-scored once under v4. See nerdsane/openpaw#58 for 32KB WASM fix.
 
 ## Convergence Status
 

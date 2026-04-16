@@ -42,6 +42,27 @@ horizon into steps, how many agents to use, and what strategy to employ.
    A single-session solution that scores 45/48 beats a 20-agent pipeline
    that scores 44/48.
 
+5. **Domain-agnostic.** The engine must work for ANY knowledge graph, not
+   just the DSE essay. Hard-coding domain-specific themes, categories,
+   terminology, or logic into WASM, skills, or prompts is forbidden. The
+   test domain is DSE, but the engine must generalize. If a change would
+   not make sense for a knowledge graph about supply chain logistics or
+   climate modeling, it is too domain-specific.
+
+6. **No authoring.** The meta-agent improves the engine — it does NOT author
+   the engine's output. If a component fails at runtime (session error, 0
+   turns, provider issues), score what the engine actually produced. Do not
+   pre-compute content, inject analysis, or fill in gaps that the engine
+   failed to generate. The engine must stand on its own.
+
+7. **Prefer architectural changes.** When diagnosing deficits, try structural
+   changes first (new entity types, new WASM integrations, new session
+   patterns, new data flows) before resorting to prompt edits. Prompt edits
+   are acceptable but the meta-agent must understand that prose instructions
+   are advisory — LLMs frequently ignore them. WASM-enforced constraints
+   and structural architecture changes have proven more reliable across
+   Runs 001-010.
+
 ## Evaluation Rubric
 
 12 criteria. Each scored 0-4. Maximum: 48 points.
@@ -165,17 +186,17 @@ Does it cover the full foresight pipeline from evidence to recommendation?
 | 3 | Full pipeline with explicit assumptions, limitations, and confidence levels |
 | 4 | Full pipeline + explicit assumptions + limitations + confidence + what-would-change-my-mind for each major claim |
 
-### 10. Transparency
+### 10. Grounding
 
-Can the reader trace every claim back to its source?
+Does the evidence actually support the claim? (Not "is it cited?" but "does the reasoning chain hold?")
 
 | Score | Anchor |
 |-------|--------|
-| 0 | No sources or evidence cited |
-| 1 | Vague attribution ("the data suggests", "signals indicate") |
-| 2 | Most claims name their source category (knowledge graph section, signal type) |
-| 3 | Claims cite specific named signals, observations, or external references |
-| 4 | Full provenance chain: claim → supporting observation → underlying signal → original source, for every substantive claim |
+| 0 | Claims are asserted without any supporting evidence or reasoning |
+| 1 | Evidence is present but does not logically support the claims made |
+| 2 | Most claims have relevant evidence, but the logical chain from evidence to conclusion has gaps |
+| 3 | Claims are supported by evidence with explicit reasoning chains — the reader can follow why the evidence leads to the conclusion |
+| 4 | Every substantive claim has a complete reasoning chain: evidence → mechanism → conclusion, with stated assumptions and what would break the chain |
 
 ### 11. Challenge
 
@@ -189,35 +210,44 @@ Does it make predictions that go against the source material's thesis?
 | 3 | Makes a specific prediction that contradicts the source, with evidence from the source itself, AND explains the mechanism by which the source's assumption fails |
 | 4 | Overturns a source assumption using evidence from OUTSIDE the source (external signals, analogies, or domain knowledge the source lacks) |
 
-### 12. Quantitative Precision
+### 12. Information Density
 
-Does it use specific numbers, thresholds, and measurable indicators?
+Does every claim add unique analytical value? (Penalizes redundancy, rewards compression.)
 
 | Score | Anchor |
 |-------|--------|
-| 0 | No quantitative content; all qualitative assertions |
-| 1 | Rare use of numbers, mostly decorative ("many companies", "significant growth") |
-| 2 | Some specific numbers or thresholds, but most claims remain qualitative |
-| 3 | Multiple predictions include measurable indicators or thresholds that could be tracked |
-| 4 | Predictions are grounded in quantitative frameworks: market sizes, adoption percentages, timeline distributions, or measurable proxy metrics with named data sources |
+| 0 | >60% of claims restate or paraphrase other claims in the same output |
+| 1 | Significant redundancy — many claims could be merged without information loss |
+| 2 | Some redundancy exists but most claims contribute distinct information |
+| 3 | Every claim adds unique information; removing any claim would reduce the output's analytical value |
+| 4 | Maximum compression — no two claims overlap, every sentence earns its place, and the output says more with fewer words than a typical analysis |
 
 ## Judge Protocol
 
 ### Setup
-- 3 independent judge sessions (paw-agent, fresh context)
-- Each judge receives: the rubric above + two anonymized outputs
-- Outputs labeled "Output X" and "Output Y" (randomized assignment)
+- 3 independent Claude Code subagent judges (`claude -p`)
+- Each judge receives: the full rubric + BOTH outputs side-by-side
+- Outputs labeled "Output X" and "Output Y" (randomized assignment per judge)
 - Judges do NOT know which is incumbent vs challenger
+- Side-by-side presentation is mandatory — a judge that only sees one output
+  cannot compare and its scores are invalid
+
+### Why Claude Code Subagents (not paw-agent sessions)
+Paw-agent sessions route user_message through WASM (ProvisionWorkspace),
+which has a 32KB field limit. Two foresight outputs + rubric exceed 32KB,
+causing truncation or session failure. Claude Code subagents (`claude -p`)
+have no such limit and can receive the full rubric + both outputs.
 
 ### Per-Criterion Scoring
-Each judge produces, for each criterion, for each output:
+Each judge produces, for each criterion, scores for BOTH outputs:
 ```json
 {
   "criterion": "Novelty",
-  "output": "X",
-  "score": 3,
-  "reasoning": "8 of the 14 observations introduce concepts not present in...",
-  "evidence": ["Observation 5 introduces 'governance queue depth' as...", ...]
+  "output_x_score": 3,
+  "output_y_score": 2,
+  "reasoning": "Output X introduces 3 concepts not in the input (governance queue depth, ...) while Output Y extends the input but adds no external evidence...",
+  "evidence_x": ["Section 'Emerging Dynamics' introduces...", ...],
+  "evidence_y": ["Section 3 restates the input's claim about...", ...]
 }
 ```
 
