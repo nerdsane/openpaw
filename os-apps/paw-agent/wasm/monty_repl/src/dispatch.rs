@@ -1638,8 +1638,35 @@ fn dispatch_sandbox(
     match method {
         "read" => {
             let path = str_arg(args, 0, "path", "read")?;
-            let content = sandbox::sandbox_file_read(ctx, &handle, &path)?;
-            Ok(json!(content))
+            if is_image_extension(&path) {
+                // Binary-safe read: base64-encode in sandbox to avoid UTF-8 corruption
+                let b64_cmd = format!(
+                    "base64 -w0 {} 2>/dev/null || base64 {}",
+                    shell_quote(&path),
+                    shell_quote(&path)
+                );
+                let result = sandbox::sandbox_exec(ctx, &handle, &b64_cmd, "/")?;
+                if result.exit_code != 0 {
+                    return Err(format!(
+                        "sandbox.read({path}): failed to read image (exit {}): {}",
+                        result.exit_code, result.stderr
+                    ));
+                }
+                let b64_data = result.stdout.trim().to_string();
+                if b64_data.is_empty() {
+                    return Err(format!("sandbox.read({path}): image file is empty"));
+                }
+                let media_type = media_type_from_extension(&path);
+                Ok(json!({
+                    "__openpaw_image": true,
+                    "media_type": media_type,
+                    "base64_data": b64_data,
+                    "source_path": path
+                }))
+            } else {
+                let content = sandbox::sandbox_file_read(ctx, &handle, &path)?;
+                Ok(json!(content))
+            }
         }
         "write" => {
             let path = str_arg(args, 0, "path", "write")?;
@@ -1848,10 +1875,43 @@ fn http_delete(ctx: &Context, api_url: &str, _tenant: &str, path: &str) -> Resul
         .map_err(|e| format!("failed to parse response from {path}: {e}"))
 }
 
+// ---------------------------------------------------------------------------
+// Image file helpers
+// ---------------------------------------------------------------------------
+
+fn is_image_extension(path: &str) -> bool {
+    let lower = path.to_ascii_lowercase();
+    lower.ends_with(".png")
+        || lower.ends_with(".jpg")
+        || lower.ends_with(".jpeg")
+        || lower.ends_with(".gif")
+        || lower.ends_with(".webp")
+}
+
+fn media_type_from_extension(path: &str) -> &'static str {
+    let lower = path.to_ascii_lowercase();
+    if lower.ends_with(".png") {
+        "image/png"
+    } else if lower.ends_with(".jpg") || lower.ends_with(".jpeg") {
+        "image/jpeg"
+    } else if lower.ends_with(".gif") {
+        "image/gif"
+    } else if lower.ends_with(".webp") {
+        "image/webp"
+    } else {
+        "application/octet-stream"
+    }
+}
+
+fn shell_quote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "'\\''"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
         fallback_web_search_query, has_model_csdl, interpret_web_query_entity_result,
+        is_image_extension, media_type_from_extension,
         is_vague_web_search_query, web_search_results_empty,
     };
     use serde_json::json;
@@ -1937,5 +1997,31 @@ mod tests {
         assert!(web_search_results_empty(&json!("")));
         assert!(web_search_results_empty(&json!("[]")));
         assert!(!web_search_results_empty(&json!("headline text")));
+    }
+
+    #[test]
+    fn test_is_image_extension() {
+        assert!(is_image_extension("/tmp/screenshot.png"));
+        assert!(is_image_extension("/tmp/photo.JPG"));
+        assert!(is_image_extension("file.jpeg"));
+        assert!(is_image_extension("file.gif"));
+        assert!(is_image_extension("file.webp"));
+        assert!(!is_image_extension("/tmp/data.txt"));
+        assert!(!is_image_extension("/tmp/code.rs"));
+        assert!(!is_image_extension("/tmp/doc.pdf"));
+        assert!(!is_image_extension("no_extension"));
+    }
+
+    #[test]
+    fn test_media_type_from_extension() {
+        assert_eq!(media_type_from_extension("file.png"), "image/png");
+        assert_eq!(media_type_from_extension("file.jpg"), "image/jpeg");
+        assert_eq!(media_type_from_extension("file.jpeg"), "image/jpeg");
+        assert_eq!(media_type_from_extension("file.gif"), "image/gif");
+        assert_eq!(media_type_from_extension("file.webp"), "image/webp");
+        assert_eq!(
+            media_type_from_extension("file.bmp"),
+            "application/octet-stream"
+        );
     }
 }

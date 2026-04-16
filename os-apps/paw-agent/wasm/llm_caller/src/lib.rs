@@ -1480,15 +1480,31 @@ fn normalize_tool_result_content(content: &Value) -> Value {
         Value::String(text) => serde_json::from_str::<Value>(text)
             .unwrap_or_else(|_| json!(truncate_for_gen_ai_attr(text))),
         Value::Array(blocks) => {
-            let text = blocks
-                .iter()
-                .filter_map(|block| block.get("text").and_then(Value::as_str))
-                .collect::<Vec<_>>()
-                .join("\n");
-            if text.is_empty() {
+            let mut parts = Vec::new();
+            for block in blocks {
+                match block.get("type").and_then(Value::as_str).unwrap_or("") {
+                    "text" => {
+                        if let Some(t) = block.get("text").and_then(Value::as_str) {
+                            parts.push(t.to_string());
+                        }
+                    }
+                    "image" => {
+                        // Placeholder for telemetry — don't include base64 data
+                        let media_type = block
+                            .get("source")
+                            .and_then(|s| s.get("media_type"))
+                            .and_then(Value::as_str)
+                            .unwrap_or("image/unknown");
+                        parts.push(format!("[image: {media_type}]"));
+                    }
+                    _ => {}
+                }
+            }
+            let combined = parts.join("\n");
+            if combined.is_empty() {
                 json!(truncate_for_gen_ai_attr(&content.to_string()))
             } else {
-                json!(truncate_for_gen_ai_attr(&text))
+                json!(truncate_for_gen_ai_attr(&combined))
             }
         }
         other => other.clone(),
@@ -2004,6 +2020,53 @@ fn call_openrouter(
     })
 }
 
+/// Extract text and image content from a tool_result content field.
+/// Returns (text_output, Vec<(media_type, base64_data)>).
+fn extract_text_and_images_from_tool_content(
+    content: Option<&Value>,
+) -> (String, Vec<(String, String)>) {
+    let mut text_parts = Vec::new();
+    let mut images = Vec::new();
+
+    match content {
+        Some(Value::Array(blocks)) => {
+            for block in blocks {
+                match block.get("type").and_then(Value::as_str).unwrap_or("") {
+                    "text" => {
+                        if let Some(t) = block.get("text").and_then(Value::as_str) {
+                            text_parts.push(t.to_string());
+                        }
+                    }
+                    "image" => {
+                        if let Some(source) = block.get("source") {
+                            let media_type = source
+                                .get("media_type")
+                                .and_then(Value::as_str)
+                                .unwrap_or("image/png")
+                                .to_string();
+                            let data = source
+                                .get("data")
+                                .and_then(Value::as_str)
+                                .unwrap_or("")
+                                .to_string();
+                            if !data.is_empty() {
+                                images.push((media_type, data));
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        Some(Value::String(text)) => {
+            text_parts.push(text.clone());
+        }
+        _ => {}
+    }
+
+    (text_parts.join("\n"), images)
+}
+
 /// Call OpenAI Codex Responses API (chatgpt.com/backend-api/codex/responses).
 ///
 /// Uses the Responses API format (not Chat Completions): instructions, input, stream=true.
@@ -2065,25 +2128,20 @@ fn call_openai(
                                 .get("tool_use_id")
                                 .and_then(Value::as_str)
                                 .unwrap_or("");
-                            let output = if let Some(inner) =
-                                block.get("content").and_then(Value::as_array)
-                            {
-                                inner
-                                    .iter()
-                                    .filter_map(|b| b.get("text").and_then(Value::as_str))
-                                    .collect::<Vec<_>>()
-                                    .join("\n")
-                            } else if let Some(text) = block.get("content").and_then(Value::as_str)
-                            {
-                                text.to_string()
-                            } else {
-                                String::new()
-                            };
+                            let (output, images) =
+                                extract_text_and_images_from_tool_content(block.get("content"));
                             input.push(json!({
                                 "type": "function_call_output",
                                 "call_id": call_id,
                                 "output": output
                             }));
+                            // Emit input_image items for each image block
+                            for (media_type, data) in &images {
+                                input.push(json!({
+                                    "type": "input_image",
+                                    "image_url": format!("data:{media_type};base64,{data}")
+                                }));
+                            }
                             has_tool_results = true;
                         }
                     }
@@ -2143,22 +2201,19 @@ fn call_openai(
             "tool_result" => {
                 // Anthropic tool_result → Responses API function_call_output
                 let tool_use_id = msg.get("tool_use_id").and_then(Value::as_str).unwrap_or("");
-                let content = if let Some(blocks) = msg.get("content").and_then(Value::as_array) {
-                    blocks
-                        .iter()
-                        .filter_map(|b| b.get("text").and_then(Value::as_str))
-                        .collect::<Vec<_>>()
-                        .join("\n")
-                } else if let Some(text) = msg.get("content").and_then(Value::as_str) {
-                    text.to_string()
-                } else {
-                    String::new()
-                };
+                let (output, images) =
+                    extract_text_and_images_from_tool_content(msg.get("content"));
                 input.push(json!({
                     "type": "function_call_output",
                     "call_id": tool_use_id,
-                    "output": content
+                    "output": output
                 }));
+                for (media_type, data) in &images {
+                    input.push(json!({
+                        "type": "input_image",
+                        "image_url": format!("data:{media_type};base64,{data}")
+                    }));
+                }
             }
             _ => {}
         }
@@ -2769,16 +2824,36 @@ fn prune_old_tool_results(messages: &mut [Value], keep_recent_turns: usize) {
                 if let Some(arr) = content.as_array_mut() {
                     for block in arr.iter_mut() {
                         if block.get("type").and_then(|v| v.as_str()) == Some("tool_result") {
-                            if let Some(c) = block.get("content") {
-                                let content_str = match c.as_str() {
-                                    Some(s) => s.to_string(),
-                                    None => serde_json::to_string(c).unwrap_or_default(),
-                                };
-                                if content_str.len() > 200 {
-                                    block["content"] = json!(format!(
-                                        "[tool result pruned — {} chars]",
-                                        content_str.len()
-                                    ));
+                            if let Some(c) = block.get_mut("content") {
+                                if let Some(arr) = c.as_array_mut() {
+                                    // Strip image blocks from old tool results
+                                    arr.retain(|b| {
+                                        b.get("type").and_then(Value::as_str) != Some("image")
+                                    });
+                                    // Truncate remaining text blocks
+                                    for b in arr.iter_mut() {
+                                        if let Some(text) =
+                                            b.get("text").and_then(Value::as_str).map(String::from)
+                                        {
+                                            if text.len() > 200 {
+                                                b["text"] = json!(format!(
+                                                    "[text pruned — {} chars]",
+                                                    text.len()
+                                                ));
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    let content_str = match c.as_str() {
+                                        Some(s) => s.to_string(),
+                                        None => serde_json::to_string(&*c).unwrap_or_default(),
+                                    };
+                                    if content_str.len() > 200 {
+                                        *c = json!(format!(
+                                            "[tool result pruned — {} chars]",
+                                            content_str.len()
+                                        ));
+                                    }
                                 }
                             }
                         }
@@ -2940,16 +3015,34 @@ fn convert_messages_to_openrouter(messages: &[Value]) -> Vec<Value> {
                                     .get("tool_use_id")
                                     .and_then(Value::as_str)
                                     .unwrap_or("unknown_tool_call");
-                                let content = stringify_content(
-                                    block
-                                        .get("content")
-                                        .unwrap_or(&Value::String(String::new())),
-                                );
+                                let (text_output, images) =
+                                    extract_text_and_images_from_tool_content(block.get("content"));
+                                let content = if text_output.is_empty() {
+                                    stringify_content(
+                                        block
+                                            .get("content")
+                                            .unwrap_or(&Value::String(String::new())),
+                                    )
+                                } else {
+                                    text_output
+                                };
                                 out.push(json!({
                                     "role": "tool",
                                     "tool_call_id": tool_call_id,
                                     "content": content,
                                 }));
+                                // Inject user message with images for visual context
+                                for (media_type, data) in &images {
+                                    out.push(json!({
+                                        "role": "user",
+                                        "content": [{
+                                            "type": "image_url",
+                                            "image_url": {
+                                                "url": format!("data:{media_type};base64,{data}")
+                                            }
+                                        }]
+                                    }));
+                                }
                             }
                             "text" => {
                                 if let Some(t) = block.get("text").and_then(Value::as_str) {

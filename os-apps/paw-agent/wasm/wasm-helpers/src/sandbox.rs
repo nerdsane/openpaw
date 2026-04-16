@@ -822,7 +822,7 @@ fn modal_create(
 }
 
 fn modal_health_check(ctx: &Context, api_key: &str, sandbox_id: &str) -> Result<bool, String> {
-    let base = modal_base_url(ctx);
+    let base = modal_base_url(ctx)?;
     let params = format!("sandbox_id={}", url_encode(sandbox_id));
     let url = modal_url(&base, "health", api_key, &params);
     match ctx.http_call("GET", &url, &[], "") {
@@ -844,7 +844,7 @@ fn modal_file_read(
     sandbox_id: &str,
     path: &str,
 ) -> Result<String, String> {
-    let base = modal_base_url(ctx);
+    let base = modal_base_url(ctx)?;
     let params = format!(
         "sandbox_id={}&path={}",
         url_encode(sandbox_id),
@@ -901,7 +901,7 @@ fn modal_file_delete(
     sandbox_id: &str,
     path: &str,
 ) -> Result<(), String> {
-    let base = modal_base_url(ctx);
+    let base = modal_base_url(ctx)?;
     let params = format!(
         "sandbox_id={}&path={}",
         url_encode(sandbox_id),
