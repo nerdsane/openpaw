@@ -254,20 +254,44 @@ Kubernetes, Cedar, OPA, Temper, etc.) — NOT generic categories like "companies
 - No single observation ID may appear in more than 2 findings. Use at least 60% of all
   available observations across the full synthesis (not just high-importance ones).
 
-### Step C: Build Active Directions
+### Step C: Select & Consolidate Active Directions (BREADTH-CRITICAL)
 
-For each active direction, include its FULL reasoning text from the entity, not a summary:
+**DO NOT dump all directions.** Too many directions on the same theme creates perceived
+monothematic output. You MUST select and consolidate.
+
+**Step C1: Classify each direction by primary theme.**
+Assign EXACTLY ONE theme to each direction from this list:
+- governance/policy
+- technical architecture
+- economics/market
+- organizational/adoption
+- evaluation/testing
+- cross-domain
+
+**Step C2: Select at most 5 directions spanning at least 4 distinct themes.**
+Rules:
+- Maximum 2 directions per theme. If a theme has 3+, merge the strongest into one.
+- At least 1 direction MUST be about economics/market or cross-domain (not governance).
+- At least 1 direction MUST be about technical architecture (not governance).
+- If governance/policy has the most directions, it gets at most 1 slot.
+
+**Step C3: For each selected direction (max 5), write:**
 
 ```
 #### [Direction Title]
 **Direction ID:** [direction entity ID]
+**Theme:** [primary theme from Step C1]
 
-[Full reasoning text from direction entity — do NOT truncate]
+[Full reasoning text from direction entity — do NOT truncate for selected directions]
 
 Supporting observations: [obs: ID1], [obs: ID2]
 
 **Counterfactual:** [counterfactual from direction entity]
 ```
+
+If merging directions: combine reasoning into a single entry, cite all supporting
+observation IDs, and keep the strongest counterfactual. Title the merged direction
+to reflect its broader scope.
 
 ### Step D: Build Top 5 Predictions
 
