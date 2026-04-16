@@ -867,6 +867,7 @@ tensorlake_api_key = "{secret:tensorlake_api_key}"
 sandbox_provider = "{secret:sandbox_provider}"
 modal_token_id = "{secret:modal_token_id}"
 modal_token_secret = "{secret:modal_token_secret}"
+modal_bridge_url = "{secret:modal_bridge_url}"
 
 [[integration]]
 name = "call_llm"
@@ -954,6 +955,7 @@ tensorlake_api_key = "{secret:tensorlake_api_key}"
 sandbox_provider = "{secret:sandbox_provider}"
 modal_token_id = "{secret:modal_token_id}"
 modal_token_secret = "{secret:modal_token_secret}"
+modal_bridge_url = "{secret:modal_bridge_url}"
 timeout_secs = "900"
 # Raised from 50B to 120B (OpenPaw Track 1 Phase 4). Gives headroom for
 # orchestrator sessions that process many tool calls per turn; once tool-call
@@ -1010,6 +1012,7 @@ tensorlake_api_key = "{secret:tensorlake_api_key}"
 sandbox_provider = "{secret:sandbox_provider}"
 modal_token_id = "{secret:modal_token_id}"
 modal_token_secret = "{secret:modal_token_secret}"
+modal_bridge_url = "{secret:modal_bridge_url}"
 
 [[integration]]
 name = "deliver_reply"

@@ -224,13 +224,6 @@ fn secrets_schema() -> Vec<SecretSchema> {
             description: "Starts with as-… — from modal.com/settings or `modal token set`",
         },
         SecretSchema {
-            key: "modal_bridge_url",
-            category: "sandbox",
-            label: "Modal Bridge URL",
-            required: false,
-            description: "Base URL for the deployed Modal bridge, for example https://user--openpaw-sandbox-bridge",
-        },
-        SecretSchema {
             key: "github_token",
             category: "integrations",
             label: "GitHub Token",
@@ -368,8 +361,7 @@ async fn has_personalized_paw_soul(state: &SetupApiState) -> bool {
     let Ok(default_content) = default_paw_soul_content() else {
         return false;
     };
-    let Ok((_, current_content)) =
-        load_current_paw_soul(state, &SetupRequestAuth::default()).await
+    let Ok((_, current_content)) = load_current_paw_soul(state, &SetupRequestAuth::default()).await
     else {
         return false;
     };
@@ -658,20 +650,12 @@ async fn save_soul(
     match save_soul_to_temper(&client, &state.base_url, &state.tenant, &generated, &auth).await {
         Ok(()) => {
             if let Some(vault) = state.platform.server.secrets_vault.as_ref() {
-                let _ = vault.cache_secret(
-                    &state.tenant,
-                    "paw_personalized_soul",
-                    "true".to_string(),
-                );
+                let _ =
+                    vault.cache_secret(&state.tenant, "paw_personalized_soul", "true".to_string());
                 if let Ok((ciphertext, nonce)) = vault.encrypt(b"true") {
                     let _ = state
                         .turso_store
-                        .upsert_secret(
-                            &state.tenant,
-                            "paw_personalized_soul",
-                            &ciphertext,
-                            &nonce,
-                        )
+                        .upsert_secret(&state.tenant, "paw_personalized_soul", &ciphertext, &nonce)
                         .await;
                 }
             }
@@ -1545,7 +1529,8 @@ async fn disconnect_slack(State(state): State<SetupApiState>) -> Json<serde_json
 #[cfg(test)]
 mod tests {
     use super::{
-        discord_connect_params_for_secret_update, personalized_soul_flag_value,
+        allowed_secret_keys, discord_connect_params_for_secret_update,
+        personalized_soul_flag_value, secrets_schema,
     };
 
     #[test]
@@ -1583,5 +1568,16 @@ mod tests {
         assert!(personalized_soul_flag_value(Some("yes")));
         assert!(!personalized_soul_flag_value(Some("false")));
         assert!(!personalized_soul_flag_value(None));
+    }
+
+    #[test]
+    fn modal_bridge_url_remains_internal_only() {
+        assert!(allowed_secret_keys().contains("modal_bridge_url"));
+        assert!(
+            !secrets_schema()
+                .iter()
+                .any(|secret| secret.key == "modal_bridge_url"),
+            "modal_bridge_url should be provisioned by deploy, not shown in the dashboard schema"
+        );
     }
 }

@@ -7,10 +7,8 @@ fn repo_root() -> std::path::PathBuf {
 
 #[test]
 fn session_spec_defines_bounded_turn_pipeline() {
-    let spec = fs::read_to_string(
-        repo_root().join("os-apps/paw-agent/specs/session.ioa.toml"),
-    )
-    .expect("session.ioa.toml should exist");
+    let spec = fs::read_to_string(repo_root().join("os-apps/paw-agent/specs/session.ioa.toml"))
+        .expect("session.ioa.toml should exist");
 
     for needle in [
         "PreparingContext",
@@ -82,5 +80,20 @@ fn dashboard_and_monitors_cover_session_context_metrics() {
     assert!(
         monitors.contains("temper_session_memory_limit_exceeded_total"),
         "monitors should alert on session memory-limit failures"
+    );
+}
+
+#[test]
+fn session_spec_passes_modal_bridge_url_to_modal_integrations() {
+    let spec = fs::read_to_string(repo_root().join("os-apps/paw-agent/specs/session.ioa.toml"))
+        .expect("session.ioa.toml should exist");
+
+    let count = spec
+        .matches("modal_bridge_url = \"{secret:modal_bridge_url}\"")
+        .count();
+
+    assert!(
+        count >= 3,
+        "session spec should pass modal_bridge_url into sandbox-related integrations"
     );
 }

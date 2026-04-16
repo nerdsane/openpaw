@@ -494,14 +494,14 @@ fn tensorlake_exec(
 /// Resolve the Modal bridge base URL from config. This is the common prefix
 /// of the per-endpoint URLs, e.g. `https://user--openpaw-sandbox-bridge`.
 /// Each endpoint appends its label suffix: `-create.modal.run`, `-exec.modal.run`, etc.
-/// Users must configure `modal_bridge_url` explicitly because the workspace prefix
-/// is deployment-specific and cannot be derived safely from the token alone.
+/// OpenPaw deploy should provision and persist `modal_bridge_url` automatically.
+/// If it's missing at runtime, the deployment drifted or skipped the Modal bridge setup.
 fn resolve_modal_base_url(config_value: Option<&String>) -> Result<String, String> {
     config_value
         .filter(|s| !s.is_empty() && !is_unresolved_secret(s))
         .cloned()
         .ok_or_else(|| {
-            "Modal sandbox requires modal_bridge_url. Configure MODAL_BRIDGE_URL or the modal_bridge_url dashboard setting.".to_string()
+            "Modal sandbox requires modal_bridge_url. OpenPaw deploy should provision MODAL_BRIDGE_URL automatically; redeploy or restore the platform secret if this deployment drifted.".to_string()
         })
 }
 
