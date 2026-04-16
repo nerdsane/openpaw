@@ -1,10 +1,38 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use temper_wasm_sdk::prelude::*;
 use wasm_helpers::{entity_field_str, runtime_headers_as};
 
 pub const MANAGED_NAMESPACE: &str = "ManagedAgents";
-pub const DEFAULT_OPENPAW_TOOLS: &str = "temper_create,temper_get,temper_list,temper_action,temper_patch,temper_submit_specs,temper_show_spec,temper_specs,temper_upload_wasm,temper_get_trajectories,temper_get_insights,temper_get_decisions,temper_poll_decision,temper_approve_decision,temper_deny_decision,temper_submit_policy,temper_list_policies,temper_get_policy,temper_update_policy,temper_delete_policy,temper_install_app,temper_list_apps,temper_spawn_session,temper_list_sessions,temper_abort_session,temper_steer_session,temper_save_memory,temper_recall_memory,temper_write,temper_read,temper_run_coding_agent,temper_get_secret,temper_datadog_query,temper_railway,temper_vercel,temper_web_search,temper_web_fetch,read,write,edit,bash";
+pub const SAFE_DEFAULT_OPENPAW_TOOLS: &[&str] = &[
+    "bash",
+    "edit",
+    "read",
+    "temper_get",
+    "temper_list",
+    "temper_read",
+    "temper_write",
+    "temper_web_fetch",
+    "temper_web_search",
+    "write",
+];
+pub const MANAGED_AGENT_ALLOWED_TOOLS: &[&str] = &[
+    "bash",
+    "edit",
+    "read",
+    "temper_action",
+    "temper_get",
+    "temper_list",
+    "temper_patch",
+    "temper_read",
+    "temper_recall_memory",
+    "temper_save_memory",
+    "temper_steer_session",
+    "temper_web_fetch",
+    "temper_web_search",
+    "temper_write",
+    "write",
+];
 
 pub fn system_json_headers(
     ctx: &Context,
@@ -50,6 +78,27 @@ pub fn field_i64(value: &Value, keys: &[&str]) -> i64 {
         return field_i64(fields, keys);
     }
     0
+}
+
+pub fn field_bool(value: &Value, keys: &[&str]) -> bool {
+    for key in keys {
+        if let Some(raw) = value.get(*key) {
+            if let Some(boolean) = raw.as_bool() {
+                return boolean;
+            }
+            if let Some(text) = raw.as_str() {
+                match text.trim().to_ascii_lowercase().as_str() {
+                    "true" => return true,
+                    "false" => return false,
+                    _ => {}
+                }
+            }
+        }
+    }
+    if let Some(fields) = value.get("fields") {
+        return field_bool(fields, keys);
+    }
+    false
 }
 
 pub fn status_of(value: &Value) -> String {
@@ -151,6 +200,24 @@ pub fn create_entity(
     )
 }
 
+pub fn patch_entity(
+    ctx: &Context,
+    base_url: &str,
+    headers: &[(String, String)],
+    entity_set: &str,
+    id: &str,
+    body: &Value,
+) -> Result<Value, String> {
+    http_json(
+        ctx,
+        "PATCH",
+        &format!("{base_url}/tdata/{entity_set}('{id}')"),
+        headers,
+        body,
+        &format!("patch {entity_set}('{id}')"),
+    )
+}
+
 pub fn post_action(
     ctx: &Context,
     base_url: &str,
@@ -246,12 +313,47 @@ pub fn create_session_event(
     create_entity(ctx, base_url, headers, "SessionEvents", &json!(body))
 }
 
-pub fn managed_tools_enabled(tool_rows: &[Value]) -> String {
-    if tool_rows.is_empty() {
-        String::new()
-    } else {
-        DEFAULT_OPENPAW_TOOLS.to_string()
+fn is_managed_agent_toolset(kind: &str) -> bool {
+    matches!(kind, "agent_toolset_20260401" | "agent_toolset")
+}
+
+fn normalize_managed_tool_name(name: &str) -> Option<String> {
+    let normalized = name.trim();
+    if normalized.is_empty() {
+        return None;
     }
+    MANAGED_AGENT_ALLOWED_TOOLS
+        .iter()
+        .find(|allowed| **allowed == normalized)
+        .map(|allowed| (*allowed).to_string())
+}
+
+pub fn managed_tools_enabled(tool_rows: &[Value], config_rows: &[Value]) -> String {
+    let mut enabled = BTreeSet::new();
+
+    for tool_row in tool_rows {
+        let kind = field_string(tool_row, &["Kind", "kind"]);
+        if !is_managed_agent_toolset(&kind) {
+            continue;
+        }
+
+        let tool_id = entity_id(tool_row).unwrap_or_default();
+        let explicit = config_rows
+            .iter()
+            .filter(|config| field_string(config, &["ToolId", "tool_id"]) == tool_id)
+            .filter_map(|config| {
+                normalize_managed_tool_name(&field_string(config, &["ToolName", "tool_name"]))
+            })
+            .collect::<BTreeSet<_>>();
+
+        if explicit.is_empty() {
+            enabled.extend(SAFE_DEFAULT_OPENPAW_TOOLS.iter().map(|tool| (*tool).to_string()));
+        } else {
+            enabled.extend(explicit);
+        }
+    }
+
+    enabled.into_iter().collect::<Vec<_>>().join(",")
 }
 
 pub fn message_blocks_json(text: &str) -> String {
@@ -386,6 +488,17 @@ pub fn truncate(body: &str) -> String {
     body.chars().take(240).collect()
 }
 
+pub fn trigger_string(params: &Value, keys: &[&str]) -> String {
+    for key in keys {
+        if let Some(raw) = params.get(*key) {
+            if let Some(text) = raw.as_str() {
+                return text.to_string();
+            }
+        }
+    }
+    String::new()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -434,5 +547,53 @@ mod tests {
         assert_eq!(infer_provider("gpt-5.4"), "openai");
         assert_eq!(infer_provider("anthropic/claude-sonnet-4.6"), "openrouter");
         assert_eq!(infer_provider("claude-sonnet-4-6"), "anthropic");
+    }
+
+    #[test]
+    fn managed_tools_enabled_uses_explicit_agent_tool_config_rows() {
+        let tool_rows = vec![json!({
+            "entity_id": "toolset-1",
+            "fields": {
+                "Kind": "agent_toolset_20260401"
+            }
+        })];
+        let config_rows = vec![
+            json!({
+                "fields": {
+                    "ToolId": "toolset-1",
+                    "ToolName": "bash",
+                    "PermissionPolicy": "always_allow"
+                }
+            }),
+            json!({
+                "fields": {
+                    "ToolId": "toolset-1",
+                    "ToolName": "temper_get",
+                    "PermissionPolicy": "always_ask"
+                }
+            }),
+        ];
+
+        assert_eq!(
+            managed_tools_enabled(&tool_rows, &config_rows),
+            "bash,temper_get"
+        );
+    }
+
+    #[test]
+    fn managed_tools_enabled_defaults_to_safe_subset() {
+        let tool_rows = vec![json!({
+            "entity_id": "toolset-1",
+            "fields": {
+                "Kind": "agent_toolset_20260401"
+            }
+        })];
+
+        let enabled = managed_tools_enabled(&tool_rows, &[]);
+        assert!(enabled.contains("temper_get"));
+        assert!(enabled.contains("bash"));
+        assert!(!enabled.contains("temper_approve_decision"));
+        assert!(!enabled.contains("temper_deny_decision"));
+        assert!(!enabled.contains("temper_delete_policy"));
     }
 }

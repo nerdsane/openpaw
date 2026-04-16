@@ -22,11 +22,10 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             temper_wasm_sdk::set_success_result(
                 "UpdateUsage",
                 &json!({
-                    "input_tokens": 0,
-                    "output_tokens": 0,
-                    "stop_reason": "error",
-                    "stop_reason_event_ids": "[]",
-                    "last_emitted_result_hash": "missing-inner-session",
+                    "InputTokens": 0,
+                    "OutputTokens": 0,
+                    "StopReasonEventIds": "[]",
+                    "LastEmittedResultHash": "missing-inner-session",
                 }),
             );
             return Ok(());
@@ -38,21 +37,50 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             .cloned()
             .unwrap_or_else(|| inner_session.clone());
         let inner_status = status_of(&inner_session);
+        if inner_status != "Completed" {
+            return Err(format!(
+                "event_emitter only supports completed inner sessions, got status {inner_status}"
+            ));
+        }
         let result_text = resolve_result_text(&ctx, &base_url, &inner_fields)?;
-        let stop_reason = if inner_status == "Completed" {
-            "user_input_required"
-        } else {
-            "error"
+        let stop_reason = {
+            let existing = field_string(&fields, &["StopReason", "stop_reason"]);
+            if existing.is_empty() {
+                "user_input_required".to_string()
+            } else {
+                existing
+            }
         };
         let result_hash = format!("{inner_session_id}:{inner_status}:{result_text}");
         let previous_hash =
             field_string(&fields, &["LastEmittedResultHash", "last_emitted_result_hash"]);
+        let previous_inner_session_id = field_string(
+            &fields,
+            &["LastEmittedInnerSessionId", "last_emitted_inner_session_id"],
+        );
+        let previous_tree_index =
+            field_i64(&fields, &["LastEmittedTreeIndex", "last_emitted_tree_index"]).max(0)
+                as usize;
+        let tree_index = current_tree_index(&ctx, &base_url, &inner_fields)?;
+        let emit_from_index =
+            emission_start_index(&inner_session_id, &previous_inner_session_id, previous_tree_index);
+        let has_new_tree_entries = (tree_index as usize) > emit_from_index;
 
-        if previous_hash != result_hash {
+        if previous_hash != result_hash || has_new_tree_entries {
             let mut sequence = next_session_event_sequence(&ctx, &base_url, &headers, &ctx.entity_id)?;
-            emit_tree_events(&ctx, &base_url, &headers, &inner_fields, &ctx.entity_id, &mut sequence)?;
+            if has_new_tree_entries {
+                emit_tree_events(
+                    &ctx,
+                    &base_url,
+                    &headers,
+                    &inner_fields,
+                    &ctx.entity_id,
+                    emit_from_index,
+                    &mut sequence,
+                )?;
+            }
 
-            if !result_text.trim().is_empty() {
+            if previous_hash != result_hash && !result_text.trim().is_empty() {
                 let _ = create_session_event(
                     &ctx,
                     &base_url,
@@ -65,36 +93,32 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 sequence += 1;
             }
 
-            let mut idle_payload = json!({
-                "StopReason": stop_reason,
-                "StopReasonEventIds": "[]",
-            });
-            if inner_status != "Completed" {
-                let error_message = field_string(&inner_fields, &["ErrorMessage", "error_message"]);
-                if !error_message.is_empty() {
-                    idle_payload["ErrorMessage"] = json!(error_message);
-                }
-                idle_payload["ErrorKind"] = json!(inner_status.to_lowercase());
+            if previous_hash != result_hash {
+                let _ = create_session_event(
+                    &ctx,
+                    &base_url,
+                    &headers,
+                    &ctx.entity_id,
+                    sequence,
+                    "session.status_idle",
+                    json!({
+                        "StopReason": stop_reason,
+                        "StopReasonEventIds": "[]",
+                    }),
+                )?;
             }
-            let _ = create_session_event(
-                &ctx,
-                &base_url,
-                &headers,
-                &ctx.entity_id,
-                sequence,
-                "session.status_idle",
-                idle_payload,
-            )?;
         }
 
         temper_wasm_sdk::set_success_result(
             "UpdateUsage",
             &json!({
-                "input_tokens": field_i64(&inner_fields, &["InputTokens", "input_tokens"]),
-                "output_tokens": field_i64(&inner_fields, &["OutputTokens", "output_tokens"]),
-                "stop_reason": stop_reason,
-                "stop_reason_event_ids": "[]",
-                "last_emitted_result_hash": result_hash,
+                "InputTokens": field_i64(&inner_fields, &["InputTokens", "input_tokens"]),
+                "OutputTokens": field_i64(&inner_fields, &["OutputTokens", "output_tokens"]),
+                "StopReason": stop_reason,
+                "StopReasonEventIds": "[]",
+                "LastEmittedResultHash": result_hash,
+                "LastEmittedInnerSessionId": inner_session_id,
+                "LastEmittedTreeIndex": tree_index,
             }),
         );
         Ok(())
@@ -149,6 +173,7 @@ fn emit_tree_events(
     headers: &[(String, String)],
     inner_fields: &Value,
     session_id: &str,
+    start_index: usize,
     sequence: &mut i64,
 ) -> Result<(), String> {
     let session_file_id = field_string(inner_fields, &["SessionFileId", "session_file_id"]);
@@ -158,7 +183,7 @@ fn emit_tree_events(
 
     let jsonl = read_session_from_temperfs(ctx, base_url, &ctx.tenant, inner_fields, &session_file_id)?;
     let tree = SessionTree::from_jsonl(&jsonl);
-    for entry_id in tree.entry_ids() {
+    for entry_id in tree.entry_ids().iter().skip(start_index) {
         let Some(entry) = tree.get(entry_id) else {
             continue;
         };
@@ -206,6 +231,7 @@ fn emit_tree_events(
                                 json!({
                                     "ToolUseId": block.get("id").and_then(Value::as_str).unwrap_or(""),
                                     "ToolName": block.get("name").and_then(Value::as_str).unwrap_or(""),
+                                    "Input": block.get("input").map(|value| value.to_string()).unwrap_or_default(),
                                     "EvaluatedPermission": "allow",
                                 }),
                             )?;
@@ -247,6 +273,29 @@ fn emit_tree_events(
     Ok(())
 }
 
+fn current_tree_index(ctx: &Context, base_url: &str, inner_fields: &Value) -> Result<i64, String> {
+    let session_file_id = field_string(inner_fields, &["SessionFileId", "session_file_id"]);
+    if session_file_id.is_empty() {
+        return Ok(0);
+    }
+
+    let jsonl = read_session_from_temperfs(ctx, base_url, &ctx.tenant, inner_fields, &session_file_id)?;
+    let tree = SessionTree::from_jsonl(&jsonl);
+    Ok(tree.entry_ids().len() as i64)
+}
+
+fn emission_start_index(
+    current_inner_session_id: &str,
+    previous_inner_session_id: &str,
+    previous_tree_index: usize,
+) -> usize {
+    if current_inner_session_id == previous_inner_session_id {
+        previous_tree_index
+    } else {
+        0
+    }
+}
+
 fn load_entry_content(
     ctx: &Context,
     base_url: &str,
@@ -259,4 +308,19 @@ fn load_entry_content(
     }
 
     Ok(entry.data.get("content").cloned().unwrap_or_else(|| json!(null)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::emission_start_index;
+
+    #[test]
+    fn emission_start_index_resumes_from_last_emitted_count_for_same_inner_session() {
+        assert_eq!(emission_start_index("inner-1", "inner-1", 3), 3);
+    }
+
+    #[test]
+    fn emission_start_index_resets_when_inner_session_changes() {
+        assert_eq!(emission_start_index("inner-2", "inner-1", 3), 0);
+    }
 }

@@ -1,7 +1,9 @@
 #[path = "../../common.rs"]
 mod common;
 
-use common::{create_entity, entity_id, field_string, post_absolute_action, system_json_headers};
+use common::{
+    create_entity, entity_id, field_bool, field_string, post_absolute_action, system_json_headers,
+};
 use temper_wasm_sdk::prelude::*;
 use wasm_helpers::resolve_temper_api_url;
 
@@ -15,7 +17,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
 
         let existing = field_string(&fields, &["ComputerId", "computer_id"]);
         if !existing.is_empty() {
-            temper_wasm_sdk::set_success_result("BindComputer", &json!({ "computer_id": existing }));
+            temper_wasm_sdk::set_success_result("BindComputer", &json!({ "ComputerId": existing }));
             return Ok(());
         }
 
@@ -51,11 +53,17 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
 
         let networking_type = field_string(&fields, &["NetworkingType", "networking_type"]);
         let allowed_hosts = field_string(&fields, &["AllowedHostsJson", "allowed_hosts_json"]);
-        let network_allow = match networking_type.as_str() {
-            "Limited" => allowed_hosts,
-            "Disabled" => "disabled".to_string(),
-            _ => "*".to_string(),
-        };
+        let allow_mcp_servers = field_bool(&fields, &["AllowMcpServers", "allow_mcp_servers"]);
+        let allow_package_managers = field_bool(
+            &fields,
+            &["AllowPackageManagers", "allow_package_managers"],
+        );
+        let network_allow = build_network_allow(
+            &networking_type,
+            &allowed_hosts,
+            allow_mcp_servers,
+            allow_package_managers,
+        );
 
         let created = create_entity(&ctx, &base_url, &headers, "Computers", &json!({}))?;
         let computer_id =
@@ -97,19 +105,8 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             &json!({}),
             "provision computer",
         )?;
-        post_absolute_action(
-            &ctx,
-            &headers,
-            &format!("{base_url}/tdata/Computers('{computer_id}')/Paw.Compute.ProvisionComplete"),
-            &json!({
-                "machine_id": computer_id,
-                "sandbox_url": "",
-                "ssh_host": "",
-            }),
-            "complete computer provisioning",
-        )?;
 
-        temper_wasm_sdk::set_success_result("BindComputer", &json!({ "computer_id": computer_id }));
+        temper_wasm_sdk::set_success_result("BindComputer", &json!({ "ComputerId": computer_id }));
         Ok(())
     })();
 
@@ -117,4 +114,59 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         temper_wasm_sdk::set_error_result(&error);
     }
     0
+}
+
+fn build_network_allow(
+    networking_type: &str,
+    allowed_hosts_json: &str,
+    allow_mcp_servers: bool,
+    allow_package_managers: bool,
+) -> String {
+    if networking_type != "Limited" {
+        return "*".to_string();
+    }
+
+    let allowed_hosts = serde_json::from_str::<Value>(allowed_hosts_json)
+        .ok()
+        .filter(|value| value.is_array())
+        .unwrap_or_else(|| json!([]));
+
+    serde_json::to_string(&json!({
+        "allowed_hosts": allowed_hosts,
+        "allow_mcp_servers": allow_mcp_servers,
+        "allow_package_managers": allow_package_managers,
+    }))
+    .unwrap_or_else(|_| {
+        r#"{"allowed_hosts":[],"allow_mcp_servers":false,"allow_package_managers":false}"#
+            .to_string()
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn build_network_allow_for_limited_networking_includes_all_anthropic_subfields() {
+        let network_allow = build_network_allow(
+            "Limited",
+            "[\"github.com\"]",
+            true,
+            false,
+        );
+
+        assert_eq!(
+            serde_json::from_str::<Value>(&network_allow).unwrap(),
+            json!({
+                "allowed_hosts": ["github.com"],
+                "allow_mcp_servers": true,
+                "allow_package_managers": false,
+            })
+        );
+    }
+
+    #[test]
+    fn build_network_allow_for_unrestricted_networking_is_wildcard() {
+        assert_eq!(build_network_allow("Unrestricted", "[]", false, false), "*");
+    }
 }

@@ -44,8 +44,8 @@ fn start_or_resume(
         temper_wasm_sdk::set_success_result(
             "InnerSessionFailed",
             &json!({
-                "error_message": "ManagedSession requires AgentId and EnvironmentId.",
-                "stop_reason": "error",
+                "ErrorMessage": "ManagedSession requires AgentId and EnvironmentId.",
+                "TerminationReason": "error",
             }),
         );
         return Ok(());
@@ -64,9 +64,35 @@ fn start_or_resume(
             escape_odata_string(&managed_agent_id)
         ),
     )?;
+    let tool_ids = tool_rows
+        .iter()
+        .filter_map(entity_id)
+        .collect::<Vec<_>>();
+    let tool_config_rows = if tool_ids.is_empty() {
+        Vec::new()
+    } else {
+        let filter = tool_ids
+            .iter()
+            .map(|tool_id| format!("ToolId%20eq%20'{}'", escape_odata_string(tool_id)))
+            .collect::<Vec<_>>()
+            .join("%20or%20");
+        common::list_entities(
+            ctx,
+            base_url,
+            headers,
+            &format!("/tdata/AgentToolConfigs?$filter={filter}&$orderby=ToolName%20asc"),
+        )?
+    };
 
-    let inner_agent_id =
-        ensure_inner_agent(ctx, base_url, headers, &managed_agent, &managed_agent_id, &tool_rows)?;
+    let inner_agent_id = ensure_inner_agent(
+        ctx,
+        base_url,
+        headers,
+        &managed_agent,
+        &managed_agent_id,
+        &tool_rows,
+        &tool_config_rows,
+    )?;
     let computer_id =
         ensure_computer(ctx, base_url, headers, &managed_environment, &environment_id)?;
 
@@ -83,13 +109,9 @@ fn start_or_resume(
     )?;
     let (prompt, last_sequence) = pending_user_prompt(&pending_events, last_consumed);
     if prompt.trim().is_empty() {
-        temper_wasm_sdk::set_success_result(
-            "InnerSessionFailed",
-            &json!({
-                "error_message": "No pending user input was available to start the managed session.",
-                "stop_reason": "error",
-            }),
-        );
+        temper_wasm_sdk::set_success_result("IdleSession", &json!({
+            "StopReason": "user_input_required",
+        }));
         return Ok(());
     }
 
@@ -111,11 +133,11 @@ fn start_or_resume(
                 temper_wasm_sdk::set_success_result(
                     "InnerSessionReady",
                     &json!({
-                        "inner_session_id": existing_inner_session_id,
-                        "inner_agent_id": inner_agent_id,
-                        "computer_id": computer_id,
-                        "last_consumed_user_sequence": last_sequence,
-                        "inner_session_check_count": 0,
+                        "InnerSessionId": existing_inner_session_id,
+                        "InnerAgentId": inner_agent_id,
+                        "ComputerId": computer_id,
+                        "LastConsumedUserSequence": last_sequence,
+                        "InnerSessionCheckCount": 0,
                     }),
                 );
                 return Ok(());
@@ -156,7 +178,7 @@ fn start_or_resume(
             value
         }
     };
-    let tools_enabled = managed_tools_enabled(&tool_rows);
+    let tools_enabled = managed_tools_enabled(&tool_rows, &tool_config_rows);
     let max_turns = "60";
 
     let mut configure_body = json!({
@@ -185,11 +207,11 @@ fn start_or_resume(
     temper_wasm_sdk::set_success_result(
         "InnerSessionReady",
         &json!({
-            "inner_session_id": inner_session_id,
-            "inner_agent_id": inner_agent_id,
-            "computer_id": computer_id,
-            "last_consumed_user_sequence": last_sequence,
-            "inner_session_check_count": 0,
+            "InnerSessionId": inner_session_id,
+            "InnerAgentId": inner_agent_id,
+            "ComputerId": computer_id,
+            "LastConsumedUserSequence": last_sequence,
+            "InnerSessionCheckCount": 0,
         }),
     );
     Ok(())
@@ -206,8 +228,8 @@ fn check_inner_session(
         temper_wasm_sdk::set_success_result(
             "InnerSessionFailed",
             &json!({
-                "error_message": "ManagedSession has no inner session to monitor.",
-                "stop_reason": "error",
+                "ErrorMessage": "ManagedSession has no inner session to monitor.",
+                "TerminationReason": "error",
             }),
         );
         return Ok(());
@@ -221,11 +243,11 @@ fn check_inner_session(
         temper_wasm_sdk::set_success_result(
             "InnerSessionFailed",
             &json!({
-                "error_message": format!(
+                "ErrorMessage": format!(
                     "ManagedSession exceeded {} inner-session checks without reaching a terminal state.",
                     max_checks
                 ),
-                "stop_reason": "error",
+                "TerminationReason": "error",
             }),
         );
         return Ok(());
@@ -237,7 +259,7 @@ fn check_inner_session(
         "Completed" => temper_wasm_sdk::set_success_result(
             "IdleSession",
             &json!({
-                "stop_reason": "user_input_required",
+                "StopReason": "user_input_required",
             }),
         ),
         "Failed" | "Cancelled" => {
@@ -257,8 +279,12 @@ fn check_inner_session(
             temper_wasm_sdk::set_success_result(
                 "InnerSessionFailed",
                 &json!({
-                    "error_message": error_message,
-                    "stop_reason": "error",
+                    "ErrorMessage": error_message,
+                    "TerminationReason": if status == "Cancelled" {
+                        "cancelled"
+                    } else {
+                        "error"
+                    },
                 }),
             );
         }
@@ -274,6 +300,7 @@ fn ensure_inner_agent(
     managed_agent: &Value,
     managed_agent_id: &str,
     tool_rows: &[Value],
+    tool_config_rows: &[Value],
 ) -> Result<String, String> {
     let existing = field_string(managed_agent, &["InnerAgentId", "inner_agent_id"]);
     let name = {
@@ -293,7 +320,7 @@ fn ensure_inner_agent(
             value
         }
     };
-    let tools_enabled = managed_tools_enabled(tool_rows);
+    let tools_enabled = managed_tools_enabled(tool_rows, tool_config_rows);
     let provider = infer_provider(&model_id);
 
     if existing.is_empty() {
@@ -323,7 +350,7 @@ fn ensure_inner_agent(
             "ManagedAgents",
             managed_agent_id,
             "BindInnerAgent",
-            &json!({ "inner_agent_id": inner_agent_id }),
+            &json!({ "InnerAgentId": inner_agent_id }),
             false,
         )?;
         Ok(inner_agent_id)

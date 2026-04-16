@@ -34,7 +34,17 @@ type = "string"
 initial = ""
 
 [[state]]
+name = "vault_ids"
+type = "string"
+initial = "[]"
+
+[[state]]
 name = "stop_reason"
+type = "string"
+initial = ""
+
+[[state]]
+name = "termination_reason"
 type = "string"
 initial = ""
 
@@ -62,6 +72,16 @@ initial = "0"
 name = "last_emitted_result_hash"
 type = "string"
 initial = ""
+
+[[state]]
+name = "last_emitted_inner_session_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "last_emitted_tree_index"
+type = "counter"
+initial = "0"
 
 [[state]]
 name = "error_message"
@@ -100,7 +120,7 @@ effect = [{ type = "trigger", name = "orchestrate_start" }]
 name = "InnerSessionReady"
 kind = "input"
 from = ["Running"]
-params = ["inner_session_id", "inner_agent_id", "computer_id", "last_consumed_user_sequence", "inner_session_check_count"]
+params = ["InnerSessionId", "InnerAgentId", "ComputerId", "LastConsumedUserSequence", "InnerSessionCheckCount"]
 hint = "Record the ids used for the bridged session."
 effect = [{ type = "schedule", action = "CheckInnerSession", delay_seconds = 2 }]
 
@@ -108,16 +128,17 @@ effect = [{ type = "schedule", action = "CheckInnerSession", delay_seconds = 2 }
 name = "InnerSessionFailed"
 kind = "input"
 from = ["Running"]
-to = "Idle"
-params = ["error_message", "stop_reason"]
-hint = "Record an inner-session failure and pause the managed session."
+to = "Terminated"
+params = ["ErrorMessage", "TerminationReason"]
+hint = "Record an inner-session failure and terminate the managed session."
+effect = [{ type = "trigger", name = "terminate_inner" }]
 
 [[action]]
 name = "IdleSession"
 kind = "input"
 from = ["Running"]
 to = "Idle"
-params = ["stop_reason"]
+params = ["StopReason"]
 hint = "Mark the managed session idle and emit derived session events."
 effect = [{ type = "trigger", name = "emit_idle_event" }]
 
@@ -150,7 +171,7 @@ effect = [{ type = "trigger", name = "orchestrate_check" }]
 name = "UpdateUsage"
 kind = "input"
 from = ["Running", "Idle"]
-params = ["input_tokens", "output_tokens", "stop_reason", "stop_reason_event_ids", "last_emitted_result_hash"]
+params = ["InputTokens", "OutputTokens", "StopReason", "StopReasonEventIds", "LastEmittedResultHash", "LastEmittedInnerSessionId", "LastEmittedTreeIndex"]
 hint = "Update token counters and derived event metadata."
 effect = [
   { type = "increment", var = "input_tokens" },
@@ -162,38 +183,72 @@ name = "TerminateSession"
 kind = "input"
 from = ["Rescheduling", "Running", "Idle"]
 to = "Terminated"
-params = ["stop_reason"]
+params = ["TerminationReason"]
 hint = "Terminate the bridged session."
 effect = [{ type = "trigger", name = "terminate_inner" }]
 
 [[action]]
-name = "ArchiveManagedSession"
+name = "Archive"
 kind = "input"
 from = ["Terminated"]
 to = "Terminated"
-params = ["archived_at"]
+params = ["ArchivedAt"]
 hint = "Soft-delete this managed session while retaining its status history."
 
 [[field_invariant]]
 name = "IdleRequiresStopReason"
 when = { field = "Status", equals = "Idle" }
-require = { not = { field = "stop_reason", empty = true } }
+require = { any_of = [
+  { not = { field = "stop_reason", empty = true } },
+  { not = { field = "StopReason", empty = true } },
+] }
 message = "ManagedSession in Idle must set StopReason"
 
 [[field_invariant]]
 name = "StopReasonMustBeKnown"
-when = { not = { field = "stop_reason", absent = true } }
+when = { any_of = [
+  { not = { field = "stop_reason", absent = true } },
+  { not = { field = "StopReason", absent = true } },
+] }
 require = { any_of = [
   { field = "stop_reason", equals = "user_input_required" },
   { field = "stop_reason", equals = "tool_confirmation_required" },
   { field = "stop_reason", equals = "custom_tool_required" },
-  { field = "stop_reason", equals = "error" },
+  { field = "StopReason", equals = "user_input_required" },
+  { field = "StopReason", equals = "tool_confirmation_required" },
+  { field = "StopReason", equals = "custom_tool_required" },
 ] }
 message = "ManagedSession.StopReason must be one of the documented pause reasons"
 
 [[field_invariant]]
-name = "ArchivedRequiresTerminatedState"
-when = { not = { field = "archived_at", empty = true } }
+name = "TerminationReasonMustBeKnown"
+when = { any_of = [
+  { not = { field = "termination_reason", absent = true } },
+  { not = { field = "TerminationReason", absent = true } },
+] }
+require = { any_of = [
+  { field = "termination_reason", equals = "cancelled" },
+  { field = "termination_reason", equals = "error" },
+  { field = "TerminationReason", equals = "cancelled" },
+  { field = "TerminationReason", equals = "error" },
+] }
+message = "ManagedSession.TerminationReason must be cancelled or error"
+
+[[field_invariant]]
+name = "TerminatedRequiresTerminationReason"
+when = { field = "Status", equals = "Terminated" }
+require = { any_of = [
+  { not = { field = "termination_reason", empty = true } },
+  { not = { field = "TerminationReason", empty = true } },
+] }
+message = "ManagedSession in Terminated must set TerminationReason"
+
+[[field_invariant]]
+name = "ArchivedAtRequiresTerminatedStatus"
+when = { any_of = [
+  { not = { field = "archived_at", empty = true } },
+  { not = { field = "ArchivedAt", empty = true } },
+] }
 require = { field = "Status", equals = "Terminated" }
 message = "ManagedSession.ArchivedAt may only be set once the session is Terminated"
 
