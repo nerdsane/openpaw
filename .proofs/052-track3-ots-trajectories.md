@@ -99,8 +99,9 @@ one (the foresight behavioural rerun) deferred per the original plan.
 | 2a. `cargo build --target wasm32-unknown-unknown -p emit_ots_trajectory --release` | clean | `Finished release profile [optimized] target(s) in 9.42s` | PASS |
 | 2b. `cargo build --target wasm32-wasip1 -p monty-repl --release` | clean | `Finished release profile [optimized] target(s) in 55.09s` | PASS |
 | 2c. `cargo build --target wasm32-unknown-unknown -p handle-probe-done --release` | clean | `Finished release profile [optimized] target(s) in 5.63s` | PASS |
-| 3a. Live end-to-end: Session Created → Cancel → OTS trajectory persisted | Session.trajectory_id == Turso row trajectory_id; Turso `data` round-trips through `OTSTrajectory` serde | `trj-ss-019d97bd-a1ea-7643-bdce-941693b21cde` matched in both places; standalone Rust binary (`cargo run` against /tmp/ots-verify with temper-ots dep) prints `DESERIALIZED SUCCESSFULLY ... outcome=PartialSuccess` | PASS |
+| 3a. Live end-to-end: Session Created → Cancel → OTS trajectory persisted | Session.trajectory_id == Turso row trajectory_id; Turso `data` round-trips through `OTSTrajectory` serde | `trj-ss-019d97bd-a1ea-7643-bdce-941693b21cde` matched in both places; standalone Rust binary with temper-ots dep prints `DESERIALIZED SUCCESSFULLY ... outcome=PartialSuccess` | PASS |
 | 3b. emit_ots_trajectory dispatched MarkTrajectoryEmitted on success | Session.trajectory_emission_status transitions to "emitted" | Live openpaw-server log: `event emitted event=MarkTrajectoryEmitted` → `transition applied action=MarkTrajectoryEmitted to=Cancelled` → field query returns `'emitted'` | PASS |
+| 3c. **Full LLM-driven Session → Completed → trajectory populated with decisions** | Session transitions Created → CallingProvider → Executing → Completed; `tool_spans_file_id` populated by monty_repl; OTS `turns[0].decisions[]` contains the correct `OTSDecision`; outcome="success" | Session `ss-019d97d0-97fa-7432-9d20-49dabebb34b1` reached Completed in 21s using `claude-haiku-4-5-20251001`. `tool_spans_file_id=fl-019d97d0-...` contained `{"tool_name":"temper.done","tool_call_id":"0","arguments":"[\"hello from track3\"]","result":"{\"done\":true}","is_error":false}`. The persisted OTS JSON's `turns[0].decisions[0]` correctly maps that span to `{decision_type:"tool_selection", choice:{action:"temper.done", arguments:["hello from track3"]}, consequence:{success:true, result_summary:"{\"done\":true}"}}`. Metadata `outcome="success"`, tags `[claude-haiku-4-5-20251001, anthropic, execute]`. `cargo run` in /tmp/ots-verify prints `DESERIALIZED SUCCESSFULLY ... outcome=Success`. | PASS |
 | 4. Foresight meta-loop rubric-v4 differential | rubric sub-score improves vs v3 | Not verified — deferred to future foresight run on main | DEFERRED |
 
 ## What Worked
@@ -187,17 +188,6 @@ one (the foresight behavioural rerun) deferred per the original plan.
 
 ## What Still Doesn't Work
 
-- No live verification of the full LLM-driven turn loop. I only drove a
-  Session through `Cancel` (Created → Cancelled), which fires the
-  emitter on an empty tool-span history and produces
-  `outcome=partial_success`. The full `Completed` path — where
-  `monty_repl` produces tool spans that get persisted to TemperFS and
-  then collapsed into `OTSDecision` entries — was not exercised end-to-end
-  and would require an LLM API call chain taking several minutes per
-  session. Recommended follow-up: run `scripts/prove_track3_ots.py`
-  against a full configured stack (LLM credentials wired, real
-  `OpenPaw.Start` action path through to `FinalizeResult`/`RecordResult`)
-  before merging.
 - Foresight meta-loop rerun (Run 011) is deferred to post-merge on main.
   Rubric-v4 scoring differential vs rubric-v3 has not been measured.
 - Turso row-size preflight check at the emitter is not yet implemented —
