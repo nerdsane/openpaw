@@ -1,0 +1,454 @@
+{
+  "metadata": {
+    "agent_id": "aj-019d986c-1b67-77c2-8370-31d9c8dc8232",
+    "domain": "openpaw-agent",
+    "environment": "production",
+    "framework": "openpaw",
+    "outcome": "success",
+    "tags": [
+      "gpt-5.4",
+      "openai_codex"
+    ],
+    "task_description": "You are a foresight probe (adjacent-domain) analyzing the domain \"Directed Software Evolution v2\" (knowledge_domain).\n\nProjection ID: en-019d986a-e9e7-7143-96b5-79c0863e031e\nYour Agent ID: aj-019d986c-1b67-77c2-8370-31d9c8dc8232\nStep: 0 (day 90 of 1 year)\n\n## Your Persona\nYou are an observer from an adjacent field such as economics, biology, or organizational theory. Focus on patterns from your field that this domain has not recognized yet. Bring external analogies.\n\n## Current State of the Worl",
+    "timestamp_end": "2026-04-16T22:34:01.558908Z",
+    "timestamp_start": "2026-04-16T22:31:54.990921Z",
+    "trajectory_id": "trj-ss-019d986c-1b6e-7900-aed8-8b5b60d0aaff"
+  },
+  "trajectory_id": "trj-ss-019d986c-1b6e-7900-aed8-8b5b60d0aaff",
+  "turns": [
+    {
+      "decisions": [
+        {
+          "_duration_ms": 40,
+          "choice": {
+            "action": "temper.read",
+            "arguments": [
+              "current_state_step_0.json",
+              {
+                "workspace_id": "ws-019d986a-ea5d-7412-b473-35c8946b6d55"
+              }
+            ]
+          },
+          "consequence": {
+            "result_summary": "\"{\\\"model_id\\\": \\\"en-019d92cd-41e7-7aa0-8436-e0532786bfcf\\\", \\\"model_name\\\": \\\"Directed Software Evolution v2\\\", \\\"model_type\\\": \\\"knowledge_domain\\\", \\\"generated_at\\\": \\\"2026-04-15T20:20:45.318882Z\\\", \\\"seed_operation\\\": \\\"initial seed\\\", \\\"seed_method\\\": {\\\"source_config_type\\\": \\\"essay\\\", \\\"research_status\\\": \\\"partial_live_research\\\", \\\"research_note\\\": \\\"The required web_search/web_fetch steps were attempted first, but the environment returned empty results. The graph below therefore combin",
+            "success": true
+          },
+          "decision_id": "0",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 1074,
+          "choice": {
+            "action": "temper.web_search",
+            "arguments": [
+              "software engineering economics agentic coding productivity adoption 2025"
+            ]
+          },
+          "consequence": {
+            "result_summary": "[{\"text\":\"Cost concerns loom as agentic AI advances in software development | CIO Dive Skip to main content\\n\\nCONTINUE TO SITE \u279e\\n\\n# Don't miss tomorrow's tech industry news\\n\\nLet CIO Dive's free newsletter keep you informed, straight from your inbox.\\n\\nBy signing up to receive our newsletter, you agree to our [Terms of Use](https://www.informatechtarget.com/terms-of-use/) and [Privacy Policy](https://www.informatechtarget.com/privacy-policy/). You can unsubscribe at anytime.\\n\\n[Explore our",
+            "success": true
+          },
+          "decision_id": "1",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 1078,
+          "choice": {
+            "action": "temper.web_search",
+            "arguments": [
+              "organizational learning platform engineering AI coding agents 2025"
+            ]
+          },
+          "consequence": {
+            "result_summary": "[{\"text\":\"AI Engineering Trends in 2025: Agents, MCP and Vibe Coding - The New Stack\\n\\nTNS\\n\\nOK\\n\\nVOXPOP\\n\\nAs a JavaScript developer, what non-React tools do you use most often?\\n\\n\u2713\\n\\nAngular\\n\\n0%\\n\\n\u2713\\n\\nAstro\\n\\n0%\\n\\n\u2713\\n\\nSvelte\\n\\n0%\\n\\n\u2713\\n\\nVue.js\\n\\n0%\\n\\n\u2713\\n\\nOther\\n\\n0%\\n\\n\u2713\\n\\nI only use React\\n\\n0%\\n\\n\u2713\\n\\nI don't use JavaScript\\n\\n0%\\n\\nSUBMIT\\n\\nNEW! Try Stackie AI\\n\\nARCHITECTURE\\n\\nENGINEERING\\n\\nOPERATIONS\\n\\nPROGRAMMING\\n\\nCHANNELS\\n\\nTHE NEW STACK\\n\\nARCHITECTURE ENGINEER",
+            "success": true
+          },
+          "decision_id": "2",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 2086,
+          "choice": {
+            "action": "temper.web_search",
+            "arguments": [
+              "biological evolution analogy software engineering selection pressure AI code generation 2025"
+            ]
+          },
+          "consequence": {
+            "result_summary": "[{\"text\":\"CodeEvolve: an open source evolutionary coding agent for algorithmic discovery and optimization - ADS \\n\\nNow on home page\\n\\n \\n\\n## ADS\\n\\n \\n\\n## CodeEvolve: an open source evolutionary coding agent for algorithmic discovery and optimization\\n\\n;\\n\\n;\\n\\n;\\n\\n- [Assump\u00e7\u00e3o, Henrique](https://ui.adsabs.harvard.edu/search/?q=author%3A%22Assump%C3%A7%C3%A3o%2C+Henrique%22)\\n- [Ferreira, Diego](https://ui.adsabs.harvard.edu/search/?q=author%3A%22Ferreira%2C+Diego%22)\\n- [Campos, Leandro]",
+            "success": true
+          },
+          "decision_id": "3",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 969,
+          "choice": {
+            "action": "temper.web_fetch",
+            "arguments": [
+              "https://www.bain.com/insights/from-pilots-to-payoff-generative-ai-in-software-development-technology-report-2025/"
+            ]
+          },
+          "consequence": {
+            "result_summary": "\"From Pilots to Payoff: Generative AI in Software Development | Bain & Company \\n[Skip to Content](#maincontent) \\n- [\\r\\n        Offices\\r\\n    ](#) \\nClose \\n#### Offices\\n##### North & Latin America\\n  - [Atlanta](/offices/atlanta/) \\n  - [Austin](/offices/austin/) \\n  - [Bogota](/offices/bogota/) \\n  - [Boston](/offices/boston/) \\n  - [Buenos Aires](/offices/buenos-aires/) \\n  - [Chicago](/offices/Chicago/) \\n  - [Dallas](/offices/dallas/) \\n  - [Denver](/offices/denver/) \\n  - [Houston](/of",
+            "success": true
+          },
+          "decision_id": "0",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 10035,
+          "choice": {
+            "action": "temper.web_fetch",
+            "arguments": [
+              "http://www.cursor.com/blog/productivity"
+            ]
+          },
+          "consequence": {
+            "error_type": "tool_error",
+            "result_summary": "web_fetch: HTTP call failed: GET http://www.cursor.com/blog/productivity",
+            "success": false
+          },
+          "decision_id": "1",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 749,
+          "choice": {
+            "action": "temper.web_fetch",
+            "arguments": [
+              "https://www.bain.com/insights/from-pilots-to-payoff-generative-ai-in-software-development-technology-report-2025/"
+            ]
+          },
+          "consequence": {
+            "result_summary": "\"From Pilots to Payoff: Generative AI in Software Development | Bain & Company \\n[Skip to Content](#maincontent) \\n- [\\r\\n        Offices\\r\\n    ](#) \\nClose \\n#### Offices\\n##### North & Latin America\\n  - [Atlanta](/offices/atlanta/) \\n  - [Austin](/offices/austin/) \\n  - [Bogota](/offices/bogota/) \\n  - [Boston](/offices/boston/) \\n  - [Buenos Aires](/offices/buenos-aires/) \\n  - [Chicago](/offices/Chicago/) \\n  - [Dallas](/offices/dallas/) \\n  - [Denver](/offices/denver/) \\n  - [Houston](/of",
+            "success": true
+          },
+          "decision_id": "0",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 179,
+          "choice": {
+            "action": "temper.web_fetch",
+            "arguments": [
+              "https://cursor.com/blog/productivity"
+            ]
+          },
+          "consequence": {
+            "result_summary": "\"The productivity impact of coding agents \u00c2\u00b7 Cursor\\n[Skip to content](#main)\\n[Cursor](/home)\\n- [Product](/product)\u00e2\u0086\u0093\\n  - [Agents](/product)\\n  - [Code Review](/bugbot)\\n  - [Cloud\u00c2\u00a0\u00e2\u0086\u0097](https://cursor.com/agents)\\n  - [Tab](/product/tab)\\n  - [CLI](/cli)\\n  - [Marketplace\u00c2\u00a0\u00e2\u0086\u0097](https://cursor.com/marketplace)\\n- [Enterprise](/enterprise)\\n- [Pricing](/pricing)\\n- [Resources](/changelog)\u00e2\u0086\u0093\\n  - [Changelog](/changelog)\\n  - [Blog](/blog)\\n  - [Docs](/docs)\\n  - [Community](/community)\\n  - [",
+            "success": true
+          },
+          "decision_id": "1",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 188,
+          "choice": {
+            "action": "temper.web_fetch",
+            "arguments": [
+              "https://www.ciodive.com/news/cost-concerns-loom-agentic-ai-software-development/817484/"
+            ]
+          },
+          "consequence": {
+            "result_summary": "\"Cost concerns loom as agentic AI advances in software development | CIO Dive [Skip to main content](#skip-link-target) \\nCONTINUE TO SITE \u00e2\u009e\u009e \\n# Don't miss tomorrow's tech industry news \\n\\nLet CIO Dive's free newsletter keep you informed, straight from your inbox. \\n\\nBy signing up to receive our newsletter, you agree to our [Terms of Use](https://www.informatechtarget.com/terms-of-use/) and [Privacy Policy](https://www.informatechtarget.com/privacy-policy/). You can unsubscribe at anytime. \\",
+            "success": true
+          },
+          "decision_id": "2",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 430,
+          "choice": {
+            "action": "temper.web_fetch",
+            "arguments": [
+              "https://openai.com/blog/introducing-codex"
+            ]
+          },
+          "consequence": {
+            "result_summary": "\"Introducing Codex | OpenAI\\n[Skip to main content](#main)\\n[](/)\\n- [Research](/research/index/)\\n- Products\\n- [Business](/business/)\\n- [Developers](/api/)\\n- [Company](/about/)\\n- [Foundation(opens in a new window)](https://openaifoundation.org)\\nLog in[Try ChatGPT(opens in a new window)](https://chatgpt.com/)\\n- Research\\n- Products\\n- Business\\n- Developers\\n- Company\\n- [Foundation(opens in a new window)](https://openaifoundation.org)\\n[Try ChatGPT(opens in a new window)](https://chatgpt.",
+            "success": true
+          },
+          "decision_id": "3",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 349,
+          "choice": {
+            "action": "temper.web_fetch",
+            "arguments": [
+              "https://thenewstack.io/ai-engineering-trends-in-2025-agents-mcp-and-vibe-coding/"
+            ]
+          },
+          "consequence": {
+            "result_summary": "\"AI Engineering Trends in 2025: Agents, MCP and Vibe Coding - The New Stack \\nTNS \\nOK \\nSUBSCRIBE \\nJoin our community of software engineering leaders and aspirational developers. Always stay in-the-know by getting the most important news and exclusive content delivered fresh to your inbox to learn more about at-scale software development. \\nEMAIL ADDRESS \\nREQUIRED \\nSUBSCRIBE \\nRESUBSCRIPTION REQUIRED \\n \\nIt seems that you've previously unsubscribed from our newsletter in the past. Click the",
+            "success": true
+          },
+          "decision_id": "0",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 4,
+          "choice": {
+            "action": "temper.create",
+            "arguments": [
+              "Observations",
+              {
+                "fields": {}
+              }
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.context\":\"$metadata#Observations/$entity\",\"@odata.id\":\"Observations('en-019d986e-093e-7fa3-ae2e-7635ea5d745b')\",\"booleans\":{},\"counters\":{},\"entity_id\":\"en-019d986e-093e-7fa3-ae2e-7635ea5d745b\",\"entity_type\":\"Observation\",\"events\":[{\"action\":\"Created\",\"from_status\":\"\",\"params\":{\"fields\":{}},\"timestamp\":\"2026-04-16T22:34:01.407141Z\",\"to_status\":\"Created\"}],\"fields\":{\"Id\":\"en-019d986e-093e-7fa3-ae2e-7635ea5d745b\",\"Status\":\"Created\",\"fields\":{}},\"item_count\":0,\"lists\":{},\"sequence_nr\":1,\"s",
+            "success": true
+          },
+          "decision_id": "0",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 5,
+          "choice": {
+            "action": "temper.action",
+            "arguments": [
+              "Observations",
+              "en-019d986e-093e-7fa3-ae2e-7635ea5d745b",
+              "Record",
+              {
+                "content": "At +90 days, the binding constraint shifts from model capability to organizational throughput: teams that already have coding agents will discover that integration cost, compute spend discipline, and repo-specific harness quality determine realized gains more than raw model IQ. This mirrors economics of general-purpose technologies, where complementary investments dominate early ROI. External evidence: CIO Dive, 'Cost concerns loom as agentic AI advances in software development' (https://www.ciodive.com/news/cost-concerns-loom-agentic-ai-software-development/817484/) reports that only 12% of teams have widespread use while integration and compute costs remain major barriers; Bain, 'From Pilots to Payoff: Generative AI in Software Development' (https://www.bain.com/insights/from-pilots-to-payoff-generative-ai-in-software-development-technology-report-2025/) frames the move from pilots to payoff as an adoption problem, not just a model problem. In the next 90 days, expect more budget controls, per-repo usage policies, and selective deployment to high-harness codepaths rather than blanket rollout.",
+                "counterfactual": "If this is ignored, leaders will over-attribute weak outcomes to model quality and underinvest in the complementary assets\u2014tests, evals, environment standardization, and spend controls\u2014that actually determine adoption.",
+                "importance": "high",
+                "probe_agent_id": "aj-019d986c-1b67-77c2-8370-31d9c8dc8232",
+                "projection_id": "en-019d986a-e9e7-7143-96b5-79c0863e031e",
+                "signal_refs": "[\"sig-001\",\"sig-020\"]",
+                "step_at": "0"
+              }
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.context\":\"$metadata#Observations/$entity\",\"booleans\":{},\"counters\":{},\"entity_id\":\"en-019d986e-093e-7fa3-ae2e-7635ea5d745b\",\"entity_type\":\"Observation\",\"events\":[{\"action\":\"Created\",\"from_status\":\"\",\"params\":{\"fields\":{}},\"timestamp\":\"2026-04-16T22:34:01.407141Z\",\"to_status\":\"Created\"},{\"action\":\"Record\",\"from_status\":\"Created\",\"params\":{\"content\":\"At +90 days, the binding constraint shifts from model capability to organizational throughput: teams that already have coding agents will di",
+            "success": true
+          },
+          "decision_id": "1",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 4,
+          "choice": {
+            "action": "temper.create",
+            "arguments": [
+              "Observations",
+              {
+                "fields": {}
+              }
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.context\":\"$metadata#Observations/$entity\",\"@odata.id\":\"Observations('en-019d986e-0947-7c11-9370-6dd1e824f09c')\",\"booleans\":{},\"counters\":{},\"entity_id\":\"en-019d986e-0947-7c11-9370-6dd1e824f09c\",\"entity_type\":\"Observation\",\"events\":[{\"action\":\"Created\",\"from_status\":\"\",\"params\":{\"fields\":{}},\"timestamp\":\"2026-04-16T22:34:01.416759Z\",\"to_status\":\"Created\"}],\"fields\":{\"Id\":\"en-019d986e-0947-7c11-9370-6dd1e824f09c\",\"Status\":\"Created\",\"fields\":{}},\"item_count\":0,\"lists\":{},\"sequence_nr\":1,\"s",
+            "success": true
+          },
+          "decision_id": "2",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 7,
+          "choice": {
+            "action": "temper.action",
+            "arguments": [
+              "Observations",
+              "en-019d986e-0947-7c11-9370-6dd1e824f09c",
+              "Record",
+              {
+                "content": "The winning teams will behave less like individual expert coders and more like high-learning-rate organizations: they will standardize AGENTS.md-like local instructions, acceptance harnesses, and post-task evidence review so that agent output becomes institutional memory rather than one-off brilliance. This is an organizational learning dynamic: routines, not heroics, scale. External evidence: OpenAI, 'Introducing Codex' (https://openai.com/blog/introducing-codex), emphasizes isolated task environments, verifiable terminal/test citations, and AGENTS.md guidance; Cursor, 'The productivity impact of coding agents' (https://cursor.com/blog/productivity), reports companies merging 39% more PRs after Cursor's agent became default and notes experienced developers write more plans before coding. Over 90 days, expect elite teams to formalize repo conventions and planning artifacts so agents can be swapped without losing local know-how.",
+                "counterfactual": "If this is ignored, organizations get sporadic agent wins but no cumulative capability: performance will remain attached to a few prompt-savvy engineers instead of becoming a repeatable operating system.",
+                "importance": "high",
+                "probe_agent_id": "aj-019d986c-1b67-77c2-8370-31d9c8dc8232",
+                "projection_id": "en-019d986a-e9e7-7143-96b5-79c0863e031e",
+                "signal_refs": "[\"sig-001\",\"sig-002\"]",
+                "step_at": "0"
+              }
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.context\":\"$metadata#Observations/$entity\",\"booleans\":{},\"counters\":{},\"entity_id\":\"en-019d986e-0947-7c11-9370-6dd1e824f09c\",\"entity_type\":\"Observation\",\"events\":[{\"action\":\"Created\",\"from_status\":\"\",\"params\":{\"fields\":{}},\"timestamp\":\"2026-04-16T22:34:01.416759Z\",\"to_status\":\"Created\"},{\"action\":\"Record\",\"from_status\":\"Created\",\"params\":{\"content\":\"The winning teams will behave less like individual expert coders and more like high-learning-rate organizations: they will standardize AGENT",
+            "success": true
+          },
+          "decision_id": "3",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 4,
+          "choice": {
+            "action": "temper.create",
+            "arguments": [
+              "Observations",
+              {
+                "fields": {}
+              }
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.context\":\"$metadata#Observations/$entity\",\"@odata.id\":\"Observations('en-019d986e-0953-7d11-aea2-fa118fb08609')\",\"booleans\":{},\"counters\":{},\"entity_id\":\"en-019d986e-0953-7d11-aea2-fa118fb08609\",\"entity_type\":\"Observation\",\"events\":[{\"action\":\"Created\",\"from_status\":\"\",\"params\":{\"fields\":{}},\"timestamp\":\"2026-04-16T22:34:01.428417Z\",\"to_status\":\"Created\"}],\"fields\":{\"Id\":\"en-019d986e-0953-7d11-aea2-fa118fb08609\",\"Status\":\"Created\",\"fields\":{}},\"item_count\":0,\"lists\":{},\"sequence_nr\":1,\"s",
+            "success": true
+          },
+          "decision_id": "4",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 5,
+          "choice": {
+            "action": "temper.action",
+            "arguments": [
+              "Observations",
+              "en-019d986e-0953-7d11-aea2-fa118fb08609",
+              "Record",
+              {
+                "content": "Selection dynamics will intensify: once parallel agent execution becomes normal, software groups will stop evaluating single answers and start evaluating populations of candidate patches, plans, and refactors against fitness functions. The adjacent-field analogy is directed evolution in biology: cheap variation only matters when the selection environment is trustworthy. In the next 90 days, expect more internal tournaments between candidate implementations using test pass rate, rollback rate, latency, and review friction as fitness signals. This directly extends the knowledge graph's directed-evolution thesis from theory into operational practice, especially in bounded subsystems with rich telemetry.",
+                "counterfactual": "If this is ignored, teams will keep treating agents as single-shot assistants and miss the compounding value of search, diversity, and controlled competition among alternatives.",
+                "importance": "medium",
+                "probe_agent_id": "aj-019d986c-1b67-77c2-8370-31d9c8dc8232",
+                "projection_id": "en-019d986a-e9e7-7143-96b5-79c0863e031e",
+                "signal_refs": "[\"sig-002\"]",
+                "step_at": "0"
+              }
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.context\":\"$metadata#Observations/$entity\",\"booleans\":{},\"counters\":{},\"entity_id\":\"en-019d986e-0953-7d11-aea2-fa118fb08609\",\"entity_type\":\"Observation\",\"events\":[{\"action\":\"Created\",\"from_status\":\"\",\"params\":{\"fields\":{}},\"timestamp\":\"2026-04-16T22:34:01.428417Z\",\"to_status\":\"Created\"},{\"action\":\"Record\",\"from_status\":\"Created\",\"params\":{\"content\":\"Selection dynamics will intensify: once parallel agent execution becomes normal, software groups will stop evaluating single answers and sta",
+            "success": true
+          },
+          "decision_id": "5",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 4,
+          "choice": {
+            "action": "temper.create",
+            "arguments": [
+              "Observations",
+              {
+                "fields": {}
+              }
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.context\":\"$metadata#Observations/$entity\",\"@odata.id\":\"Observations('en-019d986e-095c-7353-b52c-114efd3a0864')\",\"booleans\":{},\"counters\":{},\"entity_id\":\"en-019d986e-095c-7353-b52c-114efd3a0864\",\"entity_type\":\"Observation\",\"events\":[{\"action\":\"Created\",\"from_status\":\"\",\"params\":{\"fields\":{}},\"timestamp\":\"2026-04-16T22:34:01.437090Z\",\"to_status\":\"Created\"}],\"fields\":{\"Id\":\"en-019d986e-095c-7353-b52c-114efd3a0864\",\"Status\":\"Created\",\"fields\":{}},\"item_count\":0,\"lists\":{},\"sequence_nr\":1,\"s",
+            "success": true
+          },
+          "decision_id": "6",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 5,
+          "choice": {
+            "action": "temper.action",
+            "arguments": [
+              "Observations",
+              "en-019d986e-095c-7353-b52c-114efd3a0864",
+              "Record",
+              {
+                "content": "Challenge to the dominant narrative: more autonomy will not produce a smooth march toward dark factory operation across the board in the next 90 days. Biology suggests a different pattern: as organisms gain reproductive capacity, ecosystems also evolve stronger immune responses. Here, the immune system is governance, auditability, and rollback control. Expect a bifurcation: highly instrumented repositories move forward quickly, while poorly instrumented legacy systems face stricter approvals and even partial retrenchment after costly agent mistakes. Evidence is already visible in the same external sources: OpenAI foregrounds transparent evidence trails and isolated environments in Codex, while CIO Dive highlights integration barriers and cost friction. The near-term pattern is not universal autonomy but niche colonization of hospitable environments.",
+                "counterfactual": "If this is ignored, strategy will assume uniform diffusion and underestimate how strongly governance and local ecosystem fitness determine where autonomy can survive.",
+                "importance": "high",
+                "probe_agent_id": "aj-019d986c-1b67-77c2-8370-31d9c8dc8232",
+                "projection_id": "en-019d986a-e9e7-7143-96b5-79c0863e031e",
+                "signal_refs": "[\"sig-020\",\"sig-001\"]",
+                "step_at": "0"
+              }
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.context\":\"$metadata#Observations/$entity\",\"booleans\":{},\"counters\":{},\"entity_id\":\"en-019d986e-095c-7353-b52c-114efd3a0864\",\"entity_type\":\"Observation\",\"events\":[{\"action\":\"Created\",\"from_status\":\"\",\"params\":{\"fields\":{}},\"timestamp\":\"2026-04-16T22:34:01.437090Z\",\"to_status\":\"Created\"},{\"action\":\"Record\",\"from_status\":\"Created\",\"params\":{\"content\":\"Challenge to the dominant narrative: more autonomy will not produce a smooth march toward dark factory operation across the board in the nex",
+            "success": true
+          },
+          "decision_id": "7",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 4,
+          "choice": {
+            "action": "temper.create",
+            "arguments": [
+              "Directions",
+              {
+                "fields": {}
+              }
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.context\":\"$metadata#Directions/$entity\",\"@odata.id\":\"Directions('en-019d986e-0964-7293-9c4f-254b084563c4')\",\"booleans\":{},\"counters\":{},\"entity_id\":\"en-019d986e-0964-7293-9c4f-254b084563c4\",\"entity_type\":\"Direction\",\"events\":[{\"action\":\"Created\",\"from_status\":\"\",\"params\":{\"fields\":{}},\"timestamp\":\"2026-04-16T22:34:01.446034Z\",\"to_status\":\"Proposed\"}],\"fields\":{\"Id\":\"en-019d986e-0964-7293-9c4f-254b084563c4\",\"Status\":\"Proposed\",\"fields\":{}},\"item_count\":0,\"lists\":{},\"sequence_nr\":1,\"statu",
+            "success": true
+          },
+          "decision_id": "8",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 14,
+          "choice": {
+            "action": "temper.action",
+            "arguments": [
+              "Directions",
+              "en-019d986e-0964-7293-9c4f-254b084563c4",
+              "Propose",
+              {
+                "counterfactual_summary": "If this thesis is wrong, raw model improvements will dominate near-term outcomes and even weakly instrumented organizations will see broad autonomous gains without substantial investment in harnesses, routines, or governance.",
+                "grounding": "[\"sig-001\",\"sig-002\",\"sig-020\"]",
+                "observation_ids": "[\"en-019d986e-093e-7fa3-ae2e-7635ea5d745b\",\"en-019d986e-0947-7c11-9370-6dd1e824f09c\",\"en-019d986e-0953-7d11-aea2-fa118fb08609\",\"en-019d986e-095c-7353-b52c-114efd3a0864\"]",
+                "projection_id": "en-019d986a-e9e7-7143-96b5-79c0863e031e",
+                "proposer_agent_id": "aj-019d986c-1b67-77c2-8370-31d9c8dc8232",
+                "reasoning": "From an adjacent-domain perspective, Directed Software Evolution is entering the same phase that other adaptive systems enter after an enabling technology first becomes abundant: the scarce factor moves from production to selection. Cheap candidate generation from coding agents is real and accelerating, but economic evidence shows adoption is throttled by complementary assets such as integration, compute discipline, and local evaluation infrastructure. That means the practical unit of competition over the next 90 days is not model-vs-model; it is institution-vs-institution. Teams with better harnesses, lower-friction review routines, and clearer repository-specific instructions will outperform teams with nominally stronger models but weak local feedback loops.\n\nThe biological analogy sharpens the forecast. Evolution does not reward the organism that mutates fastest; it rewards the lineage embedded in a good selection environment. In software, that environment consists of tests, telemetry, rollback pathways, policy boundaries, and evidence trails. As parallel agent execution spreads, winners will increasingly run populations of candidate patches and plans, then retain what survives objective and organizational filters. But this same adaptive pressure creates immune responses: governance hardens around opaque or costly workflows, and autonomy spreads first in well-instrumented niches rather than uniformly. So the strongest thesis for the next 90 days is that Directed Software Evolution advances through institutionalization of selection mechanisms\u2014AGENTS.md conventions, repo-local evals, budget controls, evidence-backed review, and portfolio-style candidate comparison\u2014more than through any dramatic jump to fully autonomous dark factories.",
+                "step_at": "0",
+                "title": "Near-term advantage will come from selection environments and organizational learning loops, not from raw agent autonomy alone."
+              }
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.context\":\"$metadata#Directions/$entity\",\"booleans\":{},\"counters\":{},\"entity_id\":\"en-019d986e-0964-7293-9c4f-254b084563c4\",\"entity_type\":\"Direction\",\"events\":[{\"action\":\"Created\",\"from_status\":\"\",\"params\":{\"fields\":{}},\"timestamp\":\"2026-04-16T22:34:01.446034Z\",\"to_status\":\"Proposed\"},{\"action\":\"Propose\",\"from_status\":\"Proposed\",\"params\":{\"counterfactual_summary\":\"If this thesis is wrong, raw model improvements will dominate near-term outcomes and even weakly instrumented organizations wi",
+            "success": true
+          },
+          "decision_id": "9",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 5,
+          "choice": {
+            "action": "temper.action",
+            "arguments": [
+              "Projections",
+              "en-019d986a-e9e7-7143-96b5-79c0863e031e",
+              "ProbeStepDone",
+              {
+                "direction_id": "en-019d986e-0964-7293-9c4f-254b084563c4",
+                "probe_agent_id": "aj-019d986c-1b67-77c2-8370-31d9c8dc8232"
+              }
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.context\":\"$metadata#Projections/$entity\",\"booleans\":{},\"counters\":{},\"entity_id\":\"en-019d986a-e9e7-7143-96b5-79c0863e031e\",\"entity_type\":\"Projection\",\"events\":[{\"action\":\"Created\",\"from_status\":\"\",\"params\":{},\"timestamp\":\"2026-04-16T22:30:36.778099Z\",\"to_status\":\"Created\"},{\"action\":\"Configure\",\"from_status\":\"Created\",\"params\":{\"foresight_model_id\":\"en-019d92cd-41e7-7aa0-8436-e0532786bfcf\",\"horizon\":\"1 year\"},\"timestamp\":\"2026-04-16T22:30:36.814023Z\",\"to_status\":\"Created\"},{\"action\":\"St",
+            "success": true
+          },
+          "decision_id": "10",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 0,
+          "choice": {
+            "action": "temper.done",
+            "arguments": [
+              "Probe complete: en-019d986e-0964-7293-9c4f-254b084563c4"
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"done\":true}",
+            "success": true
+          },
+          "decision_id": "11",
+          "decision_type": "tool_selection"
+        }
+      ],
+      "span_id": "ss-019d986c-1b6e-7900-aed8-8b5b60d0aaff",
+      "timestamp": "2026-04-16T22:31:54.990921Z",
+      "turn_id": 1
+    }
+  ],
+  "version": "0.1.0"
+}

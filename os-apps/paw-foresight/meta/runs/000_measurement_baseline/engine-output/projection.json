@@ -1,0 +1,123 @@
+{
+    "entity_type": "Projection",
+    "entity_id": "en-019d986a-e9e7-7143-96b5-79c0863e031e",
+    "status": "Complete",
+    "item_count": 0,
+    "counters": {},
+    "booleans": {},
+    "lists": {},
+    "fields": {
+        "Id": "en-019d986a-e9e7-7143-96b5-79c0863e031e",
+        "Status": "Complete",
+        "foresight_model_id": "en-019d92cd-41e7-7aa0-8436-e0532786bfcf",
+        "horizon": "1 year",
+        "probe_agent_ids": "['aj-019d986c-1b4c-76b3-a864-df0cf5793ca6', 'aj-019d986c-1b5a-75a0-bf6c-096fad14ccba', 'aj-019d986c-1b67-77c2-8370-31d9c8dc8232']",
+        "direction_id": "en-019d986f-ad29-7f60-8041-273e79fd618e",
+        "probe_agent_id": "aj-019d986e-00ec-7bc2-975d-c4fbd572c821",
+        "projected_state_file_id": "fl-019d9871-e427-7001-898e-e3a58769d833"
+    },
+    "events": [
+        {
+            "action": "Created",
+            "from_status": "",
+            "to_status": "Created",
+            "timestamp": "2026-04-16T22:30:36.778099Z",
+            "params": {}
+        },
+        {
+            "action": "Configure",
+            "from_status": "Created",
+            "to_status": "Created",
+            "timestamp": "2026-04-16T22:30:36.814023Z",
+            "params": {
+                "foresight_model_id": "en-019d92cd-41e7-7aa0-8436-e0532786bfcf",
+                "horizon": "1 year"
+            }
+        },
+        {
+            "action": "Start",
+            "from_status": "Created",
+            "to_status": "Running",
+            "timestamp": "2026-04-16T22:30:36.826908Z",
+            "params": {}
+        },
+        {
+            "action": "ProbesReady",
+            "from_status": "Running",
+            "to_status": "Running",
+            "timestamp": "2026-04-16T22:31:54.996512Z",
+            "params": {
+                "probe_agent_ids": "['aj-019d986c-1b4c-76b3-a864-df0cf5793ca6', 'aj-019d986c-1b5a-75a0-bf6c-096fad14ccba', 'aj-019d986c-1b67-77c2-8370-31d9c8dc8232']"
+            }
+        },
+        {
+            "action": "ProbeStepDone",
+            "from_status": "Running",
+            "to_status": "Running",
+            "timestamp": "2026-04-16T22:33:00.495690Z",
+            "params": {
+                "direction_id": "en-019d986d-1b44-7e92-852f-92a129246559",
+                "probe_agent_id": "aj-019d986c-1b4c-76b3-a864-df0cf5793ca6"
+            }
+        },
+        {
+            "action": "ProbeStepDone",
+            "from_status": "Running",
+            "to_status": "Running",
+            "timestamp": "2026-04-16T22:33:04.043012Z",
+            "params": {
+                "direction_id": "en-019d986d-291e-7660-83e9-9a985c9a424e",
+                "probe_agent_id": "aj-019d986c-1b5a-75a0-bf6c-096fad14ccba"
+            }
+        },
+        {
+            "action": "ProbeStepDone",
+            "from_status": "Running",
+            "to_status": "Running",
+            "timestamp": "2026-04-16T22:34:01.464296Z",
+            "params": {
+                "direction_id": "en-019d986e-0964-7293-9c4f-254b084563c4",
+                "probe_agent_id": "aj-019d986c-1b67-77c2-8370-31d9c8dc8232"
+            }
+        },
+        {
+            "action": "ProbeStepDone",
+            "from_status": "Running",
+            "to_status": "Running",
+            "timestamp": "2026-04-16T22:35:48.914572Z",
+            "params": {
+                "direction_id": "en-019d986f-ad29-7f60-8041-273e79fd618e",
+                "probe_agent_id": "aj-019d986e-00ec-7bc2-975d-c4fbd572c821"
+            }
+        },
+        {
+            "action": "ConvergenceComplete",
+            "from_status": "Running",
+            "to_status": "Running",
+            "timestamp": "2026-04-16T22:38:14.010435Z",
+            "params": {}
+        },
+        {
+            "action": "ProjectionUpdated",
+            "from_status": "Running",
+            "to_status": "Running",
+            "timestamp": "2026-04-16T22:38:14.089237Z",
+            "params": {
+                "projected_state_file_id": "fl-019d9871-e427-7001-898e-e3a58769d833"
+            }
+        },
+        {
+            "action": "Complete",
+            "from_status": "Running",
+            "to_status": "Complete",
+            "timestamp": "2026-04-16T22:38:14.168532Z",
+            "params": {}
+        }
+    ],
+    "total_event_count": 11,
+    "sequence_nr": 11,
+    "@odata.context": "$metadata#Projections/$entity",
+    "@odata.id": "Projections('en-019d986a-e9e7-7143-96b5-79c0863e031e')",
+    "@odata.actions": [],
+    "@odata.children": {}
+}

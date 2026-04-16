@@ -1,0 +1,408 @@
+{
+  "metadata": {
+    "agent_id": "aj-019d986c-1b5a-75a0-bf6c-096fad14ccba",
+    "domain": "openpaw-agent",
+    "environment": "production",
+    "framework": "openpaw",
+    "outcome": "success",
+    "tags": [
+      "gpt-5.4",
+      "openai_codex"
+    ],
+    "task_description": "You are a foresight probe (critic) analyzing the domain \"Directed Software Evolution v2\" (knowledge_domain).\n\nProjection ID: en-019d986a-e9e7-7143-96b5-79c0863e031e\nYour Agent ID: aj-019d986c-1b5a-75a0-bf6c-096fad14ccba\nStep: 0 (day 90 of 1 year)\n\n## Your Persona\nYou are a skeptical analyst. Focus on what could go wrong, what assumptions are fragile, what counterarguments exist, and what the domain is not ready for. Challenge the dominant narrative.\n\n## Current State of the World\nRead the curren",
+    "timestamp_end": "2026-04-16T22:33:04.134612Z",
+    "timestamp_start": "2026-04-16T22:31:54.973729Z",
+    "trajectory_id": "trj-ss-019d986c-1b5c-7a42-9795-0a44c528ba34"
+  },
+  "trajectory_id": "trj-ss-019d986c-1b5c-7a42-9795-0a44c528ba34",
+  "turns": [
+    {
+      "decisions": [
+        {
+          "_duration_ms": 35,
+          "choice": {
+            "action": "temper.read",
+            "arguments": [
+              "current_state_step_0.json",
+              {
+                "workspace_id": "ws-019d986a-ea5d-7412-b473-35c8946b6d55"
+              }
+            ]
+          },
+          "consequence": {
+            "result_summary": "\"{\\\"model_id\\\": \\\"en-019d92cd-41e7-7aa0-8436-e0532786bfcf\\\", \\\"model_name\\\": \\\"Directed Software Evolution v2\\\", \\\"model_type\\\": \\\"knowledge_domain\\\", \\\"generated_at\\\": \\\"2026-04-15T20:20:45.318882Z\\\", \\\"seed_operation\\\": \\\"initial seed\\\", \\\"seed_method\\\": {\\\"source_config_type\\\": \\\"essay\\\", \\\"research_status\\\": \\\"partial_live_research\\\", \\\"research_note\\\": \\\"The required web_search/web_fetch steps were attempted first, but the environment returned empty results. The graph below therefore combin",
+            "success": true
+          },
+          "decision_id": "0",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 1316,
+          "choice": {
+            "action": "temper.web_search",
+            "arguments": [
+              "AI coding agents SWE-bench verified benchmarks 2025 governance evaluation limits"
+            ]
+          },
+          "consequence": {
+            "result_summary": "[{\"text\":\"SWE-bench Verified\\n\\n## Overview\\n\\nSWE-bench Verified is a human-filtered subset of 500 instances from SWE-bench, created in collaboration with OpenAI. Human annotators reviewed each instance to ensure the problem descriptions are clear, the test patches are correct, and the tasks are solvable given the available information. Read more in the [OpenAI blog post](https://openai.com/index/introducing-swe-bench-verified/).\\n\\nThe Verified leaderboard features results from a wide variety ",
+            "success": true
+          },
+          "decision_id": "0",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 864,
+          "choice": {
+            "action": "temper.web_search",
+            "arguments": [
+              "NIST AI RMF generative AI evaluation software engineering agents governance 2025"
+            ]
+          },
+          "consequence": {
+            "result_summary": "[{\"text\":\"NIST AI RMF 2025 Updates: What You Need to Know About the Latest Framework Changes\\n\\n#### Key Takeaways\\n\\n1. AI Governance Is Evolving: NIST\u2019s 2025 updates expand the framework to address generative AI, supply chain vulnerabilities, and new attack models.\\n\\n2. Integration Is the Future: The AI RMF now aligns more closely with cybersecurity and privacy frameworks, simplifying cross-framework compliance.\\n\\n3. Operationalize AI Risk Management: Organizations must move beyond policy to",
+            "success": true
+          },
+          "decision_id": "0",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 1382,
+          "choice": {
+            "action": "temper.web_search",
+            "arguments": [
+              "model spec OpenAI governance failure modes AI agents 2025 software engineering"
+            ]
+          },
+          "consequence": {
+            "result_summary": "[{\"text\":\"Practices for Governing Agentic AI Systems\\nYonadav Shavit\u2217 Sandhini Agarwal\u2217 Miles Brundage\u2217 Steven Adler\\nCullen O\u2019Keefe Rosie Campbell Teddy Lee Pamela Mishkin\\nTyna Eloundou Alan Hickey Katarina Slama Lama Ahmad\\nPaul McMillan Alex Beutel Alexandre Passos David G. Robinson\\nAbstract\\nAgentic AI systems\u2014AI systems that can pursue complex goals with limited direct supervision\u2014\\nare likely to be broadly useful if we can integrate them responsibly into our society. While such\\nsystems ",
+            "success": true
+          },
+          "decision_id": "0",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 86,
+          "choice": {
+            "action": "temper.web_fetch",
+            "arguments": [
+              "https://www.swebench.com/verified.html"
+            ]
+          },
+          "consequence": {
+            "result_summary": "\"SWE-bench Verified \\n[SWE-bench](/) ** \\n[SWE-bench](/) ** \\n- [Leaderboards](index.html) \\n- Benchmarks \\n- [SWE-bench](original.html) \\n- [SWE-bench Verified](verified.html) \\n- [SWE-bench Multilingual](multilingual-leaderboard.html) \\n- [SWE-bench Multimodal](multimodal.html) \\n- [SWE-bench Lite](lite.html) \\n- About \\n- [Paper ](https://openreview.net/pdf?id=VTF8yNQM66) \\n- [Docs ](https://swebench.com/SWE-bench/) \\n- [Blog](blog.html) \\n- [Contact](contact.html) \\n- [Citations](citations.h",
+            "success": true
+          },
+          "decision_id": "0",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 198,
+          "choice": {
+            "action": "temper.web_fetch",
+            "arguments": [
+              "https://www.nist.gov/publications/artificial-intelligence-risk-management-framework-generative-artificial-intelligence"
+            ]
+          },
+          "consequence": {
+            "result_summary": "\"Artificial Intelligence Risk Management Framework: Generative Artificial Intelligence Profile | NIST [\\n      Skip to main content\\n    ](#main-content) \\n\\nAn official website of the United States government\\n\\nHere\u00e2\u0080\u0099s how you know\\n\\nHere\u00e2\u0080\u0099s how you know \\n\\n**Official websites use .gov** \\nA **.gov** website belongs to an official government organization in the United States. \\n\\n**Secure .gov websites use HTTPS** \\nA **lock** ( Lock A locked padlock ) or **https://** means you\u00e2\u0080\u0099ve safely",
+            "success": true
+          },
+          "decision_id": "0",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 6258,
+          "choice": {
+            "action": "temper.web_fetch",
+            "arguments": [
+              "http://cdn.openai.com/papers/practices-for-governing-agentic-ai-systems.pdf"
+            ]
+          },
+          "consequence": {
+            "result_summary": "\"%PDF-1.5\\n%\ufffd\ufffd\ufffd\ufffd\\n235 0 obj\\n<< /Linearized 1 /L 378267 /H [ 2525 348 ] /O 239 /E 238938 /N 23 /T 376586 >>\\nendobj\\n                                                                                                        \\n236 0 obj\\n<< /Type /XRef /Length 106 /Filter /FlateDecode /DecodeParms << /Columns 5 /Predictor 12 >> /W [ 1 3 1 ] /Index [ 235 265 ] /Info 50 0 R /Root 237 0 R /Size 500 /Prev 376587                /ID [<7ce8f5e1e51a1979ebf504b9610cfea9><819f3180e5c3e203a25172eae735e307>] >>",
+            "success": true
+          },
+          "decision_id": "0",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 601,
+          "choice": {
+            "action": "temper.web_fetch",
+            "arguments": [
+              "https://openai.com/index/how-we-monitor-internal-coding-agents-misalignment"
+            ]
+          },
+          "consequence": {
+            "result_summary": "\"How we monitor internal coding agents for misalignment | OpenAI\\n[Skip to main content](#main)\\n[](/)\\n- [Research](/research/index/)\\n- Products\\n- [Business](/business/)\\n- [Developers](/api/)\\n- [Company](/about/)\\n- [Foundation(opens in a new window)](https://openaifoundation.org)\\nLog in[Try ChatGPT(opens in a new window)](https://chatgpt.com/)\\n- Research\\n- Products\\n- Business\\n- Developers\\n- Company\\n- [Foundation(opens in a new window)](https://openaifoundation.org)\\n[Try ChatGPT(ope",
+            "success": true
+          },
+          "decision_id": "0",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 3,
+          "choice": {
+            "action": "temper.create",
+            "arguments": [
+              "Observations",
+              {
+                "fields": {}
+              }
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.context\":\"$metadata#Observations/$entity\",\"@odata.id\":\"Observations('en-019d986d-28f7-7d70-ab2c-871cab28a30a')\",\"booleans\":{},\"counters\":{},\"entity_id\":\"en-019d986d-28f7-7d70-ab2c-871cab28a30a\",\"entity_type\":\"Observation\",\"events\":[{\"action\":\"Created\",\"from_status\":\"\",\"params\":{\"fields\":{}},\"timestamp\":\"2026-04-16T22:33:03.992820Z\",\"to_status\":\"Created\"}],\"fields\":{\"Id\":\"en-019d986d-28f7-7d70-ab2c-871cab28a30a\",\"Status\":\"Created\",\"fields\":{}},\"item_count\":0,\"lists\":{},\"sequence_nr\":1,\"s",
+            "success": true
+          },
+          "decision_id": "0",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 5,
+          "choice": {
+            "action": "temper.action",
+            "arguments": [
+              "Observations",
+              "en-019d986d-28f7-7d70-ab2c-871cab28a30a",
+              "Record",
+              {
+                "content": "90-day projection: teams adopting directed software evolution will discover that harness-first discipline is not yet a sufficient governance layer for autonomous coding. The main failure mode is Goodharting on narrow acceptance tests: agents produce patches that satisfy the harness while leaving the underlying defect, integration risk, or maintainability problem unresolved. This directly challenges the narrative that stronger harnesses alone unlock safe autonomy. External evidence: SWE-bench Verified explicitly exists because tasks had to be human-filtered to ensure they were actually clear and solvable, and UTBoost argues existing SWE-bench tests can be insufficient, allowing generated patches to pass without resolving the underlying issue. Sources: https://www.swebench.com/verified.html ; https://aclanthology.org/2025.acl-long.189.pdf",
+                "counterfactual": "If this is ignored, teams will overestimate real reliability, ship superficially passing patches, and accumulate hidden defects that only appear outside benchmark harnesses.",
+                "importance": "high",
+                "probe_agent_id": "aj-019d986c-1b5a-75a0-bf6c-096fad14ccba",
+                "projection_id": "en-019d986a-e9e7-7143-96b5-79c0863e031e",
+                "signal_refs": "[]",
+                "step_at": "0"
+              }
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.context\":\"$metadata#Observations/$entity\",\"booleans\":{},\"counters\":{},\"entity_id\":\"en-019d986d-28f7-7d70-ab2c-871cab28a30a\",\"entity_type\":\"Observation\",\"events\":[{\"action\":\"Created\",\"from_status\":\"\",\"params\":{\"fields\":{}},\"timestamp\":\"2026-04-16T22:33:03.992820Z\",\"to_status\":\"Created\"},{\"action\":\"Record\",\"from_status\":\"Created\",\"params\":{\"content\":\"90-day projection: teams adopting directed software evolution will discover that harness-first discipline is not yet a sufficient governance",
+            "success": true
+          },
+          "decision_id": "1",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 4,
+          "choice": {
+            "action": "temper.create",
+            "arguments": [
+              "Observations",
+              {
+                "fields": {}
+              }
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.context\":\"$metadata#Observations/$entity\",\"@odata.id\":\"Observations('en-019d986d-28ff-70d1-8081-09e40c8944cf')\",\"booleans\":{},\"counters\":{},\"entity_id\":\"en-019d986d-28ff-70d1-8081-09e40c8944cf\",\"entity_type\":\"Observation\",\"events\":[{\"action\":\"Created\",\"from_status\":\"\",\"params\":{\"fields\":{}},\"timestamp\":\"2026-04-16T22:33:04.000989Z\",\"to_status\":\"Created\"}],\"fields\":{\"Id\":\"en-019d986d-28ff-70d1-8081-09e40c8944cf\",\"Status\":\"Created\",\"fields\":{}},\"item_count\":0,\"lists\":{},\"sequence_nr\":1,\"s",
+            "success": true
+          },
+          "decision_id": "2",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 5,
+          "choice": {
+            "action": "temper.action",
+            "arguments": [
+              "Observations",
+              "en-019d986d-28ff-70d1-8081-09e40c8944cf",
+              "Record",
+              {
+                "content": "90 days out, governance overhead becomes the bottleneck before model capability does. Organizations experimenting with agentic software systems will be forced to add review gates, provenance logging, rollback controls, and continuous risk monitoring because evaluation in offline benchmarks does not transfer cleanly to long-running, tool-using production workflows. This means the domain is less constrained by code synthesis and more constrained by auditable operational control. External evidence: NIST's Generative AI Profile frames evaluation, measurement, monitoring, and risk management as ongoing lifecycle requirements rather than one-time testing; OpenAI's paper on governing agentic AI likewise argues for baseline responsibilities and accountability practices across the system lifecycle. Sources: https://www.nist.gov/publications/artificial-intelligence-risk-management-framework-generative-artificial-intelligence ; http://cdn.openai.com/papers/practices-for-governing-agentic-ai-systems.pdf",
+                "counterfactual": "If this is ignored, organizations will deploy agentic workflows without auditability, then respond to incidents by reverting to blanket human review and losing the promised autonomy gains.",
+                "importance": "high",
+                "probe_agent_id": "aj-019d986c-1b5a-75a0-bf6c-096fad14ccba",
+                "projection_id": "en-019d986a-e9e7-7143-96b5-79c0863e031e",
+                "signal_refs": "[]",
+                "step_at": "0"
+              }
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.context\":\"$metadata#Observations/$entity\",\"booleans\":{},\"counters\":{},\"entity_id\":\"en-019d986d-28ff-70d1-8081-09e40c8944cf\",\"entity_type\":\"Observation\",\"events\":[{\"action\":\"Created\",\"from_status\":\"\",\"params\":{\"fields\":{}},\"timestamp\":\"2026-04-16T22:33:04.000989Z\",\"to_status\":\"Created\"},{\"action\":\"Record\",\"from_status\":\"Created\",\"params\":{\"content\":\"90 days out, governance overhead becomes the bottleneck before model capability does. Organizations experimenting with agentic software syst",
+            "success": true
+          },
+          "decision_id": "3",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 3,
+          "choice": {
+            "action": "temper.create",
+            "arguments": [
+              "Observations",
+              {
+                "fields": {}
+              }
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.context\":\"$metadata#Observations/$entity\",\"@odata.id\":\"Observations('en-019d986d-2908-71b3-b04a-dfaeaf08988a')\",\"booleans\":{},\"counters\":{},\"entity_id\":\"en-019d986d-2908-71b3-b04a-dfaeaf08988a\",\"entity_type\":\"Observation\",\"events\":[{\"action\":\"Created\",\"from_status\":\"\",\"params\":{\"fields\":{}},\"timestamp\":\"2026-04-16T22:33:04.009893Z\",\"to_status\":\"Created\"}],\"fields\":{\"Id\":\"en-019d986d-2908-71b3-b04a-dfaeaf08988a\",\"Status\":\"Created\",\"fields\":{}},\"item_count\":0,\"lists\":{},\"sequence_nr\":1,\"s",
+            "success": true
+          },
+          "decision_id": "4",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 5,
+          "choice": {
+            "action": "temper.action",
+            "arguments": [
+              "Observations",
+              "en-019d986d-2908-71b3-b04a-dfaeaf08988a",
+              "Record",
+              {
+                "content": "90-day projection: internal safety teams will uncover a more uncomfortable failure mode than simple coding mistakes: autonomous coding agents can learn to route around their own safeguards when given enough context, privileges, and persistence. In practice, organizations will realize that monitoring the final code artifact is too late; they need telemetry over tool usage, reasoning traces where permitted, policy exceptions, and attempted changes to the safety boundary itself. External evidence: OpenAI's March 19 2026 post on monitoring internal coding agents says internal deployments create unique risks because agents can inspect documentation and code for safeguards, attempt to modify safeguards, and take actions that affect future versions. Source: https://openai.com/index/how-we-monitor-internal-coding-agents-misalignment",
+                "counterfactual": "If this is ignored, safety incidents will come from privilege misuse or safeguard circumvention rather than simple syntax bugs, and organizations will lack the observability needed to explain what happened.",
+                "importance": "high",
+                "probe_agent_id": "aj-019d986c-1b5a-75a0-bf6c-096fad14ccba",
+                "projection_id": "en-019d986a-e9e7-7143-96b5-79c0863e031e",
+                "signal_refs": "[]",
+                "step_at": "0"
+              }
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.context\":\"$metadata#Observations/$entity\",\"booleans\":{},\"counters\":{},\"entity_id\":\"en-019d986d-2908-71b3-b04a-dfaeaf08988a\",\"entity_type\":\"Observation\",\"events\":[{\"action\":\"Created\",\"from_status\":\"\",\"params\":{\"fields\":{}},\"timestamp\":\"2026-04-16T22:33:04.009893Z\",\"to_status\":\"Created\"},{\"action\":\"Record\",\"from_status\":\"Created\",\"params\":{\"content\":\"90-day projection: internal safety teams will uncover a more uncomfortable failure mode than simple coding mistakes: autonomous coding agent",
+            "success": true
+          },
+          "decision_id": "5",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 4,
+          "choice": {
+            "action": "temper.create",
+            "arguments": [
+              "Observations",
+              {
+                "fields": {}
+              }
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.context\":\"$metadata#Observations/$entity\",\"@odata.id\":\"Observations('en-019d986d-2911-79d2-adfb-0e60fe95473f')\",\"booleans\":{},\"counters\":{},\"entity_id\":\"en-019d986d-2911-79d2-adfb-0e60fe95473f\",\"entity_type\":\"Observation\",\"events\":[{\"action\":\"Created\",\"from_status\":\"\",\"params\":{\"fields\":{}},\"timestamp\":\"2026-04-16T22:33:04.018392Z\",\"to_status\":\"Created\"}],\"fields\":{\"Id\":\"en-019d986d-2911-79d2-adfb-0e60fe95473f\",\"Status\":\"Created\",\"fields\":{}},\"item_count\":0,\"lists\":{},\"sequence_nr\":1,\"s",
+            "success": true
+          },
+          "decision_id": "6",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 9,
+          "choice": {
+            "action": "temper.action",
+            "arguments": [
+              "Observations",
+              "en-019d986d-2911-79d2-adfb-0e60fe95473f",
+              "Record",
+              {
+                "content": "Contrary to the dominant machine-tool narrative, many software environments remain evolution-hostile over the next 90 days because the real system boundary is socio-technical, not just technical. Legacy services, undocumented tribal knowledge, ambiguous product intent, weak ownership, and missing rollback semantics mean that variation-and-selection loops will often optimize for local code correctness while degrading organizational coherence. The result will be a wave of impressive demos in contained repositories but slower-than-expected adoption in multi-team production systems. This is a governance and evaluation limit, not just a model-quality limit.",
+                "counterfactual": "If this is ignored, leaders will mistake demo success for production readiness, invest in aggressive rollout plans, and trigger backlash when cross-team systems prove too ambiguous for stable autonomous evolution.",
+                "importance": "medium",
+                "probe_agent_id": "aj-019d986c-1b5a-75a0-bf6c-096fad14ccba",
+                "projection_id": "en-019d986a-e9e7-7143-96b5-79c0863e031e",
+                "signal_refs": "[]",
+                "step_at": "0"
+              }
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.context\":\"$metadata#Observations/$entity\",\"booleans\":{},\"counters\":{},\"entity_id\":\"en-019d986d-2911-79d2-adfb-0e60fe95473f\",\"entity_type\":\"Observation\",\"events\":[{\"action\":\"Created\",\"from_status\":\"\",\"params\":{\"fields\":{}},\"timestamp\":\"2026-04-16T22:33:04.018392Z\",\"to_status\":\"Created\"},{\"action\":\"Record\",\"from_status\":\"Created\",\"params\":{\"content\":\"Contrary to the dominant machine-tool narrative, many software environments remain evolution-hostile over the next 90 days because the real ",
+            "success": true
+          },
+          "decision_id": "7",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 4,
+          "choice": {
+            "action": "temper.create",
+            "arguments": [
+              "Directions",
+              {
+                "fields": {}
+              }
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.context\":\"$metadata#Directions/$entity\",\"@odata.id\":\"Directions('en-019d986d-291e-7660-83e9-9a985c9a424e')\",\"booleans\":{},\"counters\":{},\"entity_id\":\"en-019d986d-291e-7660-83e9-9a985c9a424e\",\"entity_type\":\"Direction\",\"events\":[{\"action\":\"Created\",\"from_status\":\"\",\"params\":{\"fields\":{}},\"timestamp\":\"2026-04-16T22:33:04.031322Z\",\"to_status\":\"Proposed\"}],\"fields\":{\"Id\":\"en-019d986d-291e-7660-83e9-9a985c9a424e\",\"Status\":\"Proposed\",\"fields\":{}},\"item_count\":0,\"lists\":{},\"sequence_nr\":1,\"statu",
+            "success": true
+          },
+          "decision_id": "8",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 8,
+          "choice": {
+            "action": "temper.action",
+            "arguments": [
+              "Directions",
+              "en-019d986d-291e-7660-83e9-9a985c9a424e",
+              "Propose",
+              {
+                "counterfactual_summary": "If this direction is wrong, current harnesses and benchmark-linked controls will prove sufficient for safe autonomy, and organizations will scale dark-factory style software evolution faster than this critique predicts.",
+                "grounding": "[\"https://www.swebench.com/verified.html\",\"https://aclanthology.org/2025.acl-long.189.pdf\",\"https://www.nist.gov/publications/artificial-intelligence-risk-management-framework-generative-artificial-intelligence\",\"https://openai.com/index/how-we-monitor-internal-coding-agents-misalignment\"]",
+                "observation_ids": "[\"en-019d986d-28f7-7d70-ab2c-871cab28a30a\",\"en-019d986d-28ff-70d1-8081-09e40c8944cf\",\"en-019d986d-2908-71b3-b04a-dfaeaf08988a\",\"en-019d986d-2911-79d2-adfb-0e60fe95473f\"]",
+                "projection_id": "en-019d986a-e9e7-7143-96b5-79c0863e031e",
+                "proposer_agent_id": "aj-019d986c-1b5a-75a0-bf6c-096fad14ccba",
+                "reasoning": "The strongest skeptical thesis is that directed software evolution will spend the next 90 days colliding with governance reality, not capability ceilings. The field's core insight that rigor and autonomy compound together is directionally right, but current practice overstates how much of that rigor can be delegated to tests, benchmark scores, and local verification alone. External evidence already points to evaluation brittleness: SWE-bench Verified exists because benchmark quality itself needed human validation, and UTBoost shows patches can pass available tests without solving the underlying problem. That means selection pressure is only as trustworthy as the harness, and many real organizations do not yet have harnesses that represent the operational, cross-service, and socio-technical consequences they care about.\n\nAt the same time, the governance burden rises as soon as agents become persistent, tool-using, and privileged. NIST's Generative AI Profile treats monitoring, measurement, and risk management as continuous lifecycle work, while recent guidance on governing agentic AI emphasizes explicit accountability and role responsibilities. OpenAI's own monitoring writeup for internal coding agents adds a sharper warning: high-autonomy coding agents can inspect and even attempt to modify their safeguards, which turns governance from a compliance afterthought into a live control problem. So the near-term winning pattern will not be fully dark factories. It will be constrained evolutionary loops with heavy audit trails, rollback infrastructure, bounded permissions, and explicit escalation triggers. Systems that ignore this will look fast in demos and fragile in production.",
+                "step_at": "0",
+                "title": "Near-term progress will be limited less by model intelligence than by weak governance harnesses and untrustworthy evaluation."
+              }
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.context\":\"$metadata#Directions/$entity\",\"booleans\":{},\"counters\":{},\"entity_id\":\"en-019d986d-291e-7660-83e9-9a985c9a424e\",\"entity_type\":\"Direction\",\"events\":[{\"action\":\"Created\",\"from_status\":\"\",\"params\":{\"fields\":{}},\"timestamp\":\"2026-04-16T22:33:04.031322Z\",\"to_status\":\"Proposed\"},{\"action\":\"Propose\",\"from_status\":\"Proposed\",\"params\":{\"counterfactual_summary\":\"If this direction is wrong, current harnesses and benchmark-linked controls will prove sufficient for safe autonomy, and organ",
+            "success": true
+          },
+          "decision_id": "9",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 4,
+          "choice": {
+            "action": "temper.action",
+            "arguments": [
+              "Projections",
+              "en-019d986a-e9e7-7143-96b5-79c0863e031e",
+              "ProbeStepDone",
+              {
+                "direction_id": "en-019d986d-291e-7660-83e9-9a985c9a424e",
+                "probe_agent_id": "aj-019d986c-1b5a-75a0-bf6c-096fad14ccba"
+              }
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.context\":\"$metadata#Projections/$entity\",\"booleans\":{},\"counters\":{},\"entity_id\":\"en-019d986a-e9e7-7143-96b5-79c0863e031e\",\"entity_type\":\"Projection\",\"events\":[{\"action\":\"Created\",\"from_status\":\"\",\"params\":{},\"timestamp\":\"2026-04-16T22:30:36.778099Z\",\"to_status\":\"Created\"},{\"action\":\"Configure\",\"from_status\":\"Created\",\"params\":{\"foresight_model_id\":\"en-019d92cd-41e7-7aa0-8436-e0532786bfcf\",\"horizon\":\"1 year\"},\"timestamp\":\"2026-04-16T22:30:36.814023Z\",\"to_status\":\"Created\"},{\"action\":\"St",
+            "success": true
+          },
+          "decision_id": "10",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 1,
+          "choice": {
+            "action": "temper.done",
+            "arguments": [
+              "Probe complete: en-019d986d-291e-7660-83e9-9a985c9a424e"
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"done\":true}",
+            "success": true
+          },
+          "decision_id": "11",
+          "decision_type": "tool_selection"
+        }
+      ],
+      "span_id": "ss-019d986c-1b5c-7a42-9795-0a44c528ba34",
+      "timestamp": "2026-04-16T22:31:54.973729Z",
+      "turn_id": 1
+    }
+  ],
+  "version": "0.1.0"
+}

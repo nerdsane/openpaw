@@ -1,0 +1,454 @@
+{
+  "metadata": {
+    "agent_id": "aj-019d986e-00ec-7bc2-975d-c4fbd572c821",
+    "domain": "openpaw-agent",
+    "environment": "production",
+    "framework": "openpaw",
+    "outcome": "success",
+    "tags": [
+      "gpt-5.4",
+      "openai_codex"
+    ],
+    "task_description": "You are a foresight probe (adjacent-domain) analyzing the domain \"Directed Software Evolution v2\" (knowledge_domain).\n\nProjection ID: en-019d986a-e9e7-7143-96b5-79c0863e031e\nYour Agent ID: aj-019d986e-00ec-7bc2-975d-c4fbd572c821\nStep: 0 (day 90 of 1 year)\n\n## Your Persona\nYou are an observer from adjacent fields including economics, biology, industrial organization, and organizational theory. Focus on selection dynamics, coordination costs, fitness landscapes, and institutional bottlenecks that ",
+    "timestamp_end": "2026-04-16T22:35:49.003378Z",
+    "timestamp_start": "2026-04-16T22:33:59.282550Z",
+    "trajectory_id": "trj-ss-019d986e-00f1-7d10-adb4-6d05ebeba663"
+  },
+  "trajectory_id": "trj-ss-019d986e-00f1-7d10-adb4-6d05ebeba663",
+  "turns": [
+    {
+      "decisions": [
+        {
+          "_duration_ms": 32,
+          "choice": {
+            "action": "temper.read",
+            "arguments": [
+              "current_state_step_0_retry_adjacent.json",
+              {
+                "workspace_id": "ws-019d986a-ea5d-7412-b473-35c8946b6d55"
+              }
+            ]
+          },
+          "consequence": {
+            "result_summary": "\"{\\\"model_id\\\": \\\"en-019d92cd-41e7-7aa0-8436-e0532786bfcf\\\", \\\"model_name\\\": \\\"Directed Software Evolution v2\\\", \\\"model_type\\\": \\\"knowledge_domain\\\", \\\"generated_at\\\": \\\"2026-04-15T20:20:45.318882Z\\\", \\\"seed_operation\\\": \\\"initial seed\\\", \\\"seed_method\\\": {\\\"source_config_type\\\": \\\"essay\\\", \\\"research_status\\\": \\\"partial_live_research\\\", \\\"research_note\\\": \\\"The required web_search/web_fetch steps were attempted first, but the environment returned empty results. The graph below therefore combin",
+            "success": true
+          },
+          "decision_id": "0",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 1095,
+          "choice": {
+            "action": "temper.web_search",
+            "arguments": [
+              "AI coding agents software engineering benchmarks SWE-bench OpenAI Anthropic Cursor enterprise adoption 2025"
+            ]
+          },
+          "consequence": {
+            "result_summary": "[{\"text\":\"SWE-Bench Pro: AI on Software Engineering Tasks | Scale Labs\\n\\nSWE-Bench Pro: AI on Software Engineering Tasks | Scale Labs\\n[![Scale Labs](https://static.scale.com/uploads/6019a18f03a4ae003acb1113/logo-scale-labs.svg)](https://scale.com/)\\n\u2318K\\n[BACK](https://scale.com/papers)\\nAgentsSafety, Evaluation and Alignment9/19/2025\\n# SWE-Bench Pro: Can AI Agents Solve Long-Horizon Software Engineering Tasks?\\n[Xiang Deng](https://scale.com/people/xiang-deng), [Jeff Da](https://scale.com/peo",
+            "success": true
+          },
+          "decision_id": "1",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 951,
+          "choice": {
+            "action": "temper.web_search",
+            "arguments": [
+              "Model Context Protocol MCP standard adoption Anthropic OpenAI Microsoft 2025"
+            ]
+          },
+          "consequence": {
+            "result_summary": "[{\"text\":\"OpenAI adopts rival Anthropic's standard for connecting AI models to data | TechCrunch\\n\\n\u2013:\u2013:\u2013:\u2013\\n\\nThe first StrictlyVC of 2026 hits San Francisco. Tickets are going fast. [Register now.](https://techcrunch.com/events/strictlyvc-san-francisco-2026/?utm_source=tc&utm_medium=ad&utm_campaign=svcsf2026&utm_content=ticketsales&promo=topbanner&display=)\\n\\nSave up to $680 on your Disrupt 2026 pass. Ends 11:59 p.m. PT tonight. [REGISTER NOW](https://techcrunch.com/events/tc-disrupt-2026/?ut",
+            "success": true
+          },
+          "decision_id": "2",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 9633,
+          "choice": {
+            "action": "temper.web_fetch",
+            "arguments": [
+              "https://anthropic.com/research/swe-bench-sonnet"
+            ]
+          },
+          "consequence": {
+            "result_summary": "\"[Skip to main content](#main-content)[Skip to footer](#footer)\\n[](/)\\n- [Research](/research)\\n- [Economic Futures](/economic-futures)\\n- Commitments\\n- Learn\\n- [News](/news)\\n[Try Claude](https://claude.ai/)\\n[Engineering at Anthropic](/engineering)\\n# Raising the bar on SWE-bench Verified with Claude 3.5 Sonnet\\n\\nPublished Jan 06, 2025\\n\\nSWE-bench is an AI evaluation benchmark that assesses a model's ability to complete real-world software engineering tasks.\\n\\n*Our latest model, the upgr",
+            "success": true
+          },
+          "decision_id": "0",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 770,
+          "choice": {
+            "action": "temper.web_fetch",
+            "arguments": [
+              "https://techcrunch.com/2025/03/26/openai-adopts-rival-anthropics-standard-for-connecting-ai-models-to-data/"
+            ]
+          },
+          "consequence": {
+            "result_summary": "\"OpenAI adopts rival Anthropic's standard for connecting AI models to data | TechCrunch \\n\u00e2\u0080\u0093:\u00e2\u0080\u0093:\u00e2\u0080\u0093:\u00e2\u0080\u0093 \\n\\nThe first StrictlyVC of 2026 hits San Francisco. Tickets are going fast. [Register now.](https://techcrunch.com/events/strictlyvc-san-francisco-2026/?utm_source=tc&amp;utm_medium=ad&amp;utm_campaign=svcsf2026&amp;utm_content=ticketsales&amp;promo=topbanner&amp;display=)\\n\\nSave up to $680 on your Disrupt 2026 pass. Ends 11:59 p.m. PT tonight. [REGISTER NOW](https://techcrunch.com/events/",
+            "success": true
+          },
+          "decision_id": "1",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 460,
+          "choice": {
+            "action": "temper.web_fetch",
+            "arguments": [
+              "https://developer.microsoft.com/blog/microsoft-partners-with-anthropic-to-create-official-c-sdk-for-model-context-protocol"
+            ]
+          },
+          "consequence": {
+            "result_summary": "\"Microsoft partners with Anthropic to create official C# SDK for Model Context Protocol - Microsoft for Developers \\n[Skip to main content](javascript:void(0)) \\n[\\n                        \\n                        Microsoft\\n                    ](https://www.microsoft.com) \\nDev Blogs \\n[\\n                                Dev Blogs\\n                        ](https://devblogs.microsoft.com) \\nDev Blogs \\n- [ Home ](https://devblogs.microsoft.com) \\n- \\nDeveloper \\n  - [Microsoft for Developers](h",
+            "success": true
+          },
+          "decision_id": "2",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 936,
+          "choice": {
+            "action": "temper.web_search",
+            "arguments": [
+              "GitHub Copilot enterprise adoption developer productivity research 2025"
+            ]
+          },
+          "consequence": {
+            "result_summary": "[{\"text\":\"Accelerating Developer Productivity With GitHub Copilot Enterprise \u2013 Concurrency Accelerating Developer Productivity With GitHub Copilot Enterprise \u2013 Concurrency\\n\\n## Critical Issue\\n\\nThe organization planned to roll out GitHub Copilot Enterprise but lacked a clear framework to drive consistent, responsible adoption. Without structured enablement, there was a risk of low usage, unclear value, and misalignment with enterprise development standards. Leadership needed confidence that Co",
+            "success": true
+          },
+          "decision_id": "0",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 1068,
+          "choice": {
+            "action": "temper.web_search",
+            "arguments": [
+              "OpenAI Codex software engineering agent launch 2025 enterprise code review testing"
+            ]
+          },
+          "consequence": {
+            "result_summary": "[{\"text\":\"OpenAI launches Codex, an AI coding agent, in ChatGPT | TechCrunch\\n\\n\u2013:\u2013:\u2013:\u2013\\n\\nThe first StrictlyVC of 2026 hits San Francisco. Tickets are going fast. [Register now.](https://techcrunch.com/events/strictlyvc-san-francisco-2026/?utm_source=tc&utm_medium=ad&utm_campaign=svcsf2026&utm_content=ticketsales&promo=topbanner&display=)\\n\\nSave up to $680 on your Disrupt 2026 pass. Ends 11:59 p.m. PT tonight. [REGISTER NOW](https://techcrunch.com/events/tc-disrupt-2026/?utm_source=tc&utm_medi",
+            "success": true
+          },
+          "decision_id": "1",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 1037,
+          "choice": {
+            "action": "temper.web_fetch",
+            "arguments": [
+              "https://github.blog/2024-05-13-research-quantifying-github-copilots-impact-in-the-enterprise-with-accenture/"
+            ]
+          },
+          "consequence": {
+            "result_summary": "\"Research: Quantifying GitHub Copilot\u00e2\u0080\u0099s impact in the enterprise with Accenture - The GitHub Blog \\n[\\n\\t\\t\\t\\tSkip to content\\t\\t\\t](#start-of-content) [\\n\\t\\t\\t\\t\\tSkip to sidebar\\t\\t\\t\\t](#sidebar) \\n[\\n\\t\\n](https://github.com) / [\\n\\tBlog](https://github.blog/) \\n- [Changelog](https://github.blog/changelog/) \\n- [Docs](https://docs.github.com/) \\n- [Customer stories](https://github.com/customer-stories) \\nTry GitHub Copilot See what's new \\n- [AI & ML](https://github.blog/ai-and-ml/) \\n  ",
+            "success": true
+          },
+          "decision_id": "0",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 234,
+          "choice": {
+            "action": "temper.web_fetch",
+            "arguments": [
+              "https://openai.com/blog/introducing-codex/"
+            ]
+          },
+          "consequence": {
+            "error_type": "tool_error",
+            "result_summary": "web_fetch: web_fetch: HTTP 403 from https://openai.com/blog/introducing-codex/: <!DOCTYPE html><html lang=\"en-US\"><head><title>Just a moment...</title><meta http-equiv=\"Content-Type\" content=\"text/html; charset=UTF-8\"><meta http-equiv=\"X-UA-Compatible\" content=\"IE=Edge\"><meta name=\"robots\" content=\"noindex,nofollow\"><meta name=\"viewport\" content=\"width=device-width,initial-scal",
+            "success": false
+          },
+          "decision_id": "1",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 1136,
+          "choice": {
+            "action": "temper.web_fetch",
+            "arguments": [
+              "https://github.blog/2024-05-13-research-quantifying-github-copilots-impact-in-the-enterprise-with-accenture/"
+            ]
+          },
+          "consequence": {
+            "result_summary": "\"Research: Quantifying GitHub Copilot\u00e2\u0080\u0099s impact in the enterprise with Accenture - The GitHub Blog \\n[\\n\\t\\t\\t\\tSkip to content\\t\\t\\t](#start-of-content) [\\n\\t\\t\\t\\t\\tSkip to sidebar\\t\\t\\t\\t](#sidebar) \\n[\\n\\t\\n](https://github.com) / [\\n\\tBlog](https://github.blog/) \\n- [Changelog](https://github.blog/changelog/) \\n- [Docs](https://docs.github.com/) \\n- [Customer stories](https://github.com/customer-stories) \\nTry GitHub Copilot See what's new \\n- [AI & ML](https://github.blog/ai-and-ml/) \\n  ",
+            "success": true
+          },
+          "decision_id": "0",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 4,
+          "choice": {
+            "action": "temper.create",
+            "arguments": [
+              "Observations",
+              {
+                "fields": {}
+              }
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.context\":\"$metadata#Observations/$entity\",\"@odata.id\":\"Observations('en-019d986f-ad04-75e0-9241-f200dda6b886')\",\"booleans\":{},\"counters\":{},\"entity_id\":\"en-019d986f-ad04-75e0-9241-f200dda6b886\",\"entity_type\":\"Observation\",\"events\":[{\"action\":\"Created\",\"from_status\":\"\",\"params\":{\"fields\":{}},\"timestamp\":\"2026-04-16T22:35:48.871089Z\",\"to_status\":\"Created\"}],\"fields\":{\"Id\":\"en-019d986f-ad04-75e0-9241-f200dda6b886\",\"Status\":\"Created\",\"fields\":{}},\"item_count\":0,\"lists\":{},\"sequence_nr\":1,\"s",
+            "success": true
+          },
+          "decision_id": "0",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 5,
+          "choice": {
+            "action": "temper.action",
+            "arguments": [
+              "Observations",
+              "en-019d986f-ad04-75e0-9241-f200dda6b886",
+              "Record",
+              {
+                "content": "Within 90 days, selection pressure in directed software evolution will shift away from model branding and toward harness design plus workflow scaffolding. Anthropic's Jan 6, 2025 SWE-bench Verified note explicitly says the benchmark measures an entire agent system, not the base model alone, and reports Claude 3.5 Sonnet at 49% with substantial gains attributed to the surrounding agent loop and prompt scaffolding (https://anthropic.com/research/swe-bench-sonnet). In evolutionary terms, the dominant fitness determinant is no longer only generative capacity; it is the quality of the selection environment: repo-specific tests, patch application loops, failure recovery, and cost-aware search. Over the next quarter, teams using Directed Software Evolution-style systems will increasingly compete on the quality of their evaluation harnesses and archives rather than on raw access to frontier models.",
+                "counterfactual": "If teams ignore this and keep optimizing primarily for model swaps, they will underinvest in the actual selective environment, causing noisy regressions, poor reproducibility, and weak cumulative learning.",
+                "importance": "high",
+                "probe_agent_id": "aj-019d986e-00ec-7bc2-975d-c4fbd572c821",
+                "projection_id": "en-019d986a-e9e7-7143-96b5-79c0863e031e",
+                "signal_refs": "[]",
+                "step_at": "0"
+              }
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.context\":\"$metadata#Observations/$entity\",\"booleans\":{},\"counters\":{},\"entity_id\":\"en-019d986f-ad04-75e0-9241-f200dda6b886\",\"entity_type\":\"Observation\",\"events\":[{\"action\":\"Created\",\"from_status\":\"\",\"params\":{\"fields\":{}},\"timestamp\":\"2026-04-16T22:35:48.871089Z\",\"to_status\":\"Created\"},{\"action\":\"Record\",\"from_status\":\"Created\",\"params\":{\"content\":\"Within 90 days, selection pressure in directed software evolution will shift away from model branding and toward harness design plus workflo",
+            "success": true
+          },
+          "decision_id": "1",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 3,
+          "choice": {
+            "action": "temper.create",
+            "arguments": [
+              "Observations",
+              {
+                "fields": {}
+              }
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.context\":\"$metadata#Observations/$entity\",\"@odata.id\":\"Observations('en-019d986f-ad0f-7993-8997-9dc293fc85b7')\",\"booleans\":{},\"counters\":{},\"entity_id\":\"en-019d986f-ad0f-7993-8997-9dc293fc85b7\",\"entity_type\":\"Observation\",\"events\":[{\"action\":\"Created\",\"from_status\":\"\",\"params\":{\"fields\":{}},\"timestamp\":\"2026-04-16T22:35:48.880704Z\",\"to_status\":\"Created\"}],\"fields\":{\"Id\":\"en-019d986f-ad0f-7993-8997-9dc293fc85b7\",\"Status\":\"Created\",\"fields\":{}},\"item_count\":0,\"lists\":{},\"sequence_nr\":1,\"s",
+            "success": true
+          },
+          "decision_id": "2",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 5,
+          "choice": {
+            "action": "temper.action",
+            "arguments": [
+              "Observations",
+              "en-019d986f-ad0f-7993-8997-9dc293fc85b7",
+              "Record",
+              {
+                "content": "A standards-formation dynamic is beginning to reduce coordination costs between model providers, tools, and enterprise systems. TechCrunch reported on Mar. 26, 2025 that OpenAI adopted Anthropic's Model Context Protocol for connecting models to data (https://techcrunch.com/2025/03/26/openai-adopts-rival-anthropics-standard-for-connecting-ai-models-to-data/), and Microsoft separately announced partnership work on an official C# SDK for MCP (https://developer.microsoft.com/blog/microsoft-partners-with-anthropic-to-create-official-c-sdk-for-model-context-protocol). Over the next 90 days, this kind of standardization will matter more than practitioners expect: once context exchange becomes legible and portable, market power starts to move from isolated model vendors toward platform operators that control policy, identity, approvals, and reusable tool interfaces. Directed evolution systems gain because standard interfaces let many candidate agents explore the same tool ecology without bespoke glue code.",
+                "counterfactual": "If the ecosystem fails to converge on standards, every deployment remains a custom integration project, making evolutionary search expensive and preventing cross-team accumulation of operational knowledge.",
+                "importance": "high",
+                "probe_agent_id": "aj-019d986e-00ec-7bc2-975d-c4fbd572c821",
+                "projection_id": "en-019d986a-e9e7-7143-96b5-79c0863e031e",
+                "signal_refs": "[]",
+                "step_at": "0"
+              }
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.context\":\"$metadata#Observations/$entity\",\"booleans\":{},\"counters\":{},\"entity_id\":\"en-019d986f-ad0f-7993-8997-9dc293fc85b7\",\"entity_type\":\"Observation\",\"events\":[{\"action\":\"Created\",\"from_status\":\"\",\"params\":{\"fields\":{}},\"timestamp\":\"2026-04-16T22:35:48.880704Z\",\"to_status\":\"Created\"},{\"action\":\"Record\",\"from_status\":\"Created\",\"params\":{\"content\":\"A standards-formation dynamic is beginning to reduce coordination costs between model providers, tools, and enterprise systems. TechCrunch r",
+            "success": true
+          },
+          "decision_id": "3",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 4,
+          "choice": {
+            "action": "temper.create",
+            "arguments": [
+              "Observations",
+              {
+                "fields": {}
+              }
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.context\":\"$metadata#Observations/$entity\",\"@odata.id\":\"Observations('en-019d986f-ad18-7f42-b885-b2f26aba4d6a')\",\"booleans\":{},\"counters\":{},\"entity_id\":\"en-019d986f-ad18-7f42-b885-b2f26aba4d6a\",\"entity_type\":\"Observation\",\"events\":[{\"action\":\"Created\",\"from_status\":\"\",\"params\":{\"fields\":{}},\"timestamp\":\"2026-04-16T22:35:48.889114Z\",\"to_status\":\"Created\"}],\"fields\":{\"Id\":\"en-019d986f-ad18-7f42-b885-b2f26aba4d6a\",\"Status\":\"Created\",\"fields\":{}},\"item_count\":0,\"lists\":{},\"sequence_nr\":1,\"s",
+            "success": true
+          },
+          "decision_id": "4",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 5,
+          "choice": {
+            "action": "temper.action",
+            "arguments": [
+              "Observations",
+              "en-019d986f-ad18-7f42-b885-b2f26aba4d6a",
+              "Record",
+              {
+                "content": "The dominant narrative says better coding agents will straightforwardly substitute for large amounts of developer labor. The nearer-term pattern is more like industrial reorganization than pure substitution. GitHub's enterprise research with Accenture reports productivity and satisfaction gains from Copilot adoption, but the case material also emphasizes enablement, standards, and organizational rollout rather than autonomous replacement (GitHub Blog, \"Research: Quantifying GitHub Copilot's impact in the enterprise with Accenture,\" https://github.blog/2024-05-13-research-quantifying-github-copilots-impact-in-the-enterprise-with-accenture/). Over the next 90 days, firms will see uneven returns because the bottleneck is absorptive capacity: who can redesign review, testing, accountability, and training loops fast enough to make agent output economically usable. That means labor demand shifts first toward harness builders, codebase gardeners, and policy owners, not immediately toward a smaller engineering workforce.",
+                "counterfactual": "If leaders interpret agent gains as instant labor substitution, they will cut the human roles that actually stabilize and compound the new workflow, leading to stalled adoption and backlash.",
+                "importance": "medium",
+                "probe_agent_id": "aj-019d986e-00ec-7bc2-975d-c4fbd572c821",
+                "projection_id": "en-019d986a-e9e7-7143-96b5-79c0863e031e",
+                "signal_refs": "[]",
+                "step_at": "0"
+              }
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.context\":\"$metadata#Observations/$entity\",\"booleans\":{},\"counters\":{},\"entity_id\":\"en-019d986f-ad18-7f42-b885-b2f26aba4d6a\",\"entity_type\":\"Observation\",\"events\":[{\"action\":\"Created\",\"from_status\":\"\",\"params\":{\"fields\":{}},\"timestamp\":\"2026-04-16T22:35:48.889114Z\",\"to_status\":\"Created\"},{\"action\":\"Record\",\"from_status\":\"Created\",\"params\":{\"content\":\"The dominant narrative says better coding agents will straightforwardly substitute for large amounts of developer labor. The nearer-term pat",
+            "success": true
+          },
+          "decision_id": "5",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 4,
+          "choice": {
+            "action": "temper.create",
+            "arguments": [
+              "Observations",
+              {
+                "fields": {}
+              }
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.context\":\"$metadata#Observations/$entity\",\"@odata.id\":\"Observations('en-019d986f-ad21-7332-9fe9-6d5cac85c4de')\",\"booleans\":{},\"counters\":{},\"entity_id\":\"en-019d986f-ad21-7332-9fe9-6d5cac85c4de\",\"entity_type\":\"Observation\",\"events\":[{\"action\":\"Created\",\"from_status\":\"\",\"params\":{\"fields\":{}},\"timestamp\":\"2026-04-16T22:35:48.898148Z\",\"to_status\":\"Created\"}],\"fields\":{\"Id\":\"en-019d986f-ad21-7332-9fe9-6d5cac85c4de\",\"Status\":\"Created\",\"fields\":{}},\"item_count\":0,\"lists\":{},\"sequence_nr\":1,\"s",
+            "success": true
+          },
+          "decision_id": "6",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 4,
+          "choice": {
+            "action": "temper.action",
+            "arguments": [
+              "Observations",
+              "en-019d986f-ad21-7332-9fe9-6d5cac85c4de",
+              "Record",
+              {
+                "content": "A market-structure split will sharpen over the next quarter: generalized coding agents will proliferate, but durable advantage will accrue to organizations that own high-quality local fitness functions and governance data. OpenAI's May 2025 Codex launch framed the product as a cloud software engineering agent that can run many tasks in parallel, reinforcing the industry move toward parallel candidate generation (as captured in the search result for \"Introducing Codex,\" OpenAI, May 16, 2025, https://openai.com/blog/introducing-codex/). In biology terms, mutation supply is becoming abundant; the scarce asset is selective retention under real constraints. Firms with proprietary test corpora, incident histories, architecture rules, approval policies, and postmortem archives will evolve faster than firms with access to the same frontier models but weak institutional memory. The implication for Directed Software Evolution is that archives, replayability, and policy-encoded governance become strategic capital.",
+                "counterfactual": "If teams treat candidate generation as the main moat, they will be outcompeted by slower-looking organizations that encode more of their institutional knowledge into reusable evaluation and governance systems.",
+                "importance": "high",
+                "probe_agent_id": "aj-019d986e-00ec-7bc2-975d-c4fbd572c821",
+                "projection_id": "en-019d986a-e9e7-7143-96b5-79c0863e031e",
+                "signal_refs": "[]",
+                "step_at": "0"
+              }
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.context\":\"$metadata#Observations/$entity\",\"booleans\":{},\"counters\":{},\"entity_id\":\"en-019d986f-ad21-7332-9fe9-6d5cac85c4de\",\"entity_type\":\"Observation\",\"events\":[{\"action\":\"Created\",\"from_status\":\"\",\"params\":{\"fields\":{}},\"timestamp\":\"2026-04-16T22:35:48.898148Z\",\"to_status\":\"Created\"},{\"action\":\"Record\",\"from_status\":\"Created\",\"params\":{\"content\":\"A market-structure split will sharpen over the next quarter: generalized coding agents will proliferate, but durable advantage will accrue t",
+            "success": true
+          },
+          "decision_id": "7",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 4,
+          "choice": {
+            "action": "temper.create",
+            "arguments": [
+              "Directions",
+              {
+                "fields": {}
+              }
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.context\":\"$metadata#Directions/$entity\",\"@odata.id\":\"Directions('en-019d986f-ad29-7f60-8041-273e79fd618e')\",\"booleans\":{},\"counters\":{},\"entity_id\":\"en-019d986f-ad29-7f60-8041-273e79fd618e\",\"entity_type\":\"Direction\",\"events\":[{\"action\":\"Created\",\"from_status\":\"\",\"params\":{\"fields\":{}},\"timestamp\":\"2026-04-16T22:35:48.906077Z\",\"to_status\":\"Proposed\"}],\"fields\":{\"Id\":\"en-019d986f-ad29-7f60-8041-273e79fd618e\",\"Status\":\"Proposed\",\"fields\":{}},\"item_count\":0,\"lists\":{},\"sequence_nr\":1,\"statu",
+            "success": true
+          },
+          "decision_id": "8",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 5,
+          "choice": {
+            "action": "temper.action",
+            "arguments": [
+              "Directions",
+              "en-019d986f-ad29-7f60-8041-273e79fd618e",
+              "Propose",
+              {
+                "counterfactual_summary": "If raw model quality rather than selection infrastructure proves dominant, then firms with the best frontier model access will rapidly centralize advantage and standards/governance investments will matter less than expected.",
+                "grounding": "[\"https://anthropic.com/research/swe-bench-sonnet\",\"https://techcrunch.com/2025/03/26/openai-adopts-rival-anthropics-standard-for-connecting-ai-models-to-data/\",\"https://developer.microsoft.com/blog/microsoft-partners-with-anthropic-to-create-official-c-sdk-for-model-context-protocol\",\"https://github.blog/2024-05-13-research-quantifying-github-copilots-impact-in-the-enterprise-with-accenture/\",\"https://openai.com/blog/introducing-codex/\"]",
+                "observation_ids": "[\"en-019d986f-ad04-75e0-9241-f200dda6b886\",\"en-019d986f-ad0f-7993-8997-9dc293fc85b7\",\"en-019d986f-ad18-7f42-b885-b2f26aba4d6a\",\"en-019d986f-ad21-7332-9fe9-6d5cac85c4de\"]",
+                "projection_id": "en-019d986a-e9e7-7143-96b5-79c0863e031e",
+                "proposer_agent_id": "aj-019d986e-00ec-7bc2-975d-c4fbd572c821",
+                "reasoning": "Directed Software Evolution will advance over the next 90 days primarily through institutionalization, not through a sudden leap to fully autonomous software organisms. The adjacent-domain analogy is industrial organization: once candidate generation becomes cheap, competition moves downstream to standards, coordination mechanisms, and quality control. The strongest external evidence points in that direction. Anthropic's SWE-bench writeup shows that measured performance depends heavily on the surrounding agent scaffold and evaluation loop, not just the model. Meanwhile MCP adoption by OpenAI and Microsoft-backed SDK work indicate an early standards layer forming around tool and context interoperability. These are classic signs of a field transitioning from artisanal experimentation to shared infrastructure.\n\nFrom an evolutionary perspective, the scarce factor is not mutation but selection. Many firms will soon have access to credible coding agents, but only a subset will possess the harnesses, governance rules, archives, and workflow redesign needed to turn abundant generated variants into retained improvement. That creates a likely near-term equilibrium: more agent-generated code, more parallel exploration, but tighter human and policy control over acceptance. Systems that encode organizational memory into tests, policies, and replayable evaluations will compound; systems that rely on informal review will plateau. Therefore the strongest thesis is that Directed Software Evolution becomes economically real first as a standards-and-governance layer for selective retention, with labor reallocated toward maintaining the fitness landscape rather than eliminated outright.",
+                "step_at": "0",
+                "title": "The next 90 days favor governance-standardized selection systems over raw autonomous coding power."
+              }
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.context\":\"$metadata#Directions/$entity\",\"booleans\":{},\"counters\":{},\"entity_id\":\"en-019d986f-ad29-7f60-8041-273e79fd618e\",\"entity_type\":\"Direction\",\"events\":[{\"action\":\"Created\",\"from_status\":\"\",\"params\":{\"fields\":{}},\"timestamp\":\"2026-04-16T22:35:48.906077Z\",\"to_status\":\"Proposed\"},{\"action\":\"Propose\",\"from_status\":\"Proposed\",\"params\":{\"counterfactual_summary\":\"If raw model quality rather than selection infrastructure proves dominant, then firms with the best frontier model access will",
+            "success": true
+          },
+          "decision_id": "9",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 4,
+          "choice": {
+            "action": "temper.action",
+            "arguments": [
+              "Projections",
+              "en-019d986a-e9e7-7143-96b5-79c0863e031e",
+              "ProbeStepDone",
+              {
+                "direction_id": "en-019d986f-ad29-7f60-8041-273e79fd618e",
+                "probe_agent_id": "aj-019d986e-00ec-7bc2-975d-c4fbd572c821"
+              }
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.context\":\"$metadata#Projections/$entity\",\"booleans\":{},\"counters\":{},\"entity_id\":\"en-019d986a-e9e7-7143-96b5-79c0863e031e\",\"entity_type\":\"Projection\",\"events\":[{\"action\":\"Created\",\"from_status\":\"\",\"params\":{},\"timestamp\":\"2026-04-16T22:30:36.778099Z\",\"to_status\":\"Created\"},{\"action\":\"Configure\",\"from_status\":\"Created\",\"params\":{\"foresight_model_id\":\"en-019d92cd-41e7-7aa0-8436-e0532786bfcf\",\"horizon\":\"1 year\"},\"timestamp\":\"2026-04-16T22:30:36.814023Z\",\"to_status\":\"Created\"},{\"action\":\"St",
+            "success": true
+          },
+          "decision_id": "10",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 0,
+          "choice": {
+            "action": "temper.done",
+            "arguments": [
+              "Probe complete: 4 observations and 1 direction recorded for adjacent-domain step 0."
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"done\":true}",
+            "success": true
+          },
+          "decision_id": "11",
+          "decision_type": "tool_selection"
+        }
+      ],
+      "span_id": "ss-019d986e-00f1-7d10-adb4-6d05ebeba663",
+      "timestamp": "2026-04-16T22:33:59.282550Z",
+      "turn_id": 1
+    }
+  ],
+  "version": "0.1.0"
+}

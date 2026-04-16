@@ -28,11 +28,12 @@ Pre-Track-1 runs are archived under `meta/archive_v4_pre_track1/` for historical
 
 | Run | Tag | Engine Score | Incumbent Score | Delta | Engine Borda | Incumbent Borda | Winner | Streak | Key Change | Key Insight |
 |-----|-----|-------------|-----------------|-------|-------------|----------------|--------|--------|------------|-------------|
+| 000 | foresight-v100-base | (measurement-only) | — | — | — | — | — | 0 | Post-Track-1 measurement baseline — no engine change | Engine ran single-step (max_steps=2 ignored), 16 obs + 4 directions + full synthesis (29KB). 37.5% observations confirmed; model-projector never spawned; directions stayed in Proposed. Diagnosis prioritizes forcing multi-step progression via Complete precondition. Incumbent for Run 001. |
 
 ## Convergence Status
 
-**Status:** Not started.
+**Status:** Run 000 complete (measurement-only). Tournament begins at Run 001.
 **Converged:** No
 **A-wins streak:** 0
 **Current engine version:** foresight-v100-base
-**Note:** Fresh start post-Track-1-reliability merge. First scoring run will establish the new baseline against which the meta-agent iterates.
+**Note:** Post-Track-1-reliability measurement complete. `meta/runs/000_measurement_baseline/engine-output/synthesis.md` is the incumbent Run 001 must beat. Diagnosis identifies 7 leverage points; priority is forcing multi-step projection via a `Projection.Complete` invariant (see Run 000 diagnosis for full ranking).

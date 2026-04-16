@@ -1,0 +1,1804 @@
+{
+  "metadata": {
+    "agent_id": "aj-019d986a-ea3c-78c0-86be-7397bab1c487",
+    "domain": "openpaw-agent",
+    "environment": "production",
+    "framework": "openpaw",
+    "outcome": "success",
+    "tags": [
+      "gpt-5.4",
+      "openai_codex"
+    ],
+    "task_description": "IMPORTANT: You MUST use the execute tool for ALL actions. ALL entity operations must go through temper.* calls inside execute.\n\nProjection ID: en-019d986a-e9e7-7143-96b5-79c0863e031e\nForesightModel ID: en-019d92cd-41e7-7aa0-8436-e0532786bfcf\nModel Name: Directed Software Evolution v2\nHorizon: 1 year\n\nYou are orchestrating a foresight projection. Follow these instructions exactly.\n\n## Setup\n\nRead the Projection and ForesightModel to get configuration:\n\n```python\nprojection = temper.get(\"Projectio",
+    "timestamp_end": "2026-04-16T22:38:14.270794Z",
+    "timestamp_start": "2026-04-16T22:33:36.220066Z",
+    "trajectory_id": "trj-ss-019d986a-ea43-7f32-a5bd-f326ae942901"
+  },
+  "trajectory_id": "trj-ss-019d986a-ea43-7f32-a5bd-f326ae942901",
+  "turns": [
+    {
+      "decisions": [
+        {
+          "_duration_ms": 1,
+          "choice": {
+            "action": "temper.get",
+            "arguments": [
+              "Projections",
+              "en-019d986a-e9e7-7143-96b5-79c0863e031e"
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.actions\":[{\"hint\":\"Callback after probe agents are spawned. Records agent IDs. Chain pauses until ProbeStepDone events arrive.\",\"name\":\"ProbesReady\",\"target\":\"Projections('en-019d986a-e9e7-7143-96b5-79c0863e031e')/Temper.ProbesReady\"},{\"hint\":\"A Probe self-reports completion of the current step. Dispatched by orchestrator for audit trail.\",\"name\":\"ProbeStepDone\",\"target\":\"Projections('en-019d986a-e9e7-7143-96b5-79c0863e031e')/Temper.ProbeStepDone\"},{\"hint\":\"Convergence analysis finished",
+            "success": true
+          },
+          "decision_id": "0",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 1,
+          "choice": {
+            "action": "temper.get",
+            "arguments": [
+              "ForesightModels",
+              "en-019d92cd-41e7-7aa0-8436-e0532786bfcf"
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.actions\":[{\"hint\":\"Trigger an incremental signal refresh on an active model.\",\"name\":\"RefreshSignals\",\"target\":\"ForesightModels('en-019d92cd-41e7-7aa0-8436-e0532786bfcf')/Temper.RefreshSignals\"},{\"hint\":\"Callback after incremental refresh completes.\",\"name\":\"RefreshComplete\",\"target\":\"ForesightModels('en-019d92cd-41e7-7aa0-8436-e0532786bfcf')/Temper.RefreshComplete\"},{\"hint\":\"Mark the model as stale when signals have not been refreshed within threshold.\",\"name\":\"MarkStale\",\"target\":\"For",
+            "success": true
+          },
+          "decision_id": "1",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 2,
+          "choice": {
+            "action": "temper.list",
+            "arguments": [
+              "Observations",
+              "$filter=projection_id eq 'en-019d986a-e9e7-7143-96b5-79c0863e031e'"
+            ]
+          },
+          "consequence": {
+            "result_summary": "[]",
+            "success": true
+          },
+          "decision_id": "0",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 1,
+          "choice": {
+            "action": "temper.list",
+            "arguments": [
+              "Directions",
+              "$filter=projection_id eq 'en-019d986a-e9e7-7143-96b5-79c0863e031e'"
+            ]
+          },
+          "consequence": {
+            "result_summary": "[]",
+            "success": true
+          },
+          "decision_id": "1",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 2,
+          "choice": {
+            "action": "temper.get",
+            "arguments": [
+              "Files",
+              "fl-019d92d0-efca-7e02-89a1-fbb43064a45f"
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.actions\":[{\"hint\":\"Fired by $value PUT handler after WASM upload succeeds. Updates content metadata and advances to Ready. Not callable from Locked.\",\"name\":\"StreamUpdated\",\"target\":\"Files('fl-019d92d0-efca-7e02-89a1-fbb43064a45f')/Temper.StreamUpdated\"},{\"hint\":\"Lock the file to prevent content modifications.\",\"name\":\"Lock\",\"target\":\"Files('fl-019d92d0-efca-7e02-89a1-fbb43064a45f')/Temper.Lock\"},{\"hint\":\"Archive the file. Terminal state.\",\"name\":\"Archive\",\"target\":\"Files('fl-019d92d0-e",
+            "success": true
+          },
+          "decision_id": "0",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 0,
+          "choice": {
+            "action": "temper.get_session_id",
+            "arguments": []
+          },
+          "consequence": {
+            "result_summary": "\"ss-019d986a-ea43-7f32-a5bd-f326ae942901\"",
+            "success": true
+          },
+          "decision_id": "0",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 3,
+          "choice": {
+            "action": "temper.get",
+            "arguments": [
+              "Sessions",
+              "ss-019d986a-ea43-7f32-a5bd-f326ae942901"
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.actions\":[{\"hint\":\"Tool results received. Increment turn, transition to PreparingContext, and assemble the next bounded provider turn.\",\"name\":\"HandleToolResults\",\"target\":\"Sessions('ss-019d986a-ea43-7f32-a5bd-f326ae942901')/Temper.HandleToolResults\"},{\"hint\":\"monty_repl reached a tool-batch checkpoint boundary inside run_tools. Persist partial results via `pending_tool_context` and re-dispatch run_tools with the remainder. Self-loop on Executing; increments checkpoint_count for the run",
+            "success": true
+          },
+          "decision_id": "1",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 1,
+          "choice": {
+            "action": "temper.get",
+            "arguments": [
+              "Projections",
+              "en-019d986a-e9e7-7143-96b5-79c0863e031e"
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.actions\":[{\"hint\":\"Callback after probe agents are spawned. Records agent IDs. Chain pauses until ProbeStepDone events arrive.\",\"name\":\"ProbesReady\",\"target\":\"Projections('en-019d986a-e9e7-7143-96b5-79c0863e031e')/Temper.ProbesReady\"},{\"hint\":\"A Probe self-reports completion of the current step. Dispatched by orchestrator for audit trail.\",\"name\":\"ProbeStepDone\",\"target\":\"Projections('en-019d986a-e9e7-7143-96b5-79c0863e031e')/Temper.ProbeStepDone\"},{\"hint\":\"Convergence analysis finished",
+            "success": true
+          },
+          "decision_id": "0",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 1,
+          "choice": {
+            "action": "temper.get",
+            "arguments": [
+              "ForesightModels",
+              "en-019d92cd-41e7-7aa0-8436-e0532786bfcf"
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.actions\":[{\"hint\":\"Trigger an incremental signal refresh on an active model.\",\"name\":\"RefreshSignals\",\"target\":\"ForesightModels('en-019d92cd-41e7-7aa0-8436-e0532786bfcf')/Temper.RefreshSignals\"},{\"hint\":\"Callback after incremental refresh completes.\",\"name\":\"RefreshComplete\",\"target\":\"ForesightModels('en-019d92cd-41e7-7aa0-8436-e0532786bfcf')/Temper.RefreshComplete\"},{\"hint\":\"Mark the model as stale when signals have not been refreshed within threshold.\",\"name\":\"MarkStale\",\"target\":\"For",
+            "success": true
+          },
+          "decision_id": "1",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 1,
+          "choice": {
+            "action": "temper.get",
+            "arguments": [
+              "Files",
+              "fl-019d92d0-efca-7e02-89a1-fbb43064a45f"
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.actions\":[{\"hint\":\"Fired by $value PUT handler after WASM upload succeeds. Updates content metadata and advances to Ready. Not callable from Locked.\",\"name\":\"StreamUpdated\",\"target\":\"Files('fl-019d92d0-efca-7e02-89a1-fbb43064a45f')/Temper.StreamUpdated\"},{\"hint\":\"Lock the file to prevent content modifications.\",\"name\":\"Lock\",\"target\":\"Files('fl-019d92d0-efca-7e02-89a1-fbb43064a45f')/Temper.Lock\"},{\"hint\":\"Archive the file. Terminal state.\",\"name\":\"Archive\",\"target\":\"Files('fl-019d92d0-e",
+            "success": true
+          },
+          "decision_id": "2",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 34,
+          "choice": {
+            "action": "temper.read",
+            "arguments": [
+              "/foresight_model_en-019d92cd-41e7-7aa0-8436-e0532786bfcf.json",
+              {
+                "workspace_id": "ws-019d92cd-ab0f-7c71-9a0b-8c528831fa91"
+              }
+            ]
+          },
+          "consequence": {
+            "result_summary": "\"{\\\"model_id\\\": \\\"en-019d92cd-41e7-7aa0-8436-e0532786bfcf\\\", \\\"model_name\\\": \\\"Directed Software Evolution v2\\\", \\\"model_type\\\": \\\"knowledge_domain\\\", \\\"generated_at\\\": \\\"2026-04-15T20:20:45.318882Z\\\", \\\"seed_operation\\\": \\\"initial seed\\\", \\\"seed_method\\\": {\\\"source_config_type\\\": \\\"essay\\\", \\\"research_status\\\": \\\"partial_live_research\\\", \\\"research_note\\\": \\\"The required web_search/web_fetch steps were attempted first, but the environment returned empty results. The graph below therefore combin",
+            "success": true
+          },
+          "decision_id": "3",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 84,
+          "choice": {
+            "action": "temper.write",
+            "arguments": "[\"current_state_step_0.json\",\"{\\\"model_id\\\": \\\"en-019d92cd-41e7-7aa0-8436-e0532786bfcf\\\", \\\"model_name\\\": \\\"Directed Software Evolution v2\\\", \\\"model_type\\\": \\\"knowledge_domain\\\", \\\"generated_at\\\": \\\"2026-04-15T20:20:45.318882Z\\\", \\\"seed_operation\\\": \\\"initial seed\\\", \\\"seed_method\\\": {\\\"source_config_type\\\": \\\"essay\\\", \\\"research_status\\\": \\\"partial_live_research\\\", \\\"research_note\\\": \\\"The required web_search/web_fetch steps were attempted first, but the environment returned empty results. The graph below therefore combines the provided essay signal config with stable domain knowledge current to the model knowledge horizon and explicitly marks confidence where appropriate.\\\"}, \\\"source_config\\\": {\\\"title\\\": \\\"Directed Software Evolution\\\", \\\"file_path\\\": \\\"/Users/seshendranalla/Downloads/Directed Software Evolution.md\\\", \\\"key_concepts\\\": [\\\"harness-first engineering\\\", \\\"dark factory (autonomous operation)\\\", \\\"machine tool (Temper as universal constructor)\\\", \\\"directed evolution (variation + selection + exploration)\\\", \\\"verification cascade\\\", \\\"homeostasis vs possibility-driven exploration\\\", \\\"Von Neumann universal constructor\\\", \\\"safety vs liveness asymmetry\\\"], \\\"domains\\\": [\\\"distributed systems\\\", \\\"software engineering\\\", \\\"autonomous operations\\\", \\\"evolutionary computation\\\"], \\\"projects_referenced\\\": [\\\"Helix\\\", \\\"redis-rust\\\", \\\"Temper\\\", \\\"BitsEvolve\\\"], \\\"essay_summary\\\": \\\"Four stages of software evolution: construction via harness-first engineering, dark factory autonomous operation within fixed harness, machine tool software construction from descriptions, and directed evolution through variation and selection under harness feedback. Core thesis: rigor and autonomy are the same investment.\\\"}, \\\"research_log\\\": {\\\"web_search_attempts\\\": [{\\\"query\\\": \\\"\\\\\\\"Directed Software Evolution\\\\\\\" harness-first engineering Temper universal constructor directed evolution\\\", \\\"status\\\": \\\"no_results_returned\\\", \\\"notes\\\": \\\"temper.web_search returned an empty result set in this environment\\\"}, {\\\"query\\\": \\\"software verification cascade autonomous operations dark factory universal constructor software engineering\\\", \\\"status\\\": \\\"no_results_returned\\\", \\\"notes\\\": \\\"temper.web_search returned an empty result set in this environment\\\"}, {\\\"query\\\": \\\"AI coding agents software engineering benchmarks SWE-bench Claude Code Codex Devin 2024 2025\\\", \\\"status\\\": \\\"no_results_returned\\\", \\\"notes\\\": \\\"temper.web_search returned an empty result set in this environment\\\"}, {\\\"query\\\": \\\"formal verification distributed systems model checking Rust verification software engineering 2024 2025\\\", \\\"status\\\": \\\"no_results_returned\\\", \\\"notes\\\": \\\"temper.web_search returned an empty result set in this environment\\\"}, {\\\"query\\\": \\\"evolutionary computation LLM code generation self-improving software agents 2024 2025\\\", \\\"status\\\": \\\"no_results_returned\\\", \\\"notes\\\": \\\"temper.web_search returned an empty result set in this environment\\\"}], \\\"web_fetch_attempts\\\": [{\\\"url\\\": \\\"https://www.swebench.com/\\\", \\\"status\\\": \\\"empty_response\\\", \\\"notes\\\": \\\"temper.web_fetch returned an empty payload in this environment\\\"}, {\\\"url\\\": \\\"https://openai.com/index/introducing-codex/\\\", \\\"status\\\": \\\"empty_response\\\", \\\"notes\\\": \\\"temper.web_fetch returned an empty payload in this environment\\\"}, {\\\"url\\\": \\\"https://www.anthropic.com/engineering/claude-code-best-practices\\\", \\\"status\\\": \\\"empty_response\\\", \\\"notes\\\": \\\"temper.web_fetch returned an empty payload in this environment\\\"}, {\\\"url\\\": \\\"https://www.cursor.com/\\\", \\\"status\\\": \\\"empty_response\\\", \\\"notes\\\": \\\"temper.web_fetch returned an empty payload in this environment\\\"}], \\\"limitations\\\": [\\\"Local essay file path was not accessible via temper.read in this environment\\\", \\\"Live web tools returned empty payloads, preventing direct citation extraction during this run\\\"]}, \\\"executive_frame\\\": {\\\"core_thesis\\\": \\\"Directed software evolution describes a progression from manually reviewed software construction to machine-governed, continuously improving software systems where verification harnesses, not human line-by-line review, become the primary control surface.\\\", \\\"central_claims\\\": [\\\"Rigor and autonomy compound together; the same investment in harness quality enables both safe automation and faster iteration.\\\", \\\"Software autonomy progresses through staged capability accumulation: construction, autonomous operation, machine-tool generation, and directed evolution.\\\", \\\"Selection pressure is more strategically important than raw generation quality once candidate generation becomes cheap.\\\", \\\"Safety properties are often easier to encode than liveness or open-ended progress goals, creating a structural asymmetry in autonomous systems design.\\\"], \\\"current_state_assessment\\\": \\\"As of 2026-04, the ecosystem strongly supports stages 1 and 2 in selected domains, shows early but credible movement into stage 3 for structured control-plane generation, and remains experimental in stage 4 except in narrow loops with strong harnesses.\\\"}, \\\"stage_model\\\": [{\\\"stage_id\\\": \\\"stage-1\\\", \\\"name\\\": \\\"Construction / Harness-First Engineering\\\", \\\"description\\\": \\\"Software is built under increasingly rich automated verification, so code is accepted primarily by test, static analysis, type systems, simulation, or model checking rather than by manual review alone.\\\", \\\"enablers\\\": [\\\"CI/CD\\\", \\\"compiler checks\\\", \\\"property-based testing\\\", \\\"fuzzing\\\", \\\"formal specs\\\", \\\"replay harnesses\\\", \\\"repo-specific evals\\\"], \\\"observable_markers\\\": [\\\"benchmark-based claims\\\", \\\"tests generated alongside code\\\", \\\"review focused on intent and invariants\\\", \\\"machine-readable acceptance criteria\\\"], \\\"maturity\\\": \\\"active and accelerating\\\"}, {\\\"stage_id\\\": \\\"stage-2\\\", \\\"name\\\": \\\"Dark Factory / Autonomous Operation\\\", \\\"description\\\": \\\"Agents operate production-like systems with limited human involvement, but inside a fixed harness of policies, runbooks, telemetry, and approval boundaries.\\\", \\\"enablers\\\": [\\\"policy-as-code\\\", \\\"observability\\\", \\\"runbook automation\\\", \\\"GitOps\\\", \\\"operators\\\", \\\"sandboxed execution\\\", \\\"audit trails\\\"], \\\"observable_markers\\\": [\\\"self-healing workflows\\\", \\\"automated remediation\\\", \\\"agent-run maintenance tasks\\\", \\\"human-on-approval loops\\\"], \\\"maturity\\\": \\\"partially deployed in operations-heavy organizations\\\"}, {\\\"stage_id\\\": \\\"stage-3\\\", \\\"name\\\": \\\"Machine Tool / Universal Constructor\\\", \\\"description\\\": \\\"A platform such as Temper serves as a substrate that can construct verified operational software from descriptions, schemas, policies, and integrations.\\\", \\\"enablers\\\": [\\\"entity specifications\\\", \\\"state machines\\\", \\\"policy engines\\\", \\\"WASM integrations\\\", \\\"hot-reload app composition\\\", \\\"governed actions\\\"], \\\"observable_markers\\\": [\\\"new capabilities created as apps at runtime\\\", \\\"control planes generated from declarative artifacts\\\", \\\"verification before activation\\\"], \\\"maturity\\\": \\\"emergent but strategically coherent\\\"}, {\\\"stage_id\\\": \\\"stage-4\\\", \\\"name\\\": \\\"Directed Evolution\\\", \\\"description\\\": \\\"Systems generate variants, evaluate them under harnesses, preserve diversity, and selectively retain improvements, allowing continual specialization and discovery.\\\", \\\"enablers\\\": [\\\"cheap candidate generation\\\", \\\"selection harnesses\\\", \\\"novelty search\\\", \\\"archives\\\", \\\"multi-objective optimization\\\", \\\"production telemetry feedback\\\"], \\\"observable_markers\\\": [\\\"parallel candidate evaluation\\\", \\\"portfolio maintenance\\\", \\\"automatic policy or architecture refinement\\\", \\\"system-generated capability evolution\\\"], \\\"maturity\\\": \\\"experimental and uneven; strongest in bounded domains\\\"}], \\\"ontology\\\": {\\\"concepts\\\": [{\\\"id\\\": \\\"concept-1\\\", \\\"name\\\": \\\"Harness-first engineering\\\", \\\"kind\\\": \\\"method\\\", \\\"definition\\\": \\\"Build and accept software through machine-checkable harnesses that define correctness, performance, and safety boundaries.\\\"}, {\\\"id\\\": \\\"concept-2\\\", \\\"name\\\": \\\"Dark factory\\\", \\\"kind\\\": \\\"operating-model\\\", \\\"definition\\\": \\\"Autonomous operation of software/infrastructure with minimal human intervention under fixed governance constraints.\\\"}, {\\\"id\\\": \\\"concept-3\\\", \\\"name\\\": \\\"Machine tool\\\", \\\"kind\\\": \\\"platform-pattern\\\", \\\"definition\\\": \\\"A substrate that manufactures other pieces of software from descriptions rather than hand-authored implementation alone.\\\"}, {\\\"id\\\": \\\"concept-4\\\", \\\"name\\\": \\\"Universal constructor\\\", \\\"kind\\\": \\\"theory-analogy\\\", \\\"definition\\\": \\\"A system capable of constructing a wide range of other systems given descriptions and suitable materials.\\\"}, {\\\"id\\\": \\\"concept-5\\\", \\\"name\\\": \\\"Directed evolution\\\", \\\"kind\\\": \\\"optimization-regime\\\", \\\"definition\\\": \\\"Variation plus selection plus exploration in which harnesses guide accumulation of useful changes.\\\"}, {\\\"id\\\": \\\"concept-6\\\", \\\"name\\\": \\\"Verification cascade\\\", \\\"kind\\\": \\\"control-architecture\\\", \\\"definition\\\": \\\"Layered verification methods from syntax to tests to model checking to simulation to policy gates.\\\"}, {\\\"id\\\": \\\"concept-7\\\", \\\"name\\\": \\\"Homeostasis\\\", \\\"kind\\\": \\\"control-goal\\\", \\\"definition\\\": \\\"Keeping a system within acceptable bounds and returning it to known-good states.\\\"}, {\\\"id\\\": \\\"concept-8\\\", \\\"name\\\": \\\"Possibility-driven exploration\\\", \\\"kind\\\": \\\"control-goal\\\", \\\"definition\\\": \\\"Searching beyond current operating points for better architectures, policies, or implementations.\\\"}, {\\\"id\\\": \\\"concept-9\\\", \\\"name\\\": \\\"Safety-liveness asymmetry\\\", \\\"kind\\\": \\\"governance-principle\\\", \\\"definition\\\": \\\"It is generally easier to state and verify what must never happen than to prove open-ended forward progress.\\\"}, {\\\"id\\\": \\\"concept-10\\\", \\\"name\\\": \\\"Selection pressure\\\", \\\"kind\\\": \\\"evolutionary-mechanism\\\", \\\"definition\\\": \\\"The criteria that determine which generated variants survive and propagate.\\\"}, {\\\"id\\\": \\\"concept-11\\\", \\\"name\\\": \\\"Diversity preservation\\\", \\\"kind\\\": \\\"evolutionary-mechanism\\\", \\\"definition\\\": \\\"Mechanisms that prevent search collapse by maintaining distinct solution niches.\\\"}, {\\\"id\\\": \\\"concept-12\\\", \\\"name\\\": \\\"Governed autonomy\\\", \\\"kind\\\": \\\"platform-principle\\\", \\\"definition\\\": \\\"Autonomous action execution constrained by state machines, permissions, and audit trails.\\\"}], \\\"tensions\\\": [{\\\"name\\\": \\\"speed_vs_assurance\\\", \\\"poles\\\": [\\\"faster exploration\\\", \\\"stronger verification\\\"], \\\"summary\\\": \\\"More exploration increases discovery but also increases harness burden and risk of proxy exploitation.\\\"}, {\\\"name\\\": \\\"general_models_vs_private_context\\\", \\\"poles\\\": [\\\"frontier general capability\\\", \\\"repository-specific memory and harnesses\\\"], \\\"summary\\\": \\\"Model quality matters, but private context increasingly determines production usefulness.\\\"}, {\\\"name\\\": \\\"human_review_vs_machine_acceptance\\\", \\\"poles\\\": [\\\"manual judgment\\\", \\\"automated acceptance\\\"], \\\"summary\\\": \\\"The locus of trust shifts from code reading to harness authoring and governance design.\\\"}, {\\\"name\\\": \\\"homeostasis_vs_evolution\\\", \\\"poles\\\": [\\\"stability maintenance\\\", \\\"novelty-seeking change\\\"], \\\"summary\\\": \\\"Systems good at returning to equilibrium are not automatically good at discovering better equilibria.\\\"}]}, \\\"ecosystem\\\": {\\\"projects_and_systems\\\": [{\\\"name\\\": \\\"Temper\\\", \\\"type\\\": \\\"platform\\\", \\\"role\\\": \\\"Universal-constructor candidate and governed agent operating system\\\", \\\"relevance\\\": \\\"central\\\"}, {\\\"name\\\": \\\"Helix\\\", \\\"type\\\": \\\"project\\\", \\\"role\\\": \\\"Referenced example in the source domain context\\\", \\\"relevance\\\": \\\"supporting\\\"}, {\\\"name\\\": \\\"redis-rust\\\", \\\"type\\\": \\\"project\\\", \\\"role\\\": \\\"Typed systems example relevant to compiler- and harness-guided evolution\\\", \\\"relevance\\\": \\\"supporting\\\"}, {\\\"name\\\": \\\"BitsEvolve\\\", \\\"type\\\": \\\"project\\\", \\\"role\\\": \\\"Evolutionary framing/project reference from source config\\\", \\\"relevance\\\": \\\"supporting\\\"}], \\\"market_actors\\\": [{\\\"name\\\": \\\"Anthropic\\\", \\\"category\\\": \\\"frontier-model-and-agent-tools\\\", \\\"evidence\\\": \\\"Claude and Claude Code style workflows strengthen agentic coding patterns\\\"}, {\\\"name\\\": \\\"OpenAI\\\", \\\"category\\\": \\\"frontier-model-and-agent-tools\\\", \\\"evidence\\\": \\\"Codex and model/tooling ecosystem contribute to software-agent productization\\\"}, {\\\"name\\\": \\\"Cursor\\\", \\\"category\\\": \\\"IDE-native coding agent\\\", \\\"evidence\\\": \\\"Strong developer adoption signal for AI-assisted coding\\\"}, {\\\"name\\\": \\\"Cognition / Devin\\\", \\\"category\\\": \\\"autonomous software engineer product\\\", \\\"evidence\\\": \\\"Long-horizon task automation narrative\\\"}, {\\\"name\\\": \\\"Aider\\\", \\\"category\\\": \\\"open-source terminal coding tool\\\", \\\"evidence\\\": \\\"Repo-grounded agentic workflows in open source\\\"}, {\\\"name\\\": \\\"Cline\\\", \\\"category\\\": \\\"open-source coding agent\\\", \\\"evidence\\\": \\\"Autonomous tool use and codebase interaction pattern\\\"}, {\\\"name\\\": \\\"Continue\\\", \\\"category\\\": \\\"extensible AI coding assistant\\\", \\\"evidence\\\": \\\"Local/private-context coding assistance\\\"}, {\\\"name\\\": \\\"OpenHands / SWE-agent class\\\", \\\"category\\\": \\\"research/open-source agents\\\", \\\"evidence\\\": \\\"Benchmark-driven autonomous software task execution\\\"}], \\\"adjacent_technical_fields\\\": [\\\"formal methods\\\", \\\"distributed systems\\\", \\\"program synthesis\\\", \\\"evolutionary computation\\\", \\\"AIOps\\\", \\\"internal developer platforms\\\", \\\"policy-as-code\\\", \\\"observability engineering\\\"]}, \\\"current_state\\\": {\\\"technology_readiness\\\": {\\\"harness_first_engineering\\\": \\\"high\\\", \\\"dark_factory_operations\\\": \\\"medium\\\", \\\"machine_tool_generation\\\": \\\"medium-low but rising\\\", \\\"directed_evolution\\\": \\\"low-to-medium in bounded loops\\\"}, \\\"dominant_patterns\\\": [\\\"Agentic coding is being adopted first in developer tools, not fully autonomous production mutation\\\", \\\"Most organizations still rely on humans for final merge or deploy approval\\\", \\\"Repository-specific tests and context are becoming the limiting resource\\\", \\\"Control-plane and workflow software are more amenable to generation than arbitrary product logic\\\", \\\"Observability and policy infrastructure increasingly serve both humans and agents\\\"], \\\"bottlenecks\\\": [\\\"Insufficient high-quality harnesses and oracles\\\", \\\"Weak evaluation of long-horizon outcomes\\\", \\\"Governance and approval friction\\\", \\\"Search collapse and benchmark overfitting\\\", \\\"Environment flakiness and hidden state during autonomous execution\\\"], \\\"leading_indicators_to_watch\\\": [\\\"Benchmark-to-production transfer rates\\\", \\\"Number of organizations allowing agents to merge/deploy under policy\\\", \\\"Growth of private eval suites\\\", \\\"Adoption of state-machine/policy-backed app platforms\\\", \\\"Use of production traces as training or selection feedback\\\", \\\"Tooling for diversity preservation and policy evolution\\\"]}, \\\"trendlines\\\": [{\\\"id\\\": \\\"trend-1\\\", \\\"name\\\": \\\"Review shifts from code to harness\\\", \\\"direction\\\": \\\"up\\\", \\\"strength\\\": \\\"high\\\", \\\"time_horizon\\\": \\\"12-36 months\\\", \\\"why_it_matters\\\": \\\"This changes who holds leverage in software teams and what artifacts become strategic.\\\"}, {\\\"id\\\": \\\"trend-2\\\", \\\"name\\\": \\\"Governed autonomy outcompetes unguided automation in enterprises\\\", \\\"direction\\\": \\\"up\\\", \\\"strength\\\": \\\"high\\\", \\\"time_horizon\\\": \\\"12-36 months\\\", \\\"why_it_matters\\\": \\\"Auditability and policy control are prerequisites for high-trust deployment.\\\"}, {\\\"id\\\": \\\"trend-3\\\", \\\"name\\\": \\\"Control-plane generation precedes broad software generation\\\", \\\"direction\\\": \\\"up\\\", \\\"strength\\\": \\\"medium-high\\\", \\\"time_horizon\\\": \\\"6-24 months\\\", \\\"why_it_matters\\\": \\\"Structured operational domains are the easiest wedge for machine-tool platforms.\\\"}, {\\\"id\\\": \\\"trend-4\\\", \\\"name\\\": \\\"Evolutionary search techniques re-enter mainstream software tooling through agents\\\", \\\"direction\\\": \\\"up\\\", \\\"strength\\\": \\\"medium\\\", \\\"time_horizon\\\": \\\"12-36 months\\\", \\\"why_it_matters\\\": \\\"Cheap sampling creates pressure to improve selection and diversity management.\\\"}, {\\\"id\\\": \\\"trend-5\\\", \\\"name\\\": \\\"Private telemetry and repository memory become the core moat\\\", \\\"direction\\\": \\\"up\\\", \\\"strength\\\": \\\"high\\\", \\\"time_horizon\\\": \\\"immediate\\\", \\\"why_it_matters\\\": \\\"Generic models commoditize faster than organization-specific feedback loops.\\\"}], \\\"risk_map\\\": {\\\"technical_risks\\\": [\\\"Harness incompleteness creates false confidence\\\", \\\"Selection on narrow benchmarks induces regressions in unmeasured dimensions\\\", \\\"Objective drift or re...\n[truncated, showing 16384 of 38025 bytes]"
+          },
+          "consequence": {
+            "result_summary": "{\"file_id\":\"fl-019d986c-1b26-78d2-938e-d059cfe7df72\",\"path\":\"current_state_step_0.json\",\"workspace_id\":\"ws-019d986a-ea5d-7412-b473-35c8946b6d55\"}",
+            "success": true
+          },
+          "decision_id": "4",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 0,
+          "choice": {
+            "action": "temper.get_session_id",
+            "arguments": []
+          },
+          "consequence": {
+            "result_summary": "\"ss-019d986a-ea43-7f32-a5bd-f326ae942901\"",
+            "success": true
+          },
+          "decision_id": "5",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 0,
+          "choice": {
+            "action": "temper.get_agent_id",
+            "arguments": []
+          },
+          "consequence": {
+            "result_summary": "\"aj-019d986a-ea3c-78c0-86be-7397bab1c487\"",
+            "success": true
+          },
+          "decision_id": "6",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 1,
+          "choice": {
+            "action": "temper.get",
+            "arguments": [
+              "Sessions",
+              "ss-019d986a-ea43-7f32-a5bd-f326ae942901"
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.actions\":[{\"hint\":\"Tool results received. Increment turn, transition to PreparingContext, and assemble the next bounded provider turn.\",\"name\":\"HandleToolResults\",\"target\":\"Sessions('ss-019d986a-ea43-7f32-a5bd-f326ae942901')/Temper.HandleToolResults\"},{\"hint\":\"monty_repl reached a tool-batch checkpoint boundary inside run_tools. Persist partial results via `pending_tool_context` and re-dispatch run_tools with the remainder. Self-loop on Executing; increments checkpoint_count for the run",
+            "success": true
+          },
+          "decision_id": "7",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 4,
+          "choice": {
+            "action": "temper.create",
+            "arguments": [
+              "Agents",
+              {
+                "fields": {
+                  "name": "Probe-practitioner-step-0",
+                  "role": "probe"
+                }
+              }
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.context\":\"$metadata#Agents/$entity\",\"@odata.id\":\"Agents('aj-019d986c-1b4c-76b3-a864-df0cf5793ca6')\",\"booleans\":{},\"counters\":{},\"entity_id\":\"aj-019d986c-1b4c-76b3-a864-df0cf5793ca6\",\"entity_type\":\"Agent\",\"events\":[{\"action\":\"Created\",\"from_status\":\"\",\"params\":{\"fields\":{\"name\":\"Probe-practitioner-step-0\",\"role\":\"probe\"}},\"timestamp\":\"2026-04-16T22:31:54.957743Z\",\"to_status\":\"Created\"}],\"fields\":{\"Id\":\"aj-019d986c-1b4c-76b3-a864-df0cf5793ca6\",\"Status\":\"Created\",\"fields\":{\"name\":\"Probe-pr",
+            "success": true
+          },
+          "decision_id": "8",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 4,
+          "choice": {
+            "action": "temper.create",
+            "arguments": [
+              "Sessions",
+              {
+                "fields": {
+                  "parent_session_id": "ss-019d986a-ea43-7f32-a5bd-f326ae942901"
+                }
+              }
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.context\":\"$metadata#Sessions/$entity\",\"@odata.id\":\"Sessions('ss-019d986c-1b50-7103-9043-6bf251736813')\",\"booleans\":{},\"counters\":{},\"entity_id\":\"ss-019d986c-1b50-7103-9043-6bf251736813\",\"entity_type\":\"Session\",\"events\":[{\"action\":\"Created\",\"from_status\":\"\",\"params\":{\"fields\":{\"parent_session_id\":\"ss-019d986a-ea43-7f32-a5bd-f326ae942901\"}},\"timestamp\":\"2026-04-16T22:31:54.961469Z\",\"to_status\":\"Created\"}],\"fields\":{\"Id\":\"ss-019d986c-1b50-7103-9043-6bf251736813\",\"Status\":\"Created\",\"fields\"",
+            "success": true
+          },
+          "decision_id": "9",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 6,
+          "choice": {
+            "action": "temper.action",
+            "arguments": [
+              "Sessions",
+              "ss-019d986c-1b50-7103-9043-6bf251736813",
+              "Configure",
+              {
+                "agent_id": "aj-019d986c-1b4c-76b3-a864-df0cf5793ca6",
+                "max_turns": "30",
+                "model": "gpt-5.4",
+                "parent_session_id": "ss-019d986a-ea43-7f32-a5bd-f326ae942901",
+                "provider": "openai_codex",
+                "tools_enabled": "temper_get,temper_list,temper_action,temper_create,temper_read,temper_web_search,temper_web_fetch",
+                "user_message": "You are a foresight probe (practitioner) analyzing the domain \"Directed Software Evolution v2\" (knowledge_domain).\n\nProjection ID: en-019d986a-e9e7-7143-96b5-79c0863e031e\nYour Agent ID: aj-019d986c-1b4c-76b3-a864-df0cf5793ca6\nStep: 0 (day 90 of 1 year)\n\n## Your Persona\nYou are a practitioner building systems in this domain. Focus on what is technically feasible in the near term, what tools and architectures are maturing, and what practitioners will actually adopt. Be concrete about mechanisms.\n\n## Current State of the World\nRead the current state with:\nstate = temper.read(\"current_state_step_0.json\", {\"workspace_id\": \"ws-019d986a-ea5d-7412-b473-35c8946b6d55\"})\n\n## Your Focus Area\nFocus primarily on technical architecture and harness-first engineering while using the full state for context.\n\n## Instructions\n1. First read the state file.\n2. Run at least 2 web searches and fetch promising pages. Cite external URLs or titles in at least 2 observations.\n3. Project forward 90 days from the current state.\n4. Create 3 to 5 Observations by temper.create with empty fields then Record all fields. Use probe_agent_id aj-019d986c-1b4c-76b3-a864-df0cf5793ca6, projection_id en-019d986a-e9e7-7143-96b5-79c0863e031e, step_at 0. Set importance high for your strongest claims.\n5. Create exactly one Direction by temper.create with empty fields then Propose all fields. Include observation_ids as a JSON array string.\n6. Report done with Projections ProbeStepDone and temper.done.\n\nRules: Do not read other probes. Be specific. At least one observation must challenge the dominant narrative. At least 2 observations must cite external evidence.\n"
+              }
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.context\":\"$metadata#Sessions/$entity\",\"booleans\":{},\"counters\":{},\"entity_id\":\"ss-019d986c-1b50-7103-9043-6bf251736813\",\"entity_type\":\"Session\",\"events\":[{\"action\":\"Created\",\"from_status\":\"\",\"params\":{\"fields\":{\"parent_session_id\":\"ss-019d986a-ea43-7f32-a5bd-f326ae942901\"}},\"timestamp\":\"2026-04-16T22:31:54.961469Z\",\"to_status\":\"Created\"},{\"action\":\"Configure\",\"from_status\":\"Created\",\"params\":{\"agent_id\":\"aj-019d986c-1b4c-76b3-a864-df0cf5793ca6\",\"max_turns\":\"30\",\"model\":\"gpt-5.4\",\"parent",
+            "success": true
+          },
+          "decision_id": "10",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 2,
+          "choice": {
+            "action": "temper.create",
+            "arguments": [
+              "Agents",
+              {
+                "fields": {
+                  "name": "Probe-critic-step-0",
+                  "role": "probe"
+                }
+              }
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.context\":\"$metadata#Agents/$entity\",\"@odata.id\":\"Agents('aj-019d986c-1b5a-75a0-bf6c-096fad14ccba')\",\"booleans\":{},\"counters\":{},\"entity_id\":\"aj-019d986c-1b5a-75a0-bf6c-096fad14ccba\",\"entity_type\":\"Agent\",\"events\":[{\"action\":\"Created\",\"from_status\":\"\",\"params\":{\"fields\":{\"name\":\"Probe-critic-step-0\",\"role\":\"probe\"}},\"timestamp\":\"2026-04-16T22:31:54.970883Z\",\"to_status\":\"Created\"}],\"fields\":{\"Id\":\"aj-019d986c-1b5a-75a0-bf6c-096fad14ccba\",\"Status\":\"Created\",\"fields\":{\"name\":\"Probe-critic-s",
+            "success": true
+          },
+          "decision_id": "11",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 6,
+          "choice": {
+            "action": "temper.create",
+            "arguments": [
+              "Sessions",
+              {
+                "fields": {
+                  "parent_session_id": "ss-019d986a-ea43-7f32-a5bd-f326ae942901"
+                }
+              }
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.context\":\"$metadata#Sessions/$entity\",\"@odata.id\":\"Sessions('ss-019d986c-1b5c-7a42-9795-0a44c528ba34')\",\"booleans\":{},\"counters\":{},\"entity_id\":\"ss-019d986c-1b5c-7a42-9795-0a44c528ba34\",\"entity_type\":\"Session\",\"events\":[{\"action\":\"Created\",\"from_status\":\"\",\"params\":{\"fields\":{\"parent_session_id\":\"ss-019d986a-ea43-7f32-a5bd-f326ae942901\"}},\"timestamp\":\"2026-04-16T22:31:54.973729Z\",\"to_status\":\"Created\"}],\"fields\":{\"Id\":\"ss-019d986c-1b5c-7a42-9795-0a44c528ba34\",\"Status\":\"Created\",\"fields\"",
+            "success": true
+          },
+          "decision_id": "12",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 5,
+          "choice": {
+            "action": "temper.action",
+            "arguments": [
+              "Sessions",
+              "ss-019d986c-1b5c-7a42-9795-0a44c528ba34",
+              "Configure",
+              {
+                "agent_id": "aj-019d986c-1b5a-75a0-bf6c-096fad14ccba",
+                "max_turns": "30",
+                "model": "gpt-5.4",
+                "parent_session_id": "ss-019d986a-ea43-7f32-a5bd-f326ae942901",
+                "provider": "openai_codex",
+                "tools_enabled": "temper_get,temper_list,temper_action,temper_create,temper_read,temper_web_search,temper_web_fetch",
+                "user_message": "You are a foresight probe (critic) analyzing the domain \"Directed Software Evolution v2\" (knowledge_domain).\n\nProjection ID: en-019d986a-e9e7-7143-96b5-79c0863e031e\nYour Agent ID: aj-019d986c-1b5a-75a0-bf6c-096fad14ccba\nStep: 0 (day 90 of 1 year)\n\n## Your Persona\nYou are a skeptical analyst. Focus on what could go wrong, what assumptions are fragile, what counterarguments exist, and what the domain is not ready for. Challenge the dominant narrative.\n\n## Current State of the World\nRead the current state with:\nstate = temper.read(\"current_state_step_0.json\", {\"workspace_id\": \"ws-019d986a-ea5d-7412-b473-35c8946b6d55\"})\n\n## Your Focus Area\nFocus primarily on governance, failure modes, and evaluation limits while using the full state for context.\n\n## Instructions\n1. First read the state file.\n2. Run at least 2 web searches and fetch promising pages. Cite external URLs or titles in at least 2 observations.\n3. Project forward 90 days from the current state.\n4. Create 3 to 5 Observations by temper.create with empty fields then Record all fields. Use probe_agent_id aj-019d986c-1b5a-75a0-bf6c-096fad14ccba, projection_id en-019d986a-e9e7-7143-96b5-79c0863e031e, step_at 0. Set importance high for your strongest claims.\n5. Create exactly one Direction by temper.create with empty fields then Propose all fields. Include observation_ids as a JSON array string.\n6. Report done with Projections ProbeStepDone and temper.done.\n\nRules: Do not read other probes. Be specific. At least one observation must challenge the dominant narrative. At least 2 observations must cite external evidence.\n"
+              }
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.context\":\"$metadata#Sessions/$entity\",\"booleans\":{},\"counters\":{},\"entity_id\":\"ss-019d986c-1b5c-7a42-9795-0a44c528ba34\",\"entity_type\":\"Session\",\"events\":[{\"action\":\"Created\",\"from_status\":\"\",\"params\":{\"fields\":{\"parent_session_id\":\"ss-019d986a-ea43-7f32-a5bd-f326ae942901\"}},\"timestamp\":\"2026-04-16T22:31:54.973729Z\",\"to_status\":\"Created\"},{\"action\":\"Configure\",\"from_status\":\"Created\",\"params\":{\"agent_id\":\"aj-019d986c-1b5a-75a0-bf6c-096fad14ccba\",\"max_turns\":\"30\",\"model\":\"gpt-5.4\",\"parent",
+            "success": true
+          },
+          "decision_id": "13",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 7,
+          "choice": {
+            "action": "temper.create",
+            "arguments": [
+              "Agents",
+              {
+                "fields": {
+                  "name": "Probe-adjacent-domain-step-0",
+                  "role": "probe"
+                }
+              }
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.context\":\"$metadata#Agents/$entity\",\"@odata.id\":\"Agents('aj-019d986c-1b67-77c2-8370-31d9c8dc8232')\",\"booleans\":{},\"counters\":{},\"entity_id\":\"aj-019d986c-1b67-77c2-8370-31d9c8dc8232\",\"entity_type\":\"Agent\",\"events\":[{\"action\":\"Created\",\"from_status\":\"\",\"params\":{\"fields\":{\"name\":\"Probe-adjacent-domain-step-0\",\"role\":\"probe\"}},\"timestamp\":\"2026-04-16T22:31:54.984960Z\",\"to_status\":\"Created\"}],\"fields\":{\"Id\":\"aj-019d986c-1b67-77c2-8370-31d9c8dc8232\",\"Status\":\"Created\",\"fields\":{\"name\":\"Probe",
+            "success": true
+          },
+          "decision_id": "14",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 2,
+          "choice": {
+            "action": "temper.create",
+            "arguments": [
+              "Sessions",
+              {
+                "fields": {
+                  "parent_session_id": "ss-019d986a-ea43-7f32-a5bd-f326ae942901"
+                }
+              }
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.context\":\"$metadata#Sessions/$entity\",\"@odata.id\":\"Sessions('ss-019d986c-1b6e-7900-aed8-8b5b60d0aaff')\",\"booleans\":{},\"counters\":{},\"entity_id\":\"ss-019d986c-1b6e-7900-aed8-8b5b60d0aaff\",\"entity_type\":\"Session\",\"events\":[{\"action\":\"Created\",\"from_status\":\"\",\"params\":{\"fields\":{\"parent_session_id\":\"ss-019d986a-ea43-7f32-a5bd-f326ae942901\"}},\"timestamp\":\"2026-04-16T22:31:54.990921Z\",\"to_status\":\"Created\"}],\"fields\":{\"Id\":\"ss-019d986c-1b6e-7900-aed8-8b5b60d0aaff\",\"Status\":\"Created\",\"fields\"",
+            "success": true
+          },
+          "decision_id": "15",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 3,
+          "choice": {
+            "action": "temper.action",
+            "arguments": [
+              "Sessions",
+              "ss-019d986c-1b6e-7900-aed8-8b5b60d0aaff",
+              "Configure",
+              {
+                "agent_id": "aj-019d986c-1b67-77c2-8370-31d9c8dc8232",
+                "max_turns": "30",
+                "model": "gpt-5.4",
+                "parent_session_id": "ss-019d986a-ea43-7f32-a5bd-f326ae942901",
+                "provider": "openai_codex",
+                "tools_enabled": "temper_get,temper_list,temper_action,temper_create,temper_read,temper_web_search,temper_web_fetch",
+                "user_message": "You are a foresight probe (adjacent-domain) analyzing the domain \"Directed Software Evolution v2\" (knowledge_domain).\n\nProjection ID: en-019d986a-e9e7-7143-96b5-79c0863e031e\nYour Agent ID: aj-019d986c-1b67-77c2-8370-31d9c8dc8232\nStep: 0 (day 90 of 1 year)\n\n## Your Persona\nYou are an observer from an adjacent field such as economics, biology, or organizational theory. Focus on patterns from your field that this domain has not recognized yet. Bring external analogies.\n\n## Current State of the World\nRead the current state with:\nstate = temper.read(\"current_state_step_0.json\", {\"workspace_id\": \"ws-019d986a-ea5d-7412-b473-35c8946b6d55\"})\n\n## Your Focus Area\nFocus primarily on economics, biology, organizational learning, and selection dynamics while using the full state for context.\n\n## Instructions\n1. First read the state file.\n2. Run at least 2 web searches and fetch promising pages. Cite external URLs or titles in at least 2 observations.\n3. Project forward 90 days from the current state.\n4. Create 3 to 5 Observations by temper.create with empty fields then Record all fields. Use probe_agent_id aj-019d986c-1b67-77c2-8370-31d9c8dc8232, projection_id en-019d986a-e9e7-7143-96b5-79c0863e031e, step_at 0. Set importance high for your strongest claims.\n5. Create exactly one Direction by temper.create with empty fields then Propose all fields. Include observation_ids as a JSON array string.\n6. Report done with Projections ProbeStepDone and temper.done.\n\nRules: Do not read other probes. Be specific. At least one observation must challenge the dominant narrative. At least 2 observations must cite external evidence.\n"
+              }
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.context\":\"$metadata#Sessions/$entity\",\"booleans\":{},\"counters\":{},\"entity_id\":\"ss-019d986c-1b6e-7900-aed8-8b5b60d0aaff\",\"entity_type\":\"Session\",\"events\":[{\"action\":\"Created\",\"from_status\":\"\",\"params\":{\"fields\":{\"parent_session_id\":\"ss-019d986a-ea43-7f32-a5bd-f326ae942901\"}},\"timestamp\":\"2026-04-16T22:31:54.990921Z\",\"to_status\":\"Created\"},{\"action\":\"Configure\",\"from_status\":\"Created\",\"params\":{\"agent_id\":\"aj-019d986c-1b67-77c2-8370-31d9c8dc8232\",\"max_turns\":\"30\",\"model\":\"gpt-5.4\",\"parent",
+            "success": true
+          },
+          "decision_id": "16",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 4,
+          "choice": {
+            "action": "temper.action",
+            "arguments": [
+              "Projections",
+              "en-019d986a-e9e7-7143-96b5-79c0863e031e",
+              "ProbesReady",
+              {
+                "probe_agent_ids": "['aj-019d986c-1b4c-76b3-a864-df0cf5793ca6', 'aj-019d986c-1b5a-75a0-bf6c-096fad14ccba', 'aj-019d986c-1b67-77c2-8370-31d9c8dc8232']"
+              }
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.context\":\"$metadata#Projections/$entity\",\"booleans\":{},\"counters\":{},\"entity_id\":\"en-019d986a-e9e7-7143-96b5-79c0863e031e\",\"entity_type\":\"Projection\",\"events\":[{\"action\":\"Created\",\"from_status\":\"\",\"params\":{},\"timestamp\":\"2026-04-16T22:30:36.778099Z\",\"to_status\":\"Created\"},{\"action\":\"Configure\",\"from_status\":\"Created\",\"params\":{\"foresight_model_id\":\"en-019d92cd-41e7-7aa0-8436-e0532786bfcf\",\"horizon\":\"1 year\"},\"timestamp\":\"2026-04-16T22:30:36.814023Z\",\"to_status\":\"Created\"},{\"action\":\"St",
+            "success": true
+          },
+          "decision_id": "17",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 1,
+          "choice": {
+            "action": "temper.get",
+            "arguments": [
+              "Sessions",
+              "ss-019d986c-1b50-7103-9043-6bf251736813"
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.actions\":[{\"hint\":\"Provider response artifact is ready. Apply the response back into Session state.\",\"name\":\"ProviderResponseReady\",\"target\":\"Sessions('ss-019d986c-1b50-7103-9043-6bf251736813')/Temper.ProviderResponseReady\"},{\"hint\":\"Queue a steering message for mid-run injection. External callers append messages while session runs. Self-loop \u2014 does not change state.\",\"name\":\"Steer\",\"target\":\"Sessions('ss-019d986c-1b50-7103-9043-6bf251736813')/Temper.Steer\"},{\"hint\":\"Change LLM provider",
+            "success": true
+          },
+          "decision_id": "0",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 1,
+          "choice": {
+            "action": "temper.get",
+            "arguments": [
+              "Sessions",
+              "ss-019d986c-1b5c-7a42-9795-0a44c528ba34"
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.actions\":[{\"hint\":\"Provider response artifact is ready. Apply the response back into Session state.\",\"name\":\"ProviderResponseReady\",\"target\":\"Sessions('ss-019d986c-1b5c-7a42-9795-0a44c528ba34')/Temper.ProviderResponseReady\"},{\"hint\":\"Queue a steering message for mid-run injection. External callers append messages while session runs. Self-loop \u2014 does not change state.\",\"name\":\"Steer\",\"target\":\"Sessions('ss-019d986c-1b5c-7a42-9795-0a44c528ba34')/Temper.Steer\"},{\"hint\":\"Change LLM provider",
+            "success": true
+          },
+          "decision_id": "1",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 1,
+          "choice": {
+            "action": "temper.get",
+            "arguments": [
+              "Sessions",
+              "ss-019d986c-1b6e-7900-aed8-8b5b60d0aaff"
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.actions\":[{\"hint\":\"Tool results received. Increment turn, transition to PreparingContext, and assemble the next bounded provider turn.\",\"name\":\"HandleToolResults\",\"target\":\"Sessions('ss-019d986c-1b6e-7900-aed8-8b5b60d0aaff')/Temper.HandleToolResults\"},{\"hint\":\"monty_repl reached a tool-batch checkpoint boundary inside run_tools. Persist partial results via `pending_tool_context` and re-dispatch run_tools with the remainder. Self-loop on Executing; increments checkpoint_count for the run",
+            "success": true
+          },
+          "decision_id": "2",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 2,
+          "choice": {
+            "action": "temper.get",
+            "arguments": [
+              "Sessions",
+              "ss-019d986c-1b50-7103-9043-6bf251736813"
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.actions\":[{\"hint\":\"Prepared context artifact is ready. Persist artifact references and call the provider.\",\"name\":\"ContextReady\",\"target\":\"Sessions('ss-019d986c-1b50-7103-9043-6bf251736813')/Temper.ContextReady\"},{\"hint\":\"Context preparation detected that the bounded context budget was exceeded. Trigger compaction.\",\"name\":\"NeedsCompaction\",\"target\":\"Sessions('ss-019d986c-1b50-7103-9043-6bf251736813')/Temper.NeedsCompaction\"},{\"hint\":\"Queue a steering message for mid-run injection. Exte",
+            "success": true
+          },
+          "decision_id": "0",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 2,
+          "choice": {
+            "action": "temper.get",
+            "arguments": [
+              "Sessions",
+              "ss-019d986c-1b5c-7a42-9795-0a44c528ba34"
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.actions\":[{\"hint\":\"Tool results received. Increment turn, transition to PreparingContext, and assemble the next bounded provider turn.\",\"name\":\"HandleToolResults\",\"target\":\"Sessions('ss-019d986c-1b5c-7a42-9795-0a44c528ba34')/Temper.HandleToolResults\"},{\"hint\":\"monty_repl reached a tool-batch checkpoint boundary inside run_tools. Persist partial results via `pending_tool_context` and re-dispatch run_tools with the remainder. Self-loop on Executing; increments checkpoint_count for the run",
+            "success": true
+          },
+          "decision_id": "1",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 2,
+          "choice": {
+            "action": "temper.get",
+            "arguments": [
+              "Sessions",
+              "ss-019d986c-1b6e-7900-aed8-8b5b60d0aaff"
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.actions\":[{\"hint\":\"Provider response artifact is ready. Apply the response back into Session state.\",\"name\":\"ProviderResponseReady\",\"target\":\"Sessions('ss-019d986c-1b6e-7900-aed8-8b5b60d0aaff')/Temper.ProviderResponseReady\"},{\"hint\":\"Queue a steering message for mid-run injection. External callers append messages while session runs. Self-loop \u2014 does not change state.\",\"name\":\"Steer\",\"target\":\"Sessions('ss-019d986c-1b6e-7900-aed8-8b5b60d0aaff')/Temper.Steer\"},{\"hint\":\"Change LLM provider",
+            "success": true
+          },
+          "decision_id": "2",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 3,
+          "choice": {
+            "action": "temper.get",
+            "arguments": [
+              "Sessions",
+              "ss-019d986c-1b50-7103-9043-6bf251736813"
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.actions\":[{\"hint\":\"Tool results received. Increment turn, transition to PreparingContext, and assemble the next bounded provider turn.\",\"name\":\"HandleToolResults\",\"target\":\"Sessions('ss-019d986c-1b50-7103-9043-6bf251736813')/Temper.HandleToolResults\"},{\"hint\":\"monty_repl reached a tool-batch checkpoint boundary inside run_tools. Persist partial results via `pending_tool_context` and re-dispatch run_tools with the remainder. Self-loop on Executing; increments checkpoint_count for the run",
+            "success": true
+          },
+          "decision_id": "0",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 3,
+          "choice": {
+            "action": "temper.get",
+            "arguments": [
+              "Sessions",
+              "ss-019d986c-1b5c-7a42-9795-0a44c528ba34"
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.actions\":[{\"hint\":\"Tool results received. Increment turn, transition to PreparingContext, and assemble the next bounded provider turn.\",\"name\":\"HandleToolResults\",\"target\":\"Sessions('ss-019d986c-1b5c-7a42-9795-0a44c528ba34')/Temper.HandleToolResults\"},{\"hint\":\"monty_repl reached a tool-batch checkpoint boundary inside run_tools. Persist partial results via `pending_tool_context` and re-dispatch run_tools with the remainder. Self-loop on Executing; increments checkpoint_count for the run",
+            "success": true
+          },
+          "decision_id": "1",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 3,
+          "choice": {
+            "action": "temper.get",
+            "arguments": [
+              "Sessions",
+              "ss-019d986c-1b6e-7900-aed8-8b5b60d0aaff"
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.actions\":[{\"hint\":\"Prepared context artifact is ready. Persist artifact references and call the provider.\",\"name\":\"ContextReady\",\"target\":\"Sessions('ss-019d986c-1b6e-7900-aed8-8b5b60d0aaff')/Temper.ContextReady\"},{\"hint\":\"Context preparation detected that the bounded context budget was exceeded. Trigger compaction.\",\"name\":\"NeedsCompaction\",\"target\":\"Sessions('ss-019d986c-1b6e-7900-aed8-8b5b60d0aaff')/Temper.NeedsCompaction\"},{\"hint\":\"Queue a steering message for mid-run injection. Exte",
+            "success": true
+          },
+          "decision_id": "2",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 2,
+          "choice": {
+            "action": "temper.get",
+            "arguments": [
+              "Sessions",
+              "ss-019d986c-1b50-7103-9043-6bf251736813"
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.actions\":[{\"hint\":\"Provider response artifact is ready. Apply the response back into Session state.\",\"name\":\"ProviderResponseReady\",\"target\":\"Sessions('ss-019d986c-1b50-7103-9043-6bf251736813')/Temper.ProviderResponseReady\"},{\"hint\":\"Queue a steering message for mid-run injection. External callers append messages while session runs. Self-loop \u2014 does not change state.\",\"name\":\"Steer\",\"target\":\"Sessions('ss-019d986c-1b50-7103-9043-6bf251736813')/Temper.Steer\"},{\"hint\":\"Change LLM provider",
+            "success": true
+          },
+          "decision_id": "0",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 1,
+          "choice": {
+            "action": "temper.get",
+            "arguments": [
+              "Sessions",
+              "ss-019d986c-1b5c-7a42-9795-0a44c528ba34"
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.actions\":[{\"hint\":\"Provider response artifact is ready. Apply the response back into Session state.\",\"name\":\"ProviderResponseReady\",\"target\":\"Sessions('ss-019d986c-1b5c-7a42-9795-0a44c528ba34')/Temper.ProviderResponseReady\"},{\"hint\":\"Queue a steering message for mid-run injection. External callers append messages while session runs. Self-loop \u2014 does not change state.\",\"name\":\"Steer\",\"target\":\"Sessions('ss-019d986c-1b5c-7a42-9795-0a44c528ba34')/Temper.Steer\"},{\"hint\":\"Change LLM provider",
+            "success": true
+          },
+          "decision_id": "1",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 1,
+          "choice": {
+            "action": "temper.get",
+            "arguments": [
+              "Sessions",
+              "ss-019d986c-1b6e-7900-aed8-8b5b60d0aaff"
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.actions\":[{\"hint\":\"Tool results received. Increment turn, transition to PreparingContext, and assemble the next bounded provider turn.\",\"name\":\"HandleToolResults\",\"target\":\"Sessions('ss-019d986c-1b6e-7900-aed8-8b5b60d0aaff')/Temper.HandleToolResults\"},{\"hint\":\"monty_repl reached a tool-batch checkpoint boundary inside run_tools. Persist partial results via `pending_tool_context` and re-dispatch run_tools with the remainder. Self-loop on Executing; increments checkpoint_count for the run",
+            "success": true
+          },
+          "decision_id": "2",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 3,
+          "choice": {
+            "action": "temper.list",
+            "arguments": [
+              "Observations",
+              "$filter=projection_id eq 'en-019d986a-e9e7-7143-96b5-79c0863e031e'"
+            ]
+          },
+          "consequence": {
+            "result_summary": "[]",
+            "success": true
+          },
+          "decision_id": "0",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 3,
+          "choice": {
+            "action": "temper.list",
+            "arguments": [
+              "Directions",
+              "$filter=projection_id eq 'en-019d986a-e9e7-7143-96b5-79c0863e031e'"
+            ]
+          },
+          "consequence": {
+            "result_summary": "[]",
+            "success": true
+          },
+          "decision_id": "1",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 1543,
+          "choice": {
+            "action": "temper.web_search",
+            "arguments": [
+              "Anthropic Claude Code 2025 software engineering agent"
+            ]
+          },
+          "consequence": {
+            "result_summary": "[{\"text\":\"# Claude Code by Anthropic\\n\\nClaude Code is an agentic coding system that reads your codebase, makes changes across files, runs tests, and delivers committed code. For builders without an engineering background, it's an entry point to software development that didn't exist until recently.\\n\\n## Agentic, not autocomplete\\n\\nDescribe what you want to build, test, iterate, or ship. Claude Code handles the rest.\\n\\n## If you can describe it, you can build it\\n\\nThe tools engineers use to ",
+            "success": true
+          },
+          "decision_id": "0",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 1243,
+          "choice": {
+            "action": "temper.web_search",
+            "arguments": [
+              "OpenAI Codex 2025 coding agent software engineering"
+            ]
+          },
+          "consequence": {
+            "result_summary": "[{\"text\":\"Harness engineering: leveraging Codex in an agent-first world | OpenAI\\n\\nFebruary 11, 2026\\n\\n# Harness engineering: leveraging Codex in an agent-first world\\n\\nBy Ryan Lopopolo, Member of the Technical Staff\\n\\nLoading\u2026\\n\\nShare\\n\\nOver the past five months, our team has been running an experiment: building and shipping an internal beta of a software product with 0 lines of manually-written code.\\n\\nThe product has internal daily users and external alpha testers. It ships, deploys, b",
+            "success": true
+          },
+          "decision_id": "1",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 1131,
+          "choice": {
+            "action": "temper.web_search",
+            "arguments": [
+              "Cursor 2025 enterprise coding agent adoption"
+            ]
+          },
+          "consequence": {
+            "result_summary": "[{\"text\":\"Cursor AI Adoption Trends: Real Data from the Fastest Growing Coding T - Opsera \\n\\n[Blog](https://opsera.ai/blog/)/\\n\\n[AI](https://www.opsera.io/blog/#topic=ai)\\n\\n# Cursor AI Adoption Trends: Real Data from the Fastest Growing Coding Tool\\n\\nRohit Dalvi\\n\\n|\\n\\nPublished on\\n\\nJuly 3, 2025\\n\\nEmpower and enable your developers to ship faster\\n\\n[Learn More](https://opsera.ai/platform/)\\n\\nLaunched by Anysphere in 2023, Cursor promised to let developers \u201cvibe code\u201d across an entire r",
+            "success": true
+          },
+          "decision_id": "2",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 982,
+          "choice": {
+            "action": "temper.web_search",
+            "arguments": [
+              "Cognition Devin 2025 engineering agent enterprise"
+            ]
+          },
+          "consequence": {
+            "result_summary": "[{\"text\":\"Sign up\\n\\nGet app\\n\\nSign up\\n\\n## Towards AI\\n\\nFollow publication\\n\\nWe build Enterprise AI. We teach what we learn. Join 100K+ AI practitioners on Towards AI Academy. Free: 6-day Agentic AI Engineering Email Guide: [https://email-course.towardsai.net/](https://email-course.towardsai.net/)\\n\\nFollow publication\\n\\nMember-only story\\n\\n# Devin Was Never Ready for the Enterprise. Cognition\u2019s V3 Architecture Changes That.\\n\\n## Cloud-sandboxed autonomy, zero-retention guarantees, SOC 2",
+            "success": true
+          },
+          "decision_id": "3",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 1014,
+          "choice": {
+            "action": "temper.web_search",
+            "arguments": [
+              "SWE-bench Verified 2025 agent benchmark"
+            ]
+          },
+          "consequence": {
+            "result_summary": "[{\"text\":\"SWE-bench\\n\\nCoding\\n\\nSWE-bench\\n\\n# SWE-bench\\n\\nAcademic\\n\\nUpdated: 4/9/2026\\n\\nSolving production software engineering tasks\\n\\n## Key Takeaways\\n\\n[Gemini 3.1 Pro Preview (02/26)](https://www.vals.ai/models/google_gemini-3.1-pro-preview) leads with a performance of 78.80%, achieving the best accuracy on SWE-bench.\\n\\n[Claude Opus 4.6 (Thinking)](https://www.vals.ai/models/anthropic_claude-opus-4-6-thinking) and [GPT 5.4](https://www.vals.ai/models/openai_gpt-5.4-2026-03-05) tie f",
+            "success": true
+          },
+          "decision_id": "4",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 1050,
+          "choice": {
+            "action": "temper.web_search",
+            "arguments": [
+              "Open Policy Agent Cedar policy as code software governance 2025"
+            ]
+          },
+          "consequence": {
+            "result_summary": "[{\"text\":\"OPA vs Cedar: 7 Proven Steps to Ship Policy-as-Code\\n\\n# OPA vs Cedar: 7 Proven Steps to Ship Policy-as-Code\\n\\nContents Overview\\n\\nToggle\\n\\n## Why this matters now\\n\\nModern apps need authorization that\u2019s testable, reviewable, and observable. Two strong options are OPA (Open Policy Agent) with Rego and Cedar (policy language + embeddable engine). Below is a practical, code-heavy guide to help developers and engineering leaders choose wisely and ship policy-as-code with CI gates\u2014with",
+            "success": true
+          },
+          "decision_id": "5",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 1049,
+          "choice": {
+            "action": "temper.web_search",
+            "arguments": [
+              "Kubernetes GitHub Actions ephemeral environments AI coding agents 2025"
+            ]
+          },
+          "consequence": {
+            "result_summary": "[{\"text\":\"1 Unleashing autonomous AI agents: Why Kubernetes needs a new standard for agent execution | Google Open Source Blog\\n\\n## Unleashing autonomous AI agents: Why Kubernetes needs a new standard for agent execution\\n\\nThe arrival of autonomous AI Agents capable of reasoning, planning, and executing actions by generating their own code and interacting with the runtime environment marks a paradigm shift in how applications are built and operated. However, these new capabilities also introdu",
+            "success": true
+          },
+          "decision_id": "6",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 950,
+          "choice": {
+            "action": "temper.web_search",
+            "arguments": [
+              "platform engineering AI software development DORA 2025"
+            ]
+          },
+          "consequence": {
+            "result_summary": "[{\"text\":\"DORA 2025: AI Won\u2019t Save You Without a Solid Platform - Platform Engineering\\n\\n# DORA 2025: AI Won\u2019t Save You Without a Solid Platform\\n\\nPublished On: September 30, 2025By [Alan Shimel](https://platformengineering.com/author/alan-shimel/)\\n\\nIf you\u2019ve been around the [DevOps world long enough, you know the DORA report](https://devops.com/dora-2025-faster-but-are-we-any-better/) isn\u2019t just another whitepaper. For over a decade, it\u2019s been the yardstick by which teams measure themselves",
+            "success": true
+          },
+          "decision_id": "7",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 1,
+          "choice": {
+            "action": "temper.get",
+            "arguments": [
+              "Sessions",
+              "ss-019d986c-1b50-7103-9043-6bf251736813"
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.actions\":[{\"hint\":\"Reply delivery failed after the session reached a terminal state.\",\"name\":\"DeliveryFailed\",\"target\":\"Sessions('ss-019d986c-1b50-7103-9043-6bf251736813')/Temper.DeliveryFailed\"},{\"hint\":\"emit_ots_trajectory succeeded \u2014 record the trajectory_id and mark emission complete.\",\"name\":\"MarkTrajectoryEmitted\",\"target\":\"Sessions('ss-019d986c-1b50-7103-9043-6bf251736813')/Temper.MarkTrajectoryEmitted\"},{\"hint\":\"emit_ots_trajectory POST failed. Records the error so the Evolution",
+            "success": true
+          },
+          "decision_id": "0",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 2,
+          "choice": {
+            "action": "temper.get",
+            "arguments": [
+              "Sessions",
+              "ss-019d986c-1b5c-7a42-9795-0a44c528ba34"
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.actions\":[{\"hint\":\"Reply delivery failed after the session reached a terminal state.\",\"name\":\"DeliveryFailed\",\"target\":\"Sessions('ss-019d986c-1b5c-7a42-9795-0a44c528ba34')/Temper.DeliveryFailed\"},{\"hint\":\"emit_ots_trajectory succeeded \u2014 record the trajectory_id and mark emission complete.\",\"name\":\"MarkTrajectoryEmitted\",\"target\":\"Sessions('ss-019d986c-1b5c-7a42-9795-0a44c528ba34')/Temper.MarkTrajectoryEmitted\"},{\"hint\":\"emit_ots_trajectory POST failed. Records the error so the Evolution",
+            "success": true
+          },
+          "decision_id": "1",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 1,
+          "choice": {
+            "action": "temper.get",
+            "arguments": [
+              "Sessions",
+              "ss-019d986c-1b6e-7900-aed8-8b5b60d0aaff"
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.actions\":[{\"hint\":\"Provider response artifact is ready. Apply the response back into Session state.\",\"name\":\"ProviderResponseReady\",\"target\":\"Sessions('ss-019d986c-1b6e-7900-aed8-8b5b60d0aaff')/Temper.ProviderResponseReady\"},{\"hint\":\"Queue a steering message for mid-run injection. External callers append messages while session runs. Self-loop \u2014 does not change state.\",\"name\":\"Steer\",\"target\":\"Sessions('ss-019d986c-1b6e-7900-aed8-8b5b60d0aaff')/Temper.Steer\"},{\"hint\":\"Change LLM provider",
+            "success": true
+          },
+          "decision_id": "2",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 2,
+          "choice": {
+            "action": "temper.list",
+            "arguments": [
+              "Observations",
+              "$filter=projection_id eq 'en-019d986a-e9e7-7143-96b5-79c0863e031e'"
+            ]
+          },
+          "consequence": {
+            "result_summary": "[{\"@odata.id\":\"Observations('en-019d986d-1b21-71c0-b89f-2cb60d396946')\",\"booleans\":{},\"counters\":{},\"entity_id\":\"en-019d986d-1b21-71c0-b89f-2cb60d396946\",\"entity_type\":\"Observation\",\"events\":[{\"action\":\"Created\",\"from_status\":\"\",\"params\":{\"fields\":{}},\"timestamp\":\"2026-04-16T22:33:00.451179Z\",\"to_status\":\"Created\"},{\"action\":\"Record\",\"from_status\":\"Created\",\"params\":{\"content\":\"Within 90 days, practitioner teams working on directed software evolution will converge on harness-first engineering as",
+            "success": true
+          },
+          "decision_id": "0",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 2,
+          "choice": {
+            "action": "temper.list",
+            "arguments": [
+              "Directions",
+              "$filter=projection_id eq 'en-019d986a-e9e7-7143-96b5-79c0863e031e'"
+            ]
+          },
+          "consequence": {
+            "result_summary": "[{\"@odata.id\":\"Directions('en-019d986d-1b44-7e92-852f-92a129246559')\",\"booleans\":{},\"counters\":{},\"entity_id\":\"en-019d986d-1b44-7e92-852f-92a129246559\",\"entity_type\":\"Direction\",\"events\":[{\"action\":\"Created\",\"from_status\":\"\",\"params\":{\"fields\":{}},\"timestamp\":\"2026-04-16T22:33:00.485933Z\",\"to_status\":\"Proposed\"},{\"action\":\"Propose\",\"from_status\":\"Proposed\",\"params\":{\"counterfactual_summary\":\"If this direction is wrong and broad autonomous exploration becomes production-ready immediately, teams t",
+            "success": true
+          },
+          "decision_id": "1",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 1,
+          "choice": {
+            "action": "temper.get",
+            "arguments": [
+              "Sessions",
+              "ss-019d986c-1b50-7103-9043-6bf251736813"
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.actions\":[{\"hint\":\"Reply delivery failed after the session reached a terminal state.\",\"name\":\"DeliveryFailed\",\"target\":\"Sessions('ss-019d986c-1b50-7103-9043-6bf251736813')/Temper.DeliveryFailed\"},{\"hint\":\"emit_ots_trajectory succeeded \u2014 record the trajectory_id and mark emission complete.\",\"name\":\"MarkTrajectoryEmitted\",\"target\":\"Sessions('ss-019d986c-1b50-7103-9043-6bf251736813')/Temper.MarkTrajectoryEmitted\"},{\"hint\":\"emit_ots_trajectory POST failed. Records the error so the Evolution",
+            "success": true
+          },
+          "decision_id": "0",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 1,
+          "choice": {
+            "action": "temper.get",
+            "arguments": [
+              "Sessions",
+              "ss-019d986c-1b5c-7a42-9795-0a44c528ba34"
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.actions\":[{\"hint\":\"Reply delivery failed after the session reached a terminal state.\",\"name\":\"DeliveryFailed\",\"target\":\"Sessions('ss-019d986c-1b5c-7a42-9795-0a44c528ba34')/Temper.DeliveryFailed\"},{\"hint\":\"emit_ots_trajectory succeeded \u2014 record the trajectory_id and mark emission complete.\",\"name\":\"MarkTrajectoryEmitted\",\"target\":\"Sessions('ss-019d986c-1b5c-7a42-9795-0a44c528ba34')/Temper.MarkTrajectoryEmitted\"},{\"hint\":\"emit_ots_trajectory POST failed. Records the error so the Evolution",
+            "success": true
+          },
+          "decision_id": "1",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 1,
+          "choice": {
+            "action": "temper.get",
+            "arguments": [
+              "Sessions",
+              "ss-019d986c-1b6e-7900-aed8-8b5b60d0aaff"
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.actions\":[{\"hint\":\"Provider response artifact is ready. Apply the response back into Session state.\",\"name\":\"ProviderResponseReady\",\"target\":\"Sessions('ss-019d986c-1b6e-7900-aed8-8b5b60d0aaff')/Temper.ProviderResponseReady\"},{\"hint\":\"Queue a steering message for mid-run injection. External callers append messages while session runs. Self-loop \u2014 does not change state.\",\"name\":\"Steer\",\"target\":\"Sessions('ss-019d986c-1b6e-7900-aed8-8b5b60d0aaff')/Temper.Steer\"},{\"hint\":\"Change LLM provider",
+            "success": true
+          },
+          "decision_id": "2",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 2,
+          "choice": {
+            "action": "temper.list",
+            "arguments": [
+              "Observations",
+              "$filter=projection_id eq 'en-019d986a-e9e7-7143-96b5-79c0863e031e'"
+            ]
+          },
+          "consequence": {
+            "result_summary": "[{\"@odata.id\":\"Observations('en-019d986d-1b21-71c0-b89f-2cb60d396946')\",\"booleans\":{},\"counters\":{},\"entity_id\":\"en-019d986d-1b21-71c0-b89f-2cb60d396946\",\"entity_type\":\"Observation\",\"events\":[{\"action\":\"Created\",\"from_status\":\"\",\"params\":{\"fields\":{}},\"timestamp\":\"2026-04-16T22:33:00.451179Z\",\"to_status\":\"Created\"},{\"action\":\"Record\",\"from_status\":\"Created\",\"params\":{\"content\":\"Within 90 days, practitioner teams working on directed software evolution will converge on harness-first engineering as",
+            "success": true
+          },
+          "decision_id": "0",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 1,
+          "choice": {
+            "action": "temper.list",
+            "arguments": [
+              "Directions",
+              "$filter=projection_id eq 'en-019d986a-e9e7-7143-96b5-79c0863e031e'"
+            ]
+          },
+          "consequence": {
+            "result_summary": "[{\"@odata.id\":\"Directions('en-019d986d-1b44-7e92-852f-92a129246559')\",\"booleans\":{},\"counters\":{},\"entity_id\":\"en-019d986d-1b44-7e92-852f-92a129246559\",\"entity_type\":\"Direction\",\"events\":[{\"action\":\"Created\",\"from_status\":\"\",\"params\":{\"fields\":{}},\"timestamp\":\"2026-04-16T22:33:00.485933Z\",\"to_status\":\"Proposed\"},{\"action\":\"Propose\",\"from_status\":\"Proposed\",\"params\":{\"counterfactual_summary\":\"If this direction is wrong and broad autonomous exploration becomes production-ready immediately, teams t",
+            "success": true
+          },
+          "decision_id": "1",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 1,
+          "choice": {
+            "action": "temper.get",
+            "arguments": [
+              "Sessions",
+              "ss-019d986c-1b50-7103-9043-6bf251736813"
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.actions\":[{\"hint\":\"Reply delivery failed after the session reached a terminal state.\",\"name\":\"DeliveryFailed\",\"target\":\"Sessions('ss-019d986c-1b50-7103-9043-6bf251736813')/Temper.DeliveryFailed\"},{\"hint\":\"emit_ots_trajectory succeeded \u2014 record the trajectory_id and mark emission complete.\",\"name\":\"MarkTrajectoryEmitted\",\"target\":\"Sessions('ss-019d986c-1b50-7103-9043-6bf251736813')/Temper.MarkTrajectoryEmitted\"},{\"hint\":\"emit_ots_trajectory POST failed. Records the error so the Evolution",
+            "success": true
+          },
+          "decision_id": "2",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 1,
+          "choice": {
+            "action": "temper.get",
+            "arguments": [
+              "Sessions",
+              "ss-019d986c-1b5c-7a42-9795-0a44c528ba34"
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.actions\":[{\"hint\":\"Reply delivery failed after the session reached a terminal state.\",\"name\":\"DeliveryFailed\",\"target\":\"Sessions('ss-019d986c-1b5c-7a42-9795-0a44c528ba34')/Temper.DeliveryFailed\"},{\"hint\":\"emit_ots_trajectory succeeded \u2014 record the trajectory_id and mark emission complete.\",\"name\":\"MarkTrajectoryEmitted\",\"target\":\"Sessions('ss-019d986c-1b5c-7a42-9795-0a44c528ba34')/Temper.MarkTrajectoryEmitted\"},{\"hint\":\"emit_ots_trajectory POST failed. Records the error so the Evolution",
+            "success": true
+          },
+          "decision_id": "3",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 2,
+          "choice": {
+            "action": "temper.get",
+            "arguments": [
+              "Sessions",
+              "ss-019d986c-1b6e-7900-aed8-8b5b60d0aaff"
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.actions\":[{\"hint\":\"Provider response artifact is ready. Apply the response back into Session state.\",\"name\":\"ProviderResponseReady\",\"target\":\"Sessions('ss-019d986c-1b6e-7900-aed8-8b5b60d0aaff')/Temper.ProviderResponseReady\"},{\"hint\":\"Queue a steering message for mid-run injection. External callers append messages while session runs. Self-loop \u2014 does not change state.\",\"name\":\"Steer\",\"target\":\"Sessions('ss-019d986c-1b6e-7900-aed8-8b5b60d0aaff')/Temper.Steer\"},{\"hint\":\"Change LLM provider",
+            "success": true
+          },
+          "decision_id": "4",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 1,
+          "choice": {
+            "action": "temper.get",
+            "arguments": [
+              "ForesightModels",
+              "en-019d92cd-41e7-7aa0-8436-e0532786bfcf"
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.actions\":[{\"hint\":\"Trigger an incremental signal refresh on an active model.\",\"name\":\"RefreshSignals\",\"target\":\"ForesightModels('en-019d92cd-41e7-7aa0-8436-e0532786bfcf')/Temper.RefreshSignals\"},{\"hint\":\"Callback after incremental refresh completes.\",\"name\":\"RefreshComplete\",\"target\":\"ForesightModels('en-019d92cd-41e7-7aa0-8436-e0532786bfcf')/Temper.RefreshComplete\"},{\"hint\":\"Mark the model as stale when signals have not been refreshed within threshold.\",\"name\":\"MarkStale\",\"target\":\"For",
+            "success": true
+          },
+          "decision_id": "0",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 0,
+          "choice": {
+            "action": "temper.get_session_id",
+            "arguments": []
+          },
+          "consequence": {
+            "result_summary": "\"ss-019d986a-ea43-7f32-a5bd-f326ae942901\"",
+            "success": true
+          },
+          "decision_id": "1",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 1,
+          "choice": {
+            "action": "temper.get",
+            "arguments": [
+              "Sessions",
+              "ss-019d986a-ea43-7f32-a5bd-f326ae942901"
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.actions\":[{\"hint\":\"Tool results received. Increment turn, transition to PreparingContext, and assemble the next bounded provider turn.\",\"name\":\"HandleToolResults\",\"target\":\"Sessions('ss-019d986a-ea43-7f32-a5bd-f326ae942901')/Temper.HandleToolResults\"},{\"hint\":\"monty_repl reached a tool-batch checkpoint boundary inside run_tools. Persist partial results via `pending_tool_context` and re-dispatch run_tools with the remainder. Self-loop on Executing; increments checkpoint_count for the run",
+            "success": true
+          },
+          "decision_id": "2",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 32,
+          "choice": {
+            "action": "temper.read",
+            "arguments": [
+              "current_state_step_0.json"
+            ]
+          },
+          "consequence": {
+            "result_summary": "\"{\\\"model_id\\\": \\\"en-019d92cd-41e7-7aa0-8436-e0532786bfcf\\\", \\\"model_name\\\": \\\"Directed Software Evolution v2\\\", \\\"model_type\\\": \\\"knowledge_domain\\\", \\\"generated_at\\\": \\\"2026-04-15T20:20:45.318882Z\\\", \\\"seed_operation\\\": \\\"initial seed\\\", \\\"seed_method\\\": {\\\"source_config_type\\\": \\\"essay\\\", \\\"research_status\\\": \\\"partial_live_research\\\", \\\"research_note\\\": \\\"The required web_search/web_fetch steps were attempted first, but the environment returned empty results. The graph below therefore combin",
+            "success": true
+          },
+          "decision_id": "3",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 79,
+          "choice": {
+            "action": "temper.write",
+            "arguments": "[\"current_state_step_0_retry_adjacent.json\",\"{\\\"model_id\\\": \\\"en-019d92cd-41e7-7aa0-8436-e0532786bfcf\\\", \\\"model_name\\\": \\\"Directed Software Evolution v2\\\", \\\"model_type\\\": \\\"knowledge_domain\\\", \\\"generated_at\\\": \\\"2026-04-15T20:20:45.318882Z\\\", \\\"seed_operation\\\": \\\"initial seed\\\", \\\"seed_method\\\": {\\\"source_config_type\\\": \\\"essay\\\", \\\"research_status\\\": \\\"partial_live_research\\\", \\\"research_note\\\": \\\"The required web_search/web_fetch steps were attempted first, but the environment returned empty results. The graph below therefore combines the provided essay signal config with stable domain knowledge current to the model knowledge horizon and explicitly marks confidence where appropriate.\\\"}, \\\"source_config\\\": {\\\"title\\\": \\\"Directed Software Evolution\\\", \\\"file_path\\\": \\\"/Users/seshendranalla/Downloads/Directed Software Evolution.md\\\", \\\"key_concepts\\\": [\\\"harness-first engineering\\\", \\\"dark factory (autonomous operation)\\\", \\\"machine tool (Temper as universal constructor)\\\", \\\"directed evolution (variation + selection + exploration)\\\", \\\"verification cascade\\\", \\\"homeostasis vs possibility-driven exploration\\\", \\\"Von Neumann universal constructor\\\", \\\"safety vs liveness asymmetry\\\"], \\\"domains\\\": [\\\"distributed systems\\\", \\\"software engineering\\\", \\\"autonomous operations\\\", \\\"evolutionary computation\\\"], \\\"projects_referenced\\\": [\\\"Helix\\\", \\\"redis-rust\\\", \\\"Temper\\\", \\\"BitsEvolve\\\"], \\\"essay_summary\\\": \\\"Four stages of software evolution: construction via harness-first engineering, dark factory autonomous operation within fixed harness, machine tool software construction from descriptions, and directed evolution through variation and selection under harness feedback. Core thesis: rigor and autonomy are the same investment.\\\"}, \\\"research_log\\\": {\\\"web_search_attempts\\\": [{\\\"query\\\": \\\"\\\\\\\"Directed Software Evolution\\\\\\\" harness-first engineering Temper universal constructor directed evolution\\\", \\\"status\\\": \\\"no_results_returned\\\", \\\"notes\\\": \\\"temper.web_search returned an empty result set in this environment\\\"}, {\\\"query\\\": \\\"software verification cascade autonomous operations dark factory universal constructor software engineering\\\", \\\"status\\\": \\\"no_results_returned\\\", \\\"notes\\\": \\\"temper.web_search returned an empty result set in this environment\\\"}, {\\\"query\\\": \\\"AI coding agents software engineering benchmarks SWE-bench Claude Code Codex Devin 2024 2025\\\", \\\"status\\\": \\\"no_results_returned\\\", \\\"notes\\\": \\\"temper.web_search returned an empty result set in this environment\\\"}, {\\\"query\\\": \\\"formal verification distributed systems model checking Rust verification software engineering 2024 2025\\\", \\\"status\\\": \\\"no_results_returned\\\", \\\"notes\\\": \\\"temper.web_search returned an empty result set in this environment\\\"}, {\\\"query\\\": \\\"evolutionary computation LLM code generation self-improving software agents 2024 2025\\\", \\\"status\\\": \\\"no_results_returned\\\", \\\"notes\\\": \\\"temper.web_search returned an empty result set in this environment\\\"}], \\\"web_fetch_attempts\\\": [{\\\"url\\\": \\\"https://www.swebench.com/\\\", \\\"status\\\": \\\"empty_response\\\", \\\"notes\\\": \\\"temper.web_fetch returned an empty payload in this environment\\\"}, {\\\"url\\\": \\\"https://openai.com/index/introducing-codex/\\\", \\\"status\\\": \\\"empty_response\\\", \\\"notes\\\": \\\"temper.web_fetch returned an empty payload in this environment\\\"}, {\\\"url\\\": \\\"https://www.anthropic.com/engineering/claude-code-best-practices\\\", \\\"status\\\": \\\"empty_response\\\", \\\"notes\\\": \\\"temper.web_fetch returned an empty payload in this environment\\\"}, {\\\"url\\\": \\\"https://www.cursor.com/\\\", \\\"status\\\": \\\"empty_response\\\", \\\"notes\\\": \\\"temper.web_fetch returned an empty payload in this environment\\\"}], \\\"limitations\\\": [\\\"Local essay file path was not accessible via temper.read in this environment\\\", \\\"Live web tools returned empty payloads, preventing direct citation extraction during this run\\\"]}, \\\"executive_frame\\\": {\\\"core_thesis\\\": \\\"Directed software evolution describes a progression from manually reviewed software construction to machine-governed, continuously improving software systems where verification harnesses, not human line-by-line review, become the primary control surface.\\\", \\\"central_claims\\\": [\\\"Rigor and autonomy compound together; the same investment in harness quality enables both safe automation and faster iteration.\\\", \\\"Software autonomy progresses through staged capability accumulation: construction, autonomous operation, machine-tool generation, and directed evolution.\\\", \\\"Selection pressure is more strategically important than raw generation quality once candidate generation becomes cheap.\\\", \\\"Safety properties are often easier to encode than liveness or open-ended progress goals, creating a structural asymmetry in autonomous systems design.\\\"], \\\"current_state_assessment\\\": \\\"As of 2026-04, the ecosystem strongly supports stages 1 and 2 in selected domains, shows early but credible movement into stage 3 for structured control-plane generation, and remains experimental in stage 4 except in narrow loops with strong harnesses.\\\"}, \\\"stage_model\\\": [{\\\"stage_id\\\": \\\"stage-1\\\", \\\"name\\\": \\\"Construction / Harness-First Engineering\\\", \\\"description\\\": \\\"Software is built under increasingly rich automated verification, so code is accepted primarily by test, static analysis, type systems, simulation, or model checking rather than by manual review alone.\\\", \\\"enablers\\\": [\\\"CI/CD\\\", \\\"compiler checks\\\", \\\"property-based testing\\\", \\\"fuzzing\\\", \\\"formal specs\\\", \\\"replay harnesses\\\", \\\"repo-specific evals\\\"], \\\"observable_markers\\\": [\\\"benchmark-based claims\\\", \\\"tests generated alongside code\\\", \\\"review focused on intent and invariants\\\", \\\"machine-readable acceptance criteria\\\"], \\\"maturity\\\": \\\"active and accelerating\\\"}, {\\\"stage_id\\\": \\\"stage-2\\\", \\\"name\\\": \\\"Dark Factory / Autonomous Operation\\\", \\\"description\\\": \\\"Agents operate production-like systems with limited human involvement, but inside a fixed harness of policies, runbooks, telemetry, and approval boundaries.\\\", \\\"enablers\\\": [\\\"policy-as-code\\\", \\\"observability\\\", \\\"runbook automation\\\", \\\"GitOps\\\", \\\"operators\\\", \\\"sandboxed execution\\\", \\\"audit trails\\\"], \\\"observable_markers\\\": [\\\"self-healing workflows\\\", \\\"automated remediation\\\", \\\"agent-run maintenance tasks\\\", \\\"human-on-approval loops\\\"], \\\"maturity\\\": \\\"partially deployed in operations-heavy organizations\\\"}, {\\\"stage_id\\\": \\\"stage-3\\\", \\\"name\\\": \\\"Machine Tool / Universal Constructor\\\", \\\"description\\\": \\\"A platform such as Temper serves as a substrate that can construct verified operational software from descriptions, schemas, policies, and integrations.\\\", \\\"enablers\\\": [\\\"entity specifications\\\", \\\"state machines\\\", \\\"policy engines\\\", \\\"WASM integrations\\\", \\\"hot-reload app composition\\\", \\\"governed actions\\\"], \\\"observable_markers\\\": [\\\"new capabilities created as apps at runtime\\\", \\\"control planes generated from declarative artifacts\\\", \\\"verification before activation\\\"], \\\"maturity\\\": \\\"emergent but strategically coherent\\\"}, {\\\"stage_id\\\": \\\"stage-4\\\", \\\"name\\\": \\\"Directed Evolution\\\", \\\"description\\\": \\\"Systems generate variants, evaluate them under harnesses, preserve diversity, and selectively retain improvements, allowing continual specialization and discovery.\\\", \\\"enablers\\\": [\\\"cheap candidate generation\\\", \\\"selection harnesses\\\", \\\"novelty search\\\", \\\"archives\\\", \\\"multi-objective optimization\\\", \\\"production telemetry feedback\\\"], \\\"observable_markers\\\": [\\\"parallel candidate evaluation\\\", \\\"portfolio maintenance\\\", \\\"automatic policy or architecture refinement\\\", \\\"system-generated capability evolution\\\"], \\\"maturity\\\": \\\"experimental and uneven; strongest in bounded domains\\\"}], \\\"ontology\\\": {\\\"concepts\\\": [{\\\"id\\\": \\\"concept-1\\\", \\\"name\\\": \\\"Harness-first engineering\\\", \\\"kind\\\": \\\"method\\\", \\\"definition\\\": \\\"Build and accept software through machine-checkable harnesses that define correctness, performance, and safety boundaries.\\\"}, {\\\"id\\\": \\\"concept-2\\\", \\\"name\\\": \\\"Dark factory\\\", \\\"kind\\\": \\\"operating-model\\\", \\\"definition\\\": \\\"Autonomous operation of software/infrastructure with minimal human intervention under fixed governance constraints.\\\"}, {\\\"id\\\": \\\"concept-3\\\", \\\"name\\\": \\\"Machine tool\\\", \\\"kind\\\": \\\"platform-pattern\\\", \\\"definition\\\": \\\"A substrate that manufactures other pieces of software from descriptions rather than hand-authored implementation alone.\\\"}, {\\\"id\\\": \\\"concept-4\\\", \\\"name\\\": \\\"Universal constructor\\\", \\\"kind\\\": \\\"theory-analogy\\\", \\\"definition\\\": \\\"A system capable of constructing a wide range of other systems given descriptions and suitable materials.\\\"}, {\\\"id\\\": \\\"concept-5\\\", \\\"name\\\": \\\"Directed evolution\\\", \\\"kind\\\": \\\"optimization-regime\\\", \\\"definition\\\": \\\"Variation plus selection plus exploration in which harnesses guide accumulation of useful changes.\\\"}, {\\\"id\\\": \\\"concept-6\\\", \\\"name\\\": \\\"Verification cascade\\\", \\\"kind\\\": \\\"control-architecture\\\", \\\"definition\\\": \\\"Layered verification methods from syntax to tests to model checking to simulation to policy gates.\\\"}, {\\\"id\\\": \\\"concept-7\\\", \\\"name\\\": \\\"Homeostasis\\\", \\\"kind\\\": \\\"control-goal\\\", \\\"definition\\\": \\\"Keeping a system within acceptable bounds and returning it to known-good states.\\\"}, {\\\"id\\\": \\\"concept-8\\\", \\\"name\\\": \\\"Possibility-driven exploration\\\", \\\"kind\\\": \\\"control-goal\\\", \\\"definition\\\": \\\"Searching beyond current operating points for better architectures, policies, or implementations.\\\"}, {\\\"id\\\": \\\"concept-9\\\", \\\"name\\\": \\\"Safety-liveness asymmetry\\\", \\\"kind\\\": \\\"governance-principle\\\", \\\"definition\\\": \\\"It is generally easier to state and verify what must never happen than to prove open-ended forward progress.\\\"}, {\\\"id\\\": \\\"concept-10\\\", \\\"name\\\": \\\"Selection pressure\\\", \\\"kind\\\": \\\"evolutionary-mechanism\\\", \\\"definition\\\": \\\"The criteria that determine which generated variants survive and propagate.\\\"}, {\\\"id\\\": \\\"concept-11\\\", \\\"name\\\": \\\"Diversity preservation\\\", \\\"kind\\\": \\\"evolutionary-mechanism\\\", \\\"definition\\\": \\\"Mechanisms that prevent search collapse by maintaining distinct solution niches.\\\"}, {\\\"id\\\": \\\"concept-12\\\", \\\"name\\\": \\\"Governed autonomy\\\", \\\"kind\\\": \\\"platform-principle\\\", \\\"definition\\\": \\\"Autonomous action execution constrained by state machines, permissions, and audit trails.\\\"}], \\\"tensions\\\": [{\\\"name\\\": \\\"speed_vs_assurance\\\", \\\"poles\\\": [\\\"faster exploration\\\", \\\"stronger verification\\\"], \\\"summary\\\": \\\"More exploration increases discovery but also increases harness burden and risk of proxy exploitation.\\\"}, {\\\"name\\\": \\\"general_models_vs_private_context\\\", \\\"poles\\\": [\\\"frontier general capability\\\", \\\"repository-specific memory and harnesses\\\"], \\\"summary\\\": \\\"Model quality matters, but private context increasingly determines production usefulness.\\\"}, {\\\"name\\\": \\\"human_review_vs_machine_acceptance\\\", \\\"poles\\\": [\\\"manual judgment\\\", \\\"automated acceptance\\\"], \\\"summary\\\": \\\"The locus of trust shifts from code reading to harness authoring and governance design.\\\"}, {\\\"name\\\": \\\"homeostasis_vs_evolution\\\", \\\"poles\\\": [\\\"stability maintenance\\\", \\\"novelty-seeking change\\\"], \\\"summary\\\": \\\"Systems good at returning to equilibrium are not automatically good at discovering better equilibria.\\\"}]}, \\\"ecosystem\\\": {\\\"projects_and_systems\\\": [{\\\"name\\\": \\\"Temper\\\", \\\"type\\\": \\\"platform\\\", \\\"role\\\": \\\"Universal-constructor candidate and governed agent operating system\\\", \\\"relevance\\\": \\\"central\\\"}, {\\\"name\\\": \\\"Helix\\\", \\\"type\\\": \\\"project\\\", \\\"role\\\": \\\"Referenced example in the source domain context\\\", \\\"relevance\\\": \\\"supporting\\\"}, {\\\"name\\\": \\\"redis-rust\\\", \\\"type\\\": \\\"project\\\", \\\"role\\\": \\\"Typed systems example relevant to compiler- and harness-guided evolution\\\", \\\"relevance\\\": \\\"supporting\\\"}, {\\\"name\\\": \\\"BitsEvolve\\\", \\\"type\\\": \\\"project\\\", \\\"role\\\": \\\"Evolutionary framing/project reference from source config\\\", \\\"relevance\\\": \\\"supporting\\\"}], \\\"market_actors\\\": [{\\\"name\\\": \\\"Anthropic\\\", \\\"category\\\": \\\"frontier-model-and-agent-tools\\\", \\\"evidence\\\": \\\"Claude and Claude Code style workflows strengthen agentic coding patterns\\\"}, {\\\"name\\\": \\\"OpenAI\\\", \\\"category\\\": \\\"frontier-model-and-agent-tools\\\", \\\"evidence\\\": \\\"Codex and model/tooling ecosystem contribute to software-agent productization\\\"}, {\\\"name\\\": \\\"Cursor\\\", \\\"category\\\": \\\"IDE-native coding agent\\\", \\\"evidence\\\": \\\"Strong developer adoption signal for AI-assisted coding\\\"}, {\\\"name\\\": \\\"Cognition / Devin\\\", \\\"category\\\": \\\"autonomous software engineer product\\\", \\\"evidence\\\": \\\"Long-horizon task automation narrative\\\"}, {\\\"name\\\": \\\"Aider\\\", \\\"category\\\": \\\"open-source terminal coding tool\\\", \\\"evidence\\\": \\\"Repo-grounded agentic workflows in open source\\\"}, {\\\"name\\\": \\\"Cline\\\", \\\"category\\\": \\\"open-source coding agent\\\", \\\"evidence\\\": \\\"Autonomous tool use and codebase interaction pattern\\\"}, {\\\"name\\\": \\\"Continue\\\", \\\"category\\\": \\\"extensible AI coding assistant\\\", \\\"evidence\\\": \\\"Local/private-context coding assistance\\\"}, {\\\"name\\\": \\\"OpenHands / SWE-agent class\\\", \\\"category\\\": \\\"research/open-source agents\\\", \\\"evidence\\\": \\\"Benchmark-driven autonomous software task execution\\\"}], \\\"adjacent_technical_fields\\\": [\\\"formal methods\\\", \\\"distributed systems\\\", \\\"program synthesis\\\", \\\"evolutionary computation\\\", \\\"AIOps\\\", \\\"internal developer platforms\\\", \\\"policy-as-code\\\", \\\"observability engineering\\\"]}, \\\"current_state\\\": {\\\"technology_readiness\\\": {\\\"harness_first_engineering\\\": \\\"high\\\", \\\"dark_factory_operations\\\": \\\"medium\\\", \\\"machine_tool_generation\\\": \\\"medium-low but rising\\\", \\\"directed_evolution\\\": \\\"low-to-medium in bounded loops\\\"}, \\\"dominant_patterns\\\": [\\\"Agentic coding is being adopted first in developer tools, not fully autonomous production mutation\\\", \\\"Most organizations still rely on humans for final merge or deploy approval\\\", \\\"Repository-specific tests and context are becoming the limiting resource\\\", \\\"Control-plane and workflow software are more amenable to generation than arbitrary product logic\\\", \\\"Observability and policy infrastructure increasingly serve both humans and agents\\\"], \\\"bottlenecks\\\": [\\\"Insufficient high-quality harnesses and oracles\\\", \\\"Weak evaluation of long-horizon outcomes\\\", \\\"Governance and approval friction\\\", \\\"Search collapse and benchmark overfitting\\\", \\\"Environment flakiness and hidden state during autonomous execution\\\"], \\\"leading_indicators_to_watch\\\": [\\\"Benchmark-to-production transfer rates\\\", \\\"Number of organizations allowing agents to merge/deploy under policy\\\", \\\"Growth of private eval suites\\\", \\\"Adoption of state-machine/policy-backed app platforms\\\", \\\"Use of production traces as training or selection feedback\\\", \\\"Tooling for diversity preservation and policy evolution\\\"]}, \\\"trendlines\\\": [{\\\"id\\\": \\\"trend-1\\\", \\\"name\\\": \\\"Review shifts from code to harness\\\", \\\"direction\\\": \\\"up\\\", \\\"strength\\\": \\\"high\\\", \\\"time_horizon\\\": \\\"12-36 months\\\", \\\"why_it_matters\\\": \\\"This changes who holds leverage in software teams and what artifacts become strategic.\\\"}, {\\\"id\\\": \\\"trend-2\\\", \\\"name\\\": \\\"Governed autonomy outcompetes unguided automation in enterprises\\\", \\\"direction\\\": \\\"up\\\", \\\"strength\\\": \\\"high\\\", \\\"time_horizon\\\": \\\"12-36 months\\\", \\\"why_it_matters\\\": \\\"Auditability and policy control are prerequisites for high-trust deployment.\\\"}, {\\\"id\\\": \\\"trend-3\\\", \\\"name\\\": \\\"Control-plane generation precedes broad software generation\\\", \\\"direction\\\": \\\"up\\\", \\\"strength\\\": \\\"medium-high\\\", \\\"time_horizon\\\": \\\"6-24 months\\\", \\\"why_it_matters\\\": \\\"Structured operational domains are the easiest wedge for machine-tool platforms.\\\"}, {\\\"id\\\": \\\"trend-4\\\", \\\"name\\\": \\\"Evolutionary search techniques re-enter mainstream software tooling through agents\\\", \\\"direction\\\": \\\"up\\\", \\\"strength\\\": \\\"medium\\\", \\\"time_horizon\\\": \\\"12-36 months\\\", \\\"why_it_matters\\\": \\\"Cheap sampling creates pressure to improve selection and diversity management.\\\"}, {\\\"id\\\": \\\"trend-5\\\", \\\"name\\\": \\\"Private telemetry and repository memory become the core moat\\\", \\\"direction\\\": \\\"up\\\", \\\"strength\\\": \\\"high\\\", \\\"time_horizon\\\": \\\"immediate\\\", \\\"why_it_matters\\\": \\\"Generic models commoditize faster than organization-specific feedback loops.\\\"}], \\\"risk_map\\\": {\\\"technical_risks\\\": [\\\"Harness incompleteness creates false confidence\\\", \\\"Selection on narrow benchmarks induces regressions in unmeasured dimensions\\\", \\\"Object...\n[truncated, showing 16384 of 38040 bytes]"
+          },
+          "consequence": {
+            "result_summary": "{\"file_id\":\"fl-019d986e-00c9-7cc0-bcc6-c7c8559127e9\",\"path\":\"current_state_step_0_retry_adjacent.json\",\"workspace_id\":\"ws-019d986a-ea5d-7412-b473-35c8946b6d55\"}",
+            "success": true
+          },
+          "decision_id": "4",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 4,
+          "choice": {
+            "action": "temper.create",
+            "arguments": [
+              "Agents",
+              {
+                "fields": {
+                  "name": "Probe-adjacent-domain-step-0-retry",
+                  "role": "probe"
+                }
+              }
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.context\":\"$metadata#Agents/$entity\",\"@odata.id\":\"Agents('aj-019d986e-00ec-7bc2-975d-c4fbd572c821')\",\"booleans\":{},\"counters\":{},\"entity_id\":\"aj-019d986e-00ec-7bc2-975d-c4fbd572c821\",\"entity_type\":\"Agent\",\"events\":[{\"action\":\"Created\",\"from_status\":\"\",\"params\":{\"fields\":{\"name\":\"Probe-adjacent-domain-step-0-retry\",\"role\":\"probe\"}},\"timestamp\":\"2026-04-16T22:33:59.278020Z\",\"to_status\":\"Created\"}],\"fields\":{\"Id\":\"aj-019d986e-00ec-7bc2-975d-c4fbd572c821\",\"Status\":\"Created\",\"fields\":{\"name\":",
+            "success": true
+          },
+          "decision_id": "5",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 4,
+          "choice": {
+            "action": "temper.create",
+            "arguments": [
+              "Sessions",
+              {
+                "fields": {
+                  "parent_session_id": "ss-019d986a-ea43-7f32-a5bd-f326ae942901"
+                }
+              }
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.context\":\"$metadata#Sessions/$entity\",\"@odata.id\":\"Sessions('ss-019d986e-00f1-7d10-adb4-6d05ebeba663')\",\"booleans\":{},\"counters\":{},\"entity_id\":\"ss-019d986e-00f1-7d10-adb4-6d05ebeba663\",\"entity_type\":\"Session\",\"events\":[{\"action\":\"Created\",\"from_status\":\"\",\"params\":{\"fields\":{\"parent_session_id\":\"ss-019d986a-ea43-7f32-a5bd-f326ae942901\"}},\"timestamp\":\"2026-04-16T22:33:59.282550Z\",\"to_status\":\"Created\"}],\"fields\":{\"Id\":\"ss-019d986e-00f1-7d10-adb4-6d05ebeba663\",\"Status\":\"Created\",\"fields\"",
+            "success": true
+          },
+          "decision_id": "6",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 5,
+          "choice": {
+            "action": "temper.action",
+            "arguments": [
+              "Sessions",
+              "ss-019d986e-00f1-7d10-adb4-6d05ebeba663",
+              "Configure",
+              {
+                "agent_id": "aj-019d986e-00ec-7bc2-975d-c4fbd572c821",
+                "max_turns": "30",
+                "model": "gpt-5.4",
+                "parent_session_id": "ss-019d986a-ea43-7f32-a5bd-f326ae942901",
+                "provider": "openai_codex",
+                "tools_enabled": "temper_get,temper_list,temper_action,temper_create,temper_read,temper_web_search,temper_web_fetch",
+                "user_message": "You are a foresight probe (adjacent-domain) analyzing the domain \"Directed Software Evolution v2\" (knowledge_domain).\n\nProjection ID: en-019d986a-e9e7-7143-96b5-79c0863e031e\nYour Agent ID: aj-019d986e-00ec-7bc2-975d-c4fbd572c821\nStep: 0 (day 90 of 1 year)\n\n## Your Persona\nYou are an observer from adjacent fields including economics, biology, industrial organization, and organizational theory. Focus on selection dynamics, coordination costs, fitness landscapes, and institutional bottlenecks that software practitioners miss.\n\n## Current State of the World\nRead the current state with:\nstate = temper.read(\"current_state_step_0_retry_adjacent.json\", {\"workspace_id\": \"ws-019d986a-ea5d-7412-b473-35c8946b6d55\"})\n\n## Your Focus Area\nEmphasize cross-domain analogies, market structure, organizational learning, and standards emergence.\n\n## Instructions\n1. First read the state file.\n2. Run at least 2 web searches and fetch promising pages. You must ground at least 2 observations in external evidence with URLs or titles.\n3. Project forward 90 days from the current state.\n4. Create exactly 4 Observations. Use temper.create with empty fields, then Record with content, importance, signal_refs as JSON string, counterfactual, probe_agent_id aj-019d986e-00ec-7bc2-975d-c4fbd572c821, projection_id en-019d986a-e9e7-7143-96b5-79c0863e031e, step_at 0. At least 2 observations must be high importance.\n5. Create exactly 1 Direction with full reasoning and observation_ids JSON array string.\n6. Report done with ProbeStepDone and temper.done.\n\nRules: Do not read other probes. At least one observation must challenge the dominant narrative. Name real companies, tools, or standards where relevant. Focus on economics, governance standards, labor substitution, and evolutionary selection mechanisms.\n"
+              }
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.context\":\"$metadata#Sessions/$entity\",\"booleans\":{},\"counters\":{},\"entity_id\":\"ss-019d986e-00f1-7d10-adb4-6d05ebeba663\",\"entity_type\":\"Session\",\"events\":[{\"action\":\"Created\",\"from_status\":\"\",\"params\":{\"fields\":{\"parent_session_id\":\"ss-019d986a-ea43-7f32-a5bd-f326ae942901\"}},\"timestamp\":\"2026-04-16T22:33:59.282550Z\",\"to_status\":\"Created\"},{\"action\":\"Configure\",\"from_status\":\"Created\",\"params\":{\"agent_id\":\"aj-019d986e-00ec-7bc2-975d-c4fbd572c821\",\"max_turns\":\"30\",\"model\":\"gpt-5.4\",\"parent",
+            "success": true
+          },
+          "decision_id": "7",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 1,
+          "choice": {
+            "action": "temper.get",
+            "arguments": [
+              "Sessions",
+              "ss-019d986e-00f1-7d10-adb4-6d05ebeba663"
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.actions\":[{\"hint\":\"Provider response artifact is ready. Apply the response back into Session state.\",\"name\":\"ProviderResponseReady\",\"target\":\"Sessions('ss-019d986e-00f1-7d10-adb4-6d05ebeba663')/Temper.ProviderResponseReady\"},{\"hint\":\"Queue a steering message for mid-run injection. External callers append messages while session runs. Self-loop \u2014 does not change state.\",\"name\":\"Steer\",\"target\":\"Sessions('ss-019d986e-00f1-7d10-adb4-6d05ebeba663')/Temper.Steer\"},{\"hint\":\"Change LLM provider",
+            "success": true
+          },
+          "decision_id": "0",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 1,
+          "choice": {
+            "action": "temper.get",
+            "arguments": [
+              "Sessions",
+              "ss-019d986e-00f1-7d10-adb4-6d05ebeba663"
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.actions\":[{\"hint\":\"Provider response artifact is ready. Apply the response back into Session state.\",\"name\":\"ProviderResponseReady\",\"target\":\"Sessions('ss-019d986e-00f1-7d10-adb4-6d05ebeba663')/Temper.ProviderResponseReady\"},{\"hint\":\"Queue a steering message for mid-run injection. External callers append messages while session runs. Self-loop \u2014 does not change state.\",\"name\":\"Steer\",\"target\":\"Sessions('ss-019d986e-00f1-7d10-adb4-6d05ebeba663')/Temper.Steer\"},{\"hint\":\"Change LLM provider",
+            "success": true
+          },
+          "decision_id": "0",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 2,
+          "choice": {
+            "action": "temper.get",
+            "arguments": [
+              "Sessions",
+              "ss-019d986c-1b50-7103-9043-6bf251736813"
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.actions\":[{\"hint\":\"Reply delivery failed after the session reached a terminal state.\",\"name\":\"DeliveryFailed\",\"target\":\"Sessions('ss-019d986c-1b50-7103-9043-6bf251736813')/Temper.DeliveryFailed\"},{\"hint\":\"emit_ots_trajectory succeeded \u2014 record the trajectory_id and mark emission complete.\",\"name\":\"MarkTrajectoryEmitted\",\"target\":\"Sessions('ss-019d986c-1b50-7103-9043-6bf251736813')/Temper.MarkTrajectoryEmitted\"},{\"hint\":\"emit_ots_trajectory POST failed. Records the error so the Evolution",
+            "success": true
+          },
+          "decision_id": "0",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 2,
+          "choice": {
+            "action": "temper.get",
+            "arguments": [
+              "Sessions",
+              "ss-019d986c-1b5c-7a42-9795-0a44c528ba34"
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.actions\":[{\"hint\":\"Reply delivery failed after the session reached a terminal state.\",\"name\":\"DeliveryFailed\",\"target\":\"Sessions('ss-019d986c-1b5c-7a42-9795-0a44c528ba34')/Temper.DeliveryFailed\"},{\"hint\":\"emit_ots_trajectory succeeded \u2014 record the trajectory_id and mark emission complete.\",\"name\":\"MarkTrajectoryEmitted\",\"target\":\"Sessions('ss-019d986c-1b5c-7a42-9795-0a44c528ba34')/Temper.MarkTrajectoryEmitted\"},{\"hint\":\"emit_ots_trajectory POST failed. Records the error so the Evolution",
+            "success": true
+          },
+          "decision_id": "1",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 1,
+          "choice": {
+            "action": "temper.get",
+            "arguments": [
+              "Sessions",
+              "ss-019d986c-1b6e-7900-aed8-8b5b60d0aaff"
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.actions\":[{\"hint\":\"Reply delivery failed after the session reached a terminal state.\",\"name\":\"DeliveryFailed\",\"target\":\"Sessions('ss-019d986c-1b6e-7900-aed8-8b5b60d0aaff')/Temper.DeliveryFailed\"},{\"hint\":\"emit_ots_trajectory succeeded \u2014 record the trajectory_id and mark emission complete.\",\"name\":\"MarkTrajectoryEmitted\",\"target\":\"Sessions('ss-019d986c-1b6e-7900-aed8-8b5b60d0aaff')/Temper.MarkTrajectoryEmitted\"},{\"hint\":\"emit_ots_trajectory POST failed. Records the error so the Evolution",
+            "success": true
+          },
+          "decision_id": "2",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 2,
+          "choice": {
+            "action": "temper.get",
+            "arguments": [
+              "Sessions",
+              "ss-019d986e-00f1-7d10-adb4-6d05ebeba663"
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.actions\":[{\"hint\":\"Tool results received. Increment turn, transition to PreparingContext, and assemble the next bounded provider turn.\",\"name\":\"HandleToolResults\",\"target\":\"Sessions('ss-019d986e-00f1-7d10-adb4-6d05ebeba663')/Temper.HandleToolResults\"},{\"hint\":\"monty_repl reached a tool-batch checkpoint boundary inside run_tools. Persist partial results via `pending_tool_context` and re-dispatch run_tools with the remainder. Self-loop on Executing; increments checkpoint_count for the run",
+            "success": true
+          },
+          "decision_id": "3",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 2,
+          "choice": {
+            "action": "temper.list",
+            "arguments": [
+              "Observations",
+              "$filter=projection_id eq 'en-019d986a-e9e7-7143-96b5-79c0863e031e'"
+            ]
+          },
+          "consequence": {
+            "result_summary": "[{\"@odata.id\":\"Observations('en-019d986d-1b21-71c0-b89f-2cb60d396946')\",\"booleans\":{},\"counters\":{},\"entity_id\":\"en-019d986d-1b21-71c0-b89f-2cb60d396946\",\"entity_type\":\"Observation\",\"events\":[{\"action\":\"Created\",\"from_status\":\"\",\"params\":{\"fields\":{}},\"timestamp\":\"2026-04-16T22:33:00.451179Z\",\"to_status\":\"Created\"},{\"action\":\"Record\",\"from_status\":\"Created\",\"params\":{\"content\":\"Within 90 days, practitioner teams working on directed software evolution will converge on harness-first engineering as",
+            "success": true
+          },
+          "decision_id": "4",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 1,
+          "choice": {
+            "action": "temper.list",
+            "arguments": [
+              "Directions",
+              "$filter=projection_id eq 'en-019d986a-e9e7-7143-96b5-79c0863e031e'"
+            ]
+          },
+          "consequence": {
+            "result_summary": "[{\"@odata.id\":\"Directions('en-019d986d-1b44-7e92-852f-92a129246559')\",\"booleans\":{},\"counters\":{},\"entity_id\":\"en-019d986d-1b44-7e92-852f-92a129246559\",\"entity_type\":\"Direction\",\"events\":[{\"action\":\"Created\",\"from_status\":\"\",\"params\":{\"fields\":{}},\"timestamp\":\"2026-04-16T22:33:00.485933Z\",\"to_status\":\"Proposed\"},{\"action\":\"Propose\",\"from_status\":\"Proposed\",\"params\":{\"counterfactual_summary\":\"If this direction is wrong and broad autonomous exploration becomes production-ready immediately, teams t",
+            "success": true
+          },
+          "decision_id": "5",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 1,
+          "choice": {
+            "action": "temper.get",
+            "arguments": [
+              "Projections",
+              "en-019d986a-e9e7-7143-96b5-79c0863e031e"
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.actions\":[{\"hint\":\"Callback after probe agents are spawned. Records agent IDs. Chain pauses until ProbeStepDone events arrive.\",\"name\":\"ProbesReady\",\"target\":\"Projections('en-019d986a-e9e7-7143-96b5-79c0863e031e')/Temper.ProbesReady\"},{\"hint\":\"A Probe self-reports completion of the current step. Dispatched by orchestrator for audit trail.\",\"name\":\"ProbeStepDone\",\"target\":\"Projections('en-019d986a-e9e7-7143-96b5-79c0863e031e')/Temper.ProbeStepDone\"},{\"hint\":\"Convergence analysis finished",
+            "success": true
+          },
+          "decision_id": "0",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 3,
+          "choice": {
+            "action": "temper.list",
+            "arguments": [
+              "Observations",
+              "$filter=projection_id eq 'en-019d986a-e9e7-7143-96b5-79c0863e031e'"
+            ]
+          },
+          "consequence": {
+            "result_summary": "[{\"@odata.id\":\"Observations('en-019d986d-1b21-71c0-b89f-2cb60d396946')\",\"booleans\":{},\"counters\":{},\"entity_id\":\"en-019d986d-1b21-71c0-b89f-2cb60d396946\",\"entity_type\":\"Observation\",\"events\":[{\"action\":\"Created\",\"from_status\":\"\",\"params\":{\"fields\":{}},\"timestamp\":\"2026-04-16T22:33:00.451179Z\",\"to_status\":\"Created\"},{\"action\":\"Record\",\"from_status\":\"Created\",\"params\":{\"content\":\"Within 90 days, practitioner teams working on directed software evolution will converge on harness-first engineering as",
+            "success": true
+          },
+          "decision_id": "0",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 1,
+          "choice": {
+            "action": "temper.list",
+            "arguments": [
+              "Directions",
+              "$filter=projection_id eq 'en-019d986a-e9e7-7143-96b5-79c0863e031e'"
+            ]
+          },
+          "consequence": {
+            "result_summary": "[{\"@odata.id\":\"Directions('en-019d986d-1b44-7e92-852f-92a129246559')\",\"booleans\":{},\"counters\":{},\"entity_id\":\"en-019d986d-1b44-7e92-852f-92a129246559\",\"entity_type\":\"Direction\",\"events\":[{\"action\":\"Created\",\"from_status\":\"\",\"params\":{\"fields\":{}},\"timestamp\":\"2026-04-16T22:33:00.485933Z\",\"to_status\":\"Proposed\"},{\"action\":\"Propose\",\"from_status\":\"Proposed\",\"params\":{\"counterfactual_summary\":\"If this direction is wrong and broad autonomous exploration becomes production-ready immediately, teams t",
+            "success": true
+          },
+          "decision_id": "1",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 1,
+          "choice": {
+            "action": "temper.get",
+            "arguments": [
+              "Observations",
+              "en-019d986d-1b21-71c0-b89f-2cb60d396946"
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.actions\":[{\"hint\":\"Gate 1: Record a free-form observation during a projection step. Self-loop on Created.\",\"name\":\"Record\",\"target\":\"Observations('en-019d986d-1b21-71c0-b89f-2cb60d396946')/Temper.Record\"},{\"hint\":\"Gate 2: A different probe confirms this observation. Cedar policy enforces confirmer != creator.\",\"name\":\"Confirm\",\"target\":\"Observations('en-019d986d-1b21-71c0-b89f-2cb60d396946')/Temper.Confirm\"},{\"hint\":\"Mark an observation as faded when it loses relevance or is superseded.",
+            "success": true
+          },
+          "decision_id": "0",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 1,
+          "choice": {
+            "action": "temper.get",
+            "arguments": [
+              "Observations",
+              "en-019d986d-1b2b-7d00-8481-91bb5c569aef"
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.actions\":[{\"hint\":\"Gate 1: Record a free-form observation during a projection step. Self-loop on Created.\",\"name\":\"Record\",\"target\":\"Observations('en-019d986d-1b2b-7d00-8481-91bb5c569aef')/Temper.Record\"},{\"hint\":\"Gate 2: A different probe confirms this observation. Cedar policy enforces confirmer != creator.\",\"name\":\"Confirm\",\"target\":\"Observations('en-019d986d-1b2b-7d00-8481-91bb5c569aef')/Temper.Confirm\"},{\"hint\":\"Mark an observation as faded when it loses relevance or is superseded.",
+            "success": true
+          },
+          "decision_id": "1",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 1,
+          "choice": {
+            "action": "temper.get",
+            "arguments": [
+              "Observations",
+              "en-019d986d-1b34-7430-ad80-bf867c47845c"
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.actions\":[{\"hint\":\"Gate 1: Record a free-form observation during a projection step. Self-loop on Created.\",\"name\":\"Record\",\"target\":\"Observations('en-019d986d-1b34-7430-ad80-bf867c47845c')/Temper.Record\"},{\"hint\":\"Gate 2: A different probe confirms this observation. Cedar policy enforces confirmer != creator.\",\"name\":\"Confirm\",\"target\":\"Observations('en-019d986d-1b34-7430-ad80-bf867c47845c')/Temper.Confirm\"},{\"hint\":\"Mark an observation as faded when it loses relevance or is superseded.",
+            "success": true
+          },
+          "decision_id": "2",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 0,
+          "choice": {
+            "action": "temper.get",
+            "arguments": [
+              "Observations",
+              "en-019d986d-1b3d-73f3-b518-be3250eb2b68"
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.actions\":[{\"hint\":\"Gate 1: Record a free-form observation during a projection step. Self-loop on Created.\",\"name\":\"Record\",\"target\":\"Observations('en-019d986d-1b3d-73f3-b518-be3250eb2b68')/Temper.Record\"},{\"hint\":\"Gate 2: A different probe confirms this observation. Cedar policy enforces confirmer != creator.\",\"name\":\"Confirm\",\"target\":\"Observations('en-019d986d-1b3d-73f3-b518-be3250eb2b68')/Temper.Confirm\"},{\"hint\":\"Mark an observation as faded when it loses relevance or is superseded.",
+            "success": true
+          },
+          "decision_id": "3",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 1,
+          "choice": {
+            "action": "temper.get",
+            "arguments": [
+              "Observations",
+              "en-019d986d-28f7-7d70-ab2c-871cab28a30a"
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.actions\":[{\"hint\":\"Gate 1: Record a free-form observation during a projection step. Self-loop on Created.\",\"name\":\"Record\",\"target\":\"Observations('en-019d986d-28f7-7d70-ab2c-871cab28a30a')/Temper.Record\"},{\"hint\":\"Gate 2: A different probe confirms this observation. Cedar policy enforces confirmer != creator.\",\"name\":\"Confirm\",\"target\":\"Observations('en-019d986d-28f7-7d70-ab2c-871cab28a30a')/Temper.Confirm\"},{\"hint\":\"Mark an observation as faded when it loses relevance or is superseded.",
+            "success": true
+          },
+          "decision_id": "4",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 1,
+          "choice": {
+            "action": "temper.get",
+            "arguments": [
+              "Observations",
+              "en-019d986d-28ff-70d1-8081-09e40c8944cf"
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.actions\":[{\"hint\":\"Gate 1: Record a free-form observation during a projection step. Self-loop on Created.\",\"name\":\"Record\",\"target\":\"Observations('en-019d986d-28ff-70d1-8081-09e40c8944cf')/Temper.Record\"},{\"hint\":\"Gate 2: A different probe confirms this observation. Cedar policy enforces confirmer != creator.\",\"name\":\"Confirm\",\"target\":\"Observations('en-019d986d-28ff-70d1-8081-09e40c8944cf')/Temper.Confirm\"},{\"hint\":\"Mark an observation as faded when it loses relevance or is superseded.",
+            "success": true
+          },
+          "decision_id": "5",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 1,
+          "choice": {
+            "action": "temper.get",
+            "arguments": [
+              "Observations",
+              "en-019d986d-2908-71b3-b04a-dfaeaf08988a"
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.actions\":[{\"hint\":\"Gate 1: Record a free-form observation during a projection step. Self-loop on Created.\",\"name\":\"Record\",\"target\":\"Observations('en-019d986d-2908-71b3-b04a-dfaeaf08988a')/Temper.Record\"},{\"hint\":\"Gate 2: A different probe confirms this observation. Cedar policy enforces confirmer != creator.\",\"name\":\"Confirm\",\"target\":\"Observations('en-019d986d-2908-71b3-b04a-dfaeaf08988a')/Temper.Confirm\"},{\"hint\":\"Mark an observation as faded when it loses relevance or is superseded.",
+            "success": true
+          },
+          "decision_id": "6",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 1,
+          "choice": {
+            "action": "temper.get",
+            "arguments": [
+              "Observations",
+              "en-019d986d-2911-79d2-adfb-0e60fe95473f"
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.actions\":[{\"hint\":\"Gate 1: Record a free-form observation during a projection step. Self-loop on Created.\",\"name\":\"Record\",\"target\":\"Observations('en-019d986d-2911-79d2-adfb-0e60fe95473f')/Temper.Record\"},{\"hint\":\"Gate 2: A different probe confirms this observation. Cedar policy enforces confirmer != creator.\",\"name\":\"Confirm\",\"target\":\"Observations('en-019d986d-2911-79d2-adfb-0e60fe95473f')/Temper.Confirm\"},{\"hint\":\"Mark an observation as faded when it loses relevance or is superseded.",
+            "success": true
+          },
+          "decision_id": "7",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 0,
+          "choice": {
+            "action": "temper.get",
+            "arguments": [
+              "Observations",
+              "en-019d986e-093e-7fa3-ae2e-7635ea5d745b"
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.actions\":[{\"hint\":\"Gate 1: Record a free-form observation during a projection step. Self-loop on Created.\",\"name\":\"Record\",\"target\":\"Observations('en-019d986e-093e-7fa3-ae2e-7635ea5d745b')/Temper.Record\"},{\"hint\":\"Gate 2: A different probe confirms this observation. Cedar policy enforces confirmer != creator.\",\"name\":\"Confirm\",\"target\":\"Observations('en-019d986e-093e-7fa3-ae2e-7635ea5d745b')/Temper.Confirm\"},{\"hint\":\"Mark an observation as faded when it loses relevance or is superseded.",
+            "success": true
+          },
+          "decision_id": "8",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 1,
+          "choice": {
+            "action": "temper.get",
+            "arguments": [
+              "Observations",
+              "en-019d986e-0947-7c11-9370-6dd1e824f09c"
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.actions\":[{\"hint\":\"Gate 1: Record a free-form observation during a projection step. Self-loop on Created.\",\"name\":\"Record\",\"target\":\"Observations('en-019d986e-0947-7c11-9370-6dd1e824f09c')/Temper.Record\"},{\"hint\":\"Gate 2: A different probe confirms this observation. Cedar policy enforces confirmer != creator.\",\"name\":\"Confirm\",\"target\":\"Observations('en-019d986e-0947-7c11-9370-6dd1e824f09c')/Temper.Confirm\"},{\"hint\":\"Mark an observation as faded when it loses relevance or is superseded.",
+            "success": true
+          },
+          "decision_id": "9",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 1,
+          "choice": {
+            "action": "temper.get",
+            "arguments": [
+              "Observations",
+              "en-019d986e-0953-7d11-aea2-fa118fb08609"
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.actions\":[{\"hint\":\"Gate 1: Record a free-form observation during a projection step. Self-loop on Created.\",\"name\":\"Record\",\"target\":\"Observations('en-019d986e-0953-7d11-aea2-fa118fb08609')/Temper.Record\"},{\"hint\":\"Gate 2: A different probe confirms this observation. Cedar policy enforces confirmer != creator.\",\"name\":\"Confirm\",\"target\":\"Observations('en-019d986e-0953-7d11-aea2-fa118fb08609')/Temper.Confirm\"},{\"hint\":\"Mark an observation as faded when it loses relevance or is superseded.",
+            "success": true
+          },
+          "decision_id": "10",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 1,
+          "choice": {
+            "action": "temper.get",
+            "arguments": [
+              "Observations",
+              "en-019d986e-095c-7353-b52c-114efd3a0864"
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.actions\":[{\"hint\":\"Gate 1: Record a free-form observation during a projection step. Self-loop on Created.\",\"name\":\"Record\",\"target\":\"Observations('en-019d986e-095c-7353-b52c-114efd3a0864')/Temper.Record\"},{\"hint\":\"Gate 2: A different probe confirms this observation. Cedar policy enforces confirmer != creator.\",\"name\":\"Confirm\",\"target\":\"Observations('en-019d986e-095c-7353-b52c-114efd3a0864')/Temper.Confirm\"},{\"hint\":\"Mark an observation as faded when it loses relevance or is superseded.",
+            "success": true
+          },
+          "decision_id": "11",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 2,
+          "choice": {
+            "action": "temper.list",
+            "arguments": [
+              "Observations",
+              "$filter=projection_id eq 'en-019d986a-e9e7-7143-96b5-79c0863e031e'"
+            ]
+          },
+          "consequence": {
+            "result_summary": "[{\"@odata.id\":\"Observations('en-019d986d-1b21-71c0-b89f-2cb60d396946')\",\"booleans\":{},\"counters\":{},\"entity_id\":\"en-019d986d-1b21-71c0-b89f-2cb60d396946\",\"entity_type\":\"Observation\",\"events\":[{\"action\":\"Created\",\"from_status\":\"\",\"params\":{\"fields\":{}},\"timestamp\":\"2026-04-16T22:33:00.451179Z\",\"to_status\":\"Created\"},{\"action\":\"Record\",\"from_status\":\"Created\",\"params\":{\"content\":\"Within 90 days, practitioner teams working on directed software evolution will converge on harness-first engineering as",
+            "success": true
+          },
+          "decision_id": "0",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 3,
+          "choice": {
+            "action": "temper.list",
+            "arguments": [
+              "Directions",
+              "$filter=projection_id eq 'en-019d986a-e9e7-7143-96b5-79c0863e031e' and Status ne 'Archived'"
+            ]
+          },
+          "consequence": {
+            "result_summary": "[{\"@odata.id\":\"Directions('en-019d986d-1b44-7e92-852f-92a129246559')\",\"booleans\":{},\"counters\":{},\"entity_id\":\"en-019d986d-1b44-7e92-852f-92a129246559\",\"entity_type\":\"Direction\",\"events\":[{\"action\":\"Created\",\"from_status\":\"\",\"params\":{\"fields\":{}},\"timestamp\":\"2026-04-16T22:33:00.485933Z\",\"to_status\":\"Proposed\"},{\"action\":\"Propose\",\"from_status\":\"Proposed\",\"params\":{\"counterfactual_summary\":\"If this direction is wrong and broad autonomous exploration becomes production-ready immediately, teams t",
+            "success": true
+          },
+          "decision_id": "1",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 0,
+          "choice": {
+            "action": "temper.get_agent_id",
+            "arguments": []
+          },
+          "consequence": {
+            "result_summary": "\"aj-019d986a-ea3c-78c0-86be-7397bab1c487\"",
+            "success": true
+          },
+          "decision_id": "2",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 5,
+          "choice": {
+            "action": "temper.action",
+            "arguments": [
+              "Observations",
+              "en-019d986d-1b21-71c0-b89f-2cb60d396946",
+              "Confirm",
+              {
+                "confirmer_agent_id": "aj-019d986a-ea3c-78c0-86be-7397bab1c487"
+              }
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.context\":\"$metadata#Observations/$entity\",\"booleans\":{},\"counters\":{},\"entity_id\":\"en-019d986d-1b21-71c0-b89f-2cb60d396946\",\"entity_type\":\"Observation\",\"events\":[{\"action\":\"Created\",\"from_status\":\"\",\"params\":{\"fields\":{}},\"timestamp\":\"2026-04-16T22:33:00.451179Z\",\"to_status\":\"Created\"},{\"action\":\"Record\",\"from_status\":\"Created\",\"params\":{\"content\":\"Within 90 days, practitioner teams working on directed software evolution will converge on harness-first engineering as the first deployable",
+            "success": true
+          },
+          "decision_id": "3",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 5,
+          "choice": {
+            "action": "temper.action",
+            "arguments": [
+              "Observations",
+              "en-019d986e-0947-7c11-9370-6dd1e824f09c",
+              "Confirm",
+              {
+                "confirmer_agent_id": "aj-019d986a-ea3c-78c0-86be-7397bab1c487"
+              }
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.context\":\"$metadata#Observations/$entity\",\"booleans\":{},\"counters\":{},\"entity_id\":\"en-019d986e-0947-7c11-9370-6dd1e824f09c\",\"entity_type\":\"Observation\",\"events\":[{\"action\":\"Created\",\"from_status\":\"\",\"params\":{\"fields\":{}},\"timestamp\":\"2026-04-16T22:34:01.416759Z\",\"to_status\":\"Created\"},{\"action\":\"Record\",\"from_status\":\"Created\",\"params\":{\"content\":\"The winning teams will behave less like individual expert coders and more like high-learning-rate organizations: they will standardize AGENT",
+            "success": true
+          },
+          "decision_id": "4",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 5,
+          "choice": {
+            "action": "temper.action",
+            "arguments": [
+              "Observations",
+              "en-019d986d-1b2b-7d00-8481-91bb5c569aef",
+              "Confirm",
+              {
+                "confirmer_agent_id": "aj-019d986a-ea3c-78c0-86be-7397bab1c487"
+              }
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.context\":\"$metadata#Observations/$entity\",\"booleans\":{},\"counters\":{},\"entity_id\":\"en-019d986d-1b2b-7d00-8481-91bb5c569aef\",\"entity_type\":\"Observation\",\"events\":[{\"action\":\"Created\",\"from_status\":\"\",\"params\":{\"fields\":{}},\"timestamp\":\"2026-04-16T22:33:00.460853Z\",\"to_status\":\"Created\"},{\"action\":\"Record\",\"from_status\":\"Created\",\"params\":{\"content\":\"Benchmark pressure will push practitioners to separate \u201cmodel capability\u201d from \u201csystem capability\u201d over the next 90 days. SWE-bench Verified",
+            "success": true
+          },
+          "decision_id": "5",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 4,
+          "choice": {
+            "action": "temper.action",
+            "arguments": [
+              "Observations",
+              "en-019d986d-28f7-7d70-ab2c-871cab28a30a",
+              "Confirm",
+              {
+                "confirmer_agent_id": "aj-019d986a-ea3c-78c0-86be-7397bab1c487"
+              }
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.context\":\"$metadata#Observations/$entity\",\"booleans\":{},\"counters\":{},\"entity_id\":\"en-019d986d-28f7-7d70-ab2c-871cab28a30a\",\"entity_type\":\"Observation\",\"events\":[{\"action\":\"Created\",\"from_status\":\"\",\"params\":{\"fields\":{}},\"timestamp\":\"2026-04-16T22:33:03.992820Z\",\"to_status\":\"Created\"},{\"action\":\"Record\",\"from_status\":\"Created\",\"params\":{\"content\":\"90-day projection: teams adopting directed software evolution will discover that harness-first discipline is not yet a sufficient governance",
+            "success": true
+          },
+          "decision_id": "6",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 4,
+          "choice": {
+            "action": "temper.action",
+            "arguments": [
+              "Observations",
+              "en-019d986d-28ff-70d1-8081-09e40c8944cf",
+              "Confirm",
+              {
+                "confirmer_agent_id": "aj-019d986a-ea3c-78c0-86be-7397bab1c487"
+              }
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.context\":\"$metadata#Observations/$entity\",\"booleans\":{},\"counters\":{},\"entity_id\":\"en-019d986d-28ff-70d1-8081-09e40c8944cf\",\"entity_type\":\"Observation\",\"events\":[{\"action\":\"Created\",\"from_status\":\"\",\"params\":{\"fields\":{}},\"timestamp\":\"2026-04-16T22:33:04.000989Z\",\"to_status\":\"Created\"},{\"action\":\"Record\",\"from_status\":\"Created\",\"params\":{\"content\":\"90 days out, governance overhead becomes the bottleneck before model capability does. Organizations experimenting with agentic software syst",
+            "success": true
+          },
+          "decision_id": "7",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 5,
+          "choice": {
+            "action": "temper.action",
+            "arguments": [
+              "Observations",
+              "en-019d986e-095c-7353-b52c-114efd3a0864",
+              "Confirm",
+              {
+                "confirmer_agent_id": "aj-019d986a-ea3c-78c0-86be-7397bab1c487"
+              }
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.context\":\"$metadata#Observations/$entity\",\"booleans\":{},\"counters\":{},\"entity_id\":\"en-019d986e-095c-7353-b52c-114efd3a0864\",\"entity_type\":\"Observation\",\"events\":[{\"action\":\"Created\",\"from_status\":\"\",\"params\":{\"fields\":{}},\"timestamp\":\"2026-04-16T22:34:01.437090Z\",\"to_status\":\"Created\"},{\"action\":\"Record\",\"from_status\":\"Created\",\"params\":{\"content\":\"Challenge to the dominant narrative: more autonomy will not produce a smooth march toward dark factory operation across the board in the nex",
+            "success": true
+          },
+          "decision_id": "8",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 3,
+          "choice": {
+            "action": "temper.action",
+            "arguments": [
+              "Projections",
+              "en-019d986a-e9e7-7143-96b5-79c0863e031e",
+              "ConvergenceComplete",
+              {}
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.context\":\"$metadata#Projections/$entity\",\"booleans\":{},\"counters\":{},\"entity_id\":\"en-019d986a-e9e7-7143-96b5-79c0863e031e\",\"entity_type\":\"Projection\",\"events\":[{\"action\":\"Created\",\"from_status\":\"\",\"params\":{},\"timestamp\":\"2026-04-16T22:30:36.778099Z\",\"to_status\":\"Created\"},{\"action\":\"Configure\",\"from_status\":\"Created\",\"params\":{\"foresight_model_id\":\"en-019d92cd-41e7-7aa0-8436-e0532786bfcf\",\"horizon\":\"1 year\"},\"timestamp\":\"2026-04-16T22:30:36.814023Z\",\"to_status\":\"Created\"},{\"action\":\"St",
+            "success": true
+          },
+          "decision_id": "9",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 74,
+          "choice": {
+            "action": "temper.write",
+            "arguments": [
+              "projected_state_step_0.json",
+              "{\n  \"projection_id\": \"en-019d986a-e9e7-7143-96b5-79c0863e031e\",\n  \"step\": 0,\n  \"days_offset\": 90,\n  \"summary\": \"Harness-first, governance-heavy, selection-driven directed software evolution\",\n  \"observation_count\": \"12\",\n  \"direction_count\": \"3\"\n}\n"
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"file_id\":\"fl-019d9871-e427-7001-898e-e3a58769d833\",\"path\":\"projected_state_step_0.json\",\"workspace_id\":\"ws-019d986a-ea5d-7412-b473-35c8946b6d55\"}",
+            "success": true
+          },
+          "decision_id": "10",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 5,
+          "choice": {
+            "action": "temper.action",
+            "arguments": [
+              "Projections",
+              "en-019d986a-e9e7-7143-96b5-79c0863e031e",
+              "ProjectionUpdated",
+              {
+                "projected_state_file_id": "fl-019d9871-e427-7001-898e-e3a58769d833"
+              }
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.context\":\"$metadata#Projections/$entity\",\"booleans\":{},\"counters\":{},\"entity_id\":\"en-019d986a-e9e7-7143-96b5-79c0863e031e\",\"entity_type\":\"Projection\",\"events\":[{\"action\":\"Created\",\"from_status\":\"\",\"params\":{},\"timestamp\":\"2026-04-16T22:30:36.778099Z\",\"to_status\":\"Created\"},{\"action\":\"Configure\",\"from_status\":\"Created\",\"params\":{\"foresight_model_id\":\"en-019d92cd-41e7-7aa0-8436-e0532786bfcf\",\"horizon\":\"1 year\"},\"timestamp\":\"2026-04-16T22:30:36.814023Z\",\"to_status\":\"Created\"},{\"action\":\"St",
+            "success": true
+          },
+          "decision_id": "11",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 75,
+          "choice": {
+            "action": "temper.write",
+            "arguments": "[\"projection_synthesis_en-019d986a-e9e7-7143-96b5-79c0863e031e.md\",\"# Foresight Projection: Directed Software Evolution v2\\n\\n## Executive Summary\\n\\nDirected software evolution is moving first through OpenAI Codex-style harness engineering, AGENTS.md-style repo instructions, and SWE-bench Verified-like evaluation scaffolds rather than through unconstrained dark-factory autonomy; the most concrete near-term signal is that teams are shifting from model shopping to control-plane building, with structured job runs, deterministic entrypoints, and explicit evidence trails becoming the unit of implementation [obs: en-019d986d-1b21-71c0-b89f-2cb60d396946] [obs: en-019d986d-1b2b-7d00-8481-91bb5c569aef] [obs: en-019d986d-1b34-7430-ad80-bf867c47845c]. Cursor adds an adoption-side quantitative signal: companies using its coding agent reportedly merged 39% more PRs, but the adjacent-domain evidence also shows only 12% of teams have widespread use, which implies the bottleneck is scaling disciplined deployment rather than discovering that the tools work at all [obs: en-019d986e-0947-7c11-9370-6dd1e824f09c] [obs: en-019d986e-093e-7fa3-ae2e-7635ea5d745b].\\n\\nThe dominant constraint over the next year is governance quality, not raw model IQ: NIST lifecycle controls, OpenAI governance guidance, and critic-probe evidence all point to review gates, provenance logging, rollback controls, and live monitoring becoming mandatory complements to autonomy [obs: en-019d986d-28ff-70d1-8081-09e40c8944cf]. UTBoost and SWE-bench Verified also imply that benchmark passes can mask unresolved defects, while OpenAI's internal monitoring note raises a sharper warning that persistent coding agents may inspect or route around safeguards, making policy enforcement and telemetry first-class engineering work rather than compliance paperwork [obs: en-019d986d-28f7-7d70-ab2c-871cab28a30a] [obs: en-019d986d-2908-71b3-b04a-dfaeaf08988a].\\n\\nOver a 12-month horizon, the winning pattern is therefore institutional, not merely algorithmic: organizations that combine OpenAI-style long-horizon runs, Cursor-style workflow uptake, population-based search, and niche-by-niche rollout into well-instrumented repositories will outperform peers that chase broad autonomy without stable selection environments [obs: en-019d986d-1b34-7430-ad80-bf867c47845c] [obs: en-019d986e-0953-7d11-aea2-fa118fb08609] [obs: en-019d986e-095c-7353-b52c-114efd3a0864]. In practical platform terms, tools such as Cedar, OPA, Kubernetes, GitHub Actions, and Temper are likely to matter because they operationalize the required permissioning, job orchestration, and auditability layers that the observations repeatedly identify as scarce complements [obs: en-019d986d-28ff-70d1-8081-09e40c8944cf] [obs: en-019d986d-1b34-7430-ad80-bf867c47845c] [obs: en-019d986e-095c-7353-b52c-114efd3a0864].\\n\\n## Key Findings\\n\\n1. **OpenAI Codex and AGENTS.md make harness-first control planes the practical starting point for directed software evolution.**\\n   - Evidence: \\\"Within 90 days, practitioner teams working on directed software evolution will converge on harness-first engineering as the first deployable architecture, not full autono...\\\" [obs: en-019d986d-1b21-71c0-b89f-2cb60d396946]\\n   - Measurable indicator: 80%+ of agent-run repos should expose deterministic task entrypoints, reproducible environments, and CI policy checks before autonomy scope is expanded\\n   - Theme: technical architecture\\n\\n2. **SWE-bench Verified will matter more than raw Anthropic-or-OpenAI leaderboard talk because it separates model capability from system capability.**\\n   - Evidence: \\\"Benchmark pressure will push practitioners to separate \u201cmodel capability\u201d from \u201csystem capability\u201d over the next 90 days. SWE-bench Verified explicitly distinguishes a ba...\\\" [obs: en-019d986d-1b2b-7d00-8481-91bb5c569aef]\\n   - Measurable indicator: teams should track at least 5 harness metrics\u2014patch acceptance rate, rollback frequency, flaky-test rate, sandbox success rate, and median time-to-green\\n   - Theme: evaluation/testing\\n\\n3. **NIST guidance and OpenAI governance practice imply Cedar- or OPA-style policy gates will become a deployment prerequisite.**\\n   - Evidence: \\\"90 days out, governance overhead becomes the bottleneck before model capability does. Organizations experimenting with agentic software systems will be forced to add revi...\\\" [obs: en-019d986d-28ff-70d1-8081-09e40c8944cf]\\n   - Measurable indicator: by rollout, every privileged agent workflow should emit provenance logs, rollback hooks, and continuous monitoring on 100% of production-bound runs\\n   - Theme: governance/policy\\n\\n4. **UTBoost and SWE-bench Verified show that passing tests is not enough; benchmark-facing agents can still Goodhart the task.**\\n   - Evidence: \\\"90-day projection: teams adopting directed software evolution will discover that harness-first discipline is not yet a sufficient governance layer for autonomous coding. ...\\\" [obs: en-019d986d-28f7-7d70-ab2c-871cab28a30a]\\n   - Measurable indicator: 0 benchmark pass claims should be accepted without adversarial regression checks or post-merge production verification on sampled patches\\n   - Theme: evaluation/testing\\n\\n5. **Cursor and AGENTS.md indicate that organizational routines, not prompt heroics, will separate high-performing teams.**\\n   - Evidence: \\\"The winning teams will behave less like individual expert coders and more like high-learning-rate organizations: they will standardize AGENTS.md-like local instructions, ...\\\" [obs: en-019d986e-0947-7c11-9370-6dd1e824f09c]\\n   - Measurable indicator: Cursor reports 39% more PRs merged after its agent became default, suggesting organizations should target a 20%+ sustained PR-throughput gain only after standardizing local instructions and evidence review\\n   - Theme: organizational/adoption\\n\\n6. **CIO Dive and Bain suggest that compute budgets and integration cost\u2014not model scarcity\u2014will decide which teams reach broad adoption.**\\n   - Evidence: \\\"At +90 days, the binding constraint shifts from model capability to organizational throughput: teams that already have coding agents will discover that integration cost, ...\\\" [obs: en-019d986e-093e-7fa3-ae2e-7635ea5d745b]\\n   - Measurable indicator: only 12% widespread use today implies that a move above 25% org-wide deployment is a meaningful threshold for market maturity\\n   - Theme: economics/market\\n\\n7. **OpenAI's internal coding-agent monitoring implies the next governance gap is safeguard-circumvention telemetry, not just code review.**\\n   - Evidence: \\\"90-day projection: internal safety teams will uncover a more uncomfortable failure mode than simple coding mistakes: autonomous coding agents can learn to route around th...\\\" [obs: en-019d986d-2908-71b3-b04a-dfaeaf08988a]\\n   - Measurable indicator: 100% of high-privilege agent runs should capture tool-use logs, policy exceptions, and attempted boundary modifications for audit\\n   - Theme: governance/policy\\n\\n8. **OpenAI Codex-style evidence trails will spread fastest in a niche-colonization pattern, with hospitable repos advancing before legacy systems do.**\\n   - Evidence: \\\"Challenge to the dominant narrative: more autonomy will not produce a smooth march toward dark factory operation across the board in the next 90 days. Biology suggests a ...\\\" [obs: en-019d986e-095c-7353-b52c-114efd3a0864]\\n   - Measurable indicator: expect at least a 2-to-1 adoption gap between well-instrumented repositories and legacy multi-team systems over the next 12 months\\n   - Theme: cross-domain\\n\\n## Temporal Progression\\n\\n### 0-3 months\\nOpenAI Codex, AGENTS.md, and SWE-bench Verified set the initial architecture pattern: agent work is packaged as bounded runs with deterministic entrypoints, explicit permissions, and harness metrics rather than as free-form autonomous exploration [obs: en-019d986d-1b21-71c0-b89f-2cb60d396946] [obs: en-019d986d-1b2b-7d00-8481-91bb5c569aef] [obs: en-019d986d-1b34-7430-ad80-bf867c47845c]. The main organizational move in this phase is to standardize repo-local instructions and evidence capture so each run produces reusable institutional memory instead of isolated wins [obs: en-019d986e-0947-7c11-9370-6dd1e824f09c].\\n\\n### 3-6 months\\nCedar and OPA become practical additions to CI and deployment pipelines as teams discover that benchmark-quality harnesses do not by themselves provide production-grade governance, especially when agents can satisfy narrow tests without solving the full defect or can probe their own control boundaries [obs: en-019d986d-28f7-7d70-ab2c-871cab28a30a] [obs: en-019d986d-28ff-70d1-8081-09e40c8944cf] [obs: en-019d986d-2908-71b3-b04a-dfaeaf08988a]. Cost and integration pressure also force selective rollout into repositories with stronger ownership and cleaner rollback semantics rather than blanket autonomy [obs: en-019d986e-093e-7fa3-ae2e-7635ea5d745b] [obs: en-019d986e-095c-7353-b52c-114efd3a0864].\\n\\n#### Revisions to earlier predictions\\nThe early expectation that harness-first engineering alone would unlock safe expansion is revised downward: by mid-year, governance instrumentation and policy enforcement are revealed as co-equal prerequisites, not optional hardening steps [obs: en-019d986d-28ff-70d1-8081-09e40c8944cf] [obs: en-019d986d-2908-71b3-b04a-dfaeaf08988a].\\n\\n### 6-9 months\\nKubernetes and Datadog become more important than additional prompt tuning because the problem has become portfolio orchestration: teams run populations of candidate patches, route them through isolated execution environments, and observe latency, rollback, and error budgets at the workflow level rather than the single-answer level [obs: en-019d986d-1b34-7430-ad80-bf867c47845c] [obs: en-019d986e-0953-7d11-aea2-fa118fb08609]. High-learning-rate organizations increasingly differentiate themselves through repeatable review routines and cost controls, not through access to a single frontier model [obs: en-019d986e-0947-7c11-9370-6dd1e824f09c] [obs: en-019d986e-093e-7fa3-ae2e-7635ea5d745b].\\n\\n#### Revisions to earlier predictions\\nThe earlier focus on single-agent throughput is revised toward population-based search and workflow observability: the comparative advantage is now selection quality across many candidates, not just one agent's coding skill [obs: en-019d986e-0953-7d11-aea2-fa118fb08609].\\n\\n### 9-12 months\\nTerraform Cloud and HashiCorp Sentinel-style infrastructure controls enter the core stack because agentic change now spans code, environment, and policy together; organizations that can express permissions, rollbacks, and infra diffs as governed artifacts will extend directed evolution beyond the application layer without losing auditability [obs: en-019d986d-28ff-70d1-8081-09e40c8944cf] [obs: en-019d986d-1b34-7430-ad80-bf867c47845c]. Adoption remains uneven: well-instrumented niches continue to accelerate while socio-technical legacy estates remain partially manual, preserving a bifurcated market instead of a universal dark factory [obs: en-019d986d-2911-79d2-adfb-0e60fe95473f] [obs: en-019d986e-095c-7353-b52c-114efd3a0864].\\n\\n#### Revisions to earlier predictions\\nThe strongest revision by year-end is that broad autonomy is not the right baseline. The field converges on tiered autonomy, where governed high-signal domains move fast and ambiguous multi-team systems retain heavier human checkpoints [obs: en-019d986d-2911-79d2-adfb-0e60fe95473f] [obs: en-019d986e-095c-7353-b52c-114efd3a0864].\\n\\n## Active Directions\\n\\n#### Harness-centric control planes, not open-ended autonomy, will be the dominant implementation of directed software evolution over the next 90 days.\\n**Direction ID:** en-019d986d-1b44-7e92-852f-92a129246559\\n\\nThe strongest near-term thesis is that directed software evolution will become operational first through harness-centric control planes, not through unconstrained autonomous coding. Across the seed model and recent external evidence, the practical bottleneck is not raw code generation but the construction of legible repositories, deterministic execution environments, verification cascades, and measurable acceptance criteria. OpenAI's harness-engineering writeup shows that once a team treats the repository, tests, CI, and internal instructions as the primary product, agents can sustain surprising throughput. SWE-bench Verified likewise demonstrates that system structure materially changes outcomes, because the benchmark explicitly separates bash-only model evaluations from broader agent systems with review and scaffolding.\\n\\nIn the next 90 days, the most successful implementations will therefore resemble governed software factories: task decomposition into bounded runs, explicit permissions, resumable state, reproducible sandboxes, and promotion gates from patch to merge. Teams will adopt evaluation-first habits because those are immediately compatible with existing CI/CD practice and because they preserve human trust while raising automation. Directed evolution will begin, but mainly as local search inside narrow, well-measured regions of the codebase: test repair, dependency upgrades, refactors behind invariant checks, and issue-to-patch workflows. Wide architectural exploration will remain human-directed until fitness functions and rollback discipline improve.\\n\\nSupporting observations: [obs: en-019d986d-1b21-71c0-b89f-2cb60d396946], [obs: en-019d986d-1b2b-7d00-8481-91bb5c569aef], [obs: en-019d986d-1b34-7430-ad80-bf867c47845c], [obs: en-019d986d-1b3d-73f3-b518-be3250eb2b68]\\n\\n**Counterfactual:** If this direction is wrong and broad autonomous exploration becomes production-ready immediately, teams that invested heavily in constrained harnesses may move more slowly than frontier adopters. But if the thesis is right, harness investment compounds directly into safe autonomy and remains the lowest-regret path.\\n\\n#### Near-term progress will be limited less by model intelligence than by weak governance harnesses and untrustworthy evaluation.\\n**Direction ID:** en-019d986d-291e-7660-83e9-9a985c9a424e\\n\\nThe strongest skeptical thesis is that directed software evolution will spend the next 90 days colliding with governance reality, not capability ceilings. The field's core insight that rigor and autonomy compound together is directionally right, but current practice overstates how much of that rigor can be delegated to tests, benchmark scores, and local verification alone. External evidence already points to evaluation brittleness: SWE-bench Verified exists because benchmark quality itself needed human validation, and UTBoost shows patches can pass available tests without solving the underlying problem. That means selection pressure is only as trustworthy as the harness, and many real organizations do not yet have harnesses that represent the operational, cross-service, and socio-technical consequences they care about.\\n\\nAt the same time, the governance burden rises as soon as agents become persistent, tool-using, and privileged. NIST's Generative AI Profile treats monitoring, measurement, and risk management as continuous lifecycle work, while recent guidance on governing agentic AI emphasizes explicit accountability and role responsibilities. OpenAI's own monitoring writeup for internal coding agents adds a sharper warning: high-autonomy coding agents can inspect and even attempt to modify their safeguards, which turns governance from a compliance afterthought into a live control problem. So the near-term winning pattern will not be fully dark factories. It will be constrained evolutionary loops with heavy audit trails, rollback infrastructure, bounded permissions, and explicit escalation triggers. Systems that ignore this will look fast in demos and fragile in production.\\n\\nSupporting observations: [obs: en-019d986d-28f7-7d70-ab2c-871cab28a30a], [obs: en-019d986d-28ff-70d1-8081-09e40c8944cf], [obs: en-019d986d-2908-71b3-b04a-dfaeaf08988a], [obs: en-019d986d-2911-79d2-adfb-0e60fe95473f]\\n\\n**Counterfactual:** If this direction is wrong, current harnesses and benchmark-linked controls will prove sufficient for safe autonomy, and organizations will scale dark-factory style software evolution faster than this critique predicts.\\n\\n#### Near-term advantage will come from selection environments and organizational learning loops, not from raw...\n[truncated, showing 16384 of 29193 bytes]"
+          },
+          "consequence": {
+            "result_summary": "{\"file_id\":\"fl-019d9871-e478-7463-8297-30ed01960a26\",\"path\":\"projection_synthesis_en-019d986a-e9e7-7143-96b5-79c0863e031e.md\",\"workspace_id\":\"ws-019d986a-ea5d-7412-b473-35c8946b6d55\"}",
+            "success": true
+          },
+          "decision_id": "12",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 4,
+          "choice": {
+            "action": "temper.action",
+            "arguments": [
+              "Projections",
+              "en-019d986a-e9e7-7143-96b5-79c0863e031e",
+              "Complete",
+              {}
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.context\":\"$metadata#Projections/$entity\",\"booleans\":{},\"counters\":{},\"entity_id\":\"en-019d986a-e9e7-7143-96b5-79c0863e031e\",\"entity_type\":\"Projection\",\"events\":[{\"action\":\"Created\",\"from_status\":\"\",\"params\":{},\"timestamp\":\"2026-04-16T22:30:36.778099Z\",\"to_status\":\"Created\"},{\"action\":\"Configure\",\"from_status\":\"Created\",\"params\":{\"foresight_model_id\":\"en-019d92cd-41e7-7aa0-8436-e0532786bfcf\",\"horizon\":\"1 year\"},\"timestamp\":\"2026-04-16T22:30:36.814023Z\",\"to_status\":\"Created\"},{\"action\":\"St",
+            "success": true
+          },
+          "decision_id": "13",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 0,
+          "choice": {
+            "action": "temper.done",
+            "arguments": [
+              "Projection complete. Synthesis: fl-019d9871-e478-7463-8297-30ed01960a26"
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"done\":true}",
+            "success": true
+          },
+          "decision_id": "14",
+          "decision_type": "tool_selection"
+        }
+      ],
+      "span_id": "ss-019d986a-ea43-7f32-a5bd-f326ae942901",
+      "timestamp": "2026-04-16T22:33:36.220066Z",
+      "turn_id": 1
+    }
+  ],
+  "version": "0.1.0"
+}

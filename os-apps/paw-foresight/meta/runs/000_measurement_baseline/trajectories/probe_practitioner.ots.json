@@ -1,0 +1,393 @@
+{
+  "metadata": {
+    "agent_id": "aj-019d986c-1b4c-76b3-a864-df0cf5793ca6",
+    "domain": "openpaw-agent",
+    "environment": "production",
+    "framework": "openpaw",
+    "outcome": "success",
+    "tags": [
+      "gpt-5.4",
+      "openai_codex"
+    ],
+    "task_description": "You are a foresight probe (practitioner) analyzing the domain \"Directed Software Evolution v2\" (knowledge_domain).\n\nProjection ID: en-019d986a-e9e7-7143-96b5-79c0863e031e\nYour Agent ID: aj-019d986c-1b4c-76b3-a864-df0cf5793ca6\nStep: 0 (day 90 of 1 year)\n\n## Your Persona\nYou are a practitioner building systems in this domain. Focus on what is technically feasible in the near term, what tools and architectures are maturing, and what practitioners will actually adopt. Be concrete about mechanisms.\n\n",
+    "timestamp_end": "2026-04-16T22:33:00.584337Z",
+    "timestamp_start": "2026-04-16T22:31:54.961469Z",
+    "trajectory_id": "trj-ss-019d986c-1b50-7103-9043-6bf251736813"
+  },
+  "trajectory_id": "trj-ss-019d986c-1b50-7103-9043-6bf251736813",
+  "turns": [
+    {
+      "decisions": [
+        {
+          "_duration_ms": 53,
+          "choice": {
+            "action": "temper.read",
+            "arguments": [
+              "current_state_step_0.json",
+              {
+                "workspace_id": "ws-019d986a-ea5d-7412-b473-35c8946b6d55"
+              }
+            ]
+          },
+          "consequence": {
+            "result_summary": "\"{\\\"model_id\\\": \\\"en-019d92cd-41e7-7aa0-8436-e0532786bfcf\\\", \\\"model_name\\\": \\\"Directed Software Evolution v2\\\", \\\"model_type\\\": \\\"knowledge_domain\\\", \\\"generated_at\\\": \\\"2026-04-15T20:20:45.318882Z\\\", \\\"seed_operation\\\": \\\"initial seed\\\", \\\"seed_method\\\": {\\\"source_config_type\\\": \\\"essay\\\", \\\"research_status\\\": \\\"partial_live_research\\\", \\\"research_note\\\": \\\"The required web_search/web_fetch steps were attempted first, but the environment returned empty results. The graph below therefore combin",
+            "success": true
+          },
+          "decision_id": "0",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 1006,
+          "choice": {
+            "action": "temper.web_search",
+            "arguments": [
+              "harness-first engineering evals agentic coding 2025"
+            ]
+          },
+          "consequence": {
+            "result_summary": "[{\"text\":\"Harness Engineering Guide: Why Evals Matter More Than Prompt Tweaks\\n\\n# Harness Engineering Guide: Why Evals Matter More Than Prompt Tweaks\\n\\n---\\n\\nAs coding agents and reasoning models get stronger, one habit becomes less reliable: changing the prompt and trusting your intuition about whether the system improved.\\n\\nThat is the shift behind harness engineering. The goal is not just to make a model sound better in one demo. It is to build an environment where you can test, compare, ",
+            "success": true
+          },
+          "decision_id": "1",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 1092,
+          "choice": {
+            "action": "temper.web_search",
+            "arguments": [
+              "software engineering benchmark agents SWE-bench Verified 2025 harness"
+            ]
+          },
+          "consequence": {
+            "result_summary": "[{\"text\":\"Harness AI achieves top ranking in autonomous code fixes\\n\\nChapters\\n\\nTry It For Free\\n\\n/\\n\\n/\\n\\nNo items found.\\n\\nJuly 30, 2025\\n\\n# Harness AI achieves top ranking in autonomous code fixes | Harness Blog\\n\\n[Shubham JindalAll this author\u2019s posts](https://www.harness.io/authors/sj)\\n\\nHarness AI achieved #4 spot on the SWE-Bench Verified leaderboard by autonomously solving real-world GitHub software issues, powering fast, reliable AI-assisted software delivery.\\n\\nAI-assisted cod",
+            "success": true
+          },
+          "decision_id": "2",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 1053,
+          "choice": {
+            "action": "temper.web_search",
+            "arguments": [
+              "OpenAI codex software engineering agent benchmark 2025"
+            ]
+          },
+          "consequence": {
+            "result_summary": "[{\"text\":\"# Testing AI coding agents (2025): Cursor vs. Claude, OpenAI, and Gemini\\n\\n- Date: 2025-08-12T21:27:00.000Z\\n- Category: engineering\\n- Author: Mitch Alderson\\n- URL: https://render.com/blog/ai-coding-agents-benchmark\\n\\n> TL;DR: Cursor leads on setup speed, Docker/Render deployment, and code quality, while Claude Code is best for rapid prototypes and a productive terminal UX. Gemini CLI wins for large-context refactors, and Codex\u2019s model is powerful but hampered by UX issues. [Jump t",
+            "success": true
+          },
+          "decision_id": "3",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 505,
+          "choice": {
+            "action": "temper.web_fetch",
+            "arguments": [
+              "https://openai.com/index/harness-engineering/"
+            ]
+          },
+          "consequence": {
+            "result_summary": "\"Harness engineering: leveraging Codex in an agent-first world | OpenAI\\n[Skip to main content](#main)\\n[](/)\\n- [Research](/research/index/)\\n- Products\\n- [Business](/business/)\\n- [Developers](/api/)\\n- [Company](/about/)\\n- [Foundation(opens in a new window)](https://openaifoundation.org)\\nLog in[Try ChatGPT(opens in a new window)](https://chatgpt.com/)\\n- Research\\n- Products\\n- Business\\n- Developers\\n- Company\\n- [Foundation(opens in a new window)](https://openaifoundation.org)\\n[Try Chat",
+            "success": true
+          },
+          "decision_id": "0",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 168,
+          "choice": {
+            "action": "temper.web_fetch",
+            "arguments": [
+              "https://www.swebench.com/verified.html"
+            ]
+          },
+          "consequence": {
+            "result_summary": "\"SWE-bench Verified \\n[SWE-bench](/) ** \\n[SWE-bench](/) ** \\n- [Leaderboards](index.html) \\n- Benchmarks \\n- [SWE-bench](original.html) \\n- [SWE-bench Verified](verified.html) \\n- [SWE-bench Multilingual](multilingual-leaderboard.html) \\n- [SWE-bench Multimodal](multimodal.html) \\n- [SWE-bench Lite](lite.html) \\n- About \\n- [Paper ](https://openreview.net/pdf?id=VTF8yNQM66) \\n- [Docs ](https://swebench.com/SWE-bench/) \\n- [Blog](blog.html) \\n- [Contact](contact.html) \\n- [Citations](citations.h",
+            "success": true
+          },
+          "decision_id": "1",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 270,
+          "choice": {
+            "action": "temper.web_fetch",
+            "arguments": [
+              "https://developers.openai.com/blog/run-long-horizon-tasks-with-codex"
+            ]
+          },
+          "consequence": {
+            "result_summary": "\"Run long horizon tasks with Codex | OpenAI Developers \\n[  ](/) \\n[ Home  ](/) \\n[ API  ](/api) \\n[  Docs  Guides and concepts for the OpenAI API   ](/api/docs)[  API reference  Endpoints, parameters, and responses   ](/api/reference/overview) \\n[ Codex  ](/codex) \\n[  Docs  Guides, concepts, and product docs for Codex   ](/codex)[  Use cases  Example workflows and tasks teams hand to Codex   ](/codex/use-cases) \\n[ ChatGPT  ](/chatgpt) \\n[  Apps SDK  Build apps to extend ChatGPT   ](/apps-sdk)",
+            "success": true
+          },
+          "decision_id": "2",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 5,
+          "choice": {
+            "action": "temper.create",
+            "arguments": [
+              "Observations",
+              {
+                "fields": {}
+              }
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.context\":\"$metadata#Observations/$entity\",\"@odata.id\":\"Observations('en-019d986d-1b21-71c0-b89f-2cb60d396946')\",\"booleans\":{},\"counters\":{},\"entity_id\":\"en-019d986d-1b21-71c0-b89f-2cb60d396946\",\"entity_type\":\"Observation\",\"events\":[{\"action\":\"Created\",\"from_status\":\"\",\"params\":{\"fields\":{}},\"timestamp\":\"2026-04-16T22:33:00.451179Z\",\"to_status\":\"Created\"}],\"fields\":{\"Id\":\"en-019d986d-1b21-71c0-b89f-2cb60d396946\",\"Status\":\"Created\",\"fields\":{}},\"item_count\":0,\"lists\":{},\"sequence_nr\":1,\"s",
+            "success": true
+          },
+          "decision_id": "0",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 5,
+          "choice": {
+            "action": "temper.action",
+            "arguments": [
+              "Observations",
+              "en-019d986d-1b21-71c0-b89f-2cb60d396946",
+              "Record",
+              {
+                "content": "Within 90 days, practitioner teams working on directed software evolution will converge on harness-first engineering as the first deployable architecture, not full autonomous dark factories. The near-term pattern is repo-level legibility plus executable guardrails: AGENTS.md or equivalent system-of-record docs, CI-enforced tests, architecture checks, and observability written as code so agents can safely produce and refine changes. This is directly consistent with the seed model's claim that rigor and autonomy are the same investment, and it is externally reinforced by OpenAI's \u201cHarness engineering: leveraging Codex in an agent-first world\u201d (https://openai.com/index/harness-engineering/), which reports an internal product built with agent-written code where the key engineering work shifted to scaffolding, repository knowledge, and feedback loops. Mechanistically, expect teams to invest first in deterministic task entrypoints, reproducible local environments, and policy checks before increasing agent autonomy.",
+                "counterfactual": "If teams skip the harness layer and pursue autonomy directly, they will get impressive demos but unreliable merge behavior, costly regressions, and eventual retrenchment back to human bottlenecks.",
+                "importance": "high",
+                "probe_agent_id": "aj-019d986c-1b4c-76b3-a864-df0cf5793ca6",
+                "projection_id": "en-019d986a-e9e7-7143-96b5-79c0863e031e",
+                "signal_refs": "[]",
+                "step_at": "0"
+              }
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.context\":\"$metadata#Observations/$entity\",\"booleans\":{},\"counters\":{},\"entity_id\":\"en-019d986d-1b21-71c0-b89f-2cb60d396946\",\"entity_type\":\"Observation\",\"events\":[{\"action\":\"Created\",\"from_status\":\"\",\"params\":{\"fields\":{}},\"timestamp\":\"2026-04-16T22:33:00.451179Z\",\"to_status\":\"Created\"},{\"action\":\"Record\",\"from_status\":\"Created\",\"params\":{\"content\":\"Within 90 days, practitioner teams working on directed software evolution will converge on harness-first engineering as the first deployable",
+            "success": true
+          },
+          "decision_id": "1",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 3,
+          "choice": {
+            "action": "temper.create",
+            "arguments": [
+              "Observations",
+              {
+                "fields": {}
+              }
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.context\":\"$metadata#Observations/$entity\",\"@odata.id\":\"Observations('en-019d986d-1b2b-7d00-8481-91bb5c569aef')\",\"booleans\":{},\"counters\":{},\"entity_id\":\"en-019d986d-1b2b-7d00-8481-91bb5c569aef\",\"entity_type\":\"Observation\",\"events\":[{\"action\":\"Created\",\"from_status\":\"\",\"params\":{\"fields\":{}},\"timestamp\":\"2026-04-16T22:33:00.460853Z\",\"to_status\":\"Created\"}],\"fields\":{\"Id\":\"en-019d986d-1b2b-7d00-8481-91bb5c569aef\",\"Status\":\"Created\",\"fields\":{}},\"item_count\":0,\"lists\":{},\"sequence_nr\":1,\"s",
+            "success": true
+          },
+          "decision_id": "2",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 4,
+          "choice": {
+            "action": "temper.action",
+            "arguments": [
+              "Observations",
+              "en-019d986d-1b2b-7d00-8481-91bb5c569aef",
+              "Record",
+              {
+                "content": "Benchmark pressure will push practitioners to separate \u201cmodel capability\u201d from \u201csystem capability\u201d over the next 90 days. SWE-bench Verified explicitly distinguishes a bash-only minimal environment from the full leaderboard of arbitrary agent systems and notes that the full leaderboard includes review loops, retrieval, and multi-rollout systems rather than raw model performance alone (SWE-bench Verified, https://www.swebench.com/verified.html). In practice, this means teams adopting directed software evolution will stop asking only \u201cwhich model is best?\u201d and instead standardize harness metrics such as patch acceptance rate, rollback frequency, flaky-test rate, sandbox success rate, and median time-to-green. The technical consequence is that selection pressure shifts from prompt tweaking toward better evaluation fixtures, task decomposition, and environment control.",
+                "counterfactual": "If organizations keep treating benchmark rank as a proxy for production readiness, they will overfit to agent demos and underinvest in the scaffolding that actually determines whether systems can ship continuously.",
+                "importance": "high",
+                "probe_agent_id": "aj-019d986c-1b4c-76b3-a864-df0cf5793ca6",
+                "projection_id": "en-019d986a-e9e7-7143-96b5-79c0863e031e",
+                "signal_refs": "[]",
+                "step_at": "0"
+              }
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.context\":\"$metadata#Observations/$entity\",\"booleans\":{},\"counters\":{},\"entity_id\":\"en-019d986d-1b2b-7d00-8481-91bb5c569aef\",\"entity_type\":\"Observation\",\"events\":[{\"action\":\"Created\",\"from_status\":\"\",\"params\":{\"fields\":{}},\"timestamp\":\"2026-04-16T22:33:00.460853Z\",\"to_status\":\"Created\"},{\"action\":\"Record\",\"from_status\":\"Created\",\"params\":{\"content\":\"Benchmark pressure will push practitioners to separate \u201cmodel capability\u201d from \u201csystem capability\u201d over the next 90 days. SWE-bench Verified",
+            "success": true
+          },
+          "decision_id": "3",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 4,
+          "choice": {
+            "action": "temper.create",
+            "arguments": [
+              "Observations",
+              {
+                "fields": {}
+              }
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.context\":\"$metadata#Observations/$entity\",\"@odata.id\":\"Observations('en-019d986d-1b34-7430-ad80-bf867c47845c')\",\"booleans\":{},\"counters\":{},\"entity_id\":\"en-019d986d-1b34-7430-ad80-bf867c47845c\",\"entity_type\":\"Observation\",\"events\":[{\"action\":\"Created\",\"from_status\":\"\",\"params\":{\"fields\":{}},\"timestamp\":\"2026-04-16T22:33:00.470040Z\",\"to_status\":\"Created\"}],\"fields\":{\"Id\":\"en-019d986d-1b34-7430-ad80-bf867c47845c\",\"Status\":\"Created\",\"fields\":{}},\"item_count\":0,\"lists\":{},\"sequence_nr\":1,\"s",
+            "success": true
+          },
+          "decision_id": "4",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 5,
+          "choice": {
+            "action": "temper.action",
+            "arguments": [
+              "Observations",
+              "en-019d986d-1b34-7430-ad80-bf867c47845c",
+              "Record",
+              {
+                "content": "A concrete architecture pattern will mature: long-horizon agent work executes as bounded background jobs with resumable state, explicit tool permissions, and staged approvals rather than single interactive sessions. This is supported by OpenAI's developer guidance \u201cRun long horizon tasks with Codex\u201d (https://developers.openai.com/blog/run-long-horizon-tasks-with-codex), which emphasizes long-running tasks, orchestration, tools, guardrails, results, and state management as first-class engineering concerns. Applied to directed software evolution, the next 90 days will see more teams package software changes as governed runs that can inspect code, run tests, propose patches, and emit structured artifacts for downstream verification. Mechanistically, the winning systems will look like job control planes around agents, not chat interfaces around models.",
+                "counterfactual": "If long-horizon agent work is kept inside ad hoc chat sessions instead of resumable governed jobs, practitioners will hit context loss, poor auditability, and weak recovery from partial failure.",
+                "importance": "medium",
+                "probe_agent_id": "aj-019d986c-1b4c-76b3-a864-df0cf5793ca6",
+                "projection_id": "en-019d986a-e9e7-7143-96b5-79c0863e031e",
+                "signal_refs": "[]",
+                "step_at": "0"
+              }
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.context\":\"$metadata#Observations/$entity\",\"booleans\":{},\"counters\":{},\"entity_id\":\"en-019d986d-1b34-7430-ad80-bf867c47845c\",\"entity_type\":\"Observation\",\"events\":[{\"action\":\"Created\",\"from_status\":\"\",\"params\":{\"fields\":{}},\"timestamp\":\"2026-04-16T22:33:00.470040Z\",\"to_status\":\"Created\"},{\"action\":\"Record\",\"from_status\":\"Created\",\"params\":{\"content\":\"A concrete architecture pattern will mature: long-horizon agent work executes as bounded background jobs with resumable state, explicit tool",
+            "success": true
+          },
+          "decision_id": "5",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 4,
+          "choice": {
+            "action": "temper.create",
+            "arguments": [
+              "Observations",
+              {
+                "fields": {}
+              }
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.context\":\"$metadata#Observations/$entity\",\"@odata.id\":\"Observations('en-019d986d-1b3d-73f3-b518-be3250eb2b68')\",\"booleans\":{},\"counters\":{},\"entity_id\":\"en-019d986d-1b3d-73f3-b518-be3250eb2b68\",\"entity_type\":\"Observation\",\"events\":[{\"action\":\"Created\",\"from_status\":\"\",\"params\":{\"fields\":{}},\"timestamp\":\"2026-04-16T22:33:00.478369Z\",\"to_status\":\"Created\"}],\"fields\":{\"Id\":\"en-019d986d-1b3d-73f3-b518-be3250eb2b68\",\"Status\":\"Created\",\"fields\":{}},\"item_count\":0,\"lists\":{},\"sequence_nr\":1,\"s",
+            "success": true
+          },
+          "decision_id": "6",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 4,
+          "choice": {
+            "action": "temper.action",
+            "arguments": [
+              "Observations",
+              "en-019d986d-1b3d-73f3-b518-be3250eb2b68",
+              "Record",
+              {
+                "content": "Challenge to the dominant narrative: fully self-improving directed evolution will not be the main source of progress in the next 90 days. Most gains will come from homeostatic tightening of the evaluation surface, not from open-ended exploration. Practitioners can reliably automate mutation, triage, test execution, and patch proposal today, but they still lack cheap, high-signal fitness functions for ambitious architectural exploration. So the near-term adoption path is conservative: agents expand throughput inside narrow, heavily instrumented search spaces while humans still choose the objective function and approve larger architecture moves. This partially contradicts the more ambitious universal-constructor framing in the seed state: the machine tool arrives first as a constrained repo operator before it arrives as a broad software species designer.",
+                "counterfactual": "If leaders assume self-improvement is already practical at broad architectural scope, they will authorize search spaces wider than their harnesses can measure, causing entropy, broken invariants, and loss of trust in the whole approach.",
+                "importance": "high",
+                "probe_agent_id": "aj-019d986c-1b4c-76b3-a864-df0cf5793ca6",
+                "projection_id": "en-019d986a-e9e7-7143-96b5-79c0863e031e",
+                "signal_refs": "[]",
+                "step_at": "0"
+              }
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.context\":\"$metadata#Observations/$entity\",\"booleans\":{},\"counters\":{},\"entity_id\":\"en-019d986d-1b3d-73f3-b518-be3250eb2b68\",\"entity_type\":\"Observation\",\"events\":[{\"action\":\"Created\",\"from_status\":\"\",\"params\":{\"fields\":{}},\"timestamp\":\"2026-04-16T22:33:00.478369Z\",\"to_status\":\"Created\"},{\"action\":\"Record\",\"from_status\":\"Created\",\"params\":{\"content\":\"Challenge to the dominant narrative: fully self-improving directed evolution will not be the main source of progress in the next 90 days. Mo",
+            "success": true
+          },
+          "decision_id": "7",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 4,
+          "choice": {
+            "action": "temper.create",
+            "arguments": [
+              "Directions",
+              {
+                "fields": {}
+              }
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.context\":\"$metadata#Directions/$entity\",\"@odata.id\":\"Directions('en-019d986d-1b44-7e92-852f-92a129246559')\",\"booleans\":{},\"counters\":{},\"entity_id\":\"en-019d986d-1b44-7e92-852f-92a129246559\",\"entity_type\":\"Direction\",\"events\":[{\"action\":\"Created\",\"from_status\":\"\",\"params\":{\"fields\":{}},\"timestamp\":\"2026-04-16T22:33:00.485933Z\",\"to_status\":\"Proposed\"}],\"fields\":{\"Id\":\"en-019d986d-1b44-7e92-852f-92a129246559\",\"Status\":\"Proposed\",\"fields\":{}},\"item_count\":0,\"lists\":{},\"sequence_nr\":1,\"statu",
+            "success": true
+          },
+          "decision_id": "8",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 6,
+          "choice": {
+            "action": "temper.action",
+            "arguments": [
+              "Directions",
+              "en-019d986d-1b44-7e92-852f-92a129246559",
+              "Propose",
+              {
+                "counterfactual_summary": "If this direction is wrong and broad autonomous exploration becomes production-ready immediately, teams that invested heavily in constrained harnesses may move more slowly than frontier adopters. But if the thesis is right, harness investment compounds directly into safe autonomy and remains the lowest-regret path.",
+                "grounding": "[\"https://openai.com/index/harness-engineering/\",\"https://www.swebench.com/verified.html\",\"https://developers.openai.com/blog/run-long-horizon-tasks-with-codex\"]",
+                "observation_ids": "[\"en-019d986d-1b21-71c0-b89f-2cb60d396946\",\"en-019d986d-1b2b-7d00-8481-91bb5c569aef\",\"en-019d986d-1b34-7430-ad80-bf867c47845c\",\"en-019d986d-1b3d-73f3-b518-be3250eb2b68\"]",
+                "projection_id": "en-019d986a-e9e7-7143-96b5-79c0863e031e",
+                "proposer_agent_id": "aj-019d986c-1b4c-76b3-a864-df0cf5793ca6",
+                "reasoning": "The strongest near-term thesis is that directed software evolution will become operational first through harness-centric control planes, not through unconstrained autonomous coding. Across the seed model and recent external evidence, the practical bottleneck is not raw code generation but the construction of legible repositories, deterministic execution environments, verification cascades, and measurable acceptance criteria. OpenAI's harness-engineering writeup shows that once a team treats the repository, tests, CI, and internal instructions as the primary product, agents can sustain surprising throughput. SWE-bench Verified likewise demonstrates that system structure materially changes outcomes, because the benchmark explicitly separates bash-only model evaluations from broader agent systems with review and scaffolding.\n\nIn the next 90 days, the most successful implementations will therefore resemble governed software factories: task decomposition into bounded runs, explicit permissions, resumable state, reproducible sandboxes, and promotion gates from patch to merge. Teams will adopt evaluation-first habits because those are immediately compatible with existing CI/CD practice and because they preserve human trust while raising automation. Directed evolution will begin, but mainly as local search inside narrow, well-measured regions of the codebase: test repair, dependency upgrades, refactors behind invariant checks, and issue-to-patch workflows. Wide architectural exploration will remain human-directed until fitness functions and rollback discipline improve.",
+                "step_at": "0",
+                "title": "Harness-centric control planes, not open-ended autonomy, will be the dominant implementation of directed software evolution over the next 90 days."
+              }
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.context\":\"$metadata#Directions/$entity\",\"booleans\":{},\"counters\":{},\"entity_id\":\"en-019d986d-1b44-7e92-852f-92a129246559\",\"entity_type\":\"Direction\",\"events\":[{\"action\":\"Created\",\"from_status\":\"\",\"params\":{\"fields\":{}},\"timestamp\":\"2026-04-16T22:33:00.485933Z\",\"to_status\":\"Proposed\"},{\"action\":\"Propose\",\"from_status\":\"Proposed\",\"params\":{\"counterfactual_summary\":\"If this direction is wrong and broad autonomous exploration becomes production-ready immediately, teams that invested heavily ",
+            "success": true
+          },
+          "decision_id": "9",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 4,
+          "choice": {
+            "action": "temper.action",
+            "arguments": [
+              "Projections",
+              "en-019d986a-e9e7-7143-96b5-79c0863e031e",
+              "ProbeStepDone",
+              {
+                "direction_id": "en-019d986d-1b44-7e92-852f-92a129246559",
+                "probe_agent_id": "aj-019d986c-1b4c-76b3-a864-df0cf5793ca6"
+              }
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"@odata.context\":\"$metadata#Projections/$entity\",\"booleans\":{},\"counters\":{},\"entity_id\":\"en-019d986a-e9e7-7143-96b5-79c0863e031e\",\"entity_type\":\"Projection\",\"events\":[{\"action\":\"Created\",\"from_status\":\"\",\"params\":{},\"timestamp\":\"2026-04-16T22:30:36.778099Z\",\"to_status\":\"Created\"},{\"action\":\"Configure\",\"from_status\":\"Created\",\"params\":{\"foresight_model_id\":\"en-019d92cd-41e7-7aa0-8436-e0532786bfcf\",\"horizon\":\"1 year\"},\"timestamp\":\"2026-04-16T22:30:36.814023Z\",\"to_status\":\"Created\"},{\"action\":\"St",
+            "success": true
+          },
+          "decision_id": "10",
+          "decision_type": "tool_selection"
+        },
+        {
+          "_duration_ms": 0,
+          "choice": {
+            "action": "temper.done",
+            "arguments": [
+              "Probe complete"
+            ]
+          },
+          "consequence": {
+            "result_summary": "{\"done\":true}",
+            "success": true
+          },
+          "decision_id": "11",
+          "decision_type": "tool_selection"
+        }
+      ],
+      "span_id": "ss-019d986c-1b50-7103-9043-6bf251736813",
+      "timestamp": "2026-04-16T22:31:54.961469Z",
+      "turn_id": 1
+    }
+  ],
+  "version": "0.1.0"
+}

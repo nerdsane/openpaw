@@ -147,6 +147,20 @@ def check_synthesis_provenance(run_dir: Path) -> None:
         return
 
     con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+
+    def _fetch_blob(file_id: str) -> bytes | None:
+        row = con.execute(
+            "SELECT field_value FROM entity_field_index WHERE entity_id = ? AND field_name = 'content_hash'",
+            (file_id,),
+        ).fetchone()
+        if not row or not row[0]:
+            return None
+        blob_key = f"temper-fs/{row[0]}"
+        row = con.execute("SELECT data FROM blobs WHERE blob_key = ?", (blob_key,)).fetchone()
+        if not row:
+            return None
+        return row[0]
+
     try:
         # Get session_file_id from session entity
         row = con.execute(
@@ -158,21 +172,38 @@ def check_synthesis_provenance(run_dir: Path) -> None:
             return
         file_id = row[0]
 
-        row = con.execute(
-            "SELECT field_value FROM entity_field_index WHERE entity_id = ? AND field_name = 'content_hash'",
-            (file_id,),
-        ).fetchone()
-        if not row or not row[0]:
-            fail(f"#2 file {file_id} has no content_hash")
+        blob_data = _fetch_blob(file_id)
+        if blob_data is None:
+            fail(f"#2 orchestrator session {session_id} file {file_id} blob missing")
             return
-        content_hash = row[0]
-        blob_key = f"temper-fs/{content_hash}"
+        blob_key = f"file:{file_id}"  # for diagnostics only
 
-        row = con.execute("SELECT data FROM blobs WHERE blob_key = ?", (blob_key,)).fetchone()
-        if not row:
-            fail(f"#2 blob {blob_key} not found in blobs table")
-            return
-        blob_data = row[0]
+        # Track 1+ session reliability externalizes large message bodies to separate
+        # "content files" referenced by `content_file_id` from inside the JSONL log.
+        # When a synthesis is built via a big tool call, its text lives in one of
+        # those content files rather than inline — include them in the provenance
+        # search so a legitimately-produced synthesis is recognized.
+        try:
+            jsonl_text = blob_data.decode("utf-8", errors="replace")
+        except Exception:
+            jsonl_text = ""
+        aggregated_parts: list[str] = [jsonl_text]
+        seen: set[str] = set()
+        for raw_line in jsonl_text.splitlines():
+            raw_line = raw_line.strip()
+            if not raw_line or not raw_line.startswith("{"):
+                continue
+            try:
+                obj = json.loads(raw_line)
+            except json.JSONDecodeError:
+                continue
+            cfid = obj.get("content_file_id")
+            if isinstance(cfid, str) and cfid.startswith("fl-") and cfid not in seen:
+                seen.add(cfid)
+                sub = _fetch_blob(cfid)
+                if sub is not None:
+                    aggregated_parts.append(sub.decode("utf-8", errors="replace"))
+        blob_data = "\n".join(aggregated_parts).encode("utf-8", errors="replace")
     finally:
         con.close()
 
@@ -265,12 +296,31 @@ def check_plan_scope(run_dir: Path) -> None:
         fail("#5 plan.md '## Scope' has no bullet list of paths")
         return
 
-    # Diff from the commit that introduced plan.md forward. We assume the run's
-    # change commits are in a contiguous range after the plan commit. Use a more
-    # permissive check: any tracked file changed in the branch range
-    # (last N commits) that's NOT in declared, and NOT under meta/runs/, fails.
+    # Diff from the commit that introduced plan.md forward. loop.sh anchors
+    # reverts the same way (see enforce_post_round → plan_commit), so align
+    # with that. Fall back to the last commit if plan.md isn't committed yet
+    # (e.g. when verify_run.py is invoked in-session before the agent commits).
+    plan_rel = str(plan.relative_to(REPO_ROOT))
     try:
-        changed = git("diff", "--name-only", "HEAD~5..HEAD").splitlines()
+        plan_commit = git(
+            "log", "--diff-filter=A", "--format=%H", "--", plan_rel
+        ).splitlines()
+        plan_commit = plan_commit[-1] if plan_commit else ""
+    except subprocess.CalledProcessError:
+        plan_commit = ""
+
+    try:
+        if plan_commit:
+            # Range = [plan commit's parent, HEAD], which covers this run's commits.
+            changed = git(
+                "diff", "--name-only", f"{plan_commit}^..HEAD"
+            ).splitlines()
+        else:
+            # Not yet committed — compare working tree against HEAD.
+            changed = git("diff", "--name-only", "HEAD").splitlines()
+            changed += git(
+                "ls-files", "--others", "--exclude-standard"
+            ).splitlines()
     except subprocess.CalledProcessError:
         changed = git("diff", "--name-only", "HEAD~1..HEAD").splitlines()
     changed = [c for c in changed if c and not c.startswith("os-apps/paw-foresight/meta/runs/")]

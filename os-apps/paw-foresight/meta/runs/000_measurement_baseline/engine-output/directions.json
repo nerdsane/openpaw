@@ -1,0 +1,213 @@
+{
+    "@odata.context": "$metadata#Directions",
+    "value": [
+        {
+            "entity_type": "Direction",
+            "entity_id": "en-019d986d-1b44-7e92-852f-92a129246559",
+            "status": "Proposed",
+            "item_count": 0,
+            "counters": {},
+            "booleans": {},
+            "lists": {},
+            "fields": {
+                "fields": {},
+                "Id": "en-019d986d-1b44-7e92-852f-92a129246559",
+                "Status": "Proposed",
+                "counterfactual_summary": "If this direction is wrong and broad autonomous exploration becomes production-ready immediately, teams that invested heavily in constrained harnesses may move more slowly than frontier adopters. But if the thesis is right, harness investment compounds directly into safe autonomy and remains the lowest-regret path.",
+                "grounding": "[\"https://openai.com/index/harness-engineering/\",\"https://www.swebench.com/verified.html\",\"https://developers.openai.com/blog/run-long-horizon-tasks-with-codex\"]",
+                "observation_ids": "[\"en-019d986d-1b21-71c0-b89f-2cb60d396946\",\"en-019d986d-1b2b-7d00-8481-91bb5c569aef\",\"en-019d986d-1b34-7430-ad80-bf867c47845c\",\"en-019d986d-1b3d-73f3-b518-be3250eb2b68\"]",
+                "projection_id": "en-019d986a-e9e7-7143-96b5-79c0863e031e",
+                "proposer_agent_id": "aj-019d986c-1b4c-76b3-a864-df0cf5793ca6",
+                "reasoning": "The strongest near-term thesis is that directed software evolution will become operational first through harness-centric control planes, not through unconstrained autonomous coding. Across the seed model and recent external evidence, the practical bottleneck is not raw code generation but the construction of legible repositories, deterministic execution environments, verification cascades, and measurable acceptance criteria. OpenAI's harness-engineering writeup shows that once a team treats the repository, tests, CI, and internal instructions as the primary product, agents can sustain surprising throughput. SWE-bench Verified likewise demonstrates that system structure materially changes outcomes, because the benchmark explicitly separates bash-only model evaluations from broader agent systems with review and scaffolding.\n\nIn the next 90 days, the most successful implementations will therefore resemble governed software factories: task decomposition into bounded runs, explicit permissions, resumable state, reproducible sandboxes, and promotion gates from patch to merge. Teams will adopt evaluation-first habits because those are immediately compatible with existing CI/CD practice and because they preserve human trust while raising automation. Directed evolution will begin, but mainly as local search inside narrow, well-measured regions of the codebase: test repair, dependency upgrades, refactors behind invariant checks, and issue-to-patch workflows. Wide architectural exploration will remain human-directed until fitness functions and rollback discipline improve.",
+                "step_at": "0",
+                "title": "Harness-centric control planes, not open-ended autonomy, will be the dominant implementation of directed software evolution over the next 90 days."
+            },
+            "events": [
+                {
+                    "action": "Created",
+                    "from_status": "",
+                    "to_status": "Proposed",
+                    "timestamp": "2026-04-16T22:33:00.485933Z",
+                    "params": {
+                        "fields": {}
+                    }
+                },
+                {
+                    "action": "Propose",
+                    "from_status": "Proposed",
+                    "to_status": "Proposed",
+                    "timestamp": "2026-04-16T22:33:00.489706Z",
+                    "params": {
+                        "counterfactual_summary": "If this direction is wrong and broad autonomous exploration becomes production-ready immediately, teams that invested heavily in constrained harnesses may move more slowly than frontier adopters. But if the thesis is right, harness investment compounds directly into safe autonomy and remains the lowest-regret path.",
+                        "grounding": "[\"https://openai.com/index/harness-engineering/\",\"https://www.swebench.com/verified.html\",\"https://developers.openai.com/blog/run-long-horizon-tasks-with-codex\"]",
+                        "observation_ids": "[\"en-019d986d-1b21-71c0-b89f-2cb60d396946\",\"en-019d986d-1b2b-7d00-8481-91bb5c569aef\",\"en-019d986d-1b34-7430-ad80-bf867c47845c\",\"en-019d986d-1b3d-73f3-b518-be3250eb2b68\"]",
+                        "projection_id": "en-019d986a-e9e7-7143-96b5-79c0863e031e",
+                        "proposer_agent_id": "aj-019d986c-1b4c-76b3-a864-df0cf5793ca6",
+                        "reasoning": "The strongest near-term thesis is that directed software evolution will become operational first through harness-centric control planes, not through unconstrained autonomous coding. Across the seed model and recent external evidence, the practical bottleneck is not raw code generation but the construction of legible repositories, deterministic execution environments, verification cascades, and measurable acceptance criteria. OpenAI's harness-engineering writeup shows that once a team treats the repository, tests, CI, and internal instructions as the primary product, agents can sustain surprising throughput. SWE-bench Verified likewise demonstrates that system structure materially changes outcomes, because the benchmark explicitly separates bash-only model evaluations from broader agent systems with review and scaffolding.\n\nIn the next 90 days, the most successful implementations will therefore resemble governed software factories: task decomposition into bounded runs, explicit permissions, resumable state, reproducible sandboxes, and promotion gates from patch to merge. Teams will adopt evaluation-first habits because those are immediately compatible with existing CI/CD practice and because they preserve human trust while raising automation. Directed evolution will begin, but mainly as local search inside narrow, well-measured regions of the codebase: test repair, dependency upgrades, refactors behind invariant checks, and issue-to-patch workflows. Wide architectural exploration will remain human-directed until fitness functions and rollback discipline improve.",
+                        "step_at": "0",
+                        "title": "Harness-centric control planes, not open-ended autonomy, will be the dominant implementation of directed software evolution over the next 90 days."
+                    }
+                }
+            ],
+            "total_event_count": 2,
+            "sequence_nr": 2,
+            "@odata.id": "Directions('en-019d986d-1b44-7e92-852f-92a129246559')"
+        },
+        {
+            "entity_type": "Direction",
+            "entity_id": "en-019d986d-291e-7660-83e9-9a985c9a424e",
+            "status": "Proposed",
+            "item_count": 0,
+            "counters": {},
+            "booleans": {},
+            "lists": {},
+            "fields": {
+                "fields": {},
+                "Id": "en-019d986d-291e-7660-83e9-9a985c9a424e",
+                "Status": "Proposed",
+                "counterfactual_summary": "If this direction is wrong, current harnesses and benchmark-linked controls will prove sufficient for safe autonomy, and organizations will scale dark-factory style software evolution faster than this critique predicts.",
+                "grounding": "[\"https://www.swebench.com/verified.html\",\"https://aclanthology.org/2025.acl-long.189.pdf\",\"https://www.nist.gov/publications/artificial-intelligence-risk-management-framework-generative-artificial-intelligence\",\"https://openai.com/index/how-we-monitor-internal-coding-agents-misalignment\"]",
+                "observation_ids": "[\"en-019d986d-28f7-7d70-ab2c-871cab28a30a\",\"en-019d986d-28ff-70d1-8081-09e40c8944cf\",\"en-019d986d-2908-71b3-b04a-dfaeaf08988a\",\"en-019d986d-2911-79d2-adfb-0e60fe95473f\"]",
+                "projection_id": "en-019d986a-e9e7-7143-96b5-79c0863e031e",
+                "proposer_agent_id": "aj-019d986c-1b5a-75a0-bf6c-096fad14ccba",
+                "reasoning": "The strongest skeptical thesis is that directed software evolution will spend the next 90 days colliding with governance reality, not capability ceilings. The field's core insight that rigor and autonomy compound together is directionally right, but current practice overstates how much of that rigor can be delegated to tests, benchmark scores, and local verification alone. External evidence already points to evaluation brittleness: SWE-bench Verified exists because benchmark quality itself needed human validation, and UTBoost shows patches can pass available tests without solving the underlying problem. That means selection pressure is only as trustworthy as the harness, and many real organizations do not yet have harnesses that represent the operational, cross-service, and socio-technical consequences they care about.\n\nAt the same time, the governance burden rises as soon as agents become persistent, tool-using, and privileged. NIST's Generative AI Profile treats monitoring, measurement, and risk management as continuous lifecycle work, while recent guidance on governing agentic AI emphasizes explicit accountability and role responsibilities. OpenAI's own monitoring writeup for internal coding agents adds a sharper warning: high-autonomy coding agents can inspect and even attempt to modify their safeguards, which turns governance from a compliance afterthought into a live control problem. So the near-term winning pattern will not be fully dark factories. It will be constrained evolutionary loops with heavy audit trails, rollback infrastructure, bounded permissions, and explicit escalation triggers. Systems that ignore this will look fast in demos and fragile in production.",
+                "step_at": "0",
+                "title": "Near-term progress will be limited less by model intelligence than by weak governance harnesses and untrustworthy evaluation."
+            },
+            "events": [
+                {
+                    "action": "Created",
+                    "from_status": "",
+                    "to_status": "Proposed",
+                    "timestamp": "2026-04-16T22:33:04.031322Z",
+                    "params": {
+                        "fields": {}
+                    }
+                },
+                {
+                    "action": "Propose",
+                    "from_status": "Proposed",
+                    "to_status": "Proposed",
+                    "timestamp": "2026-04-16T22:33:04.034563Z",
+                    "params": {
+                        "counterfactual_summary": "If this direction is wrong, current harnesses and benchmark-linked controls will prove sufficient for safe autonomy, and organizations will scale dark-factory style software evolution faster than this critique predicts.",
+                        "grounding": "[\"https://www.swebench.com/verified.html\",\"https://aclanthology.org/2025.acl-long.189.pdf\",\"https://www.nist.gov/publications/artificial-intelligence-risk-management-framework-generative-artificial-intelligence\",\"https://openai.com/index/how-we-monitor-internal-coding-agents-misalignment\"]",
+                        "observation_ids": "[\"en-019d986d-28f7-7d70-ab2c-871cab28a30a\",\"en-019d986d-28ff-70d1-8081-09e40c8944cf\",\"en-019d986d-2908-71b3-b04a-dfaeaf08988a\",\"en-019d986d-2911-79d2-adfb-0e60fe95473f\"]",
+                        "projection_id": "en-019d986a-e9e7-7143-96b5-79c0863e031e",
+                        "proposer_agent_id": "aj-019d986c-1b5a-75a0-bf6c-096fad14ccba",
+                        "reasoning": "The strongest skeptical thesis is that directed software evolution will spend the next 90 days colliding with governance reality, not capability ceilings. The field's core insight that rigor and autonomy compound together is directionally right, but current practice overstates how much of that rigor can be delegated to tests, benchmark scores, and local verification alone. External evidence already points to evaluation brittleness: SWE-bench Verified exists because benchmark quality itself needed human validation, and UTBoost shows patches can pass available tests without solving the underlying problem. That means selection pressure is only as trustworthy as the harness, and many real organizations do not yet have harnesses that represent the operational, cross-service, and socio-technical consequences they care about.\n\nAt the same time, the governance burden rises as soon as agents become persistent, tool-using, and privileged. NIST's Generative AI Profile treats monitoring, measurement, and risk management as continuous lifecycle work, while recent guidance on governing agentic AI emphasizes explicit accountability and role responsibilities. OpenAI's own monitoring writeup for internal coding agents adds a sharper warning: high-autonomy coding agents can inspect and even attempt to modify their safeguards, which turns governance from a compliance afterthought into a live control problem. So the near-term winning pattern will not be fully dark factories. It will be constrained evolutionary loops with heavy audit trails, rollback infrastructure, bounded permissions, and explicit escalation triggers. Systems that ignore this will look fast in demos and fragile in production.",
+                        "step_at": "0",
+                        "title": "Near-term progress will be limited less by model intelligence than by weak governance harnesses and untrustworthy evaluation."
+                    }
+                }
+            ],
+            "total_event_count": 2,
+            "sequence_nr": 2,
+            "@odata.id": "Directions('en-019d986d-291e-7660-83e9-9a985c9a424e')"
+        },
+        {
+            "entity_type": "Direction",
+            "entity_id": "en-019d986e-0964-7293-9c4f-254b084563c4",
+            "status": "Proposed",
+            "item_count": 0,
+            "counters": {},
+            "booleans": {},
+            "lists": {},
+            "fields": {
+                "fields": {},
+                "Id": "en-019d986e-0964-7293-9c4f-254b084563c4",
+                "Status": "Proposed",
+                "counterfactual_summary": "If this thesis is wrong, raw model improvements will dominate near-term outcomes and even weakly instrumented organizations will see broad autonomous gains without substantial investment in harnesses, routines, or governance.",
+                "grounding": "[\"sig-001\",\"sig-002\",\"sig-020\"]",
+                "observation_ids": "[\"en-019d986e-093e-7fa3-ae2e-7635ea5d745b\",\"en-019d986e-0947-7c11-9370-6dd1e824f09c\",\"en-019d986e-0953-7d11-aea2-fa118fb08609\",\"en-019d986e-095c-7353-b52c-114efd3a0864\"]",
+                "projection_id": "en-019d986a-e9e7-7143-96b5-79c0863e031e",
+                "proposer_agent_id": "aj-019d986c-1b67-77c2-8370-31d9c8dc8232",
+                "reasoning": "From an adjacent-domain perspective, Directed Software Evolution is entering the same phase that other adaptive systems enter after an enabling technology first becomes abundant: the scarce factor moves from production to selection. Cheap candidate generation from coding agents is real and accelerating, but economic evidence shows adoption is throttled by complementary assets such as integration, compute discipline, and local evaluation infrastructure. That means the practical unit of competition over the next 90 days is not model-vs-model; it is institution-vs-institution. Teams with better harnesses, lower-friction review routines, and clearer repository-specific instructions will outperform teams with nominally stronger models but weak local feedback loops.\n\nThe biological analogy sharpens the forecast. Evolution does not reward the organism that mutates fastest; it rewards the lineage embedded in a good selection environment. In software, that environment consists of tests, telemetry, rollback pathways, policy boundaries, and evidence trails. As parallel agent execution spreads, winners will increasingly run populations of candidate patches and plans, then retain what survives objective and organizational filters. But this same adaptive pressure creates immune responses: governance hardens around opaque or costly workflows, and autonomy spreads first in well-instrumented niches rather than uniformly. So the strongest thesis for the next 90 days is that Directed Software Evolution advances through institutionalization of selection mechanisms\u2014AGENTS.md conventions, repo-local evals, budget controls, evidence-backed review, and portfolio-style candidate comparison\u2014more than through any dramatic jump to fully autonomous dark factories.",
+                "step_at": "0",
+                "title": "Near-term advantage will come from selection environments and organizational learning loops, not from raw agent autonomy alone."
+            },
+            "events": [
+                {
+                    "action": "Created",
+                    "from_status": "",
+                    "to_status": "Proposed",
+                    "timestamp": "2026-04-16T22:34:01.446034Z",
+                    "params": {
+                        "fields": {}
+                    }
+                },
+                {
+                    "action": "Propose",
+                    "from_status": "Proposed",
+                    "to_status": "Proposed",
+                    "timestamp": "2026-04-16T22:34:01.449338Z",
+                    "params": {
+                        "counterfactual_summary": "If this thesis is wrong, raw model improvements will dominate near-term outcomes and even weakly instrumented organizations will see broad autonomous gains without substantial investment in harnesses, routines, or governance.",
+                        "grounding": "[\"sig-001\",\"sig-002\",\"sig-020\"]",
+                        "observation_ids": "[\"en-019d986e-093e-7fa3-ae2e-7635ea5d745b\",\"en-019d986e-0947-7c11-9370-6dd1e824f09c\",\"en-019d986e-0953-7d11-aea2-fa118fb08609\",\"en-019d986e-095c-7353-b52c-114efd3a0864\"]",
+                        "projection_id": "en-019d986a-e9e7-7143-96b5-79c0863e031e",
+                        "proposer_agent_id": "aj-019d986c-1b67-77c2-8370-31d9c8dc8232",
+                        "reasoning": "From an adjacent-domain perspective, Directed Software Evolution is entering the same phase that other adaptive systems enter after an enabling technology first becomes abundant: the scarce factor moves from production to selection. Cheap candidate generation from coding agents is real and accelerating, but economic evidence shows adoption is throttled by complementary assets such as integration, compute discipline, and local evaluation infrastructure. That means the practical unit of competition over the next 90 days is not model-vs-model; it is institution-vs-institution. Teams with better harnesses, lower-friction review routines, and clearer repository-specific instructions will outperform teams with nominally stronger models but weak local feedback loops.\n\nThe biological analogy sharpens the forecast. Evolution does not reward the organism that mutates fastest; it rewards the lineage embedded in a good selection environment. In software, that environment consists of tests, telemetry, rollback pathways, policy boundaries, and evidence trails. As parallel agent execution spreads, winners will increasingly run populations of candidate patches and plans, then retain what survives objective and organizational filters. But this same adaptive pressure creates immune responses: governance hardens around opaque or costly workflows, and autonomy spreads first in well-instrumented niches rather than uniformly. So the strongest thesis for the next 90 days is that Directed Software Evolution advances through institutionalization of selection mechanisms\u2014AGENTS.md conventions, repo-local evals, budget controls, evidence-backed review, and portfolio-style candidate comparison\u2014more than through any dramatic jump to fully autonomous dark factories.",
+                        "step_at": "0",
+                        "title": "Near-term advantage will come from selection environments and organizational learning loops, not from raw agent autonomy alone."
+                    }
+                }
+            ],
+            "total_event_count": 2,
+            "sequence_nr": 2,
+            "@odata.id": "Directions('en-019d986e-0964-7293-9c4f-254b084563c4')"
+        },
+        {
+            "entity_type": "Direction",
+            "entity_id": "en-019d986f-ad29-7f60-8041-273e79fd618e",
+            "status": "Proposed",
+            "item_count": 0,
+            "counters": {},
+            "booleans": {},
+            "lists": {},
+            "fields": {
+                "fields": {},
+                "Id": "en-019d986f-ad29-7f60-8041-273e79fd618e",
+                "Status": "Proposed",
+                "counterfactual_summary": "If raw model quality rather than selection infrastructure proves dominant, then firms with the best frontier model access will rapidly centralize advantage and standards/governance investments will matter less than expected.",
+                "grounding": "[\"https://anthropic.com/research/swe-bench-sonnet\",\"https://techcrunch.com/2025/03/26/openai-adopts-rival-anthropics-standard-for-connecting-ai-models-to-data/\",\"https://developer.microsoft.com/blog/microsoft-partners-with-anthropic-to-create-official-c-sdk-for-model-context-protocol\",\"https://github.blog/2024-05-13-research-quantifying-github-copilots-impact-in-the-enterprise-with-accenture/\",\"https://openai.com/blog/introducing-codex/\"]",
+                "observation_ids": "[\"en-019d986f-ad04-75e0-9241-f200dda6b886\",\"en-019d986f-ad0f-7993-8997-9dc293fc85b7\",\"en-019d986f-ad18-7f42-b885-b2f26aba4d6a\",\"en-019d986f-ad21-7332-9fe9-6d5cac85c4de\"]",
+                "projection_id": "en-019d986a-e9e7-7143-96b5-79c0863e031e",
+                "proposer_agent_id": "aj-019d986e-00ec-7bc2-975d-c4fbd572c821",
+                "reasoning": "Directed Software Evolution will advance over the next 90 days primarily through institutionalization, not through a sudden leap to fully autonomous software organisms. The adjacent-domain analogy is industrial organization: once candidate generation becomes cheap, competition moves downstream to standards, coordination mechanisms, and quality control. The strongest external evidence points in that direction. Anthropic's SWE-bench writeup shows that measured performance depends heavily on the surrounding agent scaffold and evaluation loop, not just the model. Meanwhile MCP adoption by OpenAI and Microsoft-backed SDK work indicate an early standards layer forming around tool and context interoperability. These are classic signs of a field transitioning from artisanal experimentation to shared infrastructure.\n\nFrom an evolutionary perspective, the scarce factor is not mutation but selection. Many firms will soon have access to credible coding agents, but only a subset will possess the harnesses, governance rules, archives, and workflow redesign needed to turn abundant generated variants into retained improvement. That creates a likely near-term equilibrium: more agent-generated code, more parallel exploration, but tighter human and policy control over acceptance. Systems that encode organizational memory into tests, policies, and replayable evaluations will compound; systems that rely on informal review will plateau. Therefore the strongest thesis is that Directed Software Evolution becomes economically real first as a standards-and-governance layer for selective retention, with labor reallocated toward maintaining the fitness landscape rather than eliminated outright.",
+                "step_at": "0",
+                "title": "The next 90 days favor governance-standardized selection systems over raw autonomous coding power."
+            },
+            "events": [
+                {
+                    "action": "Created",
+                    "from_status": "",
+                    "to_status": "Proposed",
+                    "timestamp": "2026-04-16T22:35:48.906077Z",
+                    "params": {
+                        "fields": {}
+                    }
+                },
+                {
+                    "action": "Propose",
+                    "from_status": "Proposed",
+                    "to_status": "Proposed",
+                    "timestamp": "2026-04-16T22:35:48.909407Z",
+                    "params": {
+                        "counterfactual_summary": "If raw model quality rather than selection infrastructure proves dominant, then firms with the best frontier model access will rapidly centralize advantage and standards/governance investments will matter less than expected.",
+                        "grounding": "[\"https://anthropic.com/research/swe-bench-sonnet\",\"https://techcrunch.com/2025/03/26/openai-adopts-rival-anthropics-standard-for-connecting-ai-models-to-data/\",\"https://developer.microsoft.com/blog/microsoft-partners-with-anthropic-to-create-official-c-sdk-for-model-context-protocol\",\"https://github.blog/2024-05-13-research-quantifying-github-copilots-impact-in-the-enterprise-with-accenture/\",\"https://openai.com/blog/introducing-codex/\"]",
+                        "observation_ids": "[\"en-019d986f-ad04-75e0-9241-f200dda6b886\",\"en-019d986f-ad0f-7993-8997-9dc293fc85b7\",\"en-019d986f-ad18-7f42-b885-b2f26aba4d6a\",\"en-019d986f-ad21-7332-9fe9-6d5cac85c4de\"]",
+                        "projection_id": "en-019d986a-e9e7-7143-96b5-79c0863e031e",
+                        "proposer_agent_id": "aj-019d986e-00ec-7bc2-975d-c4fbd572c821",
+                        "reasoning": "Directed Software Evolution will advance over the next 90 days primarily through institutionalization, not through a sudden leap to fully autonomous software organisms. The adjacent-domain analogy is industrial organization: once candidate generation becomes cheap, competition moves downstream to standards, coordination mechanisms, and quality control. The strongest external evidence points in that direction. Anthropic's SWE-bench writeup shows that measured performance depends heavily on the surrounding agent scaffold and evaluation loop, not just the model. Meanwhile MCP adoption by OpenAI and Microsoft-backed SDK work indicate an early standards layer forming around tool and context interoperability. These are classic signs of a field transitioning from artisanal experimentation to shared infrastructure.\n\nFrom an evolutionary perspective, the scarce factor is not mutation but selection. Many firms will soon have access to credible coding agents, but only a subset will possess the harnesses, governance rules, archives, and workflow redesign needed to turn abundant generated variants into retained improvement. That creates a likely near-term equilibrium: more agent-generated code, more parallel exploration, but tighter human and policy control over acceptance. Systems that encode organizational memory into tests, policies, and replayable evaluations will compound; systems that rely on informal review will plateau. Therefore the strongest thesis is that Directed Software Evolution becomes economically real first as a standards-and-governance layer for selective retention, with labor reallocated toward maintaining the fitness landscape rather than eliminated outright.",
+                        "step_at": "0",
+                        "title": "The next 90 days favor governance-standardized selection systems over raw autonomous coding power."
+                    }
+                }
+            ],
+            "total_event_count": 2,
+            "sequence_nr": 2,
+            "@odata.id": "Directions('en-019d986f-ad29-7f60-8041-273e79fd618e')"
+        }
+    ]
+}
