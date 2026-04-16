@@ -99,7 +99,8 @@ one (the foresight behavioural rerun) deferred per the original plan.
 | 2a. `cargo build --target wasm32-unknown-unknown -p emit_ots_trajectory --release` | clean | `Finished release profile [optimized] target(s) in 9.42s` | PASS |
 | 2b. `cargo build --target wasm32-wasip1 -p monty-repl --release` | clean | `Finished release profile [optimized] target(s) in 55.09s` | PASS |
 | 2c. `cargo build --target wasm32-unknown-unknown -p handle-probe-done --release` | clean | `Finished release profile [optimized] target(s) in 5.63s` | PASS |
-| 3. `scripts/prove_track3_ots.py` against live server | 6/6 PASS | Not executed on this branch — runs on reviewer's local stack | DEFERRED |
+| 3a. Live end-to-end: Session Created → Cancel → OTS trajectory persisted | Session.trajectory_id == Turso row trajectory_id; Turso `data` round-trips through `OTSTrajectory` serde | `trj-ss-019d97bd-a1ea-7643-bdce-941693b21cde` matched in both places; standalone Rust binary (`cargo run` against /tmp/ots-verify with temper-ots dep) prints `DESERIALIZED SUCCESSFULLY ... outcome=PartialSuccess` | PASS |
+| 3b. emit_ots_trajectory dispatched MarkTrajectoryEmitted on success | Session.trajectory_emission_status transitions to "emitted" | Live openpaw-server log: `event emitted event=MarkTrajectoryEmitted` → `transition applied action=MarkTrajectoryEmitted to=Cancelled` → field query returns `'emitted'` | PASS |
 | 4. Foresight meta-loop rubric-v4 differential | rubric sub-score improves vs v3 | Not verified — deferred to future foresight run on main | DEFERRED |
 
 ## What Worked
@@ -125,19 +126,46 @@ one (the foresight behavioural rerun) deferred per the original plan.
 
 ## What Didn't Work
 
-- Initial attempt to use `type = "set"` IOA effect on strings (line 742 of
-  the spec). Temper's `parse_effect_fields` at
+- Initial attempt to use `type = "set"` IOA effect on strings. Temper's
+  `parse_effect_fields` at
   `temper/crates/temper-spec/src/automaton/toml_parser/effects.rs:41-123`
   only supports `increment`, `decrement`, `set_bool`, `emit`, `trigger`,
   `list_append`, `list_remove_at`, `spawn`, `schedule`, `schedule_at`. No
   `set` for string fields. Refactored to pass the new field values as
-  action params (which the dispatch framework auto-applies to entity
+  action params (the dispatch framework auto-applies them to entity
   state), and removed `on_failure` from the integration config so the
-  module can dispatch its own failure action with the custom error field
-  populated.
+  module dispatches its own failure action.
 - `classify_error` initially failed for "request timed out after 30s"
   because the check was `contains("timeout")` — the string contains
   "timed out" with a space. Extended to also check for "timed out".
+- **Cedar denied the outbound HTTP POST from the WASM module** —
+  Temper's WASM runtime gates `http_call` via Cedar separately from
+  the endpoint-level auth I had already checked. Log line was
+  `WASM host authorization denied outbound HTTP call ... reason=no
+  matching permit policy`. Fix: add `emit_ots_trajectory` to the allowed
+  modules list at `os-apps/paw-agent/policies/session.cedar:110`. I had
+  incorrectly skipped Cedar work in Phase 3 of the plan because I only
+  looked for an authz check on the endpoint handler itself and missed
+  the per-module outbound-HTTP authz layer.
+- **Server-side `trajectory_id` mismatch.** Temper's POST handler at
+  `trajectories.rs:229-234` extracts `metadata.trajectory_id`, not the
+  top-level `trajectory_id` from the OTS schema. When it can't find
+  the metadata value it falls back to `sim_uuid()`. The Turso row was
+  therefore keyed on a DIFFERENT id than what my module stored on the
+  Session entity, breaking `INSERT OR REPLACE`-based retry idempotency.
+  Fix: emit `trajectory_id` in BOTH locations — top-level for OTS
+  compliance, and inside `metadata` for server consumption.
+- **Stored JSON did not deserialize as `OTSTrajectory`.** Live DB row
+  failed the serde round-trip with three separate schema violations,
+  all found by a standalone Rust binary (temper-ots dep, reads the
+  Turso `data` column) that I built during verification:
+  - `metadata.timestamp_start` missing (required `DateTime<Utc>`)
+  - `OTSTurn.turn_id` emitted as `String`, struct declares it as `i32`
+  - `OTSTurn.span_id` and `OTSTurn.timestamp` missing (both required)
+  - `OTSSystemMessage` had a stray `role` field the struct doesn't have
+  Fixed by `extract_event_bookends()` which pulls first/last event
+  timestamps off the entity state, and by correcting the turn/system
+  message shapes. All fixes have matching unit tests.
 
 ## Limitations
 
@@ -159,18 +187,28 @@ one (the foresight behavioural rerun) deferred per the original plan.
 
 ## What Still Doesn't Work
 
-- Live E2E against a running Temper server — `scripts/prove_track3_ots.py`
-  is implemented but was not executed on this branch. Reviewer must run
-  it locally to confirm end-to-end. Command:
-  ```
-  python3 scripts/prove_track3_ots.py --base-url http://127.0.0.1:3467 --tenant default
-  ```
+- No live verification of the full LLM-driven turn loop. I only drove a
+  Session through `Cancel` (Created → Cancelled), which fires the
+  emitter on an empty tool-span history and produces
+  `outcome=partial_success`. The full `Completed` path — where
+  `monty_repl` produces tool spans that get persisted to TemperFS and
+  then collapsed into `OTSDecision` entries — was not exercised end-to-end
+  and would require an LLM API call chain taking several minutes per
+  session. Recommended follow-up: run `scripts/prove_track3_ots.py`
+  against a full configured stack (LLM credentials wired, real
+  `OpenPaw.Start` action path through to `FinalizeResult`/`RecordResult`)
+  before merging.
 - Foresight meta-loop rerun (Run 011) is deferred to post-merge on main.
   Rubric-v4 scoring differential vs rubric-v3 has not been measured.
 - Turso row-size preflight check at the emitter is not yet implemented —
   if a 100-turn session with large tool outputs exceeds ~1MB the POST
   will fail and TrajectoryEmissionFailed will fire. Mitigation listed
   in ADR-0035 risks section as a future improvement.
+- The single-trajectory GET endpoint `/api/ots/trajectories/{id}`
+  returns 404 — the list endpoint only returns metadata columns, not
+  the full `data` blob, so verifying the stored payload requires
+  direct DB access. Adding the single-get endpoint is noted as a
+  Temper-side follow-up.
 
 ## Artifacts
 
