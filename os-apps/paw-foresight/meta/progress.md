@@ -26,14 +26,20 @@
 - **foresight-v003** (2026-04-16): Added content diversity constraints to WASM-embedded synthesis instructions. Theme diversity (4+ themes), observation deduplication, cross-probe requirements, actionability specificity. First engine win.
 - **rubric-v4** (2026-04-15): Replaced Transparency→Grounding (reasoning chain validity), Quantitative Precision→Information Density (no redundancy). Added constraints: domain-agnostic, no-authoring, prefer-architecture. Judges now use Claude Code subagents (`claude -p`) with side-by-side comparison instead of split Temper sessions. Baseline to be re-scored once under v4. See nerdsane/openpaw#58 for 32KB WASM fix.
 
+## === RUBRIC V4 RESTART (2026-04-16) ===
+
+Engine reverted to v000 SKILL.md + v003 spawn_orchestrator WASM (pre-hack).
+Runs 001-010 scores are under v3 with broken methodology — not comparable.
+All scores below this line use rubric v4 with side-by-side Claude subagent judges.
+
+**Baseline (locked):** 25.0/48 raw, 51.0/72 Borda (scored once, 2026-04-16, 3 judges)
+**Judge method:** Claude Code subagents (`claude -p`), side-by-side, randomized X/Y
+**Rubric:** v4 — Grounding (not Transparency), Information Density (not Quant Precision)
+**Constraints:** domain-agnostic, no-authoring, prefer-architecture
+
 ## Convergence Status
 
-**Status:** In progress
-**Current incumbent:** Engine (Run 010)
-**A-wins streak:** 0 (engine won again — eight consecutive engine wins, Runs 003-010)
+**Status:** Starting fresh
+**Current incumbent:** v000 engine (to be scored)
+**A-wins streak:** 0
 **Converged:** No
-**Judge infrastructure:** Operational — 3 independent paw-agent sessions per scoring round (split-session: 6 total, one per output per judge, to stay under 32KB WASM field limit). Engine output must be condensed to <29KB for judging (obs refs removed, some sections trimmed) due to 32KB WASM field limit.
-**Key persistent deficit (RETURNED):** Breadth deficit returned in Run 010 (E=3.0 B=6.0, -3.0) after being resolved in Run 009 (E=4.5 B=4.5). Root cause: output trimming for 32KB judge limit removed Active Directions reasoning that demonstrates theme diversity. This is a judging methodology artifact — the full 46KB synthesis has extensive cross-theme content.
-**Resolved deficit:** Actionability (E=6.0 B=3.0, +3.0 in Run 010, was E=3.0 B=6.0 in Run 009). Pre-computed decision frameworks with strategic cost-benefit-risk framing met rubric level 4 anchor. +6.0 Borda swing.
-**Systemic issue:** Engine output (46KB) exceeds judge capacity (28KB trimmed). Each new pre-computed section grows total output, requiring more aggressive trimming that hurts other criteria. Recommended fix: smarter trimming algorithm that maps rubric criteria to output sections and preserves scoring-relevant content.
-**Margin trend:** Engine Borda margin: +4.0 (Run 003) → +3.0 (Run 004) → +4.0 (Run 005) → +2.0 (Run 006) → +4.0 (Run 007) → +3.0 (Run 008) → +2.0 (Run 009) → +2.0 (Run 010).
