@@ -16,6 +16,7 @@
 //! Build: `cargo build --target wasm32-unknown-unknown --release`
 
 use session_tree_lib::{EntryType, SessionTree};
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use temper_wasm_sdk::prelude::*;
 use wasm_helpers::{
@@ -459,6 +460,7 @@ fn build_method_listing(enabled: &BTreeSet<String>) -> String {
 }
 
 /// Entry point — NOT using `temper_module!` because we need dynamic callback actions.
+#[cfg(feature = "standalone-wasm")]
 #[unsafe(no_mangle)]
 pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
     let result = (|| -> Result<(), String> {
@@ -1199,6 +1201,42 @@ struct LlmResponse {
     output_tokens: i64,
     cache_read_input_tokens: i64,
     cache_creation_input_tokens: i64,
+    request_bytes: usize,
+    response_bytes: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PreparedContextArtifact {
+    version: u32,
+    messages: Vec<Value>,
+    tools: Vec<Value>,
+    system_prompt: String,
+    system_prompt_hash: String,
+    system_prompt_file_id: String,
+    conversation_file_id: String,
+    session_file_id: String,
+    session_leaf_id: String,
+    workspace_id: String,
+    use_session_tree: bool,
+    context_tokens: usize,
+    context_bytes: usize,
+    entries_loaded: usize,
+    content_files_loaded: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProviderResponseArtifact {
+    version: u32,
+    provider: String,
+    model: String,
+    content: Value,
+    stop_reason: String,
+    input_tokens: i64,
+    output_tokens: i64,
+    cache_read_input_tokens: i64,
+    cache_creation_input_tokens: i64,
+    request_bytes: usize,
+    response_bytes: usize,
 }
 
 /// Max bytes for gen_ai message attributes to avoid bloating spans.
@@ -1578,7 +1616,7 @@ fn call_mock(
 // collect_existing_dedupe_keys, lookup_string, lookup_u64, lookup_f64, normalize_key,
 // humanize_issue_focus). Recoverable from git history if needed.
 
-fn detect_anthropic_oauth_mode(api_key: &str, auth_mode: &str) -> bool {
+fn detect_anthropic_oauth_mode(_api_key: &str, auth_mode: &str) -> bool {
     match auth_mode.trim().to_ascii_lowercase().as_str() {
         "oauth" | "token" | "bearer" => true,
         "api_key" => false,
@@ -1790,6 +1828,8 @@ fn call_anthropic(
         output_tokens,
         cache_read_input_tokens,
         cache_creation_input_tokens,
+        request_bytes: body_str.len(),
+        response_bytes: resp.body.len(),
     })
 }
 
@@ -1959,6 +1999,8 @@ fn call_openrouter(
         output_tokens,
         cache_read_input_tokens: 0,
         cache_creation_input_tokens: 0,
+        request_bytes: body_str.len(),
+        response_bytes: resp.body.len(),
     })
 }
 
@@ -2422,6 +2464,8 @@ fn call_openai(
         output_tokens,
         cache_read_input_tokens: 0,
         cache_creation_input_tokens: 0,
+        request_bytes: body_str.len(),
+        response_bytes: serde_json::to_string(&response).unwrap_or_default().len(),
     })
 }
 
@@ -2451,6 +2495,7 @@ fn stringify_content(value: &Value) -> String {
     }
 }
 
+#[allow(dead_code)]
 fn emit_progress_ignore(ctx: &Context, payload: Value) {
     let _ = (ctx, payload);
 }
@@ -2594,7 +2639,8 @@ fn build_mock_step_response(
         .iter()
         .any(|block| block.get("type").and_then(Value::as_str) == Some("tool_use"))
     {
-        let output_len = serde_json::to_string(&content).unwrap_or_default().len() as i64;
+        let serialized_content = serde_json::to_string(&content).unwrap_or_default();
+        let output_len = serialized_content.len() as i64;
         return Ok(LlmResponse {
             content: Value::Array(content),
             stop_reason: "tool_use".to_string(),
@@ -2602,6 +2648,8 @@ fn build_mock_step_response(
             output_tokens: output_len,
             cache_read_input_tokens: 0,
             cache_creation_input_tokens: 0,
+            request_bytes: 0,
+            response_bytes: serialized_content.len(),
         });
     }
 
@@ -2749,6 +2797,8 @@ fn mock_text_response(messages: &[Value], text: String) -> LlmResponse {
         output_tokens: text.len() as i64,
         cache_read_input_tokens: 0,
         cache_creation_input_tokens: 0,
+        request_bytes: 0,
+        response_bytes: text.len(),
     }
 }
 
@@ -3317,6 +3367,1045 @@ fn compute_system_prompt_hash(
         hash = hash.wrapping_mul(0x100000001b3); // FNV prime
     }
     format!("{:016x}", hash)
+}
+
+pub fn run_context_preparer() -> Result<(), String> {
+    let started_at = Context::get_time_millis();
+    let ctx = Context::from_host()?;
+    ctx.log("info", "context_preparer: starting");
+
+    let fields = ctx.entity_state.get("fields").cloned().unwrap_or_else(|| json!({}));
+    let user_message = fields
+        .get("user_message")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    if user_message.is_empty() {
+        return Err("user_message is empty — nothing to send to the LLM".to_string());
+    }
+
+    let model = fields
+        .get("model")
+        .and_then(|v| v.as_str())
+        .unwrap_or("claude-sonnet-4-6");
+    let tools_enabled = fields
+        .get("tools_enabled")
+        .and_then(|v| v.as_str())
+        .unwrap_or(DEFAULT_TOOLS_ENABLED);
+    let system_prompt_override = fields
+        .get("system_prompt")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let sandbox_url = fields
+        .get("sandbox_url")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let workdir = fields
+        .get("workdir")
+        .and_then(|v| v.as_str())
+        .unwrap_or("/workspace");
+    let temper_api_url = resolve_temper_api_url(&ctx, &fields);
+    let tenant = &ctx.tenant;
+    let conversation_file_id = fields
+        .get("conversation_file_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let session_file_id = fields
+        .get("session_file_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let session_leaf_id = fields
+        .get("session_leaf_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let workspace_id = fields
+        .get("workspace_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let soul_id = fields
+        .get("soul_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let reserve_tokens: usize = fields
+        .get("reserve_tokens")
+        .and_then(|v| v.as_str())
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(20_000);
+    let max_live_context_bytes: usize = fields
+        .get("max_live_context_bytes")
+        .and_then(|v| v.as_str())
+        .and_then(|s| s.parse().ok())
+        .or_else(|| {
+            ctx.config
+                .get("max_live_context_bytes")
+                .and_then(|s| s.parse().ok())
+        })
+        .unwrap_or(48 * 1024 * 1024);
+    let use_session_tree = !session_file_id.is_empty() && !session_leaf_id.is_empty();
+
+    let (mut messages, session_tree, entries_loaded, content_files_loaded) =
+        load_messages_for_prepare(
+            &ctx,
+            &fields,
+            &temper_api_url,
+            tenant,
+            user_message,
+            &conversation_file_id,
+            &session_file_id,
+            &session_leaf_id,
+        )?;
+    messages = repair_interrupted_tool_use_messages(&ctx, messages);
+    let prune_after_turns: usize = fields
+        .get("prune_tool_results_after_turns")
+        .and_then(|v| v.as_str())
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(4);
+    prune_old_tool_results(&mut messages, prune_after_turns);
+
+    let tools = build_tool_definitions(tools_enabled, sandbox_url, workdir);
+    let context_tokens = if use_session_tree {
+        session_tree
+            .as_ref()
+            .map(|tree| tree.estimate_tokens(&session_leaf_id))
+            .unwrap_or_else(|| estimate_message_tokens(&messages) as usize)
+    } else {
+        estimate_message_tokens(&messages) as usize
+    };
+
+    let metric_tags = session_metric_tags(
+        normalize_provider(
+            fields
+                .get("provider")
+                .and_then(|v| v.as_str())
+                .unwrap_or("anthropic"),
+        )
+        .as_str(),
+        model,
+    );
+    emit_metric_ignore(
+        &ctx,
+        "temper_session_context_tokens",
+        context_tokens as f64,
+        &metric_tags,
+        Some("gauge"),
+    );
+    emit_metric_ignore(
+        &ctx,
+        "temper_session_context_entries_loaded",
+        entries_loaded as f64,
+        &metric_tags,
+        Some("gauge"),
+    );
+    emit_metric_ignore(
+        &ctx,
+        "temper_session_context_content_files_loaded",
+        content_files_loaded as f64,
+        &metric_tags,
+        Some("gauge"),
+    );
+
+    let context_window = model_context_window(model);
+    if context_tokens > context_window.saturating_sub(reserve_tokens) {
+        emit_metric_ignore(
+            &ctx,
+            "temper_session_compaction_trigger_total",
+            1.0,
+            &metric_tags,
+            Some("count"),
+        );
+        emit_prepare_duration_metric(&ctx, &metric_tags, started_at);
+        let existing_hash = fields
+            .get("system_prompt_hash")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let existing_file_id = fields
+            .get("system_prompt_file_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        set_success_result(
+            "NeedsCompaction",
+            &json!({
+                "context_tokens": context_tokens,
+                "prepared_context_bytes": 0,
+                "prepared_context_entries_loaded": entries_loaded,
+                "prepared_context_content_files_loaded": content_files_loaded,
+                "session_leaf_id": session_leaf_id,
+                "system_prompt_hash": existing_hash,
+                "system_prompt_file_id": existing_file_id,
+            }),
+        );
+        return Ok(());
+    }
+
+    let (assembled_system_prompt, system_prompt_hash, system_prompt_file_id) =
+        assemble_cached_system_prompt(
+            &ctx,
+            &fields,
+            &temper_api_url,
+            tenant,
+            soul_id,
+            system_prompt_override,
+            &workspace_id,
+        )?;
+    let context_bytes =
+        estimate_prepared_context_bytes(&messages, &tools, &assembled_system_prompt);
+    emit_metric_ignore(
+        &ctx,
+        "temper_session_context_bytes",
+        context_bytes as f64,
+        &metric_tags,
+        Some("gauge"),
+    );
+
+    if context_bytes > max_live_context_bytes {
+        emit_metric_ignore(
+            &ctx,
+            "temper_session_compaction_trigger_total",
+            1.0,
+            &metric_tags,
+            Some("count"),
+        );
+        emit_metric_ignore(
+            &ctx,
+            "temper_session_memory_limit_exceeded_total",
+            1.0,
+            &metric_tags,
+            Some("count"),
+        );
+        emit_prepare_duration_metric(&ctx, &metric_tags, started_at);
+        set_success_result(
+            "NeedsCompaction",
+            &json!({
+                "context_tokens": context_tokens,
+                "prepared_context_bytes": context_bytes,
+                "prepared_context_entries_loaded": entries_loaded,
+                "prepared_context_content_files_loaded": content_files_loaded,
+                "session_leaf_id": session_leaf_id,
+                "system_prompt_hash": system_prompt_hash,
+                "system_prompt_file_id": system_prompt_file_id,
+            }),
+        );
+        return Ok(());
+    }
+
+    let artifact = PreparedContextArtifact {
+        version: 1,
+        messages,
+        tools,
+        system_prompt: assembled_system_prompt,
+        system_prompt_hash: system_prompt_hash.clone(),
+        system_prompt_file_id: system_prompt_file_id.clone(),
+        conversation_file_id,
+        session_file_id,
+        session_leaf_id,
+        workspace_id: workspace_id.clone(),
+        use_session_tree,
+        context_tokens,
+        context_bytes,
+        entries_loaded,
+        content_files_loaded,
+    };
+    let artifact_json = serde_json::to_string(&artifact)
+        .map_err(|e| format!("prepared context artifact serialize: {e}"))?;
+    let prepared_context_file_id = upsert_artifact_file(
+        &ctx,
+        &fields,
+        &temper_api_url,
+        tenant,
+        workspace_id.as_str(),
+        fields
+            .get("prepared_context_file_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or(""),
+        "session-prepared-context.json",
+        &artifact_json,
+        "application/json",
+    )?;
+
+    emit_prepare_duration_metric(&ctx, &metric_tags, started_at);
+    set_success_result(
+        "ContextReady",
+        &json!({
+            "prepared_context_file_id": prepared_context_file_id,
+            "prepared_context_bytes": context_bytes,
+            "prepared_context_entries_loaded": entries_loaded,
+            "prepared_context_content_files_loaded": content_files_loaded,
+            "context_tokens": context_tokens,
+            "system_prompt_hash": system_prompt_hash,
+            "system_prompt_file_id": system_prompt_file_id,
+        }),
+    );
+    Ok(())
+}
+
+pub fn run_provider_caller() -> Result<(), String> {
+    let ctx = Context::from_host()?;
+    ctx.log("info", "provider_caller: starting");
+
+    let fields = ctx.entity_state.get("fields").cloned().unwrap_or_else(|| json!({}));
+    let prepared_context_file_id = fields
+        .get("prepared_context_file_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    if prepared_context_file_id.is_empty() {
+        return Err("provider_caller: missing prepared_context_file_id".to_string());
+    }
+    let temper_api_url = resolve_temper_api_url(&ctx, &fields);
+    let tenant = &ctx.tenant;
+    let prepared = read_prepared_context_artifact(
+        &ctx,
+        &temper_api_url,
+        tenant,
+        prepared_context_file_id,
+    )?;
+    let provider_raw = fields
+        .get("provider")
+        .and_then(|v| v.as_str())
+        .unwrap_or("anthropic");
+    let model_raw = fields
+        .get("model")
+        .and_then(|v| v.as_str())
+        .unwrap_or("claude-sonnet-4-6");
+    let temperature: f64 = fields
+        .get("temperature")
+        .and_then(|v| v.as_str())
+        .and_then(|s| s.parse::<f64>().ok())
+        .unwrap_or(1.0);
+    let (provider, model, api_key) = resolve_provider_and_model(&ctx, provider_raw, model_raw)?;
+
+    let anthropic_api_url = ctx
+        .config
+        .get("anthropic_api_url")
+        .cloned()
+        .unwrap_or_else(|| "https://api.anthropic.com/v1/messages".to_string());
+    let openrouter_api_url = ctx
+        .config
+        .get("openrouter_api_url")
+        .cloned()
+        .unwrap_or_else(|| "https://openrouter.ai/api/v1/chat/completions".to_string());
+    let openai_api_url = ctx
+        .config
+        .get("openai_api_url")
+        .cloned()
+        .unwrap_or_else(|| "https://chatgpt.com/backend-api/codex/responses".to_string());
+    let anthropic_auth_mode = ctx
+        .config
+        .get("anthropic_auth_mode")
+        .cloned()
+        .unwrap_or_else(|| "auto".to_string());
+    let openrouter_site_url = ctx
+        .config
+        .get("openrouter_site_url")
+        .cloned()
+        .unwrap_or_default();
+    let openrouter_app_name = ctx
+        .config
+        .get("openrouter_app_name")
+        .cloned()
+        .unwrap_or_else(|| "openpaw-agent".to_string());
+
+    let mock_hang = provider == "mock" && mock_plan_requests_hang(&prepared.messages);
+    if !mock_hang {
+        let _ = send_heartbeat(&ctx, &temper_api_url, tenant);
+    }
+    let typing_agent_id =
+        entity_field_str(&fields, &["agent_id", "AgentId"]).unwrap_or(&ctx.entity_id);
+    send_typing_indicator(&ctx, &temper_api_url, tenant, typing_agent_id);
+
+    let response = match provider.as_str() {
+        "mock" => call_mock(
+            &ctx,
+            &prepared.messages,
+            &prepared.system_prompt,
+            &prepared.tools,
+        )?,
+        "anthropic" => call_anthropic(
+            &ctx,
+            &api_key,
+            &anthropic_api_url,
+            &model,
+            &prepared.system_prompt,
+            &prepared.messages,
+            &prepared.tools,
+            &anthropic_auth_mode,
+            temperature,
+        )?,
+        "openrouter" => call_openrouter(
+            &ctx,
+            &api_key,
+            &openrouter_api_url,
+            &model,
+            &prepared.system_prompt,
+            &prepared.messages,
+            &prepared.tools,
+            &openrouter_site_url,
+            &openrouter_app_name,
+            temperature,
+        )?,
+        "openai" | "openai_codex" => call_openai(
+            &ctx,
+            &api_key,
+            &openai_api_url,
+            &model,
+            &prepared.system_prompt,
+            &prepared.messages,
+            &prepared.tools,
+            temperature,
+            &provider,
+        )?,
+        other => return Err(format!("unsupported LLM provider: {other}")),
+    };
+
+    let metric_tags = session_metric_tags(&provider, &model);
+    emit_metric_ignore(
+        &ctx,
+        "temper_session_provider_request_bytes",
+        response.request_bytes as f64,
+        &metric_tags,
+        Some("gauge"),
+    );
+    emit_metric_ignore(
+        &ctx,
+        "temper_session_provider_response_bytes",
+        response.response_bytes as f64,
+        &metric_tags,
+        Some("gauge"),
+    );
+
+    let artifact = ProviderResponseArtifact {
+        version: 1,
+        provider: provider.clone(),
+        model: model.clone(),
+        content: response.content,
+        stop_reason: response.stop_reason,
+        input_tokens: response.input_tokens,
+        output_tokens: response.output_tokens,
+        cache_read_input_tokens: response.cache_read_input_tokens,
+        cache_creation_input_tokens: response.cache_creation_input_tokens,
+        request_bytes: response.request_bytes,
+        response_bytes: response.response_bytes,
+    };
+    let artifact_json = serde_json::to_string(&artifact)
+        .map_err(|e| format!("provider response artifact serialize: {e}"))?;
+    let provider_response_file_id = upsert_artifact_file(
+        &ctx,
+        &fields,
+        &temper_api_url,
+        tenant,
+        prepared.workspace_id.as_str(),
+        fields
+            .get("provider_response_file_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or(""),
+        "session-provider-response.json",
+        &artifact_json,
+        "application/json",
+    )?;
+
+    set_success_result(
+        "ProviderResponseReady",
+        &json!({
+            "provider_response_file_id": provider_response_file_id,
+            "provider_request_bytes": artifact.request_bytes,
+            "provider_response_bytes": artifact.response_bytes,
+        }),
+    );
+    Ok(())
+}
+
+pub fn run_provider_response_applier() -> Result<(), String> {
+    let ctx = Context::from_host()?;
+    ctx.log("info", "provider_response_applier: starting");
+
+    let fields = ctx.entity_state.get("fields").cloned().unwrap_or_else(|| json!({}));
+    let prepared_context_file_id = fields
+        .get("prepared_context_file_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let provider_response_file_id = fields
+        .get("provider_response_file_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    if prepared_context_file_id.is_empty() || provider_response_file_id.is_empty() {
+        return Err(
+            "provider_response_applier: missing prepared_context_file_id or provider_response_file_id"
+                .to_string(),
+        );
+    }
+
+    let temper_api_url = resolve_temper_api_url(&ctx, &fields);
+    let tenant = &ctx.tenant;
+    let prepared = read_prepared_context_artifact(
+        &ctx,
+        &temper_api_url,
+        tenant,
+        prepared_context_file_id,
+    )?;
+    let response = read_provider_response_artifact(
+        &ctx,
+        &temper_api_url,
+        tenant,
+        provider_response_file_id,
+    )?;
+
+    let mut messages = prepared.messages.clone();
+    messages.push(json!({
+        "role": "assistant",
+        "content": response.content.clone(),
+    }));
+
+    let updated_conversation = serde_json::to_string(&messages).unwrap_or_default();
+    if !prepared.conversation_file_id.is_empty() && !prepared.use_session_tree {
+        write_conversation_to_temperfs(
+            &ctx,
+            &temper_api_url,
+            tenant,
+            &prepared.conversation_file_id,
+            &updated_conversation,
+        )?;
+    }
+    let conv_param = if prepared.conversation_file_id.is_empty() {
+        Some(updated_conversation.clone())
+    } else {
+        None
+    };
+
+    match response.stop_reason.as_str() {
+        "tool_use" => {
+            let tool_calls: Vec<Value> = response
+                .content
+                .as_array()
+                .unwrap_or(&vec![])
+                .iter()
+                .filter(|block| block.get("type").and_then(|v| v.as_str()) == Some("tool_use"))
+                .cloned()
+                .collect();
+
+            let new_leaf = append_assistant_response_to_session_tree(
+                &ctx,
+                &prepared,
+                &temper_api_url,
+                tenant,
+                &response.content,
+                response.output_tokens as usize,
+            )?;
+
+            let tool_calls_json = serde_json::to_string(&tool_calls).unwrap_or_default();
+            let mut params = json!({
+                "pending_tool_calls": tool_calls_json,
+                "input_tokens": response.input_tokens,
+                "output_tokens": response.output_tokens,
+                "_gen_ai_system_instructions": build_gen_ai_system_instructions(&prepared.system_prompt),
+                "_gen_ai_input_messages": build_gen_ai_input_messages(&prepared.messages),
+                "_gen_ai_output_messages": build_gen_ai_output_messages(&response.content, &response.stop_reason),
+                "_gen_ai_provider": response.provider.clone(),
+                "_gen_ai_finish_reason": response.stop_reason.clone(),
+                "system_prompt_hash": prepared.system_prompt_hash,
+                "system_prompt_file_id": prepared.system_prompt_file_id,
+            });
+            if let Some(leaf) = new_leaf {
+                params["session_leaf_id"] = json!(leaf);
+            }
+            if let Some(ref conv) = conv_param {
+                params["conversation"] = json!(conv);
+            }
+            set_success_result("ProcessToolCalls", &params);
+        }
+        "end_turn" | "stop" => {
+            let result_text = response
+                .content
+                .as_array()
+                .unwrap_or(&vec![])
+                .iter()
+                .filter_map(|block| {
+                    if block.get("type").and_then(|v| v.as_str()) == Some("text") {
+                        block.get("text").and_then(|v| v.as_str()).map(String::from)
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+
+            let new_leaf = append_assistant_response_to_session_tree(
+                &ctx,
+                &prepared,
+                &temper_api_url,
+                tenant,
+                &response.content,
+                response.output_tokens as usize,
+            )?;
+
+            let gen_ai_system_instructions =
+                build_gen_ai_system_instructions(&prepared.system_prompt);
+            let gen_ai_input = build_gen_ai_input_messages(&prepared.messages);
+            let gen_ai_output =
+                build_gen_ai_output_messages(&response.content, &response.stop_reason);
+
+            if fields
+                .get("max_follow_ups")
+                .and_then(|v| v.as_str())
+                .and_then(|s| s.parse::<i64>().ok())
+                .unwrap_or(5)
+                > 0
+            {
+                set_success_result(
+                    "CheckSteering",
+                    &json!({
+                        "result": result_text,
+                        "session_leaf_id": new_leaf,
+                        "input_tokens": response.input_tokens,
+                        "output_tokens": response.output_tokens,
+                        "_gen_ai_system_instructions": gen_ai_system_instructions,
+                        "_gen_ai_input_messages": gen_ai_input,
+                        "_gen_ai_output_messages": gen_ai_output,
+                        "_gen_ai_provider": response.provider.clone(),
+                        "_gen_ai_finish_reason": response.stop_reason.clone(),
+                        "system_prompt_hash": prepared.system_prompt_hash,
+                        "system_prompt_file_id": prepared.system_prompt_file_id,
+                        "provider_request_bytes": response.request_bytes,
+                        "provider_response_bytes": response.response_bytes,
+                    }),
+                );
+            } else {
+                let mut params = json!({
+                    "result": result_text,
+                    "session_leaf_id": new_leaf,
+                    "input_tokens": response.input_tokens,
+                    "output_tokens": response.output_tokens,
+                    "_gen_ai_system_instructions": gen_ai_system_instructions,
+                    "_gen_ai_input_messages": gen_ai_input,
+                    "_gen_ai_output_messages": gen_ai_output,
+                    "_gen_ai_provider": response.provider.clone(),
+                    "_gen_ai_finish_reason": response.stop_reason.clone(),
+                    "system_prompt_hash": prepared.system_prompt_hash,
+                    "system_prompt_file_id": prepared.system_prompt_file_id,
+                    "provider_request_bytes": response.request_bytes,
+                    "provider_response_bytes": response.response_bytes,
+                });
+                if let Some(ref conv) = conv_param {
+                    params["conversation"] = json!(conv);
+                }
+                set_success_result("RecordResult", &params);
+            }
+        }
+        other => return Err(format!("unsupported stop_reason: {other}")),
+    }
+
+    Ok(())
+}
+
+fn load_messages_for_prepare(
+    ctx: &Context,
+    fields: &Value,
+    temper_api_url: &str,
+    tenant: &str,
+    user_message: &str,
+    conversation_file_id: &str,
+    session_file_id: &str,
+    session_leaf_id: &str,
+) -> Result<(Vec<Value>, Option<SessionTree>, usize, usize), String> {
+    let use_session_tree = !session_file_id.is_empty() && !session_leaf_id.is_empty();
+    if use_session_tree {
+        let session_jsonl = read_session_from_temperfs(ctx, temper_api_url, tenant, session_file_id)?;
+        if session_jsonl.is_empty() {
+            let tree = SessionTree::from_jsonl(&session_jsonl);
+            return Ok((
+                vec![json!({ "role": "user", "content": user_message })],
+                Some(tree),
+                1,
+                0,
+            ));
+        }
+
+        let tree = SessionTree::from_jsonl(&session_jsonl);
+        let context_refs = tree.build_context_refs(session_leaf_id);
+        let messages = if context_refs.is_empty() {
+            vec![json!({ "role": "user", "content": user_message })]
+        } else {
+            resolve_context_refs(ctx, temper_api_url, tenant, &context_refs)?
+        };
+        let entries_loaded = usize::max(1, context_refs.len());
+        let content_files_loaded = context_refs
+            .iter()
+            .filter(|ctx_ref| ctx_ref.content_file_id.is_some())
+            .count();
+        if messages.is_empty() {
+            Ok((
+                vec![json!({ "role": "user", "content": user_message })],
+                Some(tree),
+                entries_loaded,
+                content_files_loaded,
+            ))
+        } else {
+            Ok((messages, Some(tree), entries_loaded, content_files_loaded))
+        }
+    } else if !conversation_file_id.is_empty() {
+        let messages = read_conversation_from_temperfs(
+            ctx,
+            temper_api_url,
+            tenant,
+            conversation_file_id,
+            user_message,
+        )?;
+        let content_files_loaded = messages
+            .iter()
+            .filter(|message| {
+                message
+                    .get("content")
+                    .and_then(Value::as_array)
+                    .map(|blocks| {
+                        blocks.iter().any(|block| {
+                            block.get("type").and_then(Value::as_str) == Some("tool_result")
+                        })
+                    })
+                    .unwrap_or(false)
+            })
+            .count();
+        Ok((messages.clone(), None, messages.len(), content_files_loaded))
+    } else {
+        let conversation_json = fields
+            .get("conversation")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        if conversation_json.is_empty() {
+            Ok((
+                vec![json!({ "role": "user", "content": user_message })],
+                None,
+                1,
+                0,
+            ))
+        } else {
+            let messages = serde_json::from_str(conversation_json).unwrap_or_else(|_| {
+                vec![json!({ "role": "user", "content": user_message })]
+            });
+            Ok((messages.clone(), None, messages.len(), 0))
+        }
+    }
+}
+
+fn assemble_cached_system_prompt(
+    ctx: &Context,
+    fields: &Value,
+    temper_api_url: &str,
+    tenant: &str,
+    soul_id: &str,
+    system_prompt_override: &str,
+    workspace_id: &str,
+) -> Result<(String, String, String), String> {
+    let agent_id = fields
+        .get("agent_id")
+        .or_else(|| fields.get("AgentId"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let project_harness_id = fields
+        .get("project_harness_id")
+        .or_else(|| fields.get("ProjectHarnessId"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let project_id = fields
+        .get("project_id")
+        .or_else(|| fields.get("ProjectId"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let session_mode = fields
+        .get("session_mode")
+        .and_then(|v| v.as_str())
+        .unwrap_or("execute");
+    let active_plan_id = fields
+        .get("active_plan_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+
+    let new_prompt_hash = compute_system_prompt_hash(
+        soul_id,
+        agent_id,
+        project_harness_id,
+        project_id,
+        session_mode,
+        active_plan_id,
+        system_prompt_override,
+    );
+    let prev_hash = fields
+        .get("system_prompt_hash")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let prev_file_id = fields
+        .get("system_prompt_file_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+
+    let (assembled_system_prompt, system_prompt_file_id) =
+        if !prev_hash.is_empty() && prev_hash == new_prompt_hash && !prev_file_id.is_empty() {
+            match read_temperfs_file(ctx, temper_api_url, tenant, prev_file_id) {
+                Ok(cached) if !cached.is_empty() => {
+                    ctx.log("info", "context_preparer: system prompt cache HIT");
+                    (cached, prev_file_id.to_string())
+                }
+                _ => {
+                    ctx.log(
+                        "warn",
+                        "context_preparer: system prompt cache file unreadable, rebuilding",
+                    );
+                    let prompt =
+                        assemble_system_prompt(ctx, temper_api_url, tenant, soul_id, system_prompt_override)?;
+                    let file_id = write_system_prompt_cache(
+                        ctx,
+                        temper_api_url,
+                        tenant,
+                        workspace_id,
+                        &prompt,
+                    )
+                    .unwrap_or_default();
+                    (prompt, file_id)
+                }
+            }
+        } else {
+            ctx.log("info", "context_preparer: system prompt cache MISS, assembling");
+            let prompt =
+                assemble_system_prompt(ctx, temper_api_url, tenant, soul_id, system_prompt_override)?;
+            let file_id = write_system_prompt_cache(
+                ctx,
+                temper_api_url,
+                tenant,
+                workspace_id,
+                &prompt,
+            )
+            .unwrap_or_default();
+            (prompt, file_id)
+        };
+
+    Ok((assembled_system_prompt, new_prompt_hash, system_prompt_file_id))
+}
+
+fn resolve_provider_and_model(
+    ctx: &Context,
+    provider_raw: &str,
+    model_raw: &str,
+) -> Result<(String, String, String), String> {
+    let provider = normalize_provider(provider_raw);
+    let (provider, api_key) = if provider == "mock" {
+        (provider, String::new())
+    } else {
+        let key = resolve_provider_api_key(ctx, &provider)?;
+        if is_unresolved_secret_template(&key) {
+            let alternatives = ["anthropic", "openai_codex", "openai", "openrouter"];
+            let mut found = None;
+            for alt in &alternatives {
+                if *alt == provider {
+                    continue;
+                }
+                if let Ok(alt_key) = resolve_provider_api_key(ctx, alt) {
+                    if !alt_key.is_empty() && !is_unresolved_secret_template(&alt_key) {
+                        ctx.log(
+                            "warn",
+                            &format!(
+                                "provider selection: provider={provider} has no key, falling back to {alt}"
+                            ),
+                        );
+                        found = Some((alt.to_string(), alt_key));
+                        break;
+                    }
+                }
+            }
+            match found {
+                Some((p, k)) => (p, k),
+                None => {
+                    return Err(format!(
+                        "provider={provider} api key is unresolved secret template: '{key}'. set tenant secret and retry"
+                    ));
+                }
+            }
+        } else {
+            (provider, key)
+        }
+    };
+
+    let model = if provider != normalize_provider(provider_raw) {
+        let vault_model = ctx
+            .config
+            .get("default_llm_model")
+            .filter(|v| !v.is_empty() && !is_unresolved_secret_template(v));
+        if let Some(model) = vault_model {
+            model.clone()
+        } else {
+            match provider.as_str() {
+                "openai" => "gpt-4.1".to_string(),
+                "openai_codex" => "gpt-5.4".to_string(),
+                "openrouter" => "anthropic/claude-sonnet-4".to_string(),
+                _ => "claude-sonnet-4-6".to_string(),
+            }
+        }
+    } else {
+        model_raw.to_string()
+    };
+
+    if provider != "mock" && api_key.is_empty() {
+        return Err(format!("missing API key for provider={provider}"));
+    }
+
+    Ok((provider, model, api_key))
+}
+
+fn estimate_prepared_context_bytes(
+    messages: &[Value],
+    tools: &[Value],
+    system_prompt: &str,
+) -> usize {
+    system_prompt.len()
+        + serde_json::to_string(messages).unwrap_or_default().len()
+        + serde_json::to_string(tools).unwrap_or_default().len()
+}
+
+fn upsert_artifact_file(
+    ctx: &Context,
+    fields: &Value,
+    temper_api_url: &str,
+    tenant: &str,
+    workspace_id: &str,
+    existing_file_id: &str,
+    file_name: &str,
+    body: &str,
+    content_type: &str,
+) -> Result<String, String> {
+    if !existing_file_id.is_empty() {
+        let value_url = format!("{temper_api_url}/tdata/Files('{existing_file_id}')/$value");
+        let headers = runtime_headers(ctx, tenant, fields, Some(content_type), None);
+        if write_temperfs_value_with_retry(ctx, &value_url, &headers, body, file_name).is_ok() {
+            return Ok(existing_file_id.to_string());
+        }
+    }
+
+    let effective_workspace = if workspace_id.is_empty() {
+        "default"
+    } else {
+        workspace_id
+    };
+    create_content_file(
+        ctx,
+        temper_api_url,
+        tenant,
+        effective_workspace,
+        file_name,
+        body,
+    )
+}
+
+fn read_prepared_context_artifact(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+    file_id: &str,
+) -> Result<PreparedContextArtifact, String> {
+    let raw = read_temperfs_file(ctx, temper_api_url, tenant, file_id)?;
+    serde_json::from_str(&raw).map_err(|e| format!("parse prepared context artifact: {e}"))
+}
+
+fn read_provider_response_artifact(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+    file_id: &str,
+) -> Result<ProviderResponseArtifact, String> {
+    let raw = read_temperfs_file(ctx, temper_api_url, tenant, file_id)?;
+    serde_json::from_str(&raw).map_err(|e| format!("parse provider response artifact: {e}"))
+}
+
+fn append_assistant_response_to_session_tree(
+    ctx: &Context,
+    prepared: &PreparedContextArtifact,
+    temper_api_url: &str,
+    tenant: &str,
+    content: &Value,
+    output_tokens: usize,
+) -> Result<Option<String>, String> {
+    if !prepared.use_session_tree {
+        return Ok(None);
+    }
+
+    let session_jsonl =
+        read_session_from_temperfs(ctx, temper_api_url, tenant, &prepared.session_file_id)?;
+    let mut tree = SessionTree::from_jsonl(&session_jsonl);
+    let content_str = serde_json::to_string(content).unwrap_or_default();
+    let (new_leaf, externalized) = if !prepared.workspace_id.is_empty()
+        && should_store_entry_as_file(&content_str)
+    {
+        match create_content_file_for_entry(
+            ctx,
+            temper_api_url,
+            tenant,
+            &prepared.workspace_id,
+            &format!("a-{}", tree.len()),
+            &content_str,
+        ) {
+            Ok(content_file_id) => {
+                let (leaf, _) = tree.append_assistant_message_file(
+                    &prepared.session_leaf_id,
+                    &content_file_id,
+                    output_tokens,
+                );
+                (leaf, true)
+            }
+            Err(_) => {
+                let (leaf, _) =
+                    tree.append_assistant_message(&prepared.session_leaf_id, content, output_tokens);
+                (leaf, false)
+            }
+        }
+    } else {
+        let (leaf, _) =
+            tree.append_assistant_message(&prepared.session_leaf_id, content, output_tokens);
+        (leaf, false)
+    };
+
+    if externalized {
+        emit_metric_ignore(
+            ctx,
+            "temper_session_large_content_externalized_total",
+            1.0,
+            &session_metric_tags("", ""),
+            Some("count"),
+        );
+    }
+
+    let updated_jsonl = tree.to_jsonl();
+    write_session_to_temperfs(ctx, temper_api_url, tenant, &prepared.session_file_id, &updated_jsonl)?;
+    Ok(Some(new_leaf))
+}
+
+fn session_metric_tags(provider: &str, model: &str) -> Value {
+    json!({
+        "provider": provider,
+        "model": model,
+    })
+}
+
+fn emit_metric_ignore(
+    ctx: &Context,
+    name: &str,
+    value: f64,
+    tags: &Value,
+    kind: Option<&str>,
+) {
+    let _ = ctx.emit_metric(name, value, tags, kind);
+}
+
+fn emit_prepare_duration_metric(ctx: &Context, tags: &Value, started_at: i64) {
+    let elapsed = Context::get_time_millis().saturating_sub(started_at);
+    emit_metric_ignore(
+        ctx,
+        "temper_session_context_prepare_duration_ms",
+        elapsed as f64,
+        tags,
+        Some("gauge"),
+    );
+}
+
+fn model_context_window(_model: &str) -> usize {
+    200_000
 }
 
 /// Assemble the full system prompt from soul + override + harness + skills + memory.

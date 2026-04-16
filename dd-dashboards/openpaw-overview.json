@@ -496,6 +496,111 @@
           }
         ]
       }
+    },
+    {
+      "definition": {
+        "title": "Session Context & Provider Pipeline",
+        "type": "group",
+        "layout_type": "ordered",
+        "widgets": [
+          {
+            "definition": {
+              "title": "Session Context Tokens",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "q": "avg:temper_session_context_tokens{service:openpaw} by {provider}.rollup(avg, 60)",
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "Session Context Bytes",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "q": "avg:temper_session_context_bytes{service:openpaw} by {provider}.rollup(avg, 60)",
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "Context Prepare Duration (avg ms)",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "q": "avg:temper_session_context_prepare_duration_ms{service:openpaw}.rollup(avg, 60)",
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "Prepared Context Entries Loaded",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "q": "avg:temper_session_context_entries_loaded{service:openpaw}.rollup(avg, 60)",
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "Prepared Context Content Files Loaded",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "q": "avg:temper_session_context_content_files_loaded{service:openpaw}.rollup(avg, 60)",
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "Provider Request Bytes",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "q": "avg:temper_session_provider_request_bytes{service:openpaw} by {provider}.rollup(avg, 60)",
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "Provider Response Bytes",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "q": "avg:temper_session_provider_response_bytes{service:openpaw} by {provider}.rollup(avg, 60)",
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "Session Memory Budget Exceeded",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "q": "default_zero(sum:temper_session_memory_limit_exceeded_total{service:openpaw}.as_count().rollup(sum, 60))",
+                  "display_type": "bars"
+                }
+              ]
+            }
+          }
+        ]
+      }
     }
   ],
   "tags": ["team:openpaw"]

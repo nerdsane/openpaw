@@ -34,6 +34,13 @@
         <Property Name="SessionFileId" Type="Edm.String"/>
         <Property Name="SessionLeafId" Type="Edm.String"/>
         <Property Name="ContextTokens" Type="Edm.Int64"/>
+        <Property Name="PreparedContextFileId" Type="Edm.String"/>
+        <Property Name="PreparedContextBytes" Type="Edm.Int64"/>
+        <Property Name="PreparedContextEntriesLoaded" Type="Edm.Int64"/>
+        <Property Name="PreparedContextContentFilesLoaded" Type="Edm.Int64"/>
+        <Property Name="ProviderResponseFileId" Type="Edm.String"/>
+        <Property Name="ProviderRequestBytes" Type="Edm.Int64"/>
+        <Property Name="ProviderResponseBytes" Type="Edm.Int64"/>
         <Property Name="ReserveTokens" Type="Edm.String"/>
         <Property Name="KeepRecentTokens" Type="Edm.String"/>
         <Property Name="CompactionCount" Type="Edm.Int64"/>
@@ -190,6 +197,26 @@
         <ReturnType Type="OpenPaw.Session"/>
       </Action>
 
+      <Action Name="ContextReady" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Session"/>
+        <Parameter Name="prepared_context_file_id" Type="Edm.String" Nullable="false"/>
+        <Parameter Name="prepared_context_bytes" Type="Edm.Int64" Nullable="true"/>
+        <Parameter Name="prepared_context_entries_loaded" Type="Edm.Int64" Nullable="true"/>
+        <Parameter Name="prepared_context_content_files_loaded" Type="Edm.Int64" Nullable="true"/>
+        <Parameter Name="context_tokens" Type="Edm.Int64" Nullable="true"/>
+        <Parameter Name="system_prompt_hash" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="system_prompt_file_id" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="OpenPaw.Session"/>
+      </Action>
+
+      <Action Name="ProviderResponseReady" IsBound="true">
+        <Parameter Name="bindingParameter" Type="OpenPaw.Session"/>
+        <Parameter Name="provider_response_file_id" Type="Edm.String" Nullable="false"/>
+        <Parameter Name="provider_request_bytes" Type="Edm.Int64" Nullable="true"/>
+        <Parameter Name="provider_response_bytes" Type="Edm.Int64" Nullable="true"/>
+        <ReturnType Type="OpenPaw.Session"/>
+      </Action>
+
       <Action Name="ProcessToolCalls" IsBound="true">
         <Parameter Name="bindingParameter" Type="OpenPaw.Session"/>
         <Parameter Name="pending_tool_calls" Type="Edm.String" Nullable="false"/>
@@ -222,6 +249,10 @@
         <Parameter Name="bindingParameter" Type="OpenPaw.Session"/>
         <Parameter Name="input_tokens" Type="Edm.Int64" Nullable="true"/>
         <Parameter Name="output_tokens" Type="Edm.Int64" Nullable="true"/>
+        <Parameter Name="context_tokens" Type="Edm.Int64" Nullable="true"/>
+        <Parameter Name="prepared_context_bytes" Type="Edm.Int64" Nullable="true"/>
+        <Parameter Name="prepared_context_entries_loaded" Type="Edm.Int64" Nullable="true"/>
+        <Parameter Name="prepared_context_content_files_loaded" Type="Edm.Int64" Nullable="true"/>
         <Parameter Name="system_prompt_hash" Type="Edm.String" Nullable="true"/>
         <Parameter Name="system_prompt_file_id" Type="Edm.String" Nullable="true"/>
         <ReturnType Type="OpenPaw.Session"/>
