@@ -254,6 +254,11 @@ fn enabled_tools(ctx: &Context) -> BTreeSet<String> {
             "recall_memory" => "temper_recall_memory",
             "spawn_agent" | "spawn_session" => "temper_spawn_session",
             "temper_file_upload" => "temper_write",
+            // sandbox_* prefixed aliases → bare tokens (spec canonical form)
+            "sandbox_bash" | "sandbox_exec" => "bash",
+            "sandbox_read" => "read",
+            "sandbox_write" => "write",
+            "sandbox_edit" => "edit",
             other => other,
         })
         .map(ToOwned::to_owned)
