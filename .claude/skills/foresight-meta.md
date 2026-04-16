@@ -115,21 +115,75 @@ commit" anchor when reverting on loss.
 
 ## Step 3: Implement the Change
 
-The engine is at `os-apps/paw-foresight/`. Key files:
+**You can edit ANY part of the paw-foresight Temper app.** The engine is the entire
+app at `os-apps/paw-foresight/` — not just the orchestration prompt. That includes:
+
+| Layer | Path | Examples of what to change |
+|-------|------|----------------------------|
+| Skills | `system/skills/*/SKILL.md` | Prompt text, agent persona, tool allowlists, turn budgets |
+| Entity specs | `specs/*.ioa.toml` | State machines, invariants, action params, triggers, field types |
+| WASM integrations | `wasm/*/src/lib.rs` | Session config (tools_enabled, model, provider, max_turns), probe count/roles, convergence logic, synthesis dispatch, entity creation logic, error handling |
+| Cedar policies | `policies/*.cedar` | Authorization rules — relax or tighten what agents can do |
+| App manifest | `app.toml` | Declared capabilities, dependencies, integration wiring |
+| Triggers / protocol bridges | (rare — in `crates/paw-triggers/` in the host) | Entry points from external systems |
+
+Architectural changes are preferred over prompt tweaks — the constraint at the top
+of the skill says **"Prefer architecture: try structural changes (WASM, entities,
+sessions) before prompt edits."** Prose instructions in a SKILL.md are advisory
+(LLMs ignore them ~80% of the time); state machine invariants, Cedar policies, and
+WASM logic are enforced.
+
+### Examples of the full range
+
+- Change probe model from sonnet to opus → `wasm/spawn_probes/src/lib.rs`
+- Change number of probes spawned → `wasm/spawn_probes/src/lib.rs` (probe loop) or the orchestrator's dispatch logic
+- Add a new agent role (e.g. critic) → new `wasm/spawn_*` module + spec state + trigger wiring
+- Require two convergence passes → `specs/projection.ioa.toml` state machine + `wasm/handle_convergence/src/lib.rs`
+- Stricter observation confirmation → `specs/observation.ioa.toml` invariants
+- Give probes a new capability (e.g. sandbox, computer-use) → probe `tools_enabled` in the spawning WASM
+- Require probes to cite sources → synthesis state machine invariant + Cedar policy that blocks directions without source fields
+- Let the orchestrator choose probe count dynamically → remove hardcoded loops, move decision into orchestrator skill
+- Change convergence criteria (not just dedup, but merge logic, acceptance threshold) → `handle_convergence` WASM + spec
+- Let agents web-search for better grounding → ensure `temper_web_search,temper_web_fetch` in their tools_enabled
+- Change how synthesis is produced (e.g. one-shot vs multi-pass) → `handle_projection_updated` WASM + corresponding skill
+
+### Current tool allowlists (web search on for all open-ended agents)
+
+All open-ended paw-foresight agent sessions have `temper_web_search,temper_web_fetch`
+in their `tools_enabled`. If you add a new agent, keep them on so it's not stuck:
+
+| Agent | Spawned by | Tools (current baseline) |
+|-------|-----------|--------------------------|
+| Orchestrator | `spawn_orchestrator` | `temper_{get,list,action,create,write,read,web_search,web_fetch}` |
+| Probe | `spawn_probes`, `handle_projection_updated` | `temper_{get,list,action,create,read,web_search,web_fetch}` |
+| Convergence-analyst | `handle_probe_done` | `temper_{get,list,action,create,write,get_trajectories,web_search,web_fetch}` |
+| Model-projector | `handle_convergence` | `temper_{get,list,action,create,write,web_search,web_fetch}` |
+
+If your change adds a new agent, default to the probe tool set plus any extra your
+agent needs. Do NOT ship an agent without web access unless you have a specific
+reason and document it in plan.md.
+
+### Key files (not exhaustive)
 
 | File | What it controls |
 |------|-----------------|
 | `system/skills/orchestrate-projection/SKILL.md` | Orchestrator behavior, probe prompts, synthesis template |
-| `specs/projection.ioa.toml` | Projection entity states, WASM triggers |
+| `specs/projection.ioa.toml` | Projection entity states, WASM triggers, convergence gate |
 | `specs/observation.ioa.toml` | Observation entity, two-gate confirmation |
-| `specs/direction.ioa.toml` | Direction entity |
-| `wasm/spawn_orchestrator/src/lib.rs` | WASM that creates the orchestrator session |
+| `specs/direction.ioa.toml` | Direction entity, versioning via parent_direction_id |
+| `specs/foresight_model.ioa.toml` | Knowledge graph entity, seeding, signal refresh |
+| `wasm/spawn_orchestrator/src/lib.rs` | Orchestrator session config + prompt |
+| `wasm/spawn_probes/src/lib.rs` | Probe session config + prompt, probe count loop |
+| `wasm/handle_projection_updated/src/lib.rs` | Per-step probe continuation |
+| `wasm/handle_probe_done/src/lib.rs` | Convergence-analyst session spawn |
+| `wasm/handle_convergence/src/lib.rs` | Model-projector session spawn |
+| `wasm/advance_step/src/lib.rs` | Step progression logic |
+| `wasm/seed_model/src/lib.rs` | Knowledge graph seeding from essay |
+| `policies/session.cedar` (if present) | Authorization for session actions |
 
-Most changes will be to the **orchestration skill** (SKILL.md). This controls:
-- How probes are prompted (persona, instructions, what to include)
-- How many probes and steps
-- How convergence analysis works
-- How the final synthesis is structured (this is where most Run 000 weaknesses live)
+Be deliberate: a change to an entity invariant can block the whole pipeline; a
+change to a Cedar policy can relax a constraint the loop depends on. Test locally
+against the isolated server before calling the run done.
 
 After making changes — you MUST reload for changes to take effect:
 

@@ -276,7 +276,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 "model": probe_model,
                 "provider": probe_provider,
                 "soul_id": "Probe",
-                "tools_enabled": "temper_get,temper_list,temper_action,temper_create,temper_read",
+                "tools_enabled": "temper_get,temper_list,temper_action,temper_create,temper_read,temper_web_search,temper_web_fetch",
                 "max_turns": "50",
                 "user_message": user_message,
                 "sandbox_url": "none",

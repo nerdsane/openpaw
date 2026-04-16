@@ -378,7 +378,7 @@ fn spawn_convergence_analyst(
         "model": analyst_model,
         "provider": analyst_provider,
         "agent_name": "convergence-analyst",
-        "tools_enabled": "temper_get,temper_list,temper_action,temper_create,temper_write,temper_get_trajectories",
+        "tools_enabled": "temper_get,temper_list,temper_action,temper_create,temper_write,temper_get_trajectories,temper_web_search,temper_web_fetch",
         "max_turns": "40",
         "user_message": user_message,
         "sandbox_url": "none",

@@ -237,7 +237,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             "model": model,
             "provider": provider,
             "agent_name": "model-projector",
-            "tools_enabled": "temper_get,temper_list,temper_action,temper_create,temper_write",
+            "tools_enabled": "temper_get,temper_list,temper_action,temper_create,temper_write,temper_web_search,temper_web_fetch",
             "max_turns": "20",
             "user_message": user_message,
             "sandbox_url": "none",
