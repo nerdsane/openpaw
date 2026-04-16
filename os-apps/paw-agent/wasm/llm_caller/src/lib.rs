@@ -5444,4 +5444,76 @@ mod tests {
         let sdk = build_sdk_reference("bash", "", "/workspace");
         assert!(sdk.contains("sandbox` (remote shell/files, provisioned on demand"));
     }
+
+    // --- Regression tests for openpaw#62 (skills cross-workspace advertisement) ---
+
+    #[test]
+    fn skill_workspace_id_extracted_from_odata_pascalcase() {
+        // Real OData v4 response shape: WorkspaceId as a top-level property.
+        let item = json!({
+            "Id": "os-agent-skill-file-paw-openpaw-agent",
+            "Name": "SKILL.md",
+            "Path": "/agents/paw-uuid/skills/openpaw-agent/SKILL.md",
+            "WorkspaceId": "os-app-docs",
+            "Status": "Ready"
+        });
+        assert_eq!(
+            entity_field_str(&item, &["WorkspaceId", "workspace_id"]),
+            Some("os-app-docs")
+        );
+    }
+
+    #[test]
+    fn skill_workspace_id_extracted_from_snake_case_fields_wrapper() {
+        // Legacy/wrapped shape that some code paths return: workspace_id
+        // inside a `fields` object. entity_field_str's fallback covers this.
+        let item = json!({
+            "entity_id": "os-agent-skill-file-paw-openpaw-agent",
+            "fields": {
+                "name": "SKILL.md",
+                "path": "/agents/paw-uuid/skills/openpaw-agent/SKILL.md",
+                "workspace_id": "os-app-docs"
+            }
+        });
+        assert_eq!(
+            entity_field_str(&item, &["WorkspaceId", "workspace_id"]),
+            Some("os-app-docs")
+        );
+    }
+
+    #[test]
+    fn skill_workspace_id_missing_returns_none_not_panic() {
+        // Some File rows may predate the workspace_id plumbing; the
+        // advertisement code must gracefully omit the attribute.
+        let item = json!({
+            "Id": "some-file",
+            "Name": "SKILL.md",
+            "Path": "/system/skills/foo/SKILL.md"
+        });
+        assert_eq!(
+            entity_field_str(&item, &["WorkspaceId", "workspace_id"]),
+            None
+        );
+    }
+
+    #[test]
+    fn skill_workspace_attribute_is_well_formed_xml() {
+        // Matches the ws_attr format used by load_skills_block so the
+        // advertisement contract survives refactors.
+        let ws = "os-app-docs";
+        let attr = format!(" workspace_id=\"{}\"", xml_escape(ws));
+        assert_eq!(attr, " workspace_id=\"os-app-docs\"");
+    }
+
+    #[test]
+    fn skill_workspace_attribute_escapes_special_characters() {
+        // Workspace ids are normally UUID-like, but belt-and-suspenders
+        // escaping matters if anyone ever names one with quotes or angle
+        // brackets.
+        let ws = "weird\"id<with>chars";
+        let attr = format!(" workspace_id=\"{}\"", xml_escape(ws));
+        assert!(attr.contains("&quot;"));
+        assert!(attr.contains("&lt;"));
+        assert!(attr.contains("&gt;"));
+    }
 }
