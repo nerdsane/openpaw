@@ -1,131 +1,350 @@
 {
-  "run": "000",
-  "engine_version": "foresight-v000",
-  "rubric_version": "v2 (Falsifiability, Decision Clarity, Quantitative Precision; tightened anchors; calibration note)",
-  "methodology_note": "Re-scored under revised rubric v2 by meta-agent (Claude Code) as single evaluator. Automated 3-judge sessions remain unfixed. Calibration: 2 = competent, 3 = genuinely impressive, 4 = exceptional.",
-  "engine_session": "ss-019d9350-9059-73b2-b040-19b4c04c42b4",
-  "baseline_session": "ss-019d9356-99c7-71c2-b801-99481b69f928",
-  "projection_id": "en-019d934f-5531-7db0-99d2-d39065a19ae8",
-  "scores": [
-    {
-      "criterion": "Specificity",
-      "engine_score": 2,
-      "baseline_score": 2,
-      "engine_reasoning": "Has approximate timelines (90 days, 1 year) and mechanism names (harnesses, policy gates, incident-to-eval loops), but no named companies, no specific dates, no quantitative thresholds. Meets '2' anchor: approximate timelines without named actors.",
-      "baseline_reasoning": "Names companies (Anthropic, OpenAI, Cursor, Cognition/Devin, Aider, Cline, Continue, OpenHands) and has phased timelines (0-3m, 3-6m, 6-12m, 'by late 2026'), plus one threshold (20-30%). But actors appear as a group list, not making individual dated predictions. Does not tightly couple named actors + specific timelines + mechanisms for a 3.",
-      "engine_evidence": "\"By 90 days... By 1 year\"; mechanisms: \"incident-to-eval loops,\" \"policy evaluation,\" \"staged rollout\"",
-      "baseline_evidence": "\"Anthropic, OpenAI, Cursor, Cognition/Devin, Aider, Cline, Continue, and OpenHands-class systems\"; \"By late 2026\"; \"20-30% of engineering tasks\""
+  "methodology": "3 independent paw-agent judges (gpt-5.4), tightened rubric v3 (stricter 3-level anchors on Novelty/Breadth/Progression/Challenge + 3+ cap rule). Split-session: each judge got 2 sessions (one per output) to stay under 32KB WASM field limit.",
+  "rubric_version": "v3 (tightened anchors + 3+ cap rule)",
+  "session_ids": {
+    "judge1_engine": "ss-019d9444-a7c3-7b01-9b23-6e99f6000b70",
+    "judge1_baseline": "ss-019d9444-a7cd-79e3-bd18-bf6189838c44",
+    "judge2_engine": "ss-019d9444-a7da-7e23-96a6-097aee770dcc",
+    "judge2_baseline": "ss-019d9444-a7e9-7522-91fa-25aae42b7af2",
+    "judge3_engine": "ss-019d9444-a7f6-77c3-b2aa-c43497788388",
+    "judge3_baseline": "ss-019d9444-a7fe-7f83-9b4c-53603d9d11cb"
+  },
+  "judges": {
+    "judge_1": {
+      "criteria": [
+        {
+          "criterion": "Specificity",
+          "engine_score": 2,
+          "engine_reasoning": "The piece names concrete mechanisms and some time markers, but it lacks named companies, products, specific dates, or hard thresholds. It is more domain-specific than generic strategy writing, yet not precise enough for a 3.",
+          "engine_evidence": "\"By 90 days\" and \"By 1 year\"; mechanisms like \"harnesses, governed control planes, replayable environments, policy gates, and incident-to-eval loops.\"",
+          "baseline_score": 3,
+          "baseline_reasoning": "This is unusually specific for a foresight writeup: it names multiple vendors, workflow types, and time windows, and ties them to concrete mechanisms like replay harnesses, policy gates, and rollback paths. It stops short of a 4 because it rarely gives precise dates or numeric thresholds beyond a few broad triggers.",
+          "baseline_evidence": "Names include \u201cAnthropic, OpenAI, Cursor, Cognition/Devin, Aider, Cline, Continue, and OpenHands-class systems\u201d; mechanisms include \u201cparallel candidate generation plus strict governed selection,\u201d \u201cunit tests, property-based tests, fuzzing, static analysis, replay harnesses, policy gates\u201d; timelines include \u201c0-3 Months,\u201d \u201c3-6 Months,\u201d and \u201c6-12 Months.\u201d"
+        },
+        {
+          "criterion": "Novelty",
+          "engine_score": 2,
+          "engine_reasoning": "There are a few original syntheses, especially the framing of selection infrastructure as the real bottleneck and the economics-style 'capital goods' interpretation. However, the output does not bring in external signals, outside evidence, or cross-domain material with enough concreteness to justify a 3.",
+          "engine_evidence": "\"The ecosystem learned that raw generation is abundant, but trusted acceptance remains scarce\" and \"the field is building the capital goods of software evolution.\"",
+          "baseline_score": 2,
+          "baseline_reasoning": "There are some original syntheses here, especially the shift from generation quality to selection quality and the homeostasis-versus-exploration framing. But the output does not clearly bring in evidence from outside the source material, so it does not meet the bar for a 3 under this rubric.",
+          "baseline_evidence": "Original-seeming claims include \u201cthe next frontier is not raw generation quality, but selection quality\u201d and \u201cHomeostatic autonomy will scale faster than possibility-driven exploration,\u201d but the methodology says it is a \u201cstructured synthesis of the provided knowledge graph.\u201d"
+        },
+        {
+          "criterion": "Falsifiability",
+          "engine_score": 2,
+          "engine_reasoning": "Several claims are testable in principle, especially around where adoption will concentrate and which metrics organizations should watch. But most predictions do not specify clear confirm/disconfirm conditions or dated falsification criteria.",
+          "engine_evidence": "\"Enterprise adoption concentrated in internal platforms, maintenance, infra remediation, and repetitive migrations\" and \"Track verified changes per review hour... pair it with architectural and product-level quality signals.\"",
+          "baseline_score": 3,
+          "baseline_reasoning": "Many predictions are checkable within the stated horizon and include conditions that would increase or decrease confidence. It is not a 4 because most claims still use directional language rather than explicit falsification thresholds with dates.",
+          "baseline_evidence": "Examples: \u201cBy late 2026, the most credible deployments... will center on control-plane software\u201d; \u201cWould decrease if frontier agents begin reliably shipping multi-service product changes with minimal scaffolding\u201d; \u201cWould increase with wider adoption of replay/eval suites and policy-gated CI.\u201d"
+        },
+        {
+          "criterion": "Breadth",
+          "engine_score": 3,
+          "engine_reasoning": "It covers multiple distinct dimensions\u2014technical architecture, governance, enterprise adoption, economics, metrics, and conceptual framing\u2014and explicitly links them into non-obvious conclusions. The interaction between governance constraints, selection infrastructure, and market structure is the strongest multi-theme synthesis here.",
+          "engine_evidence": "Themes include \"governed control planes,\" \"policy-backed orchestration,\" \"enterprise adoption,\" \"capital-goods market,\" \"concentrated model supply base,\" and \"selection capital layered on top.\"",
+          "baseline_score": 3,
+          "baseline_reasoning": "It covers many distinct dimensions\u2014vendor competition, governance, verification, memory, enterprise procurement, control-plane architectures, multi-agent coordination, and formal methods\u2014and connects them into non-obvious conclusions. This earns a 3 because the cross-theme interactions drive predictions like governance reshaping vendor differentiation and control-plane suitability shaping adoption.",
+          "baseline_evidence": "Cross-theme linkages include \u201cdifferentiation will increasingly come from repository-specific memory, eval quality, and governance UX rather than model quality alone\u201d and \u201cEnterprises do not buy benchmark scores in the abstract; they buy auditability, approval boundaries, and rollback confidence.\u201d"
+        },
+        {
+          "criterion": "Plausibility",
+          "engine_score": 2,
+          "engine_reasoning": "Most claims are internally grounded and reasonably argued, but they are not tied to named signals, confidence levels, or explicit assumptions. The analysis sounds plausible, yet the evidentiary scaffolding remains mostly rhetorical.",
+          "engine_evidence": "\"This architecture is technically feasible now because each component is already maturing independently\" and \"enterprises increasingly accept policy-backed automation where every action is logged and reversible.\"",
+          "baseline_score": 2,
+          "baseline_reasoning": "Most claims are grounded in recognizable signals and the piece frequently notes uncertainty and counterfactuals. It does not reach 3 because the evidentiary chain remains mostly narrative rather than tightly tied to named signals with explicit confidence logic on each major claim.",
+          "baseline_evidence": "Grounding language includes \u201cSignals such as daily coding-agent usage, benchmark-centered evaluation, broader verification stacks, and growing enterprise demand for auditability suggest...\u201d and multiple \u201cConfidence: high/medium-high\u201d labels."
+        },
+        {
+          "criterion": "Progression",
+          "engine_score": 2,
+          "engine_reasoning": "There is real temporal structure from 90 days to 1 year, and the later state intensifies the earlier thesis. But the second phase mostly extends the same logic rather than explicitly revising or testing earlier predictions based on what changed.",
+          "engine_evidence": "\"By 90 days...\" followed by \"By 1 year, that pattern intensified\" and the move from near-term governed pipelines to year-one industrialization/homeostasis.",
+          "baseline_score": 2,
+          "baseline_reasoning": "The temporal structure is clear and causal, with each phase feeding the next, but later phases mostly extend the same thesis rather than explicitly revising earlier predictions based on changed conditions. That keeps it below the rubric\u2019s 3 threshold.",
+          "baseline_evidence": "The structure explicitly states \u201cThis phase creates the substrate for the next step...\u201d and \u201cOnce organizations operationalize governed multi-candidate selection... they can begin limited forms of evolutionary retention,\u201d but there is little genuine revision of earlier claims."
+        },
+        {
+          "criterion": "Actionability",
+          "engine_score": 2,
+          "engine_reasoning": "The recommendations are useful and conditional enough to guide planning, especially around harnesses, rollback design, and metrics. Still, they stop short of assigning owners, decision deadlines, or concrete options with tradeoffs.",
+          "engine_evidence": "\"Invest first in repo- and service-specific harness coverage, rollback design, and policy-backed execution\" and \"Treat incident-to-eval conversion speed as a strategic metric.\"",
+          "baseline_score": 2,
+          "baseline_reasoning": "The decision points are useful and tied to triggers and options, so this is stronger than generic implications. However, it does not fully specify who should act, by when, and with detailed tradeoff framing sufficient for a 3.",
+          "baseline_evidence": "Sections include \u201cDecision Point 1: When internal agent usage becomes routine,\u201d with trigger \u201cWhen more than 20-30% of engineering tasks involve coding agents,\u201d and options A/B/C with tradeoffs."
+        },
+        {
+          "criterion": "Decision Clarity",
+          "engine_score": 3,
+          "engine_reasoning": "A VP could read this quickly and come away with a clear primary implication: invest in governed selection infrastructure rather than betting on open-ended coding agents. It is prioritized and practically framed, though it does not open with a single explicit decision deadline or quantified tradeoff.",
+          "engine_evidence": "The leading direction is \"Governed mutation control planes, not open-ended coding agents, become the production path\" and the first decision point is \"Invest first in repo- and service-specific harness coverage...\"",
+          "baseline_score": 2,
+          "baseline_reasoning": "A VP could extract the main message\u2014invest in harnesses, governance, and bounded autonomy\u2014but the document does not surface a single prioritized #1 action right at the top with timing. The recommendations are distributed across the piece rather than sharply prioritized.",
+          "baseline_evidence": "The executive summary says \u201cThe winners will be organizations that treat private telemetry, replay corpora, schema histories, and approval logic as strategic assets,\u201d but there is no explicit opening line like a top recommendation with deadline."
+        },
+        {
+          "criterion": "Completeness",
+          "engine_score": 2,
+          "engine_reasoning": "The output moves from summary to findings to directions to recommendations, which gives a competent evidence-to-implication flow. But assumptions, limitations, and confidence are mostly implicit rather than explicitly surfaced.",
+          "engine_evidence": "Sections include \"Executive Summary,\" \"Key Findings,\" \"Active Directions,\" \"What Surprised Us,\" and \"Decision Points.\"",
+          "baseline_score": 2,
+          "baseline_reasoning": "It includes observations, active directions, temporal progression, decision points, and confidence notes, which is a strong end-to-end structure. But assumptions and limitations are only partly explicit, and the evidence-to-recommendation chain is not formalized enough for a 3.",
+          "baseline_evidence": "The structure spans \u201cKey Findings,\u201d \u201cTemporal Progression,\u201d \u201cActive Directions,\u201d \u201cDecision Points,\u201d and \u201cConfidence Levels,\u201d plus a \u201cMethodology Note.\u201d"
+        },
+        {
+          "criterion": "Transparency",
+          "engine_score": 1,
+          "engine_reasoning": "The document mentions that there were three probes and 27 observations, but it does not trace major claims back to specific observations, signals, or source materials. Readers cannot audit the provenance of individual assertions.",
+          "engine_evidence": "\"3 independent probes per step\" and \"27 total observations, 3 total directions\" are reported, but no claims are linked to particular observations or sources.",
+          "baseline_score": 2,
+          "baseline_reasoning": "The piece is reasonably transparent about its internal logic and repeatedly refers back to the graph and signals, but it does not provide a full provenance chain from claim to observation to signal to source. Source categories are present, not traceable citation-level linkage.",
+          "baseline_evidence": "Phrases like \u201cThe graph repeatedly points to...,\u201d \u201cSignals around spec-first and policy-first architectures...,\u201d and \u201cThe graph\u2019s homeostasis-versus-exploration distinction...\u201d show attribution to source material without granular traceability."
+        },
+        {
+          "criterion": "Challenge",
+          "engine_score": 2,
+          "engine_reasoning": "It does present a meaningful counter-thesis\u2014that the field may stall at proxy-driven homeostasis rather than genuine evolution\u2014and explains why accepted metrics might mislead. However, it does not clearly overturn a stated source assumption using explicit evidence from that source.",
+          "engine_evidence": "\"directed software evolution stalls at proxy-driven homeostasis while vendors overclaim evolutionary progress\" and \"the industry may standardize around narrow proxy metrics and call the problem solved.\"",
+          "baseline_score": 2,
+          "baseline_reasoning": "It does meaningfully challenge optimistic assumptions around autonomy, benchmark progress, and multi-agent superiority. It falls short of 3 because the contradictions are asserted persuasively but not consistently shown as direct failures of specific assumptions inside the source material itself.",
+          "baseline_evidence": "The \u201cWhat Might Surprise\u201d section challenges claims like \u201cBetter models automatically produce viable directed evolution,\u201d \u201cHuman approvals are temporary friction,\u201d and \u201cBenchmark leadership converts to enterprise dominance.\u201d"
+        },
+        {
+          "criterion": "Quantitative Precision",
+          "engine_score": 1,
+          "engine_reasoning": "The output contains a few decorative numbers and horizons, but almost no measurable thresholds or quantitative prediction structure. Metrics are suggested qualitatively rather than operationalized numerically.",
+          "engine_evidence": "\"90 days,\" \"1 year,\" \"2 time steps,\" and \"27 total observations\" appear, but there are no numeric targets for adoption, throughput, review burden, or failure rates.",
+          "baseline_score": 1,
+          "baseline_reasoning": "There are only a few measurable indicators and they are mostly decorative or broad triggers rather than a quantitative framework. This is above 0 because the output does include some thresholds and timing ranges, but numbers are sparse.",
+          "baseline_evidence": "Quantitative elements include \u201cNext 365 Days,\u201d phases of \u201c0-3 Months,\u201d \u201c3-6 Months,\u201d \u201c6-12 Months,\u201d and a trigger of \u201c20-30% of engineering tasks involve coding agents.\u201d"
+        }
+      ]
     },
-    {
-      "criterion": "Novelty",
-      "engine_score": 2,
-      "baseline_score": 2,
-      "engine_reasoning": "2-3 original insights: 'capital-goods market' analogy, 'selection capital' framing, vendor overclaiming creating misleading equilibrium, layered industrial organization with biology analogy. These go beyond the input but don't reframe the domain. Under strict calibration, solid 2.",
-      "baseline_reasoning": "Similar level: safety-liveness asymmetry as decisive, portfolio optimization framing, private memory as moat. 'What Might Surprise' adds some challenge insights. Multiple insights but none introduce a novel framework that reframes the domain. Solid 2.",
-      "engine_evidence": "\"the domain is maturing into a capital-goods market\"; \"conceptual premature closure\"; \"selection capital\"",
-      "baseline_evidence": "\"safety-liveness asymmetry is decisive\"; \"managed selection pipelines with memory: candidate portfolios\"; \"bounded portfolio optimization\""
+    "judge_2": {
+      "criteria": [
+        {
+          "criterion": "Specificity",
+          "engine_score": 2,
+          "engine_reasoning": "It names several concrete mechanisms and operating contexts, but it lacks named companies, products, precise dates, or hard thresholds. This is competent specificity, not genuinely granular forecasting.",
+          "engine_evidence": "\"harnesses, governed control planes, replayable environments, policy gates, and incident-to-eval loops\"; \"internal platforms, maintenance, infra remediation, and repetitive migrations\"; \"By 90 days... By 1 year...\"",
+          "baseline_score": 3,
+          "baseline_reasoning": "This is genuinely specific: it names companies, technical mechanisms, workflow types, and time windows rather than speaking in abstractions. It stops short of exceptional specificity because it rarely gives exact dates or quantitative thresholds beyond a few scattered indicators.",
+          "baseline_evidence": "\"Anthropic, OpenAI, Cursor, Cognition/Devin, Aider, Cline, Continue, and OpenHands-class systems\"; \"By late 2026\"; mechanisms such as \"parallel candidate generation plus strict governed selection,\" \"replay harnesses,\" \"policy gates,\" and \"portfolio management of candidate solutions.\""
+        },
+        {
+          "criterion": "Novelty",
+          "engine_score": 2,
+          "engine_reasoning": "The output offers a few original framings, especially the shift from generation to selection infrastructure and the 'capital goods' analogy. However, it does not ground those insights in outside signals, external data, or cross-domain evidence beyond analogy, so it does not clear the bar for a 3.",
+          "engine_evidence": "\"the practical substrate for directed software evolution became selection infrastructure\"; \"the field is building the capital goods of software evolution\"; \"Biology offers the right analogy\"",
+          "baseline_score": 2,
+          "baseline_reasoning": "It offers several non-trivial syntheses, especially the shift from generation quality to selection quality and the homeostasis-vs-exploration framing. But it does not clearly bring in external evidence beyond the provided knowledge-graph-style material, so it does not meet the bar for a 3.",
+          "baseline_evidence": "\"the next frontier is not raw generation quality, but selection quality\"; \"homeostatic autonomy will scale faster than possibility-driven exploration\"; however the methodology says it is \"a structured synthesis of the provided knowledge graph.\""
+        },
+        {
+          "criterion": "Falsifiability",
+          "engine_score": 2,
+          "engine_reasoning": "Several predictions are clear enough to evaluate later, such as where adoption will concentrate and what will not become production-grade. But the piece rarely states explicit confirm/disconfirm conditions or dated falsification criteria.",
+          "engine_evidence": "\"Enterprise adoption concentrated in internal platforms, maintenance, infra remediation, and repetitive migrations\"; \"Broad autonomous product evolution did not become production-grade within the horizon\"",
+          "baseline_score": 2,
+          "baseline_reasoning": "Many predictions are checkable in principle, and the confidence section often states what would increase or decrease confidence. However, most predictions still lack crisp confirm/disconfirm conditions with dates or thresholds, so this is several clear-enough claims rather than a mostly falsifiable forecast set.",
+          "baseline_evidence": "\"Would decrease if frontier agents begin reliably shipping multi-service product changes with minimal scaffolding\"; \"Would increase if tools start exposing archives, novelty metrics, or multi-objective selection\"; but few explicit deadlines beyond broad phases like \"0-3 Months\" and \"6-12 Months.\""
+        },
+        {
+          "criterion": "Breadth",
+          "engine_score": 3,
+          "engine_reasoning": "It covers multiple distinct dimensions\u2014technical architecture, governance, enterprise adoption, measurement, vendor incentives, organizational learning, and market structure\u2014and links them into non-obvious conclusions. The strongest example is the claim that governance and selection constraints reshape where value accrues and what adoption looks like.",
+          "engine_evidence": "\"policy-backed orchestration\" + \"incident-to-eval and review-to-policy loops\" + \"enterprise adoption concentrated\" + \"vendors overclaim\" + \"durable moat shifts to sector-specific selection capital\"",
+          "baseline_score": 3,
+          "baseline_reasoning": "The output covers many distinct dimensions\u2014vendor competition, governance, evaluation, memory, enterprise adoption, formal methods, multi-agent coordination, control-plane suitability, and organizational buying criteria\u2014and often connects them. It earns a 3 because these interactions produce non-obvious conclusions, such as governance constraints shifting value from models to harnesses and memory.",
+          "baseline_evidence": "Themes include \"governance becomes a buying criterion,\" \"private telemetry and memory become more visibly strategic than frontier-model choice alone,\" \"multi-agent systems remain coordination-heavy,\" and \"typed and strongly verified environments... will outperform loosely typed app stacks.\""
+        },
+        {
+          "criterion": "Plausibility",
+          "engine_score": 2,
+          "engine_reasoning": "Most claims are grounded in recognizable mechanisms and feel internally coherent, but the writeup does not provide confidence levels, assumptions tables, or explicit evidence trails. It is plausible and reasoned, not highly evidentiary.",
+          "engine_evidence": "\"This architecture is technically feasible now because each component is already maturing independently\"; \"enterprises increasingly accept policy-backed automation where every action is logged and reversible\"",
+          "baseline_score": 2,
+          "baseline_reasoning": "Most major claims are grounded in named signal categories and paired with confidence statements, so this is above unsupported speculation. Still, the evidence trail is not granular enough and assumptions are not systematically tied to each claim, which keeps it below a 3.",
+          "baseline_evidence": "\"Signals such as daily coding-agent usage, benchmark-centered evaluation, broader verification stacks, and growing enterprise demand for auditability suggest...\"; later sections provide \"Confidence: high\" and \"Would increase/decrease if...\" for several predictions."
+        },
+        {
+          "criterion": "Progression",
+          "engine_score": 2,
+          "engine_reasoning": "There is a clear temporal frame from 90 days to 1 year, and later claims build somewhat on earlier ones. Still, the later phase mostly intensifies the same thesis rather than explicitly revising or qualifying earlier predictions based on changed conditions.",
+          "engine_evidence": "\"By 90 days... By 1 year, that pattern intensified\"; \"The practical milestone for year one is not human-free engineering\"",
+          "baseline_score": 3,
+          "baseline_reasoning": "The temporal structure is strong: each phase builds causally on earlier infrastructure and explicitly explains how one stage enables the next. It does not fully reach 4 because later phases mostly elaborate and consolidate rather than clearly falsify or revise earlier forecasts.",
+          "baseline_evidence": "\"This phase creates the substrate for the next step\"; \"Once organizations operationalize governed multi-candidate selection... they can begin limited forms of evolutionary retention\"; the three phases run from \"0-3 Months\" to \"6-12 Months\" with explicit causal links."
+        },
+        {
+          "criterion": "Actionability",
+          "engine_score": 2,
+          "engine_reasoning": "The decision points give sensible recommendations, but they remain fairly high-level and do not assign owners, timing triggers, or decision branches. A decision-maker gets guidance, not a full action framework.",
+          "engine_evidence": "\"Invest first in repo- and service-specific harness coverage, rollback design, and policy-backed execution\"; \"Track verified changes per review hour\"; \"Treat incident-to-eval conversion speed as a strategic metric\"",
+          "baseline_score": 3,
+          "baseline_reasoning": "A decision-maker gets concrete timing triggers, options, and tradeoffs across multiple decisions, which is stronger than generic implications. It does not hit 4 because responsibilities, costs, and implementation sequencing are still high-level rather than fully operationalized.",
+          "baseline_evidence": "\"Decision Point 1: When internal agent usage becomes routine\" with trigger \"more than 20-30% of engineering tasks\"; each decision point has \"Options\" and \"Tradeoffs,\" including \"B is the strongest one-year strategy.\""
+        },
+        {
+          "criterion": "Decision Clarity",
+          "engine_score": 2,
+          "engine_reasoning": "The narrative is readable and the implied top move is visible, but the document does not open with a single explicit top recommendation, deadline, or priority stack. A VP could infer the main action, but the piece stops short of making it unmistakable.",
+          "engine_evidence": "\"Invest first in repo- and service-specific harness coverage\" appears only under \"Decision Points\" rather than as an upfront #1 decision.",
+          "baseline_score": 2,
+          "baseline_reasoning": "The narrative is executive-readable and the implications are clear, but there is no single unambiguous top action stated up front. Cap rule note: this was initially close to a 3 because the decision points are well structured, but it was demoted to 2 as the weakest 3+ candidate since the output never crystallizes one #1 action with timing.",
+          "baseline_evidence": "There are four separate \"Decision Point\" sections with options, but no opening line like a single top recommendation or deadline; the executive summary emphasizes themes rather than one immediate action."
+        },
+        {
+          "criterion": "Completeness",
+          "engine_score": 2,
+          "engine_reasoning": "It includes findings, directions, a time horizon, and recommendations, which is more complete than a bare list of observations. But assumptions, limitations, confidence levels, and what-would-change-my-mind are mostly absent.",
+          "engine_evidence": "Sections include \"Executive Summary,\" \"Key Findings,\" \"Active Directions,\" and \"Decision Points,\" but there is no explicit assumptions/limitations/confidence section.",
+          "baseline_score": 2,
+          "baseline_reasoning": "The piece has observations, directions, temporal development, decision points, confidence notes, and some limitations, so the pipeline is mostly present. But assumptions and limitations are not made explicit in a disciplined end-to-end structure for every recommendation, which keeps it at 2.",
+          "baseline_evidence": "Sections include \"Key Findings,\" \"Temporal Progression,\" \"Active Directions,\" \"Decision Points,\" and \"Confidence Levels\"; limitations appear in phrases like \"search collapse, proxy gaming, and harness incompleteness remain unresolved.\""
+        },
+        {
+          "criterion": "Transparency",
+          "engine_score": 1,
+          "engine_reasoning": "The output reports that there were three probes and 27 observations, but individual claims are not traceable back to specific observations or signals. Provenance is therefore weak.",
+          "engine_evidence": "\"3 independent probes per step\"; \"27 total observations, 3 total directions\"; no claim-level citations or mapping from findings to observations.",
+          "baseline_score": 2,
+          "baseline_reasoning": "The forecast usually points back to source categories such as the knowledge graph, signals, and specific recurring motifs, which gives moderate traceability. But it does not provide a full provenance chain from claim to observation to signal to external source, so it falls short of 3.",
+          "baseline_evidence": "\"The knowledge graph points to a field...\"; \"Signals such as daily coding-agent usage...\"; \"The graph\u2019s homeostasis-versus-exploration distinction\"; these are source categories, not fully enumerated citations."
+        },
+        {
+          "criterion": "Challenge",
+          "engine_score": 2,
+          "engine_reasoning": "It does identify a real tension against the more bullish autonomy narrative and explains a mechanism for failure via proxy metrics and measurement limits. But because it does not explicitly counter source assumptions with cited source evidence, it does not merit a 3.",
+          "engine_evidence": "\"the field has improved selection infrastructure without solving the measurement problem required for true directed evolution\"; \"the industry may standardize around narrow proxy metrics and call the problem solved\"",
+          "baseline_score": 2,
+          "baseline_reasoning": "It does identify real tensions and explicitly challenges several dominant assumptions, especially around model gains, approvals, and formal verification. Still, most challenges are framed as cautions rather than strongly evidenced contradicting predictions that demonstrate exactly how the source assumption fails.",
+          "baseline_evidence": "\"Assumption to challenge #1: Better models automatically produce viable directed evolution\"; \"Human approvals are not just immature UX\"; \"Multi-agent architectures are inherently superior\" is also directly challenged."
+        },
+        {
+          "criterion": "Quantitative Precision",
+          "engine_score": 1,
+          "engine_reasoning": "There are only sparse numbers, mostly structural counts and time horizons rather than predictive thresholds or measurable indicators. Quantification is present but decorative, not analytical.",
+          "engine_evidence": "\"Horizon: 1 year | Steps: 2\"; \"3 independent probes per step\"; \"27 total observations, 3 total directions\"",
+          "baseline_score": 2,
+          "baseline_reasoning": "There are some measurable indicators and thresholds, but they are sparse and not central to the logic of the forecast. The output does not build multiple quantitative thresholds or tracking metrics deeply enough to earn a 3.",
+          "baseline_evidence": "\"Next 365 Days\"; phases of \"0-3 Months,\" \"3-6 Months,\" and \"6-12 Months\"; trigger \"more than 20-30% of engineering tasks involve coding agents\"; references to \"pass@1\" and \"pass@k.\""
+        }
+      ]
     },
-    {
-      "criterion": "Falsifiability",
-      "engine_score": 1,
-      "baseline_score": 2,
-      "engine_reasoning": "Predictions are stated as assertions or trends: 'selection quality remained scarcer than generation quality,' 'governed mutation pipelines outperformed.' None include falsification criteria. Some could in principle be checked but most are too vague to evaluate definitively. Score: 1.",
-      "baseline_reasoning": "Several predictions include 'Would increase if... Would decrease if...' conditions that name observable changes. Not explicit 'if X hasn't happened by [date], this is wrong' but clear enough to evaluate after the fact. The Confidence Levels section systematically provides checkable conditions for each prediction. Score: 2.",
-      "engine_evidence": "No falsification conditions. Predictions: \"broad autonomous product evolution did not become production-grade\" — evaluable but not falsifiable with criteria",
-      "baseline_evidence": "\"Would decrease if frontier agents begin reliably shipping multi-service product changes with minimal scaffolding\"; \"Would increase if more platform-engineering case studies show successful generated workflows under policy\""
-    },
-    {
-      "criterion": "Breadth",
-      "engine_score": 2,
-      "baseline_score": 3,
-      "engine_reasoning": "Covers ~6 themes: generation vs selection, governance, enterprise adoption, vendor dynamics, industrial organization, biology/economics analogies. Themes are connected (selection capital + governance + industrial org) but coverage is not comprehensive. Score: 2.",
-      "baseline_reasoning": "Covers 11+ themes: generation vs selection, governance/policy, enterprise adoption, vendor dynamics, formal methods, multi-agent coordination, benchmark vs trust gap, typed vs untyped environments, private memory/telemetry, portfolio optimization, organizational politics/approvals. Cross-theme interactions explicit across temporal phases and direction counterfactuals. Under strict calibration, genuinely impressive breadth with coherent system. Score: 3.",
-      "engine_evidence": "Themes: \"governed mutation pipelines,\" \"industrial organization,\" \"selection capital,\" \"capital-goods market,\" vendor overclaiming",
-      "baseline_evidence": "Adds themes not in engine: \"Formal methods do not become universal\"; \"Multi-agent systems remain coordination-heavy\"; \"Typed and strongly verified environments\"; \"portfolio management of candidate solutions\""
-    },
-    {
-      "criterion": "Plausibility",
-      "engine_score": 2,
-      "baseline_score": 3,
-      "engine_reasoning": "Most claims grounded in mechanisms. Uncertainty signaled through practitioner/critic/adjacent-domain disagreement framing. But no explicit confidence levels attached to individual predictions. Meets 2: 'Most claims reference mechanisms or evidence; some explicit uncertainty.'",
-      "baseline_reasoning": "Claims grounded in mechanisms AND includes explicit confidence levels (high/medium/medium-high) for each key finding. States what would change confidence up or down. Meets 3: 'Claims grounded in named signals or evidence with explicit confidence levels and stated assumptions.' Under strict calibration, genuinely impressive — systematic confidence tracking.",
-      "engine_evidence": "\"This architecture is technically feasible now because each component is already maturing independently\"; uncertainty via three-probe disagreement",
-      "baseline_evidence": "Every key finding has \"Confidence: high/medium\"; systematic \"Would increase if... Would decrease if...\" for each prediction"
-    },
-    {
-      "criterion": "Progression",
-      "engine_score": 1,
-      "baseline_score": 2,
-      "engine_reasoning": "Two time points (90 days, 1 year) mentioned in executive summary: 'By 90 days... By 1 year, that pattern intensified.' But the predictions within each timeframe are essentially snapshots — the 1-year point repeats and amplifies the 90-day observations rather than building causally. No phase-by-phase breakdown. Score: 1.",
-      "baseline_reasoning": "Explicit 3-phase structure (0-3m, 3-6m, 6-12m) with 'Causal links to next phase' sections. Phase 2 builds on Phase 1's substrate ('once teams have evals, traces, and approval logic'). Clear development across phases. But later phases don't revise or falsify earlier predictions — they extend them. Score: 2.",
-      "engine_evidence": "\"By 90 days, the center of gravity had already moved... By 1 year, that pattern intensified\" — development is amplification not transformation",
-      "baseline_evidence": "\"This phase creates the substrate for the next step: once teams have evals, traces, and approval logic, they can begin to safely compare multiple generated variants\""
-    },
-    {
-      "criterion": "Actionability",
-      "engine_score": 1,
-      "baseline_score": 2,
-      "engine_reasoning": "4 decision-point bullets are recommendations without triggers, options, or tradeoffs: 'Invest first in...', 'Track...', 'Treat... as a strategic metric', 'Avoid equating...' These are vague implications, not conditional recommendations. Score: 1.",
-      "baseline_reasoning": "4 full decision points with timing triggers ('When more than 20-30% of engineering tasks involve coding agents'), 3 options each (A/B/C), and tradeoffs per option. But tradeoffs lack concrete cost quantification ('A is cheapest short term but creates fragile, non-compounding usage' — what does 'cheapest' mean in dollars or headcount?). Score: 2.",
-      "engine_evidence": "\"Invest first in repo- and service-specific harness coverage\"; \"Track verified changes per review hour\"",
-      "baseline_evidence": "\"When more than 20-30% of engineering tasks involve coding agents\"; Options A/B/C; \"A is cheapest short term but creates fragile, non-compounding usage\""
-    },
-    {
-      "criterion": "Decision Clarity",
-      "engine_score": 2,
-      "baseline_score": 2,
-      "engine_reasoning": "Clear narrative with good structure (Executive Summary, Key Findings, Active Directions, Decision Points, Methodology). A VP could understand the findings. But the 'so what' requires extraction — no single prioritized recommendation, no deadline, no quantified tradeoff. Score: 2.",
-      "baseline_reasoning": "Also well-structured with more comprehensive sections. Executive summary is informative but doesn't open with THE one decision, name a deadline, or quantify the tradeoff. Decision points are presented with equal weight, not prioritized. A VP would understand it but would need to extract the top action. Score: 2.",
-      "engine_evidence": "Clear headings and polished prose, but Decision Points are unprioritized bullets",
-      "baseline_evidence": "4 decision frameworks but no prioritization signal; executive summary describes landscape rather than leading with a decision"
-    },
-    {
-      "criterion": "Completeness",
-      "engine_score": 2,
-      "baseline_score": 3,
-      "engine_reasoning": "Has observations (via synthesis narrative), directions (3), state evolution (narrative across 2 steps), methodology note. Missing: explicit assumptions, limitations, confidence levels. Meets 2: 'Observations + theses + temporal development; assumptions implicit.'",
-      "baseline_reasoning": "Full pipeline: observations, 5 directions with counterfactuals, 3-phase temporal progression, explicit confidence levels with what-would-change conditions, 5 challenged assumptions, methodology note. Meets 3: 'Full pipeline with explicit assumptions, limitations, and confidence levels.' Under strict calibration, genuinely impressive completeness.",
-      "engine_evidence": "Methodology: '3 independent probes per step, 2 time steps, 27 observations, 3 directions'; no confidence levels or explicit assumptions",
-      "baseline_evidence": "Includes Confidence Levels section, counterfactuals for each direction, What Might Surprise with 5 challenged assumptions"
-    },
-    {
-      "criterion": "Transparency",
-      "engine_score": 1,
-      "baseline_score": 2,
-      "engine_reasoning": "References '3 probes' and '27 total observations' in methodology. Broad attribution ('All three probes converged'). No specific observation IDs, signal references, or provenance chains in the narrative. Score: 1.",
-      "baseline_reasoning": "References 'the knowledge graph' and names specific graph elements: 'safety-liveness asymmetry,' 'homeostasis-versus-exploration distinction,' 'signals around spec-first and policy-first architectures.' Most claims name their source category. Score: 2.",
-      "engine_evidence": "Only provenance: '27 total observations, 3 total directions'; 'All three probes converged'",
-      "baseline_evidence": "\"The graph's homeostasis-versus-exploration distinction\"; \"Signals around spec-first and policy-first architectures\"; references specific graph signals throughout"
-    },
-    {
-      "criterion": "Challenge",
-      "engine_score": 2,
-      "baseline_score": 3,
-      "engine_reasoning": "Identifies genuine tensions: 'the field has improved selection infrastructure without solving the measurement problem required for true directed evolution.' Warns of 'conceptual premature closure' and vendor overclaiming. More than token caveats — identifies fragile assumptions. But doesn't make explicit contradictory predictions with formatted evidence. Score: 2.",
-      "baseline_reasoning": "Explicitly challenges 5 named assumptions with structured reasoning. 'Better models automatically produce viable directed evolution' — overturned using the graph's own safety-liveness asymmetry. 'Human approvals are temporary friction' — contradicted with 'they encode real accountability, regulatory boundaries, and political legitimacy.' Meets 3: specific predictions contradicting the source, with evidence from the source itself.",
-      "engine_evidence": "\"the field has improved selection infrastructure without solving the measurement problem required for true directed evolution\"; \"conceptual premature closure\"",
-      "baseline_evidence": "\"Better models automatically produce viable directed evolution\" challenged; \"Human approvals are temporary friction\" contradicted with institutional evidence from the graph"
-    },
-    {
-      "criterion": "Quantitative Precision",
-      "engine_score": 0,
-      "baseline_score": 1,
-      "engine_reasoning": "Entirely qualitative. Temporal markers ('90 days,' '1 year') are the projection structure, not quantitative predictions. '27 observations, 3 directions' is methodology, not substance. No thresholds, percentages, market sizes, or measurable indicators in any prediction. Score: 0.",
-      "baseline_reasoning": "One explicit threshold ('20-30% of engineering tasks'). References measurable concepts (pass@k, best-of-n metrics). But most predictions remain qualitative ('strong,' 'moderate,' 'early'). Rare use of numbers, mostly decorative. Score: 1.",
-      "engine_evidence": "No quantitative predictions. '90 days' and '1 year' are structural, not substantive.",
-      "baseline_evidence": "\"When more than 20-30% of engineering tasks involve coding agents\"; \"pass@k, best-of-n, or replay-based outcome metrics\" — referenced but not used in predictions"
+    "judge_3": {
+      "criteria": [
+        {
+          "criterion": "Specificity",
+          "engine_score": 2,
+          "engine_reasoning": "The projection names mechanisms and gives coarse timelines, but it lacks concrete named companies, products, datasets, or dated milestones that would push it higher. It is more operationally specific than generic strategy prose, yet still short of actor-level precision.",
+          "engine_evidence": "Quotes include \"By 90 days\" and \"By 1 year,\" plus mechanisms such as \"incident-to-eval loops,\" \"policy-backed orchestration,\" \"harness execution,\" \"staged rollout,\" and \"rollback or merge.\"",
+          "baseline_score": 3,
+          "baseline_reasoning": "This is genuinely specific: it names vendors, architectures, mechanisms, and time windows rather than speaking in abstractions. It stops short of 4 because it rarely gives hard dates or quantitative thresholds tied to outcomes.",
+          "baseline_evidence": "Names include \"Anthropic, OpenAI, Cursor, Cognition/Devin, Aider, Cline, Continue, and OpenHands-class systems\"; mechanisms include \"unit tests, property-based tests, fuzzing, static analysis, replay harnesses, policy gates\"; timelines include \"0-3 Months,\" \"3-6 Months,\" \"6-12 Months,\" and \"By late 2026.\""
+        },
+        {
+          "criterion": "Novelty",
+          "engine_score": 2,
+          "engine_reasoning": "It contributes several original framing moves, especially the shift from generation to selection and the \"capital goods\" analogy, but it does not clearly ground those insights in external signals or evidence beyond the document itself. That keeps it at competent originality rather than genuinely impressive novelty.",
+          "engine_evidence": "Examples: \"raw generation is abundant, but trusted acceptance remains scarce\" and \"the field is building the capital goods of software evolution.\"",
+          "baseline_score": 2,
+          "baseline_reasoning": "There are original syntheses here, especially the emphasis on selection quality over generation quality and bounded portfolio optimization. But it does not meet 3 because the output does not ground those insights in evidence from outside the input material.",
+          "baseline_evidence": "Examples: \"the next frontier is not raw generation quality, but selection quality\" and \"Directed evolution will appear first as bounded portfolio optimization, not open-ended self-improvement.\""
+        },
+        {
+          "criterion": "Falsifiability",
+          "engine_score": 2,
+          "engine_reasoning": "Several claims are checkable in principle, especially around where adoption concentrates and whether autonomous product evolution becomes production-grade, but the output rarely states explicit disconfirming conditions or thresholds. Predictions are evaluable, just not tightly operationalized.",
+          "engine_evidence": "Checkable claims include \"Enterprise adoption concentrated in internal platforms, maintenance, infra remediation, and repetitive migrations\" and \"Broad autonomous product evolution did not become production-grade within the horizon.\"",
+          "baseline_score": 2,
+          "baseline_reasoning": "Several predictions are checkable and often paired with what would increase or decrease confidence, but most are not framed as explicit confirm/disconfirm tests with dates. The claims are evaluable in principle, just not tightly enough for a 3.",
+          "baseline_evidence": "\"Would decrease if frontier agents begin reliably shipping multi-service product changes with minimal scaffolding\" and timing triggers such as \"When more than 20-30% of engineering tasks involve coding agents.\""
+        },
+        {
+          "criterion": "Breadth",
+          "engine_score": 3,
+          "engine_reasoning": "The analysis covers multiple distinct dimensions and explicitly connects them in ways that produce non-obvious conclusions, especially governance, metrics, enterprise adoption, vendor claims, architecture, and organizational advantage. This is one of the few areas that rises above median because the themes interact rather than merely coexist.",
+          "engine_evidence": "Cross-theme interaction appears in claims like \"governance-heavy buyers adopt tools only where rollback and auditability are tractable\" leading to \"a misleading equilibrium\" where proxy metrics are mistaken for true evolutionary progress.",
+          "baseline_score": 3,
+          "baseline_reasoning": "It covers many distinct dimensions\u2014governance, evals, vendor competition, enterprise adoption, formal methods, control planes, telemetry, autonomy modes\u2014and connects them into non-obvious conclusions. The strongest interaction is that cheap generation shifts the bottleneck to selection harnesses, which then reshapes where adoption happens first.",
+          "baseline_evidence": "Cross-theme interactions include \"Once variation is cheap, the bottleneck moves to the selection harness\" and the repeated linkage between governance/auditability, enterprise adoption, and control-plane suitability."
+        },
+        {
+          "criterion": "Plausibility",
+          "engine_score": 2,
+          "engine_reasoning": "Most claims are internally coherent and grounded in recognizable mechanisms, but the output does not provide named signals, confidence levels, or explicit assumptions that would support a higher score. It reads plausible, not rigorously evidenced.",
+          "engine_evidence": "Grounding is mostly mechanistic: \"CI and deployment systems already expose machine-callable surfaces\" and \"reviewer comments become routing constraints, failed deploys become risk-class rules.\"",
+          "baseline_score": 2,
+          "baseline_reasoning": "Initially looked like a 3 because it repeatedly cites signals and includes confidence levels, but under the cap rule it was demoted: the grounding remains mostly high-level references to the 'graph' rather than named, traceable evidence for each major claim. It is well-reasoned but not evidentially tight enough to stay above 2.",
+          "baseline_evidence": "\"The knowledge graph points to a field...\"; \"Signals such as daily coding-agent usage, benchmark-centered evaluation, broader verification stacks...\"; confidence labels are present, but source-level traceability is not."
+        },
+        {
+          "criterion": "Progression",
+          "engine_score": 2,
+          "engine_reasoning": "There is real temporal structure from 90 days to 1 year, and later claims build on earlier themes, but the later phase mostly intensifies earlier conclusions rather than revising or qualifying them based on what changed. The progression is present but not deeply iterative.",
+          "engine_evidence": "The summary says \"By 90 days...\" and then \"By 1 year, that pattern intensified,\" which shows sequencing without strong explicit revision.",
+          "baseline_score": 2,
+          "baseline_reasoning": "The phases do build causally on each other, and each phase has links to the next. But later phases mostly extend earlier logic rather than explicitly revising or qualifying prior forecasts based on what changed, which is required for a 3.",
+          "baseline_evidence": "Each phase contains a \"Causal links to next phase\" section, e.g., \"once teams have evals, traces, and approval logic, they can begin to safely compare multiple generated variants.\""
+        },
+        {
+          "criterion": "Actionability",
+          "engine_score": 2,
+          "engine_reasoning": "The decision points are concrete enough to inform action, especially around harnesses, rollback design, and metrics, but they lack owners, timing windows, and tradeoff options. A leader could act from this, though they would still need to translate it into an execution plan.",
+          "engine_evidence": "Recommendations include \"Invest first in repo- and service-specific harness coverage, rollback design, and policy-backed execution\" and \"Treat incident-to-eval conversion speed as a strategic metric.\"",
+          "baseline_score": 3,
+          "baseline_reasoning": "This is one of the strongest parts: it gives concrete decision points, timing triggers, options, and tradeoffs that a decision-maker could use immediately. It does not reach 4 because it does not assign owners or quantify costs in a decision framework.",
+          "baseline_evidence": "\"Decision Point 1: When internal agent usage becomes routine\" with trigger \"more than 20-30% of engineering tasks,\" plus options A/B/C and explicit tradeoffs; similar structure appears for production autonomy, vendor evaluation, and directed-evolution experiments."
+        },
+        {
+          "criterion": "Decision Clarity",
+          "engine_score": 2,
+          "engine_reasoning": "A VP would come away with a clear directional takeaway\u2014invest in governed selection infrastructure rather than open-ended agents\u2014but the output does not explicitly prioritize a single top action with timing. The main recommendation is inferable rather than sharply framed as the #1 decision.",
+          "engine_evidence": "The strongest directional claim is \"Governed mutation control planes, not open-ended coding agents, become the production path\" followed by the decision point to \"Invest first in repo- and service-specific harness coverage...\"",
+          "baseline_score": 2,
+          "baseline_reasoning": "A VP could understand the overall argument quickly, but the document does not clearly elevate one single top recommendation and deadline above the rest. The best action is implied rather than explicitly stated as the #1 move.",
+          "baseline_evidence": "The output offers multiple decision points and options, but no opening statement like a single prioritized recommendation with a deadline; the closest is the recurring emphasis on investing in \"private evals, replay harnesses, and acceptance gates.\""
+        },
+        {
+          "criterion": "Completeness",
+          "engine_score": 2,
+          "engine_reasoning": "The output includes observations, competing theses, temporal framing, implications, and decision points, which forms a respectable end-to-end narrative. However, assumptions, limitations, and confidence are not made explicit, so the evidence-to-recommendation chain remains incomplete by stricter standards.",
+          "engine_evidence": "It contains sections for \"Executive Summary,\" \"Key Findings,\" \"Active Directions,\" \"What Surprised Us,\" and \"Decision Points,\" but no explicit assumptions or confidence rubric.",
+          "baseline_score": 2,
+          "baseline_reasoning": "Initially looked like a 3 because it includes observations, directions, progression, decision points, and confidence levels, but the cap-rule recheck exposes a gap: assumptions and limitations are present but not consistently integrated into a full evidence-to-recommendation pipeline. It is strong and structured, just not fully explicit end to end.",
+          "baseline_evidence": "Sections include \"Key Findings,\" \"Temporal Progression,\" \"Active Directions,\" \"Decision Points,\" and \"Confidence Levels,\" but there is no tight mapping from individual evidence items to each recommendation."
+        },
+        {
+          "criterion": "Transparency",
+          "engine_score": 1,
+          "engine_reasoning": "The document names probes and gives counts, but it does not trace specific claims back to particular observations, signals, or sources. Readers cannot follow a provenance chain from conclusion to evidence.",
+          "engine_evidence": "The only sourcing structure is methodological: \"3 independent probes per step,\" \"27 total observations, 3 total directions,\" without linking any given claim to a specific observation or signal.",
+          "baseline_score": 2,
+          "baseline_reasoning": "Most claims indicate source categories or signal types, which is better than vague assertion. But it does not provide a provenance chain from claim to observation to signal to source, so it cannot exceed 2.",
+          "baseline_evidence": "Phrases like \"The graph repeatedly points...\" and \"Signals around spec-first and policy-first architectures\" identify signal categories, but there are no specific observation IDs, source documents, or linked evidence chains."
+        },
+        {
+          "criterion": "Challenge",
+          "engine_score": 3,
+          "engine_reasoning": "The projection genuinely challenges the dominant narrative by arguing that the field confuses better proxy-driven control systems with true software evolution, and it explains the mechanism of failure clearly. This is one of the strongest features because the counter-position is substantive, not token skepticism.",
+          "engine_evidence": "The clearest challenge is: \"directed software evolution stalls at proxy-driven homeostasis while vendors overclaim evolutionary progress\" and \"the industry may standardize around narrow proxy metrics and call the problem solved.\"",
+          "baseline_score": 2,
+          "baseline_reasoning": "Initially looked like a 3 because it directly pushes against common assumptions, but it was demoted under the cap rule since the contradicting predictions are more thoughtfully argued than tightly evidenced from the source itself. The challenge is real, just not forceful enough to remain among the top three 3s.",
+          "baseline_evidence": "\"Assumption to challenge #1: Better models automatically produce viable directed evolution\" and \"Human approvals are not just immature UX; they encode real accountability.\""
+        },
+        {
+          "criterion": "Quantitative Precision",
+          "engine_score": 1,
+          "engine_reasoning": "The output includes a few numbers and time horizons, but they are sparse and mostly decorative rather than serving as measurable decision thresholds. There is no real quantitative framework for testing success or failure.",
+          "engine_evidence": "Numbers include \"90 days,\" \"1 year,\" \"2 time steps,\" \"27 total observations,\" and the metric phrase \"verified changes per review hour,\" but no thresholds or target ranges.",
+          "baseline_score": 2,
+          "baseline_reasoning": "There are some concrete numbers and thresholds, but they are sparse and mostly used as framing rather than as measurable prediction criteria. It does not present multiple operational indicators or quantitative scorecards.",
+          "baseline_evidence": "\"Next 365 Days,\" phase windows of \"0-3 Months,\" \"3-6 Months,\" \"6-12 Months,\" and trigger \"more than 20-30% of engineering tasks involve coding agents.\""
+        }
+      ]
     }
-  ],
-  "summary": {
-    "engine_total": 18,
-    "baseline_total": 27,
-    "max_possible": 48,
-    "engine_wins": 0,
-    "baseline_wins": 9,
-    "ties": 3,
-    "delta": -9,
-    "headroom_engine": 30,
-    "headroom_baseline": 21,
-    "rubric_change_impact": "Engine dropped 16 points (34→18), Baseline dropped 16 points (43→27). Gap preserved at -9 but absolute scores compressed to midrange, creating 30 points of engine headroom vs 5 under old rubric."
   }
 }

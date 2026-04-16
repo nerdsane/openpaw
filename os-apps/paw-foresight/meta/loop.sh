@@ -154,8 +154,10 @@ Everything must be recorded for posterity. Each run MUST produce ALL of these:
 13. Git tag (foresight-vNNN) if challenger wins
 
 JUDGES: You MUST create 3 independent paw-agent judge sessions (see Step 5 in the skill).
-Inline both outputs in the judge prompt (DO NOT use file references — they fail).
-Randomize X/Y assignment across judges. Collect scores, de-anonymize, aggregate via Borda.
+Use SPLIT-SESSION approach: 6 sessions total (one per output per judge) to stay under 32KB WASM
+field limit. Use compact rubric (criteria + anchors only). Use Python urllib.request for HTTP
+(shell curl has JSON encoding issues with large prompts). Extract scores from session result
+field (sessions may stay in Steering state). Aggregate via Borda.
 Only fall back to self-scoring if ALL 3 judge sessions fail.
 
 A run without ALL artifacts is incomplete. Do not skip any step.

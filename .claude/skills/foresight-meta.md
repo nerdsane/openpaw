@@ -233,125 +233,123 @@ INCUMBENT=$(cat "meta/baseline/synthesis.md")  # or previous winner
 
 Read `meta/program.md` to get the full rubric with all 12 criteria and anchors.
 
-### 5b. Build the Judge Prompt
+### 5b. Build the Judge Prompt — SPLIT-SESSION APPROACH
 
-The outputs are INLINED in the prompt (not delivered via files — that failed in Run 000).
-Randomize X/Y assignment: judges 1 & 3 get engine=X, baseline=Y. Judge 2 gets the reverse.
+**IMPORTANT: 32KB WASM field limit.** The user_message field is truncated when WASM reads entity
+state. With both outputs inlined (~30KB combined) plus rubric, the prompt exceeds 32KB and the
+session fails with "user_message is empty". 
 
-```
-RUBRIC=$(cat os-apps/paw-foresight/meta/program.md)  # full rubric with anchors
+**Solution: Split-session scoring.** Each judge gets 2 sessions — one per output. Each session
+scores one output independently. Combine scores afterward to compute Borda.
 
-JUDGE_PROMPT="You are an independent evaluator of foresight projections.
+Build a COMPACT rubric (criteria + anchors only, no preamble/protocol sections from program.md).
+Include the 3+ cap rule and calibration note. Target: <2KB for the rubric portion.
 
-You will score two anonymized outputs against a rubric. You do NOT know which
-output is from which system. Score purely on quality.
-
-## Scoring Calibration
-- 2 = competent (expected median for good output)
-- 3 = genuinely impressive (most outputs will NOT reach this)
-- 4 = exceptional (requires something a single well-prompted model would rarely produce)
-
-## Rubric
-
-$RUBRIC
-
-## Output X
-
-$OUTPUT_X
-
-## Output Y
-
-$OUTPUT_Y
-
-## Your Task
-
-For each of the 12 criteria, score BOTH Output X and Output Y (0-4).
-For each score provide:
-- score: integer 0-4
-- reasoning: 1-2 sentences explaining the score
-- evidence: specific quotes or structural observations
-
-Output a JSON object with this exact structure:
-{
-  \"criteria\": [
-    {
-      \"criterion\": \"Specificity\",
-      \"x_score\": 2, \"x_reasoning\": \"...\", \"x_evidence\": \"...\",
-      \"y_score\": 3, \"y_reasoning\": \"...\", \"y_evidence\": \"...\"
-    },
-    ...all 12 criteria...
-  ]
-}
-
-Output ONLY the JSON. No other text."
-```
-
-### 5c. Create 3 Judge Sessions
-
-```bash
-API_KEY=$(cat ~/.local/share/openpaw/api.key)
-AUTH="Authorization: Bearer $API_KEY"
-TENANT="x-temper-tenant: rita-agents"
-BASE="http://localhost:3467"
-
-for JUDGE_NUM in 1 2 3; do
-  # Randomize: judges 1,3 → engine=X. Judge 2 → engine=Y
-  if [ $JUDGE_NUM -eq 2 ]; then
-    OUTPUT_X="$INCUMBENT"; OUTPUT_Y="$CHALLENGER"
-  else
-    OUTPUT_X="$CHALLENGER"; OUTPUT_Y="$INCUMBENT"
-  fi
-  
-  # Build prompt with substituted outputs
-  # (construct JUDGE_PROMPT with OUTPUT_X and OUTPUT_Y)
-
-  # Create session
-  SESS=$(curl -s -X POST "$BASE/tdata/Sessions" -H "$AUTH" -H "$TENANT" \
-    -H "Content-Type: application/json" -d '{}')
-  SESS_ID=$(echo "$SESS" | python3 -c "import sys,json; print(json.load(sys.stdin)['entity_id'])")
-
-  # Configure — inline the full prompt as user_message
-  curl -s -X POST "$BASE/tdata/Sessions('$SESS_ID')/Temper.Configure" \
-    -H "$AUTH" -H "$TENANT" -H "Content-Type: application/json" \
-    -d "{
-      \"user_message\": \"$ESCAPED_JUDGE_PROMPT\",
-      \"model\": \"gpt-5.4\",
-      \"provider\": \"openai_codex\",
-      \"max_turns\": \"5\"
-    }"
-
-  echo "Judge $JUDGE_NUM session: $SESS_ID"
-done
-```
-
-### 5d. Poll Judges for Completion
-
-```bash
-# Poll all 3 judge sessions every 30s, max 10 minutes
-for i in $(seq 1 20); do
-  ALL_DONE=true
-  for SESS_ID in $JUDGE1_ID $JUDGE2_ID $JUDGE3_ID; do
-    STATUS=$(curl -s "$BASE/tdata/Sessions('$SESS_ID')" -H "$AUTH" -H "$TENANT" \
-      | python3 -c "import sys,json; print(json.load(sys.stdin).get('status','?'))")
-    [ "$STATUS" != "Completed" ] && ALL_DONE=false
-  done
-  $ALL_DONE && break
-  sleep 30
-done
-```
-
-### 5e. Extract Judge Scores
-
-Read each judge's result from the database:
 ```python
-# For each judge session, extract the JSONL transcript
-# The last assistant message contains the JSON scores
-# Parse and de-anonymize (map X/Y back to engine/baseline based on randomization)
+# Read outputs
+CHALLENGER = open("meta/runs/{NNN}/engine-output/synthesis.md").read()
+INCUMBENT = open("meta/baseline/synthesis.md").read()   # or previous winner
+
+# Build compact rubric from program.md (criteria + anchors only)
+# Include: calibration note, 3+ cap rule, all 12 criteria with anchor tables
+# Exclude: preamble, boundary constraints, judge protocol, tournament protocol
+# Target: under 2KB
+
+COMPACT_RUBRIC = """## Evaluation Criteria (0-4 scale, 12 criteria, max 48)
+Calibration: 2=competent median, 3=genuinely impressive, 4=exceptional and rare.
+
+**3+ CAP RULE:** No more than 3 criteria may score 3+ for any single output.
+If more than 3 qualify, demote the weakest to 2. Document demotions.
+
+1. Specificity: 0=none | 1=generic | 2=named actors OR timelines | 3=actors+timelines+mechanisms | 4=dates+thresholds
+2. Novelty: 0=restates | 1=extensions | 2=1-2 insights | 3=multiple from OUTSIDE input | 4=reframes domain
+... (all 12 with compact anchors) ..."""
+
+def build_prompt(output_text):
+    return f"""You are an independent evaluator of a foresight projection output.
+Score strictly. Enforce the 3+ cap rule.
+
+{COMPACT_RUBRIC}
+
+## Output to Score
+
+{output_text}
+
+## Task
+Score all 12 criteria (0-4). Return JSON only:
+{{"criteria": [{{"criterion": "Specificity", "score": 2, "reasoning": "...", "evidence": "..."}}...]}}"""
+```
+
+### 5c. Create 6 Judge Sessions (3 judges × 2 outputs)
+
+Use Python `urllib.request` for proper HTTP — shell curl has JSON encoding issues with large prompts.
+
+```python
+import json, urllib.request
+
+API_KEY = open("~/.local/share/openpaw/api.key").read().strip()
+BASE = "http://localhost:3467"
+HEADERS = {"Authorization": f"Bearer {API_KEY}", "x-temper-tenant": "rita-agents", "Content-Type": "application/json"}
+
+def api_post(path, data):
+    req = urllib.request.Request(f"{BASE}{path}", json.dumps(data).encode(), HEADERS, method='POST')
+    return json.loads(urllib.request.urlopen(req).read())
+
+sessions = {}
+for judge_num in [1, 2, 3]:
+    for output_name, output_text in [("engine", CHALLENGER), ("baseline", INCUMBENT)]:
+        label = f"judge{judge_num}_{output_name}"
+        result = api_post("/tdata/Sessions", {})
+        sess_id = result["entity_id"]
+        sessions[label] = sess_id
+        
+        prompt = build_prompt(output_text)
+        api_post(f"/tdata/Sessions('{sess_id}')/Temper.Configure", {
+            "user_message": prompt,
+            "model": "gpt-5.4",
+            "provider": "openai_codex",
+            "max_turns": "5"
+        })
+        print(f"{label}: {sess_id} ({len(prompt)} bytes)")
+```
+
+### 5d. Poll for Results
+
+Sessions may stay in "Steering" state but still have results in the `result` field.
+Poll for the `result` field rather than waiting for "Completed" status.
+
+```python
+import time
+
+for attempt in range(40):
+    time.sleep(30)
+    all_have_results = True
+    for label, sid in sessions.items():
+        data = api_get(f"/tdata/Sessions('{sid}')")
+        result = data.get("fields", {}).get("result", "")
+        if not result or len(result) < 50:
+            all_have_results = False
+    if all_have_results:
+        break
+```
+
+### 5e. Extract and Combine Scores
+
+```python
+# Extract from result field (NOT transcript — sessions may not finalize JSONL)
+for label, sid in sessions.items():
+    data = api_get(f"/tdata/Sessions('{sid}')")
+    result_str = data["fields"]["result"]
+    scores = json.loads(result_str)
+    # scores["criteria"] = [{criterion, score, reasoning, evidence}, ...]
+
+# Combine per-judge: merge engine + baseline sessions
+# Compute Borda: per criterion, per judge, higher score = 2 pts, lower = 1, tie = 1.5
 ```
 
 ### 5f. Fallback: Meta-Agent Self-Scoring
 
-If ALL 3 judge sessions fail (stuck, hallucinate, produce unparseable output):
+If ALL 3 judge sessions fail (stuck, no result field, unparseable output):
 1. Log the failure in scores.json methodology_note
 2. Fall back to meta-agent (you) scoring directly
 3. Note this as a methodology limitation
@@ -367,38 +365,15 @@ Sum across 3 judges per criterion (max 6 per criterion per output).
 Sum across 12 criteria (max 72 Borda points per output).
 Ties in overall Borda: incumbent wins (conservative).
 
-### scores.json Format (3-judge version)
+### scores.json Format
 
 ```json
 {
-  "run": "NNN",
-  "engine_version": "foresight-v{NNN}",
-  "rubric_version": "v2",
-  "methodology_note": "3 independent blind judges (paw-agent sessions, gpt-5.4). Outputs inlined in prompt, randomized X/Y assignment.",
-  "randomization": {
-    "judge_1": {"X": "engine", "Y": "baseline"},
-    "judge_2": {"X": "baseline", "Y": "engine"},
-    "judge_3": {"X": "engine", "Y": "baseline"}
-  },
-  "judges": [
-    {
-      "judge_id": "ss-...",
-      "judge_num": 1,
-      "status": "completed",
-      "scores": [
-        {
-          "criterion": "Specificity",
-          "engine_score": 2, "baseline_score": 3,
-          "engine_reasoning": "...", "baseline_reasoning": "...",
-          "engine_evidence": "...", "baseline_evidence": "..."
-        }
-      ]
-    }
-  ],
-  "summary": {
-    "engine_total_avg": 20,
-    "baseline_total_avg": 28,
-    "max_possible": 48
+  "methodology": "3 independent paw-agent judges (gpt-5.4), split-session (one per output per judge). Rubric v3 with tightened anchors + 3+ cap rule.",
+  "rubric_version": "v3",
+  "session_ids": {"judge1_engine": "ss-...", "judge1_baseline": "ss-...", ...},
+  "judges": {
+    "judge_1": {"criteria": [{"criterion": "...", "engine_score": 2, "baseline_score": 3, ...}]}
   }
 }
 ```

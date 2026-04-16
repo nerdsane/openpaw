@@ -23,13 +23,26 @@ Extracted from `~/.local/share/openpaw/paw.db` snapshots + blobs tables.
 |------|-----------|------|-------|--------|
 | baseline.jsonl | ss-019d9356-99c7-... | Single-shot baseline | 3 | Completed |
 
-## Judges (failed — see diagnosis.md)
+## Judges — Round 1 (failed, pre-rubric-v3)
 
 | File | Session ID | Role | Turns | Status |
 |------|-----------|------|-------|--------|
-| judge1.jsonl | ss-019d935a-eec7-... | Judge session 1 | 2 | Completed |
-| judge2.jsonl | ss-019d935a-eef7-... | Judge session 2 | 2 | Completed |
-| judge3.jsonl | ss-019d935a-ef28-... | Judge session 3 | 1 | Completed |
+| judge1.jsonl | ss-019d935a-eec7-... | Judge session 1 | 2 | Completed (unparseable) |
+| judge2.jsonl | ss-019d935a-eef7-... | Judge session 2 | 2 | Completed (unparseable) |
+| judge3.jsonl | ss-019d935a-ef28-... | Judge session 3 | 1 | Completed (unparseable) |
+
+## Judges — Round 2 (rubric v3, 3+ cap rule, split-session)
+
+| File | Session ID | Role | Turns | Status |
+|------|-----------|------|-------|--------|
+| (result field) | ss-019d9444-a7c3-... | Judge 1 — engine scoring | 1 | Has result |
+| (result field) | ss-019d9444-a7cd-... | Judge 1 — baseline scoring | 1 | Has result |
+| (result field) | ss-019d9444-a7da-... | Judge 2 — engine scoring | 1 | Has result |
+| (result field) | ss-019d9444-a7e9-... | Judge 2 — baseline scoring | 1 | Has result |
+| (result field) | ss-019d9444-a7f6-... | Judge 3 — engine scoring | 1 | Has result |
+| (result field) | ss-019d9444-a7fe-... | Judge 3 — baseline scoring | 1 | Has result |
+
+Note: Round 2 judges used split-session approach (one session per output per judge) to stay under 32KB WASM field limit. Scores extracted from entity `result` field; sessions stuck in Steering state so JSONL transcripts not finalized.
 
 ## Config
 

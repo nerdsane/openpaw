@@ -1,79 +1,91 @@
-# Run 000 Diagnosis (Rubric v2)
+# Run 000 Diagnosis (Rubric v3 — 3 Independent Judges)
 
 ## Summary
 
-**Engine: 18/48 | Baseline: 27/48 | Delta: -9**
+**Engine: 23.7/48 | Baseline: 27.0/48 | Delta: -3.3 | Borda: 49.0 vs 59.0/72**
 
-Re-scored under the revised rubric with tighter anchors and calibration (2 = competent, 3 = genuinely impressive, 4 = exceptional). The -9 gap is preserved from the original scoring, but absolute scores dropped ~16 points each, creating 30 points of engine headroom for hill climbing.
+Scored by 3 independent paw-agent judges (gpt-5.4) under rubric v3 (tightened 3-level anchors on Novelty/Breadth/Progression/Challenge + 3+ cap rule limiting each output to max 3 criteria at 3+). Split-session approach: each judge scored each output independently to stay under the 32KB WASM field limit.
 
-The engine ties on 3 criteria (Specificity, Novelty, Decision Clarity) and loses the remaining 9. No criterion where the engine wins.
+The engine ties baseline on 5 criteria (Novelty, Breadth, Plausibility, Completeness — all 2s; Challenge — mixed). The engine loses on Specificity, Falsifiability, Actionability, Transparency, Quantitative Precision. The engine wins only on Decision Clarity and Challenge (barely, via individual judge variation).
 
-## New Criteria Performance
+## Per-Criterion Analysis
 
-### Falsifiability (Engine: 1, Baseline: 2) — NEW CRITERION
+### Transparency (Engine: 1.0, Baseline: 2.0) — WORST ENGINE CRITERION
 
-The engine's predictions are stated as assertions ("selection quality remained scarcer") or trend descriptions ("that pattern intensified"). None include conditions under which they'd be proven wrong.
+All 3 judges gave the engine a 1. The engine's synthesis never cites specific observation IDs, signal references, or knowledge graph nodes. Claims like "selection quality remained scarcer" are asserted without tracing to their source. The baseline references "the graph's signals" and "the knowledge graph" more explicitly.
 
-**Root cause:** The synthesis template doesn't instruct the orchestrator to state falsification criteria. The probe outputs generate observations, but observations are descriptive ("X is happening") not predictive ("X will happen by [date], falsified if Y").
+**Root cause:** The synthesis template and orchestration skill do not instruct the synthesizer to reference specific observations or signals by ID. The probe outputs generate observations, but observation IDs are never carried through to the final narrative.
 
-**Fix:** The orchestration skill's synthesis section should mandate that each major prediction includes: (a) a checkable condition, (b) a timeline, and (c) what would falsify it.
+**Fix:** The synthesis section of the orchestration skill should mandate: "For each major claim, cite the observation ID(s) or signal(s) that support it. Use inline references like [obs-N] or [signal: name]."
 
-### Quantitative Precision (Engine: 0, Baseline: 1) — NEW CRITERION
+### Quantitative Precision (Engine: 1.0, Baseline: 1.7) — SECOND WORST
 
-The engine produces zero quantitative predictions. Every claim is qualitative ("scarcer," "outperformed," "concentrated"). Even the methodology note uses counts (27 observations) rather than quantitative substance.
+Engine produces zero quantitative predictions. Every claim is qualitative. The baseline slightly edges it because judges 2 and 3 noted the baseline at least uses "20-30%" thresholds and adoption percentage triggers in decision points.
 
-**Root cause:** No part of the engine pipeline — probes, convergence, or synthesis — instructs agents to produce numerical estimates, adoption percentages, market thresholds, or measurable indicators. The probes observe patterns; they don't estimate magnitudes.
+**Root cause:** No part of the engine pipeline instructs agents to produce numerical estimates. Probes observe patterns but don't estimate magnitudes.
 
-**Fix:** Probe prompts should explicitly instruct: "For each prediction, include at least one measurable indicator (adoption %, market size, threshold, or proxy metric)." The synthesis template should require a quantitative dimension for each active direction.
+**Fix:** Probe prompts should include: "For each prediction, include at least one measurable indicator (adoption %, market size threshold, timeline in months, or proxy metric)." Synthesis template should require a quantitative dimension for each active direction.
 
-### Decision Clarity (Engine: 2, Baseline: 2) — RENAMED/TIGHTENED
+### Specificity (Engine: 2.0, Baseline: 3.0) — 1-POINT GAP
 
-Neither output opens with THE single most important decision, names a deadline, or quantifies the tradeoff. Both require the reader to extract priorities from a well-organized but unprioritized narrative.
+Unanimous: all 3 judges gave engine 2, baseline 3. The engine uses mechanisms ("incident-to-eval loops," "policy gates") but lacks specific actor names and dates. The baseline names Anthropic, OpenAI, Cursor, Cognition, Devin, Aider, Cline, Continue, OpenHands.
 
-**Root cause (engine):** The synthesis template produces Decision Points as equal-weight bullets. No instruction to rank them or lead with the #1 recommendation.
+**Root cause:** The engine's probes and synthesis don't instruct naming real companies, tools, or dates. The knowledge graph contains these entities, but the orchestration skill doesn't push agents to ground claims in named actors.
 
-**Fix:** The synthesis template should instruct: "Open the synthesis with the single most important decision. Name who must decide, by when, and what it costs to wait."
+**Fix:** Probe prompts should include: "Name specific companies, tools, projects, and approximate dates. Do not use generic categories when specific actors can be named."
 
-## Unchanged Criteria — Updated Scores
+### Falsifiability (Engine: 2.0, Baseline: 2.3) — MODERATE GAP
 
-### Transparency (Engine: 1, Baseline: 2) — STILL LOWEST ENGINE SCORE
+Engine predictions are stated as trends ("that pattern intensified") not as falsifiable claims. The baseline has slightly better structure with its confidence levels section, but neither output achieves strong falsifiability.
 
-Same root cause as original diagnosis: synthesis doesn't surface observation IDs or signal references. No change since last analysis.
+**Root cause:** The synthesis template doesn't instruct the orchestrator to state falsification criteria.
 
-### Actionability (Engine: 1, Baseline: 2)
+**Fix:** Synthesis template should mandate: each major prediction includes (a) a checkable condition, (b) a timeline, (c) what would falsify it.
 
-Engine decision points are still unprioritized bullets without triggers, options, or tradeoffs. The baseline has all three but lacks concrete cost quantification. Under the tightened rubric, the baseline drops from 4 to 2 because generic tradeoffs no longer qualify for 3+.
+### Actionability (Engine: 2.0, Baseline: 2.7) — MODERATE GAP
 
-### Progression (Engine: 1, Baseline: 2)
+Engine decision points are equal-weight bullets without timing triggers, options, or tradeoffs. The baseline structures 4 decision points with timing triggers, explicit options (A/B/C), and tradeoff descriptions.
 
-Engine still limited to 2 time points. The baseline's 3-phase structure earns a 2 but no longer a 4 because later phases don't revise earlier predictions — they only extend them.
+**Root cause:** Synthesis template produces Decision Points as a flat bullet list. No instruction to structure as trigger → options → tradeoffs.
 
-### Completeness (Engine: 2, Baseline: 3)
+**Fix:** Synthesis template should instruct: "For each decision point, provide: (1) timing trigger — observable event that makes this decision urgent, (2) 2-3 options, (3) tradeoff for each option in concrete terms."
 
-The baseline's explicit confidence levels, counterfactuals, and challenged assumptions earn a genuine 3 under the strict calibration. The engine still lacks all three.
+### Decision Clarity (Engine: 2.3, Baseline: 2.0) — SLIGHT ENGINE WIN
+
+One of two criteria where the engine edges the baseline. Judge 1 gave engine a 3, noting the executive summary leads with a clear framing. But this is fragile — judges 2 and 3 both gave 2.
+
+### Challenge (Engine: 2.3, Baseline: 2.0) — SLIGHT ENGINE WIN
+
+The engine's critic probe produces genuine counter-narratives ("proxy-driven homeostasis dressed up as evolution"). Under the tightened anchors, this still earns 2-3 from judges. The baseline's "Assumptions to Challenge" section is more structured but less pointed.
+
+### Tied Criteria
+
+- **Novelty (2.0 / 2.0):** Under tightened anchors requiring external evidence for a 3, both drop to 2. Neither introduces insights truly from outside the input material.
+- **Breadth (3.0 / 3.0):** Both cover 6+ themes with cross-theme interactions. This is the one criterion where both consistently earn 3.
+- **Plausibility (2.0 / 2.0):** Both reference evidence and mechanisms but lack explicit confidence levels meeting the 3-standard.
+- **Progression (2.0 / 2.3):** Engine's 2-step progression (90d, 365d) is too coarse for later phases to revise earlier predictions. Baseline's 3-phase structure earns one judge's 3 because Phase 3 builds on Phases 1-2.
+- **Completeness (2.0 / 2.0):** Neither includes explicit what-would-change-my-mind for major claims.
 
 ## Why the Baseline Still Wins
 
-The same three structural advantages from the original diagnosis:
-1. **Full context window** — single-shot model produces one coherent response without fragmentation
-2. **Prompt specificity** — the baseline prompt explicitly requested confidence levels, decision frameworks, challenged assumptions
-3. **No coordination overhead** — every token goes to substance
-
-The rubric tightening reveals that even the baseline has substantial room to improve — it scored 27/48, not 43/48. The criteria where BOTH outputs scored low (Specificity: 2/2, Decision Clarity: 2/2, Quantitative Precision: 0/1) represent shared weaknesses that the engine could address to differentiate itself.
+The same three structural advantages persist:
+1. **Full context window** — single-shot model uses all tokens for substance, no coordination overhead
+2. **Prompt specificity** — the baseline prompt explicitly requested confidence levels, decision frameworks, challenged assumptions, counterfactuals
+3. **Named actors** — the baseline prompt asked for specific entity names, which the engine prompts don't
 
 ## Recommended Changes for Next Iteration
 
-**Priority 1 (addresses 4 criteria where engine scored 0-1):**
-Update synthesis template to mandate:
-- Falsification criteria for each major prediction
-- Quantitative indicators (thresholds, percentages, measurable proxies)
-- Signal/observation references traced to claims (transparency)
-- Decision points with triggers, options, and tradeoffs
+**Priority 1 (addresses the 5 criteria where engine scores 1.0-2.0 and baseline scores higher):**
+
+Update the synthesis template in the orchestration skill to mandate:
+- Observation/signal references traced to each major claim (Transparency)
+- Quantitative indicators for each prediction (Quant Precision)
+- Named actors, tools, and dates (Specificity)
+- Falsification criteria for each major prediction (Falsifiability)
+- Decision points with trigger → options → tradeoffs structure (Actionability)
 
 **Priority 2 (addresses Progression):**
 - Increase time steps to 4 (quarterly) instead of 2
-- Synthesis template should require phase-by-phase breakdown where later phases reference and potentially revise earlier predictions
+- Synthesis template should require later phases to explicitly revise or challenge earlier predictions
 
-**Priority 3:** Fix automated judge infrastructure
-
-Per meta-loop rules: make ONE targeted change per iteration. Priority 1 (synthesis template update) addresses the criteria where the engine scores 0 or 1: Quantitative Precision (0), Falsifiability (1), Transparency (1), Actionability (1), Progression (1).
+Per meta-loop rules: make ONE targeted change per iteration. Priority 1 (synthesis template update) addresses the criteria where the engine scores lowest relative to baseline.

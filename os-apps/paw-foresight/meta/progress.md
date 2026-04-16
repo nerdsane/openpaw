@@ -2,14 +2,14 @@
 
 ## Score Table
 
-| Run | Tag | Engine Score | Baseline Score | Delta | Winner | Streak | Key Change | Key Insight |
-|-----|-----|-------------|---------------|-------|--------|--------|------------|-------------|
-| 000 | foresight-v000 | 18/48 | 27/48 | -9 | Baseline | 0 | Hybrid restructure (skill-based orchestration) | Rubric v2 (tighter anchors, +Falsifiability, +Quant Precision, Decision Clarity). Engine scores 0-1 on 5 criteria (Quant Precision, Falsifiability, Transparency, Actionability, Progression). Baseline earns 3s on Breadth, Plausibility, Completeness, Challenge. 30 pts headroom for hill climbing. |
+| Run | Tag | Engine Score | Baseline Score | Delta | Engine Borda | Baseline Borda | Winner | Streak | Key Change | Key Insight |
+|-----|-----|-------------|---------------|-------|-------------|---------------|--------|--------|------------|-------------|
+| 000 | foresight-v000 | 23.7/48 | 27.0/48 | -3.3 | 49.0/72 | 59.0/72 | Baseline | 0 | Hybrid restructure (skill-based orchestration) | Rubric v3 (tightened 3-level anchors + 3+ cap rule). 3 independent paw-agent judges. Engine weakest on Transparency (1.0) and Quant Precision (1.0). Baseline wins on Specificity, Falsifiability, Actionability. ~24 pts engine headroom. |
 
 ## Version History
 
-- **foresight-v000** (2026-04-15): Initial hybrid architecture. 1 WASM (spawn_orchestrator) + orchestration skill. 3 probes, 2 steps, gpt-5.4.
-- **rubric-v2** (2026-04-15): Replaced Internal Consistency → Falsifiability, Parsimony → Quantitative Precision, renamed Human Readability → Decision Clarity. Tightened all 12 anchors. Added calibration note (2=competent, 3=impressive, 4=exceptional). Re-scored Run 000.
+- **foresight-v000** (2025-04-15): Initial hybrid architecture. 1 WASM (spawn_orchestrator) + orchestration skill. 3 probes, 2 steps, gpt-5.4.
+- **rubric-v3** (2025-04-16): Tightened 3-level anchors on Novelty (require external evidence), Breadth (require non-obvious conclusions), Progression (require revision of earlier predictions), Challenge (require failure mechanism). Added 3+ cap rule (max 3 criteria at 3+ per output per judge). Rescored Run 000 with 3 independent paw-agent judges.
 
 ## Convergence Status
 
@@ -17,4 +17,4 @@
 **Current incumbent:** Baseline (single-shot)
 **A-wins streak:** 0
 **Converged:** No
-**Judge infrastructure:** Manual (automated judges failed — see Run 000 diagnosis)
+**Judge infrastructure:** Operational — 3 independent paw-agent sessions per scoring round (split-session: 6 total, one per output per judge, to stay under 32KB WASM field limit)

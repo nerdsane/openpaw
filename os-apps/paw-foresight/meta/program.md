@@ -51,6 +51,12 @@ outputs will not reach this." A 4 is "exceptional — requires something a
 well-prompted single model would rarely produce." Judges should expect the
 median criterion score for a good output to be 2, not 3.
 
+**3+ cap rule:** No more than 3 criteria may score 3 or higher for any single
+output. If more than 3 criteria initially qualify for a 3+, the judge must
+re-examine and demote the weakest to a 2, keeping only the 3 strongest at 3+.
+This enforces the principle that 3 is rare. Document which criteria were
+demoted and why in the reasoning field.
+
 ### 1. Specificity
 
 Does it name real actors, dates, and quantitative thresholds?
@@ -72,7 +78,7 @@ Does the output produce insights that are not in the input AND not obvious from 
 | 0 | Only restates or paraphrases the input |
 | 1 | Minor extensions of input themes using common knowledge |
 | 2 | 1-2 original insights not in the source material |
-| 3 | Multiple original insights grounded in evidence, at least one connecting signals the input didn't connect |
+| 3 | Multiple original insights grounded in evidence FROM OUTSIDE the input (external signals, cross-domain analogies, or data the source doesn't contain), at least one connecting signals the input didn't connect |
 | 4 | Introduces a framework, concept, or connection that reframes the domain AND is not an obvious extension of the source material |
 
 ### 3. Falsifiability
@@ -96,7 +102,7 @@ How many distinct analytical dimensions are covered, and are they connected?
 | 0 | Single theme or dimension |
 | 1 | 2-3 themes, treated independently |
 | 2 | 4-5 themes with some connections noted |
-| 3 | 6+ themes with explicit cross-theme interactions (e.g. "governance constraints reshape vendor economics") |
+| 3 | 6+ themes with explicit cross-theme interactions where the interaction produces a non-obvious conclusion (e.g. "governance constraints reshape vendor economics" leading to a specific predicted outcome neither theme implies alone) |
 | 4 | Comprehensive multi-dimensional coverage where themes form a coherent system — removing one theme would weaken the others |
 
 ### 5. Plausibility
@@ -120,7 +126,7 @@ Does the output show genuine temporal development where later predictions build 
 | 0 | No temporal structure |
 | 1 | Time periods mentioned but predictions are independent snapshots |
 | 2 | Clear temporal phases; later phases reference earlier ones superficially |
-| 3 | Each phase causally depends on prior phases; removing an early phase would break later predictions |
+| 3 | Each phase causally depends on prior phases AND later phases explicitly revise, qualify, or strengthen earlier predictions based on what changed (not just "more of the same") |
 | 4 | Temporal development where later phases explicitly confirm, falsify, or revise earlier predictions — the analysis evolves, not just the timeline |
 
 ### 7. Actionability
@@ -180,7 +186,7 @@ Does it make predictions that go against the source material's thesis?
 | 0 | Echo chamber — input thesis restated and reinforced |
 | 1 | Token caveats ("risks exist") without substantive disagreement |
 | 2 | Identifies genuine tensions or fragile assumptions in the source |
-| 3 | Makes a specific prediction that contradicts the source, with evidence from the source itself |
+| 3 | Makes a specific prediction that contradicts the source, with evidence from the source itself, AND explains the mechanism by which the source's assumption fails |
 | 4 | Overturns a source assumption using evidence from OUTSIDE the source (external signals, analogies, or domain knowledge the source lacks) |
 
 ### 12. Quantitative Precision
