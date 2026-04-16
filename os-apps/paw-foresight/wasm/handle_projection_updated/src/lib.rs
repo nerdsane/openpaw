@@ -125,11 +125,31 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             vec![]
         };
 
-        // Respawn each Probe with episodic memory + projected state
+        // Validate every probe_config entry's provider/model BEFORE any respawn,
+        // so we don't end up with a partially-respawned round where half the
+        // probes are on the old step. Missing values are a configuration
+        // error, not a silent skip (openpaw#65).
+        for (i, _agent_id) in probe_agent_ids.iter().enumerate() {
+            let pc = probe_config.get(i).cloned().unwrap_or(json!({}));
+            if pc.get("model").and_then(|v| v.as_str()).filter(|s| !s.is_empty()).is_none() {
+                return Err(format!(
+                    "handle_projection_updated: probe_config[{i}] missing 'model' — \
+                     orchestrator must populate probe_config (openpaw#65)"
+                ));
+            }
+            if pc.get("provider").and_then(|v| v.as_str()).filter(|s| !s.is_empty()).is_none() {
+                return Err(format!(
+                    "handle_projection_updated: probe_config[{i}] missing 'provider' — \
+                     orchestrator must populate probe_config (openpaw#65)"
+                ));
+            }
+        }
+
+        // Respawn each Probe with episodic memory + projected state.
         for (i, agent_id) in probe_agent_ids.iter().enumerate() {
             let pc = probe_config.get(i).cloned().unwrap_or(json!({}));
-            let probe_model = pc.get("model").and_then(|v| v.as_str()).unwrap_or("claude-sonnet-4-6");
-            let probe_provider = pc.get("provider").and_then(|v| v.as_str()).unwrap_or("anthropic");
+            let probe_model = pc.get("model").and_then(|v| v.as_str()).unwrap_or("");
+            let probe_provider = pc.get("provider").and_then(|v| v.as_str()).unwrap_or("");
             if let Err(e) = respawn_probe(
                 &ctx, &temper_api_url, &headers, agent_id, entity_id,
                 foresight_model_id, next_step, next_days_offset,

@@ -141,14 +141,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 .get("name")
                 .and_then(|v| v.as_str())
                 .unwrap_or("Probe");
-            let probe_model = probe
-                .get("model")
-                .and_then(|v| v.as_str())
-                .unwrap_or("claude-sonnet-4-6");
-            let probe_provider = probe
-                .get("provider")
-                .and_then(|v| v.as_str())
-                .unwrap_or("anthropic");
+            let (probe_model, probe_provider) = validate_probe_entry(probe, probe_name)?;
 
             // 3a. Create Agent
             let agent_url = format!("{temper_api_url}/tdata/Agents");
@@ -338,4 +331,95 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         set_error_result(&e);
     }
     0
+}
+
+/// Validate that a `probe_config` entry specifies both `model` and `provider`.
+///
+/// Returns `(model, provider)` on success. Missing or empty values produce an
+/// explicit error referencing openpaw#65 — the orchestrator session is the
+/// source of truth for provider/model, and we refuse to silently fall back
+/// to a hardcoded default that would 401 on codex-only tenants.
+fn validate_probe_entry(
+    probe: &Value,
+    probe_name: &str,
+) -> Result<(String, String), String> {
+    let model = probe
+        .get("model")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| format!(
+            "spawn_probes: probe_config entry '{probe_name}' missing 'model' — \
+             the orchestrator must populate probe_config with its own model/provider \
+             (see openpaw#65)"
+        ))?
+        .to_string();
+    let provider = probe
+        .get("provider")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| format!(
+            "spawn_probes: probe_config entry '{probe_name}' missing 'provider' — \
+             the orchestrator must populate probe_config with its own model/provider \
+             (see openpaw#65)"
+        ))?
+        .to_string();
+    Ok((model, provider))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn validate_probe_entry_accepts_complete_config() {
+        let probe = json!({
+            "name": "Probe-A",
+            "model": "gpt-5",
+            "provider": "openai_codex"
+        });
+        let result = validate_probe_entry(&probe, "Probe-A");
+        assert_eq!(result, Ok(("gpt-5".into(), "openai_codex".into())));
+    }
+
+    #[test]
+    fn validate_probe_entry_rejects_missing_provider() {
+        let probe = json!({
+            "name": "Probe-A",
+            "model": "gpt-5"
+        });
+        let err = validate_probe_entry(&probe, "Probe-A").unwrap_err();
+        assert!(err.contains("missing 'provider'"), "got: {err}");
+        assert!(err.contains("openpaw#65"), "error must reference the issue");
+    }
+
+    #[test]
+    fn validate_probe_entry_rejects_missing_model() {
+        let probe = json!({
+            "name": "Probe-A",
+            "provider": "anthropic"
+        });
+        let err = validate_probe_entry(&probe, "Probe-A").unwrap_err();
+        assert!(err.contains("missing 'model'"), "got: {err}");
+        assert!(err.contains("openpaw#65"));
+    }
+
+    #[test]
+    fn validate_probe_entry_rejects_empty_string_values() {
+        // Empty string is as bad as missing — the .filter(|s| !s.is_empty())
+        // guard rejects both, avoiding a silent configure-with-empty that
+        // would produce a downstream 401 with no signal.
+        let probe = json!({"name": "x", "model": "", "provider": "anthropic"});
+        assert!(validate_probe_entry(&probe, "x").is_err());
+        let probe = json!({"name": "x", "model": "gpt-5", "provider": ""});
+        assert!(validate_probe_entry(&probe, "x").is_err());
+    }
+
+    #[test]
+    fn validate_probe_entry_error_names_the_probe() {
+        // Error messages must include the probe name so operators can locate
+        // the offending entry when probe_config has multiple probes.
+        let probe = json!({"name": "Convergence-Analyst"});
+        let err = validate_probe_entry(&probe, "Convergence-Analyst").unwrap_err();
+        assert!(err.contains("'Convergence-Analyst'"), "got: {err}");
+    }
 }

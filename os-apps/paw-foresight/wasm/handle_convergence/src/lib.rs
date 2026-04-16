@@ -140,6 +140,30 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             dir_json
         };
 
+        // Validate probe_config provider/model UP FRONT so we don't create an
+        // orphan Agent + Session when configuration is missing (openpaw#65).
+        let probe_config_raw = fields.get("probe_config").cloned().unwrap_or(json!([]));
+        let probe_config: Vec<Value> = if let Some(arr) = probe_config_raw.as_array() {
+            arr.clone()
+        } else if let Some(s) = probe_config_raw.as_str() {
+            serde_json::from_str(s).unwrap_or_default()
+        } else {
+            vec![]
+        };
+        let first_probe = probe_config.first().cloned().unwrap_or(json!({}));
+        let model = first_probe
+            .get("model")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| "handle_convergence: probe_config[0] missing 'model' — orchestrator must populate probe_config (openpaw#65)".to_string())?
+            .to_string();
+        let provider = first_probe
+            .get("provider")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| "handle_convergence: probe_config[0] missing 'provider' — orchestrator must populate probe_config (openpaw#65)".to_string())?
+            .to_string();
+
         // Spawn Model Projector agent
         let agent_url = format!("{temper_api_url}/tdata/Agents");
         let agent_body = json!({
@@ -217,19 +241,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
              Then call ProjectionUpdated with the file_id as instructed above."
         );
 
-        // Read model/provider from probe_config
-        let probe_config_raw = fields.get("probe_config").cloned().unwrap_or(json!([]));
-        let probe_config: Vec<Value> = if let Some(arr) = probe_config_raw.as_array() {
-            arr.clone()
-        } else if let Some(s) = probe_config_raw.as_str() {
-            serde_json::from_str(s).unwrap_or_default()
-        } else {
-            vec![]
-        };
-        let first_probe = probe_config.first().cloned().unwrap_or(json!({}));
-        let model = first_probe.get("model").and_then(|v| v.as_str()).unwrap_or("claude-sonnet-4-6");
-        let provider = first_probe.get("provider").and_then(|v| v.as_str()).unwrap_or("anthropic");
-
+        // model/provider already validated above (before Agent creation).
         let configure_url = format!(
             "{temper_api_url}/tdata/Sessions('{session_id}')/OpenPaw.Configure"
         );

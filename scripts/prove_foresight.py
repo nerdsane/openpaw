@@ -122,10 +122,10 @@ def main() -> None:
             "horizon": "3m",
             "max_steps": "3",
             "step_schedule": json.dumps([1, 7, 30]),
-            "probe_config": json.dumps({"probes": [
-                {"name": "Proof-Probe-1", "model": "claude-sonnet-4-6"},
-                {"name": "Proof-Probe-2", "model": "claude-sonnet-4-6"},
-            ]}),
+            "probe_config": json.dumps([
+                {"name": "Proof-Probe-1", "model": "claude-sonnet-4-6", "provider": "anthropic"},
+                {"name": "Proof-Probe-2", "model": "claude-sonnet-4-6", "provider": "anthropic"},
+            ]),
         })
         client.action("Projections", proj_id, "OpenPaw.Foresight.Start", {})
         print(f"  Created and started Projection: {proj_id}")

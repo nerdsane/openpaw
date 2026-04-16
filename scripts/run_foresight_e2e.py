@@ -266,7 +266,10 @@ def main():
         "horizon": "2w",
         "max_steps": "3",
         "step_schedule": json.dumps([1, 7, 14]),
-        "probe_config": json.dumps([{"name": "Probe-A", "model": "claude-sonnet-4-6"}, {"name": "Probe-B", "model": "claude-sonnet-4-6"}]),
+        "probe_config": json.dumps([
+            {"name": "Probe-A", "model": "claude-sonnet-4-6", "provider": "anthropic"},
+            {"name": "Probe-B", "model": "claude-sonnet-4-6", "provider": "anthropic"},
+        ]),
     })
     print(f"  Created Projection {proj_id}")
 
