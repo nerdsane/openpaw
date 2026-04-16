@@ -144,11 +144,21 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             let probe_model = probe
                 .get("model")
                 .and_then(|v| v.as_str())
-                .unwrap_or("claude-sonnet-4-6");
+                .filter(|s| !s.is_empty())
+                .ok_or_else(|| format!(
+                    "spawn_probes: probe_config entry '{probe_name}' missing 'model' — \
+                     the orchestrator must populate probe_config with its own model/provider \
+                     (see openpaw#65)"
+                ))?;
             let probe_provider = probe
                 .get("provider")
                 .and_then(|v| v.as_str())
-                .unwrap_or("anthropic");
+                .filter(|s| !s.is_empty())
+                .ok_or_else(|| format!(
+                    "spawn_probes: probe_config entry '{probe_name}' missing 'provider' — \
+                     the orchestrator must populate probe_config with its own model/provider \
+                     (see openpaw#65)"
+                ))?;
 
             // 3a. Create Agent
             let agent_url = format!("{temper_api_url}/tdata/Agents");

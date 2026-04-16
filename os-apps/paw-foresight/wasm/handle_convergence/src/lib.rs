@@ -226,9 +226,19 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         } else {
             vec![]
         };
+        // Analyst inherits provider/model from probe_config[0]. Missing values
+        // are a configuration error rather than a silent fallback (openpaw#65).
         let first_probe = probe_config.first().cloned().unwrap_or(json!({}));
-        let model = first_probe.get("model").and_then(|v| v.as_str()).unwrap_or("claude-sonnet-4-6");
-        let provider = first_probe.get("provider").and_then(|v| v.as_str()).unwrap_or("anthropic");
+        let model = first_probe
+            .get("model")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| "handle_convergence: probe_config[0] missing 'model' — orchestrator must populate probe_config (openpaw#65)".to_string())?;
+        let provider = first_probe
+            .get("provider")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| "handle_convergence: probe_config[0] missing 'provider' — orchestrator must populate probe_config (openpaw#65)".to_string())?;
 
         let configure_url = format!(
             "{temper_api_url}/tdata/Sessions('{session_id}')/OpenPaw.Configure"

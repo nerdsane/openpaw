@@ -335,10 +335,19 @@ fn spawn_convergence_analyst(
     } else {
         vec![]
     };
-    // Use first probe's model/provider as analyst defaults
+    // Analyst inherits provider/model from probe_config[0]. Missing values are
+    // a configuration error rather than a silent fallback (openpaw#65).
     let first_probe = probe_config.first().cloned().unwrap_or(json!({}));
-    let analyst_model = first_probe.get("model").and_then(|v| v.as_str()).unwrap_or("claude-sonnet-4-6");
-    let analyst_provider = first_probe.get("provider").and_then(|v| v.as_str()).unwrap_or("anthropic");
+    let analyst_model = first_probe
+        .get("model")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| "spawn_convergence_analyst: probe_config[0] missing 'model' — orchestrator must populate probe_config (openpaw#65)".to_string())?;
+    let analyst_provider = first_probe
+        .get("provider")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| "spawn_convergence_analyst: probe_config[0] missing 'provider' — orchestrator must populate probe_config (openpaw#65)".to_string())?;
     let configure_body = json!({
         "model": analyst_model,
         "provider": analyst_provider,
