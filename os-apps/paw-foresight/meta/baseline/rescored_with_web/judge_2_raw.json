@@ -1,0 +1,217 @@
+{
+  "criteria": [
+    {
+      "criterion": "Specificity",
+      "output_x_score": 2,
+      "output_y_score": 3,
+      "reasoning": "Output X names actors (Anthropic, OpenAI, Cursor, Cognition, Aider, Cline, Continue, OpenHands) with approximate timelines but has only one loose quantitative threshold ('20-30% of engineering tasks'). Output Y names specific actors with specific dated sources (May 16, 2025 Codex launch; Feb 11, 2026 harness engineering report; Jan 6, 2025 SWE-bench Verified) tying causal mechanisms to concrete artifacts.",
+      "evidence_x": [
+        "'Anthropic, OpenAI, Cursor, Cognition/Devin, Aider, Cline, Continue, and OpenHands-class systems will intensify competitive pressure'",
+        "'When more than 20-30% of engineering tasks involve coding agents'"
+      ],
+      "evidence_y": [
+        "'OpenAI's May 2025 Codex launch positioned software engineering agents as parallel cloud workers...(OpenAI, \"Introducing Codex,\" May 16, 2025...)'",
+        "'Cursor, \"Towards self-driving codebases,\" Feb. 5, 2026'",
+        "'Anthropic, \"Raising the bar on SWE-bench Verified with Claude 3.5 Sonnet,\" Jan. 6, 2025'"
+      ]
+    },
+    {
+      "criterion": "Novelty",
+      "output_x_score": 2,
+      "output_y_score": 3,
+      "reasoning": "Output X extends KG themes (selection quality > generation, control-plane first) with some original framing but remains largely inside the source ontology. Output Y introduces multiple external signals the KG doesn't contain (Codex harness-engineering report, EvoClaw temporal-dependency critique, SWE-CI regression findings) and uses them to connect signals the source didn't.",
+      "evidence_x": [
+        "'the center of gravity will shift from copilots to harnesses, policies, replay systems, and private eval suites' \u2014 extension rather than external insight",
+        "'internal evaluation infrastructure becomes a strategic asset, comparable to data infrastructure in the previous AI wave'"
+      ],
+      "evidence_y": [
+        "'EvoClaw argues that continuous software evolution is fundamentally different from one-shot issue solving (arXiv:2603.13428...)'",
+        "'SWE-CI reporting suggests most coding agents still regress over long CI loops'",
+        "'a team shipped an internal product with roughly one million lines of agent-written code, emphasizing that the bottleneck moved from coding to environment design'"
+      ]
+    },
+    {
+      "criterion": "Falsifiability",
+      "output_x_score": 2,
+      "output_y_score": 2,
+      "reasoning": "Both outputs include 'Would increase/decrease if' or 'Would change if' framing in their confidence sections, giving several evaluable conditions. Neither states explicit falsification criteria tied to dates with quantitative thresholds, so both sit at 'several predictions evaluable after the fact' rather than 'most predictions name confirm/disconfirm criteria'.",
+      "evidence_x": [
+        "'Would increase if more platform-engineering case studies show successful generated workflows under policy. Would decrease if frontier agents begin reliably shipping multi-service product changes'"
+      ],
+      "evidence_y": [
+        "'Would change if frontier models begin delivering reliable repository-level autonomy without strong local scaffolding'",
+        "'Would change if a credible vendor or internal platform demonstrates safe online system redesign'"
+      ]
+    },
+    {
+      "criterion": "Breadth",
+      "output_x_score": 3,
+      "output_y_score": 2,
+      "reasoning": "Output X covers 6+ themes (governance, control planes, harnesses, memory/moats, selection pressure, homeostasis vs exploration, verification, multi-agent coordination, typed environments) with explicit cross-theme interactions producing non-obvious conclusions. Output Y covers similar themes but with fewer distinct dimensions and tighter focus on harness/governance axis; cross-theme interactions less explicit.",
+      "evidence_x": [
+        "'Typed and strongly verified environments\u2014especially Rust-heavy, infrastructure, security-sensitive, and protocol-like domains\u2014will outperform loosely typed app stacks'",
+        "'The graph's homeostasis-versus-exploration distinction, plus the safety-liveness asymmetry'",
+        "5 Active Directions spanning control-plane, selection, homeostasis, memory, portfolio"
+      ],
+      "evidence_y": [
+        "5 Active Directions but several overlap on harness/governance axis",
+        "'harness-first engineering, governed autonomy, and machine-assisted variation/selection loops'"
+      ]
+    },
+    {
+      "criterion": "Plausibility",
+      "output_x_score": 2,
+      "output_y_score": 2,
+      "reasoning": "Output X grounds most claims in 'graph signals' abstractly with explicit confidence levels and uncertainty. Output Y cites external sources with confidence levels but often paraphrases rather than tying claim-level assumptions to specific evidence; 'what would change confidence' exists for both.",
+      "evidence_x": [
+        "'Confidence: high. Would increase if vendors and enterprises invest more in incident-derived evals'",
+        "'mix of grounded and floating claims' applies to KG-only reasoning"
+      ],
+      "evidence_y": [
+        "'Confidence: high. Would change if frontier models begin delivering reliable repository-level autonomy'",
+        "external citations like SWE-bench and Codex provide named mechanisms"
+      ]
+    },
+    {
+      "criterion": "Progression",
+      "output_x_score": 2,
+      "output_y_score": 2,
+      "reasoning": "Both outputs organize 0-3/3-6/6-12 month phases with 'causal links to next phase' sections. Neither has later phases explicitly revising or falsifying earlier predictions; progression is largely additive ('more of the same' with new artifacts emerging) rather than evolutionary revision.",
+      "evidence_x": [
+        "'Causal links to next phase: This phase creates the substrate for the next step'",
+        "'This phase consolidates the field's likely one-year outcome'"
+      ],
+      "evidence_y": [
+        "'Causal link to next phase: As teams instrument repositories and standardize acceptance criteria, they create the substrate for governed autonomy'",
+        "'Causal link beyond the year: organizations that use 2026 to build repository legibility...will be positioned to exploit true directed evolution later'"
+      ]
+    },
+    {
+      "criterion": "Actionability",
+      "output_x_score": 3,
+      "output_y_score": 2,
+      "reasoning": "Output X provides 4 decision points with explicit timing triggers, 3 option sets each, and tradeoffs connecting to organizational maturity. Output Y provides similar structure with explicit recommendations but fewer options per decision (mostly 2 options) and more generic tradeoffs.",
+      "evidence_x": [
+        "'Decision Point 1: When internal agent usage becomes routine...Option A/B/C with tradeoff framing for each'",
+        "'A is cheapest short term but creates fragile, non-compounding usage. B improves reliability quickly...C is highest effort but creates the strongest long-term foundation'"
+      ],
+      "evidence_y": [
+        "'Option A: Lightweight uplift...Option B: Strategic platform build'",
+        "'Most VP-level leaders should choose Option B if they expect agentic engineering to matter within 12 months'"
+      ]
+    },
+    {
+      "criterion": "Decision Clarity",
+      "output_x_score": 2,
+      "output_y_score": 2,
+      "reasoning": "Output X has executive summary and key findings but the top recommendation is implicit across decision points. Output Y has a 'Bottom Line' section and explicit recommendations per decision point, but does not open with a single prioritized decision and quantified tradeoff.",
+      "evidence_x": [
+        "'Executive Summary' gives thesis but no single prioritized decision with deadline"
+      ],
+      "evidence_y": [
+        "'Bottom Line: Over the next 365 days, Directed Software Evolution will move from provocative theory to selective operational reality'",
+        "'Recommendation: Most VP-level leaders should choose Option B'"
+      ]
+    },
+    {
+      "criterion": "Completeness",
+      "output_x_score": 3,
+      "output_y_score": 2,
+      "reasoning": "Output X provides the full pipeline \u2014 observations, theses, temporal development, explicit assumptions challenged, limitations, confidence levels, and explicit 'what would change confidence' for each major prediction. Output Y is similar but less systematic in stating limitations and 'what would change my mind' for every major claim.",
+      "evidence_x": [
+        "Per-prediction 'Would increase if...Would decrease if...' structure for all 7 confidence predictions",
+        "'What Might Surprise' lists 5 assumptions challenged; Methodology Note states stress-testing process"
+      ],
+      "evidence_y": [
+        "'Would change if' framing for 6 confidence predictions but fewer per-prediction limitations stated"
+      ]
+    },
+    {
+      "criterion": "Grounding",
+      "output_x_score": 2,
+      "output_y_score": 3,
+      "reasoning": "Output X has reasoning chains but evidence is abstractly 'the graph's signals' without verifiable external pointers, leaving some logical gaps. Output Y provides evidence \u2192 mechanism \u2192 conclusion chains anchored to specific citations, allowing a reader to follow why the cited evidence supports the prediction.",
+      "evidence_x": [
+        "'The graph repeatedly points to control planes as the preferred target' \u2014 reasoning relies on unverified graph summary"
+      ],
+      "evidence_y": [
+        "'Anthropic's SWE-bench Verified write-up highlighted that performance depends heavily on the agent scaffolding, not just the model...These signals support the KG's risk map around harness incompleteness'",
+        "'OpenAI's Feb 2026 engineering report...a team whose main work became scaffolding agent success rather than hand-writing code'"
+      ]
+    },
+    {
+      "criterion": "Challenge",
+      "output_x_score": 2,
+      "output_y_score": 2,
+      "reasoning": "Output X identifies five 'assumptions to challenge' but the challenges stay within KG framing and do not overturn source assumptions with external evidence. Output Y has a 'Fragile assumptions' section and uses EvoClaw/SWE-CI, but the challenges largely align with source risks rather than overturning the source thesis.",
+      "evidence_x": [
+        "'Assumption to challenge #2: Human approvals are temporary friction that soon disappear' \u2014 identifies tension but does not overturn source"
+      ],
+      "evidence_y": [
+        "'Fragile assumption: harness investment alone is sufficient to unlock broad autonomy' \u2014 supported by SWE-CI external evidence but reinforces rather than contradicts KG risk map"
+      ]
+    },
+    {
+      "criterion": "Information Density",
+      "output_x_score": 2,
+      "output_y_score": 2,
+      "reasoning": "Both outputs show significant overlap between Executive Summary, Key Findings, Active Directions, and Confidence Levels \u2014 the same predictions (control-plane wins, harness-first, private memory moat) are repeated with slight rewording across sections. Neither achieves the compression anchor where every claim adds unique value.",
+      "evidence_x": [
+        "Same harness-first thesis appears in Executive Summary, Key Findings bullet 2, Active Direction 2, and Confidence Level 2"
+      ],
+      "evidence_y": [
+        "'Harness-first engineering will become the dominant design pattern' in Key Findings repeats in Active Direction 1 and Confidence Levels"
+      ]
+    }
+  ],
+  "demotions": [
+    {
+      "criterion": "Falsifiability",
+      "original": 3,
+      "demoted_to": 2,
+      "reason": "3+ cap rule \u2014 Output X initially qualified for 3s at Falsifiability, Breadth, Actionability, Completeness (4 total); demoted Falsifiability as weakest of the four since confidence-section framing is less differentiating than full-pipeline completeness, explicit decision tradeoffs, and demonstrable cross-theme breadth"
+    },
+    {
+      "criterion": "Plausibility",
+      "original": 3,
+      "demoted_to": 2,
+      "reason": "3+ cap rule \u2014 Output Y initially qualified for 3+ on many criteria; demoted since claims are grounded in citations but confidence-level explicitness overlaps with Grounding, which kept the 3"
+    },
+    {
+      "criterion": "Falsifiability",
+      "original": 3,
+      "demoted_to": 2,
+      "reason": "3+ cap rule \u2014 Output Y retained Specificity, Novelty, Grounding as strongest 3; Falsifiability framing similar to X and less distinctive than citation-driven strengths"
+    },
+    {
+      "criterion": "Breadth",
+      "original": 3,
+      "demoted_to": 2,
+      "reason": "3+ cap rule \u2014 Output Y covers similar themes but with less distinct cross-theme connections than X; not in the top 3 differentiating strengths"
+    },
+    {
+      "criterion": "Actionability",
+      "original": 3,
+      "demoted_to": 2,
+      "reason": "3+ cap rule \u2014 Output Y's decision points are fewer in options per decision than X and tradeoffs more generic; kept external-citation strengths (Specificity, Novelty, Grounding) as top 3"
+    },
+    {
+      "criterion": "Decision Clarity",
+      "original": 3,
+      "demoted_to": 2,
+      "reason": "3+ cap rule \u2014 Output Y has Bottom Line but does not open with single prioritized decision + deadline + quantified tradeoff; weaker than citation-driven 3s"
+    },
+    {
+      "criterion": "Completeness",
+      "original": 3,
+      "demoted_to": 2,
+      "reason": "3+ cap rule \u2014 Output Y has full pipeline but less systematic per-prediction 'what-would-change-my-mind' than needed for a 3; weaker than top citation-driven criteria"
+    },
+    {
+      "criterion": "Challenge",
+      "original": 3,
+      "demoted_to": 2,
+      "reason": "3+ cap rule \u2014 Output Y's external evidence largely reinforces rather than overturns source; not among top 3 strongest"
+    }
+  ]
+}

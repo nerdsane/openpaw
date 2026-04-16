@@ -1,13 +1,37 @@
 {
-  "description": "LOCKED single-shot baseline scores for the foresight meta-loop. Reference only — baseline does NOT participate in tournament judging. See program.md.",
+  "description": "LOCKED single-shot baseline scores for the foresight meta-loop. Reference only — baseline does NOT participate in tournament judging. See program.md. Re-seeded 2026-04-16 with web tools enabled (temper_web_search, temper_web_fetch) to match the engine's probe tool set, so the comparison is fair.",
   "rubric_version": "v4",
   "baseline_synthesis_file": "meta/baseline/synthesis.md",
-  "baseline_synthesis_sha256": "127bf09b7342bfb14b528612c7ba0303c5b25260849b6ffb506199e3507e4c09",
-  "baseline_raw_score": 25.0,
+  "baseline_synthesis_sha256": "6a5cf966bc97c87c25f867ff0808033f37adca7e7c06f6acee8884615368dd83",
+  "baseline_raw_score": 27.0,
   "baseline_raw_max": 48,
-  "baseline_borda": 51.0,
+  "baseline_borda": 54.5,
   "baseline_borda_max": 72,
   "scored_at": "2026-04-16",
   "locked": true,
-  "locking_note": "This file is tracked in git. verify_run.py checks that the synthesis file sha256 matches baseline_synthesis_sha256; any mismatch invalidates the run. Do not modify without also updating the sha."
+  "locking_note": "This file is tracked in git. verify_run.py checks that the synthesis file sha256 matches baseline_synthesis_sha256; any mismatch invalidates the run. Do not modify without also updating the sha.",
+  "rescoring_2026_04_16": {
+    "reason": "Original baseline was scored with a session that had no web access. After the engine's open-ended agents (orchestrator, probes, convergence-analyst, model-projector) got temper_web_search and temper_web_fetch, the comparison became asymmetric. Re-ran the baseline single-shot with the same model (anthropic / claude-sonnet-4-6) and tool access including web, same prompt template updated to explicitly direct web usage.",
+    "against": "old_baseline_no_web (archived at meta/baseline/archive_no_web/synthesis.md)",
+    "winner": "new_baseline_with_web",
+    "raw_new": 27.0,
+    "raw_old": 26.7,
+    "borda_new": 54.5,
+    "borda_old": 53.5,
+    "per_criterion_borda_deltas": {
+      "Specificity": 2.0,
+      "Novelty": 3.0,
+      "Falsifiability": -2.0,
+      "Breadth": -2.0,
+      "Plausibility": 2.0,
+      "Progression": 0.0,
+      "Actionability": -1.0,
+      "Decision Clarity": 0.0,
+      "Completeness": -3.0,
+      "Grounding": 2.0,
+      "Challenge": 0.0,
+      "Information Density": 0.0
+    },
+    "interpretation": "Web tools produce a small but real uplift (+0.3 raw, +1 Borda). Gains on Specificity, Novelty, Plausibility, Grounding — exactly the axes web citations should improve. Losses on Completeness, Breadth, Falsifiability suggest the citation-heavy version traded coverage for depth. Net: narrow challenger win. Engine must beat this floor."
+  }
 }

@@ -11,7 +11,7 @@ Pre-Track-1 runs are archived under `meta/archive_v4_pre_track1/` for historical
 - **Rubric:** v4 — 12 criteria (Grounding replaces Transparency, Information Density replaces Quantitative Precision) — see `program.md` (immutable)
 - **Judges:** 3 Claude Code subagents (`claude -p`), side-by-side blind comparison, **deterministic** X/Y via `tools/assign_judges.py`
 - **Judge prompt:** LOCKED template at `meta/judge_prompt_template.md` — sha recorded in each `scores.json`
-- **Baseline (locked):** see `meta/baseline/scores.json` (25.0/48 raw, 51.0/72 Borda — single-shot reference, does NOT participate in tournament)
+- **Baseline (locked, re-seeded 2026-04-16 with web tools):** see `meta/baseline/scores.json` (27.0/48 raw, 54.5/72 Borda — single-shot reference with matched tool access, does NOT participate in tournament). Old no-web baseline archived at `baseline/archive_no_web/synthesis.md`.
 - **Constraints:** domain-agnostic, no-authoring, prefer-architecture
 - **Convergence:** 2 consecutive incumbent wins
 - **Run 000:** measurement-only; first tournament round is Run 001 (incumbent = Run 000 engine output)

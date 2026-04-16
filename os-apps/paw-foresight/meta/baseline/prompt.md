@@ -11,7 +11,21 @@ This file contains the full knowledge graph derived from the essay "Directed Sof
 
 1. FIRST, read the knowledge graph using the temper.read() call above. Study it thoroughly.
 
-2. Produce a comprehensive foresight projection covering the next 1 year (365 days). Structure your output as follows:
+2. SEARCH FOR EXTERNAL EVIDENCE. Before writing your projection, run at least 2 web searches
+   to find real, recent signals NOT in the knowledge graph. Use temper.web_search() and
+   temper.web_fetch() to read promising results. Look for:
+   - Recent news, announcements, or product launches relevant to Directed Software Evolution
+   - Research papers, blog posts, or industry reports with data or findings
+   - Events, conferences, or community signals that confirm or contradict the KG themes
+
+   Example:
+     results = temper.web_search("directed software evolution 2026 trends")
+     page = temper.web_fetch("https://example.com/relevant-article")
+
+   Cite external sources inline in your projection. A prediction grounded in both the
+   knowledge graph AND an external signal is stronger than one grounded in only the KG.
+
+3. Produce a comprehensive foresight projection covering the next 1 year (365 days). Structure your output as follows:
 
 ### Executive Summary
 2-3 paragraphs synthesizing the most important findings about where Directed Software Evolution is heading.
