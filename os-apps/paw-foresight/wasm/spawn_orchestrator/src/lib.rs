@@ -1,13 +1,16 @@
 //! Spawn Orchestrator — WASM module for the Projection.Start integration.
 //!
-//! Run 007: Probe creation moved from orchestrator to WASM layer.
-//! Each probe session gets a hard-coded theme constraint for its directions,
-//! ensuring structural diversity that the orchestrator cannot shortcut.
-//! This addresses the persistent Breadth deficit (E=3.0 B=6.0 Borda, Runs 004-006)
-//! caused by governance-heavy direction clustering.
+//! Run 009: Cross-theme analyst session added between probes and synthesis.
+//! 6 runs proved prose template instructions unreliable (Runs 003-008).
+//! WASM-level interventions work (Run 007 theme enforcement followed).
+//! Now WASM creates a dedicated cross-theme analyst session that reads all
+//! observations/directions, produces structured cross-theme interactions,
+//! and writes them to a file. The orchestrator reads this file and injects
+//! the content into the synthesis template as a pre-filled variable —
+//! the synthesizer includes it without needing to generate it.
 //!
-//! Creates: 6 probe sessions (theme-constrained) + 1 orchestrator session.
-//! Probes run concurrently. Orchestrator waits for probes, reads results, synthesizes.
+//! Creates: 6 probe sessions (theme-constrained) + 1 cross-theme analyst + 1 orchestrator.
+//! Probes run concurrently. Analyst waits for probes. Orchestrator waits for both.
 //!
 //! Build: `cargo build --target wasm32-unknown-unknown --release`
 
@@ -110,84 +113,250 @@ temper.done({"status": "ok", "probe": "PROBE_ROLE", "step": "PROBE_STEP"})
 ```
 "###;
 
-/// Orchestrator instructions — simplified for Run 007.
-/// Probes are already running (created by WASM). Orchestrator just waits and synthesizes.
-const ORCHESTRATOR_INSTRUCTIONS: &str = r###"You are orchestrating a foresight projection. Follow these steps exactly.
+/// Cross-theme analyst — WASM-created session that runs after probes complete.
+/// Reads all observations and directions, identifies cross-theme pairs,
+/// and writes structured interaction entries to a workspace file.
+/// The orchestrator reads this file and injects it into the synthesis template.
+const CROSS_THEME_ANALYST_PROMPT: &str = r###"You are a cross-theme interaction analyst for a foresight projection.
+IMPORTANT: Use the execute tool for ALL entity operations via temper.* calls.
 
-## IMPORTANT: Probes Are Already Running
+Projection ID: ANALYST_PROJ_ID
 
-6 probe sessions have already been created and are running concurrently.
-They will create observations and directions. You MUST wait for them.
+## Step 1: Wait for All Probes to Complete
 
-Probe session IDs:
-ORCH_PROBE_IDS_LIST
-
-## Step 1: Wait for ALL Probes to Complete
-
-This is your FIRST and MOST IMPORTANT task. Do NOT proceed until all probes are done.
+6 probe sessions are running concurrently. Wait for ALL to finish before proceeding.
 
 ```python
 import time
 
-probe_ids = [ORCH_PROBE_IDS_PYTHON]
+probe_ids = [ANALYST_PROBE_IDS_PYTHON]
 
 for attempt in range(60):
     all_done = True
-    statuses = {}
     for pid in probe_ids:
         s = temper.get("Sessions", pid)
         status = s.get("status", "")
         result = s.get("fields", {}).get("result", "")
-        statuses[pid] = status
-        # A session is done if Completed, Failed, or has a result
         if status not in ("Completed", "Failed") and (not result or len(str(result)) < 10):
             all_done = False
-    print(f"Attempt {attempt+1}: {statuses}")
+    print(f"Attempt {attempt+1}: all_done={all_done}")
     if all_done:
         print("All probes complete!")
         break
     time.sleep(15)
 ```
 
-## Step 2: Load Domain Knowledge
+## Step 2: Read All Observations and Directions
+
+```python
+import json as _json
+
+projection_id = "ANALYST_PROJ_ID"
+all_obs = temper.list("Observations", "$filter=projection_id eq '" + projection_id + "'")
+all_dirs = temper.list("Directions", "$filter=projection_id eq '" + projection_id + "'")
+
+obs_data = {}
+for obs in all_obs:
+    oid = obs["entity_id"]
+    f = obs.get("fields", {})
+    obs_data[oid] = {
+        "content": f.get("content", ""),
+        "probe_id": f.get("probe_agent_id", ""),
+        "importance": f.get("importance", "medium"),
+    }
+
+dir_data = {}
+for d in all_dirs:
+    did = d["entity_id"]
+    f = d.get("fields", {})
+    try:
+        obs_ids = _json.loads(f.get("observation_ids", "[]")) if isinstance(f.get("observation_ids"), str) else f.get("observation_ids", [])
+    except:
+        obs_ids = []
+    dir_data[did] = {
+        "title": f.get("title", ""),
+        "reasoning": f.get("reasoning", ""),
+        "obs_ids": obs_ids if isinstance(obs_ids, list) else [],
+    }
+
+print(f"Loaded {len(obs_data)} observations, {len(dir_data)} directions")
+```
+
+## Step 3: Classify Observations by Theme
+
+The 6 probes were themed:
+- Practitioner probes -> technical architecture, evaluation/testing
+- Critic probes -> economics/market, organizational/adoption
+- Adjacent probes -> cross-domain analogies
+
+Classify each observation by reading its content. Assign exactly ONE theme:
+- governance/policy
+- technical architecture
+- economics/market
+- organizational/adoption
+- evaluation/testing
+- cross-domain
+
+Group observations by theme.
+
+## Step 4: Produce Exactly 5 Cross-Theme Interaction Entries
+
+Each interaction connects TWO DIFFERENT themes and derives a NON-OBVIOUS conclusion.
+
+Use this EXACT format for each entry:
+
+```
+#### Interaction N: [Theme A] x [Theme B]
+**Themes connected:** [theme A] + [theme B]
+**Observation bridge:** [obs: OBS_ID_FROM_THEME_A] + [obs: OBS_ID_FROM_THEME_B]
+
+[2-3 sentences explaining HOW these two themes interact. Name specific companies,
+tools, or mechanisms (Anthropic, OpenAI, Cursor, Cedar, OPA, Kubernetes, Temper, etc.).
+The conclusion MUST be something neither theme implies alone.]
+
+**Non-obvious conclusion:** [One specific, falsifiable prediction that ONLY emerges
+from combining these two themes. Include a date or quantitative threshold.]
+
+**Implication:** [What a decision-maker should do differently because of this interaction]
+```
+
+MANDATORY RULES:
+- Exactly 5 interaction entries
+- Each MUST connect 2 DIFFERENT themes (no same-theme pairs)
+- Each of the 5 MUST use a DIFFERENT theme pair (no repeated pairs)
+- All 6 themes must appear across the 5 interactions
+- Each MUST cite real observation IDs (one per theme)
+- At least 1 interaction MUST involve cross-domain
+- At least 1 interaction MUST involve economics/market
+- At least 1 interaction MUST involve governance/policy
+- Non-obvious conclusions must be SPECIFIC (with dates, thresholds, or named actors)
+
+## Step 5: Write to File
+
+```python
+import json as _json
+
+analysis_text = "## Cross-Theme Interactions\n\n" + all_interactions_text
+result = temper.write("cross_theme_analysis.md", analysis_text)
+ws_id = result.get("workspace_id", "")
+file_id = result.get("file_id", "")
+temper.done(_json.dumps({"workspace_id": ws_id, "file_id": file_id, "path": "cross_theme_analysis.md"}))
+```
+"###;
+
+/// Orchestrator instructions — modified for Run 009.
+/// Probes are already running (created by WASM). Cross-theme analyst also running.
+/// Orchestrator waits for both, reads analyst output, injects into template, delegates synthesis.
+const ORCHESTRATOR_INSTRUCTIONS: &str = r###"You are orchestrating a foresight projection. Follow these steps exactly.
+
+## IMPORTANT: Probes AND Cross-Theme Analyst Are Already Running
+
+6 probe sessions and 1 cross-theme analyst session have been created by WASM.
+They are running concurrently. You MUST wait for ALL of them.
+
+Probe session IDs:
+ORCH_PROBE_IDS_LIST
+
+Cross-theme analyst session ID: ORCH_ANALYST_SID
+
+## Step 1: Wait for ALL Probes AND the Cross-Theme Analyst to Complete
+
+This is your FIRST and MOST IMPORTANT task. Do NOT proceed until ALL are done.
+
+```python
+import time
+import json as _json
+
+probe_ids = [ORCH_PROBE_IDS_PYTHON]
+analyst_sid = "ORCH_ANALYST_SID"
+all_session_ids = probe_ids + [analyst_sid]
+
+for attempt in range(60):
+    all_done = True
+    statuses = {}
+    for sid in all_session_ids:
+        s = temper.get("Sessions", sid)
+        status = s.get("status", "")
+        result = s.get("fields", {}).get("result", "")
+        statuses[sid] = status
+        if status not in ("Completed", "Failed") and (not result or len(str(result)) < 10):
+            all_done = False
+    print(f"Attempt {attempt+1}: {statuses}")
+    if all_done:
+        print("All probes and analyst complete!")
+        break
+    time.sleep(15)
+```
+
+## Step 2: Read Cross-Theme Analyst Output
+
+The analyst wrote a cross-theme analysis file. Read it from the analyst's workspace.
+
+```python
+analyst_session = temper.get("Sessions", analyst_sid)
+analyst_result_raw = analyst_session.get("fields", {}).get("result", "{}")
+try:
+    analyst_result = _json.loads(analyst_result_raw)
+    analyst_ws = analyst_result.get("workspace_id", "")
+    analyst_path = analyst_result.get("path", "cross_theme_analysis.md")
+except:
+    analyst_ws = ""
+    analyst_path = "cross_theme_analysis.md"
+
+cross_theme_content = ""
+if analyst_ws:
+    try:
+        cross_theme_content = temper.read("/" + analyst_path, {"workspace_id": analyst_ws})
+        print(f"Read cross-theme analysis: {len(cross_theme_content)} chars")
+    except Exception as e:
+        print(f"Failed to read analyst output: {e}")
+        cross_theme_content = ""
+
+if not cross_theme_content or len(cross_theme_content) < 100:
+    cross_theme_content = "## Cross-Theme Interactions\n\n(Cross-theme analyst session did not produce output. Skip this section.)\n"
+    print("WARNING: No cross-theme analysis available")
+```
+
+## Step 3: Load Domain Knowledge
 
 ```python
 fmodel = temper.get("ForesightModels", "ORCH_FM_ID")
 print("Model:", fmodel.get("fields", {}).get("name", ""))
 
-# Get current domain signals
 results = temper.web_search("Directed Software Evolution coding agents governance evaluation 2026")
 for r in results[:5]:
     print(r.get("title", ""))
 ```
 
-## Step 3: Read All Observations and Directions
+## Step 4: Read All Observations and Directions
 
 ```python
-import json as _json
-
 projection_id = "ORCH_PROJ_ID"
 all_obs = temper.list("Observations", "$filter=projection_id eq '" + projection_id + "'")
 all_dirs = temper.list("Directions", "$filter=projection_id eq '" + projection_id + "'")
 print(f"Loaded {len(all_obs)} observations, {len(all_dirs)} directions")
 
-# Print direction titles and themes for verification
 for d in all_dirs:
     f = d.get("fields", {})
     print(f"Direction: {f.get('title', '')} | Step: {f.get('step_at', '')}")
 ```
 
-## Step 4: Store Synthesis Template
+## Step 5: Store Synthesis Template WITH Cross-Theme Content
 
-Save the synthesis template (below the ===SYNTHESIS_TEMPLATE=== marker) to a workspace file:
+Inject the cross-theme analyst's output into the template before storing.
 
 ```python
 template_text = """PASTE THE EXACT TEXT BETWEEN ===SYNTHESIS_TEMPLATE=== AND ===END_SYNTHESIS_TEMPLATE=== HERE"""
+
+# Inject pre-computed cross-theme analysis into the template
+template_text = template_text.replace("===CROSS_THEME_CONTENT===", cross_theme_content)
+
 _tf = temper.write("synthesis_template.md", template_text)
 _ws = _tf["workspace_id"]
+print(f"Template stored with cross-theme content injected ({len(template_text)} chars)")
 ```
 
-## Step 5: Delegate Synthesis to a Dedicated Session
+## Step 6: Delegate Synthesis to a Dedicated Session
 
 Create a synthesis session with clean context. DO NOT synthesize in this session —
 the accumulated polling context will overflow the WASM context parser.
@@ -201,10 +370,11 @@ synth_prompt = (
     "You are synthesizing a foresight projection. Follow the template EXACTLY.\n\n"
     "Projection ID: " + projection_id + "\n\n"
     "## Setup\n\n"
-    "FIRST, read these two files from the orchestrator workspace:\n\n"
-    "1. Synthesis template (follow this step by step):\n"
-    "   template = temper.read('/synthesis_template.md', {'workspace_id': '" + _ws + "'})\n\n"
-    "Then follow the synthesis template step by step.\n"
+    "FIRST, read the synthesis template from the orchestrator workspace:\n\n"
+    "  template = temper.read('/synthesis_template.md', {'workspace_id': '" + _ws + "'})\n\n"
+    "The template contains a pre-computed Cross-Theme Interactions section.\n"
+    "Include it AS-IS in the final synthesis. Do NOT regenerate or modify it.\n\n"
+    "Follow the synthesis template step by step.\n"
     "Load observations and directions from the API using temper.list().\n\n"
     "Write the complete synthesis to a file with temper.write().\n"
     "Then dispatch Complete on the Projection:\n"
@@ -222,7 +392,7 @@ temper.action("Sessions", synth_sid, "Configure", {
 })
 ```
 
-## Step 6: Wait for Synthesis and Complete
+## Step 7: Wait for Synthesis and Complete
 
 ```python
 import time
@@ -359,43 +529,19 @@ If merging directions: combine reasoning into a single entry, cite all supportin
 observation IDs, and keep the strongest counterfactual. Title the merged direction
 to reflect its broader scope.
 
-**Step C4: Cross-Theme Interactions (BREADTH-CRITICAL)**
+**Step C4: Cross-Theme Interactions (PRE-COMPUTED — DO NOT REGENERATE)**
 
-After writing the Active Directions, you MUST produce a separate "Cross-Theme Interactions"
-section with exactly 4-5 interaction entries. Each entry connects TWO DIFFERENT themes
-from the directions/observations and derives a NON-OBVIOUS conclusion.
+The cross-theme interactions have been pre-computed by a dedicated analyst session
+and injected into this template. They are stored in the `cross_theme_section` variable below.
 
-This section is the PRIMARY driver of Breadth score. The rubric requires:
-"6+ themes with explicit cross-theme interactions where the interaction produces
-a non-obvious conclusion (e.g., 'governance constraints reshape vendor economics'
-leading to a specific predicted outcome neither theme implies alone)."
-
-For each interaction, use this EXACT format:
-
-```
-#### Interaction N: [Theme A] x [Theme B]
-**Themes connected:** [theme A from C1 list] + [theme B from C1 list]
-**Observation bridge:** [obs: ID_from_theme_A] + [obs: ID_from_theme_B]
-
-[2-3 sentences explaining HOW these two themes interact. Name specific companies,
-tools, or mechanisms. The conclusion MUST be something neither theme implies alone.]
-
-**Non-obvious conclusion:** [One specific, falsifiable prediction that ONLY emerges
-from combining these two themes. Example: "Cedar-style policy gates (governance) will
-compress vendor pricing margins (economics) by 15-20% within 12 months because
-policy-as-code makes agent vendors interchangeable."]
-
-**Implication:** [What a decision-maker should do differently because of this interaction]
+```python
+# Cross-theme content was pre-computed and injected by the orchestrator.
+# DO NOT modify, regenerate, or skip this section. Include it AS-IS in Step G.
+cross_theme_section = """===CROSS_THEME_CONTENT==="""
 ```
 
-Rules for Cross-Theme Interactions:
-- Each interaction MUST connect 2 DIFFERENT themes (no same-theme pairs)
-- Each of the 4-5 interactions MUST use a DIFFERENT theme pair (no repeated pairs)
-- At least 4 of the 6 themes must appear across the interactions
-- Each interaction MUST cite observations from at least 2 different probes
-- The "non-obvious conclusion" MUST be a specific prediction, not a vague implication
-- At least 1 interaction MUST involve cross-domain (connecting an external analogy to a software theme)
-- At least 1 interaction MUST involve economics/market
+If the cross_theme_section is empty or says "did not produce output", include a brief
+note in that section and move on. Do NOT attempt to generate cross-theme interactions yourself.
 
 ### Step D: Build Top 5 Predictions
 
@@ -459,7 +605,7 @@ The MANDATORY section order is:
    - Phases 2-4 MUST have a "Revisions to earlier predictions" subsection
    - Each revision must explain WHAT changed and WHY — not formulaic confirm/qualify/revise
 4. Active Directions (from Step C, Steps C1-C3)
-5. Cross-Theme Interactions (from Step C4 — THIS SECTION IS MANDATORY, DO NOT SKIP)
+5. Cross-Theme Interactions (from Step C4 — PRE-COMPUTED, include cross_theme_section AS-IS)
 6. Source Thesis Challenges (from Step F)
 7. Top 5 Predictions with Falsification Criteria (from Step D)
 8. Decision Points (from Step E)
@@ -495,8 +641,8 @@ temper.done("Projection complete. Synthesis: " + result["file_id"])
     open-source: Aider/Cline/OpenHands; platforms: Kubernetes/Terraform/Temper).
 14. Temporal Progression phases must each introduce at least 1 NEW company or tool
     not mentioned in prior phases.
-15. Cross-Theme Interactions section MUST have 4-5 entries connecting different theme pairs.
-    Each must produce a non-obvious conclusion and cite observations from 2+ probes.
+15. Cross-Theme Interactions section is PRE-COMPUTED. Include the cross_theme_section
+    variable AS-IS in the synthesis. Do NOT regenerate or modify it.
 "###;
 
 /// Create an Agent + Session, configure the session, and return the session ID.
@@ -619,7 +765,7 @@ fn build_probe_prompt(
 pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
     let result = (|| -> Result<(), String> {
         let ctx = Context::from_host()?;
-        ctx.log("info", "spawn_orchestrator v007: starting (WASM-enforced probe themes)");
+        ctx.log("info", "spawn_orchestrator v009: starting (WASM cross-theme analyst)");
 
         let fields = ctx.entity_state.get("fields").cloned().unwrap_or(json!({}));
 
@@ -855,7 +1001,44 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         );
 
         // ========================================================
-        // Phase 2: Create orchestrator session (waits for probes, synthesizes)
+        // Phase 2: Create cross-theme analyst session (waits for probes)
+        // ========================================================
+
+        let probe_ids_python = probe_session_ids
+            .iter()
+            .map(|id| format!("\"{}\"", id))
+            .collect::<Vec<_>>()
+            .join(", ");
+
+        let analyst_prompt = CROSS_THEME_ANALYST_PROMPT
+            .replace("ANALYST_PROJ_ID", entity_id)
+            .replace("ANALYST_PROBE_IDS_PYTHON", &probe_ids_python);
+
+        let analyst_tools = "temper_get,temper_list,temper_write,temper_read";
+
+        let analyst_sid = create_configured_session(
+            &ctx,
+            &headers,
+            &temper_api_url,
+            "CrossThemeAnalyst",
+            "analyst",
+            &analyst_prompt,
+            &seed_model,
+            &provider_codex,
+            analyst_tools,
+            "30",
+        )?;
+
+        ctx.log(
+            "info",
+            &format!(
+                "spawn_orchestrator: created cross-theme analyst session: {}",
+                analyst_sid
+            ),
+        );
+
+        // ========================================================
+        // Phase 3: Create orchestrator session (waits for probes + analyst, synthesizes)
         // ========================================================
 
         // Build probe ID references for the orchestrator prompt
@@ -869,16 +1052,11 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             .collect::<Vec<_>>()
             .join("\n");
 
-        let probe_ids_python = probe_session_ids
-            .iter()
-            .map(|id| format!("\"{}\"", id))
-            .collect::<Vec<_>>()
-            .join(", ");
-
         // Build orchestrator user_message
         let orch_instructions = ORCHESTRATOR_INSTRUCTIONS
             .replace("ORCH_PROBE_IDS_LIST", &probe_ids_list)
             .replace("ORCH_PROBE_IDS_PYTHON", &probe_ids_python)
+            .replace("ORCH_ANALYST_SID", &analyst_sid)
             .replace("ORCH_PROJ_ID", entity_id)
             .replace("ORCH_FM_ID", foresight_model_id);
 
@@ -916,8 +1094,9 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         ctx.log(
             "info",
             &format!(
-                "spawn_orchestrator v007: done. Orchestrator: {}, Probes: [{}]",
+                "spawn_orchestrator v009: done. Orchestrator: {}, Analyst: {}, Probes: [{}]",
                 orch_sid,
+                analyst_sid,
                 probe_session_ids.join(", ")
             ),
         );
