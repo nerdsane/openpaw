@@ -95,11 +95,21 @@ For each high-importance observation (up to 8), create a finding entry with this
 N. **[one-sentence finding naming a real company, tool, or standard]**
    - Evidence: "[observation content excerpt]" [obs: OBS_ID]
    - Measurable indicator: [a specific number, adoption %, threshold, or data source]
+   - Theme: [one of: model/vendor, governance/policy, organizational/adoption, technical architecture, economics/market, evaluation/testing, cross-domain]
 ```
 
 The observation content and [obs: ID] citation MUST come from the actual data.
 The finding sentence MUST name real companies/tools (Anthropic, OpenAI, Cursor, Cognition/Devin,
 Kubernetes, Cedar, OPA, Temper, etc.) — NOT generic categories like "companies" or "teams".
+
+**DIVERSITY MANDATE (NON-NEGOTIABLE):**
+- Key Findings MUST span at least 4 distinct themes from: model/vendor, governance/policy,
+  organizational/adoption, technical architecture, economics/market, evaluation/testing, cross-domain.
+- No more than 2 findings may share the same primary theme.
+- At least 2 findings must derive from the adjacent-domain probe's observations.
+- At least 1 finding must derive from the critic probe's observations.
+- No single observation ID may appear in more than 2 findings. Use at least 60% of all
+  available observations across the full synthesis (not just high-importance ones).
 
 ### Step C: Build Active Directions
 
@@ -137,13 +147,21 @@ Create exactly 3 decision points with this EXACT format:
 
 ```
 #### Decision Point N
-- **Decision:** [what must be decided]
+- **Decision:** [what must be decided — name the specific tool, config, or org action]
 - **Timing trigger:** [observable event with approximate date]
-- **Option A:** [concrete option] — **Tradeoff:** [specific cost or risk]
-- **Option B:** [concrete option] — **Tradeoff:** [specific cost or risk]
-- **Option C:** [concrete option] — **Tradeoff:** [specific cost or risk]
+- **Option A:** [name a specific tool/config/action, e.g. "deploy Cedar policy gates on CI pipelines"]
+  — **Tradeoff:** [specific cost in engineering-weeks, dollar amount, or named risk]
+- **Option B:** [name a specific tool/config/action]
+  — **Tradeoff:** [specific cost in engineering-weeks, dollar amount, or named risk]
+- **Option C:** [name a specific tool/config/action]
+  — **Tradeoff:** [specific cost in engineering-weeks, dollar amount, or named risk]
 - **Recommended:** [which option and one-sentence justification]
 ```
+
+**ACTIONABILITY RULE:** Each option MUST name a specific tool, configuration, platform, or
+organizational action. "Invest in governance" is NOT acceptable. "Deploy OPA/Cedar policy-as-code
+gates on the CI pipeline by Q3 2026" IS acceptable. Each tradeoff MUST include an estimated
+effort level (e.g., "2-4 engineering-weeks", "$50K-100K annual", "requires dedicated platform team").
 
 ### Step F: What Surprised Us
 
@@ -153,7 +171,7 @@ Include 3-5 observations that challenge assumptions. Each must cite its obs ID.
 
 The MANDATORY section order is:
 
-1. Executive Summary (3 paragraphs, cite obs IDs, name companies, include quant claims)
+1. Executive Summary (3 paragraphs, cite obs IDs, name 6+ companies/tools across 3+ categories, include quant claims)
 2. Key Findings (from Step B)
 3. Temporal Progression (4 phases: 0-3mo, 3-6mo, 6-9mo, 9-12mo)
    - Phases 2-4 MUST have a "Revisions to earlier predictions" subsection
@@ -180,6 +198,19 @@ temper.done("Projection complete. Synthesis: " + result["file_id"])
 5. Name real companies/tools, NOT generic categories
 6. Temporal phases 2-4 MUST revise earlier predictions
 7. Do NOT skip any section. Do NOT rearrange the structure.
+
+## Content Diversity Rules (NON-NEGOTIABLE)
+
+8. Key Findings MUST span at least 4 distinct themes. Max 2 findings per theme.
+9. No single observation may be cited in more than 2 Key Findings.
+10. Use at least 60% of available observations across the full synthesis.
+11. At least 2 findings must come from adjacent-domain probe observations.
+12. Decision Point options MUST name specific tools/configs/actions with effort estimates.
+13. Executive Summary MUST name 6+ distinct entities across 3+ categories
+    (e.g., vendors: Anthropic/OpenAI/Cursor; governance: Cedar/OPA/Sentinel;
+    open-source: Aider/Cline/OpenHands; platforms: Kubernetes/Terraform/Temper).
+14. Temporal Progression phases must each introduce at least 1 NEW company or tool
+    not mentioned in prior phases.
 "##;
 
 #[unsafe(no_mangle)]

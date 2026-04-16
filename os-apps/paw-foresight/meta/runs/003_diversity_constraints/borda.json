@@ -1,0 +1,145 @@
+{
+  "run": "003",
+  "rubric_version": "v3",
+  "methodology_note": "3 judges. Borda: winner=2pts, loser=1pt, tie=1.5. Max 6 per criterion, 72 total per output.",
+  "engine_borda": 56.0,
+  "baseline_borda": 52.0,
+  "max_per_output": 72,
+  "winner": "Engine",
+  "engine_avg_raw": 27.0,
+  "baseline_avg_raw": 25.666666666666668,
+  "per_criterion": [
+    {
+      "criterion": "Specificity",
+      "engine": 4.5,
+      "baseline": 4.5,
+      "delta": 0.0,
+      "details": [
+        "J1:tie(3)",
+        "J2:tie(3)",
+        "J3:tie(3)"
+      ]
+    },
+    {
+      "criterion": "Novelty",
+      "engine": 4.5,
+      "baseline": 4.5,
+      "delta": 0.0,
+      "details": [
+        "J1:tie(2)",
+        "J2:tie(2)",
+        "J3:tie(2)"
+      ]
+    },
+    {
+      "criterion": "Falsifiability",
+      "engine": 6,
+      "baseline": 3,
+      "delta": 3,
+      "details": [
+        "J1:E(3>2)",
+        "J2:E(3>2)",
+        "J3:E(3>2)"
+      ]
+    },
+    {
+      "criterion": "Breadth",
+      "engine": 4,
+      "baseline": 5,
+      "delta": -1,
+      "details": [
+        "J1:B(3>2)",
+        "J2:B(3>2)",
+        "J3:E(3>2)"
+      ]
+    },
+    {
+      "criterion": "Plausibility",
+      "engine": 4.5,
+      "baseline": 4.5,
+      "delta": 0.0,
+      "details": [
+        "J1:tie(2)",
+        "J2:tie(2)",
+        "J3:tie(2)"
+      ]
+    },
+    {
+      "criterion": "Progression",
+      "engine": 4.0,
+      "baseline": 5.0,
+      "delta": -1.0,
+      "details": [
+        "J1:tie(3)",
+        "J2:tie(3)",
+        "J3:B(3>2)"
+      ]
+    },
+    {
+      "criterion": "Actionability",
+      "engine": 4.0,
+      "baseline": 5.0,
+      "delta": -1.0,
+      "details": [
+        "J1:tie(2)",
+        "J2:tie(2)",
+        "J3:B(3>2)"
+      ]
+    },
+    {
+      "criterion": "Decision Clarity",
+      "engine": 4.5,
+      "baseline": 4.5,
+      "delta": 0.0,
+      "details": [
+        "J1:tie(2)",
+        "J2:tie(2)",
+        "J3:tie(2)"
+      ]
+    },
+    {
+      "criterion": "Completeness",
+      "engine": 5.0,
+      "baseline": 4.0,
+      "delta": 1.0,
+      "details": [
+        "J1:E(2>1)",
+        "J2:tie(2)",
+        "J3:tie(2)"
+      ]
+    },
+    {
+      "criterion": "Transparency",
+      "engine": 5.5,
+      "baseline": 3.5,
+      "delta": 2.0,
+      "details": [
+        "J1:E(2>1)",
+        "J2:tie(2)",
+        "J3:E(2>1)"
+      ]
+    },
+    {
+      "criterion": "Challenge",
+      "engine": 4.0,
+      "baseline": 5.0,
+      "delta": -1.0,
+      "details": [
+        "J1:B(3>2)",
+        "J2:tie(2)",
+        "J3:tie(2)"
+      ]
+    },
+    {
+      "criterion": "Quantitative Precision",
+      "engine": 5.5,
+      "baseline": 3.5,
+      "delta": 2.0,
+      "details": [
+        "J1:tie(2)",
+        "J2:E(2>1)",
+        "J3:E(2>1)"
+      ]
+    }
+  ]
+}

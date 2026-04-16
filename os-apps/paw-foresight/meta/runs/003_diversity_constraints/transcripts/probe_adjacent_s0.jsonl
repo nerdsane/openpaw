@@ -1,0 +1,4 @@
+{"id":"h-ss-019d94af-448f-7842-aeda-1e038508fb5e","parentId":null,"tokens":0,"type":"header","version":1}
+{"content_file_id":"fl-019d94af-455c-7273-849f-2f2a921e2177","id":"u-ss-019d94af-448f-7842-aeda-1e038508fb5e-0","parentId":"h-ss-019d94af-448f-7842-aeda-1e038508fb5e","role":"user","tokens":97,"type":"message"}
+{"content_file_id":"fl-019d94af-da5d-7941-b841-c407eddb900f","id":"a-2","parentId":"u-ss-019d94af-448f-7842-aeda-1e038508fb5e-0","role":"assistant","tokens":1899,"type":"message"}
+{"content":[{"content":"{\"done\":true}","is_error":false,"tool_use_id":"call_pqO1YB3dF5k319HQBrTby4hM","type":"tool_result"}],"id":"t-3","parentId":"a-2","role":"user","tokens":28,"type":"message"}

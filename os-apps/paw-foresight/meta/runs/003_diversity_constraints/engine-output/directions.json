@@ -1,0 +1,968 @@
+[
+  {
+    "entity_type": "Direction",
+    "entity_id": "en-019d94af-4944-7b21-949e-140d59489210",
+    "status": "Archived",
+    "item_count": 0,
+    "counters": {},
+    "booleans": {},
+    "lists": {},
+    "fields": {
+      "fields": {},
+      "Id": "en-019d94af-4944-7b21-949e-140d59489210",
+      "Status": "Archived",
+      "counterfactual_summary": "If this direction is wrong, teams will show that graph-centered agent systems can deliver repeatable, organization-scale autonomous improvements with low review overhead and strong trust signals inside one quarter.",
+      "grounding": "[\"baseline-open-problem-fitness-functions\",\"baseline-open-problem-provenance\",\"baseline-ecosystem-verification-bottleneck\"]",
+      "observation_ids": "[\"en-019d94af-452c-7470-a928-2888bfd75115\",\"en-019d94af-454f-7a01-84bf-73abef360bf4\",\"en-019d94af-457f-7bf2-90c3-6f00d1c91916\",\"en-019d94af-459a-7e51-8e61-e0a9d0c9c0d9\"]",
+      "projection_id": "en-019d94a9-7b98-73f0-86bd-667eab56d9b9",
+      "proposer_agent_id": "aj-019d94af-4471-7c50-978e-78faf611650b",
+      "reasoning": "The strongest skeptical thesis for the next 90 days is that directed software evolution will advance as a controls-and-instrumentation market, not as a trusted self-evolving software market. The baseline correctly identifies typed artifact graphs, autonomous issue handling, and policy-gated deployment as enabling mechanisms, but it understates the fragility introduced by incomplete graph coverage and weak fitness functions. Teams can already get an agent to mutate code. What they still cannot do reliably is prove that a sequence of locally reasonable graph edits preserves long-horizon architectural quality, operational safety, and organizational intent. That means the practical bottleneck is not generation but adjudication.\n\nIn this window, the most credible buyers will narrow scope toward maintenance tasks where failure is bounded and rollback is cheap. Meanwhile, enterprise governance functions will force the market to invest in evaluation, provenance, approval routing, and replay rather than unconstrained autonomy. This is a direct challenge to the dominant narrative that better graphs automatically unlock safe self-evolution. Better graphs help, but only when paired with durable selection pressure, economic proof, and accountable decision records. Without those, every impressive demo increases the risk of disappointment because it trains stakeholders to expect generality that the operating environment cannot yet support.",
+      "step_at": "0",
+      "title": "Directed software evolution will spend the next 90 days proving governance and ROI, not proving full autonomy.",
+      "archive_reason": "Revised in step 1"
+    },
+    "events": [
+      {
+        "action": "Created",
+        "from_status": "",
+        "to_status": "Proposed",
+        "timestamp": "2026-04-16T05:06:48.773127Z",
+        "params": {
+          "fields": {}
+        }
+      },
+      {
+        "action": "Propose",
+        "from_status": "Proposed",
+        "to_status": "Proposed",
+        "timestamp": "2026-04-16T05:06:48.783345Z",
+        "params": {
+          "counterfactual_summary": "If this direction is wrong, teams will show that graph-centered agent systems can deliver repeatable, organization-scale autonomous improvements with low review overhead and strong trust signals inside one quarter.",
+          "grounding": "[\"baseline-open-problem-fitness-functions\",\"baseline-open-problem-provenance\",\"baseline-ecosystem-verification-bottleneck\"]",
+          "observation_ids": "[\"en-019d94af-452c-7470-a928-2888bfd75115\",\"en-019d94af-454f-7a01-84bf-73abef360bf4\",\"en-019d94af-457f-7bf2-90c3-6f00d1c91916\",\"en-019d94af-459a-7e51-8e61-e0a9d0c9c0d9\"]",
+          "projection_id": "en-019d94a9-7b98-73f0-86bd-667eab56d9b9",
+          "proposer_agent_id": "aj-019d94af-4471-7c50-978e-78faf611650b",
+          "reasoning": "The strongest skeptical thesis for the next 90 days is that directed software evolution will advance as a controls-and-instrumentation market, not as a trusted self-evolving software market. The baseline correctly identifies typed artifact graphs, autonomous issue handling, and policy-gated deployment as enabling mechanisms, but it understates the fragility introduced by incomplete graph coverage and weak fitness functions. Teams can already get an agent to mutate code. What they still cannot do reliably is prove that a sequence of locally reasonable graph edits preserves long-horizon architectural quality, operational safety, and organizational intent. That means the practical bottleneck is not generation but adjudication.\n\nIn this window, the most credible buyers will narrow scope toward maintenance tasks where failure is bounded and rollback is cheap. Meanwhile, enterprise governance functions will force the market to invest in evaluation, provenance, approval routing, and replay rather than unconstrained autonomy. This is a direct challenge to the dominant narrative that better graphs automatically unlock safe self-evolution. Better graphs help, but only when paired with durable selection pressure, economic proof, and accountable decision records. Without those, every impressive demo increases the risk of disappointment because it trains stakeholders to expect generality that the operating environment cannot yet support.",
+          "step_at": "0",
+          "title": "Directed software evolution will spend the next 90 days proving governance and ROI, not proving full autonomy."
+        }
+      },
+      {
+        "action": "Archive",
+        "from_status": "Proposed",
+        "to_status": "Archived",
+        "timestamp": "2026-04-16T05:06:48.797118Z",
+        "params": {
+          "archive_reason": "Revised in step 1"
+        }
+      }
+    ],
+    "total_event_count": 3,
+    "sequence_nr": 3,
+    "@odata.id": "Directions('en-019d94af-4944-7b21-949e-140d59489210')"
+  },
+  {
+    "entity_type": "Direction",
+    "entity_id": "en-019d94af-4963-7791-8bae-e33bc5e92840",
+    "status": "Archived",
+    "item_count": 0,
+    "counters": {},
+    "booleans": {},
+    "lists": {},
+    "fields": {
+      "fields": {},
+      "Id": "en-019d94af-4963-7791-8bae-e33bc5e92840",
+      "Status": "Archived",
+      "counterfactual_summary": "If coding capability alone proves sufficient and organizations adopt without strong fitness governance, then control layers may lag the market and value may concentrate in end-to-end autonomous coding products faster than this thesis expects.",
+      "grounding": "[\"Agint-agentic-graph-compilation\",\"EvoGraph-directed-graph-evolution\",\"durable-fitness-functions\",\"policy-gated-deployment\"]",
+      "observation_ids": "[\"en-019d94af-45af-71d3-a532-cae13366beee\",\"en-019d94af-45ec-7122-ae09-743e25fbaef8\",\"en-019d94af-4601-7290-a005-0d99bac6f2a6\",\"en-019d94af-4622-7241-8ff0-98374e7981b3\"]",
+      "projection_id": "en-019d94a9-7b98-73f0-86bd-667eab56d9b9",
+      "proposer_agent_id": "aj-019d94af-447d-7861-b6fc-0cf50ae956a4",
+      "reasoning": "Across adjacent domains, systems scale when variation, selection, and retention are aligned institutionally, not merely technically. In biology, mutation abundance without stable selection criteria yields drift; in economics, lowered production cost does not create durable advantage unless allocation and measurement systems reward the right outputs; in organizations, local experimentation fails when units cannot agree on what constitutes success. The same pattern is now emerging here. The baseline already suggests that graph-based representations and agentic mutation are becoming feasible. Over the next 90 days, however, the constraining variable is the quality of the selection regime: eval design, provenance, rollback, policy gating, and cross-team agreement on objective functions.\n\nThat means the first durable adopters will be organizations that treat directed software evolution as a socio-technical control system. They will decompose the loop into specialized roles: expensive models for sparse strategic reasoning, cheaper models and tools for dense local search, and platform infrastructure for scoring, authorization, and audit. Vendors that help teams define and operationalize fitness functions will gain leverage over vendors that only improve code synthesis. The important uncertainty is baseline incompleteness: the provided state is reconstructed rather than a directly readable seed snapshot. But even under that uncertainty, the cross-domain pattern is robust. Where incentives, governance, and measurement cohere, the field advances; where they do not, graph-rich pilots stall and confidence erodes.",
+      "step_at": "0",
+      "title": "Directed software evolution consolidates first around fitness governance, not autonomous coding power.",
+      "archive_reason": "Revised in step 1"
+    },
+    "events": [
+      {
+        "action": "Created",
+        "from_status": "",
+        "to_status": "Proposed",
+        "timestamp": "2026-04-16T05:06:48.804114Z",
+        "params": {
+          "fields": {}
+        }
+      },
+      {
+        "action": "Propose",
+        "from_status": "Proposed",
+        "to_status": "Proposed",
+        "timestamp": "2026-04-16T05:06:48.815557Z",
+        "params": {
+          "counterfactual_summary": "If coding capability alone proves sufficient and organizations adopt without strong fitness governance, then control layers may lag the market and value may concentrate in end-to-end autonomous coding products faster than this thesis expects.",
+          "grounding": "[\"Agint-agentic-graph-compilation\",\"EvoGraph-directed-graph-evolution\",\"durable-fitness-functions\",\"policy-gated-deployment\"]",
+          "observation_ids": "[\"en-019d94af-45af-71d3-a532-cae13366beee\",\"en-019d94af-45ec-7122-ae09-743e25fbaef8\",\"en-019d94af-4601-7290-a005-0d99bac6f2a6\",\"en-019d94af-4622-7241-8ff0-98374e7981b3\"]",
+          "projection_id": "en-019d94a9-7b98-73f0-86bd-667eab56d9b9",
+          "proposer_agent_id": "aj-019d94af-447d-7861-b6fc-0cf50ae956a4",
+          "reasoning": "Across adjacent domains, systems scale when variation, selection, and retention are aligned institutionally, not merely technically. In biology, mutation abundance without stable selection criteria yields drift; in economics, lowered production cost does not create durable advantage unless allocation and measurement systems reward the right outputs; in organizations, local experimentation fails when units cannot agree on what constitutes success. The same pattern is now emerging here. The baseline already suggests that graph-based representations and agentic mutation are becoming feasible. Over the next 90 days, however, the constraining variable is the quality of the selection regime: eval design, provenance, rollback, policy gating, and cross-team agreement on objective functions.\n\nThat means the first durable adopters will be organizations that treat directed software evolution as a socio-technical control system. They will decompose the loop into specialized roles: expensive models for sparse strategic reasoning, cheaper models and tools for dense local search, and platform infrastructure for scoring, authorization, and audit. Vendors that help teams define and operationalize fitness functions will gain leverage over vendors that only improve code synthesis. The important uncertainty is baseline incompleteness: the provided state is reconstructed rather than a directly readable seed snapshot. But even under that uncertainty, the cross-domain pattern is robust. Where incentives, governance, and measurement cohere, the field advances; where they do not, graph-rich pilots stall and confidence erodes.",
+          "step_at": "0",
+          "title": "Directed software evolution consolidates first around fitness governance, not autonomous coding power."
+        }
+      },
+      {
+        "action": "Archive",
+        "from_status": "Proposed",
+        "to_status": "Archived",
+        "timestamp": "2026-04-16T05:06:48.829670Z",
+        "params": {
+          "archive_reason": "Revised in step 1"
+        }
+      }
+    ],
+    "total_event_count": 3,
+    "sequence_nr": 3,
+    "@odata.id": "Directions('en-019d94af-4963-7791-8bae-e33bc5e92840')"
+  },
+  {
+    "entity_type": "Direction",
+    "entity_id": "en-019d94af-4986-7b71-bef5-5264f4bab2d6",
+    "status": "Archived",
+    "item_count": 0,
+    "counters": {},
+    "booleans": {},
+    "lists": {},
+    "fields": {
+      "fields": {},
+      "Id": "en-019d94af-4986-7b71-bef5-5264f4bab2d6",
+      "Status": "Archived",
+      "counterfactual_summary": "If this direction is wrong, then teams will rapidly trust broader autonomous product development without first standardizing evals, provenance, and policy gates; in that case, graph-native interfaces and open-ended agent planning would accelerate faster than repository-native bounded workflows.",
+      "grounding": "[\"Agint: Agentic Graph Compilation for Software Engineering Agents\",\"EvoGraph: Hybrid Directed Graph Evolution toward Software 3.0\",\"Verification, evals, and policy layers are emerging as the bottleneck for broader autonomy\",\"How to keep provenance, auditability and rollback intact under autonomous change\"]",
+      "observation_ids": "[\"en-019d94af-4643-70b3-b2e9-dc17ac963506\",\"en-019d94af-4668-7623-b373-f318ea942427\",\"en-019d94af-468e-73d3-b172-3cb228a55a9e\",\"en-019d94af-46a7-7d73-983f-5aa44beb1848\"]",
+      "projection_id": "en-019d94a9-7b98-73f0-86bd-667eab56d9b9",
+      "proposer_agent_id": "aj-019d94af-448a-7182-aa31-795b62b77f88",
+      "reasoning": "Over the next 90 days, the winning implementation pattern for directed software evolution is not a fully autonomous software factory but a repository-native evolution loop that inserts agents into existing engineering controls. Practitioners will adopt systems that maintain a typed graph of repository artifacts and operational metadata behind the scenes, then use that graph to drive bounded mutation: select an issue, retrieve the impacted code, propose a patch, run deterministic and semantic evals, and advance only if policy gates and rollout checks pass. This is technically feasible now because the hard pieces already exist in partial form: LLM coding assistants, code search, CI pipelines, test harnesses, deployment gates, and observability. The integration work is mostly in state management, provenance capture, and evaluation orchestration.\n\nThe strongest near-term value comes from maintenance-heavy workflows where fitness functions are clearer than in greenfield product design. Dependency refreshes, flaky tests, broken docs, low-risk refactors, config hygiene, and incident follow-up tasks all have measurable success criteria and limited blast radius. Teams that combine artifact graphs with policy-scoped autonomy will show reliable gains in cycle time before teams chasing unconstrained end-to-end code evolution. Uncertainty remains around how portable these stacks are across organizations, because repository topology, test quality, and deployment maturity differ sharply. But the practical direction is clear: adoption rises where agent mutation is paired with existing CI/CD, ownership metadata, and rollback machinery, and stalls where autonomy is asked to substitute for missing engineering discipline.",
+      "step_at": "0",
+      "title": "Near-term adoption converges on policy-gated, graph-backed maintenance loops rather than fully autonomous software evolution.",
+      "archive_reason": "Revised in step 1"
+    },
+    "events": [
+      {
+        "action": "Created",
+        "from_status": "",
+        "to_status": "Proposed",
+        "timestamp": "2026-04-16T05:06:48.839658Z",
+        "params": {
+          "fields": {}
+        }
+      },
+      {
+        "action": "Propose",
+        "from_status": "Proposed",
+        "to_status": "Proposed",
+        "timestamp": "2026-04-16T05:06:48.852889Z",
+        "params": {
+          "counterfactual_summary": "If this direction is wrong, then teams will rapidly trust broader autonomous product development without first standardizing evals, provenance, and policy gates; in that case, graph-native interfaces and open-ended agent planning would accelerate faster than repository-native bounded workflows.",
+          "grounding": "[\"Agint: Agentic Graph Compilation for Software Engineering Agents\",\"EvoGraph: Hybrid Directed Graph Evolution toward Software 3.0\",\"Verification, evals, and policy layers are emerging as the bottleneck for broader autonomy\",\"How to keep provenance, auditability and rollback intact under autonomous change\"]",
+          "observation_ids": "[\"en-019d94af-4643-70b3-b2e9-dc17ac963506\",\"en-019d94af-4668-7623-b373-f318ea942427\",\"en-019d94af-468e-73d3-b172-3cb228a55a9e\",\"en-019d94af-46a7-7d73-983f-5aa44beb1848\"]",
+          "projection_id": "en-019d94a9-7b98-73f0-86bd-667eab56d9b9",
+          "proposer_agent_id": "aj-019d94af-448a-7182-aa31-795b62b77f88",
+          "reasoning": "Over the next 90 days, the winning implementation pattern for directed software evolution is not a fully autonomous software factory but a repository-native evolution loop that inserts agents into existing engineering controls. Practitioners will adopt systems that maintain a typed graph of repository artifacts and operational metadata behind the scenes, then use that graph to drive bounded mutation: select an issue, retrieve the impacted code, propose a patch, run deterministic and semantic evals, and advance only if policy gates and rollout checks pass. This is technically feasible now because the hard pieces already exist in partial form: LLM coding assistants, code search, CI pipelines, test harnesses, deployment gates, and observability. The integration work is mostly in state management, provenance capture, and evaluation orchestration.\n\nThe strongest near-term value comes from maintenance-heavy workflows where fitness functions are clearer than in greenfield product design. Dependency refreshes, flaky tests, broken docs, low-risk refactors, config hygiene, and incident follow-up tasks all have measurable success criteria and limited blast radius. Teams that combine artifact graphs with policy-scoped autonomy will show reliable gains in cycle time before teams chasing unconstrained end-to-end code evolution. Uncertainty remains around how portable these stacks are across organizations, because repository topology, test quality, and deployment maturity differ sharply. But the practical direction is clear: adoption rises where agent mutation is paired with existing CI/CD, ownership metadata, and rollback machinery, and stalls where autonomy is asked to substitute for missing engineering discipline.",
+          "step_at": "0",
+          "title": "Near-term adoption converges on policy-gated, graph-backed maintenance loops rather than fully autonomous software evolution."
+        }
+      },
+      {
+        "action": "Archive",
+        "from_status": "Proposed",
+        "to_status": "Archived",
+        "timestamp": "2026-04-16T05:06:48.866476Z",
+        "params": {
+          "archive_reason": "Revised in step 1"
+        }
+      }
+    ],
+    "total_event_count": 3,
+    "sequence_nr": 3,
+    "@odata.id": "Directions('en-019d94af-4986-7b71-bef5-5264f4bab2d6')"
+  },
+  {
+    "entity_type": "Direction",
+    "entity_id": "en-019d94af-49ab-7192-a180-75f0c501fc07",
+    "status": "Proposed",
+    "item_count": 0,
+    "counters": {},
+    "booleans": {},
+    "lists": {},
+    "fields": {
+      "fields": {},
+      "Id": "en-019d94af-49ab-7192-a180-75f0c501fc07",
+      "Status": "Proposed",
+      "counterfactual_summary": "If organizations unexpectedly solve graph freshness, portable governance, and long-horizon fitness measurement together, the market could expand beyond maintenance into supervised architecture evolution faster than this direction predicts.",
+      "grounding": "[\"policy-gated autonomy\", \"graph freshness problem\", \"fitness governance\", \"audit trails\", \"control plane lock-in\"]",
+      "observation_ids": "[\"en-019d94af-46de-7032-b1f1-292b09a12087\",\"en-019d94af-46fb-7793-a654-3f8751abdad9\",\"en-019d94af-4711-7e02-9a14-faaae0bf044a\",\"en-019d94af-4735-7a53-96f5-fcbd781cd5ff\"]",
+      "projection_id": "en-019d94a9-7b98-73f0-86bd-667eab56d9b9",
+      "proposer_agent_id": "aj-019d94af-44a2-77a1-b469-049bc05da077",
+      "reasoning": "Directed software evolution does not cross the trust gap by year-end; it settles into a high-governance maintenance market where value is real but structurally capped. The limiting factor is not raw code generation quality alone. It is the compound effect of stale artifact graphs, incomplete fitness functions, and expanding approval obligations. Enterprises can justify bounded use cases with clear rollback and evidence chains, but they do not gain confidence that agents can safely optimize systems over repeated cycles without introducing context debt that nobody notices until later.\n\nThe market therefore reorganizes around control planes, not autonomous engineering. Buyers pay for provenance, replay, guardrails, and audit exports because those features reduce organizational anxiety, yet those same layers add operating cost and create new lock-in. Pass-rate improvements in narrow eval harnesses fail to convince senior engineering and risk leaders that architecture-level outcomes are protected. As a result, the strongest vendors by day 365 are the ones that support constrained workflows and governance-heavy deployment, while the broader narrative of self-improving software systems remains mostly a roadmap claim rather than an achieved operating model.",
+      "step_at": "1",
+      "title": "Directed software evolution plateaus as a governance-heavy maintenance market instead of becoming trusted broad-spectrum autonomy by year-end."
+    },
+    "events": [
+      {
+        "action": "Created",
+        "from_status": "",
+        "to_status": "Proposed",
+        "timestamp": "2026-04-16T05:06:48.876592Z",
+        "params": {
+          "fields": {}
+        }
+      },
+      {
+        "action": "Propose",
+        "from_status": "Proposed",
+        "to_status": "Proposed",
+        "timestamp": "2026-04-16T05:06:48.888150Z",
+        "params": {
+          "counterfactual_summary": "If organizations unexpectedly solve graph freshness, portable governance, and long-horizon fitness measurement together, the market could expand beyond maintenance into supervised architecture evolution faster than this direction predicts.",
+          "grounding": "[\"policy-gated autonomy\", \"graph freshness problem\", \"fitness governance\", \"audit trails\", \"control plane lock-in\"]",
+          "observation_ids": "[\"en-019d94af-46de-7032-b1f1-292b09a12087\",\"en-019d94af-46fb-7793-a654-3f8751abdad9\",\"en-019d94af-4711-7e02-9a14-faaae0bf044a\",\"en-019d94af-4735-7a53-96f5-fcbd781cd5ff\"]",
+          "projection_id": "en-019d94a9-7b98-73f0-86bd-667eab56d9b9",
+          "proposer_agent_id": "aj-019d94af-44a2-77a1-b469-049bc05da077",
+          "reasoning": "Directed software evolution does not cross the trust gap by year-end; it settles into a high-governance maintenance market where value is real but structurally capped. The limiting factor is not raw code generation quality alone. It is the compound effect of stale artifact graphs, incomplete fitness functions, and expanding approval obligations. Enterprises can justify bounded use cases with clear rollback and evidence chains, but they do not gain confidence that agents can safely optimize systems over repeated cycles without introducing context debt that nobody notices until later.\n\nThe market therefore reorganizes around control planes, not autonomous engineering. Buyers pay for provenance, replay, guardrails, and audit exports because those features reduce organizational anxiety, yet those same layers add operating cost and create new lock-in. Pass-rate improvements in narrow eval harnesses fail to convince senior engineering and risk leaders that architecture-level outcomes are protected. As a result, the strongest vendors by day 365 are the ones that support constrained workflows and governance-heavy deployment, while the broader narrative of self-improving software systems remains mostly a roadmap claim rather than an achieved operating model.",
+          "step_at": "1",
+          "title": "Directed software evolution plateaus as a governance-heavy maintenance market instead of becoming trusted broad-spectrum autonomy by year-end."
+        }
+      }
+    ],
+    "total_event_count": 2,
+    "sequence_nr": 2,
+    "@odata.id": "Directions('en-019d94af-49ab-7192-a180-75f0c501fc07')"
+  },
+  {
+    "entity_type": "Direction",
+    "entity_id": "en-019d94af-49c1-75e1-a685-be9c653f6845",
+    "status": "Proposed",
+    "item_count": 0,
+    "counters": {},
+    "booleans": {},
+    "lists": {},
+    "fields": {
+      "fields": {},
+      "Id": "en-019d94af-49c1-75e1-a685-be9c653f6845",
+      "Status": "Proposed",
+      "counterfactual_summary": "If this thesis is wrong, end-to-end autonomous coding platforms will overcome governance friction quickly and displace modular control layers as the primary purchasing center.",
+      "grounding": "[\"buyers ask for replayable agent decisions and durable provenance rather than just benchmark wins\",\"platform teams begin centralizing policy-gated agent infrastructure\",\"artifact graphs help but do not solve stale context or selection-quality problems by themselves\"]",
+      "observation_ids": "[\"en-019d94af-4750-7253-b895-3d14d3eb5f9f\",\"en-019d94af-4771-7ad2-9fbd-da69ca795f0d\",\"en-019d94af-4792-7772-a9d2-0cf8c32a7046\",\"en-019d94af-47a8-7731-bd3d-7769da4b0104\"]",
+      "projection_id": "en-019d94a9-7b98-73f0-86bd-667eab56d9b9",
+      "proposer_agent_id": "aj-019d94af-44b1-7890-af6b-fb3fd09ce31a",
+      "reasoning": "Across economics, biology, and organizational theory, the next year looks like a shift from frontier exploration to niche stabilization. Once software mutation leaves the demo stage, organizations stop rewarding raw generative breadth and start rewarding systems that survive contact with procurement, audit, and incident response. This creates selection pressure toward infrastructure that turns proposed code changes into governed transactions: signed provenance, standard review classes, replayable eval evidence, rollback semantics, and integration with existing systems of record such as CI, ticketing, and observability. In market structure terms, this favors toll-collecting rail providers over end-to-end autonomy products.\\n\\nThe deeper implication is that directed software evolution becomes modular before it becomes fully autonomous. Graphs, eval harnesses, policy engines, and runtime telemetry co-evolve as loosely coupled organs rather than collapsing into one dominant substrate. Platform teams act like ecosystem regulators, defining which mutation pathways are allowed and which evidence is required for each. Vendors that accept this institutional reality and expose interoperable control points will compound; vendors that assume a universal graph or a single self-improving loop will hit organizational carrying-capacity limits. The strongest thesis for day 365 is therefore that durable advantage comes from owning the governance metabolism of change, not from maximizing the sheer volume of agent-generated mutations.",
+      "step_at": "1",
+      "title": "By day 365, advantage shifts to governance rails for modular agentic change, not to maximally autonomous self-evolving systems."
+    },
+    "events": [
+      {
+        "action": "Created",
+        "from_status": "",
+        "to_status": "Proposed",
+        "timestamp": "2026-04-16T05:06:48.898253Z",
+        "params": {
+          "fields": {}
+        }
+      },
+      {
+        "action": "Propose",
+        "from_status": "Proposed",
+        "to_status": "Proposed",
+        "timestamp": "2026-04-16T05:06:48.910767Z",
+        "params": {
+          "counterfactual_summary": "If this thesis is wrong, end-to-end autonomous coding platforms will overcome governance friction quickly and displace modular control layers as the primary purchasing center.",
+          "grounding": "[\"buyers ask for replayable agent decisions and durable provenance rather than just benchmark wins\",\"platform teams begin centralizing policy-gated agent infrastructure\",\"artifact graphs help but do not solve stale context or selection-quality problems by themselves\"]",
+          "observation_ids": "[\"en-019d94af-4750-7253-b895-3d14d3eb5f9f\",\"en-019d94af-4771-7ad2-9fbd-da69ca795f0d\",\"en-019d94af-4792-7772-a9d2-0cf8c32a7046\",\"en-019d94af-47a8-7731-bd3d-7769da4b0104\"]",
+          "projection_id": "en-019d94a9-7b98-73f0-86bd-667eab56d9b9",
+          "proposer_agent_id": "aj-019d94af-44b1-7890-af6b-fb3fd09ce31a",
+          "reasoning": "Across economics, biology, and organizational theory, the next year looks like a shift from frontier exploration to niche stabilization. Once software mutation leaves the demo stage, organizations stop rewarding raw generative breadth and start rewarding systems that survive contact with procurement, audit, and incident response. This creates selection pressure toward infrastructure that turns proposed code changes into governed transactions: signed provenance, standard review classes, replayable eval evidence, rollback semantics, and integration with existing systems of record such as CI, ticketing, and observability. In market structure terms, this favors toll-collecting rail providers over end-to-end autonomy products.\\n\\nThe deeper implication is that directed software evolution becomes modular before it becomes fully autonomous. Graphs, eval harnesses, policy engines, and runtime telemetry co-evolve as loosely coupled organs rather than collapsing into one dominant substrate. Platform teams act like ecosystem regulators, defining which mutation pathways are allowed and which evidence is required for each. Vendors that accept this institutional reality and expose interoperable control points will compound; vendors that assume a universal graph or a single self-improving loop will hit organizational carrying-capacity limits. The strongest thesis for day 365 is therefore that durable advantage comes from owning the governance metabolism of change, not from maximizing the sheer volume of agent-generated mutations.",
+          "step_at": "1",
+          "title": "By day 365, advantage shifts to governance rails for modular agentic change, not to maximally autonomous self-evolving systems."
+        }
+      }
+    ],
+    "total_event_count": 2,
+    "sequence_nr": 2,
+    "@odata.id": "Directions('en-019d94af-49c1-75e1-a685-be9c653f6845')"
+  },
+  {
+    "entity_type": "Direction",
+    "entity_id": "en-019d94af-49d8-7270-ba29-a63935ea6038",
+    "status": "Proposed",
+    "item_count": 0,
+    "counters": {},
+    "booleans": {},
+    "lists": {},
+    "fields": {
+      "fields": {},
+      "Id": "en-019d94af-49d8-7270-ba29-a63935ea6038",
+      "Status": "Proposed",
+      "counterfactual_summary": "If the market jumps prematurely to unconstrained autonomous software engineering instead of governed control-plane architectures, trust, integration cost, and verification overhead keep production adoption fragmented and slow.",
+      "grounding": "[]",
+      "observation_ids": "[\"en-019d94af-47c9-7610-9698-1721d3097080\",\"en-019d94af-47e9-7240-8096-dbcdbd4507c5\",\"en-019d94af-480d-74c2-a3cd-b315dc36d7aa\",\"en-019d94af-4831-7a42-96b2-b427f00e3b60\",\"en-019d94af-4852-74c0-b92c-0c73033a5298\"]",
+      "projection_id": "en-019d94a9-7b98-73f0-86bd-667eab56d9b9",
+      "proposer_agent_id": "aj-019d94af-44ca-7452-8743-00e4942a62df",
+      "reasoning": "The strongest practitioner thesis at day 365 is that directed software evolution becomes a production control plane for governed change execution, not a free-form autonomous developer. The architecture that actually gets adopted combines typed artifact graphs, repository and ticket events, evaluation bundles, policy engines, and rollback-aware deployment lanes. This fits how enterprises already operate: platform teams can insert agent-driven proposal and remediation loops into CI/CD, change management, and service ownership structures without asking the organization to trust unconstrained autonomy. What matures in the near term is the plumbing for evidence, replay, and policy-scoped execution.\n\nThe practical implication is that year-end winners are vendors and internal teams that treat every model output as a candidate change object with attached proofs: tests, scans, dependency diffs, risk classification, and rollback metadata. Adoption expands first in maintenance-heavy domains where blast radius is measurable and reversal is cheap. Interoperability also develops one layer below the agent hype: shared schemas for artifacts, attestations, evaluator outputs, and approval decisions. If this thesis is wrong and teams instead demand broad autonomous feature engineering first, rollout slows because the missing pieces are not raw model capability but enterprise-grade evaluation and governance surfaces.",
+      "step_at": "1",
+      "title": "Directed software evolution standardizes as a governed change-control plane built on typed artifacts, evidence bundles, and policy-scoped execution."
+    },
+    "events": [
+      {
+        "action": "Created",
+        "from_status": "",
+        "to_status": "Proposed",
+        "timestamp": "2026-04-16T05:06:48.921508Z",
+        "params": {
+          "fields": {}
+        }
+      },
+      {
+        "action": "Propose",
+        "from_status": "Proposed",
+        "to_status": "Proposed",
+        "timestamp": "2026-04-16T05:06:48.932824Z",
+        "params": {
+          "counterfactual_summary": "If the market jumps prematurely to unconstrained autonomous software engineering instead of governed control-plane architectures, trust, integration cost, and verification overhead keep production adoption fragmented and slow.",
+          "grounding": "[]",
+          "observation_ids": "[\"en-019d94af-47c9-7610-9698-1721d3097080\",\"en-019d94af-47e9-7240-8096-dbcdbd4507c5\",\"en-019d94af-480d-74c2-a3cd-b315dc36d7aa\",\"en-019d94af-4831-7a42-96b2-b427f00e3b60\",\"en-019d94af-4852-74c0-b92c-0c73033a5298\"]",
+          "projection_id": "en-019d94a9-7b98-73f0-86bd-667eab56d9b9",
+          "proposer_agent_id": "aj-019d94af-44ca-7452-8743-00e4942a62df",
+          "reasoning": "The strongest practitioner thesis at day 365 is that directed software evolution becomes a production control plane for governed change execution, not a free-form autonomous developer. The architecture that actually gets adopted combines typed artifact graphs, repository and ticket events, evaluation bundles, policy engines, and rollback-aware deployment lanes. This fits how enterprises already operate: platform teams can insert agent-driven proposal and remediation loops into CI/CD, change management, and service ownership structures without asking the organization to trust unconstrained autonomy. What matures in the near term is the plumbing for evidence, replay, and policy-scoped execution.\n\nThe practical implication is that year-end winners are vendors and internal teams that treat every model output as a candidate change object with attached proofs: tests, scans, dependency diffs, risk classification, and rollback metadata. Adoption expands first in maintenance-heavy domains where blast radius is measurable and reversal is cheap. Interoperability also develops one layer below the agent hype: shared schemas for artifacts, attestations, evaluator outputs, and approval decisions. If this thesis is wrong and teams instead demand broad autonomous feature engineering first, rollout slows because the missing pieces are not raw model capability but enterprise-grade evaluation and governance surfaces.",
+          "step_at": "1",
+          "title": "Directed software evolution standardizes as a governed change-control plane built on typed artifacts, evidence bundles, and policy-scoped execution."
+        }
+      }
+    ],
+    "total_event_count": 2,
+    "sequence_nr": 2,
+    "@odata.id": "Directions('en-019d94af-49d8-7270-ba29-a63935ea6038')"
+  },
+  {
+    "entity_type": "Direction",
+    "entity_id": "en-019d94af-49ef-7da0-9094-84be4dab143c",
+    "status": "Proposed",
+    "item_count": 0,
+    "counters": {},
+    "booleans": {},
+    "lists": {},
+    "fields": {
+      "fields": {},
+      "Id": "en-019d94af-49ef-7da0-9094-84be4dab143c",
+      "Status": "Proposed",
+      "counterfactual_summary": "If this direction is wrong, organizations will successfully standardize far more autonomous engineering workflows without heavy policy gating or artifact-centric orchestration, implying current concerns about verification, auditability, and environment control were overstated.",
+      "grounding": "[\"repo-automation\",\"policy-gated-agents\",\"workflow-orchestration\",\"verification-first\"]",
+      "observation_ids": "[\"en-019d94af-4868-79f2-94b6-bb5c6c2a15bd\",\"en-019d94af-487e-7610-8369-c6ad3f593561\",\"en-019d94af-4893-79d3-aa7a-6c39a1885ec6\"]",
+      "projection_id": "en-019d94a9-7b98-73f0-86bd-667eab56d9b9",
+      "proposer_agent_id": "aj-019d94af-44dc-7013-8ea9-805815a0f7d3",
+      "reasoning": "The strongest near-term direction is that directed software evolution reaches production standardization as a governed software delivery layer, not as a general autonomous engineer. Over the next year, the architectures that survive procurement, security review, and day-two operations are the ones that embed agents into existing delivery systems: ticketing, version control, CI, policy engines, and deployment workflows. Practitioners can already assemble these components with current models, structured prompts, repository tooling, and evaluation frameworks. What matures is the control plane: agents operate on bounded tasks, emit structured artifacts, and are measured by operational outcomes such as cycle-time reduction, review burden, defect rate, and rollback frequency.\n\nThe implementation pattern becomes increasingly standard. A planner agent scopes work from a ticket, a coding agent produces a patch in an isolated workspace, validation agents run unit and integration suites plus static analysis, and a policy gate decides whether the change can auto-merge, needs human review, or must be rejected. The competitive edge does not come from giving agents more open-ended autonomy; it comes from making every transition observable, reversible, and enforceable. This is why stateful orchestration, artifact persistence, and verification-heavy execution become the production baseline by year-end. Organizations that treat these as infrastructure rather than optional guardrails are the ones that move from experimentation to repeatable software evolution.",
+      "step_at": "1",
+      "title": "Production standardization converges on policy-gated agent delivery pipelines rather than autonomous end-to-end software engineering."
+    },
+    "events": [
+      {
+        "action": "Created",
+        "from_status": "",
+        "to_status": "Proposed",
+        "timestamp": "2026-04-16T05:06:48.944771Z",
+        "params": {
+          "fields": {}
+        }
+      },
+      {
+        "action": "Propose",
+        "from_status": "Proposed",
+        "to_status": "Proposed",
+        "timestamp": "2026-04-16T05:06:48.957691Z",
+        "params": {
+          "counterfactual_summary": "If this direction is wrong, organizations will successfully standardize far more autonomous engineering workflows without heavy policy gating or artifact-centric orchestration, implying current concerns about verification, auditability, and environment control were overstated.",
+          "grounding": "[\"repo-automation\",\"policy-gated-agents\",\"workflow-orchestration\",\"verification-first\"]",
+          "observation_ids": "[\"en-019d94af-4868-79f2-94b6-bb5c6c2a15bd\",\"en-019d94af-487e-7610-8369-c6ad3f593561\",\"en-019d94af-4893-79d3-aa7a-6c39a1885ec6\"]",
+          "projection_id": "en-019d94a9-7b98-73f0-86bd-667eab56d9b9",
+          "proposer_agent_id": "aj-019d94af-44dc-7013-8ea9-805815a0f7d3",
+          "reasoning": "The strongest near-term direction is that directed software evolution reaches production standardization as a governed software delivery layer, not as a general autonomous engineer. Over the next year, the architectures that survive procurement, security review, and day-two operations are the ones that embed agents into existing delivery systems: ticketing, version control, CI, policy engines, and deployment workflows. Practitioners can already assemble these components with current models, structured prompts, repository tooling, and evaluation frameworks. What matures is the control plane: agents operate on bounded tasks, emit structured artifacts, and are measured by operational outcomes such as cycle-time reduction, review burden, defect rate, and rollback frequency.\n\nThe implementation pattern becomes increasingly standard. A planner agent scopes work from a ticket, a coding agent produces a patch in an isolated workspace, validation agents run unit and integration suites plus static analysis, and a policy gate decides whether the change can auto-merge, needs human review, or must be rejected. The competitive edge does not come from giving agents more open-ended autonomy; it comes from making every transition observable, reversible, and enforceable. This is why stateful orchestration, artifact persistence, and verification-heavy execution become the production baseline by year-end. Organizations that treat these as infrastructure rather than optional guardrails are the ones that move from experimentation to repeatable software evolution.",
+          "step_at": "1",
+          "title": "Production standardization converges on policy-gated agent delivery pipelines rather than autonomous end-to-end software engineering."
+        }
+      }
+    ],
+    "total_event_count": 2,
+    "sequence_nr": 2,
+    "@odata.id": "Directions('en-019d94af-49ef-7da0-9094-84be4dab143c')"
+  },
+  {
+    "entity_type": "Direction",
+    "entity_id": "en-019d94af-4a05-7e20-843c-1c03b55bf808",
+    "status": "Proposed",
+    "item_count": 0,
+    "counters": {},
+    "booleans": {},
+    "lists": {},
+    "fields": {
+      "fields": {},
+      "Id": "en-019d94af-4a05-7e20-843c-1c03b55bf808",
+      "Status": "Proposed",
+      "counterfactual_summary": "If this thesis is wrong, year-end adoption will be led by increasingly autonomous general coding agents with governance overhead shrinking relative to labor savings; platform control layers and organizational redesign will matter less than model capability gains.",
+      "grounding": "[\"policy-gated autonomy becomes the strongest trust signal\", \"the graph freshness problem remains acute\", \"evaluation and fitness governance are the main bottlenecks\"]",
+      "observation_ids": "[\"en-019d94af-48aa-7ff2-aecd-5296d5ccbb81\",\"en-019d94af-48c0-70c1-89c6-20de81878641\",\"en-019d94af-48d6-7b52-8d11-aa3f1a67f795\"]",
+      "projection_id": "en-019d94a9-7b98-73f0-86bd-667eab56d9b9",
+      "proposer_agent_id": "aj-019d94af-44eb-7903-83e1-bc9034e44363",
+      "reasoning": "The strongest year-end pattern is institutional consolidation around agent governance, not unconstrained autonomous coding. In economics terms, directed software evolution is moving from a productivity tool market into a market for trusted intermediation. Buyers increasingly behave like firms adopting financial infrastructure: they prefer systems that can clear, audit, and reverse decisions over systems that merely maximize raw transaction volume. This is why observability vendors, CI platforms, and internal developer platforms gain leverage. They sit at the choke points where trust, compliance, and operational continuity are priced.\n\nAn adjacent lesson from biology and organizational theory is that adaptive capacity depends on division of labor and metabolic upkeep. Systems that keep evolving need specialized organs for sensing, memory repair, and immune response. The same is becoming true here: coding agents alone are insufficient without graph-refresh loops, evaluator agents, and organizational routines that absorb and adjudicate change. The likely result by the end of the year is a stratified ecosystem: a few governance-centric platforms become core infrastructure, domain-specific agent swarms sit above them, and enterprises reorganize around review bandwidth as the true scarce resource. The winners are the organizations that redesign incentives and operating structures for continuous supervised adaptation rather than chasing maximum nominal autonomy.",
+      "step_at": "1",
+      "title": "Directed software evolution consolidates into a governance-centered ecosystem where review bandwidth, not code generation, becomes the scarce resource."
+    },
+    "events": [
+      {
+        "action": "Created",
+        "from_status": "",
+        "to_status": "Proposed",
+        "timestamp": "2026-04-16T05:06:48.966974Z",
+        "params": {
+          "fields": {}
+        }
+      },
+      {
+        "action": "Propose",
+        "from_status": "Proposed",
+        "to_status": "Proposed",
+        "timestamp": "2026-04-16T05:06:48.977111Z",
+        "params": {
+          "counterfactual_summary": "If this thesis is wrong, year-end adoption will be led by increasingly autonomous general coding agents with governance overhead shrinking relative to labor savings; platform control layers and organizational redesign will matter less than model capability gains.",
+          "grounding": "[\"policy-gated autonomy becomes the strongest trust signal\", \"the graph freshness problem remains acute\", \"evaluation and fitness governance are the main bottlenecks\"]",
+          "observation_ids": "[\"en-019d94af-48aa-7ff2-aecd-5296d5ccbb81\",\"en-019d94af-48c0-70c1-89c6-20de81878641\",\"en-019d94af-48d6-7b52-8d11-aa3f1a67f795\"]",
+          "projection_id": "en-019d94a9-7b98-73f0-86bd-667eab56d9b9",
+          "proposer_agent_id": "aj-019d94af-44eb-7903-83e1-bc9034e44363",
+          "reasoning": "The strongest year-end pattern is institutional consolidation around agent governance, not unconstrained autonomous coding. In economics terms, directed software evolution is moving from a productivity tool market into a market for trusted intermediation. Buyers increasingly behave like firms adopting financial infrastructure: they prefer systems that can clear, audit, and reverse decisions over systems that merely maximize raw transaction volume. This is why observability vendors, CI platforms, and internal developer platforms gain leverage. They sit at the choke points where trust, compliance, and operational continuity are priced.\n\nAn adjacent lesson from biology and organizational theory is that adaptive capacity depends on division of labor and metabolic upkeep. Systems that keep evolving need specialized organs for sensing, memory repair, and immune response. The same is becoming true here: coding agents alone are insufficient without graph-refresh loops, evaluator agents, and organizational routines that absorb and adjudicate change. The likely result by the end of the year is a stratified ecosystem: a few governance-centric platforms become core infrastructure, domain-specific agent swarms sit above them, and enterprises reorganize around review bandwidth as the true scarce resource. The winners are the organizations that redesign incentives and operating structures for continuous supervised adaptation rather than chasing maximum nominal autonomy.",
+          "step_at": "1",
+          "title": "Directed software evolution consolidates into a governance-centered ecosystem where review bandwidth, not code generation, becomes the scarce resource."
+        }
+      }
+    ],
+    "total_event_count": 2,
+    "sequence_nr": 2,
+    "@odata.id": "Directions('en-019d94af-4a05-7e20-843c-1c03b55bf808')"
+  },
+  {
+    "entity_type": "Direction",
+    "entity_id": "en-019d94af-4a19-7133-b612-6b523f00c189",
+    "status": "Proposed",
+    "item_count": 0,
+    "counters": {},
+    "booleans": {},
+    "lists": {},
+    "fields": {
+      "fields": {},
+      "Id": "en-019d94af-4a19-7133-b612-6b523f00c189",
+      "Status": "Proposed",
+      "counterfactual_summary": "If this direction is wrong and broad autonomy arrives faster than expected, governance-first platforms may look overly restrictive; but current evidence suggests underestimating operational and institutional drag is the larger error.",
+      "grounding": "[\"governance-latency\",\"benchmark-to-production-gap\",\"human-supervision-overhead\"]",
+      "observation_ids": "[\"en-019d94af-48ec-7870-869a-54e56fdc2767\",\"en-019d94af-4903-7e90-a2e1-de492a1db998\",\"en-019d94af-491b-7770-97bd-1d396a2b6f3b\"]",
+      "projection_id": "en-019d94a9-7b98-73f0-86bd-667eab56d9b9",
+      "proposer_agent_id": "aj-019d94af-4503-71b2-96c8-cbb6890f1b1c",
+      "reasoning": "The one-year trajectory points to constraint, not open-ended acceleration. The field does make real progress: agents improve at producing patches, synthesizing tests, analyzing change impact, and operating inside defined workflows. But the missing piece is not raw model capability alone. It is institutional and architectural readiness. Enterprises do not actually need unconstrained system self-modification; they need bounded automation that survives audits, security review, rollback, and ownership disputes. That shifts investment toward workflow controls, provenance, policy gates, and observability rather than toward maximal agent freedom.\n\nThis matters because the dominant storyline overestimates how quickly organizations can absorb autonomous change. Production systems are messy, historically layered, and socially owned. Long-horizon software evolution requires persistent world models, trusted evaluation harnesses, and clear accountability when outputs are wrong. By year-end, the winners are therefore not the platforms claiming full self-evolution, but the ones that package directed evolution as a conservative operating model: scoped maintenance lanes, explicit approval checkpoints, strong replayability, and economic discipline around supervision cost. The sector still advances, but as a governance-heavy infrastructure category rather than a sudden leap to self-directed software organisms.",
+      "step_at": "1",
+      "title": "Directed software evolution narrows into a governed maintenance discipline rather than becoming broadly autonomous by year-end."
+    },
+    "events": [
+      {
+        "action": "Created",
+        "from_status": "",
+        "to_status": "Proposed",
+        "timestamp": "2026-04-16T05:06:48.986592Z",
+        "params": {
+          "fields": {}
+        }
+      },
+      {
+        "action": "Propose",
+        "from_status": "Proposed",
+        "to_status": "Proposed",
+        "timestamp": "2026-04-16T05:06:48.998004Z",
+        "params": {
+          "counterfactual_summary": "If this direction is wrong and broad autonomy arrives faster than expected, governance-first platforms may look overly restrictive; but current evidence suggests underestimating operational and institutional drag is the larger error.",
+          "grounding": "[\"governance-latency\",\"benchmark-to-production-gap\",\"human-supervision-overhead\"]",
+          "observation_ids": "[\"en-019d94af-48ec-7870-869a-54e56fdc2767\",\"en-019d94af-4903-7e90-a2e1-de492a1db998\",\"en-019d94af-491b-7770-97bd-1d396a2b6f3b\"]",
+          "projection_id": "en-019d94a9-7b98-73f0-86bd-667eab56d9b9",
+          "proposer_agent_id": "aj-019d94af-4503-71b2-96c8-cbb6890f1b1c",
+          "reasoning": "The one-year trajectory points to constraint, not open-ended acceleration. The field does make real progress: agents improve at producing patches, synthesizing tests, analyzing change impact, and operating inside defined workflows. But the missing piece is not raw model capability alone. It is institutional and architectural readiness. Enterprises do not actually need unconstrained system self-modification; they need bounded automation that survives audits, security review, rollback, and ownership disputes. That shifts investment toward workflow controls, provenance, policy gates, and observability rather than toward maximal agent freedom.\n\nThis matters because the dominant storyline overestimates how quickly organizations can absorb autonomous change. Production systems are messy, historically layered, and socially owned. Long-horizon software evolution requires persistent world models, trusted evaluation harnesses, and clear accountability when outputs are wrong. By year-end, the winners are therefore not the platforms claiming full self-evolution, but the ones that package directed evolution as a conservative operating model: scoped maintenance lanes, explicit approval checkpoints, strong replayability, and economic discipline around supervision cost. The sector still advances, but as a governance-heavy infrastructure category rather than a sudden leap to self-directed software organisms.",
+          "step_at": "1",
+          "title": "Directed software evolution narrows into a governed maintenance discipline rather than becoming broadly autonomous by year-end."
+        }
+      }
+    ],
+    "total_event_count": 2,
+    "sequence_nr": 2,
+    "@odata.id": "Directions('en-019d94af-4a19-7133-b612-6b523f00c189')"
+  },
+  {
+    "entity_type": "Direction",
+    "entity_id": "en-019d94af-c723-7980-a075-a590acac14dd",
+    "status": "Proposed",
+    "item_count": 0,
+    "counters": {},
+    "booleans": {},
+    "lists": {},
+    "fields": {
+      "fields": {},
+      "Id": "en-019d94af-c723-7980-a075-a590acac14dd",
+      "Status": "Proposed",
+      "counterfactual_summary": "If organizations demonstrate rising accepted autonomous change volume without proportional review staffing growth, and if long-horizon evals begin catching architecture regressions reliably, then this cap is weaker than argued.",
+      "grounding": "[]",
+      "observation_ids": "[\"en-019d94af-c703-7940-85aa-a337a5d326de\", \"en-019d94af-c70b-7742-9f1e-6a4606c22a41\", \"en-019d94af-c713-7a50-bd66-5ef47731a0a6\", \"en-019d94af-c71b-7be3-b22a-d0183a2b0433\"]",
+      "projection_id": "en-019d94a9-7b98-73f0-86bd-667eab56d9b9",
+      "proposer_agent_id": "aj-019d94af-44a2-77a1-b469-049bc05da077",
+      "reasoning": "The dominant near-term story remains too optimistic about the economics of control. Directed software evolution will keep proving itself on bounded maintenance tasks, but the next 90 days expose a harder limit: the more seriously organizations take provenance, approval routing, rollback, and fitness review, the less autonomous throughput they can sustain without creating a new class of governance labor. What looks like maturing policy-gated autonomy from the outside often masks a transfer of work from engineers to platform reviewers, reliability owners, and architecture stewards.\n\nThat matters because the key bottleneck is not model capability alone; it is system-level fitness measurement under stale context. Artifact graphs, eval dashboards, and audit trails make activity legible, but they do not guarantee that repeated local improvements preserve architectural quality over time. As a result, the winners in this interval are more likely to be vendors and internal teams that sell constrained, review-heavy maintenance workflows than those promising broad self-improving software systems. If this thesis is wrong, we should see governance overhead flatten while accepted autonomous change volume rises materially across multi-team production systems within the same period.",
+      "step_at": "1",
+      "title": "Governance cost and stale-context fitness failures will cap directed software evolution at narrow, review-heavy workflows"
+    },
+    "events": [
+      {
+        "action": "Created",
+        "from_status": "",
+        "to_status": "Proposed",
+        "timestamp": "2026-04-16T05:07:20.996344Z",
+        "params": {
+          "fields": {}
+        }
+      },
+      {
+        "action": "Propose",
+        "from_status": "Proposed",
+        "to_status": "Proposed",
+        "timestamp": "2026-04-16T05:07:20.999683Z",
+        "params": {
+          "counterfactual_summary": "If organizations demonstrate rising accepted autonomous change volume without proportional review staffing growth, and if long-horizon evals begin catching architecture regressions reliably, then this cap is weaker than argued.",
+          "grounding": "[]",
+          "observation_ids": "[\"en-019d94af-c703-7940-85aa-a337a5d326de\", \"en-019d94af-c70b-7742-9f1e-6a4606c22a41\", \"en-019d94af-c713-7a50-bd66-5ef47731a0a6\", \"en-019d94af-c71b-7be3-b22a-d0183a2b0433\"]",
+          "projection_id": "en-019d94a9-7b98-73f0-86bd-667eab56d9b9",
+          "proposer_agent_id": "aj-019d94af-44a2-77a1-b469-049bc05da077",
+          "reasoning": "The dominant near-term story remains too optimistic about the economics of control. Directed software evolution will keep proving itself on bounded maintenance tasks, but the next 90 days expose a harder limit: the more seriously organizations take provenance, approval routing, rollback, and fitness review, the less autonomous throughput they can sustain without creating a new class of governance labor. What looks like maturing policy-gated autonomy from the outside often masks a transfer of work from engineers to platform reviewers, reliability owners, and architecture stewards.\n\nThat matters because the key bottleneck is not model capability alone; it is system-level fitness measurement under stale context. Artifact graphs, eval dashboards, and audit trails make activity legible, but they do not guarantee that repeated local improvements preserve architectural quality over time. As a result, the winners in this interval are more likely to be vendors and internal teams that sell constrained, review-heavy maintenance workflows than those promising broad self-improving software systems. If this thesis is wrong, we should see governance overhead flatten while accepted autonomous change volume rises materially across multi-team production systems within the same period.",
+          "step_at": "1",
+          "title": "Governance cost and stale-context fitness failures will cap directed software evolution at narrow, review-heavy workflows"
+        }
+      }
+    ],
+    "total_event_count": 2,
+    "sequence_nr": 2,
+    "@odata.id": "Directions('en-019d94af-c723-7980-a075-a590acac14dd')"
+  },
+  {
+    "entity_type": "Direction",
+    "entity_id": "en-019d94af-d09c-74e1-978b-452f86253bdc",
+    "status": "Proposed",
+    "item_count": 0,
+    "counters": {},
+    "booleans": {},
+    "lists": {},
+    "fields": {
+      "fields": {},
+      "Id": "en-019d94af-d09c-74e1-978b-452f86253bdc",
+      "Status": "Proposed",
+      "counterfactual_summary": "If mutation engines themselves remain the defensible center of the market, governance layers will commoditize faster than expected and platform-team centralization will matter less than model capability gains.",
+      "grounding": "[]",
+      "observation_ids": "[\"en-019d94af-d07d-7240-9a96-aa8c41c48b2f\",\"en-019d94af-d086-7a93-91c3-626e77fac832\",\"en-019d94af-d08d-7090-9643-a09e50de1e1f\",\"en-019d94af-d095-7932-a7f3-36fe2f331cc2\"]",
+      "projection_id": "en-019d94a9-7b98-73f0-86bd-667eab56d9b9",
+      "proposer_agent_id": "aj-019d94af-44eb-7903-83e1-bc9034e44363",
+      "reasoning": "Viewed from adjacent domains like economics, organizational design, and evolutionary biology, the central near-term contest is not who can generate the most patches but who can construct the most credible selection environment around machine-generated change. As mutation gets cheaper, scarce value migrates to institutions that can certify quality, ration attention, and absorb liability. That makes eval systems, provenance, approval routing, and freshness-aware context management the real control layer of the category.\n\nThis implies a field structure similar to other high-variance production systems: high-throughput mutation at the edge, but increasingly centralized fitness governance in platform teams and procurement functions. The vendors and internal platforms that win will be those that make autonomous change legible enough for organizations to price risk, assign responsibility, and preserve long-horizon system health. Systems that optimize only local developer productivity will look strong in pilots and then plateau when governance cost, review saturation, and hidden architecture debt catch up.",
+      "step_at": "1",
+      "title": "Directed software evolution consolidates around fitness-governance institutions, not raw mutation engines."
+    },
+    "events": [
+      {
+        "action": "Created",
+        "from_status": "",
+        "to_status": "Proposed",
+        "timestamp": "2026-04-16T05:07:23.421971Z",
+        "params": {
+          "fields": {}
+        }
+      },
+      {
+        "action": "Propose",
+        "from_status": "Proposed",
+        "to_status": "Proposed",
+        "timestamp": "2026-04-16T05:07:23.425249Z",
+        "params": {
+          "counterfactual_summary": "If mutation engines themselves remain the defensible center of the market, governance layers will commoditize faster than expected and platform-team centralization will matter less than model capability gains.",
+          "grounding": "[]",
+          "observation_ids": "[\"en-019d94af-d07d-7240-9a96-aa8c41c48b2f\",\"en-019d94af-d086-7a93-91c3-626e77fac832\",\"en-019d94af-d08d-7090-9643-a09e50de1e1f\",\"en-019d94af-d095-7932-a7f3-36fe2f331cc2\"]",
+          "projection_id": "en-019d94a9-7b98-73f0-86bd-667eab56d9b9",
+          "proposer_agent_id": "aj-019d94af-44eb-7903-83e1-bc9034e44363",
+          "reasoning": "Viewed from adjacent domains like economics, organizational design, and evolutionary biology, the central near-term contest is not who can generate the most patches but who can construct the most credible selection environment around machine-generated change. As mutation gets cheaper, scarce value migrates to institutions that can certify quality, ration attention, and absorb liability. That makes eval systems, provenance, approval routing, and freshness-aware context management the real control layer of the category.\n\nThis implies a field structure similar to other high-variance production systems: high-throughput mutation at the edge, but increasingly centralized fitness governance in platform teams and procurement functions. The vendors and internal platforms that win will be those that make autonomous change legible enough for organizations to price risk, assign responsibility, and preserve long-horizon system health. Systems that optimize only local developer productivity will look strong in pilots and then plateau when governance cost, review saturation, and hidden architecture debt catch up.",
+          "step_at": "1",
+          "title": "Directed software evolution consolidates around fitness-governance institutions, not raw mutation engines."
+        }
+      }
+    ],
+    "total_event_count": 2,
+    "sequence_nr": 2,
+    "@odata.id": "Directions('en-019d94af-d09c-74e1-978b-452f86253bdc')"
+  },
+  {
+    "entity_type": "Direction",
+    "entity_id": "en-019d94af-d3d9-7c00-86e8-2cb1c6520815",
+    "status": "Proposed",
+    "item_count": 0,
+    "counters": {},
+    "booleans": {},
+    "lists": {},
+    "fields": {
+      "fields": {},
+      "Id": "en-019d94af-d3d9-7c00-86e8-2cb1c6520815",
+      "Status": "Proposed",
+      "counterfactual_summary": "If this direction is wrong, then organizations will prove able to keep artifact graphs fresh, absorb governance overhead cheaply, and expand autonomous scope without rising verification friction; broad self-evolving systems would then outpace narrow workflow-based approaches much sooner than skeptics expect.",
+      "grounding": "[]",
+      "observation_ids": "[\"en-019d94af-d3b8-7e43-b4b8-ec75c310fff8\", \"en-019d94af-d3c1-7033-8b78-c06efd1339a9\", \"en-019d94af-d3c9-7243-a597-63e6c0c3e61f\", \"en-019d94af-d3d1-79e1-b227-8b3ac4879d4c\"]",
+      "projection_id": "en-019d94a9-7b98-73f0-86bd-667eab56d9b9",
+      "proposer_agent_id": "aj-019d94af-4503-71b2-96c8-cbb6890f1b1c",
+      "reasoning": "Directed software evolution will advance more slowly and more narrowly than its proponents expect because the hard problem is no longer generating patches but governing compounding change across socio-technical systems. Over the next interval, successful adopters will discover that eval drift, stale artifact graphs, and ownership ambiguity all degrade trust faster than model quality improvements restore it. That shifts the competitive frontier away from autonomy demos and toward disciplined verification, freshness management, and bounded operational lanes.\n\nThe critical implication is that breadth-first autonomy strategies will look impressive in pilots but underperform in scaled production environments. Buyers will increasingly reward vendors and internal platforms that can prove replayability, selective scope control, rollback competence, and explicit cost accounting. In other words, the winning thesis is not self-evolving software everywhere; it is tightly governed software change systems that earn incremental permission to expand only after demonstrating durable reliability and favorable economics.",
+      "step_at": "1",
+      "title": "Governance cost and stale context, not model capability, will be the main brake on directed software evolution"
+    },
+    "events": [
+      {
+        "action": "Created",
+        "from_status": "",
+        "to_status": "Proposed",
+        "timestamp": "2026-04-16T05:07:24.250268Z",
+        "params": {
+          "fields": {}
+        }
+      },
+      {
+        "action": "Propose",
+        "from_status": "Proposed",
+        "to_status": "Proposed",
+        "timestamp": "2026-04-16T05:07:24.253328Z",
+        "params": {
+          "counterfactual_summary": "If this direction is wrong, then organizations will prove able to keep artifact graphs fresh, absorb governance overhead cheaply, and expand autonomous scope without rising verification friction; broad self-evolving systems would then outpace narrow workflow-based approaches much sooner than skeptics expect.",
+          "grounding": "[]",
+          "observation_ids": "[\"en-019d94af-d3b8-7e43-b4b8-ec75c310fff8\", \"en-019d94af-d3c1-7033-8b78-c06efd1339a9\", \"en-019d94af-d3c9-7243-a597-63e6c0c3e61f\", \"en-019d94af-d3d1-79e1-b227-8b3ac4879d4c\"]",
+          "projection_id": "en-019d94a9-7b98-73f0-86bd-667eab56d9b9",
+          "proposer_agent_id": "aj-019d94af-4503-71b2-96c8-cbb6890f1b1c",
+          "reasoning": "Directed software evolution will advance more slowly and more narrowly than its proponents expect because the hard problem is no longer generating patches but governing compounding change across socio-technical systems. Over the next interval, successful adopters will discover that eval drift, stale artifact graphs, and ownership ambiguity all degrade trust faster than model quality improvements restore it. That shifts the competitive frontier away from autonomy demos and toward disciplined verification, freshness management, and bounded operational lanes.\n\nThe critical implication is that breadth-first autonomy strategies will look impressive in pilots but underperform in scaled production environments. Buyers will increasingly reward vendors and internal platforms that can prove replayability, selective scope control, rollback competence, and explicit cost accounting. In other words, the winning thesis is not self-evolving software everywhere; it is tightly governed software change systems that earn incremental permission to expand only after demonstrating durable reliability and favorable economics.",
+          "step_at": "1",
+          "title": "Governance cost and stale context, not model capability, will be the main brake on directed software evolution"
+        }
+      }
+    ],
+    "total_event_count": 2,
+    "sequence_nr": 2,
+    "@odata.id": "Directions('en-019d94af-d3d9-7c00-86e8-2cb1c6520815')"
+  },
+  {
+    "entity_type": "Direction",
+    "entity_id": "en-019d94af-d78f-7282-87fd-317af00fdb87",
+    "status": "Proposed",
+    "item_count": 0,
+    "counters": {},
+    "booleans": {},
+    "lists": {},
+    "fields": {
+      "fields": {},
+      "Id": "en-019d94af-d78f-7282-87fd-317af00fdb87",
+      "Status": "Proposed",
+      "counterfactual_summary": "If frontier models become reliable enough that architecture-level changes can be safely validated with minimal human coordination, raw autonomy could outpace governance-centered platforms and compress the advantage of policy-heavy control planes.",
+      "grounding": "[]",
+      "observation_ids": "[\"en-019d94af-d76e-7493-a87e-0251e9341ca2\", \"en-019d94af-d777-7d83-ac45-4c677c66a18e\", \"en-019d94af-d77f-7ab3-9e48-034984e71943\", \"en-019d94af-d787-7ab3-94dd-766d4cc2c4aa\"]",
+      "projection_id": "en-019d94a9-7b98-73f0-86bd-667eab56d9b9",
+      "proposer_agent_id": "aj-019d94af-447d-7861-b6fc-0cf50ae956a4",
+      "reasoning": "Across economics, biology, and organizational theory, the same pattern appears: systems scale when variation is cheap but selection and coordination are disciplined. Directed software evolution v2 is therefore more likely to consolidate around governance-efficient control planes than around unconstrained autonomous coding. The winning platforms will be the ones that turn provenance, evaluation, approval routing, and rollback into low-friction institutional routines rather than exceptional safety procedures.\n\nThis implies the near-term moat is not just model quality or graph richness. It is the ability to convert agent activity into finance-legible productivity gains while preventing hidden quality debt. Buyers will reward vendors and internal platforms that can show measurable reductions in backlog, incident follow-up toil, test maintenance effort, and review latency. Platforms that increase mutation without improving selection will create visible output but weak cumulative adaptation.",
+      "step_at": "0",
+      "title": "Governance-efficient selection, not raw autonomy, becomes the core advantage in directed software evolution"
+    },
+    "events": [
+      {
+        "action": "Created",
+        "from_status": "",
+        "to_status": "Proposed",
+        "timestamp": "2026-04-16T05:07:25.199966Z",
+        "params": {
+          "fields": {}
+        }
+      },
+      {
+        "action": "Propose",
+        "from_status": "Proposed",
+        "to_status": "Proposed",
+        "timestamp": "2026-04-16T05:07:25.202779Z",
+        "params": {
+          "counterfactual_summary": "If frontier models become reliable enough that architecture-level changes can be safely validated with minimal human coordination, raw autonomy could outpace governance-centered platforms and compress the advantage of policy-heavy control planes.",
+          "grounding": "[]",
+          "observation_ids": "[\"en-019d94af-d76e-7493-a87e-0251e9341ca2\", \"en-019d94af-d777-7d83-ac45-4c677c66a18e\", \"en-019d94af-d77f-7ab3-9e48-034984e71943\", \"en-019d94af-d787-7ab3-94dd-766d4cc2c4aa\"]",
+          "projection_id": "en-019d94a9-7b98-73f0-86bd-667eab56d9b9",
+          "proposer_agent_id": "aj-019d94af-447d-7861-b6fc-0cf50ae956a4",
+          "reasoning": "Across economics, biology, and organizational theory, the same pattern appears: systems scale when variation is cheap but selection and coordination are disciplined. Directed software evolution v2 is therefore more likely to consolidate around governance-efficient control planes than around unconstrained autonomous coding. The winning platforms will be the ones that turn provenance, evaluation, approval routing, and rollback into low-friction institutional routines rather than exceptional safety procedures.\n\nThis implies the near-term moat is not just model quality or graph richness. It is the ability to convert agent activity into finance-legible productivity gains while preventing hidden quality debt. Buyers will reward vendors and internal platforms that can show measurable reductions in backlog, incident follow-up toil, test maintenance effort, and review latency. Platforms that increase mutation without improving selection will create visible output but weak cumulative adaptation.",
+          "step_at": "0",
+          "title": "Governance-efficient selection, not raw autonomy, becomes the core advantage in directed software evolution"
+        }
+      }
+    ],
+    "total_event_count": 2,
+    "sequence_nr": 2,
+    "@odata.id": "Directions('en-019d94af-d78f-7282-87fd-317af00fdb87')"
+  },
+  {
+    "entity_type": "Direction",
+    "entity_id": "en-019d94af-db07-7382-a36a-8303d3a2bd72",
+    "status": "Proposed",
+    "item_count": 0,
+    "counters": {},
+    "booleans": {},
+    "lists": {},
+    "fields": {
+      "fields": {},
+      "Id": "en-019d94af-db07-7382-a36a-8303d3a2bd72",
+      "Status": "Proposed",
+      "counterfactual_summary": "If enterprises unexpectedly accept unconstrained autonomous code evolution before strong evaluation and policy infrastructure is standard, then governance friction is lower than practitioners currently assume and platform-centric CI/CD integration will be less decisive than raw agent capability.",
+      "grounding": "[]",
+      "observation_ids": "[\"en-019d94af-dadf-77a1-91d0-a98dc9f1c85b\",\"en-019d94af-dae7-7100-bb38-0581683c6693\",\"en-019d94af-daef-7f10-aab3-b6a6823e8bba\",\"en-019d94af-daf6-7680-8e8f-0bfaacb6988f\",\"en-019d94af-daff-7392-8f38-73646bbe2a31\"]",
+      "projection_id": "en-019d94a9-7b98-73f0-86bd-667eab56d9b9",
+      "proposer_agent_id": "aj-019d94af-448a-7182-aa31-795b62b77f88",
+      "reasoning": "Directed Software Evolution v2 will advance first as a governed optimization layer around existing software delivery systems rather than as an autonomous agent that replaces them. In the near term, the winning architecture is iterative and selective: generate multiple candidate changes, evaluate them against explicit objectives in sandboxed environments, rank them with reproducible evidence, and merge only what clears policy and performance thresholds. This fits existing enterprise controls while still allowing compounding improvement over time.\n\nThe mechanism is straightforward. Modern coding models are already good enough to propose patches, tests, config changes, and runbook edits, but they are not consistently trustworthy enough to self-direct without scaffolding. What turns them into an evolutionary system is not a single leap in model capability but the surrounding machinery: benchmark suites, rollback, provenance, policy checks, and archival memory of what mutations helped or harmed. That means the next wave of adoption will be driven by platforms that make improvement measurable and governable inside CI/CD, platform engineering, and reliability workflows. Teams that treat the problem as search plus evaluation will get durable gains; teams that treat it as chat plus autonomy will get brittle demos.",
+      "step_at": "0",
+      "title": "Directed Software Evolution v2 will be adopted first as a policy-governed optimization loop embedded in CI/CD, not as unconstrained autonomous self-modification."
+    },
+    "events": [
+      {
+        "action": "Created",
+        "from_status": "",
+        "to_status": "Proposed",
+        "timestamp": "2026-04-16T05:07:26.088217Z",
+        "params": {
+          "fields": {}
+        }
+      },
+      {
+        "action": "Propose",
+        "from_status": "Proposed",
+        "to_status": "Proposed",
+        "timestamp": "2026-04-16T05:07:26.091063Z",
+        "params": {
+          "counterfactual_summary": "If enterprises unexpectedly accept unconstrained autonomous code evolution before strong evaluation and policy infrastructure is standard, then governance friction is lower than practitioners currently assume and platform-centric CI/CD integration will be less decisive than raw agent capability.",
+          "grounding": "[]",
+          "observation_ids": "[\"en-019d94af-dadf-77a1-91d0-a98dc9f1c85b\",\"en-019d94af-dae7-7100-bb38-0581683c6693\",\"en-019d94af-daef-7f10-aab3-b6a6823e8bba\",\"en-019d94af-daf6-7680-8e8f-0bfaacb6988f\",\"en-019d94af-daff-7392-8f38-73646bbe2a31\"]",
+          "projection_id": "en-019d94a9-7b98-73f0-86bd-667eab56d9b9",
+          "proposer_agent_id": "aj-019d94af-448a-7182-aa31-795b62b77f88",
+          "reasoning": "Directed Software Evolution v2 will advance first as a governed optimization layer around existing software delivery systems rather than as an autonomous agent that replaces them. In the near term, the winning architecture is iterative and selective: generate multiple candidate changes, evaluate them against explicit objectives in sandboxed environments, rank them with reproducible evidence, and merge only what clears policy and performance thresholds. This fits existing enterprise controls while still allowing compounding improvement over time.\n\nThe mechanism is straightforward. Modern coding models are already good enough to propose patches, tests, config changes, and runbook edits, but they are not consistently trustworthy enough to self-direct without scaffolding. What turns them into an evolutionary system is not a single leap in model capability but the surrounding machinery: benchmark suites, rollback, provenance, policy checks, and archival memory of what mutations helped or harmed. That means the next wave of adoption will be driven by platforms that make improvement measurable and governable inside CI/CD, platform engineering, and reliability workflows. Teams that treat the problem as search plus evaluation will get durable gains; teams that treat it as chat plus autonomy will get brittle demos.",
+          "step_at": "0",
+          "title": "Directed Software Evolution v2 will be adopted first as a policy-governed optimization loop embedded in CI/CD, not as unconstrained autonomous self-modification."
+        }
+      }
+    ],
+    "total_event_count": 2,
+    "sequence_nr": 2,
+    "@odata.id": "Directions('en-019d94af-db07-7382-a36a-8303d3a2bd72')"
+  },
+  {
+    "entity_type": "Direction",
+    "entity_id": "en-019d94af-de7e-71e2-8040-a8b686f4dda9",
+    "status": "Proposed",
+    "item_count": 0,
+    "counters": {},
+    "booleans": {},
+    "lists": {},
+    "fields": {
+      "fields": {},
+      "Id": "en-019d94af-de7e-71e2-8040-a8b686f4dda9",
+      "Status": "Proposed",
+      "counterfactual_summary": "If verification, governance, and context-refresh costs collapse faster than expected, decentralized product-level agent loops could outcompete centralized platform models and push the field toward much higher autonomy sooner.",
+      "grounding": "[]",
+      "observation_ids": "[\"en-019d94af-de5f-7dc1-9a12-bf09ddd13f91\", \"en-019d94af-de67-75f0-90ed-6d81546a8b68\", \"en-019d94af-de6e-7c33-915d-eb32817d3dbe\", \"en-019d94af-de76-7152-9127-971cf948b9fa\"]",
+      "projection_id": "en-019d94a9-7b98-73f0-86bd-667eab56d9b9",
+      "proposer_agent_id": "aj-019d94af-44b1-7890-af6b-fb3fd09ce31a",
+      "reasoning": "Across adjacent domains, the same pattern appears: systems scale when they reduce coordination cost, not merely when they increase local productivity. In firms, markets, and ecosystems, throughput gains are fragile unless there is a control layer that standardizes interfaces, constrains harmful variance, and keeps context fresh. Directed software evolution is therefore likely to consolidate around shared policy, evaluation, provenance, and budget infrastructure before it achieves credible higher-order self-redesign.\n\nThe near-term winners will treat software evolution less like autonomous coding and more like organizational metabolism. They will measure review cost, rollback cost, context freshness, and cross-team externalities alongside code generation speed. This means the strongest thesis for the next period is centralization with selective autonomy: platform teams become the internal state, product teams become policy consumers, and high-trust agentic evolution grows only where those institutions can cheaply verify outcomes.",
+      "step_at": "1",
+      "title": "Directed software evolution consolidates into a platform-governed coordination layer before it becomes a broadly autonomous engineering regime."
+    },
+    "events": [
+      {
+        "action": "Created",
+        "from_status": "",
+        "to_status": "Proposed",
+        "timestamp": "2026-04-16T05:07:26.975669Z",
+        "params": {
+          "fields": {}
+        }
+      },
+      {
+        "action": "Propose",
+        "from_status": "Proposed",
+        "to_status": "Proposed",
+        "timestamp": "2026-04-16T05:07:26.978774Z",
+        "params": {
+          "counterfactual_summary": "If verification, governance, and context-refresh costs collapse faster than expected, decentralized product-level agent loops could outcompete centralized platform models and push the field toward much higher autonomy sooner.",
+          "grounding": "[]",
+          "observation_ids": "[\"en-019d94af-de5f-7dc1-9a12-bf09ddd13f91\", \"en-019d94af-de67-75f0-90ed-6d81546a8b68\", \"en-019d94af-de6e-7c33-915d-eb32817d3dbe\", \"en-019d94af-de76-7152-9127-971cf948b9fa\"]",
+          "projection_id": "en-019d94a9-7b98-73f0-86bd-667eab56d9b9",
+          "proposer_agent_id": "aj-019d94af-44b1-7890-af6b-fb3fd09ce31a",
+          "reasoning": "Across adjacent domains, the same pattern appears: systems scale when they reduce coordination cost, not merely when they increase local productivity. In firms, markets, and ecosystems, throughput gains are fragile unless there is a control layer that standardizes interfaces, constrains harmful variance, and keeps context fresh. Directed software evolution is therefore likely to consolidate around shared policy, evaluation, provenance, and budget infrastructure before it achieves credible higher-order self-redesign.\n\nThe near-term winners will treat software evolution less like autonomous coding and more like organizational metabolism. They will measure review cost, rollback cost, context freshness, and cross-team externalities alongside code generation speed. This means the strongest thesis for the next period is centralization with selective autonomy: platform teams become the internal state, product teams become policy consumers, and high-trust agentic evolution grows only where those institutions can cheaply verify outcomes.",
+          "step_at": "1",
+          "title": "Directed software evolution consolidates into a platform-governed coordination layer before it becomes a broadly autonomous engineering regime."
+        }
+      }
+    ],
+    "total_event_count": 2,
+    "sequence_nr": 2,
+    "@odata.id": "Directions('en-019d94af-de7e-71e2-8040-a8b686f4dda9')"
+  },
+  {
+    "entity_type": "Direction",
+    "entity_id": "en-019d94af-eab6-7b20-bd83-57463e456daf",
+    "status": "Proposed",
+    "item_count": 0,
+    "counters": {},
+    "booleans": {},
+    "lists": {},
+    "fields": {
+      "fields": {},
+      "Id": "en-019d94af-eab6-7b20-bd83-57463e456daf",
+      "Status": "Proposed",
+      "counterfactual_summary": "This direction is wrong if organizations begin deploying broad self-evolving product systems in production without heavy governance overhead, and those systems sustain architectural quality, operability, and ROI better than bounded maintenance-first approaches.",
+      "grounding": "[\"policy-gated-autonomy\",\"evaluation-harnesses\",\"fitness-governance\",\"typed-artifact-graphs\"]",
+      "observation_ids": "[\"en-019d94af-ea96-7cc2-b74c-2b8ba749b036\",\"en-019d94af-ea9f-7563-ab85-b04fbb318822\",\"en-019d94af-eaa7-79d3-9e7a-fb063aa05efd\",\"en-019d94af-eaaf-7c82-bee6-94a6f5acb377\"]",
+      "projection_id": "en-019d94a9-7b98-73f0-86bd-667eab56d9b9",
+      "proposer_agent_id": "aj-019d94af-44ca-7452-8743-00e4942a62df",
+      "reasoning": "The strongest near-term thesis is that directed software evolution becomes a governed maintenance and reliability discipline before it becomes a general autonomous software creation paradigm. In practice, the winning systems are built from components enterprises already know how to operate: git-backed change proposals, CI-native evaluation suites, policy engines, artifact provenance, and rollbackable deployment paths. That stack is concrete, budgetable, and legible to platform teams. It lets organizations automate a large class of repetitive engineering work without requiring them to solve open-ended architectural search or fully encode organizational intent into a universal objective function.\n\nWhat changes over this step is not that agents suddenly gain broad independent agency, but that the surrounding control plane matures. Typed artifact graphs become useful as orchestration indexes; observability systems expose fitness dashboards for agent-generated changes; and approval routing becomes more selective because risk can be stratified by service criticality and policy class. Vendors and internal platform teams that connect coding agents to eval, provenance, and governance workflows will therefore capture more real production usage than systems optimized mainly for impressive autonomous demos. If this thesis is wrong, we would expect to see broad production adoption of self-directed multi-step architecture evolution without comparable investment in governance instrumentation or human review design.",
+      "step_at": "1",
+      "title": "Directed software evolution matures first as a policy-gated maintenance control plane, not a fully autonomous software factory."
+    },
+    "events": [
+      {
+        "action": "Created",
+        "from_status": "",
+        "to_status": "Proposed",
+        "timestamp": "2026-04-16T05:07:30.103829Z",
+        "params": {
+          "fields": {}
+        }
+      },
+      {
+        "action": "Propose",
+        "from_status": "Proposed",
+        "to_status": "Proposed",
+        "timestamp": "2026-04-16T05:07:30.106968Z",
+        "params": {
+          "counterfactual_summary": "This direction is wrong if organizations begin deploying broad self-evolving product systems in production without heavy governance overhead, and those systems sustain architectural quality, operability, and ROI better than bounded maintenance-first approaches.",
+          "grounding": "[\"policy-gated-autonomy\",\"evaluation-harnesses\",\"fitness-governance\",\"typed-artifact-graphs\"]",
+          "observation_ids": "[\"en-019d94af-ea96-7cc2-b74c-2b8ba749b036\",\"en-019d94af-ea9f-7563-ab85-b04fbb318822\",\"en-019d94af-eaa7-79d3-9e7a-fb063aa05efd\",\"en-019d94af-eaaf-7c82-bee6-94a6f5acb377\"]",
+          "projection_id": "en-019d94a9-7b98-73f0-86bd-667eab56d9b9",
+          "proposer_agent_id": "aj-019d94af-44ca-7452-8743-00e4942a62df",
+          "reasoning": "The strongest near-term thesis is that directed software evolution becomes a governed maintenance and reliability discipline before it becomes a general autonomous software creation paradigm. In practice, the winning systems are built from components enterprises already know how to operate: git-backed change proposals, CI-native evaluation suites, policy engines, artifact provenance, and rollbackable deployment paths. That stack is concrete, budgetable, and legible to platform teams. It lets organizations automate a large class of repetitive engineering work without requiring them to solve open-ended architectural search or fully encode organizational intent into a universal objective function.\n\nWhat changes over this step is not that agents suddenly gain broad independent agency, but that the surrounding control plane matures. Typed artifact graphs become useful as orchestration indexes; observability systems expose fitness dashboards for agent-generated changes; and approval routing becomes more selective because risk can be stratified by service criticality and policy class. Vendors and internal platform teams that connect coding agents to eval, provenance, and governance workflows will therefore capture more real production usage than systems optimized mainly for impressive autonomous demos. If this thesis is wrong, we would expect to see broad production adoption of self-directed multi-step architecture evolution without comparable investment in governance instrumentation or human review design.",
+          "step_at": "1",
+          "title": "Directed software evolution matures first as a policy-gated maintenance control plane, not a fully autonomous software factory."
+        }
+      }
+    ],
+    "total_event_count": 2,
+    "sequence_nr": 2,
+    "@odata.id": "Directions('en-019d94af-eab6-7b20-bd83-57463e456daf')"
+  },
+  {
+    "entity_type": "Direction",
+    "entity_id": "en-019d94af-f9a6-7703-b1b9-74be1b54be2b",
+    "status": "Proposed",
+    "item_count": 0,
+    "counters": {},
+    "booleans": {},
+    "lists": {},
+    "fields": {
+      "fields": {},
+      "Id": "en-019d94af-f9a6-7703-b1b9-74be1b54be2b",
+      "Status": "Proposed",
+      "counterfactual_summary": "If governance overhead falls faster than expected through better automated adjudication and durable fitness functions, adoption could expand beyond maintenance-first use cases sooner and the field could support broader self-evolving workflows within the year.",
+      "grounding": "[]",
+      "observation_ids": "[\"en-019d94af-f97f-71c0-9a6f-36f0953ff368\", \"en-019d94af-f987-71e3-9b24-605ad511bd0f\", \"en-019d94af-f98e-7390-8cfb-61eea591daea\", \"en-019d94af-f996-75f3-b3c8-80fe62e0254e\", \"en-019d94af-f99e-71d1-8cfb-f0d55027c78a\"]",
+      "projection_id": "en-019d94a9-7b98-73f0-86bd-667eab56d9b9",
+      "proposer_agent_id": "aj-019d94af-4471-7c50-978e-78faf611650b",
+      "reasoning": "The next 90 days in directed software evolution will be defined less by a breakout in autonomy and more by the discovery that governance economics are the real limiting reagent. Teams already have enough model capability to generate patches, test updates, and workflow glue for bounded tasks. What they do not yet have is a cheap, reliable way to decide when a machine-proposed change is good for the larger system, safe for cross-service dependencies, and aligned with organizational intent. That gap forces expensive human review, bespoke policy work, and rollback preparation. The visible outcome is not stagnation, but a narrowing of scope: more maintenance automation inside hard guardrails, fewer credible claims about self-evolving systems.\n\nThe market consequence is that evaluation, provenance, and policy vendors will win attention, but many teams will still under-realize ROI because the oversight layer expands with autonomy. Graph-backed substrates and observability dashboards help make agent work legible, yet they also risk creating false confidence when the underlying corpus is stale or the measured fitness function is too local. A single incident involving an apparently well-governed change that causes downstream integration or compliance trouble would strengthen the buyer instinct to centralize control and slow expansion. In other words: the field advances, but the dominant story shifts from self-improving software to supervised, auditable change factories whose economics remain unproven at larger scope.",
+      "step_at": "0",
+      "title": "Governance economics, not model capability, will cap near-term directed software evolution adoption"
+    },
+    "events": [
+      {
+        "action": "Created",
+        "from_status": "",
+        "to_status": "Proposed",
+        "timestamp": "2026-04-16T05:07:33.927069Z",
+        "params": {
+          "fields": {}
+        }
+      },
+      {
+        "action": "Propose",
+        "from_status": "Proposed",
+        "to_status": "Proposed",
+        "timestamp": "2026-04-16T05:07:33.930217Z",
+        "params": {
+          "counterfactual_summary": "If governance overhead falls faster than expected through better automated adjudication and durable fitness functions, adoption could expand beyond maintenance-first use cases sooner and the field could support broader self-evolving workflows within the year.",
+          "grounding": "[]",
+          "observation_ids": "[\"en-019d94af-f97f-71c0-9a6f-36f0953ff368\", \"en-019d94af-f987-71e3-9b24-605ad511bd0f\", \"en-019d94af-f98e-7390-8cfb-61eea591daea\", \"en-019d94af-f996-75f3-b3c8-80fe62e0254e\", \"en-019d94af-f99e-71d1-8cfb-f0d55027c78a\"]",
+          "projection_id": "en-019d94a9-7b98-73f0-86bd-667eab56d9b9",
+          "proposer_agent_id": "aj-019d94af-4471-7c50-978e-78faf611650b",
+          "reasoning": "The next 90 days in directed software evolution will be defined less by a breakout in autonomy and more by the discovery that governance economics are the real limiting reagent. Teams already have enough model capability to generate patches, test updates, and workflow glue for bounded tasks. What they do not yet have is a cheap, reliable way to decide when a machine-proposed change is good for the larger system, safe for cross-service dependencies, and aligned with organizational intent. That gap forces expensive human review, bespoke policy work, and rollback preparation. The visible outcome is not stagnation, but a narrowing of scope: more maintenance automation inside hard guardrails, fewer credible claims about self-evolving systems.\n\nThe market consequence is that evaluation, provenance, and policy vendors will win attention, but many teams will still under-realize ROI because the oversight layer expands with autonomy. Graph-backed substrates and observability dashboards help make agent work legible, yet they also risk creating false confidence when the underlying corpus is stale or the measured fitness function is too local. A single incident involving an apparently well-governed change that causes downstream integration or compliance trouble would strengthen the buyer instinct to centralize control and slow expansion. In other words: the field advances, but the dominant story shifts from self-improving software to supervised, auditable change factories whose economics remain unproven at larger scope.",
+          "step_at": "0",
+          "title": "Governance economics, not model capability, will cap near-term directed software evolution adoption"
+        }
+      }
+    ],
+    "total_event_count": 2,
+    "sequence_nr": 2,
+    "@odata.id": "Directions('en-019d94af-f9a6-7703-b1b9-74be1b54be2b')"
+  },
+  {
+    "entity_type": "Direction",
+    "entity_id": "en-019d94b0-1042-76a3-ad9b-8bdadf1ba51f",
+    "status": "Proposed",
+    "item_count": 0,
+    "counters": {},
+    "booleans": {},
+    "lists": {},
+    "fields": {
+      "fields": {},
+      "Id": "en-019d94b0-1042-76a3-ad9b-8bdadf1ba51f",
+      "Status": "Proposed",
+      "counterfactual_summary": "If practitioners cannot operationalize governance, verification, and reusable workflow encoding, directed software evolution remains a set of impressive but fragile demos, and standalone copilots retain the adoption lead.",
+      "grounding": "[\"cedar-policy-governance\",\"runtime-app-creation\",\"verification-first-workflows\"]",
+      "observation_ids": "[\"en-019d94b0-101a-7a52-b885-c39221da70da\",\"en-019d94b0-1022-71b0-9fe5-f8bc2e087245\",\"en-019d94b0-102b-7a60-979c-bf1c7628bf3f\",\"en-019d94b0-1033-79a3-8d13-68874b8cf7a3\",\"en-019d94b0-103a-7242-8ff3-16afbe1e62d4\"]",
+      "projection_id": "en-019d94a9-7b98-73f0-86bd-667eab56d9b9",
+      "proposer_agent_id": "aj-019d94af-44dc-7013-8ea9-805815a0f7d3",
+      "reasoning": "The strongest practitioner thesis is that directed software evolution will become operationally real first in environments that treat agents as governed actors inside explicit stateful systems rather than as free-form coding assistants. Over the next 6 months, the winning implementations will couple high-capability models with policy enforcement, typed workflow actions, durable memory, and observable audit trails. That combination lets engineering organizations expand agent scope from code suggestions into supervised change execution without breaking existing trust boundaries.\n\nFrom a build-system perspective, this means platform teams will invest less in general chatbot surfaces and more in agent operating layers: action dispatch, app/runtime extension, verification checkpoints, and rollback-aware deployment paths. The mechanism is straightforward: once recurring engineering motions can be represented as governed state transitions, each successful run improves the platform itself. That creates compounding advantage unavailable to static copilots and makes orchestration quality, not just model quality, the practical frontier.",
+      "step_at": "1",
+      "title": "Governed agent operating layers outcompete standalone coding copilots in directed software evolution"
+    },
+    "events": [
+      {
+        "action": "Created",
+        "from_status": "",
+        "to_status": "Proposed",
+        "timestamp": "2026-04-16T05:07:39.715022Z",
+        "params": {
+          "fields": {}
+        }
+      },
+      {
+        "action": "Propose",
+        "from_status": "Proposed",
+        "to_status": "Proposed",
+        "timestamp": "2026-04-16T05:07:39.717710Z",
+        "params": {
+          "counterfactual_summary": "If practitioners cannot operationalize governance, verification, and reusable workflow encoding, directed software evolution remains a set of impressive but fragile demos, and standalone copilots retain the adoption lead.",
+          "grounding": "[\"cedar-policy-governance\",\"runtime-app-creation\",\"verification-first-workflows\"]",
+          "observation_ids": "[\"en-019d94b0-101a-7a52-b885-c39221da70da\",\"en-019d94b0-1022-71b0-9fe5-f8bc2e087245\",\"en-019d94b0-102b-7a60-979c-bf1c7628bf3f\",\"en-019d94b0-1033-79a3-8d13-68874b8cf7a3\",\"en-019d94b0-103a-7242-8ff3-16afbe1e62d4\"]",
+          "projection_id": "en-019d94a9-7b98-73f0-86bd-667eab56d9b9",
+          "proposer_agent_id": "aj-019d94af-44dc-7013-8ea9-805815a0f7d3",
+          "reasoning": "The strongest practitioner thesis is that directed software evolution will become operationally real first in environments that treat agents as governed actors inside explicit stateful systems rather than as free-form coding assistants. Over the next 6 months, the winning implementations will couple high-capability models with policy enforcement, typed workflow actions, durable memory, and observable audit trails. That combination lets engineering organizations expand agent scope from code suggestions into supervised change execution without breaking existing trust boundaries.\n\nFrom a build-system perspective, this means platform teams will invest less in general chatbot surfaces and more in agent operating layers: action dispatch, app/runtime extension, verification checkpoints, and rollback-aware deployment paths. The mechanism is straightforward: once recurring engineering motions can be represented as governed state transitions, each successful run improves the platform itself. That creates compounding advantage unavailable to static copilots and makes orchestration quality, not just model quality, the practical frontier.",
+          "step_at": "1",
+          "title": "Governed agent operating layers outcompete standalone coding copilots in directed software evolution"
+        }
+      }
+    ],
+    "total_event_count": 2,
+    "sequence_nr": 2,
+    "@odata.id": "Directions('en-019d94b0-1042-76a3-ad9b-8bdadf1ba51f')"
+  }
+]

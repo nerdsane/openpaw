@@ -1,0 +1,605 @@
+{
+  "run": "003_diversity_constraints",
+  "methodology": "3 independent paw-agent judges (gpt-5.4), split-session (one per output per judge). Rubric v3 with tightened anchors + 3+ cap rule.",
+  "rubric_version": "v3",
+  "session_ids": {
+    "judge1_engine": "ss-019d94c7-99f8-79f0-a404-bd49ccb82a6f",
+    "judge1_baseline": "ss-019d94c7-9a0a-7142-a524-d47be9c1a9cf",
+    "judge2_engine": "ss-019d94c7-9a14-70d0-8635-4f94b48db464",
+    "judge2_baseline": "ss-019d94c7-9a2b-74d3-b116-ff28c03eea6e",
+    "judge3_engine": "ss-019d94c7-9a39-7001-a547-90dce433504c",
+    "judge3_baseline": "ss-019d94c7-9a42-7553-a01c-07d86ec70a76"
+  },
+  "engine_scores_per_judge": {
+    "judge_1": {
+      "Specificity": 3,
+      "Novelty": 2,
+      "Falsifiability": 3,
+      "Breadth": 2,
+      "Plausibility": 2,
+      "Progression": 3,
+      "Actionability": 2,
+      "Decision Clarity": 2,
+      "Completeness": 2,
+      "Transparency": 2,
+      "Challenge": 2,
+      "Quantitative Precision": 2
+    },
+    "judge_2": {
+      "Specificity": 3,
+      "Novelty": 2,
+      "Falsifiability": 3,
+      "Breadth": 2,
+      "Plausibility": 2,
+      "Progression": 3,
+      "Actionability": 2,
+      "Decision Clarity": 2,
+      "Completeness": 2,
+      "Transparency": 2,
+      "Challenge": 2,
+      "Quantitative Precision": 2
+    },
+    "judge_3": {
+      "Specificity": 3,
+      "Novelty": 2,
+      "Falsifiability": 3,
+      "Breadth": 3,
+      "Plausibility": 2,
+      "Progression": 2,
+      "Actionability": 2,
+      "Decision Clarity": 2,
+      "Completeness": 2,
+      "Transparency": 2,
+      "Challenge": 2,
+      "Quantitative Precision": 2
+    }
+  },
+  "baseline_scores_per_judge": {
+    "judge_1": {
+      "Specificity": 3,
+      "Novelty": 2,
+      "Falsifiability": 2,
+      "Breadth": 3,
+      "Plausibility": 2,
+      "Progression": 3,
+      "Actionability": 2,
+      "Decision Clarity": 2,
+      "Completeness": 1,
+      "Transparency": 1,
+      "Challenge": 3,
+      "Quantitative Precision": 2
+    },
+    "judge_2": {
+      "Specificity": 3,
+      "Novelty": 2,
+      "Falsifiability": 2,
+      "Breadth": 3,
+      "Plausibility": 2,
+      "Progression": 3,
+      "Actionability": 2,
+      "Decision Clarity": 2,
+      "Completeness": 2,
+      "Transparency": 2,
+      "Challenge": 2,
+      "Quantitative Precision": 1
+    },
+    "judge_3": {
+      "Specificity": 3,
+      "Novelty": 2,
+      "Falsifiability": 2,
+      "Breadth": 2,
+      "Plausibility": 2,
+      "Progression": 3,
+      "Actionability": 3,
+      "Decision Clarity": 2,
+      "Completeness": 2,
+      "Transparency": 1,
+      "Challenge": 2,
+      "Quantitative Precision": 1
+    }
+  },
+  "engine_avg": 27.0,
+  "baseline_avg": 25.666666666666668,
+  "borda": {
+    "engine": 56.0,
+    "baseline": 52.0,
+    "max": 72,
+    "winner": "Engine"
+  },
+  "borda_details": {
+    "Specificity": {
+      "engine": 4.5,
+      "baseline": 4.5,
+      "delta": 0.0,
+      "details": [
+        "J1:tie(3)",
+        "J2:tie(3)",
+        "J3:tie(3)"
+      ]
+    },
+    "Novelty": {
+      "engine": 4.5,
+      "baseline": 4.5,
+      "delta": 0.0,
+      "details": [
+        "J1:tie(2)",
+        "J2:tie(2)",
+        "J3:tie(2)"
+      ]
+    },
+    "Falsifiability": {
+      "engine": 6,
+      "baseline": 3,
+      "delta": 3,
+      "details": [
+        "J1:E(3>2)",
+        "J2:E(3>2)",
+        "J3:E(3>2)"
+      ]
+    },
+    "Breadth": {
+      "engine": 4,
+      "baseline": 5,
+      "delta": -1,
+      "details": [
+        "J1:B(3>2)",
+        "J2:B(3>2)",
+        "J3:E(3>2)"
+      ]
+    },
+    "Plausibility": {
+      "engine": 4.5,
+      "baseline": 4.5,
+      "delta": 0.0,
+      "details": [
+        "J1:tie(2)",
+        "J2:tie(2)",
+        "J3:tie(2)"
+      ]
+    },
+    "Progression": {
+      "engine": 4.0,
+      "baseline": 5.0,
+      "delta": -1.0,
+      "details": [
+        "J1:tie(3)",
+        "J2:tie(3)",
+        "J3:B(3>2)"
+      ]
+    },
+    "Actionability": {
+      "engine": 4.0,
+      "baseline": 5.0,
+      "delta": -1.0,
+      "details": [
+        "J1:tie(2)",
+        "J2:tie(2)",
+        "J3:B(3>2)"
+      ]
+    },
+    "Decision Clarity": {
+      "engine": 4.5,
+      "baseline": 4.5,
+      "delta": 0.0,
+      "details": [
+        "J1:tie(2)",
+        "J2:tie(2)",
+        "J3:tie(2)"
+      ]
+    },
+    "Completeness": {
+      "engine": 5.0,
+      "baseline": 4.0,
+      "delta": 1.0,
+      "details": [
+        "J1:E(2>1)",
+        "J2:tie(2)",
+        "J3:tie(2)"
+      ]
+    },
+    "Transparency": {
+      "engine": 5.5,
+      "baseline": 3.5,
+      "delta": 2.0,
+      "details": [
+        "J1:E(2>1)",
+        "J2:tie(2)",
+        "J3:E(2>1)"
+      ]
+    },
+    "Challenge": {
+      "engine": 4.0,
+      "baseline": 5.0,
+      "delta": -1.0,
+      "details": [
+        "J1:B(3>2)",
+        "J2:tie(2)",
+        "J3:tie(2)"
+      ]
+    },
+    "Quantitative Precision": {
+      "engine": 5.5,
+      "baseline": 3.5,
+      "delta": 2.0,
+      "details": [
+        "J1:tie(2)",
+        "J2:E(2>1)",
+        "J3:E(2>1)"
+      ]
+    }
+  },
+  "judge_reasoning": {
+    "judge1_engine": {
+      "Specificity": {
+        "score": 3,
+        "reasoning": "The projection is richly specific: it names many concrete actors and tools (GitHub, GitLab, Buildkite, Datadog, Cedar, OPA, Anthropic, OpenAI, Google), uses explicit phases, and often explains mechanisms such as policy-gated PR workflows and evidence bundles. It does not consistently reach the highest bar because some thresholds are framed as projections rather than tightly sourced measurements, and one citation appears malformed in Phase 1. This is one of the three allowed 3+ scores under the cap rule.",
+        "evidence": "\"The winning operating pattern is not \u2018let one coding agent run the SDLC,\u2019 but a control plane that coordinates bounded actions across GitHub, GitLab, Buildkite, GitHub Actions, Datadog, and policy engines such as Cedar and OPA\""
+      },
+      "Novelty": {
+        "score": 2,
+        "reasoning": "The output goes beyond generic hype by advancing a clear thesis that governance rails and adjudication bandwidth, not model quality, will dominate adoption. However, much of the argument appears to be a strong synthesis and recombination of the cited observations rather than a major reframing from outside the input corpus, so it lands at competent-original rather than genuinely surprising. ",
+        "evidence": "\"The surprise is that better autonomy can initially reduce adaptability: once policy-gated workflows harden, platform teams become the metabolic bottleneck\""
+      },
+      "Falsifiability": {
+        "score": 3,
+        "reasoning": "The report repeatedly states checkable claims with thresholds, timelines, and observable disconfirmation conditions, including percentages, ownership splits, and incident expectations. It falls short of a 4 only because the provided excerpt is truncated before the full 'Top 5 Predictions with Falsification Criteria' section can be verified end to end, but what is present is strong. This is one of the three allowed 3+ scores under the cap rule.",
+        "evidence": "\"by year-end, the median successful enterprise program is likely to automate fewer than 20% of proposed agentic changes straight through to production\""
+      },
+      "Breadth": {
+        "score": 2,
+        "reasoning": "The projection covers multiple independent dimensions: architecture, governance, evaluation, economics, organizational structure, graph design, incidents, and vendor dynamics. The themes are connected, but the cross-theme synthesis mostly supports one dominant storyline rather than building a broader system model with several non-obvious interacting conclusions. ",
+        "evidence": "\"[Theme: tech architecture] ... [Theme: governance/policy] ... [Theme: evaluation/testing] ... [Theme: economics/market] ... [Theme: org/adoption]\""
+      },
+      "Plausibility": {
+        "score": 2,
+        "reasoning": "Most claims are grounded in cited observations and generally cohere with a believable enterprise-adoption pattern: narrow maintenance lanes, policy gating, and evidence plumbing are plausible constraints. Still, confidence levels and explicit assumption tracking are not visible in the excerpted sections, so it does not clear the stronger standard for a 3. ",
+        "evidence": "\"The bottleneck over the next quarter is not model capability but eval plumbing\""
+      },
+      "Progression": {
+        "score": 3,
+        "reasoning": "Temporal structure is a major strength: each phase has changes, expected signals, what did not change, and causal links to later phases, plus explicit revisions to prior expectations. The report shows genuine stepwise updating rather than disconnected snapshots, though the final excerpt does not fully demonstrate falsification of earlier claims at the strongest level. This is one of the three allowed 3+ scores under the cap rule.",
+        "evidence": "\"Revisions to Phase 1 predictions: Confirmed ... Qualified ... Revised\""
+      },
+      "Actionability": {
+        "score": 2,
+        "reasoning": "The executive summary gives a usable decision implication\u2014invest first in evidence orchestration, policy interfaces, scoped memory, and rollback rather than raw coding throughput. But the excerpt does not show the full decision section with concrete owners, deadlines, and tradeoffs, so the advice is useful yet still somewhat general. ",
+        "evidence": "\"capital should move first into evidence orchestration, policy interfaces, scoped memory, and observability-linked rollback\""
+      },
+      "Decision Clarity": {
+        "score": 2,
+        "reasoning": "The output has a clear central 'so what': decision-makers should prioritize governance and evidence systems over autonomy hype. However, it does not open with a single ranked decision plus deadline/tradeoff, and the excerpted structure remains more analytical than decisional. ",
+        "evidence": "\"For decision-makers, this means capital should move first into evidence orchestration... rather than another bet on raw coding throughput\""
+      },
+      "Completeness": {
+        "score": 2,
+        "reasoning": "The artifact includes executive summary, key findings, temporal progression, active directions, and signs of a broader forecast pipeline, which is more complete than a simple observation dump. But because the provided output is truncated and the later sections (full predictions, decision points, assumptions/limitations, methodology) are not fully visible here, I cannot award higher than competent completeness. ",
+        "evidence": "\"### Executive Summary ... ### Key Findings ... ### Temporal Progression ... ### Active Directions\""
+      },
+      "Transparency": {
+        "score": 2,
+        "reasoning": "Transparency is solid because claims are heavily citation-linked with observation IDs, and many statements are traceable back to specific evidence snippets. It does not reach a 3 because the provenance chain is mostly internal observation IDs without enough visible named external signals, document titles, or source lineage in the excerpt. ",
+        "evidence": "\"[obs: en-019d94af-47c9-7610-9698-1721d3097080] [obs: en-019d94af-487e-7610-8369-c6ad3f593561]\""
+      },
+      "Challenge": {
+        "score": 2,
+        "reasoning": "The projection does genuinely challenge the dominant narrative by arguing that better autonomy can worsen adaptability and that governance, not raw coding power, is the real bottleneck. Still, the challenge is largely an internal inversion of the existing discourse rather than a forceful contradiction established through external evidence and mechanism strong enough for a 3. ",
+        "evidence": "\"The main counterargument to the current hype cycle is not that models fail to generate plausible code; it is that organizations fail to cheaply adjudicate, verify, and contextualize the changes\""
+      },
+      "Quantitative Precision": {
+        "score": 2,
+        "reasoning": "There are several concrete thresholds and ratios\u2014fewer than 20%, 15-30%, >70%, <10%, 1.5x, >50%, 60%\u2014which make the forecast meaningfully trackable. However, these numbers are forecast thresholds rather than a more systematic quantitative framework with explicit source baselines, so they fit competent precision rather than exceptional precision. ",
+        "evidence": "\"automate fewer than 20% ... while cutting cycle time by 15-30%\""
+      }
+    },
+    "judge1_baseline": {
+      "Specificity": {
+        "score": 3,
+        "reasoning": "This is more than competent because it consistently names actors, architectures, and mechanisms together: Anthropic, OpenAI, Cursor, Cognition, Cedar/OPA, Kubernetes-style control planes, replay harnesses, and policy gates. It also uses concrete time windows such as 0-3 months, 3-6 months, and 6-12 months, though it rarely pins claims to exact calendar dates or numeric thresholds, so it does not reach 4.",
+        "evidence": "\"Anthropic, OpenAI, Cursor, Cognition...\"; \"Cedar/OPA-style controls\"; \"### Phase 1: 0-3 Months\""
+      },
+      "Novelty": {
+        "score": 2,
+        "reasoning": "The output goes beyond paraphrasing by offering several original framings, especially the shift from generation quality to selection quality and the distinction between homeostatic autonomy and exploratory autonomy. However, most insights are extensions of the provided conceptual frame rather than clearly imported outside perspectives or a major reframing of the domain, so 2 is the strict fit.",
+        "evidence": "\"the next frontier is not raw generation quality, but selection quality\""
+      },
+      "Falsifiability": {
+        "score": 2,
+        "reasoning": "There are several evaluable claims with conditions that could be checked, such as whether control-plane generation outpaces product-code autonomy and whether replay/eval suites spread. But most predictions lack explicit dated falsification tests or hard thresholds, and the confidence section is truncated before finishing, preventing a 3 or 4.",
+        "evidence": "\"Would decrease if frontier agents begin reliably shipping multi-service product changes with minimal scaffolding.\""
+      },
+      "Breadth": {
+        "score": 3,
+        "reasoning": "The piece covers multiple independent themes and connects them: control planes, governance, evals, memory/telemetry, enterprise adoption, benchmarks, multi-agent coordination, verification, and portfolio search. The cross-theme conclusions are non-trivial, especially the link from enterprise governance needs to the likely wedge for directed evolution. This qualifies for 3 and is one of the three allowed 3+ scores.",
+        "evidence": "\"governed control planes... repository-specific engineering loops... private eval suites... approval systems... private telemetry, replay corpora, schema histories\""
+      },
+      "Plausibility": {
+        "score": 2,
+        "reasoning": "Most claims are grounded in recognizable signals and internally coherent logic, and the output often notes counterfactuals and confidence levels. Still, it does not provide a robust evidence chain, named source references, or disciplined confidence calibration throughout, so it stays at competent rather than impressive.",
+        "evidence": "\"Signals such as daily coding-agent usage, benchmark-centered evaluation, broader verification stacks, and growing enterprise demand for auditability...\""
+      },
+      "Progression": {
+        "score": 3,
+        "reasoning": "Temporal structure is strong: each phase states what changes, what does not change, and how that phase causally enables the next. The argument explicitly moves from eval/trace substrate creation to multi-candidate selection to retained evolutionary memory, which is genuine causal dependency rather than a sequence of snapshots. This earns 3 and remains within the cap.",
+        "evidence": "\"once teams have evals, traces, and approval logic, they can begin to safely compare multiple generated variants\""
+      },
+      "Actionability": {
+        "score": 2,
+        "reasoning": "The decision points are useful and conditional, with timing triggers and options, which is solidly competent. But the tradeoffs remain fairly generic and do not assign owners, deadlines, budgets, or concrete operational costs, so it does not reach 3 or 4.",
+        "evidence": "\"Decision Point 2: When production-facing autonomy is requested\"; \"Option A: Permit autonomy only in low-blast-radius domains with rollback.\""
+      },
+      "Decision Clarity": {
+        "score": 2,
+        "reasoning": "The writeup makes the main takeaway clear\u2014invest in harnesses, governance, and bounded autonomy first\u2014and the decision sections are readable. However, it does not sharply prioritize a single top recommendation up front with an explicit deadline/tradeoff hierarchy, so the score stays at 2.",
+        "evidence": "\"The winners will be organizations that treat private telemetry, replay corpora, schema histories, and approval logic as strategic assets\""
+      },
+      "Completeness": {
+        "score": 1,
+        "reasoning": "The structure is broad, but the output is visibly incomplete: the confidence section cuts off mid-word and the prompt notes it was truncated for length. Because the submission is not a fully intact end product, it cannot receive full credit for a complete foresight pipeline.",
+        "evidence": "\"- **Prediction: Diversity-aware portfolio selection becomes an advanced-team best practice.** Confid\" and \"[... truncated for length ...]\""
+      },
+      "Transparency": {
+        "score": 1,
+        "reasoning": "The piece gestures toward 'signals' and the 'graph' but does not provide specific citations, source names, or provenance for most claims. Readers cannot trace most assertions back to concrete observations or external references, so transparency is below competent.",
+        "evidence": "\"The graph repeatedly points to...\"; \"Signals such as...\""
+      },
+      "Challenge": {
+        "score": 3,
+        "reasoning": "This strongly challenges the dominant narrative that better models alone will yield autonomous software evolution, and it does so with mechanism-level reasoning about safety-liveness asymmetry, approvals, and harness incompleteness. It is not merely token caveating; the challenge is central and repeatedly defended. This is the third and final 3+ score allowed under the cap rule.",
+        "evidence": "\"The graph\u2019s safety-liveness asymmetry is decisive\"; \"the dominant narrative may overestimate how fast organizations can operationalize liveness-oriented exploration\""
+      },
+      "Quantitative Precision": {
+        "score": 2,
+        "reasoning": "There are some non-decorative numbers, especially the 12-month horizon and the 20-30% engineering-task trigger for internal routine usage. Still, most forecasts lack trackable thresholds, named metrics, or numerical frameworks, so it stays at 2.",
+        "evidence": "\"When more than 20-30% of engineering tasks involve coding agents\""
+      }
+    },
+    "judge2_engine": {
+      "Specificity": {
+        "score": 3,
+        "reasoning": "The projection is unusually concrete: it names many actors and systems (GitHub, GitLab, Buildkite, GitHub Actions, Datadog, Cedar, OPA, Anthropic, OpenAI, Google) and ties them to mechanisms like policy-gated PR workflows, evidence bundles, and adjudication queues. It also anchors claims to time windows such as 0-3 months, 3-6 months, and year-end, plus some numerical thresholds like '<20%' straight-through automation and '15-30%' cycle-time reduction. Under the cap rule this remains one of the allowed 3+ scores.",
+        "evidence": "\"By year-end, the median successful enterprise program is likely to automate fewer than 20% of proposed agentic changes straight through to production, while cutting cycle time by 15-30%\""
+      },
+      "Novelty": {
+        "score": 2,
+        "reasoning": "The output goes beyond generic AI-autonomy claims by arguing that value shifts toward governance rails, evidence orchestration, and review bandwidth rather than raw model quality. That is a real original synthesis, but most of the novelty appears to be recombination of the projection's own observation set rather than clear import of outside insight that materially reframes the domain.",
+        "evidence": "\"The surprise is that better autonomy can initially reduce adaptability: once policy-gated workflows harden, platform teams become the metabolic bottleneck\""
+      },
+      "Falsifiability": {
+        "score": 3,
+        "reasoning": "Many claims are checkable because they specify thresholds, adoption shares, procurement criteria, and dated windows like Q4, year-end, and Q1 2026. The document repeatedly states what would count as confirmation or disconfirmation, even if not every prediction has a formal falsification clause in the visible excerpt. Under the cap rule this remains one of the allowed 3+ scores.",
+        "evidence": "\"by year-end, >70% of production-directed evolution deployments require policy evaluation plus human approval for medium-risk changes, and <10% permit direct production mutation without a gated review step\""
+      },
+      "Breadth": {
+        "score": 2,
+        "reasoning": "Coverage is broad enough for competent work: it spans architecture, governance, evaluation, economics, organizational adoption, artifact graphs, trust incidents, and vendor dynamics. However, the visible excerpt tends to converge those themes back into one dominant governance thesis rather than producing many non-obvious cross-theme conclusions of the sort needed for a 3.",
+        "evidence": "\"[Theme: tech architecture] ... [Theme: governance/policy] ... [Theme: evaluation/testing] ... [Theme: economics/market] ... [Theme: org/adoption]\""
+      },
+      "Plausibility": {
+        "score": 2,
+        "reasoning": "Most claims feel grounded and internally coherent because they are attached to observations about CI integration, approval queues, telemetry, rollback, and governance costs. But confidence levels and key assumptions are not consistently surfaced in the visible sections, so it does not reach the stronger standard of naming assumptions and what would change the view throughout.",
+        "evidence": "\"The bottleneck over the next quarter is not model capability but eval plumbing\""
+      },
+      "Progression": {
+        "score": 3,
+        "reasoning": "Temporal structure is strong: each phase references earlier expectations, then marks them confirmed, qualified, or revised, and the narrative shows causal dependency from evidence bundles to fitness surfaces to adjudication queues. This is materially better than independent snapshots and meets the bar for causal temporal revision. Under the cap rule this is the third and final 3+ score kept.",
+        "evidence": "\"Revisions to Phase 1 predictions: Confirmed ... Qualified ... Revised\""
+      },
+      "Actionability": {
+        "score": 2,
+        "reasoning": "The executive summary and findings imply clear investment priorities such as evidence orchestration, policy interfaces, scoped memory, and observability-linked rollback. Still, the visible excerpt stops short of assigning concrete owners, deadlines, and costed options in a decision memo format, so it is useful but not highly operational.",
+        "evidence": "\"capital should move first into evidence orchestration, policy interfaces, scoped memory, and observability-linked rollback\""
+      },
+      "Decision Clarity": {
+        "score": 2,
+        "reasoning": "The piece has a strong bottom line: governance-first maintenance lanes beat broad autonomy in this horizon, and several implications for procurement and platform strategy are explicit. But it does not open with a single prioritized decision plus deadline and tradeoff structure, so a reader still has to infer the final ranking of choices.",
+        "evidence": "\"For decision-makers, this means capital should move first into evidence orchestration... rather than another bet on raw coding throughput\""
+      },
+      "Completeness": {
+        "score": 2,
+        "reasoning": "The visible output includes executive summary, key findings, temporal progression, and active directions, which is a solid end-to-end analytic package. However, the provided excerpt is truncated and does not show assumptions, limitations, or a full 'what would change my mind' treatment, so it cannot be scored as a clearly complete full-pipeline product.",
+        "evidence": "\"### Executive Summary\" / \"### Key Findings\" / \"### Temporal Progression\" / \"### Active Directions\""
+      },
+      "Transparency": {
+        "score": 2,
+        "reasoning": "Traceability is better than average because claims are densely cited with observation IDs, and the structure makes it possible to see which observations support which sections. Still, the references are opaque internal IDs rather than named external signals or provenance chains, and there is even an apparent citation defect in Phase 1, which holds this to a competent 2. Demoted from a borderline 3 due to the 3+ cap rule and the malformed citation issue.",
+        "evidence": "\"[obs: en-019d94af-47c9-7610-9698-1721d3097080]\" and \"[obs: en-019d94af-019d94af?]\""
+      },
+      "Challenge": {
+        "score": 2,
+        "reasoning": "The document does genuinely push against the dominant autonomy narrative by arguing that governance, stale context, and review bandwidth are the real constraints. But the critique is mostly internal to the projection's own evidence base; it does not clearly overturn source assumptions with external evidence in the visible excerpt.",
+        "evidence": "\"The main counterargument to the current hype cycle is not that models fail to generate plausible code; it is that organizations fail to cheaply adjudicate, verify, and contextualize the changes\""
+      },
+      "Quantitative Precision": {
+        "score": 2,
+        "reasoning": "There are enough numerical thresholds and percentages to make the analysis measurable: <20%, 15-30%, >60%, >70%, <10%, 1.5x, >50%, and 60% all appear. But these figures are not consistently tied to named data sources or a shared quantitative framework, so they read as plausible thresholds rather than a robust metrics model. Demoted from a borderline 3 under the 3+ cap rule.",
+        "evidence": "\"successful teams allocate at least 1.5x more engineering time to evals, replay, and evidence plumbing than to prompt/model tuning\""
+      }
+    },
+    "judge2_baseline": {
+      "Specificity": {
+        "score": 3,
+        "reasoning": "This is more specific than median because it names concrete actors, architectures, and workflow mechanisms together with a 12-month horizon and phased timing. It does not consistently give hard dates or numeric thresholds, so it stops short of a 4. No demotion applied under the 3+ cap rule.",
+        "evidence": "\"Anthropic, OpenAI, Cursor, Cognition...\"; \"Cedar/OPA-style controls\"; \"Phase 2: 3-6 Months\""
+      },
+      "Novelty": {
+        "score": 2,
+        "reasoning": "The output offers several original framings, especially the idea that selection quality matters more than generation quality and that homeostatic autonomy will scale faster than exploratory autonomy. But these insights still feel like strong extensions of the provided conceptual frame rather than a clear reframing sourced from outside the input domain.",
+        "evidence": "\"the next frontier is not raw generation quality, but selection quality\""
+      },
+      "Falsifiability": {
+        "score": 2,
+        "reasoning": "There are multiple evaluable claims and some 'would increase/would decrease' conditions in the confidence section, which makes the projection more testable than a purely hedged essay. However, the visible portion rarely pins claims to explicit dates plus disconfirming thresholds, and the prediction section is truncated, so this does not reach a 3 or 4.",
+        "evidence": "\"Would decrease if frontier agents begin reliably shipping multi-service product changes with minimal scaffolding\""
+      },
+      "Breadth": {
+        "score": 3,
+        "reasoning": "The projection covers many independent but connected themes: control planes, governance, evals, private telemetry, multi-agent coordination, formal methods, portfolio search, procurement, and enterprise rollout. It also draws non-obvious links across them, especially between organizational governance and technical selection pressure. No demotion applied under the 3+ cap rule.",
+        "evidence": "\"control-plane software... review authority... private feedback loops... benchmark wins and production trust... typed and strongly verified environments\""
+      },
+      "Plausibility": {
+        "score": 2,
+        "reasoning": "Most claims are grounded in recognizable signals and restrained by caveats about trust, rollout friction, and enterprise governance. Still, the evidence remains mostly asserted at the level of 'the graph suggests' rather than tied to named source signals, confidence intervals, or explicit assumption chains.",
+        "evidence": "\"Signals such as daily coding-agent usage, benchmark-centered evaluation... growing enterprise demand for auditability\""
+      },
+      "Progression": {
+        "score": 3,
+        "reasoning": "The temporal structure is strong: each phase explains what changes, what does not, and how the resulting substrate enables the next phase. That causal chaining exceeds simple snapshots, though it still lacks full explicit confirm/revise/falsify loops across later phases. No demotion applied under the 3+ cap rule.",
+        "evidence": "\"once teams have evals, traces, and approval logic, they can begin to safely compare multiple generated variants\""
+      },
+      "Actionability": {
+        "score": 2,
+        "reasoning": "The decision points are useful and conditional, with concrete triggers like production-facing autonomy requests and 20-30% engineering-task usage. But the options remain relatively generic enterprise choices, and the tradeoffs are not attached to named owners, deadlines, or concrete costs.",
+        "evidence": "\"When more than 20-30% of engineering tasks involve coding agents... Option B: Invest in private evals, replay harnesses, and acceptance gates\""
+      },
+      "Decision Clarity": {
+        "score": 2,
+        "reasoning": "The output clearly surfaces several important decisions and states a preferred strategy in at least one place, such as portfolio evaluation as the strongest one-year strategy. But it does not open with a single prioritized #1 decision and deadline, so the so-what remains somewhat distributed rather than sharply ranked.",
+        "evidence": "\"B is the strongest one-year strategy: more learning without uncontrolled exploration\""
+      },
+      "Completeness": {
+        "score": 2,
+        "reasoning": "The visible output includes an executive summary, findings, phased progression, active directions, surprise assumptions, decision points, and confidence statements, which is a solid competent package. However, the provided text is explicitly truncated, and the visible excerpt does not clearly show assumptions/limitations or a full what-would-change-my-mind section in a complete pipeline form.",
+        "evidence": "\"[... truncated for length ...]\""
+      },
+      "Transparency": {
+        "score": 2,
+        "reasoning": "The piece identifies source categories and recurring evidentiary bases such as the knowledge graph, signals, benchmarks, replay harnesses, and enterprise demand, so the reader can see the general provenance class. But it does not provide a specific provenance chain, named observation IDs, or direct source references, which keeps it below a 3.",
+        "evidence": "\"The knowledge graph points to a field... Signals such as daily coding-agent usage, benchmark-centered evaluation\""
+      },
+      "Challenge": {
+        "score": 2,
+        "reasoning": "The projection does offer real tensions and pushes against hype, especially by arguing against rapid open-ended self-improvement and against benchmark leadership as a sufficient moat. Still, it mostly challenges the dominant narrative from within the same evidence frame rather than overturning it with direct contrary evidence.",
+        "evidence": "\"The main surprise risk is that the dominant narrative may overestimate how fast organizations can operationalize liveness-oriented exploration\""
+      },
+      "Quantitative Precision": {
+        "score": 1,
+        "reasoning": "There are a few numbers, but most are framing devices rather than operational thresholds tied to measurement plans. Aside from the 12-month horizon, phase windows, and a 20-30% trigger, the output rarely gives trackable numeric indicators or sourced quantitative targets.",
+        "evidence": "\"Next 365 Days\"; \"0-3 Months\"; \"more than 20-30% of engineering tasks\""
+      }
+    },
+    "judge3_engine": {
+      "Specificity": {
+        "score": 3,
+        "reasoning": "The projection is unusually concrete about named actors, systems, and mechanisms: GitHub, GitLab, Buildkite, Datadog, Cedar, OPA, Anthropic, OpenAI, and Google are tied to specific roles in the forecast. It also uses explicit horizons like 0-3 months, 3-6 months, and year-end, plus operational mechanisms like evidence bundles, adjudication queues, and rollback-ready PR workflows. This clears the bar for actors + timelines + mechanisms, but not 4 because many metrics are still projected rather than tied to externally anchored dates or hard thresholds throughout.",
+        "evidence": "\"By year-end, the median successful enterprise program is likely to automate fewer than 20% of proposed agentic changes... while cutting cycle time by 15-30%\""
+      },
+      "Novelty": {
+        "score": 2,
+        "reasoning": "The output goes beyond generic 'agents will improve coding' claims by advancing a governance-first thesis and reframing value capture toward compliance rails, evidence orchestration, and review bandwidth. However, most of the novelty appears to be synthesis within the provided observation set rather than multiple clearly external insights introduced from outside the input. Competent and somewhat original, but not enough evidence for a 3.",
+        "evidence": "\"The surprise is that better autonomy can initially reduce adaptability: once policy-gated workflows harden, platform teams become the metabolic bottleneck\""
+      },
+      "Falsifiability": {
+        "score": 3,
+        "reasoning": "A large share of claims are stated in checkable terms with thresholds, comparative ratios, or observable confirming events: >60% of accepted changes from maintenance lanes, >70% requiring policy evaluation, <10% direct production mutation, and 1.5x more engineering time on evals than prompt tuning. The piece also includes explicit timing windows like Q4, year-end, and Q1 2026 planning cycles. It falls short of 4 because not every major forecast has a clean disconfirmation clause, and the top-level prediction section is truncated before full inspection.",
+        "evidence": "\"by year-end, >70% of production-directed evolution deployments require policy evaluation plus human approval for medium-risk changes, and <10% permit direct production mutation without a gated review step\""
+      },
+      "Breadth": {
+        "score": 3,
+        "reasoning": "The analysis covers more than six independent but connected dimensions: architecture, governance, evaluation/testing, economics, organizational adoption, artifact graphs, model vendors, and procurement. It also links them into cross-theme conclusions, such as governance costs shifting value from mutation engines to compliance rails and platform engineering becoming the adoption bottleneck. This is strong breadth with synthesis, though not quite a full coherent system model at the 4 level.",
+        "evidence": "\"The market starts to resemble a regulated network business: value accrues to compliance rails, not just mutation engines\""
+      },
+      "Plausibility": {
+        "score": 2,
+        "reasoning": "Most claims are grounded in cited observations and maintain an internally plausible causal story: narrow maintenance loops scale before full autonomy, and evidence plumbing constrains adoption. But the piece rarely exposes confidence levels, explicit assumptions per claim, or clear what-would-change-my-mind structures in the visible sections, so it does not meet the 3 threshold. The reasoning is solid, but still mostly asserted through internal citations.",
+        "evidence": "\"The bottleneck over the next quarter is not model capability but eval plumbing\""
+      },
+      "Progression": {
+        "score": 2,
+        "reasoning": "The temporal structure is strong and phases clearly refer back to earlier expectations using confirmed/qualified/revised language. However, there is at least one visible quality defect in the progression section\u2014a malformed citation placeholder and duplicated correction line\u2014which weakens confidence in execution discipline, and the later phases mostly elaborate rather than decisively confirm or falsify earlier claims. Good temporal scaffolding, but not strong enough for 3.",
+        "evidence": "\"Revisions to Phase 1 predictions: Confirmed... Qualified... Revised...\""
+      },
+      "Actionability": {
+        "score": 2,
+        "reasoning": "The executive summary gives a reasonably actionable capital allocation implication\u2014invest in evidence orchestration, policy interfaces, scoped memory, and observability-linked rollback first. Still, the visible sections do not specify clear owners, deadlines, or detailed decision tradeoffs in a way that a team could directly execute without further interpretation. That makes it conditionally useful rather than strongly actionable.",
+        "evidence": "\"capital should move first into evidence orchestration, policy interfaces, scoped memory, and observability-linked rollback\""
+      },
+      "Decision Clarity": {
+        "score": 2,
+        "reasoning": "The projection has a clear bottom line: broad autonomous software engineering is less likely than governance-first maintenance control planes. A decision-maker can extract the main implication, but the output does not visibly open with a single prioritized decision, deadline, and tradeoff framing, nor does it sharply rank actions in the visible excerpt. So the so-what is clear, but only implicitly prioritized.",
+        "evidence": "\"The winning operating pattern is not 'let one coding agent run the SDLC,' but a control plane that coordinates bounded actions\""
+      },
+      "Completeness": {
+        "score": 2,
+        "reasoning": "The output visibly includes executive summary, key findings, temporal progression, and active directions, so it exceeds a loose observations-only synthesis. But the projection is truncated before the full remainder, and visible defects suggest incomplete polish; I cannot confirm robust assumptions, limitations, or a full what-would-change-my-mind treatment from the excerpt. Competent structure, not fully complete.",
+        "evidence": "\"### Executive Summary ... ### Key Findings ... ### Temporal Progression ... ### Active Directions\""
+      },
+      "Transparency": {
+        "score": 2,
+        "reasoning": "Transparency is better than average because claims are densely tied to observation IDs, allowing traceability back to internal source entities. But provenance remains thin beyond internal citations: the output does not expose the underlying external sources, methodology for resolving contradictions, or why certain observations were weighted more heavily than others. That supports a 2, not a 3.",
+        "evidence": "\"[obs: en-019d94af-47c9-7610-9698-1721d3097080] [obs: en-019d94af-487e-7610-8369-c6ad3f593561]\""
+      },
+      "Challenge": {
+        "score": 2,
+        "reasoning": "The piece does include genuine tension against the dominant autonomy narrative, especially by arguing that governance and review, not model capability, are the true bottlenecks. Still, the challenge is mostly internal to the projection's own evidence base; it does not visibly overturn source assumptions with external counterevidence in the visible excerpt. So it shows real skepticism, but not a high-grade adversarial challenge.",
+        "evidence": "\"The main counterargument to the current hype cycle is not that models fail to generate plausible code; it is that organizations fail to cheaply adjudicate, verify, and contextualize the changes\""
+      },
+      "Quantitative Precision": {
+        "score": 2,
+        "reasoning": "There are multiple specific thresholds and ratios\u2014fewer than 20%, 15-30%, >60%, >70%, <10%, 1.5x, >50%, and 60% ownership by platform teams\u2014which makes the piece measurably more precise than generic foresight writing. However, these numbers are forecast thresholds without strong anchoring to named datasets or measurement protocols, so they do not reach the trackable-with-sources quality needed for a 3. No demotions were needed under the 3+ cap rule: only three criteria scored 3+.",
+        "evidence": "\"successful teams allocate at least 1.5x more engineering time to evals, replay, and evidence plumbing than to prompt/model tuning\""
+      }
+    },
+    "judge3_baseline": {
+      "Specificity": {
+        "score": 3,
+        "reasoning": "The projection names many concrete actors, tools, and mechanisms, and it structures claims across explicit time windows. It cites companies like Anthropic, OpenAI, Cursor, Cognition, Aider, Cline, Continue, OpenHands, and mechanisms like replay harnesses, policy gates, and pass@k selection. It stops short of a 4 because it rarely gives dated thresholds or precise numeric milestones beyond a few broad percentages.",
+        "evidence": "\"Anthropic, OpenAI, Cursor, Cognition/Devin, Aider, Cline, Continue, and OpenHands-class systems\""
+      },
+      "Novelty": {
+        "score": 2,
+        "reasoning": "There are genuine original insights here, especially the distinction between selection quality and generation quality and the emphasis on homeostatic autonomy over exploratory autonomy. However, most of the analysis remains an extension of familiar agentic-software narratives rather than a major reframing driven by outside evidence. That fits a competent but not exceptional score.",
+        "evidence": "\"the next frontier is not raw generation quality, but selection quality\""
+      },
+      "Falsifiability": {
+        "score": 2,
+        "reasoning": "Several claims are checkable in principle, especially those tied to adoption patterns, buying criteria, and bounded autonomy. But the output does not consistently specify disconfirming conditions, dates, or thresholds for most predictions, and the explicit falsification-style section appears truncated. That keeps it at several evaluable claims rather than mostly falsifiable claims.",
+        "evidence": "\"Would decrease if frontier agents begin reliably shipping multi-service product changes with minimal scaffolding.\""
+      },
+      "Breadth": {
+        "score": 2,
+        "reasoning": "The projection covers multiple distinct themes: model vendors, enterprise governance, control planes, evaluation harnesses, multi-agent coordination, formal methods, telemetry, and workflow domains. These themes are connected coherently, but the synthesis remains centered on one dominant axis\u2014governed software evolution\u2014rather than producing six-plus non-obvious cross-theme conclusions. This is solid breadth, not standout breadth.",
+        "evidence": "\"CI maintenance, dependency upgrades, incident triage, policy generation, schema migrations with rollback, infrastructure patching, and documentation/eval upkeep\""
+      },
+      "Plausibility": {
+        "score": 2,
+        "reasoning": "Most major claims are grounded in recognizable mechanisms and are internally consistent with current enterprise constraints. The piece often explains why governance, rollback, and repo-specific harnesses matter, but it does not provide explicit signal references, confidence calibration per section, or a clear what-would-change-my-mind structure throughout. That makes it plausible and competent rather than deeply evidenced.",
+        "evidence": "\"Enterprises do not buy benchmark scores in the abstract; they buy auditability, approval boundaries, and rollback confidence.\""
+      },
+      "Progression": {
+        "score": 3,
+        "reasoning": "The temporal structure is one of the strongest aspects: phases build on each other and explicitly explain causal links from evals and traces to multi-candidate selection to retention loops. This is more than sequential snapshots; it describes dependency and compounding. It misses a 4 because later phases do not rigorously confirm, falsify, or revise earlier predictions.",
+        "evidence": "\"once teams have evals, traces, and approval logic, they can begin to safely compare multiple generated variants\""
+      },
+      "Actionability": {
+        "score": 3,
+        "reasoning": "The decision points are concrete, tied to triggers, and offer real options with tradeoffs. The best example is the recommendation of bounded portfolio evaluation over open-ended exploration, and several triggers include timing conditions like adoption percentages or planning cycles. It falls short of 4 because ownership, deadlines, and concrete cost estimates are still generic rather than fully operationalized.",
+        "evidence": "\"When more than 20-30% of engineering tasks involve coding agents\""
+      },
+      "Decision Clarity": {
+        "score": 2,
+        "reasoning": "The output is clear about the main takeaway\u2014governed, bounded autonomy first\u2014and the decision-point section helps readers see implications. Still, it does not open with a singular top decision, explicit deadline, and ranked recommendation hierarchy; the so-what is present but somewhat distributed across the document. That lands at clear but not strongly prioritized.",
+        "evidence": "\"B is the strongest one-year strategy: more learning without uncontrolled exploration.\""
+      },
+      "Completeness": {
+        "score": 2,
+        "reasoning": "The document includes executive summary, findings, phases, active directions, surprises, decision points, and confidence notes, so it covers much of the foresight pipeline. However, the provided output is visibly truncated near the end, and there is limited treatment of assumptions/limitations in a structured end section. That prevents a higher score despite broad coverage.",
+        "evidence": "\"[... truncated for length ...]\""
+      },
+      "Transparency": {
+        "score": 1,
+        "reasoning": "The projection frequently refers to 'the graph' and 'signals,' but it does not expose a concrete provenance chain, named source artifacts, observation IDs, or explicit citations in the supplied text. Readers can infer categories of evidence, yet cannot readily trace a claim back to a specific source item. That is vague attribution rather than transparent sourcing.",
+        "evidence": "\"The graph repeatedly points to control planes as the preferred target\""
+      },
+      "Challenge": {
+        "score": 2,
+        "reasoning": "The analysis does offer real tensions and counters the hype narrative, especially by arguing that liveness-oriented exploration will lag safety-oriented automation and that approvals may persist. But it does not strongly overturn source claims with source-backed contradiction or external evidence; the critique remains internal and thematic. This is genuine tension, not deep adversarial challenge.",
+        "evidence": "\"The field will talk more about self-improving software than it can safely deliver.\""
+      },
+      "Quantitative Precision": {
+        "score": 1,
+        "reasoning": "There are some numbers, but they are sparse and mostly illustrative rather than forming a trackable measurement framework. Aside from 'next 12 months' and '20-30% of engineering tasks,' the projection rarely specifies thresholds, KPIs, or quantitative monitoring plans. That makes the numbers present but largely decorative.",
+        "evidence": "\"When more than 20-30% of engineering tasks involve coding agents\""
+      }
+    }
+  }
+}
