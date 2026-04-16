@@ -891,12 +891,9 @@ fn update_session_binding(
         "session_entity_id": new_session_id,
         "last_message_at": "continued",
     });
-    // Use admin-level headers for this internal infrastructure operation
-    let headers = vec![
-        ("Content-Type".to_string(), "application/json".to_string()),
-        ("x-tenant-id".to_string(), tenant.to_string()),
-        ("x-temper-principal-kind".to_string(), "admin".to_string()),
-    ];
+    // Use the normal runtime headers so production bearer auth and the invoking
+    // agent identity are forwarded consistently with the other ChannelSession actions.
+    let headers = odata_headers(ctx, tenant);
     let resp = ctx.http_call("POST", &url, &headers, &body.to_string())?;
     if !(200..300).contains(&resp.status) {
         return Err(format!(

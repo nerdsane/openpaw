@@ -164,6 +164,13 @@
         <ReturnType Type="Paw.Channel.ChannelSession"/>
       </Action>
 
+      <Action Name="UpdateSession" IsBound="true">
+        <Parameter Name="bindingParameter" Type="Paw.Channel.ChannelSession"/>
+        <Parameter Name="session_entity_id" Type="Edm.String" Nullable="false"/>
+        <Parameter Name="last_message_at" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="Paw.Channel.ChannelSession"/>
+      </Action>
+
       <Action Name="Expire" IsBound="true">
         <Parameter Name="bindingParameter" Type="Paw.Channel.ChannelSession"/>
         <ReturnType Type="Paw.Channel.ChannelSession"/>

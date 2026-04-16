@@ -56,7 +56,7 @@ permit(
 
 permit(
   principal,
-  action in [Action::"create", Action::"Create", Action::"Resume", Action::"Expire"],
+  action in [Action::"create", Action::"Create", Action::"Resume", Action::"UpdateSession", Action::"Expire"],
   resource is ChannelSession
 ) when {
   ["system", "supervisor", "human"].contains(principal.agent_type)
