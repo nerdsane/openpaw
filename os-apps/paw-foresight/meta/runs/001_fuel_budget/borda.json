@@ -1,0 +1,109 @@
+{
+  "run": "001",
+  "rubric_version": "v4",
+  "methodology_note": "3 Claude Code subagent judges, side-by-side. Borda: winner=2pts, loser=1pt, tie=1.5. Max 6 per criterion, 72 total.",
+  "per_criterion": [
+    {
+      "criterion": "Specificity",
+      "engine": 6,
+      "baseline": 3,
+      "delta": 3,
+      "engine_raw_avg": 3.0,
+      "baseline_raw_avg": 2.0
+    },
+    {
+      "criterion": "Novelty",
+      "engine": 4.5,
+      "baseline": 4.5,
+      "delta": 0.0,
+      "engine_raw_avg": 2.0,
+      "baseline_raw_avg": 2.0
+    },
+    {
+      "criterion": "Falsifiability",
+      "engine": 6,
+      "baseline": 3,
+      "delta": 3,
+      "engine_raw_avg": 3.0,
+      "baseline_raw_avg": 2.0
+    },
+    {
+      "criterion": "Breadth",
+      "engine": 4.5,
+      "baseline": 4.5,
+      "delta": 0.0,
+      "engine_raw_avg": 2.0,
+      "baseline_raw_avg": 2.0
+    },
+    {
+      "criterion": "Plausibility",
+      "engine": 4.5,
+      "baseline": 4.5,
+      "delta": 0.0,
+      "engine_raw_avg": 2.0,
+      "baseline_raw_avg": 2.0
+    },
+    {
+      "criterion": "Progression",
+      "engine": 5.0,
+      "baseline": 4.0,
+      "delta": 1.0,
+      "engine_raw_avg": 2.3,
+      "baseline_raw_avg": 2.0
+    },
+    {
+      "criterion": "Actionability",
+      "engine": 5.5,
+      "baseline": 3.5,
+      "delta": 2.0,
+      "engine_raw_avg": 2.7,
+      "baseline_raw_avg": 2.0
+    },
+    {
+      "criterion": "Decision Clarity",
+      "engine": 4.5,
+      "baseline": 4.5,
+      "delta": 0.0,
+      "engine_raw_avg": 2.0,
+      "baseline_raw_avg": 2.0
+    },
+    {
+      "criterion": "Completeness",
+      "engine": 4.5,
+      "baseline": 4.5,
+      "delta": 0.0,
+      "engine_raw_avg": 2.0,
+      "baseline_raw_avg": 2.0
+    },
+    {
+      "criterion": "Grounding",
+      "engine": 4.5,
+      "baseline": 4.5,
+      "delta": 0.0,
+      "engine_raw_avg": 2.0,
+      "baseline_raw_avg": 2.0
+    },
+    {
+      "criterion": "Challenge",
+      "engine": 4.5,
+      "baseline": 4.5,
+      "delta": 0.0,
+      "engine_raw_avg": 2.0,
+      "baseline_raw_avg": 2.0
+    },
+    {
+      "criterion": "Information Density",
+      "engine": 4.5,
+      "baseline": 4.5,
+      "delta": 0.0,
+      "engine_raw_avg": 2.0,
+      "baseline_raw_avg": 2.0
+    }
+  ],
+  "engine_borda": 58.5,
+  "baseline_borda": 49.5,
+  "engine_raw_avg": 27.0,
+  "baseline_raw_avg": 24.0,
+  "max_per_output": 72,
+  "winner": "engine"
+}

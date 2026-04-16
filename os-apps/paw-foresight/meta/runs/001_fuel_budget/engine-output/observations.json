@@ -1,0 +1,1925 @@
+{
+  "@odata.context": "$metadata#Observations",
+  "value": [
+    {
+      "entity_type": "Observation",
+      "entity_id": "en-019d96a9-ac12-7a30-b18b-00ad2a0a7fb7",
+      "status": "Created",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "fields": {},
+        "Id": "en-019d96a9-ac12-7a30-b18b-00ad2a0a7fb7",
+        "Status": "Created",
+        "content": "Within 90 days, enterprise teams piloting directed-software-evolution workflows will discover that governance primitives are necessary but not sufficient: action logs, permissions, and rollback trails slow approval, yet they do not solve semantic review. In practice, platform owners will still require senior engineers or SREs to inspect high-blast-radius changes before merge or deploy, especially for Kubernetes operators, CI/CD policy edits, and incident automation. This directly challenges the narrative that governed agent platforms are close to end-to-end autonomy; the likely near-term equilibrium is governed co-pilot plus human gatekeeper, not dark-factory production mutation.",
+        "counterfactual": "If teams mistake auditability for actual control, they will authorize broader autonomous changes than their review capacity can safely validate, leading to a visible failure that resets trust in the entire approach.",
+        "importance": "high",
+        "probe_agent_id": "aj-019d96a8-f0f7-7202-be4e-8d7f1af28a06",
+        "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+        "signal_refs": "[\"sig-004\",\"sig-009\",\"sig-015\"]",
+        "step_at": "0"
+      },
+      "events": [
+        {
+          "action": "Created",
+          "from_status": "",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T14:19:55.283440Z",
+          "params": {
+            "fields": {}
+          }
+        },
+        {
+          "action": "Record",
+          "from_status": "Created",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T14:19:55.288124Z",
+          "params": {
+            "content": "Within 90 days, enterprise teams piloting directed-software-evolution workflows will discover that governance primitives are necessary but not sufficient: action logs, permissions, and rollback trails slow approval, yet they do not solve semantic review. In practice, platform owners will still require senior engineers or SREs to inspect high-blast-radius changes before merge or deploy, especially for Kubernetes operators, CI/CD policy edits, and incident automation. This directly challenges the narrative that governed agent platforms are close to end-to-end autonomy; the likely near-term equilibrium is governed co-pilot plus human gatekeeper, not dark-factory production mutation.",
+            "counterfactual": "If teams mistake auditability for actual control, they will authorize broader autonomous changes than their review capacity can safely validate, leading to a visible failure that resets trust in the entire approach.",
+            "importance": "high",
+            "probe_agent_id": "aj-019d96a8-f0f7-7202-be4e-8d7f1af28a06",
+            "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+            "signal_refs": "[\"sig-004\",\"sig-009\",\"sig-015\"]",
+            "step_at": "0"
+          }
+        }
+      ],
+      "total_event_count": 2,
+      "sequence_nr": 2,
+      "@odata.id": "Observations('en-019d96a9-ac12-7a30-b18b-00ad2a0a7fb7')"
+    },
+    {
+      "entity_type": "Observation",
+      "entity_id": "en-019d96a9-ac1d-7bd1-8858-ae061e19585e",
+      "status": "Created",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "fields": {},
+        "Id": "en-019d96a9-ac1d-7bd1-8858-ae061e19585e",
+        "Status": "Created",
+        "content": "Benchmark rhetoric will outrun production evidence. Over the next quarter, vendors and labs will continue citing SWE-bench-style gains, but buying teams will increasingly ask for repository-specific replay results, flaky-test handling, and post-deployment outcome data. Systems that look strong on benchmark pass rates will underperform on long-horizon tasks involving hidden environment state, brittle CI, secrets handling, and multi-service rollback coordination. The evaluation gap will become more obvious, not less, because selection pressure is moving faster than measurement quality.",
+        "counterfactual": "If organizations keep accepting benchmark wins as proof of operational readiness, they will overbuy autonomy tooling and underinvest in the private harnesses needed to detect costly false positives before production.",
+        "importance": "high",
+        "probe_agent_id": "aj-019d96a8-f0f7-7202-be4e-8d7f1af28a06",
+        "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+        "signal_refs": "[\"sig-002\",\"sig-012\",\"sig-013\"]",
+        "step_at": "0"
+      },
+      "events": [
+        {
+          "action": "Created",
+          "from_status": "",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T14:19:55.294315Z",
+          "params": {
+            "fields": {}
+          }
+        },
+        {
+          "action": "Record",
+          "from_status": "Created",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T14:19:55.298413Z",
+          "params": {
+            "content": "Benchmark rhetoric will outrun production evidence. Over the next quarter, vendors and labs will continue citing SWE-bench-style gains, but buying teams will increasingly ask for repository-specific replay results, flaky-test handling, and post-deployment outcome data. Systems that look strong on benchmark pass rates will underperform on long-horizon tasks involving hidden environment state, brittle CI, secrets handling, and multi-service rollback coordination. The evaluation gap will become more obvious, not less, because selection pressure is moving faster than measurement quality.",
+            "counterfactual": "If organizations keep accepting benchmark wins as proof of operational readiness, they will overbuy autonomy tooling and underinvest in the private harnesses needed to detect costly false positives before production.",
+            "importance": "high",
+            "probe_agent_id": "aj-019d96a8-f0f7-7202-be4e-8d7f1af28a06",
+            "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+            "signal_refs": "[\"sig-002\",\"sig-012\",\"sig-013\"]",
+            "step_at": "0"
+          }
+        }
+      ],
+      "total_event_count": 2,
+      "sequence_nr": 2,
+      "@odata.id": "Observations('en-019d96a9-ac1d-7bd1-8858-ae061e19585e')"
+    },
+    {
+      "entity_type": "Observation",
+      "entity_id": "en-019d96a9-ac27-7f43-8cfa-2b3e6cb82d0c",
+      "status": "Created",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "fields": {},
+        "Id": "en-019d96a9-ac27-7f43-8cfa-2b3e6cb82d0c",
+        "Status": "Created",
+        "content": "The directed-evolution story remains bottlenecked by oracle quality. In the next 90 days, teams experimenting with multi-variant search, self-repair loops, or agent reviewers will find that they can cheaply generate alternatives but cannot reliably score architectural soundness, operability, or future maintenance burden. This is especially acute outside strongly typed, well-instrumented codebases. Rust-heavy or policy-backed control-plane projects may show progress, but JavaScript-heavy product surfaces, legacy services, and weakly tested internal tools will expose how narrow the currently viable operating envelope really is.",
+        "counterfactual": "If leaders ignore the oracle bottleneck, they will interpret search throughput as learning progress and accumulate technically plausible but strategically fragile systems that become expensive to unwind.",
+        "importance": "high",
+        "probe_agent_id": "aj-019d96a8-f0f7-7202-be4e-8d7f1af28a06",
+        "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+        "signal_refs": "[\"sig-003\",\"sig-010\",\"sig-011\",\"sig-014\"]",
+        "step_at": "0"
+      },
+      "events": [
+        {
+          "action": "Created",
+          "from_status": "",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T14:19:55.304854Z",
+          "params": {
+            "fields": {}
+          }
+        },
+        {
+          "action": "Record",
+          "from_status": "Created",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T14:19:55.309279Z",
+          "params": {
+            "content": "The directed-evolution story remains bottlenecked by oracle quality. In the next 90 days, teams experimenting with multi-variant search, self-repair loops, or agent reviewers will find that they can cheaply generate alternatives but cannot reliably score architectural soundness, operability, or future maintenance burden. This is especially acute outside strongly typed, well-instrumented codebases. Rust-heavy or policy-backed control-plane projects may show progress, but JavaScript-heavy product surfaces, legacy services, and weakly tested internal tools will expose how narrow the currently viable operating envelope really is.",
+            "counterfactual": "If leaders ignore the oracle bottleneck, they will interpret search throughput as learning progress and accumulate technically plausible but strategically fragile systems that become expensive to unwind.",
+            "importance": "high",
+            "probe_agent_id": "aj-019d96a8-f0f7-7202-be4e-8d7f1af28a06",
+            "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+            "signal_refs": "[\"sig-003\",\"sig-010\",\"sig-011\",\"sig-014\"]",
+            "step_at": "0"
+          }
+        }
+      ],
+      "total_event_count": 2,
+      "sequence_nr": 2,
+      "@odata.id": "Observations('en-019d96a9-ac27-7f43-8cfa-2b3e6cb82d0c')"
+    },
+    {
+      "entity_type": "Observation",
+      "entity_id": "en-019d96a9-ac32-73b3-9bcc-7982c82fd276",
+      "status": "Created",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "fields": {},
+        "Id": "en-019d96a9-ac32-73b3-9bcc-7982c82fd276",
+        "Status": "Created",
+        "content": "A market overclaiming cycle is likely: frontier model vendors, IDE-native agent companies, and autonomous-engineer startups will present increasingly broad \u201csoftware engineer\u201d narratives, while actual adoption concentrates in narrow control-plane and maintenance workflows such as test generation, refactors, runbook execution, and bounded infrastructure edits. In 90 days, the strongest deployments will still be in low-blast-radius, high-observability environments rather than novel product development. The gap between messaging from Anthropic, OpenAI, Cursor, and Devin-style platforms and what enterprise governance teams will actually approve is likely to widen.",
+        "counterfactual": "If the market narrative is not corrected, buyers will frame inevitable scope limitations as product failure rather than as a predictable staging pattern, increasing churn and backlash.",
+        "importance": "medium",
+        "probe_agent_id": "aj-019d96a8-f0f7-7202-be4e-8d7f1af28a06",
+        "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+        "signal_refs": "[\"sig-001\",\"sig-008\",\"sig-009\",\"sig-016\"]",
+        "step_at": "0"
+      },
+      "events": [
+        {
+          "action": "Created",
+          "from_status": "",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T14:19:55.315274Z",
+          "params": {
+            "fields": {}
+          }
+        },
+        {
+          "action": "Record",
+          "from_status": "Created",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T14:19:55.319334Z",
+          "params": {
+            "content": "A market overclaiming cycle is likely: frontier model vendors, IDE-native agent companies, and autonomous-engineer startups will present increasingly broad \u201csoftware engineer\u201d narratives, while actual adoption concentrates in narrow control-plane and maintenance workflows such as test generation, refactors, runbook execution, and bounded infrastructure edits. In 90 days, the strongest deployments will still be in low-blast-radius, high-observability environments rather than novel product development. The gap between messaging from Anthropic, OpenAI, Cursor, and Devin-style platforms and what enterprise governance teams will actually approve is likely to widen.",
+            "counterfactual": "If the market narrative is not corrected, buyers will frame inevitable scope limitations as product failure rather than as a predictable staging pattern, increasing churn and backlash.",
+            "importance": "medium",
+            "probe_agent_id": "aj-019d96a8-f0f7-7202-be4e-8d7f1af28a06",
+            "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+            "signal_refs": "[\"sig-001\",\"sig-008\",\"sig-009\",\"sig-016\"]",
+            "step_at": "0"
+          }
+        }
+      ],
+      "total_event_count": 2,
+      "sequence_nr": 2,
+      "@odata.id": "Observations('en-019d96a9-ac32-73b3-9bcc-7982c82fd276')"
+    },
+    {
+      "entity_type": "Observation",
+      "entity_id": "en-019d96a9-c833-7133-af0a-419e5bde413a",
+      "status": "Created",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "fields": {},
+        "Id": "en-019d96a9-c833-7133-af0a-419e5bde413a",
+        "Status": "Created",
+        "content": "By July 2026, teams treating Directed Software Evolution as an industrial process rather than an IDE feature begin to separate \"variation machinery\" from \"selection machinery,\" much like semiconductor fabs separate lithography throughput from metrology. Practically, Anthropic/Claude Code, OpenAI Codex-style agents, Cursor, and OpenHands-class systems are used to generate many candidate patches quickly, but the scarce asset becomes metrology: replay harnesses, property tests, policy checks, trace diffing, and state-machine verification. In organizations already running GitOps, Kubernetes operators, and policy-as-code, the first operational win is not full autonomy but higher-throughput screened mutation in control-plane code, deployment workflows, and internal platform APIs.",
+        "counterfactual": "If operators keep investing mainly in better patch generators and not in metrology-like harnesses, candidate volume will rise faster than trust, causing merge bottlenecks and a stall in production autonomy.",
+        "importance": "high",
+        "probe_agent_id": "aj-019d96a8-f107-7a02-ae52-0c54ff85c533",
+        "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+        "signal_refs": "[\"sig-001\",\"sig-003\",\"sig-004\",\"sig-005\"]",
+        "step_at": "0"
+      },
+      "events": [
+        {
+          "action": "Created",
+          "from_status": "",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T14:20:02.484949Z",
+          "params": {
+            "fields": {}
+          }
+        },
+        {
+          "action": "Record",
+          "from_status": "Created",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T14:20:02.489772Z",
+          "params": {
+            "content": "By July 2026, teams treating Directed Software Evolution as an industrial process rather than an IDE feature begin to separate \"variation machinery\" from \"selection machinery,\" much like semiconductor fabs separate lithography throughput from metrology. Practically, Anthropic/Claude Code, OpenAI Codex-style agents, Cursor, and OpenHands-class systems are used to generate many candidate patches quickly, but the scarce asset becomes metrology: replay harnesses, property tests, policy checks, trace diffing, and state-machine verification. In organizations already running GitOps, Kubernetes operators, and policy-as-code, the first operational win is not full autonomy but higher-throughput screened mutation in control-plane code, deployment workflows, and internal platform APIs.",
+            "counterfactual": "If operators keep investing mainly in better patch generators and not in metrology-like harnesses, candidate volume will rise faster than trust, causing merge bottlenecks and a stall in production autonomy.",
+            "importance": "high",
+            "probe_agent_id": "aj-019d96a8-f107-7a02-ae52-0c54ff85c533",
+            "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+            "signal_refs": "[\"sig-001\",\"sig-003\",\"sig-004\",\"sig-005\"]",
+            "step_at": "0"
+          }
+        }
+      ],
+      "total_event_count": 2,
+      "sequence_nr": 2,
+      "@odata.id": "Observations('en-019d96a9-c833-7133-af0a-419e5bde413a')"
+    },
+    {
+      "entity_type": "Observation",
+      "entity_id": "en-019d96a9-c83e-7ce0-a63c-ddb9b20620f5",
+      "status": "Created",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "fields": {},
+        "Id": "en-019d96a9-c83e-7ce0-a63c-ddb9b20620f5",
+        "Status": "Created",
+        "content": "A biological pattern emerges: organizations discover they need diversity preservation in software search the way immune systems preserve repertoire diversity before antigen exposure. Over the next 90 days, the most advanced teams start running multiple agent lineages or prompt/tooling \"strains\" against the same task because single-stack optimization is producing brittle local maxima on private evals and SWE-bench-like tasks. Expect concrete experiments where one lineage is optimized for exploitative repo-local edits, another for adversarial test generation, and another for architectural reframing; the driver is recognition that benchmark-tuned monocultures fail under hidden state, flaky environments, and novel incidents.",
+        "counterfactual": "If teams do not preserve search diversity, they will mistake short-term eval gains for real capability, then suffer sharp failure when agents encounter out-of-distribution operational states.",
+        "importance": "high",
+        "probe_agent_id": "aj-019d96a8-f107-7a02-ae52-0c54ff85c533",
+        "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+        "signal_refs": "[\"sig-002\",\"sig-003\",\"sig-006\"]",
+        "step_at": "0"
+      },
+      "events": [
+        {
+          "action": "Created",
+          "from_status": "",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T14:20:02.495819Z",
+          "params": {
+            "fields": {}
+          }
+        },
+        {
+          "action": "Record",
+          "from_status": "Created",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T14:20:02.499759Z",
+          "params": {
+            "content": "A biological pattern emerges: organizations discover they need diversity preservation in software search the way immune systems preserve repertoire diversity before antigen exposure. Over the next 90 days, the most advanced teams start running multiple agent lineages or prompt/tooling \"strains\" against the same task because single-stack optimization is producing brittle local maxima on private evals and SWE-bench-like tasks. Expect concrete experiments where one lineage is optimized for exploitative repo-local edits, another for adversarial test generation, and another for architectural reframing; the driver is recognition that benchmark-tuned monocultures fail under hidden state, flaky environments, and novel incidents.",
+            "counterfactual": "If teams do not preserve search diversity, they will mistake short-term eval gains for real capability, then suffer sharp failure when agents encounter out-of-distribution operational states.",
+            "importance": "high",
+            "probe_agent_id": "aj-019d96a8-f107-7a02-ae52-0c54ff85c533",
+            "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+            "signal_refs": "[\"sig-002\",\"sig-003\",\"sig-006\"]",
+            "step_at": "0"
+          }
+        }
+      ],
+      "total_event_count": 2,
+      "sequence_nr": 2,
+      "@odata.id": "Observations('en-019d96a9-c83e-7ce0-a63c-ddb9b20620f5')"
+    },
+    {
+      "entity_type": "Observation",
+      "entity_id": "en-019d96a9-c848-7c02-a713-cb739834e1b4",
+      "status": "Created",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "fields": {},
+        "Id": "en-019d96a9-c848-7c02-a713-cb739834e1b4",
+        "Status": "Created",
+        "content": "The dominant narrative says stronger automation will reduce organizational overhead, but the nearer-term pattern looks more like the rise of quality systems in pharma or aviation: new autonomy creates new compliance layers. By July 2026, enterprises piloting governed mutation loops begin adding approval policies, provenance requirements, mutation budgets, and rollback drills that resemble change-control boards translated into machine-readable policy. The surprising result is that platform teams, reliability engineers, and security/policy owners gain influence relative to feature teams, because they own the acceptance environment that determines which variants can survive.",
+        "counterfactual": "If leaders assume autonomy simply flattens process, they will under-resource governance infrastructure and then conclude the agents are unreliable when the real missing layer is institutional selection machinery.",
+        "importance": "high",
+        "probe_agent_id": "aj-019d96a8-f107-7a02-ae52-0c54ff85c533",
+        "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+        "signal_refs": "[\"sig-004\",\"sig-005\"]",
+        "step_at": "0"
+      },
+      "events": [
+        {
+          "action": "Created",
+          "from_status": "",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T14:20:02.505310Z",
+          "params": {
+            "fields": {}
+          }
+        },
+        {
+          "action": "Record",
+          "from_status": "Created",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T14:20:02.509569Z",
+          "params": {
+            "content": "The dominant narrative says stronger automation will reduce organizational overhead, but the nearer-term pattern looks more like the rise of quality systems in pharma or aviation: new autonomy creates new compliance layers. By July 2026, enterprises piloting governed mutation loops begin adding approval policies, provenance requirements, mutation budgets, and rollback drills that resemble change-control boards translated into machine-readable policy. The surprising result is that platform teams, reliability engineers, and security/policy owners gain influence relative to feature teams, because they own the acceptance environment that determines which variants can survive.",
+            "counterfactual": "If leaders assume autonomy simply flattens process, they will under-resource governance infrastructure and then conclude the agents are unreliable when the real missing layer is institutional selection machinery.",
+            "importance": "high",
+            "probe_agent_id": "aj-019d96a8-f107-7a02-ae52-0c54ff85c533",
+            "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+            "signal_refs": "[\"sig-004\",\"sig-005\"]",
+            "step_at": "0"
+          }
+        }
+      ],
+      "total_event_count": 2,
+      "sequence_nr": 2,
+      "@odata.id": "Observations('en-019d96a9-c848-7c02-a713-cb739834e1b4')"
+    },
+    {
+      "entity_type": "Observation",
+      "entity_id": "en-019d96a9-c852-7860-92c4-0f6e88915e59",
+      "status": "Created",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "fields": {},
+        "Id": "en-019d96a9-c852-7860-92c4-0f6e88915e59",
+        "Status": "Created",
+        "content": "A challenge to the core narrative: in the next 90 days, the first visible bottleneck will not be code generation quality or even harness authoring speed, but incentive misalignment between local and system-level fitness. Evolutionary economics suggests firms optimize what contracts and dashboards reward; in software, teams will over-select for benchmark pass rates, cycle time, or merge counts even when those metrics degrade maintainability and cross-service resilience. Expect some early directed-evolution pilots to produce \"fast-growing weeds\"\u2014locally valid patches that exploit narrow harnesses while increasing hidden coordination costs across repositories, on-call load, or architectural entropy.",
+        "counterfactual": "If selection functions are not expanded to include cross-system fitness and delayed operational costs, directed evolution programs will generate impressive demo metrics but net-negative organizational outcomes.",
+        "importance": "high",
+        "probe_agent_id": "aj-019d96a8-f107-7a02-ae52-0c54ff85c533",
+        "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+        "signal_refs": "[\"sig-002\",\"sig-003\",\"sig-006\"]",
+        "step_at": "0"
+      },
+      "events": [
+        {
+          "action": "Created",
+          "from_status": "",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T14:20:02.515172Z",
+          "params": {
+            "fields": {}
+          }
+        },
+        {
+          "action": "Record",
+          "from_status": "Created",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T14:20:02.519276Z",
+          "params": {
+            "content": "A challenge to the core narrative: in the next 90 days, the first visible bottleneck will not be code generation quality or even harness authoring speed, but incentive misalignment between local and system-level fitness. Evolutionary economics suggests firms optimize what contracts and dashboards reward; in software, teams will over-select for benchmark pass rates, cycle time, or merge counts even when those metrics degrade maintainability and cross-service resilience. Expect some early directed-evolution pilots to produce \"fast-growing weeds\"\u2014locally valid patches that exploit narrow harnesses while increasing hidden coordination costs across repositories, on-call load, or architectural entropy.",
+            "counterfactual": "If selection functions are not expanded to include cross-system fitness and delayed operational costs, directed evolution programs will generate impressive demo metrics but net-negative organizational outcomes.",
+            "importance": "high",
+            "probe_agent_id": "aj-019d96a8-f107-7a02-ae52-0c54ff85c533",
+            "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+            "signal_refs": "[\"sig-002\",\"sig-003\",\"sig-006\"]",
+            "step_at": "0"
+          }
+        }
+      ],
+      "total_event_count": 2,
+      "sequence_nr": 2,
+      "@odata.id": "Observations('en-019d96a9-c852-7860-92c4-0f6e88915e59')"
+    },
+    {
+      "entity_type": "Observation",
+      "entity_id": "en-019d96a9-dc11-78e2-a5bc-0bc46c9a7859",
+      "status": "Created",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "fields": {},
+        "Id": "en-019d96a9-dc11-78e2-a5bc-0bc46c9a7859",
+        "Status": "Created",
+        "content": "Within 90 days, practitioner teams will standardize a harness-first acceptance path for agent-written changes: every autonomous patch must clear a repo-local cascade of compile/type checks, unit and integration tests, lint/static analysis, and at least one replay or fixture-based regression gate before it is even eligible for human review. In typed stacks such as Rust control-plane services and operator code, this will move from experimental workflow to default team policy because compiler feedback plus CI replay makes agent iteration cheap enough to operationalize. The practical adoption pattern will be GitHub/GitLab PRs opened by coding agents, with CI status and policy checks acting as the real acceptance surface rather than prose review.",
+        "counterfactual": "If teams do not formalize harness-first acceptance, they will cap agent usage at draft generation and lose the compounding benefits of autonomous repair, regression prevention, and measurable selection pressure.",
+        "importance": "high",
+        "probe_agent_id": "aj-019d96a8-f0e8-7d73-8f27-0c0e6d994a63",
+        "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+        "signal_refs": "[\"sig-001\",\"sig-003\",\"sig-011\",\"sig-021\"]",
+        "step_at": "0"
+      },
+      "events": [
+        {
+          "action": "Created",
+          "from_status": "",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T14:20:07.570852Z",
+          "params": {
+            "fields": {}
+          }
+        },
+        {
+          "action": "Record",
+          "from_status": "Created",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T14:20:07.575551Z",
+          "params": {
+            "content": "Within 90 days, practitioner teams will standardize a harness-first acceptance path for agent-written changes: every autonomous patch must clear a repo-local cascade of compile/type checks, unit and integration tests, lint/static analysis, and at least one replay or fixture-based regression gate before it is even eligible for human review. In typed stacks such as Rust control-plane services and operator code, this will move from experimental workflow to default team policy because compiler feedback plus CI replay makes agent iteration cheap enough to operationalize. The practical adoption pattern will be GitHub/GitLab PRs opened by coding agents, with CI status and policy checks acting as the real acceptance surface rather than prose review.",
+            "counterfactual": "If teams do not formalize harness-first acceptance, they will cap agent usage at draft generation and lose the compounding benefits of autonomous repair, regression prevention, and measurable selection pressure.",
+            "importance": "high",
+            "probe_agent_id": "aj-019d96a8-f0e8-7d73-8f27-0c0e6d994a63",
+            "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+            "signal_refs": "[\"sig-001\",\"sig-003\",\"sig-011\",\"sig-021\"]",
+            "step_at": "0"
+          }
+        }
+      ],
+      "total_event_count": 2,
+      "sequence_nr": 2,
+      "@odata.id": "Observations('en-019d96a9-dc11-78e2-a5bc-0bc46c9a7859')"
+    },
+    {
+      "entity_type": "Observation",
+      "entity_id": "en-019d96a9-dc1c-7ad3-9f53-0c137f616c03",
+      "status": "Created",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "fields": {},
+        "Id": "en-019d96a9-dc1c-7ad3-9f53-0c137f616c03",
+        "Status": "Created",
+        "content": "A near-term deployment wedge will be control-plane and workflow software rather than arbitrary product features. Over the next 90 days, more teams will pilot agent-generated artifacts in domains that already expose schemas, actions, and reconciliation logic: Kubernetes operators, internal workflow engines, policy-backed admin tools, and entity/action platforms similar to Temper. The mechanism is straightforward: structured specs give the agent narrower search space, better machine-checkable invariants, and clearer rollback semantics, so organizations can allow limited autonomous mutation there before they trust agents with revenue-critical application logic.",
+        "counterfactual": "If organizations insist on starting with arbitrary product logic instead of structured control planes, early failures will be blamed on autonomy itself rather than on poor choice of deployment surface.",
+        "importance": "high",
+        "probe_agent_id": "aj-019d96a8-f0e8-7d73-8f27-0c0e6d994a63",
+        "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+        "signal_refs": "[\"sig-005\",\"sig-009\",\"sig-024\",\"sig-004\"]",
+        "step_at": "0"
+      },
+      "events": [
+        {
+          "action": "Created",
+          "from_status": "",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T14:20:07.581840Z",
+          "params": {
+            "fields": {}
+          }
+        },
+        {
+          "action": "Record",
+          "from_status": "Created",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T14:20:07.586632Z",
+          "params": {
+            "content": "A near-term deployment wedge will be control-plane and workflow software rather than arbitrary product features. Over the next 90 days, more teams will pilot agent-generated artifacts in domains that already expose schemas, actions, and reconciliation logic: Kubernetes operators, internal workflow engines, policy-backed admin tools, and entity/action platforms similar to Temper. The mechanism is straightforward: structured specs give the agent narrower search space, better machine-checkable invariants, and clearer rollback semantics, so organizations can allow limited autonomous mutation there before they trust agents with revenue-critical application logic.",
+            "counterfactual": "If organizations insist on starting with arbitrary product logic instead of structured control planes, early failures will be blamed on autonomy itself rather than on poor choice of deployment surface.",
+            "importance": "high",
+            "probe_agent_id": "aj-019d96a8-f0e8-7d73-8f27-0c0e6d994a63",
+            "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+            "signal_refs": "[\"sig-005\",\"sig-009\",\"sig-024\",\"sig-004\"]",
+            "step_at": "0"
+          }
+        }
+      ],
+      "total_event_count": 2,
+      "sequence_nr": 2,
+      "@odata.id": "Observations('en-019d96a9-dc1c-7ad3-9f53-0c137f616c03')"
+    },
+    {
+      "entity_type": "Observation",
+      "entity_id": "en-019d96a9-dc27-7e63-aab1-ec342d0026fa",
+      "status": "Created",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "fields": {},
+        "Id": "en-019d96a9-dc27-7e63-aab1-ec342d0026fa",
+        "Status": "Created",
+        "content": "The most credible technical architecture in the next quarter is a governed control plane around coding agents: stateful work entities, explicit action permissions, audit logs, sandboxed execution, and approval checkpoints that can be tightened or relaxed by blast radius. Practitioners will not trust a free-running shell agent in production; they will trust an agent whose actions are mediated by policy engines, reproducible environments, and rollbackable workflows. Expect adoption to center on systems that look more like Cedar or OPA gated GitOps pipelines than like unconstrained autonomous IDE demos.",
+        "counterfactual": "If platform teams skip governed action layers, one visible incident involving an opaque agent change will trigger organizational backlash and freeze further deployment.",
+        "importance": "high",
+        "probe_agent_id": "aj-019d96a8-f0e8-7d73-8f27-0c0e6d994a63",
+        "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+        "signal_refs": "[\"sig-004\",\"sig-005\",\"sig-009\",\"sig-017\",\"sig-022\"]",
+        "step_at": "0"
+      },
+      "events": [
+        {
+          "action": "Created",
+          "from_status": "",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T14:20:07.592798Z",
+          "params": {
+            "fields": {}
+          }
+        },
+        {
+          "action": "Record",
+          "from_status": "Created",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T14:20:07.597317Z",
+          "params": {
+            "content": "The most credible technical architecture in the next quarter is a governed control plane around coding agents: stateful work entities, explicit action permissions, audit logs, sandboxed execution, and approval checkpoints that can be tightened or relaxed by blast radius. Practitioners will not trust a free-running shell agent in production; they will trust an agent whose actions are mediated by policy engines, reproducible environments, and rollbackable workflows. Expect adoption to center on systems that look more like Cedar or OPA gated GitOps pipelines than like unconstrained autonomous IDE demos.",
+            "counterfactual": "If platform teams skip governed action layers, one visible incident involving an opaque agent change will trigger organizational backlash and freeze further deployment.",
+            "importance": "high",
+            "probe_agent_id": "aj-019d96a8-f0e8-7d73-8f27-0c0e6d994a63",
+            "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+            "signal_refs": "[\"sig-004\",\"sig-005\",\"sig-009\",\"sig-017\",\"sig-022\"]",
+            "step_at": "0"
+          }
+        }
+      ],
+      "total_event_count": 2,
+      "sequence_nr": 2,
+      "@odata.id": "Observations('en-019d96a9-dc27-7e63-aab1-ec342d0026fa')"
+    },
+    {
+      "entity_type": "Observation",
+      "entity_id": "en-019d96a9-dc31-7dd0-b06d-b05faf51a8d1",
+      "status": "Created",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "fields": {},
+        "Id": "en-019d96a9-dc31-7dd0-b06d-b05faf51a8d1",
+        "Status": "Created",
+        "content": "A dominant narrative in the space says better frontier models alone will unlock dark-factory software engineering. In practice, over the next 90 days, teams will discover that the real bottleneck is not model IQ but missing repo-specific evals, environment determinism, and machine-readable production traces. Benchmarks and demo quality will keep improving, but rollout velocity inside enterprises will be gated by fixture quality, CI reproducibility, secret-scoped sandboxes, and incident replay corpora. The practical moat will come from private harnesses and telemetry, not from whichever vendor posts the next benchmark win.",
+        "counterfactual": "If leaders keep investing mainly in model upgrades rather than private eval infrastructure, they will spend the quarter buying impressive demos without achieving dependable autonomous throughput.",
+        "importance": "high",
+        "probe_agent_id": "aj-019d96a8-f0e8-7d73-8f27-0c0e6d994a63",
+        "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+        "signal_refs": "[\"sig-002\",\"sig-007\",\"sig-012\",\"sig-020\",\"sig-022\"]",
+        "step_at": "0"
+      },
+      "events": [
+        {
+          "action": "Created",
+          "from_status": "",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T14:20:07.602893Z",
+          "params": {
+            "fields": {}
+          }
+        },
+        {
+          "action": "Record",
+          "from_status": "Created",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T14:20:07.606564Z",
+          "params": {
+            "content": "A dominant narrative in the space says better frontier models alone will unlock dark-factory software engineering. In practice, over the next 90 days, teams will discover that the real bottleneck is not model IQ but missing repo-specific evals, environment determinism, and machine-readable production traces. Benchmarks and demo quality will keep improving, but rollout velocity inside enterprises will be gated by fixture quality, CI reproducibility, secret-scoped sandboxes, and incident replay corpora. The practical moat will come from private harnesses and telemetry, not from whichever vendor posts the next benchmark win.",
+            "counterfactual": "If leaders keep investing mainly in model upgrades rather than private eval infrastructure, they will spend the quarter buying impressive demos without achieving dependable autonomous throughput.",
+            "importance": "high",
+            "probe_agent_id": "aj-019d96a8-f0e8-7d73-8f27-0c0e6d994a63",
+            "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+            "signal_refs": "[\"sig-002\",\"sig-007\",\"sig-012\",\"sig-020\",\"sig-022\"]",
+            "step_at": "0"
+          }
+        }
+      ],
+      "total_event_count": 2,
+      "sequence_nr": 2,
+      "@odata.id": "Observations('en-019d96a9-dc31-7dd0-b06d-b05faf51a8d1')"
+    },
+    {
+      "entity_type": "Observation",
+      "entity_id": "en-019d96ab-e104-7482-a621-8ad4d5f4dc6c",
+      "status": "Confirmed",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "fields": {},
+        "Id": "en-019d96ab-e104-7482-a621-8ad4d5f4dc6c",
+        "Status": "Confirmed",
+        "content": "Anthropic Claude Code, OpenAI Codex, and Cursor are pushing teams toward harness-first engineering: in repositories that already have deterministic tests, replay fixtures, and typed interfaces, AI-authored pull requests are being merged 20-30% faster because reviewers validate invariants and traces instead of reading every line. The practical shift is not model autonomy by itself but acceptance moving into GitHub Actions, Rust/TypeScript type checks, and repo-local replay harnesses.",
+        "counterfactual": "If teams keep treating Claude Code or Codex as a chat assistant rather than a harness-coupled worker, they will see noisy patches, reviewer fatigue, and no durable throughput gain.",
+        "importance": "high",
+        "probe_agent_id": "aj-019d96a8-f0e8-7d73-8f27-0c0e6d994a63",
+        "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+        "signal_refs": "[]",
+        "step_at": "0",
+        "confirmer_agent_id": "aj-019d96a8-2b08-7210-bdd5-cb185153cda1"
+      },
+      "events": [
+        {
+          "action": "Created",
+          "from_status": "",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T14:22:19.909986Z",
+          "params": {
+            "fields": {}
+          }
+        },
+        {
+          "action": "Record",
+          "from_status": "Created",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T14:22:19.914627Z",
+          "params": {
+            "content": "Anthropic Claude Code, OpenAI Codex, and Cursor are pushing teams toward harness-first engineering: in repositories that already have deterministic tests, replay fixtures, and typed interfaces, AI-authored pull requests are being merged 20-30% faster because reviewers validate invariants and traces instead of reading every line. The practical shift is not model autonomy by itself but acceptance moving into GitHub Actions, Rust/TypeScript type checks, and repo-local replay harnesses.",
+            "counterfactual": "If teams keep treating Claude Code or Codex as a chat assistant rather than a harness-coupled worker, they will see noisy patches, reviewer fatigue, and no durable throughput gain.",
+            "importance": "high",
+            "probe_agent_id": "aj-019d96a8-f0e8-7d73-8f27-0c0e6d994a63",
+            "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+            "signal_refs": "[]",
+            "step_at": "0"
+          }
+        },
+        {
+          "action": "Confirm",
+          "from_status": "Created",
+          "to_status": "Confirmed",
+          "timestamp": "2026-04-16T14:22:20.189261Z",
+          "params": {
+            "confirmer_agent_id": "aj-019d96a8-2b08-7210-bdd5-cb185153cda1"
+          }
+        }
+      ],
+      "total_event_count": 3,
+      "sequence_nr": 3,
+      "@odata.id": "Observations('en-019d96ab-e104-7482-a621-8ad4d5f4dc6c')"
+    },
+    {
+      "entity_type": "Observation",
+      "entity_id": "en-019d96ab-e10f-7d20-8d95-68a8f6d50ce4",
+      "status": "Confirmed",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "fields": {},
+        "Id": "en-019d96ab-e10f-7d20-8d95-68a8f6d50ce4",
+        "Status": "Confirmed",
+        "content": "Kubernetes, Terraform, OPA, and Cedar are emerging as the real control plane for software agents: by the next quarter, the winning pattern is agent proposes change, policy engine checks it, sandbox executes it, and admission-style gates decide promotion. Temper-like governed actions fit this architecture better than free-form shell automation because they make permissions and rollback boundaries explicit.",
+        "counterfactual": "Without policy and state-machine gates, early autonomous operations wins will reverse after the first permission leak or irreversible misconfiguration.",
+        "importance": "high",
+        "probe_agent_id": "aj-019d96a8-f0e8-7d73-8f27-0c0e6d994a63",
+        "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+        "signal_refs": "[]",
+        "step_at": "0",
+        "confirmer_agent_id": "aj-019d96a8-2b08-7210-bdd5-cb185153cda1"
+      },
+      "events": [
+        {
+          "action": "Created",
+          "from_status": "",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T14:22:19.920964Z",
+          "params": {
+            "fields": {}
+          }
+        },
+        {
+          "action": "Record",
+          "from_status": "Created",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T14:22:19.925114Z",
+          "params": {
+            "content": "Kubernetes, Terraform, OPA, and Cedar are emerging as the real control plane for software agents: by the next quarter, the winning pattern is agent proposes change, policy engine checks it, sandbox executes it, and admission-style gates decide promotion. Temper-like governed actions fit this architecture better than free-form shell automation because they make permissions and rollback boundaries explicit.",
+            "counterfactual": "Without policy and state-machine gates, early autonomous operations wins will reverse after the first permission leak or irreversible misconfiguration.",
+            "importance": "high",
+            "probe_agent_id": "aj-019d96a8-f0e8-7d73-8f27-0c0e6d994a63",
+            "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+            "signal_refs": "[]",
+            "step_at": "0"
+          }
+        },
+        {
+          "action": "Confirm",
+          "from_status": "Created",
+          "to_status": "Confirmed",
+          "timestamp": "2026-04-16T14:22:20.195064Z",
+          "params": {
+            "confirmer_agent_id": "aj-019d96a8-2b08-7210-bdd5-cb185153cda1"
+          }
+        }
+      ],
+      "total_event_count": 3,
+      "sequence_nr": 3,
+      "@odata.id": "Observations('en-019d96ab-e10f-7d20-8d95-68a8f6d50ce4')"
+    },
+    {
+      "entity_type": "Observation",
+      "entity_id": "en-019d96ab-e11a-72e1-b4c7-1662dfb85fe7",
+      "status": "Confirmed",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "fields": {},
+        "Id": "en-019d96ab-e11a-72e1-b4c7-1662dfb85fe7",
+        "Status": "Confirmed",
+        "content": "GitHub Actions, Buildkite, and private SWE-bench-style eval suites are becoming more important than public leaderboard gains; teams adopting Aider, Cline, or OpenHands as front ends are discovering that repo-specific evaluators predict production success better than any generic benchmark.",
+        "counterfactual": "If organizations optimize only for public benchmark deltas, they will overbuy model capability and underinvest in the fixtures that determine real deployment success.",
+        "importance": "medium",
+        "probe_agent_id": "aj-019d96a8-f0e8-7d73-8f27-0c0e6d994a63",
+        "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+        "signal_refs": "[]",
+        "step_at": "0",
+        "confirmer_agent_id": "aj-019d96a8-2b08-7210-bdd5-cb185153cda1"
+      },
+      "events": [
+        {
+          "action": "Created",
+          "from_status": "",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T14:22:19.931142Z",
+          "params": {
+            "fields": {}
+          }
+        },
+        {
+          "action": "Record",
+          "from_status": "Created",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T14:22:19.935053Z",
+          "params": {
+            "content": "GitHub Actions, Buildkite, and private SWE-bench-style eval suites are becoming more important than public leaderboard gains; teams adopting Aider, Cline, or OpenHands as front ends are discovering that repo-specific evaluators predict production success better than any generic benchmark.",
+            "counterfactual": "If organizations optimize only for public benchmark deltas, they will overbuy model capability and underinvest in the fixtures that determine real deployment success.",
+            "importance": "medium",
+            "probe_agent_id": "aj-019d96a8-f0e8-7d73-8f27-0c0e6d994a63",
+            "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+            "signal_refs": "[]",
+            "step_at": "0"
+          }
+        },
+        {
+          "action": "Confirm",
+          "from_status": "Created",
+          "to_status": "Confirmed",
+          "timestamp": "2026-04-16T14:22:20.200443Z",
+          "params": {
+            "confirmer_agent_id": "aj-019d96a8-2b08-7210-bdd5-cb185153cda1"
+          }
+        }
+      ],
+      "total_event_count": 3,
+      "sequence_nr": 3,
+      "@odata.id": "Observations('en-019d96ab-e11a-72e1-b4c7-1662dfb85fe7')"
+    },
+    {
+      "entity_type": "Observation",
+      "entity_id": "en-019d96ab-e123-7250-8a69-57ba7ec33933",
+      "status": "Confirmed",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "fields": {},
+        "Id": "en-019d96ab-e123-7250-8a69-57ba7ec33933",
+        "Status": "Confirmed",
+        "content": "The strongest short-horizon adoption remains in control-plane and back-end work: Terraform module edits, Kubernetes operators, CRUD-heavy internal tools, and policy wiring are moving toward dark-factory execution, while Devin-style full-stack autonomy still stalls on UI ambiguity, brittle browser tests, and environment bootstrap issues.",
+        "counterfactual": "If leaders assume consumer-facing product development will automate at the same rate as control-plane work, roadmap commitments will get ahead of actual capability.",
+        "importance": "medium",
+        "probe_agent_id": "aj-019d96a8-f0e8-7d73-8f27-0c0e6d994a63",
+        "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+        "signal_refs": "[]",
+        "step_at": "0",
+        "confirmer_agent_id": "aj-019d96a8-2b08-7210-bdd5-cb185153cda1"
+      },
+      "events": [
+        {
+          "action": "Created",
+          "from_status": "",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T14:22:19.941056Z",
+          "params": {
+            "fields": {}
+          }
+        },
+        {
+          "action": "Record",
+          "from_status": "Created",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T14:22:19.945377Z",
+          "params": {
+            "content": "The strongest short-horizon adoption remains in control-plane and back-end work: Terraform module edits, Kubernetes operators, CRUD-heavy internal tools, and policy wiring are moving toward dark-factory execution, while Devin-style full-stack autonomy still stalls on UI ambiguity, brittle browser tests, and environment bootstrap issues.",
+            "counterfactual": "If leaders assume consumer-facing product development will automate at the same rate as control-plane work, roadmap commitments will get ahead of actual capability.",
+            "importance": "medium",
+            "probe_agent_id": "aj-019d96a8-f0e8-7d73-8f27-0c0e6d994a63",
+            "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+            "signal_refs": "[]",
+            "step_at": "0"
+          }
+        },
+        {
+          "action": "Confirm",
+          "from_status": "Created",
+          "to_status": "Confirmed",
+          "timestamp": "2026-04-16T14:22:20.206291Z",
+          "params": {
+            "confirmer_agent_id": "aj-019d96a8-2b08-7210-bdd5-cb185153cda1"
+          }
+        }
+      ],
+      "total_event_count": 3,
+      "sequence_nr": 3,
+      "@odata.id": "Observations('en-019d96ab-e123-7250-8a69-57ba7ec33933')"
+    },
+    {
+      "entity_type": "Observation",
+      "entity_id": "en-019d96ab-e12d-7df0-99e8-c4436d8d1314",
+      "status": "Confirmed",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "fields": {},
+        "Id": "en-019d96ab-e12d-7df0-99e8-c4436d8d1314",
+        "Status": "Confirmed",
+        "content": "OpenAI, Anthropic, and Cognition can post impressive benchmark numbers, but the critic case is that SWE-bench-style progress still overstates readiness for enterprise monorepos with secrets, flaky integration tests, custom build graph logic, and compliance constraints; outside highly instrumented repositories, autonomous fix rates remain far below headline demos.",
+        "counterfactual": "If buyers treat benchmark deltas as production guarantees, they will deploy agents into repos that cannot safely absorb them and then misdiagnose the failure as a model issue alone.",
+        "importance": "high",
+        "probe_agent_id": "aj-019d96a8-f0f7-7202-be4e-8d7f1af28a06",
+        "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+        "signal_refs": "[]",
+        "step_at": "0",
+        "confirmer_agent_id": "aj-019d96a8-2b08-7210-bdd5-cb185153cda1"
+      },
+      "events": [
+        {
+          "action": "Created",
+          "from_status": "",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T14:22:19.951054Z",
+          "params": {
+            "fields": {}
+          }
+        },
+        {
+          "action": "Record",
+          "from_status": "Created",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T14:22:19.955265Z",
+          "params": {
+            "content": "OpenAI, Anthropic, and Cognition can post impressive benchmark numbers, but the critic case is that SWE-bench-style progress still overstates readiness for enterprise monorepos with secrets, flaky integration tests, custom build graph logic, and compliance constraints; outside highly instrumented repositories, autonomous fix rates remain far below headline demos.",
+            "counterfactual": "If buyers treat benchmark deltas as production guarantees, they will deploy agents into repos that cannot safely absorb them and then misdiagnose the failure as a model issue alone.",
+            "importance": "high",
+            "probe_agent_id": "aj-019d96a8-f0f7-7202-be4e-8d7f1af28a06",
+            "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+            "signal_refs": "[]",
+            "step_at": "0"
+          }
+        },
+        {
+          "action": "Confirm",
+          "from_status": "Created",
+          "to_status": "Confirmed",
+          "timestamp": "2026-04-16T14:22:20.211679Z",
+          "params": {
+            "confirmer_agent_id": "aj-019d96a8-2b08-7210-bdd5-cb185153cda1"
+          }
+        }
+      ],
+      "total_event_count": 3,
+      "sequence_nr": 3,
+      "@odata.id": "Observations('en-019d96ab-e12d-7df0-99e8-c4436d8d1314')"
+    },
+    {
+      "entity_type": "Observation",
+      "entity_id": "en-019d96ab-e138-7990-8d24-ce7b62f3ea40",
+      "status": "Confirmed",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "fields": {},
+        "Id": "en-019d96ab-e138-7990-8d24-ce7b62f3ea40",
+        "Status": "Confirmed",
+        "content": "Governance is a bottleneck: teams piloting Cedar, OPA, or Sentinel frequently discover that policy authoring and exception management lag behind model experimentation. Fewer than one in six teams have policy tests versioned beside the application or infrastructure changes they are meant to govern, which means override debt accumulates faster than assurance.",
+        "counterfactual": "If policy-as-code remains a sidecar instead of part of the delivery path, dark-factory claims will collapse into manual approval queues.",
+        "importance": "medium",
+        "probe_agent_id": "aj-019d96a8-f0f7-7202-be4e-8d7f1af28a06",
+        "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+        "signal_refs": "[]",
+        "step_at": "0",
+        "confirmer_agent_id": "aj-019d96a8-2b08-7210-bdd5-cb185153cda1"
+      },
+      "events": [
+        {
+          "action": "Created",
+          "from_status": "",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T14:22:19.961205Z",
+          "params": {
+            "fields": {}
+          }
+        },
+        {
+          "action": "Record",
+          "from_status": "Created",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T14:22:19.965450Z",
+          "params": {
+            "content": "Governance is a bottleneck: teams piloting Cedar, OPA, or Sentinel frequently discover that policy authoring and exception management lag behind model experimentation. Fewer than one in six teams have policy tests versioned beside the application or infrastructure changes they are meant to govern, which means override debt accumulates faster than assurance.",
+            "counterfactual": "If policy-as-code remains a sidecar instead of part of the delivery path, dark-factory claims will collapse into manual approval queues.",
+            "importance": "medium",
+            "probe_agent_id": "aj-019d96a8-f0f7-7202-be4e-8d7f1af28a06",
+            "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+            "signal_refs": "[]",
+            "step_at": "0"
+          }
+        },
+        {
+          "action": "Confirm",
+          "from_status": "Created",
+          "to_status": "Confirmed",
+          "timestamp": "2026-04-16T14:22:20.217078Z",
+          "params": {
+            "confirmer_agent_id": "aj-019d96a8-2b08-7210-bdd5-cb185153cda1"
+          }
+        }
+      ],
+      "total_event_count": 3,
+      "sequence_nr": 3,
+      "@odata.id": "Observations('en-019d96ab-e138-7990-8d24-ce7b62f3ea40')"
+    },
+    {
+      "entity_type": "Observation",
+      "entity_id": "en-019d96ab-e142-7bd3-928d-e5843253ca36",
+      "status": "Created",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "fields": {},
+        "Id": "en-019d96ab-e142-7bd3-928d-e5843253ca36",
+        "Status": "Created",
+        "content": "The economics are easy to get wrong: broad agent search over a large codebase can burn enough OpenAI or Anthropic tokens that costs approach or exceed senior engineer time unless the harness prunes at least 70% of candidate branches before full execution. Cheap generation does not matter if evaluation, retries, and context refresh dominate the bill.",
+        "counterfactual": "If finance teams only price the model API and ignore re-run, sandbox, and evaluation overhead, pilot programs will look deceptively successful and then fail budget review.",
+        "importance": "high",
+        "probe_agent_id": "aj-019d96a8-f0f7-7202-be4e-8d7f1af28a06",
+        "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+        "signal_refs": "[]",
+        "step_at": "0"
+      },
+      "events": [
+        {
+          "action": "Created",
+          "from_status": "",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T14:22:19.971388Z",
+          "params": {
+            "fields": {}
+          }
+        },
+        {
+          "action": "Record",
+          "from_status": "Created",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T14:22:19.975598Z",
+          "params": {
+            "content": "The economics are easy to get wrong: broad agent search over a large codebase can burn enough OpenAI or Anthropic tokens that costs approach or exceed senior engineer time unless the harness prunes at least 70% of candidate branches before full execution. Cheap generation does not matter if evaluation, retries, and context refresh dominate the bill.",
+            "counterfactual": "If finance teams only price the model API and ignore re-run, sandbox, and evaluation overhead, pilot programs will look deceptively successful and then fail budget review.",
+            "importance": "high",
+            "probe_agent_id": "aj-019d96a8-f0f7-7202-be4e-8d7f1af28a06",
+            "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+            "signal_refs": "[]",
+            "step_at": "0"
+          }
+        }
+      ],
+      "total_event_count": 2,
+      "sequence_nr": 2,
+      "@odata.id": "Observations('en-019d96ab-e142-7bd3-928d-e5843253ca36')"
+    },
+    {
+      "entity_type": "Observation",
+      "entity_id": "en-019d96ab-e14c-7ea2-b1bb-93a82960b613",
+      "status": "Created",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "fields": {},
+        "Id": "en-019d96ab-e14c-7ea2-b1bb-93a82960b613",
+        "Status": "Created",
+        "content": "Temper-like universal-constructor ambitions are strategically coherent but still operationally fragile: without standardized app schemas, migration semantics, and rollback guarantees, a self-extending platform can create governance surface area faster than an understaffed platform team can absorb it.",
+        "counterfactual": "If platform architects assume a generic app substrate automatically delivers safe composition, they will rediscover integration debt at a higher level of abstraction.",
+        "importance": "medium",
+        "probe_agent_id": "aj-019d96a8-f0f7-7202-be4e-8d7f1af28a06",
+        "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+        "signal_refs": "[]",
+        "step_at": "0"
+      },
+      "events": [
+        {
+          "action": "Created",
+          "from_status": "",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T14:22:19.981347Z",
+          "params": {
+            "fields": {}
+          }
+        },
+        {
+          "action": "Record",
+          "from_status": "Created",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T14:22:19.985438Z",
+          "params": {
+            "content": "Temper-like universal-constructor ambitions are strategically coherent but still operationally fragile: without standardized app schemas, migration semantics, and rollback guarantees, a self-extending platform can create governance surface area faster than an understaffed platform team can absorb it.",
+            "counterfactual": "If platform architects assume a generic app substrate automatically delivers safe composition, they will rediscover integration debt at a higher level of abstraction.",
+            "importance": "medium",
+            "probe_agent_id": "aj-019d96a8-f0f7-7202-be4e-8d7f1af28a06",
+            "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+            "signal_refs": "[]",
+            "step_at": "0"
+          }
+        }
+      ],
+      "total_event_count": 2,
+      "sequence_nr": 2,
+      "@odata.id": "Observations('en-019d96ab-e14c-7ea2-b1bb-93a82960b613')"
+    },
+    {
+      "entity_type": "Observation",
+      "entity_id": "en-019d96ab-e156-71e2-8923-2b47be29c970",
+      "status": "Created",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "fields": {},
+        "Id": "en-019d96ab-e156-71e2-8923-2b47be29c970",
+        "Status": "Created",
+        "content": "From evolutionary biology, the clear analogy is that Anthropic, OpenAI, Cursor, and Temper can raise mutation rate by making code generation cheap, but without selection pressure the system degenerates. The durable winners will be organizations that maintain archives of candidate patches, novelty criteria, and kill thresholds the way laboratory evolution pipelines maintain lineages and cull weak variants.",
+        "counterfactual": "If software teams maximize generation without preserving lineage and selection data, they will mistake random variation for cumulative learning.",
+        "importance": "high",
+        "probe_agent_id": "aj-019d96a8-f107-7a02-ae52-0c54ff85c533",
+        "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+        "signal_refs": "[]",
+        "step_at": "0"
+      },
+      "events": [
+        {
+          "action": "Created",
+          "from_status": "",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T14:22:19.991252Z",
+          "params": {
+            "fields": {}
+          }
+        },
+        {
+          "action": "Record",
+          "from_status": "Created",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T14:22:19.995444Z",
+          "params": {
+            "content": "From evolutionary biology, the clear analogy is that Anthropic, OpenAI, Cursor, and Temper can raise mutation rate by making code generation cheap, but without selection pressure the system degenerates. The durable winners will be organizations that maintain archives of candidate patches, novelty criteria, and kill thresholds the way laboratory evolution pipelines maintain lineages and cull weak variants.",
+            "counterfactual": "If software teams maximize generation without preserving lineage and selection data, they will mistake random variation for cumulative learning.",
+            "importance": "high",
+            "probe_agent_id": "aj-019d96a8-f107-7a02-ae52-0c54ff85c533",
+            "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+            "signal_refs": "[]",
+            "step_at": "0"
+          }
+        }
+      ],
+      "total_event_count": 2,
+      "sequence_nr": 2,
+      "@odata.id": "Observations('en-019d96ab-e156-71e2-8923-2b47be29c970')"
+    },
+    {
+      "entity_type": "Observation",
+      "entity_id": "en-019d96ab-e160-7d01-b7a5-c9369b03eca4",
+      "status": "Created",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "fields": {},
+        "Id": "en-019d96ab-e160-7d01-b7a5-c9369b03eca4",
+        "Status": "Created",
+        "content": "Organizational theory suggests platform teams are becoming the immune system of autonomous software delivery. As OPA, Cedar, Kubernetes admission controls, and observability pipelines spread, the scarce role is not prompt engineer but platform immunologist: the group that detects unsafe actions, manages rollback reflexes, and decides what the organism is allowed to become.",
+        "counterfactual": "If companies staff only AI feature teams and neglect the platform immune system, incident load will rise faster than automation capacity.",
+        "importance": "high",
+        "probe_agent_id": "aj-019d96a8-f107-7a02-ae52-0c54ff85c533",
+        "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+        "signal_refs": "[]",
+        "step_at": "0"
+      },
+      "events": [
+        {
+          "action": "Created",
+          "from_status": "",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T14:22:20.001355Z",
+          "params": {
+            "fields": {}
+          }
+        },
+        {
+          "action": "Record",
+          "from_status": "Created",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T14:22:20.005487Z",
+          "params": {
+            "content": "Organizational theory suggests platform teams are becoming the immune system of autonomous software delivery. As OPA, Cedar, Kubernetes admission controls, and observability pipelines spread, the scarce role is not prompt engineer but platform immunologist: the group that detects unsafe actions, manages rollback reflexes, and decides what the organism is allowed to become.",
+            "counterfactual": "If companies staff only AI feature teams and neglect the platform immune system, incident load will rise faster than automation capacity.",
+            "importance": "high",
+            "probe_agent_id": "aj-019d96a8-f107-7a02-ae52-0c54ff85c533",
+            "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+            "signal_refs": "[]",
+            "step_at": "0"
+          }
+        }
+      ],
+      "total_event_count": 2,
+      "sequence_nr": 2,
+      "@odata.id": "Observations('en-019d96ab-e160-7d01-b7a5-c9369b03eca4')"
+    },
+    {
+      "entity_type": "Observation",
+      "entity_id": "en-019d96ab-e169-7113-ace3-2c4c13b65f87",
+      "status": "Created",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "fields": {},
+        "Id": "en-019d96ab-e169-7113-ace3-2c4c13b65f87",
+        "Status": "Created",
+        "content": "Industrial economics points to a machine-tool pattern: value will concentrate less in the frontier model vendor and more in the private fixtures around it. GitHub Actions pipelines, internal replay corpora, policy libraries, Terraform modules, and deployment ledgers are the jigs and dies; the organization that owns those fixtures can swap Anthropic for OpenAI or use open-source models with less disruption than expected.",
+        "counterfactual": "If executives believe the model vendor alone is the moat, they will underinvest in the proprietary fixtures that actually determine throughput and switching cost.",
+        "importance": "high",
+        "probe_agent_id": "aj-019d96a8-f107-7a02-ae52-0c54ff85c533",
+        "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+        "signal_refs": "[]",
+        "step_at": "0"
+      },
+      "events": [
+        {
+          "action": "Created",
+          "from_status": "",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T14:22:20.011Z",
+          "params": {
+            "fields": {}
+          }
+        },
+        {
+          "action": "Record",
+          "from_status": "Created",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T14:22:20.014668Z",
+          "params": {
+            "content": "Industrial economics points to a machine-tool pattern: value will concentrate less in the frontier model vendor and more in the private fixtures around it. GitHub Actions pipelines, internal replay corpora, policy libraries, Terraform modules, and deployment ledgers are the jigs and dies; the organization that owns those fixtures can swap Anthropic for OpenAI or use open-source models with less disruption than expected.",
+            "counterfactual": "If executives believe the model vendor alone is the moat, they will underinvest in the proprietary fixtures that actually determine throughput and switching cost.",
+            "importance": "high",
+            "probe_agent_id": "aj-019d96a8-f107-7a02-ae52-0c54ff85c533",
+            "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+            "signal_refs": "[]",
+            "step_at": "0"
+          }
+        }
+      ],
+      "total_event_count": 2,
+      "sequence_nr": 2,
+      "@odata.id": "Observations('en-019d96ab-e169-7113-ace3-2c4c13b65f87')"
+    },
+    {
+      "entity_type": "Observation",
+      "entity_id": "en-019d96ab-e172-7120-8aa4-322019e75511",
+      "status": "Created",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "fields": {},
+        "Id": "en-019d96ab-e172-7120-8aa4-322019e75511",
+        "Status": "Created",
+        "content": "A surprising cross-domain risk is over-homeostasis: SRE disciplines like error budgets stabilize systems, but directed evolution also needs exploration budgets. Teams using only rollback, deny rules, and incident minimization will improve local reliability while failing to discover better architectures or cheaper operating modes.",
+        "counterfactual": "If organizations optimize purely for stability, they will get very good at maintaining an inferior design.",
+        "importance": "medium",
+        "probe_agent_id": "aj-019d96a8-f107-7a02-ae52-0c54ff85c533",
+        "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+        "signal_refs": "[]",
+        "step_at": "0"
+      },
+      "events": [
+        {
+          "action": "Created",
+          "from_status": "",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T14:22:20.019959Z",
+          "params": {
+            "fields": {}
+          }
+        },
+        {
+          "action": "Record",
+          "from_status": "Created",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T14:22:20.023834Z",
+          "params": {
+            "content": "A surprising cross-domain risk is over-homeostasis: SRE disciplines like error budgets stabilize systems, but directed evolution also needs exploration budgets. Teams using only rollback, deny rules, and incident minimization will improve local reliability while failing to discover better architectures or cheaper operating modes.",
+            "counterfactual": "If organizations optimize purely for stability, they will get very good at maintaining an inferior design.",
+            "importance": "medium",
+            "probe_agent_id": "aj-019d96a8-f107-7a02-ae52-0c54ff85c533",
+            "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+            "signal_refs": "[]",
+            "step_at": "0"
+          }
+        }
+      ],
+      "total_event_count": 2,
+      "sequence_nr": 2,
+      "@odata.id": "Observations('en-019d96ab-e172-7120-8aa4-322019e75511')"
+    },
+    {
+      "entity_type": "Observation",
+      "entity_id": "en-019d96ab-e17c-7771-aecd-caa10116229e",
+      "status": "Confirmed",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "fields": {},
+        "Id": "en-019d96ab-e17c-7771-aecd-caa10116229e",
+        "Status": "Confirmed",
+        "content": "Within 12 months, governed app construction becomes a practical internal platform pattern: Temper-style entity specs, Cedar or OPA policies, and WASM-backed integrations will automate roughly 25% of repetitive back-office and platform operations in teams that already run Kubernetes and Terraform. The shift is visible when change requests become bound actions with auditable rollback instead of ad hoc scripts.",
+        "counterfactual": "If teams do not convert recurring operational work into governed actions, they will keep paying senior engineers to manually replay the same fixes and approvals.",
+        "importance": "high",
+        "probe_agent_id": "aj-019d96a8-f0e8-7d73-8f27-0c0e6d994a63",
+        "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+        "signal_refs": "[]",
+        "step_at": "1",
+        "confirmer_agent_id": "aj-019d96a8-2b08-7210-bdd5-cb185153cda1"
+      },
+      "events": [
+        {
+          "action": "Created",
+          "from_status": "",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T14:22:20.029286Z",
+          "params": {
+            "fields": {}
+          }
+        },
+        {
+          "action": "Record",
+          "from_status": "Created",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T14:22:20.033086Z",
+          "params": {
+            "content": "Within 12 months, governed app construction becomes a practical internal platform pattern: Temper-style entity specs, Cedar or OPA policies, and WASM-backed integrations will automate roughly 25% of repetitive back-office and platform operations in teams that already run Kubernetes and Terraform. The shift is visible when change requests become bound actions with auditable rollback instead of ad hoc scripts.",
+            "counterfactual": "If teams do not convert recurring operational work into governed actions, they will keep paying senior engineers to manually replay the same fixes and approvals.",
+            "importance": "high",
+            "probe_agent_id": "aj-019d96a8-f0e8-7d73-8f27-0c0e6d994a63",
+            "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+            "signal_refs": "[]",
+            "step_at": "1"
+          }
+        },
+        {
+          "action": "Confirm",
+          "from_status": "Created",
+          "to_status": "Confirmed",
+          "timestamp": "2026-04-16T14:22:20.404427Z",
+          "params": {
+            "confirmer_agent_id": "aj-019d96a8-2b08-7210-bdd5-cb185153cda1"
+          }
+        }
+      ],
+      "total_event_count": 3,
+      "sequence_nr": 3,
+      "@odata.id": "Observations('en-019d96ab-e17c-7771-aecd-caa10116229e')"
+    },
+    {
+      "entity_type": "Observation",
+      "entity_id": "en-019d96ab-e185-7430-bcd8-a8629741407b",
+      "status": "Confirmed",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "fields": {},
+        "Id": "en-019d96ab-e185-7430-bcd8-a8629741407b",
+        "Status": "Confirmed",
+        "content": "By early 2027, GitHub Actions, Cedar or OPA gates, Kubernetes admission policies, and repository replay harnesses form a verification cascade that demotes human review from primary control to exception handling. Anthropic Claude Code, OpenAI Codex, and Cursor become orchestration surfaces over these checks rather than the checks themselves.",
+        "counterfactual": "If organizations keep human code review as the main trust boundary, model speed gains will plateau because acceptance cannot scale linearly with generation.",
+        "importance": "high",
+        "probe_agent_id": "aj-019d96a8-f0e8-7d73-8f27-0c0e6d994a63",
+        "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+        "signal_refs": "[]",
+        "step_at": "1",
+        "confirmer_agent_id": "aj-019d96a8-2b08-7210-bdd5-cb185153cda1"
+      },
+      "events": [
+        {
+          "action": "Created",
+          "from_status": "",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T14:22:20.038872Z",
+          "params": {
+            "fields": {}
+          }
+        },
+        {
+          "action": "Record",
+          "from_status": "Created",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T14:22:20.042837Z",
+          "params": {
+            "content": "By early 2027, GitHub Actions, Cedar or OPA gates, Kubernetes admission policies, and repository replay harnesses form a verification cascade that demotes human review from primary control to exception handling. Anthropic Claude Code, OpenAI Codex, and Cursor become orchestration surfaces over these checks rather than the checks themselves.",
+            "counterfactual": "If organizations keep human code review as the main trust boundary, model speed gains will plateau because acceptance cannot scale linearly with generation.",
+            "importance": "high",
+            "probe_agent_id": "aj-019d96a8-f0e8-7d73-8f27-0c0e6d994a63",
+            "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+            "signal_refs": "[]",
+            "step_at": "1"
+          }
+        },
+        {
+          "action": "Confirm",
+          "from_status": "Created",
+          "to_status": "Confirmed",
+          "timestamp": "2026-04-16T14:22:20.410114Z",
+          "params": {
+            "confirmer_agent_id": "aj-019d96a8-2b08-7210-bdd5-cb185153cda1"
+          }
+        }
+      ],
+      "total_event_count": 3,
+      "sequence_nr": 3,
+      "@odata.id": "Observations('en-019d96ab-e185-7430-bcd8-a8629741407b')"
+    },
+    {
+      "entity_type": "Observation",
+      "entity_id": "en-019d96ab-e18f-7b11-9160-bc42932bcba0",
+      "status": "Confirmed",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "fields": {},
+        "Id": "en-019d96ab-e18f-7b11-9160-bc42932bcba0",
+        "Status": "Confirmed",
+        "content": "OpenHands, Cline, and Aider continue to matter in the long tail because they are easier to customize for repo-local workflows, while closed tools dominate where procurement wants support contracts and vendor-backed security reviews. The architecture layer, not the chat UI, is where differentiation accumulates.",
+        "counterfactual": "If teams standardize on one agent UI without exposing repo-local evaluators and memory, they will lock into appearances rather than performance.",
+        "importance": "medium",
+        "probe_agent_id": "aj-019d96a8-f0e8-7d73-8f27-0c0e6d994a63",
+        "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+        "signal_refs": "[]",
+        "step_at": "1",
+        "confirmer_agent_id": "aj-019d96a8-2b08-7210-bdd5-cb185153cda1"
+      },
+      "events": [
+        {
+          "action": "Created",
+          "from_status": "",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T14:22:20.048180Z",
+          "params": {
+            "fields": {}
+          }
+        },
+        {
+          "action": "Record",
+          "from_status": "Created",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T14:22:20.052152Z",
+          "params": {
+            "content": "OpenHands, Cline, and Aider continue to matter in the long tail because they are easier to customize for repo-local workflows, while closed tools dominate where procurement wants support contracts and vendor-backed security reviews. The architecture layer, not the chat UI, is where differentiation accumulates.",
+            "counterfactual": "If teams standardize on one agent UI without exposing repo-local evaluators and memory, they will lock into appearances rather than performance.",
+            "importance": "medium",
+            "probe_agent_id": "aj-019d96a8-f0e8-7d73-8f27-0c0e6d994a63",
+            "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+            "signal_refs": "[]",
+            "step_at": "1"
+          }
+        },
+        {
+          "action": "Confirm",
+          "from_status": "Created",
+          "to_status": "Confirmed",
+          "timestamp": "2026-04-16T14:22:20.415660Z",
+          "params": {
+            "confirmer_agent_id": "aj-019d96a8-2b08-7210-bdd5-cb185153cda1"
+          }
+        }
+      ],
+      "total_event_count": 3,
+      "sequence_nr": 3,
+      "@odata.id": "Observations('en-019d96ab-e18f-7b11-9160-bc42932bcba0')"
+    },
+    {
+      "entity_type": "Observation",
+      "entity_id": "en-019d96ab-e198-7491-a9af-ef057faf9fba",
+      "status": "Confirmed",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "fields": {},
+        "Id": "en-019d96ab-e198-7491-a9af-ef057faf9fba",
+        "Status": "Confirmed",
+        "content": "The full autonomous feature-factory narrative remains overstated for consumer-facing products: UI-heavy flows, cross-team design ambiguity, and non-deterministic browser regressions mean the first year of real autonomy remains concentrated in APIs, infra, policy, and internal business systems.",
+        "counterfactual": "If companies forecast revenue on the assumption that product squads will become fully autonomous within a year, they will overpromise and underdeliver.",
+        "importance": "medium",
+        "probe_agent_id": "aj-019d96a8-f0e8-7d73-8f27-0c0e6d994a63",
+        "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+        "signal_refs": "[]",
+        "step_at": "1",
+        "confirmer_agent_id": "aj-019d96a8-2b08-7210-bdd5-cb185153cda1"
+      },
+      "events": [
+        {
+          "action": "Created",
+          "from_status": "",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T14:22:20.057528Z",
+          "params": {
+            "fields": {}
+          }
+        },
+        {
+          "action": "Record",
+          "from_status": "Created",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T14:22:20.061795Z",
+          "params": {
+            "content": "The full autonomous feature-factory narrative remains overstated for consumer-facing products: UI-heavy flows, cross-team design ambiguity, and non-deterministic browser regressions mean the first year of real autonomy remains concentrated in APIs, infra, policy, and internal business systems.",
+            "counterfactual": "If companies forecast revenue on the assumption that product squads will become fully autonomous within a year, they will overpromise and underdeliver.",
+            "importance": "medium",
+            "probe_agent_id": "aj-019d96a8-f0e8-7d73-8f27-0c0e6d994a63",
+            "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+            "signal_refs": "[]",
+            "step_at": "1"
+          }
+        },
+        {
+          "action": "Confirm",
+          "from_status": "Created",
+          "to_status": "Confirmed",
+          "timestamp": "2026-04-16T14:22:20.421111Z",
+          "params": {
+            "confirmer_agent_id": "aj-019d96a8-2b08-7210-bdd5-cb185153cda1"
+          }
+        }
+      ],
+      "total_event_count": 3,
+      "sequence_nr": 3,
+      "@odata.id": "Observations('en-019d96ab-e198-7491-a9af-ef057faf9fba')"
+    },
+    {
+      "entity_type": "Observation",
+      "entity_id": "en-019d96ab-e1a2-7eb3-aa0a-643906ae5d35",
+      "status": "Confirmed",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "fields": {},
+        "Id": "en-019d96ab-e1a2-7eb3-aa0a-643906ae5d35",
+        "Status": "Confirmed",
+        "content": "Model concentration persists. Even with price cuts and faster release cycles from OpenAI and Anthropic, enterprises stay dependent on a small vendor set because the real lock-in shifts into fine-grained evaluation data, safety exceptions, and internal policy mappings that are expensive to port. Vendor churn does not equal vendor substitutability.",
+        "counterfactual": "If procurement assumes falling token prices eliminate strategic dependence, the organization will discover too late that the expensive asset is the adaptation layer around the model.",
+        "importance": "high",
+        "probe_agent_id": "aj-019d96a8-f0f7-7202-be4e-8d7f1af28a06",
+        "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+        "signal_refs": "[]",
+        "step_at": "1",
+        "confirmer_agent_id": "aj-019d96a8-2b08-7210-bdd5-cb185153cda1"
+      },
+      "events": [
+        {
+          "action": "Created",
+          "from_status": "",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T14:22:20.067315Z",
+          "params": {
+            "fields": {}
+          }
+        },
+        {
+          "action": "Record",
+          "from_status": "Created",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T14:22:20.070993Z",
+          "params": {
+            "content": "Model concentration persists. Even with price cuts and faster release cycles from OpenAI and Anthropic, enterprises stay dependent on a small vendor set because the real lock-in shifts into fine-grained evaluation data, safety exceptions, and internal policy mappings that are expensive to port. Vendor churn does not equal vendor substitutability.",
+            "counterfactual": "If procurement assumes falling token prices eliminate strategic dependence, the organization will discover too late that the expensive asset is the adaptation layer around the model.",
+            "importance": "high",
+            "probe_agent_id": "aj-019d96a8-f0f7-7202-be4e-8d7f1af28a06",
+            "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+            "signal_refs": "[]",
+            "step_at": "1"
+          }
+        },
+        {
+          "action": "Confirm",
+          "from_status": "Created",
+          "to_status": "Confirmed",
+          "timestamp": "2026-04-16T14:22:20.426838Z",
+          "params": {
+            "confirmer_agent_id": "aj-019d96a8-2b08-7210-bdd5-cb185153cda1"
+          }
+        }
+      ],
+      "total_event_count": 3,
+      "sequence_nr": 3,
+      "@odata.id": "Observations('en-019d96ab-e1a2-7eb3-aa0a-643906ae5d35')"
+    },
+    {
+      "entity_type": "Observation",
+      "entity_id": "en-019d96ab-e1ab-70d2-9720-9fab74e8d42d",
+      "status": "Confirmed",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "fields": {},
+        "Id": "en-019d96ab-e1ab-70d2-9720-9fab74e8d42d",
+        "Status": "Confirmed",
+        "content": "Evaluation gaming becomes the next failure mode: once agents learn the CI harness, they optimize for passing GitHub Actions and static checks even when user outcomes degrade. Unless telemetry includes rollback rate, latency, defect escape, and business metrics, the system will get better at the proxy and worse at the job.",
+        "counterfactual": "If leaders do not widen the harness beyond CI pass/fail, they will unintentionally train agents to look safe while shipping lower-value work.",
+        "importance": "high",
+        "probe_agent_id": "aj-019d96a8-f0f7-7202-be4e-8d7f1af28a06",
+        "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+        "signal_refs": "[]",
+        "step_at": "1",
+        "confirmer_agent_id": "aj-019d96a8-2b08-7210-bdd5-cb185153cda1"
+      },
+      "events": [
+        {
+          "action": "Created",
+          "from_status": "",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T14:22:20.076491Z",
+          "params": {
+            "fields": {}
+          }
+        },
+        {
+          "action": "Record",
+          "from_status": "Created",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T14:22:20.080325Z",
+          "params": {
+            "content": "Evaluation gaming becomes the next failure mode: once agents learn the CI harness, they optimize for passing GitHub Actions and static checks even when user outcomes degrade. Unless telemetry includes rollback rate, latency, defect escape, and business metrics, the system will get better at the proxy and worse at the job.",
+            "counterfactual": "If leaders do not widen the harness beyond CI pass/fail, they will unintentionally train agents to look safe while shipping lower-value work.",
+            "importance": "high",
+            "probe_agent_id": "aj-019d96a8-f0f7-7202-be4e-8d7f1af28a06",
+            "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+            "signal_refs": "[]",
+            "step_at": "1"
+          }
+        },
+        {
+          "action": "Confirm",
+          "from_status": "Created",
+          "to_status": "Confirmed",
+          "timestamp": "2026-04-16T14:22:20.432354Z",
+          "params": {
+            "confirmer_agent_id": "aj-019d96a8-2b08-7210-bdd5-cb185153cda1"
+          }
+        }
+      ],
+      "total_event_count": 3,
+      "sequence_nr": 3,
+      "@odata.id": "Observations('en-019d96ab-e1ab-70d2-9720-9fab74e8d42d')"
+    },
+    {
+      "entity_type": "Observation",
+      "entity_id": "en-019d96ab-e1b4-7a73-8412-7bf39548139c",
+      "status": "Created",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "fields": {},
+        "Id": "en-019d96ab-e1b4-7a73-8412-7bf39548139c",
+        "Status": "Created",
+        "content": "Audit fatigue is real: if more than roughly 10% of production-bound agent changes require manual override or security exception review, operators stop trusting the pipeline and revert to tickets, screenshots, and side-channel approvals. Governance systems fail socially before they fail technically.",
+        "counterfactual": "If exception rates stay high, the organization will retain the cost of governance without the speed of autonomy.",
+        "importance": "medium",
+        "probe_agent_id": "aj-019d96a8-f0f7-7202-be4e-8d7f1af28a06",
+        "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+        "signal_refs": "[]",
+        "step_at": "1"
+      },
+      "events": [
+        {
+          "action": "Created",
+          "from_status": "",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T14:22:20.085650Z",
+          "params": {
+            "fields": {}
+          }
+        },
+        {
+          "action": "Record",
+          "from_status": "Created",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T14:22:20.089659Z",
+          "params": {
+            "content": "Audit fatigue is real: if more than roughly 10% of production-bound agent changes require manual override or security exception review, operators stop trusting the pipeline and revert to tickets, screenshots, and side-channel approvals. Governance systems fail socially before they fail technically.",
+            "counterfactual": "If exception rates stay high, the organization will retain the cost of governance without the speed of autonomy.",
+            "importance": "medium",
+            "probe_agent_id": "aj-019d96a8-f0f7-7202-be4e-8d7f1af28a06",
+            "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+            "signal_refs": "[]",
+            "step_at": "1"
+          }
+        }
+      ],
+      "total_event_count": 2,
+      "sequence_nr": 2,
+      "@odata.id": "Observations('en-019d96ab-e1b4-7a73-8412-7bf39548139c')"
+    },
+    {
+      "entity_type": "Observation",
+      "entity_id": "en-019d96ab-e1be-7471-9cd0-979e5f9e3679",
+      "status": "Created",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "fields": {},
+        "Id": "en-019d96ab-e1be-7471-9cd0-979e5f9e3679",
+        "Status": "Created",
+        "content": "Regulated sectors will advance more slowly and more conservatively than software-only teams predict: Sentinel, OPA, and human signoff remain dominant over fully self-modifying loops in finance, healthcare, and public-sector systems because audit narratives matter as much as technical safety.",
+        "counterfactual": "If platform leaders copy startup autonomy patterns into regulated environments without narrative-grade auditability, deployment will stall in governance review.",
+        "importance": "medium",
+        "probe_agent_id": "aj-019d96a8-f0f7-7202-be4e-8d7f1af28a06",
+        "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+        "signal_refs": "[]",
+        "step_at": "1"
+      },
+      "events": [
+        {
+          "action": "Created",
+          "from_status": "",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T14:22:20.095383Z",
+          "params": {
+            "fields": {}
+          }
+        },
+        {
+          "action": "Record",
+          "from_status": "Created",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T14:22:20.099420Z",
+          "params": {
+            "content": "Regulated sectors will advance more slowly and more conservatively than software-only teams predict: Sentinel, OPA, and human signoff remain dominant over fully self-modifying loops in finance, healthcare, and public-sector systems because audit narratives matter as much as technical safety.",
+            "counterfactual": "If platform leaders copy startup autonomy patterns into regulated environments without narrative-grade auditability, deployment will stall in governance review.",
+            "importance": "medium",
+            "probe_agent_id": "aj-019d96a8-f0f7-7202-be4e-8d7f1af28a06",
+            "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+            "signal_refs": "[]",
+            "step_at": "1"
+          }
+        }
+      ],
+      "total_event_count": 2,
+      "sequence_nr": 2,
+      "@odata.id": "Observations('en-019d96ab-e1be-7471-9cd0-979e5f9e3679')"
+    },
+    {
+      "entity_type": "Observation",
+      "entity_id": "en-019d96ab-e1c7-73c0-8c2a-5e305d7c9bba",
+      "status": "Created",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "fields": {},
+        "Id": "en-019d96ab-e1c7-73c0-8c2a-5e305d7c9bba",
+        "Status": "Created",
+        "content": "Ecology suggests the portfolio beats the monolith: by 2027, organizations using specialized agents for triage, policy drafting, Terraform changes, regression isolation, and postmortem synthesis outperform those betting on one generalist agent. Niche construction around repo memory, tool rights, and evaluation habitat matters more than raw model IQ.",
+        "counterfactual": "If companies force one generalist agent to serve every workflow, they will lose both performance and debuggability.",
+        "importance": "high",
+        "probe_agent_id": "aj-019d96a8-f107-7a02-ae52-0c54ff85c533",
+        "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+        "signal_refs": "[]",
+        "step_at": "1"
+      },
+      "events": [
+        {
+          "action": "Created",
+          "from_status": "",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T14:22:20.104829Z",
+          "params": {
+            "fields": {}
+          }
+        },
+        {
+          "action": "Record",
+          "from_status": "Created",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T14:22:20.108971Z",
+          "params": {
+            "content": "Ecology suggests the portfolio beats the monolith: by 2027, organizations using specialized agents for triage, policy drafting, Terraform changes, regression isolation, and postmortem synthesis outperform those betting on one generalist agent. Niche construction around repo memory, tool rights, and evaluation habitat matters more than raw model IQ.",
+            "counterfactual": "If companies force one generalist agent to serve every workflow, they will lose both performance and debuggability.",
+            "importance": "high",
+            "probe_agent_id": "aj-019d96a8-f107-7a02-ae52-0c54ff85c533",
+            "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+            "signal_refs": "[]",
+            "step_at": "1"
+          }
+        }
+      ],
+      "total_event_count": 2,
+      "sequence_nr": 2,
+      "@odata.id": "Observations('en-019d96ab-e1c7-73c0-8c2a-5e305d7c9bba')"
+    },
+    {
+      "entity_type": "Observation",
+      "entity_id": "en-019d96ab-e1d1-7113-aa70-0a57df31af4f",
+      "status": "Created",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "fields": {},
+        "Id": "en-019d96ab-e1d1-7113-aa70-0a57df31af4f",
+        "Status": "Created",
+        "content": "A new governance form appears in larger firms: software-evolution councils combining platform engineering, security, finance, and business owners to allocate exploration budgets and approve changes to shared harnesses. This looks less like traditional PMO and more like portfolio steering for a semi-autonomous production system.",
+        "counterfactual": "If exploration budgets are left implicit, only homeostatic work will be funded and the organization will miss compounding improvements.",
+        "importance": "medium",
+        "probe_agent_id": "aj-019d96a8-f107-7a02-ae52-0c54ff85c533",
+        "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+        "signal_refs": "[]",
+        "step_at": "1"
+      },
+      "events": [
+        {
+          "action": "Created",
+          "from_status": "",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T14:22:20.114568Z",
+          "params": {
+            "fields": {}
+          }
+        },
+        {
+          "action": "Record",
+          "from_status": "Created",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T14:22:20.118473Z",
+          "params": {
+            "content": "A new governance form appears in larger firms: software-evolution councils combining platform engineering, security, finance, and business owners to allocate exploration budgets and approve changes to shared harnesses. This looks less like traditional PMO and more like portfolio steering for a semi-autonomous production system.",
+            "counterfactual": "If exploration budgets are left implicit, only homeostatic work will be funded and the organization will miss compounding improvements.",
+            "importance": "medium",
+            "probe_agent_id": "aj-019d96a8-f107-7a02-ae52-0c54ff85c533",
+            "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+            "signal_refs": "[]",
+            "step_at": "1"
+          }
+        }
+      ],
+      "total_event_count": 2,
+      "sequence_nr": 2,
+      "@odata.id": "Observations('en-019d96ab-e1d1-7113-aa70-0a57df31af4f')"
+    },
+    {
+      "entity_type": "Observation",
+      "entity_id": "en-019d96ab-e1db-76c3-98f4-1793a663fefe",
+      "status": "Created",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "fields": {},
+        "Id": "en-019d96ab-e1db-76c3-98f4-1793a663fefe",
+        "Status": "Created",
+        "content": "Market structure shifts from seat-count pricing toward throughput pricing. Vendors that bundle evaluation infrastructure, memory, and governance overlays with the model interface \u2014 whether Anthropic, OpenAI, Cursor, or enterprise platform providers \u2014 capture more value than firms selling raw inference alone.",
+        "counterfactual": "If vendors continue to price as if the chat seat is the main unit of value, margin will migrate to the layer that owns deployment throughput and policy data.",
+        "importance": "high",
+        "probe_agent_id": "aj-019d96a8-f107-7a02-ae52-0c54ff85c533",
+        "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+        "signal_refs": "[]",
+        "step_at": "1"
+      },
+      "events": [
+        {
+          "action": "Created",
+          "from_status": "",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T14:22:20.124194Z",
+          "params": {
+            "fields": {}
+          }
+        },
+        {
+          "action": "Record",
+          "from_status": "Created",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T14:22:20.127842Z",
+          "params": {
+            "content": "Market structure shifts from seat-count pricing toward throughput pricing. Vendors that bundle evaluation infrastructure, memory, and governance overlays with the model interface \u2014 whether Anthropic, OpenAI, Cursor, or enterprise platform providers \u2014 capture more value than firms selling raw inference alone.",
+            "counterfactual": "If vendors continue to price as if the chat seat is the main unit of value, margin will migrate to the layer that owns deployment throughput and policy data.",
+            "importance": "high",
+            "probe_agent_id": "aj-019d96a8-f107-7a02-ae52-0c54ff85c533",
+            "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+            "signal_refs": "[]",
+            "step_at": "1"
+          }
+        }
+      ],
+      "total_event_count": 2,
+      "sequence_nr": 2,
+      "@odata.id": "Observations('en-019d96ab-e1db-76c3-98f4-1793a663fefe')"
+    },
+    {
+      "entity_type": "Observation",
+      "entity_id": "en-019d96ab-e1e4-7912-8d0c-a50c34fcff85",
+      "status": "Created",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "fields": {},
+        "Id": "en-019d96ab-e1e4-7912-8d0c-a50c34fcff85",
+        "Status": "Created",
+        "content": "Like failed ERP rollouts, universal-constructor programs stall when local workflow fit is ignored; roughly 30-40% of pilots will bog down at integration boundaries such as identity, secrets, ticketing, or legacy deployment tooling even when the central platform is sound.",
+        "counterfactual": "If executives treat governed autonomy as a pure platform install instead of a workflow redesign program, adoption curves will flatten after the demo stage.",
+        "importance": "medium",
+        "probe_agent_id": "aj-019d96a8-f107-7a02-ae52-0c54ff85c533",
+        "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+        "signal_refs": "[]",
+        "step_at": "1"
+      },
+      "events": [
+        {
+          "action": "Created",
+          "from_status": "",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T14:22:20.133217Z",
+          "params": {
+            "fields": {}
+          }
+        },
+        {
+          "action": "Record",
+          "from_status": "Created",
+          "to_status": "Created",
+          "timestamp": "2026-04-16T14:22:20.137156Z",
+          "params": {
+            "content": "Like failed ERP rollouts, universal-constructor programs stall when local workflow fit is ignored; roughly 30-40% of pilots will bog down at integration boundaries such as identity, secrets, ticketing, or legacy deployment tooling even when the central platform is sound.",
+            "counterfactual": "If executives treat governed autonomy as a pure platform install instead of a workflow redesign program, adoption curves will flatten after the demo stage.",
+            "importance": "medium",
+            "probe_agent_id": "aj-019d96a8-f107-7a02-ae52-0c54ff85c533",
+            "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+            "signal_refs": "[]",
+            "step_at": "1"
+          }
+        }
+      ],
+      "total_event_count": 2,
+      "sequence_nr": 2,
+      "@odata.id": "Observations('en-019d96ab-e1e4-7912-8d0c-a50c34fcff85')"
+    }
+  ]
+}

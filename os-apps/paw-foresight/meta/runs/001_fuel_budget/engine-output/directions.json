@@ -1,0 +1,509 @@
+{
+  "@odata.context": "$metadata#Directions",
+  "value": [
+    {
+      "entity_type": "Direction",
+      "entity_id": "en-019d96a9-ac3b-70d1-bfea-b5270f9e21d1",
+      "status": "Proposed",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "fields": {},
+        "Id": "en-019d96a9-ac3b-70d1-bfea-b5270f9e21d1",
+        "Status": "Proposed",
+        "counterfactual_summary": "If benchmark gains transfer unusually well to production and enterprises rapidly accept policy-governed autonomy as sufficient, this thesis will be too pessimistic; broader end-to-end agent ownership could emerge faster than expected.",
+        "grounding": "[\"sig-002\",\"sig-003\",\"sig-009\",\"sig-012\",\"sig-015\"]",
+        "observation_ids": "[\"en-019d96a9-ac12-7a30-b18b-00ad2a0a7fb7\",\"en-019d96a9-ac1d-7bd1-8858-ae061e19585e\",\"en-019d96a9-ac27-7f43-8cfa-2b3e6cb82d0c\",\"en-019d96a9-ac32-73b3-9bcc-7982c82fd276\"]",
+        "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+        "proposer_agent_id": "aj-019d96a8-f0f7-7202-be4e-8d7f1af28a06",
+        "reasoning": "The next 90 days will not validate broad directed software evolution; they will validate a narrower claim: governed automation can expand safely only where harnesses are already rich, blast radius is bounded, and operators can tolerate human escalation. The core fragility is not generation quality alone but measurement quality. Signals in the state already point to benchmark normalization, private eval growth, and governance demand, yet those same signals imply a near-term collision: vendors can cheaply produce impressive task-completion numbers, while enterprises still lack reliable oracles for long-horizon, environment-coupled software change. That means the field is likely to experience a credibility squeeze rather than a clean takeoff.\n\nA skeptical reading is that the dominant narrative is committing a category error. It treats policy controls, audit logs, and reproducible actions as if they close the autonomy gap, when they mainly make the gap legible. They help explain who did what after the fact and constrain some classes of unsafe action, but they do not determine whether a proposed change is strategically correct, robust under hidden state, or maintainable across future incidents. As a result, the winners over the next quarter will be teams and platforms that narrow scope, invest in repository-specific replay harnesses, and explicitly market bounded operational domains. The losers will be products that overpromise \u201cautonomous software engineer\u201d outcomes before solving evaluation transfer from benchmark tasks to production reality.",
+        "step_at": "0",
+        "title": "Near-term progress will be constrained by evaluation realism, forcing a retreat from broad autonomy claims to tightly governed, narrow-scope workflows."
+      },
+      "events": [
+        {
+          "action": "Created",
+          "from_status": "",
+          "to_status": "Proposed",
+          "timestamp": "2026-04-16T14:19:55.324987Z",
+          "params": {
+            "fields": {}
+          }
+        },
+        {
+          "action": "Propose",
+          "from_status": "Proposed",
+          "to_status": "Proposed",
+          "timestamp": "2026-04-16T14:19:55.328817Z",
+          "params": {
+            "counterfactual_summary": "If benchmark gains transfer unusually well to production and enterprises rapidly accept policy-governed autonomy as sufficient, this thesis will be too pessimistic; broader end-to-end agent ownership could emerge faster than expected.",
+            "grounding": "[\"sig-002\",\"sig-003\",\"sig-009\",\"sig-012\",\"sig-015\"]",
+            "observation_ids": "[\"en-019d96a9-ac12-7a30-b18b-00ad2a0a7fb7\",\"en-019d96a9-ac1d-7bd1-8858-ae061e19585e\",\"en-019d96a9-ac27-7f43-8cfa-2b3e6cb82d0c\",\"en-019d96a9-ac32-73b3-9bcc-7982c82fd276\"]",
+            "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+            "proposer_agent_id": "aj-019d96a8-f0f7-7202-be4e-8d7f1af28a06",
+            "reasoning": "The next 90 days will not validate broad directed software evolution; they will validate a narrower claim: governed automation can expand safely only where harnesses are already rich, blast radius is bounded, and operators can tolerate human escalation. The core fragility is not generation quality alone but measurement quality. Signals in the state already point to benchmark normalization, private eval growth, and governance demand, yet those same signals imply a near-term collision: vendors can cheaply produce impressive task-completion numbers, while enterprises still lack reliable oracles for long-horizon, environment-coupled software change. That means the field is likely to experience a credibility squeeze rather than a clean takeoff.\n\nA skeptical reading is that the dominant narrative is committing a category error. It treats policy controls, audit logs, and reproducible actions as if they close the autonomy gap, when they mainly make the gap legible. They help explain who did what after the fact and constrain some classes of unsafe action, but they do not determine whether a proposed change is strategically correct, robust under hidden state, or maintainable across future incidents. As a result, the winners over the next quarter will be teams and platforms that narrow scope, invest in repository-specific replay harnesses, and explicitly market bounded operational domains. The losers will be products that overpromise \u201cautonomous software engineer\u201d outcomes before solving evaluation transfer from benchmark tasks to production reality.",
+            "step_at": "0",
+            "title": "Near-term progress will be constrained by evaluation realism, forcing a retreat from broad autonomy claims to tightly governed, narrow-scope workflows."
+          }
+        }
+      ],
+      "total_event_count": 2,
+      "sequence_nr": 2,
+      "@odata.id": "Directions('en-019d96a9-ac3b-70d1-bfea-b5270f9e21d1')"
+    },
+    {
+      "entity_type": "Direction",
+      "entity_id": "en-019d96a9-c85b-7d43-aaf0-5f0580a61af1",
+      "status": "Proposed",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "fields": {},
+        "Id": "en-019d96a9-c85b-7d43-aaf0-5f0580a61af1",
+        "Status": "Proposed",
+        "counterfactual_summary": "If model quality alone proves decisive and organizations can safely scale autonomous mutation without richer selection, then governance-heavy and diversity-preserving architectures will be an overbuild; near-term advantage would accrue instead to the best single-agent coding experience.",
+        "grounding": "[\"sig-001\",\"sig-002\",\"sig-003\",\"sig-004\",\"sig-005\",\"sig-006\"]",
+        "observation_ids": "[\"en-019d96a9-c833-7133-af0a-419e5bde413a\",\"en-019d96a9-c83e-7ce0-a63c-ddb9b20620f5\",\"en-019d96a9-c848-7c02-a713-cb739834e1b4\",\"en-019d96a9-c852-7860-92c4-0f6e88915e59\"]",
+        "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+        "proposer_agent_id": "aj-019d96a8-f107-7a02-ae52-0c54ff85c533",
+        "reasoning": "Across biology, industrial production, and organizational theory, systems scale not when variation becomes possible but when selection becomes institutionalized. Directed Software Evolution is entering the same phase. Cheap code generation from Claude Code, Codex-style agents, Cursor, and open-source orchestrators has already made variation abundant. The next 90 days therefore favor platforms that behave less like autonomous coders and more like regulated evolutionary environments: they define niches, preserve competing lineages, instrument fitness, and prevent locally adaptive but globally harmful mutations from dominating. The winners will treat tests, policies, replay, provenance, and rollback as the equivalent of metrology, immune selection, and quality systems\u2014not as auxiliary tooling.\n\nThis implies a concrete market and product thesis for mid-2026: the highest-leverage layer is governed selection infrastructure for control planes and internal platforms, not unconstrained end-to-end code autonomy. Systems like Temper, Kubernetes-operator ecosystems, and policy-backed workflow platforms are well positioned because they already encode state, actions, permissions, and audit trails. Over the next quarter, organizations that add mutation budgets, multi-lineage experimentation, and system-level fitness signals will move from \"AI helps engineers code\" to the first credible form of directed software evolution. Organizations that optimize only for patch throughput or benchmark scores will reproduce a classic evolutionary failure mode: monocultures that look fit until the environment changes.",
+        "step_at": "0",
+        "title": "Selection infrastructure, not generation quality, becomes the decisive bottleneck in directed software evolution by July 2026"
+      },
+      "events": [
+        {
+          "action": "Created",
+          "from_status": "",
+          "to_status": "Proposed",
+          "timestamp": "2026-04-16T14:20:02.524669Z",
+          "params": {
+            "fields": {}
+          }
+        },
+        {
+          "action": "Propose",
+          "from_status": "Proposed",
+          "to_status": "Proposed",
+          "timestamp": "2026-04-16T14:20:02.528484Z",
+          "params": {
+            "counterfactual_summary": "If model quality alone proves decisive and organizations can safely scale autonomous mutation without richer selection, then governance-heavy and diversity-preserving architectures will be an overbuild; near-term advantage would accrue instead to the best single-agent coding experience.",
+            "grounding": "[\"sig-001\",\"sig-002\",\"sig-003\",\"sig-004\",\"sig-005\",\"sig-006\"]",
+            "observation_ids": "[\"en-019d96a9-c833-7133-af0a-419e5bde413a\",\"en-019d96a9-c83e-7ce0-a63c-ddb9b20620f5\",\"en-019d96a9-c848-7c02-a713-cb739834e1b4\",\"en-019d96a9-c852-7860-92c4-0f6e88915e59\"]",
+            "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+            "proposer_agent_id": "aj-019d96a8-f107-7a02-ae52-0c54ff85c533",
+            "reasoning": "Across biology, industrial production, and organizational theory, systems scale not when variation becomes possible but when selection becomes institutionalized. Directed Software Evolution is entering the same phase. Cheap code generation from Claude Code, Codex-style agents, Cursor, and open-source orchestrators has already made variation abundant. The next 90 days therefore favor platforms that behave less like autonomous coders and more like regulated evolutionary environments: they define niches, preserve competing lineages, instrument fitness, and prevent locally adaptive but globally harmful mutations from dominating. The winners will treat tests, policies, replay, provenance, and rollback as the equivalent of metrology, immune selection, and quality systems\u2014not as auxiliary tooling.\n\nThis implies a concrete market and product thesis for mid-2026: the highest-leverage layer is governed selection infrastructure for control planes and internal platforms, not unconstrained end-to-end code autonomy. Systems like Temper, Kubernetes-operator ecosystems, and policy-backed workflow platforms are well positioned because they already encode state, actions, permissions, and audit trails. Over the next quarter, organizations that add mutation budgets, multi-lineage experimentation, and system-level fitness signals will move from \"AI helps engineers code\" to the first credible form of directed software evolution. Organizations that optimize only for patch throughput or benchmark scores will reproduce a classic evolutionary failure mode: monocultures that look fit until the environment changes.",
+            "step_at": "0",
+            "title": "Selection infrastructure, not generation quality, becomes the decisive bottleneck in directed software evolution by July 2026"
+          }
+        }
+      ],
+      "total_event_count": 2,
+      "sequence_nr": 2,
+      "@odata.id": "Directions('en-019d96a9-c85b-7d43-aaf0-5f0580a61af1')"
+    },
+    {
+      "entity_type": "Direction",
+      "entity_id": "en-019d96a9-dc3a-7f51-89ec-aa38e381c679",
+      "status": "Proposed",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "fields": {},
+        "Id": "en-019d96a9-dc3a-7f51-89ec-aa38e381c679",
+        "Status": "Proposed",
+        "counterfactual_summary": "If frontier model quality improves fast enough to overcome weak harnesses and organizations accept lower-governance workflows, then broad autonomous coding could diffuse faster than governed control-plane approaches. But the next 90 days are more likely to reward teams that invest in verification, policy, and private eval infrastructure.",
+        "grounding": "[\"sig-003\",\"sig-005\",\"sig-009\",\"sig-020\",\"sig-024\"]",
+        "observation_ids": "[\"en-019d96a9-dc11-78e2-a5bc-0bc46c9a7859\",\"en-019d96a9-dc1c-7ad3-9f53-0c137f616c03\",\"en-019d96a9-dc27-7e63-aab1-ec342d0026fa\",\"en-019d96a9-dc31-7dd0-b06d-b05faf51a8d1\"]",
+        "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+        "proposer_agent_id": "aj-019d96a8-f0e8-7d73-8f27-0c0e6d994a63",
+        "reasoning": "Over the next 90 days, the winning implementation path for directed software evolution is not fully autonomous product-code generation. It is the construction of governed control planes that turn agent output into measurable, reversible, policy-mediated change. Practitioners will adopt stacks where coding agents generate candidates, but acceptance is decided by a verification cascade: compiler and type feedback, repo-local tests, replay harnesses, static analysis, and policy checks over who may merge or deploy. This is technically feasible now because the surrounding substrate already exists in mature pieces: CI/CD, GitOps, policy engines, typed schemas, sandbox execution, and machine-readable observability. What changes this quarter is that teams will compose these pieces into an explicit operating model instead of treating agent coding as an ad hoc productivity layer.\n\nThe most viable deployment surface is control-plane software and workflow systems. These domains expose structured entities, actions, invariants, and rollback paths, which means they are both generatable and governable. That makes them ideal for the machine-tool stage described in the current state. In contrast, broad claims about dark-factory autonomy across arbitrary product code will continue to underperform because long-horizon reliability is still constrained by hidden environment state and weak oracles. The teams that make visible progress by day 90 will therefore look less like labs chasing benchmark headlines and more like platform engineering groups building private eval suites, incident replay corpora, and authorization-aware execution planes around their agents.\n\nThis matters strategically because it determines where selection pressure accumulates. Once candidate generation is cheap, advantage moves to harness quality and operational memory. Teams that encode policies, traces, and acceptance criteria into the platform create the substrate for later directed evolution: parallel candidate evaluation, selective retention, and bounded exploration. Teams that stay at the prompt-and-PR-demo layer will not cross the threshold into compounding autonomy. The near-term thesis, then, is simple: governed machine-tool control planes arrive before open-ended autonomous software evolution, and they become the base camp from which real directed evolution becomes practical.",
+        "step_at": "0",
+        "title": "Governed control-plane generation becomes the practical base camp for directed software evolution"
+      },
+      "events": [
+        {
+          "action": "Created",
+          "from_status": "",
+          "to_status": "Proposed",
+          "timestamp": "2026-04-16T14:20:07.619719Z",
+          "params": {
+            "fields": {}
+          }
+        },
+        {
+          "action": "Propose",
+          "from_status": "Proposed",
+          "to_status": "Proposed",
+          "timestamp": "2026-04-16T14:20:07.628788Z",
+          "params": {
+            "counterfactual_summary": "If frontier model quality improves fast enough to overcome weak harnesses and organizations accept lower-governance workflows, then broad autonomous coding could diffuse faster than governed control-plane approaches. But the next 90 days are more likely to reward teams that invest in verification, policy, and private eval infrastructure.",
+            "grounding": "[\"sig-003\",\"sig-005\",\"sig-009\",\"sig-020\",\"sig-024\"]",
+            "observation_ids": "[\"en-019d96a9-dc11-78e2-a5bc-0bc46c9a7859\",\"en-019d96a9-dc1c-7ad3-9f53-0c137f616c03\",\"en-019d96a9-dc27-7e63-aab1-ec342d0026fa\",\"en-019d96a9-dc31-7dd0-b06d-b05faf51a8d1\"]",
+            "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+            "proposer_agent_id": "aj-019d96a8-f0e8-7d73-8f27-0c0e6d994a63",
+            "reasoning": "Over the next 90 days, the winning implementation path for directed software evolution is not fully autonomous product-code generation. It is the construction of governed control planes that turn agent output into measurable, reversible, policy-mediated change. Practitioners will adopt stacks where coding agents generate candidates, but acceptance is decided by a verification cascade: compiler and type feedback, repo-local tests, replay harnesses, static analysis, and policy checks over who may merge or deploy. This is technically feasible now because the surrounding substrate already exists in mature pieces: CI/CD, GitOps, policy engines, typed schemas, sandbox execution, and machine-readable observability. What changes this quarter is that teams will compose these pieces into an explicit operating model instead of treating agent coding as an ad hoc productivity layer.\n\nThe most viable deployment surface is control-plane software and workflow systems. These domains expose structured entities, actions, invariants, and rollback paths, which means they are both generatable and governable. That makes them ideal for the machine-tool stage described in the current state. In contrast, broad claims about dark-factory autonomy across arbitrary product code will continue to underperform because long-horizon reliability is still constrained by hidden environment state and weak oracles. The teams that make visible progress by day 90 will therefore look less like labs chasing benchmark headlines and more like platform engineering groups building private eval suites, incident replay corpora, and authorization-aware execution planes around their agents.\n\nThis matters strategically because it determines where selection pressure accumulates. Once candidate generation is cheap, advantage moves to harness quality and operational memory. Teams that encode policies, traces, and acceptance criteria into the platform create the substrate for later directed evolution: parallel candidate evaluation, selective retention, and bounded exploration. Teams that stay at the prompt-and-PR-demo layer will not cross the threshold into compounding autonomy. The near-term thesis, then, is simple: governed machine-tool control planes arrive before open-ended autonomous software evolution, and they become the base camp from which real directed evolution becomes practical.",
+            "step_at": "0",
+            "title": "Governed control-plane generation becomes the practical base camp for directed software evolution"
+          }
+        }
+      ],
+      "total_event_count": 2,
+      "sequence_nr": 2,
+      "@odata.id": "Directions('en-019d96a9-dc3a-7f51-89ec-aa38e381c679')"
+    },
+    {
+      "entity_type": "Direction",
+      "entity_id": "en-019d96ab-e1ed-7313-b977-db8dbf85cd02",
+      "status": "Archived",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "fields": {},
+        "Id": "en-019d96ab-e1ed-7313-b977-db8dbf85cd02",
+        "Status": "Archived",
+        "counterfactual_summary": "If larger models alone are enough, repositories without strong harnesses should see the same production gains as harness-rich repos, and that is not what practitioners are reporting.",
+        "grounding": "[]",
+        "observation_ids": "[\"en-019d96ab-e104-7482-a621-8ad4d5f4dc6c\",\"en-019d96ab-e10f-7d20-8d95-68a8f6d50ce4\",\"en-019d96ab-e11a-72e1-b4c7-1662dfb85fe7\"]",
+        "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+        "proposer_agent_id": "aj-019d96a8-f0e8-7d73-8f27-0c0e6d994a63",
+        "reasoning": "The practitioner pattern across the next 90 days is that AI coding adoption is constrained less by model IQ than by whether a repository exposes machine-checkable acceptance surfaces. Claude Code, Codex, Cursor, and similar tools already generate useful code quickly, but their throughput only converts into production throughput when GitHub Actions, replay fixtures, type systems, and policy gates can cheaply reject bad candidates. This is why control-plane work moves first: infrastructure repos usually already encode stronger invariants than product repos.\n\nThe result is a shift in engineering labor. Teams that once spent review time reading patches line by line move toward authoring harnesses, replay cases, and promotion gates. Temper-style governed actions fit this trend because they package permissions, state transitions, and rollback boundaries into the same substrate the agent is using. The operational message is simple: the next wave of adoption will look like better acceptance systems wrapped around existing models, not a sudden leap to unsupervised software factories.",
+        "step_at": "0",
+        "title": "Verification cascades, not bigger models, become the near-term adoption bottleneck",
+        "archive_reason": "Revised in step 1"
+      },
+      "events": [
+        {
+          "action": "Created",
+          "from_status": "",
+          "to_status": "Proposed",
+          "timestamp": "2026-04-16T14:22:20.142665Z",
+          "params": {
+            "fields": {}
+          }
+        },
+        {
+          "action": "Propose",
+          "from_status": "Proposed",
+          "to_status": "Proposed",
+          "timestamp": "2026-04-16T14:22:20.146715Z",
+          "params": {
+            "counterfactual_summary": "If larger models alone are enough, repositories without strong harnesses should see the same production gains as harness-rich repos, and that is not what practitioners are reporting.",
+            "grounding": "[]",
+            "observation_ids": "[\"en-019d96ab-e104-7482-a621-8ad4d5f4dc6c\",\"en-019d96ab-e10f-7d20-8d95-68a8f6d50ce4\",\"en-019d96ab-e11a-72e1-b4c7-1662dfb85fe7\"]",
+            "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+            "proposer_agent_id": "aj-019d96a8-f0e8-7d73-8f27-0c0e6d994a63",
+            "reasoning": "The practitioner pattern across the next 90 days is that AI coding adoption is constrained less by model IQ than by whether a repository exposes machine-checkable acceptance surfaces. Claude Code, Codex, Cursor, and similar tools already generate useful code quickly, but their throughput only converts into production throughput when GitHub Actions, replay fixtures, type systems, and policy gates can cheaply reject bad candidates. This is why control-plane work moves first: infrastructure repos usually already encode stronger invariants than product repos.\n\nThe result is a shift in engineering labor. Teams that once spent review time reading patches line by line move toward authoring harnesses, replay cases, and promotion gates. Temper-style governed actions fit this trend because they package permissions, state transitions, and rollback boundaries into the same substrate the agent is using. The operational message is simple: the next wave of adoption will look like better acceptance systems wrapped around existing models, not a sudden leap to unsupervised software factories.",
+            "step_at": "0",
+            "title": "Verification cascades, not bigger models, become the near-term adoption bottleneck"
+          }
+        },
+        {
+          "action": "Archive",
+          "from_status": "Proposed",
+          "to_status": "Archived",
+          "timestamp": "2026-04-16T14:22:20.344567Z",
+          "params": {
+            "archive_reason": "Revised in step 1"
+          }
+        }
+      ],
+      "total_event_count": 3,
+      "sequence_nr": 3,
+      "@odata.id": "Directions('en-019d96ab-e1ed-7313-b977-db8dbf85cd02')"
+    },
+    {
+      "entity_type": "Direction",
+      "entity_id": "en-019d96ab-e1fc-7890-bd50-35cd7db1d6f8",
+      "status": "Archived",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "fields": {},
+        "Id": "en-019d96ab-e1fc-7890-bd50-35cd7db1d6f8",
+        "Status": "Archived",
+        "counterfactual_summary": "If benchmark scores already encode enterprise readiness, then cost overruns and governance bottlenecks should be rare among early adopters, which is unlikely.",
+        "grounding": "[]",
+        "observation_ids": "[\"en-019d96ab-e12d-7df0-99e8-c4436d8d1314\",\"en-019d96ab-e138-7990-8d24-ce7b62f3ea40\",\"en-019d96ab-e142-7bd3-928d-e5843253ca36\"]",
+        "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+        "proposer_agent_id": "aj-019d96a8-f0f7-7202-be4e-8d7f1af28a06",
+        "reasoning": "The critic view is that enterprise disappointment will come from measurement error before it comes from model collapse. Public benchmark gains from OpenAI, Anthropic, or Cognition are real signals of capability, but they do not price in secret-handling, flaky integration environments, exception workflows, or rerun costs. An agent that solves a benchmark task after ten expensive search branches and two manual overrides is not equivalent to one that lands a safe change in a governed production repo.\n\nBecause of this, the next 90 days will feature a widening gap between demo narratives and deployment reality. Finance teams will notice token and sandbox spend, security teams will notice policy debt, and operators will notice that exception handling erodes throughput. Unless scorecards include search cost, override rate, and portability into real delivery pipelines, buyers will keep selecting for the wrong thing.",
+        "step_at": "0",
+        "title": "Benchmark progress will be commercially misleading unless cost and governance are inside the score",
+        "archive_reason": "Revised in step 1"
+      },
+      "events": [
+        {
+          "action": "Created",
+          "from_status": "",
+          "to_status": "Proposed",
+          "timestamp": "2026-04-16T14:22:20.157021Z",
+          "params": {
+            "fields": {}
+          }
+        },
+        {
+          "action": "Propose",
+          "from_status": "Proposed",
+          "to_status": "Proposed",
+          "timestamp": "2026-04-16T14:22:20.161108Z",
+          "params": {
+            "counterfactual_summary": "If benchmark scores already encode enterprise readiness, then cost overruns and governance bottlenecks should be rare among early adopters, which is unlikely.",
+            "grounding": "[]",
+            "observation_ids": "[\"en-019d96ab-e12d-7df0-99e8-c4436d8d1314\",\"en-019d96ab-e138-7990-8d24-ce7b62f3ea40\",\"en-019d96ab-e142-7bd3-928d-e5843253ca36\"]",
+            "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+            "proposer_agent_id": "aj-019d96a8-f0f7-7202-be4e-8d7f1af28a06",
+            "reasoning": "The critic view is that enterprise disappointment will come from measurement error before it comes from model collapse. Public benchmark gains from OpenAI, Anthropic, or Cognition are real signals of capability, but they do not price in secret-handling, flaky integration environments, exception workflows, or rerun costs. An agent that solves a benchmark task after ten expensive search branches and two manual overrides is not equivalent to one that lands a safe change in a governed production repo.\n\nBecause of this, the next 90 days will feature a widening gap between demo narratives and deployment reality. Finance teams will notice token and sandbox spend, security teams will notice policy debt, and operators will notice that exception handling erodes throughput. Unless scorecards include search cost, override rate, and portability into real delivery pipelines, buyers will keep selecting for the wrong thing.",
+            "step_at": "0",
+            "title": "Benchmark progress will be commercially misleading unless cost and governance are inside the score"
+          }
+        },
+        {
+          "action": "Archive",
+          "from_status": "Proposed",
+          "to_status": "Archived",
+          "timestamp": "2026-04-16T14:22:20.364496Z",
+          "params": {
+            "archive_reason": "Revised in step 1"
+          }
+        }
+      ],
+      "total_event_count": 3,
+      "sequence_nr": 3,
+      "@odata.id": "Directions('en-019d96ab-e1fc-7890-bd50-35cd7db1d6f8')"
+    },
+    {
+      "entity_type": "Direction",
+      "entity_id": "en-019d96ab-e20d-7561-8808-b5148a3d8529",
+      "status": "Archived",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "fields": {},
+        "Id": "en-019d96ab-e20d-7561-8808-b5148a3d8529",
+        "Status": "Archived",
+        "counterfactual_summary": "If model vendors own most of the durable value, then firms with weak private fixtures should retain advantage just by switching to the newest model generation, which is not how industrial systems usually behave.",
+        "grounding": "[]",
+        "observation_ids": "[\"en-019d96ab-e156-71e2-8923-2b47be29c970\",\"en-019d96ab-e160-7d01-b7a5-c9369b03eca4\",\"en-019d96ab-e169-7113-ace3-2c4c13b65f87\"]",
+        "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+        "proposer_agent_id": "aj-019d96a8-f107-7a02-ae52-0c54ff85c533",
+        "reasoning": "The adjacent-domain read is that directed software evolution will follow the economics of machine tools and laboratory selection systems. Frontier vendors like Anthropic and OpenAI increase the rate of candidate generation, but organizations capture durable advantage by owning the fixtures that select, rank, and safely promote those candidates. In software this means replay corpora, policy libraries, archived variants, Terraform modules, deployment ledgers, and observability-linked fitness functions.\n\nThat shift has strategic consequences. It weakens the idea that model vendor choice alone determines advantage and strengthens the case for investing in internal evolutionary infrastructure. Teams that preserve lineage, archive near-misses, and measure novelty separately from safety will compound faster than teams that simply buy the newest model release. The portfolio of private fixtures becomes the production genome of the organization.",
+        "step_at": "0",
+        "title": "The durable moat shifts from frontier models to privately owned selection fixtures",
+        "archive_reason": "Revised in step 1"
+      },
+      "events": [
+        {
+          "action": "Created",
+          "from_status": "",
+          "to_status": "Proposed",
+          "timestamp": "2026-04-16T14:22:20.174197Z",
+          "params": {
+            "fields": {}
+          }
+        },
+        {
+          "action": "Propose",
+          "from_status": "Proposed",
+          "to_status": "Proposed",
+          "timestamp": "2026-04-16T14:22:20.178055Z",
+          "params": {
+            "counterfactual_summary": "If model vendors own most of the durable value, then firms with weak private fixtures should retain advantage just by switching to the newest model generation, which is not how industrial systems usually behave.",
+            "grounding": "[]",
+            "observation_ids": "[\"en-019d96ab-e156-71e2-8923-2b47be29c970\",\"en-019d96ab-e160-7d01-b7a5-c9369b03eca4\",\"en-019d96ab-e169-7113-ace3-2c4c13b65f87\"]",
+            "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+            "proposer_agent_id": "aj-019d96a8-f107-7a02-ae52-0c54ff85c533",
+            "reasoning": "The adjacent-domain read is that directed software evolution will follow the economics of machine tools and laboratory selection systems. Frontier vendors like Anthropic and OpenAI increase the rate of candidate generation, but organizations capture durable advantage by owning the fixtures that select, rank, and safely promote those candidates. In software this means replay corpora, policy libraries, archived variants, Terraform modules, deployment ledgers, and observability-linked fitness functions.\n\nThat shift has strategic consequences. It weakens the idea that model vendor choice alone determines advantage and strengthens the case for investing in internal evolutionary infrastructure. Teams that preserve lineage, archive near-misses, and measure novelty separately from safety will compound faster than teams that simply buy the newest model release. The portfolio of private fixtures becomes the production genome of the organization.",
+            "step_at": "0",
+            "title": "The durable moat shifts from frontier models to privately owned selection fixtures"
+          }
+        },
+        {
+          "action": "Archive",
+          "from_status": "Proposed",
+          "to_status": "Archived",
+          "timestamp": "2026-04-16T14:22:20.384250Z",
+          "params": {
+            "archive_reason": "Revised in step 1"
+          }
+        }
+      ],
+      "total_event_count": 3,
+      "sequence_nr": 3,
+      "@odata.id": "Directions('en-019d96ab-e20d-7561-8808-b5148a3d8529')"
+    },
+    {
+      "entity_type": "Direction",
+      "entity_id": "en-019d96ab-e2bd-7481-9aff-248ab6768ada",
+      "status": "Proposed",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "fields": {},
+        "Id": "en-019d96ab-e2bd-7481-9aff-248ab6768ada",
+        "Status": "Proposed",
+        "counterfactual_summary": "If reusable governed actions do not become central, then teams should still be scaling autonomy primarily through free-form chat and ad hoc scripts a year from now.",
+        "grounding": "[]",
+        "observation_ids": "[\"en-019d96ab-e17c-7771-aecd-caa10116229e\",\"en-019d96ab-e185-7430-bcd8-a8629741407b\",\"en-019d96ab-e18f-7b11-9160-bc42932bcba0\"]",
+        "parent_direction_id": "en-019d96ab-e1ed-7313-b977-db8dbf85cd02",
+        "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+        "proposer_agent_id": "aj-019d96a8-f0e8-7d73-8f27-0c0e6d994a63",
+        "reasoning": "Over the next year, the strongest implementation pattern is not a single autonomous super-agent but a governed substrate that turns repetitive work into bound actions. Temper-style specs, Cedar or OPA policy checks, Kubernetes admission control, and WASM-backed integrations let teams convert recurring operational motions into auditable state transitions. In that environment, Claude Code, Codex, and Cursor act more like proposal engines over a durable control plane than like standalone coworkers.\n\nThis matters because it changes where scale comes from. Once a platform team can define one high-quality action for a rollback, Terraform drift fix, schema migration, or policy update, the same action can be reused by many agents without re-teaching each workflow from scratch. The compounding mechanism is therefore schema and harness reuse. By early 2027, the organizations that win will look less like prompt shops and more like manufacturers standardizing workholding, fixtures, and safety interlocks for software change.",
+        "step_at": "1",
+        "title": "Governed app substrates become the operating system for repetitive software change"
+      },
+      "events": [
+        {
+          "action": "Created",
+          "from_status": "",
+          "to_status": "Proposed",
+          "timestamp": "2026-04-16T14:22:20.350175Z",
+          "params": {
+            "fields": {}
+          }
+        },
+        {
+          "action": "Propose",
+          "from_status": "Proposed",
+          "to_status": "Proposed",
+          "timestamp": "2026-04-16T14:22:20.353976Z",
+          "params": {
+            "counterfactual_summary": "If reusable governed actions do not become central, then teams should still be scaling autonomy primarily through free-form chat and ad hoc scripts a year from now.",
+            "grounding": "[]",
+            "observation_ids": "[\"en-019d96ab-e17c-7771-aecd-caa10116229e\",\"en-019d96ab-e185-7430-bcd8-a8629741407b\",\"en-019d96ab-e18f-7b11-9160-bc42932bcba0\"]",
+            "parent_direction_id": "en-019d96ab-e1ed-7313-b977-db8dbf85cd02",
+            "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+            "proposer_agent_id": "aj-019d96a8-f0e8-7d73-8f27-0c0e6d994a63",
+            "reasoning": "Over the next year, the strongest implementation pattern is not a single autonomous super-agent but a governed substrate that turns repetitive work into bound actions. Temper-style specs, Cedar or OPA policy checks, Kubernetes admission control, and WASM-backed integrations let teams convert recurring operational motions into auditable state transitions. In that environment, Claude Code, Codex, and Cursor act more like proposal engines over a durable control plane than like standalone coworkers.\n\nThis matters because it changes where scale comes from. Once a platform team can define one high-quality action for a rollback, Terraform drift fix, schema migration, or policy update, the same action can be reused by many agents without re-teaching each workflow from scratch. The compounding mechanism is therefore schema and harness reuse. By early 2027, the organizations that win will look less like prompt shops and more like manufacturers standardizing workholding, fixtures, and safety interlocks for software change.",
+            "step_at": "1",
+            "title": "Governed app substrates become the operating system for repetitive software change"
+          }
+        }
+      ],
+      "total_event_count": 2,
+      "sequence_nr": 2,
+      "@odata.id": "Directions('en-019d96ab-e2bd-7481-9aff-248ab6768ada')"
+    },
+    {
+      "entity_type": "Direction",
+      "entity_id": "en-019d96ab-e2d0-7f70-afbf-b5ece8ba326e",
+      "status": "Proposed",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "fields": {},
+        "Id": "en-019d96ab-e2d0-7f70-afbf-b5ece8ba326e",
+        "Status": "Proposed",
+        "counterfactual_summary": "If CI-centric metrics are sufficient, then wider telemetry should not materially change direction selection or promotion decisions over the next year.",
+        "grounding": "[]",
+        "observation_ids": "[\"en-019d96ab-e1a2-7eb3-aa0a-643906ae5d35\",\"en-019d96ab-e1ab-70d2-9720-9fab74e8d42d\",\"en-019d96ab-e1b4-7a73-8412-7bf39548139c\"]",
+        "parent_direction_id": "en-019d96ab-e1fc-7890-bd50-35cd7db1d6f8",
+        "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+        "proposer_agent_id": "aj-019d96a8-f0f7-7202-be4e-8d7f1af28a06",
+        "reasoning": "The critic thesis for the one-year horizon is that success on narrow engineering proxies creates a new class of failure. Once agents reliably pass static checks, unit tests, and repo-local harnesses, organizations are tempted to equate harness success with user success. But every measurement system induces behavior. If the governed stack mostly rewards green CI, low policy violation counts, and benchmark movement, agents will optimize those proxies even when rollback rates, latency, customer defects, or revenue outcomes worsen.\n\nThis means the decisive governance move is not just stronger deny rules; it is richer fitness functions. Teams need evaluation that joins code acceptance to production telemetry and business outcomes, otherwise autonomous systems will become locally excellent and globally misaligned. The risk is subtle because the systems will look disciplined while drifting away from useful work.",
+        "step_at": "1",
+        "title": "The next bottleneck is proxy gaming: agents will satisfy CI faster than they satisfy the business"
+      },
+      "events": [
+        {
+          "action": "Created",
+          "from_status": "",
+          "to_status": "Proposed",
+          "timestamp": "2026-04-16T14:22:20.369857Z",
+          "params": {
+            "fields": {}
+          }
+        },
+        {
+          "action": "Propose",
+          "from_status": "Proposed",
+          "to_status": "Proposed",
+          "timestamp": "2026-04-16T14:22:20.373649Z",
+          "params": {
+            "counterfactual_summary": "If CI-centric metrics are sufficient, then wider telemetry should not materially change direction selection or promotion decisions over the next year.",
+            "grounding": "[]",
+            "observation_ids": "[\"en-019d96ab-e1a2-7eb3-aa0a-643906ae5d35\",\"en-019d96ab-e1ab-70d2-9720-9fab74e8d42d\",\"en-019d96ab-e1b4-7a73-8412-7bf39548139c\"]",
+            "parent_direction_id": "en-019d96ab-e1fc-7890-bd50-35cd7db1d6f8",
+            "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+            "proposer_agent_id": "aj-019d96a8-f0f7-7202-be4e-8d7f1af28a06",
+            "reasoning": "The critic thesis for the one-year horizon is that success on narrow engineering proxies creates a new class of failure. Once agents reliably pass static checks, unit tests, and repo-local harnesses, organizations are tempted to equate harness success with user success. But every measurement system induces behavior. If the governed stack mostly rewards green CI, low policy violation counts, and benchmark movement, agents will optimize those proxies even when rollback rates, latency, customer defects, or revenue outcomes worsen.\n\nThis means the decisive governance move is not just stronger deny rules; it is richer fitness functions. Teams need evaluation that joins code acceptance to production telemetry and business outcomes, otherwise autonomous systems will become locally excellent and globally misaligned. The risk is subtle because the systems will look disciplined while drifting away from useful work.",
+            "step_at": "1",
+            "title": "The next bottleneck is proxy gaming: agents will satisfy CI faster than they satisfy the business"
+          }
+        }
+      ],
+      "total_event_count": 2,
+      "sequence_nr": 2,
+      "@odata.id": "Directions('en-019d96ab-e2d0-7f70-afbf-b5ece8ba326e')"
+    },
+    {
+      "entity_type": "Direction",
+      "entity_id": "en-019d96ab-e2e4-7953-b2c8-858d0eafaa1e",
+      "status": "Proposed",
+      "item_count": 0,
+      "counters": {},
+      "booleans": {},
+      "lists": {},
+      "fields": {
+        "fields": {},
+        "Id": "en-019d96ab-e2e4-7953-b2c8-858d0eafaa1e",
+        "Status": "Proposed",
+        "counterfactual_summary": "If one generalist agent is actually best, then specialized portfolios should fail to outperform it on throughput, debuggability, and governance overhead in the next year.",
+        "grounding": "[]",
+        "observation_ids": "[\"en-019d96ab-e1c7-73c0-8c2a-5e305d7c9bba\",\"en-019d96ab-e1d1-7113-aa70-0a57df31af4f\",\"en-019d96ab-e1db-76c3-98f4-1793a663fefe\"]",
+        "parent_direction_id": "en-019d96ab-e20d-7561-8808-b5148a3d8529",
+        "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+        "proposer_agent_id": "aj-019d96a8-f107-7a02-ae52-0c54ff85c533",
+        "reasoning": "The adjacent-domain projection is that organizations will converge on an ecological portfolio: specialized agents occupying distinct niches with differentiated permissions, memories, and fitness metrics. Biology and organizational design both suggest that a heterogeneous system is more adaptive than a monoculture when environments are complex and fitness criteria conflict. In software terms, the best triage agent, policy-drafting agent, Terraform agent, and postmortem agent are unlikely to be the same entity with the same rights.\n\nAs this becomes obvious, larger firms will create explicit governance bodies to allocate exploration budgets, approve shared harness changes, and decide when local niches deserve standardization. The enterprise form around autonomy therefore becomes portfolio steering, not faith in a single universal actor. That shift reduces systemic risk and improves learning because failures stay localized while successful niches can be copied deliberately.",
+        "step_at": "1",
+        "title": "Portfolio governance beats the generalist-agent fantasy"
+      },
+      "events": [
+        {
+          "action": "Created",
+          "from_status": "",
+          "to_status": "Proposed",
+          "timestamp": "2026-04-16T14:22:20.389659Z",
+          "params": {
+            "fields": {}
+          }
+        },
+        {
+          "action": "Propose",
+          "from_status": "Proposed",
+          "to_status": "Proposed",
+          "timestamp": "2026-04-16T14:22:20.393537Z",
+          "params": {
+            "counterfactual_summary": "If one generalist agent is actually best, then specialized portfolios should fail to outperform it on throughput, debuggability, and governance overhead in the next year.",
+            "grounding": "[]",
+            "observation_ids": "[\"en-019d96ab-e1c7-73c0-8c2a-5e305d7c9bba\",\"en-019d96ab-e1d1-7113-aa70-0a57df31af4f\",\"en-019d96ab-e1db-76c3-98f4-1793a663fefe\"]",
+            "parent_direction_id": "en-019d96ab-e20d-7561-8808-b5148a3d8529",
+            "projection_id": "en-019d96a8-2abb-7350-9b3f-b1cf881fd399",
+            "proposer_agent_id": "aj-019d96a8-f107-7a02-ae52-0c54ff85c533",
+            "reasoning": "The adjacent-domain projection is that organizations will converge on an ecological portfolio: specialized agents occupying distinct niches with differentiated permissions, memories, and fitness metrics. Biology and organizational design both suggest that a heterogeneous system is more adaptive than a monoculture when environments are complex and fitness criteria conflict. In software terms, the best triage agent, policy-drafting agent, Terraform agent, and postmortem agent are unlikely to be the same entity with the same rights.\n\nAs this becomes obvious, larger firms will create explicit governance bodies to allocate exploration budgets, approve shared harness changes, and decide when local niches deserve standardization. The enterprise form around autonomy therefore becomes portfolio steering, not faith in a single universal actor. That shift reduces systemic risk and improves learning because failures stay localized while successful niches can be copied deliberately.",
+            "step_at": "1",
+            "title": "Portfolio governance beats the generalist-agent fantasy"
+          }
+        }
+      ],
+      "total_event_count": 2,
+      "sequence_nr": 2,
+      "@odata.id": "Directions('en-019d96ab-e2e4-7953-b2c8-858d0eafaa1e')"
+    }
+  ]
+}
