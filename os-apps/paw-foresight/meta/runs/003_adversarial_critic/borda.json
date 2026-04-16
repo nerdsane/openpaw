@@ -1,0 +1,109 @@
+{
+  "run": "003",
+  "rubric_version": "v4",
+  "methodology_note": "3 Claude Code subagent judges, side-by-side. Challenger=Run 003 (adversarial critic), Incumbent=Run 002 (probe web search). Borda: winner=2pts, loser=1pt, tie=1.5. Max 6 per criterion, 72 total.",
+  "challenger_raw_avg": 23.7,
+  "incumbent_raw_avg": 27.0,
+  "challenger_borda": 51.0,
+  "incumbent_borda": 57.0,
+  "max_per_output": 72,
+  "winner": "incumbent",
+  "per_criterion": [
+    {
+      "criterion": "Specificity",
+      "challenger": 5.0,
+      "incumbent": 4.0,
+      "delta": 1.0,
+      "challenger_avg_score": 2.33,
+      "incumbent_avg_score": 2.0
+    },
+    {
+      "criterion": "Novelty",
+      "challenger": 5.5,
+      "incumbent": 3.5,
+      "delta": 2.0,
+      "challenger_avg_score": 2.67,
+      "incumbent_avg_score": 2.0
+    },
+    {
+      "criterion": "Falsifiability",
+      "challenger": 3,
+      "incumbent": 6,
+      "delta": -3,
+      "challenger_avg_score": 1.67,
+      "incumbent_avg_score": 3.0
+    },
+    {
+      "criterion": "Breadth",
+      "challenger": 5.5,
+      "incumbent": 3.5,
+      "delta": 2.0,
+      "challenger_avg_score": 2.67,
+      "incumbent_avg_score": 2.0
+    },
+    {
+      "criterion": "Plausibility",
+      "challenger": 4.5,
+      "incumbent": 4.5,
+      "delta": 0.0,
+      "challenger_avg_score": 2.0,
+      "incumbent_avg_score": 2.0
+    },
+    {
+      "criterion": "Progression",
+      "challenger": 3.5,
+      "incumbent": 5.5,
+      "delta": -2.0,
+      "challenger_avg_score": 1.67,
+      "incumbent_avg_score": 2.67
+    },
+    {
+      "criterion": "Actionability",
+      "challenger": 3,
+      "incumbent": 6,
+      "delta": -3,
+      "challenger_avg_score": 1.33,
+      "incumbent_avg_score": 3.0
+    },
+    {
+      "criterion": "Decision Clarity",
+      "challenger": 4.0,
+      "incumbent": 5.0,
+      "delta": -1.0,
+      "challenger_avg_score": 1.67,
+      "incumbent_avg_score": 2.0
+    },
+    {
+      "criterion": "Completeness",
+      "challenger": 3.5,
+      "incumbent": 5.5,
+      "delta": -2.0,
+      "challenger_avg_score": 1.67,
+      "incumbent_avg_score": 2.33
+    },
+    {
+      "criterion": "Grounding",
+      "challenger": 4.5,
+      "incumbent": 4.5,
+      "delta": 0.0,
+      "challenger_avg_score": 2.0,
+      "incumbent_avg_score": 2.0
+    },
+    {
+      "criterion": "Challenge",
+      "challenger": 6,
+      "incumbent": 3,
+      "delta": 3,
+      "challenger_avg_score": 3.0,
+      "incumbent_avg_score": 2.0
+    },
+    {
+      "criterion": "Information Density",
+      "challenger": 3,
+      "incumbent": 6,
+      "delta": -3,
+      "challenger_avg_score": 1.0,
+      "incumbent_avg_score": 2.0
+    }
+  ]
+}

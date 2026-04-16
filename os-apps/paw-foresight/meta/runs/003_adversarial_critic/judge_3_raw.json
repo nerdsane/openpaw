@@ -1,0 +1,177 @@
+{
+  "criteria": [
+    {
+      "criterion": "Specificity",
+      "output_x_score": 3,
+      "output_y_score": 2,
+      "reasoning": "Output X names specific CVEs (CVE-2025-32711, CamoLeak CVSS 9.6), exact benchmark scores (GPT-5 at 23.3% Pass@1, 36.30%-43.72% resolution rates under scaffolded agents), a dated prediction (by 2027-04-15), and a quantitative threshold (<10% of enterprises permitting fully autonomous merge). It combines named actors, specific timelines, and causal mechanisms throughout. Output Y names real products and dates (Codex CLI April 16 2025, VS Code MCP June 12 2025, Harness May 29 2025) and attaches confidence percentages (75%, 70%, 60%, 65%, 55%) to its predictions, but its 12 Key Findings are mostly qualitative, using named actors and themes rather than quantitative thresholds. Y's quantitative specificity clusters in the predictions section rather than being distributed across the analysis.",
+      "evidence_x": [
+        "SWE-Bench Pro reports widely used coding models remain below 25% Pass@1 on realistic long-horizon enterprise tasks, with GPT-5 at 23.3%",
+        "by 2027-04-15, at least two major enterprise software platforms or model vendors will publicly reposition their coding-agent products",
+        "fewer than 10% of large enterprises running production software delivery will permit fully autonomous merge-to-production coding agents"
+      ],
+      "evidence_y": [
+        "Confidence: High (75%)",
+        "By July 2026, GitHub Copilot's coding agent will be the most-used bounded-loop agent in production",
+        "By April 2027, MCP will be the dominant tool-interoperability protocol for coding agents, with 500+ registered MCP servers"
+      ]
+    },
+    {
+      "criterion": "Novelty",
+      "output_x_score": 2,
+      "output_y_score": 2,
+      "reasoning": "Both outputs introduce original framings grounded in external evidence, but neither reframes the domain at the 3+ level. Output X applies transaction-cost economics, ecological partitioning (explorer vs. maintainer agents), and references 'The Headless Firm' (arXiv 2602.21401), which are useful cross-domain analogies but standard analytical lenses applied to a new domain. Output Y introduces the 'safety-liveness asymmetry' concept (proving what agents must NOT do scales faster than proving they improve systems) and inverts the harness framing ('the harness is the attack surface'), which are insightful reframings but extensions of known security and verification theory rather than novel conceptual contributions. Both produce insights not in the source, but neither connects signals the source didn't connect in a way that produces a fundamentally new framework.",
+      "evidence_x": [
+        "the scarce resource becomes adjudication capacity",
+        "the winning control pattern will look biological: not one super-agent, but a managed ecosystem with niches, quarantine boundaries, and fitness tests",
+        "The Headless Firm: How AI Reshapes Enterprise Boundaries"
+      ],
+      "evidence_y": [
+        "Safety checks scale faster than proofs of useful progress \u2014 creating a verification asymmetry",
+        "every artifact in the harness loop \u2014 specs, tickets, docs, code comments \u2014 is a potential prompt-injection channel",
+        "Protocol interoperability is running ahead of trust infrastructure"
+      ]
+    },
+    {
+      "criterion": "Falsifiability",
+      "output_x_score": 2,
+      "output_y_score": 3,
+      "reasoning": "Output X provides counterfactuals for each direction that describe what would make the thesis wrong, and one dated quantitative prediction (by 2027-04-15, fewer than 10% of enterprises permit autonomous merge). However, counterfactuals are stated as general scenarios rather than explicit falsification criteria with measurable indicators. Output Y provides a dedicated 'Top 5 Predictions with Falsification Criteria' section where each prediction includes a measurable indicator, confidence level, and explicit falsification sentence of the form 'If X has not happened by [date], this prediction is wrong because [reason].' This structural commitment to falsifiability is significantly stronger.",
+      "evidence_x": [
+        "If this direction is wrong, benchmark reliability and secure context isolation will improve fast enough that enterprises will expand agent authority rather than narrow it",
+        "by 2027-04-15, at least two major enterprise software platforms or model vendors will publicly reposition"
+      ],
+      "evidence_y": [
+        "If GitHub has not shipped GA enterprise availability for the Copilot coding agent by July 2026, or if a competing platform reports higher agent-generated PR volume, this prediction is wrong because it overestimated GitHub's first-mover advantage",
+        "If no such incident is publicly reported by October 2026, this prediction is wrong because either (a) early adopters kept agent scopes narrow enough or (b) prompt injection in repository context is harder to weaponize than OWASP's risk ranking suggests"
+      ]
+    },
+    {
+      "criterion": "Breadth",
+      "output_x_score": 3,
+      "output_y_score": 2,
+      "reasoning": "Output X covers 10+ distinct analytical dimensions across three independent probe perspectives: security attack surfaces (CVEs, prompt injection), benchmark limitations (SWE-Bench scope), organizational coordination costs (transaction-cost economics), ecological diversity risks (Goodhart effects, monoculture), platform architecture (hourglass model), enterprise governance gaps (Gartner, DORA), multi-agent vs. single-agent tradeoffs, labor market implications, and CI/CD integration paths. Cross-theme interactions produce non-obvious conclusions: e.g., security incidents + governance gaps \u2192 rigor spending constrains autonomy rather than enabling it. Output Y covers 12 labeled themes but with narrower probe diversity (3 probes versus X's 3 probes with 2 temporal steps each). Y adds decision points and temporal phases as dimensions X lacks, but the total analytical surface is somewhat less diverse. Y's themes cluster more tightly around trust/coordination rather than spanning as many independent domains.",
+      "evidence_x": [
+        "3 independent probes per step (practitioner, adversarial critic, adjacent-domain), each with web search",
+        "24 total observations, 6 directions",
+        "External evidence sources cited: SWE-Bench Pro, CVE-2025-32711, CamoLeak/Legit Security, Gartner, Google DORA, Ars Technica, arXiv, MIT Media Lab, Wang et al., GitHub, OpenAI"
+      ],
+      "evidence_y": [
+        "13 total observations, 3 active directions",
+        "12 themed findings covering: Platform integration, Standards convergence, Verifiability, Selection over generation, Trust deficit, Adversarial harness risk, Safety-liveness asymmetry, Coordination bottleneck, Labor market recomposition, Coordination cost overshoot, Governance-gated adoption, Role evolution"
+      ]
+    },
+    {
+      "criterion": "Plausibility",
+      "output_x_score": 2,
+      "output_y_score": 2,
+      "reasoning": "Both outputs ground most claims in named evidence and reference specific mechanisms. Output X cites specific CVEs, benchmark papers, Gartner reports, DORA findings, and academic papers with URLs, building plausible reasoning chains. However, some claims stretch beyond evidence: the ecological partitioning analogy is suggestive but not empirically validated for software teams, and the 'fewer than 10%' enterprise prediction lacks a clear derivation. Output Y cites product launches, spec analyses, organizational research, and security frameworks with URLs. Its Assumptions section explicitly states confidence levels and 'if wrong' scenarios, which adds uncertainty calibration. However, some claims are plausible but under-evidenced, such as 'Cutting junior pipelines too early weakens the future bench.' Both are solidly competent but neither achieves systematic confidence calibration across all claims.",
+      "evidence_x": [
+        "NVD records CVE-2025-32711 as 'AI command injection in M365 Copilot'",
+        "Gartner wrote...41% say their teams cannot yet quantify gains from genAI",
+        "In ecology, populations without diversity-preserving mechanisms often converge on fragile local optima"
+      ],
+      "evidence_y": [
+        "Confidence: High (80%). Multiple independent signals confirm that current models are 'good enough'",
+        "Assumption 3...Confidence: Medium (55%). MCP has strong early momentum but the authorization instability creates meaningful fragmentation risk",
+        "DORA 2025 explicitly frames AI as an amplifier of existing weaknesses"
+      ]
+    },
+    {
+      "criterion": "Progression",
+      "output_x_score": 2,
+      "output_y_score": 3,
+      "reasoning": "Output X has two temporal steps (step 0 at 90 days, step 1 at 365 days), and step-1 observations reference step-0 themes superficially. For example, observation 17 extends the CI-governed loop idea from step 0 to step 1. However, there are no explicit revisions of earlier predictions, no 'what hasn't changed' tracking, and no causal dependency chains between phases. Output Y provides a 4-phase temporal progression (0-3, 3-6, 6-9, 9-12 months) with explicit 'Causal links to Phase N' sections, 'Revisions to earlier predictions' sections, and 'What has NOT changed' sections at each phase. Phase 3 explicitly builds on Phase 2's authorization stabilization; Phase 4's predictions explicitly reference Phase 3's harness accumulation. This is substantially stronger temporal development.",
+      "evidence_x": [
+        "step 0 at 90 days, step 1 at 365 days",
+        "By day 365, the practical deployment path for directed software evolution is not end-to-end autonomy but parallelized issue execution"
+      ],
+      "evidence_y": [
+        "Causal links to Phase 2: The harness-quality gap between leading and lagging teams becomes visible",
+        "Revisions to earlier predictions: MCP adoption may be faster than expected if GitHub and GitLab ship first-party MCP servers",
+        "What has NOT changed: Stage-4 evolutionary behavior remains experimental and confined to research settings"
+      ]
+    },
+    {
+      "criterion": "Actionability",
+      "output_x_score": 1,
+      "output_y_score": 3,
+      "reasoning": "Output X provides high-level directional guidance ('invest in CI-governed agent loops with repo-specific evaluation harnesses, narrow tool scopes with adversarial testing') but no timing triggers, no enumerated options, no effort estimates, and no tradeoff analysis. A decision-maker knows the thesis but not what to do Monday morning. Output Y provides three detailed Decision Points, each with: a timing trigger ('When your team's agent-generated PR acceptance rate drops below 60%'), multiple options with effort estimates ('2-4 engineering-weeks upfront, ongoing maintenance of ~5 hours/week'), specific tools ('Custom CI stages, repo-specific eval scripts, harness frameworks'), and reasoned recommendations ('Option C. The evidence strongly suggests that harness quality matters more than model quality, but building full custom harnesses for all agent work is premature'). This is directly actionable.",
+      "evidence_x": [
+        "The teams that capture value first will be those that invest in CI-governed agent loops with repo-specific evaluation harnesses, narrow tool scopes with adversarial testing, and redesign coordination structures"
+      ],
+      "evidence_y": [
+        "Timing trigger: When your team's agent-generated PR acceptance rate drops below 60%",
+        "Option A: Build custom repo-specific evals. Effort: 2-4 engineering-weeks upfront, ongoing maintenance of ~5 hours/week",
+        "Recommended: Option C. The evidence strongly suggests that harness quality matters more than model quality"
+      ]
+    },
+    {
+      "criterion": "Decision Clarity",
+      "output_x_score": 2,
+      "output_y_score": 2,
+      "reasoning": "Both outputs provide clear narratives but neither opens with the single most important decision, its deadline, and quantified tradeoff as the 3+ anchor requires. Output X's executive summary identifies 'the winning deployment path is parallelized issue execution behind existing delivery controls' \u2014 clear directionally but requires a VP to read through 24 observations and 6 directions to understand priorities. Output Y's executive summary is tighter and the Decision Points section comes closer to VP-readable actionability, but the top recommendation is still embedded mid-document rather than leading. Both require domain expertise to prioritize across multiple findings.",
+      "evidence_x": [
+        "The winning deployment path is parallelized issue execution behind existing delivery controls (PR workflows, branch protections, human merge gates), not end-to-end autonomous coding"
+      ],
+      "evidence_y": [
+        "The next year is not about who deploys the most autonomous agents; it is about who builds the tightest selection environment around them"
+      ]
+    },
+    {
+      "criterion": "Completeness",
+      "output_x_score": 2,
+      "output_y_score": 2,
+      "reasoning": "Both outputs cover the foresight pipeline from observations through synthesis to directions. Output X has observations, directions with counterfactuals, 'What Surprised Us,' and methodology, but lacks explicit assumptions, confidence levels, and structured limitations. Output Y has observations, themed findings, temporal progression, directions, predictions with falsification, decision points, explicit assumptions with confidence and 'if wrong' scenarios, and methodology with acknowledged biases. Output Y objectively covers more pipeline stages and would merit a 3 on the rubric ('Full pipeline with explicit assumptions, limitations, and confidence levels'), but is demoted to 2 under the 3+ cap rule \u2014 Y's falsifiability, progression, and actionability are stronger differentiators.",
+      "evidence_x": [
+        "24 total observations, 6 directions (with counterfactuals each), methodology section"
+      ],
+      "evidence_y": [
+        "Assumption 1...If wrong: A major model regression could re-establish model capability as the binding constraint. Confidence: High (80%)",
+        "Analytical biases acknowledged: The probe structure emphasizes trust and coordination constraints, which may underweight the speed at which competitive pressure drives organizations to accept higher risk"
+      ]
+    },
+    {
+      "criterion": "Grounding",
+      "output_x_score": 2,
+      "output_y_score": 2,
+      "reasoning": "Both outputs have relevant evidence supporting most claims, with some gaps in the reasoning chains. Output X's strongest chain: SWE-Bench Pro failure rates (23.3% Pass@1) + security CVEs (CamoLeak, CVE-2025-32711) + Gartner's 41% can't quantify gains \u2192 enterprises will constrain agents rather than empower them. This holds logically. But some chains are thinner: the ecological analogy (explorer vs. maintainer agents) is asserted without evidence that software teams organize this way. Output Y's strongest chain: OWASP LLM01 prompt injection ranking + MCP auth churn + every harness artifact is an input \u2192 the harness is the attack surface. This also holds. The safety-liveness chain (NIST organizing not codifying + tests are safety properties \u2192 liveness doesn't scale) is plausible but the logical leap from 'NIST is organizing' to 'liveness fundamentally can't scale' is under-argued.",
+      "evidence_x": [
+        "SWE-Bench Pro reports widely used coding models remain below 25% Pass@1...Mechanism: the system is failing at state estimation and action governance, not only at code proposal quality"
+      ],
+      "evidence_y": [
+        "OWASP LLM01:2025 frames prompt injection as the top risk; every artifact in the harness loop is a potential hostile control channel...Passing tests does not prove trustworthy behavior when the test context itself can be poisoned"
+      ]
+    },
+    {
+      "criterion": "Challenge",
+      "output_x_score": 3,
+      "output_y_score": 2,
+      "reasoning": "Output X uses a structurally adversarial probe design that forces contradiction of core source assumptions. It makes multiple specific predictions that directly contradict the source material: 'rigor and autonomy are NOT the same investment' (backed by SWE-Bench Pro and Gartner data), 'cheap candidate generation is NOT the main bottleneck' (backed by Ars Technica's reporting on Gemini CLI and Replit data destruction), 'benchmark wins are being over-read' (backed by SWE-Bench scope analysis vs. production complexity), and 'near-term reality will fragment into guarded copilots.' Each contradiction names the specific source assumption that fails and the mechanism by which it fails, using external evidence. Output Y identifies genuine tensions \u2014 more autonomy can reduce throughput, harness is the attack surface, safety scales while liveness doesn't \u2014 but these complicate the source thesis rather than overturning it. Y's challenges are about pace and difficulty rather than fundamental thesis incorrectness.",
+      "evidence_x": [
+        "Genuine contradiction to the knowledge graph's stage-3/4 optimism: cheap candidate generation is NOT the main bottleneck",
+        "Contradiction to the core thesis that rigor and autonomy are the same investment: the next 12 months show enterprises spending on guardrails that REDUCE autonomy rather than unlock it",
+        "repository-native copilots create new governance backfires faster than verification harnesses can absorb them"
+      ],
+      "evidence_y": [
+        "More autonomy can reduce throughput in the near term",
+        "The harness is the attack surface, not just the safety mechanism",
+        "Safety scales; liveness does not"
+      ]
+    },
+    {
+      "criterion": "Information Density",
+      "output_x_score": 1,
+      "output_y_score": 2,
+      "reasoning": "Output X has significant redundancy across its 24 observations and 6 directions. The 'dark factory won't happen' thesis appears in observations 8, 13, 20 and Direction 6. The 'CI-governed patch factory' thesis appears in observations 5, 7, 17, 18 and Directions 3 and 5. The 'coordination bottleneck' theme spans observations 1, 21, 22 and Directions 2 and 4. The 'rigor \u2260 autonomy' finding appears in observations 10, 13, and 16. Multiple observations could be merged without analytical loss. The 'What Surprised Us' section largely repeats earlier observations. Output Y is more compressed: 12 findings each carry a labeled, distinct theme, and while some overlap exists between findings and directions (trust appears in both), most claims contribute distinct information. The predictions, decision points, and assumptions sections each add unique analytical value not present elsewhere in the document.",
+      "evidence_x": [
+        "Direction 3: 'Directed software evolution becomes a CI-governed patch factory' and Direction 5: 'Directed software evolution will operationalize first as CI-governed pull-request agents with eval gates' cover substantially the same ground",
+        "6 observations across 3 probes all conclude dark factory won't happen"
+      ],
+      "evidence_y": [
+        "12 findings each labeled with distinct theme tags (Platform integration, Standards convergence, Verifiability, etc.)",
+        "Predictions, Decision Points, and Assumptions sections each add unique analytical dimensions"
+      ]
+    }
+  ]
+}
