@@ -3412,6 +3412,7 @@ dependencies = [
  "clap",
  "cliclack",
  "dotenvy",
+ "ed25519-dalek",
  "hex",
  "hmac",
  "jsonwebtoken",

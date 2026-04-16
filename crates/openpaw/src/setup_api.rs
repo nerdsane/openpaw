@@ -1330,12 +1330,45 @@ async fn proxy_discord_interaction(
     headers: axum::http::HeaderMap,
     body: Bytes,
 ) -> impl IntoResponse {
+    let signature = headers
+        .get("x-signature-ed25519")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("");
+    let timestamp = headers
+        .get("x-signature-timestamp")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("");
+    let public_key = state
+        .platform
+        .server
+        .secrets_vault
+        .as_ref()
+        .and_then(|vault| vault.get_secret(&state.tenant, "discord_public_key"))
+        .unwrap_or_default();
+
+    if !public_key.is_empty() && !signature.is_empty() && !timestamp.is_empty() {
+        if !verify_discord_signature(&public_key, signature, timestamp, &body) {
+            tracing::warn!("Discord interaction signature verification failed at public endpoint");
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(serde_json::json!({ "error": "invalid signature" })),
+            )
+                .into_response();
+        }
+
+        if is_discord_ping(&body) {
+            tracing::info!("Discord interaction endpoint verification succeeded");
+            return (StatusCode::OK, Json(serde_json::json!({ "type": 1 }))).into_response();
+        }
+    }
+
     let status = state.transport_manager.status().await;
     if !matches!(
         status.discord,
         crate::transport_manager::TransportStatus::Connected { .. }
             | crate::transport_manager::TransportStatus::Connecting
     ) {
+        tracing::warn!("Discord interaction received while transport is unavailable");
         return (
             StatusCode::SERVICE_UNAVAILABLE,
             Json(serde_json::json!({ "error": "discord transport is not running" })),
@@ -1366,6 +1399,12 @@ async fn proxy_discord_interaction(
                 .get(axum::http::header::CONTENT_TYPE)
                 .cloned();
             let bytes = resp.bytes().await.unwrap_or_default();
+            if !status.is_success() {
+                tracing::warn!(
+                    http_status = %status,
+                    "Discord interaction proxy returned a non-success status"
+                );
+            }
             let mut response = axum::http::Response::builder().status(status);
             if let Some(content_type) = content_type {
                 response = response.header(axum::http::header::CONTENT_TYPE, content_type);
@@ -1374,14 +1413,67 @@ async fn proxy_discord_interaction(
                 .body(Body::from(bytes))
                 .unwrap_or_else(|_| axum::http::Response::new(Body::empty()))
         }
-        Err(error) => (
-            StatusCode::BAD_GATEWAY,
-            Json(serde_json::json!({
-                "error": format!("failed to proxy discord interaction: {error}")
-            })),
-        )
-            .into_response(),
+        Err(error) => {
+            tracing::error!(%error, "Failed to proxy Discord interaction");
+            (
+                StatusCode::BAD_GATEWAY,
+                Json(serde_json::json!({
+                    "error": format!("failed to proxy discord interaction: {error}")
+                })),
+            )
+                .into_response()
+        }
     }
+}
+
+fn is_discord_ping(body: &[u8]) -> bool {
+    #[derive(Deserialize)]
+    struct InteractionEnvelope {
+        #[serde(rename = "type")]
+        interaction_type: u8,
+    }
+
+    matches!(
+        serde_json::from_slice::<InteractionEnvelope>(body),
+        Ok(InteractionEnvelope {
+            interaction_type: 1
+        })
+    )
+}
+
+fn verify_discord_signature(
+    public_key_hex: &str,
+    signature_hex: &str,
+    timestamp: &str,
+    body: &[u8],
+) -> bool {
+    use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+
+    let Ok(pk_bytes) = hex::decode(public_key_hex) else {
+        return false;
+    };
+    let pk_bytes: [u8; 32] = match pk_bytes.try_into() {
+        Ok(bytes) => bytes,
+        Err(_) => return false,
+    };
+    let Ok(verifying_key) = VerifyingKey::from_bytes(&pk_bytes) else {
+        return false;
+    };
+
+    let Ok(sig_bytes) = hex::decode(signature_hex) else {
+        return false;
+    };
+    let sig_bytes: [u8; 64] = match sig_bytes.try_into() {
+        Ok(bytes) => bytes,
+        Err(_) => return false,
+    };
+    let signature = Signature::from_bytes(&sig_bytes);
+
+    let mut message = Vec::with_capacity(timestamp.len() + body.len());
+    message.extend_from_slice(timestamp.as_bytes());
+    message.extend_from_slice(body);
+
+    verifying_key.verify(&message, &signature).is_ok()
 }
 
 #[derive(Deserialize)]
@@ -1529,9 +1621,10 @@ async fn disconnect_slack(State(state): State<SetupApiState>) -> Json<serde_json
 #[cfg(test)]
 mod tests {
     use super::{
-        allowed_secret_keys, discord_connect_params_for_secret_update,
-        personalized_soul_flag_value, secrets_schema,
+        allowed_secret_keys, discord_connect_params_for_secret_update, is_discord_ping,
+        personalized_soul_flag_value, secrets_schema, verify_discord_signature,
     };
+    use ed25519_dalek::{Signer, SigningKey};
 
     #[test]
     fn discord_secret_update_builds_reconnect_params_when_config_is_complete() {
@@ -1568,6 +1661,32 @@ mod tests {
         assert!(personalized_soul_flag_value(Some("yes")));
         assert!(!personalized_soul_flag_value(Some("false")));
         assert!(!personalized_soul_flag_value(None));
+    }
+
+    #[test]
+    fn discord_signature_verification_accepts_valid_signature() {
+        let signing_key = SigningKey::from_bytes(&[7u8; 32]);
+        let body = br#"{"type":1}"#;
+        let timestamp = "1744848000";
+        let mut message = Vec::from(timestamp.as_bytes());
+        message.extend_from_slice(body);
+        let signature = signing_key.sign(&message);
+        let public_key_hex = hex::encode(signing_key.verifying_key().to_bytes());
+        let signature_hex = hex::encode(signature.to_bytes());
+
+        assert!(verify_discord_signature(
+            &public_key_hex,
+            &signature_hex,
+            timestamp,
+            body,
+        ));
+    }
+
+    #[test]
+    fn discord_ping_detection_identifies_ping_payloads() {
+        assert!(is_discord_ping(br#"{"type":1}"#));
+        assert!(!is_discord_ping(br#"{"type":3}"#));
+        assert!(!is_discord_ping(br#"not-json"#));
     }
 
     #[test]

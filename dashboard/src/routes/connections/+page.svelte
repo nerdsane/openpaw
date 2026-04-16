@@ -1,9 +1,17 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
-  import { getTransportStatus, connectDiscord, disconnectDiscord, connectSlack, disconnectSlack } from '$lib/api';
-  import type { TransportStatusResponse } from '$lib/api';
+  import {
+    getTransportStatus,
+    connectDiscord,
+    disconnectDiscord,
+    connectSlack,
+    disconnectSlack,
+    fetchSetupStatus
+  } from '$lib/api';
+  import type { SetupStatus, TransportStatusResponse } from '$lib/api';
 
   let status = $state<TransportStatusResponse | null>(null);
+  let setupStatus = $state<SetupStatus | null>(null);
   let pollInterval: ReturnType<typeof setInterval>;
 
   // Discord form
@@ -25,8 +33,24 @@
 
   async function refresh() {
     try {
-      status = await getTransportStatus();
+      const [nextStatus, nextSetupStatus] = await Promise.all([
+        getTransportStatus(),
+        fetchSetupStatus(),
+      ]);
+      status = nextStatus;
+      setupStatus = nextSetupStatus;
     } catch { /* ignore */ }
+  }
+
+  async function copyDiscordInteractionUrl() {
+    const interactionUrl = setupStatus?.discord_interaction_url;
+    if (!interactionUrl) return;
+    try {
+      await navigator.clipboard.writeText(interactionUrl);
+      alert('Copied the Discord Interaction URL. Paste it into Discord Developer Portal -> General Information -> Interactions Endpoint URL.');
+    } catch {
+      alert('Failed to copy the Discord Interaction URL');
+    }
   }
 
   async function handleConnectDiscord() {
@@ -129,8 +153,8 @@
             <input type="password" bind:value={discordToken} required placeholder="MTI3..." />
           </label>
           <label>
-            <span class="label-text">Public Key</span>
-            <input type="text" bind:value={discordPublicKey} placeholder="Optional" />
+            <span class="label-text">Public Key *</span>
+            <input type="text" bind:value={discordPublicKey} required placeholder="Required for interaction verification" />
           </label>
           <label>
             <span class="label-text">Guild ID</span>
@@ -144,10 +168,21 @@
             <span class="label-text">Forum Channel ID</span>
             <input type="text" bind:value={discordForumChannelId} placeholder="Optional" />
           </label>
-          <button class="btn btn-primary" type="submit" disabled={discordConnecting || !discordToken}>
+          <button class="btn btn-primary" type="submit" disabled={discordConnecting || !discordToken || !discordPublicKey}>
             {discordConnecting ? 'CONNECTING...' : 'CONNECT'}
           </button>
         </form>
+      {/if}
+
+      {#if setupStatus?.discord_interaction_url}
+        <div class="card-detail" style="margin-top: 0.75rem;">
+          <div style="margin-bottom: 0.35rem;">Interaction URL</div>
+          <code style="display: block; word-break: break-all; margin-bottom: 0.5rem;">{setupStatus.discord_interaction_url}</code>
+          <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+            <button class="btn btn-primary" type="button" onclick={copyDiscordInteractionUrl}>COPY URL</button>
+            <span>Paste it into Discord Developer Portal -> General Information -> Interactions Endpoint URL.</span>
+          </div>
+        </div>
       {/if}
     </div>
 
