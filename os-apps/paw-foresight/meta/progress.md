@@ -29,12 +29,11 @@ Pre-Track-1 runs are archived under `meta/archive_v4_pre_track1/` for historical
 | Run | Tag | Engine Score | Incumbent Score | Delta | Engine Borda | Incumbent Borda | Winner | Streak | Key Change | Key Insight |
 |-----|-----|-------------|-----------------|-------|-------------|----------------|--------|--------|------------|-------------|
 | 000 | foresight-v100-base | (measurement-only) | — | — | — | — | — | 0 | Post-Track-1 measurement baseline — no engine change | Engine ran single-step (max_steps=2 ignored), 16 obs + 4 directions + full synthesis (29KB). 37.5% observations confirmed; model-projector never spawned; directions stayed in Proposed. Diagnosis prioritizes forcing multi-step progression via Complete precondition. Incumbent for Run 001. |
-| 001 | (pending tag decision) | 29/48 | 29/48 | 0 | 54.0/72 | 54.0/72 | incumbent (tie → tie-break) | 1 | `guard = "current_step > 0"` on `Projection.Complete` in `specs/projection.ioa.toml` — forces multi-step progression | Structural win (engine ran 2 steps for the first time: 25 obs vs 16, 6 directions vs 4, 34KB synthesis vs 29KB) but scoring tie. Challenger gained Novelty (+2) and Challenge (+1) from step-1 external-signal probes; regressed on Specificity (−1), Progression (−1), Actionability (−1) because the orchestrator's final synthesis still authors phase structure in one pass regardless of step count, and step-1 probes don't propagate quantitative thresholds. Next iteration: make each step emit a cumulative summary so progression is visible to judges. |
 
 ## Convergence Status
 
-**Status:** Run 001 complete. Tournament underway.
+**Status:** Run 000 complete (measurement-only). Tournament begins at Run 001.
 **Converged:** No
-**A-wins streak:** 1 (one more incumbent win → converged)
-**Current engine version:** foresight-v100-base (Run 001 change reverted on loss per loop.sh enforce_post_round)
-**Note:** Run 001 proved the architectural change (spec guard `current_step > 0` on `Projection.Complete`) works — the engine now runs multi-step and produces deeper evidence — but per-criterion Borda ties net to zero because the synthesis's phase structure is still authored end-of-loop, not per-step. Run 002 should target Progression by emitting per-step rollups (architectural) rather than tweaking the orchestrator prompt.
+**A-wins streak:** 0
+**Current engine version:** foresight-v100-base
+**Note:** Post-Track-1-reliability measurement complete. `meta/runs/000_measurement_baseline/engine-output/synthesis.md` is the incumbent Run 001 must beat. Diagnosis identifies 7 leverage points; priority is forcing multi-step projection via a `Projection.Complete` invariant (see Run 000 diagnosis for full ranking).

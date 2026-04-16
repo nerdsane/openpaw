@@ -146,8 +146,7 @@ kind = "input"
 from = ["Running"]
 to = "Complete"
 params = []
-guard = "current_step > 0"
-hint = "All steps finished. Mark the projection as complete. Requires at least one AdvanceStep (current_step > 0) — the state machine refuses Complete on a single-step run so the orchestrator can't short-circuit multi-step progression."
+hint = "All steps finished. Mark the projection as complete."
 
 [[action]]
 name = "Branch"
