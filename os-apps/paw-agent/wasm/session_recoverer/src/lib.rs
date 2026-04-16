@@ -96,8 +96,60 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             &format!("session_recoverer: recovery complete, new leaf_id={leaf_id}"),
         );
 
-        // Dispatch RecoveryComplete to re-enter the LLM loop
-        set_success_result("RecoveryComplete", &json!({ "session_leaf_id": leaf_id }));
+        // If the session was inside an active tool-call checkpoint when the
+        // server restarted, resume directly into tool execution instead of
+        // re-entering the LLM loop. `pending_tool_context` is preserved across
+        // the crash as an entity field; a non-empty `remaining_tool_calls`
+        // signals that work was mid-batch.
+        //
+        // See OpenPaw Track 1 Phase 3 follow-up (session_recoverer mid-turn
+        // resume). Keeps the Cedar pause-style checkpoint resume symmetry
+        // across both failure modes — Cedar denial and server restart.
+        let pending_ctx_str = fields
+            .get("pending_tool_context")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty());
+
+        let mid_turn_remaining = pending_ctx_str
+            .and_then(|s| serde_json::from_str::<Value>(s).ok())
+            .and_then(|v| {
+                v.get("remaining_tool_calls")
+                    .and_then(|r| r.as_array())
+                    .map(|arr| arr.clone())
+            })
+            .filter(|arr| !arr.is_empty());
+
+        if let Some(remaining) = mid_turn_remaining {
+            let repl_file_id = fields
+                .get("repl_file_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let pending_tool_calls = serde_json::to_string(&remaining)
+                .unwrap_or_else(|_| "[]".to_string());
+            let pending_tool_context = pending_ctx_str.unwrap_or("{}").to_string();
+
+            ctx.log(
+                "info",
+                &format!(
+                    "session_recoverer: mid-turn checkpoint detected ({} tool calls remaining), resuming into Executing",
+                    remaining.len()
+                ),
+            );
+
+            set_success_result(
+                "ResumeFromCheckpoint",
+                &json!({
+                    "pending_tool_calls": pending_tool_calls,
+                    "pending_tool_context": pending_tool_context,
+                    "repl_file_id": repl_file_id,
+                    "session_leaf_id": leaf_id,
+                }),
+            );
+        } else {
+            // No checkpoint — dispatch RecoveryComplete to re-enter the LLM loop.
+            set_success_result("RecoveryComplete", &json!({ "session_leaf_id": leaf_id }));
+        }
 
         Ok(())
     })();

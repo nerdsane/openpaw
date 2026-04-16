@@ -83,7 +83,8 @@ permit(
     Action::"PauseForApproval",
     Action::"PauseForPlanApproval",
     Action::"RecoverFromRestart",
-    Action::"RecoveryComplete"
+    Action::"RecoveryComplete",
+    Action::"ResumeFromCheckpoint"
   ],
   resource is Session
 ) when {
