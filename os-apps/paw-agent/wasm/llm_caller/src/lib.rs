@@ -4861,8 +4861,13 @@ fn load_skills_block(
         prefixes.push(format!("/agents/{agent_id}/skills/"));
     }
 
-    // Collect all SKILL.md files across all prefixes
-    let mut file_entries: Vec<(String, String)> = Vec::new(); // (file_id, path)
+    // Collect all SKILL.md files across all prefixes.
+    // Tuple: (file_id, path, workspace_id).
+    // workspace_id is threaded into the `<skill>` advertisement so the agent
+    // can resolve the skill via `temper.read(path, {workspace_id})` against
+    // the workspace the skill actually lives in — typically the shared
+    // `os-app-docs` workspace, not the session's own workspace.
+    let mut file_entries: Vec<(String, String, String)> = Vec::new();
 
     for prefix in &prefixes {
         let filter =
@@ -4879,8 +4884,12 @@ fn load_skills_block(
                         let path = entity_field_str(item, &["Path", "path"])
                             .unwrap_or("")
                             .to_string();
+                        let workspace_id =
+                            entity_field_str(item, &["WorkspaceId", "workspace_id"])
+                                .unwrap_or("")
+                                .to_string();
                         if !id.is_empty() {
-                            file_entries.push((id, path));
+                            file_entries.push((id, path, workspace_id));
                         }
                     }
                 }
@@ -4904,12 +4913,12 @@ fn load_skills_block(
     }
 
     // Read each file's content, parse frontmatter for name + description.
-    // Tuple: (norm_key, scope_priority, name, desc, path, body)
+    // Tuple: (norm_key, scope_priority, name, desc, path, workspace_id, body)
     // scope_priority: 0 = agent (most specific), 1 = project, 2 = system (least specific)
     // body: full content (sans frontmatter) for system skills; empty for others (L0 only)
-    let mut entries: Vec<(String, u8, String, String, String, String)> = Vec::new();
+    let mut entries: Vec<(String, u8, String, String, String, String, String)> = Vec::new();
 
-    for (file_id, path) in &file_entries {
+    for (file_id, path, workspace_id) in &file_entries {
         let url = format!("{temper_api_url}/tdata/Files('{file_id}')/$value");
         match ctx.http_call("GET", &url, &headers, "") {
             Ok(resp) if resp.status == 200 && !resp.body.is_empty() => {
@@ -4942,6 +4951,7 @@ fn load_skills_block(
                     name,
                     fm_desc,
                     path.clone(),
+                    workspace_id.clone(),
                     body,
                 ));
             }
@@ -4961,25 +4971,32 @@ fn load_skills_block(
     entries.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)));
     let mut seen_names = BTreeSet::new();
     let mut xml = String::from("<available_skills>\n");
-    for (norm, _priority, name, desc, skill_path, body) in &entries {
+    for (norm, _priority, name, desc, skill_path, workspace_id, body) in &entries {
         if !seen_names.insert(norm.clone()) {
             continue;
         }
+        let ws_attr = if workspace_id.is_empty() {
+            String::new()
+        } else {
+            format!(" workspace_id=\"{}\"", xml_escape(workspace_id))
+        };
         if body.is_empty() {
-            // L0: name + description + path only (project/agent-scoped skills)
+            // L0: name + description + path + workspace_id (project/agent-scoped skills).
             xml.push_str(&format!(
-                "  <skill name=\"{}\" description=\"{}\" path=\"{}\" />\n",
+                "  <skill name=\"{}\" description=\"{}\" path=\"{}\"{} />\n",
                 xml_escape(name),
                 xml_escape(desc),
                 xml_escape(skill_path),
+                ws_attr,
             ));
         } else {
-            // Full injection: system skills include their complete content
+            // Full injection: system skills include their complete content.
             xml.push_str(&format!(
-                "  <skill name=\"{}\" description=\"{}\" path=\"{}\">\n{}\n  </skill>\n",
+                "  <skill name=\"{}\" description=\"{}\" path=\"{}\"{}>\n{}\n  </skill>\n",
                 xml_escape(name),
                 xml_escape(desc),
                 xml_escape(skill_path),
+                ws_attr,
                 body,
             ));
         }
