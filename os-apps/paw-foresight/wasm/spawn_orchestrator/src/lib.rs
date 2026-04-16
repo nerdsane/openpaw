@@ -1,17 +1,31 @@
 //! Spawn Orchestrator — WASM module for the Projection.Start integration.
 //!
 //! Creates an orchestrator Agent+Session that runs the full projection loop:
-//! spawn probes, wait, converge observations, write projected state, synthesize.
+//! spawn probes, wait, converge observations, write projected state.
+//! Then delegates synthesis to a dedicated session to avoid context overflow.
 //!
 //! Build: `cargo build --target wasm32-unknown-unknown --release`
 
 use temper_wasm_sdk::prelude::*;
 
-/// The orchestration instructions embedded directly in the user_message.
-/// This avoids the TemperFS skill lookup that failed in Run 001.
-///
-/// NOTE: Uses r##"..."## delimiters to allow " and "# inside content.
-const ORCHESTRATION_INSTRUCTIONS: &str = r##"You are orchestrating a foresight projection. Follow these instructions exactly.
+/// The orchestration instructions — probes, convergence, and synthesis delegation.
+/// Run 004: synthesis is delegated to a separate session to avoid the 68KB context
+/// overflow that crashed the orchestrator in Run 003.
+const ORCHESTRATION_INSTRUCTIONS: &str = r###"You are orchestrating a foresight projection. Follow these instructions exactly.
+
+## Step 0: Store Synthesis Template
+
+Your FIRST action MUST be to save the synthesis template for later use.
+The template is the section of your instructions between ===SYNTHESIS_TEMPLATE===
+and ===END_SYNTHESIS_TEMPLATE===. Write it EXACTLY to a workspace file:
+
+```python
+# Copy the synthesis template from your instructions into a workspace file.
+# The synthesis session will read this file later.
+template_text = """PASTE THE EXACT TEXT BETWEEN ===SYNTHESIS_TEMPLATE=== AND ===END_SYNTHESIS_TEMPLATE=== HERE"""
+_tf = temper.write("synthesis_template.md", template_text)
+_ws = _tf["workspace_id"]
+```
 
 ## Setup
 
@@ -45,14 +59,136 @@ then converge their observations. Use the same spawn_probes pattern as previous 
 6. Dispatch audit actions: ProbeStepDone, ConvergenceComplete, ProjectionUpdated, AdvanceStep
 7. If not final step, write projected state and advance
 
-## CRITICAL: Final Synthesis — Data-Driven Construction
+## CRITICAL: After Probes — Delegate Synthesis (DO NOT Synthesize In-Context)
 
-After the last step completes, build the synthesis from actual observation and direction data.
-This is the MOST IMPORTANT part. The synthesis structure is MANDATORY.
+After the last step completes, DO NOT attempt to build the synthesis in this session.
+The accumulated context from probe management will overflow the WASM context parser (~64KB limit).
+Instead, delegate synthesis to a dedicated session with clean context.
+
+### Step A: Write Analysis Handoff
+
+Summarize your analytical findings. This gives the synthesis session context that
+raw observation data alone cannot provide:
+
+```python
+import json as _json
+
+all_obs = temper.list("Observations", "$filter=projection_id eq '" + projection_id + "'")
+all_dirs = temper.list("Directions", "$filter=projection_id eq '" + projection_id + "' and Status ne 'Archived'")
+
+# Count stats only — do NOT load full observation content
+obs_by_step = {}
+obs_by_probe = {}
+high_count = 0
+for o in all_obs:
+    f = o.get("fields", {})
+    step = f.get("step_at", "0")
+    probe = f.get("probe_name", f.get("probe_agent_id", "unknown"))
+    obs_by_step[step] = obs_by_step.get(step, 0) + 1
+    obs_by_probe[probe] = obs_by_probe.get(probe, 0) + 1
+    if f.get("importance") == "high":
+        high_count += 1
+
+handoff = {
+    "projection_id": projection_id,
+    "model_id": model_id,
+    "model_name": fm_name,
+    "horizon": horizon,
+    "total_observations": len(all_obs),
+    "high_importance": high_count,
+    "obs_by_step": obs_by_step,
+    "obs_by_probe": obs_by_probe,
+    "total_directions": len(all_dirs),
+    "direction_titles": [d.get("fields", {}).get("title", "") for d in all_dirs],
+    "convergence_findings": [
+        # Fill in your 3-5 key findings from convergence analysis.
+        # These inform the synthesis narrative.
+    ],
+    "cross_probe_tensions": [
+        # Fill in 2-3 places where probes disagreed or offered different perspectives.
+    ],
+    "source_thesis_challenges": [
+        # Fill in 2-3 ways probe observations challenged the source essay's claims.
+        # The synthesis session uses these for the "Source Thesis Challenges" section.
+    ]
+}
+
+_hf = temper.write("analysis_handoff.json", _json.dumps(handoff, indent=2))
+```
+
+### Step B: Create and Configure Synthesis Session
+
+Create a dedicated synthesis session and configure it with references to the template
+and handoff files. The synthesis session will run with clean context.
+
+```python
+synth_agent = temper.create("Agents", {"Name": "Synthesizer", "Role": "synthesizer"})
+synth_session = temper.create("Sessions", {"agent_id": synth_agent["entity_id"]})
+synth_sid = synth_session["entity_id"]
+
+synth_prompt = (
+    "You are synthesizing a foresight projection. Follow the template EXACTLY.\n\n"
+    "Projection ID: " + projection_id + "\n\n"
+    "## Setup\n\n"
+    "FIRST, read these two files from the orchestrator workspace:\n\n"
+    "1. Synthesis template (follow this step by step):\n"
+    "   template = temper.read('/synthesis_template.md', {'workspace_id': '" + _ws + "'})\n\n"
+    "2. Analysis handoff (use for context: convergence findings, tensions, challenges):\n"
+    "   handoff = temper.read('/analysis_handoff.json', {'workspace_id': '" + _ws + "'})\n\n"
+    "Then follow the synthesis template step by step.\n"
+    "Load observations and directions from the API using temper.list().\n"
+    "Use the analysis handoff for narrative context.\n\n"
+    "Write the complete synthesis to a file with temper.write().\n"
+    "Then dispatch Complete on the Projection:\n"
+    "  temper.action('Projections', '" + projection_id + "', 'Complete', {})\n"
+    "Then call temper.done() with the synthesis file reference.\n"
+)
+
+temper.action("Sessions", synth_sid, "Configure", {
+    "user_message": synth_prompt,
+    "model": "gpt-5.4",
+    "provider": "openai_codex",
+    "max_turns": "50",
+    "tools_enabled": "temper_get,temper_list,temper_action,temper_create,temper_write,temper_read",
+    "sandbox_url": "none"
+})
+```
+
+### Step C: Wait for Synthesis and Complete
+
+```python
+import time
+for i in range(60):
+    time.sleep(30)
+    s = temper.get("Sessions", synth_sid)
+    status = s.get("status", "")
+    result_field = s.get("fields", {}).get("result", "")
+    if status in ("Completed", "Failed") or (result_field and len(result_field) > 200):
+        break
+
+if status == "Failed":
+    temper.action("Projections", projection_id, "Fail", {"error_message": "Synthesis session failed"})
+    temper.done("Synthesis session failed: " + synth_sid)
+else:
+    temper.done("Projection complete. Synthesis session: " + synth_sid)
+```
+"###;
+
+/// The synthesis template — embedded in the orchestrator's user_message between markers.
+/// The orchestrator writes this to a workspace file at Step 0. The synthesis session reads it.
+///
+/// Run 004 changes vs Run 003:
+/// - "What Surprised Us" → "Source Thesis Challenges" (strengthened per Challenge criterion)
+/// - Added explicit instructions to use analysis handoff for narrative context
+const SYNTHESIS_TEMPLATE: &str = r###"## Foresight Synthesis Template
+
+Follow these steps to build the synthesis from observation and direction data.
 
 ### Step A: Load Data
 
 ```python
+import json as _json
+
 all_obs = temper.list("Observations", "$filter=projection_id eq '" + projection_id + "'")
 all_dirs = temper.list("Directions",
     "$filter=projection_id eq '" + projection_id + "' and Status ne 'Archived'")
@@ -86,6 +222,13 @@ for d in all_dirs:
 high_obs = [(oid, o) for oid, o in obs_data.items() if o["importance"] == "high"]
 all_obs_ids = list(obs_data.keys())
 ```
+
+Also read the analysis handoff file (provided by the orchestrator). It contains:
+- convergence_findings: key agreements across probes
+- cross_probe_tensions: where probes disagreed
+- source_thesis_challenges: ways observations challenge the source essay
+
+Use these to inform the narrative, especially Temporal Progression and Source Thesis Challenges.
 
 ### Step B: Build Key Findings
 
@@ -163,9 +306,20 @@ organizational action. "Invest in governance" is NOT acceptable. "Deploy OPA/Ced
 gates on the CI pipeline by Q3 2026" IS acceptable. Each tradeoff MUST include an estimated
 effort level (e.g., "2-4 engineering-weeks", "$50K-100K annual", "requires dedicated platform team").
 
-### Step F: What Surprised Us
+### Step F: Source Thesis Challenges
 
-Include 3-5 observations that challenge assumptions. Each must cite its obs ID.
+This section is CRITICAL for the Challenge criterion. Include 3-5 items that directly
+challenge claims in the source knowledge graph. Each MUST:
+
+- **Name the specific claim** being challenged (quote or paraphrase the source essay's thesis)
+- **Explain the mechanism** by which the claim fails, is overstated, or has a blind spot
+- **Cite evidence** from probe observations: [obs: ID]
+- At least 1 challenge MUST use evidence from OUTSIDE the source material (external signals,
+  cross-domain analogies, or data the source does not contain)
+- At least 1 challenge MUST contradict a claim the source presents with high confidence
+
+Use the "source_thesis_challenges" from the analysis handoff as starting points, but develop
+them with full mechanism-level reasoning.
 
 ### Step G: Assemble Complete Synthesis
 
@@ -175,8 +329,9 @@ The MANDATORY section order is:
 2. Key Findings (from Step B)
 3. Temporal Progression (4 phases: 0-3mo, 3-6mo, 6-9mo, 9-12mo)
    - Phases 2-4 MUST have a "Revisions to earlier predictions" subsection
+   - Each revision must explain WHAT changed and WHY — not formulaic confirm/qualify/revise
 4. Active Directions (from Step C)
-5. What Surprised Us (from Step F)
+5. Source Thesis Challenges (from Step F)
 6. Top 5 Predictions with Falsification Criteria (from Step D)
 7. Decision Points (from Step E)
 8. Assumptions & Limitations (3 assumptions with If-wrong and Confidence)
@@ -196,7 +351,7 @@ temper.done("Projection complete. Synthesis: " + result["file_id"])
 3. Every prediction MUST have a falsification condition with a date
 4. Every decision point MUST have trigger + options + tradeoffs
 5. Name real companies/tools, NOT generic categories
-6. Temporal phases 2-4 MUST revise earlier predictions
+6. Temporal phases 2-4 MUST revise earlier predictions with genuine reasoning
 7. Do NOT skip any section. Do NOT rearrange the structure.
 
 ## Content Diversity Rules (NON-NEGOTIABLE)
@@ -211,7 +366,7 @@ temper.done("Projection complete. Synthesis: " + result["file_id"])
     open-source: Aider/Cline/OpenHands; platforms: Kubernetes/Terraform/Temper).
 14. Temporal Progression phases must each introduce at least 1 NEW company or tool
     not mentioned in prior phases.
-"##;
+"###;
 
 #[unsafe(no_mangle)]
 pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
@@ -352,7 +507,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             &format!("spawn_orchestrator: created Session {session_id}"),
         );
 
-        // Build user_message
+        // Build user_message with orchestration instructions + synthesis template
         let user_message = format!(
             "IMPORTANT: You MUST use the execute tool for ALL actions. \
              ALL entity operations must go through temper.* calls inside execute.\n\n\
@@ -360,8 +515,12 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
              ForesightModel ID: {}\n\
              Model Name: {}\n\
              Horizon: {}\n\n\
-             {}",
-            entity_id, foresight_model_id, fm_name, horizon, ORCHESTRATION_INSTRUCTIONS
+             {}\n\n\
+             ===SYNTHESIS_TEMPLATE===\n\
+             {}\n\
+             ===END_SYNTHESIS_TEMPLATE===",
+            entity_id, foresight_model_id, fm_name, horizon,
+            ORCHESTRATION_INSTRUCTIONS, SYNTHESIS_TEMPLATE
         );
 
         // Configure Session
