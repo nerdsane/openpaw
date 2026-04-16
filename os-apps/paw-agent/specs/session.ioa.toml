@@ -293,6 +293,36 @@ name = "repl_file_id"
 type = "string"
 initial = ""
 
+# --- State Variables: Tool Span History (ADR-0035) ---
+# Append-only JSONL file per session recording every tool call for OTS trajectory emission.
+
+[[state]]
+name = "tool_spans_file_id"
+type = "string"
+initial = ""
+
+# --- State Variables: OTS Trajectory Emission (ADR-0035) ---
+
+[[state]]
+name = "trajectory_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "trajectory_emission_status"
+type = "string"
+initial = "pending"
+
+[[state]]
+name = "trajectory_emission_error"
+type = "string"
+initial = ""
+
+[[state]]
+name = "trajectory_retry_count"
+type = "counter"
+initial = "0"
+
 # --- State Variables: Tool Hooks (Phase 6) ---
 
 [[state]]
@@ -374,6 +404,17 @@ initial = ""
 
 [[state]]
 name = "recovery_count"
+type = "counter"
+initial = "0"
+
+# --- State Variables: Tool-Call Checkpointing (OpenPaw Track 1 Phase 3) ---
+
+# Counter of CheckpointToolBatch transitions within the current turn. Resets
+# implicitly on HandleToolResults (new turn dispatches a fresh monty_repl).
+# Used as a runaway-guard signal: monty_repl refuses to checkpoint past 50
+# (~= 1000 tool calls at chunk size 20) and fails the session instead.
+[[state]]
+name = "checkpoint_count"
 type = "counter"
 initial = "0"
 
@@ -479,11 +520,23 @@ name = "HandleToolResults"
 kind = "input"
 from = ["Executing"]
 to = "PreparingContext"
-params = ["pending_tool_calls", "conversation", "session_leaf_id", "repl_file_id", "sandbox_url", "sandbox_id", "sandbox_provider", "system_prompt_hash", "system_prompt_file_id", "pending_tool_context", "pending_decision_id"]
+params = ["pending_tool_calls", "conversation", "session_leaf_id", "repl_file_id", "tool_spans_file_id", "sandbox_url", "sandbox_id", "sandbox_provider", "system_prompt_hash", "system_prompt_file_id", "pending_tool_context", "pending_decision_id"]
 hint = "Tool results received. Increment turn, transition to PreparingContext, and assemble the next bounded provider turn."
 effect = [
   { type = "increment", var = "turn_count" },
   { type = "trigger", name = "prepare_context" }
+]
+
+[[action]]
+name = "CheckpointToolBatch"
+kind = "input"
+from = ["Executing"]
+to = "Executing"
+params = ["pending_tool_calls", "pending_tool_context", "repl_file_id", "session_leaf_id"]
+hint = "monty_repl reached a tool-batch checkpoint boundary inside run_tools. Persist partial results via `pending_tool_context` and re-dispatch run_tools with the remainder. Self-loop on Executing; increments checkpoint_count for the runaway guard. See OpenPaw Track 1 Phase 3 / openpaw#66."
+effect = [
+  { type = "increment", var = "checkpoint_count" },
+  { type = "trigger", name = "run_tools" }
 ]
 
 # --- Actions: Compaction (Phase 3) ---
@@ -552,7 +605,8 @@ params = ["result", "conversation", "session_leaf_id"]
 hint = "No steering messages queued. Set result and complete."
 effect = [
   { type = "set_bool", var = "has_result", value = "true" },
-  { type = "trigger", name = "deliver_reply" }
+  { type = "trigger", name = "deliver_reply" },
+  { type = "trigger", name = "emit_ots_trajectory" }
 ]
 
 [[action]]
@@ -635,13 +689,14 @@ name = "RecordResult"
 kind = "input"
 from = ["ApplyingProviderResponse", "Executing"]
 to = "Completed"
-params = ["result", "conversation", "input_tokens", "output_tokens", "session_leaf_id", "repl_file_id", "system_prompt_hash", "system_prompt_file_id"]
+params = ["result", "conversation", "input_tokens", "output_tokens", "session_leaf_id", "repl_file_id", "tool_spans_file_id", "system_prompt_hash", "system_prompt_file_id"]
 hint = "Session complete. Triggered by LLM end_turn or agent calling temper.done(result)."
 effect = [
   { type = "increment", var = "input_tokens" },
   { type = "increment", var = "output_tokens" },
   { type = "set_bool", var = "has_result", value = "true" },
-  { type = "trigger", name = "deliver_reply" }
+  { type = "trigger", name = "deliver_reply" },
+  { type = "trigger", name = "emit_ots_trajectory" }
 ]
 
 # --- Actions: Heartbeat (Phase 8) ---
@@ -651,8 +706,7 @@ name = "Heartbeat"
 kind = "input"
 from = ["Thinking", "PreparingContext", "CallingProvider", "ApplyingProviderResponse", "Executing", "Steering", "Compacting", "WaitingForApproval", "Recovering"]
 params = ["last_heartbeat_at"]
-hint = "Record session liveness. Called by WASM modules during long operations. Self-loop."
-effect = [{ type = "trigger", name = "heartbeat_typing" }]
+hint = "Record session liveness. Called by WASM modules during long operations. Self-loop. Typing indicator is posted inline by the caller (see wasm-helpers::send_typing_indicator) — no trigger effect, to avoid racing ProcessToolCalls callbacks on the entity sequence."
 
 [[action]]
 name = "TimeoutFail"
@@ -661,7 +715,10 @@ from = ["Thinking", "PreparingContext", "CallingProvider", "ApplyingProviderResp
 to = "Failed"
 params = ["error_message"]
 hint = "Session timed out — no heartbeat within timeout period."
-effect = [{ type = "trigger", name = "deliver_reply" }]
+effect = [
+  { type = "trigger", name = "deliver_reply" },
+  { type = "trigger", name = "emit_ots_trajectory" }
+]
 
 # --- Actions: Failure, Cancellation, Resume ---
 
@@ -672,7 +729,10 @@ from = ["Created", "Provisioning", "Thinking", "PreparingContext", "CallingProvi
 to = "Failed"
 params = ["error_message"]
 hint = "Mark session run as failed."
-effect = [{ type = "trigger", name = "deliver_reply" }]
+effect = [
+  { type = "trigger", name = "deliver_reply" },
+  { type = "trigger", name = "emit_ots_trajectory" }
+]
 
 [[action]]
 name = "Cancel"
@@ -680,7 +740,10 @@ kind = "input"
 from = ["Created", "Provisioning", "Thinking", "PreparingContext", "CallingProvider", "ApplyingProviderResponse", "Executing", "Compacting", "Steering", "WaitingForApproval", "Recovering"]
 to = "Cancelled"
 hint = "Cancel session execution."
-effect = [{ type = "trigger", name = "deliver_reply" }]
+effect = [
+  { type = "trigger", name = "deliver_reply" },
+  { type = "trigger", name = "emit_ots_trajectory" }
+]
 
 [[action]]
 name = "DeliveryFailed"
@@ -688,6 +751,37 @@ kind = "input"
 from = ["Completed", "Failed", "Cancelled"]
 params = ["error_message"]
 hint = "Reply delivery failed after the session reached a terminal state."
+
+# --- Actions: OTS Trajectory Emission (ADR-0035) ---
+# The emit_ots_trajectory integration dispatches MarkTrajectoryEmitted on success
+# (passing both trajectory_id and trajectory_emission_status="emitted" as params,
+# which the framework applies as field updates). On failure, the integration's
+# on_failure hook fires TrajectoryEmissionFailed which records the error.
+
+[[action]]
+name = "MarkTrajectoryEmitted"
+kind = "input"
+from = ["Completed", "Failed", "Cancelled"]
+params = ["trajectory_id", "trajectory_emission_status"]
+hint = "emit_ots_trajectory succeeded — record the trajectory_id and mark emission complete."
+
+[[action]]
+name = "TrajectoryEmissionFailed"
+kind = "input"
+from = ["Completed", "Failed", "Cancelled"]
+params = ["trajectory_emission_error", "trajectory_emission_status"]
+hint = "emit_ots_trajectory POST failed. Records the error so the Evolution Engine can sweep failed emissions later."
+
+[[action]]
+name = "RetryTrajectoryEmission"
+kind = "input"
+from = ["Completed", "Failed", "Cancelled"]
+guard = "trajectory_retry_count < 1"
+hint = "Manually retry OTS emission once after a prior failure. Guarded to a single retry; further failures wait for Evolution Engine sweep."
+effect = [
+  { type = "increment", var = "trajectory_retry_count" },
+  { type = "trigger", name = "emit_ots_trajectory" }
+]
 
 # --- Actions: Session Recovery (ADR-0025) ---
 
@@ -712,6 +806,15 @@ to = "PreparingContext"
 params = ["session_leaf_id"]
 hint = "Session tree repaired after restart. Re-enter bounded context preparation."
 effect = [{ type = "trigger", name = "prepare_context" }]
+
+[[action]]
+name = "ResumeFromCheckpoint"
+kind = "input"
+from = ["Recovering"]
+to = "Executing"
+params = ["pending_tool_calls", "pending_tool_context", "repl_file_id", "session_leaf_id"]
+hint = "Session was in an active tool-call checkpoint when the server restarted. Resume directly into tool execution with the preserved pending_tool_context instead of re-entering the LLM loop. See OpenPaw Track 1 Phase 3 follow-up (session_recoverer mid-turn resume)."
+effect = [{ type = "trigger", name = "run_tools" }]
 
 [[action]]
 name = "Resume"
@@ -854,7 +957,11 @@ sandbox_provider = "{secret:sandbox_provider}"
 modal_token_id = "{secret:modal_token_id}"
 modal_token_secret = "{secret:modal_token_secret}"
 timeout_secs = "900"
-max_fuel = "500000000000"
+# Raised from 50B to 120B (OpenPaw Track 1 Phase 4). Gives headroom for
+# orchestrator sessions that process many tool calls per turn; once tool-call
+# checkpointing lands (Phase 3 / openpaw#66) each chunk stays well under this
+# ceiling and the budget is rarely approached.
+max_fuel = "120000000000"
 max_memory = "268435456"
 max_response_bytes = "16777216"
 spawn_session_wait_timeout_ms = "840000"
@@ -920,21 +1027,26 @@ temper_api_url = "{secret:temper_api_url}"
 timeout_secs = "60"
 
 [[integration]]
-name = "notify_approval_needed"
-trigger = "notify_approval_needed"
+name = "emit_ots_trajectory"
+trigger = "emit_ots_trajectory"
 type = "wasm"
-module = "request_approval"
-on_failure = "Fail"
+module = "emit_ots_trajectory"
+# No on_failure — the module dispatches TrajectoryEmissionFailed itself via
+# set_success_result on HTTP failure so it can populate the custom error fields.
+# WASM panics / preflight crashes fall through without recording an OTS failure
+# signal; that's acceptable since retries can be driven manually via
+# RetryTrajectoryEmission until the Evolution Engine sweep lands.
 
 [integration.config]
 temper_api_url = "{secret:temper_api_url}"
 timeout_secs = "60"
 
 [[integration]]
-name = "heartbeat_typing"
-trigger = "heartbeat_typing"
+name = "notify_approval_needed"
+trigger = "notify_approval_needed"
 type = "wasm"
-module = "heartbeat_typing"
+module = "request_approval"
+on_failure = "Fail"
 
 [integration.config]
 temper_api_url = "{secret:temper_api_url}"

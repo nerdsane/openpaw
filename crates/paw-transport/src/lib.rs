@@ -35,7 +35,11 @@ impl PawApiClient {
     /// Create a new API client.
     pub fn new(config: PawApiConfig) -> Self {
         Self {
-            http: reqwest::Client::new(),
+            http: reqwest::Client::builder()
+                .connect_timeout(std::time::Duration::from_secs(5))
+                .timeout(std::time::Duration::from_secs(15))
+                .build()
+                .unwrap_or_else(|_| reqwest::Client::new()),
             config,
         }
     }
@@ -153,7 +157,9 @@ impl PawApiClient {
             .map_err(|e| format!("query {entity_set} failed: {e}"))?;
 
         if !resp.status().is_success() {
-            return Ok(Vec::new());
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            return Err(format!("query {entity_set} returned {status}: {body}"));
         }
 
         let body: serde_json::Value = resp
@@ -215,7 +221,128 @@ impl PawApiClient {
             req = req.header("authorization", format!("Bearer {key}"));
         } else {
             req = req.header("x-temper-principal-kind", "admin");
+            req = req.header("x-temper-principal-id", "openpaw-transport");
         }
         req
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use axum::extract::State;
+    use axum::http::{HeaderMap, StatusCode};
+    use axum::routing::{get, post};
+    use axum::{Json, Router};
+    use serde_json::json;
+    use std::sync::Arc;
+    use tokio::net::TcpListener;
+
+    use super::{PawApiClient, PawApiConfig};
+
+    #[derive(Clone, Default)]
+    struct HeaderProbe {
+        last_kind: Arc<std::sync::Mutex<Option<String>>>,
+        last_id: Arc<std::sync::Mutex<Option<String>>>,
+        last_tenant: Arc<std::sync::Mutex<Option<String>>>,
+    }
+
+    async fn spawn_test_server(app: Router) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        format!("http://{}", addr)
+    }
+
+    #[tokio::test]
+    async fn paw_api_client_without_api_key_includes_internal_admin_identity() {
+        let probe = HeaderProbe::default();
+        let app = Router::new()
+            .route(
+                "/tdata/Channels",
+                post(
+                    |State(probe): State<HeaderProbe>, headers: HeaderMap| async move {
+                        *probe.last_kind.lock().unwrap() = headers
+                            .get("x-temper-principal-kind")
+                            .and_then(|v| v.to_str().ok())
+                            .map(|v| v.to_string());
+                        *probe.last_id.lock().unwrap() = headers
+                            .get("x-temper-principal-id")
+                            .and_then(|v| v.to_str().ok())
+                            .map(|v| v.to_string());
+                        *probe.last_tenant.lock().unwrap() = headers
+                            .get("x-tenant-id")
+                            .and_then(|v| v.to_str().ok())
+                            .map(|v| v.to_string());
+
+                        (
+                            StatusCode::CREATED,
+                            Json(json!({"entity_id":"ch_123","ChannelType":"discord"})),
+                        )
+                    },
+                ),
+            )
+            .with_state(probe.clone());
+
+        let base_url = spawn_test_server(app).await;
+        let client = PawApiClient::new(PawApiConfig {
+            base_url,
+            tenant: "default".to_string(),
+            api_key: None,
+        });
+
+        let created = client
+            .create_entity("Channels", json!({"ChannelType":"discord"}))
+            .await
+            .unwrap();
+
+        assert_eq!(
+            created.get("entity_id").and_then(|v| v.as_str()),
+            Some("ch_123")
+        );
+        assert_eq!(
+            probe.last_kind.lock().unwrap().as_deref(),
+            Some("admin"),
+            "internal loopback calls should advertise admin principal kind",
+        );
+        assert_eq!(
+            probe.last_id.lock().unwrap().as_deref(),
+            Some("openpaw-transport"),
+            "internal loopback calls must include a principal id so auth middleware treats them as pre-authenticated",
+        );
+        assert_eq!(
+            probe.last_tenant.lock().unwrap().as_deref(),
+            Some("default"),
+        );
+    }
+
+    #[tokio::test]
+    async fn paw_api_query_entities_surfaces_non_success_responses() {
+        let app = Router::new().route(
+            "/tdata/Channels",
+            get(|| async move {
+                (
+                    StatusCode::UNAUTHORIZED,
+                    Json(json!({"error":"unauthorized"})),
+                )
+            }),
+        );
+        let base_url = spawn_test_server(app).await;
+        let client = PawApiClient::new(PawApiConfig {
+            base_url,
+            tenant: "default".to_string(),
+            api_key: None,
+        });
+
+        let error = client
+            .query_entities("Channels", "ChannelType eq 'discord'")
+            .await
+            .expect_err("401 responses should surface as real bootstrap errors");
+
+        assert!(
+            error.contains("query Channels returned 401"),
+            "expected status-bearing error, got: {error}"
+        );
     }
 }

@@ -227,6 +227,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             days_offset,
             &obs_json,
             &current_state_content,
+            &probe_agent_ids,
         )?;
 
         // Return no chained action — wait for ConvergenceComplete
@@ -241,6 +242,32 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
     0
 }
 
+/// Build the "PROBE TRAJECTORIES" section of the Convergence Analyst prompt.
+///
+/// The analyst receives instructions to fetch each probe's OTS trajectory via the
+/// `temper.get_trajectories` MCP tool before scoring convergence. Keeping this
+/// as a pure function enables unit tests without a live Temper context.
+fn build_trajectory_section(probe_agent_ids: &[String]) -> String {
+    if probe_agent_ids.is_empty() {
+        return String::from(
+            "== PROBE TRAJECTORIES ==\n(no probe_agent_ids available — skipping trajectory fetch)\n",
+        );
+    }
+    let mut refs = String::new();
+    refs.push_str("== PROBE TRAJECTORIES (fetch before scoring) ==\n");
+    refs.push_str(
+        "For each probe listed below, call `await temper.get_trajectories(agent_id=\"<probe_id>\", limit=3)` \
+         to retrieve its OTS decision trace. Compare tool-call sequences across probes — divergent tool \
+         paths producing similar conclusions is the strongest independent-convergence signal.\n",
+    );
+    for pid in probe_agent_ids {
+        refs.push_str(&format!(
+            "  - probe {pid}: await temper.get_trajectories(agent_id=\"{pid}\", limit=3)\n"
+        ));
+    }
+    refs
+}
+
 fn spawn_convergence_analyst(
     ctx: &Context,
     temper_api_url: &str,
@@ -250,6 +277,7 @@ fn spawn_convergence_analyst(
     days_offset: u64,
     observations_json: &str,
     current_state_content: &str,
+    probe_agent_ids: &[String],
 ) -> Result<(), String> {
     // Create Agent entity
     let agent_url = format!("{temper_api_url}/tdata/Agents");
@@ -298,6 +326,8 @@ fn spawn_convergence_analyst(
         current_state_content.to_string()
     };
 
+    let trajectory_section = build_trajectory_section(probe_agent_ids);
+
     let user_message = format!(
         "CRITICAL: When you finish ALL your work, you MUST call BOTH of these in order:\n\
          1. temper.action(\"Projections\", \"{projection_id}\", \"ConvergenceComplete\", \
@@ -311,6 +341,7 @@ fn spawn_convergence_analyst(
          {state_for_prompt}\n\n\
          == ALL OBSERVATIONS FROM STEP {current_step} ==\n\
          {obs_for_prompt}\n\n\
+         {trajectory_section}\n\
          == YOUR TASKS ==\n\n\
          For each pair of Observations from DIFFERENT Probes:\n\
          - If they independently say the same thing → temper.action(\"Observations\", \"<id>\", \"Confirm\", \
@@ -318,7 +349,11 @@ fn spawn_convergence_analyst(
          - If they contradict → temper.create(\"Observations\", {{\"content\": \"CONTRADICTION: ...\", \
            \"importance\": \"high\", \"probe_agent_id\": \"{agent_id}\", \
            \"projection_id\": \"{projection_id}\", \"step_at\": \"{current_step}\"}})\n\n\
-         Be conservative: only Confirm when genuinely saying the same thing.\n\n\
+         Be conservative: only Confirm when genuinely saying the same thing. When two\n\
+         Observations look superficially similar, fetch each probe's OTS trajectory\n\
+         above and compare their decision paths — matching wording from divergent\n\
+         tool-call sequences is strong convergence; matching wording from nearly\n\
+         identical tool-call sequences is weak signal (possible copy-paste).\n\n\
          When done analyzing, call ConvergenceComplete as instructed above, then temper.done(\"complete\")."
     );
 
@@ -343,7 +378,7 @@ fn spawn_convergence_analyst(
         "model": analyst_model,
         "provider": analyst_provider,
         "agent_name": "convergence-analyst",
-        "tools_enabled": "temper_get,temper_list,temper_action,temper_create,temper_write",
+        "tools_enabled": "temper_get,temper_list,temper_action,temper_create,temper_write,temper_get_trajectories",
         "max_turns": "40",
         "user_message": user_message,
         "sandbox_url": "none",
@@ -370,4 +405,48 @@ fn spawn_convergence_analyst(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn trajectory_section_includes_fetch_per_probe() {
+        let ids = vec![
+            "aj-probe-1".to_string(),
+            "aj-probe-2".to_string(),
+            "aj-probe-3".to_string(),
+        ];
+        let section = build_trajectory_section(&ids);
+        assert!(section.contains("PROBE TRAJECTORIES"));
+        for pid in &ids {
+            let expected = format!(
+                "await temper.get_trajectories(agent_id=\"{pid}\", limit=3)"
+            );
+            assert!(
+                section.contains(&expected),
+                "section missing fetch instruction for {pid}:\n{section}"
+            );
+        }
+    }
+
+    #[test]
+    fn trajectory_section_empty_ids_emits_skip_note() {
+        let section = build_trajectory_section(&[]);
+        assert!(section.contains("PROBE TRAJECTORIES"));
+        assert!(section.contains("skipping"));
+        assert!(!section.contains("await temper.get_trajectories"));
+    }
+
+    #[test]
+    fn trajectory_section_preserves_probe_order() {
+        let ids = vec!["aj-z".to_string(), "aj-a".to_string(), "aj-m".to_string()];
+        let section = build_trajectory_section(&ids);
+        let z_pos = section.find("aj-z").unwrap();
+        let a_pos = section.find("aj-a").unwrap();
+        let m_pos = section.find("aj-m").unwrap();
+        assert!(z_pos < a_pos);
+        assert!(a_pos < m_pos);
+    }
 }

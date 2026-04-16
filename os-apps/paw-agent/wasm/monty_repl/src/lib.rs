@@ -239,7 +239,91 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         let mut tool_results: Vec<Value> = Vec::new();
         let mut tool_span_events: Vec<Value> = Vec::new();
 
+        // Tool-batch checkpoint boundary (OpenPaw Track 1 Phase 3 / openpaw#66).
+        // Chunk size is fixed at 20; empirical fuel cost is ~400M per
+        // `temper.get`, so 20 × 400M = 8B sits comfortably under the 120B
+        // ceiling. Raise/lower by editing this constant; a future phase may
+        // promote it to integration.config.
+        const CHECKPOINT_EVERY_N: usize = 20;
+        // Runaway guard: fail the session if checkpoints accumulate past this
+        // threshold in a single turn (~1000 tool calls at chunk=20).
+        const MAX_CHECKPOINTS_PER_TURN: u64 = 50;
+
         for (i, call) in tool_calls.iter().enumerate() {
+            // Checkpoint check (before executing the i-th call). Skip on i=0
+            // because we just entered; only fire at whole chunk boundaries and
+            // only when there is actually more work after us.
+            if i > 0 && i % CHECKPOINT_EVERY_N == 0 && i < tool_calls.len() {
+                let current_ckpt: u64 = fields
+                    .get("checkpoint_count")
+                    .and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
+                    .unwrap_or(0);
+
+                if current_ckpt >= MAX_CHECKPOINTS_PER_TURN {
+                    ctx.log("error", &format!(
+                        "monty_repl: checkpoint runaway guard tripped at count={current_ckpt}, failing session"
+                    ));
+                    set_success_result(
+                        "Fail",
+                        &json!({
+                            "error_message": format!(
+                                "tool-call checkpoint budget exhausted ({current_ckpt} checkpoints in one turn; max {MAX_CHECKPOINTS_PER_TURN})"
+                            ),
+                        }),
+                    );
+                    return Ok(());
+                }
+
+                ctx.log(
+                    "info",
+                    &format!(
+                        "monty_repl: tool-batch checkpoint at i={i}, completed={}, remaining={}, checkpoint_count={current_ckpt}",
+                        prior_results.len() + tool_results.len(),
+                        tool_calls.len() - i
+                    ),
+                );
+
+                // Save REPL state to TemperFS so the re-entered invocation
+                // restarts from the same interpreter heap.
+                let saved_state = save_repl_state(&repl)?;
+                let new_repl_file_id = session::save_repl_to_file(
+                    &ctx,
+                    &temper_api_url,
+                    tenant,
+                    workspace_id,
+                    repl_file_id,
+                    &saved_state,
+                )?;
+
+                // Build checkpoint context — same shape the Cedar pause path
+                // uses, so the existing resume branch at the top of this
+                // function reads it back transparently.
+                let mut all_completed = prior_results.clone();
+                all_completed.append(&mut tool_results);
+                let remaining: Vec<Value> = tool_calls[i..].to_vec();
+                let ckpt_ctx = json!({
+                    "completed_results": all_completed,
+                    "remaining_tool_calls": remaining,
+                });
+
+                let session_leaf_id = fields
+                    .get("session_leaf_id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+
+                let params = json!({
+                    "pending_tool_calls": serde_json::to_string(&remaining)
+                        .unwrap_or_else(|_| "[]".to_string()),
+                    "pending_tool_context": serde_json::to_string(&ckpt_ctx)
+                        .unwrap_or_else(|_| "{}".to_string()),
+                    "repl_file_id": new_repl_file_id,
+                    "session_leaf_id": session_leaf_id,
+                });
+
+                set_success_result("CheckpointToolBatch", &params);
+                return Ok(());
+            }
+
             let tool_id = call.get("id").and_then(|v| v.as_str()).unwrap_or("unknown");
             let input = call.get("input").cloned().unwrap_or(json!({}));
             let code = input.get("code").and_then(|v| v.as_str()).unwrap_or("");
@@ -465,7 +549,27 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             params["sandbox_provider"] = json!(provider);
         }
         if !tool_span_events.is_empty() {
-            params["_dd_llmobs_tool_spans"] = json!(tool_span_events);
+            let existing_tool_spans_file_id = fields
+                .get("tool_spans_file_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            match session::append_tool_spans_to_file(
+                &ctx,
+                &temper_api_url,
+                tenant,
+                workspace_id,
+                existing_tool_spans_file_id,
+                &tool_span_events,
+            ) {
+                Ok(id) if !id.is_empty() => {
+                    params["tool_spans_file_id"] = json!(id);
+                }
+                Ok(_) => {}
+                Err(e) => ctx.log(
+                    "warn",
+                    &format!("monty_repl: tool_spans append failed: {e}"),
+                ),
+            }
         }
 
         // Clear Cedar approval state after successful resume so the next

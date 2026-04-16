@@ -21,6 +21,7 @@ use temper_server::event_store::ServerEventStore;
 use temper_server::registry::{EntityLevelSummary, EntityVerificationResult, VerificationStatus};
 use temper_server::registry_bootstrap::restore_registry_from_turso;
 use temper_store_turso::{TursoEventStore, TursoSpecVerificationUpdate};
+use tokio::task::JoinHandle;
 
 use crate::config::Config;
 
@@ -79,6 +80,34 @@ fn startup_discord_connect_result(result: anyhow::Result<String>) -> Option<Stri
                 "Discord transport failed during startup; continuing without Discord"
             );
             None
+        }
+    }
+}
+
+fn spawn_runtime_server(
+    listener: tokio::net::TcpListener,
+    router: axum::Router,
+) -> JoinHandle<std::io::Result<()>> {
+    tokio::spawn(async move { axum::serve(listener, router).await })
+}
+
+async fn wait_for_runtime_server(url: &str, timeout: Duration) -> Result<()> {
+    let deadline = Instant::now() + timeout;
+    let client = reqwest::Client::new();
+
+    loop {
+        match client.get(url).send().await {
+            Ok(response) if response.status().is_success() => return Ok(()),
+            Ok(_) | Err(_) if Instant::now() < deadline => {
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+            Ok(response) => {
+                anyhow::bail!(
+                    "Runtime server did not become ready: GET {url} -> {}",
+                    response.status()
+                )
+            }
+            Err(error) => anyhow::bail!("Runtime server did not become ready at {url}: {error}"),
         }
     }
 }
@@ -945,6 +974,14 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
         crate::auth::middleware,
     ));
 
+    let serve_handle = spawn_runtime_server(listener, router);
+    wait_for_runtime_server(
+        format!("http://127.0.0.1:{actual_port}/healthz").as_str(),
+        Duration::from_secs(5),
+    )
+    .await
+    .context("Open Paw HTTP API failed to become reachable during startup")?;
+
     // Spawn webhook trigger (ONE entity, ONE action per request).
     spawn_webhook_trigger(&tenant, actual_port, config.temper_api_key.clone());
 
@@ -1133,12 +1170,6 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
             crate::auth::issue_session_cookie_value(&vault_key_bytes, "bootstrap@local.openpaw")?,
         );
 
-        // Spawn server in background so OData is available during soul setup
-        let serve_handle = tokio::spawn(async move { axum::serve(listener, router).await });
-
-        // Give the server a moment to accept connections
-        tokio::time::sleep(Duration::from_millis(500)).await;
-
         if let Err(e) =
             crate::setup::run_setup_soul(actual_port, &api_key, &provider_name, &tenant, setup_auth)
                 .await
@@ -1148,7 +1179,7 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
 
         serve_handle.await??;
     } else {
-        axum::serve(listener, router).await?;
+        serve_handle.await??;
     }
 
     Ok(())
@@ -2454,12 +2485,12 @@ fn spawn_actor_passivation_loop(state: &PlatformState) {
 
 #[cfg(test)]
 mod tests {
+    use axum::Router;
     use axum::body::Body;
     use axum::extract::State;
     use axum::http::{Method, Request, StatusCode};
     use axum::response::IntoResponse;
     use axum::routing::any;
-    use axum::Router;
     use std::path::Path;
     use std::sync::{Arc, Mutex};
 
@@ -2471,7 +2502,8 @@ mod tests {
         LocalWasmStartupPolicy, RuntimeRecoveryStep, actor_passivation_check_interval_secs,
         bootstrap_soul, load_or_create_temper_api_key, local_wasm_startup_policy,
         paw_soul_content_is_personalized, runtime_recovery_plan, soul_lookup_filters,
-        startup_discord_connect_result, startup_os_apps,
+        spawn_runtime_server, startup_discord_connect_result, startup_os_apps,
+        wait_for_runtime_server,
     };
 
     #[test]
@@ -3006,8 +3038,9 @@ mod tests {
             "Dashboard should include Cedar evaluation volume."
         );
         assert!(
-            dashboard_json
-                .contains("avg:temper_turso_query_duration{service:openpaw} by {operation}.rollup(avg, 60)"),
+            dashboard_json.contains(
+                "avg:temper_turso_query_duration{service:openpaw} by {operation}.rollup(avg, 60)"
+            ),
             "Dashboard should include Turso query duration."
         );
         assert!(
@@ -3107,11 +3140,12 @@ mod tests {
             upload_attempted: Arc<Mutex<bool>>,
         }
 
-        async fn handler(
-            State(seen): State<Seen>,
-            request: Request<Body>,
-        ) -> impl IntoResponse {
-            match (request.method(), request.uri().path(), request.uri().query()) {
+        async fn handler(State(seen): State<Seen>, request: Request<Body>) -> impl IntoResponse {
+            match (
+                request.method(),
+                request.uri().path(),
+                request.uri().query(),
+            ) {
                 (&Method::GET, "/tdata/Agents('agent-1')", _) => (
                     StatusCode::OK,
                     axum::Json(serde_json::json!({
@@ -3173,5 +3207,25 @@ mod tests {
 
         assert_eq!(soul_id, "soul-1");
         assert!(!*seen.upload_attempted.lock().unwrap());
+    }
+
+    #[tokio::test]
+    async fn spawn_runtime_server_accepts_requests_before_transport_boot() {
+        use axum::{Router, routing::get};
+        use std::time::Duration;
+
+        let app = Router::new().route("/readyz", get(|| async { "ok" }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let server_handle = spawn_runtime_server(listener, app);
+        wait_for_runtime_server(
+            format!("http://{addr}/readyz").as_str(),
+            Duration::from_secs(2),
+        )
+        .await
+        .expect("runtime server should be reachable before transport boot");
+
+        server_handle.abort();
     }
 }
