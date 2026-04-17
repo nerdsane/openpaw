@@ -408,6 +408,19 @@ async fn get_secret(
         );
     }
 
+    if key == "temper_api_key" {
+        return match state.platform.api_token.clone() {
+            Some(value) => (
+                StatusCode::OK,
+                Json(serde_json::to_value(SecretValueResponse { key, value }).unwrap()),
+            ),
+            None => (
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({ "error": "Secret not found" })),
+            ),
+        };
+    }
+
     let Some(vault) = state.platform.server.secrets_vault.as_ref() else {
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
