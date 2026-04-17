@@ -1338,16 +1338,51 @@ async fn proxy_discord_interaction(
         .get("x-signature-timestamp")
         .and_then(|value| value.to_str().ok())
         .unwrap_or("");
-    let public_key = state
-        .platform
-        .server
-        .secrets_vault
-        .as_ref()
+    let vault = state.platform.server.secrets_vault.as_ref();
+    let configured_public_key = vault
         .and_then(|vault| vault.get_secret(&state.tenant, "discord_public_key"))
-        .unwrap_or_default();
+        .filter(|value| !value.trim().is_empty());
 
-    if !public_key.is_empty() && !signature.is_empty() && !timestamp.is_empty() {
-        if !verify_discord_signature(&public_key, signature, timestamp, &body) {
+    if !signature.is_empty() && !timestamp.is_empty() {
+        let mut verified_public_key = configured_public_key
+            .as_deref()
+            .filter(|public_key| verify_discord_signature(public_key, signature, timestamp, &body))
+            .map(str::to_string);
+
+        if verified_public_key.is_none() {
+            let bot_token =
+                vault.and_then(|vault| vault.get_secret(&state.tenant, "discord_bot_token"));
+            if let (Some(vault), Some(bot_token)) = (vault, bot_token) {
+                match resolve_and_persist_discord_public_key(
+                    vault,
+                    &state.turso_store,
+                    &state.tenant,
+                    &bot_token,
+                    configured_public_key.as_deref(),
+                )
+                .await
+                {
+                    Ok(refreshed_public_key)
+                        if verify_discord_signature(
+                            &refreshed_public_key,
+                            signature,
+                            timestamp,
+                            &body,
+                        ) =>
+                    {
+                        if configured_public_key.as_deref() != Some(refreshed_public_key.as_str()) {
+                            tracing::info!(
+                                "Healed stale Discord verify_key during public endpoint verification"
+                            );
+                        }
+                        verified_public_key = Some(refreshed_public_key);
+                    }
+                    Ok(_) | Err(_) => {}
+                }
+            }
+        }
+
+        if verified_public_key.is_none() {
             tracing::warn!("Discord interaction signature verification failed at public endpoint");
             return (
                 StatusCode::UNAUTHORIZED,
@@ -1426,6 +1461,33 @@ async fn proxy_discord_interaction(
     }
 }
 
+pub(crate) async fn resolve_and_persist_discord_public_key(
+    vault: &Arc<temper_server::secrets::SecretsVault>,
+    turso_store: &TursoEventStore,
+    tenant: &str,
+    bot_token: &str,
+    configured_public_key: Option<&str>,
+) -> Result<String> {
+    let public_key =
+        crate::discord_app::resolve_verify_key(bot_token, configured_public_key).await?;
+    persist_discord_public_key(vault, turso_store, tenant, &public_key).await;
+    Ok(public_key)
+}
+
+async fn persist_discord_public_key(
+    vault: &Arc<temper_server::secrets::SecretsVault>,
+    turso_store: &TursoEventStore,
+    tenant: &str,
+    public_key: &str,
+) {
+    let _ = vault.cache_secret(tenant, "discord_public_key", public_key.to_string());
+    if let Ok((ct, nc)) = vault.encrypt(public_key.as_bytes()) {
+        let _ = turso_store
+            .upsert_secret(tenant, "discord_public_key", &ct, &nc)
+            .await;
+    }
+}
+
 fn is_discord_ping(body: &[u8]) -> bool {
     #[derive(Deserialize)]
     struct InteractionEnvelope {
@@ -1489,21 +1551,35 @@ async fn connect_discord(
     State(state): State<SetupApiState>,
     Json(req): Json<DiscordConnectRequest>,
 ) -> impl IntoResponse {
-    let resolved_public_key =
-        match crate::discord_app::resolve_verify_key(&req.bot_token, req.public_key.as_deref())
-            .await
-        {
-            Ok(public_key) => public_key,
-            Err(error) => {
-                return (
-                    StatusCode::BAD_REQUEST,
-                    Json(serde_json::json!({
-                        "error": error.to_string()
-                    })),
-                )
-                    .into_response();
-            }
-        };
+    let Some(vault) = state.platform.server.secrets_vault.as_ref() else {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({
+                "error": "secrets vault is not configured"
+            })),
+        )
+            .into_response();
+    };
+    let resolved_public_key = match resolve_and_persist_discord_public_key(
+        vault,
+        &state.turso_store,
+        &state.tenant,
+        &req.bot_token,
+        req.public_key.as_deref(),
+    )
+    .await
+    {
+        Ok(public_key) => public_key,
+        Err(error) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "error": error.to_string()
+                })),
+            )
+                .into_response();
+        }
+    };
 
     match state
         .transport_manager
@@ -1518,41 +1594,26 @@ async fn connect_discord(
     {
         Ok(interaction_url) => {
             // Save Discord config to vault + Turso only after the endpoint is valid enough to start.
-            if let Some(vault) = state.platform.server.secrets_vault.as_ref() {
-                let _ =
-                    vault.cache_secret(&state.tenant, "discord_bot_token", req.bot_token.clone());
-                if let Ok((ct, nc)) = vault.encrypt(req.bot_token.as_bytes()) {
-                    let _ = state
-                        .turso_store
-                        .upsert_secret(&state.tenant, "discord_bot_token", &ct, &nc)
-                        .await;
-                }
+            let _ = vault.cache_secret(&state.tenant, "discord_bot_token", req.bot_token.clone());
+            if let Ok((ct, nc)) = vault.encrypt(req.bot_token.as_bytes()) {
+                let _ = state
+                    .turso_store
+                    .upsert_secret(&state.tenant, "discord_bot_token", &ct, &nc)
+                    .await;
+            }
 
-                let _ = vault.cache_secret(
-                    &state.tenant,
-                    "discord_public_key",
-                    resolved_public_key.clone(),
-                );
-                if let Ok((ct, nc)) = vault.encrypt(resolved_public_key.as_bytes()) {
-                    let _ = state
-                        .turso_store
-                        .upsert_secret(&state.tenant, "discord_public_key", &ct, &nc)
-                        .await;
-                }
-
-                for (key, value) in [
-                    ("discord_guild_id", req.guild_id.clone()),
-                    ("discord_feed_channel_id", req.feed_channel_id.clone()),
-                    ("discord_forum_channel_id", req.forum_channel_id.clone()),
-                ] {
-                    if let Some(value) = value {
-                        let _ = vault.cache_secret(&state.tenant, key, value.clone());
-                        if let Ok((ct, nc)) = vault.encrypt(value.as_bytes()) {
-                            let _ = state
-                                .turso_store
-                                .upsert_secret(&state.tenant, key, &ct, &nc)
-                                .await;
-                        }
+            for (key, value) in [
+                ("discord_guild_id", req.guild_id.clone()),
+                ("discord_feed_channel_id", req.feed_channel_id.clone()),
+                ("discord_forum_channel_id", req.forum_channel_id.clone()),
+            ] {
+                if let Some(value) = value {
+                    let _ = vault.cache_secret(&state.tenant, key, value.clone());
+                    if let Ok((ct, nc)) = vault.encrypt(value.as_bytes()) {
+                        let _ = state
+                            .turso_store
+                            .upsert_secret(&state.tenant, key, &ct, &nc)
+                            .await;
                     }
                 }
             }
@@ -1631,9 +1692,13 @@ async fn disconnect_slack(State(state): State<SetupApiState>) -> Json<serde_json
 mod tests {
     use super::{
         allowed_secret_keys, discord_connect_params_for_secret_update, is_discord_ping,
-        personalized_soul_flag_value, secrets_schema, verify_discord_signature,
+        persist_discord_public_key, personalized_soul_flag_value, secrets_schema,
+        verify_discord_signature,
     };
     use ed25519_dalek::{Signer, SigningKey};
+    use std::sync::Arc;
+    use temper_server::secrets::SecretsVault;
+    use temper_store_turso::TursoEventStore;
 
     #[test]
     fn discord_secret_update_builds_reconnect_params_when_config_is_complete() {
@@ -1713,6 +1778,44 @@ mod tests {
         assert!(is_discord_ping(br#"{"type":1}"#));
         assert!(!is_discord_ping(br#"{"type":3}"#));
         assert!(!is_discord_ping(br#"not-json"#));
+    }
+
+    #[tokio::test]
+    async fn discord_public_key_persistence_updates_vault_and_turso() {
+        let tempdir = tempfile::tempdir().expect("tempdir");
+        let db_path = tempdir.path().join("setup-api.db");
+        let turso_store = TursoEventStore::new(&format!("file:{}", db_path.display()), None)
+            .await
+            .expect("local turso store");
+        let vault = Arc::new(SecretsVault::new(&[9u8; 32]));
+        let tenant = "default";
+        let refreshed_public_key =
+            "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+
+        persist_discord_public_key(&vault, &turso_store, tenant, refreshed_public_key).await;
+        assert_eq!(
+            vault.get_secret(tenant, "discord_public_key").as_deref(),
+            Some(refreshed_public_key)
+        );
+
+        let rows = turso_store
+            .load_secrets_for_tenant(tenant)
+            .await
+            .expect("load tenant secrets");
+        let stored_public_key = rows
+            .into_iter()
+            .find_map(|(key_name, ciphertext, nonce)| {
+                (key_name == "discord_public_key").then(|| {
+                    vault
+                        .decrypt(&ciphertext, &nonce)
+                        .expect("decrypt public key")
+                })
+            })
+            .expect("persisted public key");
+        assert_eq!(
+            String::from_utf8(stored_public_key).expect("utf8 public key"),
+            refreshed_public_key
+        );
     }
 
     #[test]
