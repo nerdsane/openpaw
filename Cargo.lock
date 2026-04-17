@@ -7822,3 +7822,11 @@ dependencies = [
  "cc",
  "pkg-config",
 ]
+
+[[patch.unused]]
+name = "temper-macros"
+version = "0.1.0"
+
+[[patch.unused]]
+name = "temper-wasm-sdk"
+version = "0.1.0"
