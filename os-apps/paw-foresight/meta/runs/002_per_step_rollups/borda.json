@@ -1,0 +1,83 @@
+{
+  "methodology_note": "3 judges, side-by-side blind comparison. Borda: winner=2pts, loser=1pt, tie=1.5. Max per output = judges \u00d7 criteria \u00d7 2.",
+  "judges_counted": 3,
+  "challenger_borda": 53.5,
+  "incumbent_borda": 54.5,
+  "max_per_output": 72,
+  "winner": "incumbent",
+  "per_criterion": [
+    {
+      "criterion": "Specificity",
+      "challenger": 5.5,
+      "incumbent": 3.5,
+      "delta": 2.0
+    },
+    {
+      "criterion": "Novelty",
+      "challenger": 4.0,
+      "incumbent": 5.0,
+      "delta": -1.0
+    },
+    {
+      "criterion": "Falsifiability",
+      "challenger": 4.5,
+      "incumbent": 4.5,
+      "delta": 0.0
+    },
+    {
+      "criterion": "Breadth",
+      "challenger": 4.0,
+      "incumbent": 5.0,
+      "delta": -1.0
+    },
+    {
+      "criterion": "Plausibility",
+      "challenger": 4.5,
+      "incumbent": 4.5,
+      "delta": 0.0
+    },
+    {
+      "criterion": "Progression",
+      "challenger": 4.5,
+      "incumbent": 4.5,
+      "delta": 0.0
+    },
+    {
+      "criterion": "Actionability",
+      "challenger": 4.5,
+      "incumbent": 4.5,
+      "delta": 0.0
+    },
+    {
+      "criterion": "Decision Clarity",
+      "challenger": 4.5,
+      "incumbent": 4.5,
+      "delta": 0.0
+    },
+    {
+      "criterion": "Completeness",
+      "challenger": 4.5,
+      "incumbent": 4.5,
+      "delta": 0.0
+    },
+    {
+      "criterion": "Grounding",
+      "challenger": 4.5,
+      "incumbent": 4.5,
+      "delta": 0.0
+    },
+    {
+      "criterion": "Challenge",
+      "challenger": 4.5,
+      "incumbent": 4.5,
+      "delta": 0.0
+    },
+    {
+      "criterion": "Information Density",
+      "challenger": 4.0,
+      "incumbent": 5.0,
+      "delta": -1.0
+    }
+  ],
+  "run_dir": "os-apps/paw-foresight/meta/runs/002_per_step_rollups"
+}

@@ -213,12 +213,112 @@ Report convergence:
 temper.action("Projections", projection_id, "ConvergenceComplete", {})
 ```
 
-## Step 5: Write Projected State
+## Step 5: Write Projected State AND the Step Rollup
 
-If this is NOT the final step, synthesize an evolved world state.
+**You MUST produce TWO artifacts at the end of every step, in this exact order:**
 
-Read all observations and directions from ALL steps so far. Synthesize what the world
-looks like at `days_offset` days from now.
+1. `step_{step}_rollup.md` — a structured per-step narrative rollup (see schema below).
+2. `projected_state_step_{step}.json` — the evolved world state (skipped on the final step).
+
+The rollup is the primary progression artifact. Every step writes one. The final
+synthesis will not re-author temporal progression — it will COMPOSE from these
+rollups in order. Skipping a rollup or deviating from the four-section schema
+breaks the synthesis contract.
+
+### Step 5a: Write `step_{step}_rollup.md` (EVERY step, including the final one)
+
+Read all observations and directions for THIS step, and (for step > 0) read the
+prior step's rollup so you know what to confirm/revise/falsify.
+
+```python
+# Read this step's observations and directions
+step_obs = temper.list("Observations",
+    f"$filter=projection_id eq '{projection_id}' and step_at eq '{step}'")
+step_dirs = temper.list("Directions",
+    f"$filter=projection_id eq '{projection_id}' and step_at eq '{step}'")
+
+# Read the prior rollup (step > 0 only) so you can confirm/revise/falsify from it
+prior_rollup = ""
+if step > 0:
+    try:
+        prior_rollup = temper.read(f"step_{step - 1}_rollup.md")
+    except Exception:
+        prior_rollup = ""  # step 0 absence is OK; a missing prior rollup means nothing to revise
+```
+
+The rollup file is plain Markdown with EXACTLY the four sections below, in this
+order, using these exact heading strings. Step 0 writes only section 1 (no prior
+steps exist). Later steps MUST include all four — leave a section empty with an
+explicit "None." line if nothing qualifies; do not omit the heading.
+
+```markdown
+# Step {step} Rollup — day {days_offset} of {horizon}
+
+## New predictions this step
+- **{Title}** — {1-2 sentence prediction stated so it can be checked after the fact.}
+  - Evidence: {observation IDs that support this, cite obs: en-...}
+  - Mechanism: {why this will happen — causal chain in one sentence}
+  - Falsification: {what would make this wrong, stated as an observable condition}
+
+## Confirmed from prior steps
+- **{Prior prediction title, quoted from step {step-1} rollup}** — this step's evidence strengthens it.
+  - New supporting evidence: {observation IDs or external signal URLs this step surfaced}
+  - Why it's now more credible: {one sentence}
+
+## Revised from prior steps
+- **{Prior prediction title}** — was: "{exact quote of prior prediction}". Now: "{new wording}".
+  - What changed: {wording / scope / threshold / timeline — name which}
+  - Mechanism that forced the revision: {observation ID or external signal}
+
+## Falsified from prior steps
+- **{Prior prediction title}** — was: "{exact quote}". This step breaks it.
+  - Falsifying evidence: {observation ID or external signal URL}
+  - Why the prior prediction fails: {one sentence — which assumption broke}
+```
+
+Rules for the rollup:
+- Step 0 writes the file with only `## New predictions this step` populated. The other
+  three section headings should be present with `None. (no prior step to revise.)`
+  under each, so every rollup has the same shape.
+- In later steps, Confirmed/Revised/Falsified items MUST quote the prior step's
+  prediction title exactly so a reader can trace the chain across files.
+- If nothing was confirmed/revised/falsified this step, leave the heading and
+  write `None. {one sentence explaining why — "no prior predictions touched X"}`.
+  Do NOT omit the heading.
+- The rollup is EVIDENCE-FIRST: every new prediction must name at least one
+  observation ID from this step; every confirmation/revision/falsification must
+  cite the mechanism from this step's evidence pool.
+
+Write the rollup:
+```python
+rollup_body = """# Step {step} Rollup — day {days_offset} of {horizon}
+
+## New predictions this step
+{new_section}
+
+## Confirmed from prior steps
+{confirmed_section}
+
+## Revised from prior steps
+{revised_section}
+
+## Falsified from prior steps
+{falsified_section}
+""".format(
+    step=step, days_offset=days_offset, horizon=horizon,
+    new_section=new_section,
+    confirmed_section=confirmed_section or "None. (no prior step to revise.)" if step == 0 else confirmed_section,
+    revised_section=revised_section or "None. (no prior step to revise.)" if step == 0 else revised_section,
+    falsified_section=falsified_section or "None. (no prior step to revise.)" if step == 0 else falsified_section,
+)
+
+temper.write(f"step_{step}_rollup.md", rollup_body)
+```
+
+### Step 5b: Write projected state and dispatch ProjectionUpdated (non-final steps only)
+
+If this is NOT the final step, synthesize an evolved world state. Read all
+observations and directions from ALL steps so far.
 
 ```python
 if step < max_steps - 1:
@@ -383,7 +483,12 @@ Then create new Direction with parent_direction_id = "{old_direction_id}"
 
 ## Final Synthesis
 
-After the last step completes, produce a human-readable synthesis:
+After the last step completes, produce a human-readable synthesis. **Temporal
+Progression is COMPOSED from the per-step rollup files you wrote in Step 5 —
+you do NOT author a new phase narrative here.** This is a contract: the
+rollups are the canonical chain of revisions; the synthesis is their
+composition plus the surrounding framing (executive summary, findings,
+directions, decisions).
 
 ```python
 # Read all final observations and directions
@@ -391,16 +496,52 @@ all_obs = temper.list("Observations", f"$filter=projection_id eq '{projection_id
 all_dirs = temper.list("Directions",
     f"$filter=projection_id eq '{projection_id}' and Status ne 'Archived'")
 
-# Write a synthesis narrative
+# Read every step's rollup — one per step, in order. Missing rollups are a
+# contract violation; surface them rather than silently skipping.
+step_rollups = []
+for s in range(max_steps):
+    try:
+        body = temper.read(f"step_{s}_rollup.md")
+    except Exception:
+        body = f"(step_{s}_rollup.md missing — contract violation; the orchestrator failed to write this step's rollup.)"
+    # Extract the days_offset for this step's heading
+    s_day = step_schedule[s] if s < len(step_schedule) else step_schedule[-1]
+    step_rollups.append((s, s_day, body))
+```
+
+Build the synthesis. The **Temporal Progression** section is assembled by
+concatenating the per-step rollups under step-scoped headings. Do NOT
+paraphrase, compress, or rewrite the rollup bodies — copy them verbatim
+under their step heading so the reader can diff step N against step N+1.
+
+```python
+# Compose the Temporal Progression section from the rollups, verbatim
+progression_sections = []
+for (s, s_day, body) in step_rollups:
+    progression_sections.append(
+        f"### Step {s} (day {s_day} of {horizon})\n\n{body.strip()}\n"
+    )
+temporal_progression = "\n".join(progression_sections)
+
 synthesis = f"""# Foresight Projection: {model_name}
 ## Horizon: {horizon} | Steps: {max_steps}
 ## Date: {today}
 
 ### Executive Summary
-[2-3 paragraph synthesis of the most important findings]
+[2-3 paragraph synthesis of the most important findings. Reference the
+progression chain — name at least one prior-step prediction that was
+revised or falsified in a later step, and why that revision matters.]
 
 ### Key Findings
 [Bulleted list of the strongest convergent observations]
+
+### Temporal Progression
+[Composed from the per-step rollups below. Do NOT rewrite them — the rollups
+ARE the progression record. Include a one-paragraph preface noting which
+steps produced the most consequential revisions/falsifications, then include
+each rollup verbatim.]
+
+{temporal_progression}
 
 ### Active Directions
 [For each active direction: title + FULL reasoning text from the direction entity.
@@ -408,7 +549,8 @@ Do NOT truncate reasoning. Include the complete text as stored in the direction'
 "reasoning" field. Each direction should have its full argument, not a summary.]
 
 ### What Surprised Us
-[Observations that challenged initial assumptions]
+[Observations that challenged initial assumptions. Reference specific
+falsifications from the Temporal Progression section when relevant.]
 
 ### Decision Points
 [Actionable recommendations with timing triggers]
@@ -417,6 +559,7 @@ Do NOT truncate reasoning. Include the complete text as stored in the direction'
 - {len(probe_config)} independent probes per step
 - {max_steps} time steps over {horizon}
 - {len(all_obs)} total observations, {len(all_dirs)} total directions
+- Temporal Progression composed from {len(step_rollups)} per-step rollup files
 """
 
 result = temper.write(f"projection_synthesis_{projection_id}.md", synthesis)
@@ -425,6 +568,13 @@ result = temper.write(f"projection_synthesis_{projection_id}.md", synthesis)
 temper.action("Projections", projection_id, "Complete", {})
 temper.done(f"Projection complete. Synthesis: {result['file_id']}")
 ```
+
+**Contract check before calling Complete:** the synthesis MUST contain a
+`### Temporal Progression` section followed by one `### Step N (day X of
+{horizon})` sub-heading per step, each containing the four-section rollup
+body verbatim. If the rollups are missing or the composition was skipped,
+do not dispatch Complete — instead write an error note to workspace and
+dispatch `Fail` with `error_message` naming the missing artifacts.
 
 ## Error Handling
 

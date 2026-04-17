@@ -1,0 +1,193 @@
+{
+  "criteria": [
+    {
+      "criterion": "Specificity",
+      "output_x_score": 2,
+      "output_y_score": 3,
+      "reasoning": "Both name real actors and dates. Y carries more hard, externally-anchored quantitative anchors (pricing tiers, 500 verified instances, 1-30 minute task windows, specific launch dates); X has specific dates and some thresholds but fewer externally-grounded hard numbers, and several thresholds are self-constructed.",
+      "evidence_x": [
+        "By 2026-06-30, enterprise agent platforms standardize on a two-lane operating model",
+        "~50% non-merge rate for benchmark-passing PRs",
+        "if review time per agent PR exceeds human-authored PR review time by 25% for two quarters"
+      ],
+      "evidence_y": [
+        "Cursor's public pricing shows a ladder from Pro at $20 per month to Pro+ at $60 per month and Ultra at $200 per month",
+        "human-validated subset of only 500 instances",
+        "each task runs in its own isolated environment... usually takes 1-30 minutes",
+        "OpenAI positioned Codex on May 16, 2025... and by June 3, 2025 added broader availability"
+      ]
+    },
+    {
+      "criterion": "Novelty",
+      "output_x_score": 2,
+      "output_y_score": 2,
+      "reasoning": "Both offer a few original reframings (X: OrgAgent-style layered institution, role bifurcation; Y: industrial automation cells, mixed control stacks beating convergence). Neither introduces a framework that reframes the domain beyond recognizable extensions of the input.",
+      "evidence_x": [
+        "OrgAgent-style hierarchy predicts the year-one operating model better than flat-agent rhetoric",
+        "Verification becomes the ecosystem carrying capacity",
+        "labor-market effect looked more like role bifurcation than replacement"
+      ],
+      "evidence_y": [
+        "Industrial-automation analogies explain the market better than artisan-programmer analogies",
+        "mixed stacks are winning because the operational boundary is fragmented",
+        "managerial decomposition and approval bandwidth are becoming a harder limit than model quality"
+      ]
+    },
+    {
+      "criterion": "Falsifiability",
+      "output_x_score": 4,
+      "output_y_score": 4,
+      "reasoning": "Both outputs include the explicit 'If X has not happened by [date], this prediction is wrong because [reason]' form across all five predictions, with measurable indicators.",
+      "evidence_x": [
+        "If by 2026-06-30 most production deployments still rely on a single interactive agent mode without a separate queued sandbox execution path, this prediction is wrong because the expected workload split and parallelization mechanism did not materialize"
+      ],
+      "evidence_y": [
+        "If no major source-control platform has shipped named Anthropic/OpenAI admin gating by 2026-06-30, this prediction is wrong because governance will have remained an add-on rather than a platform default"
+      ]
+    },
+    {
+      "criterion": "Breadth",
+      "output_x_score": 3,
+      "output_y_score": 2,
+      "reasoning": "X covers 6+ themes with explicit system-level cross-theme interactions (verification carrying capacity links governance, economics, organizational layers). Y covers similar themes but treats them more as parallel findings with fewer interactions where one theme's outcome depends on another.",
+      "evidence_x": [
+        "8 finding themes: technical architecture, evaluation/testing, governance/policy, model/vendor, economics/market, cross-domain, organizational/adoption",
+        "verification, not generation, is the carrying capacity of the ecosystem",
+        "Economic selection pressure is shifting Directed Software Evolution from a tooling story to a coordination-cost story"
+      ],
+      "evidence_y": [
+        "8 finding themes but mostly treated as separate axioms",
+        "Cedar and OPA are important, but mixed control stacks are beating single-engine convergence",
+        "Managerial decomposition and approval bandwidth are becoming a harder limit"
+      ]
+    },
+    {
+      "criterion": "Plausibility",
+      "output_x_score": 2,
+      "output_y_score": 2,
+      "reasoning": "Both cite observations throughout and include confidence tags on predictions/assumptions. Neither consistently states what would change confidence for each substantive claim; grounding is mostly via citation rather than complete assumption-tracking.",
+      "evidence_x": [
+        "Confidence: high / medium / medium-high on predictions and assumptions",
+        "Assumption: Verification throughput remains the primary bottleneck"
+      ],
+      "evidence_y": [
+        "Confidence: high / medium / medium-high on predictions and assumptions",
+        "Assumption: Enterprise buyers continue to prefer legible, policy-wrapped autonomy"
+      ]
+    },
+    {
+      "criterion": "Progression",
+      "output_x_score": 2,
+      "output_y_score": 2,
+      "reasoning": "Both split into 0-3, 3-6, 6-9, 9-12mo phases with 'Revisions to earlier predictions' subsections. Revisions qualify earlier claims but mostly strengthen or add detail rather than showing later phases causally depending on earlier ones; the timeline develops more than the analysis does.",
+      "evidence_x": [
+        "The early belief that more orchestration automatically means more progress is revised downward",
+        "Predictions of flat autonomous swarms are revised toward layered institutions"
+      ],
+      "evidence_y": [
+        "Step 1 rollup revised the step-0 claim... into a mixed-stack claim",
+        "Step 1 rollup strengthened the step-0 evaluation bottleneck claim"
+      ]
+    },
+    {
+      "criterion": "Actionability",
+      "output_x_score": 3,
+      "output_y_score": 3,
+      "reasoning": "Both provide three decision points with A/B/C options, timing triggers, engineering-week cost estimates, and recommendations. Tradeoffs are named but remain somewhat generic rather than consistently quantifying risk/cost; neither reaches the full named-decider-and-concrete-tradeoff bar.",
+      "evidence_x": [
+        "Option A: Deploy Cedar policy gates... Tradeoff: 3-5 engineering-weeks",
+        "Timing trigger: First production incident review involving agent-written code or by 2026-07"
+      ],
+      "evidence_y": [
+        "Option A: deploy Cedar policy gates on product actions... Tradeoff: 3-5 engineering-weeks",
+        "Option C: outsource evaluation... Tradeoff: $50K-150K annual"
+      ]
+    },
+    {
+      "criterion": "Decision Clarity",
+      "output_x_score": 2,
+      "output_y_score": 2,
+      "reasoning": "Both structure findings and recommendations but neither opens with the single most important decision, its deadline, and its quantified tradeoff; the #1 action must still be inferred from the decision points section.",
+      "evidence_x": [
+        "Executive Summary opens with a thesis about governed stacks, not a named top decision"
+      ],
+      "evidence_y": [
+        "Executive Summary opens with a thesis about governed production cells, not a named top decision"
+      ]
+    },
+    {
+      "criterion": "Completeness",
+      "output_x_score": 2,
+      "output_y_score": 2,
+      "reasoning": "Both cover the full pipeline (findings, progression, directions, predictions, decisions, assumptions, limitations, confidence, if-wrong). Neither includes a 'what would change my mind' for each major claim, so they fall short of 3 by the strict anchor.",
+      "evidence_x": [
+        "If-wrong: A sharp jump in long-horizon reliability would make current emphasis on harnesses... look temporarily overbuilt"
+      ],
+      "evidence_y": [
+        "If-wrong: Cheap, broad, trustworthy evaluation could unlock more aggressive autonomy sooner than projected"
+      ]
+    },
+    {
+      "criterion": "Grounding",
+      "output_x_score": 2,
+      "output_y_score": 2,
+      "reasoning": "Both attach observation citations generously, but many reasoning chains stop at citation-plus-assertion rather than explicit evidence\u2192mechanism\u2192conclusion. Gaps exist where a claim like 'verification carrying capacity' or 'mixed control stacks win' is asserted more than derived.",
+      "evidence_x": [
+        "3 distinct control layers\u2014allocation, execution, compliance\u2014appear in successful platform designs",
+        "verification, not generation, is the carrying capacity of the ecosystem"
+      ],
+      "evidence_y": [
+        "at least 5 active layers named: repo permissions, CI, Kubernetes, Terraform, and agent-local permissions",
+        "mixed stacks are winning because the operational boundary is fragmented"
+      ]
+    },
+    {
+      "criterion": "Challenge",
+      "output_x_score": 2,
+      "output_y_score": 2,
+      "reasoning": "Both largely align with the source thesis of governed augmentation and identify tensions (X: mergeability failure, opaque-diff backlash; Y: revision of Cedar/OPA centrality). Neither makes a prediction that substantively contradicts the source with an alternative mechanism; revisions are refinements, not overturns.",
+      "evidence_x": [
+        "developer backlash against opaque provenance: reviewability and reversibility became adoption gates",
+        "manager-agent accumulation can become a bottleneck"
+      ],
+      "evidence_y": [
+        "The most important revision from the projection is that policy does not centralize cleanly into Cedar or OPA alone",
+        "revises the step-0 emphasis on Cedar/OPA as the likely center of gravity"
+      ]
+    },
+    {
+      "criterion": "Information Density",
+      "output_x_score": 2,
+      "output_y_score": 2,
+      "reasoning": "Both have distinct content in findings and predictions, but the Active Directions sections contain noticeable overlap (multiple directions restating the governed-harness thesis with different framing). Claims contribute information but could be merged without loss.",
+      "evidence_x": [
+        "Five active directions all orbit the same harness/institution thesis with overlapping framing",
+        "governed acceleration / layered institutions / governed augmentation stack"
+      ],
+      "evidence_y": [
+        "Six active directions largely restate harness-governed, mixed-policy thesis with different phrasing",
+        "harness-governed agent pipelines / harness-first platforms / governed agent-factory market / mixed policy gates"
+      ]
+    }
+  ],
+  "demotions": [
+    {
+      "criterion": "Specificity",
+      "original": 3,
+      "demoted_to": 2,
+      "reason": "3+ cap rule"
+    },
+    {
+      "criterion": "Completeness",
+      "original": 3,
+      "demoted_to": 2,
+      "reason": "3+ cap rule"
+    },
+    {
+      "criterion": "Progression",
+      "original": 3,
+      "demoted_to": 2,
+      "reason": "3+ cap rule"
+    }
+  ]
+}
