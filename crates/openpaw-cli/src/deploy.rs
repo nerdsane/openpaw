@@ -122,9 +122,29 @@ pub async fn run_deploy() -> Result<()> {
     cliclack::log::step("Creating Railway project (free tier: 512 MB RAM, 1 vCPU)...")?;
     create_railway_project_idempotent(&project_name)?;
 
-    // Generate a stable vault key so encrypted secrets survive across container redeploys.
-    // Railway has no persistent disk, so the key must live as an env var.
-    let vault_key_b64 = generate_vault_key_b64();
+    let existing_openpaw_vars = load_service_variables("openpaw").unwrap_or_default();
+    let vault_key_b64 = existing_openpaw_vars
+        .get("TEMPER_VAULT_KEY")
+        .filter(|value| !value.trim().is_empty())
+        .cloned()
+        .unwrap_or_else(|| {
+            let generated = generate_vault_key_b64();
+            let _ = cliclack::log::info(
+                "Generated TEMPER_VAULT_KEY for this environment (it will be reused on later deploys).",
+            );
+            generated
+        });
+    let temper_api_key = existing_openpaw_vars
+        .get("TEMPER_API_KEY")
+        .filter(|value| !value.trim().is_empty())
+        .cloned()
+        .unwrap_or_else(|| {
+            let generated = generate_temper_api_key();
+            let _ = cliclack::log::info(
+                "Generated TEMPER_API_KEY for this environment (it will be reused on later deploys).",
+            );
+            generated
+        });
 
     let mut variables = vec![
         format!("TURSO_URL={turso_url}"),
@@ -133,6 +153,7 @@ pub async fn run_deploy() -> Result<()> {
         format!("BLOB_BUCKET={bucket_name}"),
         format!("BLOB_ACCESS_KEY={blob_access_key}"),
         format!("BLOB_SECRET_KEY={blob_secret_key}"),
+        format!("TEMPER_API_KEY={temper_api_key}"),
         format!("TEMPER_VAULT_KEY={vault_key_b64}"),
     ];
 
@@ -351,6 +372,74 @@ fn generate_vault_key_b64() -> String {
         }
     }
     out
+}
+
+/// Generate a hex-encoded 32-byte API key.
+fn generate_temper_api_key() -> String {
+    use std::io::Read;
+
+    let mut key = [0u8; 32];
+    std::fs::File::open("/dev/urandom")
+        .and_then(|mut f| f.read_exact(&mut key))
+        .unwrap_or_else(|_| {
+            use std::time::{SystemTime, UNIX_EPOCH};
+            let seed = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos();
+            for (i, byte) in key.iter_mut().enumerate() {
+                *byte = ((seed >> (i % 16)) ^ (i as u128 * 131)) as u8;
+            }
+        });
+
+    let mut out = String::with_capacity(key.len() * 2);
+    for byte in key {
+        let hi = (byte >> 4) & 0x0f;
+        let lo = byte & 0x0f;
+        out.push(nibble_to_hex(hi));
+        out.push(nibble_to_hex(lo));
+    }
+    out
+}
+
+fn nibble_to_hex(nibble: u8) -> char {
+    match nibble {
+        0..=9 => (b'0' + nibble) as char,
+        10..=15 => (b'a' + (nibble - 10)) as char,
+        _ => unreachable!("nibble must be in 0..=15"),
+    }
+}
+
+fn load_service_variables(service_name: &str) -> Result<HashMap<String, String>> {
+    let output = Command::new("railway")
+        .args(["variables", "--json", "-s", service_name])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .output()
+        .with_context(|| {
+            format!("Failed to read Railway variables for service `{service_name}`")
+        })?;
+
+    if !output.status.success() {
+        anyhow::bail!("Railway variables lookup failed for service `{service_name}`");
+    }
+
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout)
+        .with_context(|| format!("Failed to parse Railway variables JSON for `{service_name}`"))?;
+
+    let vars = json
+        .as_object()
+        .map(|object| {
+            object
+                .iter()
+                .filter_map(|(key, value)| {
+                    value.as_str().map(|value| (key.clone(), value.to_string()))
+                })
+                .collect::<HashMap<_, _>>()
+        })
+        .unwrap_or_default();
+
+    Ok(vars)
 }
 
 fn cli_exists(command: &str) -> bool {
@@ -1238,10 +1327,10 @@ fn run_interactive(command: &str, args: &[&str]) -> Result<()> {
         .stdout(std::process::Stdio::inherit())
         .stderr(std::process::Stdio::inherit())
         .status()
-        .with_context(|| format!("Failed to run `{command} {}`", args.join(" ")))?;
+        .with_context(|| format!("Failed to run `{command}`"))?;
 
     if !status.success() {
-        anyhow::bail!("`{command} {}` failed (exit {})", args.join(" "), status);
+        anyhow::bail!("`{command}` failed (exit {status})");
     }
 
     Ok(())
@@ -1711,8 +1800,8 @@ fn as_str_slice(values: &[String]) -> Vec<&str> {
 #[cfg(test)]
 mod tests {
     use super::{
-        infer_domain, infer_modal_bridge_base_url, modal_bridge_script_path,
-        read_modal_credentials_from_str, slugify,
+        generate_temper_api_key, infer_domain, infer_modal_bridge_base_url,
+        modal_bridge_script_path, read_modal_credentials_from_str, slugify,
     };
 
     #[test]
@@ -1797,5 +1886,12 @@ active = true
         let script_path = modal_bridge_script_path();
         assert!(script_path.ends_with("os-apps/paw-agent/modal-bridge/modal_bridge.py"));
         assert!(script_path.exists(), "{script_path:?} should exist");
+    }
+
+    #[test]
+    fn temper_api_keys_are_64_char_hex() {
+        let key = generate_temper_api_key();
+        assert_eq!(key.len(), 64);
+        assert!(key.chars().all(|ch| ch.is_ascii_hexdigit()));
     }
 }
