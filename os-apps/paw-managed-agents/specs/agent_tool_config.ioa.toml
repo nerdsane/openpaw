@@ -1,0 +1,28 @@
+[automaton]
+name = "AgentToolConfig"
+states = ["Active"]
+initial = "Active"
+
+[[state]]
+name = "tool_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "tool_name"
+type = "string"
+initial = ""
+
+[[state]]
+name = "permission_policy"
+type = "string"
+initial = "always_ask"
+
+[[field_invariant]]
+name = "PermissionPolicyMustBeKnown"
+when = { not = { field = "PermissionPolicy", absent = true } }
+require = { any_of = [
+  { field = "PermissionPolicy", equals = "always_allow" },
+  { field = "PermissionPolicy", equals = "always_ask" },
+] }
+message = "AgentToolConfig.PermissionPolicy must be always_allow or always_ask"

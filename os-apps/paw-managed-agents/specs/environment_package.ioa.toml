@@ -1,0 +1,37 @@
+[automaton]
+name = "EnvironmentPackage"
+states = ["Active"]
+initial = "Active"
+
+[[state]]
+name = "environment_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "manager"
+type = "string"
+initial = ""
+
+[[state]]
+name = "name"
+type = "string"
+initial = ""
+
+[[state]]
+name = "version"
+type = "string"
+initial = ""
+
+[[field_invariant]]
+name = "ManagerMustBeKnown"
+when = { not = { field = "Manager", absent = true } }
+require = { any_of = [
+  { field = "Manager", equals = "pip" },
+  { field = "Manager", equals = "npm" },
+  { field = "Manager", equals = "apt" },
+  { field = "Manager", equals = "cargo" },
+  { field = "Manager", equals = "gem" },
+  { field = "Manager", equals = "go" },
+] }
+message = "EnvironmentPackage.Manager must be one of the supported package managers"

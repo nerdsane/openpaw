@@ -710,6 +710,7 @@ pub fn search_history(
     args: &[Value],
 ) -> Result<Value, String> {
     let pattern = pos_str(args, 0, "pattern", "search_history")?;
+
     // Get session_file_id from entity state
     let fields = ctx.entity_state.get("fields").cloned().unwrap_or(json!({}));
     let session_file_id = fields
@@ -723,7 +724,7 @@ pub fn search_history(
 
     // Read full session JSONL
     let url = format!("{api_url}/tdata/Files('{session_file_id}')/$value");
-    let headers = runtime_headers(ctx, tenant, &fields, None, Some("text/plain"));
+    let headers = runtime_headers(ctx, tenant, &fields, None, Some("application/json"));
     let resp = ctx.http_call("GET", &url, &headers, "")?;
     if resp.status >= 400 {
         return Err(format!(

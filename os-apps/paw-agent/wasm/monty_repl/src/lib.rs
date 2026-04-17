@@ -438,43 +438,68 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             let printed = printed.into_string();
 
             // Combine print output + expression value
-            let (content, is_error) = match result {
+            match result {
                 Ok(expr_val) => {
-                    let expr_len = expr_val.len();
-                    let mut combined = printed;
-                    // Append expression value if it's not null/None
-                    if expr_val != "null" && !expr_val.is_empty() {
-                        if !combined.is_empty() {
-                            combined.push('\n');
+                    // Check if the expression value is an image from sandbox.read()
+                    if let Some((media_type, base64_data, source_path)) =
+                        extract_image_result(&expr_val)
+                    {
+                        let mut text = printed;
+                        if !text.is_empty() {
+                            text.push('\n');
                         }
-                        combined.push_str(&expr_val);
-                    }
-                    // If the dispatch function stored important output (e.g.
-                    // submit_specs success message), always surface it — even
-                    // if Python printed something, the dispatch message is the
-                    // authoritative result the LLM needs to see.
-                    if let Some(dispatch_msg) = dispatch::take_dispatch_output() {
+                        text.push_str(&format!("[Image read from {source_path}]"));
+                        ctx.log(
+                            "info",
+                            &format!(
+                                "monty_repl: tool completed {tool_id}, image from {source_path}, base64_bytes={}, is_error=false",
+                                base64_data.len()
+                            ),
+                        );
+                        tool_results.push(make_tool_result_multimodal(
+                            tool_id,
+                            &text,
+                            &media_type,
+                            &base64_data,
+                            false,
+                        ));
+                    } else {
+                        let expr_len = expr_val.len();
+                        let mut combined = printed;
+                        // Append expression value if it's not null/None
+                        if expr_val != "null" && !expr_val.is_empty() {
+                            if !combined.is_empty() {
+                                combined.push('\n');
+                            }
+                            combined.push_str(&expr_val);
+                        }
+                        // If the dispatch function stored important output (e.g.
+                        // submit_specs success message), always surface it — even
+                        // if Python printed something, the dispatch message is the
+                        // authoritative result the LLM needs to see.
+                        if let Some(dispatch_msg) = dispatch::take_dispatch_output() {
+                            if combined.is_empty() {
+                                combined.push_str(&dispatch_msg);
+                            } else {
+                                combined.push('\n');
+                                combined.push_str(&dispatch_msg);
+                            }
+                        }
                         if combined.is_empty() {
-                            combined.push_str(&dispatch_msg);
-                        } else {
-                            combined.push('\n');
-                            combined.push_str(&dispatch_msg);
+                            combined.push_str("(no output)");
                         }
+                        let content = truncate_output(&combined);
+                        ctx.log(
+                            "info",
+                            &format!(
+                                "monty_repl: tool completed {tool_id}, printed_bytes={}, expr_bytes={}, result_bytes={}, is_error=false",
+                                combined.len().saturating_sub(expr_len),
+                                expr_len,
+                                content.len()
+                            ),
+                        );
+                        tool_results.push(make_tool_result(tool_id, &content, false));
                     }
-                    if combined.is_empty() {
-                        combined.push_str("(no output)");
-                    }
-                    let content = truncate_output(&combined);
-                    ctx.log(
-                        "info",
-                        &format!(
-                            "monty_repl: tool completed {tool_id}, printed_bytes={}, expr_bytes={}, result_bytes={}, is_error=false",
-                            combined.len().saturating_sub(expr_len),
-                            expr_len,
-                            content.len()
-                        ),
-                    );
-                    (content, false)
                 }
                 Err(e) => {
                     let error_len = e.len();
@@ -493,11 +518,9 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                             content.len()
                         ),
                     );
-                    (content, true)
+                    tool_results.push(make_tool_result(tool_id, &content, true));
                 }
             };
-
-            tool_results.push(make_tool_result(tool_id, &content, is_error));
         }
 
         // Merge prior results from Cedar resume (if any) with newly collected results
@@ -934,6 +957,54 @@ fn make_tool_result(tool_id: &str, content: &str, is_error: bool) -> Value {
     })
 }
 
+/// Create a tool result with multimodal content (text + images).
+fn make_tool_result_multimodal(
+    tool_id: &str,
+    text: &str,
+    media_type: &str,
+    base64_data: &str,
+    is_error: bool,
+) -> Value {
+    let mut content_blocks: Vec<Value> = Vec::new();
+    if !text.is_empty() {
+        content_blocks.push(json!({
+            "type": "text",
+            "text": text
+        }));
+    }
+    content_blocks.push(json!({
+        "type": "image",
+        "source": {
+            "type": "base64",
+            "media_type": media_type,
+            "data": base64_data
+        }
+    }));
+    json!({
+        "type": "tool_result",
+        "tool_use_id": tool_id,
+        "content": content_blocks,
+        "is_error": is_error,
+    })
+}
+
+/// Check if a JSON-serialized expression value is an image result from dispatch.
+fn extract_image_result(expr_val: &str) -> Option<(String, String, String)> {
+    let v: Value = serde_json::from_str(expr_val).ok()?;
+    if v.get("__openpaw_image")?.as_bool()? {
+        let media_type = v.get("media_type")?.as_str()?.to_string();
+        let base64_data = v.get("base64_data")?.as_str()?.to_string();
+        let source_path = v
+            .get("source_path")
+            .and_then(Value::as_str)
+            .unwrap_or("(image)")
+            .to_string();
+        Some((media_type, base64_data, source_path))
+    } else {
+        None
+    }
+}
+
 fn emit_tool_call_telemetry(
     ctx: &Context,
     tool_name: &str,
@@ -944,7 +1015,27 @@ fn emit_tool_call_telemetry(
 ) -> Value {
     let success = result.is_ok();
     let result_content = match result {
-        Ok(value) => truncate_output(&value.to_string()),
+        Ok(value) => {
+            // Don't log full base64 image data in telemetry
+            if value
+                .get("__openpaw_image")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+            {
+                let path = value
+                    .get("source_path")
+                    .and_then(Value::as_str)
+                    .unwrap_or("?");
+                let size = value
+                    .get("base64_data")
+                    .and_then(Value::as_str)
+                    .map(|s| s.len())
+                    .unwrap_or(0);
+                format!("[image from {path}, base64_bytes={size}]")
+            } else {
+                truncate_output(&value.to_string())
+            }
+        }
         Err(message) => truncate_output(message),
     };
     let log_level = if success { "info" } else { "warn" };

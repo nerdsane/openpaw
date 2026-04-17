@@ -744,9 +744,33 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
         }
     }
 
-    // Phase 6: Install Paw OS apps
+    // Phase 6a: Recover persisted WASM modules + Cedar policies BEFORE app install.
+    //
+    // OS app install (Phase 6b) runs an integrity check that verifies each
+    // spec's [[integration]] references a WASM module in the registry. On
+    // subsequent startups the modules live in Turso, not in the app bundle,
+    // so the registry must be populated first. Cedar policies are similarly
+    // needed for any effects dispatched during install (e.g. workspace
+    // bootstrap actions).
+    {
+        let phase_started = Instant::now();
+        tracing::info!("Phase 6a: Recovering persisted WASM modules + Cedar policies...");
+        recover_cedar_policies(&state, &turso_store).await;
+        restore_installed_skills(&state, &turso_store).await;
+        state
+            .server
+            .load_wasm_modules()
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to recover WASM modules: {e}"))?;
+        tracing::info!(
+            elapsed_ms = phase_started.elapsed().as_millis(),
+            "phase_6a_pre_recovery complete"
+        );
+    }
+
+    // Phase 6b: Install Paw OS apps
     let phase_started = Instant::now();
-    tracing::info!("Phase 6: Installing Paw OS apps...");
+    tracing::info!("Phase 6b: Installing Paw OS apps...");
     let wasm_policy =
         local_wasm_startup_policy(std::env::var("OPENPAW_WASM_STARTUP_POLICY").ok().as_deref());
     tracing::info!(?wasm_policy, "WASM startup policy selected");
@@ -784,19 +808,12 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
     }
     tracing::info!(
         elapsed_ms = phase_started.elapsed().as_millis(),
-        "phase_6_os_app_reconcile complete"
+        "phase_6b_os_app_reconcile complete"
     );
 
-    // Phase 7: Recovery (Cedar policies + WASM modules + secrets from store)
+    // Phase 7: Remaining recovery (reaction dispatcher, runtime indexes)
     let phase_started = Instant::now();
-    tracing::info!("Phase 7: Recovery...");
-    recover_cedar_policies(&state, &turso_store).await;
-    restore_installed_skills(&state, &turso_store).await;
-    state
-        .server
-        .load_wasm_modules()
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to recover WASM modules: {e}"))?;
+    tracing::info!("Phase 7: Runtime recovery...");
     state.server.rebuild_reaction_dispatcher();
     let tenant_ids: Vec<TenantId> = {
         let registry = state.registry.read().unwrap(); // ci-ok: infallible lock

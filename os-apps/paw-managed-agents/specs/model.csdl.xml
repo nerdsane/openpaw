@@ -1,0 +1,267 @@
+<?xml version="1.0" encoding="utf-8"?>
+<edmx:Edmx Version="4.0" xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx">
+  <edmx:DataServices>
+    <Schema Namespace="ManagedAgents" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+
+      <EntityType Name="ManagedEnvironment">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.String" Nullable="false"/>
+        <Property Name="Status" Type="Edm.String"/>
+        <Property Name="Name" Type="Edm.String"/>
+        <Property Name="Description" Type="Edm.String"/>
+        <Property Name="ConfigType" Type="Edm.String"/>
+        <Property Name="NetworkingType" Type="Edm.String"/>
+        <Property Name="AllowedHostsJson" Type="Edm.String"/>
+        <Property Name="AllowMcpServers" Type="Edm.Boolean"/>
+        <Property Name="AllowPackageManagers" Type="Edm.Boolean"/>
+        <Property Name="Metadata" Type="Edm.String"/>
+        <Property Name="ArchivedAt" Type="Edm.String"/>
+      </EntityType>
+
+      <Action Name="Archive" IsBound="true">
+        <Parameter Name="bindingParameter" Type="ManagedAgents.ManagedEnvironment"/>
+        <Parameter Name="ArchivedAt" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="ManagedAgents.ManagedEnvironment"/>
+      </Action>
+
+      <EntityType Name="ManagedAgent">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.String" Nullable="false"/>
+        <Property Name="Status" Type="Edm.String"/>
+        <Property Name="Name" Type="Edm.String"/>
+        <Property Name="Description" Type="Edm.String"/>
+        <Property Name="System" Type="Edm.String"/>
+        <Property Name="ModelId" Type="Edm.String"/>
+        <Property Name="ModelSpeed" Type="Edm.String"/>
+        <Property Name="Version" Type="Edm.Int64"/>
+        <Property Name="InnerAgentId" Type="Edm.String"/>
+        <Property Name="Metadata" Type="Edm.String"/>
+        <Property Name="ArchivedAt" Type="Edm.String"/>
+      </EntityType>
+
+      <Action Name="Archive" IsBound="true">
+        <Parameter Name="bindingParameter" Type="ManagedAgents.ManagedAgent"/>
+        <Parameter Name="ArchivedAt" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="ManagedAgents.ManagedAgent"/>
+      </Action>
+
+      <Action Name="BindInnerAgent" IsBound="true">
+        <Parameter Name="bindingParameter" Type="ManagedAgents.ManagedAgent"/>
+        <Parameter Name="InnerAgentId" Type="Edm.String" Nullable="false"/>
+        <ReturnType Type="ManagedAgents.ManagedAgent"/>
+      </Action>
+
+      <Action Name="UpdateManagedAgent" IsBound="true">
+        <Parameter Name="bindingParameter" Type="ManagedAgents.ManagedAgent"/>
+        <Parameter Name="Name" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="Description" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="System" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="ModelId" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="ModelSpeed" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="Metadata" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="ManagedAgents.ManagedAgent"/>
+      </Action>
+
+      <Action Name="SyncComplete" IsBound="true">
+        <Parameter Name="bindingParameter" Type="ManagedAgents.ManagedAgent"/>
+        <ReturnType Type="ManagedAgents.ManagedAgent"/>
+      </Action>
+
+      <EntityType Name="ManagedSession">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.String" Nullable="false"/>
+        <Property Name="Status" Type="Edm.String"/>
+        <Property Name="Title" Type="Edm.String"/>
+        <Property Name="AgentId" Type="Edm.String"/>
+        <Property Name="EnvironmentId" Type="Edm.String"/>
+        <Property Name="InnerSessionId" Type="Edm.String"/>
+        <Property Name="InnerAgentId" Type="Edm.String"/>
+        <Property Name="VaultIds" Type="Edm.String"/>
+        <Property Name="StopReason" Type="Edm.String"/>
+        <Property Name="TerminationReason" Type="Edm.String"/>
+        <Property Name="StopReasonEventIds" Type="Edm.String"/>
+        <Property Name="InputTokens" Type="Edm.Int64"/>
+        <Property Name="OutputTokens" Type="Edm.Int64"/>
+        <Property Name="LastConsumedUserSequence" Type="Edm.Int64"/>
+        <Property Name="LastEmittedResultHash" Type="Edm.String"/>
+        <Property Name="LastEmittedInnerSessionId" Type="Edm.String"/>
+        <Property Name="LastEmittedTreeIndex" Type="Edm.Int64"/>
+        <Property Name="ErrorMessage" Type="Edm.String"/>
+        <Property Name="InnerSessionCheckCount" Type="Edm.Int64"/>
+        <Property Name="MaxInnerSessionChecks" Type="Edm.String"/>
+        <Property Name="Metadata" Type="Edm.String"/>
+        <Property Name="ArchivedAt" Type="Edm.String"/>
+      </EntityType>
+
+      <Action Name="StartSession" IsBound="true">
+        <Parameter Name="bindingParameter" Type="ManagedAgents.ManagedSession"/>
+        <ReturnType Type="ManagedAgents.ManagedSession"/>
+      </Action>
+
+      <Action Name="InnerSessionReady" IsBound="true">
+        <Parameter Name="bindingParameter" Type="ManagedAgents.ManagedSession"/>
+        <Parameter Name="InnerSessionId" Type="Edm.String" Nullable="false"/>
+        <Parameter Name="InnerAgentId" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="LastConsumedUserSequence" Type="Edm.Int64" Nullable="true"/>
+        <Parameter Name="InnerSessionCheckCount" Type="Edm.Int64" Nullable="true"/>
+        <ReturnType Type="ManagedAgents.ManagedSession"/>
+      </Action>
+
+      <Action Name="InnerSessionFailed" IsBound="true">
+        <Parameter Name="bindingParameter" Type="ManagedAgents.ManagedSession"/>
+        <Parameter Name="ErrorMessage" Type="Edm.String" Nullable="false"/>
+        <Parameter Name="TerminationReason" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="ManagedAgents.ManagedSession"/>
+      </Action>
+
+      <Action Name="IdleSession" IsBound="true">
+        <Parameter Name="bindingParameter" Type="ManagedAgents.ManagedSession"/>
+        <Parameter Name="StopReason" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="ManagedAgents.ManagedSession"/>
+      </Action>
+
+      <Action Name="ResumeSession" IsBound="true">
+        <Parameter Name="bindingParameter" Type="ManagedAgents.ManagedSession"/>
+        <ReturnType Type="ManagedAgents.ManagedSession"/>
+      </Action>
+
+      <Action Name="InnerSessionPending" IsBound="true">
+        <Parameter Name="bindingParameter" Type="ManagedAgents.ManagedSession"/>
+        <ReturnType Type="ManagedAgents.ManagedSession"/>
+      </Action>
+
+      <Action Name="CheckInnerSession" IsBound="true">
+        <Parameter Name="bindingParameter" Type="ManagedAgents.ManagedSession"/>
+        <ReturnType Type="ManagedAgents.ManagedSession"/>
+      </Action>
+
+      <Action Name="UpdateUsage" IsBound="true">
+        <Parameter Name="bindingParameter" Type="ManagedAgents.ManagedSession"/>
+        <Parameter Name="InputTokens" Type="Edm.Int64" Nullable="true"/>
+        <Parameter Name="OutputTokens" Type="Edm.Int64" Nullable="true"/>
+        <Parameter Name="StopReason" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="StopReasonEventIds" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="LastEmittedResultHash" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="LastEmittedInnerSessionId" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="LastEmittedTreeIndex" Type="Edm.Int64" Nullable="true"/>
+        <ReturnType Type="ManagedAgents.ManagedSession"/>
+      </Action>
+
+      <Action Name="TerminateSession" IsBound="true">
+        <Parameter Name="bindingParameter" Type="ManagedAgents.ManagedSession"/>
+        <Parameter Name="TerminationReason" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="ManagedAgents.ManagedSession"/>
+      </Action>
+
+      <Action Name="Archive" IsBound="true">
+        <Parameter Name="bindingParameter" Type="ManagedAgents.ManagedSession"/>
+        <Parameter Name="ArchivedAt" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="ManagedAgents.ManagedSession"/>
+      </Action>
+
+      <EntityType Name="AgentMcpServer">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.String" Nullable="false"/>
+        <Property Name="Status" Type="Edm.String"/>
+        <Property Name="AgentId" Type="Edm.String"/>
+        <Property Name="Name" Type="Edm.String"/>
+        <Property Name="ServerType" Type="Edm.String"/>
+        <Property Name="Url" Type="Edm.String"/>
+      </EntityType>
+
+      <EntityType Name="AgentSkill">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.String" Nullable="false"/>
+        <Property Name="Status" Type="Edm.String"/>
+        <Property Name="AgentId" Type="Edm.String"/>
+        <Property Name="SkillId" Type="Edm.String"/>
+        <Property Name="SkillType" Type="Edm.String"/>
+        <Property Name="SkillVersion" Type="Edm.String"/>
+      </EntityType>
+
+      <EntityType Name="AgentTool">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.String" Nullable="false"/>
+        <Property Name="Status" Type="Edm.String"/>
+        <Property Name="AgentId" Type="Edm.String"/>
+        <Property Name="Kind" Type="Edm.String"/>
+        <Property Name="Name" Type="Edm.String"/>
+        <Property Name="Description" Type="Edm.String"/>
+        <Property Name="InputSchema" Type="Edm.String"/>
+        <Property Name="Input" Type="Edm.String"/>
+        <Property Name="McpServerName" Type="Edm.String"/>
+      </EntityType>
+
+      <EntityType Name="AgentToolConfig">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.String" Nullable="false"/>
+        <Property Name="Status" Type="Edm.String"/>
+        <Property Name="ToolId" Type="Edm.String"/>
+        <Property Name="ToolName" Type="Edm.String"/>
+        <Property Name="PermissionPolicy" Type="Edm.String"/>
+      </EntityType>
+
+      <EntityType Name="SessionEvent">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.String" Nullable="false"/>
+        <Property Name="Status" Type="Edm.String"/>
+        <Property Name="SessionId" Type="Edm.String"/>
+        <Property Name="Sequence" Type="Edm.Int64"/>
+        <Property Name="Kind" Type="Edm.String"/>
+        <Property Name="Content" Type="Edm.String"/>
+        <Property Name="Input" Type="Edm.String"/>
+        <Property Name="ToolUseId" Type="Edm.String"/>
+        <Property Name="ConfirmationResult" Type="Edm.String"/>
+        <Property Name="DenyMessage" Type="Edm.String"/>
+        <Property Name="CustomToolUseId" Type="Edm.String"/>
+        <Property Name="ToolName" Type="Edm.String"/>
+        <Property Name="EvaluatedPermission" Type="Edm.String"/>
+        <Property Name="McpServerName" Type="Edm.String"/>
+        <Property Name="McpToolUseId" Type="Edm.String"/>
+        <Property Name="StopReason" Type="Edm.String"/>
+        <Property Name="TerminationReason" Type="Edm.String"/>
+        <Property Name="StopReasonEventIds" Type="Edm.String"/>
+        <Property Name="ErrorKind" Type="Edm.String"/>
+        <Property Name="ErrorMessage" Type="Edm.String"/>
+        <Property Name="CreatedAt" Type="Edm.String"/>
+      </EntityType>
+
+      <EntityType Name="SessionResource">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.String" Nullable="false"/>
+        <Property Name="Status" Type="Edm.String"/>
+        <Property Name="SessionId" Type="Edm.String"/>
+        <Property Name="Kind" Type="Edm.String"/>
+        <Property Name="Name" Type="Edm.String"/>
+        <Property Name="MountPath" Type="Edm.String"/>
+        <Property Name="RepositoryUrl" Type="Edm.String"/>
+        <Property Name="Branch" Type="Edm.String"/>
+        <Property Name="FileId" Type="Edm.String"/>
+        <Property Name="AuthToken" Type="Edm.String"/>
+      </EntityType>
+
+      <EntityType Name="EnvironmentPackage">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.String" Nullable="false"/>
+        <Property Name="Status" Type="Edm.String"/>
+        <Property Name="EnvironmentId" Type="Edm.String"/>
+        <Property Name="Manager" Type="Edm.String"/>
+        <Property Name="Name" Type="Edm.String"/>
+        <Property Name="Version" Type="Edm.String"/>
+      </EntityType>
+
+      <EntityContainer Name="Service">
+        <EntitySet Name="ManagedEnvironments" EntityType="ManagedAgents.ManagedEnvironment"/>
+        <EntitySet Name="ManagedAgents" EntityType="ManagedAgents.ManagedAgent"/>
+        <EntitySet Name="ManagedSessions" EntityType="ManagedAgents.ManagedSession"/>
+        <EntitySet Name="AgentMcpServers" EntityType="ManagedAgents.AgentMcpServer"/>
+        <EntitySet Name="AgentSkills" EntityType="ManagedAgents.AgentSkill"/>
+        <EntitySet Name="AgentTools" EntityType="ManagedAgents.AgentTool"/>
+        <EntitySet Name="AgentToolConfigs" EntityType="ManagedAgents.AgentToolConfig"/>
+        <EntitySet Name="SessionEvents" EntityType="ManagedAgents.SessionEvent"/>
+        <EntitySet Name="SessionResources" EntityType="ManagedAgents.SessionResource"/>
+        <EntitySet Name="EnvironmentPackages" EntityType="ManagedAgents.EnvironmentPackage"/>
+      </EntityContainer>
+    </Schema>
+  </edmx:DataServices>
+</edmx:Edmx>

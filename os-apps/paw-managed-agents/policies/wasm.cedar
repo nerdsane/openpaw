@@ -1,0 +1,17 @@
+// paw-managed-agents WASM authorization.
+
+permit(
+  principal is Agent,
+  action == Action::"http_call",
+  resource is HttpEndpoint
+) when {
+  ["session_orchestrator", "event_emitter", "session_terminator", "managed_agent_updater"].contains(context.module)
+};
+
+permit(
+  principal is Agent,
+  action == Action::"access_secret",
+  resource is Secret
+) when {
+  ["session_orchestrator", "event_emitter", "session_terminator", "managed_agent_updater"].contains(context.module)
+};
