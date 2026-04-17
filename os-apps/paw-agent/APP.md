@@ -48,13 +48,6 @@ Scheduled agent runs using cron expressions. Self-scheduling via `schedule_at` e
 - **Key actions**: `Configure`, `Activate`, `Trigger` (auto-spawns Session), `Pause`, `Resume`
 - **WASM**: `cron_compute_next` parses cron schedule and substitutes message templates
 
-### HeartbeatMonitor
-Periodic scanner for stale sessions. One per tenant, self-scheduling.
-
-- **States**: Idle <-> Scanning
-- **Key actions**: `Start`, `ScanComplete`, `ScheduledScan`
-- **WASM**: `heartbeat_scan`, `heartbeat_scheduler`
-
 ### CapabilityRequest
 Cedar-governed agent self-provisioning. Agents request capabilities; Cedar policies auto-approve or require human approval.
 

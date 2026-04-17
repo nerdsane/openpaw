@@ -96,5 +96,85 @@
       "notify_no_data": false,
       "renotify_interval": 60
     }
+  },
+  {
+    "name": "[OpenPaw] Dispatch Retry Budget Exhausted",
+    "type": "metric alert",
+    "query": "sum(last_10m):sum:temper_dispatch_ask_outcome_total{service:openpaw,outcome:transient_exhausted}.as_count() > 10",
+    "message": "Dispatch retry budget exhausted (ADR-0048) — sustained transient failures indicate mailbox saturation or a stuck actor.\n\n@slack-openpaw-alerts",
+    "tags": ["team:openpaw", "severity:high"],
+    "options": { "thresholds": { "critical": 10, "warning": 3 }, "notify_no_data": false, "renotify_interval": 60 }
+  },
+  {
+    "name": "[OpenPaw] Permanent Actor Failures",
+    "type": "metric alert",
+    "query": "sum(last_15m):sum:temper_dispatch_ask_outcome_total{service:openpaw,outcome:permanent}.as_count() > 20",
+    "message": "Permanent actor failures elevated — check for panics, init failures, or restart-exceeded conditions.\n\n@slack-openpaw-alerts",
+    "tags": ["team:openpaw", "severity:medium"],
+    "options": { "thresholds": { "critical": 20, "warning": 5 }, "notify_no_data": false, "renotify_interval": 120 }
+  },
+  {
+    "name": "[OpenPaw] Mailbox Saturation (mailbox_full spike)",
+    "type": "metric alert",
+    "query": "sum(last_5m):sum:temper_dispatch_ask_error_total{service:openpaw,error_kind:mailbox_full}.as_count() > 50",
+    "message": "Actor mailboxes refusing messages — tune admission control caps (ADR-0051) or investigate head-of-line blocking.\n\n@slack-openpaw-alerts",
+    "tags": ["team:openpaw", "severity:medium"],
+    "options": { "thresholds": { "critical": 50, "warning": 10 }, "notify_no_data": false, "renotify_interval": 60 }
+  },
+  {
+    "name": "[OpenPaw] Abnormal State Timeout Firing",
+    "type": "metric alert",
+    "query": "sum(last_15m):sum:temper_state_timeout_fired_total{service:openpaw} by {entity_type,state}.as_count() > 25",
+    "message": "State timeout firing unusually often for one or more (entity_type, state) combos. Likely causes: after_seconds too tight, or sessions are genuinely stuck.\n\n@slack-openpaw-alerts",
+    "tags": ["team:openpaw", "severity:high"],
+    "options": { "thresholds": { "critical": 25, "warning": 10 }, "notify_no_data": false, "renotify_interval": 60 }
+  },
+  {
+    "name": "[OpenPaw] Excessive Overdue Timers on Replay",
+    "type": "metric alert",
+    "query": "sum(last_30m):sum:temper_scheduler_overdue_on_replay_total{service:openpaw}.as_count() > 100",
+    "message": "Many scheduled-action timers missed their deadline across a server restart window. Review deploy cadence or investigate replay lag.\n\n@slack-openpaw-alerts",
+    "tags": ["team:openpaw", "severity:medium"],
+    "options": { "thresholds": { "critical": 100, "warning": 30 }, "notify_no_data": false, "renotify_interval": 120 }
+  },
+  {
+    "name": "[OpenPaw] Spec Liveness Violation",
+    "type": "metric alert",
+    "query": "sum(last_5m):sum:temper_spec_liveness_violations_total{service:openpaw}.as_count() > 0",
+    "message": "A spec was loaded with uncovered non-terminal states (ADR-0050). Production should never boot with violations once TEMPER_LIVENESS_ENFORCE=true — investigate immediately.\n\n@slack-openpaw-alerts",
+    "tags": ["team:openpaw", "severity:high"],
+    "options": { "thresholds": { "critical": 0 }, "notify_no_data": false, "renotify_interval": 30 }
+  },
+  {
+    "name": "[OpenPaw] Admission Deferred Spike",
+    "type": "metric alert",
+    "query": "sum(last_10m):sum:temper_admission_deferred_total{service:openpaw}.as_count() > 20",
+    "message": "Admission control is returning 503 Deferred to callers. Investigate: either bump the cap via /_admin/admission/ or diagnose sustained overload.\n\n@slack-openpaw-alerts",
+    "tags": ["team:openpaw", "severity:high"],
+    "options": { "thresholds": { "critical": 20, "warning": 5 }, "notify_no_data": false, "renotify_interval": 60 }
+  },
+  {
+    "name": "[OpenPaw] Admission Wait p99 Regression",
+    "type": "metric alert",
+    "query": "avg(last_15m):p99:temper_admission_wait_time_ms{service:openpaw} > 5000",
+    "message": "P99 admission queue wait exceeds 5s — caps likely too tight relative to offered load.\n\n@slack-openpaw-alerts",
+    "tags": ["team:openpaw", "severity:medium"],
+    "options": { "thresholds": { "critical": 5000, "warning": 2000 }, "notify_no_data": false, "renotify_interval": 120 }
+  },
+  {
+    "name": "[OpenPaw] Mailbox Near Capacity",
+    "type": "metric alert",
+    "query": "avg(last_5m):avg:temper_actor_mailbox_utilization{service:openpaw} by {entity_type} > 0.8",
+    "message": "One or more entity-type mailboxes are averaging above 80% capacity. Head-of-line blocking risk — tune admission caps (ADR-0051).\n\n@slack-openpaw-alerts",
+    "tags": ["team:openpaw", "severity:medium"],
+    "options": { "thresholds": { "critical": 0.8, "warning": 0.6 }, "notify_no_data": false, "renotify_interval": 60 }
+  },
+  {
+    "name": "[OpenPaw] Unexpected Mailbox Drops (post-P4)",
+    "type": "metric alert",
+    "query": "sum(last_10m):sum:temper_actor_mailbox_full_drop_total{service:openpaw}.as_count() > 5",
+    "message": "Mailbox-full drops are occurring even with admission control in place. Caps may be set above safe concurrency — reduce, or investigate slow actor consumers.\n\n@slack-openpaw-alerts",
+    "tags": ["team:openpaw", "severity:high"],
+    "options": { "thresholds": { "critical": 5, "warning": 1 }, "notify_no_data": false, "renotify_interval": 60 }
   }
 ]

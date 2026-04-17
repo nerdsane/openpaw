@@ -111,15 +111,6 @@
         <Property Name="Priority" Type="Edm.Int64"/>
       </EntityType>
 
-      <EntityType Name="HeartbeatMonitor">
-        <Key><PropertyRef Name="Id"/></Key>
-        <Property Name="Id" Type="Edm.String" Nullable="false"/>
-        <Property Name="Status" Type="Edm.String"/>
-        <Property Name="ScanIntervalSeconds" Type="Edm.String"/>
-        <Property Name="LastScanAt" Type="Edm.String"/>
-        <Property Name="StaleSessionsFound" Type="Edm.Int64"/>
-      </EntityType>
-
       <EntityType Name="CronJob">
         <Key><PropertyRef Name="Id"/></Key>
         <Property Name="Id" Type="Edm.String" Nullable="false"/>
@@ -502,35 +493,6 @@
         <ReturnType Type="OpenPaw.ToolHook"/>
       </Action>
 
-      <Action Name="Start" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.HeartbeatMonitor"/>
-        <ReturnType Type="OpenPaw.HeartbeatMonitor"/>
-      </Action>
-
-      <Action Name="ScanComplete" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.HeartbeatMonitor"/>
-        <Parameter Name="last_scan_at" Type="Edm.String" Nullable="true"/>
-        <Parameter Name="stale_sessions_found" Type="Edm.Int64" Nullable="true"/>
-        <ReturnType Type="OpenPaw.HeartbeatMonitor"/>
-      </Action>
-
-      <Action Name="ScheduledScan" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.HeartbeatMonitor"/>
-        <ReturnType Type="OpenPaw.HeartbeatMonitor"/>
-      </Action>
-
-      <Action Name="ScanFailed" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.HeartbeatMonitor"/>
-        <Parameter Name="error_message" Type="Edm.String" Nullable="false"/>
-        <ReturnType Type="OpenPaw.HeartbeatMonitor"/>
-      </Action>
-
-      <Action Name="ScheduleFailed" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.HeartbeatMonitor"/>
-        <Parameter Name="error_message" Type="Edm.String" Nullable="false"/>
-        <ReturnType Type="OpenPaw.HeartbeatMonitor"/>
-      </Action>
-
       <Action Name="Configure" IsBound="true">
         <Parameter Name="bindingParameter" Type="OpenPaw.CronJob"/>
         <Parameter Name="name" Type="Edm.String" Nullable="false"/>
@@ -781,7 +743,6 @@
         <EntitySet Name="Souls" EntityType="OpenPaw.Soul"/>
         <EntitySet Name="Memories" EntityType="OpenPaw.Memory"/>
         <EntitySet Name="ToolHooks" EntityType="OpenPaw.ToolHook"/>
-        <EntitySet Name="HeartbeatMonitors" EntityType="OpenPaw.HeartbeatMonitor"/>
         <EntitySet Name="CronJobs" EntityType="OpenPaw.CronJob"/>
         <EntitySet Name="CronSchedulers" EntityType="OpenPaw.CronScheduler"/>
         <EntitySet Name="CapabilityRequests" EntityType="OpenPaw.CapabilityRequest"/>
