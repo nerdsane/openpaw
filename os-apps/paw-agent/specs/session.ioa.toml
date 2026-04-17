@@ -944,6 +944,7 @@ name = "call_provider"
 trigger = "call_provider"
 type = "wasm"
 module = "provider_caller"
+llm = true
 on_failure = "Fail"
 
 [integration.config]
