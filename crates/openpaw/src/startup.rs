@@ -31,7 +31,6 @@ const DEFAULT_AGENT_WORKDIR: &str = "/workspace";
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum RuntimeRecoveryStep {
     PopulateIndex(String),
-    PopulateFieldIndex(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -53,14 +52,9 @@ fn local_wasm_startup_policy(raw: Option<&str>) -> LocalWasmStartupPolicy {
 }
 
 fn runtime_recovery_plan(tenant_ids: &[TenantId]) -> Vec<RuntimeRecoveryStep> {
-    let mut steps = Vec::with_capacity(tenant_ids.len() * 2);
+    let mut steps = Vec::with_capacity(tenant_ids.len());
     for tenant_id in tenant_ids {
         steps.push(RuntimeRecoveryStep::PopulateIndex(
-            tenant_id.as_str().to_string(),
-        ));
-    }
-    for tenant_id in tenant_ids {
-        steps.push(RuntimeRecoveryStep::PopulateFieldIndex(
             tenant_id.as_str().to_string(),
         ));
     }
@@ -126,15 +120,24 @@ async fn recover_runtime_indexes(state: &PlatformState, tenant_ids: &[TenantId])
                     .unwrap_or(0);
                 tracing::info!(tenant = %tenant, count, "live restore: populate_index");
             }
-            RuntimeRecoveryStep::PopulateFieldIndex(tenant) => {
-                let tenant_id = TenantId::new(&tenant);
-                state
-                    .server
-                    .populate_field_index_from_snapshots(&tenant_id)
-                    .await;
-            }
         }
     }
+}
+
+fn spawn_query_projection_backfill(
+    server: temper_server::state::ServerState,
+    tenant_ids: Vec<TenantId>,
+) {
+    tokio::spawn(async move {
+        tracing::info!(
+            tenants = tenant_ids.len(),
+            "Background query projection backfill scheduled"
+        );
+        for tenant_id in tenant_ids {
+            server.populate_field_index_from_snapshots(&tenant_id).await;
+            tracing::info!(tenant = %tenant_id, "Background query projection backfill complete");
+        }
+    });
 }
 
 /// Run the Open Paw daemon.
@@ -981,6 +984,10 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
     )
     .await
     .context("Open Paw HTTP API failed to become reachable during startup")?;
+
+    // Match Temper's serve bootstrap: query projections are warmed in the background
+    // after the entity index exists so startup does not block health checks on replay work.
+    spawn_query_projection_backfill(state.server.clone(), tenant_ids.clone());
 
     // Spawn webhook trigger (ONE entity, ONE action per request).
     spawn_webhook_trigger(&tenant, actual_port, config.temper_api_key.clone());
@@ -2519,7 +2526,7 @@ mod tests {
     }
 
     #[test]
-    fn runtime_recovery_finishes_query_plane_before_post_boot_tasks() {
+    fn runtime_recovery_populates_entity_indexes_before_post_boot_tasks() {
         let tenants = vec![TenantId::new("default"), TenantId::new("temper-system")];
         let plan = runtime_recovery_plan(&tenants);
 
@@ -2528,8 +2535,6 @@ mod tests {
             vec![
                 RuntimeRecoveryStep::PopulateIndex("default".to_string()),
                 RuntimeRecoveryStep::PopulateIndex("temper-system".to_string()),
-                RuntimeRecoveryStep::PopulateFieldIndex("default".to_string()),
-                RuntimeRecoveryStep::PopulateFieldIndex("temper-system".to_string()),
             ]
         );
     }
