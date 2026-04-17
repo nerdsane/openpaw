@@ -655,22 +655,37 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
             )
             .await;
         } else {
-            let provider = vault
-                .get_secret(&tenant, "sandbox_provider")
-                .or_else(|| config.sandbox_provider.clone())
-                .unwrap_or_else(|| "tensorlake".to_string());
-            let tensorlake_api_key = vault
-                .get_secret(&tenant, "tensorlake_api_key")
-                .or_else(|| config.tensorlake_api_key.clone());
-            let modal_token_id = vault
-                .get_secret(&tenant, "modal_token_id")
-                .or_else(|| config.modal_token_id.clone());
-            let modal_token_secret = vault
-                .get_secret(&tenant, "modal_token_secret")
-                .or_else(|| config.modal_token_secret.clone());
-            let modal_bridge_url = vault
-                .get_secret(&tenant, "modal_bridge_url")
-                .or_else(|| config.modal_bridge_url.clone());
+            let provider = resolve_startup_secret(
+                Some(vault),
+                &tenant,
+                "sandbox_provider",
+                config.sandbox_provider.clone(),
+            )
+            .unwrap_or_else(|| "tensorlake".to_string());
+            let tensorlake_api_key = resolve_startup_secret(
+                Some(vault),
+                &tenant,
+                "tensorlake_api_key",
+                config.tensorlake_api_key.clone(),
+            );
+            let modal_token_id = resolve_startup_secret(
+                Some(vault),
+                &tenant,
+                "modal_token_id",
+                config.modal_token_id.clone(),
+            );
+            let modal_token_secret = resolve_startup_secret(
+                Some(vault),
+                &tenant,
+                "modal_token_secret",
+                config.modal_token_secret.clone(),
+            );
+            let modal_bridge_url = resolve_startup_secret(
+                Some(vault),
+                &tenant,
+                "modal_bridge_url",
+                config.modal_bridge_url.clone(),
+            );
             match provider.as_str() {
                 "tensorlake" if tensorlake_api_key.is_some() => {
                     tracing::info!("Sandbox provider: tensorlake (API key configured)");
@@ -1296,6 +1311,18 @@ async fn restore_secrets_from_turso_as_platform(
             tracing::warn!(tenant, %e, "Failed to load secrets from Turso");
         }
     }
+}
+
+fn resolve_startup_secret(
+    vault: Option<&temper_server::secrets::vault::SecretsVault>,
+    tenant: &str,
+    key: &str,
+    configured_value: Option<String>,
+) -> Option<String> {
+    configured_value
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| vault.and_then(|vault| vault.get_platform_secret(key)))
+        .or_else(|| vault.and_then(|vault| vault.get_secret(tenant, key)))
 }
 
 /// Generate a random 32-byte vault key, save it to disk as base64, and return the raw bytes.
@@ -2694,13 +2721,14 @@ mod tests {
 
     use anyhow::anyhow;
     use serde_json::Value;
+    use temper_server::secrets::vault::SecretsVault;
     use temper_runtime::tenant::TenantId;
 
     use super::{
         LocalWasmStartupPolicy, RuntimeRecoveryStep, actor_passivation_check_interval_secs,
         bootstrap_soul, load_or_create_temper_api_key, local_wasm_startup_policy,
-        paw_soul_content_is_personalized, runtime_recovery_plan, soul_lookup_filters,
-        spawn_runtime_server, startup_discord_connect_result, startup_os_apps,
+        paw_soul_content_is_personalized, resolve_startup_secret, runtime_recovery_plan,
+        soul_lookup_filters, spawn_runtime_server, startup_discord_connect_result, startup_os_apps,
         wait_for_runtime_server,
     };
 
@@ -2778,6 +2806,54 @@ mod tests {
                 "expected startup OS app {expected} to be present in {apps:?}"
             );
         }
+    }
+
+    #[test]
+    fn sandbox_secret_resolution_prefers_deploy_values_over_tenant_overrides() {
+        let vault = SecretsVault::new(&[7u8; 32]);
+        vault
+            .cache_secret("default", "modal_token_id", "stale-tenant-token".to_string())
+            .unwrap();
+        vault
+            .cache_platform_secret("modal_token_id", "fresh-platform-token".to_string())
+            .unwrap();
+
+        let resolved = resolve_startup_secret(
+            Some(&vault),
+            "default",
+            "modal_token_id",
+            Some("fresh-env-token".to_string()),
+        );
+
+        assert_eq!(resolved.as_deref(), Some("fresh-env-token"));
+    }
+
+    #[test]
+    fn sandbox_secret_resolution_prefers_platform_cache_over_tenant_overrides() {
+        let vault = SecretsVault::new(&[8u8; 32]);
+        vault
+            .cache_secret("default", "modal_token_id", "stale-tenant-token".to_string())
+            .unwrap();
+        vault
+            .cache_platform_secret("modal_token_id", "fresh-platform-token".to_string())
+            .unwrap();
+
+        let resolved =
+            resolve_startup_secret(Some(&vault), "default", "modal_token_id", None);
+
+        assert_eq!(resolved.as_deref(), Some("fresh-platform-token"));
+    }
+
+    #[test]
+    fn sandbox_secret_resolution_falls_back_to_tenant_override_without_deploy_values() {
+        let vault = SecretsVault::new(&[9u8; 32]);
+        vault
+            .cache_secret("default", "modal_token_id", "tenant-token".to_string())
+            .unwrap();
+
+        let resolved = resolve_startup_secret(Some(&vault), "default", "modal_token_id", None);
+
+        assert_eq!(resolved.as_deref(), Some("tenant-token"));
     }
 
     #[test]
