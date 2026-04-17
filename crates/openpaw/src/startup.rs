@@ -153,34 +153,7 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
     std::fs::create_dir_all(&data_dir)
         .with_context(|| format!("Failed to create data dir: {}", data_dir.display()))?;
     let api_key_path = data_dir.join("api.key");
-    let temper_api_key_from_env = config.temper_api_key.is_some();
-    config.temper_api_key = Some(load_or_create_temper_api_key(
-        config.temper_api_key.clone(),
-        &api_key_path,
-    )?);
-    if !temper_api_key_from_env {
-        if let (Some(token), Some(project_id), Some(env_id), Some(service_id), Some(api_key)) = (
-            &config.railway_token,
-            &config.railway_project_id,
-            &config.railway_environment_id,
-            &config.railway_service_id,
-            config.temper_api_key.as_ref(),
-        ) {
-            match persist_temper_api_key_to_railway(token, project_id, env_id, service_id, api_key)
-                .await
-            {
-                Ok(()) => {
-                    tracing::info!("API key persisted to Railway env var TEMPER_API_KEY");
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        %e,
-                        "Failed to persist API key to Railway — bearer auth may rotate on next redeploy"
-                    );
-                }
-            }
-        }
-    }
+    config.temper_api_key = Some(resolve_temper_api_key(&config, &api_key_path).await?);
 
     // Phase 0: Config setup (API key + messaging — runs pre-boot)
     let needs_soul_setup = if crate::setup::needs_setup(&data_dir, &config) {
@@ -1397,15 +1370,15 @@ async fn persist_service_variable_to_railway(
 ) -> Result<()> {
     let client = reqwest::Client::new();
     let query = serde_json::json!({
-        "query": "mutation($input: VariableCollectionUpsertInput!) { variableCollectionUpsert(input: $input) }",
+        "query": "mutation($input: VariableUpsertInput!) { variableUpsert(input: $input) }",
         "variables": {
             "input": {
                 "projectId": project_id,
                 "environmentId": environment_id,
                 "serviceId": service_id,
-                "variables": {
-                    key: value
-                }
+                "name": key,
+                "value": value,
+                "skipDeploys": true
             }
         }
     });
@@ -1432,6 +1405,110 @@ async fn persist_service_variable_to_railway(
     Ok(())
 }
 
+async fn fetch_service_variable_from_railway(
+    token: &str,
+    project_id: &str,
+    environment_id: &str,
+    service_id: &str,
+    key: &str,
+) -> Result<Option<String>> {
+    let client = reqwest::Client::new();
+    let query = serde_json::json!({
+        "query": "query variables($projectId: String!, $environmentId: String!, $serviceId: String) { variables(projectId: $projectId, environmentId: $environmentId, serviceId: $serviceId) }",
+        "variables": {
+            "projectId": project_id,
+            "environmentId": environment_id,
+            "serviceId": service_id,
+        }
+    });
+
+    let resp = client
+        .post("https://backboard.railway.com/graphql/v2")
+        .bearer_auth(token)
+        .json(&query)
+        .send()
+        .await
+        .context("Railway GraphQL request failed")?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        anyhow::bail!("Railway API returned {status}: {body}");
+    }
+
+    let body: serde_json::Value = resp.json().await.unwrap_or_default();
+    if let Some(errors) = body.get("errors") {
+        anyhow::bail!("Railway GraphQL errors: {errors}");
+    }
+
+    Ok(body
+        .get("data")
+        .and_then(|data| data.get("variables"))
+        .and_then(|variables| variables.get(key))
+        .and_then(|value| value.as_str())
+        .map(|value| value.to_string()))
+}
+
+async fn resolve_temper_api_key(config: &Config, path: &Path) -> Result<String> {
+    if let Some(key) = config.temper_api_key.clone() {
+        return Ok(key);
+    }
+
+    if let (Some(token), Some(project_id), Some(env_id), Some(service_id)) = (
+        &config.railway_token,
+        &config.railway_project_id,
+        &config.railway_environment_id,
+        &config.railway_service_id,
+    ) {
+        match fetch_service_variable_from_railway(
+            token,
+            project_id,
+            env_id,
+            service_id,
+            "TEMPER_API_KEY",
+        )
+        .await
+        {
+            Ok(Some(key)) if !key.trim().is_empty() => {
+                if let Err(error) = save_temper_api_key(path, &key) {
+                    tracing::warn!(
+                        %error,
+                        path = %path.display(),
+                        "Loaded TEMPER_API_KEY from Railway but failed to refresh local cache file"
+                    );
+                }
+                tracing::info!("Using TEMPER_API_KEY from Railway env var");
+                return Ok(key);
+            }
+            Ok(_) => {
+                let key = load_or_create_temper_api_key(None, path)?;
+                match persist_temper_api_key_to_railway(token, project_id, env_id, service_id, &key)
+                    .await
+                {
+                    Ok(()) => {
+                        tracing::info!("Bootstrapped TEMPER_API_KEY into Railway env var");
+                    }
+                    Err(error) => {
+                        tracing::warn!(
+                            %error,
+                            "Failed to bootstrap TEMPER_API_KEY into Railway — current process will use a generated key only"
+                        );
+                    }
+                }
+                return Ok(key);
+            }
+            Err(error) => {
+                tracing::warn!(
+                    %error,
+                    "Failed to read TEMPER_API_KEY from Railway — falling back to local key cache"
+                );
+            }
+        }
+    }
+
+    load_or_create_temper_api_key(None, path)
+}
+
 fn load_or_create_temper_api_key(explicit_key: Option<String>, path: &Path) -> Result<String> {
     if let Some(key) = explicit_key {
         return Ok(key);
@@ -1446,12 +1523,21 @@ fn load_or_create_temper_api_key(explicit_key: Option<String>, path: &Path) -> R
         }
     }
 
-    let key = {
-        use rand::Rng;
-        let bytes: [u8; 32] = rand::rng().random();
-        hex::encode(bytes)
-    };
-    std::fs::write(path, &key)
+    let key = generate_temper_api_key();
+    save_temper_api_key(path, &key)?;
+    tracing::info!(path = %path.display(), "Saved new API key to file");
+    Ok(key)
+}
+
+fn generate_temper_api_key() -> String {
+    use rand::Rng;
+
+    let bytes: [u8; 32] = rand::rng().random();
+    hex::encode(bytes)
+}
+
+fn save_temper_api_key(path: &Path, key: &str) -> Result<()> {
+    std::fs::write(path, key)
         .with_context(|| format!("Failed to write API key to {}", path.display()))?;
 
     #[cfg(unix)]
@@ -1462,8 +1548,7 @@ fn load_or_create_temper_api_key(explicit_key: Option<String>, path: &Path) -> R
             .with_context(|| format!("Failed to set permissions on {}", path.display()))?;
     }
 
-    tracing::info!(path = %path.display(), "Saved new API key to file");
-    Ok(key)
+    Ok(())
 }
 
 async fn persist_os_app_verification(
