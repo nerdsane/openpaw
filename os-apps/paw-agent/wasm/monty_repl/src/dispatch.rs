@@ -89,6 +89,31 @@ pub fn peek_lazy_sandbox_provider() -> Option<String> {
     })
 }
 
+/// Peek at the lazily provisioned sandbox ID without consuming it.
+pub fn peek_lazy_sandbox_id() -> Option<String> {
+    LAZY_SANDBOX.with(|cell| cell.borrow().as_ref().map(|(_, id, _)| id.clone()))
+}
+
+fn sandbox_identity_from_fields(fields: &Value) -> (Option<String>, Option<String>) {
+    let lazy = LAZY_SANDBOX.with(|cell| cell.borrow().clone());
+
+    let sandbox_id = fields
+        .get("sandbox_id")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+        .or_else(|| lazy.as_ref().map(|(_, id, _)| id.clone()));
+
+    let provider = fields
+        .get("sandbox_provider")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+        .or_else(|| lazy.as_ref().map(|(_, _, provider)| provider.clone()));
+
+    (sandbox_id, provider)
+}
+
 /// Dispatch a `temper.<method>()` or `sandbox.<method>()` call.
 ///
 /// Called by the Monty event loop when user code invokes a method on a
@@ -143,25 +168,16 @@ pub fn dispatch(
         ),
         "sandbox" => {
             let fields = ctx.entity_state.get("fields").cloned().unwrap_or(json!({}));
-            let provider = fields
-                .get("sandbox_provider")
-                .and_then(|v| v.as_str())
-                .filter(|s| !s.is_empty())
-                .map(|s| s.to_string())
-                .or_else(|| peek_lazy_sandbox_provider())
+            let (sandbox_id, cached_provider) = sandbox_identity_from_fields(&fields);
+            let provider = cached_provider
                 .unwrap_or_else(|| {
                     wasm_helpers::sandbox::resolve_sandbox_provider(ctx, &fields)
                         .unwrap_or_else(|_| "tensorlake".to_string())
                 });
-            let sandbox_id = fields
-                .get("sandbox_id")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
             dispatch_sandbox(
                 ctx,
                 &effective_sandbox_url,
-                &sandbox_id,
+                sandbox_id.as_deref().unwrap_or(""),
                 &provider,
                 workdir,
                 method,
@@ -1875,8 +1891,8 @@ fn shell_quote(s: &str) -> String {
 mod tests {
     use super::{
         fallback_web_search_query, has_model_csdl, interpret_web_query_entity_result,
-        is_image_extension, media_type_from_extension,
-        is_vague_web_search_query, web_search_results_empty,
+        is_image_extension, media_type_from_extension, is_vague_web_search_query,
+        sandbox_identity_from_fields, web_search_results_empty, LAZY_SANDBOX,
     };
     use serde_json::json;
 
@@ -1987,5 +2003,44 @@ mod tests {
             media_type_from_extension("file.bmp"),
             "application/octet-stream"
         );
+    }
+
+    #[test]
+    fn sandbox_identity_uses_lazy_cache_when_entity_state_is_empty() {
+        LAZY_SANDBOX.with(|cell| {
+            *cell.borrow_mut() = Some((
+                "https://sandbox.example".to_string(),
+                "sb-lazy".to_string(),
+                "modal".to_string(),
+            ));
+        });
+
+        let (sandbox_id, provider) = sandbox_identity_from_fields(&json!({}));
+
+        assert_eq!(sandbox_id.as_deref(), Some("sb-lazy"));
+        assert_eq!(provider.as_deref(), Some("modal"));
+
+        LAZY_SANDBOX.with(|cell| *cell.borrow_mut() = None);
+    }
+
+    #[test]
+    fn sandbox_identity_prefers_persisted_entity_state_over_lazy_cache() {
+        LAZY_SANDBOX.with(|cell| {
+            *cell.borrow_mut() = Some((
+                "https://sandbox.example".to_string(),
+                "sb-lazy".to_string(),
+                "modal".to_string(),
+            ));
+        });
+
+        let (sandbox_id, provider) = sandbox_identity_from_fields(&json!({
+            "sandbox_id": "sb-persisted",
+            "sandbox_provider": "tensorlake"
+        }));
+
+        assert_eq!(sandbox_id.as_deref(), Some("sb-persisted"));
+        assert_eq!(provider.as_deref(), Some("tensorlake"));
+
+        LAZY_SANDBOX.with(|cell| *cell.borrow_mut() = None);
     }
 }

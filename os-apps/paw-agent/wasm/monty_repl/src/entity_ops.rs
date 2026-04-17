@@ -1242,8 +1242,10 @@ pub fn run_coding_agent(
     let sandbox_id = fields
         .get("sandbox_id")
         .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+        .or_else(|| dispatch::peek_lazy_sandbox_id())
+        .unwrap_or_default();
     let handle = SandboxHandle {
         sandbox_url: sandbox_url.to_string(),
         sandbox_id,
