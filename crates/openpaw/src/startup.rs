@@ -153,10 +153,34 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
     std::fs::create_dir_all(&data_dir)
         .with_context(|| format!("Failed to create data dir: {}", data_dir.display()))?;
     let api_key_path = data_dir.join("api.key");
+    let temper_api_key_from_env = config.temper_api_key.is_some();
     config.temper_api_key = Some(load_or_create_temper_api_key(
         config.temper_api_key.clone(),
         &api_key_path,
     )?);
+    if !temper_api_key_from_env {
+        if let (Some(token), Some(project_id), Some(env_id), Some(service_id), Some(api_key)) = (
+            &config.railway_token,
+            &config.railway_project_id,
+            &config.railway_environment_id,
+            &config.railway_service_id,
+            config.temper_api_key.as_ref(),
+        ) {
+            match persist_temper_api_key_to_railway(token, project_id, env_id, service_id, api_key)
+                .await
+            {
+                Ok(()) => {
+                    tracing::info!("API key persisted to Railway env var TEMPER_API_KEY");
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        %e,
+                        "Failed to persist API key to Railway — bearer auth may rotate on next redeploy"
+                    );
+                }
+            }
+        }
+    }
 
     // Phase 0: Config setup (API key + messaging — runs pre-boot)
     let needs_soul_setup = if crate::setup::needs_setup(&data_dir, &config) {
@@ -1334,6 +1358,43 @@ async fn persist_vault_key_to_railway(
     service_id: &str,
     vault_key_b64: &str,
 ) -> Result<()> {
+    persist_service_variable_to_railway(
+        token,
+        project_id,
+        environment_id,
+        service_id,
+        "TEMPER_VAULT_KEY",
+        vault_key_b64,
+    )
+    .await
+}
+
+async fn persist_temper_api_key_to_railway(
+    token: &str,
+    project_id: &str,
+    environment_id: &str,
+    service_id: &str,
+    api_key: &str,
+) -> Result<()> {
+    persist_service_variable_to_railway(
+        token,
+        project_id,
+        environment_id,
+        service_id,
+        "TEMPER_API_KEY",
+        api_key,
+    )
+    .await
+}
+
+async fn persist_service_variable_to_railway(
+    token: &str,
+    project_id: &str,
+    environment_id: &str,
+    service_id: &str,
+    key: &str,
+    value: &str,
+) -> Result<()> {
     let client = reqwest::Client::new();
     let query = serde_json::json!({
         "query": "mutation($input: VariableCollectionUpsertInput!) { variableCollectionUpsert(input: $input) }",
@@ -1343,7 +1404,7 @@ async fn persist_vault_key_to_railway(
                 "environmentId": environment_id,
                 "serviceId": service_id,
                 "variables": {
-                    "TEMPER_VAULT_KEY": vault_key_b64
+                    key: value
                 }
             }
         }
