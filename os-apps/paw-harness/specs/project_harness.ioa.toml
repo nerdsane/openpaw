@@ -5,6 +5,12 @@ name = "Harness"
 states = ["Created", "Configured", "Active", "Archived"]
 initial = "Created"
 
+# ADR-0050 migration TODO: each state below needs either a
+# [[state_timeout]] declaration or a domain-specific justification
+# for being indefinite. Added as a migration allowlist to unblock
+# TEMPER_LIVENESS_ENFORCE=true; revisit and tune per state.
+allow_indefinite_states = ["Created", "Configured", "Active"]
+
 [[state]]
 name = "repo_url"
 type = "string"

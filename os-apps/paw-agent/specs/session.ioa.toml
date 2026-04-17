@@ -21,6 +21,13 @@
 name = "Session"
 states = ["Created", "Provisioning", "Thinking", "PreparingContext", "CallingProvider", "ApplyingProviderResponse", "Executing", "Compacting", "Steering", "WaitingForApproval", "Recovering", "Completed", "Failed", "Cancelled"]
 initial = "Created"
+# ADR-0050 / ADR-0036: WaitingForApproval is human-blocked on a Cedar
+# decision; a wall-clock timeout here would conflict with governance
+# semantics. All other non-terminal states carry a [[state_timeout]] below.
+# justification: Cedar approval is human-gated. A timeout would conflict
+# with governance semantics (a denied decision is a decision; a timed-out
+# one is a policy gap).
+allow_indefinite_states = ["WaitingForApproval", "Completed", "Failed", "Cancelled"]
 
 # --- State Variables: Core ---
 
@@ -1101,3 +1108,94 @@ on_failure = "Fail"
 
 [integration.config]
 temper_api_url = "{secret:temper_api_url}"
+
+# ============================================================================
+# ADR-0036 / ADR-0049: declarative liveness via [[state_timeout]]
+#
+# Every non-terminal state (except WaitingForApproval, which is allowlisted
+# above) has a timeout and, where progress signals exist, a `reset_on` list
+# so long-running steps that heartbeat stay alive.
+#
+# The spec compiler auto-wires each timeout's `state` into the target
+# action's `from` list — authors declare coverage once.
+# ============================================================================
+
+[[state_timeout]]
+state = "Created"
+after_seconds = 60
+on_timeout = "Fail"
+params = { error_message = "session Configure never arrived within 60s" }
+
+[[state_timeout]]
+state = "Provisioning"
+after_seconds = 180
+on_timeout = "TimeoutFail"
+reset_on = ["ProvisionPending"]
+params = { error_message = "workspace/sandbox provisioning did not complete within 180s" }
+
+[[state_timeout]]
+state = "PreparingContext"
+after_seconds = 120
+on_timeout = "TimeoutFail"
+params = { error_message = "context preparation did not complete within 120s" }
+
+[[state_timeout]]
+state = "CallingProvider"
+after_seconds = 600
+on_timeout = "TimeoutFail"
+reset_on = ["Heartbeat"]
+params = { error_message = "provider call did not complete within 600s" }
+
+[[state_timeout]]
+state = "ApplyingProviderResponse"
+after_seconds = 60
+on_timeout = "TimeoutFail"
+params = { error_message = "applying provider response did not complete within 60s" }
+
+[[state_timeout]]
+state = "Executing"
+after_seconds = 300
+on_timeout = "TimeoutFail"
+reset_on = ["Heartbeat", "CheckpointToolBatch"]
+params = { error_message = "tool execution made no progress for 300s" }
+
+[[state_timeout]]
+state = "Thinking"
+after_seconds = 300
+on_timeout = "TimeoutFail"
+reset_on = ["Heartbeat"]
+params = { error_message = "session stalled in Thinking for 300s" }
+
+[[state_timeout]]
+state = "Steering"
+after_seconds = 60
+on_timeout = "TimeoutFail"
+params = { error_message = "steering check did not complete within 60s" }
+
+[[state_timeout]]
+state = "Compacting"
+after_seconds = 300
+on_timeout = "TimeoutFail"
+reset_on = ["Heartbeat"]
+params = { error_message = "context compaction did not complete within 300s" }
+
+[[state_timeout]]
+state = "Recovering"
+after_seconds = 120
+on_timeout = "Fail"
+max_occurrences = 3
+params = { error_message = "recovery did not complete within 120s" }
+
+# ============================================================================
+# ADR-0036 / ADR-0051: admission control caps
+#
+# Values tuned from the 2026-04-17 Katagami incident (11 concurrent Session
+# creates in 38s overwhelmed shared actors). Ops may override via the
+# /_admin/admission/{tenant}/Session endpoint without a redeploy.
+# ============================================================================
+
+[admission]
+max_concurrent_creates = 10
+max_concurrent_actions = { "Configure" = 5 }
+queue_depth = 100
+queue_timeout_seconds = 30

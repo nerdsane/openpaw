@@ -14,6 +14,12 @@ name = "WikiJob"
 states = ["Queued", "Ready", "Running", "Completed", "Failed"]
 initial = "Queued"
 
+# ADR-0050 migration TODO: each state below needs either a
+# [[state_timeout]] declaration or a domain-specific justification
+# for being indefinite. Added as a migration allowlist to unblock
+# TEMPER_LIVENESS_ENFORCE=true; revisit and tune per state.
+allow_indefinite_states = ["Queued", "Ready", "Running"]
+
 # Job classification (consuming app decides values)
 [[state]]
 name = "job_type"

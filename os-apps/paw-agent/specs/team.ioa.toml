@@ -5,6 +5,12 @@ name = "Team"
 states = ["Created", "Active", "Archived"]
 initial = "Created"
 
+# ADR-0050 migration TODO: each state below needs either a
+# [[state_timeout]] declaration or a domain-specific justification
+# for being indefinite. Added as a migration allowlist to unblock
+# TEMPER_LIVENESS_ENFORCE=true; revisit and tune per state.
+allow_indefinite_states = ["Created", "Active"]
+
 [[state]]
 name = "name"
 type = "string"
