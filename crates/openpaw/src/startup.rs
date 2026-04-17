@@ -1001,10 +1001,40 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
         let vault = state.server.secrets_vault.as_ref();
         let discord_token = vault.and_then(|v| v.get_secret(&tenant, "discord_bot_token"));
         if let Some(token) = discord_token {
-            let public_key = vault
+            let configured_public_key = vault
                 .and_then(|v| v.get_secret(&tenant, "discord_public_key"))
-                .or_else(|| config.discord_public_key.clone())
-                .unwrap_or_default();
+                .or_else(|| config.discord_public_key.clone());
+            let public_key = match crate::discord_app::resolve_verify_key(
+                &token,
+                configured_public_key.as_deref(),
+            )
+            .await
+            {
+                Ok(public_key) => {
+                    if configured_public_key.as_deref() != Some(public_key.as_str()) {
+                        tracing::info!(
+                            "Refreshed Discord verify_key from the Discord API during startup"
+                        );
+                    }
+                    if let Some(vault) = vault {
+                        let _ =
+                            vault.cache_secret(&tenant, "discord_public_key", public_key.clone());
+                        if let Ok((ct, nc)) = vault.encrypt(public_key.as_bytes()) {
+                            let _ = turso_store
+                                .upsert_secret(&tenant, "discord_public_key", &ct, &nc)
+                                .await;
+                        }
+                    }
+                    Some(public_key)
+                }
+                Err(error) => {
+                    tracing::warn!(
+                        %error,
+                        "Failed to refresh Discord verify_key during startup; using the configured value if present"
+                    );
+                    configured_public_key
+                }
+            };
             let guild_id = vault
                 .and_then(|v| v.get_secret(&tenant, "discord_guild_id"))
                 .or_else(|| config.discord_guild_id.clone());

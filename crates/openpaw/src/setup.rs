@@ -647,7 +647,7 @@ pub fn run_doctor(data_dir: &Path, config: &Config) {
         if config.discord_public_key.is_some() {
             println!("  \u{2713} Discord public key");
         } else {
-            println!("  \u{2717} Discord public key — rerun `cargo run -- setup`");
+            println!("  ~ Discord public key (auto-fetched from bot token when available)");
         }
         if let Some(base_url) = config.public_base_url.as_ref() {
             println!(

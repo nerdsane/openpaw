@@ -153,8 +153,8 @@
             <input type="password" bind:value={discordToken} required placeholder="MTI3..." />
           </label>
           <label>
-            <span class="label-text">Public Key *</span>
-            <input type="text" bind:value={discordPublicKey} required placeholder="Required for interaction verification" />
+            <span class="label-text">Public Key</span>
+            <input type="text" bind:value={discordPublicKey} placeholder="Optional; auto-fetched from the bot token when possible" />
           </label>
           <label>
             <span class="label-text">Guild ID</span>
@@ -168,7 +168,7 @@
             <span class="label-text">Forum Channel ID</span>
             <input type="text" bind:value={discordForumChannelId} placeholder="Optional" />
           </label>
-          <button class="btn btn-primary" type="submit" disabled={discordConnecting || !discordToken || !discordPublicKey}>
+          <button class="btn btn-primary" type="submit" disabled={discordConnecting || !discordToken}>
             {discordConnecting ? 'CONNECTING...' : 'CONNECT'}
           </button>
         </form>

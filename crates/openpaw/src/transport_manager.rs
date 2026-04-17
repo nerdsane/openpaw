@@ -85,7 +85,7 @@ pub struct AllTransportStatus {
 /// Discord connection parameters.
 pub struct DiscordConnectParams {
     pub bot_token: String,
-    pub public_key: String,
+    pub public_key: Option<String>,
     pub guild_id: Option<String>,
     pub feed_channel_id: Option<String>,
     pub forum_channel_id: Option<String>,
@@ -257,9 +257,9 @@ impl TransportManager {
 
     /// Start the Discord transport. If already connected, disconnects first.
     pub async fn connect_discord(&self, params: DiscordConnectParams) -> anyhow::Result<String> {
-        if params.public_key.trim().is_empty() {
-            bail!("Discord public key is required to verify interactions");
-        }
+        let public_key =
+            crate::discord_app::resolve_verify_key(&params.bot_token, params.public_key.as_deref())
+                .await?;
 
         let public_base_url = self.ensure_discord_public_base_url().await?;
         let interaction_url = format!(
@@ -300,7 +300,7 @@ impl TransportManager {
             });
             let config = DiscordConfig {
                 bot_token: params.bot_token,
-                public_key: params.public_key,
+                public_key,
                 intents: intents::DEFAULT,
                 webhook_port: DISCORD_WEBHOOK_PORT,
                 guild_id: params.guild_id,

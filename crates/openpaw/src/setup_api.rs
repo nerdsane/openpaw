@@ -144,7 +144,7 @@ fn secrets_schema() -> Vec<SecretSchema> {
             category: "messaging",
             label: "Discord Public Key",
             required: false,
-            description: "Application public key for interaction verification",
+            description: "Optional override; auto-fetched from the bot token when possible",
         },
         SecretSchema {
             key: "discord_guild_id",
@@ -482,7 +482,7 @@ where
             updated_key,
             updated_value,
             "discord_public_key",
-        )?,
+        ),
         guild_id: effective_secret(&get_secret, updated_key, updated_value, "discord_guild_id"),
         feed_channel_id: effective_secret(
             &get_secret,
@@ -1489,22 +1489,27 @@ async fn connect_discord(
     State(state): State<SetupApiState>,
     Json(req): Json<DiscordConnectRequest>,
 ) -> impl IntoResponse {
-    let public_key = req.public_key.unwrap_or_default();
-    if public_key.trim().is_empty() {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({
-                "error": "discord public key is required to verify interactions"
-            })),
-        )
-            .into_response();
-    }
+    let resolved_public_key =
+        match crate::discord_app::resolve_verify_key(&req.bot_token, req.public_key.as_deref())
+            .await
+        {
+            Ok(public_key) => public_key,
+            Err(error) => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({
+                        "error": error.to_string()
+                    })),
+                )
+                    .into_response();
+            }
+        };
 
     match state
         .transport_manager
         .connect_discord(DiscordConnectParams {
             bot_token: req.bot_token.clone(),
-            public_key: public_key.clone(),
+            public_key: Some(resolved_public_key.clone()),
             guild_id: req.guild_id.clone(),
             feed_channel_id: req.feed_channel_id.clone(),
             forum_channel_id: req.forum_channel_id.clone(),
@@ -1523,8 +1528,12 @@ async fn connect_discord(
                         .await;
                 }
 
-                let _ = vault.cache_secret(&state.tenant, "discord_public_key", public_key.clone());
-                if let Ok((ct, nc)) = vault.encrypt(public_key.as_bytes()) {
+                let _ = vault.cache_secret(
+                    &state.tenant,
+                    "discord_public_key",
+                    resolved_public_key.clone(),
+                );
+                if let Ok((ct, nc)) = vault.encrypt(resolved_public_key.as_bytes()) {
                     let _ = state
                         .turso_store
                         .upsert_secret(&state.tenant, "discord_public_key", &ct, &nc)
@@ -1640,18 +1649,35 @@ mod tests {
         .expect("discord reconnect params should be built");
 
         assert_eq!(params.bot_token, "new-token");
-        assert_eq!(params.public_key, "pub-key");
+        assert_eq!(params.public_key.as_deref(), Some("pub-key"));
         assert_eq!(params.guild_id.as_deref(), Some("guild-123"));
         assert_eq!(params.feed_channel_id, None);
         assert_eq!(params.forum_channel_id, None);
     }
 
     #[test]
-    fn discord_secret_update_skips_reconnect_when_required_values_are_missing() {
+    fn discord_secret_update_skips_reconnect_for_non_discord_secret_updates() {
         let params =
-            discord_connect_params_for_secret_update(|_| None, "discord_bot_token", "new-token");
+            discord_connect_params_for_secret_update(|_| None, "openai_api_key", "new-token");
 
         assert!(params.is_none());
+    }
+
+    #[test]
+    fn discord_secret_update_reconnects_without_a_manual_public_key() {
+        let params = discord_connect_params_for_secret_update(
+            |key| match key {
+                "discord_guild_id" => Some("guild-123".to_string()),
+                _ => None,
+            },
+            "discord_bot_token",
+            "new-token",
+        )
+        .expect("discord reconnect params should be built");
+
+        assert_eq!(params.bot_token, "new-token");
+        assert_eq!(params.public_key, None);
+        assert_eq!(params.guild_id.as_deref(), Some("guild-123"));
     }
 
     #[test]

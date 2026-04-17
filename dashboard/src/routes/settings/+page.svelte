@@ -254,7 +254,6 @@
       const feedChannel = vars.find(v => v.key === 'discord_feed_channel_id')?.value ?? '';
       const forumChannel = vars.find(v => v.key === 'discord_forum_channel_id')?.value ?? '';
       if (!botToken) { showFeedback('error', 'Set discord_bot_token first'); return; }
-      if (!publicKey) { showFeedback('error', 'Set discord_public_key first'); return; }
       const result = await connectDiscord({
         bot_token: botToken,
         public_key: publicKey || undefined,
