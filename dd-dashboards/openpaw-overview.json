@@ -1,5 +1,5 @@
 {
-  "title": "OpenPaw — Platform Overview",
+  "title": "OpenPaw \u2014 Platform Overview",
   "description": "Single pane of glass for OpenPaw agent orchestration health, runtime behavior, and Temper platform metrics.",
   "layout_type": "ordered",
   "widgets": [
@@ -388,6 +388,33 @@
                 }
               ]
             }
+          },
+          {
+            "definition": {
+              "title": "WASM Default-Timeout Fallbacks",
+              "title_size": "16",
+              "title_align": "left",
+              "show_legend": true,
+              "type": "timeseries",
+              "requests": [
+                {
+                  "response_format": "timeseries",
+                  "queries": [
+                    {
+                      "data_source": "metrics",
+                      "name": "fallbacks",
+                      "query": "sum:temper_wasm_integration_default_timeout_used_total{service:openpaw} by {tenant,entity_type,module}.as_count()"
+                    }
+                  ],
+                  "formulas": [
+                    {
+                      "formula": "fallbacks"
+                    }
+                  ],
+                  "display_type": "bars"
+                }
+              ]
+            }
           }
         ]
       }
@@ -598,6 +625,33 @@
                 }
               ]
             }
+          },
+          {
+            "definition": {
+              "title": "Session Large Content Externalized",
+              "title_size": "16",
+              "title_align": "left",
+              "show_legend": true,
+              "type": "timeseries",
+              "requests": [
+                {
+                  "response_format": "timeseries",
+                  "queries": [
+                    {
+                      "data_source": "metrics",
+                      "name": "externalized",
+                      "query": "sum:temper_session_large_content_externalized_total{service:openpaw} by {entity_type}.as_count()"
+                    }
+                  ],
+                  "formulas": [
+                    {
+                      "formula": "externalized"
+                    }
+                  ],
+                  "display_type": "bars"
+                }
+              ]
+            }
           }
         ]
       }
@@ -671,6 +725,52 @@
                 {
                   "q": "sum:temper_dispatch_ask_error_total{service:openpaw} by {error_kind}.as_count()",
                   "display_type": "bars"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "Dispatch Attempts Percentiles",
+              "title_size": "16",
+              "title_align": "left",
+              "show_legend": true,
+              "type": "timeseries",
+              "requests": [
+                {
+                  "response_format": "timeseries",
+                  "queries": [
+                    {
+                      "data_source": "metrics",
+                      "name": "p50",
+                      "query": "p50:temper_dispatch_ask_attempts{service:openpaw}"
+                    },
+                    {
+                      "data_source": "metrics",
+                      "name": "p95",
+                      "query": "p95:temper_dispatch_ask_attempts{service:openpaw}"
+                    },
+                    {
+                      "data_source": "metrics",
+                      "name": "p99",
+                      "query": "p99:temper_dispatch_ask_attempts{service:openpaw}"
+                    }
+                  ],
+                  "formulas": [
+                    {
+                      "formula": "p50",
+                      "alias": "p50"
+                    },
+                    {
+                      "formula": "p95",
+                      "alias": "p95"
+                    },
+                    {
+                      "formula": "p99",
+                      "alias": "p99"
+                    }
+                  ],
+                  "display_type": "line"
                 }
               ]
             }
@@ -933,5 +1033,7 @@
       }
     }
   ],
-  "tags": ["team:openpaw"]
+  "tags": [
+    "team:openpaw"
+  ]
 }
