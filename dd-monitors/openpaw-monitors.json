@@ -556,5 +556,58 @@
       "notify_no_data": false,
       "renotify_interval": 240
     }
+  },
+  {
+    "name": "[Temper] Log Error Rate Spike",
+    "type": "log alert",
+    "query": "logs(\"service:(temper OR openpaw) status:error\").index(\"*\").rollup(\"count\").last(\"10m\") > 50",
+    "message": "Temper error-level logs exceed 50 / 10m. Group by @error.kind on the Log Explorer to find the dominant failure mode.\n\n@slack-openpaw-alerts",
+    "tags": [
+      "team:openpaw",
+      "severity:high"
+    ],
+    "options": {
+      "thresholds": {
+        "critical": 50,
+        "warning": 10
+      },
+      "notify_no_data": false,
+      "renotify_interval": 60
+    }
+  },
+  {
+    "name": "[Temper] Panics in logs",
+    "type": "log alert",
+    "query": "logs(\"service:(temper OR openpaw) \\\"panicked\\\" OR \\\"BUG\\\"\").index(\"*\").rollup(\"count\").last(\"5m\") > 0",
+    "message": "Temper panic or BUG message detected. Page on-call immediately.\n\n@slack-openpaw-alerts",
+    "tags": [
+      "team:openpaw",
+      "severity:high"
+    ],
+    "options": {
+      "thresholds": {
+        "critical": 0
+      },
+      "notify_no_data": false,
+      "renotify_interval": 30
+    }
+  },
+  {
+    "name": "[OpenPaw] Webhook Receive Errors",
+    "type": "log alert",
+    "query": "logs(\"service:openpaw @webhook.status:>=500\").index(\"*\").rollup(\"count\").last(\"15m\") > 10",
+    "message": "Webhook-tier errors elevated. Investigate trigger bridges (Slack / Discord / HTTP).\n\n@slack-openpaw-alerts",
+    "tags": [
+      "team:openpaw",
+      "severity:medium"
+    ],
+    "options": {
+      "thresholds": {
+        "critical": 10,
+        "warning": 3
+      },
+      "notify_no_data": false,
+      "renotify_interval": 120
+    }
   }
 ]

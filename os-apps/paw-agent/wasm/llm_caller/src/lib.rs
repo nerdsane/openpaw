@@ -4297,8 +4297,13 @@ fn resolve_provider_and_model(
                 }
                 if let Ok(alt_key) = resolve_provider_api_key(ctx, alt) {
                     if !alt_key.is_empty() && !is_unresolved_secret_template(&alt_key) {
+                        // ADR-0054 warn-audit: provider-selection fallback is a
+                        // configuration fact, not an operator-actionable
+                        // warning. Fires once per LLM call which is too noisy
+                        // for the warn level (81 in a 45-min window during the
+                        // 2026-04-18 Katagami incident). Downgraded to info.
                         ctx.log(
-                            "warn",
+                            "info",
                             &format!(
                                 "provider selection: provider={provider} has no key, falling back to {alt}"
                             ),
