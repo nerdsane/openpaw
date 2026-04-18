@@ -3,3 +3,20 @@ description = "Governed web search for agent research"
 version = "0.1.0"
 startup_install = "core"
 dependencies = ["paw-agent"]
+
+# These declarations are REQUIRED — the installer only uploads WASM
+# artifacts that are listed here. Without them, even if the compiled
+# `.wasm` files are in the image, `wasm_modules: []` comes back empty at
+# install time and `temper.web_search()` / `temper.web_fetch()` fail
+# with "WASM module not found". This was the root cause of the
+# 2026-04-18 source_search outage.
+
+[[wasm_modules]]
+name = "web_search"
+criticality = "app-required"
+startup_loading = "lazy"
+
+[[wasm_modules]]
+name = "web_fetch"
+criticality = "app-required"
+startup_loading = "lazy"
