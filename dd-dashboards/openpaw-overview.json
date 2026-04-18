@@ -1031,6 +1031,162 @@
           }
         ]
       }
+    },
+    {
+      "definition": {
+        "title": "Dispatch Contention (W2 / temper#146)",
+        "type": "group",
+        "layout_type": "ordered",
+        "widgets": [
+          {
+            "definition": {
+              "title": "Actor Registry Lock Wait \u2014 Cold Start p95/p99",
+              "title_size": "16",
+              "title_align": "left",
+              "show_legend": true,
+              "type": "timeseries",
+              "requests": [
+                {
+                  "response_format": "timeseries",
+                  "queries": [
+                    {
+                      "data_source": "metrics",
+                      "name": "p95",
+                      "query": "p95:temper_actor_registry_lock_wait_ms{service:openpaw,cold_start:true} by {entity_type}"
+                    },
+                    {
+                      "data_source": "metrics",
+                      "name": "p99",
+                      "query": "p99:temper_actor_registry_lock_wait_ms{service:openpaw,cold_start:true} by {entity_type}"
+                    }
+                  ],
+                  "formulas": [
+                    {
+                      "formula": "p95",
+                      "alias": "p95"
+                    },
+                    {
+                      "formula": "p99",
+                      "alias": "p99"
+                    }
+                  ],
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "Actor Registry Lock Wait \u2014 Hot Path p95/p99",
+              "title_size": "16",
+              "title_align": "left",
+              "show_legend": true,
+              "type": "timeseries",
+              "requests": [
+                {
+                  "response_format": "timeseries",
+                  "queries": [
+                    {
+                      "data_source": "metrics",
+                      "name": "p95",
+                      "query": "p95:temper_actor_registry_lock_wait_ms{service:openpaw,cold_start:false} by {entity_type}"
+                    },
+                    {
+                      "data_source": "metrics",
+                      "name": "p99",
+                      "query": "p99:temper_actor_registry_lock_wait_ms{service:openpaw,cold_start:false} by {entity_type}"
+                    }
+                  ],
+                  "formulas": [
+                    {
+                      "formula": "p95",
+                      "alias": "p95"
+                    },
+                    {
+                      "formula": "p99",
+                      "alias": "p99"
+                    }
+                  ],
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "Actor Cold-Start Duration p50/p95/p99",
+              "title_size": "16",
+              "title_align": "left",
+              "show_legend": true,
+              "type": "timeseries",
+              "requests": [
+                {
+                  "response_format": "timeseries",
+                  "queries": [
+                    {
+                      "data_source": "metrics",
+                      "name": "p50",
+                      "query": "p50:temper_actor_cold_start_duration_ms{service:openpaw} by {entity_type}"
+                    },
+                    {
+                      "data_source": "metrics",
+                      "name": "p95",
+                      "query": "p95:temper_actor_cold_start_duration_ms{service:openpaw} by {entity_type}"
+                    },
+                    {
+                      "data_source": "metrics",
+                      "name": "p99",
+                      "query": "p99:temper_actor_cold_start_duration_ms{service:openpaw} by {entity_type}"
+                    }
+                  ],
+                  "formulas": [
+                    {
+                      "formula": "p50",
+                      "alias": "p50"
+                    },
+                    {
+                      "formula": "p95",
+                      "alias": "p95"
+                    },
+                    {
+                      "formula": "p99",
+                      "alias": "p99"
+                    }
+                  ],
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "Inside-Actor Ask Reply Latency p95",
+              "title_size": "16",
+              "title_align": "left",
+              "show_legend": true,
+              "type": "timeseries",
+              "requests": [
+                {
+                  "response_format": "timeseries",
+                  "queries": [
+                    {
+                      "data_source": "metrics",
+                      "name": "p95",
+                      "query": "p95:temper_actor_ask_reply_latency_ms{service:openpaw} by {entity_type,action}"
+                    }
+                  ],
+                  "formulas": [
+                    {
+                      "formula": "p95"
+                    }
+                  ],
+                  "display_type": "line"
+                }
+              ]
+            }
+          }
+        ]
+      }
     }
   ],
   "tags": [

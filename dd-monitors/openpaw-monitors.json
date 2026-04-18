@@ -411,5 +411,41 @@
       "notify_no_data": false,
       "renotify_interval": 240
     }
+  },
+  {
+    "name": "[OpenPaw] Actor Registry Lock Contention (cold-start p95)",
+    "type": "metric alert",
+    "query": "avg(last_15m):p95:temper_actor_registry_lock_wait_ms{service:openpaw,cold_start:true} by {entity_type} > 500",
+    "message": "Cold-start registry lock p95 exceeds 500ms for one or more entity types. Direct signal for temper#146 investigation \u2014 capture a CPU profile via /_admin/profile/cpu during the next burst and check for mutex contention.\n\n@slack-openpaw-alerts",
+    "tags": [
+      "team:openpaw",
+      "severity:medium"
+    ],
+    "options": {
+      "thresholds": {
+        "critical": 500,
+        "warning": 100
+      },
+      "notify_no_data": false,
+      "renotify_interval": 120
+    }
+  },
+  {
+    "name": "[OpenPaw] Cold-Start Duration Regression",
+    "type": "metric alert",
+    "query": "avg(last_15m):p99:temper_actor_cold_start_duration_ms{service:openpaw} by {entity_type} > 5000",
+    "message": "Actor cold-start p99 exceeds 5s \u2014 freshly spawned actors are not ready to serve within the P1 retry budget. Root cause of the 2026-04-18 File dispatch exhaustions if this alerts. See temper#146.\n\n@slack-openpaw-alerts",
+    "tags": [
+      "team:openpaw",
+      "severity:high"
+    ],
+    "options": {
+      "thresholds": {
+        "critical": 5000,
+        "warning": 2000
+      },
+      "notify_no_data": false,
+      "renotify_interval": 60
+    }
   }
 ]
