@@ -1033,18 +1033,17 @@ impl DiscordTransport {
                     }
                 }
 
-                if !fallback_text.is_empty() {
-                    if let Err(error) = send_discord_message(
+                if !fallback_text.is_empty()
+                    && let Err(error) = send_discord_message(
                         &state.http,
                         &state.bot_token,
                         &channel_id,
                         &fallback_text,
                     )
                     .await
-                    {
-                        tracing::error!(thread_id, %error, "plain-text fallback delivery failed");
-                        return axum::http::StatusCode::INTERNAL_SERVER_ERROR;
-                    }
+                {
+                    tracing::error!(thread_id, %error, "plain-text fallback delivery failed");
+                    return axum::http::StatusCode::INTERNAL_SERVER_ERROR;
                 }
 
                 if !components.is_empty() {

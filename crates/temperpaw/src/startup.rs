@@ -249,10 +249,7 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
     state.server.event_store = Some(Arc::new(ServerEventStore::Turso(turso_store.clone())));
 
     {
-        let mut registry = state.registry.write().unwrap(); // ci-ok: infallible lock
-        let restored = restore_registry_from_turso(&mut registry, &turso_store)
-            .await
-            .map_err(|e| anyhow::anyhow!("Failed to restore registry from Turso: {e}"))?;
+        let restored = restore_registry_guarded(&state, &turso_store).await?;
         if restored > 0 {
             tracing::info!("Restored {restored} specs from Turso");
         }
@@ -327,8 +324,8 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
                                 path = %vault_key_path.display(),
                                 "Vault key file was corrupt — generating new key"
                             );
-                            let key = generate_and_save_vault_key(&vault_key_path)?;
-                            key
+
+                            generate_and_save_vault_key(&vault_key_path)?
                         }
                     }
                 }
@@ -351,27 +348,27 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
         };
         // If we generated a new key (no env var) and Railway is available, persist it
         // so the key survives across container redeploys (Railway has no persistent disk).
-        if config.vault_key.is_none() {
-            if let (Some(token), Some(project_id), Some(env_id), Some(service_id)) = (
+        if config.vault_key.is_none()
+            && let (Some(token), Some(project_id), Some(env_id), Some(service_id)) = (
                 &config.railway_token,
                 &config.railway_project_id,
                 &config.railway_environment_id,
                 &config.railway_service_id,
-            ) {
-                use base64::Engine as _;
-                let key_b64 = base64::engine::general_purpose::STANDARD.encode(&key_bytes);
-                match persist_vault_key_to_railway(token, project_id, env_id, service_id, &key_b64)
-                    .await
-                {
-                    Ok(()) => {
-                        tracing::info!("Vault key persisted to Railway env var TEMPER_VAULT_KEY");
-                    }
-                    Err(e) => {
-                        tracing::warn!(
-                            %e,
-                            "Failed to persist vault key to Railway — account data will be lost on next redeploy"
-                        );
-                    }
+            )
+        {
+            use base64::Engine as _;
+            let key_b64 = base64::engine::general_purpose::STANDARD.encode(key_bytes);
+            match persist_vault_key_to_railway(token, project_id, env_id, service_id, &key_b64)
+                .await
+            {
+                Ok(()) => {
+                    tracing::info!("Vault key persisted to Railway env var TEMPER_VAULT_KEY");
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        %e,
+                        "Failed to persist vault key to Railway — account data will be lost on next redeploy"
+                    );
                 }
             }
         }
@@ -1289,11 +1286,11 @@ async fn restore_secrets_from_turso_as_platform(
             for (key_name, ciphertext, nonce) in rows {
                 match vault.decrypt(&ciphertext, &nonce) {
                     Ok(plaintext) => {
-                        if let Ok(value) = String::from_utf8(plaintext) {
-                            if vault.get_platform_secret(&key_name).is_none() {
-                                let _ = vault.cache_platform_secret(&key_name, value);
-                                restored += 1;
-                            }
+                        if let Ok(value) = String::from_utf8(plaintext)
+                            && vault.get_platform_secret(&key_name).is_none()
+                        {
+                            let _ = vault.cache_platform_secret(&key_name, value);
+                            restored += 1;
                         }
                     }
                     Err(e) => {
@@ -1334,7 +1331,7 @@ fn generate_and_save_vault_key(path: &Path) -> Result<[u8; 32]> {
 
     let mut key = [0u8; 32];
     rand::fill(&mut key);
-    let encoded = base64::engine::general_purpose::STANDARD.encode(&key);
+    let encoded = base64::engine::general_purpose::STANDARD.encode(key);
     std::fs::write(path, &encoded)
         .with_context(|| format!("Failed to write vault key to {}", path.display()))?;
 
@@ -1778,7 +1775,23 @@ fn spawn_soul_bootstrap(
     });
 }
 
+// Restore spec registry from Turso. The write guard must outlive the await
+// because the upstream bootstrap helper needs `&mut RegistryGuard`. This runs
+// once at startup before any request path touches the registry, so the
+// lock-across-await clippy guidance doesn't apply.
+#[allow(clippy::await_holding_lock)]
+async fn restore_registry_guarded(
+    state: &PlatformState,
+    turso_store: &TursoEventStore,
+) -> Result<usize> {
+    let mut registry = state.registry.write().unwrap();
+    restore_registry_from_turso(&mut registry, turso_store)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to restore registry from Turso: {e}"))
+}
+
 /// Create or find an Agent entity by name.
+#[allow(clippy::too_many_arguments)]
 async fn bootstrap_agent(
     client: &reqwest::Client,
     api_url: &str,
@@ -1794,12 +1807,12 @@ async fn bootstrap_agent(
     let list_url = format!("{api_url}/tdata/Agents?$filter={filter}");
     let resp = odata_get(client, &list_url, tenant, api_key).await?;
 
-    if let Some(items) = resp["value"].as_array() {
-        if let Some(existing) = items.first() {
-            let id = entity_id_from_json(existing).unwrap_or("unknown");
-            tracing::info!("  Agent '{name}' already exists: {id}");
-            return Ok(id.to_string());
-        }
+    if let Some(items) = resp["value"].as_array()
+        && let Some(existing) = items.first()
+    {
+        let id = entity_id_from_json(existing).unwrap_or("unknown");
+        tracing::info!("  Agent '{name}' already exists: {id}");
+        return Ok(id.to_string());
     }
 
     // Create new Agent entity
@@ -1867,6 +1880,7 @@ async fn attach_soul_to_agent(
 /// Create or find a Soul entity for the given soul files.
 ///
 /// Multiple paths are concatenated with `\n\n` separators (e.g. SOUL.md + STYLE.md + SKILL.md).
+#[allow(clippy::too_many_arguments)]
 async fn bootstrap_soul(
     client: &reqwest::Client,
     api_url: &str,
@@ -2136,21 +2150,20 @@ async fn set_default_agent(
                 .ok();
                 tracing::info!("  Set agent_id={target_agent_id} on AgentRoute {route_id}");
             }
-            if !route_id.is_empty() {
-                if let Some(repaired_config) =
+            if !route_id.is_empty()
+                && let Some(repaired_config) =
                     repaired_agent_config(current_config, api_url, api_key, channel_id.is_empty())
-                {
-                    odata_post(
-                        client,
-                        &format!("{api_url}/tdata/AgentRoutes('{route_id}')/Paw.Channel.Update"),
-                        tenant,
-                        api_key,
-                        serde_json::json!({ "agent_config": repaired_config }),
-                    )
-                    .await
-                    .ok();
-                    tracing::info!("  Repaired agent_config on AgentRoute {route_id}");
-                }
+            {
+                odata_post(
+                    client,
+                    &format!("{api_url}/tdata/AgentRoutes('{route_id}')/Paw.Channel.Update"),
+                    tenant,
+                    api_key,
+                    serde_json::json!({ "agent_config": repaired_config }),
+                )
+                .await
+                .ok();
+                tracing::info!("  Repaired agent_config on AgentRoute {route_id}");
             }
             if channel_id.is_empty() {
                 has_global_route = true;
@@ -2367,10 +2380,10 @@ fn normalize_tools_enabled(raw: &str, replace_all: bool) -> Option<String> {
             other => Some(other),
         };
 
-        if let Some(token) = normalized {
-            if !tokens.iter().any(|existing| existing == token) {
-                tokens.push(token.to_string());
-            }
+        if let Some(token) = normalized
+            && !tokens.iter().any(|existing| existing == token)
+        {
+            tokens.push(token.to_string());
         }
     }
 

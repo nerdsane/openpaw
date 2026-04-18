@@ -540,15 +540,15 @@ async fn upsert_secret(
         &req.value,
     );
 
-    if let Some(params) = discord_params {
-        if let Err(error) = state.transport_manager.connect_discord(params).await {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({
-                    "error": format!("Saved value would not produce a working Discord connection: {error}")
-                })),
-            );
-        }
+    if let Some(params) = discord_params
+        && let Err(error) = state.transport_manager.connect_discord(params).await
+    {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error": format!("Saved value would not produce a working Discord connection: {error}")
+            })),
+        );
     }
 
     // Cache in memory + persist to Turso
@@ -1194,14 +1194,15 @@ async fn railway_redeploy(
     Json(req): Json<RedeployRequest>,
 ) -> impl IntoResponse {
     // Only allow known tags to prevent arbitrary image injection
-    if let Some(ref tag) = req.image_tag {
-        if tag != "latest" && tag != "edge" {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({ "error": "image_tag must be 'latest' or 'edge'" })),
-            )
-                .into_response();
-        }
+    if let Some(ref tag) = req.image_tag
+        && tag != "latest"
+        && tag != "edge"
+    {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "image_tag must be 'latest' or 'edge'" })),
+        )
+            .into_response();
     }
 
     let vault = match state.platform.server.secrets_vault.as_ref() {

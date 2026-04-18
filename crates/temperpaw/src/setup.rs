@@ -237,7 +237,7 @@ pub async fn run_setup_soul_interview(
 
             // Preview + iteration loop
             loop {
-                let choice: &str = cliclack::select(&format!(
+                let choice: &str = cliclack::select(format!(
                     "Here's what Paw will be like:\n\n  \"{}\"\n",
                     generated.summary
                 ))
@@ -359,21 +359,20 @@ async fn resolve_paw_soul_entity(
     if let Some(agent) = agent_response["value"]
         .as_array()
         .and_then(|items| items.first())
+        && let Some(soul_id) = entity_field_str(agent, &["soul_id", "SoulId"])
     {
-        if let Some(soul_id) = entity_field_str(agent, &["soul_id", "SoulId"]) {
-            let soul_url = format!("{base}/tdata/Souls('{soul_id}')");
-            let soul_response: serde_json::Value = auth
-                .apply(client.get(&soul_url))
-                .header("x-tenant-id", tenant)
-                .header("x-temper-principal-kind", "admin")
-                .send()
-                .await?
-                .json()
-                .await?;
+        let soul_url = format!("{base}/tdata/Souls('{soul_id}')");
+        let soul_response: serde_json::Value = auth
+            .apply(client.get(&soul_url))
+            .header("x-tenant-id", tenant)
+            .header("x-temper-principal-kind", "admin")
+            .send()
+            .await?
+            .json()
+            .await?;
 
-            if entity_field_str(&soul_response, &["ContentFileId", "content_file_id"]).is_some() {
-                return Ok(soul_response);
-            }
+        if entity_field_str(&soul_response, &["ContentFileId", "content_file_id"]).is_some() {
+            return Ok(soul_response);
         }
     }
 
@@ -565,40 +564,40 @@ pub fn merge_setup_into_config(config: &mut Config, setup: SetupResult) {
     if let Some(provider) = setup.provider {
         config.llm_provider = Some(provider);
     }
-    if let Some(token) = setup.discord_bot_token {
-        if config.discord_bot_token.is_none() {
-            config.discord_bot_token = Some(token);
-        }
+    if let Some(token) = setup.discord_bot_token
+        && config.discord_bot_token.is_none()
+    {
+        config.discord_bot_token = Some(token);
     }
-    if let Some(public_key) = setup.discord_public_key {
-        if config.discord_public_key.is_none() {
-            config.discord_public_key = Some(public_key);
-        }
+    if let Some(public_key) = setup.discord_public_key
+        && config.discord_public_key.is_none()
+    {
+        config.discord_public_key = Some(public_key);
     }
-    if let Some(id) = setup.discord_guild_id {
-        if config.discord_guild_id.is_none() {
-            config.discord_guild_id = Some(id);
-        }
+    if let Some(id) = setup.discord_guild_id
+        && config.discord_guild_id.is_none()
+    {
+        config.discord_guild_id = Some(id);
     }
-    if let Some(id) = setup.discord_feed_channel_id {
-        if config.discord_feed_channel_id.is_none() {
-            config.discord_feed_channel_id = Some(id);
-        }
+    if let Some(id) = setup.discord_feed_channel_id
+        && config.discord_feed_channel_id.is_none()
+    {
+        config.discord_feed_channel_id = Some(id);
     }
-    if let Some(id) = setup.discord_forum_channel_id {
-        if config.discord_forum_channel_id.is_none() {
-            config.discord_forum_channel_id = Some(id);
-        }
+    if let Some(id) = setup.discord_forum_channel_id
+        && config.discord_forum_channel_id.is_none()
+    {
+        config.discord_forum_channel_id = Some(id);
     }
-    if let Some(token) = setup.slack_app_token {
-        if config.slack_app_token.is_none() {
-            config.slack_app_token = Some(token);
-        }
+    if let Some(token) = setup.slack_app_token
+        && config.slack_app_token.is_none()
+    {
+        config.slack_app_token = Some(token);
     }
-    if let Some(token) = setup.slack_bot_token {
-        if config.slack_bot_token.is_none() {
-            config.slack_bot_token = Some(token);
-        }
+    if let Some(token) = setup.slack_bot_token
+        && config.slack_bot_token.is_none()
+    {
+        config.slack_bot_token = Some(token);
     }
 }
 
