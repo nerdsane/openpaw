@@ -80,7 +80,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 "x-github-api-version".to_string(),
                 "2022-11-28".to_string(),
             ),
-            ("user-agent".to_string(), "openpaw".to_string()),
+            ("user-agent".to_string(), "temperpaw".to_string()),
         ];
 
         // GET deployments for the merge SHA

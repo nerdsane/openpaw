@@ -24,12 +24,12 @@ jobs:
       - name: Cargo fmt
         run: cargo fmt --all -- --check
       - name: Cargo clippy
-        run: cargo clippy -p openpaw --all-targets -- -D warnings
+        run: cargo clippy -p temperpaw --all-targets -- -D warnings
       - name: Cargo check
-        run: cargo check -p openpaw
+        run: cargo check -p temperpaw
       - name: WASM build
         run: cargo build --workspace --target wasm32-unknown-unknown
       - name: Cargo test
-        run: cargo test -p openpaw --quiet
+        run: cargo test -p temperpaw --quiet
       - name: Dashboard build
         run: cd dashboard && npm run build

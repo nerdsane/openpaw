@@ -1,4 +1,4 @@
-//! Cloud deployment workflow for OpenPaw.
+//! Cloud deployment workflow for TemperPaw.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -7,9 +7,9 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 
-const MODAL_BRIDGE_SECRET_NAME: &str = "openpaw-bridge-auth";
+const MODAL_BRIDGE_SECRET_NAME: &str = "temperpaw-bridge-auth";
 const MODAL_BRIDGE_SECRET_KEY: &str = "BRIDGE_AUTH_TOKEN";
-const MODAL_BRIDGE_APP_NAME: &str = "openpaw-sandbox-bridge";
+const MODAL_BRIDGE_APP_NAME: &str = "temperpaw-sandbox-bridge";
 
 // ---------------------------------------------------------------------------
 // Credential cache — persists tokens/keys between deploy runs
@@ -17,7 +17,7 @@ const MODAL_BRIDGE_APP_NAME: &str = "openpaw-sandbox-bridge";
 
 fn cache_path() -> PathBuf {
     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
-    PathBuf::from(home).join(".local/share/openpaw/deploy_cache.json")
+    PathBuf::from(home).join(".local/share/temperpaw/deploy_cache.json")
 }
 
 fn load_cache() -> HashMap<String, String> {
@@ -74,7 +74,7 @@ struct ModalBridgeConfig {
 }
 
 pub async fn run_deploy() -> Result<()> {
-    cliclack::intro("Open Paw Deploy")?;
+    cliclack::intro("Temper Paw Deploy")?;
 
     let mut cache = load_cache();
 
@@ -102,11 +102,11 @@ pub async fn run_deploy() -> Result<()> {
     let owner = slugify(
         &std::env::var("USER")
             .or_else(|_| std::env::var("USERNAME"))
-            .unwrap_or_else(|_| "openpaw".to_string()),
+            .unwrap_or_else(|_| "temperpaw".to_string()),
     );
-    let project_name = format!("openpaw-{owner}");
-    let database_name = format!("openpaw-{owner}");
-    let bucket_name = format!("openpaw-fs-{owner}");
+    let project_name = format!("temperpaw-{owner}");
+    let database_name = format!("temperpaw-{owner}");
+    let bucket_name = format!("temperpaw-fs-{owner}");
 
     cliclack::log::step("Provisioning Turso database (free tier: 9 GB, 500M rows)...")?;
     create_turso_db_idempotent(&database_name)?;
@@ -122,8 +122,8 @@ pub async fn run_deploy() -> Result<()> {
     cliclack::log::step("Creating Railway project (free tier: 512 MB RAM, 1 vCPU)...")?;
     create_railway_project_idempotent(&project_name)?;
 
-    let existing_openpaw_vars = load_service_variables("openpaw").unwrap_or_default();
-    let vault_key_b64 = existing_openpaw_vars
+    let existing_temperpaw_vars = load_service_variables("temperpaw").unwrap_or_default();
+    let vault_key_b64 = existing_temperpaw_vars
         .get("TEMPER_VAULT_KEY")
         .filter(|value| !value.trim().is_empty())
         .cloned()
@@ -134,7 +134,7 @@ pub async fn run_deploy() -> Result<()> {
             );
             generated
         });
-    let temper_api_key = existing_openpaw_vars
+    let temper_api_key = existing_temperpaw_vars
         .get("TEMPER_API_KEY")
         .filter(|value| !value.trim().is_empty())
         .cloned()
@@ -170,7 +170,7 @@ pub async fn run_deploy() -> Result<()> {
         variables.push(format!("MODAL_BRIDGE_URL={}", modal_bridge.bridge_url));
     } else {
         cliclack::log::warning(
-            "Modal credentials were not found locally, so this deploy is continuing without automatic Modal sandbox provisioning.\n  Run `modal token set` once and redeploy to let OpenPaw provision and persist the bridge automatically.",
+            "Modal credentials were not found locally, so this deploy is continuing without automatic Modal sandbox provisioning.\n  Run `modal token set` once and redeploy to let TemperPaw provision and persist the bridge automatically.",
         )?;
     }
 
@@ -191,7 +191,7 @@ pub async fn run_deploy() -> Result<()> {
         "variable".to_string(),
         "set".to_string(),
         "-s".to_string(),
-        "openpaw".to_string(),
+        "temperpaw".to_string(),
     ];
     set_args.extend(variables);
     run_interactive("railway", &as_str_slice(&set_args))?;
@@ -239,14 +239,14 @@ pub async fn run_deploy() -> Result<()> {
         )?;
     }
 
-    // Point openpaw at the collector via Railway private networking
+    // Point temperpaw at the collector via Railway private networking
     run_interactive(
         "railway",
         &[
             "variable",
             "set",
             "-s",
-            "openpaw",
+            "temperpaw",
             "OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector.railway.internal:4318",
             "OTEL_ENABLED=true",
         ],
@@ -260,8 +260,9 @@ pub async fn run_deploy() -> Result<()> {
     ];
 
     // Resolve service IDs for both services
-    if let Ok(openpaw_service_id) = resolve_railway_service_id(&project_id, &env_id, "openpaw") {
-        meta_vars.push(format!("RAILWAY_SERVICE_ID={openpaw_service_id}"));
+    if let Ok(temperpaw_service_id) = resolve_railway_service_id(&project_id, &env_id, "temperpaw")
+    {
+        meta_vars.push(format!("RAILWAY_SERVICE_ID={temperpaw_service_id}"));
     }
     if let Ok(otel_service_id) = resolve_railway_service_id(&project_id, &env_id, "otel-collector")
     {
@@ -283,16 +284,17 @@ pub async fn run_deploy() -> Result<()> {
         "variable".to_string(),
         "set".to_string(),
         "-s".to_string(),
-        "openpaw".to_string(),
+        "temperpaw".to_string(),
     ];
     meta_set_args.extend(meta_vars);
     run_interactive("railway", &as_str_slice(&meta_set_args))?;
     cliclack::log::success("Railway metadata captured for dashboard integration")?;
 
-    cliclack::log::step("Deploying OpenPaw...")?;
+    cliclack::log::step("Deploying TemperPaw...")?;
     deploy_prebuilt_image(&project_id, &env_id)?;
 
-    let domain_output = capture_trimmed("railway", &["domain", "--service", "openpaw", "--json"])?;
+    let domain_output =
+        capture_trimmed("railway", &["domain", "--service", "temperpaw", "--json"])?;
     let deploy_url = infer_domain(&domain_output).unwrap_or(domain_output.clone());
 
     cliclack::log::step("Waiting for health check...")?;
@@ -988,11 +990,11 @@ fn get_railway_ids() -> Result<(String, String)> {
 
 /// Deploy the pre-built Docker image from GHCR instead of building from source.
 fn deploy_prebuilt_image(project_id: &str, env_id: &str) -> Result<()> {
-    let tmp = std::env::temp_dir().join("openpaw-deploy");
+    let tmp = std::env::temp_dir().join("temperpaw-deploy");
     let _ = std::fs::create_dir_all(&tmp);
     std::fs::write(
         tmp.join("Dockerfile"),
-        "ARG IMAGE_TAG=latest\nFROM ghcr.io/nerdsane/openpaw:${IMAGE_TAG}\n",
+        "ARG IMAGE_TAG=latest\nFROM ghcr.io/nerdsane/temperpaw:${IMAGE_TAG}\n",
     )?;
     std::fs::write(
         tmp.join("railway.toml"),
@@ -1002,7 +1004,7 @@ fn deploy_prebuilt_image(project_id: &str, env_id: &str) -> Result<()> {
     )?;
 
     let status = Command::new("railway")
-        .args(["up", "-s", "openpaw", "-p", project_id, "-e", env_id])
+        .args(["up", "-s", "temperpaw", "-p", project_id, "-e", env_id])
         .current_dir(&tmp)
         .stdin(std::process::Stdio::inherit())
         .stdout(std::process::Stdio::inherit())
@@ -1091,7 +1093,7 @@ fn prompt_datadog_config(
 /// Otherwise, uses a debug exporter (traces logged to stdout).
 /// Adding DD_API_KEY later via Railway dashboard auto-restarts with Datadog enabled.
 fn deploy_otel_collector(project_id: &str, env_id: &str) -> Result<()> {
-    let tmp = std::env::temp_dir().join("openpaw-otel-deploy");
+    let tmp = std::env::temp_dir().join("temperpaw-otel-deploy");
     let _ = std::fs::create_dir_all(&tmp);
 
     // Dockerfile with both config files + a startup script that picks the right one
@@ -1254,7 +1256,7 @@ fn create_railway_project_idempotent(project_name: &str) -> Result<()> {
     }
 
     let _ = Command::new("railway")
-        .args(["add", "--service", "openpaw"])
+        .args(["add", "--service", "temperpaw"])
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .status();
@@ -1807,15 +1809,15 @@ mod tests {
     #[test]
     fn slugify_normalizes_owner_names() {
         assert_eq!(slugify("Seshendra Nalla"), "seshendra-nalla");
-        assert_eq!(slugify("OPENPAW_dev"), "openpaw-dev");
+        assert_eq!(slugify("TEMPERPAW_dev"), "temperpaw-dev");
     }
 
     #[test]
     fn infer_domain_reads_railway_json() {
-        let value = infer_domain(r#"{"domain":"openpaw-production.up.railway.app"}"#);
+        let value = infer_domain(r#"{"domain":"temperpaw-production.up.railway.app"}"#);
         assert_eq!(
             value.as_deref(),
-            Some("https://openpaw-production.up.railway.app")
+            Some("https://temperpaw-production.up.railway.app")
         );
     }
 
@@ -1866,18 +1868,18 @@ active = true
         let output = r#"
 ✓ Created objects.
 ├── 🔨 Created web function create_sandbox =>
-│   https://n-seshendra--openpaw-sandbox-bridge-create.modal.run
+│   https://n-seshendra--temperpaw-sandbox-bridge-create.modal.run
 ├── 🔨 Created web function health_check =>
-│   https://n-seshendra--openpaw-sandbox-bridge-health.modal.run
+│   https://n-seshendra--temperpaw-sandbox-bridge-health.modal.run
 └── 🔨 Created web function terminate_sandbox =>
-    https://n-seshendra--openpaw-sandbox-bridge-terminate.modal.run
+    https://n-seshendra--temperpaw-sandbox-bridge-terminate.modal.run
 ✓ App deployed in 2.140s! 🎉
 "#;
 
         let base_url = infer_modal_bridge_base_url(output);
         assert_eq!(
             base_url.as_deref(),
-            Some("https://n-seshendra--openpaw-sandbox-bridge")
+            Some("https://n-seshendra--temperpaw-sandbox-bridge")
         );
     }
 

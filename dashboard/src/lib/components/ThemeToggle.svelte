@@ -2,7 +2,7 @@
   let theme = $state<'light' | 'dark'>('dark');
 
   function init() {
-    const stored = localStorage.getItem('openpaw-theme');
+    const stored = localStorage.getItem('temperpaw-theme');
     if (stored === 'light' || stored === 'dark') theme = stored;
     else theme = document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
     document.documentElement.setAttribute('data-theme', theme);
@@ -11,7 +11,7 @@
   function toggle() {
     theme = theme === 'dark' ? 'light' : 'dark';
     document.documentElement.setAttribute('data-theme', theme);
-    localStorage.setItem('openpaw-theme', theme);
+    localStorage.setItem('temperpaw-theme', theme);
   }
 
   $effect(() => { init(); });

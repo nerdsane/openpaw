@@ -260,7 +260,7 @@ assert = "no_further_transitions"
 csdl = """<?xml version="1.0" encoding="utf-8"?>
 <edmx:Edmx Version="4.0" xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx">
   <edmx:DataServices>
-    <Schema Namespace="OpenPaw" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+    <Schema Namespace="TemperPaw" xmlns="http://docs.oasis-open.org/odata/ns/edm">
       <EntityType Name="Bookmark">
         <Key><PropertyRef Name="id"/></Key>
         <Property Name="id" Type="Edm.String" Nullable="false"/>
@@ -269,7 +269,7 @@ csdl = """<?xml version="1.0" encoding="utf-8"?>
         <Property Name="title" Type="Edm.String"/>
       </EntityType>
       <EntityContainer Name="Default">
-        <EntitySet Name="Bookmarks" EntityType="OpenPaw.Bookmark"/>
+        <EntitySet Name="Bookmarks" EntityType="TemperPaw.Bookmark"/>
       </EntityContainer>
     </Schema>
   </edmx:DataServices>
@@ -748,7 +748,7 @@ reaches = ["Done", "Cancelled"]
 csdl = '''<?xml version="1.0" encoding="utf-8"?>
 <edmx:Edmx Version="4.0" xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx">
   <edmx:DataServices>
-    <Schema Namespace="OpenPaw" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+    <Schema Namespace="TemperPaw" xmlns="http://docs.oasis-open.org/odata/ns/edm">
       <EntityType Name="Task">
         <Key><PropertyRef Name="id"/></Key>
         <Property Name="id" Type="Edm.String" Nullable="false"/>
@@ -759,26 +759,26 @@ csdl = '''<?xml version="1.0" encoding="utf-8"?>
         <Property Name="reason" Type="Edm.String"/>
       </EntityType>
       <Action Name="Create" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.Task"/>
+        <Parameter Name="bindingParameter" Type="TemperPaw.Task"/>
         <Parameter Name="title" Type="Edm.String"/>
         <Parameter Name="assignee" Type="Edm.String"/>
       </Action>
       <Action Name="Start" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.Task"/>
+        <Parameter Name="bindingParameter" Type="TemperPaw.Task"/>
       </Action>
       <Action Name="Complete" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.Task"/>
+        <Parameter Name="bindingParameter" Type="TemperPaw.Task"/>
         <Parameter Name="summary" Type="Edm.String"/>
       </Action>
       <Action Name="Cancel" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.Task"/>
+        <Parameter Name="bindingParameter" Type="TemperPaw.Task"/>
         <Parameter Name="reason" Type="Edm.String"/>
       </Action>
       <Action Name="Reopen" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.Task"/>
+        <Parameter Name="bindingParameter" Type="TemperPaw.Task"/>
       </Action>
       <EntityContainer Name="Default">
-        <EntitySet Name="Tasks" EntityType="OpenPaw.Task"/>
+        <EntitySet Name="Tasks" EntityType="TemperPaw.Task"/>
       </EntityContainer>
     </Schema>
   </edmx:DataServices>

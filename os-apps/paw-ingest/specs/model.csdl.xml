@@ -6,7 +6,7 @@
       <Term Name="Agent.Hint" Type="Edm.String" AppliesTo="Action Function EntityType"/>
     </Schema>
 
-    <Schema Namespace="OpenPaw.Ingest" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+    <Schema Namespace="TemperPaw.Ingest" xmlns="http://docs.oasis-open.org/odata/ns/edm">
       <EntityType Name="WebhookEvent">
         <Key><PropertyRef Name="Id"/></Key>
         <Property Name="Id" Type="Edm.String" Nullable="false"/>
@@ -45,56 +45,56 @@
 
       <!-- WebhookEvent actions -->
       <Action Name="Received" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.Ingest.WebhookEvent"/>
+        <Parameter Name="bindingParameter" Type="TemperPaw.Ingest.WebhookEvent"/>
         <Parameter Name="raw_payload" Type="Edm.String" Nullable="false"/>
         <Parameter Name="raw_headers" Type="Edm.String" Nullable="false"/>
         <Parameter Name="route_key" Type="Edm.String" Nullable="false"/>
-        <ReturnType Type="OpenPaw.Ingest.WebhookEvent"/>
+        <ReturnType Type="TemperPaw.Ingest.WebhookEvent"/>
       </Action>
 
       <Action Name="Validated" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.Ingest.WebhookEvent"/>
+        <Parameter Name="bindingParameter" Type="TemperPaw.Ingest.WebhookEvent"/>
         <Parameter Name="source_type" Type="Edm.String" Nullable="true"/>
         <Parameter Name="hmac_verified" Type="Edm.String" Nullable="true"/>
         <Parameter Name="normalized_payload" Type="Edm.String" Nullable="true"/>
-        <ReturnType Type="OpenPaw.Ingest.WebhookEvent"/>
+        <ReturnType Type="TemperPaw.Ingest.WebhookEvent"/>
       </Action>
 
       <Action Name="Routed" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.Ingest.WebhookEvent"/>
+        <Parameter Name="bindingParameter" Type="TemperPaw.Ingest.WebhookEvent"/>
         <Parameter Name="target_entity_type" Type="Edm.String" Nullable="true"/>
         <Parameter Name="target_entity_id" Type="Edm.String" Nullable="true"/>
         <Parameter Name="target_action" Type="Edm.String" Nullable="true"/>
         <Parameter Name="webhook_route_id" Type="Edm.String" Nullable="true"/>
-        <ReturnType Type="OpenPaw.Ingest.WebhookEvent"/>
+        <ReturnType Type="TemperPaw.Ingest.WebhookEvent"/>
       </Action>
 
       <Action Name="Processed" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.Ingest.WebhookEvent"/>
-        <ReturnType Type="OpenPaw.Ingest.WebhookEvent"/>
+        <Parameter Name="bindingParameter" Type="TemperPaw.Ingest.WebhookEvent"/>
+        <ReturnType Type="TemperPaw.Ingest.WebhookEvent"/>
       </Action>
 
       <Action Name="ValidationFailed" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.Ingest.WebhookEvent"/>
+        <Parameter Name="bindingParameter" Type="TemperPaw.Ingest.WebhookEvent"/>
         <Parameter Name="validation_error" Type="Edm.String" Nullable="true"/>
-        <ReturnType Type="OpenPaw.Ingest.WebhookEvent"/>
+        <ReturnType Type="TemperPaw.Ingest.WebhookEvent"/>
       </Action>
 
       <Action Name="RouteFailed" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.Ingest.WebhookEvent"/>
+        <Parameter Name="bindingParameter" Type="TemperPaw.Ingest.WebhookEvent"/>
         <Parameter Name="validation_error" Type="Edm.String" Nullable="true"/>
-        <ReturnType Type="OpenPaw.Ingest.WebhookEvent"/>
+        <ReturnType Type="TemperPaw.Ingest.WebhookEvent"/>
       </Action>
 
       <Action Name="ProcessFailed" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.Ingest.WebhookEvent"/>
+        <Parameter Name="bindingParameter" Type="TemperPaw.Ingest.WebhookEvent"/>
         <Parameter Name="validation_error" Type="Edm.String" Nullable="true"/>
-        <ReturnType Type="OpenPaw.Ingest.WebhookEvent"/>
+        <ReturnType Type="TemperPaw.Ingest.WebhookEvent"/>
       </Action>
 
       <!-- WebhookRoute actions -->
       <Action Name="Register" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.Ingest.WebhookRoute"/>
+        <Parameter Name="bindingParameter" Type="TemperPaw.Ingest.WebhookRoute"/>
         <Parameter Name="route_key" Type="Edm.String" Nullable="false"/>
         <Parameter Name="source_type" Type="Edm.String" Nullable="false"/>
         <Parameter Name="event_filter" Type="Edm.String" Nullable="true"/>
@@ -104,33 +104,33 @@
         <Parameter Name="monitor_resolution_enabled" Type="Edm.String" Nullable="true"/>
         <Parameter Name="dedup_enabled" Type="Edm.String" Nullable="true"/>
         <Parameter Name="dedup_window_minutes" Type="Edm.String" Nullable="true"/>
-        <ReturnType Type="OpenPaw.Ingest.WebhookRoute"/>
+        <ReturnType Type="TemperPaw.Ingest.WebhookRoute"/>
       </Action>
 
       <Action Name="Update" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.Ingest.WebhookRoute"/>
+        <Parameter Name="bindingParameter" Type="TemperPaw.Ingest.WebhookRoute"/>
         <Parameter Name="event_filter" Type="Edm.String" Nullable="true"/>
         <Parameter Name="target_action" Type="Edm.String" Nullable="true"/>
         <Parameter Name="webhook_secret" Type="Edm.String" Nullable="true"/>
         <Parameter Name="monitor_resolution_enabled" Type="Edm.String" Nullable="true"/>
         <Parameter Name="dedup_enabled" Type="Edm.String" Nullable="true"/>
         <Parameter Name="dedup_window_minutes" Type="Edm.String" Nullable="true"/>
-        <ReturnType Type="OpenPaw.Ingest.WebhookRoute"/>
+        <ReturnType Type="TemperPaw.Ingest.WebhookRoute"/>
       </Action>
 
       <Action Name="Disable" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.Ingest.WebhookRoute"/>
-        <ReturnType Type="OpenPaw.Ingest.WebhookRoute"/>
+        <Parameter Name="bindingParameter" Type="TemperPaw.Ingest.WebhookRoute"/>
+        <ReturnType Type="TemperPaw.Ingest.WebhookRoute"/>
       </Action>
 
       <Action Name="Enable" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.Ingest.WebhookRoute"/>
-        <ReturnType Type="OpenPaw.Ingest.WebhookRoute"/>
+        <Parameter Name="bindingParameter" Type="TemperPaw.Ingest.WebhookRoute"/>
+        <ReturnType Type="TemperPaw.Ingest.WebhookRoute"/>
       </Action>
 
       <EntityContainer Name="Service">
-        <EntitySet Name="WebhookEvents" EntityType="OpenPaw.Ingest.WebhookEvent"/>
-        <EntitySet Name="WebhookRoutes" EntityType="OpenPaw.Ingest.WebhookRoute"/>
+        <EntitySet Name="WebhookEvents" EntityType="TemperPaw.Ingest.WebhookEvent"/>
+        <EntitySet Name="WebhookRoutes" EntityType="TemperPaw.Ingest.WebhookRoute"/>
       </EntityContainer>
     </Schema>
   </edmx:DataServices>

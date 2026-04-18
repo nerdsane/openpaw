@@ -6,7 +6,7 @@
       <Term Name="Agent.Hint" Type="Edm.String" AppliesTo="Action Function EntityType"/>
     </Schema>
 
-    <Schema Namespace="OpenPaw.Harness" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+    <Schema Namespace="TemperPaw.Harness" xmlns="http://docs.oasis-open.org/odata/ns/edm">
       <EntityType Name="Harness">
         <Key><PropertyRef Name="Id"/></Key>
         <Property Name="Id" Type="Edm.String" Nullable="false"/>
@@ -46,114 +46,114 @@
       </EntityType>
 
       <Action Name="Configure" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.Harness.Harness"/>
+        <Parameter Name="bindingParameter" Type="TemperPaw.Harness.Harness"/>
         <Parameter Name="repo_url" Type="Edm.String" Nullable="false"/>
         <Parameter Name="tech_stack" Type="Edm.String" Nullable="true"/>
         <Parameter Name="conventions" Type="Edm.String" Nullable="true"/>
         <Parameter Name="work_cycle_type" Type="Edm.String" Nullable="true"/>
-        <ReturnType Type="OpenPaw.Harness.Harness"/>
+        <ReturnType Type="TemperPaw.Harness.Harness"/>
       </Action>
 
       <Action Name="Activate" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.Harness.Harness"/>
+        <Parameter Name="bindingParameter" Type="TemperPaw.Harness.Harness"/>
         <Parameter Name="last_activated_at" Type="Edm.String" Nullable="true"/>
-        <ReturnType Type="OpenPaw.Harness.Harness"/>
+        <ReturnType Type="TemperPaw.Harness.Harness"/>
       </Action>
 
       <Action Name="Archive" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.Harness.Harness"/>
-        <ReturnType Type="OpenPaw.Harness.Harness"/>
+        <Parameter Name="bindingParameter" Type="TemperPaw.Harness.Harness"/>
+        <ReturnType Type="TemperPaw.Harness.Harness"/>
       </Action>
 
       <Action Name="Configure" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.Harness.WorkCycle"/>
+        <Parameter Name="bindingParameter" Type="TemperPaw.Harness.WorkCycle"/>
         <Parameter Name="project_harness_id" Type="Edm.String" Nullable="true"/>
         <Parameter Name="task_summary" Type="Edm.String" Nullable="true"/>
         <Parameter Name="planner_id" Type="Edm.String" Nullable="true"/>
-        <ReturnType Type="OpenPaw.Harness.WorkCycle"/>
+        <ReturnType Type="TemperPaw.Harness.WorkCycle"/>
       </Action>
 
       <Action Name="WritePlan" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.Harness.WorkCycle"/>
+        <Parameter Name="bindingParameter" Type="TemperPaw.Harness.WorkCycle"/>
         <Parameter Name="plan_summary" Type="Edm.String" Nullable="false"/>
         <Parameter Name="planner_id" Type="Edm.String" Nullable="true"/>
-        <ReturnType Type="OpenPaw.Harness.WorkCycle"/>
+        <ReturnType Type="TemperPaw.Harness.WorkCycle"/>
       </Action>
 
       <Action Name="StartWork" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.Harness.WorkCycle"/>
-        <ReturnType Type="OpenPaw.Harness.WorkCycle"/>
+        <Parameter Name="bindingParameter" Type="TemperPaw.Harness.WorkCycle"/>
+        <ReturnType Type="TemperPaw.Harness.WorkCycle"/>
       </Action>
 
       <Action Name="ReportMigrations" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.Harness.WorkCycle"/>
-        <ReturnType Type="OpenPaw.Harness.WorkCycle"/>
+        <Parameter Name="bindingParameter" Type="TemperPaw.Harness.WorkCycle"/>
+        <ReturnType Type="TemperPaw.Harness.WorkCycle"/>
       </Action>
 
       <Action Name="ReportTypecheck" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.Harness.WorkCycle"/>
-        <ReturnType Type="OpenPaw.Harness.WorkCycle"/>
+        <Parameter Name="bindingParameter" Type="TemperPaw.Harness.WorkCycle"/>
+        <ReturnType Type="TemperPaw.Harness.WorkCycle"/>
       </Action>
 
       <Action Name="ReportUnitTests" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.Harness.WorkCycle"/>
-        <ReturnType Type="OpenPaw.Harness.WorkCycle"/>
+        <Parameter Name="bindingParameter" Type="TemperPaw.Harness.WorkCycle"/>
+        <ReturnType Type="TemperPaw.Harness.WorkCycle"/>
       </Action>
 
       <Action Name="ReportDst" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.Harness.WorkCycle"/>
-        <ReturnType Type="OpenPaw.Harness.WorkCycle"/>
+        <Parameter Name="bindingParameter" Type="TemperPaw.Harness.WorkCycle"/>
+        <ReturnType Type="TemperPaw.Harness.WorkCycle"/>
       </Action>
 
       <Action Name="ReportPolicyGates" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.Harness.WorkCycle"/>
-        <ReturnType Type="OpenPaw.Harness.WorkCycle"/>
+        <Parameter Name="bindingParameter" Type="TemperPaw.Harness.WorkCycle"/>
+        <ReturnType Type="TemperPaw.Harness.WorkCycle"/>
       </Action>
 
       <Action Name="ReportE2e" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.Harness.WorkCycle"/>
-        <ReturnType Type="OpenPaw.Harness.WorkCycle"/>
+        <Parameter Name="bindingParameter" Type="TemperPaw.Harness.WorkCycle"/>
+        <ReturnType Type="TemperPaw.Harness.WorkCycle"/>
       </Action>
 
       <Action Name="BeginTesting" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.Harness.WorkCycle"/>
-        <ReturnType Type="OpenPaw.Harness.WorkCycle"/>
+        <Parameter Name="bindingParameter" Type="TemperPaw.Harness.WorkCycle"/>
+        <ReturnType Type="TemperPaw.Harness.WorkCycle"/>
       </Action>
 
       <Action Name="PassTests" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.Harness.WorkCycle"/>
+        <Parameter Name="bindingParameter" Type="TemperPaw.Harness.WorkCycle"/>
         <Parameter Name="test_summary" Type="Edm.String" Nullable="true"/>
-        <ReturnType Type="OpenPaw.Harness.WorkCycle"/>
+        <ReturnType Type="TemperPaw.Harness.WorkCycle"/>
       </Action>
 
       <Action Name="Approve" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.Harness.WorkCycle"/>
+        <Parameter Name="bindingParameter" Type="TemperPaw.Harness.WorkCycle"/>
         <Parameter Name="approver_id" Type="Edm.String" Nullable="true"/>
         <Parameter Name="pr_url" Type="Edm.String" Nullable="true"/>
-        <ReturnType Type="OpenPaw.Harness.WorkCycle"/>
+        <ReturnType Type="TemperPaw.Harness.WorkCycle"/>
       </Action>
 
       <Action Name="Fail" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.Harness.WorkCycle"/>
+        <Parameter Name="bindingParameter" Type="TemperPaw.Harness.WorkCycle"/>
         <Parameter Name="error_message" Type="Edm.String" Nullable="true"/>
-        <ReturnType Type="OpenPaw.Harness.WorkCycle"/>
+        <ReturnType Type="TemperPaw.Harness.WorkCycle"/>
       </Action>
 
       <Action Name="RequestChanges" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.Harness.WorkCycle"/>
+        <Parameter Name="bindingParameter" Type="TemperPaw.Harness.WorkCycle"/>
         <Parameter Name="review_notes" Type="Edm.String" Nullable="true"/>
-        <ReturnType Type="OpenPaw.Harness.WorkCycle"/>
+        <ReturnType Type="TemperPaw.Harness.WorkCycle"/>
       </Action>
 
       <Action Name="UpdateSandbox" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.Harness.WorkCycle"/>
+        <Parameter Name="bindingParameter" Type="TemperPaw.Harness.WorkCycle"/>
         <Parameter Name="sandbox_url" Type="Edm.String" Nullable="false"/>
-        <ReturnType Type="OpenPaw.Harness.WorkCycle"/>
+        <ReturnType Type="TemperPaw.Harness.WorkCycle"/>
       </Action>
 
       <EntityContainer Name="Service">
-        <EntitySet Name="Harnesses" EntityType="OpenPaw.Harness.Harness"/>
-        <EntitySet Name="WorkCycles" EntityType="OpenPaw.Harness.WorkCycle"/>
+        <EntitySet Name="Harnesses" EntityType="TemperPaw.Harness.Harness"/>
+        <EntitySet Name="WorkCycles" EntityType="TemperPaw.Harness.WorkCycle"/>
       </EntityContainer>
     </Schema>
   </edmx:DataServices>

@@ -276,7 +276,7 @@ fn spawn_convergence_analyst(
 
     // 3. Configure — observations inline, no soul
     let configure_url = format!(
-        "{temper_api_url}/tdata/Sessions('{session_id}')/OpenPaw.Configure"
+        "{temper_api_url}/tdata/Sessions('{session_id}')/TemperPaw.Configure"
     );
 
     let obs_for_prompt = if observations_json.len() > 40000 {
@@ -358,7 +358,7 @@ fn respawn_probe(
 
     // Configure new Session
     let configure_url = format!(
-        "{temper_api_url}/tdata/Sessions('{session_id}')/OpenPaw.Configure"
+        "{temper_api_url}/tdata/Sessions('{session_id}')/TemperPaw.Configure"
     );
     let user_message = format!(
         "You are a Foresight Probe. ProductModel ID: {product_model_id}. \

@@ -17,7 +17,7 @@ import json
 import os
 import time
 
-from openpaw_proof_support import (
+from temperpaw_proof_support import (
     DEFAULT_BASE_URL,
     DEFAULT_REPO_URL,
     DEFAULT_TENANT,
@@ -82,7 +82,7 @@ def wait_for_agent_progress(
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--base-url", default=os.getenv("OPENPAW_BASE_URL", DEFAULT_BASE_URL))
+    parser.add_argument("--base-url", default=os.getenv("TEMPERPAW_BASE_URL", DEFAULT_BASE_URL))
     parser.add_argument("--tenant", default=os.getenv("PAW_TENANT", DEFAULT_TENANT))
     parser.add_argument("--repo-url", default=DEFAULT_REPO_URL)
     parser.add_argument("--secret", default=os.getenv("WEBHOOK_SECRET"))
@@ -102,7 +102,7 @@ def main() -> int:
     client.action(
         "Harnesses",
         harness_id,
-        "OpenPaw.Harness.Configure",
+        "TemperPaw.Harness.Configure",
         {
             "repo_url": args.repo_url,
             "tech_stack": "Next.js frontend, Python backend",
@@ -112,7 +112,7 @@ def main() -> int:
     client.action(
         "Harnesses",
         harness_id,
-        "OpenPaw.Harness.Activate",
+        "TemperPaw.Harness.Activate",
         {"last_activated_at": now_utc()},
     )
     route = register_webhook_route(
@@ -120,7 +120,7 @@ def main() -> int:
         route_key=route_key,
         source_type="datadog",
         target_entity_type="AlertCycle",
-        target_action="OpenPaw.Heal.Open",
+        target_action="TemperPaw.Heal.Open",
         webhook_secret=args.secret or "",
         monitor_resolution_enabled=True,
         dedup_enabled=False,

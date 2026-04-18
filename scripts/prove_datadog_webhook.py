@@ -7,7 +7,7 @@ import argparse
 import json
 import os
 
-from openpaw_proof_support import (
+from temperpaw_proof_support import (
     DEFAULT_BASE_URL,
     DEFAULT_REPO_URL,
     DEFAULT_TENANT,
@@ -27,7 +27,7 @@ def create_harness(client: ODataClient, repo_url: str, run_suffix: str) -> str:
     client.action(
         "Harnesses",
         harness_id,
-        "OpenPaw.Harness.Configure",
+        "TemperPaw.Harness.Configure",
         {
             "repo_url": repo_url,
             "tech_stack": "Next.js frontend, Python backend",
@@ -37,7 +37,7 @@ def create_harness(client: ODataClient, repo_url: str, run_suffix: str) -> str:
     client.action(
         "Harnesses",
         harness_id,
-        "OpenPaw.Harness.Activate",
+        "TemperPaw.Harness.Activate",
         {"last_activated_at": now_utc()},
     )
     return harness_id
@@ -45,7 +45,7 @@ def create_harness(client: ODataClient, repo_url: str, run_suffix: str) -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--base-url", default=os.getenv("OPENPAW_BASE_URL", DEFAULT_BASE_URL))
+    parser.add_argument("--base-url", default=os.getenv("TEMPERPAW_BASE_URL", DEFAULT_BASE_URL))
     parser.add_argument("--tenant", default=os.getenv("PAW_TENANT", DEFAULT_TENANT))
     parser.add_argument("--repo-url", default=DEFAULT_REPO_URL)
     parser.add_argument("--secret", default=os.getenv("WEBHOOK_SECRET"))
@@ -61,7 +61,7 @@ def main() -> int:
     dd_monitor_id = f"dd-webhook-monitor-{run_suffix}"
 
     triggered_payload = {
-        "org": {"id": 12345, "name": "openpaw-proof"},
+        "org": {"id": 12345, "name": "temperpaw-proof"},
         "id": dd_monitor_id,
         "title": "Datadog webhook proof alert",
         "text": "package-lock drift detected by Datadog proof",
@@ -86,7 +86,7 @@ def main() -> int:
     client.action(
         "AlertCycles",
         alert_cycle_id,
-        "OpenPaw.Heal.HealComplete",
+        "TemperPaw.Heal.HealComplete",
         {
             "diagnosis": "Proof-only remediation before Datadog recovery event.",
             "pr_url": f"https://github.com/arni-labs/deep-sci-fi/pull/{run_suffix[-6:]}",
@@ -95,7 +95,7 @@ def main() -> int:
     )
 
     recovered_payload = {
-        "org": {"id": 12345, "name": "openpaw-proof"},
+        "org": {"id": 12345, "name": "temperpaw-proof"},
         "id": dd_monitor_id,
         "title": "Datadog webhook proof alert",
         "text": "monitor returned to normal",

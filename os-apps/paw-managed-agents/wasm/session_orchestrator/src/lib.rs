@@ -154,7 +154,7 @@ fn start_or_resume(
                     ctx,
                     headers,
                     &format!(
-                        "{base_url}/tdata/Sessions('{existing_inner_session_id}')/OpenPaw.Steer"
+                        "{base_url}/tdata/Sessions('{existing_inner_session_id}')/TemperPaw.Steer"
                     ),
                     &json!({
                         "steering_messages": serde_json::to_string(&vec![json!({ "content": prompt })])
@@ -239,7 +239,7 @@ fn start_or_resume(
     let _ = post_absolute_action(
         ctx,
         headers,
-        &format!("{base_url}/tdata/Sessions('{inner_session_id}')/OpenPaw.Configure"),
+        &format!("{base_url}/tdata/Sessions('{inner_session_id}')/TemperPaw.Configure"),
         &configure_body,
         "configure inner session",
     )?;
@@ -376,7 +376,7 @@ fn ensure_inner_agent(
         let _ = post_absolute_action(
             ctx,
             headers,
-            &format!("{base_url}/tdata/Agents('{inner_agent_id}')/OpenPaw.Configure"),
+            &format!("{base_url}/tdata/Agents('{inner_agent_id}')/TemperPaw.Configure"),
             &json!({
                 "name": name,
                 "role": "managed-agent",
@@ -404,7 +404,7 @@ fn ensure_inner_agent(
         let _ = post_absolute_action(
             ctx,
             headers,
-            &format!("{base_url}/tdata/Agents('{existing}')/OpenPaw.Update"),
+            &format!("{base_url}/tdata/Agents('{existing}')/TemperPaw.Update"),
             &json!({
                 "description": description,
                 "model": model_id,

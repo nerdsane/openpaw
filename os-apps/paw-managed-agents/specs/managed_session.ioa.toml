@@ -114,7 +114,7 @@ name = "StartSession"
 kind = "input"
 from = ["Rescheduling"]
 to = "Running"
-hint = "Create or resume the bridged OpenPaw session and begin processing."
+hint = "Create or resume the bridged TemperPaw session and begin processing."
 effect = [{ type = "trigger", name = "orchestrate_start" }]
 
 [[action]]
@@ -155,7 +155,7 @@ effect = [{ type = "trigger", name = "orchestrate_resume" }]
 name = "InnerSessionPending"
 kind = "input"
 from = ["Running"]
-hint = "The bridged OpenPaw session is still running. Re-check shortly."
+hint = "The bridged TemperPaw session is still running. Re-check shortly."
 effect = [
   { type = "increment", var = "inner_session_check_count" },
   { type = "schedule", action = "CheckInnerSession", delay_seconds = 2 },
@@ -165,7 +165,7 @@ effect = [
 name = "CheckInnerSession"
 kind = "input"
 from = ["Running"]
-hint = "Poll the bridged OpenPaw session state through a bounded self-loop."
+hint = "Poll the bridged TemperPaw session state through a bounded self-loop."
 effect = [{ type = "trigger", name = "orchestrate_check" }]
 
 [[action]]

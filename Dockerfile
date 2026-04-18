@@ -38,7 +38,7 @@ COPY --from=dashboard-build /app/dashboard/build ./dashboard/build
 ENV CARGO_BUILD_JOBS=2
 ENV BUILD_VERSION=${BUILD_VERSION}
 ENV BUILD_SHA=${BUILD_SHA}
-RUN cargo build -p openpaw --release --bin openpaw-server
+RUN cargo build -p temperpaw --release --bin temperpaw-server
 # Build WASM modules for os-apps (requires wasm32 targets)
 RUN rustup target add wasm32-unknown-unknown wasm32-wasip1
 RUN cd os-apps/paw-agent/wasm && bash build.sh \
@@ -53,10 +53,10 @@ RUN apt-get update && apt-get install -y ca-certificates libz3-4 git && rm -rf /
 ARG BUILD_VERSION=dev
 ARG BUILD_SHA=unknown
 WORKDIR /app
-COPY --from=rust-build /app/target/release/openpaw-server ./openpaw
+COPY --from=rust-build /app/target/release/temperpaw-server ./temperpaw
 COPY --from=rust-build /app/dashboard/build ./dashboard/build
 COPY --from=rust-build /app/os-apps ./os-apps
 ENV BUILD_VERSION=${BUILD_VERSION}
 ENV BUILD_SHA=${BUILD_SHA}
 EXPOSE 3467
-CMD ["./openpaw"]
+CMD ["./temperpaw"]

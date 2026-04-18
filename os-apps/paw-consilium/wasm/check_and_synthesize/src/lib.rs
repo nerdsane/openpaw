@@ -198,7 +198,7 @@ temper.done("synthesis complete")
         });
         let config_resp = ctx.http_call(
             "POST",
-            &format!("{api_url}/tdata/Sessions('{session_id}')/OpenPaw.Configure"),
+            &format!("{api_url}/tdata/Sessions('{session_id}')/TemperPaw.Configure"),
             &headers,
             &session_config.to_string(),
         )?;

@@ -176,7 +176,7 @@ temper.done("seed failed")
 
         let configure_resp = ctx.http_call(
             "POST",
-            &format!("{api_url}/tdata/Sessions('{session_id}')/OpenPaw.Configure"),
+            &format!("{api_url}/tdata/Sessions('{session_id}')/TemperPaw.Configure"),
             &headers,
             &config_body.to_string(),
         )?;

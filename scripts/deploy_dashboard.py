@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Deploy the OpenPaw Datadog dashboard.
+"""Deploy the TemperPaw Datadog dashboard.
 
-Reads dd-dashboards/openpaw-overview.json and creates or updates the dashboard
+Reads dd-dashboards/temperpaw-overview.json and creates or updates the dashboard
 via the Datadog REST API.  Idempotent: finds existing dashboard by title.
 
 Requires DD_API_KEY and DD_APP_KEY in env (or .env file).
@@ -40,7 +40,7 @@ def main():
     if not api_key or not app_key:
         sys.exit("DD_API_KEY and DD_APP_KEY must be set")
 
-    dashboard_path = Path(__file__).resolve().parent.parent / "dd-dashboards" / "openpaw-overview.json"
+    dashboard_path = Path(__file__).resolve().parent.parent / "dd-dashboards" / "temperpaw-overview.json"
     dashboard = json.loads(dashboard_path.read_text())
     title = dashboard["title"]
 

@@ -390,7 +390,7 @@ fn cancel_session(
     tenant: &str,
     session_id: &str,
 ) -> Result<(), String> {
-    let url = format!("{temper_api_url}/tdata/Sessions('{session_id}')/OpenPaw.Cancel");
+    let url = format!("{temper_api_url}/tdata/Sessions('{session_id}')/TemperPaw.Cancel");
     let _ = ctx.http_call("POST", &url, &odata_headers(ctx, tenant), "{}")?;
     Ok(())
 }
@@ -552,7 +552,7 @@ fn create_session_for_agent(
         "pre_plan_tools_enabled": pre_plan_tools,
     });
     let configure_url =
-        format!("{temper_api_url}/tdata/Sessions('{session_id}')/OpenPaw.Configure");
+        format!("{temper_api_url}/tdata/Sessions('{session_id}')/TemperPaw.Configure");
     ctx.log(
         "info",
         &format!(
@@ -856,7 +856,7 @@ fn configure_session_from_prior(
         "pre_plan_tools_enabled": pre_plan_tools,
     });
     let configure_url =
-        format!("{temper_api_url}/tdata/Sessions('{session_id}')/OpenPaw.Configure");
+        format!("{temper_api_url}/tdata/Sessions('{session_id}')/TemperPaw.Configure");
     let configure_resp = ctx.http_call(
         "POST",
         &configure_url,
@@ -1179,7 +1179,7 @@ fn switch_mode_and_steer(
     }
 
     // 3. Dispatch SwitchMode
-    let switch_url = format!("{temper_api_url}/tdata/Sessions('{session_id}')/OpenPaw.SwitchMode");
+    let switch_url = format!("{temper_api_url}/tdata/Sessions('{session_id}')/TemperPaw.SwitchMode");
     let resp = ctx.http_call(
         "POST",
         &switch_url,
@@ -1221,7 +1221,7 @@ fn steer_session(
         Vec::new()
     };
     queue.push(json!({ "content": message }));
-    let steer_url = format!("{temper_api_url}/tdata/Sessions('{session_id}')/OpenPaw.Steer");
+    let steer_url = format!("{temper_api_url}/tdata/Sessions('{session_id}')/TemperPaw.Steer");
     let body = json!({
         "steering_messages": serde_json::to_string(&queue).unwrap_or_else(|_| "[]".to_string()),
     });

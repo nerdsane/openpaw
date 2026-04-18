@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Shared helpers for Open Paw proof drivers."""
+"""Shared helpers for Temper Paw proof drivers."""
 
 from __future__ import annotations
 
@@ -226,7 +226,7 @@ def register_webhook_route(
     client.action(
         "WebhookRoutes",
         route_id,
-        "OpenPaw.Ingest.Register",
+        "TemperPaw.Ingest.Register",
         {
             "route_key": route_key,
             "source_type": source_type,

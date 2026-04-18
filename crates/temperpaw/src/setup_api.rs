@@ -1,4 +1,4 @@
-//! REST API for Open Paw setup, secrets, transport management, and agent creation.
+//! REST API for Temper Paw setup, secrets, transport management, and agent creation.
 //!
 //! Mounted at `/paw/` to avoid conflicts with Temper's `/api/` tenant routes.
 //! All endpoints are also usable by external agents via HTTP.
@@ -68,7 +68,7 @@ fn allowed_secret_keys() -> HashSet<&'static str> {
         "modal_token_secret",
         "modal_bridge_url",
         // DD_* and railway_* are infrastructure config managed via Railway env vars,
-        // not dashboard secrets. They're set by `openpaw deploy` and changed in Railway.
+        // not dashboard secrets. They're set by `temperpaw deploy` and changed in Railway.
         "railway_project_id",
         "railway_environment_id",
         "railway_otel_service_id",
@@ -230,7 +230,7 @@ fn secrets_schema() -> Vec<SecretSchema> {
             required: false,
             description: "For repo cloning and PR flows",
         },
-        // DD_* keys are infrastructure config set via Railway env vars (by `openpaw deploy`).
+        // DD_* keys are infrastructure config set via Railway env vars (by `temperpaw deploy`).
         // They don't belong in the dashboard — change them in Railway if needed.
     ]
 }
@@ -948,7 +948,7 @@ async fn set_railway_var(
         return (
             StatusCode::BAD_REQUEST,
             Json(serde_json::json!({
-                "error": "Railway integration not configured. Deploy with `openpaw deploy` first."
+                "error": "Railway integration not configured. Deploy with `temperpaw deploy` first."
             })),
         )
             .into_response();
@@ -1056,12 +1056,12 @@ async fn check_for_updates(State(state): State<SetupApiState>) -> impl IntoRespo
     let current = &state.build_version;
 
     let client = reqwest::Client::builder()
-        .user_agent("openpaw-server")
+        .user_agent("temperpaw-server")
         .build()
         .unwrap_or_default();
 
     match client
-        .get("https://api.github.com/repos/nerdsane/openpaw/releases/latest")
+        .get("https://api.github.com/repos/nerdsane/temperpaw/releases/latest")
         .send()
         .await
     {
@@ -1134,12 +1134,12 @@ struct EdgeBuild {
 
 async fn check_edge_build(_state: State<SetupApiState>) -> impl IntoResponse {
     let client = reqwest::Client::builder()
-        .user_agent("openpaw-server")
+        .user_agent("temperpaw-server")
         .build()
         .unwrap_or_default();
 
     match client
-        .get("https://api.github.com/repos/nerdsane/openpaw/commits/main")
+        .get("https://api.github.com/repos/nerdsane/temperpaw/commits/main")
         .send()
         .await
     {

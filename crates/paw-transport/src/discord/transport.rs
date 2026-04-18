@@ -1390,7 +1390,7 @@ impl DiscordTransport {
                         .dispatch_action(
                             "Plans",
                             &target_id_owned,
-                            "OpenPaw.Approve",
+                            "TemperPaw.Approve",
                             serde_json::json!({}),
                         )
                         .await
@@ -1406,7 +1406,7 @@ impl DiscordTransport {
                             .dispatch_action(
                                 "Plans",
                                 &target_id_owned,
-                                "OpenPaw.RequestChanges",
+                                "TemperPaw.RequestChanges",
                                 serde_json::json!({ "review_notes": review_notes }),
                             )
                             .await

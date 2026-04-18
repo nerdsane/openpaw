@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prove webhook ingestion end to end against a live Open Paw daemon."""
+"""Prove webhook ingestion end to end against a live Temper Paw daemon."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import argparse
 import json
 import os
 
-from openpaw_proof_support import (
+from temperpaw_proof_support import (
     DEFAULT_BASE_URL,
     DEFAULT_REPO_URL,
     DEFAULT_TENANT,
@@ -27,7 +27,7 @@ def create_harness(client: ODataClient, repo_url: str, run_suffix: str) -> str:
     client.action(
         "Harnesses",
         harness_id,
-        "OpenPaw.Harness.Configure",
+        "TemperPaw.Harness.Configure",
         {
             "repo_url": repo_url,
             "tech_stack": "Next.js frontend, Python backend",
@@ -37,7 +37,7 @@ def create_harness(client: ODataClient, repo_url: str, run_suffix: str) -> str:
     client.action(
         "Harnesses",
         harness_id,
-        "OpenPaw.Harness.Activate",
+        "TemperPaw.Harness.Activate",
         {"last_activated_at": now_utc()},
     )
     return harness_id
@@ -50,14 +50,14 @@ def create_monitor(client: ODataClient, run_suffix: str, external_monitor_id: st
     client.action(
         "Monitors",
         monitor_id,
-        "OpenPaw.Heal.Configure",
+        "TemperPaw.Heal.Configure",
         {
             "dd_query": f"synthetic:webhook:{run_suffix}",
             "threshold": "1",
             "dd_monitor_id": external_monitor_id,
         },
     )
-    client.action("Monitors", monitor_id, "OpenPaw.Heal.Activate")
+    client.action("Monitors", monitor_id, "TemperPaw.Heal.Activate")
     return monitor_id
 
 
@@ -68,7 +68,7 @@ def create_reviewing_work_cycle(client: ODataClient, harness_id: str, run_suffix
     client.action(
         "WorkCycles",
         work_cycle_id,
-        "OpenPaw.Harness.Configure",
+        "TemperPaw.Harness.Configure",
         {
             "project_harness_id": harness_id,
             "task_summary": "Synthetic merge-approval proof cycle",
@@ -78,18 +78,18 @@ def create_reviewing_work_cycle(client: ODataClient, harness_id: str, run_suffix
     client.action(
         "WorkCycles",
         work_cycle_id,
-        "OpenPaw.Harness.WritePlan",
+        "TemperPaw.Harness.WritePlan",
         {
             "plan_summary": "Open a reviewing work cycle and complete it through merged PR webhook approval.",
             "planner_id": "webhook-proof",
         },
     )
-    client.action("WorkCycles", work_cycle_id, "OpenPaw.Harness.StartWork")
-    client.action("WorkCycles", work_cycle_id, "OpenPaw.Harness.BeginTesting")
+    client.action("WorkCycles", work_cycle_id, "TemperPaw.Harness.StartWork")
+    client.action("WorkCycles", work_cycle_id, "TemperPaw.Harness.BeginTesting")
     client.action(
         "WorkCycles",
         work_cycle_id,
-        "OpenPaw.Harness.PassTests",
+        "TemperPaw.Harness.PassTests",
         {"test_summary": "Synthetic review gate already passed for webhook verification."},
     )
     return work_cycle_id
@@ -97,7 +97,7 @@ def create_reviewing_work_cycle(client: ODataClient, harness_id: str, run_suffix
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--base-url", default=os.getenv("OPENPAW_BASE_URL", DEFAULT_BASE_URL))
+    parser.add_argument("--base-url", default=os.getenv("TEMPERPAW_BASE_URL", DEFAULT_BASE_URL))
     parser.add_argument("--tenant", default=os.getenv("PAW_TENANT", DEFAULT_TENANT))
     parser.add_argument("--repo-url", default=DEFAULT_REPO_URL)
     parser.add_argument("--secret", default=os.getenv("WEBHOOK_SECRET"))

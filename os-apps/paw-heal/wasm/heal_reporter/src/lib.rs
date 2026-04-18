@@ -160,7 +160,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
 
         // Build summary message
         let mut lines = vec![
-            "Open Paw self-heal update".to_string(),
+            "Temper Paw self-heal update".to_string(),
             format!("AlertCycle: {entity_id} ({entity_status})"),
         ];
         if !sre_agent_id.is_empty() {

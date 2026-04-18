@@ -444,7 +444,7 @@ fn dispatch_temper(
             if !provider.is_empty() {
                 body.insert("provider".into(), json!(provider));
             }
-            let url = format!("{api_url}/tdata/Sessions('{agent_id}')/OpenPaw.SwitchProvider");
+            let url = format!("{api_url}/tdata/Sessions('{agent_id}')/TemperPaw.SwitchProvider");
             let headers = internal_headers();
             let resp = ctx.http_call("POST", &url, &headers, &json!(body).to_string())?;
             if let Some(denial) = check_cedar_denial(resp.status, &resp.body) {
@@ -510,7 +510,7 @@ fn dispatch_temper(
                 body.insert("active_plan_id".into(), json!(plan_id));
             }
 
-            let url = format!("{api_url}/tdata/Sessions('{agent_id}')/OpenPaw.SwitchMode");
+            let url = format!("{api_url}/tdata/Sessions('{agent_id}')/TemperPaw.SwitchMode");
             let headers = internal_headers();
             let resp = ctx.http_call("POST", &url, &headers, &json!(body).to_string())?;
             if let Some(denial) = check_cedar_denial(resp.status, &resp.body) {
@@ -941,7 +941,7 @@ fn web_query_dispatch(
     // OData GET hydrates blob refs transparently (temper ADR-0040), so the
     // `results` field arrives fully resolved regardless of size. The prior
     // TemperFS File workaround (result_file_id + delete-after-read) is
-    // retired — see temper ADR-0045 / ADR-0046 and openpaw ADR-0033.
+    // retired — see temper ADR-0045 / ADR-0046 and temperpaw ADR-0033.
     let result = http_get(ctx, api_url, tenant, &format!("/tdata/WebQueries('{key}')"))?;
     let result_fields = result.get("fields").cloned().unwrap_or(result.clone());
     let (status, results_raw) = interpret_web_query_entity_result(query_type, &result_fields)?;
@@ -1638,7 +1638,7 @@ fn dispatch_sandbox(
                 }
                 let media_type = media_type_from_extension(&path);
                 Ok(json!({
-                    "__openpaw_image": true,
+                    "__temperpaw_image": true,
                     "media_type": media_type,
                     "base64_data": b64_data,
                     "source_path": path

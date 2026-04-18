@@ -26,7 +26,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 import requests  # type: ignore[import-not-found]
 
-from openpaw_proof_support import ODataClient, entity_id, nested_str, now_utc
+from temperpaw_proof_support import ODataClient, entity_id, nested_str, now_utc
 
 
 TERMINAL_STATES = {"Completed", "Failed", "Cancelled"}
@@ -101,8 +101,8 @@ def main() -> None:
     print(f"  PASS: Session entity_id={sid}")
 
     # ── Step 3: Start it ────────────────────────────────────────
-    print("[3/6] Dispatching OpenPaw.Start...")
-    client.action("Sessions", sid, "OpenPaw.Start", {})
+    print("[3/6] Dispatching TemperPaw.Start...")
+    client.action("Sessions", sid, "TemperPaw.Start", {})
     print("  PASS: Start action accepted")
 
     # ── Step 4: Wait for terminal state ─────────────────────────

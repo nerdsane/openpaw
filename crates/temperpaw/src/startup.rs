@@ -1,4 +1,4 @@
-//! Open Paw 9-phase startup sequence.
+//! Temper Paw 9-phase startup sequence.
 //!
 //! Replicates the Temper CLI's boot flow (`temper serve`) in an embedded context.
 //! The daemon boots the Temper platform, installs Paw OS apps, seeds souls,
@@ -140,16 +140,16 @@ fn spawn_query_projection_backfill(
     });
 }
 
-/// Run the Open Paw daemon.
+/// Run the Temper Paw daemon.
 ///
 /// If `force_soul_setup` is true, the soul personalization interview runs
-/// after boot regardless of current configuration (used by `openpaw setup`).
+/// after boot regardless of current configuration (used by `temperpaw setup`).
 pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
     let startup_started = Instant::now();
     let port = config.port;
     let tenant = config.tenant.clone();
     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
-    let data_dir = Path::new(&home).join(".local/share/openpaw");
+    let data_dir = Path::new(&home).join(".local/share/temperpaw");
     std::fs::create_dir_all(&data_dir)
         .with_context(|| format!("Failed to create data dir: {}", data_dir.display()))?;
     let api_key_path = data_dir.join("api.key");
@@ -699,7 +699,7 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
                 }
                 "modal" if modal_token_id.is_some() && modal_token_secret.is_some() => {
                     tracing::warn!(
-                        "Sandbox provider is 'modal' but MODAL_BRIDGE_URL / modal_bridge_url is not set; OpenPaw deploy should provision it automatically"
+                        "Sandbox provider is 'modal' but MODAL_BRIDGE_URL / modal_bridge_url is not set; TemperPaw deploy should provision it automatically"
                     );
                 }
                 "modal" => {
@@ -783,8 +783,11 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
     // Phase 6b: Install Paw OS apps
     let phase_started = Instant::now();
     tracing::info!("Phase 6b: Installing Paw OS apps...");
-    let wasm_policy =
-        local_wasm_startup_policy(std::env::var("OPENPAW_WASM_STARTUP_POLICY").ok().as_deref());
+    let wasm_policy = local_wasm_startup_policy(
+        std::env::var("TEMPERPAW_WASM_STARTUP_POLICY")
+            .ok()
+            .as_deref(),
+    );
     tracing::info!(?wasm_policy, "WASM startup policy selected");
     let startup_apps = startup_os_apps();
     tracing::info!(apps = ?startup_apps, "Startup OS app surface resolved from manifests");
@@ -1012,7 +1015,7 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
         Duration::from_secs(5),
     )
     .await
-    .context("Open Paw HTTP API failed to become reachable during startup")?;
+    .context("Temper Paw HTTP API failed to become reachable during startup")?;
 
     // Match Temper's serve bootstrap: query projections are warmed in the background
     // after the entity index exists so startup does not block health checks on replay work.
@@ -1181,7 +1184,7 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
             .is_some();
 
         println!();
-        println!("  Open Paw is running.");
+        println!("  Temper Paw is running.");
         println!();
         println!("  API:       http://localhost:{actual_port}/tdata");
         println!("  Dashboard: http://localhost:{actual_port}/dashboard");
@@ -1208,7 +1211,7 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
         }
         println!();
     }
-    tracing::info!("Open Paw listening on port {actual_port}");
+    tracing::info!("Temper Paw listening on port {actual_port}");
     tracing::info!(elapsed_ms = startup_started.elapsed().as_millis(), tenant = %tenant, "startup: time to healthy");
 
     // Phase 10: Soul personalization (post-boot, writes to TemperFS via OData)
@@ -1231,7 +1234,7 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
             .and_then(|v| v.get_secret(&tenant, "llm_provider"))
             .unwrap_or_else(|| "anthropic".to_string());
         let setup_auth = crate::setup::SetupRequestAuth::from_cookie(
-            crate::auth::issue_session_cookie_value(&vault_key_bytes, "bootstrap@local.openpaw")?,
+            crate::auth::issue_session_cookie_value(&vault_key_bytes, "bootstrap@local.temperpaw")?,
         );
 
         if let Err(e) =
@@ -1650,9 +1653,9 @@ fn spawn_soul_bootstrap(
         let api_url = format!("http://127.0.0.1:{port}");
         let client = reqwest::Client::new();
 
-        // Check for personalized Paw soul from `openpaw setup`
+        // Check for personalized Paw soul from `temperpaw setup`
         let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
-        let generated_dir = Path::new(&home).join(".local/share/openpaw/generated");
+        let generated_dir = Path::new(&home).join(".local/share/temperpaw/generated");
         let gen_soul = generated_dir.join("paw-soul.md");
         let gen_style = generated_dir.join("paw-style.md");
         let gen_user = generated_dir.join("user.md");
@@ -1823,7 +1826,7 @@ async fn bootstrap_agent(
 
     odata_post(
         client,
-        &format!("{api_url}/tdata/Agents('{agent_id}')/OpenPaw.Configure"),
+        &format!("{api_url}/tdata/Agents('{agent_id}')/TemperPaw.Configure"),
         tenant,
         api_key,
         serde_json::json!({
@@ -1852,7 +1855,7 @@ async fn attach_soul_to_agent(
 ) -> Result<()> {
     odata_post(
         client,
-        &format!("{api_url}/tdata/Agents('{agent_id}')/OpenPaw.Update"),
+        &format!("{api_url}/tdata/Agents('{agent_id}')/TemperPaw.Update"),
         tenant,
         api_key,
         serde_json::json!({ "soul_id": soul_id }),
@@ -2017,7 +2020,7 @@ async fn bootstrap_soul(
 
     odata_post(
         client,
-        &format!("{api_url}/tdata/Souls('{soul_id}')/OpenPaw.Publish"),
+        &format!("{api_url}/tdata/Souls('{soul_id}')/TemperPaw.Publish"),
         tenant,
         api_key,
         serde_json::json!({}),
@@ -2394,8 +2397,8 @@ fn normalize_legacy_workdir(current_workdir: &str) -> Option<String> {
         return Some(format!("{DEFAULT_AGENT_WORKDIR}{suffix}"));
     }
 
-    if let Some(name) = current_workdir.strip_prefix("/tmp/openpaw-") {
-        return Some(format!("{DEFAULT_AGENT_WORKDIR}/openpaw-{name}"));
+    if let Some(name) = current_workdir.strip_prefix("/tmp/temperpaw-") {
+        return Some(format!("{DEFAULT_AGENT_WORKDIR}/temperpaw-{name}"));
     }
 
     None
@@ -2721,8 +2724,8 @@ mod tests {
 
     use anyhow::anyhow;
     use serde_json::Value;
-    use temper_server::secrets::vault::SecretsVault;
     use temper_runtime::tenant::TenantId;
+    use temper_server::secrets::vault::SecretsVault;
 
     use super::{
         LocalWasmStartupPolicy, RuntimeRecoveryStep, actor_passivation_check_interval_secs,
@@ -2812,7 +2815,11 @@ mod tests {
     fn sandbox_secret_resolution_prefers_deploy_values_over_tenant_overrides() {
         let vault = SecretsVault::new(&[7u8; 32]);
         vault
-            .cache_secret("default", "modal_token_id", "stale-tenant-token".to_string())
+            .cache_secret(
+                "default",
+                "modal_token_id",
+                "stale-tenant-token".to_string(),
+            )
             .unwrap();
         vault
             .cache_platform_secret("modal_token_id", "fresh-platform-token".to_string())
@@ -2832,14 +2839,17 @@ mod tests {
     fn sandbox_secret_resolution_prefers_platform_cache_over_tenant_overrides() {
         let vault = SecretsVault::new(&[8u8; 32]);
         vault
-            .cache_secret("default", "modal_token_id", "stale-tenant-token".to_string())
+            .cache_secret(
+                "default",
+                "modal_token_id",
+                "stale-tenant-token".to_string(),
+            )
             .unwrap();
         vault
             .cache_platform_secret("modal_token_id", "fresh-platform-token".to_string())
             .unwrap();
 
-        let resolved =
-            resolve_startup_secret(Some(&vault), "default", "modal_token_id", None);
+        let resolved = resolve_startup_secret(Some(&vault), "default", "modal_token_id", None);
 
         assert_eq!(resolved.as_deref(), Some("fresh-platform-token"));
     }
@@ -2859,8 +2869,8 @@ mod tests {
     #[test]
     fn datadog_configs_use_tenant_aware_entity_queries() {
         let repo_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-        let dashboard_path = repo_root.join("dd-dashboards/openpaw-overview.json");
-        let monitor_path = repo_root.join("dd-monitors/openpaw-monitors.json");
+        let dashboard_path = repo_root.join("dd-dashboards/temperpaw-overview.json");
+        let monitor_path = repo_root.join("dd-monitors/temperpaw-monitors.json");
 
         let dashboard: Value =
             serde_json::from_str(&std::fs::read_to_string(&dashboard_path).unwrap()).unwrap();
@@ -2888,7 +2898,7 @@ mod tests {
             .expect("Entity count widget query should exist");
         assert_eq!(
             indexed_entities_query,
-            "sum:temper_indexed_entities{service:openpaw,tenant:*}"
+            "sum:temper_indexed_entities{service:temperpaw,tenant:*}"
         );
 
         let active_actors_query = dashboard["widgets"]
@@ -2912,7 +2922,7 @@ mod tests {
             .expect("Active Actors widget query should exist");
         assert_eq!(
             active_actors_query,
-            "avg:temper_active_actors{service:openpaw}"
+            "avg:temper_active_actors{service:temperpaw}"
         );
 
         let process_memory_query = dashboard["widgets"]
@@ -2925,7 +2935,7 @@ mod tests {
                     let definition = &inner["definition"];
                     if matches!(
                         definition["title"].as_str()?,
-                        "Process Memory (RSS)" | "OpenPaw Process Memory (RSS)"
+                        "Process Memory (RSS)" | "TemperPaw Process Memory (RSS)"
                     ) {
                         definition["requests"][0]["q"].as_str()
                     } else {
@@ -2936,7 +2946,7 @@ mod tests {
             .expect("Process Memory widget query should exist");
         assert_eq!(
             process_memory_query,
-            "avg:process_resident_memory_bytes{service:openpaw}"
+            "avg:process_resident_memory_bytes{service:temperpaw}"
         );
 
         let indexed_entities_by_host_query = dashboard["widgets"]
@@ -2957,7 +2967,7 @@ mod tests {
             .expect("Indexed Entities by Host widget query should exist");
         assert_eq!(
             indexed_entities_by_host_query,
-            "sum:temper_indexed_entities{service:openpaw,tenant:*} by {host}"
+            "sum:temper_indexed_entities{service:temperpaw,tenant:*} by {host}"
         );
 
         let active_actors_by_host_query = dashboard["widgets"]
@@ -2978,7 +2988,7 @@ mod tests {
             .expect("Active Actors by Host widget query should exist");
         assert_eq!(
             active_actors_by_host_query,
-            "avg:temper_active_actors{service:openpaw} by {host}"
+            "avg:temper_active_actors{service:temperpaw} by {host}"
         );
 
         let process_memory_by_host_query = dashboard["widgets"]
@@ -2989,17 +2999,17 @@ mod tests {
                 let widgets = widget["definition"]["widgets"].as_array()?;
                 widgets.iter().find_map(|inner| {
                     let definition = &inner["definition"];
-                    if definition["title"].as_str()? == "OpenPaw RSS by Host" {
+                    if definition["title"].as_str()? == "TemperPaw RSS by Host" {
                         definition["requests"][0]["q"].as_str()
                     } else {
                         None
                     }
                 })
             })
-            .expect("OpenPaw RSS by Host widget query should exist");
+            .expect("TemperPaw RSS by Host widget query should exist");
         assert_eq!(
             process_memory_by_host_query,
-            "avg:process_resident_memory_bytes{service:openpaw} by {host}"
+            "avg:process_resident_memory_bytes{service:temperpaw} by {host}"
         );
 
         let projected_entities_query = dashboard["widgets"]
@@ -3023,7 +3033,7 @@ mod tests {
             .expect("Projected Entities widget query should exist");
         assert_eq!(
             projected_entities_query,
-            "sum:temper_projected_entities{service:openpaw,tenant:*}"
+            "sum:temper_projected_entities{service:temperpaw,tenant:*}"
         );
 
         let projection_coverage_query = dashboard["widgets"]
@@ -3044,7 +3054,7 @@ mod tests {
             .expect("Projection Coverage widget query should exist");
         assert_eq!(
             projection_coverage_query,
-            "avg:temper_projection_coverage_ratio{service:openpaw}"
+            "avg:temper_projection_coverage_ratio{service:temperpaw}"
         );
 
         let snapshot_miss_query = dashboard["widgets"]
@@ -3065,7 +3075,7 @@ mod tests {
             .expect("Projection Snapshot Misses widget query should exist");
         assert_eq!(
             snapshot_miss_query,
-            "default_zero(sum:temper_projection_backfill_snapshot_misses_total{service:openpaw}.as_count().rollup(sum, 60))"
+            "default_zero(sum:temper_projection_backfill_snapshot_misses_total{service:temperpaw}.as_count().rollup(sum, 60))"
         );
 
         let reconcile_query = dashboard["widgets"]
@@ -3086,7 +3096,7 @@ mod tests {
             .expect("OS App Reconcile widget query should exist");
         assert_eq!(
             reconcile_query,
-            "default_zero(sum:temper_os_app_reconcile_total{service:openpaw} by {app,result}.as_count().rollup(sum, 60))"
+            "default_zero(sum:temper_os_app_reconcile_total{service:temperpaw} by {app,result}.as_count().rollup(sum, 60))"
         );
 
         let reconcile_duration_query = dashboard["widgets"]
@@ -3107,7 +3117,7 @@ mod tests {
             .expect("OS App Reconcile Duration widget query should exist");
         assert_eq!(
             reconcile_duration_query,
-            "default_zero(avg:temper_os_app_reconcile_duration_ms{service:openpaw} by {app,result}.rollup(avg, 60))"
+            "default_zero(avg:temper_os_app_reconcile_duration_ms{service:temperpaw} by {app,result}.rollup(avg, 60))"
         );
 
         let startup_restore_query = dashboard["widgets"]
@@ -3128,7 +3138,7 @@ mod tests {
             .expect("Startup Live Restore Entities widget query should exist");
         assert_eq!(
             startup_restore_query,
-            "default_zero(sum:temper_startup_live_restore_entities_total{service:openpaw} by {tenant}.as_count().rollup(sum, 60))"
+            "default_zero(sum:temper_startup_live_restore_entities_total{service:temperpaw} by {tenant}.as_count().rollup(sum, 60))"
         );
 
         let session_context_tokens_query = dashboard["widgets"]
@@ -3149,7 +3159,7 @@ mod tests {
             .expect("Session Context Tokens widget query should exist");
         assert_eq!(
             session_context_tokens_query,
-            "avg:temper_session_context_tokens{service:openpaw} by {provider}.rollup(avg, 60)"
+            "avg:temper_session_context_tokens{service:temperpaw} by {provider}.rollup(avg, 60)"
         );
 
         let session_context_bytes_query = dashboard["widgets"]
@@ -3170,7 +3180,7 @@ mod tests {
             .expect("Session Context Bytes widget query should exist");
         assert_eq!(
             session_context_bytes_query,
-            "avg:temper_session_context_bytes{service:openpaw} by {provider}.rollup(avg, 60)"
+            "avg:temper_session_context_bytes{service:temperpaw} by {provider}.rollup(avg, 60)"
         );
 
         let provider_request_bytes_query = dashboard["widgets"]
@@ -3191,7 +3201,7 @@ mod tests {
             .expect("Provider Request Bytes widget query should exist");
         assert_eq!(
             provider_request_bytes_query,
-            "avg:temper_session_provider_request_bytes{service:openpaw} by {provider}.rollup(avg, 60)"
+            "avg:temper_session_provider_request_bytes{service:temperpaw} by {provider}.rollup(avg, 60)"
         );
 
         let memory_budget_exceeded_query = dashboard["widgets"]
@@ -3212,7 +3222,7 @@ mod tests {
             .expect("Session Memory Budget Exceeded widget query should exist");
         assert_eq!(
             memory_budget_exceeded_query,
-            "default_zero(sum:temper_session_memory_limit_exceeded_total{service:openpaw}.as_count().rollup(sum, 60))"
+            "default_zero(sum:temper_session_memory_limit_exceeded_total{service:temperpaw}.as_count().rollup(sum, 60))"
         );
 
         let indexed_entities_drop_query = monitors
@@ -3220,7 +3230,7 @@ mod tests {
             .unwrap()
             .iter()
             .find_map(|monitor| {
-                if monitor["name"].as_str()? == "[OpenPaw] Indexed Entities Drop" {
+                if monitor["name"].as_str()? == "[TemperPaw] Indexed Entities Drop" {
                     monitor["query"].as_str()
                 } else {
                     None
@@ -3229,7 +3239,7 @@ mod tests {
             .expect("Indexed Entities Drop monitor query should exist");
         assert_eq!(
             indexed_entities_drop_query,
-            "avg(last_15m):sum:temper_indexed_entities{service:openpaw,tenant:*} < 1"
+            "avg(last_15m):sum:temper_indexed_entities{service:temperpaw,tenant:*} < 1"
         );
 
         let startup_regression_query = monitors
@@ -3237,7 +3247,7 @@ mod tests {
             .unwrap()
             .iter()
             .find_map(|monitor| {
-                if monitor["name"].as_str()? == "[OpenPaw] Startup Time Regression" {
+                if monitor["name"].as_str()? == "[TemperPaw] Startup Time Regression" {
                     monitor["query"].as_str()
                 } else {
                     None
@@ -3246,7 +3256,7 @@ mod tests {
             .expect("Startup Time Regression monitor query should exist");
         assert_eq!(
             startup_regression_query,
-            "avg(last_15m):avg:temper_startup_time_to_healthy_ms{service:openpaw} > 120000"
+            "avg(last_15m):avg:temper_startup_time_to_healthy_ms{service:temperpaw} > 120000"
         );
 
         let reconcile_regression_query = monitors
@@ -3254,7 +3264,7 @@ mod tests {
             .unwrap()
             .iter()
             .find_map(|monitor| {
-                if monitor["name"].as_str()? == "[OpenPaw] OS App Reconcile Regression" {
+                if monitor["name"].as_str()? == "[TemperPaw] OS App Reconcile Regression" {
                     monitor["query"].as_str()
                 } else {
                     None
@@ -3263,7 +3273,7 @@ mod tests {
             .expect("OS App Reconcile Regression monitor query should exist");
         assert_eq!(
             reconcile_regression_query,
-            "avg(last_1h):avg:temper_startup_phase_duration_ms{service:openpaw,phase:phase_6_os_app_reconcile} > 60000"
+            "avg(last_1h):avg:temper_startup_phase_duration_ms{service:temperpaw,phase:phase_6_os_app_reconcile} > 60000"
         );
 
         let wasm_failure_monitor_query = monitors
@@ -3271,7 +3281,7 @@ mod tests {
             .unwrap()
             .iter()
             .find_map(|monitor| {
-                if monitor["name"].as_str()? == "[OpenPaw] Required WASM Load Failures" {
+                if monitor["name"].as_str()? == "[TemperPaw] Required WASM Load Failures" {
                     monitor["query"].as_str()
                 } else {
                     None
@@ -3280,7 +3290,7 @@ mod tests {
             .expect("Required WASM Load Failures monitor query should exist");
         assert_eq!(
             wasm_failure_monitor_query,
-            "sum(last_15m):sum:temper_wasm_module_load_failures_total{service:openpaw,criticality:(platform-required OR app-required)}.as_count() > 0"
+            "sum(last_15m):sum:temper_wasm_module_load_failures_total{service:temperpaw,criticality:(platform-required OR app-required)}.as_count() > 0"
         );
 
         let session_memory_monitor_query = monitors
@@ -3288,7 +3298,7 @@ mod tests {
             .unwrap()
             .iter()
             .find_map(|monitor| {
-                if monitor["name"].as_str()? == "[OpenPaw] Session Memory Budget Exceeded" {
+                if monitor["name"].as_str()? == "[TemperPaw] Session Memory Budget Exceeded" {
                     monitor["query"].as_str()
                 } else {
                     None
@@ -3297,53 +3307,53 @@ mod tests {
             .expect("Session Memory Budget Exceeded monitor query should exist");
         assert_eq!(
             session_memory_monitor_query,
-            "sum(last_15m):sum:temper_session_memory_limit_exceeded_total{service:openpaw}.as_count() > 0"
+            "sum(last_15m):sum:temper_session_memory_limit_exceeded_total{service:temperpaw}.as_count() > 0"
         );
 
         let dashboard_json = dashboard.to_string();
         assert!(
-            dashboard_json.contains("avg:temper_up{service:openpaw}"),
+            dashboard_json.contains("avg:temper_up{service:temperpaw}"),
             "Dashboard should include the metrics pipeline canary."
         );
         assert!(
             dashboard_json.contains(
-                "sum:temper_cedar_evaluations_total{service:openpaw}.as_count().rollup(sum, 60)"
+                "sum:temper_cedar_evaluations_total{service:temperpaw}.as_count().rollup(sum, 60)"
             ),
             "Dashboard should include Cedar evaluation volume."
         );
         assert!(
             dashboard_json.contains(
-                "avg:temper_turso_query_duration{service:openpaw} by {operation}.rollup(avg, 60)"
+                "avg:temper_turso_query_duration{service:temperpaw} by {operation}.rollup(avg, 60)"
             ),
             "Dashboard should include Turso query duration."
         );
         assert!(
             dashboard_json.contains(
-                "sum:temper_wasm_host_http_requests_total{service:openpaw} by {call_kind,status_code_class}.as_count().rollup(sum, 60)"
+                "sum:temper_wasm_host_http_requests_total{service:temperpaw} by {call_kind,status_code_class}.as_count().rollup(sum, 60)"
             ),
             "Dashboard should include WASM host HTTP request volume."
         );
         assert!(
             dashboard_json.contains(
-                "avg:temper_wasm_host_http_duration_ms{service:openpaw} by {call_kind,status_code_class}.rollup(avg, 60)"
+                "avg:temper_wasm_host_http_duration_ms{service:temperpaw} by {call_kind,status_code_class}.rollup(avg, 60)"
             ),
             "Dashboard should include WASM host HTTP latency."
         );
         assert!(
             dashboard_json.contains(
-                "avg:temper_event_replay_duration{service:openpaw} by {tenant,entity_type}.rollup(avg, 60)"
+                "avg:temper_event_replay_duration{service:temperpaw} by {tenant,entity_type}.rollup(avg, 60)"
             ),
             "Dashboard should include event replay duration."
         );
         assert!(
             dashboard_json.contains(
-                "avg:temper_session_context_prepare_duration_ms{service:openpaw}.rollup(avg, 60)"
+                "avg:temper_session_context_prepare_duration_ms{service:temperpaw}.rollup(avg, 60)"
             ),
             "Dashboard should include session context prepare duration."
         );
         assert!(
             dashboard_json.contains(
-                "avg:temper_session_provider_response_bytes{service:openpaw} by {provider}.rollup(avg, 60)"
+                "avg:temper_session_provider_response_bytes{service:temperpaw} by {provider}.rollup(avg, 60)"
             ),
             "Dashboard should include provider response bytes."
         );

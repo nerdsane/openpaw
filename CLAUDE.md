@@ -1,10 +1,10 @@
-# Open Paw Project Instructions
+# Temper Paw Project Instructions
 
 ## Foundational Context
 
-OpenPaw is built on [Temper](https://github.com/nerdsane/temper). Development of both projects happens in tandem — architectural decisions must be clean across both codebases. Sometimes this means making changes to Temper itself to unblock or properly support OpenPaw features.
+TemperPaw is built on [Temper](https://github.com/nerdsane/temper). Development of both projects happens in tandem — architectural decisions must be clean across both codebases. Sometimes this means making changes to Temper itself to unblock or properly support TemperPaw features.
 
-OpenPaw is Temper-native: all functionality MUST be built using Temper primitives (Temper apps — entity specs, WASM integrations, Cedar policies). There is no separate orchestration layer. If Temper doesn't support what you need, the answer is to extend Temper, not to work around it.
+TemperPaw is Temper-native: all functionality MUST be built using Temper primitives (Temper apps — entity specs, WASM integrations, Cedar policies). There is no separate orchestration layer. If Temper doesn't support what you need, the answer is to extend Temper, not to work around it.
 
 ## Worktree Discipline
 
@@ -23,7 +23,7 @@ OpenPaw is Temper-native: all functionality MUST be built using Temper primitive
 All stateful orchestration MUST use entity state machines + WASM integrations. See `AGENTS.md` for the full guide and ADR-0005 for the rationale.
 
 - Rust code is ONLY for: triggers (protocol bridges in `crates/paw-triggers/`), WASM host functions, platform primitives (`crates/temper/`).
-- `crates/openpaw/` has NO business logic — it loads os-apps and starts triggers.
+- `crates/temperpaw/` has NO business logic — it loads os-apps and starts triggers.
 - A trigger creates ONE entity and dispatches ONE action. Everything after that is WASM.
 - Agents self-report outcomes via `temper_action`. No background watchers.
 - Test: if your Rust code creates entities or dispatches actions in a loop, it should be a WASM integration instead.
@@ -53,5 +53,5 @@ Do NOT rely solely on unit tests passing. If you cannot run it and see it work, 
 ## Implementation Notes
 
 - Prefer real integrations over mocks when credentials are available.
-- Keep the entity model aligned with the `OpenPaw` namespace and the `Agent` / `Soul` / `Memory` / `Skill` names.
+- Keep the entity model aligned with the `TemperPaw` namespace and the `Agent` / `Soul` / `Memory` / `Skill` names.
 - Commit in small, reviewable increments with clear messages so parallel implementations are easy to compare.

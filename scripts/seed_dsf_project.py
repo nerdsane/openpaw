@@ -18,7 +18,7 @@ import urllib.request
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-from openpaw_proof_support import ODataClient, entity_id, nested_str, now_utc
+from temperpaw_proof_support import ODataClient, entity_id, nested_str, now_utc
 
 REPO_URL = "https://github.com/arni-labs/deep-sci-fi.git"
 REFERENCE_DIR = os.path.join(
@@ -144,7 +144,7 @@ def seed_project(client: ODataClient) -> str:
     client.action(
         "Projects",
         pid,
-        "OpenPaw.Configure",
+        "TemperPaw.Configure",
         {
             "name": "Deep Sci-Fi",
             "description": "AI agent team for the Deep Sci-Fi social platform",
@@ -170,7 +170,7 @@ def seed_harness(client: ODataClient) -> str:
     client.action(
         "Harnesses",
         hid,
-        "OpenPaw.Harness.Configure",
+        "TemperPaw.Harness.Configure",
         {
             "repo_url": REPO_URL,
             "tech_stack": "Next.js 14 (App Router), TypeScript, Tailwind, Supabase, Python",
@@ -181,7 +181,7 @@ def seed_harness(client: ODataClient) -> str:
     client.action(
         "Harnesses",
         hid,
-        "OpenPaw.Harness.Activate",
+        "TemperPaw.Harness.Activate",
         {"last_activated_at": now_utc()},
     )
     print(f"  [created] Harness repo={REPO_URL} ({hid})")
@@ -212,7 +212,7 @@ def seed_soul(client: ODataClient) -> str:
         "ContentFileId": soul_file_id,
     })
     sid = entity_id(soul)
-    client.action("Souls", sid, "OpenPaw.Publish", {})
+    client.action("Souls", sid, "TemperPaw.Publish", {})
     print(f"  [created] Soul 'Ren' ({sid})")
     return sid
 
@@ -236,7 +236,7 @@ def seed_skill(client: ODataClient, skill_def: dict, project_id: str) -> str:
     client.action(
         "Skills",
         skid,
-        "OpenPaw.Register",
+        "TemperPaw.Register",
         {
             "name": name,
             "description": skill_def["description"],
@@ -286,7 +286,7 @@ def seed_tool_hooks(client: ODataClient) -> None:
             client.action(
                 "ToolHooks",
                 hid,
-                "OpenPaw.Register",
+                "TemperPaw.Register",
                 hook_def,
             )
             print(f"  [created] ToolHook '{hook_def['name']}' ({hid})")

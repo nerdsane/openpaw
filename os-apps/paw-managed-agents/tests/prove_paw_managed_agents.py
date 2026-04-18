@@ -16,10 +16,10 @@ import urllib.parse
 import urllib.request
 
 
-SERVER = os.environ.get("OPENPAW_SERVER", "http://127.0.0.1:3000")
-TENANT = os.environ.get("OPENPAW_TENANT", "default")
-API_KEY = os.environ.get("OPENPAW_API_KEY", "")
-REQUEST_TIMEOUT = int(os.environ.get("OPENPAW_REQUEST_TIMEOUT", "90"))
+SERVER = os.environ.get("TEMPERPAW_SERVER", "http://127.0.0.1:3000")
+TENANT = os.environ.get("TEMPERPAW_TENANT", "default")
+API_KEY = os.environ.get("TEMPERPAW_API_KEY", "")
+REQUEST_TIMEOUT = int(os.environ.get("TEMPERPAW_REQUEST_TIMEOUT", "90"))
 HEADERS = {
     "content-type": "application/json",
     "x-tenant-id": TENANT,

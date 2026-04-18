@@ -152,7 +152,7 @@
       {#if panelState.messages.length === 0}
         <div class="empty">
           <PawLogo size={32} />
-          <p class="empty-text">Ask Paw anything about OpenPaw, your agents, or your setup.</p>
+          <p class="empty-text">Ask Paw anything about TemperPaw, your agents, or your setup.</p>
         </div>
       {:else}
         {#each panelState.messages as msg (msg.id)}

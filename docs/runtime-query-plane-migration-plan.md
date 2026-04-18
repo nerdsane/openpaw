@@ -2,7 +2,7 @@
 
 ## Goal
 
-Re-architect OpenPaw and Temper so collection queries run on durable projections while actors remain a bounded execution cache.
+Re-architect TemperPaw and Temper so collection queries run on durable projections while actors remain a bounded execution cache.
 
 This plan implements ADR-0026 in phases that can ship independently and be verified with production telemetry.
 
@@ -26,7 +26,7 @@ Today, the relevant behavior is:
 - startup also launches field-index backfill for OData push-down
 - field-index backfill hydrates actors when snapshots are missing
 - transitions update the field index incrementally
-- actor passivation existed in Temper but was not started by OpenPaw until the immediate fix in this branch
+- actor passivation existed in Temper but was not started by TemperPaw until the immediate fix in this branch
 
 This means the system already has the beginnings of a query plane, but it still relies on the execution plane to repair that query plane.
 
@@ -90,19 +90,19 @@ Stop misleading telemetry and ensure actors can decay after boot.
 ### Scope
 
 - Fix Datadog entity queries so they report the real total.
-- Start the OpenPaw actor passivation loop.
+- Start the TemperPaw actor passivation loop.
 - Add low-cost regression tests around startup config and Datadog config.
 
 ### Exit Criteria
 
 - Dashboard and monitor queries report the correct entity total.
-- OpenPaw build and targeted tests pass.
+- TemperPaw build and targeted tests pass.
 - Runtime has an active passivation loop on boot.
 
 ### Proof
 
-- `cargo build -p openpaw`
-- `cargo test -p openpaw startup::tests:: -- --nocapture`
+- `cargo build -p temperpaw`
+- `cargo test -p temperpaw startup::tests:: -- --nocapture`
 - local startup smoke log showing successful boot
 
 ## Phase 1: Make Query-Plane State Explicit
@@ -285,7 +285,7 @@ Remove temporary migration machinery and harden operational guardrails.
 - The query plane is a projection, not an authority.
 - The execution plane must be disposable and reconstructable.
 - No startup path may hydrate actors solely to support collection filtering.
-- All changes must remain Temper-native and avoid introducing imperative orchestration in OpenPaw.
+- All changes must remain Temper-native and avoid introducing imperative orchestration in TemperPaw.
 
 ## Operational Rollout
 

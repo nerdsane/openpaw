@@ -2,7 +2,7 @@
 """Seed the Deep Sci-Fi team: one Team entity and seven Agent entities.
 
 This script is idempotent — it checks for existing entities by name before
-creating new ones. It uses the ODataClient from openpaw_proof_support.py.
+creating new ones. It uses the ODataClient from temperpaw_proof_support.py.
 
 Usage:
     python scripts/seed_dsf_team.py [--base-url URL] [--tenant TENANT]
@@ -16,7 +16,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-from openpaw_proof_support import ODataClient, entity_id, nested_str
+from temperpaw_proof_support import ODataClient, entity_id, nested_str
 
 
 # ---------------------------------------------------------------------------
@@ -121,7 +121,7 @@ def seed_team(client: ODataClient) -> str:
 
     team = client.create("Teams")
     tid = entity_id(team)
-    client.action("Teams", tid, "OpenPaw.Configure", {
+    client.action("Teams", tid, "TemperPaw.Configure", {
         "name": "Deep Sci-Fi Team",
         "description": "AI agent team for the Deep Sci-Fi social platform. Seven roles: Lead, SWE, SRE, Design, Librarian, CodeReviewer, DSTReviewer.",
         "harness_id": "",  # Link to Harness once created
@@ -142,7 +142,7 @@ def seed_agent(client: ODataClient, team_id: str, agent_def: dict) -> str:
 
     agent = client.create("Agents")
     aid = entity_id(agent)
-    client.action("Agents", aid, "OpenPaw.Configure", {
+    client.action("Agents", aid, "TemperPaw.Configure", {
         "name": name,
         "role": agent_def["role"],
         "description": agent_def["description"],

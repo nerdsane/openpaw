@@ -1,13 +1,13 @@
 [package]
-name = "openpaw"
+name = "temperpaw"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "Open Paw — Agent daemon built on Temper platform"
+description = "Temper Paw — Agent daemon built on Temper platform"
 
 [[bin]]
-name = "openpaw-server"
+name = "temperpaw-server"
 path = "src/main.rs"
 
 [dependencies]

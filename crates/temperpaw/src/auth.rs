@@ -730,14 +730,14 @@ mod tests {
         let tempdir = tempfile::tempdir().unwrap();
         let state = AuthState::for_tests(tempdir.path()).await;
         let cookie =
-            issue_session_cookie_value(state.jwt_secret.as_slice(), "bootstrap@openpaw.local")
+            issue_session_cookie_value(state.jwt_secret.as_slice(), "bootstrap@temperpaw.local")
                 .unwrap();
 
         let mut headers = axum::http::HeaderMap::new();
         headers.insert("cookie", cookie.parse().unwrap());
 
         let claims = claims_from_headers(&state, &headers).expect("cookie should decode");
-        assert_eq!(claims.email, "bootstrap@openpaw.local");
+        assert_eq!(claims.email, "bootstrap@temperpaw.local");
         assert_eq!(claims.provider, "local");
     }
 

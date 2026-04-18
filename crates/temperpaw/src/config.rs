@@ -1,6 +1,6 @@
 //! Configuration loaded from environment variables.
 
-/// Open Paw daemon configuration.
+/// Temper Paw daemon configuration.
 pub struct Config {
     /// Discord bot token for the Paw agent.
     pub discord_bot_token: Option<String>,
@@ -27,7 +27,7 @@ pub struct Config {
     pub slack_signing_secret: Option<String>,
 
     /// Turso database URL (local file or cloud).
-    /// Default: ~/.local/share/openpaw/paw.db
+    /// Default: ~/.local/share/temperpaw/paw.db
     pub turso_url: Option<String>,
 
     /// Turso auth token (for Turso Cloud).
@@ -98,7 +98,7 @@ pub struct Config {
     /// Railway otel-collector service ID (captured during deploy).
     pub railway_otel_service_id: Option<String>,
 
-    /// Railway main openpaw service ID (for redeploy from dashboard).
+    /// Railway main temperpaw service ID (for redeploy from dashboard).
     pub railway_service_id: Option<String>,
 
     /// Vercel API token for deployment integrations.

@@ -1,4 +1,4 @@
-//! Interactive setup for Open Paw.
+//! Interactive setup for Temper Paw.
 //!
 //! Two phases:
 //! - Phase A (pre-boot): API key + messaging platform config
@@ -80,7 +80,7 @@ fn has_llm_credentials(config: &Config) -> bool {
 
 /// Returns `true` if config setup should run automatically during boot.
 ///
-/// Messaging setup stays opt-in via `openpaw setup`; we only block startup when
+/// Messaging setup stays opt-in via `temperpaw setup`; we only block startup when
 /// no usable LLM credentials are available.
 pub fn needs_setup(_data_dir: &Path, config: &Config) -> bool {
     if !std::io::stdin().is_terminal() {
@@ -105,7 +105,7 @@ pub async fn run_setup_config(config: &Config) -> anyhow::Result<SetupResult> {
         slack_bot_token: None,
     };
 
-    cliclack::intro("Open Paw")?;
+    cliclack::intro("Temper Paw")?;
 
     // ─── API Key ───
 
@@ -444,7 +444,7 @@ pub(crate) fn default_paw_soul_content() -> anyhow::Result<String> {
 
 pub(crate) fn generated_paw_soul_paths() -> Vec<PathBuf> {
     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
-    let generated_dir = Path::new(&home).join(".local/share/openpaw/generated");
+    let generated_dir = Path::new(&home).join(".local/share/temperpaw/generated");
     vec![
         generated_dir.join("paw-soul.md"),
         generated_dir.join("paw-style.md"),
@@ -608,7 +608,7 @@ pub fn run_doctor(data_dir: &Path, config: &Config) {
     let db_path = data_dir.join("paw.db");
 
     println!();
-    println!("  Open Paw Doctor");
+    println!("  Temper Paw Doctor");
     println!();
 
     if data_dir.exists() {

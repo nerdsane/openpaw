@@ -225,10 +225,10 @@ def require(condition: bool, message: str) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--base-url", default=os.getenv("OPENPAW_BASE_URL", DEFAULT_BASE_URL))
+    parser.add_argument("--base-url", default=os.getenv("TEMPERPAW_BASE_URL", DEFAULT_BASE_URL))
     parser.add_argument("--tenant", default=os.getenv("PAW_TENANT", DEFAULT_TENANT))
     parser.add_argument("--model", default=DEFAULT_MODEL)
-    parser.add_argument("--sandbox-url", default=os.getenv("OPENPAW_SANDBOX_URL"))
+    parser.add_argument("--sandbox-url", default=os.getenv("TEMPERPAW_SANDBOX_URL"))
     args = parser.parse_args()
 
     sandbox_url = args.sandbox_url or derive_local_sandbox_url(args.base_url)

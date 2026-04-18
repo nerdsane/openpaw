@@ -177,14 +177,14 @@ plan_id = plan["entity_id"]
 # 3. Write exploration notes to TemperFS
 notes = "# Exploration Notes\n\n## [area] — [topic]\n..."
 temper.write("/plans/" + plan_id + "/exploration.md", notes)
-temper.action("Plans", plan_id, "OpenPaw.AddExplorationNote", {
+temper.action("Plans", plan_id, "TemperPaw.AddExplorationNote", {
     "exploration_file_id": "/plans/" + plan_id + "/exploration.md"
 })
 
 # 4. Draft the plan (after investigation is complete)
 plan_content = "# Plan Title\n\n## Context\n..."
 temper.write("/plans/" + plan_id + "/plan.md", plan_content)
-temper.action("Plans", plan_id, "OpenPaw.UpdatePlan", {
+temper.action("Plans", plan_id, "TemperPaw.UpdatePlan", {
     "plan_file_id": "/plans/" + plan_id + "/plan.md",
     "description": "Updated summary"
 })
@@ -194,5 +194,5 @@ temper.action("Plans", plan_id, "OpenPaw.UpdatePlan", {
 
 # 6. When ready:
 #    Self-directed: temper.switch_mode({"mode": "execute"})
-#    Approval-gated: temper.action("Plans", plan_id, "OpenPaw.SubmitForReview", {...})
+#    Approval-gated: temper.action("Plans", plan_id, "TemperPaw.SubmitForReview", {...})
 ```

@@ -1,4 +1,4 @@
-//! Cloud deployment workflow for OpenPaw.
+//! Cloud deployment workflow for TemperPaw.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -16,7 +16,7 @@ use crate::config::Config;
 fn cache_path() -> PathBuf {
     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
     PathBuf::from(home)
-        .join(".local/share/openpaw/deploy_cache.json")
+        .join(".local/share/temperpaw/deploy_cache.json")
 }
 
 fn load_cache() -> HashMap<String, String> {
@@ -51,7 +51,7 @@ fn cache_set(cache: &mut HashMap<String, String>, key: &str, value: &str) {
 }
 
 pub async fn run_deploy(config: Config, with_datadog: bool) -> Result<()> {
-    cliclack::intro("Open Paw Deploy")?;
+    cliclack::intro("Temper Paw Deploy")?;
 
     let mut cache = load_cache();
 
@@ -69,11 +69,11 @@ pub async fn run_deploy(config: Config, with_datadog: bool) -> Result<()> {
     let owner = slugify(
         &std::env::var("USER")
             .or_else(|_| std::env::var("USERNAME"))
-            .unwrap_or_else(|_| "openpaw".to_string()),
+            .unwrap_or_else(|_| "temperpaw".to_string()),
     );
-    let project_name = format!("openpaw-{owner}");
-    let database_name = format!("openpaw-{owner}");
-    let bucket_name = format!("openpaw-fs-{owner}");
+    let project_name = format!("temperpaw-{owner}");
+    let database_name = format!("temperpaw-{owner}");
+    let bucket_name = format!("temperpaw-fs-{owner}");
 
     cliclack::log::step("Provisioning Turso database (free tier: 9 GB, 500M rows)...")?;
     create_turso_db_idempotent(&database_name)?;
@@ -111,7 +111,7 @@ pub async fn run_deploy(config: Config, with_datadog: bool) -> Result<()> {
         "variable".to_string(),
         "set".to_string(),
         "-s".to_string(),
-        "openpaw".to_string(),
+        "temperpaw".to_string(),
     ];
     set_args.extend(variables);
     run_interactive("railway", &as_str_slice(&set_args))?;
@@ -129,10 +129,10 @@ pub async fn run_deploy(config: Config, with_datadog: bool) -> Result<()> {
         );
     }
 
-    cliclack::log::step("Deploying OpenPaw...")?;
+    cliclack::log::step("Deploying TemperPaw...")?;
     deploy_prebuilt_image()?;
 
-    let domain_output = capture_trimmed("railway", &["domain", "--service", "openpaw", "--json"])?;
+    let domain_output = capture_trimmed("railway", &["domain", "--service", "temperpaw", "--json"])?;
     let deploy_url = infer_domain(&domain_output).unwrap_or(domain_output.clone());
 
     cliclack::log::step("Waiting for health check...")?;
@@ -473,8 +473,8 @@ fn deploy_prebuilt_image() -> Result<()> {
         .context("No environment ID in Railway status")?
         .to_string();
 
-    let image = "ghcr.io/nerdsane/openpaw:latest";
-    let tmp = std::env::temp_dir().join("openpaw-deploy");
+    let image = "ghcr.io/nerdsane/temperpaw:latest";
+    let tmp = std::env::temp_dir().join("temperpaw-deploy");
     let _ = std::fs::create_dir_all(&tmp);
     std::fs::write(
         tmp.join("Dockerfile"),
@@ -488,7 +488,7 @@ fn deploy_prebuilt_image() -> Result<()> {
     )?;
 
     let status = Command::new("railway")
-        .args(["up", "-s", "openpaw", "-p", &project_id, "-e", &env_id])
+        .args(["up", "-s", "temperpaw", "-p", &project_id, "-e", &env_id])
         .current_dir(&tmp)
         .stdin(std::process::Stdio::inherit())
         .stdout(std::process::Stdio::inherit())
@@ -505,7 +505,7 @@ fn deploy_prebuilt_image() -> Result<()> {
     Ok(())
 }
 
-/// Create or reuse a Railway project, and ensure the "openpaw" service exists.
+/// Create or reuse a Railway project, and ensure the "temperpaw" service exists.
 fn create_railway_project_idempotent(project_name: &str) -> Result<()> {
     // Check if we're already linked to a project
     let linked = Command::new("railway")
@@ -542,9 +542,9 @@ fn create_railway_project_idempotent(project_name: &str) -> Result<()> {
         }
     }
 
-    // Ensure the "openpaw" service exists (ignore errors — it may already exist)
+    // Ensure the "temperpaw" service exists (ignore errors — it may already exist)
     let _ = Command::new("railway")
-        .args(["add", "--service", "openpaw"])
+        .args(["add", "--service", "temperpaw"])
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .status();
@@ -715,15 +715,15 @@ mod tests {
     #[test]
     fn slugify_normalizes_owner_names() {
         assert_eq!(slugify("Seshendra Nalla"), "seshendra-nalla");
-        assert_eq!(slugify("OPENPAW_dev"), "openpaw-dev");
+        assert_eq!(slugify("TEMPERPAW_dev"), "temperpaw-dev");
     }
 
     #[test]
     fn infer_domain_reads_railway_json() {
-        let value = infer_domain(r#"{"domain":"openpaw-production.up.railway.app"}"#);
+        let value = infer_domain(r#"{"domain":"temperpaw-production.up.railway.app"}"#);
         assert_eq!(
             value.as_deref(),
-            Some("https://openpaw-production.up.railway.app")
+            Some("https://temperpaw-production.up.railway.app")
         );
     }
 }
