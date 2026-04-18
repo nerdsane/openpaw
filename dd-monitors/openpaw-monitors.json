@@ -447,5 +447,114 @@
       "notify_no_data": false,
       "renotify_interval": 60
     }
+  },
+  {
+    "name": "[OpenPaw] State Timeout Reset Rate Drop",
+    "type": "metric alert",
+    "query": "avg(last_1h):sum:temper_state_timeout_reset_total{service:openpaw,state:Executing}.as_count() < 1",
+    "message": "State timeout resets on Executing dropped to zero \u2014 the reset_on contract is not firing. Regression signal: the 2026-04-18 Katagami incident surfaced when monty_repl stopped emitting CheckpointToolBatch. Verify progress signals are reaching StateTimeoutTracker.\n\n@slack-openpaw-alerts",
+    "tags": [
+      "team:openpaw",
+      "severity:medium"
+    ],
+    "options": {
+      "thresholds": {
+        "critical": 1,
+        "warning": 5
+      },
+      "notify_no_data": true,
+      "no_data_timeframe": 120,
+      "renotify_interval": 240
+    }
+  },
+  {
+    "name": "[OpenPaw] Cedar Evaluation Duration p99 Regression",
+    "type": "metric alert",
+    "query": "avg(last_15m):p99:temper_cedar_evaluation_duration{service:openpaw} > 0.05",
+    "message": "p99 Cedar eval exceeds 50ms \u2014 policy evaluation is contributing to dispatch latency. Candidate cause for temper#146 bursts.\n\n@slack-openpaw-alerts",
+    "tags": [
+      "team:openpaw",
+      "severity:low"
+    ],
+    "options": {
+      "thresholds": {
+        "critical": 0.05,
+        "warning": 0.02
+      },
+      "notify_no_data": false,
+      "renotify_interval": 240
+    }
+  },
+  {
+    "name": "[OpenPaw] Event Store Append p99 Regression",
+    "type": "metric alert",
+    "query": "avg(last_15m):p99:temper_event_store_append_wait_ms{service:openpaw} by {backend} > 1000",
+    "message": "Event-store append p99 exceeds 1s. If this fires on the same replica as an Actor Cold-Start Duration spike, writer-lock or fsync serialization is the bottleneck.\n\n@slack-openpaw-alerts",
+    "tags": [
+      "team:openpaw",
+      "severity:medium"
+    ],
+    "options": {
+      "thresholds": {
+        "critical": 1000,
+        "warning": 300
+      },
+      "notify_no_data": false,
+      "renotify_interval": 120
+    }
+  },
+  {
+    "name": "[Temper] Handler Deadline Breach Rate (W3 reserved)",
+    "type": "metric alert",
+    "query": "sum(last_10m):sum:temper_handler_deadline_exceeded_total{service:openpaw}.as_count() > 5",
+    "message": "Handler deadlines breached at >5 / 10m. Check the `dying_span` breakdown on the Handler Liveness dashboard to identify which host function is the hang source. Awaits temper#147 primitive.\n\n@slack-openpaw-alerts",
+    "tags": [
+      "team:openpaw",
+      "severity:high"
+    ],
+    "options": {
+      "thresholds": {
+        "critical": 5,
+        "warning": 1
+      },
+      "notify_no_data": false,
+      "renotify_interval": 60
+    }
+  },
+  {
+    "name": "[Temper] Epoch Ticker Drift (W3 reserved)",
+    "type": "metric alert",
+    "query": "avg(last_10m):p99:temper_wasm_epoch_tick_interval_ms{service:openpaw} > 100",
+    "message": "Wasmtime epoch-interruption ticker p99 drift exceeds 100ms. Deadlines become imprecise when drift grows. Awaits temper#147 primitive.\n\n@slack-openpaw-alerts",
+    "tags": [
+      "team:openpaw",
+      "severity:medium"
+    ],
+    "options": {
+      "thresholds": {
+        "critical": 100,
+        "warning": 50
+      },
+      "notify_no_data": false,
+      "renotify_interval": 240
+    }
+  },
+  {
+    "name": "[Temper] Slow Handler Kill (W3 reserved)",
+    "type": "metric alert",
+    "query": "avg(last_15m):p99:temper_handler_kill_latency_ms{service:openpaw} > 1000",
+    "message": "p99 time between deadline breach and guest exit exceeds 1s \u2014 guest code is resisting termination. Awaits temper#147 primitive.\n\n@slack-openpaw-alerts",
+    "tags": [
+      "team:openpaw",
+      "severity:medium"
+    ],
+    "options": {
+      "thresholds": {
+        "critical": 1000,
+        "warning": 500
+      },
+      "notify_no_data": false,
+      "renotify_interval": 240
+    }
   }
 ]

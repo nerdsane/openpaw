@@ -652,6 +652,43 @@
                 }
               ]
             }
+          },
+          {
+            "definition": {
+              "title": "Session Context Tokens p95 / p99",
+              "title_size": "16",
+              "title_align": "left",
+              "show_legend": true,
+              "type": "timeseries",
+              "requests": [
+                {
+                  "response_format": "timeseries",
+                  "queries": [
+                    {
+                      "data_source": "metrics",
+                      "name": "p95",
+                      "query": "p95:temper_session_context_tokens{service:openpaw}"
+                    },
+                    {
+                      "data_source": "metrics",
+                      "name": "p99",
+                      "query": "p99:temper_session_context_tokens{service:openpaw}"
+                    }
+                  ],
+                  "formulas": [
+                    {
+                      "formula": "p95",
+                      "alias": "p95"
+                    },
+                    {
+                      "formula": "p99",
+                      "alias": "p99"
+                    }
+                  ],
+                  "display_type": "line"
+                }
+              ]
+            }
           }
         ]
       }
@@ -774,6 +811,33 @@
                 }
               ]
             }
+          },
+          {
+            "definition": {
+              "title": "Dispatch Error Rate by Tenant",
+              "title_size": "16",
+              "title_align": "left",
+              "show_legend": true,
+              "type": "timeseries",
+              "requests": [
+                {
+                  "response_format": "timeseries",
+                  "queries": [
+                    {
+                      "data_source": "metrics",
+                      "name": "errors",
+                      "query": "sum:temper_dispatch_ask_error_total{service:openpaw} by {tenant,error_kind}.as_count()"
+                    }
+                  ],
+                  "formulas": [
+                    {
+                      "formula": "errors"
+                    }
+                  ],
+                  "display_type": "bars"
+                }
+              ]
+            }
           }
         ]
       }
@@ -850,6 +914,60 @@
               "requests": [
                 {
                   "q": "sum:temper_spec_liveness_violations_total{service:openpaw} by {entity_type,state}.as_count()"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "State Timeout Cancellations by State",
+              "title_size": "16",
+              "title_align": "left",
+              "show_legend": true,
+              "type": "timeseries",
+              "requests": [
+                {
+                  "response_format": "timeseries",
+                  "queries": [
+                    {
+                      "data_source": "metrics",
+                      "name": "cancels",
+                      "query": "sum:temper_state_timeout_cancelled_total{service:openpaw} by {entity_type,state}.as_count()"
+                    }
+                  ],
+                  "formulas": [
+                    {
+                      "formula": "cancels"
+                    }
+                  ],
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "State Timeout Resets by State (validates reset_on wiring)",
+              "title_size": "16",
+              "title_align": "left",
+              "show_legend": true,
+              "type": "timeseries",
+              "requests": [
+                {
+                  "response_format": "timeseries",
+                  "queries": [
+                    {
+                      "data_source": "metrics",
+                      "name": "resets",
+                      "query": "sum:temper_state_timeout_reset_total{service:openpaw} by {entity_type,state}.as_count()"
+                    }
+                  ],
+                  "formulas": [
+                    {
+                      "formula": "resets"
+                    }
+                  ],
+                  "display_type": "line"
                 }
               ]
             }
@@ -1178,6 +1296,254 @@
                   "formulas": [
                     {
                       "formula": "p95"
+                    }
+                  ],
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "Phase Latency p99 (by resource_name)",
+              "title_size": "16",
+              "title_align": "left",
+              "show_legend": true,
+              "type": "timeseries",
+              "requests": [
+                {
+                  "response_format": "timeseries",
+                  "queries": [
+                    {
+                      "data_source": "metrics",
+                      "name": "p99",
+                      "query": "p99:trace.custom{service:openpaw,resource_name:dispatch.phase.*} by {resource_name}"
+                    }
+                  ],
+                  "formulas": [
+                    {
+                      "formula": "p99"
+                    }
+                  ],
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "Event-Store Append Wait p95 / p99",
+              "title_size": "16",
+              "title_align": "left",
+              "show_legend": true,
+              "type": "timeseries",
+              "requests": [
+                {
+                  "response_format": "timeseries",
+                  "queries": [
+                    {
+                      "data_source": "metrics",
+                      "name": "p95",
+                      "query": "p95:temper_event_store_append_wait_ms{service:openpaw} by {backend}"
+                    },
+                    {
+                      "data_source": "metrics",
+                      "name": "p99",
+                      "query": "p99:temper_event_store_append_wait_ms{service:openpaw} by {backend}"
+                    }
+                  ],
+                  "formulas": [
+                    {
+                      "formula": "p95",
+                      "alias": "p95"
+                    },
+                    {
+                      "formula": "p99",
+                      "alias": "p99"
+                    }
+                  ],
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "Cedar Evaluation Duration p95 / p99",
+              "title_size": "16",
+              "title_align": "left",
+              "show_legend": true,
+              "type": "timeseries",
+              "requests": [
+                {
+                  "response_format": "timeseries",
+                  "queries": [
+                    {
+                      "data_source": "metrics",
+                      "name": "p95",
+                      "query": "p95:temper_cedar_evaluation_duration{service:openpaw} by {decision}"
+                    },
+                    {
+                      "data_source": "metrics",
+                      "name": "p99",
+                      "query": "p99:temper_cedar_evaluation_duration{service:openpaw} by {decision}"
+                    }
+                  ],
+                  "formulas": [
+                    {
+                      "formula": "p95",
+                      "alias": "p95"
+                    },
+                    {
+                      "formula": "p99",
+                      "alias": "p99"
+                    }
+                  ],
+                  "display_type": "line"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "definition": {
+        "title": "Handler Liveness (W3 / temper#147 \u2014 reserved)",
+        "type": "group",
+        "layout_type": "ordered",
+        "widgets": [
+          {
+            "definition": {
+              "title": "Deadline Headroom (remaining ms)",
+              "title_size": "16",
+              "title_align": "left",
+              "show_legend": true,
+              "type": "timeseries",
+              "requests": [
+                {
+                  "response_format": "timeseries",
+                  "queries": [
+                    {
+                      "data_source": "metrics",
+                      "name": "rem",
+                      "query": "avg:temper_handler_deadline_remaining_ms{service:openpaw} by {entity_type,action}"
+                    }
+                  ],
+                  "formulas": [
+                    {
+                      "formula": "rem"
+                    }
+                  ],
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "Handler Deadline Breaches by Dying Span",
+              "title_size": "16",
+              "title_align": "left",
+              "type": "toplist",
+              "requests": [
+                {
+                  "response_format": "scalar",
+                  "queries": [
+                    {
+                      "data_source": "metrics",
+                      "name": "breaches",
+                      "query": "sum:temper_handler_deadline_exceeded_total{service:openpaw} by {dying_span}.as_count()",
+                      "aggregator": "sum"
+                    }
+                  ],
+                  "formulas": [
+                    {
+                      "formula": "breaches",
+                      "limit": {
+                        "count": 20,
+                        "order": "desc"
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "Handler Deadline Breaches by Entity \u00d7 Action",
+              "title_size": "16",
+              "title_align": "left",
+              "show_legend": true,
+              "type": "timeseries",
+              "requests": [
+                {
+                  "response_format": "timeseries",
+                  "queries": [
+                    {
+                      "data_source": "metrics",
+                      "name": "breaches",
+                      "query": "sum:temper_handler_deadline_exceeded_total{service:openpaw} by {entity_type,action}.as_count()"
+                    }
+                  ],
+                  "formulas": [
+                    {
+                      "formula": "breaches"
+                    }
+                  ],
+                  "display_type": "bars"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "Epoch Tick Drift p99",
+              "title_size": "16",
+              "title_align": "left",
+              "show_legend": true,
+              "type": "timeseries",
+              "requests": [
+                {
+                  "response_format": "timeseries",
+                  "queries": [
+                    {
+                      "data_source": "metrics",
+                      "name": "p99",
+                      "query": "p99:temper_wasm_epoch_tick_interval_ms{service:openpaw}"
+                    }
+                  ],
+                  "formulas": [
+                    {
+                      "formula": "p99"
+                    }
+                  ],
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "Handler Kill Latency p99 (detects resistant guests)",
+              "title_size": "16",
+              "title_align": "left",
+              "show_legend": true,
+              "type": "timeseries",
+              "requests": [
+                {
+                  "response_format": "timeseries",
+                  "queries": [
+                    {
+                      "data_source": "metrics",
+                      "name": "p99",
+                      "query": "p99:temper_handler_kill_latency_ms{service:openpaw} by {entity_type}"
+                    }
+                  ],
+                  "formulas": [
+                    {
+                      "formula": "p99"
                     }
                   ],
                   "display_type": "line"
