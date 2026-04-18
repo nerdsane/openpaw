@@ -1,12 +1,12 @@
 [package]
-name = "openpaw-cli"
+name = "temperpaw-cli"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 
 [[bin]]
-name = "openpaw"
+name = "temperpaw"
 path = "src/main.rs"
 
 [dependencies]

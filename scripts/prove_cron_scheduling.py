@@ -18,7 +18,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-from openpaw_proof_support import ODataClient, entity_id, nested_str, now_utc
+from temperpaw_proof_support import ODataClient, entity_id, nested_str, now_utc
 
 
 def main() -> None:
@@ -88,7 +88,7 @@ def main() -> None:
         "max_runs": "3",
     }
     try:
-        client.action("CronJobs", cron_id, "OpenPaw.Configure", config_params)
+        client.action("CronJobs", cron_id, "TemperPaw.Configure", config_params)
         print(f"  ✓ Configured with schedule={args.schedule}")
     except Exception as e:
         print(f"  ✗ Configure failed: {e}")
@@ -103,7 +103,7 @@ def main() -> None:
     print("[5/7] Activating CronJob (triggers cron_activate WASM)...")
     pre_activate_time = now_utc()
     try:
-        client.action("CronJobs", cron_id, "OpenPaw.Activate", {})
+        client.action("CronJobs", cron_id, "TemperPaw.Activate", {})
         print(f"  ✓ Activate dispatched at {pre_activate_time}")
     except Exception as e:
         print(f"  ✗ Activate failed: {e}")

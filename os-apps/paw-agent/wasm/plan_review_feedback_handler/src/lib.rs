@@ -95,7 +95,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         };
 
         let resume_url = format!(
-            "{temper_api_url}/tdata/Sessions('{session_id}')/OpenPaw.ResumeWithPlanChanges"
+            "{temper_api_url}/tdata/Sessions('{session_id}')/TemperPaw.ResumeWithPlanChanges"
         );
         let headers = runtime_headers(
             &ctx,

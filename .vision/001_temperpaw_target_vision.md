@@ -1,15 +1,15 @@
-# OpenPaw Vision
+# TemperPaw Vision
 
-## What OpenPaw Is
+## What TemperPaw Is
 
-OpenPaw is an intelligent agent platform that a human deploys to the cloud (e.g. Railway) and interacts with through Discord. The human talks to **Paw**, the orchestrator agent, and asks it to manage their software projects. Paw "hires" developer agents — autonomous software engineers that maintain repositories like a human developer would.
+TemperPaw is an intelligent agent platform that a human deploys to the cloud (e.g. Railway) and interacts with through Discord. The human talks to **Paw**, the orchestrator agent, and asks it to manage their software projects. Paw "hires" developer agents — autonomous software engineers that maintain repositories like a human developer would.
 
 This is not a scripted CI/CD pipeline. The agents are intelligent. They make decisions, adapt to context, and collaborate through governed shared state. The harness guides them (what must happen before code ships), but does not prescribe step-by-step deterministic execution.
 
 ## The Human Experience
 
-1. Human deploys OpenPaw to Railway (or similar). One binary, one service, a set of env vars.
-2. Human adds the OpenPaw bot to their Discord server.
+1. Human deploys TemperPaw to Railway (or similar). One binary, one service, a set of env vars.
+2. Human adds the TemperPaw bot to their Discord server.
 3. Human says on Discord: **"Manage deep-sci-fi for me."**
 4. Paw takes it from there:
    - Creates a Developer agent (or a team of agents)
@@ -54,7 +54,7 @@ Inspired by [Ramp's self-maintaining Sheets system](https://engineering.ramp.com
 1. **Bootstrap monitors**: When a developer agent first takes ownership of a project, it sets up monitors across the entire codebase — granular, one per ~75 lines of code. These watch error rates, latency, exceptions, log patterns.
 2. **Ongoing monitor generation**: On every PR or change (by the agent or by human developers), new monitors are generated for the changed code. This is part of the harness — it's how the project stays covered.
 3. **Alert → Triage → Fix loop**:
-   - Monitor fires → webhook hits OpenPaw → AlertCycle entity created
+   - Monitor fires → webhook hits TemperPaw → AlertCycle entity created
    - SRE session wakes up, reads alert context, investigates
    - If real issue: SRE creates a WorkCycle + PM Issue, Developer session picks it up, reproduces in sandbox, fixes, opens PR
    - If noise: SRE tunes or deletes the monitor
@@ -199,7 +199,7 @@ Ordered by what unblocks the demo scenario:
 2. **Paw orchestration** — Paw creates Developer, provisions sandbox, bootstraps project
 3. **Webhook ingestion** — Real `POST /webhooks/ingest` that creates AlertCycle entities
 4. **Datadog monitor bootstrap** — Developer generates monitors for existing codebase
-5. **Datadog alert → webhook** — Monitor fires, webhook hits OpenPaw, SRE triages
+5. **Datadog alert → webhook** — Monitor fires, webhook hits TemperPaw, SRE triages
 6. **SRE → Developer → PR in a governed cloud sandbox** — Full remediation in a real remote sandbox (not local)
 7. **PM integration** — Alert triage creates Issues, visible in PM
 8. **Harness enforcement** — Cedar policies that actually block non-compliant actions

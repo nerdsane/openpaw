@@ -225,12 +225,12 @@ impl PawApiClient {
         req = req.header("x-tenant-id", &self.config.tenant);
         if self.uses_internal_loopback(url) {
             req = req.header("x-temper-principal-kind", "admin");
-            req = req.header("x-temper-principal-id", "openpaw-transport");
+            req = req.header("x-temper-principal-id", "temperpaw-transport");
         } else if let Some(ref key) = self.config.api_key {
             req = req.header("authorization", format!("Bearer {key}"));
         } else {
             req = req.header("x-temper-principal-kind", "admin");
-            req = req.header("x-temper-principal-id", "openpaw-transport");
+            req = req.header("x-temper-principal-id", "temperpaw-transport");
         }
         req
     }
@@ -330,7 +330,7 @@ mod tests {
         );
         assert_eq!(
             probe.last_id.lock().unwrap().as_deref(),
-            Some("openpaw-transport"),
+            Some("temperpaw-transport"),
             "internal loopback calls must include a principal id so auth middleware treats them as pre-authenticated",
         );
         assert_eq!(
@@ -393,7 +393,7 @@ mod tests {
         assert_eq!(probe.last_kind.lock().unwrap().as_deref(), Some("admin"));
         assert_eq!(
             probe.last_id.lock().unwrap().as_deref(),
-            Some("openpaw-transport")
+            Some("temperpaw-transport")
         );
         assert_eq!(
             probe.last_tenant.lock().unwrap().as_deref(),

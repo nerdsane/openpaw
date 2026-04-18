@@ -1,7 +1,7 @@
 # Temper-Native Audit Remediation Proof
 
 Date: 2026-03-30
-Branch: `feat/openpaw-self-heal-loop-codex`
+Branch: `feat/temperpaw-self-heal-loop-codex`
 
 ## Scope
 
@@ -68,9 +68,9 @@ Fresh daemon used for proof:
 
 ```sh
 PORT=4472 \
-TURSO_URL=file:/tmp/openpaw-arch-proof-20260330g.db \
+TURSO_URL=file:/tmp/temperpaw-arch-proof-20260330g.db \
 RUST_LOG=info \
-./target/debug/openpaw
+./target/debug/temperpaw
 ```
 
 ### Proof 1: asynchronous channel continuation
@@ -116,7 +116,7 @@ Observed result:
 - `AlertCycle.status = Triaging`
 - `AlertCycle.fields.sre_agent_id` was populated
 - SRE `Agent.status = Provisioning`
-- Routed action: `OpenPaw.Heal.Open`
+- Routed action: `TemperPaw.Heal.Open`
 - Routed entity type: `AlertCycle`
 
 Evidence from the successful run:

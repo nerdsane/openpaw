@@ -1,5 +1,5 @@
 services:
-  openpaw:
+  temperpaw:
     build:
       context: .
       dockerfile: Dockerfile

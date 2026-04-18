@@ -55,12 +55,12 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             .config
             .get("default_sre_workdir")
             .cloned()
-            .unwrap_or_else(|| "/workspace/openpaw-sre-webhook".to_string());
+            .unwrap_or_else(|| "/workspace/temperpaw-sre-webhook".to_string());
         let default_developer_workdir = ctx
             .config
             .get("default_developer_workdir")
             .cloned()
-            .unwrap_or_else(|| "/workspace/openpaw-self-heal".to_string());
+            .unwrap_or_else(|| "/workspace/temperpaw-self-heal".to_string());
 
         let tenant = &ctx.tenant;
         let headers = vec![
@@ -245,9 +245,9 @@ ISSUE_ID=<id or empty>"
 
         ctx.log("info", &format!("alert_opener: created Session {agent_id}"));
 
-        // 7. Dispatch Sessions.OpenPaw.Configure
+        // 7. Dispatch Sessions.TemperPaw.Configure
         let configure_url = format!(
-            "{temper_api_url}/tdata/Sessions('{agent_id}')/OpenPaw.Configure"
+            "{temper_api_url}/tdata/Sessions('{agent_id}')/TemperPaw.Configure"
         );
         let configure_body = json!({
             "model": default_agent_model,

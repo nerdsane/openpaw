@@ -7,7 +7,7 @@ import argparse
 import json
 import os
 
-from openpaw_proof_support import (
+from temperpaw_proof_support import (
     DEFAULT_BASE_URL,
     DEFAULT_MODEL,
     DEFAULT_REPO_URL,
@@ -24,7 +24,7 @@ from openpaw_proof_support import (
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--base-url", default=os.getenv("OPENPAW_BASE_URL", DEFAULT_BASE_URL))
+    parser.add_argument("--base-url", default=os.getenv("TEMPERPAW_BASE_URL", DEFAULT_BASE_URL))
     parser.add_argument("--tenant", default=os.getenv("PAW_TENANT", DEFAULT_TENANT))
     parser.add_argument("--repo-url", default=DEFAULT_REPO_URL)
     parser.add_argument("--model", default=DEFAULT_MODEL)
@@ -95,7 +95,7 @@ def main() -> int:
         client.action(
             "Harnesses",
             harness_id,
-            "OpenPaw.Harness.Configure",
+            "TemperPaw.Harness.Configure",
             {
                 "repo_url": args.repo_url,
                 "tech_stack": "Next.js frontend, Python backend",
@@ -105,7 +105,7 @@ def main() -> int:
         client.action(
             "Harnesses",
             harness_id,
-            "OpenPaw.Harness.Activate",
+            "TemperPaw.Harness.Activate",
             {"last_activated_at": now_utc()},
         )
 
@@ -134,7 +134,7 @@ def main() -> int:
 
         reply = collector.wait_for_reply(thread_id, timeout_secs=args.timeout_secs)
         content = str(reply.get("content") or "")
-        require("Open Paw self-heal update" in content, f"reply missing summary header: {reply}")
+        require("Temper Paw self-heal update" in content, f"reply missing summary header: {reply}")
         require("AlertCycle:" in content, f"reply missing alert summary: {reply}")
 
         summary = {

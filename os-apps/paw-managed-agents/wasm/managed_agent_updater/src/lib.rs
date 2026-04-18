@@ -65,7 +65,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             let _ = post_absolute_action(
                 &ctx,
                 &headers,
-                &format!("{base_url}/tdata/Agents('{inner_agent_id}')/OpenPaw.Update"),
+                &format!("{base_url}/tdata/Agents('{inner_agent_id}')/TemperPaw.Update"),
                 &json!({
                     "description": field_string(&current_fields, &["Description", "description"]),
                     "model": model_id,

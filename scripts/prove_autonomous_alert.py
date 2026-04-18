@@ -8,7 +8,7 @@ import json
 import os
 import time
 
-from openpaw_proof_support import (
+from temperpaw_proof_support import (
     DEFAULT_BASE_URL,
     DEFAULT_REPO_URL,
     DEFAULT_TENANT,
@@ -42,7 +42,7 @@ def wait_for_work_cycle(
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--base-url", default=os.getenv("OPENPAW_BASE_URL", DEFAULT_BASE_URL))
+    parser.add_argument("--base-url", default=os.getenv("TEMPERPAW_BASE_URL", DEFAULT_BASE_URL))
     parser.add_argument("--tenant", default=os.getenv("PAW_TENANT", DEFAULT_TENANT))
     parser.add_argument("--repo-url", default=DEFAULT_REPO_URL)
     parser.add_argument("--secret", default=os.getenv("WEBHOOK_SECRET"))
@@ -62,7 +62,7 @@ def main() -> int:
     client.action(
         "Harnesses",
         harness_id,
-        "OpenPaw.Harness.Configure",
+        "TemperPaw.Harness.Configure",
         {
             "repo_url": args.repo_url,
             "tech_stack": "Next.js frontend, Python backend",
@@ -72,13 +72,13 @@ def main() -> int:
     client.action(
         "Harnesses",
         harness_id,
-        "OpenPaw.Harness.Activate",
+        "TemperPaw.Harness.Activate",
         {"last_activated_at": now_utc()},
     )
 
     dd_monitor_id = f"autonomous-alert-monitor-{run_suffix}"
     payload = {
-        "org": {"id": 12345, "name": "openpaw-proof"},
+        "org": {"id": 12345, "name": "temperpaw-proof"},
         "id": dd_monitor_id,
         "title": "Autonomous Datadog alert proof",
         "text": "package-lock drift detected during autonomous alert proof",

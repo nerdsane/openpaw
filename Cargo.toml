@@ -1,8 +1,8 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/openpaw",
-    "crates/openpaw-cli",
+    "crates/temperpaw",
+    "crates/temperpaw-cli",
     "crates/paw-transport",
 ]
 

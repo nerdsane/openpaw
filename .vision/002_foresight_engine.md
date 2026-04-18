@@ -2,7 +2,7 @@
 
 ## What Foresight Is
 
-Foresight is an engine inside OpenPaw that projects a product's plausible futures, surfaces the strongest directions, and delivers them as working code on branches — ready for a human to select and merge.
+Foresight is an engine inside TemperPaw that projects a product's plausible futures, surfaces the strongest directions, and delivers them as working code on branches — ready for a human to select and merge.
 
 Today, product managers imagine where a product should go, write specs, and hand them to engineers. Foresight inverts this. The engine observes the product's current state — its codebase, its health signals, its usage patterns, its history — and projects multiple possible futures grounded in that reality. Each future is a creative but plausible direction the product could take. Each direction is implemented, tested, and accompanied by a narrative explaining why it exists. The product manager's job shifts from "imagine where to go" to "choose from working futures."
 
@@ -95,4 +95,4 @@ The ceiling is the model's capability, not the engine's design.
 
 ## Target
 
-The first product managed by Foresight is Deep Sci-Fi, which already has a team and harness configured in OpenPaw. Foresight will observe Deep Sci-Fi's codebase, health signals, and development history, and begin projecting plausible futures for the platform.
+The first product managed by Foresight is Deep Sci-Fi, which already has a team and harness configured in TemperPaw. Foresight will observe Deep Sci-Fi's codebase, health signals, and development history, and begin projecting plausible futures for the platform.

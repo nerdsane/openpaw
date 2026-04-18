@@ -1,4 +1,4 @@
-//! Open Paw — Agent daemon built on Temper platform.
+//! Temper Paw — Agent daemon built on Temper platform.
 //!
 //! Boots an embedded Temper platform, installs Paw OS apps,
 //! seeds agent souls, and starts the Discord transport.
@@ -16,7 +16,7 @@ use clap::{Parser, Subcommand};
 use std::io::IsTerminal;
 
 #[derive(Parser)]
-#[command(name = "openpaw-server", about = "Open Paw — agent server")]
+#[command(name = "temperpaw-server", about = "Temper Paw — agent server")]
 struct Cli {
     #[command(subcommand)]
     command: Option<Command>,
@@ -24,7 +24,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Configure and run OpenPaw locally — API keys, messaging, soul personalization
+    /// Configure and run TemperPaw locally — API keys, messaging, soul personalization
     Run,
     /// Diagnose configuration and show what's working
     Doctor,
@@ -36,7 +36,7 @@ async fn main() -> anyhow::Result<()> {
     let mut config = config::Config::from_env()?;
 
     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
-    let data_dir = std::path::Path::new(&home).join(".local/share/openpaw");
+    let data_dir = std::path::Path::new(&home).join(".local/share/temperpaw");
     std::fs::create_dir_all(&data_dir)?;
 
     let force_soul_setup = match cli.command {
@@ -54,10 +54,10 @@ async fn main() -> anyhow::Result<()> {
             // No subcommand: just boot the server.
             if std::io::stdin().is_terminal() && setup::needs_setup(&data_dir, &config) {
                 eprintln!();
-                eprintln!("  Open Paw is not configured yet.");
+                eprintln!("  Temper Paw is not configured yet.");
                 eprintln!();
-                eprintln!("  Run \x1b[1mopenpaw run\x1b[0m to get started locally,");
-                eprintln!("  or  \x1b[1mopenpaw deploy\x1b[0m to deploy to the cloud.");
+                eprintln!("  Run \x1b[1mtemperpaw run\x1b[0m to get started locally,");
+                eprintln!("  or  \x1b[1mtemperpaw deploy\x1b[0m to deploy to the cloud.");
                 eprintln!();
                 std::process::exit(1);
             }
@@ -74,7 +74,7 @@ async fn main() -> anyhow::Result<()> {
         let level = if is_terminal {
             "warn"
         } else {
-            "info,openpaw=debug"
+            "info,temperpaw=debug"
         };
         unsafe {
             std::env::set_var("RUST_LOG", level);
@@ -95,13 +95,13 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
-    let otel_guard = temper_observe::otel::init_observability("openpaw");
+    let otel_guard = temper_observe::otel::init_observability("temperpaw");
 
     // Print a clean banner in the terminal
     if is_terminal {
         let port = config.port;
         eprintln!();
-        eprintln!("  \x1b[1mOpen Paw\x1b[0m is starting...");
+        eprintln!("  \x1b[1mTemper Paw\x1b[0m is starting...");
         eprintln!();
         eprintln!("  Dashboard → \x1b[36mhttp://localhost:{port}/dashboard\x1b[0m");
         eprintln!("  API       → \x1b[36mhttp://localhost:{port}\x1b[0m");
@@ -109,7 +109,7 @@ async fn main() -> anyhow::Result<()> {
         eprintln!("  Logs are suppressed. Set \x1b[1mRUST_LOG=info\x1b[0m for verbose output.");
         eprintln!();
     } else {
-        tracing::info!("Open Paw starting...");
+        tracing::info!("Temper Paw starting...");
     }
 
     let result = startup::run(config, force_soul_setup).await;

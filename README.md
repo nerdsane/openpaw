@@ -1,14 +1,14 @@
-# OpenPaw
+# TemperPaw
 
 An agent that evolves its own capabilities.
 
-OpenPaw is an ambient agent platform. It runs in the background, always on. You talk to Paw wherever you already are — messaging, voice, text. Paw manages work, spawns specialist agents, and gives them their own computers. When an agent needs a capability that doesn't exist, it designs one. The platform verifies it. You approve it. And now every agent on the platform can use it — perpetually.
+TemperPaw is an ambient agent platform. It runs in the background, always on. You talk to Paw wherever you already are — messaging, voice, text. Paw manages work, spawns specialist agents, and gives them their own computers. When an agent needs a capability that doesn't exist, it designs one. The platform verifies it. You approve it. And now every agent on the platform can use it — perpetually.
 
 Paw runs on the same platform it gives to its agents. Its memory, skills, permissions, and workflows are built the same way agents build new capabilities. So when agents extend the platform, they're working with the same building blocks Paw itself is made of. Like a building where the tenants can add rooms — using the same materials the building is made of. The platform grows with them.
 
 ## The Human Experience
 
-1. You deploy OpenPaw — one binary, one service, a set of environment variables.
+1. You deploy TemperPaw — one binary, one service, a set of environment variables.
 2. You connect Paw to where you already communicate — Discord, Slack, or whatever comes next.
 3. You say: **"Manage this for me."**
 4. Paw takes it from there:
@@ -109,10 +109,10 @@ Agents create capabilities as tools for themselves — structured workflows that
 ### Run locally
 
 ```bash
-git clone https://github.com/nerdsane/openpaw.git
-cd openpaw
+git clone https://github.com/nerdsane/temperpaw.git
+cd temperpaw
 cargo build --release
-./target/release/openpaw run
+./target/release/temperpaw run
 ```
 
 The CLI walks you through everything — API key, messaging, personalizing your Paw — then boots the server.
@@ -120,17 +120,17 @@ The CLI walks you through everything — API key, messaging, personalizing your 
 ### Deploy to the cloud
 
 ```bash
-cargo build -p openpaw-cli --release
-./target/release/openpaw deploy
+cargo build -p temperpaw-cli --release
+./target/release/temperpaw deploy
 ```
 
 Provisions Turso, Cloudflare R2, and Railway interactively — no `.env` file needed. The deploy flow prompts for all credentials.
 
-An OTEL collector is always deployed alongside OpenPaw. If `DD_API_KEY` is set in your environment, traces, metrics, and logs flow to Datadog automatically:
+An OTEL collector is always deployed alongside TemperPaw. If `DD_API_KEY` is set in your environment, traces, metrics, and logs flow to Datadog automatically:
 
 ```bash
 export DD_API_KEY=your-datadog-api-key
-./target/release/openpaw deploy
+./target/release/temperpaw deploy
 ```
 
 If you don't have a Datadog key yet, deploy without it — the collector runs in debug mode. Add `DD_API_KEY` to the otel-collector service in Railway later and it activates automatically on restart.
@@ -138,11 +138,11 @@ If you don't have a Datadog key yet, deploy without it — the collector runs in
 ### Diagnose
 
 ```bash
-./target/release/openpaw doctor
+./target/release/temperpaw doctor
 ```
 
 ## How It's Built
 
-OpenPaw runs on [Temper](https://github.com/nerdsane/temper), an open-source kernel with building blocks that generalize to build software applications of any size. Temper provides verified state machines, authorization policies, and an auditable runtime. OpenPaw is one application built on Temper — and the capabilities agents create are also applications built on Temper. Same kernel, same building blocks, all the way down.
+TemperPaw runs on [Temper](https://github.com/nerdsane/temper), an open-source kernel with building blocks that generalize to build software applications of any size. Temper provides verified state machines, authorization policies, and an auditable runtime. TemperPaw is one application built on Temper — and the capabilities agents create are also applications built on Temper. Same kernel, same building blocks, all the way down.
 
 For architecture and internals, see [AGENTS.md](AGENTS.md), [docs/development.md](docs/development.md), and [docs/deployment.md](docs/deployment.md).

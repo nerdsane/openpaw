@@ -2,7 +2,7 @@
 
 ## Goal
 
-Make OpenPaw startup bounded on warm restarts, keep first-run bootstrap explainable, and eliminate ambiguous WASM loading behavior such as the current `monty_repl` warning.
+Make TemperPaw startup bounded on warm restarts, keep first-run bootstrap explainable, and eliminate ambiguous WASM loading behavior such as the current `monty_repl` warning.
 
 This plan implements ADR-0028 alongside ADR-0026.
 
@@ -21,14 +21,14 @@ The work is complete when all of the following are true:
 
 Today the heavy startup path is dominated by two behaviors:
 
-- `Phase 6` installs every Paw OS app and bootstraps APP.md, agents, skills, and system files every run in [startup.rs](/Users/seshendranalla/Development/openpaw-codex/crates/openpaw/src/startup.rs:621).
+- `Phase 6` installs every Paw OS app and bootstraps APP.md, agents, skills, and system files every run in [startup.rs](/Users/seshendranalla/Development/temperpaw-codex/crates/temperpaw/src/startup.rs:621).
 - OS-app module loading compiles/registers whatever artifacts are found and logs warnings on failure in [mod.rs](/Users/seshendranalla/Development/temper/crates/temper-platform/src/os_apps/mod.rs:1468).
 
 The `monty_repl` warning is a concrete symptom of the second problem:
 
 - startup treats module artifacts as discoverable files rather than contract-validated build outputs
-- `monty_repl` is special-cased to use `wasm32-wasip1` in [startup.rs](/Users/seshendranalla/Development/openpaw-codex/crates/openpaw/src/startup.rs:2125)
-- the app build helper also treats it as a special-case WASI build in [build.sh](/Users/seshendranalla/Development/openpaw-codex/os-apps/paw-agent/wasm/build.sh:22)
+- `monty_repl` is special-cased to use `wasm32-wasip1` in [startup.rs](/Users/seshendranalla/Development/temperpaw-codex/crates/temperpaw/src/startup.rs:2125)
+- the app build helper also treats it as a special-case WASI build in [build.sh](/Users/seshendranalla/Development/temperpaw-codex/os-apps/paw-agent/wasm/build.sh:22)
 
 ## Design Principles
 
@@ -75,7 +75,7 @@ Every optimization phase must add or use measurements in Datadog, not just local
 
 ### Datadog updates
 
-- Add a startup hardening section to the OpenPaw dashboard:
+- Add a startup hardening section to the TemperPaw dashboard:
   phase durations
   time to healthy
   reconcile count by app/result

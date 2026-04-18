@@ -14,7 +14,7 @@ import shlex
 import json
 from datetime import datetime
 
-app = modal.App("openpaw-sandbox-bridge")
+app = modal.App("temperpaw-sandbox-bridge")
 
 sandbox_image = modal.Image.debian_slim(python_version="3.12").apt_install(
     "curl", "git", "jq", "build-essential"
@@ -73,14 +73,14 @@ def _write_policy_file(sb, body: dict):
         return
 
     _ensure_dir(sb, "/workspace")
-    f = sb.open("/workspace/.openpaw-sandbox-config.json", "w")
+    f = sb.open("/workspace/.temperpaw-sandbox-config.json", "w")
     f.write(json.dumps(policy, indent=2))
     f.close()
 
 
-@app.function(image=bridge_image, secrets=[modal.Secret.from_name("openpaw-bridge-auth")], timeout=600)
+@app.function(image=bridge_image, secrets=[modal.Secret.from_name("temperpaw-bridge-auth")], timeout=600)
 @modal.concurrent(max_inputs=100)
-@modal.fastapi_endpoint(method="POST", label="openpaw-sandbox-bridge-create")
+@modal.fastapi_endpoint(method="POST", label="temperpaw-sandbox-bridge-create")
 def create_sandbox(body: dict, authorization: str = ""):
     if not _auth_ok(authorization):
         return _err("unauthorized", 401)
@@ -101,9 +101,9 @@ def create_sandbox(body: dict, authorization: str = ""):
     }
 
 
-@app.function(image=bridge_image, secrets=[modal.Secret.from_name("openpaw-bridge-auth")], timeout=30)
+@app.function(image=bridge_image, secrets=[modal.Secret.from_name("temperpaw-bridge-auth")], timeout=30)
 @modal.concurrent(max_inputs=100)
-@modal.fastapi_endpoint(method="GET", label="openpaw-sandbox-bridge-health")
+@modal.fastapi_endpoint(method="GET", label="temperpaw-sandbox-bridge-health")
 def health_check(sandbox_id: str, authorization: str = ""):
     if not _auth_ok(authorization):
         return _err("unauthorized", 401)
@@ -118,9 +118,9 @@ def health_check(sandbox_id: str, authorization: str = ""):
         return {"ready": False, "error": str(e)}
 
 
-@app.function(image=bridge_image, secrets=[modal.Secret.from_name("openpaw-bridge-auth")], timeout=60)
+@app.function(image=bridge_image, secrets=[modal.Secret.from_name("temperpaw-bridge-auth")], timeout=60)
 @modal.concurrent(max_inputs=100)
-@modal.fastapi_endpoint(method="GET", label="openpaw-sandbox-bridge-file-read")
+@modal.fastapi_endpoint(method="GET", label="temperpaw-sandbox-bridge-file-read")
 def file_read(sandbox_id: str, path: str, authorization: str = ""):
     if not _auth_ok(authorization):
         return _err("unauthorized", 401)
@@ -136,9 +136,9 @@ def file_read(sandbox_id: str, path: str, authorization: str = ""):
         return _err(str(e), 500)
 
 
-@app.function(image=bridge_image, secrets=[modal.Secret.from_name("openpaw-bridge-auth")], timeout=60)
+@app.function(image=bridge_image, secrets=[modal.Secret.from_name("temperpaw-bridge-auth")], timeout=60)
 @modal.concurrent(max_inputs=100)
-@modal.fastapi_endpoint(method="POST", label="openpaw-sandbox-bridge-file-write")
+@modal.fastapi_endpoint(method="POST", label="temperpaw-sandbox-bridge-file-write")
 def file_write(body: dict, authorization: str = ""):
     """POST /file-write — Body: {sandbox_id, path, content}"""
     if not _auth_ok(authorization):
@@ -159,9 +159,9 @@ def file_write(body: dict, authorization: str = ""):
         return _err(str(e), 500)
 
 
-@app.function(image=bridge_image, secrets=[modal.Secret.from_name("openpaw-bridge-auth")], timeout=60)
+@app.function(image=bridge_image, secrets=[modal.Secret.from_name("temperpaw-bridge-auth")], timeout=60)
 @modal.concurrent(max_inputs=100)
-@modal.fastapi_endpoint(method="DELETE", label="openpaw-sandbox-bridge-file-delete")
+@modal.fastapi_endpoint(method="DELETE", label="temperpaw-sandbox-bridge-file-delete")
 def file_delete(sandbox_id: str, path: str, authorization: str = ""):
     if not _auth_ok(authorization):
         return _err("unauthorized", 401)
@@ -176,9 +176,9 @@ def file_delete(sandbox_id: str, path: str, authorization: str = ""):
         return _err(str(e), 500)
 
 
-@app.function(image=bridge_image, secrets=[modal.Secret.from_name("openpaw-bridge-auth")], timeout=600)
+@app.function(image=bridge_image, secrets=[modal.Secret.from_name("temperpaw-bridge-auth")], timeout=600)
 @modal.concurrent(max_inputs=100)
-@modal.fastapi_endpoint(method="POST", label="openpaw-sandbox-bridge-exec")
+@modal.fastapi_endpoint(method="POST", label="temperpaw-sandbox-bridge-exec")
 def exec_command(body: dict, authorization: str = ""):
     """POST /exec — Body: {sandbox_id, command, workdir}"""
     if not _auth_ok(authorization):
@@ -203,9 +203,9 @@ def exec_command(body: dict, authorization: str = ""):
         return {"stdout": "", "stderr": str(e), "exit_code": -1}
 
 
-@app.function(image=bridge_image, secrets=[modal.Secret.from_name("openpaw-bridge-auth")], timeout=30)
+@app.function(image=bridge_image, secrets=[modal.Secret.from_name("temperpaw-bridge-auth")], timeout=30)
 @modal.concurrent(max_inputs=100)
-@modal.fastapi_endpoint(method="DELETE", label="openpaw-sandbox-bridge-terminate")
+@modal.fastapi_endpoint(method="DELETE", label="temperpaw-sandbox-bridge-terminate")
 def terminate_sandbox(sandbox_id: str, authorization: str = ""):
     if not _auth_ok(authorization):
         return _err("unauthorized", 401)

@@ -24,7 +24,7 @@ const MAX_CONTENT_LEN: usize = 100_000;
 /// responses (HTML bombs, CDN dumps) that exceed this are truncated with a
 /// marker and a `WebFetchTruncated` event is dispatched for observability.
 /// The result ALSO still goes through `MAX_CONTENT_LEN` after stripping.
-/// See openpaw ADR-0033.
+/// See temperpaw ADR-0033.
 const WEB_FETCH_MAX_BYTES: usize = 10 * 1024 * 1024; // 10 MB
 
 /// Entry point.
@@ -53,7 +53,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         }
 
         let headers = vec![
-            ("User-Agent".to_string(), "OpenPaw/1.0".to_string()),
+            ("User-Agent".to_string(), "TemperPaw/1.0".to_string()),
             (
                 "Accept".to_string(),
                 "text/html, text/plain, */*".to_string(),
@@ -75,7 +75,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
 
         // Enforce the 10MB upstream cap before any parsing/allocation.
         // Oversize bodies are truncated with a marker and truncated_bytes is
-        // recorded on the entity for observability. See openpaw ADR-0033.
+        // recorded on the entity for observability. See temperpaw ADR-0033.
         let (body_text, truncated_upstream) = apply_upstream_cap(resp.body, WEB_FETCH_MAX_BYTES);
 
         // Strip HTML if the response looks like HTML
@@ -107,7 +107,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         // resolve via ctx.read_field_string (ADR-0046).
         //
         // `truncated_bytes` carries the original upstream size when the 10MB
-        // cap fired (openpaw ADR-0033); empty string means no truncation.
+        // cap fired (temperpaw ADR-0033); empty string means no truncation.
         let truncated_bytes_param = truncated_upstream
             .map(|n| n.to_string())
             .unwrap_or_default();
@@ -145,7 +145,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
 /// `Some(original_size)` value is written to `WebQuery.truncated_bytes`.
 ///
 /// Char-boundary safe: truncation walks back to the nearest valid UTF-8 char
-/// boundary so the resulting string is well-formed. See openpaw ADR-0033.
+/// boundary so the resulting string is well-formed. See temperpaw ADR-0033.
 fn apply_upstream_cap(body: String, max_bytes: usize) -> (String, Option<usize>) {
     let body_len = body.len();
     if body_len <= max_bytes {
@@ -703,7 +703,7 @@ mod tests {
         assert!(has_readable_web_content("headline"));
     }
 
-    // --- Red-green tests for openpaw ADR-0033 (10MB upstream cap) ---
+    // --- Red-green tests for temperpaw ADR-0033 (10MB upstream cap) ---
     //
     // Red phase would fail before the cap was introduced because the module
     // would allocate the entire oversized body and attempt to parse it as

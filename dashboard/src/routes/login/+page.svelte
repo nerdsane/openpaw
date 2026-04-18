@@ -61,12 +61,12 @@
 </script>
 
 <svelte:head>
-  <title>Open Paw Login</title>
+  <title>Temper Paw Login</title>
 </svelte:head>
 
 <section class="login-shell">
   <div class="login-card">
-    <p class="eyebrow">OPEN PAW</p>
+    <p class="eyebrow">TEMPER PAW</p>
     <h1>{mode === 'register' ? 'Create your account' : 'Welcome back'}</h1>
     <p class="lede">
       {mode === 'register'

@@ -224,7 +224,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
 
         let configure_resp = ctx.http_call(
             "POST",
-            &format!("{api_url}/tdata/Sessions('{session_id}')/OpenPaw.Configure"),
+            &format!("{api_url}/tdata/Sessions('{session_id}')/TemperPaw.Configure"),
             &headers,
             &config_body.to_string(),
         )?;

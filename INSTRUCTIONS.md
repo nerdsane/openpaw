@@ -1,6 +1,6 @@
-# Open Paw — Agent Setup Instructions
+# Temper Paw — Agent Setup Instructions
 
-You are setting up the Open Paw agent platform for a human. Read this entire file before starting.
+You are setting up the Temper Paw agent platform for a human. Read this entire file before starting.
 
 ## Prerequisites
 
@@ -13,8 +13,8 @@ You are setting up the Open Paw agent platform for a human. Read this entire fil
 ### 1. Clone and build
 
 ```bash
-git clone https://github.com/nerdsane/openpaw.git
-cd openpaw
+git clone https://github.com/nerdsane/temperpaw.git
+cd temperpaw
 ```
 
 ### 2. Configure
@@ -59,7 +59,7 @@ cargo run
 First boot takes 20-30 seconds. The server is ready when you see:
 
 ```
-  Open Paw is running.
+  Temper Paw is running.
 
   API:       http://localhost:3467/tdata
   Dashboard: http://localhost:3467/dashboard
@@ -105,5 +105,5 @@ Once running, everything is available via HTTP. All endpoints need headers `x-te
 ## Notes
 
 - All secrets are encrypted and persisted. The `.env` can be deleted after first boot.
-- Encryption key at `~/.local/share/openpaw/vault.key` — don't delete it.
+- Encryption key at `~/.local/share/temperpaw/vault.key` — don't delete it.
 - Orphaned sessions are cleaned up automatically on restart.

@@ -2,7 +2,7 @@
 //
 // This app is currently intended as an internal orchestration surface, so the
 // policy stays permissive for the managed-agent entities while still granting
-// the extra OpenPaw permissions the WASM bridge needs.
+// the extra TemperPaw permissions the WASM bridge needs.
 
 permit(
   principal,
@@ -73,7 +73,7 @@ permit(
   resource is EnvironmentPackage
 );
 
-// Allow the managed-agents bridge to create/update OpenPaw inner entities.
+// Allow the managed-agents bridge to create/update TemperPaw inner entities.
 permit(
   principal,
   action in [Action::"create", Action::"Configure", Action::"Update", Action::"Archive"],

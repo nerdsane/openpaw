@@ -18,7 +18,7 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(__file__))
-from openpaw_proof_support import ODataClient, entity_id, nested_str, now_utc
+from temperpaw_proof_support import ODataClient, entity_id, nested_str, now_utc
 
 try:
     import anthropic
@@ -57,7 +57,7 @@ def seed_product_model(client):
     model = client.create("ProductModels")
     mid = entity_id(model)
     signal_config = json.dumps({"dd_service_tag": "deep-sci-fi", "github": True, "datadog": True})
-    client.action("ProductModels", mid, "OpenPaw.Foresight.Seed", {
+    client.action("ProductModels", mid, "TemperPaw.Foresight.Seed", {
         "repo_url": REPO_URL,
         "signal_source_config": signal_config,
     })
@@ -261,7 +261,7 @@ def main():
     print("\n3. Projection")
     proj = client.create("Projections")
     proj_id = entity_id(proj)
-    client.action("Projections", proj_id, "OpenPaw.Foresight.Configure", {
+    client.action("Projections", proj_id, "TemperPaw.Foresight.Configure", {
         "product_model_id": model_id,
         "horizon": "2w",
         "max_steps": "3",
@@ -285,7 +285,7 @@ def main():
     if len(all_obs) >= 2:
         # Confirm Probe-A's first observation with Probe-B
         try:
-            client.action("Observations", all_obs[0], "OpenPaw.Foresight.Confirm", {
+            client.action("Observations", all_obs[0], "TemperPaw.Foresight.Confirm", {
                 "confirmer_agent_id": "probe-b",
                 "confirmation_note": "I independently see this same signal pattern",
             })

@@ -20,7 +20,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-from openpaw_proof_support import ODataClient, entity_id, nested_str, now_utc
+from temperpaw_proof_support import ODataClient, entity_id, nested_str, now_utc
 
 REPO_URL = "https://github.com/arni-labs/deep-sci-fi.git"
 
@@ -96,7 +96,7 @@ def seed_product_model(client: ODataClient) -> str:
     client.action(
         "ProductModels",
         mid,
-        "OpenPaw.Foresight.Seed",
+        "TemperPaw.Foresight.Seed",
         {
             "project_harness_id": harness_id,
             "repo_url": REPO_URL,
@@ -155,7 +155,7 @@ def seed_projection(
     client.action(
         "Projections",
         pid,
-        "OpenPaw.Foresight.Configure",
+        "TemperPaw.Foresight.Configure",
         {
             "product_model_id": product_model_id,
             "horizon": "3m",
@@ -179,7 +179,7 @@ def start_projection(client: ODataClient, projection_id: str) -> None:
     client.action(
         "Projections",
         projection_id,
-        "OpenPaw.Foresight.Start",
+        "TemperPaw.Foresight.Start",
         {},
     )
     print(f"  [started] Projection ({projection_id})")
@@ -206,7 +206,7 @@ def main() -> None:
     parser.add_argument(
         "--probe-count",
         type=int,
-        default=int(os.environ.get("OPENPAW_PROBE_COUNT", DEFAULT_PROBE_COUNT)),
+        default=int(os.environ.get("TEMPERPAW_PROBE_COUNT", DEFAULT_PROBE_COUNT)),
         help="Number of Probe sessions to configure for the Projection.",
     )
     parser.add_argument(

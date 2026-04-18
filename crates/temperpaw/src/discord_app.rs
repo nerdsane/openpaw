@@ -34,14 +34,14 @@ async fn resolve_verify_key_with_client(
 
     match fetch_verify_key_with_client(client, api_base, bot_token).await {
         Ok(verify_key) => {
-            if let Some(configured_public_key) = configured_public_key.as_deref() {
-                if configured_public_key != verify_key {
-                    tracing::warn!(
-                        configured_public_key,
-                        fetched_verify_key = %verify_key,
-                        "Discord public key override differs from Discord's canonical verify_key; using the fetched value"
-                    );
-                }
+            if let Some(configured_public_key) = configured_public_key.as_deref()
+                && configured_public_key != verify_key
+            {
+                tracing::warn!(
+                    configured_public_key,
+                    fetched_verify_key = %verify_key,
+                    "Discord public key override differs from Discord's canonical verify_key; using the fetched value"
+                );
             }
             Ok(verify_key)
         }

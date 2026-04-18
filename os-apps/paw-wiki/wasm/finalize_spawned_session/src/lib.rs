@@ -144,7 +144,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 });
                 let resp = ctx.http_call(
                     "POST",
-                    &format!("{api_url}/tdata/Sessions('{session_id}')/OpenPaw.RecordResult"),
+                    &format!("{api_url}/tdata/Sessions('{session_id}')/TemperPaw.RecordResult"),
                     &headers,
                     &body.to_string(),
                 )?;
@@ -168,7 +168,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                     .unwrap_or("WikiJob failed");
                 let resp = ctx.http_call(
                     "POST",
-                    &format!("{api_url}/tdata/Sessions('{session_id}')/OpenPaw.Fail"),
+                    &format!("{api_url}/tdata/Sessions('{session_id}')/TemperPaw.Fail"),
                     &headers,
                     &json!({"error_message": error_message}).to_string(),
                 )?;

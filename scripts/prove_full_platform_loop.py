@@ -9,7 +9,7 @@ import os
 import time
 from typing import Any
 
-from openpaw_proof_support import (
+from temperpaw_proof_support import (
     DEFAULT_BASE_URL,
     DEFAULT_MODEL,
     DEFAULT_REPO_URL,
@@ -117,11 +117,11 @@ def wait_for_thread_reply(
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--base-url", default=os.getenv("OPENPAW_BASE_URL", DEFAULT_BASE_URL))
+    parser.add_argument("--base-url", default=os.getenv("TEMPERPAW_BASE_URL", DEFAULT_BASE_URL))
     parser.add_argument("--tenant", default=os.getenv("PAW_TENANT", DEFAULT_TENANT))
     parser.add_argument("--model", default=DEFAULT_MODEL)
     parser.add_argument("--repo-url", default=DEFAULT_REPO_URL)
-    parser.add_argument("--sandbox-url", default=os.getenv("OPENPAW_SANDBOX_URL"))
+    parser.add_argument("--sandbox-url", default=os.getenv("TEMPERPAW_SANDBOX_URL"))
     parser.add_argument("--secret", default=os.getenv("WEBHOOK_SECRET"))
     parser.add_argument("--setup-timeout-secs", type=float, default=360.0)
     parser.add_argument("--alert-timeout-secs", type=float, default=20 * 60.0)
@@ -292,7 +292,7 @@ def main() -> int:
             collector,
             thread_id=thread_id,
             timeout_secs=min(args.alert_timeout_secs, 600.0),
-            expect_substring="Open Paw self-heal update",
+            expect_substring="Temper Paw self-heal update",
             exclude_agent_id=paw_agent_id,
         )
 

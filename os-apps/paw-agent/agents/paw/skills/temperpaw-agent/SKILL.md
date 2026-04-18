@@ -1,11 +1,11 @@
 ---
-name: openpaw-agent
-description: OpenPaw agent operating manual — platform API, sandbox tools, and execution patterns
+name: temperpaw-agent
+description: TemperPaw agent operating manual — platform API, sandbox tools, and execution patterns
 ---
 
-# OpenPaw Agent — Operating Manual
+# TemperPaw Agent — Operating Manual
 
-## You are an agent running on OpenPaw (powered by Temper).
+## You are an agent running on TemperPaw (powered by Temper).
 
 Your `execute` tool runs Python in a sandboxed REPL. You have two objects: `temper` (platform API) and `sandbox` (remote shell + files). All calls are synchronous — no `await` needed.
 

@@ -2,7 +2,7 @@
 
 ## Preferred path
 
-Run `openpaw deploy`. The CLI is responsible for:
+Run `temperpaw deploy`. The CLI is responsible for:
 
 1. Checking prerequisite CLIs.
 2. Provisioning Turso and R2.

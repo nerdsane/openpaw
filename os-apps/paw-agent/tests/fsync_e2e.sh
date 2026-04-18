@@ -50,7 +50,7 @@ AGENT_ID=$(echo "$AGENT_RESULT" | python3 -c "import sys,json; print(json.load(s
 echo "  Agent ID: $AGENT_ID"
 
 echo "Step 2: Configuring agent..."
-curl -sf -X POST "$SERVER/tdata/Sessions('${AGENT_ID}')/OpenPaw.Configure" \
+curl -sf -X POST "$SERVER/tdata/Sessions('${AGENT_ID}')/TemperPaw.Configure" \
   -H "content-type: application/json" \
   -H "x-tenant-id: $TENANT" \
   -H "x-temper-principal-kind: admin" \

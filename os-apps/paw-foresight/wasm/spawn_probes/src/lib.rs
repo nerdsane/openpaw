@@ -205,7 +205,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
 
             // 3c. Configure Session
             let configure_url = format!(
-                "{temper_api_url}/tdata/Sessions('{session_id}')/OpenPaw.Configure"
+                "{temper_api_url}/tdata/Sessions('{session_id}')/TemperPaw.Configure"
             );
             // Truncate knowledge graph if too large for a user message
             let kg_for_prompt = if knowledge_graph.len() > 40000 {
@@ -336,7 +336,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
 /// Validate that a `probe_config` entry specifies both `model` and `provider`.
 ///
 /// Returns `(model, provider)` on success. Missing or empty values produce an
-/// explicit error referencing openpaw#65 — the orchestrator session is the
+/// explicit error referencing temperpaw#65 — the orchestrator session is the
 /// source of truth for provider/model, and we refuse to silently fall back
 /// to a hardcoded default that would 401 on codex-only tenants.
 fn validate_probe_entry(
@@ -350,7 +350,7 @@ fn validate_probe_entry(
         .ok_or_else(|| format!(
             "spawn_probes: probe_config entry '{probe_name}' missing 'model' — \
              the orchestrator must populate probe_config with its own model/provider \
-             (see openpaw#65)"
+             (see temperpaw#65)"
         ))?
         .to_string();
     let provider = probe
@@ -360,7 +360,7 @@ fn validate_probe_entry(
         .ok_or_else(|| format!(
             "spawn_probes: probe_config entry '{probe_name}' missing 'provider' — \
              the orchestrator must populate probe_config with its own model/provider \
-             (see openpaw#65)"
+             (see temperpaw#65)"
         ))?
         .to_string();
     Ok((model, provider))
@@ -389,7 +389,7 @@ mod tests {
         });
         let err = validate_probe_entry(&probe, "Probe-A").unwrap_err();
         assert!(err.contains("missing 'provider'"), "got: {err}");
-        assert!(err.contains("openpaw#65"), "error must reference the issue");
+        assert!(err.contains("temperpaw#65"), "error must reference the issue");
     }
 
     #[test]
@@ -400,7 +400,7 @@ mod tests {
         });
         let err = validate_probe_entry(&probe, "Probe-A").unwrap_err();
         assert!(err.contains("missing 'model'"), "got: {err}");
-        assert!(err.contains("openpaw#65"));
+        assert!(err.contains("temperpaw#65"));
     }
 
     #[test]

@@ -4,7 +4,7 @@ use temper_wasm_sdk::prelude::*;
 use wasm_helpers::{entity_field_str, runtime_headers_as};
 
 pub const MANAGED_NAMESPACE: &str = "ManagedAgents";
-pub const SAFE_DEFAULT_OPENPAW_TOOLS: &[&str] = &[
+pub const SAFE_DEFAULT_TEMPERPAW_TOOLS: &[&str] = &[
     "bash",
     "edit",
     "read",
@@ -371,7 +371,7 @@ pub fn managed_tools_enabled(tool_rows: &[Value], config_rows: &[Value]) -> Stri
 
         if explicit.is_empty() {
             enabled.extend(
-                SAFE_DEFAULT_OPENPAW_TOOLS
+                SAFE_DEFAULT_TEMPERPAW_TOOLS
                     .iter()
                     .map(|tool| (*tool).to_string()),
             );

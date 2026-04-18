@@ -1,6 +1,6 @@
-# OpenPaw Deployment Guide
+# TemperPaw Deployment Guide
 
-OpenPaw is a **single-user, self-hosted** platform. Each deployment serves one operator (person or team) with one Turso database, one blob storage bucket, and one compute instance. There is no multi-tenant SaaS mode.
+TemperPaw is a **single-user, self-hosted** platform. Each deployment serves one operator (person or team) with one Turso database, one blob storage bucket, and one compute instance. There is no multi-tenant SaaS mode.
 
 ---
 
@@ -12,13 +12,13 @@ OpenPaw is a **single-user, self-hosted** platform. Each deployment serves one o
                     Docker build
                          |
                          v
-                  GHCR (ghcr.io/nerdsane/openpaw)
+                  GHCR (ghcr.io/nerdsane/temperpaw)
                     :edge  :latest  :sha-*  :semver
                          |
                          v
          +----- Railway (compute) ------+
          |                              |
-         |  openpaw (main service)      |
+         |  temperpaw (main service)      |
          |    port 3467                 |
          |    /healthz healthcheck      |
          |                              |
@@ -41,7 +41,7 @@ OpenPaw is a **single-user, self-hosted** platform. Each deployment serves one o
 | Container registry | GitHub Container Registry (GHCR) | Unlimited for public repos |
 | Observability | Datadog (via OTEL) | Optional |
 
-**Future direction:** The deployment CLI (`openpaw deploy`) is designed to be extended to other cloud providers. The core app is a single static binary + dashboard assets + WASM modules, so it can run anywhere that supports Docker or bare metal. Turso and R2 could be swapped for any libSQL-compatible DB and S3-compatible storage.
+**Future direction:** The deployment CLI (`temperpaw deploy`) is designed to be extended to other cloud providers. The core app is a single static binary + dashboard assets + WASM modules, so it can run anywhere that supports Docker or bare metal. Turso and R2 could be swapped for any libSQL-compatible DB and S3-compatible storage.
 
 ---
 
@@ -51,18 +51,18 @@ The fastest path from zero to a running instance:
 
 ```bash
 # Install the CLI
-cargo install openpaw-cli
+cargo install temperpaw-cli
 
 # Run the interactive deploy wizard
-openpaw deploy
+temperpaw deploy
 ```
 
 This command:
 1. Installs Railway CLI, Turso CLI, and Wrangler if not present
 2. Authenticates with each service (interactive browser flows)
-3. Creates a Turso database named `openpaw-<username>`
-4. Creates an R2 bucket named `openpaw-fs-<username>`
-5. Creates a Railway project named `openpaw-<username>` with two services
+3. Creates a Turso database named `temperpaw-<username>`
+4. Creates an R2 bucket named `temperpaw-fs-<username>`
+5. Creates a Railway project named `temperpaw-<username>` with two services
 6. Seeds all environment variables (DB credentials, blob keys, LLM keys, OTEL config)
 7. Deploys the OTEL collector sidecar
 8. Deploys the pre-built Docker image from GHCR
@@ -89,26 +89,26 @@ GitHub Actions (`.github/workflows/docker.yml`) builds the Docker image on:
 - **Push to `main`** -> tagged `edge` and `sha-<short-hash>`
 - **Published release** -> tagged `latest`, semver (`v1.2.3`, `v1.2`)
 
-The image is pushed to `ghcr.io/nerdsane/openpaw`.
+The image is pushed to `ghcr.io/nerdsane/temperpaw`.
 
 ### Multi-stage Dockerfile
 
 The image is built in three stages:
 
 1. **`dashboard-build`** (Node 22): Installs npm dependencies and builds the SvelteKit dashboard (`npm run build`)
-2. **`rust-build`** (Rust 1.94): Compiles the `openpaw-server` binary, embedding the pre-built dashboard assets
+2. **`rust-build`** (Rust 1.94): Compiles the `temperpaw-server` binary, embedding the pre-built dashboard assets
 3. **Runtime** (Debian Bookworm slim): Copies the binary, dashboard build, and `os-apps/` (entity specs, WASM modules, Cedar policies)
 
 Build args:
 - `BUILD_VERSION` — version string (git tag or `sha-<hash>`)
 - `BUILD_SHA` — full git commit SHA
 
-The final image exposes **port 3467** and runs `./openpaw`.
+The final image exposes **port 3467** and runs `./temperpaw`.
 
 ### Building locally
 
 ```bash
-docker build -t openpaw:local \
+docker build -t temperpaw:local \
   --build-arg BUILD_VERSION=dev \
   --build-arg BUILD_SHA=$(git rev-parse HEAD) \
   .
@@ -136,16 +136,16 @@ Railway builds the Docker image from the repo's Dockerfile. The health check hit
 
 ### Two-service architecture
 
-1. **`openpaw`** — The main application. Serves the dashboard, OData API, and agent runtime.
-2. **`otel-collector`** — OpenTelemetry Collector sidecar. Receives traces/metrics from openpaw via Railway's private network (`otel-collector.railway.internal:4318`) and exports to Datadog (or debug logs if no DD_API_KEY).
+1. **`temperpaw`** — The main application. Serves the dashboard, OData API, and agent runtime.
+2. **`otel-collector`** — OpenTelemetry Collector sidecar. Receives traces/metrics from temperpaw via Railway's private network (`otel-collector.railway.internal:4318`) and exports to Datadog (or debug logs if no DD_API_KEY).
 
 ### Pre-built image deploy
 
-The `openpaw deploy` CLI does **not** build from source on Railway. Instead, it creates a thin Dockerfile that pulls the pre-built image from GHCR:
+The `temperpaw deploy` CLI does **not** build from source on Railway. Instead, it creates a thin Dockerfile that pulls the pre-built image from GHCR:
 
 ```dockerfile
 ARG IMAGE_TAG=latest
-FROM ghcr.io/nerdsane/openpaw:${IMAGE_TAG}
+FROM ghcr.io/nerdsane/temperpaw:${IMAGE_TAG}
 ```
 
 This means deploys are fast — Railway just pulls the image instead of compiling Rust from scratch.
@@ -154,13 +154,13 @@ This means deploys are fast — Railway just pulls the image instead of compilin
 
 ## Environment Variables
 
-These are set on the `openpaw` Railway service:
+These are set on the `temperpaw` Railway service:
 
 ### Required
 
 | Variable | Description |
 |----------|-------------|
-| `TURSO_URL` | libSQL database URL (e.g., `libsql://openpaw-xxx.turso.io`) |
+| `TURSO_URL` | libSQL database URL (e.g., `libsql://temperpaw-xxx.turso.io`) |
 | `TURSO_AUTH_TOKEN` | Turso authentication token |
 | `BLOB_ENDPOINT` | R2/S3-compatible endpoint URL |
 | `BLOB_BUCKET` | Bucket name |
@@ -193,7 +193,7 @@ These are set on the `openpaw` Railway service:
 | `RAILWAY_TOKEN` | Project-scoped Railway API token |
 | `RAILWAY_PROJECT_ID` | Railway project UUID |
 | `RAILWAY_ENVIRONMENT_ID` | Railway environment UUID |
-| `RAILWAY_SERVICE_ID` | Railway service UUID for the openpaw service |
+| `RAILWAY_SERVICE_ID` | Railway service UUID for the temperpaw service |
 | `RAILWAY_OTEL_SERVICE_ID` | Railway service UUID for the otel-collector |
 
 These enable the dashboard's "Deploy latest build" and "Update" buttons to trigger redeployments without leaving the browser.
@@ -209,7 +209,7 @@ These enable the dashboard's "Deploy latest build" and "Update" buttons to trigg
 
 ## Dashboard Redeploy Integration
 
-The running OpenPaw server exposes Railway management endpoints:
+The running TemperPaw server exposes Railway management endpoints:
 
 - **`POST /paw/infra/railway/redeploy`** — Triggers a Railway service redeployment via the Railway GraphQL API (`serviceInstanceRedeploy` mutation). Accepts an optional `image_tag` parameter (`"latest"` for stable releases, `"edge"` for latest main build).
 - **`GET /paw/infra/railway/status`** — Returns current deployment status.
@@ -234,7 +234,7 @@ If you have the Railway CLI linked to your project:
 railway redeploy -y
 
 # Or deploy from the repo (builds from Dockerfile on Railway)
-railway up -s openpaw
+railway up -s temperpaw
 ```
 
 ### Using Docker directly
@@ -250,7 +250,7 @@ docker run -d \
   -e BLOB_SECRET_KEY=your-secret \
   -e LLM_PROVIDER=anthropic \
   -e ANTHROPIC_API_KEY=sk-ant-... \
-  ghcr.io/nerdsane/openpaw:edge
+  ghcr.io/nerdsane/temperpaw:edge
 ```
 
 ### First-time setup
@@ -272,7 +272,7 @@ The collector runs as a separate Railway service with two modes:
 - **Datadog mode** (when `DD_API_KEY` is set): Exports traces, metrics, and logs to Datadog
 - **Debug mode** (no `DD_API_KEY`): Logs traces to stdout for troubleshooting
 
-The collector is reachable from the openpaw service via Railway's private network at `otel-collector.railway.internal:4318`. To enable Datadog later, add `DD_API_KEY` to the `otel-collector` service in the Railway dashboard — the collector auto-detects it on restart.
+The collector is reachable from the temperpaw service via Railway's private network at `otel-collector.railway.internal:4318`. To enable Datadog later, add `DD_API_KEY` to the `otel-collector` service in the Railway dashboard — the collector auto-detects it on restart.
 
 ---
 
@@ -282,7 +282,7 @@ The collector is reachable from the openpaw service via Railway's private networ
 
 ```bash
 # Start the server (uses .env for credentials)
-cargo run -p openpaw --bin openpaw-server
+cargo run -p temperpaw --bin temperpaw-server
 
 # Dashboard dev server (hot reload)
 cd dashboard && npm run dev
@@ -329,4 +329,4 @@ ANTHROPIC_API_KEY=sk-ant-...
 
 **Deploy buttons not working:**
 - Ensure `RAILWAY_TOKEN`, `RAILWAY_PROJECT_ID`, `RAILWAY_ENVIRONMENT_ID`, and `RAILWAY_SERVICE_ID` are set
-- These are seeded automatically by `openpaw deploy` but need manual setup if you deployed differently
+- These are seeded automatically by `temperpaw deploy` but need manual setup if you deployed differently

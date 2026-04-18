@@ -5,6 +5,6 @@
 
 ## Verification
 
-- [ ] `cargo test -p openpaw --quiet`
+- [ ] `cargo test -p temperpaw --quiet`
 - [ ] `cd dashboard && npm run build`
 - [ ] Proof added to `.proofs/` if the change touches an end-to-end workflow

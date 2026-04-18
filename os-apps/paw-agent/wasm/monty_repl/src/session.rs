@@ -104,9 +104,9 @@ pub fn persist_results(
 /// inline on the same cadence.
 ///
 /// The Heartbeat action no longer fires the `heartbeat_typing` trigger
-/// (OpenPaw Track 1 Phase 2b — removed to eliminate the sequence-advance
+/// (TemperPaw Track 1 Phase 2b — removed to eliminate the sequence-advance
 /// race with ProcessToolCalls). This helper now owns both responsibilities:
-///   1. POST to `OpenPaw.Heartbeat` so `last_heartbeat_at` is recorded.
+///   1. POST to `TemperPaw.Heartbeat` so `last_heartbeat_at` is recorded.
 ///   2. Directly POST the typing indicator via `send_typing_indicator`.
 pub fn send_heartbeat(ctx: &Context, temper_api_url: &str, tenant: &str) {
     let fields = ctx
@@ -115,7 +115,7 @@ pub fn send_heartbeat(ctx: &Context, temper_api_url: &str, tenant: &str) {
         .cloned()
         .unwrap_or_else(|| json!({}));
     let url = format!(
-        "{temper_api_url}/tdata/Sessions('{}')/OpenPaw.Heartbeat",
+        "{temper_api_url}/tdata/Sessions('{}')/TemperPaw.Heartbeat",
         ctx.entity_id
     );
     let body = json!({ "last_heartbeat_at": "alive" });

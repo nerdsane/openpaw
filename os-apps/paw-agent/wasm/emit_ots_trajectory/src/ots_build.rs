@@ -222,11 +222,11 @@ pub fn build_trajectory(
     let metadata = json!({
         "trajectory_id": trajectory_id,
         "task_description": task_description,
-        "domain": "openpaw-agent",
+        "domain": "temperpaw-agent",
         "timestamp_start": timestamp_start,
         "timestamp_end": timestamp_end,
         "agent_id": agent_id,
-        "framework": "openpaw",
+        "framework": "temperpaw",
         "environment": "production",
         "outcome": outcome,
         "tags": tags,
@@ -387,8 +387,8 @@ mod tests {
         assert_eq!(t["version"], "0.1.0");
         assert_eq!(t["metadata"]["outcome"], "success");
         assert_eq!(t["metadata"]["agent_id"], "aj-99");
-        assert_eq!(t["metadata"]["domain"], "openpaw-agent");
-        assert_eq!(t["metadata"]["framework"], "openpaw");
+        assert_eq!(t["metadata"]["domain"], "temperpaw-agent");
+        assert_eq!(t["metadata"]["framework"], "temperpaw");
         assert_eq!(t["metadata"]["task_description"], "please find the bug");
         let tags = t["metadata"]["tags"].as_array().unwrap();
         assert!(tags.iter().any(|v| v == "claude-sonnet-4-6"));

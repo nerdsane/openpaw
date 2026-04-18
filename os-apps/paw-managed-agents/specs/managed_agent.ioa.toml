@@ -59,7 +59,7 @@ name = "BindInnerAgent"
 kind = "input"
 from = ["Active"]
 params = ["InnerAgentId"]
-hint = "Record the bridged OpenPaw Agent entity id."
+hint = "Record the bridged TemperPaw Agent entity id."
 
 [[action]]
 name = "UpdateManagedAgent"

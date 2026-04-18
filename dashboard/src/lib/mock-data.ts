@@ -1,5 +1,5 @@
 /**
- * Mock data representing a fully populated OpenPaw instance.
+ * Mock data representing a fully populated TemperPaw instance.
  *
  * GENERIC — not app-specific. Every entity is the same shape:
  * { Id, Status, _entity_type, _app, fields, _events, _sequence_nr }
@@ -93,7 +93,7 @@ export const MOCK_ENTITIES: MockEntity[] = [
   { Id: 'soul-ren', Status: 'Active', _entity_type: 'Soul', _app: 'paw-agent', fields: { Name: 'Ren', Description: 'Product lead for Deep Sci-Fi (INTP)' }, _events: [], _sequence_nr: 2 },
 
   // ──── paw-agent: Skills ────
-  { Id: 'skill-openpaw-agent', Status: 'Active', _entity_type: 'Skill', _app: 'paw-agent', fields: { name: 'openpaw-agent', description: 'Platform operating manual', scope: 'global', project_id: '' }, _events: [], _sequence_nr: 2 },
+  { Id: 'skill-temperpaw-agent', Status: 'Active', _entity_type: 'Skill', _app: 'paw-agent', fields: { name: 'temperpaw-agent', description: 'Platform operating manual', scope: 'global', project_id: '' }, _events: [], _sequence_nr: 2 },
   { Id: 'skill-platform-awareness', Status: 'Active', _entity_type: 'Skill', _app: 'paw-agent', fields: { name: 'platform-awareness', description: 'Entity type discovery', scope: 'global', project_id: '' }, _events: [], _sequence_nr: 2 },
   { Id: 'skill-swe-conv', Status: 'Active', _entity_type: 'Skill', _app: 'paw-agent', fields: { name: 'swe-conventions', description: 'SWE coding conventions', scope: 'SWE', project_id: 'proj-dsf' }, _events: [], _sequence_nr: 2 },
   { Id: 'skill-sre-mon', Status: 'Active', _entity_type: 'Skill', _app: 'paw-agent', fields: { name: 'sre-monitoring', description: 'Datadog monitoring and alert triage', scope: 'SRE', project_id: 'proj-dsf' }, _events: [], _sequence_nr: 2 },

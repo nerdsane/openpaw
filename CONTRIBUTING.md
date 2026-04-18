@@ -8,11 +8,11 @@
 
 ## Local Temper development
 
-OpenPaw defaults to the upstream Temper git dependency. If you need to work against a sibling Temper checkout, copy `.cargo/config.toml.example` to `.cargo/config.toml` and uncomment the patch entries you need.
+TemperPaw defaults to the upstream Temper git dependency. If you need to work against a sibling Temper checkout, copy `.cargo/config.toml.example` to `.cargo/config.toml` and uncomment the patch entries you need.
 
 ## TDD expectations
 
-OpenPaw follows red-green-refactor for code changes:
+TemperPaw follows red-green-refactor for code changes:
 
 1. Add the failing test first.
 2. Implement the smallest change that makes it pass.
@@ -22,7 +22,7 @@ OpenPaw follows red-green-refactor for code changes:
 
 Before opening a PR, run:
 
-- `cargo test -p openpaw --quiet`
+- `cargo test -p temperpaw --quiet`
 - `cd dashboard && npm run build`
 
 If you touch end-to-end flows, capture proof in `.proofs/`.

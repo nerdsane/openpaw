@@ -4,7 +4,7 @@ Date: 2026-04-08
 
 ## Summary
 
-OpenPaw does **not** have a blanket "all souls are broken" problem.
+TemperPaw does **not** have a blanket "all souls are broken" problem.
 
 The core soul and skill paths already follow the correct pattern:
 

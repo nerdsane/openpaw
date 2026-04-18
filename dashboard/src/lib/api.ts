@@ -535,7 +535,7 @@ export async function createSession(params: {
   const sessionId = data.entity_id || data.fields?.Id || data.Id;
 
   // Configure it — which kicks off the WASM-driven loop
-  const configRes = await apiFetch(`${BASE}/tdata/Sessions('${sessionId}')/OpenPaw.Configure`, {
+  const configRes = await apiFetch(`${BASE}/tdata/Sessions('${sessionId}')/TemperPaw.Configure`, {
     method: 'POST',
     headers: { ...HEADERS, 'content-type': 'application/json' },
     body: JSON.stringify({
@@ -550,7 +550,7 @@ export async function createSession(params: {
 }
 
 export async function steerSession(sessionId: string, message: string): Promise<void> {
-  const res = await apiFetch(`${BASE}/tdata/Sessions('${sessionId}')/OpenPaw.Steer`, {
+  const res = await apiFetch(`${BASE}/tdata/Sessions('${sessionId}')/TemperPaw.Steer`, {
     method: 'POST',
     headers: { ...HEADERS, 'content-type': 'application/json' },
     body: JSON.stringify({

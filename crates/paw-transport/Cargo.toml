@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "Platform-agnostic channel transports for Open Paw (Discord, Slack, etc.)"
+description = "Platform-agnostic channel transports for Temper Paw (Discord, Slack, etc.)"
 
 [dependencies]
 tokio = { workspace = true }

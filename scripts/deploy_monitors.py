@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Deploy OpenPaw self-monitoring Datadog monitors.
+"""Deploy TemperPaw self-monitoring Datadog monitors.
 
-Reads dd-monitors/openpaw-monitors.json and creates or updates each monitor
+Reads dd-monitors/temperpaw-monitors.json and creates or updates each monitor
 via the Datadog REST API.  Idempotent: finds existing monitors by name.
 
 Requires DD_API_KEY and DD_APP_KEY in env (or .env file).
@@ -40,7 +40,7 @@ def main():
     if not api_key or not app_key:
         sys.exit("DD_API_KEY and DD_APP_KEY must be set")
 
-    monitors_path = Path(__file__).resolve().parent.parent / "dd-monitors" / "openpaw-monitors.json"
+    monitors_path = Path(__file__).resolve().parent.parent / "dd-monitors" / "temperpaw-monitors.json"
     monitors = json.loads(monitors_path.read_text())
 
     base_url = f"https://api.{site}/api/v1"
@@ -50,11 +50,11 @@ def main():
         "Content-Type": "application/json",
     }
 
-    # Fetch existing monitors tagged with managed_by:openpaw
+    # Fetch existing monitors tagged with managed_by:temperpaw
     resp = requests.get(
         f"{base_url}/monitor",
         headers=headers,
-        params={"monitor_tags": "team:openpaw"},
+        params={"monitor_tags": "team:temperpaw"},
     )
     resp.raise_for_status()
     existing_by_name = {m["name"]: m["id"] for m in resp.json()}

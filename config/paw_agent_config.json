@@ -5,5 +5,5 @@
   "max_turns": "24",
   "max_follow_ups": "5",
   "heartbeat_timeout_seconds": "300",
-  "workdir": "/workspace/openpaw-paw"
+  "workdir": "/workspace/temperpaw-paw"
 }
