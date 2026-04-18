@@ -24,7 +24,7 @@ COPY os-apps ./os-apps
 # on every image build so the catalog discovers them. `--depth 1` keeps
 # the download tiny. Pin via KATAGAMI_REF arg when a reproducible image
 # is needed; defaults to main.
-ARG KATAGAMI_REF=main
+ARG KATAGAMI_REF=master
 RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates && rm -rf /var/lib/apt/lists/* \
     && rm -f os-apps/katagami-curation os-apps/katagami-commons \
     && git clone --depth 1 --branch "${KATAGAMI_REF}" https://github.com/arni-labs/katagami.git /tmp/katagami \
