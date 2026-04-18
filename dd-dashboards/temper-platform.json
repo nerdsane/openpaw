@@ -1483,6 +1483,80 @@
           }
         ]
       }
+    },
+    {
+      "definition": {
+        "title": "Continuous Profiler (ADR-0055)",
+        "type": "group",
+        "layout_type": "ordered",
+        "widgets": [
+          {
+            "definition": {
+              "title": "Profiles Uploaded per Minute",
+              "title_size": "16",
+              "title_align": "left",
+              "show_legend": true,
+              "type": "timeseries",
+              "requests": [
+                {
+                  "response_format": "timeseries",
+                  "queries": [
+                    {
+                      "data_source": "metrics",
+                      "name": "uploads",
+                      "query": "sum:datadog.profiling.rust.profiles_uploaded{service:(temper OR openpaw)} by {profile_type}.as_rate()"
+                    }
+                  ],
+                  "formulas": [
+                    {
+                      "formula": "uploads"
+                    }
+                  ],
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "Profile Upload Errors",
+              "title_size": "16",
+              "title_align": "left",
+              "show_legend": true,
+              "type": "timeseries",
+              "requests": [
+                {
+                  "response_format": "timeseries",
+                  "queries": [
+                    {
+                      "data_source": "metrics",
+                      "name": "errors",
+                      "query": "sum:datadog.profiling.rust.upload_errors{service:(temper OR openpaw)} by {stage}.as_count()"
+                    }
+                  ],
+                  "formulas": [
+                    {
+                      "formula": "errors"
+                    }
+                  ],
+                  "display_type": "bars"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "type": "note",
+              "content": "Profiles are captured on-demand via `GET /_admin/profile/cpu?seconds=N` and `GET /_admin/profile/wall?seconds=N`. Enable with `TEMPER_PROFILING_ENABLED=true`, auto-upload with `TEMPER_PROFILING_AUTO_UPLOAD=true`. Jump to APM \u2192 Profiles for flame graphs.",
+              "background_color": "blue",
+              "font_size": "14",
+              "text_align": "left",
+              "vertical_align": "top",
+              "show_tick": false
+            }
+          }
+        ]
+      }
     }
   ],
   "tags": [

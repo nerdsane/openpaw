@@ -609,5 +609,41 @@
       "notify_no_data": false,
       "renotify_interval": 120
     }
+  },
+  {
+    "name": "[Temper] Profiler Upload Failures",
+    "type": "metric alert",
+    "query": "sum(last_15m):sum:datadog.profiling.rust.upload_errors{service:(temper OR openpaw)}.as_count() > 5",
+    "message": "Continuous Profiler upload errors exceed 5/15m.\n\n@slack-openpaw-alerts",
+    "tags": [
+      "team:openpaw",
+      "severity:medium"
+    ],
+    "options": {
+      "thresholds": {
+        "critical": 5,
+        "warning": 1
+      },
+      "notify_no_data": false,
+      "renotify_interval": 240
+    }
+  },
+  {
+    "name": "[Temper] Profiler Uploads Stalled",
+    "type": "metric alert",
+    "query": "sum(last_30m):sum:datadog.profiling.rust.profiles_uploaded{service:(temper OR openpaw)}.as_count() < 1",
+    "message": "No Continuous Profiler uploads seen in 30m.\n\n@slack-openpaw-alerts",
+    "tags": [
+      "team:openpaw",
+      "severity:low"
+    ],
+    "options": {
+      "thresholds": {
+        "critical": 1
+      },
+      "notify_no_data": true,
+      "no_data_timeframe": 60,
+      "renotify_interval": 360
+    }
   }
 ]
