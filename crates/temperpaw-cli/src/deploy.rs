@@ -314,9 +314,55 @@ pub async fn run_deploy() -> Result<()> {
     // Configure LLM provider, API key, and model via the secrets API (not Railway env vars).
     configure_llm_via_api(&deploy_url).await?;
 
+    let dashboard_url = format!("{deploy_url}/dashboard");
+    let settings_url = format!("{deploy_url}/dashboard/settings");
+
+    cliclack::log::success(format!("Paw is live → {dashboard_url}"))?;
+
+    let mut todo_lines: Vec<String> = Vec::new();
+
+    if modal_bridge.is_none() {
+        todo_lines.push(
+            "  • Sandbox — coding agents CANNOT run code (edit files, run commands,\n    \
+             execute tests) until this is set. Add either Modal\n    \
+             (MODAL_TOKEN_ID + MODAL_TOKEN_SECRET, SANDBOX_PROVIDER=modal) or\n    \
+             Tensorlake (TENSORLAKE_API_KEY)."
+                .to_string(),
+        );
+    }
+
+    todo_lines.push(
+        "  • Web search — the agent CANNOT search the web until you set EXA_API_KEY.\n    \
+         Web fetch (reading a known URL) still works without it."
+            .to_string(),
+    );
+    todo_lines.push(
+        "  • Discord integration — the bot WILL NOT respond in Discord until you set\n    \
+         the Discord bot token, public key, and guild/channel IDs."
+            .to_string(),
+    );
+    todo_lines.push(
+        "  • Slack integration — the bot WILL NOT respond in Slack until you set the\n    \
+         Slack app token, bot token, and signing secret."
+            .to_string(),
+    );
+    todo_lines.push(
+        "  • GitHub integration — the agent CANNOT read repos or open PRs until you\n    \
+         set GITHUB_TOKEN."
+            .to_string(),
+    );
+
+    let todo_block = todo_lines.join("\n\n");
+
+    cliclack::log::info(format!(
+        "Still to do — set these in the dashboard:\n  \
+         {settings_url}\n\
+         \n\
+         {todo_block}"
+    ))?;
+
     cliclack::outro(format!(
-        "Paw is live → {deploy_url}/dashboard\n  \
-         Open the dashboard to create your account and finish setup."
+        "Open {dashboard_url} to create your account and finish setup."
     ))?;
     Ok(())
 }
