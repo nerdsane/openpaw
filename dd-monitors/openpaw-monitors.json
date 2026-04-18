@@ -2,7 +2,7 @@
   {
     "name": "[OpenPaw] Error Rate Spike",
     "type": "metric alert",
-    "query": "sum(last_15m):sum:trace.http.request.errors{service:openpaw}.as_count() / sum:trace.http.request.hits{service:openpaw}.as_count() > 0.1",
+    "query": "sum(last_15m):sum:trace.custom.errors{service:openpaw}.as_count() / sum:trace.custom.hits{service:openpaw}.as_count() > 0.1",
     "message": "OpenPaw error rate exceeds 10% over the last 15 minutes.\n\n@slack-openpaw-alerts",
     "tags": ["team:openpaw", "severity:high"],
     "options": {
@@ -14,8 +14,8 @@
   {
     "name": "[OpenPaw] Request Latency Spike (P95)",
     "type": "metric alert",
-    "query": "avg(last_15m):p95:trace.http.request{service:openpaw} > 5000000000",
-    "message": "OpenPaw P95 request latency exceeds 5 seconds.\n\n@slack-openpaw-alerts",
+    "query": "avg(last_15m):p95:trace.custom{service:openpaw,resource_name:GET */odata/*,resource_name:POST */odata/*} > 5000000000",
+    "message": "OpenPaw P95 OData request latency exceeds 5 seconds.\n\n@slack-openpaw-alerts",
     "tags": ["team:openpaw", "severity:medium"],
     "options": {
       "thresholds": { "critical": 5000000000, "warning": 2000000000 },
@@ -26,14 +26,27 @@
   {
     "name": "[OpenPaw] No Traffic",
     "type": "metric alert",
-    "query": "sum(last_15m):sum:trace.http.request.hits{service:openpaw}.as_count() < 1",
-    "message": "No HTTP requests received by OpenPaw in 15 minutes. Platform may be down.\n\n@slack-openpaw-alerts",
+    "query": "sum(last_15m):sum:trace.custom.hits{service:openpaw}.as_count() < 1",
+    "message": "No spans received by OpenPaw in 15 minutes. Platform may be down.\n\n@slack-openpaw-alerts",
     "tags": ["team:openpaw", "severity:high"],
     "options": {
       "thresholds": { "critical": 1 },
       "notify_no_data": true,
       "no_data_timeframe": 30,
       "renotify_interval": 60
+    }
+  },
+  {
+    "name": "[OpenPaw] Active Entities Drop",
+    "type": "metric alert",
+    "query": "min(last_10m):sum:temper_active_entities{service:openpaw}.rollup(avg, 60) < 1",
+    "message": "Active entity count dropped below 1 for 10 minutes. Either platform is idle or the actor registry has lost state.\n\n@slack-openpaw-alerts",
+    "tags": ["team:openpaw", "severity:medium"],
+    "options": {
+      "thresholds": { "critical": 1 },
+      "notify_no_data": true,
+      "no_data_timeframe": 30,
+      "renotify_interval": 120
     }
   },
   {
