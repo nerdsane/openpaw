@@ -366,7 +366,7 @@
                     {
                       "data_source": "metrics",
                       "name": "fallbacks",
-                      "query": "sum:temper_wasm_integration_default_timeout_used_total{service:(temper OR openpaw)} by {tenant,entity_type,module}.as_count()"
+                      "query": "sum:temper_wasm_integration_default_timeout_used_total{service:openpaw} by {tenant,entity_type,module}.as_count()"
                     }
                   ],
                   "formulas": [
@@ -603,7 +603,7 @@
                     {
                       "data_source": "metrics",
                       "name": "externalized",
-                      "query": "sum:temper_session_large_content_externalized_total{service:(temper OR openpaw)} by {entity_type}.as_count()"
+                      "query": "sum:temper_session_large_content_externalized_total{service:openpaw} by {entity_type}.as_count()"
                     }
                   ],
                   "formulas": [
@@ -630,12 +630,12 @@
                     {
                       "data_source": "metrics",
                       "name": "p95",
-                      "query": "p95:temper_session_context_tokens{service:(temper OR openpaw)}"
+                      "query": "p95:temper_session_context_tokens{service:openpaw}"
                     },
                     {
                       "data_source": "metrics",
                       "name": "p99",
-                      "query": "p99:temper_session_context_tokens{service:(temper OR openpaw)}"
+                      "query": "p99:temper_session_context_tokens{service:openpaw}"
                     }
                   ],
                   "formulas": [
@@ -743,17 +743,17 @@
                     {
                       "data_source": "metrics",
                       "name": "p50",
-                      "query": "p50:temper_dispatch_ask_attempts{service:(temper OR openpaw)}"
+                      "query": "p50:temper_dispatch_ask_attempts{service:openpaw}"
                     },
                     {
                       "data_source": "metrics",
                       "name": "p95",
-                      "query": "p95:temper_dispatch_ask_attempts{service:(temper OR openpaw)}"
+                      "query": "p95:temper_dispatch_ask_attempts{service:openpaw}"
                     },
                     {
                       "data_source": "metrics",
                       "name": "p99",
-                      "query": "p99:temper_dispatch_ask_attempts{service:(temper OR openpaw)}"
+                      "query": "p99:temper_dispatch_ask_attempts{service:openpaw}"
                     }
                   ],
                   "formulas": [
@@ -789,7 +789,7 @@
                     {
                       "data_source": "metrics",
                       "name": "errors",
-                      "query": "sum:temper_dispatch_ask_error_total{service:(temper OR openpaw)} by {tenant,error_kind}.as_count()"
+                      "query": "sum:temper_dispatch_ask_error_total{service:openpaw} by {tenant,error_kind}.as_count()"
                     }
                   ],
                   "formulas": [
@@ -895,7 +895,7 @@
                     {
                       "data_source": "metrics",
                       "name": "cancels",
-                      "query": "sum:temper_state_timeout_cancelled_total{service:(temper OR openpaw)} by {entity_type,state}.as_count()"
+                      "query": "sum:temper_state_timeout_cancelled_total{service:openpaw} by {entity_type,state}.as_count()"
                     }
                   ],
                   "formulas": [
@@ -922,7 +922,7 @@
                     {
                       "data_source": "metrics",
                       "name": "resets",
-                      "query": "sum:temper_state_timeout_reset_total{service:(temper OR openpaw)} by {entity_type,state}.as_count()"
+                      "query": "sum:temper_state_timeout_reset_total{service:openpaw} by {entity_type,state}.as_count()"
                     }
                   ],
                   "formulas": [
@@ -1048,7 +1048,7 @@
               "type": "toplist",
               "requests": [
                 {
-                  "q": "top(avg:temper_actor_mailbox_depth{service:openpaw} by {entity_type,actor_id_hash}, 20, 'avg', 'desc')"
+                  "q": "top(avg:temper_actor_mailbox_depth{service:openpaw} by {entity_type,actor_id_hash}, 20, 'mean', 'desc')"
                 }
               ]
             }
@@ -1100,12 +1100,12 @@
                     {
                       "data_source": "metrics",
                       "name": "p95",
-                      "query": "p95:temper_actor_registry_lock_wait_ms{service:(temper OR openpaw),cold_start:true} by {entity_type}"
+                      "query": "p95:temper_actor_registry_lock_wait_ms{service:openpaw,cold_start:true} by {entity_type}"
                     },
                     {
                       "data_source": "metrics",
                       "name": "p99",
-                      "query": "p99:temper_actor_registry_lock_wait_ms{service:(temper OR openpaw),cold_start:true} by {entity_type}"
+                      "query": "p99:temper_actor_registry_lock_wait_ms{service:openpaw,cold_start:true} by {entity_type}"
                     }
                   ],
                   "formulas": [
@@ -1137,12 +1137,12 @@
                     {
                       "data_source": "metrics",
                       "name": "p95",
-                      "query": "p95:temper_actor_registry_lock_wait_ms{service:(temper OR openpaw),cold_start:false} by {entity_type}"
+                      "query": "p95:temper_actor_registry_lock_wait_ms{service:openpaw,cold_start:false} by {entity_type}"
                     },
                     {
                       "data_source": "metrics",
                       "name": "p99",
-                      "query": "p99:temper_actor_registry_lock_wait_ms{service:(temper OR openpaw),cold_start:false} by {entity_type}"
+                      "query": "p99:temper_actor_registry_lock_wait_ms{service:openpaw,cold_start:false} by {entity_type}"
                     }
                   ],
                   "formulas": [
@@ -1174,17 +1174,17 @@
                     {
                       "data_source": "metrics",
                       "name": "p50",
-                      "query": "p50:temper_actor_cold_start_duration_ms{service:(temper OR openpaw)} by {entity_type}"
+                      "query": "p50:temper_actor_cold_start_duration_ms{service:openpaw} by {entity_type}"
                     },
                     {
                       "data_source": "metrics",
                       "name": "p95",
-                      "query": "p95:temper_actor_cold_start_duration_ms{service:(temper OR openpaw)} by {entity_type}"
+                      "query": "p95:temper_actor_cold_start_duration_ms{service:openpaw} by {entity_type}"
                     },
                     {
                       "data_source": "metrics",
                       "name": "p99",
-                      "query": "p99:temper_actor_cold_start_duration_ms{service:(temper OR openpaw)} by {entity_type}"
+                      "query": "p99:temper_actor_cold_start_duration_ms{service:openpaw} by {entity_type}"
                     }
                   ],
                   "formulas": [
@@ -1220,7 +1220,7 @@
                     {
                       "data_source": "metrics",
                       "name": "p95",
-                      "query": "p95:temper_actor_ask_reply_latency_ms{service:(temper OR openpaw)} by {entity_type,action}"
+                      "query": "p95:temper_actor_ask_reply_latency_ms{service:openpaw} by {entity_type,action}"
                     }
                   ],
                   "formulas": [
@@ -1274,12 +1274,12 @@
                     {
                       "data_source": "metrics",
                       "name": "p95",
-                      "query": "p95:temper_event_store_append_wait_ms{service:(temper OR openpaw)} by {backend}"
+                      "query": "p95:temper_event_store_append_wait_ms{service:openpaw} by {backend}"
                     },
                     {
                       "data_source": "metrics",
                       "name": "p99",
-                      "query": "p99:temper_event_store_append_wait_ms{service:(temper OR openpaw)} by {backend}"
+                      "query": "p99:temper_event_store_append_wait_ms{service:openpaw} by {backend}"
                     }
                   ],
                   "formulas": [
@@ -1311,12 +1311,12 @@
                     {
                       "data_source": "metrics",
                       "name": "p95",
-                      "query": "p95:temper_cedar_evaluation_duration{service:(temper OR openpaw)} by {decision}"
+                      "query": "p95:temper_cedar_evaluation_duration{service:openpaw} by {decision}"
                     },
                     {
                       "data_source": "metrics",
                       "name": "p99",
-                      "query": "p99:temper_cedar_evaluation_duration{service:(temper OR openpaw)} by {decision}"
+                      "query": "p99:temper_cedar_evaluation_duration{service:openpaw} by {decision}"
                     }
                   ],
                   "formulas": [
@@ -1357,7 +1357,7 @@
                     {
                       "data_source": "metrics",
                       "name": "rem",
-                      "query": "avg:temper_handler_deadline_remaining_ms{service:(temper OR openpaw)} by {entity_type,action}"
+                      "query": "avg:temper_handler_deadline_remaining_ms{service:openpaw} by {entity_type,action}"
                     }
                   ],
                   "formulas": [
@@ -1383,7 +1383,7 @@
                     {
                       "data_source": "metrics",
                       "name": "breaches",
-                      "query": "sum:temper_handler_deadline_exceeded_total{service:(temper OR openpaw)} by {dying_span}.as_count()",
+                      "query": "sum:temper_handler_deadline_exceeded_total{service:openpaw} by {dying_span}.as_count()",
                       "aggregator": "sum"
                     }
                   ],
@@ -1414,7 +1414,7 @@
                     {
                       "data_source": "metrics",
                       "name": "breaches",
-                      "query": "sum:temper_handler_deadline_exceeded_total{service:(temper OR openpaw)} by {entity_type,action}.as_count()"
+                      "query": "sum:temper_handler_deadline_exceeded_total{service:openpaw} by {entity_type,action}.as_count()"
                     }
                   ],
                   "formulas": [
@@ -1441,7 +1441,7 @@
                     {
                       "data_source": "metrics",
                       "name": "p99",
-                      "query": "p99:temper_wasm_epoch_tick_interval_ms{service:(temper OR openpaw)}"
+                      "query": "p99:temper_wasm_epoch_tick_interval_ms{service:openpaw}"
                     }
                   ],
                   "formulas": [
@@ -1468,7 +1468,7 @@
                     {
                       "data_source": "metrics",
                       "name": "p99",
-                      "query": "p99:temper_handler_kill_latency_ms{service:(temper OR openpaw)} by {entity_type}"
+                      "query": "p99:temper_handler_kill_latency_ms{service:openpaw} by {entity_type}"
                     }
                   ],
                   "formulas": [
@@ -1504,7 +1504,7 @@
                     {
                       "data_source": "metrics",
                       "name": "uploads",
-                      "query": "sum:datadog.profiling.rust.profiles_uploaded{service:(temper OR openpaw)} by {profile_type}.as_rate()"
+                      "query": "sum:datadog.profiling.rust.profiles_uploaded{service:openpaw} by {profile_type}.as_rate()"
                     }
                   ],
                   "formulas": [
@@ -1531,7 +1531,7 @@
                     {
                       "data_source": "metrics",
                       "name": "errors",
-                      "query": "sum:datadog.profiling.rust.upload_errors{service:(temper OR openpaw)} by {stage}.as_count()"
+                      "query": "sum:datadog.profiling.rust.upload_errors{service:openpaw} by {stage}.as_count()"
                     }
                   ],
                   "formulas": [
@@ -1560,7 +1560,6 @@
     }
   ],
   "tags": [
-    "service:temper",
     "team:openpaw"
   ]
 }

@@ -69,11 +69,16 @@ def deploy_pipeline(base: str, headers: dict, path: Path, dry_run: bool) -> None
 
 
 def deploy_facets(base: str, headers: dict, path: Path, dry_run: bool) -> None:
+    """Facet registration has no stable first-class REST API across
+    Datadog tiers — on orgs without it the v2 endpoint returns 404.
+    Log the failure and continue; the facet definitions stay in
+    dd-pipelines/facets.json as source-of-truth and operators can
+    register them via the Log Explorer UI if needed."""
     data = json.loads(path.read_text())
-    # Datadog doesn't expose facet-create REST as a first-class API for
-    # every tier; when available it's /api/v2/logs/config/facets. Log
-    # Management-tier accounts can POST facets individually.
     for facet in data["facets"]:
+        if dry_run:
+            print(f"[dry-run] would register facet @{facet['path']} ({facet['name']})")
+            continue
         payload = {
             "data": {
                 "type": "facet",
@@ -85,17 +90,23 @@ def deploy_facets(base: str, headers: dict, path: Path, dry_run: bool) -> None:
                 },
             }
         }
-        if dry_run:
-            print(f"[dry-run] would register facet @{facet['path']} ({facet['name']})")
-            continue
         r = requests.post(
             f"{base}/v2/logs/config/facets", headers=headers, json=payload
         )
         if r.status_code == 409:
             print(f"facet already exists: @{facet['path']}")
-            continue
-        r.raise_for_status()
-        print(f"registered facet @{facet['path']}")
+        elif r.status_code == 404:
+            print(
+                f"facet API unavailable on this DD tier — "
+                f"register @{facet['path']} manually in Log Explorer"
+            )
+        elif r.status_code >= 400:
+            print(
+                f"facet register skipped for @{facet['path']}: "
+                f"{r.status_code} {r.text[:160]}"
+            )
+        else:
+            print(f"registered facet @{facet['path']}")
 
 
 def deploy_sds(base: str, headers: dict, path: Path, dry_run: bool) -> None:
@@ -136,7 +147,7 @@ def deploy_log_metrics(base: str, headers: dict, path: Path, dry_run: bool) -> N
     for m in data["metrics"]:
         body = {
             "data": {
-                "type": "logs_metric",
+                "type": "logs_metrics",
                 "id": m["id"],
                 "attributes": {
                     "filter": m["filter"],
