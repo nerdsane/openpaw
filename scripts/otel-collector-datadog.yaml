@@ -11,6 +11,23 @@ receivers:
         endpoint: "0.0.0.0:4318"
 
 processors:
+  # Detect host / container attributes so spans, metrics, and logs carry
+  # host.name, container.id, etc. Datadog APM requires host.name to
+  # correctly bucket spans; without this the otel-collector's datadog
+  # exporter falls back to the process hostname which in Railway containers
+  # is an opaque 12-hex ID and can cause indexing issues. See ADR-0037.
+  resourcedetection:
+    detectors: [env, system, docker]
+    timeout: 5s
+    override: false
+  # Guarantee service.name even if a signal arrives without resource
+  # attributes (defence in depth — temper-observe already sets this,
+  # but a guest module emitting OTLP directly would not).
+  resource:
+    attributes:
+      - key: service.name
+        value: openpaw
+        action: upsert
   filter/traces_llmobs:
     error_mode: ignore
     traces:
@@ -59,17 +76,17 @@ service:
   pipelines:
     traces/llmobs:
       receivers: [otlp]
-      processors: [filter/traces_llmobs, batch]
+      processors: [resourcedetection, resource, filter/traces_llmobs, batch]
       exporters: [clickhouse, otlphttp/llmobs]
     traces/apm:
       receivers: [otlp]
-      processors: [filter/traces_apm, batch]
+      processors: [resourcedetection, resource, filter/traces_apm, batch]
       exporters: [clickhouse, datadog]
     metrics:
       receivers: [otlp]
-      processors: [batch]
+      processors: [resourcedetection, resource, batch]
       exporters: [clickhouse, datadog]
     logs:
       receivers: [otlp]
-      processors: [batch]
+      processors: [resourcedetection, resource, batch]
       exporters: [clickhouse, datadog]
