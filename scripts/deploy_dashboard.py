@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Deploy the TemperPaw Datadog dashboard.
+"""Deploy the TemperPaw Datadog dashboards.
 
-Reads dd-dashboards/temperpaw-overview.json and creates or updates the dashboard
-via the Datadog REST API.  Idempotent: finds existing dashboard by title.
+By default deploys every *.json file in dd-dashboards/ via the Datadog
+REST API. Idempotent: finds existing dashboard by title. Pass a specific
+path as argv[1] to deploy just that file.
 
 Requires DD_API_KEY and DD_APP_KEY in env (or .env file).
 """
@@ -30,28 +31,10 @@ def load_env():
             os.environ.setdefault(key.strip(), value.strip())
 
 
-def main():
-    load_env()
-
-    api_key = os.environ.get("DD_API_KEY", "")
-    app_key = os.environ.get("DD_APP_KEY", "")
-    site = os.environ.get("DD_SITE", "datadoghq.com")
-
-    if not api_key or not app_key:
-        sys.exit("DD_API_KEY and DD_APP_KEY must be set")
-
-    dashboard_path = Path(__file__).resolve().parent.parent / "dd-dashboards" / "temperpaw-overview.json"
-    dashboard = json.loads(dashboard_path.read_text())
+def deploy_one(path: Path, base_url: str, headers: dict, site: str) -> None:
+    dashboard = json.loads(path.read_text())
     title = dashboard["title"]
 
-    base_url = f"https://api.{site}/api/v1"
-    headers = {
-        "DD-API-KEY": api_key,
-        "DD-APPLICATION-KEY": app_key,
-        "Content-Type": "application/json",
-    }
-
-    # Search for existing dashboard by title
     resp = requests.get(f"{base_url}/dashboard", headers=headers)
     resp.raise_for_status()
     existing = [
@@ -66,7 +49,7 @@ def main():
             json=dashboard,
         )
         resp.raise_for_status()
-        print(f"Updated dashboard: https://app.{site}/dashboard/{dash_id}")
+        print(f"Updated {path.name}: https://app.{site}/dashboard/{dash_id}")
     else:
         resp = requests.post(
             f"{base_url}/dashboard",
@@ -75,7 +58,37 @@ def main():
         )
         resp.raise_for_status()
         dash_id = resp.json().get("id", "unknown")
-        print(f"Created dashboard: https://app.{site}/dashboard/{dash_id}")
+        print(f"Created {path.name}: https://app.{site}/dashboard/{dash_id}")
+
+
+def main():
+    load_env()
+
+    api_key = os.environ.get("DD_API_KEY", "")
+    app_key = os.environ.get("DD_APP_KEY", "")
+    site = os.environ.get("DD_SITE", "datadoghq.com")
+
+    if not api_key or not app_key:
+        sys.exit("DD_API_KEY and DD_APP_KEY must be set")
+
+    base_url = f"https://api.{site}/api/v1"
+    headers = {
+        "DD-API-KEY": api_key,
+        "DD-APPLICATION-KEY": app_key,
+        "Content-Type": "application/json",
+    }
+
+    dashboards_dir = Path(__file__).resolve().parent.parent / "dd-dashboards"
+    if len(sys.argv) > 1:
+        paths = [Path(sys.argv[1])]
+    else:
+        paths = sorted(dashboards_dir.glob("*.json"))
+
+    if not paths:
+        sys.exit(f"no dashboards found under {dashboards_dir}")
+
+    for p in paths:
+        deploy_one(p, base_url, headers, site)
 
 
 if __name__ == "__main__":
