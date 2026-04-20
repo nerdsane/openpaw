@@ -2833,9 +2833,9 @@ checksum = "830d08ce1d1d941e6b30645f1a0eb5643013d835ce3779a5fc208261dbe10f55"
 
 [[package]]
 name = "leb128"
-version = "0.2.5"
+version = "0.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "884e2677b40cc8c339eaefcb701c32ef1fd2493d71118dc0ca4b6a736c93bd67"
+checksum = "6cc46bac87ef8093eed6f272babb833b6443374399985ac8ed28471ee0918545"
 
 [[package]]
 name = "leb128fmt"
@@ -3508,9 +3508,9 @@ checksum = "c08d65885ee38876c4f86fa503fb49d7b507c2b62552df7c70b2fce627e06381"
 
 [[package]]
 name = "openssl"
-version = "0.10.77"
+version = "0.10.78"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bfe4646e360ec77dff7dde40ed3d6c5fee52d156ef4a62f53973d38294dad87f"
+checksum = "f38c4372413cdaaf3cc79dd92d29d7d9f5ab09b51b10dded508fb90bb70b9222"
 dependencies = [
  "bitflags 2.11.1",
  "cfg-if",
@@ -3546,9 +3546,9 @@ checksum = "7c87def4c32ab89d880effc9e097653c8da5d6ef28e6b539d313baaacfbafcbe"
 
 [[package]]
 name = "openssl-sys"
-version = "0.9.113"
+version = "0.9.114"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ad2f2c0eba47118757e4c6d2bff2838f3e0523380021356e7875e858372ce644"
+checksum = "13ce1245cd07fcc4cfdb438f7507b0c7e4f3849a69fd84d52374c66d83741bb6"
 dependencies = [
  "cc",
  "libc",
@@ -4985,9 +4985,9 @@ dependencies = [
 
 [[package]]
 name = "sha3"
-version = "0.10.8"
+version = "0.10.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "75872d278a8f37ef87fa0ddbda7802605cb18344497949862c0d4dcb291eba60"
+checksum = "77fd7028345d415a4034cf8777cd4f8ab1851274233b45f84e3d955502d93874"
 dependencies = [
  "digest",
  "keccak",
@@ -5543,6 +5543,7 @@ checksum = "adb6935a6f5c20170eeceb1a3835a49e12e19d792f6dd344ccc76a985ca5a6ca"
 [[package]]
 name = "temper-authz"
 version = "0.1.0"
+source = "git+https://github.com/nerdsane/temper.git?branch=main#e59aac236b278359a7792cd1baf3e01e7bdbc8eb"
 dependencies = [
  "cedar-policy",
  "opentelemetry",
@@ -5556,6 +5557,7 @@ dependencies = [
 [[package]]
 name = "temper-evolution"
 version = "0.1.0"
+source = "git+https://github.com/nerdsane/temper.git?branch=main#e59aac236b278359a7792cd1baf3e01e7bdbc8eb"
 dependencies = [
  "chrono",
  "serde",
@@ -5572,6 +5574,7 @@ dependencies = [
 [[package]]
 name = "temper-jit"
 version = "0.1.0"
+source = "git+https://github.com/nerdsane/temper.git?branch=main#e59aac236b278359a7792cd1baf3e01e7bdbc8eb"
 dependencies = [
  "serde",
  "serde_json",
@@ -5583,6 +5586,7 @@ dependencies = [
 [[package]]
 name = "temper-observe"
 version = "0.1.0"
+source = "git+https://github.com/nerdsane/temper.git?branch=main#e59aac236b278359a7792cd1baf3e01e7bdbc8eb"
 dependencies = [
  "chrono",
  "opentelemetry",
@@ -5605,6 +5609,7 @@ dependencies = [
 [[package]]
 name = "temper-odata"
 version = "0.1.0"
+source = "git+https://github.com/nerdsane/temper.git?branch=main#e59aac236b278359a7792cd1baf3e01e7bdbc8eb"
 dependencies = [
  "axum 0.8.9",
  "chrono",
@@ -5618,6 +5623,7 @@ dependencies = [
 [[package]]
 name = "temper-optimize"
 version = "0.1.0"
+source = "git+https://github.com/nerdsane/temper.git?branch=main#e59aac236b278359a7792cd1baf3e01e7bdbc8eb"
 dependencies = [
  "serde",
  "serde_json",
@@ -5631,6 +5637,7 @@ dependencies = [
 [[package]]
 name = "temper-platform"
 version = "0.1.0"
+source = "git+https://github.com/nerdsane/temper.git?branch=main#e59aac236b278359a7792cd1baf3e01e7bdbc8eb"
 dependencies = [
  "anyhow",
  "axum 0.8.9",
@@ -5661,6 +5668,7 @@ dependencies = [
 [[package]]
 name = "temper-runtime"
 version = "0.1.0"
+source = "git+https://github.com/nerdsane/temper.git?branch=main#e59aac236b278359a7792cd1baf3e01e7bdbc8eb"
 dependencies = [
  "anyhow",
  "chrono",
@@ -5675,6 +5683,7 @@ dependencies = [
 [[package]]
 name = "temper-sandbox"
 version = "0.1.0"
+source = "git+https://github.com/nerdsane/temper.git?branch=main#e59aac236b278359a7792cd1baf3e01e7bdbc8eb"
 dependencies = [
  "anyhow",
  "monty",
@@ -5688,6 +5697,7 @@ dependencies = [
 [[package]]
 name = "temper-server"
 version = "0.1.0"
+source = "git+https://github.com/nerdsane/temper.git?branch=main#e59aac236b278359a7792cd1baf3e01e7bdbc8eb"
 dependencies = [
  "aes-gcm",
  "async-trait",
@@ -5734,6 +5744,7 @@ dependencies = [
 [[package]]
 name = "temper-spec"
 version = "0.1.0"
+source = "git+https://github.com/nerdsane/temper.git?branch=main#e59aac236b278359a7792cd1baf3e01e7bdbc8eb"
 dependencies = [
  "quick-xml",
  "serde",
@@ -5746,6 +5757,7 @@ dependencies = [
 [[package]]
 name = "temper-store-postgres"
 version = "0.1.0"
+source = "git+https://github.com/nerdsane/temper.git?branch=main#e59aac236b278359a7792cd1baf3e01e7bdbc8eb"
 dependencies = [
  "chrono",
  "serde",
@@ -5759,6 +5771,7 @@ dependencies = [
 [[package]]
 name = "temper-store-redis"
 version = "0.1.0"
+source = "git+https://github.com/nerdsane/temper.git?branch=main#e59aac236b278359a7792cd1baf3e01e7bdbc8eb"
 dependencies = [
  "chrono",
  "fred",
@@ -5775,6 +5788,7 @@ dependencies = [
 [[package]]
 name = "temper-store-turso"
 version = "0.1.0"
+source = "git+https://github.com/nerdsane/temper.git?branch=main#e59aac236b278359a7792cd1baf3e01e7bdbc8eb"
 dependencies = [
  "libsql",
  "opentelemetry",
@@ -5790,6 +5804,7 @@ dependencies = [
 [[package]]
 name = "temper-verify"
 version = "0.1.0"
+source = "git+https://github.com/nerdsane/temper.git?branch=main#e59aac236b278359a7792cd1baf3e01e7bdbc8eb"
 dependencies = [
  "proptest",
  "serde",
@@ -5803,6 +5818,7 @@ dependencies = [
 [[package]]
 name = "temper-wasm"
 version = "0.1.0"
+source = "git+https://github.com/nerdsane/temper.git?branch=main#e59aac236b278359a7792cd1baf3e01e7bdbc8eb"
 dependencies = [
  "async-trait",
  "chrono",
@@ -5816,7 +5832,6 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tracing",
- "tracing-opentelemetry",
  "uuid",
  "wasmtime",
  "wasmtime-wasi",
@@ -6482,9 +6497,9 @@ checksum = "6af6ae20167a9ece4bcb41af5b80f8a1f1df981f6391189ce00fd257af04126a"
 
 [[package]]
 name = "typenum"
-version = "1.19.0"
+version = "1.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "562d481066bde0658276a35467c4af00bdc6ee726305698a55b86e61d7ad82bb"
+checksum = "40ce102ab67701b8526c123c1bab5cbe42d7040ccfd0f64af1a385808d2f43de"
 
 [[package]]
 name = "unarray"
@@ -8008,11 +8023,3 @@ dependencies = [
  "cc",
  "pkg-config",
 ]
-
-[[patch.unused]]
-name = "temper-macros"
-version = "0.1.0"
-
-[[patch.unused]]
-name = "temper-wasm-sdk"
-version = "0.1.0"
