@@ -4,7 +4,10 @@
 //! agent state machine's conversation and session tracking.
 
 use temper_wasm_sdk::prelude::*;
-use wasm_helpers::{create_content_file, entity_field_str, runtime_headers_as, send_typing_indicator};
+use wasm_helpers::{
+    create_content_file, entity_field_str, runtime_headers_as, send_typing_indicator,
+    timestamp_millis_string,
+};
 
 const SESSION_ENTRY_FILE_THRESHOLD_BYTES: usize = 4096;
 
@@ -139,7 +142,7 @@ fn post_session_action(
         "{temper_api_url}/tdata/Sessions('{}')/TemperPaw.{action}",
         ctx.entity_id
     );
-    let body = json!({ timestamp_field: "alive" });
+    let body = json!({ timestamp_field: timestamp_millis_string() });
     let headers = runtime_headers_as(
         ctx,
         tenant,

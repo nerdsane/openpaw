@@ -11,6 +11,20 @@ use temper_wasm_sdk::prelude::*;
 const TEMPERFS_READ_ATTEMPTS: usize = 10;
 const TEMPERFS_WRITE_ATTEMPTS: usize = 5;
 
+/// Current wall-clock time as a millis-since-epoch string.
+///
+/// Used as the value for OData fields shaped `last_*_at` (e.g.
+/// `last_heartbeat_at`, `last_progress_at`, `last_message_at`). Historically
+/// these fields were populated with sentinel words ("alive", "resumed",
+/// "created") because no chrono dep existed in the WASM crates; this helper
+/// gives ops a real, sortable, machine-parseable value without pulling in
+/// chrono. Consumers that want an ISO timestamp can divide by 1000 and
+/// format with any standard library — the string is the canonical i64
+/// decimal representation of the host's wall clock.
+pub fn timestamp_millis_string() -> String {
+    Context::get_time_millis().to_string()
+}
+
 fn read_temperfs_value_with_retry(
     ctx: &Context,
     url: &str,
