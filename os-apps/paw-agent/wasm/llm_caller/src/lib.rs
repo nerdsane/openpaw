@@ -1647,6 +1647,68 @@ fn detect_anthropic_oauth_mode(_api_key: &str, auth_mode: &str) -> bool {
 }
 
 /// Call Anthropic Messages API.
+/// Hang-hint threshold for a single LLM HTTP attempt. 60 s is chosen so
+/// the hint fires well before the `call_llm` integration's 600 s
+/// WASM-host timeout (see `os-apps/paw-agent/specs/session.ioa.toml`),
+/// which is when the WASM host kills the module with no further logs.
+const LLM_HANG_HINT_THRESHOLD_MS: i64 = 60_000;
+
+/// True iff a single LLM HTTP attempt has already exceeded the
+/// hang-hint threshold. Matches ADR-0037 Fix B.
+fn should_emit_hang_hint(attempt_elapsed_ms: i64) -> bool {
+    attempt_elapsed_ms >= LLM_HANG_HINT_THRESHOLD_MS
+}
+
+/// Log line emitted immediately before an LLM HTTP attempt.
+fn format_llm_attempt_start_log(
+    provider: &str,
+    model: &str,
+    attempt: u32,
+    total: u32,
+    total_elapsed_ms: i64,
+) -> String {
+    format!(
+        "llm_caller: {provider} attempt {attempt}/{total} start total_elapsed_ms={total_elapsed_ms} model={model}"
+    )
+}
+
+/// Log line emitted after an LLM HTTP attempt returns.
+fn format_llm_attempt_end_log(
+    provider: &str,
+    attempt: u32,
+    attempt_elapsed_ms: i64,
+    http_status: u16,
+    body_len: usize,
+) -> String {
+    format!(
+        "llm_caller: {provider} attempt {attempt} end elapsed_ms={attempt_elapsed_ms} http_status={http_status} body_len={body_len}"
+    )
+}
+
+/// Log line emitted when the LLM call completes (success or failure).
+fn format_llm_complete_log(
+    provider: &str,
+    model: &str,
+    attempts: u32,
+    total_elapsed_ms: i64,
+    outcome: &str,
+) -> String {
+    format!(
+        "llm_caller: {provider} complete attempts={attempts} total_elapsed_ms={total_elapsed_ms} model={model} outcome={outcome}"
+    )
+}
+
+/// Warn-level hang-hint line fired when a single attempt crosses
+/// `LLM_HANG_HINT_THRESHOLD_MS`. Surfaces in DD so operators see the
+/// slow call before the 600 s WASM timeout kills the module silently.
+fn format_llm_hang_hint(provider: &str, attempt: u32, attempt_elapsed_ms: i64) -> String {
+    format!(
+        "llm_caller: HANG HINT {provider} attempt {attempt} took {attempt_elapsed_ms} ms (>= {} ms). \
+         Upstream provider may be hung; WASM integration timeout_secs will kill the module.",
+        LLM_HANG_HINT_THRESHOLD_MS
+    )
+}
+
 fn call_anthropic(
     ctx: &Context,
     api_key: &str,
@@ -1764,34 +1826,123 @@ fn call_anthropic(
         ]
     };
 
-    // Retry on transient API errors (500, 529, and 400 with vague "Error" message)
+    // Retry on transient API errors (500, 529, and 400 with vague "Error" message).
+    // Per-attempt timing added by ADR-0037 Fix B so a hung upstream surfaces
+    // in DD logs long before the 600 s WASM-host timeout kills the module.
+    let overall_start_ms = Context::get_time_millis();
     let mut last_err = String::new();
     let mut resp = None;
-    for attempt in 0..5 {
+    let mut attempts_used: u32 = 0;
+    for attempt in 0..5u32 {
+        let attempt_num = attempt + 1;
+        attempts_used = attempt_num;
         if attempt > 0 {
             ctx.log(
                 "warn",
                 &format!(
-                    "llm_caller: retrying (attempt {}/5), last error: {last_err}",
-                    attempt + 1
+                    "llm_caller: anthropic retrying (attempt {attempt_num}/5), last error: {last_err}"
                 ),
             );
         }
+        ctx.log(
+            "info",
+            &format_llm_attempt_start_log(
+                "anthropic",
+                model,
+                attempt_num,
+                5,
+                Context::get_time_millis() - overall_start_ms,
+            ),
+        );
+        let attempt_start_ms = Context::get_time_millis();
         match ctx.http_call("POST", api_url, &headers, &body_str) {
             Ok(r) if r.status == 200 => {
+                let elapsed = Context::get_time_millis() - attempt_start_ms;
+                ctx.log(
+                    "info",
+                    &format_llm_attempt_end_log(
+                        "anthropic",
+                        attempt_num,
+                        elapsed,
+                        r.status as u16,
+                        r.body.len(),
+                    ),
+                );
+                if should_emit_hang_hint(elapsed) {
+                    ctx.log(
+                        "warn",
+                        &format_llm_hang_hint("anthropic", attempt_num, elapsed),
+                    );
+                }
                 resp = Some(r);
                 break;
             }
             Ok(r) if r.status == 500 || r.status == 529 => {
+                let elapsed = Context::get_time_millis() - attempt_start_ms;
+                ctx.log(
+                    "info",
+                    &format_llm_attempt_end_log(
+                        "anthropic",
+                        attempt_num,
+                        elapsed,
+                        r.status as u16,
+                        r.body.len(),
+                    ),
+                );
+                if should_emit_hang_hint(elapsed) {
+                    ctx.log(
+                        "warn",
+                        &format_llm_hang_hint("anthropic", attempt_num, elapsed),
+                    );
+                }
                 last_err = format!("HTTP {}: {}", r.status, &r.body[..r.body.len().min(200)]);
                 continue;
             }
             Ok(r) if r.status == 400 && r.body.contains("\"message\":\"Error\"") => {
                 // Transient 400 with vague error message — retry
+                let elapsed = Context::get_time_millis() - attempt_start_ms;
+                ctx.log(
+                    "info",
+                    &format_llm_attempt_end_log(
+                        "anthropic",
+                        attempt_num,
+                        elapsed,
+                        r.status as u16,
+                        r.body.len(),
+                    ),
+                );
+                if should_emit_hang_hint(elapsed) {
+                    ctx.log(
+                        "warn",
+                        &format_llm_hang_hint("anthropic", attempt_num, elapsed),
+                    );
+                }
                 last_err = format!("HTTP 400 (transient): {}", &r.body[..r.body.len().min(200)]);
                 continue;
             }
             Ok(r) => {
+                let elapsed = Context::get_time_millis() - attempt_start_ms;
+                ctx.log(
+                    "info",
+                    &format_llm_attempt_end_log(
+                        "anthropic",
+                        attempt_num,
+                        elapsed,
+                        r.status as u16,
+                        r.body.len(),
+                    ),
+                );
+                let total_elapsed = Context::get_time_millis() - overall_start_ms;
+                ctx.log(
+                    "info",
+                    &format_llm_complete_log(
+                        "anthropic",
+                        model,
+                        attempts_used,
+                        total_elapsed,
+                        "non_retriable_http_error",
+                    ),
+                );
                 return Err(format!(
                     "Anthropic API returned {}: {}",
                     r.status,
@@ -1799,12 +1950,53 @@ fn call_anthropic(
                 ));
             }
             Err(e) => {
+                let elapsed = Context::get_time_millis() - attempt_start_ms;
+                ctx.log(
+                    "warn",
+                    &format!(
+                        "llm_caller: anthropic attempt {attempt_num} transport error elapsed_ms={elapsed} err={e}"
+                    ),
+                );
+                if should_emit_hang_hint(elapsed) {
+                    ctx.log(
+                        "warn",
+                        &format_llm_hang_hint("anthropic", attempt_num, elapsed),
+                    );
+                }
                 last_err = e;
                 continue;
             }
         }
     }
-    let resp = resp.ok_or_else(|| format!("Anthropic API failed after 5 attempts: {last_err}"))?;
+    let resp = match resp {
+        Some(r) => r,
+        None => {
+            let total_elapsed = Context::get_time_millis() - overall_start_ms;
+            ctx.log(
+                "warn",
+                &format_llm_complete_log(
+                    "anthropic",
+                    model,
+                    attempts_used,
+                    total_elapsed,
+                    "exhausted_retries",
+                ),
+            );
+            return Err(format!(
+                "Anthropic API failed after 5 attempts: {last_err}"
+            ));
+        }
+    };
+    ctx.log(
+        "info",
+        &format_llm_complete_log(
+            "anthropic",
+            model,
+            attempts_used,
+            Context::get_time_millis() - overall_start_ms,
+            "success",
+        ),
+    );
 
     let parsed: Value = serde_json::from_str(&resp.body)
         .map_err(|e| format!("failed to parse LLM response: {e}"))?;
@@ -1909,28 +2101,99 @@ fn call_openrouter(
         ),
     );
 
+    // Per-attempt timing + hang hint per ADR-0037 Fix B.
+    let overall_start_ms = Context::get_time_millis();
     let mut last_err = String::new();
     let mut resp = None;
-    for attempt in 0..5 {
+    let mut attempts_used: u32 = 0;
+    for attempt in 0..5u32 {
+        let attempt_num = attempt + 1;
+        attempts_used = attempt_num;
         if attempt > 0 {
             ctx.log(
                 "warn",
                 &format!(
-                    "llm_caller: openrouter retry (attempt {}/5), last error: {last_err}",
-                    attempt + 1
+                    "llm_caller: openrouter retrying (attempt {attempt_num}/5), last error: {last_err}"
                 ),
             );
         }
+        ctx.log(
+            "info",
+            &format_llm_attempt_start_log(
+                "openrouter",
+                model,
+                attempt_num,
+                5,
+                Context::get_time_millis() - overall_start_ms,
+            ),
+        );
+        let attempt_start_ms = Context::get_time_millis();
         match ctx.http_call("POST", api_url, &headers, &body_str) {
             Ok(r) if r.status == 200 => {
+                let elapsed = Context::get_time_millis() - attempt_start_ms;
+                ctx.log(
+                    "info",
+                    &format_llm_attempt_end_log(
+                        "openrouter",
+                        attempt_num,
+                        elapsed,
+                        r.status as u16,
+                        r.body.len(),
+                    ),
+                );
+                if should_emit_hang_hint(elapsed) {
+                    ctx.log(
+                        "warn",
+                        &format_llm_hang_hint("openrouter", attempt_num, elapsed),
+                    );
+                }
                 resp = Some(r);
                 break;
             }
             Ok(r) if matches!(r.status, 429 | 500 | 502 | 503 | 504) => {
+                let elapsed = Context::get_time_millis() - attempt_start_ms;
+                ctx.log(
+                    "info",
+                    &format_llm_attempt_end_log(
+                        "openrouter",
+                        attempt_num,
+                        elapsed,
+                        r.status as u16,
+                        r.body.len(),
+                    ),
+                );
+                if should_emit_hang_hint(elapsed) {
+                    ctx.log(
+                        "warn",
+                        &format_llm_hang_hint("openrouter", attempt_num, elapsed),
+                    );
+                }
                 last_err = format!("HTTP {}: {}", r.status, &r.body[..r.body.len().min(200)]);
                 continue;
             }
             Ok(r) => {
+                let elapsed = Context::get_time_millis() - attempt_start_ms;
+                ctx.log(
+                    "info",
+                    &format_llm_attempt_end_log(
+                        "openrouter",
+                        attempt_num,
+                        elapsed,
+                        r.status as u16,
+                        r.body.len(),
+                    ),
+                );
+                let total_elapsed = Context::get_time_millis() - overall_start_ms;
+                ctx.log(
+                    "info",
+                    &format_llm_complete_log(
+                        "openrouter",
+                        model,
+                        attempts_used,
+                        total_elapsed,
+                        "non_retriable_http_error",
+                    ),
+                );
                 return Err(format!(
                     "OpenRouter API returned {}: {}",
                     r.status,
@@ -1938,12 +2201,53 @@ fn call_openrouter(
                 ));
             }
             Err(e) => {
+                let elapsed = Context::get_time_millis() - attempt_start_ms;
+                ctx.log(
+                    "warn",
+                    &format!(
+                        "llm_caller: openrouter attempt {attempt_num} transport error elapsed_ms={elapsed} err={e}"
+                    ),
+                );
+                if should_emit_hang_hint(elapsed) {
+                    ctx.log(
+                        "warn",
+                        &format_llm_hang_hint("openrouter", attempt_num, elapsed),
+                    );
+                }
                 last_err = e;
                 continue;
             }
         }
     }
-    let resp = resp.ok_or_else(|| format!("OpenRouter API failed after 5 attempts: {last_err}"))?;
+    let resp = match resp {
+        Some(r) => r,
+        None => {
+            let total_elapsed = Context::get_time_millis() - overall_start_ms;
+            ctx.log(
+                "warn",
+                &format_llm_complete_log(
+                    "openrouter",
+                    model,
+                    attempts_used,
+                    total_elapsed,
+                    "exhausted_retries",
+                ),
+            );
+            return Err(format!(
+                "OpenRouter API failed after 5 attempts: {last_err}"
+            ));
+        }
+    };
+    ctx.log(
+        "info",
+        &format_llm_complete_log(
+            "openrouter",
+            model,
+            attempts_used,
+            Context::get_time_millis() - overall_start_ms,
+            "success",
+        ),
+    );
 
     let parsed: Value = serde_json::from_str(&resp.body)
         .map_err(|e| format!("failed to parse OpenRouter response: {e}"))?;
@@ -5617,5 +5921,56 @@ mod tests {
         assert!(attr.contains("&quot;"));
         assert!(attr.contains("&lt;"));
         assert!(attr.contains("&gt;"));
+    }
+
+    // --- ADR-0037 Fix B: per-attempt timing + hang diagnostics ---
+
+    #[test]
+    fn llm_attempt_start_log_includes_provider_model_attempt_and_elapsed() {
+        let msg = format_llm_attempt_start_log("anthropic", "claude-sonnet-4.6", 2, 5, 1234);
+        assert!(msg.contains("anthropic"));
+        assert!(msg.contains("attempt 2/5"));
+        assert!(msg.contains("total_elapsed_ms=1234"));
+        assert!(msg.contains("model=claude-sonnet-4.6"));
+        assert!(msg.contains("start"));
+    }
+
+    #[test]
+    fn llm_attempt_end_log_includes_http_status_and_body_len() {
+        let msg = format_llm_attempt_end_log("openrouter", 1, 850, 200, 4096);
+        assert!(msg.contains("openrouter"));
+        assert!(msg.contains("attempt 1"));
+        assert!(msg.contains("elapsed_ms=850"));
+        assert!(msg.contains("http_status=200"));
+        assert!(msg.contains("body_len=4096"));
+        assert!(msg.contains("end"));
+    }
+
+    #[test]
+    fn llm_complete_log_summarises_total_and_outcome() {
+        let msg = format_llm_complete_log("anthropic", "claude-sonnet-4.6", 3, 9500, "success");
+        assert!(msg.contains("complete"));
+        assert!(msg.contains("attempts=3"));
+        assert!(msg.contains("total_elapsed_ms=9500"));
+        assert!(msg.contains("outcome=success"));
+    }
+
+    #[test]
+    fn hang_hint_triggers_at_sixty_seconds() {
+        // Below threshold — no hint.
+        assert!(!should_emit_hang_hint(59_999));
+        // At threshold — hint fires.
+        assert!(should_emit_hang_hint(60_000));
+        // Well over threshold — hint fires.
+        assert!(should_emit_hang_hint(180_000));
+    }
+
+    #[test]
+    fn hang_hint_message_mentions_elapsed_and_provider() {
+        let msg = format_llm_hang_hint("anthropic", 1, 70_123);
+        assert!(msg.to_lowercase().contains("hang"));
+        assert!(msg.contains("anthropic"));
+        assert!(msg.contains("attempt 1"));
+        assert!(msg.contains("70123"));
     }
 }
