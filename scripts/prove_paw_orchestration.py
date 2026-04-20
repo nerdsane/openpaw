@@ -8,7 +8,7 @@ import json
 import os
 import time
 
-from openpaw_proof_support import (
+from temperpaw_proof_support import (
     DEFAULT_BASE_URL,
     DEFAULT_MODEL,
     DEFAULT_REPO_URL,
@@ -24,11 +24,11 @@ from openpaw_proof_support import (
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--base-url", default=os.getenv("OPENPAW_BASE_URL", DEFAULT_BASE_URL))
+    parser.add_argument("--base-url", default=os.getenv("TEMPERPAW_BASE_URL", DEFAULT_BASE_URL))
     parser.add_argument("--tenant", default=os.getenv("PAW_TENANT", DEFAULT_TENANT))
     parser.add_argument("--model", default=DEFAULT_MODEL)
     parser.add_argument("--repo-url", default=DEFAULT_REPO_URL)
-    parser.add_argument("--sandbox-url", default=os.getenv("OPENPAW_SANDBOX_URL"))
+    parser.add_argument("--sandbox-url", default=os.getenv("TEMPERPAW_SANDBOX_URL"))
     parser.add_argument("--timeout-secs", type=float, default=300.0)
     args = parser.parse_args()
 
@@ -103,7 +103,7 @@ def main() -> int:
                 "author_id": "proof-user",
                 "thread_id": thread_id,
                 "content": (
-                    "Manage deep-sci-fi for me. Use the normal Open Paw setup for a managed repo: "
+                    "Manage deep-sci-fi for me. Use the normal Temper Paw setup for a managed repo: "
                     "a harness, a developer, and monitors. The demo repo is "
                     f"{args.repo_url} if you need the exact URL."
                 ),

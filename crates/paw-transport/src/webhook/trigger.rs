@@ -110,7 +110,7 @@ async fn handle_webhook(
         .dispatch_action(
             "WebhookEvents",
             &event_id,
-            "OpenPaw.Ingest.Received",
+            "TemperPaw.Ingest.Received",
             json!({
                 "raw_payload": body,
                 "raw_headers": headers_json,

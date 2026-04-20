@@ -86,7 +86,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         // 3. Query GitHub REST API
         let mut gh_headers = vec![
             ("accept".to_string(), "application/vnd.github+json".to_string()),
-            ("user-agent".to_string(), "openpaw-seed-model".to_string()),
+            ("user-agent".to_string(), "temperpaw-seed-model".to_string()),
         ];
         if !github_token.is_empty() {
             gh_headers.push(("authorization".to_string(), format!("Bearer {github_token}")));
@@ -477,7 +477,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         };
         ctx.log("info", &format!("seed_model: dispatching {callback_action} (status={current_status})"));
         let seed_complete_url = format!(
-            "{temper_api_url}/tdata/ProductModels('{entity_id}')/OpenPaw.Foresight.{callback_action}"
+            "{temper_api_url}/tdata/ProductModels('{entity_id}')/TemperPaw.Foresight.{callback_action}"
         );
         let seed_complete_body = json!({
             "model_snapshot_file_id": file_id,

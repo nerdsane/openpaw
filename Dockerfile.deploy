@@ -1,1 +1,1 @@
-FROM ghcr.io/nerdsane/openpaw:edge
+FROM ghcr.io/nerdsane/temperpaw:edge

@@ -57,7 +57,7 @@ name = "Archive"
 kind = "input"
 from = ["Configured", "Active"]
 to = "Archived"
-hint = "Archive the harness when the repository is no longer managed by Open Paw."
+hint = "Archive the harness when the repository is no longer managed by Temper Paw."
 
 [[invariant]]
 name = "ArchivedIsFinal"

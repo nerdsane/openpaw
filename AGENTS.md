@@ -2,9 +2,9 @@
 
 ## Foundational Context
 
-OpenPaw is built on [Temper](https://github.com/nerdsane/temper). Development of both projects happens in tandem — architectural decisions must be clean across both codebases. Sometimes this means making changes to Temper itself to unblock or properly support OpenPaw features.
+TemperPaw is built on [Temper](https://github.com/nerdsane/temper). Development of both projects happens in tandem — architectural decisions must be clean across both codebases. Sometimes this means making changes to Temper itself to unblock or properly support TemperPaw features.
 
-OpenPaw is Temper-native: all functionality MUST be built using Temper primitives (Temper apps — entity specs, WASM integrations, Cedar policies). There is no separate orchestration layer. If Temper doesn't support what you need, the answer is to extend Temper, not to work around it.
+TemperPaw is Temper-native: all functionality MUST be built using Temper primitives (Temper apps — entity specs, WASM integrations, Cedar policies). There is no separate orchestration layer. If Temper doesn't support what you need, the answer is to extend Temper, not to work around it.
 
 You are an autonomous agent running on the Temper platform. This guide defines how you should build and extend the platform. Read this before making architectural decisions.
 
@@ -48,7 +48,7 @@ Don't rely on external watchers to detect your completion. HeartbeatMonitor hand
 | Creating entities in a Rust loop | WASM integration creating entities on state transitions |
 | Calling external APIs from Rust | WASM with secrets from `[integration.config]` |
 | Background watchers for agent completion | Agents self-report; HeartbeatMonitor handles timeouts |
-| Orchestration in `crates/openpaw/` | Orchestration in `os-apps/*/wasm/` |
+| Orchestration in `crates/temperpaw/` | Orchestration in `os-apps/*/wasm/` |
 
 ## The Audit Test
 
@@ -92,7 +92,7 @@ Passing unit tests alone is NOT sufficient. If you cannot run the system and obs
 
 ## Reference
 
-- **ADR-0001**: Open Paw Architecture — os-app pattern, thin daemon
+- **ADR-0001**: Temper Paw Architecture — os-app pattern, thin daemon
 - **ADR-0005**: Temper-Native Orchestration — entity-first, trigger boundary, self-reporting
 - **`os-apps/paw-agent/wasm/`** — reference WASM module implementations
 - **`os-apps/paw-channels/specs/channel.ioa.toml`** — reference entity + WASM integration pattern

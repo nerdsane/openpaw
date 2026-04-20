@@ -345,7 +345,7 @@
 </script>
 
 <svelte:head>
-  <title>Settings &middot; Open Paw</title>
+  <title>Settings &middot; Temper Paw</title>
 </svelte:head>
 
 <div class="page">

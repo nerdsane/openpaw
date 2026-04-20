@@ -2575,7 +2575,7 @@ fn agent_headers(
 
 fn send_heartbeat(ctx: &Context, temper_api_url: &str, tenant: &str) -> Result<(), String> {
     let url = format!(
-        "{temper_api_url}/tdata/Sessions('{}')/OpenPaw.Heartbeat",
+        "{temper_api_url}/tdata/Sessions('{}')/TemperPaw.Heartbeat",
         ctx.entity_id
     );
     let body = json!({ "last_heartbeat_at": "alive" });
@@ -3802,7 +3802,7 @@ pub fn run_provider_caller() -> Result<(), String> {
         .config
         .get("openrouter_app_name")
         .cloned()
-        .unwrap_or_else(|| "openpaw-agent".to_string());
+        .unwrap_or_else(|| "temperpaw-agent".to_string());
 
     let mock_hang = provider == "mock" && mock_plan_requests_hang(&prepared.messages);
     if !mock_hang {
@@ -4765,7 +4765,7 @@ fn build_sdk_reference(tools_enabled: &str, sandbox_url: &str, workdir: &str) ->
         "\n### Entity CRUD + memory\n\
          ```python\n\
          issue = temper.create(\"Issues\", {\"description\": \"Fix login bug\"})\n\
-         temper.action(\"Issues\", issue[\"entity_id\"], \"OpenPaw.PM.MoveToTriage\", {})\n\
+         temper.action(\"Issues\", issue[\"entity_id\"], \"TemperPaw.PM.MoveToTriage\", {})\n\
          temper.save_memory(\"test_results\", \"pytest: 47 passed, 0 failed\", \"project\")\n\
          ```\n",
     );
@@ -5547,15 +5547,15 @@ mod tests {
         assert!(sdk.contains("sandbox` (remote shell/files, provisioned on demand"));
     }
 
-    // --- Regression tests for openpaw#62 (skills cross-workspace advertisement) ---
+    // --- Regression tests for temperpaw#62 (skills cross-workspace advertisement) ---
 
     #[test]
     fn skill_workspace_id_extracted_from_odata_pascalcase() {
         // Real OData v4 response shape: WorkspaceId as a top-level property.
         let item = json!({
-            "Id": "os-agent-skill-file-paw-openpaw-agent",
+            "Id": "os-agent-skill-file-paw-temperpaw-agent",
             "Name": "SKILL.md",
-            "Path": "/agents/paw-uuid/skills/openpaw-agent/SKILL.md",
+            "Path": "/agents/paw-uuid/skills/temperpaw-agent/SKILL.md",
             "WorkspaceId": "os-app-docs",
             "Status": "Ready"
         });
@@ -5570,10 +5570,10 @@ mod tests {
         // Legacy/wrapped shape that some code paths return: workspace_id
         // inside a `fields` object. entity_field_str's fallback covers this.
         let item = json!({
-            "entity_id": "os-agent-skill-file-paw-openpaw-agent",
+            "entity_id": "os-agent-skill-file-paw-temperpaw-agent",
             "fields": {
                 "name": "SKILL.md",
-                "path": "/agents/paw-uuid/skills/openpaw-agent/SKILL.md",
+                "path": "/agents/paw-uuid/skills/temperpaw-agent/SKILL.md",
                 "workspace_id": "os-app-docs"
             }
         });

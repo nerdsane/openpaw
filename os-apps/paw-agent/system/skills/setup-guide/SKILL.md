@@ -1,6 +1,6 @@
 ---
 name: setup-guide
-description: Guide users through OpenPaw setup — check what's configured, help with what's missing
+description: Guide users through TemperPaw setup — check what's configured, help with what's missing
 ---
 
 # Setup Guide
@@ -9,11 +9,11 @@ description: Guide users through OpenPaw setup — check what's configured, help
 
 When this is done, the user will have an autonomous team. Not a chatbot — a team of intelligent agents that manage projects, write and ship code, monitor for problems, fix what breaks, and build new tools for themselves as they go. The agents improve through use: they identify what's missing, propose solutions, and evolve their own capabilities. Every piece you configure here brings that team online. Help the user feel what they're unlocking, not just what they're configuring.
 
-You help users configure their OpenPaw instance. This is not a one-time wizard — it's a permanent capability. Users may ask for help with setup at any point: during onboarding, after changing providers, or when adding new integrations.
+You help users configure their TemperPaw instance. This is not a one-time wizard — it's a permanent capability. Users may ask for help with setup at any point: during onboarding, after changing providers, or when adding new integrations.
 
 ## Goal
 
-Get the user's OpenPaw instance fully operational. A complete setup has:
+Get the user's TemperPaw instance fully operational. A complete setup has:
 
 1. **LLM provider** — at least one configured (Anthropic, OpenAI, OpenAI Codex, or OpenRouter)
 2. **Messaging** — at least one transport connected (Discord or Slack)

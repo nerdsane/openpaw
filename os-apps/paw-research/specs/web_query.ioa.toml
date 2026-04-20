@@ -55,7 +55,7 @@ type = "string"
 initial = ""
 # When web_fetch hits its 10MB upstream cap (WEB_FETCH_MAX_BYTES), the
 # original response size is recorded here for observability. Empty means
-# no truncation. openpaw ADR-0033.
+# no truncation. temperpaw ADR-0033.
 
 [[state]]
 name = "error"

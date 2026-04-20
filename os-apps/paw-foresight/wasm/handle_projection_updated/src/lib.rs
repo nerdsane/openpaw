@@ -128,19 +128,19 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         // Validate every probe_config entry's provider/model BEFORE any respawn,
         // so we don't end up with a partially-respawned round where half the
         // probes are on the old step. Missing values are a configuration
-        // error, not a silent skip (openpaw#65).
+        // error, not a silent skip (temperpaw#65).
         for (i, _agent_id) in probe_agent_ids.iter().enumerate() {
             let pc = probe_config.get(i).cloned().unwrap_or(json!({}));
             if pc.get("model").and_then(|v| v.as_str()).filter(|s| !s.is_empty()).is_none() {
                 return Err(format!(
                     "handle_projection_updated: probe_config[{i}] missing 'model' — \
-                     orchestrator must populate probe_config (openpaw#65)"
+                     orchestrator must populate probe_config (temperpaw#65)"
                 ));
             }
             if pc.get("provider").and_then(|v| v.as_str()).filter(|s| !s.is_empty()).is_none() {
                 return Err(format!(
                     "handle_projection_updated: probe_config[{i}] missing 'provider' — \
-                     orchestrator must populate probe_config (openpaw#65)"
+                     orchestrator must populate probe_config (temperpaw#65)"
                 ));
             }
         }
@@ -303,7 +303,7 @@ fn respawn_probe(
     );
 
     let configure_url = format!(
-        "{temper_api_url}/tdata/Sessions('{session_id}')/OpenPaw.Configure"
+        "{temper_api_url}/tdata/Sessions('{session_id}')/TemperPaw.Configure"
     );
     let configure_body = json!({
         "model": probe_model,

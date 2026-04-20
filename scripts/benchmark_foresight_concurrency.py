@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run live Foresight concurrency benchmarks against a local OpenPaw daemon.
+"""Run live Foresight concurrency benchmarks against a local TemperPaw daemon.
 
 This drives real Foresight Probe sessions, not a synthetic WASM-only loop.
 Each case restarts the daemon with a different `TEMPER_MONTY_REPL_MAX_CONCURRENCY`,
@@ -17,7 +17,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from openpaw_proof_support import ODataClient, entity_id
+from temperpaw_proof_support import ODataClient, entity_id
 from seed_foresight import seed_product_model, wait_for_state
 
 DEFAULT_BASE_URL = "http://127.0.0.1:3467"
@@ -75,7 +75,7 @@ def start_daemon(
     max_concurrency: int,
     metrics_interval_secs: int,
 ) -> tuple[subprocess.Popen[str], Path]:
-    log_path = root / f"tmp_openpaw_c{max_concurrency}.log"
+    log_path = root / f"tmp_temperpaw_c{max_concurrency}.log"
     logf = open(log_path, "w")
     env = base_env.copy()
     env.update(
@@ -89,7 +89,7 @@ def start_daemon(
         }
     )
     proc = subprocess.Popen(
-        ["./target/release/openpaw"],
+        ["./target/release/temperpaw"],
         cwd=root,
         env=env,
         stdout=logf,
@@ -279,7 +279,7 @@ def main() -> None:
 
     for concurrency, probe_count in parse_cases(args.cases):
         kill_port(3467)
-        Path.home().joinpath(".local/share/openpaw/paw.db").unlink(missing_ok=True)
+        Path.home().joinpath(".local/share/temperpaw/paw.db").unlink(missing_ok=True)
 
         version = f"local-investigation-c{concurrency}"
         proc, log_path = start_daemon(

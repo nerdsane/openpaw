@@ -58,9 +58,9 @@ fn session_policy_authorizes_new_pipeline_callbacks_and_modules() {
 
 #[test]
 fn dashboard_and_monitors_cover_session_context_metrics() {
-    let dashboard = fs::read_to_string(repo_root().join("dd-dashboards/openpaw-overview.json"))
+    let dashboard = fs::read_to_string(repo_root().join("dd-dashboards/temperpaw-overview.json"))
         .expect("dashboard json should exist");
-    let monitors = fs::read_to_string(repo_root().join("dd-monitors/openpaw-monitors.json"))
+    let monitors = fs::read_to_string(repo_root().join("dd-monitors/temperpaw-monitors.json"))
         .expect("monitor json should exist");
 
     for needle in [

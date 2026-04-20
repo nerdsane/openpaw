@@ -147,7 +147,7 @@
         {/if}
       </button>
       {#if !collapsed}
-        <span class="sidebar-title">OPEN PAW</span>
+        <span class="sidebar-title">TEMPER PAW</span>
       {/if}
     </div>
 
@@ -234,7 +234,7 @@
 
   <!-- FAB to open Paw -->
   {#if !panelOpen}
-    <button class="paw-fab" onclick={togglePanel} title="Chat with Paw (Cmd+K)" aria-label="Open Paw chat">
+    <button class="paw-fab" onclick={togglePanel} title="Chat with Paw (Cmd+K)" aria-label="Temper Paw chat">
       <PawLogo size={20} />
     </button>
   {/if}

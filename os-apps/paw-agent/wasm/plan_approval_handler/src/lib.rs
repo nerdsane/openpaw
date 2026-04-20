@@ -101,7 +101,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             "pre_plan_tools_enabled": "",
         });
         let resume_url = format!(
-            "{temper_api_url}/tdata/Sessions('{session_id}')/OpenPaw.ResumeWithPlanApproval"
+            "{temper_api_url}/tdata/Sessions('{session_id}')/TemperPaw.ResumeWithPlanApproval"
         );
         let resp = ctx.http_call("POST", &resume_url, &headers, &resume_body.to_string())?;
         if !(200..300).contains(&resp.status) {

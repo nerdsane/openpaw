@@ -280,7 +280,7 @@ fn spawn_convergence_analyst(
     probe_agent_ids: &[String],
 ) -> Result<(), String> {
     // Validate probe_config provider/model UP FRONT so we don't create
-    // an orphan Agent + Session when configuration is missing (openpaw#65).
+    // an orphan Agent + Session when configuration is missing (temperpaw#65).
     let fields = ctx.entity_state.get("fields").cloned().unwrap_or(json!({}));
     let probe_config_raw = fields.get("probe_config").cloned().unwrap_or(json!([]));
     let probe_config: Vec<Value> = if let Some(arr) = probe_config_raw.as_array() {
@@ -295,13 +295,13 @@ fn spawn_convergence_analyst(
         .get("model")
         .and_then(|v| v.as_str())
         .filter(|s| !s.is_empty())
-        .ok_or_else(|| "spawn_convergence_analyst: probe_config[0] missing 'model' — orchestrator must populate probe_config (openpaw#65)".to_string())?
+        .ok_or_else(|| "spawn_convergence_analyst: probe_config[0] missing 'model' — orchestrator must populate probe_config (temperpaw#65)".to_string())?
         .to_string();
     let analyst_provider = first_probe
         .get("provider")
         .and_then(|v| v.as_str())
         .filter(|s| !s.is_empty())
-        .ok_or_else(|| "spawn_convergence_analyst: probe_config[0] missing 'provider' — orchestrator must populate probe_config (openpaw#65)".to_string())?
+        .ok_or_else(|| "spawn_convergence_analyst: probe_config[0] missing 'provider' — orchestrator must populate probe_config (temperpaw#65)".to_string())?
         .to_string();
 
     // Create Agent entity
@@ -384,7 +384,7 @@ fn spawn_convergence_analyst(
 
     // Configure Session — analyst_model/analyst_provider already validated above.
     let configure_url = format!(
-        "{temper_api_url}/tdata/Sessions('{session_id}')/OpenPaw.Configure"
+        "{temper_api_url}/tdata/Sessions('{session_id}')/TemperPaw.Configure"
     );
     let configure_body = json!({
         "model": analyst_model,

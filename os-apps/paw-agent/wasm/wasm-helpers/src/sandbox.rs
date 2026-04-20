@@ -426,7 +426,7 @@ pub fn sandbox_setup(ctx: &Context, handle: &SandboxHandle) {
         || !config.packages.is_empty();
 
     if has_policy {
-        let policy_file = "/workspace/.openpaw-sandbox-config.json";
+        let policy_file = "/workspace/.temperpaw-sandbox-config.json";
         match sandbox_file_write(
             ctx,
             handle,
@@ -760,16 +760,16 @@ fn tensorlake_exec(
 // ===========================================================================
 
 /// Resolve the Modal bridge base URL from config. This is the common prefix
-/// of the per-endpoint URLs, e.g. `https://user--openpaw-sandbox-bridge`.
+/// of the per-endpoint URLs, e.g. `https://user--temperpaw-sandbox-bridge`.
 /// Each endpoint appends its label suffix: `-create.modal.run`, `-exec.modal.run`, etc.
-/// OpenPaw deploy should provision and persist `modal_bridge_url` automatically.
+/// TemperPaw deploy should provision and persist `modal_bridge_url` automatically.
 /// If it's missing at runtime, the deployment drifted or skipped the Modal bridge setup.
 fn resolve_modal_base_url(config_value: Option<&String>) -> Result<String, String> {
     config_value
         .filter(|s| !s.is_empty() && !is_unresolved_secret(s))
         .cloned()
         .ok_or_else(|| {
-            "Modal sandbox requires modal_bridge_url. OpenPaw deploy should provision MODAL_BRIDGE_URL automatically; redeploy or restore the platform secret if this deployment drifted.".to_string()
+            "Modal sandbox requires modal_bridge_url. TemperPaw deploy should provision MODAL_BRIDGE_URL automatically; redeploy or restore the platform secret if this deployment drifted.".to_string()
         })
 }
 
@@ -1072,7 +1072,7 @@ mod tests {
 
     #[test]
     fn test_resolve_modal_base_url_requires_explicit_value() {
-        let configured = "https://user--openpaw-sandbox-bridge".to_string();
+        let configured = "https://user--temperpaw-sandbox-bridge".to_string();
         assert_eq!(
             resolve_modal_base_url(Some(&configured)).unwrap(),
             configured

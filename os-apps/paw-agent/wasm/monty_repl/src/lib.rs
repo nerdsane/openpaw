@@ -239,7 +239,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         let mut tool_results: Vec<Value> = Vec::new();
         let mut tool_span_events: Vec<Value> = Vec::new();
 
-        // Tool-batch checkpoint boundary (OpenPaw Track 1 Phase 3 / openpaw#66).
+        // Tool-batch checkpoint boundary (TemperPaw Track 1 Phase 3 / temperpaw#66).
         // Chunk size is fixed at 20; empirical fuel cost is ~400M per
         // `temper.get`, so 20 × 400M = 8B sits comfortably under the 120B
         // ceiling. Raise/lower by editing this constant; a future phase may
@@ -991,7 +991,7 @@ fn make_tool_result_multimodal(
 /// Check if a JSON-serialized expression value is an image result from dispatch.
 fn extract_image_result(expr_val: &str) -> Option<(String, String, String)> {
     let v: Value = serde_json::from_str(expr_val).ok()?;
-    if v.get("__openpaw_image")?.as_bool()? {
+    if v.get("__temperpaw_image")?.as_bool()? {
         let media_type = v.get("media_type")?.as_str()?.to_string();
         let base64_data = v.get("base64_data")?.as_str()?.to_string();
         let source_path = v
@@ -1018,7 +1018,7 @@ fn emit_tool_call_telemetry(
         Ok(value) => {
             // Don't log full base64 image data in telemetry
             if value
-                .get("__openpaw_image")
+                .get("__temperpaw_image")
                 .and_then(Value::as_bool)
                 .unwrap_or(false)
             {

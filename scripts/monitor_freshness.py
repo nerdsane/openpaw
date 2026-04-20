@@ -132,8 +132,8 @@ def main() -> int:
     )
     parser.add_argument(
         "--repo",
-        default=os.environ.get("GH_REPO", "nerdsane/openpaw"),
-        help="GitHub repo (default: nerdsane/openpaw).",
+        default=os.environ.get("GH_REPO", "nerdsane/temperpaw"),
+        help="GitHub repo (default: nerdsane/temperpaw).",
     )
     args = parser.parse_args()
 

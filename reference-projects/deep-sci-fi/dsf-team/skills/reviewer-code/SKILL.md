@@ -88,13 +88,13 @@ Report your verdict back to the WorkCycle harness. Do NOT write marker files.
 **On PASS:**
 
 ```
-temper_action WorkCycles/{work_cycle_id}/OpenPaw.Harness.Approve {"approver_id": "code-reviewer", "pr_url": "{pr_url}"}
+temper_action WorkCycles/{work_cycle_id}/TemperPaw.Harness.Approve {"approver_id": "code-reviewer", "pr_url": "{pr_url}"}
 ```
 
 **On FAIL:**
 
 ```
-temper_action WorkCycles/{work_cycle_id}/OpenPaw.Harness.RequestChanges {"review_notes": "summary of blocking findings and what must be fixed"}
+temper_action WorkCycles/{work_cycle_id}/TemperPaw.Harness.RequestChanges {"review_notes": "summary of blocking findings and what must be fixed"}
 ```
 
 Replace `{work_cycle_id}` and `{pr_url}` with the values from your task message. The `review_notes` field in RequestChanges should contain a concise summary of all BLOCKING findings.

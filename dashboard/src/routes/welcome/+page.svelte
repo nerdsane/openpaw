@@ -161,7 +161,7 @@
 </script>
 
 <svelte:head>
-  <title>Setup &middot; Open Paw</title>
+  <title>Setup &middot; Temper Paw</title>
 </svelte:head>
 
 <div class="page">
@@ -175,7 +175,7 @@
     </div>
   {:else}
     <div class="header">
-      <h1 class="title">{setupComplete ? 'Open Paw' : 'Setup'}</h1>
+      <h1 class="title">{setupComplete ? 'Temper Paw' : 'Setup'}</h1>
       <p class="subtitle">{setupComplete
         ? 'Your instance is ready.'
         : `${completedSteps} of 4 steps complete. Configure below or ask Paw for help.`}</p>

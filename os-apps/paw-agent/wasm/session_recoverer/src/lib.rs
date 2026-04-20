@@ -102,7 +102,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         // the crash as an entity field; a non-empty `remaining_tool_calls`
         // signals that work was mid-batch.
         //
-        // See OpenPaw Track 1 Phase 3 follow-up (session_recoverer mid-turn
+        // See TemperPaw Track 1 Phase 3 follow-up (session_recoverer mid-turn
         // resume). Keeps the Cedar pause-style checkpoint resume symmetry
         // across both failure modes — Cedar denial and server restart.
         let pending_ctx_str = fields

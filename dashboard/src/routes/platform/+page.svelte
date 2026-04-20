@@ -54,7 +54,7 @@
 <div class="page">
   <header class="page-header">
     <span class="page-label">PLATFORM</span>
-    <p class="page-desc">Base souls and skills bootstrapped with OpenPaw</p>
+    <p class="page-desc">Base souls and skills bootstrapped with TemperPaw</p>
   </header>
 
   {#if !loaded}

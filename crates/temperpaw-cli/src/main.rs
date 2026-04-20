@@ -4,7 +4,7 @@ use clap::{Parser, Subcommand};
 use std::process::Command as Cmd;
 
 #[derive(Parser)]
-#[command(name = "openpaw", about = "Open Paw — agent platform")]
+#[command(name = "temperpaw", about = "Temper Paw — agent platform")]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -12,9 +12,9 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Run OpenPaw locally — configure API keys, messaging, and boot the server
+    /// Run TemperPaw locally — configure API keys, messaging, and boot the server
     Run,
-    /// Deploy OpenPaw to the cloud (Railway + Turso + R2)
+    /// Deploy TemperPaw to the cloud (Railway + Turso + R2)
     Deploy,
     /// Diagnose configuration and show what's working
     Doctor,
@@ -39,18 +39,18 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Find and exec openpaw-server, forwarding the subcommand.
+/// Find and exec temperpaw-server, forwarding the subcommand.
 fn run_server(args: &[&str]) -> anyhow::Result<()> {
-    // Look for openpaw-server next to this binary first, then on PATH
+    // Look for temperpaw-server next to this binary first, then on PATH
     let self_dir = std::env::current_exe()
         .ok()
         .and_then(|p| p.parent().map(|d| d.to_path_buf()));
 
     let server_bin = self_dir
         .as_ref()
-        .map(|d| d.join("openpaw-server"))
+        .map(|d| d.join("temperpaw-server"))
         .filter(|p| p.exists())
-        .unwrap_or_else(|| "openpaw-server".into());
+        .unwrap_or_else(|| "temperpaw-server".into());
 
     let status = Cmd::new(&server_bin)
         .args(args)
@@ -64,12 +64,12 @@ fn run_server(args: &[&str]) -> anyhow::Result<()> {
         Ok(s) => std::process::exit(s.code().unwrap_or(1)),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
             eprintln!();
-            eprintln!("  openpaw-server not found.");
+            eprintln!("  temperpaw-server not found.");
             eprintln!();
-            eprintln!("  Build it first:  \x1b[1mcargo build -p openpaw --release\x1b[0m");
+            eprintln!("  Build it first:  \x1b[1mcargo build -p temperpaw --release\x1b[0m");
             eprintln!();
             std::process::exit(1);
         }
-        Err(e) => anyhow::bail!("Failed to start openpaw-server: {e}"),
+        Err(e) => anyhow::bail!("Failed to start temperpaw-server: {e}"),
     }
 }

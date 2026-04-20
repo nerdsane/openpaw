@@ -16,7 +16,7 @@ A trigger creates ONE entity and dispatches ONE action. Everything after that fi
 
 - Platform primitives: OData API, WASM runtime, Cedar engine (`crates/temper/`)
 - Triggers: protocol bridges that create ONE entity, dispatch ONE action (`crates/paw-triggers/`)
-- Binary bootstrap: loading os-apps, starting triggers (`crates/openpaw/`)
+- Binary bootstrap: loading os-apps, starting triggers (`crates/temperpaw/`)
 - Tests and dev tooling
 
 ### Business Logic That Must Be WASM
@@ -31,7 +31,7 @@ A trigger creates ONE entity and dispatches ONE action. Everything after that fi
 ## How to Review
 
 1. Read the diff
-2. For each change in `crates/openpaw/` or `crates/paw-triggers/`: is it legitimate Rust (bootstrap, trigger boundary) or misplaced business logic?
+2. For each change in `crates/temperpaw/` or `crates/paw-triggers/`: is it legitimate Rust (bootstrap, trigger boundary) or misplaced business logic?
 3. Apply the audit test: "Could someone understand this flow by reading entity state transitions alone?"
 
 ## Response Format

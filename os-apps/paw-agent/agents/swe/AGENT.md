@@ -70,7 +70,7 @@ If the task includes Datadog instrumentation:
    - **Node/Next.js**: `dd-trace`, initialize before app imports, wire env vars, use actual server entrypoint
    - **Logs-only**: structured error logging with service/env/version tags
 3. Create Datadog monitors for real failure surfaces: failing HTTP handlers, async jobs, worker loops, external API boundaries
-4. Tag monitors with project name + `openpaw:true`
+4. Tag monitors with project name + `temperpaw:true`
 5. Create matching `Monitor` entities with `dd_monitor_id` and `dd_query`
 
 ## When Dependencies Are Flaky

@@ -2,7 +2,7 @@
 """Deploy OpenPaw / Temper Datadog log pipelines and facets (ADR-0054).
 
 Reads:
-  dd-pipelines/temper-openpaw.json    — pipeline + processors
+  dd-pipelines/temper-temperpaw.json    — pipeline + processors
   dd-pipelines/facets.json            — facets to register
   dd-pipelines/sensitive-data-scanner.json — SDS rule list
   dd-log-metrics/temper-log-metrics.json    — log-based metric definitions
@@ -185,7 +185,7 @@ def main() -> int:
     }
 
     root = Path(__file__).resolve().parent.parent
-    deploy_pipeline(base, headers, root / "dd-pipelines" / "temper-openpaw.json", args.dry_run)
+    deploy_pipeline(base, headers, root / "dd-pipelines" / "temper-temperpaw.json", args.dry_run)
     deploy_facets(base, headers, root / "dd-pipelines" / "facets.json", args.dry_run)
     deploy_sds(base, headers, root / "dd-pipelines" / "sensitive-data-scanner.json", args.dry_run)
     deploy_log_metrics(base, headers, root / "dd-log-metrics" / "temper-log-metrics.json", args.dry_run)

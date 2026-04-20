@@ -23,7 +23,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 let _ = post_absolute_action(
                     &ctx,
                     &headers,
-                    &format!("{base_url}/tdata/Sessions('{inner_session_id}')/OpenPaw.Cancel"),
+                    &format!("{base_url}/tdata/Sessions('{inner_session_id}')/TemperPaw.Cancel"),
                     &json!({}),
                     "cancel inner session",
                 )?;

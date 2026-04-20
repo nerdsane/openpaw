@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <edmx:Edmx Version="4.0" xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx">
   <edmx:DataServices>
-    <Schema Namespace="OpenPaw.Research" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+    <Schema Namespace="TemperPaw.Research" xmlns="http://docs.oasis-open.org/odata/ns/edm">
       <EntityType Name="WebQuery">
         <Key><PropertyRef Name="Id"/></Key>
         <Property Name="Id" Type="Edm.String" Nullable="false"/>
@@ -17,32 +17,32 @@
       </EntityType>
 
       <Action Name="ExecuteSearch" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.Research.WebQuery"/>
+        <Parameter Name="bindingParameter" Type="TemperPaw.Research.WebQuery"/>
         <Parameter Name="query" Type="Edm.String" Nullable="false"/>
-        <ReturnType Type="OpenPaw.Research.WebQuery"/>
+        <ReturnType Type="TemperPaw.Research.WebQuery"/>
       </Action>
 
       <Action Name="ExecuteFetch" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.Research.WebQuery"/>
+        <Parameter Name="bindingParameter" Type="TemperPaw.Research.WebQuery"/>
         <Parameter Name="url" Type="Edm.String" Nullable="false"/>
-        <ReturnType Type="OpenPaw.Research.WebQuery"/>
+        <ReturnType Type="TemperPaw.Research.WebQuery"/>
       </Action>
 
       <Action Name="RecordResults" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.Research.WebQuery"/>
+        <Parameter Name="bindingParameter" Type="TemperPaw.Research.WebQuery"/>
         <Parameter Name="results" Type="Edm.String" Nullable="true"/>
         <Parameter Name="truncated_bytes" Type="Edm.String" Nullable="true"/>
-        <ReturnType Type="OpenPaw.Research.WebQuery"/>
+        <ReturnType Type="TemperPaw.Research.WebQuery"/>
       </Action>
 
       <Action Name="RecordError" IsBound="true">
-        <Parameter Name="bindingParameter" Type="OpenPaw.Research.WebQuery"/>
+        <Parameter Name="bindingParameter" Type="TemperPaw.Research.WebQuery"/>
         <Parameter Name="error" Type="Edm.String" Nullable="true"/>
-        <ReturnType Type="OpenPaw.Research.WebQuery"/>
+        <ReturnType Type="TemperPaw.Research.WebQuery"/>
       </Action>
 
       <EntityContainer Name="ResearchService">
-        <EntitySet Name="WebQueries" EntityType="OpenPaw.Research.WebQuery"/>
+        <EntitySet Name="WebQueries" EntityType="TemperPaw.Research.WebQuery"/>
       </EntityContainer>
     </Schema>
   </edmx:DataServices>

@@ -212,7 +212,7 @@ pub fn spawn_session(
         api_url,
         tenant,
         parent_id,
-        &format!("/tdata/Sessions('{child_id}')/OpenPaw.Configure"),
+        &format!("/tdata/Sessions('{child_id}')/TemperPaw.Configure"),
         &config_body,
     )?;
 
@@ -293,7 +293,7 @@ pub fn abort_session(
         api_url,
         tenant,
         eid,
-        &format!("/tdata/Sessions('{session_id}')/OpenPaw.Cancel"),
+        &format!("/tdata/Sessions('{session_id}')/TemperPaw.Cancel"),
         &json!({}),
     )?;
     Ok(json!({ "session_id": session_id, "status": "cancelled" }))
@@ -335,7 +335,7 @@ pub fn steer_session(
         api_url,
         tenant,
         eid,
-        &format!("/tdata/Sessions('{session_id}')/OpenPaw.Steer"),
+        &format!("/tdata/Sessions('{session_id}')/TemperPaw.Steer"),
         &body,
     )?;
     Ok(json!({ "session_id": session_id, "steered": true }))
@@ -385,7 +385,7 @@ pub fn save_memory(
             api_url,
             tenant,
             eid,
-            &format!("/tdata/Memories('{memory_id}')/OpenPaw.Save"),
+            &format!("/tdata/Memories('{memory_id}')/TemperPaw.Save"),
             &json!({}),
         );
     }

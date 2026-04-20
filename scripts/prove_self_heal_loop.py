@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run a curl-equivalent self-heal proof against a live Open Paw daemon.
+"""Run a curl-equivalent self-heal proof against a live Temper Paw daemon.
 
 This driver creates a deep-sci-fi Harness + Monitor, opens a synthetic
 AlertCycle for a real repo issue, provisions a SRE agent, and waits for the
@@ -252,12 +252,12 @@ DEVELOPER_AGENT_ID=<id or empty>
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--base-url", default=os.getenv("OPENPAW_BASE_URL", DEFAULT_BASE_URL))
+    parser.add_argument("--base-url", default=os.getenv("TEMPERPAW_BASE_URL", DEFAULT_BASE_URL))
     parser.add_argument("--tenant", default=os.getenv("PAW_TENANT", DEFAULT_TENANT))
     parser.add_argument("--repo-url", default=DEFAULT_REPO_URL)
     parser.add_argument("--model", default=DEFAULT_MODEL)
     parser.add_argument("--timeout-ms", type=int, default=15 * 60 * 1000)
-    parser.add_argument("--sandbox-url", default=os.getenv("OPENPAW_SANDBOX_URL"))
+    parser.add_argument("--sandbox-url", default=os.getenv("TEMPERPAW_SANDBOX_URL"))
     parser.add_argument(
         "--sandbox-mode",
         choices=("auto", "local", "managed"),
@@ -289,7 +289,7 @@ def main() -> int:
     client.action(
         "Harnesses",
         project_id,
-        "OpenPaw.Harness.Configure",
+        "TemperPaw.Harness.Configure",
         {
             "repo_url": args.repo_url,
             "tech_stack": "Next.js frontend, Python backend",
@@ -299,7 +299,7 @@ def main() -> int:
     client.action(
         "Harnesses",
         project_id,
-        "OpenPaw.Harness.Activate",
+        "TemperPaw.Harness.Activate",
         {"last_activated_at": now_utc()},
     )
 
@@ -312,14 +312,14 @@ def main() -> int:
     client.action(
         "Monitors",
         monitor_id,
-        "OpenPaw.Heal.Configure",
+        "TemperPaw.Heal.Configure",
         {
             "dd_query": "synthetic:deep-sci-fi:npm-ci-lockfile-drift",
             "threshold": "1",
             "dd_monitor_id": f"synthetic-{run_suffix}",
         },
     )
-    client.action("Monitors", monitor_id, "OpenPaw.Heal.Activate")
+    client.action("Monitors", monitor_id, "TemperPaw.Heal.Activate")
 
     alert_cycle = client.create(
         "AlertCycles",
@@ -344,14 +344,14 @@ def main() -> int:
     client.action(
         "Sessions",
         sre_id,
-        "OpenPaw.Configure",
+        "TemperPaw.Configure",
         {
             "model": args.model,
             "provider": "anthropic",
             "max_turns": "60",
             "tools_enabled": "temper_get,temper_list,temper_action,temper_create,spawn_session,temper_read",
             "sandbox_url": sandbox_url,
-            "workdir": "/tmp/openpaw-sre-self-heal",
+            "workdir": "/tmp/temperpaw-sre-self-heal",
             "soul_id": "SRE",
             "user_message": sre_message,
         },
@@ -360,7 +360,7 @@ def main() -> int:
     client.action(
         "AlertCycles",
         alert_cycle_id,
-        "OpenPaw.Heal.Open",
+        "TemperPaw.Heal.Open",
         {
             "monitor_id": monitor_id,
             "alert_payload": alert_payload,
@@ -368,7 +368,7 @@ def main() -> int:
         },
     )
 
-    client.action("Monitors", monitor_id, "OpenPaw.Heal.AlertFired", {"last_alert_payload": alert_payload})
+    client.action("Monitors", monitor_id, "TemperPaw.Heal.AlertFired", {"last_alert_payload": alert_payload})
     # Configure schedules ProvisionWorkspace automatically (ADR-0022).
     # No explicit Provision call needed.
     print("SRE_STATUS=Provisioned", flush=True)

@@ -1,18 +1,18 @@
 # Datadog Webhook Setup
 
-This document describes the OpenPaw-facing Datadog webhook contract used by the current self-heal loop.
+This document describes the TemperPaw-facing Datadog webhook contract used by the current self-heal loop.
 
 ## Endpoint
 
 Point the Datadog webhook integration at:
 
 ```text
-https://<your-openpaw-host>/webhooks/ingest
+https://<your-temperpaw-host>/webhooks/ingest
 ```
 
 For local development, expose the daemon with your preferred tunnel and use the public URL.
 
-## Recommended OpenPaw Env Vars
+## Recommended TemperPaw Env Vars
 
 ```bash
 DD_API_KEY=...
@@ -27,7 +27,7 @@ WEBHOOK_SECRET=...
 
 ## Signature Header
 
-If `WEBHOOK_SECRET` is configured, OpenPaw expects one of these headers:
+If `WEBHOOK_SECRET` is configured, TemperPaw expects one of these headers:
 
 - `x-webhook-signature-256`
 - `x-webhook-signature`
@@ -36,9 +36,9 @@ The value should be the hex-encoded `sha256` HMAC of the raw JSON payload, optio
 
 ## Payload Shape
 
-OpenPaw accepts two Datadog styles:
+TemperPaw accepts two Datadog styles:
 
-1. An OpenPaw envelope:
+1. An TemperPaw envelope:
 
 ```json
 {
@@ -56,7 +56,7 @@ OpenPaw accepts two Datadog styles:
 }
 ```
 
-2. A native Datadog-style body, which OpenPaw will normalize automatically:
+2. A native Datadog-style body, which TemperPaw will normalize automatically:
 
 ```json
 {
@@ -87,11 +87,11 @@ To mark a fixed alert as recovered, send the same monitor identity with:
 }
 ```
 
-When the matching `AlertCycle` is already in `Fixed` or `Verifying`, OpenPaw will dispatch `AlertResolved`.
+When the matching `AlertCycle` is already in `Fixed` or `Verifying`, TemperPaw will dispatch `AlertResolved`.
 
 ## Useful Fields
 
-OpenPaw currently reads these fields when present:
+TemperPaw currently reads these fields when present:
 
 - monitor identity: `id`, `monitor_id`, `dd_monitor_id`, `monitor.id`, `monitor.slug`, `monitor.name`
 - severity: `severity`, `priority`

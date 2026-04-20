@@ -18,7 +18,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-from openpaw_proof_support import ODataClient, entity_id, nested_str, now_utc
+from temperpaw_proof_support import ODataClient, entity_id, nested_str, now_utc
 
 REPO_URL = "https://github.com/arni-labs/deep-sci-fi.git"
 
@@ -96,7 +96,7 @@ def main() -> None:
     else:
         model = client.create("ProductModels")
         model_id = entity_id(model)
-        client.action("ProductModels", model_id, "OpenPaw.Foresight.Seed", {
+        client.action("ProductModels", model_id, "TemperPaw.Foresight.Seed", {
             "repo_url": REPO_URL,
             "signal_source_config": json.dumps({"github": True, "datadog": True}),
         })
@@ -117,7 +117,7 @@ def main() -> None:
     else:
         proj = client.create("Projections")
         proj_id = entity_id(proj)
-        client.action("Projections", proj_id, "OpenPaw.Foresight.Configure", {
+        client.action("Projections", proj_id, "TemperPaw.Foresight.Configure", {
             "product_model_id": model_id,
             "horizon": "3m",
             "max_steps": "3",
@@ -127,7 +127,7 @@ def main() -> None:
                 {"name": "Proof-Probe-2", "model": "claude-sonnet-4-6", "provider": "anthropic"},
             ]),
         })
-        client.action("Projections", proj_id, "OpenPaw.Foresight.Start", {})
+        client.action("Projections", proj_id, "TemperPaw.Foresight.Start", {})
         print(f"  Created and started Projection: {proj_id}")
 
     # Wait for at least one step
@@ -157,7 +157,7 @@ def main() -> None:
     # Create a test observation for gate testing
     test_obs = client.create("Observations")
     test_obs_id = entity_id(test_obs)
-    client.action("Observations", test_obs_id, "OpenPaw.Foresight.Record", {
+    client.action("Observations", test_obs_id, "TemperPaw.Foresight.Record", {
         "probe_agent_id": "test-probe-a",
         "projection_id": proj_id,
         "step_at": "0",
@@ -168,7 +168,7 @@ def main() -> None:
 
     # Gate 2: Confirm with different probe (should succeed)
     try:
-        client.action("Observations", test_obs_id, "OpenPaw.Foresight.Confirm", {
+        client.action("Observations", test_obs_id, "TemperPaw.Foresight.Confirm", {
             "confirmer_agent_id": "test-probe-b",
             "confirmation_note": "I independently see the same signal",
         })
@@ -183,7 +183,7 @@ def main() -> None:
     try:
         direction = client.create("Directions")
         dir_id = entity_id(direction)
-        client.action("Directions", dir_id, "OpenPaw.Foresight.Propose", {
+        client.action("Directions", dir_id, "TemperPaw.Foresight.Propose", {
             "title": "Test Direction: Auth Module Overhaul",
             "proposer_agent_id": "test-probe-a",
             "projection_id": proj_id,

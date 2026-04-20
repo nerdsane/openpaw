@@ -7,7 +7,7 @@ import argparse
 import json
 import os
 
-from openpaw_proof_support import (
+from temperpaw_proof_support import (
     DEFAULT_BASE_URL,
     DEFAULT_REPO_URL,
     DEFAULT_TENANT,
@@ -21,7 +21,7 @@ from openpaw_proof_support import (
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--base-url", default=os.getenv("OPENPAW_BASE_URL", DEFAULT_BASE_URL))
+    parser.add_argument("--base-url", default=os.getenv("TEMPERPAW_BASE_URL", DEFAULT_BASE_URL))
     parser.add_argument("--tenant", default=os.getenv("PAW_TENANT", DEFAULT_TENANT))
     parser.add_argument("--repo-url", default=DEFAULT_REPO_URL)
     args = parser.parse_args()
@@ -39,7 +39,7 @@ def main() -> int:
     client.action(
         "Harnesses",
         harness_id,
-        "OpenPaw.Harness.Configure",
+        "TemperPaw.Harness.Configure",
         {
             "repo_url": args.repo_url,
             "tech_stack": "Next.js frontend, Python backend",
@@ -49,7 +49,7 @@ def main() -> int:
     client.action(
         "Harnesses",
         harness_id,
-        "OpenPaw.Harness.Activate",
+        "TemperPaw.Harness.Activate",
         {"last_activated_at": now_utc()},
     )
 
@@ -59,18 +59,18 @@ def main() -> int:
     client.action(
         "MonitorScans",
         scan_id,
-        "OpenPaw.Heal.Configure",
+        "TemperPaw.Heal.Configure",
         {
             "project_harness_id": harness_id,
             "scan_type": "bootstrap",
             "commit_sha": f"proof-{run_suffix}",
         },
     )
-    client.action("MonitorScans", scan_id, "OpenPaw.Heal.StartScan", {})
+    client.action("MonitorScans", scan_id, "TemperPaw.Heal.StartScan", {})
     client.action(
         "MonitorScans",
         scan_id,
-        "OpenPaw.Heal.ScanComplete",
+        "TemperPaw.Heal.ScanComplete",
         {
             "monitors_created": "3",
             "monitors_updated": "1",

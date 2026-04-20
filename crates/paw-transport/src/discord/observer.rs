@@ -458,12 +458,11 @@ async fn fetch_first_message_id(
 
     match resp {
         Ok(r) if r.status().is_success() => {
-            if let Ok(messages) = r.json::<Vec<serde_json::Value>>().await {
-                if let Some(msg) = messages.first() {
-                    if let Some(id) = msg.get("id").and_then(|v| v.as_str()) {
-                        return id.to_string();
-                    }
-                }
+            if let Ok(messages) = r.json::<Vec<serde_json::Value>>().await
+                && let Some(msg) = messages.first()
+                && let Some(id) = msg.get("id").and_then(|v| v.as_str())
+            {
+                return id.to_string();
             }
             // Fallback: use thread_id as message_id (forum posts share the same ID).
             thread_id.to_string()
@@ -488,28 +487,21 @@ async fn resolve_soul_name(
     }
 
     // Try to fetch the agent's soul_id, then get the soul name.
-    match api.get_entity("Agents", agent_id).await {
-        Ok(agent) => {
-            if let Some(soul_id) = agent.get("soul_id").and_then(|v| v.as_str()) {
-                match api.get_entity("Souls", soul_id).await {
-                    Ok(soul) => {
-                        if let Some(name) = soul.get("name").and_then(|v| v.as_str()) {
-                            let name = name.to_string();
-                            cache.insert(agent_id.to_string(), name.clone());
-                            return Some(name);
-                        }
-                    }
-                    Err(_) => {}
-                }
-            }
-            // Fallback: use the agent's own name if available.
-            if let Some(name) = agent.get("name").and_then(|v| v.as_str()) {
-                let name = name.to_string();
-                cache.insert(agent_id.to_string(), name.clone());
-                return Some(name);
-            }
+    if let Ok(agent) = api.get_entity("Agents", agent_id).await {
+        if let Some(soul_id) = agent.get("soul_id").and_then(|v| v.as_str())
+            && let Ok(soul) = api.get_entity("Souls", soul_id).await
+            && let Some(name) = soul.get("name").and_then(|v| v.as_str())
+        {
+            let name = name.to_string();
+            cache.insert(agent_id.to_string(), name.clone());
+            return Some(name);
         }
-        Err(_) => {}
+        // Fallback: use the agent's own name if available.
+        if let Some(name) = agent.get("name").and_then(|v| v.as_str()) {
+            let name = name.to_string();
+            cache.insert(agent_id.to_string(), name.clone());
+            return Some(name);
+        }
     }
 
     None
