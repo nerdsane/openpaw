@@ -1,0 +1,81 @@
+{
+  "title": "OpenPaw \u2014 Embodiment",
+  "description": "Embodiment-tier observability for OpenPaw: HTTP surface, triggers, per-app (Katagami) outcomes. ADR-0053: queries against `service:openpaw`.",
+  "layout_type": "ordered",
+  "widgets": [
+    {
+      "definition": {
+        "title": "APM Traces (service:openpaw)",
+        "type": "group",
+        "layout_type": "ordered",
+        "widgets": [
+          {
+            "definition": {
+              "title": "Spans by Resource",
+              "type": "toplist",
+              "requests": [
+                {
+                  "q": "top(count:trace.custom{service:openpaw} by {resource_name}.as_count(), 10, 'sum', 'desc')",
+                  "conditional_formats": [],
+                  "style": {}
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "Trace Flame Graph",
+              "type": "trace_service",
+              "service": "openpaw",
+              "env": "",
+              "span_name": "",
+              "show_hits": true,
+              "show_errors": true,
+              "show_latency": true,
+              "show_breakdown": true,
+              "size_format": "large",
+              "display_format": "three_column"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "definition": {
+        "title": "Katagami",
+        "type": "group",
+        "layout_type": "ordered",
+        "widgets": [
+          {
+            "definition": {
+              "title": "CurationJob Throughput by Type",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "q": "sum:temper_curation_job_outcome_total{service:openpaw,app:katagami-curation} by {job_type,outcome}.as_count()",
+                  "display_type": "bars"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "Regeneration Session Queue Depth",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "q": "avg:temper_admission_queue_depth{service:openpaw,entity_type:Session}",
+                  "display_type": "line"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "tags": [
+    "service:openpaw",
+    "team:openpaw"
+  ]
+}

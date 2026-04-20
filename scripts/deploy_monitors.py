@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
-"""Deploy TemperPaw self-monitoring Datadog monitors.
+"""Deploy OpenPaw self-monitoring Datadog monitors.
 
 Reads dd-monitors/temperpaw-monitors.json and creates or updates each monitor
-via the Datadog REST API.  Idempotent: finds existing monitors by name.
+via the Datadog REST API. Idempotent: finds existing monitors by name.
+
+With --reconcile, also deletes monitors tagged team:openpaw that are NOT in
+the JSON file. This is the source-of-truth guarantee declared in ADR-0052:
+file-first, Datadog state reconciles to match.
 
 Requires DD_API_KEY and DD_APP_KEY in env (or .env file).
 """
 
+import argparse
 import json
 import os
 import sys
@@ -31,6 +36,19 @@ def load_env():
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--reconcile",
+        action="store_true",
+        help="Delete monitors tagged team:openpaw that are not in the JSON file.",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Show what would happen without making changes.",
+    )
+    args = parser.parse_args()
+
     load_env()
 
     api_key = os.environ.get("DD_API_KEY", "")
@@ -42,6 +60,7 @@ def main():
 
     monitors_path = Path(__file__).resolve().parent.parent / "dd-monitors" / "temperpaw-monitors.json"
     monitors = json.loads(monitors_path.read_text())
+    desired_names = {m["name"] for m in monitors}
 
     base_url = f"https://api.{site}/api/v1"
     headers = {
@@ -50,11 +69,10 @@ def main():
         "Content-Type": "application/json",
     }
 
-    # Fetch existing monitors tagged with managed_by:temperpaw
     resp = requests.get(
         f"{base_url}/monitor",
         headers=headers,
-        params={"monitor_tags": "team:temperpaw"},
+        params={"monitor_tags": "team:openpaw"},
     )
     resp.raise_for_status()
     existing_by_name = {m["name"]: m["id"] for m in resp.json()}
@@ -63,6 +81,9 @@ def main():
         name = monitor["name"]
         if name in existing_by_name:
             monitor_id = existing_by_name[name]
+            if args.dry_run:
+                print(f"[dry-run] Would update: {name} (id={monitor_id})")
+                continue
             resp = requests.put(
                 f"{base_url}/monitor/{monitor_id}",
                 headers=headers,
@@ -71,6 +92,9 @@ def main():
             resp.raise_for_status()
             print(f"Updated: {name} (id={monitor_id})")
         else:
+            if args.dry_run:
+                print(f"[dry-run] Would create: {name}")
+                continue
             resp = requests.post(
                 f"{base_url}/monitor",
                 headers=headers,
@@ -79,6 +103,27 @@ def main():
             resp.raise_for_status()
             monitor_id = resp.json().get("id", "unknown")
             print(f"Created: {name} (id={monitor_id})")
+
+    if args.reconcile:
+        orphans = [
+            (name, monitor_id)
+            for name, monitor_id in existing_by_name.items()
+            if name not in desired_names
+        ]
+        if not orphans:
+            print("No orphan monitors to reconcile.")
+            return
+        print(f"\nReconcile: {len(orphans)} orphan monitor(s) to delete:")
+        for name, monitor_id in orphans:
+            if args.dry_run:
+                print(f"  [dry-run] Would delete: {name} (id={monitor_id})")
+                continue
+            resp = requests.delete(
+                f"{base_url}/monitor/{monitor_id}",
+                headers=headers,
+            )
+            resp.raise_for_status()
+            print(f"  Deleted: {name} (id={monitor_id})")
 
 
 if __name__ == "__main__":

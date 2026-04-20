@@ -1,0 +1,33 @@
+{
+  "description": "Log-based metrics generated from OpenPaw / Temper structured logs (ADR-0054). Enables generic error-rate alerting without requiring a bespoke Rust counter for every failure mode.",
+  "metrics": [
+    {
+      "id": "openpaw.logs.errors",
+      "filter": {"query": "service:(temper OR openpaw) status:error"},
+      "compute": {"aggregation_type": "count"},
+      "group_by": [
+        {"path": "service", "tag_name": "service"},
+        {"path": "@tenant", "tag_name": "tenant"},
+        {"path": "@error.kind", "tag_name": "error_kind"}
+      ]
+    },
+    {
+      "id": "openpaw.logs.wasm.default_timeout_fallback",
+      "filter": {"query": "service:(temper OR openpaw) \"WASM integration falling back to default timeout\""},
+      "compute": {"aggregation_type": "count"},
+      "group_by": [
+        {"path": "@tenant", "tag_name": "tenant"},
+        {"path": "@entity_type", "tag_name": "entity_type"},
+        {"path": "@module", "tag_name": "module"}
+      ]
+    },
+    {
+      "id": "openpaw.logs.warns",
+      "filter": {"query": "service:(temper OR openpaw) status:warn"},
+      "compute": {"aggregation_type": "count"},
+      "group_by": [
+        {"path": "service", "tag_name": "service"}
+      ]
+    }
+  ]
+}

@@ -1,19 +1,8 @@
 {
-  "title": "OpenPaw \u2014 Platform Overview",
-  "description": "Single pane of glass for OpenPaw agent orchestration health, runtime behavior, and Temper platform metrics.",
+  "title": "Temper \u2014 Platform Health",
+  "description": "Platform-tier observability for Temper: dispatch, actors, admission, state-timeouts, WASM host, Cedar, blob, and session context. ADR-0053: queries against `service:temper` when the service split is active; `service:openpaw` before that.",
   "layout_type": "ordered",
   "widgets": [
-    {
-      "definition": {
-        "type": "note",
-        "content": "\u26a0\ufe0f **Transitional dashboard.** Prefer `Temper \u2014 Platform Health` (service:temper) and `OpenPaw \u2014 Embodiment` (service:openpaw). This file will be removed after the dashboard split finishes rolling out. See ADR-0053.",
-        "background_color": "yellow",
-        "font_size": "14",
-        "text_align": "left",
-        "vertical_align": "top",
-        "show_tick": false
-      }
-    },
     {
       "definition": {
         "title": "Platform Health",
@@ -70,43 +59,6 @@
                   "display_type": "line"
                 }
               ]
-            }
-          }
-        ]
-      }
-    },
-    {
-      "definition": {
-        "title": "APM Traces (service:openpaw)",
-        "type": "group",
-        "layout_type": "ordered",
-        "widgets": [
-          {
-            "definition": {
-              "title": "Spans by Resource",
-              "type": "toplist",
-              "requests": [
-                {
-                  "q": "top(count:trace.custom{service:openpaw} by {resource_name}.as_count(), 10, 'sum', 'desc')",
-                  "conditional_formats": [],
-                  "style": {}
-                }
-              ]
-            }
-          },
-          {
-            "definition": {
-              "title": "Trace Flame Graph",
-              "type": "trace_service",
-              "service": "openpaw",
-              "env": "",
-              "span_name": "",
-              "show_hits": true,
-              "show_errors": true,
-              "show_latency": true,
-              "show_breakdown": true,
-              "size_format": "large",
-              "display_format": "three_column"
             }
           }
         ]
@@ -1130,39 +1082,6 @@
     },
     {
       "definition": {
-        "title": "Katagami",
-        "type": "group",
-        "layout_type": "ordered",
-        "widgets": [
-          {
-            "definition": {
-              "title": "CurationJob Throughput by Type",
-              "type": "timeseries",
-              "requests": [
-                {
-                  "q": "sum:temper_curation_job_outcome_total{service:openpaw,app:katagami-curation} by {job_type,outcome}.as_count()",
-                  "display_type": "bars"
-                }
-              ]
-            }
-          },
-          {
-            "definition": {
-              "title": "Regeneration Session Queue Depth",
-              "type": "timeseries",
-              "requests": [
-                {
-                  "q": "avg:temper_admission_queue_depth{service:openpaw,entity_type:Session}",
-                  "display_type": "line"
-                }
-              ]
-            }
-          }
-        ]
-      }
-    },
-    {
-      "definition": {
         "title": "Dispatch Contention (W2 / temper#146)",
         "type": "group",
         "layout_type": "ordered",
@@ -1641,6 +1560,7 @@
     }
   ],
   "tags": [
+    "service:temper",
     "team:openpaw"
   ]
 }

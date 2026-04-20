@@ -1,0 +1,30 @@
+{
+  "description": "Sensitive-data scanner rules applied at log ingest (ADR-0054). Redacts known secret shapes before logs hit the index so an accidentally-logged token cannot leak even if application code slips.",
+  "rules": [
+    {
+      "name": "OpenAI / Anthropic API keys (sk-...)",
+      "pattern": "sk-(?:ant-)?[A-Za-z0-9]{20,}",
+      "replacement": "[REDACTED:OPENAI]"
+    },
+    {
+      "name": "GitHub personal-access tokens (ghp_ / ghs_ / gho_)",
+      "pattern": "gh[posu]_[A-Za-z0-9]{30,}",
+      "replacement": "[REDACTED:GITHUB]"
+    },
+    {
+      "name": "Slack bot tokens (xoxb-...)",
+      "pattern": "xox[pbaors]-[A-Za-z0-9-]{10,}",
+      "replacement": "[REDACTED:SLACK]"
+    },
+    {
+      "name": "Email addresses",
+      "pattern": "[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}",
+      "replacement": "[REDACTED:EMAIL]"
+    },
+    {
+      "name": "AWS access key IDs",
+      "pattern": "(?:AKIA|ASIA)[A-Z0-9]{16}",
+      "replacement": "[REDACTED:AWS]"
+    }
+  ]
+}
