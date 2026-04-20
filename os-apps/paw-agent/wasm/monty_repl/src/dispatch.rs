@@ -52,15 +52,20 @@ thread_local! {
     // X-Temper-Span-* hint headers so the host wraps each outgoing
     // HTTP call in a `tool.<name>` span.
     static CURRENT_TOOL_NAME: RefCell<Option<String>> = RefCell::new(None);
+    // The LLM-issued tool_use.id for the tool currently dispatching
+    // (ADR-0037). Exposed as `tool.call_id` span attribute so multiple
+    // retries of the same tool stay disambiguated in the trace tree.
+    static CURRENT_TOOL_CALL_ID: RefCell<Option<String>> = RefCell::new(None);
 }
 
-/// RAII guard that sets the active tool name on entry and clears on drop.
+/// RAII guard that sets the active tool metadata on entry and clears on drop.
 /// Instantiated once at the top of `dispatch()`.
 struct ToolScope;
 
 impl ToolScope {
-    fn new(tool_name: String) -> Self {
+    fn new(tool_name: String, tool_call_id: Option<String>) -> Self {
         CURRENT_TOOL_NAME.with(|cell| *cell.borrow_mut() = Some(tool_name));
+        CURRENT_TOOL_CALL_ID.with(|cell| *cell.borrow_mut() = tool_call_id);
         ToolScope
     }
 }
@@ -68,25 +73,27 @@ impl ToolScope {
 impl Drop for ToolScope {
     fn drop(&mut self) {
         CURRENT_TOOL_NAME.with(|cell| *cell.borrow_mut() = None);
+        CURRENT_TOOL_CALL_ID.with(|cell| *cell.borrow_mut() = None);
     }
 }
 
 /// Build the span-hint headers for the current tool dispatch, if any.
 /// Consumed and stripped by the host's `split_span_hint_headers` (see
 /// temper-wasm) so the resulting `wasm.host.http_call` span is renamed
-/// `tool.<tool_name>` with a queryable `tool.name` attribute.
+/// `tool.<tool_name>` with queryable `tool.name` / `tool.call_id`
+/// attributes.
 fn tool_span_hint_headers() -> Vec<(String, String)> {
     let tool_name = CURRENT_TOOL_NAME.with(|cell| cell.borrow().clone());
-    match tool_name {
-        Some(name) => vec![
-            (
-                "X-Temper-Span-Name".to_string(),
-                format!("tool.{name}"),
-            ),
-            ("X-Temper-Span-Attr-tool.name".to_string(), name),
-        ],
-        None => Vec::new(),
+    let tool_call_id = CURRENT_TOOL_CALL_ID.with(|cell| cell.borrow().clone());
+    let mut headers = Vec::new();
+    if let Some(name) = tool_name {
+        headers.push(("X-Temper-Span-Name".to_string(), format!("tool.{name}")));
+        headers.push(("X-Temper-Span-Attr-tool.name".to_string(), name));
     }
+    if let Some(id) = tool_call_id.filter(|s| !s.is_empty()) {
+        headers.push(("X-Temper-Span-Attr-tool.call_id".to_string(), id));
+    }
+    headers
 }
 
 /// Take the done result (if set). Clears it after reading.
@@ -167,12 +174,16 @@ pub fn dispatch(
     workdir: &str,
     obj_name: &str,
     method: &str,
+    tool_call_id: Option<&str>,
     args: &[Value],
 ) -> Result<Value, String> {
     // Activate the tool-scope guard so every ctx.http_call made through
     // internal_headers() during this dispatch carries span-hint headers
     // identifying the caller (ADR-0037). Cleared on drop at function exit.
-    let _tool_scope = ToolScope::new(format!("{obj_name}.{method}"));
+    let _tool_scope = ToolScope::new(
+        format!("{obj_name}.{method}"),
+        tool_call_id.map(str::to_string),
+    );
 
     // Lazy sandbox provisioning (ADR-0022): if this tool needs a sandbox and
     // none is attached, provision one on-demand instead of failing.

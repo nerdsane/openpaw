@@ -802,6 +802,7 @@ fn drive_repl_loop(
                     workdir,
                     &obj_name,
                     &fn_name,
+                    Some(tool_call_id.as_str()),
                     &json_args,
                 );
                 let duration_ms = (Context::get_time_millis() - started_ms).max(0) as u64;
@@ -1038,7 +1039,11 @@ fn emit_tool_call_telemetry(
         }
         Err(message) => truncate_output(message),
     };
-    let log_level = if success { "info" } else { "warn" };
+    // Successful tool dispatches are superseded by the `tool.<name>`
+    // span (ADR-0037) and emitted at debug to reduce log volume.
+    // Failed dispatches stay at warn so on-call still sees them in
+    // default log streams.
+    let log_level = if success { "debug" } else { "warn" };
     ctx.log(
         log_level,
         &format!(

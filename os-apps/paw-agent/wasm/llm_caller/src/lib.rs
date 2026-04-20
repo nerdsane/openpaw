@@ -1709,6 +1709,37 @@ fn format_llm_hang_hint(provider: &str, attempt: u32, attempt_elapsed_ms: i64) -
     )
 }
 
+/// Max output tokens passed to both Anthropic and OpenRouter. Kept as a
+/// constant so the value is reusable as a `gen_ai.request.max_tokens`
+/// span-hint attribute without drifting from the body payload.
+const LLM_MAX_TOKENS: u32 = 16384;
+
+/// Format a post-response usage log line using OpenTelemetry
+/// `gen_ai.*` semconv keys so DD's grok parser indexes them as
+/// structured attributes. The `wasm_guest` tracing bridge attaches
+/// the current span/trace IDs to the log, giving DD APM a clickable
+/// correlation between the `tool.llm_call.*` span and these usage
+/// numbers even though they cannot be set as span attributes post-hoc
+/// via hint headers (ADR-0037 Fix C4).
+fn format_gen_ai_usage_log(
+    provider: &str,
+    model: &str,
+    input_tokens: i64,
+    output_tokens: i64,
+    cache_read_input_tokens: i64,
+    cache_creation_input_tokens: i64,
+) -> String {
+    format!(
+        "llm_caller: usage \
+         gen_ai.system={provider} \
+         gen_ai.request.model={model} \
+         gen_ai.usage.input_tokens={input_tokens} \
+         gen_ai.usage.output_tokens={output_tokens} \
+         gen_ai.usage.cache_read_input_tokens={cache_read_input_tokens} \
+         gen_ai.usage.cache_creation_input_tokens={cache_creation_input_tokens}"
+    )
+}
+
 fn call_anthropic(
     ctx: &Context,
     api_key: &str,
@@ -1743,7 +1774,7 @@ fn call_anthropic(
 
     let mut body = json!({
         "model": model,
-        "max_tokens": 16384,
+        "max_tokens": LLM_MAX_TOKENS,
         "messages": effective_messages,
         "temperature": temperature,
     });
@@ -1839,6 +1870,14 @@ fn call_anthropic(
     headers.push((
         "X-Temper-Span-Attr-gen_ai.request.model".to_string(),
         model.to_string(),
+    ));
+    headers.push((
+        "X-Temper-Span-Attr-gen_ai.request.temperature".to_string(),
+        format!("{temperature}"),
+    ));
+    headers.push((
+        "X-Temper-Span-Attr-gen_ai.request.max_tokens".to_string(),
+        LLM_MAX_TOKENS.to_string(),
     ));
 
     // Retry on transient API errors (500, 529, and 400 with vague "Error" message).
@@ -2045,7 +2084,14 @@ fn call_anthropic(
 
     ctx.log(
         "info",
-        &format!("llm_caller: usage: input={input_tokens}, output={output_tokens}, cache_read={cache_read_input_tokens}, cache_create={cache_creation_input_tokens}"),
+        &format_gen_ai_usage_log(
+            "anthropic",
+            model,
+            input_tokens,
+            output_tokens,
+            cache_read_input_tokens,
+            cache_creation_input_tokens,
+        ),
     );
 
     Ok(LlmResponse {
@@ -2086,7 +2132,7 @@ fn call_openrouter(
     let mut body = json!({
         "model": model,
         "messages": or_messages,
-        "max_tokens": 16384,
+        "max_tokens": LLM_MAX_TOKENS,
         "temperature": temperature,
     });
     if !openai_tools.is_empty() {
@@ -2119,6 +2165,14 @@ fn call_openrouter(
     headers.push((
         "X-Temper-Span-Attr-gen_ai.request.model".to_string(),
         model.to_string(),
+    ));
+    headers.push((
+        "X-Temper-Span-Attr-gen_ai.request.temperature".to_string(),
+        format!("{temperature}"),
+    ));
+    headers.push((
+        "X-Temper-Span-Attr-gen_ai.request.max_tokens".to_string(),
+        LLM_MAX_TOKENS.to_string(),
     ));
 
     ctx.log(
@@ -2343,6 +2397,11 @@ fn call_openrouter(
     } else {
         "end_turn".to_string()
     };
+
+    ctx.log(
+        "info",
+        &format_gen_ai_usage_log("openrouter", model, input_tokens, output_tokens, 0, 0),
+    );
 
     Ok(LlmResponse {
         content: Value::Array(content_blocks),
@@ -6000,5 +6059,24 @@ mod tests {
         assert!(msg.contains("anthropic"));
         assert!(msg.contains("attempt 1"));
         assert!(msg.contains("70123"));
+    }
+
+    #[test]
+    fn gen_ai_usage_log_emits_semconv_keys() {
+        let msg = format_gen_ai_usage_log("anthropic", "claude-sonnet-4.6", 120, 480, 40, 80);
+        // Required gen_ai semconv attributes are visible as key=value pairs
+        // so DD's grok ingestion tags them on the log event.
+        assert!(msg.contains("gen_ai.system=anthropic"));
+        assert!(msg.contains("gen_ai.request.model=claude-sonnet-4.6"));
+        assert!(msg.contains("gen_ai.usage.input_tokens=120"));
+        assert!(msg.contains("gen_ai.usage.output_tokens=480"));
+        assert!(msg.contains("gen_ai.usage.cache_read_input_tokens=40"));
+        assert!(msg.contains("gen_ai.usage.cache_creation_input_tokens=80"));
+    }
+
+    #[test]
+    fn gen_ai_usage_log_includes_human_prefix() {
+        let msg = format_gen_ai_usage_log("openrouter", "anthropic/claude-sonnet-4.6", 0, 0, 0, 0);
+        assert!(msg.starts_with("llm_caller: usage "));
     }
 }
