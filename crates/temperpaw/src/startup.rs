@@ -2911,7 +2911,7 @@ mod tests {
             .expect("Entity count widget query should exist");
         assert_eq!(
             indexed_entities_query,
-            "sum:temper_indexed_entities{service:temperpaw,tenant:*}"
+            "sum:temper_indexed_entities{service:openpaw,tenant:*}"
         );
 
         let active_actors_query = dashboard["widgets"]
@@ -2935,7 +2935,7 @@ mod tests {
             .expect("Active Actors widget query should exist");
         assert_eq!(
             active_actors_query,
-            "avg:temper_active_actors{service:temperpaw}"
+            "avg:temper_active_actors{service:openpaw}"
         );
 
         let process_memory_query = dashboard["widgets"]
@@ -2948,7 +2948,9 @@ mod tests {
                     let definition = &inner["definition"];
                     if matches!(
                         definition["title"].as_str()?,
-                        "Process Memory (RSS)" | "TemperPaw Process Memory (RSS)"
+                        "Process Memory (RSS)"
+                            | "TemperPaw Process Memory (RSS)"
+                            | "OpenPaw Process Memory (RSS)"
                     ) {
                         definition["requests"][0]["q"].as_str()
                     } else {
@@ -2959,7 +2961,7 @@ mod tests {
             .expect("Process Memory widget query should exist");
         assert_eq!(
             process_memory_query,
-            "avg:process_resident_memory_bytes{service:temperpaw}"
+            "avg:process_resident_memory_bytes{service:openpaw}"
         );
 
         let indexed_entities_by_host_query = dashboard["widgets"]
@@ -2980,7 +2982,7 @@ mod tests {
             .expect("Indexed Entities by Host widget query should exist");
         assert_eq!(
             indexed_entities_by_host_query,
-            "sum:temper_indexed_entities{service:temperpaw,tenant:*} by {host}"
+            "sum:temper_indexed_entities{service:openpaw,tenant:*} by {host}"
         );
 
         let active_actors_by_host_query = dashboard["widgets"]
@@ -3001,7 +3003,7 @@ mod tests {
             .expect("Active Actors by Host widget query should exist");
         assert_eq!(
             active_actors_by_host_query,
-            "avg:temper_active_actors{service:temperpaw} by {host}"
+            "avg:temper_active_actors{service:openpaw} by {host}"
         );
 
         let process_memory_by_host_query = dashboard["widgets"]
@@ -3012,17 +3014,20 @@ mod tests {
                 let widgets = widget["definition"]["widgets"].as_array()?;
                 widgets.iter().find_map(|inner| {
                     let definition = &inner["definition"];
-                    if definition["title"].as_str()? == "TemperPaw RSS by Host" {
+                    if matches!(
+                        definition["title"].as_str()?,
+                        "TemperPaw RSS by Host" | "OpenPaw RSS by Host"
+                    ) {
                         definition["requests"][0]["q"].as_str()
                     } else {
                         None
                     }
                 })
             })
-            .expect("TemperPaw RSS by Host widget query should exist");
+            .expect("OpenPaw RSS by Host widget query should exist");
         assert_eq!(
             process_memory_by_host_query,
-            "avg:process_resident_memory_bytes{service:temperpaw} by {host}"
+            "avg:process_resident_memory_bytes{service:openpaw} by {host}"
         );
 
         let projected_entities_query = dashboard["widgets"]
@@ -3046,7 +3051,7 @@ mod tests {
             .expect("Projected Entities widget query should exist");
         assert_eq!(
             projected_entities_query,
-            "sum:temper_projected_entities{service:temperpaw,tenant:*}"
+            "sum:temper_projected_entities{service:openpaw,tenant:*}"
         );
 
         let projection_coverage_query = dashboard["widgets"]
@@ -3067,7 +3072,7 @@ mod tests {
             .expect("Projection Coverage widget query should exist");
         assert_eq!(
             projection_coverage_query,
-            "avg:temper_projection_coverage_ratio{service:temperpaw}"
+            "avg:temper_projection_coverage_ratio{service:openpaw}"
         );
 
         let snapshot_miss_query = dashboard["widgets"]
@@ -3088,7 +3093,7 @@ mod tests {
             .expect("Projection Snapshot Misses widget query should exist");
         assert_eq!(
             snapshot_miss_query,
-            "default_zero(sum:temper_projection_backfill_snapshot_misses_total{service:temperpaw}.as_count().rollup(sum, 60))"
+            "default_zero(sum:temper_projection_backfill_snapshot_misses_total{service:openpaw}.as_count().rollup(sum, 60))"
         );
 
         let reconcile_query = dashboard["widgets"]
@@ -3109,7 +3114,7 @@ mod tests {
             .expect("OS App Reconcile widget query should exist");
         assert_eq!(
             reconcile_query,
-            "default_zero(sum:temper_os_app_reconcile_total{service:temperpaw} by {app,result}.as_count().rollup(sum, 60))"
+            "default_zero(sum:temper_os_app_reconcile_total{service:openpaw} by {app,result}.as_count().rollup(sum, 60))"
         );
 
         let reconcile_duration_query = dashboard["widgets"]
@@ -3130,7 +3135,7 @@ mod tests {
             .expect("OS App Reconcile Duration widget query should exist");
         assert_eq!(
             reconcile_duration_query,
-            "default_zero(avg:temper_os_app_reconcile_duration_ms{service:temperpaw} by {app,result}.rollup(avg, 60))"
+            "default_zero(avg:temper_os_app_reconcile_duration_ms{service:openpaw} by {app,result}.rollup(avg, 60))"
         );
 
         let startup_restore_query = dashboard["widgets"]
@@ -3151,7 +3156,7 @@ mod tests {
             .expect("Startup Live Restore Entities widget query should exist");
         assert_eq!(
             startup_restore_query,
-            "default_zero(sum:temper_startup_live_restore_entities_total{service:temperpaw} by {tenant}.as_count().rollup(sum, 60))"
+            "default_zero(sum:temper_startup_live_restore_entities_total{service:openpaw} by {tenant}.as_count().rollup(sum, 60))"
         );
 
         let session_context_tokens_query = dashboard["widgets"]
@@ -3172,7 +3177,7 @@ mod tests {
             .expect("Session Context Tokens widget query should exist");
         assert_eq!(
             session_context_tokens_query,
-            "avg:temper_session_context_tokens{service:temperpaw} by {provider}.rollup(avg, 60)"
+            "avg:temper_session_context_tokens{service:openpaw} by {provider}.rollup(avg, 60)"
         );
 
         let session_context_bytes_query = dashboard["widgets"]
@@ -3193,7 +3198,7 @@ mod tests {
             .expect("Session Context Bytes widget query should exist");
         assert_eq!(
             session_context_bytes_query,
-            "avg:temper_session_context_bytes{service:temperpaw} by {provider}.rollup(avg, 60)"
+            "avg:temper_session_context_bytes{service:openpaw} by {provider}.rollup(avg, 60)"
         );
 
         let provider_request_bytes_query = dashboard["widgets"]
@@ -3214,7 +3219,7 @@ mod tests {
             .expect("Provider Request Bytes widget query should exist");
         assert_eq!(
             provider_request_bytes_query,
-            "avg:temper_session_provider_request_bytes{service:temperpaw} by {provider}.rollup(avg, 60)"
+            "avg:temper_session_provider_request_bytes{service:openpaw} by {provider}.rollup(avg, 60)"
         );
 
         let memory_budget_exceeded_query = dashboard["widgets"]
@@ -3235,7 +3240,7 @@ mod tests {
             .expect("Session Memory Budget Exceeded widget query should exist");
         assert_eq!(
             memory_budget_exceeded_query,
-            "default_zero(sum:temper_session_memory_limit_exceeded_total{service:temperpaw}.as_count().rollup(sum, 60))"
+            "default_zero(sum:temper_session_memory_limit_exceeded_total{service:openpaw}.as_count().rollup(sum, 60))"
         );
 
         let indexed_entities_drop_query = monitors
@@ -3243,7 +3248,7 @@ mod tests {
             .unwrap()
             .iter()
             .find_map(|monitor| {
-                if monitor["name"].as_str()? == "[TemperPaw] Indexed Entities Drop" {
+                if monitor["name"].as_str()? == "[Temper] Indexed Entities Drop" {
                     monitor["query"].as_str()
                 } else {
                     None
@@ -3252,7 +3257,7 @@ mod tests {
             .expect("Indexed Entities Drop monitor query should exist");
         assert_eq!(
             indexed_entities_drop_query,
-            "avg(last_15m):sum:temper_indexed_entities{service:temperpaw,tenant:*} < 1"
+            "avg(last_15m):sum:temper_indexed_entities{service:openpaw,tenant:*} < 1"
         );
 
         let startup_regression_query = monitors
@@ -3260,7 +3265,7 @@ mod tests {
             .unwrap()
             .iter()
             .find_map(|monitor| {
-                if monitor["name"].as_str()? == "[TemperPaw] Startup Time Regression" {
+                if monitor["name"].as_str()? == "[Temper] Startup Time Regression" {
                     monitor["query"].as_str()
                 } else {
                     None
@@ -3269,7 +3274,7 @@ mod tests {
             .expect("Startup Time Regression monitor query should exist");
         assert_eq!(
             startup_regression_query,
-            "avg(last_15m):avg:temper_startup_time_to_healthy_ms{service:temperpaw} > 120000"
+            "avg(last_15m):avg:temper_startup_time_to_healthy_ms{service:openpaw} > 120000"
         );
 
         let reconcile_regression_query = monitors
@@ -3277,7 +3282,7 @@ mod tests {
             .unwrap()
             .iter()
             .find_map(|monitor| {
-                if monitor["name"].as_str()? == "[TemperPaw] OS App Reconcile Regression" {
+                if monitor["name"].as_str()? == "[Temper] OS App Reconcile Regression" {
                     monitor["query"].as_str()
                 } else {
                     None
@@ -3286,7 +3291,7 @@ mod tests {
             .expect("OS App Reconcile Regression monitor query should exist");
         assert_eq!(
             reconcile_regression_query,
-            "avg(last_1h):avg:temper_startup_phase_duration_ms{service:temperpaw,phase:phase_6_os_app_reconcile} > 60000"
+            "avg(last_1h):avg:temper_startup_phase_duration_ms{service:openpaw,phase:phase_6_os_app_reconcile} > 60000"
         );
 
         let wasm_failure_monitor_query = monitors
@@ -3294,7 +3299,7 @@ mod tests {
             .unwrap()
             .iter()
             .find_map(|monitor| {
-                if monitor["name"].as_str()? == "[TemperPaw] Required WASM Load Failures" {
+                if monitor["name"].as_str()? == "[Temper] Required WASM Load Failures" {
                     monitor["query"].as_str()
                 } else {
                     None
@@ -3303,7 +3308,7 @@ mod tests {
             .expect("Required WASM Load Failures monitor query should exist");
         assert_eq!(
             wasm_failure_monitor_query,
-            "sum(last_15m):sum:temper_wasm_module_load_failures_total{service:temperpaw,criticality:(platform-required OR app-required)}.as_count() > 0"
+            "sum(last_15m):sum:temper_wasm_module_load_failures_total{service:openpaw}.as_count() > 0"
         );
 
         let session_memory_monitor_query = monitors
@@ -3311,7 +3316,7 @@ mod tests {
             .unwrap()
             .iter()
             .find_map(|monitor| {
-                if monitor["name"].as_str()? == "[TemperPaw] Session Memory Budget Exceeded" {
+                if monitor["name"].as_str()? == "[Temper] Session Memory Budget Exceeded" {
                     monitor["query"].as_str()
                 } else {
                     None
@@ -3320,53 +3325,53 @@ mod tests {
             .expect("Session Memory Budget Exceeded monitor query should exist");
         assert_eq!(
             session_memory_monitor_query,
-            "sum(last_15m):sum:temper_session_memory_limit_exceeded_total{service:temperpaw}.as_count() > 0"
+            "sum(last_15m):sum:temper_session_memory_limit_exceeded_total{service:openpaw}.as_count() > 0"
         );
 
         let dashboard_json = dashboard.to_string();
         assert!(
-            dashboard_json.contains("avg:temper_up{service:temperpaw}"),
+            dashboard_json.contains("avg:temper_up{service:openpaw}"),
             "Dashboard should include the metrics pipeline canary."
         );
         assert!(
             dashboard_json.contains(
-                "sum:temper_cedar_evaluations_total{service:temperpaw}.as_count().rollup(sum, 60)"
+                "sum:temper_cedar_evaluations_total{service:openpaw}.as_count().rollup(sum, 60)"
             ),
             "Dashboard should include Cedar evaluation volume."
         );
         assert!(
             dashboard_json.contains(
-                "avg:temper_turso_query_duration{service:temperpaw} by {operation}.rollup(avg, 60)"
+                "avg:temper_turso_query_duration{service:openpaw} by {operation}.rollup(avg, 60)"
             ),
             "Dashboard should include Turso query duration."
         );
         assert!(
             dashboard_json.contains(
-                "sum:temper_wasm_host_http_requests_total{service:temperpaw} by {call_kind,status_code_class}.as_count().rollup(sum, 60)"
+                "sum:temper_wasm_host_http_requests_total{service:openpaw} by {call_kind,status_code_class}.as_count().rollup(sum, 60)"
             ),
             "Dashboard should include WASM host HTTP request volume."
         );
         assert!(
             dashboard_json.contains(
-                "avg:temper_wasm_host_http_duration_ms{service:temperpaw} by {call_kind,status_code_class}.rollup(avg, 60)"
+                "avg:temper_wasm_host_http_duration_ms{service:openpaw} by {call_kind,status_code_class}.rollup(avg, 60)"
             ),
             "Dashboard should include WASM host HTTP latency."
         );
         assert!(
             dashboard_json.contains(
-                "avg:temper_event_replay_duration{service:temperpaw} by {tenant,entity_type}.rollup(avg, 60)"
+                "avg:temper_event_replay_duration{service:openpaw} by {tenant,entity_type}.rollup(avg, 60)"
             ),
             "Dashboard should include event replay duration."
         );
         assert!(
             dashboard_json.contains(
-                "avg:temper_session_context_prepare_duration_ms{service:temperpaw}.rollup(avg, 60)"
+                "avg:temper_session_context_prepare_duration_ms{service:openpaw}.rollup(avg, 60)"
             ),
             "Dashboard should include session context prepare duration."
         );
         assert!(
             dashboard_json.contains(
-                "avg:temper_session_provider_response_bytes{service:temperpaw} by {provider}.rollup(avg, 60)"
+                "avg:temper_session_provider_response_bytes{service:openpaw} by {provider}.rollup(avg, 60)"
             ),
             "Dashboard should include provider response bytes."
         );

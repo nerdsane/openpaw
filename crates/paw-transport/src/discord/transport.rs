@@ -13,10 +13,11 @@ use futures_util::{SinkExt, StreamExt};
 use tokio::sync::{RwLock, watch};
 use tokio::task::JoinHandle;
 use tokio_tungstenite::tungstenite::Message;
+use tracing::Instrument;
 
 use super::gateway::*;
 use super::types::*;
-use crate::PawApiClient;
+use crate::{PawApiClient, apply_current_trace_context};
 
 /// Configuration for the Discord transport.
 #[derive(Debug, Clone)]
@@ -239,9 +240,11 @@ async fn fetch_text_attachments(
             continue;
         }
         if att.size > MAX_ATTACHMENT_SIZE {
-            eprintln!(
-                "  [discord] Skipping oversized text attachment '{}' ({} bytes)",
-                att.filename, att.size
+            tracing::warn!(
+                attachment_filename = %att.filename,
+                attachment_size = att.size,
+                max_attachment_size = MAX_ATTACHMENT_SIZE,
+                "discord text attachment skipped because it exceeds the inline size limit"
             );
             continue;
         }
@@ -249,23 +252,28 @@ async fn fetch_text_attachments(
             Ok(resp) if resp.status().is_success() => match resp.text().await {
                 Ok(body) => results.push((att.filename.clone(), body)),
                 Err(e) => {
-                    eprintln!(
-                        "  [discord] Failed to read attachment body '{}': {e}",
-                        att.filename
+                    tracing::warn!(
+                        attachment_filename = %att.filename,
+                        attachment_size = att.size,
+                        error = %e,
+                        "discord text attachment body could not be read"
                     );
                 }
             },
             Ok(resp) => {
-                eprintln!(
-                    "  [discord] Attachment download '{}' returned {}",
-                    att.filename,
-                    resp.status()
+                tracing::warn!(
+                    attachment_filename = %att.filename,
+                    attachment_size = att.size,
+                    status = %resp.status(),
+                    "discord text attachment download returned a non-success status"
                 );
             }
             Err(e) => {
-                eprintln!(
-                    "  [discord] Failed to download attachment '{}': {e}",
-                    att.filename
+                tracing::warn!(
+                    attachment_filename = %att.filename,
+                    attachment_size = att.size,
+                    error = %e,
+                    "discord text attachment download failed"
                 );
             }
         }
@@ -325,7 +333,11 @@ impl DiscordTransport {
         let webhook_listener = self.spawn_webhook_listener().await?;
         let webhook_port = webhook_listener.port();
         let webhook_url = format!("http://127.0.0.1:{webhook_port}/reply");
-        println!("  [discord] Webhook listener on port {webhook_port}");
+        tracing::info!(
+            webhook_port,
+            webhook_url = %webhook_url,
+            "discord webhook listener started"
+        );
 
         // Phase 2: Bootstrap the Channel entity.
         self.bootstrap_channel(&webhook_url).await?;
@@ -341,15 +353,17 @@ impl DiscordTransport {
                 )
                 .await
                 {
-                    eprintln!("  [discord] Failed to register slash commands: {e}");
+                    tracing::warn!(error = %e, "discord slash command registration failed");
                 }
             }
-            Err(e) => eprintln!("  [discord] Failed to fetch application ID: {e}"),
+            Err(e) => {
+                tracing::warn!(error = %e, "discord application id lookup failed");
+            }
         }
 
         // Phase 3: Connect to Discord Gateway.
         let gateway_url = fetch_gateway_url(&self.http, &self.config.bot_token).await?;
-        println!("  [discord] Gateway URL: {gateway_url}");
+        tracing::info!(gateway_url = %gateway_url, "discord gateway url fetched");
 
         // Phase 4: Event loop with reconnection.
         let mut backoff = Duration::from_secs(1);
@@ -359,7 +373,12 @@ impl DiscordTransport {
             match self.connect_and_run(&url).await {
                 Ok(()) => backoff = Duration::from_secs(1),
                 Err(e) => {
-                    eprintln!("  [discord] Gateway error: {e}");
+                    tracing::warn!(
+                        gateway_url = %url,
+                        backoff_secs = backoff.as_secs(),
+                        error = %e,
+                        "discord gateway loop failed"
+                    );
                     tokio::time::sleep(backoff).await;
                     backoff = (backoff * 2).min(Duration::from_secs(60));
                 }
@@ -372,7 +391,7 @@ impl DiscordTransport {
                 url = format!("{resume}/?v=10&encoding=json");
             }
 
-            println!("  [discord] Reconnecting...");
+            tracing::info!(gateway_url = %url, "discord reconnecting");
         }
     }
 
@@ -463,7 +482,12 @@ impl DiscordTransport {
         }
 
         let channel_id = if !best_id.is_empty() {
-            println!("  [discord] Reusing Channel entity: {best_id} (messages: {best_msg_count})");
+            tracing::info!(
+                channel_entity_id = %best_id,
+                existing_message_count = best_msg_count,
+                archived_duplicate_channels = others_to_archive.len(),
+                "discord transport reusing existing channel entity"
+            );
             // Update webhook_url so reply delivery uses the current port
             let _ = self
                 .api
@@ -472,7 +496,7 @@ impl DiscordTransport {
                     &best_id,
                     "Paw.Channel.UpdateConfig",
                     serde_json::json!({
-                        "default_agent_config": serde_json::json!({"webhook_url": webhook_url}).to_string(),
+                        "webhook_url": webhook_url,
                     }),
                 )
                 .await;
@@ -488,7 +512,11 @@ impl DiscordTransport {
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string();
-            println!("  [discord] Created Channel entity: {id}");
+            tracing::info!(
+                channel_entity_id = %id,
+                archived_duplicate_channels = others_to_archive.len(),
+                "discord transport created new channel entity"
+            );
 
             let _ = self
                 .api
@@ -591,15 +619,29 @@ impl DiscordTransport {
                         continue;
                     }
 
+                    let replay_span = tracing::info_span!(
+                        "discord.receive",
+                        otel.name = "discord.receive",
+                        discord.entrypoint = "gateway_dm_replay",
+                        discord.message_id = msg_id,
+                        discord.author_id = author_id,
+                        discord.channel_id = dm_channel_id,
+                    );
+                    let _replay_guard = replay_span.enter();
+
                     let username = msg
                         .get("author")
                         .and_then(|a| a.get("username"))
                         .and_then(|v| v.as_str())
                         .unwrap_or("unknown");
 
-                    println!(
-                        "  [discord] Catching up missed message from {username}: {}",
-                        &content[..content.len().min(40)]
+                    tracing::info!(
+                        message_id = msg_id,
+                        author_id,
+                        username,
+                        channel_id = dm_channel_id,
+                        preview = %truncate(content, 40),
+                        "discord catch-up replaying missed dm"
                     );
 
                     // Track DM channel mapping
@@ -609,12 +651,13 @@ impl DiscordTransport {
                         .insert(author_id.to_string(), dm_channel_id.to_string());
 
                     // Dispatch ReceiveMessage
-                    let params = serde_json::json!({
+                    let mut params = serde_json::json!({
                         "message_id": msg_id,
                         "author_id": author_id,
                         "thread_id": author_id,
                         "content": content,
                     });
+                    apply_current_trace_context(&mut params);
 
                     match self
                         .api
@@ -634,7 +677,14 @@ impl DiscordTransport {
                             }
                         }
                         Err(e) => {
-                            eprintln!("  [discord] Catch-up ReceiveMessage failed: {e}");
+                            tracing::warn!(
+                                channel_entity_id = %entity_id,
+                                message_id = msg_id,
+                                author_id,
+                                channel_id = dm_channel_id,
+                                error = %e,
+                                "discord catch-up dispatch failed"
+                            );
                         }
                     }
                 }
@@ -655,7 +705,10 @@ impl DiscordTransport {
         }
 
         if total_caught_up > 0 {
-            println!("  [discord] Caught up {total_caught_up} missed messages");
+            tracing::info!(
+                total_caught_up,
+                "discord catch-up completed for missed direct messages"
+            );
             // Flush cursor to Channel entity
             self.flush_cursor().await;
         }
@@ -816,7 +869,7 @@ impl DiscordTransport {
                 Ok(false)
             }
             Some(GatewayOpcode::Reconnect) => {
-                println!("  [discord] Server requested reconnect");
+                tracing::info!("discord gateway requested reconnect");
                 Ok(true)
             }
             Some(GatewayOpcode::InvalidSession) => {
@@ -824,7 +877,7 @@ impl DiscordTransport {
                 if !resumable {
                     *self.gateway.session_id.write().await = None;
                 }
-                println!("  [discord] Invalid session (resumable={resumable})");
+                tracing::warn!(resumable, "discord gateway reported an invalid session");
                 Ok(true)
             }
             _ => Ok(false),
@@ -839,7 +892,7 @@ impl DiscordTransport {
         let msg: MessageCreateData = match serde_json::from_value(data) {
             Ok(m) => m,
             Err(e) => {
-                eprintln!("  [discord] Failed to parse MESSAGE_CREATE: {e}");
+                tracing::warn!(error = %e, "discord message_create payload could not be parsed");
                 return;
             }
         };
@@ -855,7 +908,24 @@ impl DiscordTransport {
             return;
         }
 
-        log_message(&msg.author.username, &msg.content);
+        let receive_span = tracing::info_span!(
+            "discord.receive",
+            otel.name = "discord.receive",
+            discord.entrypoint = "gateway_dm",
+            discord.message_id = %msg.id,
+            discord.author_id = %msg.author.id,
+            discord.channel_id = %msg.channel_id,
+        );
+        let _receive_guard = receive_span.enter();
+
+        log_message(
+            &msg.id,
+            &msg.author.id,
+            &msg.author.username,
+            &msg.channel_id,
+            msg.guild_id.as_deref(),
+            &msg.content,
+        );
 
         // Track DM channel → user mapping for reply delivery.
         self.dm_channels
@@ -892,7 +962,12 @@ impl DiscordTransport {
         // Dispatch Channel.ReceiveMessage — the WASM handles everything else.
         let channel_entity_id = self.channel_entity_id.read().await.clone();
         let Some(channel_id) = channel_entity_id else {
-            eprintln!("  [discord] No Channel entity bootstrapped");
+            tracing::warn!(
+                message_id = %msg.id,
+                author_id = %msg.author.id,
+                channel_id = %msg.channel_id,
+                "discord message received before channel bootstrap completed"
+            );
             return;
         };
 
@@ -900,12 +975,13 @@ impl DiscordTransport {
         let enriched_content =
             enrich_content_with_attachments(&self.http, &msg.content, &msg.attachments).await;
 
-        let params = serde_json::json!({
+        let mut params = serde_json::json!({
             "message_id": msg.id,
             "author_id": msg.author.id,
             "thread_id": msg.author.id,  // DMs use author_id as thread
             "content": enriched_content,
         });
+        apply_current_trace_context(&mut params);
 
         match self
             .api
@@ -918,9 +994,15 @@ impl DiscordTransport {
             .await
         {
             Ok(_) => {
-                println!(
-                    "  [discord] Dispatched ReceiveMessage for {}",
-                    msg.author.username
+                tracing::info!(
+                    channel_entity_id = %channel_id,
+                    message_id = %msg.id,
+                    author_id = %msg.author.id,
+                    username = %msg.author.username,
+                    channel_id = %msg.channel_id,
+                    attachment_count = msg.attachments.len(),
+                    enriched_content_len = enriched_content.len(),
+                    "discord receive_message dispatched"
                 );
                 // Update cursor to track last processed message for catch-up
                 let mut cursor = self.last_message_cursor.write().await;
@@ -929,7 +1011,15 @@ impl DiscordTransport {
                 }
             }
             Err(e) => {
-                eprintln!("  [discord] ReceiveMessage failed: {e}");
+                tracing::warn!(
+                    channel_entity_id = %channel_id,
+                    message_id = %msg.id,
+                    author_id = %msg.author.id,
+                    username = %msg.author.username,
+                    channel_id = %msg.channel_id,
+                    error = %e,
+                    "discord receive_message dispatch failed"
+                );
                 // Send error message to user.
                 let _ = send_discord_message(
                     &self.http,
@@ -1109,7 +1199,11 @@ impl DiscordTransport {
                     .unwrap_or("");
 
                 if !verify_discord_signature(&state.public_key, signature, timestamp, &body) {
-                    eprintln!("  [discord] Interaction signature verification failed");
+                    tracing::warn!(
+                        has_signature = !signature.is_empty(),
+                        has_timestamp = !timestamp.is_empty(),
+                        "discord interaction signature verification failed"
+                    );
                     return (
                         axum::http::StatusCode::UNAUTHORIZED,
                         axum::Json(serde_json::json!({"error": "invalid signature"})),
@@ -1120,7 +1214,7 @@ impl DiscordTransport {
             let payload: InteractionPayload = match serde_json::from_slice(&body) {
                 Ok(p) => p,
                 Err(e) => {
-                    eprintln!("  [discord] Failed to parse interaction: {e}");
+                    tracing::warn!(error = %e, "discord interaction payload could not be parsed");
                     return (
                         axum::http::StatusCode::BAD_REQUEST,
                         axum::Json(serde_json::json!({"error": "invalid payload"})),
@@ -1130,7 +1224,7 @@ impl DiscordTransport {
 
             // Type 1 = PING (Discord verification handshake)
             if payload.interaction_type == 1 {
-                println!("  [discord] Responding to PING verification");
+                tracing::info!("discord interaction ping responded");
                 return (
                     axum::http::StatusCode::OK,
                     axum::Json(serde_json::json!({ "type": 1 })),
@@ -1190,12 +1284,28 @@ impl DiscordTransport {
 
                 // Store DM channel mapping for reply routing
                 let channel_id = payload.channel_id.clone().unwrap_or_default();
+                let preview = truncate(&task_text, 80);
+                tracing::info!(
+                    command = %command,
+                    author_id = %user_id,
+                    channel_id = %channel_id,
+                    preview = %preview,
+                    "discord slash command received"
+                );
+                let receive_span = tracing::info_span!(
+                    "discord.receive",
+                    otel.name = "discord.receive",
+                    discord.entrypoint = "slash_command",
+                    discord.command = %command,
+                    discord.author_id = %user_id,
+                    discord.channel_id = %channel_id,
+                );
                 if !user_id.is_empty() && !channel_id.is_empty() {
                     state
                         .dm_channels
                         .write()
                         .await
-                        .insert(user_id.clone(), channel_id);
+                        .insert(user_id.clone(), channel_id.clone());
                 }
 
                 let entity_id = state.channel_entity_id.read().await.clone();
@@ -1208,10 +1318,15 @@ impl DiscordTransport {
                 // Dispatch ReceiveMessage asynchronously (deferred response)
                 tokio::spawn(async move {
                     let Some(entity_id) = entity_id else {
-                        eprintln!("  [discord] No channel entity for slash command");
+                        tracing::warn!(
+                            command = %command,
+                            author_id = %user_id,
+                            channel_id = %channel_id,
+                            "discord slash command received before channel bootstrap completed"
+                        );
                         return;
                     };
-                    let params = serde_json::json!({
+                    let mut params = serde_json::json!({
                         "message_id": format!("cmd-{}", std::time::SystemTime::now()
                             .duration_since(std::time::UNIX_EPOCH)
                             .map(|d| d.as_millis())
@@ -1221,12 +1336,7 @@ impl DiscordTransport {
                         "content": task_text,
                         "command": command,
                     });
-                    let preview = if task_text.len() > 80 {
-                        &task_text[..80]
-                    } else {
-                        &task_text
-                    };
-                    println!("  [discord] /{command} from {user_id}: {preview}");
+                    apply_current_trace_context(&mut params);
                     if let Err(e) = api
                         .dispatch_action(
                             "Channels",
@@ -1236,7 +1346,13 @@ impl DiscordTransport {
                         )
                         .await
                     {
-                        eprintln!("  [discord] Slash command dispatch failed: {e}");
+                        tracing::warn!(
+                            command = %command,
+                            author_id = %user_id,
+                            channel_entity_id = %entity_id,
+                            error = %e,
+                            "discord slash command dispatch failed"
+                        );
                         // Edit the deferred message with error
                         let _ = http
                             .patch(format!(
@@ -1248,7 +1364,8 @@ impl DiscordTransport {
                             .send()
                             .await;
                     }
-                });
+                }
+                .instrument(receive_span));
 
                 // Respond with type 5 = DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE
                 return (
@@ -1321,7 +1438,13 @@ impl DiscordTransport {
                 .unwrap_or("unknown")
                 .to_string();
 
-            println!("  [discord] Interaction: {action} target {target_id} by {reviewer_id}");
+            tracing::info!(
+                action,
+                target_id,
+                reviewer_id,
+                channel_id = %payload.channel_id.clone().unwrap_or_default(),
+                "discord component interaction received"
+            );
 
             // Process via Temper's native decisions API asynchronously
             let api = state.api.clone();
@@ -1522,7 +1645,7 @@ impl DiscordTransport {
                 })
                 .await
             {
-                eprintln!("  [discord] Webhook listener error: {e}");
+                tracing::warn!(error = %e, "discord webhook listener stopped with an error");
             }
         });
 
@@ -1583,9 +1706,56 @@ async fn read_payload(read: &mut WsStream) -> Result<Option<GatewayPayload>, Str
 
 #[cfg(test)]
 mod tests {
-    use axum::{Router, routing::get};
+    use std::io;
+    use std::sync::{Arc, Mutex};
+
+    use axum::extract::{Query, State};
+    use axum::http::StatusCode;
+    use axum::{
+        Json, Router,
+        routing::{get, post},
+    };
+    use serde_json::json;
+    use tokio::net::TcpListener;
+    use tracing_subscriber::fmt::MakeWriter;
 
     use super::*;
+
+    #[derive(Clone, Default)]
+    struct SharedWriter {
+        buffer: Arc<Mutex<Vec<u8>>>,
+    }
+
+    impl SharedWriter {
+        fn output(&self) -> String {
+            String::from_utf8(self.buffer.lock().unwrap().clone()).unwrap_or_default()
+        }
+    }
+
+    struct SharedLogGuard {
+        buffer: Arc<Mutex<Vec<u8>>>,
+    }
+
+    impl io::Write for SharedLogGuard {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            self.buffer.lock().unwrap().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl<'a> MakeWriter<'a> for SharedWriter {
+        type Writer = SharedLogGuard;
+
+        fn make_writer(&'a self) -> Self::Writer {
+            SharedLogGuard {
+                buffer: self.buffer.clone(),
+            }
+        }
+    }
 
     fn make_attachment(filename: &str, content_type: Option<&str>, size: u64) -> DiscordAttachment {
         DiscordAttachment {
@@ -1596,6 +1766,37 @@ mod tests {
             proxy_url: format!("https://media.discordapp.net/{filename}"),
             content_type: content_type.map(|s| s.to_string()),
         }
+    }
+
+    #[test]
+    fn discord_ingress_logging_uses_tracing() {
+        let writer = SharedWriter::default();
+        let subscriber = tracing_subscriber::fmt()
+            .with_ansi(false)
+            .without_time()
+            .with_writer(writer.clone())
+            .finish();
+
+        tracing::subscriber::with_default(subscriber, || {
+            log_message(
+                "msg_123",
+                "user_456",
+                "paw-user",
+                "dm_789",
+                None,
+                "hello from discord",
+            );
+        });
+
+        let output = writer.output();
+        assert!(
+            output.contains("discord message received"),
+            "expected inbound Discord messages to flow through tracing, got: {output:?}"
+        );
+        assert!(
+            output.contains("message_id=\"msg_123\""),
+            "expected structured message fields in tracing output, got: {output:?}"
+        );
     }
 
     #[tokio::test]
@@ -1621,6 +1822,95 @@ mod tests {
         assert!(
             rebound.is_ok(),
             "expected port {port} to be reusable after drop"
+        );
+    }
+
+    #[derive(Clone, Default)]
+    struct BootstrapProbe {
+        update_config_body: Arc<Mutex<Option<serde_json::Value>>>,
+    }
+
+    async fn spawn_test_server(app: Router) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        format!("http://{}", addr)
+    }
+
+    #[tokio::test]
+    async fn bootstrap_reused_channel_refreshes_webhook_url() {
+        let probe = BootstrapProbe::default();
+        let app = Router::new()
+            .route(
+                "/tdata/Channels",
+                get(
+                    |Query(_query): Query<std::collections::HashMap<String, String>>| async move {
+                        (
+                            StatusCode::OK,
+                            Json(json!({
+                                "value": [{
+                                    "entity_id": "ch_existing",
+                                    "status": "Disconnected",
+                                    "fields": {
+                                        "WebhookUrl": "",
+                                        "last_discord_message_id": "123"
+                                    },
+                                    "counters": {
+                                        "message_count": 42
+                                    }
+                                }]
+                            })),
+                        )
+                    },
+                ),
+            )
+            .route(
+                "/tdata/Channels('ch_existing')/Paw.Channel.UpdateConfig",
+                post(
+                    |State(probe): State<BootstrapProbe>, Json(body): Json<serde_json::Value>| async move {
+                        *probe.update_config_body.lock().unwrap() = Some(body);
+                        (StatusCode::OK, Json(json!({"ok": true})))
+                    },
+                ),
+            )
+            .with_state(probe.clone());
+
+        let base_url = spawn_test_server(app).await;
+        let api = crate::PawApiClient::new(crate::PawApiConfig {
+            base_url,
+            tenant: "default".to_string(),
+            api_key: None,
+        });
+        let transport = DiscordTransport::new(
+            DiscordConfig {
+                bot_token: "token".to_string(),
+                intents: intents::DEFAULT,
+                webhook_port: 3488,
+                public_key: "public-key".to_string(),
+                guild_id: None,
+                feed_channel_id: None,
+                forum_channel_id: None,
+            },
+            api,
+        );
+
+        transport
+            .bootstrap_channel("http://127.0.0.1:3488/reply")
+            .await
+            .expect("reused channel bootstrap should succeed");
+
+        let update = probe
+            .update_config_body
+            .lock()
+            .unwrap()
+            .clone()
+            .expect("expected UpdateConfig to be dispatched");
+        assert_eq!(
+            update.get("webhook_url").and_then(|value| value.as_str()),
+            Some("http://127.0.0.1:3488/reply"),
+            "reused discord channels must refresh the reply webhook target"
         );
     }
 

@@ -8,8 +8,23 @@ version = "0.24.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dfbe277e56a376000877090da837660b4427aad530e3028d44e0bffe4f89a1c1"
 dependencies = [
- "gimli",
+ "gimli 0.31.1",
 ]
+
+[[package]]
+name = "addr2line"
+version = "0.25.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1b5d307320b3181d6d7954e663bd7c774a838b8220fe0593c86d9fb09f498b4b"
+dependencies = [
+ "gimli 0.32.3",
+]
+
+[[package]]
+name = "adler2"
+version = "2.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
 name = "aead"
@@ -67,6 +82,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ddd31a130427c27518df266943a5308ed92d4b226cc639f5a8f1002816174301"
 dependencies = [
  "memchr",
+]
+
+[[package]]
+name = "aligned-vec"
+version = "0.6.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dc890384c8602f339876ded803c97ad529f3842aba97f6392b3dba0dd171769b"
+dependencies = [
+ "equator",
 ]
 
 [[package]]
@@ -426,6 +450,21 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "backtrace"
+version = "0.3.76"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bb531853791a215d7c62a30daf0dde835f381ab5de4589cfe7c649d2cbe92bd6"
+dependencies = [
+ "addr2line 0.25.1",
+ "cfg-if",
+ "libc",
+ "miniz_oxide",
+ "object 0.37.3",
+ "rustc-demangle",
+ "windows-link",
 ]
 
 [[package]]
@@ -1079,7 +1118,7 @@ dependencies = [
  "cranelift-control",
  "cranelift-entity",
  "cranelift-isle",
- "gimli",
+ "gimli 0.31.1",
  "hashbrown 0.14.5",
  "log",
  "regalloc2",
@@ -1543,6 +1582,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "equator"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4711b213838dfee0117e3be6ac926007d7f433d7bbe33595975d4190cb07e6fc"
+dependencies = [
+ "equator-macro",
+]
+
+[[package]]
+name = "equator-macro"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "44f23cf4b44bfce11a86ace86f8a73ffdec849c9fd00a386a53d278bd9e81fb3"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "equivalent"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1639,6 +1698,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5baebc0774151f905a1a2cc41989300b1e6fbb29aff0ceffa1064fdd3088d582"
 
 [[package]]
+name = "findshlibs"
+version = "0.10.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "40b9e59cd0f7e0806cca4be089683ecb6434e602038df21fe6bf6711b2f07f64"
+dependencies = [
+ "cc",
+ "lazy_static",
+ "libc",
+ "winapi",
+]
+
+[[package]]
 name = "fixedbitset"
 version = "0.5.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1661,7 +1732,7 @@ checksum = "da0e4dd2a88388a1f4ccc7c9ce104604dab68d9f408dc34cd45823d5a9069095"
 dependencies = [
  "futures-core",
  "futures-sink",
- "spin",
+ "spin 0.9.8",
 ]
 
 [[package]]
@@ -1981,6 +2052,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "gimli"
+version = "0.32.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e629b9b98ef3dd8afe6ca2bd0f89306cec16d43d907889945bc5d6687f2f13c7"
+
+[[package]]
 name = "glob"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2106,7 +2183,7 @@ dependencies = [
  "hash32",
  "rustc_version",
  "serde",
- "spin",
+ "spin 0.9.8",
  "stable_deref_trait",
 ]
 
@@ -2745,7 +2822,7 @@ version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bbd2bcb4c963f2ddae06a2efc7e9f3591312473c50c6685e1f298068316e66fe"
 dependencies = [
- "spin",
+ "spin 0.9.8",
 ]
 
 [[package]]
@@ -2756,9 +2833,9 @@ checksum = "830d08ce1d1d941e6b30645f1a0eb5643013d835ce3779a5fc208261dbe10f55"
 
 [[package]]
 name = "leb128"
-version = "0.2.5"
+version = "0.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "884e2677b40cc8c339eaefcb701c32ef1fd2493d71118dc0ca4b6a736c93bd67"
+checksum = "6cc46bac87ef8093eed6f272babb833b6443374399985ac8ed28471ee0918545"
 
 [[package]]
 name = "leb128fmt"
@@ -3129,6 +3206,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "memmap2"
+version = "0.9.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "714098028fe011992e1c3962653c96b2d578c4b4bce9036e15ff220319b1e0e3"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "miette"
 version = "7.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3172,6 +3258,15 @@ name = "minimal-lexical"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "68354c5c6bd36d73ff3feceb05efa59b6acb7626617f4962be322a825e61f79a"
+
+[[package]]
+name = "miniz_oxide"
+version = "0.8.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1fa76a2c86f704bdb222d66965fb3d63269ce38518b83cb0575fca855ebb6316"
+dependencies = [
+ "adler2",
+]
 
 [[package]]
 name = "mio"
@@ -3229,6 +3324,17 @@ name = "new_debug_unreachable"
 version = "1.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "650eef8c711430f1a879fdd01d4745a7deea475becfb90269c06775983bbf086"
+
+[[package]]
+name = "nix"
+version = "0.26.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "598beaf3cc6fdd9a5dfb1630c2800c7acd31df7aaf0f565796fba2b53ca1af1b"
+dependencies = [
+ "bitflags 1.3.2",
+ "cfg-if",
+ "libc",
+]
 
 [[package]]
 name = "nohash-hasher"
@@ -3402,9 +3508,9 @@ checksum = "c08d65885ee38876c4f86fa503fb49d7b507c2b62552df7c70b2fce627e06381"
 
 [[package]]
 name = "openssl"
-version = "0.10.77"
+version = "0.10.78"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bfe4646e360ec77dff7dde40ed3d6c5fee52d156ef4a62f53973d38294dad87f"
+checksum = "f38c4372413cdaaf3cc79dd92d29d7d9f5ab09b51b10dded508fb90bb70b9222"
 dependencies = [
  "bitflags 2.11.1",
  "cfg-if",
@@ -3440,9 +3546,9 @@ checksum = "7c87def4c32ab89d880effc9e097653c8da5d6ef28e6b539d313baaacfbafcbe"
 
 [[package]]
 name = "openssl-sys"
-version = "0.9.113"
+version = "0.9.114"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ad2f2c0eba47118757e4c6d2bff2838f3e0523380021356e7875e858372ce644"
+checksum = "13ce1245cd07fcc4cfdb438f7507b0c7e4f3849a69fd84d52374c66d83741bb6"
 dependencies = [
  "cc",
  "libc",
@@ -3537,6 +3643,8 @@ dependencies = [
  "rand 0.8.6",
  "serde_json",
  "thiserror 2.0.18",
+ "tokio",
+ "tokio-stream",
  "tracing",
 ]
 
@@ -3604,6 +3712,8 @@ dependencies = [
  "futures-util",
  "hex",
  "hmac",
+ "opentelemetry",
+ "opentelemetry_sdk",
  "reqwest",
  "serde",
  "serde_json",
@@ -3612,6 +3722,8 @@ dependencies = [
  "tokio-stream",
  "tokio-tungstenite",
  "tracing",
+ "tracing-opentelemetry",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -3806,6 +3918,29 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "439ee305def115ba05938db6eb1644ff94165c5ab5e9420d1c1bcedbba909391"
 
 [[package]]
+name = "pprof"
+version = "0.14.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "afad4d4df7b31280028245f152d5a575083e2abb822d05736f5e47653e77689f"
+dependencies = [
+ "aligned-vec",
+ "backtrace",
+ "cfg-if",
+ "findshlibs",
+ "libc",
+ "log",
+ "nix",
+ "once_cell",
+ "protobuf",
+ "protobuf-codegen-pure",
+ "smallvec",
+ "spin 0.10.0",
+ "symbolic-demangle",
+ "tempfile",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "ppv-lite86"
 version = "0.2.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3924,6 +4059,31 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "protobuf"
+version = "2.28.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "106dd99e98437432fed6519dedecfade6a06a73bb7b2a1e019fdd2bee5778d94"
+
+[[package]]
+name = "protobuf-codegen"
+version = "2.28.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "033460afb75cf755fcfc16dfaed20b86468082a2ea24e05ac35ab4a099a017d6"
+dependencies = [
+ "protobuf",
+]
+
+[[package]]
+name = "protobuf-codegen-pure"
+version = "2.28.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "95a29399fc94bcd3eeaa951c715f7bea69409b2445356b00519740bcd6ddd865"
+dependencies = [
+ "protobuf",
+ "protobuf-codegen",
 ]
 
 [[package]]
@@ -4288,6 +4448,7 @@ dependencies = [
  "js-sys",
  "log",
  "mime",
+ "mime_guess",
  "native-tls",
  "percent-encoding",
  "pin-project-lite",
@@ -4824,9 +4985,9 @@ dependencies = [
 
 [[package]]
 name = "sha3"
-version = "0.10.8"
+version = "0.10.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "75872d278a8f37ef87fa0ddbda7802605cb18344497949862c0d4dcb291eba60"
+checksum = "77fd7028345d415a4034cf8777cd4f8ab1851274233b45f84e3d955502d93874"
 dependencies = [
  "digest",
  "keccak",
@@ -4950,6 +5111,15 @@ name = "spin"
 version = "0.9.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6980e8d7511241f8acf4aebddbb1ff938df5eebe98691418c4468d0b72a96a67"
+dependencies = [
+ "lock_api",
+]
+
+[[package]]
+name = "spin"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d5fe4ccb98d9c292d56fec89a5e07da7fc4cf0dc11e156b41793132775d3e591"
 dependencies = [
  "lock_api",
 ]
@@ -5268,6 +5438,29 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
+name = "symbolic-common"
+version = "12.18.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4bbc8b4f883265fb2207a0d6ce67095f4bd6cf13e5f9183eb8b3e73fa1b2466a"
+dependencies = [
+ "debugid",
+ "memmap2",
+ "stable_deref_trait",
+ "uuid",
+]
+
+[[package]]
+name = "symbolic-demangle"
+version = "12.18.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8eda470a26ea40eb5cafc35487718e23a2f19153d3a589affb9e8f7fa1aa73b3"
+dependencies = [
+ "cpp_demangle",
+ "rustc-demangle",
+ "symbolic-common",
+]
+
+[[package]]
 name = "syn"
 version = "2.0.117"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5350,6 +5543,7 @@ checksum = "adb6935a6f5c20170eeceb1a3835a49e12e19d792f6dd344ccc76a985ca5a6ca"
 [[package]]
 name = "temper-authz"
 version = "0.1.0"
+source = "git+https://github.com/nerdsane/temper.git?branch=main#e59aac236b278359a7792cd1baf3e01e7bdbc8eb"
 dependencies = [
  "cedar-policy",
  "opentelemetry",
@@ -5363,6 +5557,7 @@ dependencies = [
 [[package]]
 name = "temper-evolution"
 version = "0.1.0"
+source = "git+https://github.com/nerdsane/temper.git?branch=main#e59aac236b278359a7792cd1baf3e01e7bdbc8eb"
 dependencies = [
  "chrono",
  "serde",
@@ -5379,6 +5574,7 @@ dependencies = [
 [[package]]
 name = "temper-jit"
 version = "0.1.0"
+source = "git+https://github.com/nerdsane/temper.git?branch=main#e59aac236b278359a7792cd1baf3e01e7bdbc8eb"
 dependencies = [
  "serde",
  "serde_json",
@@ -5390,6 +5586,7 @@ dependencies = [
 [[package]]
 name = "temper-observe"
 version = "0.1.0"
+source = "git+https://github.com/nerdsane/temper.git?branch=main#e59aac236b278359a7792cd1baf3e01e7bdbc8eb"
 dependencies = [
  "chrono",
  "opentelemetry",
@@ -5412,6 +5609,7 @@ dependencies = [
 [[package]]
 name = "temper-odata"
 version = "0.1.0"
+source = "git+https://github.com/nerdsane/temper.git?branch=main#e59aac236b278359a7792cd1baf3e01e7bdbc8eb"
 dependencies = [
  "axum 0.8.9",
  "chrono",
@@ -5425,6 +5623,7 @@ dependencies = [
 [[package]]
 name = "temper-optimize"
 version = "0.1.0"
+source = "git+https://github.com/nerdsane/temper.git?branch=main#e59aac236b278359a7792cd1baf3e01e7bdbc8eb"
 dependencies = [
  "serde",
  "serde_json",
@@ -5438,6 +5637,7 @@ dependencies = [
 [[package]]
 name = "temper-platform"
 version = "0.1.0"
+source = "git+https://github.com/nerdsane/temper.git?branch=main#e59aac236b278359a7792cd1baf3e01e7bdbc8eb"
 dependencies = [
  "anyhow",
  "axum 0.8.9",
@@ -5468,6 +5668,7 @@ dependencies = [
 [[package]]
 name = "temper-runtime"
 version = "0.1.0"
+source = "git+https://github.com/nerdsane/temper.git?branch=main#e59aac236b278359a7792cd1baf3e01e7bdbc8eb"
 dependencies = [
  "anyhow",
  "chrono",
@@ -5482,6 +5683,7 @@ dependencies = [
 [[package]]
 name = "temper-sandbox"
 version = "0.1.0"
+source = "git+https://github.com/nerdsane/temper.git?branch=main#e59aac236b278359a7792cd1baf3e01e7bdbc8eb"
 dependencies = [
  "anyhow",
  "monty",
@@ -5495,6 +5697,7 @@ dependencies = [
 [[package]]
 name = "temper-server"
 version = "0.1.0"
+source = "git+https://github.com/nerdsane/temper.git?branch=main#e59aac236b278359a7792cd1baf3e01e7bdbc8eb"
 dependencies = [
  "aes-gcm",
  "async-trait",
@@ -5507,6 +5710,7 @@ dependencies = [
  "libc",
  "lru",
  "opentelemetry",
+ "pprof",
  "reqwest",
  "serde",
  "serde_json",
@@ -5540,6 +5744,7 @@ dependencies = [
 [[package]]
 name = "temper-spec"
 version = "0.1.0"
+source = "git+https://github.com/nerdsane/temper.git?branch=main#e59aac236b278359a7792cd1baf3e01e7bdbc8eb"
 dependencies = [
  "quick-xml",
  "serde",
@@ -5552,6 +5757,7 @@ dependencies = [
 [[package]]
 name = "temper-store-postgres"
 version = "0.1.0"
+source = "git+https://github.com/nerdsane/temper.git?branch=main#e59aac236b278359a7792cd1baf3e01e7bdbc8eb"
 dependencies = [
  "chrono",
  "serde",
@@ -5565,6 +5771,7 @@ dependencies = [
 [[package]]
 name = "temper-store-redis"
 version = "0.1.0"
+source = "git+https://github.com/nerdsane/temper.git?branch=main#e59aac236b278359a7792cd1baf3e01e7bdbc8eb"
 dependencies = [
  "chrono",
  "fred",
@@ -5581,6 +5788,7 @@ dependencies = [
 [[package]]
 name = "temper-store-turso"
 version = "0.1.0"
+source = "git+https://github.com/nerdsane/temper.git?branch=main#e59aac236b278359a7792cd1baf3e01e7bdbc8eb"
 dependencies = [
  "libsql",
  "opentelemetry",
@@ -5596,6 +5804,7 @@ dependencies = [
 [[package]]
 name = "temper-verify"
 version = "0.1.0"
+source = "git+https://github.com/nerdsane/temper.git?branch=main#e59aac236b278359a7792cd1baf3e01e7bdbc8eb"
 dependencies = [
  "proptest",
  "serde",
@@ -5609,6 +5818,7 @@ dependencies = [
 [[package]]
 name = "temper-wasm"
 version = "0.1.0"
+source = "git+https://github.com/nerdsane/temper.git?branch=main#e59aac236b278359a7792cd1baf3e01e7bdbc8eb"
 dependencies = [
  "async-trait",
  "chrono",
@@ -6287,9 +6497,9 @@ checksum = "6af6ae20167a9ece4bcb41af5b80f8a1f1df981f6391189ce00fd257af04126a"
 
 [[package]]
 name = "typenum"
-version = "1.19.0"
+version = "1.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "562d481066bde0658276a35467c4af00bdc6ee726305698a55b86e61d7ad82bb"
+checksum = "40ce102ab67701b8526c123c1bab5cbe42d7040ccfd0f64af1a385808d2f43de"
 
 [[package]]
 name = "unarray"
@@ -6710,7 +6920,7 @@ version = "29.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "11976a250672556d1c4c04c6d5d7656ac9192ac9edc42a4587d6c21460010e69"
 dependencies = [
- "addr2line",
+ "addr2line 0.24.2",
  "anyhow",
  "async-trait",
  "bitflags 2.11.1",
@@ -6719,7 +6929,7 @@ dependencies = [
  "cfg-if",
  "encoding_rs",
  "fxprof-processed-profile",
- "gimli",
+ "gimli 0.31.1",
  "hashbrown 0.14.5",
  "indexmap 2.14.0",
  "ittapi",
@@ -6825,7 +7035,7 @@ dependencies = [
  "cranelift-entity",
  "cranelift-frontend",
  "cranelift-native",
- "gimli",
+ "gimli 0.31.1",
  "itertools 0.12.1",
  "log",
  "object 0.36.7",
@@ -6847,7 +7057,7 @@ dependencies = [
  "cpp_demangle",
  "cranelift-bitset",
  "cranelift-entity",
- "gimli",
+ "gimli 0.31.1",
  "indexmap 2.14.0",
  "log",
  "object 0.36.7",
@@ -6967,7 +7177,7 @@ checksum = "fdbabfb8f20502d5e1d81092b9ead3682ae59988487aafcd7567387b7a43cf8f"
 dependencies = [
  "anyhow",
  "cranelift-codegen",
- "gimli",
+ "gimli 0.31.1",
  "object 0.36.7",
  "target-lexicon",
  "wasmparser 0.221.3",
@@ -7160,7 +7370,7 @@ checksum = "2f849ef2c5f46cb0a20af4b4487aaa239846e52e2c03f13fa3c784684552859c"
 dependencies = [
  "anyhow",
  "cranelift-codegen",
- "gimli",
+ "gimli 0.31.1",
  "regalloc2",
  "smallvec",
  "target-lexicon",
@@ -7813,11 +8023,3 @@ dependencies = [
  "cc",
  "pkg-config",
 ]
-
-[[patch.unused]]
-name = "temper-macros"
-version = "0.1.0"
-
-[[patch.unused]]
-name = "temper-wasm-sdk"
-version = "0.1.0"

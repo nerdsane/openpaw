@@ -6,6 +6,49 @@ const DEFAULT_TOOLS_ENABLED: &str = "temper_create,temper_get,temper_list,temper
 const PLAN_MODE_TOOLS: &str = "temper_create,temper_get,temper_list,temper_action,temper_specs,temper_show_spec,temper_save_memory,temper_recall_memory,temper_read,temper_write,temper_web_search,temper_web_fetch,temper_get_trajectories,temper_get_insights,read,bash";
 const DEFAULT_WORKDIR: &str = "/workspace";
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TraceContextFields {
+    trace_id: String,
+    span_id: String,
+}
+
+impl AsRef<TraceContextFields> for TraceContextFields {
+    fn as_ref(&self) -> &TraceContextFields {
+        self
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[unsafe(no_mangle)]
+extern "C" fn host_get_context(_buf_ptr: i32, _buf_len: i32) -> i32 {
+    -1
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[unsafe(no_mangle)]
+extern "C" fn host_http_call(
+    _method_ptr: i32,
+    _method_len: i32,
+    _url_ptr: i32,
+    _url_len: i32,
+    _headers_ptr: i32,
+    _headers_len: i32,
+    _body_ptr: i32,
+    _body_len: i32,
+    _result_buf_ptr: i32,
+    _result_buf_len: i32,
+) -> i32 {
+    -1
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[unsafe(no_mangle)]
+extern "C" fn host_log(_level_ptr: i32, _level_len: i32, _msg_ptr: i32, _msg_len: i32) {}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[unsafe(no_mangle)]
+extern "C" fn host_set_result(_ptr: i32, _len: i32) {}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
     let result = (|| -> Result<(), String> {
@@ -31,6 +74,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             .get("command")
             .and_then(|v| v.as_str())
             .unwrap_or("");
+        let trace_context = trace_context_from_trigger_params(&ctx.trigger_params);
         if channel_id.is_empty() || author_id.is_empty() {
             return Err("route_message: missing channel_id/author_id".to_string());
         }
@@ -93,6 +137,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 route_agent_id,
                 user_msg,
                 "",
+                trace_context.as_ref(),
             )?;
             create_channel_session(
                 &ctx,
@@ -170,6 +215,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                             &session_entity_id,
                             content,
                             command,
+                            trace_context.as_ref(),
                         )?
                     }
                 } else if is_terminal_status(session_status) {
@@ -185,6 +231,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                         &session_entity_id,
                         content,
                         command,
+                        trace_context.as_ref(),
                     )?
                 } else {
                     // Non-steerable, non-terminal (e.g. Provisioning, WaitingForApproval)
@@ -212,6 +259,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                     route_agent_id,
                     content,
                     command,
+                    trace_context.as_ref(),
                 )?;
                 create_channel_session(
                     &ctx,
@@ -245,6 +293,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 route_agent_id,
                 content,
                 command,
+                trace_context.as_ref(),
             )?;
             create_channel_session(
                 &ctx,
@@ -322,6 +371,37 @@ fn file_headers(
     } else {
         runtime_headers_for_workspace(ctx, tenant, &json!({}), workspace_id, content_type, accept)
     }
+}
+
+fn trace_context_from_trigger_params(trigger_params: &Value) -> Option<TraceContextFields> {
+    let trace_id = trigger_params
+        .get("gen_ai_parent_trace_id")
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())?;
+    let span_id = trigger_params
+        .get("gen_ai_parent_span_id")
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())?;
+
+    Some(TraceContextFields {
+        trace_id: trace_id.to_string(),
+        span_id: span_id.to_string(),
+    })
+}
+
+fn apply_trace_context(configure_body: &mut Value, trace_context: &TraceContextFields) {
+    let Some(object) = configure_body.as_object_mut() else {
+        return;
+    };
+
+    object.insert(
+        "gen_ai_parent_trace_id".into(),
+        json!(trace_context.trace_id.clone()),
+    );
+    object.insert(
+        "gen_ai_parent_span_id".into(),
+        json!(trace_context.span_id.clone()),
+    );
 }
 
 fn list_entities(ctx: &Context, url: &str, tenant: &str) -> Result<Vec<Value>, String> {
@@ -455,6 +535,7 @@ fn create_session_for_agent(
     route_agent_id: &str,
     user_message: &str,
     command: &str,
+    trace_context: Option<&TraceContextFields>,
 ) -> Result<(String, String), String> {
     let config: Value = serde_json::from_str(route_config).unwrap_or_else(|_| json!({}));
 
@@ -526,7 +607,7 @@ fn create_session_for_agent(
         ("execute", agent_tools.clone(), String::new())
     };
 
-    let configure_body = json!({
+    let mut configure_body = json!({
         "system_prompt": config.get("system_prompt").and_then(Value::as_str).unwrap_or(""),
         "user_message": user_message,
         "model": agent_model,
@@ -551,6 +632,9 @@ fn create_session_for_agent(
         "session_mode": session_mode,
         "pre_plan_tools_enabled": pre_plan_tools,
     });
+    if let Some(trace_context) = trace_context {
+        apply_trace_context(&mut configure_body, trace_context);
+    }
     let configure_url =
         format!("{temper_api_url}/tdata/Sessions('{session_id}')/TemperPaw.Configure");
     ctx.log(
@@ -596,6 +680,7 @@ fn continue_with_new_session(
     _prior_session_id: &str,
     user_message: &str,
     command: &str,
+    trace_context: Option<&TraceContextFields>,
 ) -> Result<String, String> {
     let fields = prior_session
         .get("fields")
@@ -738,6 +823,7 @@ fn continue_with_new_session(
         effective_max_turns,
         new_leaf_id.as_deref().unwrap_or(prior_leaf_id),
         command,
+        trace_context,
     )?;
 
     // Update ChannelSession: agent_entity_id stays the same, only session_entity_id changes
@@ -805,6 +891,7 @@ fn configure_session_from_prior(
     max_turns: &str,
     session_leaf_id: &str,
     command: &str,
+    trace_context: Option<&TraceContextFields>,
 ) -> Result<(), String> {
     // Determine mode-specific tools and session_mode
     let (session_mode, effective_tools, pre_plan_tools) = if command == "plan" {
@@ -816,7 +903,7 @@ fn configure_session_from_prior(
     // Include resume-specific fields (workspace, conversation, session tree) in Configure
     // so they're stored as session fields before auto-Provision fires. The provision_sandbox
     // integration checks these to decide whether to restore an existing workspace or provision new.
-    let configure_body = json!({
+    let mut configure_body = json!({
         "system_prompt": str_field(fields, &["system_prompt", "SystemPrompt"]).unwrap_or(""),
         "user_message": user_message,
         "model": model,
@@ -855,6 +942,9 @@ fn configure_session_from_prior(
         "session_mode": session_mode,
         "pre_plan_tools_enabled": pre_plan_tools,
     });
+    if let Some(trace_context) = trace_context {
+        apply_trace_context(&mut configure_body, trace_context);
+    }
     let configure_url =
         format!("{temper_api_url}/tdata/Sessions('{session_id}')/TemperPaw.Configure");
     let configure_resp = ctx.http_call(
@@ -1248,4 +1338,48 @@ fn nested_str_field<'a>(value: &'a Value, keys: &[&str]) -> Option<&'a str> {
             .get("fields")
             .and_then(|fields| str_field(fields, keys))
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn trace_context_is_read_from_receive_message_trigger_params() {
+        let trace = trace_context_from_trigger_params(&json!({
+            "gen_ai_parent_trace_id": "4bf92f3577b34da6a3ce929d0e0e4736",
+            "gen_ai_parent_span_id": "00f067aa0ba902b7",
+        }))
+        .expect("trace context should be present");
+
+        assert_eq!(trace.trace_id, "4bf92f3577b34da6a3ce929d0e0e4736");
+        assert_eq!(trace.span_id, "00f067aa0ba902b7");
+    }
+
+    #[test]
+    fn configure_body_carries_trace_context_when_available() {
+        let trace = TraceContextFields {
+            trace_id: "4bf92f3577b34da6a3ce929d0e0e4736".to_string(),
+            span_id: "00f067aa0ba902b7".to_string(),
+        };
+        let mut configure_body = json!({
+            "user_message": "hello",
+            "session_mode": "execute",
+        });
+
+        apply_trace_context(&mut configure_body, trace.as_ref());
+
+        assert_eq!(
+            configure_body
+                .get("gen_ai_parent_trace_id")
+                .and_then(Value::as_str),
+            Some("4bf92f3577b34da6a3ce929d0e0e4736")
+        );
+        assert_eq!(
+            configure_body
+                .get("gen_ai_parent_span_id")
+                .and_then(Value::as_str),
+            Some("00f067aa0ba902b7")
+        );
+    }
 }
