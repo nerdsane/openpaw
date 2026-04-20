@@ -100,25 +100,46 @@ pub fn persist_results(
     Ok(params)
 }
 
-/// Send heartbeat to keep agent alive, and post the Discord typing indicator
-/// inline on the same cadence.
+/// Send a liveness heartbeat and post the Discord typing indicator on the
+/// same cadence.
 ///
-/// The Heartbeat action no longer fires the `heartbeat_typing` trigger
-/// (TemperPaw Track 1 Phase 2b — removed to eliminate the sequence-advance
-/// race with ProcessToolCalls). This helper now owns both responsibilities:
-///   1. POST to `TemperPaw.Heartbeat` so `last_heartbeat_at` is recorded.
-///   2. Directly POST the typing indicator via `send_typing_indicator`.
+/// `Heartbeat` is a pure liveness ping — it records `last_heartbeat_at` and
+/// drives the typing indicator, but it does NOT reset any state_timeout. Use
+/// this when the module hasn't actually advanced (e.g., about to block on an
+/// HTTP call). For real forward progress (tool batch completed, chunk
+/// received), call `send_progress` instead.
 pub fn send_heartbeat(ctx: &Context, temper_api_url: &str, tenant: &str) {
+    post_session_action(ctx, temper_api_url, tenant, "Heartbeat", "last_heartbeat_at");
+}
+
+/// Signal real forward progress: dispatches `ProgressMade` (resets the
+/// current state_timeout) and posts the Discord typing indicator.
+///
+/// Call this when the module has actually advanced — e.g., after completing
+/// a tool batch in monty_repl, or when llm_caller has received the first
+/// streamed chunk. Contrast with `send_heartbeat`, which only signals
+/// liveness and does not reset timeouts.
+pub fn send_progress(ctx: &Context, temper_api_url: &str, tenant: &str) {
+    post_session_action(ctx, temper_api_url, tenant, "ProgressMade", "last_progress_at");
+}
+
+fn post_session_action(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+    action: &str,
+    timestamp_field: &str,
+) {
     let fields = ctx
         .entity_state
         .get("fields")
         .cloned()
         .unwrap_or_else(|| json!({}));
     let url = format!(
-        "{temper_api_url}/tdata/Sessions('{}')/TemperPaw.Heartbeat",
+        "{temper_api_url}/tdata/Sessions('{}')/TemperPaw.{action}",
         ctx.entity_id
     );
-    let body = json!({ "last_heartbeat_at": "alive" });
+    let body = json!({ timestamp_field: "alive" });
     let headers = runtime_headers_as(
         ctx,
         tenant,
