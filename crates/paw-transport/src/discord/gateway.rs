@@ -184,11 +184,11 @@ pub(crate) async fn handle_ready(
     let ready: ReadyData =
         serde_json::from_value(data).map_err(|e| format!("Failed to parse READY: {e}"))?;
 
-    println!(
-        "  [discord] Connected as {}#{} ({})",
-        ready.user.username,
-        ready.user.discriminator.as_deref().unwrap_or("0"),
-        ready.user.id
+    tracing::info!(
+        bot_user_id = %ready.user.id,
+        username = %ready.user.username,
+        discriminator = %ready.user.discriminator.as_deref().unwrap_or("0"),
+        "discord gateway ready"
     );
 
     *state.bot_user_id.write().await = ready.user.id;
@@ -386,7 +386,7 @@ pub(crate) async fn fetch_channel_messages(
 }
 
 /// UTF-8 safe truncation.
-fn truncate(s: &str, max: usize) -> String {
+pub(crate) fn truncate(s: &str, max: usize) -> String {
     if s.len() <= max {
         s.to_string()
     } else {
@@ -583,11 +583,24 @@ pub async fn edit_message(
         .map_err(|e| format!("Failed to parse Discord edit response: {e}"))
 }
 
-/// Log a truncated message from a user.
-pub(crate) fn log_message(username: &str, content: &str) {
-    println!(
-        "  [discord] Message from {username}: {}",
-        truncate(content, 80)
+/// Log a truncated message from a user through the tracing pipeline.
+pub(crate) fn log_message(
+    message_id: &str,
+    author_id: &str,
+    username: &str,
+    channel_id: &str,
+    guild_id: Option<&str>,
+    content: &str,
+) {
+    tracing::info!(
+        message_id,
+        author_id,
+        username,
+        channel_id,
+        guild_id = guild_id.unwrap_or("dm"),
+        preview = %truncate(content, 80),
+        content_len = content.len(),
+        "discord message received"
     );
 }
 
@@ -689,6 +702,6 @@ pub(crate) async fn register_commands(
     let scope = guild_id
         .map(|g| format!("guild {g}"))
         .unwrap_or("global".to_string());
-    println!("  [discord] Registered /plan, /execute, and /reset commands ({scope})");
+    tracing::info!(scope = %scope, "discord slash commands registered");
     Ok(())
 }

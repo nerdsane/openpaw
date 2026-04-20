@@ -85,8 +85,8 @@ hint = "Channel is connected and ready to receive messages."
 name = "ReceiveMessage"
 kind = "input"
 from = ["Connected"]
-params = ["message_id", "author_id", "thread_id", "content", "command"]
-hint = "Receive an incoming message from the channel platform. Optional command field for slash commands (plan, execute)."
+params = ["message_id", "author_id", "thread_id", "content", "command", "gen_ai_parent_trace_id", "gen_ai_parent_span_id"]
+hint = "Receive an incoming message from the channel platform. Optional command field for slash commands (plan, execute). Optional GenAI parent trace fields preserve distributed tracing through routing and reply delivery."
 effect = [{ type = "increment", var = "message_count" }, { type = "trigger", name = "route_message" }]
 
 [[action]]
@@ -108,8 +108,8 @@ hint = "Reply delivery finished successfully."
 name = "UpdateConfig"
 kind = "input"
 from = ["Connected", "Disconnected"]
-params = ["default_agent_config"]
-hint = "Update channel configuration on a live or disconnected channel."
+params = ["default_agent_config", "webhook_url"]
+hint = "Update channel configuration on a live or disconnected channel, including the reply webhook target."
 
 [[action]]
 name = "UpdateCursor"

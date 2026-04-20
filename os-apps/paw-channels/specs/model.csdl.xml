@@ -67,6 +67,9 @@
         <Parameter Name="author_id" Type="Edm.String" Nullable="false"/>
         <Parameter Name="thread_id" Type="Edm.String" Nullable="false"/>
         <Parameter Name="content" Type="Edm.String" Nullable="false"/>
+        <Parameter Name="command" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="gen_ai_parent_trace_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="gen_ai_parent_span_id" Type="Edm.String" Nullable="true"/>
         <ReturnType Type="Paw.Channel.Channel"/>
       </Action>
 
@@ -83,6 +86,13 @@
         <Parameter Name="thread_id" Type="Edm.String" Nullable="false"/>
         <Parameter Name="content" Type="Edm.String" Nullable="false"/>
         <Parameter Name="agent_entity_id" Type="Edm.String" Nullable="false"/>
+        <ReturnType Type="Paw.Channel.Channel"/>
+      </Action>
+
+      <Action Name="UpdateConfig" IsBound="true">
+        <Parameter Name="bindingParameter" Type="Paw.Channel.Channel"/>
+        <Parameter Name="default_agent_config" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="webhook_url" Type="Edm.String" Nullable="true"/>
         <ReturnType Type="Paw.Channel.Channel"/>
       </Action>
 

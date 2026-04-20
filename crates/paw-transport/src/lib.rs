@@ -31,6 +31,63 @@ pub struct PawApiClient {
     config: PawApiConfig,
 }
 
+pub(crate) fn current_trace_context_ids() -> Option<(String, String)> {
+    use opentelemetry::trace::TraceContextExt as _;
+    use tracing_opentelemetry::OpenTelemetrySpanExt as _;
+
+    let span_context = tracing::Span::current()
+        .context()
+        .span()
+        .span_context()
+        .clone();
+    if !span_context.is_valid() {
+        return None;
+    }
+
+    Some((
+        span_context.trace_id().to_string(),
+        span_context.span_id().to_string(),
+    ))
+}
+
+fn current_traceparent_header() -> Option<String> {
+    use opentelemetry::trace::TraceContextExt as _;
+    use tracing_opentelemetry::OpenTelemetrySpanExt as _;
+
+    let span_context = tracing::Span::current()
+        .context()
+        .span()
+        .span_context()
+        .clone();
+    if !span_context.is_valid() {
+        return None;
+    }
+
+    let flags = if span_context.trace_flags().is_sampled() {
+        "01"
+    } else {
+        "00"
+    };
+    Some(format!(
+        "00-{}-{}-{}",
+        span_context.trace_id(),
+        span_context.span_id(),
+        flags
+    ))
+}
+
+pub(crate) fn apply_current_trace_context(body: &mut serde_json::Value) {
+    let Some(object) = body.as_object_mut() else {
+        return;
+    };
+    let Some((trace_id, span_id)) = current_trace_context_ids() else {
+        return;
+    };
+
+    object.insert("gen_ai_parent_trace_id".into(), serde_json::json!(trace_id));
+    object.insert("gen_ai_parent_span_id".into(), serde_json::json!(span_id));
+}
+
 impl PawApiClient {
     /// Create a new API client.
     pub fn new(config: PawApiConfig) -> Self {
@@ -232,6 +289,9 @@ impl PawApiClient {
             req = req.header("x-temper-principal-kind", "admin");
             req = req.header("x-temper-principal-id", "temperpaw-transport");
         }
+        if let Some(traceparent) = current_traceparent_header() {
+            req = req.header("traceparent", traceparent);
+        }
         req
     }
 
@@ -250,9 +310,13 @@ mod tests {
     use axum::http::{HeaderMap, StatusCode};
     use axum::routing::{get, post};
     use axum::{Json, Router};
+    use opentelemetry::trace::{TraceContextExt, TracerProvider as _};
+    use opentelemetry_sdk::trace::SdkTracerProvider;
     use serde_json::json;
     use std::sync::Arc;
     use tokio::net::TcpListener;
+    use tracing_opentelemetry::OpenTelemetrySpanExt;
+    use tracing_subscriber::prelude::*;
 
     use super::{PawApiClient, PawApiConfig};
 
@@ -262,6 +326,7 @@ mod tests {
         last_id: Arc<std::sync::Mutex<Option<String>>>,
         last_tenant: Arc<std::sync::Mutex<Option<String>>>,
         last_auth: Arc<std::sync::Mutex<Option<String>>>,
+        last_traceparent: Arc<std::sync::Mutex<Option<String>>>,
     }
 
     async fn spawn_test_server(app: Router) -> String {
@@ -472,5 +537,76 @@ mod tests {
             error.contains("missing manage_policies"),
             "expected response body in error, got: {error}"
         );
+    }
+
+    #[tokio::test]
+    async fn paw_api_client_includes_traceparent_from_active_span() {
+        let probe = HeaderProbe::default();
+        let app = Router::new()
+            .route(
+                "/tdata/Channels('ch_trace')/Paw.Channel.ReceiveMessage",
+                post(
+                    |State(probe): State<HeaderProbe>, headers: HeaderMap| async move {
+                        *probe.last_traceparent.lock().unwrap() = headers
+                            .get("traceparent")
+                            .and_then(|value| value.to_str().ok())
+                            .map(|value| value.to_string());
+                        (StatusCode::OK, Json(json!({"status":"ok"})))
+                    },
+                ),
+            )
+            .with_state(probe.clone());
+
+        let base_url = spawn_test_server(app).await;
+        let client = PawApiClient::new(PawApiConfig {
+            base_url,
+            tenant: "default".to_string(),
+            api_key: None,
+        });
+
+        let tracer_provider = SdkTracerProvider::builder().build();
+        let subscriber = tracing_subscriber::registry().with(
+            tracing_opentelemetry::layer()
+                .with_tracer(tracer_provider.tracer("paw-transport-test")),
+        );
+        let _subscriber_guard = tracing::subscriber::set_default(subscriber);
+
+        let span = tracing::info_span!("discord.receive");
+        let expected_traceparent = {
+            let _span_guard = span.enter();
+            let span_context = tracing::Span::current()
+                .context()
+                .span()
+                .span_context()
+                .clone();
+            let traceparent = format!(
+                "00-{}-{}-01",
+                span_context.trace_id(),
+                span_context.span_id()
+            );
+            client
+                .dispatch_action(
+                    "Channels",
+                    "ch_trace",
+                    "Paw.Channel.ReceiveMessage",
+                    json!({
+                        "message_id": "msg_123",
+                        "author_id": "user_456",
+                        "thread_id": "thread_789",
+                        "content": "hello",
+                    }),
+                )
+                .await
+                .expect("dispatch should succeed");
+            traceparent
+        };
+
+        assert_eq!(
+            probe.last_traceparent.lock().unwrap().as_deref(),
+            Some(expected_traceparent.as_str()),
+            "expected PawApiClient to propagate the active tracing span via traceparent",
+        );
+
+        let _ = tracer_provider.shutdown();
     }
 }
