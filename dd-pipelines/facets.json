@@ -1,13 +1,40 @@
 {
   "description": "Official Datadog facets for OpenPaw / Temper logs (ADR-0054). Registering a facet makes a JSON attribute searchable via the Log Explorer dropdown and usable as a log-based metric group-by.",
   "facets": [
-    {"path": "tenant",       "name": "Tenant",       "type": "string"},
-    {"path": "entity_type",  "name": "Entity Type",  "type": "string"},
-    {"path": "entity_id",    "name": "Entity ID",    "type": "string"},
-    {"path": "action_name",  "name": "Action Name",  "type": "string"},
-    {"path": "embodiment",   "name": "Embodiment",   "type": "string"},
-    {"path": "error.kind",   "name": "Error Kind",   "type": "string"},
-    {"path": "dd.trace_id",  "name": "Trace ID",     "type": "string"},
-    {"path": "dd.span_id",   "name": "Span ID",      "type": "string"}
+    {
+      "path": "tenant",
+      "name": "Tenant",
+      "type": "string"
+    },
+    {
+      "path": "entity_type",
+      "name": "Entity Type",
+      "type": "string"
+    },
+    {
+      "path": "entity_id",
+      "name": "Entity ID",
+      "type": "string"
+    },
+    {
+      "path": "action_name",
+      "name": "Action Name",
+      "type": "string"
+    },
+    {
+      "path": "error.kind",
+      "name": "Error Kind",
+      "type": "string"
+    },
+    {
+      "path": "dd.trace_id",
+      "name": "Trace ID",
+      "type": "string"
+    },
+    {
+      "path": "dd.span_id",
+      "name": "Span ID",
+      "type": "string"
+    }
   ]
 }
