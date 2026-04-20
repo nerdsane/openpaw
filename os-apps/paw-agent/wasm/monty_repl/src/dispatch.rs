@@ -47,6 +47,46 @@ thread_local! {
     // instead of printing it), store it here. The REPL appends it to the
     // tool result if the expression was null/None.
     static DISPATCH_OUTPUT: RefCell<Option<String>> = RefCell::new(None);
+    // Current tool being dispatched (ADR-0037). Set by ToolScope at
+    // dispatch() entry, read by internal_headers() to emit
+    // X-Temper-Span-* hint headers so the host wraps each outgoing
+    // HTTP call in a `tool.<name>` span.
+    static CURRENT_TOOL_NAME: RefCell<Option<String>> = RefCell::new(None);
+}
+
+/// RAII guard that sets the active tool name on entry and clears on drop.
+/// Instantiated once at the top of `dispatch()`.
+struct ToolScope;
+
+impl ToolScope {
+    fn new(tool_name: String) -> Self {
+        CURRENT_TOOL_NAME.with(|cell| *cell.borrow_mut() = Some(tool_name));
+        ToolScope
+    }
+}
+
+impl Drop for ToolScope {
+    fn drop(&mut self) {
+        CURRENT_TOOL_NAME.with(|cell| *cell.borrow_mut() = None);
+    }
+}
+
+/// Build the span-hint headers for the current tool dispatch, if any.
+/// Consumed and stripped by the host's `split_span_hint_headers` (see
+/// temper-wasm) so the resulting `wasm.host.http_call` span is renamed
+/// `tool.<tool_name>` with a queryable `tool.name` attribute.
+fn tool_span_hint_headers() -> Vec<(String, String)> {
+    let tool_name = CURRENT_TOOL_NAME.with(|cell| cell.borrow().clone());
+    match tool_name {
+        Some(name) => vec![
+            (
+                "X-Temper-Span-Name".to_string(),
+                format!("tool.{name}"),
+            ),
+            ("X-Temper-Span-Attr-tool.name".to_string(), name),
+        ],
+        None => Vec::new(),
+    }
 }
 
 /// Take the done result (if set). Clears it after reading.
@@ -129,6 +169,11 @@ pub fn dispatch(
     method: &str,
     args: &[Value],
 ) -> Result<Value, String> {
+    // Activate the tool-scope guard so every ctx.http_call made through
+    // internal_headers() during this dispatch carries span-hint headers
+    // identifying the caller (ADR-0037). Cleared on drop at function exit.
+    let _tool_scope = ToolScope::new(format!("{obj_name}.{method}"));
+
     // Lazy sandbox provisioning (ADR-0022): if this tool needs a sandbox and
     // none is attached, provision one on-demand instead of failing.
     let needs_sandbox =
@@ -1738,8 +1783,12 @@ fn escape_odata_key(key: &str) -> String {
 
 /// Minimal headers for internal Temper API calls.
 /// Auth headers are injected by the WASM host — see ADR-0043.
+/// Span-hint headers for the current tool dispatch are appended when
+/// `ToolScope` is active (ADR-0037).
 fn internal_headers() -> Vec<(String, String)> {
-    vec![("Content-Type".to_string(), "application/json".to_string())]
+    let mut headers = vec![("Content-Type".to_string(), "application/json".to_string())];
+    headers.extend(tool_span_hint_headers());
+    headers
 }
 
 pub fn check_cedar_denial(status: u16, body: &str) -> Option<String> {
