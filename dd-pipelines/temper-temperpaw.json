@@ -1,6 +1,6 @@
 {
   "name": "OpenPaw / Temper Logs (ADR-0054)",
-  "description": "Parses the JSON schema emitted by temper-observe::init_tracing and registers official facets for @tenant, @entity_type, @entity_id, @action_name, @trace_id, @span_id, @error.kind, @embodiment. Includes sensitive-data scanner rules to redact known secret shapes at ingest.",
+  "description": "Parses the JSON schema emitted by temper-observe::init_tracing and registers official facets for @tenant, @entity_type, @entity_id, @action_name, @trace_id, @span_id, @error.kind. Includes sensitive-data scanner rules to redact known secret shapes at ingest.",
   "is_enabled": true,
   "filter": {
     "query": "service:(temper OR openpaw)"
@@ -20,7 +20,9 @@
       "type": "attribute-remapper",
       "name": "Remap service.name to standard service",
       "is_enabled": true,
-      "sources": ["service"],
+      "sources": [
+        "service"
+      ],
       "source_type": "attribute",
       "target": "service",
       "target_type": "tag",
@@ -31,7 +33,9 @@
       "type": "attribute-remapper",
       "name": "Remap trace_id / span_id to Datadog-standard keys",
       "is_enabled": true,
-      "sources": ["trace_id"],
+      "sources": [
+        "trace_id"
+      ],
       "source_type": "attribute",
       "target": "dd.trace_id",
       "target_type": "attribute",
@@ -42,7 +46,9 @@
       "type": "attribute-remapper",
       "name": "Remap span_id",
       "is_enabled": true,
-      "sources": ["span_id"],
+      "sources": [
+        "span_id"
+      ],
       "source_type": "attribute",
       "target": "dd.span_id",
       "target_type": "attribute",
@@ -53,19 +59,25 @@
       "type": "status-remapper",
       "name": "Remap level to status",
       "is_enabled": true,
-      "sources": ["level"]
+      "sources": [
+        "level"
+      ]
     },
     {
       "type": "date-remapper",
       "name": "Use message timestamp",
       "is_enabled": true,
-      "sources": ["timestamp"]
+      "sources": [
+        "timestamp"
+      ]
     },
     {
       "type": "message-remapper",
       "name": "Keep human-readable message",
       "is_enabled": true,
-      "sources": ["message"]
+      "sources": [
+        "message"
+      ]
     }
   ]
 }

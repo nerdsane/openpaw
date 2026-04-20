@@ -5,17 +5,6 @@
   "widgets": [
     {
       "definition": {
-        "type": "note",
-        "content": "\u26a0\ufe0f **Transitional dashboard.** Prefer `Temper \u2014 Platform Health` (service:temper) and `OpenPaw \u2014 Embodiment` (service:openpaw). This file will be removed after the dashboard split finishes rolling out. See ADR-0053.",
-        "background_color": "yellow",
-        "font_size": "14",
-        "text_align": "left",
-        "vertical_align": "top",
-        "show_tick": false
-      }
-    },
-    {
-      "definition": {
         "title": "Platform Health",
         "type": "group",
         "layout_type": "ordered",
