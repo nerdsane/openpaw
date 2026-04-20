@@ -1,5 +1,5 @@
 {
-  "title": "OpenPaw \u2014 Platform Overview",
+  "title": "TemperPaw \u2014 Platform Overview",
   "description": "Single pane of glass for OpenPaw agent orchestration health, runtime behavior, and Temper platform metrics.",
   "layout_type": "ordered",
   "widgets": [
