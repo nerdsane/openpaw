@@ -1802,7 +1802,7 @@ fn call_anthropic(
     );
 
     // Build auth headers — OAuth tokens use Bearer + beta header
-    let headers = if is_oauth {
+    let mut headers = if is_oauth {
         vec![
             ("authorization".to_string(), format!("Bearer {api_key}")),
             ("anthropic-version".to_string(), "2023-06-01".to_string()),
@@ -1825,6 +1825,21 @@ fn call_anthropic(
             ("content-type".to_string(), "application/json".to_string()),
         ]
     };
+    // Span hint headers — consumed + stripped by the host's split_span_hint_headers
+    // (temper-wasm, ADR-0037) so the resulting wasm.host.http_call span is
+    // renamed `tool.llm_call.anthropic` and carries gen_ai.* semconv attrs.
+    headers.push((
+        "X-Temper-Span-Name".to_string(),
+        "tool.llm_call.anthropic".to_string(),
+    ));
+    headers.push((
+        "X-Temper-Span-Attr-gen_ai.system".to_string(),
+        "anthropic".to_string(),
+    ));
+    headers.push((
+        "X-Temper-Span-Attr-gen_ai.request.model".to_string(),
+        model.to_string(),
+    ));
 
     // Retry on transient API errors (500, 529, and 400 with vague "Error" message).
     // Per-attempt timing added by ADR-0037 Fix B so a hung upstream surfaces
@@ -2092,6 +2107,19 @@ fn call_openrouter(
     if !app_name.trim().is_empty() {
         headers.push(("X-Title".to_string(), app_name.trim().to_string()));
     }
+    // Span hints (ADR-0037): stripped by the host before sending upstream.
+    headers.push((
+        "X-Temper-Span-Name".to_string(),
+        "tool.llm_call.openrouter".to_string(),
+    ));
+    headers.push((
+        "X-Temper-Span-Attr-gen_ai.system".to_string(),
+        "openrouter".to_string(),
+    ));
+    headers.push((
+        "X-Temper-Span-Attr-gen_ai.request.model".to_string(),
+        model.to_string(),
+    ));
 
     ctx.log(
         "info",
