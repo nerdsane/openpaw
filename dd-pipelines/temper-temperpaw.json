@@ -56,12 +56,21 @@
       "override_on_conflict": true
     },
     {
-      "type": "status-remapper",
-      "name": "Remap level to status",
+      "type": "attribute-remapper",
+      "name": "Rename entity status to avoid collision with DD log status",
       "is_enabled": true,
-      "sources": [
-        "level"
-      ]
+      "sources": ["status"],
+      "source_type": "attribute",
+      "target": "entity_status",
+      "target_type": "attribute",
+      "preserve_source": false,
+      "override_on_conflict": true
+    },
+    {
+      "type": "status-remapper",
+      "name": "Remap OTEL severity_text to DD log status",
+      "is_enabled": true,
+      "sources": ["otel.severity_text", "level"]
     },
     {
       "type": "date-remapper",
