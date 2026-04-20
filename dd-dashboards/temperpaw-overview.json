@@ -5,6 +5,17 @@
   "widgets": [
     {
       "definition": {
+        "type": "note",
+        "content": "\ud83d\udcca **ADR-0037 metric migration in progress.** Panels titled \"(legacy ... + trace ...)\" overlay the existing per-action metrics (warm palette) with the APM trace-metric replacements (cool palette). Once E2E verification confirms `trace.wasm.invoke` spans are flowing (see `.proofs/037z-dd-observability-e2e-plan.md`), the warm-palette legacy series will be removed and the emission sites in temper-observe will be retired. **Expected**: during normal operation, the two series should agree within ~5% for rate and within trace sampling bounds for latency.",
+        "background_color": "blue",
+        "font_size": "12",
+        "text_align": "left",
+        "vertical_align": "top",
+        "show_tick": false
+      }
+    },
+    {
+      "definition": {
         "title": "Platform Health",
         "type": "group",
         "layout_type": "ordered",
@@ -319,24 +330,36 @@
           },
           {
             "definition": {
-              "title": "WASM Invocations",
+              "title": "WASM Invocations (metric + APM trace parity \u2014 ADR-0037 migration)",
               "type": "timeseries",
               "requests": [
                 {
                   "q": "default_zero(sum:temper_wasm_invocations_total{service:openpaw} by {trigger_action,success}.as_count().rollup(sum, 60))",
-                  "display_type": "line"
+                  "display_type": "line",
+                  "style": {"palette": "warm"}
+                },
+                {
+                  "q": "default_zero(sum:trace.wasm.invoke.hits{service:openpaw} by {resource_name}.as_count().rollup(sum, 60))",
+                  "display_type": "line",
+                  "style": {"palette": "cool"}
                 }
               ]
             }
           },
           {
             "definition": {
-              "title": "WASM Invoke Duration (avg ms)",
+              "title": "WASM Invoke Duration (legacy ms + trace.wasm.invoke p95 \u2014 ADR-0037)",
               "type": "timeseries",
               "requests": [
                 {
                   "q": "avg:temper_wasm_invocation_duration_ms{service:openpaw} by {trigger_action}.rollup(avg, 60)",
-                  "display_type": "line"
+                  "display_type": "line",
+                  "style": {"palette": "warm"}
+                },
+                {
+                  "q": "p95:trace.wasm.invoke{service:openpaw} by {resource_name}.rollup(avg, 60) * 1000",
+                  "display_type": "line",
+                  "style": {"palette": "cool"}
                 }
               ]
             }
@@ -475,12 +498,18 @@
           },
           {
             "definition": {
-              "title": "Monty REPL Executions",
+              "title": "Monty REPL Executions (legacy counter + APM hits \u2014 ADR-0037)",
               "type": "timeseries",
               "requests": [
                 {
                   "q": "default_zero(sum:temper_wasm_invocations_total{service:openpaw,trigger_action:processtoolcalls,needs_wasi:true,success:true}.as_count().rollup(sum, 60))",
-                  "display_type": "line"
+                  "display_type": "line",
+                  "style": {"palette": "warm"}
+                },
+                {
+                  "q": "default_zero((sum:trace.wasm.invoke.hits{service:openpaw,resource_name:processtoolcalls}.as_count() - sum:trace.wasm.invoke.errors{service:openpaw,resource_name:processtoolcalls}.as_count()).rollup(sum, 60))",
+                  "display_type": "line",
+                  "style": {"palette": "cool"}
                 }
               ]
             }
