@@ -1159,7 +1159,7 @@ fn otel_datadog_config() -> &'static str {
      \n\
      processors:\n\
      \x20 resourcedetection:\n\
-     \x20   detectors: [env, system, docker]\n\
+     \x20   detectors: [env, system]\n\
      \x20   timeout: 5s\n\
      \x20   override: false\n\
      \x20 resource:\n\
@@ -1984,8 +1984,16 @@ active = true
         );
         assert!(cfg.contains("detectors:"), "detector list missing");
         assert!(
-            cfg.contains("env") && cfg.contains("system") && cfg.contains("docker"),
-            "expected env/system/docker detectors:\n{cfg}"
+            cfg.contains("env") && cfg.contains("system"),
+            "expected env + system detectors:\n{cfg}"
+        );
+        // `docker` detector was removed — it requires /var/run/docker.sock
+        // which Railway does not expose, and failed to start with
+        // "failed getting OS type: ... docker.sock: no such file or directory"
+        // on the first rollout. See commit body.
+        assert!(
+            !cfg.contains("docker"),
+            "docker detector must stay out of the detector list:\n{cfg}"
         );
         // resource processor upserts service.name so even OTLP signals missing
         // resource attrs land under service:openpaw.
