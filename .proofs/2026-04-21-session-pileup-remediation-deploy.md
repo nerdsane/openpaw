@@ -93,6 +93,71 @@ Three code changes landed in two repos:
 - Railway deployment id: `48e9d571-a10b-4361-b1d5-d03e594511d7`
 - Plan file: `/Users/seshendranalla/.claude/plans/staged-launching-kettle.md`
 
+## Post-Redeploy Soak (2026-04-21 20:33 UTC)
+
+### Attempted clean redeploy
+
+Triggered `railway redeploy` at 20:09 UTC to get a fresh boot on the `:edge` image. Result:
+
+| | |
+|---|---|
+| Deployment id | `7d177c3c-1e28-46f4-8dcf-a448004d5034` |
+| Status | **FAILED** |
+| Mode of failure | 33 healthcheck attempts over ~22 min, all "service unavailable"; Railway marked "1/1 replicas never became healthy", "Stopping Container" |
+| Last runtime log | 2026-04-21T20:29:18 — still bootstrapping OS app ADRs / katagami-commons spec verification; server never reached `Phase 9: Starting server` within the 20-min healthcheck window |
+
+**Production was NOT affected.** The previous successful deploy `48e9d571` (from 11:14 UTC) stayed alive and continues to serve — `/healthz` 200, OData queries working.
+
+Why the new boot ran long: hypothesis is cumulative persisted state from the first deploy's one-time bootstrap (new ADRs, SKILL.md files, trajectory writes) inflated the warm-start path. **Flag: Railway `healthcheckTimeout: 1200s` may need a bump, or cold-boot needs a perf pass.**
+
+### Behavioral evidence: ProgressMade in the wild
+
+Queried the 10 most recent Sessions, all served by `48e9d571` (which runs the merged code). Evidence that `ProgressMade` is being dispatched in organic traffic:
+
+| entity_id | status | progress_token | last_progress_at (millis) |
+|---|---|---|---|
+| ss-019db0c8-2043-... | Failed | **3** | 1776787669890 |
+| ss-019db066-288f-... | Failed | **8** | 1776781729109 |
+| ss-019db066-1cd2-... | Failed | **11** | 1776781772586 |
+| ss-019db008-1b86-... | Executing | `null` | `null` |
+| ss-019dafdf-2b9e-... | Completed | **1** | 1776772242777 |
+| ss-019dafcc-35f7-... | Completed | **1** | 1776771042842 |
+| ss-019dafc8-959a-... | Completed | **1** | 1776770747084 |
+
+This is the live test that was missing from the first verification pass:
+
+- `progress_token` is **incrementing in organic traffic** (up to 11 on the longest running session before it failed). `ProgressMade` action + `increment` effect works end-to-end.
+- `last_progress_at` is **real wall-clock millis** (e.g. 1776787669890 ≈ 2026-04-21 18:47:49 UTC), populated by `wasm_helpers::timestamp_millis_string()`. The sentinel-string era is over for sessions dispatched on the new deploy.
+- `last_heartbeat_at` is also millis on new sessions — confirms the helper is wired on the Heartbeat path too.
+- Completed sessions all show `progress_token = 1`: one ProgressMade per session matches the expected flow (one post-tool-batch call from monty_repl for a short session).
+
+### Concerning observation — one session's timer didn't fire
+
+Session `ss-019db008-1b86-7e22-af25-3dfea0a43e84`:
+
+- status: `Executing`
+- `progress_token`: null (ProgressMade never dispatched)
+- `last_heartbeat_at`: 1776774898010 (≈ 2026-04-21 16:54:58 UTC)
+- Polled 3 times 20s apart: `last_heartbeat_at` unchanged
+
+By the new contract, `Executing` should have hit `TimeoutFail` after 300s without `ProgressMade` or `CheckpointToolBatch`. The session has been in `Executing` for ~3h40m and hasn't died.
+
+**Root cause hypothesis (unverified):** `state_timeout` arming lives in `temper/crates/temper-server/src/state/dispatch/state_timeouts.rs:224` as `tokio::spawn` — timers are in-memory only. When today's 11:02 UTC container swap happened, this session's Executing state was restored from snapshot, but `arm_state_timeouts_if_needed` only runs after a successful transition, not on actor recovery. With no subsequent transition on this session, no timer armed → permanently wedged.
+
+**This is not a regression from my branch.** It's a latent property of Temper's state_timeout implementation that matters more now because the new contract relies more heavily on timer-driven TimeoutFail (Heartbeat pings no longer keep sessions "alive" just to look alive).
+
+### Verdict update
+
+**Positive:** Production is running the new code. `ProgressMade` / `progress_token` / real timestamps all exercised in organic traffic and working. This is the behavioral evidence missing from the initial verification.
+
+**Negative:** State_timeout timers don't re-arm across container restarts. Sessions that were in non-terminal states at deploy time become orphaned — they stay `Executing` / `CallingProvider` indefinitely. Previously masked by Heartbeat resets (session looked alive forever anyway). Now visible because the new contract expects timeouts to fire on non-progressing sessions.
+
+### Follow-ups (not on this branch)
+
+1. **`state_timeout` durability** — arm-on-recovery in `entity_actor` when restoring a non-terminal state, or move to a persistent scheduler. ADR-0049 says "durable scheduler" was the intent; this may already be partially implemented but not hooked on recovery.
+2. **Railway healthcheck** — bump past 1200s or perf-pass the cold boot path. The 20-min deadline is too tight for a warm-started multi-tenant instance with all os-apps on second+ boot.
+3. **Wedged session sweep** — admin-Fail any `Executing`/`CallingProvider` session older than N minutes, or implement one-shot "re-arm all timers" on server startup. `ss-019db008` and possibly others need to die.
+
 ## Architecture Diagram
 
 ```text
