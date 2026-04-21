@@ -1714,6 +1714,39 @@ fn format_llm_hang_hint(provider: &str, attempt: u32, attempt_elapsed_ms: i64) -
 /// span-hint attribute without drifting from the body payload.
 const LLM_MAX_TOKENS: u32 = 16384;
 
+/// Upper bound for the `gen_ai.prompt` span-hint value emitted from this
+/// module. The host truncates at 20 KB; we cap slightly lower so our
+/// `[truncated]` suffix lines up with the guest-level cut rather than the
+/// host-level one (easier for operators reading traces to spot). Values
+/// are truncated on a UTF-8 boundary.
+const LLM_PROMPT_ATTR_MAX_BYTES: usize = 18 * 1024;
+
+/// Serialize `system_prompt` + `messages` as a compact JSON object suitable
+/// for the `gen_ai.prompt` span attribute, truncating at a UTF-8 boundary
+/// if the payload is larger than [`LLM_PROMPT_ATTR_MAX_BYTES`]. The shape
+/// (`{"system": ..., "messages": ...}`) mirrors what DD LLM Obs parsers
+/// expect for OpenAI-style payloads and is also readable for Anthropic
+/// (whose native shape has system separate).
+fn format_gen_ai_prompt_attr(system_prompt: &str, messages: &[Value]) -> String {
+    let payload = if system_prompt.is_empty() {
+        json!({ "messages": messages })
+    } else {
+        json!({
+            "system": system_prompt,
+            "messages": messages,
+        })
+    };
+    let raw = serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string());
+    if raw.len() <= LLM_PROMPT_ATTR_MAX_BYTES {
+        return raw;
+    }
+    let mut cut = LLM_PROMPT_ATTR_MAX_BYTES;
+    while cut > 0 && !raw.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    format!("{}…[truncated]", &raw[..cut])
+}
+
 /// Format a post-response usage log line using OpenTelemetry
 /// `gen_ai.*` semconv keys so DD's grok parser indexes them as
 /// structured attributes. The `wasm_guest` tracing bridge attaches
@@ -1878,6 +1911,17 @@ fn call_anthropic(
     headers.push((
         "X-Temper-Span-Attr-gen_ai.request.max_tokens".to_string(),
         LLM_MAX_TOKENS.to_string(),
+    ));
+    // LLM content capture: prompt is request-side (serialize now), completion
+    // is response-side (host resolves pointer against Anthropic's
+    // /v1/messages response, which has {content: [{type, text}, ...]}).
+    headers.push((
+        "X-Temper-Span-Attr-gen_ai.prompt".to_string(),
+        format_gen_ai_prompt_attr(&effective_system, &effective_messages),
+    ));
+    headers.push((
+        "X-Temper-Span-Capture-Response-gen_ai.completion".to_string(),
+        "/content/0/text".to_string(),
     ));
 
     // Retry on transient API errors (500, 529, and 400 with vague "Error" message).
@@ -2173,6 +2217,17 @@ fn call_openrouter(
     headers.push((
         "X-Temper-Span-Attr-gen_ai.request.max_tokens".to_string(),
         LLM_MAX_TOKENS.to_string(),
+    ));
+    // LLM content capture: OpenRouter/OpenAI response shape is
+    // {choices: [{message: {content: "..."}}]}. Prompt is serialized
+    // request-side; completion is resolved by the host post-response.
+    headers.push((
+        "X-Temper-Span-Attr-gen_ai.prompt".to_string(),
+        format_gen_ai_prompt_attr(system_prompt, &or_messages),
+    ));
+    headers.push((
+        "X-Temper-Span-Capture-Response-gen_ai.completion".to_string(),
+        "/choices/0/message/content".to_string(),
     ));
 
     ctx.log(
@@ -6059,6 +6114,44 @@ mod tests {
         assert!(msg.contains("anthropic"));
         assert!(msg.contains("attempt 1"));
         assert!(msg.contains("70123"));
+    }
+
+    #[test]
+    fn gen_ai_prompt_attr_includes_system_and_messages() {
+        let msgs = vec![
+            json!({"role": "user", "content": "hello"}),
+            json!({"role": "assistant", "content": "hi"}),
+        ];
+        let out = format_gen_ai_prompt_attr("you are helpful", &msgs);
+        let v: Value = serde_json::from_str(&out).expect("must be valid JSON");
+        assert_eq!(v["system"], "you are helpful");
+        assert_eq!(v["messages"].as_array().unwrap().len(), 2);
+        assert_eq!(v["messages"][0]["content"], "hello");
+    }
+
+    #[test]
+    fn gen_ai_prompt_attr_omits_system_when_empty() {
+        let msgs = vec![json!({"role": "user", "content": "hi"})];
+        let out = format_gen_ai_prompt_attr("", &msgs);
+        let v: Value = serde_json::from_str(&out).expect("must be valid JSON");
+        assert!(v.get("system").is_none());
+        assert_eq!(v["messages"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn gen_ai_prompt_attr_truncates_on_utf8_boundary_with_suffix() {
+        // Build a huge message payload to force truncation.
+        let big = "🎉".repeat(10 * 1024); // 40 KB of 4-byte chars.
+        let msgs = vec![json!({"role": "user", "content": big})];
+        let out = format_gen_ai_prompt_attr("", &msgs);
+        assert!(out.ends_with("…[truncated]"));
+        assert!(
+            out.len() <= LLM_PROMPT_ATTR_MAX_BYTES + "…[truncated]".len(),
+            "attr length {} exceeded expected cap",
+            out.len()
+        );
+        // Truncation must keep the prefix valid UTF-8.
+        let _ = std::str::from_utf8(out.as_bytes()).expect("must remain valid utf-8");
     }
 
     #[test]
