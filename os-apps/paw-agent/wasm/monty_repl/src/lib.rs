@@ -132,9 +132,65 @@ impl PrintWriterCallback for BoundedOutputCollector {
     }
 }
 
+/// Thread-local flag set by `dispatch_success` / `dispatch_error` whenever
+/// this invocation has handed the Session a follow-up action to run. Read
+/// by `run()`'s outer match to enforce the "every WASM exit dispatches an
+/// action on the Session" invariant (openpaw ADR-0039 Sub-Decision 3a).
+///
+/// Reset at the top of each `run()` call so re-used WASM instances don't
+/// carry state between invocations.
+thread_local! {
+    static ACTION_DISPATCHED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+fn dispatch_success(action: &str, params: &Value) {
+    ACTION_DISPATCHED.with(|flag| flag.set(true));
+    set_success_result(action, params);
+}
+
+fn dispatch_error(error: &str) {
+    ACTION_DISPATCHED.with(|flag| flag.set(true));
+    set_error_result(error);
+}
+
+/// Classifies the outcome of `run()`'s body closure into a WASM exit code,
+/// flagging the invariant-violation case ("closure returned Ok but no
+/// Session action was dispatched") as an error so the integration's
+/// `on_failure = "Fail"` hook fires instead of leaving the Session stuck
+/// in its intermediate state.
+///
+/// Pure helper, unit-testable. The actual FFI `dispatch_error` call for
+/// the violation path is wired in `run()` after consulting this function.
+fn classify_run_outcome(closure_result: &Result<(), String>, action_dispatched: bool) -> RunOutcome {
+    match (closure_result, action_dispatched) {
+        (Ok(()), true) => RunOutcome::Success,
+        (Ok(()), false) => RunOutcome::InvariantViolation,
+        (Err(_), _) => RunOutcome::PropagateError,
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum RunOutcome {
+    /// Closure returned Ok AND at least one action was dispatched.
+    Success,
+    /// Closure returned Ok with no action dispatched — structural
+    /// invariant violation. Caller must dispatch a synthesized
+    /// `dispatch_error` so `on_failure="Fail"` fires.
+    InvariantViolation,
+    /// Closure returned Err; caller dispatches `dispatch_error(&msg)`.
+    PropagateError,
+}
+
+const INVARIANT_VIOLATION_MSG: &str =
+    "monty_repl exited without dispatching any Session action — invariant violation (ADR-0039 Sub-Decision 3a)";
+
 /// Entry point — invoked by the Temper WASM engine on the `run_tools` trigger.
 #[unsafe(no_mangle)]
 pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
+    // Reset the invariant flag. Must come before anything that could call
+    // dispatch_success / dispatch_error so a prior invocation's state
+    // doesn't leak into this one.
+    ACTION_DISPATCHED.with(|flag| flag.set(false));
     let result = (|| -> Result<(), String> {
         let ctx = Context::from_host()?;
         ctx.log("info", "monty_repl: starting");
@@ -263,7 +319,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                     ctx.log("error", &format!(
                         "monty_repl: checkpoint runaway guard tripped at count={current_ckpt}, failing session"
                     ));
-                    set_success_result(
+                    dispatch_success(
                         "Fail",
                         &json!({
                             "error_message": format!(
@@ -320,7 +376,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                     "session_leaf_id": session_leaf_id,
                 });
 
-                set_success_result("CheckpointToolBatch", &params);
+                dispatch_success("CheckpointToolBatch", &params);
                 return Ok(());
             }
 
@@ -431,7 +487,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                     params["sandbox_provider"] = json!(provider);
                 }
 
-                set_success_result("PauseForApproval", &params);
+                dispatch_success("PauseForApproval", &params);
                 return Ok(());
             }
 
@@ -607,17 +663,27 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             // Agent called temper.done() — complete the session
             let mut done_params = params.clone();
             done_params["result"] = json!(result_text);
-            set_success_result("RecordResult", &done_params);
+            dispatch_success("RecordResult", &done_params);
         } else {
-            set_success_result("HandleToolResults", &params);
+            dispatch_success("HandleToolResults", &params);
         }
         Ok(())
     })();
 
-    match result {
-        Ok(()) => 0,
-        Err(e) => {
-            set_error_result(&e);
+    let dispatched = ACTION_DISPATCHED.with(|f| f.get());
+    match classify_run_outcome(&result, dispatched) {
+        RunOutcome::Success => 0,
+        RunOutcome::InvariantViolation => {
+            // Closure returned Ok but never dispatched a Session action.
+            // Under the current code this means a silent code-path slipped
+            // through — fire on_failure so the Session transitions to
+            // Failed rather than staying stuck in Executing.
+            dispatch_error(INVARIANT_VIOLATION_MSG);
+            1
+        }
+        RunOutcome::PropagateError => {
+            let e = result.err().unwrap_or_default();
+            dispatch_error(&e);
             1
         }
     }
@@ -1072,4 +1138,50 @@ fn base64_decode(input: &str) -> Result<Vec<u8>, String> {
     base64::engine::general_purpose::STANDARD
         .decode(input)
         .map_err(|e| format!("base64 decode error: {e}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn classify_ok_with_dispatch_is_success() {
+        assert_eq!(
+            classify_run_outcome(&Ok(()), true),
+            RunOutcome::Success
+        );
+    }
+
+    #[test]
+    fn classify_ok_without_dispatch_is_invariant_violation() {
+        // This is the orphan-creating path: closure returned Ok but never
+        // fired a Session action. run() must convert this to an error so
+        // on_failure="Fail" transitions the Session out of Executing.
+        assert_eq!(
+            classify_run_outcome(&Ok(()), false),
+            RunOutcome::InvariantViolation
+        );
+    }
+
+    #[test]
+    fn classify_err_always_propagates() {
+        assert_eq!(
+            classify_run_outcome(&Err("boom".to_string()), true),
+            RunOutcome::PropagateError
+        );
+        assert_eq!(
+            classify_run_outcome(&Err("boom".to_string()), false),
+            RunOutcome::PropagateError
+        );
+    }
+
+    #[test]
+    fn invariant_message_mentions_adr() {
+        // Belt-and-suspenders regression guard: the error message must stay
+        // greppable for future debugging. If someone "helpfully" rewrites it
+        // to something bland, this test fails.
+        assert!(INVARIANT_VIOLATION_MSG.contains("monty_repl"));
+        assert!(INVARIANT_VIOLATION_MSG.contains("Session action"));
+        assert!(INVARIANT_VIOLATION_MSG.contains("ADR-0039"));
+    }
 }
