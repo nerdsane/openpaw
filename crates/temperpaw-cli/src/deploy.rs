@@ -1138,6 +1138,100 @@ fn prompt_datadog_config(
 /// Uses a dynamic entrypoint: if DD_API_KEY is set, exports to Datadog.
 /// Otherwise, uses a debug exporter (traces logged to stdout).
 /// Adding DD_API_KEY later via Railway dashboard auto-restarts with Datadog enabled.
+/// OTEL collector YAML emitted when the service has `DD_API_KEY` set —
+/// pipes OTLP receivers through Datadog's exporter for traces, metrics,
+/// and logs.
+///
+/// Includes `resourcedetection` + `resource` processors per ADR-0037:
+/// without them, Railway containers emit spans with a 12-hex container id
+/// as `host.name`, which makes DD APM bucket spans oddly. The detectors
+/// populate real host/container metadata; the resource processor upserts
+/// `service.name=openpaw` for any OTLP signal that arrives missing its
+/// resource attributes.
+fn otel_datadog_config() -> &'static str {
+    "receivers:\n\
+     \x20 otlp:\n\
+     \x20   protocols:\n\
+     \x20     grpc:\n\
+     \x20       endpoint: 0.0.0.0:4317\n\
+     \x20     http:\n\
+     \x20       endpoint: 0.0.0.0:4318\n\
+     \n\
+     processors:\n\
+     \x20 resourcedetection:\n\
+     \x20   detectors: [env, system, docker]\n\
+     \x20   timeout: 5s\n\
+     \x20   override: false\n\
+     \x20 resource:\n\
+     \x20   attributes:\n\
+     \x20     - key: service.name\n\
+     \x20       value: openpaw\n\
+     \x20       action: upsert\n\
+     \x20 batch:\n\
+     \x20   send_batch_size: 1000\n\
+     \x20   timeout: 5s\n\
+     \n\
+     exporters:\n\
+     \x20 datadog:\n\
+     \x20   api:\n\
+     \x20     key: ${env:DD_API_KEY}\n\
+     \x20     site: ${env:DD_SITE}\n\
+     \n\
+     service:\n\
+     \x20 pipelines:\n\
+     \x20   traces:\n\
+     \x20     receivers: [otlp]\n\
+     \x20     processors: [resourcedetection, resource, batch]\n\
+     \x20     exporters: [datadog]\n\
+     \x20   metrics:\n\
+     \x20     receivers: [otlp]\n\
+     \x20     processors: [resourcedetection, resource, batch]\n\
+     \x20     exporters: [datadog]\n\
+     \x20   logs:\n\
+     \x20     receivers: [otlp]\n\
+     \x20     processors: [resourcedetection, resource, batch]\n\
+     \x20     exporters: [datadog]\n"
+}
+
+/// Minimal OTEL collector YAML used when `DD_API_KEY` is absent — pipes
+/// all signals to the debug exporter so an operator can see traces in
+/// the collector logs without a Datadog account. Intentionally does not
+/// include the resourcedetection/resource processors: the debug exporter
+/// prints raw OTLP payloads, so enrichment would just add noise.
+fn otel_debug_config() -> &'static str {
+    "receivers:\n\
+     \x20 otlp:\n\
+     \x20   protocols:\n\
+     \x20     grpc:\n\
+     \x20       endpoint: 0.0.0.0:4317\n\
+     \x20     http:\n\
+     \x20       endpoint: 0.0.0.0:4318\n\
+     \n\
+     processors:\n\
+     \x20 batch:\n\
+     \x20   send_batch_size: 1000\n\
+     \x20   timeout: 5s\n\
+     \n\
+     exporters:\n\
+     \x20 debug:\n\
+     \x20   verbosity: basic\n\
+     \n\
+     service:\n\
+     \x20 pipelines:\n\
+     \x20   traces:\n\
+     \x20     receivers: [otlp]\n\
+     \x20     processors: [batch]\n\
+     \x20     exporters: [debug]\n\
+     \x20   metrics:\n\
+     \x20     receivers: [otlp]\n\
+     \x20     processors: [batch]\n\
+     \x20     exporters: [debug]\n\
+     \x20   logs:\n\
+     \x20     receivers: [otlp]\n\
+     \x20     processors: [batch]\n\
+     \x20     exporters: [debug]\n"
+}
+
 fn deploy_otel_collector(project_id: &str, env_id: &str) -> Result<()> {
     let tmp = std::env::temp_dir().join("temperpaw-otel-deploy");
     let _ = std::fs::create_dir_all(&tmp);
@@ -1170,78 +1264,10 @@ fn deploy_otel_collector(project_id: &str, env_id: &str) -> Result<()> {
     )?;
 
     // Config with Datadog exporter — used when DD_API_KEY is present
-    std::fs::write(
-        tmp.join("otel-datadog.yaml"),
-        "receivers:\n\
-         \x20 otlp:\n\
-         \x20   protocols:\n\
-         \x20     grpc:\n\
-         \x20       endpoint: 0.0.0.0:4317\n\
-         \x20     http:\n\
-         \x20       endpoint: 0.0.0.0:4318\n\
-         \n\
-         processors:\n\
-         \x20 batch:\n\
-         \x20   send_batch_size: 1000\n\
-         \x20   timeout: 5s\n\
-         \n\
-         exporters:\n\
-         \x20 datadog:\n\
-         \x20   api:\n\
-         \x20     key: ${env:DD_API_KEY}\n\
-         \x20     site: ${env:DD_SITE}\n\
-         \n\
-         service:\n\
-         \x20 pipelines:\n\
-         \x20   traces:\n\
-         \x20     receivers: [otlp]\n\
-         \x20     processors: [batch]\n\
-         \x20     exporters: [datadog]\n\
-         \x20   metrics:\n\
-         \x20     receivers: [otlp]\n\
-         \x20     processors: [batch]\n\
-         \x20     exporters: [datadog]\n\
-         \x20   logs:\n\
-         \x20     receivers: [otlp]\n\
-         \x20     processors: [batch]\n\
-         \x20     exporters: [datadog]\n",
-    )?;
+    std::fs::write(tmp.join("otel-datadog.yaml"), otel_datadog_config())?;
 
     // Config with debug exporter — used when DD_API_KEY is absent
-    std::fs::write(
-        tmp.join("otel-debug.yaml"),
-        "receivers:\n\
-         \x20 otlp:\n\
-         \x20   protocols:\n\
-         \x20     grpc:\n\
-         \x20       endpoint: 0.0.0.0:4317\n\
-         \x20     http:\n\
-         \x20       endpoint: 0.0.0.0:4318\n\
-         \n\
-         processors:\n\
-         \x20 batch:\n\
-         \x20   send_batch_size: 1000\n\
-         \x20   timeout: 5s\n\
-         \n\
-         exporters:\n\
-         \x20 debug:\n\
-         \x20   verbosity: basic\n\
-         \n\
-         service:\n\
-         \x20 pipelines:\n\
-         \x20   traces:\n\
-         \x20     receivers: [otlp]\n\
-         \x20     processors: [batch]\n\
-         \x20     exporters: [debug]\n\
-         \x20   metrics:\n\
-         \x20     receivers: [otlp]\n\
-         \x20     processors: [batch]\n\
-         \x20     exporters: [debug]\n\
-         \x20   logs:\n\
-         \x20     receivers: [otlp]\n\
-         \x20     processors: [batch]\n\
-         \x20     exporters: [debug]\n",
-    )?;
+    std::fs::write(tmp.join("otel-debug.yaml"), otel_debug_config())?;
 
     std::fs::write(
         tmp.join("railway.toml"),
@@ -1849,7 +1875,8 @@ fn as_str_slice(values: &[String]) -> Vec<&str> {
 mod tests {
     use super::{
         generate_temper_api_key, infer_domain, infer_modal_bridge_base_url,
-        modal_bridge_script_path, read_modal_credentials_from_str, slugify,
+        modal_bridge_script_path, otel_datadog_config, otel_debug_config,
+        read_modal_credentials_from_str, slugify,
     };
 
     #[test]
@@ -1941,5 +1968,71 @@ active = true
         let key = generate_temper_api_key();
         assert_eq!(key.len(), 64);
         assert!(key.chars().all(|ch| ch.is_ascii_hexdigit()));
+    }
+
+    // --- OTEL collector config generators (ADR-0037 follow-up) ---
+
+    #[test]
+    fn otel_datadog_config_uses_resource_detection_and_service_name() {
+        let cfg = otel_datadog_config();
+        // resourcedetection populates host.name / container.id / docker metadata
+        // so the Datadog APM exporter indexes spans under a real hostname
+        // instead of a Railway-assigned 12-hex container id.
+        assert!(
+            cfg.contains("resourcedetection"),
+            "resourcedetection processor missing:\n{cfg}"
+        );
+        assert!(cfg.contains("detectors:"), "detector list missing");
+        assert!(
+            cfg.contains("env") && cfg.contains("system") && cfg.contains("docker"),
+            "expected env/system/docker detectors:\n{cfg}"
+        );
+        // resource processor upserts service.name so even OTLP signals missing
+        // resource attrs land under service:openpaw.
+        assert!(
+            cfg.contains("resource:\n") || cfg.contains("resource:\r\n"),
+            "resource processor missing"
+        );
+        assert!(
+            cfg.contains("service.name"),
+            "service.name upsert missing:\n{cfg}"
+        );
+    }
+
+    #[test]
+    fn otel_datadog_config_wires_processors_into_every_pipeline() {
+        let cfg = otel_datadog_config();
+        // Each of the four pipelines should run resourcedetection + resource
+        // before batch. Simple contains() on the full pipeline-processor
+        // fragment catches all of them.
+        let expected = "processors: [resourcedetection, resource, batch]";
+        let pipeline_count = cfg.matches(expected).count();
+        assert_eq!(
+            pipeline_count, 3,
+            "expected {expected} in all 3 pipelines (traces/metrics/logs), found {pipeline_count}:\n{cfg}",
+        );
+    }
+
+    #[test]
+    fn otel_datadog_config_preserves_existing_exporter_and_receiver() {
+        let cfg = otel_datadog_config();
+        // Regression guard: earlier version had datadog exporter + otlp
+        // receiver. Refactor must not drop these.
+        assert!(cfg.contains("datadog:"));
+        assert!(cfg.contains("${env:DD_API_KEY}"));
+        assert!(cfg.contains("${env:DD_SITE}"));
+        assert!(cfg.contains("otlp:"));
+        assert!(cfg.contains("0.0.0.0:4317"));
+        assert!(cfg.contains("0.0.0.0:4318"));
+    }
+
+    #[test]
+    fn otel_debug_config_stays_minimal_for_operator_dev_runs() {
+        let cfg = otel_debug_config();
+        // Debug config is emitted when DD_API_KEY is absent — keep it
+        // simple. No resourcedetection here (debug exporter doesn't care).
+        assert!(cfg.contains("debug:"));
+        assert!(!cfg.contains("datadog:"));
+        assert!(cfg.contains("otlp:"));
     }
 }
