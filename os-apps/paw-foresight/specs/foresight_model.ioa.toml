@@ -90,6 +90,19 @@ params = ["name", "model_type", "signal_source_config", "seed_soul_id", "seed_mo
 hint = "Begin initial model seeding. Spawns a seed agent session for the configured model_type."
 effect = [{ type = "trigger", name = "spawn_seed_agent" }]
 
+# ADR-0046: inline trigger — migrated from [[integration]] below.
+# Post-parse expansion re-synthesizes the equivalent Integration so
+# the existing WASM/webhook runtime handles execution unchanged.
+[[action.triggers]]
+name = "spawn_seed_agent"
+kind = "wasm"
+module = "spawn_seed_agent"
+on_failure = "SeedFailed"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+
+
 [[action]]
 name = "SeedComplete"
 kind = "input"
@@ -139,13 +152,3 @@ hint = "Re-seed a stale model to bring it back to Active."
 effect = [{ type = "trigger", name = "spawn_seed_agent" }]
 
 # --- Integrations ---
-
-[[integration]]
-name = "spawn_seed_agent"
-trigger = "spawn_seed_agent"
-type = "wasm"
-module = "spawn_seed_agent"
-on_failure = "SeedFailed"
-
-[integration.config]
-temper_api_url = "{secret:temper_api_url}"

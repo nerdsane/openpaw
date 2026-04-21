@@ -129,6 +129,20 @@ to = "Ready"
 hint = "Validate and prepare job for execution. Triggers message builder WASM."
 effect = [{ type = "trigger", name = "build_session_message" }]
 
+# ADR-0046: inline trigger — migrated from [[integration]] below.
+# Post-parse expansion re-synthesizes the equivalent Integration so
+# the existing WASM/webhook runtime handles execution unchanged.
+[[action.triggers]]
+name = "build_session_message"
+kind = "wasm"
+module = "build_session_message"
+on_failure = "Fail"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+odata_namespace = "WikiCore"
+
+
 [[action]]
 name = "Start"
 kind = "input"
@@ -165,6 +179,19 @@ params = ["output"]
 hint = "Mark job as successfully completed with output summary."
 effect = [{ type = "trigger", name = "finalize_spawned_session" }]
 
+# ADR-0046: inline trigger — migrated from [[integration]] below.
+# Post-parse expansion re-synthesizes the equivalent Integration so
+# the existing WASM/webhook runtime handles execution unchanged.
+[[action.triggers]]
+name = "finalize_spawned_session"
+kind = "wasm"
+module = "finalize_spawned_session"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+odata_namespace = "WikiCore"
+
+
 [[action]]
 name = "Fail"
 kind = "input"
@@ -187,24 +214,3 @@ when = ["Failed"]
 assert = "no_further_transitions"
 
 # --- Integrations ---
-
-[[integration]]
-name = "build_session_message"
-trigger = "build_session_message"
-type = "wasm"
-module = "build_session_message"
-on_failure = "Fail"
-
-[integration.config]
-temper_api_url = "{secret:temper_api_url}"
-odata_namespace = "WikiCore"
-
-[[integration]]
-name = "finalize_spawned_session"
-trigger = "finalize_spawned_session"
-type = "wasm"
-module = "finalize_spawned_session"
-
-[integration.config]
-temper_api_url = "{secret:temper_api_url}"
-odata_namespace = "WikiCore"

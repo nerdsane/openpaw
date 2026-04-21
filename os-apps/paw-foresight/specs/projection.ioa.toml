@@ -108,6 +108,19 @@ params = []
 hint = "Begin the projection. Spawns probe agents for the configured model."
 effect = [{ type = "trigger", name = "spawn_probes" }]
 
+# ADR-0046: inline trigger — migrated from [[integration]] below.
+# Post-parse expansion re-synthesizes the equivalent Integration so
+# the existing WASM/webhook runtime handles execution unchanged.
+[[action.triggers]]
+name = "spawn_probes"
+kind = "wasm"
+module = "spawn_probes"
+on_failure = "Fail"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+
+
 [[action]]
 name = "ProbesReady"
 kind = "input"
@@ -123,6 +136,19 @@ params = ["probe_agent_id", "direction_id"]
 hint = "A Probe self-reports completion of the current step. WASM checks if all probes have reported; if so, spawns Convergence Analyst."
 effect = [{ type = "trigger", name = "handle_probe_done" }]
 
+# ADR-0046: inline trigger — migrated from [[integration]] below.
+# Post-parse expansion re-synthesizes the equivalent Integration so
+# the existing WASM/webhook runtime handles execution unchanged.
+[[action.triggers]]
+name = "handle_probe_done"
+kind = "wasm"
+module = "handle_probe_done"
+on_failure = "Fail"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+
+
 [[action]]
 name = "ConvergenceComplete"
 kind = "input"
@@ -131,6 +157,19 @@ params = []
 hint = "Convergence Analyst finished. Spawns Model Projector to produce updated projected state."
 effect = [{ type = "trigger", name = "handle_convergence" }]
 
+# ADR-0046: inline trigger — migrated from [[integration]] below.
+# Post-parse expansion re-synthesizes the equivalent Integration so
+# the existing WASM/webhook runtime handles execution unchanged.
+[[action.triggers]]
+name = "handle_convergence"
+kind = "wasm"
+module = "handle_convergence"
+on_failure = "Fail"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+
+
 [[action]]
 name = "ProjectionUpdated"
 kind = "input"
@@ -138,6 +177,19 @@ from = ["Running"]
 params = ["projected_state_file_id"]
 hint = "Model Projector finished with updated projected state. Respawns probes for next step or completes."
 effect = [{ type = "trigger", name = "handle_projection_updated" }]
+
+# ADR-0046: inline trigger — migrated from [[integration]] below.
+# Post-parse expansion re-synthesizes the equivalent Integration so
+# the existing WASM/webhook runtime handles execution unchanged.
+[[action.triggers]]
+name = "handle_projection_updated"
+kind = "wasm"
+module = "handle_projection_updated"
+on_failure = "Fail"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+
 
 [[action]]
 name = "AdvanceStep"
@@ -191,43 +243,3 @@ when = ["Failed"]
 assert = "no_further_transitions"
 
 # --- Integrations ---
-
-[[integration]]
-name = "spawn_probes"
-trigger = "spawn_probes"
-type = "wasm"
-module = "spawn_probes"
-on_failure = "Fail"
-
-[integration.config]
-temper_api_url = "{secret:temper_api_url}"
-
-[[integration]]
-name = "handle_probe_done"
-trigger = "handle_probe_done"
-type = "wasm"
-module = "handle_probe_done"
-on_failure = "Fail"
-
-[integration.config]
-temper_api_url = "{secret:temper_api_url}"
-
-[[integration]]
-name = "handle_convergence"
-trigger = "handle_convergence"
-type = "wasm"
-module = "handle_convergence"
-on_failure = "Fail"
-
-[integration.config]
-temper_api_url = "{secret:temper_api_url}"
-
-[[integration]]
-name = "handle_projection_updated"
-trigger = "handle_projection_updated"
-type = "wasm"
-module = "handle_projection_updated"
-on_failure = "Fail"
-
-[integration.config]
-temper_api_url = "{secret:temper_api_url}"

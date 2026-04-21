@@ -140,6 +140,20 @@ params = ["path"]
 hint = "Create directory hierarchy at path (mkdir -p)."
 effect = [{ type = "trigger", name = "fs_mkdir" }]
 
+# ADR-0046: inline trigger — migrated from [[integration]] below.
+# Post-parse expansion re-synthesizes the equivalent Integration so
+# the existing WASM/webhook runtime handles execution unchanged.
+[[action.triggers]]
+name = "fs_mkdir"
+kind = "wasm"
+module = "workspace_fs"
+on_failure = "FsOperationFailed"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+operation = "mkdir"
+
+
 [[action]]
 name = "DirCreated"
 kind = "input"
@@ -156,6 +170,20 @@ to = "Active"
 params = ["path", "mime_type"]
 hint = "Create file entity at path (creat). Parent dir must exist."
 effect = [{ type = "trigger", name = "fs_create_file" }]
+
+# ADR-0046: inline trigger — migrated from [[integration]] below.
+# Post-parse expansion re-synthesizes the equivalent Integration so
+# the existing WASM/webhook runtime handles execution unchanged.
+[[action.triggers]]
+name = "fs_create_file"
+kind = "wasm"
+module = "workspace_fs"
+on_failure = "FsOperationFailed"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+operation = "create_file"
+
 
 [[action]]
 name = "FileCreated"
@@ -174,6 +202,20 @@ params = ["path"]
 hint = "Resolve path to file entity (stat)."
 effect = [{ type = "trigger", name = "fs_resolve_path" }]
 
+# ADR-0046: inline trigger — migrated from [[integration]] below.
+# Post-parse expansion re-synthesizes the equivalent Integration so
+# the existing WASM/webhook runtime handles execution unchanged.
+[[action.triggers]]
+name = "fs_resolve_path"
+kind = "wasm"
+module = "workspace_fs"
+on_failure = "FsOperationFailed"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+operation = "resolve_path"
+
+
 [[action]]
 name = "PathResolved"
 kind = "input"
@@ -190,6 +232,20 @@ to = "Active"
 params = ["path"]
 hint = "List directory contents (readdir)."
 effect = [{ type = "trigger", name = "fs_list_dir" }]
+
+# ADR-0046: inline trigger — migrated from [[integration]] below.
+# Post-parse expansion re-synthesizes the equivalent Integration so
+# the existing WASM/webhook runtime handles execution unchanged.
+[[action.triggers]]
+name = "fs_list_dir"
+kind = "wasm"
+module = "workspace_fs"
+on_failure = "FsOperationFailed"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+operation = "list_dir"
+
 
 [[action]]
 name = "DirListed"
@@ -208,6 +264,20 @@ params = ["path"]
 hint = "Archive file at path (unlink)."
 effect = [{ type = "trigger", name = "fs_delete_file" }]
 
+# ADR-0046: inline trigger — migrated from [[integration]] below.
+# Post-parse expansion re-synthesizes the equivalent Integration so
+# the existing WASM/webhook runtime handles execution unchanged.
+[[action.triggers]]
+name = "fs_delete_file"
+kind = "wasm"
+module = "workspace_fs"
+on_failure = "FsOperationFailed"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+operation = "delete_file"
+
+
 [[action]]
 name = "FileDeleted"
 kind = "input"
@@ -224,6 +294,20 @@ to = "Active"
 params = ["path", "new_path"]
 hint = "Rename/move file (FUSE: rename). Moves file from path to new_path, creating intermediate directories as needed."
 effect = [{ type = "trigger", name = "fs_rename" }]
+
+# ADR-0046: inline trigger — migrated from [[integration]] below.
+# Post-parse expansion re-synthesizes the equivalent Integration so
+# the existing WASM/webhook runtime handles execution unchanged.
+[[action.triggers]]
+name = "fs_rename"
+kind = "wasm"
+module = "workspace_fs"
+on_failure = "FsOperationFailed"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+operation = "rename"
+
 
 [[action]]
 name = "FileRenamed"
@@ -266,69 +350,3 @@ when = ["Active", "Frozen", "Archived"]
 assert = "file_count >= 0"
 
 # --- Filesystem Integrations (WASM) ---
-
-[[integration]]
-name = "fs_mkdir"
-trigger = "fs_mkdir"
-type = "wasm"
-module = "workspace_fs"
-on_failure = "FsOperationFailed"
-
-[integration.config]
-temper_api_url = "{secret:temper_api_url}"
-operation = "mkdir"
-
-[[integration]]
-name = "fs_create_file"
-trigger = "fs_create_file"
-type = "wasm"
-module = "workspace_fs"
-on_failure = "FsOperationFailed"
-
-[integration.config]
-temper_api_url = "{secret:temper_api_url}"
-operation = "create_file"
-
-[[integration]]
-name = "fs_resolve_path"
-trigger = "fs_resolve_path"
-type = "wasm"
-module = "workspace_fs"
-on_failure = "FsOperationFailed"
-
-[integration.config]
-temper_api_url = "{secret:temper_api_url}"
-operation = "resolve_path"
-
-[[integration]]
-name = "fs_list_dir"
-trigger = "fs_list_dir"
-type = "wasm"
-module = "workspace_fs"
-on_failure = "FsOperationFailed"
-
-[integration.config]
-temper_api_url = "{secret:temper_api_url}"
-operation = "list_dir"
-
-[[integration]]
-name = "fs_delete_file"
-trigger = "fs_delete_file"
-type = "wasm"
-module = "workspace_fs"
-on_failure = "FsOperationFailed"
-
-[integration.config]
-temper_api_url = "{secret:temper_api_url}"
-operation = "delete_file"
-
-[[integration]]
-name = "fs_rename"
-trigger = "fs_rename"
-type = "wasm"
-module = "workspace_fs"
-on_failure = "FsOperationFailed"
-
-[integration.config]
-temper_api_url = "{secret:temper_api_url}"
-operation = "rename"

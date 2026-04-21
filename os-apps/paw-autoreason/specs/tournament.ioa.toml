@@ -115,6 +115,20 @@ effect = [{ type = "trigger", name = "initialize_tournament" }]
 
 # --- InRound (referee agent orchestrating one round) ---
 
+# ADR-0046: inline trigger — migrated from [[integration]] below.
+# Post-parse expansion re-synthesizes the equivalent Integration so
+# the existing WASM/webhook runtime handles execution unchanged.
+[[action.triggers]]
+name = "initialize_tournament"
+kind = "wasm"
+module = "initialize_tournament"
+on_failure = "Fail"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+odata_namespace = "Autoreason"
+
+
 [[action]]
 name = "RoundReady"
 kind = "input"
@@ -150,6 +164,19 @@ effect = [{ type = "trigger", name = "tally_votes" }]
 
 # --- Tallying (deterministic Borda count) ---
 
+# ADR-0046: inline trigger — migrated from [[integration]] below.
+# Post-parse expansion re-synthesizes the equivalent Integration so
+# the existing WASM/webhook runtime handles execution unchanged.
+[[action.triggers]]
+name = "tally_votes"
+kind = "wasm"
+module = "tally_votes"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+odata_namespace = "Autoreason"
+
+
 [[action]]
 name = "NextRound"
 kind = "input"
@@ -158,6 +185,20 @@ to = "InRound"
 params = ["current_version_a_id", "consecutive_incumbent_wins"]
 hint = "Winner determined, starting next round."
 effect = [{ type = "increment", field = "round_count" }, { type = "trigger", name = "run_round" }]
+
+# ADR-0046: inline trigger — migrated from [[integration]] below.
+# Post-parse expansion re-synthesizes the equivalent Integration so
+# the existing WASM/webhook runtime handles execution unchanged.
+[[action.triggers]]
+name = "run_round"
+kind = "wasm"
+module = "run_round"
+on_failure = "Fail"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+odata_namespace = "Autoreason"
+
 
 [[action]]
 name = "Converge"
@@ -203,35 +244,3 @@ when = ["Failed"]
 assert = "no_further_transitions"
 
 # --- Integrations ---
-
-[[integration]]
-name = "initialize_tournament"
-trigger = "initialize_tournament"
-type = "wasm"
-module = "initialize_tournament"
-on_failure = "Fail"
-
-[integration.config]
-temper_api_url = "{secret:temper_api_url}"
-odata_namespace = "Autoreason"
-
-[[integration]]
-name = "run_round"
-trigger = "run_round"
-type = "wasm"
-module = "run_round"
-on_failure = "Fail"
-
-[integration.config]
-temper_api_url = "{secret:temper_api_url}"
-odata_namespace = "Autoreason"
-
-[[integration]]
-name = "tally_votes"
-trigger = "tally_votes"
-type = "wasm"
-module = "tally_votes"
-
-[integration.config]
-temper_api_url = "{secret:temper_api_url}"
-odata_namespace = "Autoreason"

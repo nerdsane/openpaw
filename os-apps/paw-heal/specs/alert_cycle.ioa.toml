@@ -80,6 +80,22 @@ params = ["monitor_id", "alert_payload", "report_channel_entity_id", "report_thr
 hint = "Open a triage cycle and optionally attach the SRE agent responsible for diagnosis."
 effect = [{ type = "trigger", name = "spawn_sre" }]
 
+# ADR-0046: inline trigger — migrated from [[integration]] below.
+# Post-parse expansion re-synthesizes the equivalent Integration so
+# the existing WASM/webhook runtime handles execution unchanged.
+[[action.triggers]]
+name = "spawn_sre"
+kind = "wasm"
+module = "alert_opener"
+on_failure = "Escalate"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+default_agent_model = "claude-sonnet-4-6"
+default_sre_workdir = "/workspace/temperpaw-sre-webhook"
+default_developer_workdir = "/workspace/temperpaw-self-heal"
+
+
 [[action]]
 name = "HealComplete"
 kind = "input"
@@ -88,6 +104,19 @@ to = "Fixed"
 params = ["diagnosis", "pr_url", "developer_agent_id"]
 hint = "Mark the alert as fixed and record the remediation PR."
 effect = [{ type = "trigger", name = "begin_cicd" }]
+
+# ADR-0046: inline trigger — migrated from [[integration]] below.
+# Post-parse expansion re-synthesizes the equivalent Integration so
+# the existing WASM/webhook runtime handles execution unchanged.
+[[action.triggers]]
+name = "begin_cicd"
+kind = "wasm"
+module = "cicd_initiator"
+on_failure = "Escalate"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+
 
 [[action]]
 name = "BeginMerge"
@@ -98,6 +127,21 @@ params = ["pr_url"]
 hint = "Begin the merge phase after a fix PR is ready."
 effect = [{ type = "trigger", name = "check_merge_ready" }]
 
+# ADR-0046: inline trigger — migrated from [[integration]] below.
+# Post-parse expansion re-synthesizes the equivalent Integration so
+# the existing WASM/webhook runtime handles execution unchanged.
+[[action.triggers]]
+name = "check_merge_ready"
+kind = "wasm"
+module = "cicd_merger"
+on_failure = "AlertPersists"
+
+[action.triggers.config]
+github_token = "{secret:github_token}"
+temper_api_url = "{secret:temper_api_url}"
+max_checks = "40"
+
+
 [[action]]
 name = "MergeComplete"
 kind = "input"
@@ -106,6 +150,21 @@ to = "Deploying"
 params = ["merge_sha"]
 hint = "Record the merge SHA and transition into deployment tracking."
 effect = [{ type = "trigger", name = "check_deployment" }]
+
+# ADR-0046: inline trigger — migrated from [[integration]] below.
+# Post-parse expansion re-synthesizes the equivalent Integration so
+# the existing WASM/webhook runtime handles execution unchanged.
+[[action.triggers]]
+name = "check_deployment"
+kind = "wasm"
+module = "deployment_tracker"
+on_failure = "AlertPersists"
+
+[action.triggers.config]
+github_token = "{secret:github_token}"
+temper_api_url = "{secret:temper_api_url}"
+max_checks = "40"
+
 
 [[action]]
 name = "DeployDetected"
@@ -116,6 +175,23 @@ params = ["deployment_url"]
 hint = "Record the deployment target that should be verified after merge."
 effect = [{ type = "trigger", name = "check_alert_resolution" }]
 
+# ADR-0046: inline trigger — migrated from [[integration]] below.
+# Post-parse expansion re-synthesizes the equivalent Integration so
+# the existing WASM/webhook runtime handles execution unchanged.
+[[action.triggers]]
+name = "check_alert_resolution"
+kind = "wasm"
+module = "alert_verifier"
+on_failure = "AlertPersists"
+
+[action.triggers.config]
+dd_api_key = "{secret:dd_api_key}"
+dd_app_key = "{secret:dd_app_key}"
+dd_site = "{secret:dd_site}"
+temper_api_url = "{secret:temper_api_url}"
+max_checks = "5"
+
+
 [[action]]
 name = "AlertResolved"
 kind = "input"
@@ -124,6 +200,18 @@ to = "Resolved"
 params = ["diagnosis"]
 hint = "Mark the alert resolved after post-deploy verification succeeds."
 effect = [{ type = "trigger", name = "report_outcome" }]
+
+# ADR-0046: inline trigger — migrated from [[integration]] below.
+# Post-parse expansion re-synthesizes the equivalent Integration so
+# the existing WASM/webhook runtime handles execution unchanged.
+[[action.triggers]]
+name = "report_outcome"
+kind = "wasm"
+module = "heal_reporter"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+
 
 [[action]]
 name = "AlertPersists"
@@ -193,73 +281,3 @@ assert = "no_further_transitions"
 name = "FailedIsFinal"
 when = ["Failed"]
 assert = "no_further_transitions"
-
-[[integration]]
-name = "spawn_sre"
-trigger = "spawn_sre"
-type = "wasm"
-module = "alert_opener"
-on_failure = "Escalate"
-
-[integration.config]
-temper_api_url = "{secret:temper_api_url}"
-default_agent_model = "claude-sonnet-4-6"
-default_sre_workdir = "/workspace/temperpaw-sre-webhook"
-default_developer_workdir = "/workspace/temperpaw-self-heal"
-
-[[integration]]
-name = "begin_cicd"
-trigger = "begin_cicd"
-type = "wasm"
-module = "cicd_initiator"
-on_failure = "Escalate"
-
-[integration.config]
-temper_api_url = "{secret:temper_api_url}"
-
-[[integration]]
-name = "check_merge_ready"
-trigger = "check_merge_ready"
-type = "wasm"
-module = "cicd_merger"
-on_failure = "AlertPersists"
-
-[integration.config]
-github_token = "{secret:github_token}"
-temper_api_url = "{secret:temper_api_url}"
-max_checks = "40"
-
-[[integration]]
-name = "check_deployment"
-trigger = "check_deployment"
-type = "wasm"
-module = "deployment_tracker"
-on_failure = "AlertPersists"
-
-[integration.config]
-github_token = "{secret:github_token}"
-temper_api_url = "{secret:temper_api_url}"
-max_checks = "40"
-
-[[integration]]
-name = "check_alert_resolution"
-trigger = "check_alert_resolution"
-type = "wasm"
-module = "alert_verifier"
-on_failure = "AlertPersists"
-
-[integration.config]
-dd_api_key = "{secret:dd_api_key}"
-dd_app_key = "{secret:dd_app_key}"
-dd_site = "{secret:dd_site}"
-temper_api_url = "{secret:temper_api_url}"
-max_checks = "5"
-
-[[integration]]
-name = "report_outcome"
-trigger = "report_outcome"
-type = "wasm"
-module = "heal_reporter"
-
-[integration.config]
-temper_api_url = "{secret:temper_api_url}"
