@@ -548,8 +548,9 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             &saved_state,
         )?;
 
-        // Heartbeat
-        session::send_heartbeat(&ctx, &temper_api_url, tenant);
+        // ProgressMade: a tool batch completed — this is real forward progress,
+        // so reset the Executing state_timeout (not just ping liveness).
+        session::send_progress(&ctx, &temper_api_url, tenant);
 
         // Check if agent signaled completion via temper.done(result)
         let done_result = dispatch::take_done_result();

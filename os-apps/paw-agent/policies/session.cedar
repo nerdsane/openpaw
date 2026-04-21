@@ -79,6 +79,7 @@ permit(
     Action::"FinalizeResult",
     Action::"DeliveryFailed",
     Action::"Heartbeat",
+    Action::"ProgressMade",
     Action::"TimeoutFail",
     Action::"PauseForApproval",
     Action::"PauseForPlanApproval",

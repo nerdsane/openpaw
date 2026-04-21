@@ -21,7 +21,7 @@ use std::collections::BTreeSet;
 use temper_wasm_sdk::prelude::*;
 use wasm_helpers::{
     create_content_file, runtime_headers, runtime_headers_as, send_typing_indicator,
-    write_temperfs_value_with_retry,
+    timestamp_millis_string, write_temperfs_value_with_retry,
 };
 
 const SESSION_ENTRY_FILE_THRESHOLD_BYTES: usize = 4096;
@@ -2969,7 +2969,7 @@ fn send_heartbeat(ctx: &Context, temper_api_url: &str, tenant: &str) -> Result<(
         "{temper_api_url}/tdata/Sessions('{}')/TemperPaw.Heartbeat",
         ctx.entity_id
     );
-    let body = json!({ "last_heartbeat_at": "alive" });
+    let body = json!({ "last_heartbeat_at": timestamp_millis_string() });
     let fields = ctx
         .entity_state
         .get("fields")

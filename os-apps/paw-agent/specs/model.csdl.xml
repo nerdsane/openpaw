@@ -67,6 +67,8 @@
         <Property Name="AgentId" Type="Edm.String"/>
         <Property Name="LastHeartbeatAt" Type="Edm.String"/>
         <Property Name="HeartbeatTimeoutSeconds" Type="Edm.String"/>
+        <Property Name="ProgressToken" Type="Edm.Int64"/>
+        <Property Name="LastProgressAt" Type="Edm.String"/>
         <Property Name="PendingDecisionId" Type="Edm.String"/>
         <Property Name="PendingToolContext" Type="Edm.String"/>
         <Property Name="SessionMode" Type="Edm.String"/>
@@ -383,6 +385,12 @@
       <Action Name="Heartbeat" IsBound="true">
         <Parameter Name="bindingParameter" Type="TemperPaw.Session"/>
         <Parameter Name="last_heartbeat_at" Type="Edm.String" Nullable="false"/>
+        <ReturnType Type="TemperPaw.Session"/>
+      </Action>
+
+      <Action Name="ProgressMade" IsBound="true">
+        <Parameter Name="bindingParameter" Type="TemperPaw.Session"/>
+        <Parameter Name="last_progress_at" Type="Edm.String" Nullable="false"/>
         <ReturnType Type="TemperPaw.Session"/>
       </Action>
 

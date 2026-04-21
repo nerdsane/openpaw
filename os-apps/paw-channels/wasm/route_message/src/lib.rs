@@ -1,6 +1,8 @@
 use session_tree_lib::SessionTree;
 use temper_wasm_sdk::prelude::*;
-use wasm_helpers::{create_content_file, runtime_headers, runtime_headers_for_workspace};
+use wasm_helpers::{
+    create_content_file, runtime_headers, runtime_headers_for_workspace, timestamp_millis_string,
+};
 
 const DEFAULT_TOOLS_ENABLED: &str = "temper_create,temper_get,temper_list,temper_action,temper_patch,temper_submit_specs,temper_show_spec,temper_specs,temper_upload_wasm,temper_get_trajectories,temper_get_insights,temper_get_decisions,temper_poll_decision,temper_approve_decision,temper_deny_decision,temper_submit_policy,temper_list_policies,temper_get_policy,temper_update_policy,temper_delete_policy,temper_install_app,temper_list_apps,temper_spawn_session,temper_list_sessions,temper_abort_session,temper_steer_session,temper_save_memory,temper_recall_memory,temper_write,temper_read,temper_run_coding_agent,temper_get_secret,temper_datadog_query,temper_railway,temper_vercel,temper_web_search,temper_web_fetch,read,write,edit,bash";
 const PLAN_MODE_TOOLS: &str = "temper_create,temper_get,temper_list,temper_action,temper_specs,temper_show_spec,temper_save_memory,temper_recall_memory,temper_read,temper_write,temper_web_search,temper_web_fetch,temper_get_trajectories,temper_get_insights,read,bash";
@@ -444,11 +446,12 @@ fn resume_session(
     session_id: &str,
 ) -> Result<(), String> {
     let url = format!("{temper_api_url}/tdata/ChannelSessions('{session_id}')/Paw.Channel.Resume");
+    let body = json!({ "last_message_at": timestamp_millis_string() });
     let _ = ctx.http_call(
         "POST",
         &url,
         &odata_headers(ctx, tenant),
-        r#"{"last_message_at":"resumed"}"#,
+        &body.to_string(),
     )?;
     Ok(())
 }
@@ -979,7 +982,7 @@ fn update_session_binding(
     );
     let body = json!({
         "session_entity_id": new_session_id,
-        "last_message_at": "continued",
+        "last_message_at": timestamp_millis_string(),
     });
     // Use the normal runtime headers so production bearer auth and the invoking
     // agent identity are forwarded consistently with the other ChannelSession actions.
@@ -1215,7 +1218,7 @@ fn create_channel_session(
         "author_id": author_id,
         "agent_entity_id": agent_entity_id,
         "session_entity_id": session_entity_id,
-        "last_message_at": "created",
+        "last_message_at": timestamp_millis_string(),
     });
     let resp = ctx.http_call(
         "POST",
