@@ -1647,6 +1647,99 @@ fn detect_anthropic_oauth_mode(_api_key: &str, auth_mode: &str) -> bool {
 }
 
 /// Call Anthropic Messages API.
+/// Hang-hint threshold for a single LLM HTTP attempt. 60 s is chosen so
+/// the hint fires well before the `call_llm` integration's 600 s
+/// WASM-host timeout (see `os-apps/paw-agent/specs/session.ioa.toml`),
+/// which is when the WASM host kills the module with no further logs.
+const LLM_HANG_HINT_THRESHOLD_MS: i64 = 60_000;
+
+/// True iff a single LLM HTTP attempt has already exceeded the
+/// hang-hint threshold. Matches ADR-0037 Fix B.
+fn should_emit_hang_hint(attempt_elapsed_ms: i64) -> bool {
+    attempt_elapsed_ms >= LLM_HANG_HINT_THRESHOLD_MS
+}
+
+/// Log line emitted immediately before an LLM HTTP attempt.
+fn format_llm_attempt_start_log(
+    provider: &str,
+    model: &str,
+    attempt: u32,
+    total: u32,
+    total_elapsed_ms: i64,
+) -> String {
+    format!(
+        "llm_caller: {provider} attempt {attempt}/{total} start total_elapsed_ms={total_elapsed_ms} model={model}"
+    )
+}
+
+/// Log line emitted after an LLM HTTP attempt returns.
+fn format_llm_attempt_end_log(
+    provider: &str,
+    attempt: u32,
+    attempt_elapsed_ms: i64,
+    http_status: u16,
+    body_len: usize,
+) -> String {
+    format!(
+        "llm_caller: {provider} attempt {attempt} end elapsed_ms={attempt_elapsed_ms} http_status={http_status} body_len={body_len}"
+    )
+}
+
+/// Log line emitted when the LLM call completes (success or failure).
+fn format_llm_complete_log(
+    provider: &str,
+    model: &str,
+    attempts: u32,
+    total_elapsed_ms: i64,
+    outcome: &str,
+) -> String {
+    format!(
+        "llm_caller: {provider} complete attempts={attempts} total_elapsed_ms={total_elapsed_ms} model={model} outcome={outcome}"
+    )
+}
+
+/// Warn-level hang-hint line fired when a single attempt crosses
+/// `LLM_HANG_HINT_THRESHOLD_MS`. Surfaces in DD so operators see the
+/// slow call before the 600 s WASM timeout kills the module silently.
+fn format_llm_hang_hint(provider: &str, attempt: u32, attempt_elapsed_ms: i64) -> String {
+    format!(
+        "llm_caller: HANG HINT {provider} attempt {attempt} took {attempt_elapsed_ms} ms (>= {} ms). \
+         Upstream provider may be hung; WASM integration timeout_secs will kill the module.",
+        LLM_HANG_HINT_THRESHOLD_MS
+    )
+}
+
+/// Max output tokens passed to both Anthropic and OpenRouter. Kept as a
+/// constant so the value is reusable as a `gen_ai.request.max_tokens`
+/// span-hint attribute without drifting from the body payload.
+const LLM_MAX_TOKENS: u32 = 16384;
+
+/// Format a post-response usage log line using OpenTelemetry
+/// `gen_ai.*` semconv keys so DD's grok parser indexes them as
+/// structured attributes. The `wasm_guest` tracing bridge attaches
+/// the current span/trace IDs to the log, giving DD APM a clickable
+/// correlation between the `tool.llm_call.*` span and these usage
+/// numbers even though they cannot be set as span attributes post-hoc
+/// via hint headers (ADR-0037 Fix C4).
+fn format_gen_ai_usage_log(
+    provider: &str,
+    model: &str,
+    input_tokens: i64,
+    output_tokens: i64,
+    cache_read_input_tokens: i64,
+    cache_creation_input_tokens: i64,
+) -> String {
+    format!(
+        "llm_caller: usage \
+         gen_ai.system={provider} \
+         gen_ai.request.model={model} \
+         gen_ai.usage.input_tokens={input_tokens} \
+         gen_ai.usage.output_tokens={output_tokens} \
+         gen_ai.usage.cache_read_input_tokens={cache_read_input_tokens} \
+         gen_ai.usage.cache_creation_input_tokens={cache_creation_input_tokens}"
+    )
+}
+
 fn call_anthropic(
     ctx: &Context,
     api_key: &str,
@@ -1681,7 +1774,7 @@ fn call_anthropic(
 
     let mut body = json!({
         "model": model,
-        "max_tokens": 16384,
+        "max_tokens": LLM_MAX_TOKENS,
         "messages": effective_messages,
         "temperature": temperature,
     });
@@ -1740,7 +1833,7 @@ fn call_anthropic(
     );
 
     // Build auth headers — OAuth tokens use Bearer + beta header
-    let headers = if is_oauth {
+    let mut headers = if is_oauth {
         vec![
             ("authorization".to_string(), format!("Bearer {api_key}")),
             ("anthropic-version".to_string(), "2023-06-01".to_string()),
@@ -1763,35 +1856,147 @@ fn call_anthropic(
             ("content-type".to_string(), "application/json".to_string()),
         ]
     };
+    // Span hint headers — consumed + stripped by the host's split_span_hint_headers
+    // (temper-wasm, ADR-0037) so the resulting wasm.host.http_call span is
+    // renamed `tool.llm_call.anthropic` and carries gen_ai.* semconv attrs.
+    headers.push((
+        "X-Temper-Span-Name".to_string(),
+        "tool.llm_call.anthropic".to_string(),
+    ));
+    headers.push((
+        "X-Temper-Span-Attr-gen_ai.system".to_string(),
+        "anthropic".to_string(),
+    ));
+    headers.push((
+        "X-Temper-Span-Attr-gen_ai.request.model".to_string(),
+        model.to_string(),
+    ));
+    headers.push((
+        "X-Temper-Span-Attr-gen_ai.request.temperature".to_string(),
+        format!("{temperature}"),
+    ));
+    headers.push((
+        "X-Temper-Span-Attr-gen_ai.request.max_tokens".to_string(),
+        LLM_MAX_TOKENS.to_string(),
+    ));
 
-    // Retry on transient API errors (500, 529, and 400 with vague "Error" message)
+    // Retry on transient API errors (500, 529, and 400 with vague "Error" message).
+    // Per-attempt timing added by ADR-0037 Fix B so a hung upstream surfaces
+    // in DD logs long before the 600 s WASM-host timeout kills the module.
+    let overall_start_ms = Context::get_time_millis();
     let mut last_err = String::new();
     let mut resp = None;
-    for attempt in 0..5 {
+    let mut attempts_used: u32 = 0;
+    for attempt in 0..5u32 {
+        let attempt_num = attempt + 1;
+        attempts_used = attempt_num;
         if attempt > 0 {
             ctx.log(
                 "warn",
                 &format!(
-                    "llm_caller: retrying (attempt {}/5), last error: {last_err}",
-                    attempt + 1
+                    "llm_caller: anthropic retrying (attempt {attempt_num}/5), last error: {last_err}"
                 ),
             );
         }
+        ctx.log(
+            "info",
+            &format_llm_attempt_start_log(
+                "anthropic",
+                model,
+                attempt_num,
+                5,
+                Context::get_time_millis() - overall_start_ms,
+            ),
+        );
+        let attempt_start_ms = Context::get_time_millis();
         match ctx.http_call("POST", api_url, &headers, &body_str) {
             Ok(r) if r.status == 200 => {
+                let elapsed = Context::get_time_millis() - attempt_start_ms;
+                ctx.log(
+                    "info",
+                    &format_llm_attempt_end_log(
+                        "anthropic",
+                        attempt_num,
+                        elapsed,
+                        r.status as u16,
+                        r.body.len(),
+                    ),
+                );
+                if should_emit_hang_hint(elapsed) {
+                    ctx.log(
+                        "warn",
+                        &format_llm_hang_hint("anthropic", attempt_num, elapsed),
+                    );
+                }
                 resp = Some(r);
                 break;
             }
             Ok(r) if r.status == 500 || r.status == 529 => {
+                let elapsed = Context::get_time_millis() - attempt_start_ms;
+                ctx.log(
+                    "info",
+                    &format_llm_attempt_end_log(
+                        "anthropic",
+                        attempt_num,
+                        elapsed,
+                        r.status as u16,
+                        r.body.len(),
+                    ),
+                );
+                if should_emit_hang_hint(elapsed) {
+                    ctx.log(
+                        "warn",
+                        &format_llm_hang_hint("anthropic", attempt_num, elapsed),
+                    );
+                }
                 last_err = format!("HTTP {}: {}", r.status, &r.body[..r.body.len().min(200)]);
                 continue;
             }
             Ok(r) if r.status == 400 && r.body.contains("\"message\":\"Error\"") => {
                 // Transient 400 with vague error message — retry
+                let elapsed = Context::get_time_millis() - attempt_start_ms;
+                ctx.log(
+                    "info",
+                    &format_llm_attempt_end_log(
+                        "anthropic",
+                        attempt_num,
+                        elapsed,
+                        r.status as u16,
+                        r.body.len(),
+                    ),
+                );
+                if should_emit_hang_hint(elapsed) {
+                    ctx.log(
+                        "warn",
+                        &format_llm_hang_hint("anthropic", attempt_num, elapsed),
+                    );
+                }
                 last_err = format!("HTTP 400 (transient): {}", &r.body[..r.body.len().min(200)]);
                 continue;
             }
             Ok(r) => {
+                let elapsed = Context::get_time_millis() - attempt_start_ms;
+                ctx.log(
+                    "info",
+                    &format_llm_attempt_end_log(
+                        "anthropic",
+                        attempt_num,
+                        elapsed,
+                        r.status as u16,
+                        r.body.len(),
+                    ),
+                );
+                let total_elapsed = Context::get_time_millis() - overall_start_ms;
+                ctx.log(
+                    "info",
+                    &format_llm_complete_log(
+                        "anthropic",
+                        model,
+                        attempts_used,
+                        total_elapsed,
+                        "non_retriable_http_error",
+                    ),
+                );
                 return Err(format!(
                     "Anthropic API returned {}: {}",
                     r.status,
@@ -1799,12 +2004,53 @@ fn call_anthropic(
                 ));
             }
             Err(e) => {
+                let elapsed = Context::get_time_millis() - attempt_start_ms;
+                ctx.log(
+                    "warn",
+                    &format!(
+                        "llm_caller: anthropic attempt {attempt_num} transport error elapsed_ms={elapsed} err={e}"
+                    ),
+                );
+                if should_emit_hang_hint(elapsed) {
+                    ctx.log(
+                        "warn",
+                        &format_llm_hang_hint("anthropic", attempt_num, elapsed),
+                    );
+                }
                 last_err = e;
                 continue;
             }
         }
     }
-    let resp = resp.ok_or_else(|| format!("Anthropic API failed after 5 attempts: {last_err}"))?;
+    let resp = match resp {
+        Some(r) => r,
+        None => {
+            let total_elapsed = Context::get_time_millis() - overall_start_ms;
+            ctx.log(
+                "warn",
+                &format_llm_complete_log(
+                    "anthropic",
+                    model,
+                    attempts_used,
+                    total_elapsed,
+                    "exhausted_retries",
+                ),
+            );
+            return Err(format!(
+                "Anthropic API failed after 5 attempts: {last_err}"
+            ));
+        }
+    };
+    ctx.log(
+        "info",
+        &format_llm_complete_log(
+            "anthropic",
+            model,
+            attempts_used,
+            Context::get_time_millis() - overall_start_ms,
+            "success",
+        ),
+    );
 
     let parsed: Value = serde_json::from_str(&resp.body)
         .map_err(|e| format!("failed to parse LLM response: {e}"))?;
@@ -1838,7 +2084,14 @@ fn call_anthropic(
 
     ctx.log(
         "info",
-        &format!("llm_caller: usage: input={input_tokens}, output={output_tokens}, cache_read={cache_read_input_tokens}, cache_create={cache_creation_input_tokens}"),
+        &format_gen_ai_usage_log(
+            "anthropic",
+            model,
+            input_tokens,
+            output_tokens,
+            cache_read_input_tokens,
+            cache_creation_input_tokens,
+        ),
     );
 
     Ok(LlmResponse {
@@ -1879,7 +2132,7 @@ fn call_openrouter(
     let mut body = json!({
         "model": model,
         "messages": or_messages,
-        "max_tokens": 16384,
+        "max_tokens": LLM_MAX_TOKENS,
         "temperature": temperature,
     });
     if !openai_tools.is_empty() {
@@ -1900,6 +2153,27 @@ fn call_openrouter(
     if !app_name.trim().is_empty() {
         headers.push(("X-Title".to_string(), app_name.trim().to_string()));
     }
+    // Span hints (ADR-0037): stripped by the host before sending upstream.
+    headers.push((
+        "X-Temper-Span-Name".to_string(),
+        "tool.llm_call.openrouter".to_string(),
+    ));
+    headers.push((
+        "X-Temper-Span-Attr-gen_ai.system".to_string(),
+        "openrouter".to_string(),
+    ));
+    headers.push((
+        "X-Temper-Span-Attr-gen_ai.request.model".to_string(),
+        model.to_string(),
+    ));
+    headers.push((
+        "X-Temper-Span-Attr-gen_ai.request.temperature".to_string(),
+        format!("{temperature}"),
+    ));
+    headers.push((
+        "X-Temper-Span-Attr-gen_ai.request.max_tokens".to_string(),
+        LLM_MAX_TOKENS.to_string(),
+    ));
 
     ctx.log(
         "info",
@@ -1909,28 +2183,99 @@ fn call_openrouter(
         ),
     );
 
+    // Per-attempt timing + hang hint per ADR-0037 Fix B.
+    let overall_start_ms = Context::get_time_millis();
     let mut last_err = String::new();
     let mut resp = None;
-    for attempt in 0..5 {
+    let mut attempts_used: u32 = 0;
+    for attempt in 0..5u32 {
+        let attempt_num = attempt + 1;
+        attempts_used = attempt_num;
         if attempt > 0 {
             ctx.log(
                 "warn",
                 &format!(
-                    "llm_caller: openrouter retry (attempt {}/5), last error: {last_err}",
-                    attempt + 1
+                    "llm_caller: openrouter retrying (attempt {attempt_num}/5), last error: {last_err}"
                 ),
             );
         }
+        ctx.log(
+            "info",
+            &format_llm_attempt_start_log(
+                "openrouter",
+                model,
+                attempt_num,
+                5,
+                Context::get_time_millis() - overall_start_ms,
+            ),
+        );
+        let attempt_start_ms = Context::get_time_millis();
         match ctx.http_call("POST", api_url, &headers, &body_str) {
             Ok(r) if r.status == 200 => {
+                let elapsed = Context::get_time_millis() - attempt_start_ms;
+                ctx.log(
+                    "info",
+                    &format_llm_attempt_end_log(
+                        "openrouter",
+                        attempt_num,
+                        elapsed,
+                        r.status as u16,
+                        r.body.len(),
+                    ),
+                );
+                if should_emit_hang_hint(elapsed) {
+                    ctx.log(
+                        "warn",
+                        &format_llm_hang_hint("openrouter", attempt_num, elapsed),
+                    );
+                }
                 resp = Some(r);
                 break;
             }
             Ok(r) if matches!(r.status, 429 | 500 | 502 | 503 | 504) => {
+                let elapsed = Context::get_time_millis() - attempt_start_ms;
+                ctx.log(
+                    "info",
+                    &format_llm_attempt_end_log(
+                        "openrouter",
+                        attempt_num,
+                        elapsed,
+                        r.status as u16,
+                        r.body.len(),
+                    ),
+                );
+                if should_emit_hang_hint(elapsed) {
+                    ctx.log(
+                        "warn",
+                        &format_llm_hang_hint("openrouter", attempt_num, elapsed),
+                    );
+                }
                 last_err = format!("HTTP {}: {}", r.status, &r.body[..r.body.len().min(200)]);
                 continue;
             }
             Ok(r) => {
+                let elapsed = Context::get_time_millis() - attempt_start_ms;
+                ctx.log(
+                    "info",
+                    &format_llm_attempt_end_log(
+                        "openrouter",
+                        attempt_num,
+                        elapsed,
+                        r.status as u16,
+                        r.body.len(),
+                    ),
+                );
+                let total_elapsed = Context::get_time_millis() - overall_start_ms;
+                ctx.log(
+                    "info",
+                    &format_llm_complete_log(
+                        "openrouter",
+                        model,
+                        attempts_used,
+                        total_elapsed,
+                        "non_retriable_http_error",
+                    ),
+                );
                 return Err(format!(
                     "OpenRouter API returned {}: {}",
                     r.status,
@@ -1938,12 +2283,53 @@ fn call_openrouter(
                 ));
             }
             Err(e) => {
+                let elapsed = Context::get_time_millis() - attempt_start_ms;
+                ctx.log(
+                    "warn",
+                    &format!(
+                        "llm_caller: openrouter attempt {attempt_num} transport error elapsed_ms={elapsed} err={e}"
+                    ),
+                );
+                if should_emit_hang_hint(elapsed) {
+                    ctx.log(
+                        "warn",
+                        &format_llm_hang_hint("openrouter", attempt_num, elapsed),
+                    );
+                }
                 last_err = e;
                 continue;
             }
         }
     }
-    let resp = resp.ok_or_else(|| format!("OpenRouter API failed after 5 attempts: {last_err}"))?;
+    let resp = match resp {
+        Some(r) => r,
+        None => {
+            let total_elapsed = Context::get_time_millis() - overall_start_ms;
+            ctx.log(
+                "warn",
+                &format_llm_complete_log(
+                    "openrouter",
+                    model,
+                    attempts_used,
+                    total_elapsed,
+                    "exhausted_retries",
+                ),
+            );
+            return Err(format!(
+                "OpenRouter API failed after 5 attempts: {last_err}"
+            ));
+        }
+    };
+    ctx.log(
+        "info",
+        &format_llm_complete_log(
+            "openrouter",
+            model,
+            attempts_used,
+            Context::get_time_millis() - overall_start_ms,
+            "success",
+        ),
+    );
 
     let parsed: Value = serde_json::from_str(&resp.body)
         .map_err(|e| format!("failed to parse OpenRouter response: {e}"))?;
@@ -2011,6 +2397,11 @@ fn call_openrouter(
     } else {
         "end_turn".to_string()
     };
+
+    ctx.log(
+        "info",
+        &format_gen_ai_usage_log("openrouter", model, input_tokens, output_tokens, 0, 0),
+    );
 
     Ok(LlmResponse {
         content: Value::Array(content_blocks),
@@ -5617,5 +6008,75 @@ mod tests {
         assert!(attr.contains("&quot;"));
         assert!(attr.contains("&lt;"));
         assert!(attr.contains("&gt;"));
+    }
+
+    // --- ADR-0037 Fix B: per-attempt timing + hang diagnostics ---
+
+    #[test]
+    fn llm_attempt_start_log_includes_provider_model_attempt_and_elapsed() {
+        let msg = format_llm_attempt_start_log("anthropic", "claude-sonnet-4.6", 2, 5, 1234);
+        assert!(msg.contains("anthropic"));
+        assert!(msg.contains("attempt 2/5"));
+        assert!(msg.contains("total_elapsed_ms=1234"));
+        assert!(msg.contains("model=claude-sonnet-4.6"));
+        assert!(msg.contains("start"));
+    }
+
+    #[test]
+    fn llm_attempt_end_log_includes_http_status_and_body_len() {
+        let msg = format_llm_attempt_end_log("openrouter", 1, 850, 200, 4096);
+        assert!(msg.contains("openrouter"));
+        assert!(msg.contains("attempt 1"));
+        assert!(msg.contains("elapsed_ms=850"));
+        assert!(msg.contains("http_status=200"));
+        assert!(msg.contains("body_len=4096"));
+        assert!(msg.contains("end"));
+    }
+
+    #[test]
+    fn llm_complete_log_summarises_total_and_outcome() {
+        let msg = format_llm_complete_log("anthropic", "claude-sonnet-4.6", 3, 9500, "success");
+        assert!(msg.contains("complete"));
+        assert!(msg.contains("attempts=3"));
+        assert!(msg.contains("total_elapsed_ms=9500"));
+        assert!(msg.contains("outcome=success"));
+    }
+
+    #[test]
+    fn hang_hint_triggers_at_sixty_seconds() {
+        // Below threshold — no hint.
+        assert!(!should_emit_hang_hint(59_999));
+        // At threshold — hint fires.
+        assert!(should_emit_hang_hint(60_000));
+        // Well over threshold — hint fires.
+        assert!(should_emit_hang_hint(180_000));
+    }
+
+    #[test]
+    fn hang_hint_message_mentions_elapsed_and_provider() {
+        let msg = format_llm_hang_hint("anthropic", 1, 70_123);
+        assert!(msg.to_lowercase().contains("hang"));
+        assert!(msg.contains("anthropic"));
+        assert!(msg.contains("attempt 1"));
+        assert!(msg.contains("70123"));
+    }
+
+    #[test]
+    fn gen_ai_usage_log_emits_semconv_keys() {
+        let msg = format_gen_ai_usage_log("anthropic", "claude-sonnet-4.6", 120, 480, 40, 80);
+        // Required gen_ai semconv attributes are visible as key=value pairs
+        // so DD's grok ingestion tags them on the log event.
+        assert!(msg.contains("gen_ai.system=anthropic"));
+        assert!(msg.contains("gen_ai.request.model=claude-sonnet-4.6"));
+        assert!(msg.contains("gen_ai.usage.input_tokens=120"));
+        assert!(msg.contains("gen_ai.usage.output_tokens=480"));
+        assert!(msg.contains("gen_ai.usage.cache_read_input_tokens=40"));
+        assert!(msg.contains("gen_ai.usage.cache_creation_input_tokens=80"));
+    }
+
+    #[test]
+    fn gen_ai_usage_log_includes_human_prefix() {
+        let msg = format_gen_ai_usage_log("openrouter", "anthropic/claude-sonnet-4.6", 0, 0, 0, 0);
+        assert!(msg.starts_with("llm_caller: usage "));
     }
 }
