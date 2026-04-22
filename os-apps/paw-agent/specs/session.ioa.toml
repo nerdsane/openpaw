@@ -939,16 +939,6 @@ effect = [
 ]
 
 [[action]]
-name = "ResumeThinking"
-kind = "input"
-from = ["Thinking"]
-hint = "Wake a stalled check_steering. Self-loop. Thinking-state's driver is check_steering because the session is in the two-loop model waiting on steering feedback."
-effect = [
-  { type = "increment", var = "progress_token" },
-  { type = "trigger",   name = "check_steering" },
-]
-
-[[action]]
 name = "ResumeCompacting"
 kind = "input"
 from = ["Compacting"]
@@ -1267,7 +1257,7 @@ params = { error_message = "tool execution made no progress for 300s" }
 state = "Thinking"
 after_seconds = 300
 on_timeout = "TimeoutFail"
-reset_on = ["ProgressMade", "ResumeThinking"]
+reset_on = ["ProgressMade"]
 params = { error_message = "session stalled in Thinking for 300s" }
 
 [[state_timeout]]
