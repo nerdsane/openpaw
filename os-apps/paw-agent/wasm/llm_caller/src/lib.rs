@@ -1243,6 +1243,28 @@ pub struct ProviderResponseArtifact {
     response_bytes: usize,
 }
 
+fn build_provider_response_ready_params(
+    provider_response_file_id: &str,
+    prepared: &PreparedContextArtifact,
+    artifact: &ProviderResponseArtifact,
+) -> Value {
+    json!({
+        "provider_response_file_id": provider_response_file_id,
+        "provider_request_bytes": artifact.request_bytes,
+        "provider_response_bytes": artifact.response_bytes,
+        "input_tokens": artifact.input_tokens,
+        "output_tokens": artifact.output_tokens,
+        "_gen_ai_system_instructions": build_gen_ai_system_instructions(&prepared.system_prompt),
+        "_gen_ai_input_messages": build_gen_ai_input_messages(&prepared.messages),
+        "_gen_ai_output_messages": build_gen_ai_output_messages(
+            &artifact.content,
+            &artifact.stop_reason,
+        ),
+        "_gen_ai_provider": artifact.provider,
+        "_gen_ai_finish_reason": artifact.stop_reason,
+    })
+}
+
 /// Max bytes for gen_ai message attributes to avoid bloating spans.
 const GEN_AI_MESSAGE_ATTR_LIMIT: usize = 16_384;
 
@@ -4348,14 +4370,12 @@ pub fn run_provider_caller() -> Result<(), String> {
         "application/json",
     )?;
 
-    set_success_result(
-        "ProviderResponseReady",
-        &json!({
-            "provider_response_file_id": provider_response_file_id,
-            "provider_request_bytes": artifact.request_bytes,
-            "provider_response_bytes": artifact.response_bytes,
-        }),
+    let params = build_provider_response_ready_params(
+        &provider_response_file_id,
+        &prepared,
+        &artifact,
     );
+    set_success_result("ProviderResponseReady", &params);
     Ok(())
 }
 
@@ -5892,6 +5912,64 @@ mod tests {
         assert_eq!(parsed[0]["parts"][0]["type"], "text");
         assert_eq!(parsed[0]["parts"][1]["type"], "tool_call");
         assert_eq!(parsed[0]["parts"][1]["id"], "tool_456");
+    }
+
+    #[test]
+    fn provider_response_ready_params_include_llm_observability_content() {
+        let prepared = PreparedContextArtifact {
+            version: 1,
+            messages: vec![json!({"role": "user", "content": "What changed?"})],
+            tools: vec![],
+            system_prompt: "You are concise.".to_string(),
+            system_prompt_hash: "hash-123".to_string(),
+            system_prompt_file_id: "file-system".to_string(),
+            conversation_file_id: String::new(),
+            session_file_id: String::new(),
+            session_leaf_id: String::new(),
+            workspace_id: "workspace-1".to_string(),
+            use_session_tree: false,
+            context_tokens: 12,
+            context_bytes: 128,
+            entries_loaded: 1,
+            content_files_loaded: 0,
+        };
+        let artifact = ProviderResponseArtifact {
+            version: 1,
+            provider: "anthropic".to_string(),
+            model: "claude-sonnet-4-6".to_string(),
+            content: json!([{"type": "text", "text": "The LLM span now has content."}]),
+            stop_reason: "end_turn".to_string(),
+            input_tokens: 10,
+            output_tokens: 20,
+            cache_read_input_tokens: 0,
+            cache_creation_input_tokens: 0,
+            request_bytes: 256,
+            response_bytes: 512,
+        };
+
+        let params =
+            build_provider_response_ready_params("provider-response-file", &prepared, &artifact);
+
+        assert_eq!(
+            params["provider_response_file_id"],
+            "provider-response-file"
+        );
+        assert_eq!(params["_gen_ai_provider"], "anthropic");
+        assert_eq!(params["_gen_ai_finish_reason"], "end_turn");
+
+        let input: Value =
+            serde_json::from_str(params["_gen_ai_input_messages"].as_str().unwrap()).unwrap();
+        let output: Value =
+            serde_json::from_str(params["_gen_ai_output_messages"].as_str().unwrap()).unwrap();
+        let system: Value =
+            serde_json::from_str(params["_gen_ai_system_instructions"].as_str().unwrap()).unwrap();
+
+        assert_eq!(system[0]["content"], "You are concise.");
+        assert_eq!(input[0]["parts"][0]["content"], "What changed?");
+        assert_eq!(
+            output[0]["parts"][0]["content"],
+            "The LLM span now has content."
+        );
     }
 
     #[test]
