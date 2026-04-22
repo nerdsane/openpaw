@@ -4378,6 +4378,12 @@ pub fn run_provider_response_applier() -> Result<(), String> {
                 .to_string(),
         );
     }
+    ctx.log(
+        "info",
+        &format!(
+            "provider_response_applier: reading artifacts prepared={prepared_context_file_id} response={provider_response_file_id}"
+        ),
+    );
 
     let temper_api_url = resolve_temper_api_url(&ctx, &fields);
     let tenant = &ctx.tenant;
@@ -4387,12 +4393,28 @@ pub fn run_provider_response_applier() -> Result<(), String> {
         tenant,
         prepared_context_file_id,
     )?;
+    ctx.log(
+        "info",
+        &format!(
+            "provider_response_applier: prepared artifact read ({} messages, system_prompt={}b, use_tree={})",
+            prepared.messages.len(),
+            prepared.system_prompt.len(),
+            prepared.use_session_tree
+        ),
+    );
     let response = read_provider_response_artifact(
         &ctx,
         &temper_api_url,
         tenant,
         provider_response_file_id,
     )?;
+    ctx.log(
+        "info",
+        &format!(
+            "provider_response_applier: response artifact read (stop_reason={}, output_tokens={})",
+            response.stop_reason, response.output_tokens
+        ),
+    );
 
     let mut messages = prepared.messages.clone();
     messages.push(json!({
@@ -4416,6 +4438,13 @@ pub fn run_provider_response_applier() -> Result<(), String> {
         None
     };
 
+    ctx.log(
+        "info",
+        &format!(
+            "provider_response_applier: dispatching branch stop_reason={}",
+            response.stop_reason
+        ),
+    );
     match response.stop_reason.as_str() {
         "tool_use" => {
             let tool_calls: Vec<Value> = response
@@ -4426,6 +4455,13 @@ pub fn run_provider_response_applier() -> Result<(), String> {
                 .filter(|block| block.get("type").and_then(|v| v.as_str()) == Some("tool_use"))
                 .cloned()
                 .collect();
+            ctx.log(
+                "info",
+                &format!(
+                    "provider_response_applier: tool_use branch, {} tool_calls",
+                    tool_calls.len()
+                ),
+            );
 
             let new_leaf = append_assistant_response_to_session_tree(
                 &ctx,
@@ -4435,6 +4471,13 @@ pub fn run_provider_response_applier() -> Result<(), String> {
                 &response.content,
                 response.output_tokens as usize,
             )?;
+            ctx.log(
+                "info",
+                &format!(
+                    "provider_response_applier: session tree appended, new_leaf={:?}",
+                    new_leaf
+                ),
+            );
 
             let tool_calls_json = serde_json::to_string(&tool_calls).unwrap_or_default();
             let mut params = json!({
@@ -4455,6 +4498,7 @@ pub fn run_provider_response_applier() -> Result<(), String> {
             if let Some(ref conv) = conv_param {
                 params["conversation"] = json!(conv);
             }
+            ctx.log("info", "provider_response_applier: dispatching ProcessToolCalls");
             set_success_result("ProcessToolCalls", &params);
         }
         "end_turn" | "stop" => {
@@ -4495,6 +4539,7 @@ pub fn run_provider_response_applier() -> Result<(), String> {
                 .unwrap_or(5)
                 > 0
             {
+                ctx.log("info", "provider_response_applier: dispatching CheckSteering");
                 set_success_result(
                     "CheckSteering",
                     &json!({
@@ -4532,10 +4577,14 @@ pub fn run_provider_response_applier() -> Result<(), String> {
                 if let Some(ref conv) = conv_param {
                     params["conversation"] = json!(conv);
                 }
+                ctx.log("info", "provider_response_applier: dispatching RecordResult");
                 set_success_result("RecordResult", &params);
             }
         }
-        other => return Err(format!("unsupported stop_reason: {other}")),
+        other => {
+            ctx.log("error", &format!("provider_response_applier: unsupported stop_reason={other}"));
+            return Err(format!("unsupported stop_reason: {other}"));
+        }
     }
 
     Ok(())
