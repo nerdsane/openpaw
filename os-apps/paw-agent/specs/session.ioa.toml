@@ -8,8 +8,8 @@
 #
 # Pi architecture additions:
 #   - Session tree: JSONL append-only tree with branching (session_file_id)
-#   - Compaction: Thinking → Compacting → Thinking (context_compactor WASM)
-#   - Steering: Thinking → Steering → Thinking or Completed (two-loop model)
+#   - Compaction: ApplyingProviderResponse → Compacting → PreparingContext (context_compactor WASM)
+#   - Steering: ApplyingProviderResponse → Steering → PreparingContext or Completed (two-loop model)
 #   - Soul/Skills/Memory: entity references for identity, capabilities, knowledge
 #   - Subagents: parent/child entity relationships via parent_session_id
 #   - Heartbeat: pure liveness ping (Discord typing + last_heartbeat_at); does NOT reset state_timeouts
@@ -20,7 +20,7 @@
 
 [automaton]
 name = "Session"
-states = ["Created", "Provisioning", "Thinking", "PreparingContext", "CallingProvider", "ApplyingProviderResponse", "Executing", "Compacting", "Steering", "WaitingForApproval", "Recovering", "Completed", "Failed", "Cancelled"]
+states = ["Created", "Provisioning", "PreparingContext", "CallingProvider", "ApplyingProviderResponse", "Executing", "Compacting", "Steering", "WaitingForApproval", "Recovering", "Completed", "Failed", "Cancelled"]
 initial = "Created"
 # ADR-0050 / ADR-0036: WaitingForApproval is human-blocked on a Cedar
 # decision; a wall-clock timeout here would conflict with governance
@@ -667,14 +667,14 @@ effect = [
 [[action]]
 name = "Steer"
 kind = "input"
-from = ["Thinking", "PreparingContext", "CallingProvider", "ApplyingProviderResponse", "Executing", "Steering", "Compacting", "WaitingForApproval", "Recovering"]
+from = ["PreparingContext", "CallingProvider", "ApplyingProviderResponse", "Executing", "Steering", "Compacting", "WaitingForApproval", "Recovering"]
 params = ["steering_messages"]
 hint = "Queue a steering message for mid-run injection. External callers append messages while session runs. Self-loop — does not change state."
 
 [[action]]
 name = "SwitchProvider"
 kind = "input"
-from = ["Thinking", "PreparingContext", "CallingProvider", "ApplyingProviderResponse", "Executing", "Steering", "Compacting", "WaitingForApproval", "Provisioning", "Recovering"]
+from = ["PreparingContext", "CallingProvider", "ApplyingProviderResponse", "Executing", "Steering", "Compacting", "WaitingForApproval", "Provisioning", "Recovering"]
 params = ["model", "provider"]
 hint = "Change LLM provider and/or model mid-session. Self-loop — takes effect on the next LLM call. Callable by the session itself or by parent/supervisor."
 
@@ -683,14 +683,14 @@ hint = "Change LLM provider and/or model mid-session. Self-loop — takes effect
 [[action]]
 name = "SwitchMode"
 kind = "input"
-from = ["Thinking", "PreparingContext", "CallingProvider", "ApplyingProviderResponse", "Executing", "Steering", "Compacting", "WaitingForApproval", "Provisioning"]
+from = ["PreparingContext", "CallingProvider", "ApplyingProviderResponse", "Executing", "Steering", "Compacting", "WaitingForApproval", "Provisioning"]
 params = ["session_mode", "tools_enabled", "pre_plan_tools_enabled", "active_plan_id"]
 hint = "Switch between plan and execute modes. Self-loop — takes effect on next tool call."
 
 [[action]]
 name = "PauseForPlanApproval"
 kind = "input"
-from = ["Thinking", "Executing"]
+from = ["Executing"]
 to = "WaitingForApproval"
 params = ["active_plan_id", "pending_tool_context"]
 hint = "Pause session until Plan is approved. Triggered by agent after SubmitForReview."
@@ -759,14 +759,14 @@ effect = [
 [[action]]
 name = "Heartbeat"
 kind = "input"
-from = ["Thinking", "PreparingContext", "CallingProvider", "ApplyingProviderResponse", "Executing", "Steering", "Compacting", "WaitingForApproval", "Recovering"]
+from = ["PreparingContext", "CallingProvider", "ApplyingProviderResponse", "Executing", "Steering", "Compacting", "WaitingForApproval", "Recovering"]
 params = ["last_heartbeat_at"]
 hint = "Pure liveness ping. Records last_heartbeat_at and drives Discord typing indicator (posted inline by the caller — see wasm-helpers::send_typing_indicator). Does NOT reset any state_timeout — callers that have actually advanced must dispatch ProgressMade instead. A session blocked in a stuck HTTP call can still emit Heartbeats and should die via state_timeout."
 
 [[action]]
 name = "ProgressMade"
 kind = "input"
-from = ["Thinking", "PreparingContext", "CallingProvider", "ApplyingProviderResponse", "Executing", "Compacting", "Recovering"]
+from = ["PreparingContext", "CallingProvider", "ApplyingProviderResponse", "Executing", "Compacting", "Recovering"]
 params = ["last_progress_at"]
 hint = "Signal real forward progress (received first LLM chunk, completed a tool batch, wrote a context chunk, etc). Self-loop; increments progress_token and resets the state_timeout clock for the current state. Contrast with Heartbeat (liveness-only, does NOT reset timeouts)."
 effect = [
@@ -776,7 +776,7 @@ effect = [
 [[action]]
 name = "TimeoutFail"
 kind = "input"
-from = ["Thinking", "PreparingContext", "CallingProvider", "ApplyingProviderResponse", "Executing", "Steering", "Compacting"]
+from = ["PreparingContext", "CallingProvider", "ApplyingProviderResponse", "Executing", "Steering", "Compacting"]
 to = "Failed"
 params = ["error_message"]
 hint = "Session timed out — no heartbeat within timeout period."
@@ -790,7 +790,7 @@ effect = [
 [[action]]
 name = "Fail"
 kind = "input"
-from = ["Created", "Provisioning", "Thinking", "PreparingContext", "CallingProvider", "ApplyingProviderResponse", "Executing", "Compacting", "Steering", "WaitingForApproval", "Recovering"]
+from = ["Created", "Provisioning", "PreparingContext", "CallingProvider", "ApplyingProviderResponse", "Executing", "Compacting", "Steering", "WaitingForApproval", "Recovering"]
 to = "Failed"
 params = ["error_message"]
 hint = "Mark session run as failed."
@@ -802,7 +802,7 @@ effect = [
 [[action]]
 name = "Cancel"
 kind = "input"
-from = ["Created", "Provisioning", "Thinking", "PreparingContext", "CallingProvider", "ApplyingProviderResponse", "Executing", "Compacting", "Steering", "WaitingForApproval", "Recovering"]
+from = ["Created", "Provisioning", "PreparingContext", "CallingProvider", "ApplyingProviderResponse", "Executing", "Compacting", "Steering", "WaitingForApproval", "Recovering"]
 to = "Cancelled"
 hint = "Cancel session execution."
 effect = [
@@ -853,7 +853,7 @@ effect = [
 [[action]]
 name = "RecoverFromRestart"
 kind = "input"
-from = ["Thinking", "PreparingContext", "CallingProvider", "ApplyingProviderResponse", "Executing", "Compacting", "Steering", "WaitingForApproval"]
+from = ["PreparingContext", "CallingProvider", "ApplyingProviderResponse", "Executing", "Compacting", "Steering", "WaitingForApproval"]
 to = "Recovering"
 params = ["error_message"]
 guard = "recovery_count < 3"
@@ -898,7 +898,7 @@ effect = [{ type = "trigger", name = "restore_workspace" }]
 # (see os-apps/paw-channels/wasm/route_message/src/lib.rs).
 #
 # Each action increments progress_token so the Executing / CallingProvider /
-# PreparingContext / Thinking / Compacting / Steering state_timeouts see it
+# PreparingContext / Compacting / Steering state_timeouts see it
 # as progress and do not fire TimeoutFail prematurely — this is the same
 # semantic ProgressMade has, applied at the state-transition layer.
 #
@@ -952,7 +952,7 @@ effect = [
 name = "ResumeSteering"
 kind = "input"
 from = ["Steering"]
-hint = "Wake a stalled check_steering. Self-loop. Same integration as ResumeThinking but from the Steering state where steering-specific processing is active."
+hint = "Wake a stalled check_steering. Self-loop from the Steering state where steering-specific processing is active."
 effect = [
   { type = "increment", var = "progress_token" },
   { type = "trigger",   name = "check_steering" },
@@ -971,7 +971,7 @@ assert = "has_result"
 
 [[invariant]]
 name = "TurnCountNonNegative"
-when = ["Created", "Provisioning", "Thinking", "PreparingContext", "CallingProvider", "ApplyingProviderResponse", "Executing", "Compacting", "Steering", "WaitingForApproval", "Recovering", "Completed", "Failed", "Cancelled"]
+when = ["Created", "Provisioning", "PreparingContext", "CallingProvider", "ApplyingProviderResponse", "Executing", "Compacting", "Steering", "WaitingForApproval", "Recovering", "Completed", "Failed", "Cancelled"]
 assert = "turn_count >= 0"
 
 # --- Integrations ---
@@ -1252,13 +1252,6 @@ after_seconds = 300
 on_timeout = "TimeoutFail"
 reset_on = ["ProgressMade", "CheckpointToolBatch", "ResumeTools"]
 params = { error_message = "tool execution made no progress for 300s" }
-
-[[state_timeout]]
-state = "Thinking"
-after_seconds = 300
-on_timeout = "TimeoutFail"
-reset_on = ["ProgressMade"]
-params = { error_message = "session stalled in Thinking for 300s" }
 
 [[state_timeout]]
 state = "Steering"
