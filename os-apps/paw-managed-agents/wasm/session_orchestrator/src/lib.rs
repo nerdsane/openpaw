@@ -193,15 +193,28 @@ fn start_or_resume(
     let inner_session_id =
         entity_id(&created).ok_or("create Sessions did not return an entity id")?;
 
-    let model_id = {
-        let value = field_string(&managed_agent, &["ModelId", "model_id"]);
-        if value.is_empty() {
-            "claude-sonnet-4-6".to_string()
-        } else {
-            value
-        }
-    };
+    let model_id = field_string(&managed_agent, &["ModelId", "model_id"]);
+    if model_id.is_empty() {
+        temper_wasm_sdk::set_success_result(
+            "InnerSessionFailed",
+            &json!({
+                "ErrorMessage": "ManagedAgent requires ModelId before starting a session.",
+                "TerminationReason": "error",
+            }),
+        );
+        return Ok(());
+    }
     let provider = managed_agent_provider(&managed_agent);
+    if provider.is_empty() {
+        temper_wasm_sdk::set_success_result(
+            "InnerSessionFailed",
+            &json!({
+                "ErrorMessage": "ManagedAgent requires Provider before starting a session.",
+                "TerminationReason": "error",
+            }),
+        );
+        return Ok(());
+    }
     let system_prompt = {
         let value = field_string(&managed_agent, &["System", "system"]);
         if value.is_empty() {
@@ -358,16 +371,15 @@ fn ensure_inner_agent(
         }
     };
     let description = field_string(managed_agent, &["Description", "description"]);
-    let model_id = {
-        let value = field_string(managed_agent, &["ModelId", "model_id"]);
-        if value.is_empty() {
-            "claude-sonnet-4-6".to_string()
-        } else {
-            value
-        }
-    };
+    let model_id = field_string(managed_agent, &["ModelId", "model_id"]);
+    if model_id.is_empty() {
+        return Err("ManagedAgent requires ModelId before syncing inner Agent".into());
+    }
     let tools_enabled = managed_tools_enabled(tool_rows, tool_config_rows);
     let provider = managed_agent_provider(managed_agent);
+    if provider.is_empty() {
+        return Err("ManagedAgent requires Provider before syncing inner Agent".into());
+    }
 
     if existing.is_empty() {
         let created = create_entity(ctx, base_url, headers, "Agents", &json!({}))?;
@@ -408,6 +420,7 @@ fn ensure_inner_agent(
             &json!({
                 "description": description,
                 "model": model_id,
+                "provider": provider,
                 "tools_enabled": tools_enabled,
                 "max_turns": "60",
             }),

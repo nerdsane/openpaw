@@ -8,26 +8,32 @@ use serde::{Deserialize, Serialize};
 
 /// Detected LLM provider with its configuration.
 pub enum LlmProvider {
-    Anthropic { api_key: String },
-    OpenRouter { api_key: String },
-    OpenAi { api_key: String },
+    Anthropic { api_key: String, model: String },
+    OpenRouter { api_key: String, model: String },
+    OpenAi { api_key: String, model: String },
 }
 
 impl LlmProvider {
     /// Detect provider from API key prefix.
-    pub fn detect(api_key: &str, provider_hint: &str) -> Self {
+    pub fn detect(api_key: &str, provider_hint: &str, model: &str) -> Result<Self> {
+        if model.trim().is_empty() {
+            anyhow::bail!("LLM model is required for setup LLM calls");
+        }
         if api_key.starts_with("sk-ant-") || provider_hint == "anthropic" {
-            LlmProvider::Anthropic {
+            Ok(LlmProvider::Anthropic {
                 api_key: api_key.to_string(),
-            }
+                model: model.to_string(),
+            })
         } else if api_key.starts_with("sk-or-") || provider_hint == "openrouter" {
-            LlmProvider::OpenRouter {
+            Ok(LlmProvider::OpenRouter {
                 api_key: api_key.to_string(),
-            }
+                model: model.to_string(),
+            })
         } else {
-            LlmProvider::OpenAi {
+            Ok(LlmProvider::OpenAi {
                 api_key: api_key.to_string(),
-            }
+                model: model.to_string(),
+            })
         }
     }
 
@@ -36,9 +42,9 @@ impl LlmProvider {
         let client = reqwest::Client::new();
 
         match self {
-            LlmProvider::Anthropic { api_key } => {
+            LlmProvider::Anthropic { api_key, model } => {
                 let body = serde_json::json!({
-                    "model": "claude-sonnet-4-20250514",
+                    "model": model,
                     "max_tokens": max_tokens,
                     "system": system,
                     "messages": [{"role": "user", "content": user_msg}]
@@ -67,9 +73,9 @@ impl LlmProvider {
                     .map(|s| s.to_string())
                     .context("No text in Anthropic response")
             }
-            LlmProvider::OpenRouter { api_key } => {
+            LlmProvider::OpenRouter { api_key, model } => {
                 let body = serde_json::json!({
-                    "model": "anthropic/claude-sonnet-4.6",
+                    "model": model,
                     "max_tokens": max_tokens,
                     "messages": [
                         {"role": "system", "content": system},
@@ -99,9 +105,9 @@ impl LlmProvider {
                     .map(|s| s.to_string())
                     .context("No content in OpenRouter response")
             }
-            LlmProvider::OpenAi { api_key } => {
+            LlmProvider::OpenAi { api_key, model } => {
                 let body = serde_json::json!({
-                    "model": "gpt-4o",
+                    "model": model,
                     "max_tokens": max_tokens,
                     "messages": [
                         {"role": "system", "content": system},

@@ -1,0 +1,126 @@
+# SessionLink -- reusable child Session monitor.
+#
+# A SessionLink records that a parent workflow entity is waiting on a child
+# Session. The link watches the child through a bounded self-loop and dispatches
+# the configured parent callback exactly when the child reaches a terminal state
+# or exceeds the check budget.
+
+[automaton]
+name = "SessionLink"
+states = ["Created", "Watching", "Completed", "Failed"]
+initial = "Created"
+allow_indefinite_states = ["Completed", "Failed"]
+
+[[state]]
+name = "parent_entity_set"
+type = "string"
+initial = ""
+
+[[state]]
+name = "parent_entity_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "parent_action_namespace"
+type = "string"
+initial = "TemperPaw"
+
+[[state]]
+name = "child_session_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "on_completed_action"
+type = "string"
+initial = ""
+
+[[state]]
+name = "on_failure_action"
+type = "string"
+initial = ""
+
+[[state]]
+name = "last_child_status"
+type = "string"
+initial = ""
+
+[[state]]
+name = "error_message"
+type = "string"
+initial = ""
+
+[[state]]
+name = "check_count"
+type = "counter"
+initial = "0"
+
+[[state]]
+name = "max_checks"
+type = "string"
+initial = "180"
+
+[[action]]
+name = "Configure"
+kind = "input"
+from = ["Created"]
+to = "Watching"
+params = ["ParentEntitySet", "ParentEntityId", "ParentActionNamespace", "ChildSessionId", "OnCompletedAction", "OnFailureAction", "MaxChecks"]
+hint = "Begin monitoring a child Session for a parent workflow entity."
+effect = [{ type = "schedule", action = "CheckChild", delay_seconds = 2 }]
+
+[[action]]
+name = "CheckChild"
+kind = "input"
+from = ["Watching"]
+hint = "Check the child Session and notify the parent if terminal."
+effect = [{ type = "trigger", name = "check_child_session" }]
+
+[[action]]
+name = "ChildPending"
+kind = "input"
+from = ["Watching"]
+params = ["LastChildStatus"]
+hint = "Child Session is still running. Re-check shortly."
+effect = [
+  { type = "increment", var = "check_count" },
+  { type = "schedule", action = "CheckChild", delay_seconds = 10 },
+]
+
+[[action]]
+name = "ParentNotified"
+kind = "input"
+from = ["Watching"]
+to = "Completed"
+params = ["LastChildStatus"]
+hint = "The child Session reached a terminal state and the parent callback was dispatched."
+
+[[action]]
+name = "NotifyFailed"
+kind = "input"
+from = ["Watching"]
+to = "Failed"
+params = ["ErrorMessage"]
+hint = "Monitoring failed before the parent could be notified."
+
+[[field_invariant]]
+name = "WatchingRequiresParent"
+when = { field = "Status", equals = "Watching" }
+require = { all_of = [
+  { not = { field = "ParentEntitySet", empty = true } },
+  { not = { field = "ParentEntityId", empty = true } },
+  { not = { field = "ChildSessionId", empty = true } },
+] }
+message = "SessionLink.Watching requires parent and child identifiers"
+
+[[integration]]
+name = "session_link_monitor"
+trigger = "check_child_session"
+type = "wasm"
+module = "session_link_monitor"
+on_failure = "NotifyFailed"
+
+[integration.config]
+temper_api_url = "{secret:temper_api_url}"
+max_memory = "67108864"

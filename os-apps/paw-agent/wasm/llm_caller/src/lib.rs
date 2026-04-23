@@ -15,8 +15,8 @@
 //!
 //! Build: `cargo build --target wasm32-unknown-unknown --release`
 
-use session_tree_lib::{EntryType, SessionTree};
 use serde::{Deserialize, Serialize};
+use session_tree_lib::{EntryType, SessionTree};
 use std::collections::BTreeSet;
 use temper_wasm_sdk::prelude::*;
 use wasm_helpers::{
@@ -482,15 +482,12 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             .unwrap_or(0);
 
         // Read configuration
-        let model = fields
-            .get("model")
-            .and_then(|v| v.as_str())
-            .unwrap_or("claude-sonnet-4-6");
+        let model_raw = fields.get("model").and_then(|v| v.as_str()).unwrap_or("");
         let provider_raw = fields
             .get("provider")
             .and_then(|v| v.as_str())
-            .unwrap_or("anthropic");
-        let provider = normalize_provider(provider_raw);
+            .unwrap_or("");
+        let (provider, model, api_key) = resolve_provider_and_model(&ctx, provider_raw, model_raw)?;
         let temperature: f64 = fields
             .get("temperature")
             .and_then(|v| v.as_str())
@@ -517,72 +514,6 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             .get("workdir")
             .and_then(|v| v.as_str())
             .unwrap_or("/workspace");
-
-        // Resolve provider credentials from integration config.
-        // If the configured provider's key is unresolved (not set in vault),
-        // auto-detect a provider that has a valid key available.
-        let (provider, api_key) = if provider == "mock" {
-            (provider, String::new())
-        } else {
-            let key = resolve_provider_api_key(&ctx, &provider)?;
-            if is_unresolved_secret_template(&key) {
-                // Try other providers
-                let alternatives = ["anthropic", "openai_codex", "openai", "openrouter"];
-                let mut found = None;
-                for alt in &alternatives {
-                    if *alt == provider {
-                        continue;
-                    }
-                    if let Ok(alt_key) = resolve_provider_api_key(&ctx, alt) {
-                        if !alt_key.is_empty() && !is_unresolved_secret_template(&alt_key) {
-                            ctx.log(
-                                "warn",
-                                &format!(
-                                    "llm_caller: provider={provider} has no key, falling back to {alt}"
-                                ),
-                            );
-                            found = Some((alt.to_string(), alt_key));
-                            break;
-                        }
-                    }
-                }
-                match found {
-                    Some((p, k)) => (p, k),
-                    None => {
-                        return Err(format!(
-                            "provider={provider} api key is unresolved secret template: '{key}'. \
-set tenant secret and retry"
-                        ));
-                    }
-                }
-            } else {
-                (provider, key)
-            }
-        };
-
-        // If provider changed via fallback, remap model to the vault default
-        // for the new provider (the original model won't work cross-provider).
-        let model = if provider != normalize_provider(provider_raw) {
-            // Prefer vault-configured default model, fall back to hardcoded defaults
-            let vault_model = ctx.config.get("default_llm_model")
-                .filter(|v| !v.is_empty() && !is_unresolved_secret_template(v));
-            let new_model = if let Some(m) = vault_model {
-                m.clone()
-            } else {
-                match provider.as_str() {
-                    "openai" => "gpt-4.1".to_string(),
-                    "openai_codex" => "gpt-5.4".to_string(),
-                    "openrouter" => "anthropic/claude-sonnet-4".to_string(),
-                    _ => "claude-sonnet-4-6".to_string(),
-                }
-            };
-            ctx.log("warn", &format!(
-                "llm_caller: remapping model from {model} to {new_model} for provider={provider}"
-            ));
-            new_model
-        } else {
-            model.to_string()
-        };
 
         let anthropic_api_url = ctx
             .config
@@ -1607,9 +1538,7 @@ fn resolve_provider_api_key(ctx: &Context, provider: &str) -> Result<String, Str
             ctx.config.get("openai_api_key").cloned(),
             ctx.config.get("api_key").cloned(),
         ]),
-        "openai_codex" => first_non_empty(&[
-            ctx.config.get("openai_codex_token").cloned(),
-        ]),
+        "openai_codex" => first_non_empty(&[ctx.config.get("openai_codex_token").cloned()]),
         "openrouter" => first_non_empty(&[
             ctx.config.get("openrouter_api_key").cloned(),
             ctx.config.get("api_key").cloned(),
@@ -2102,9 +2031,7 @@ fn call_anthropic(
                     "exhausted_retries",
                 ),
             );
-            return Err(format!(
-                "Anthropic API failed after 5 attempts: {last_err}"
-            ));
+            return Err(format!("Anthropic API failed after 5 attempts: {last_err}"));
         }
     };
     ctx.log(
@@ -2881,10 +2808,7 @@ fn call_openai(
                 body.lines().count(),
                 body.len()
             );
-            ctx.log(
-                "warn",
-                &format!("llm_caller: {last_err}, will retry"),
-            );
+            ctx.log("warn", &format!("llm_caller: {last_err}, will retry"));
             continue;
         }
 
@@ -3939,7 +3863,11 @@ pub fn run_context_preparer() -> Result<(), String> {
     let ctx = Context::from_host()?;
     ctx.log("info", "context_preparer: starting");
 
-    let fields = ctx.entity_state.get("fields").cloned().unwrap_or_else(|| json!({}));
+    let fields = ctx
+        .entity_state
+        .get("fields")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
     let user_message = fields
         .get("user_message")
         .and_then(|v| v.as_str())
@@ -3951,7 +3879,13 @@ pub fn run_context_preparer() -> Result<(), String> {
     let model = fields
         .get("model")
         .and_then(|v| v.as_str())
-        .unwrap_or("claude-sonnet-4-6");
+        .filter(|value| !value.trim().is_empty())
+        .ok_or("context_preparer requires Session.model")?;
+    let provider = fields
+        .get("provider")
+        .and_then(|v| v.as_str())
+        .filter(|value| !value.trim().is_empty())
+        .ok_or("context_preparer requires Session.provider")?;
     let tools_enabled = fields
         .get("tools_enabled")
         .and_then(|v| v.as_str())
@@ -3990,10 +3924,7 @@ pub fn run_context_preparer() -> Result<(), String> {
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
-    let soul_id = fields
-        .get("soul_id")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
+    let soul_id = fields.get("soul_id").and_then(|v| v.as_str()).unwrap_or("");
     let reserve_tokens: usize = fields
         .get("reserve_tokens")
         .and_then(|v| v.as_str())
@@ -4040,16 +3971,7 @@ pub fn run_context_preparer() -> Result<(), String> {
         estimate_message_tokens(&messages) as usize
     };
 
-    let metric_tags = session_metric_tags(
-        normalize_provider(
-            fields
-                .get("provider")
-                .and_then(|v| v.as_str())
-                .unwrap_or("anthropic"),
-        )
-        .as_str(),
-        model,
-    );
+    let metric_tags = session_metric_tags(normalize_provider(provider).as_str(), model);
     emit_metric_ignore(
         &ctx,
         "temper_session_context_tokens",
@@ -4210,7 +4132,11 @@ pub fn run_provider_caller() -> Result<(), String> {
     let ctx = Context::from_host()?;
     ctx.log("info", "provider_caller: starting");
 
-    let fields = ctx.entity_state.get("fields").cloned().unwrap_or_else(|| json!({}));
+    let fields = ctx
+        .entity_state
+        .get("fields")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
     let prepared_context_file_id = fields
         .get("prepared_context_file_id")
         .and_then(|v| v.as_str())
@@ -4220,20 +4146,13 @@ pub fn run_provider_caller() -> Result<(), String> {
     }
     let temper_api_url = resolve_temper_api_url(&ctx, &fields);
     let tenant = &ctx.tenant;
-    let prepared = read_prepared_context_artifact(
-        &ctx,
-        &temper_api_url,
-        tenant,
-        prepared_context_file_id,
-    )?;
+    let prepared =
+        read_prepared_context_artifact(&ctx, &temper_api_url, tenant, prepared_context_file_id)?;
     let provider_raw = fields
         .get("provider")
         .and_then(|v| v.as_str())
-        .unwrap_or("anthropic");
-    let model_raw = fields
-        .get("model")
-        .and_then(|v| v.as_str())
-        .unwrap_or("claude-sonnet-4-6");
+        .unwrap_or("");
+    let model_raw = fields.get("model").and_then(|v| v.as_str()).unwrap_or("");
     let temperature: f64 = fields
         .get("temperature")
         .and_then(|v| v.as_str())
@@ -4370,11 +4289,8 @@ pub fn run_provider_caller() -> Result<(), String> {
         "application/json",
     )?;
 
-    let params = build_provider_response_ready_params(
-        &provider_response_file_id,
-        &prepared,
-        &artifact,
-    );
+    let params =
+        build_provider_response_ready_params(&provider_response_file_id, &prepared, &artifact);
     set_success_result("ProviderResponseReady", &params);
     Ok(())
 }
@@ -4383,7 +4299,11 @@ pub fn run_provider_response_applier() -> Result<(), String> {
     let ctx = Context::from_host()?;
     ctx.log("info", "provider_response_applier: starting");
 
-    let fields = ctx.entity_state.get("fields").cloned().unwrap_or_else(|| json!({}));
+    let fields = ctx
+        .entity_state
+        .get("fields")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
     let prepared_context_file_id = fields
         .get("prepared_context_file_id")
         .and_then(|v| v.as_str())
@@ -4401,18 +4321,10 @@ pub fn run_provider_response_applier() -> Result<(), String> {
 
     let temper_api_url = resolve_temper_api_url(&ctx, &fields);
     let tenant = &ctx.tenant;
-    let prepared = read_prepared_context_artifact(
-        &ctx,
-        &temper_api_url,
-        tenant,
-        prepared_context_file_id,
-    )?;
-    let response = read_provider_response_artifact(
-        &ctx,
-        &temper_api_url,
-        tenant,
-        provider_response_file_id,
-    )?;
+    let prepared =
+        read_prepared_context_artifact(&ctx, &temper_api_url, tenant, prepared_context_file_id)?;
+    let response =
+        read_provider_response_artifact(&ctx, &temper_api_url, tenant, provider_response_file_id)?;
 
     let mut messages = prepared.messages.clone();
     messages.push(json!({
@@ -4573,7 +4485,8 @@ fn load_messages_for_prepare(
 ) -> Result<(Vec<Value>, Option<SessionTree>, usize, usize), String> {
     let use_session_tree = !session_file_id.is_empty() && !session_leaf_id.is_empty();
     if use_session_tree {
-        let session_jsonl = read_session_from_temperfs(ctx, temper_api_url, tenant, session_file_id)?;
+        let session_jsonl =
+            read_session_from_temperfs(ctx, temper_api_url, tenant, session_file_id)?;
         if session_jsonl.is_empty() {
             let tree = SessionTree::from_jsonl(&session_jsonl);
             return Ok((
@@ -4642,9 +4555,8 @@ fn load_messages_for_prepare(
                 0,
             ))
         } else {
-            let messages = serde_json::from_str(conversation_json).unwrap_or_else(|_| {
-                vec![json!({ "role": "user", "content": user_message })]
-            });
+            let messages = serde_json::from_str(conversation_json)
+                .unwrap_or_else(|_| vec![json!({ "role": "user", "content": user_message })]);
             Ok((messages.clone(), None, messages.len(), 0))
         }
     }
@@ -4701,47 +4613,50 @@ fn assemble_cached_system_prompt(
         .and_then(|v| v.as_str())
         .unwrap_or("");
 
-    let (assembled_system_prompt, system_prompt_file_id) =
-        if !prev_hash.is_empty() && prev_hash == new_prompt_hash && !prev_file_id.is_empty() {
-            match read_temperfs_file(ctx, temper_api_url, tenant, prev_file_id) {
-                Ok(cached) if !cached.is_empty() => {
-                    ctx.log("info", "context_preparer: system prompt cache HIT");
-                    (cached, prev_file_id.to_string())
-                }
-                _ => {
-                    ctx.log(
-                        "warn",
-                        "context_preparer: system prompt cache file unreadable, rebuilding",
-                    );
-                    let prompt =
-                        assemble_system_prompt(ctx, temper_api_url, tenant, soul_id, system_prompt_override)?;
-                    let file_id = write_system_prompt_cache(
-                        ctx,
-                        temper_api_url,
-                        tenant,
-                        workspace_id,
-                        &prompt,
-                    )
-                    .unwrap_or_default();
-                    (prompt, file_id)
-                }
+    let (assembled_system_prompt, system_prompt_file_id) = if !prev_hash.is_empty()
+        && prev_hash == new_prompt_hash
+        && !prev_file_id.is_empty()
+    {
+        match read_temperfs_file(ctx, temper_api_url, tenant, prev_file_id) {
+            Ok(cached) if !cached.is_empty() => {
+                ctx.log("info", "context_preparer: system prompt cache HIT");
+                (cached, prev_file_id.to_string())
             }
-        } else {
-            ctx.log("info", "context_preparer: system prompt cache MISS, assembling");
-            let prompt =
-                assemble_system_prompt(ctx, temper_api_url, tenant, soul_id, system_prompt_override)?;
-            let file_id = write_system_prompt_cache(
-                ctx,
-                temper_api_url,
-                tenant,
-                workspace_id,
-                &prompt,
-            )
+            _ => {
+                ctx.log(
+                    "warn",
+                    "context_preparer: system prompt cache file unreadable, rebuilding",
+                );
+                let prompt = assemble_system_prompt(
+                    ctx,
+                    temper_api_url,
+                    tenant,
+                    soul_id,
+                    system_prompt_override,
+                )?;
+                let file_id =
+                    write_system_prompt_cache(ctx, temper_api_url, tenant, workspace_id, &prompt)
+                        .unwrap_or_default();
+                (prompt, file_id)
+            }
+        }
+    } else {
+        ctx.log(
+            "info",
+            "context_preparer: system prompt cache MISS, assembling",
+        );
+        let prompt =
+            assemble_system_prompt(ctx, temper_api_url, tenant, soul_id, system_prompt_override)?;
+        let file_id = write_system_prompt_cache(ctx, temper_api_url, tenant, workspace_id, &prompt)
             .unwrap_or_default();
-            (prompt, file_id)
-        };
+        (prompt, file_id)
+    };
 
-    Ok((assembled_system_prompt, new_prompt_hash, system_prompt_file_id))
+    Ok((
+        assembled_system_prompt,
+        new_prompt_hash,
+        system_prompt_file_id,
+    ))
 }
 
 fn resolve_provider_and_model(
@@ -4749,67 +4664,33 @@ fn resolve_provider_and_model(
     provider_raw: &str,
     model_raw: &str,
 ) -> Result<(String, String, String), String> {
+    if model_raw.trim().is_empty() {
+        return Err(
+            "Session model is required; configure the Agent or pass an explicit override"
+                .to_string(),
+        );
+    }
+    if provider_raw.trim().is_empty() {
+        return Err(
+            "Session provider is required; configure the Agent or pass an explicit override"
+                .to_string(),
+        );
+    }
     let provider = normalize_provider(provider_raw);
-    let (provider, api_key) = if provider == "mock" {
-        (provider, String::new())
+    let api_key = if provider == "mock" {
+        String::new()
     } else {
         let key = resolve_provider_api_key(ctx, &provider)?;
         if is_unresolved_secret_template(&key) {
-            let alternatives = ["anthropic", "openai_codex", "openai", "openrouter"];
-            let mut found = None;
-            for alt in &alternatives {
-                if *alt == provider {
-                    continue;
-                }
-                if let Ok(alt_key) = resolve_provider_api_key(ctx, alt) {
-                    if !alt_key.is_empty() && !is_unresolved_secret_template(&alt_key) {
-                        // ADR-0054 warn-audit: provider-selection fallback is a
-                        // configuration fact, not an operator-actionable
-                        // warning. Fires once per LLM call which is too noisy
-                        // for the warn level (81 in a 45-min window during the
-                        // 2026-04-18 Katagami incident). Downgraded to info.
-                        ctx.log(
-                            "info",
-                            &format!(
-                                "provider selection: provider={provider} has no key, falling back to {alt}"
-                            ),
-                        );
-                        found = Some((alt.to_string(), alt_key));
-                        break;
-                    }
-                }
-            }
-            match found {
-                Some((p, k)) => (p, k),
-                None => {
-                    return Err(format!(
-                        "provider={provider} api key is unresolved secret template: '{key}'. set tenant secret and retry"
-                    ));
-                }
-            }
+            return Err(format!(
+                "provider={provider} api key is unresolved secret template: '{key}'. set tenant secret and retry"
+            ));
         } else {
-            (provider, key)
+            key
         }
     };
 
-    let model = if provider != normalize_provider(provider_raw) {
-        let vault_model = ctx
-            .config
-            .get("default_llm_model")
-            .filter(|v| !v.is_empty() && !is_unresolved_secret_template(v));
-        if let Some(model) = vault_model {
-            model.clone()
-        } else {
-            match provider.as_str() {
-                "openai" => "gpt-4.1".to_string(),
-                "openai_codex" => "gpt-5.4".to_string(),
-                "openrouter" => "anthropic/claude-sonnet-4".to_string(),
-                _ => "claude-sonnet-4-6".to_string(),
-            }
-        }
-    } else {
-        model_raw.to_string()
-    };
+    let model = model_raw.trim().to_string();
 
     if provider != "mock" && api_key.is_empty() {
         return Err(format!("missing API key for provider={provider}"));
@@ -4898,36 +4779,38 @@ fn append_assistant_response_to_session_tree(
         read_session_from_temperfs(ctx, temper_api_url, tenant, &prepared.session_file_id)?;
     let mut tree = SessionTree::from_jsonl(&session_jsonl);
     let content_str = serde_json::to_string(content).unwrap_or_default();
-    let (new_leaf, externalized) = if !prepared.workspace_id.is_empty()
-        && should_store_entry_as_file(&content_str)
-    {
-        match create_content_file_for_entry(
-            ctx,
-            temper_api_url,
-            tenant,
-            &prepared.workspace_id,
-            &format!("a-{}", tree.len()),
-            &content_str,
-        ) {
-            Ok(content_file_id) => {
-                let (leaf, _) = tree.append_assistant_message_file(
-                    &prepared.session_leaf_id,
-                    &content_file_id,
-                    output_tokens,
-                );
-                (leaf, true)
+    let (new_leaf, externalized) =
+        if !prepared.workspace_id.is_empty() && should_store_entry_as_file(&content_str) {
+            match create_content_file_for_entry(
+                ctx,
+                temper_api_url,
+                tenant,
+                &prepared.workspace_id,
+                &format!("a-{}", tree.len()),
+                &content_str,
+            ) {
+                Ok(content_file_id) => {
+                    let (leaf, _) = tree.append_assistant_message_file(
+                        &prepared.session_leaf_id,
+                        &content_file_id,
+                        output_tokens,
+                    );
+                    (leaf, true)
+                }
+                Err(_) => {
+                    let (leaf, _) = tree.append_assistant_message(
+                        &prepared.session_leaf_id,
+                        content,
+                        output_tokens,
+                    );
+                    (leaf, false)
+                }
             }
-            Err(_) => {
-                let (leaf, _) =
-                    tree.append_assistant_message(&prepared.session_leaf_id, content, output_tokens);
-                (leaf, false)
-            }
-        }
-    } else {
-        let (leaf, _) =
-            tree.append_assistant_message(&prepared.session_leaf_id, content, output_tokens);
-        (leaf, false)
-    };
+        } else {
+            let (leaf, _) =
+                tree.append_assistant_message(&prepared.session_leaf_id, content, output_tokens);
+            (leaf, false)
+        };
 
     if externalized {
         emit_metric_ignore(
@@ -4940,7 +4823,13 @@ fn append_assistant_response_to_session_tree(
     }
 
     let updated_jsonl = tree.to_jsonl();
-    write_session_to_temperfs(ctx, temper_api_url, tenant, &prepared.session_file_id, &updated_jsonl)?;
+    write_session_to_temperfs(
+        ctx,
+        temper_api_url,
+        tenant,
+        &prepared.session_file_id,
+        &updated_jsonl,
+    )?;
     Ok(Some(new_leaf))
 }
 
@@ -4951,13 +4840,7 @@ fn session_metric_tags(provider: &str, model: &str) -> Value {
     })
 }
 
-fn emit_metric_ignore(
-    ctx: &Context,
-    name: &str,
-    value: f64,
-    tags: &Value,
-    kind: Option<&str>,
-) {
+fn emit_metric_ignore(ctx: &Context, name: &str, value: f64, tags: &Value, kind: Option<&str>) {
     let _ = ctx.emit_metric(name, value, tags, kind);
 }
 
@@ -5452,10 +5335,9 @@ fn load_skills_block(
                         let path = entity_field_str(item, &["Path", "path"])
                             .unwrap_or("")
                             .to_string();
-                        let workspace_id =
-                            entity_field_str(item, &["WorkspaceId", "workspace_id"])
-                                .unwrap_or("")
-                                .to_string();
+                        let workspace_id = entity_field_str(item, &["WorkspaceId", "workspace_id"])
+                            .unwrap_or("")
+                            .to_string();
                         if !id.is_empty() {
                             file_entries.push((id, path, workspace_id));
                         }

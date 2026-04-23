@@ -1570,9 +1570,14 @@ async fn configure_llm_via_api(deploy_url: &str) -> Result<()> {
 
     let model = if models.is_empty() {
         cliclack::log::warning("Could not fetch models — enter one manually.")?;
-        let default = default_model_for_provider(&provider);
         let m: String = cliclack::input("Model name")
-            .default_input(&default)
+            .validate(|input: &String| {
+                if input.trim().is_empty() {
+                    Err("Required — choose a model from your provider account")
+                } else {
+                    Ok(())
+                }
+            })
             .interact()?;
         m
     } else {
@@ -1833,16 +1838,6 @@ async fn post_secret(
         anyhow::bail!("POST {key} failed ({status}): {body}");
     }
     Ok(())
-}
-
-fn default_model_for_provider(provider: &str) -> String {
-    match provider {
-        "anthropic" => "claude-sonnet-4-20250514".into(),
-        "openai" => "gpt-4.1".into(),
-        "openai_codex" => "gpt-5.4".into(),
-        "openrouter" => "anthropic/claude-sonnet-4-20250514".into(),
-        _ => String::new(),
-    }
 }
 
 fn optional_env(name: &str) -> Option<String> {

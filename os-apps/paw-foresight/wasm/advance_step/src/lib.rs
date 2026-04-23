@@ -24,7 +24,10 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             .unwrap_or(0) as usize;
         let max_steps = fields
             .get("max_steps")
-            .and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
+            .and_then(|v| {
+                v.as_u64()
+                    .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+            })
             .unwrap_or(5) as usize;
         let product_model_id = fields
             .get("product_model_id")
@@ -34,16 +37,23 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             .get("step_schedule")
             .cloned()
             .unwrap_or(json!([1, 3, 7, 14, 30]));
-        let probe_agent_ids_raw = fields
-            .get("probe_agent_ids")
-            .cloned()
-            .unwrap_or(json!([]));
+        let probe_agent_ids_raw = fields.get("probe_agent_ids").cloned().unwrap_or(json!([]));
+        let agent_model = fields
+            .get("agent_model")
+            .and_then(|v| v.as_str())
+            .filter(|value| !value.trim().is_empty())
+            .ok_or("Projection.agent_model is required")?
+            .to_string();
+        let agent_provider = fields
+            .get("agent_provider")
+            .and_then(|v| v.as_str())
+            .filter(|value| !value.trim().is_empty())
+            .ok_or("Projection.agent_provider is required")?
+            .to_string();
 
         // Parse step_schedule
         let step_schedule: Vec<u64> = if let Some(arr) = step_schedule_raw.as_array() {
-            arr.iter()
-                .filter_map(|v| v.as_u64())
-                .collect()
+            arr.iter().filter_map(|v| v.as_u64()).collect()
         } else if let Some(s) = step_schedule_raw.as_str() {
             serde_json::from_str(s).unwrap_or_else(|_| vec![1, 3, 7, 14, 30])
         } else {
@@ -115,18 +125,34 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 continue;
             }
             let session_body: Value = serde_json::from_str(&session_resp.body).unwrap_or(json!({}));
-            let sessions = session_body.get("value").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+            let sessions = session_body
+                .get("value")
+                .and_then(|v| v.as_array())
+                .cloned()
+                .unwrap_or_default();
             if sessions.is_empty() {
                 // No session yet — not done
                 all_done = false;
                 continue;
             }
             let latest = &sessions[0];
-            let session_id = latest.get("entity_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
-            let state = latest.get("status").and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
+            let session_id = latest
+                .get("entity_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let state = latest
+                .get("status")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown")
+                .to_string();
             let is_terminal = matches!(state.as_str(), "Completed" | "Failed" | "Cancelled");
-            if !is_terminal { all_done = false; }
-            if is_terminal { terminal_count += 1; }
+            if !is_terminal {
+                all_done = false;
+            }
+            if is_terminal {
+                terminal_count += 1;
+            }
             probe_session_states.push((agent_id.clone(), session_id, state, is_terminal));
         }
 
@@ -143,21 +169,29 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         }
 
         // Check if ALL probes failed (none completed successfully)
-        let completed_count = probe_session_states.iter()
+        let completed_count = probe_session_states
+            .iter()
             .filter(|(_, _, state, _)| state == "Completed")
             .count();
-        let failed_count = probe_session_states.iter()
+        let failed_count = probe_session_states
+            .iter()
             .filter(|(_, _, state, _)| state == "Failed")
             .count();
 
         if completed_count == 0 && failed_count > 0 {
-            ctx.log("warn", &format!(
-                "advance_step: all {} Probes failed (none completed), failing Projection",
-                failed_count
-            ));
-            set_success_result("Fail", &json!({
-                "error_message": format!("All {} probe sessions failed", failed_count)
-            }));
+            ctx.log(
+                "warn",
+                &format!(
+                    "advance_step: all {} Probes failed (none completed), failing Projection",
+                    failed_count
+                ),
+            );
+            set_success_result(
+                "Fail",
+                &json!({
+                    "error_message": format!("All {} probe sessions failed", failed_count)
+                }),
+            );
             return Ok(());
         }
 
@@ -178,23 +212,53 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             if let Ok(obs_resp) = ctx.http_call("GET", &obs_url, &headers, "") {
                 if obs_resp.status >= 200 && obs_resp.status < 300 {
                     let obs_body: Value = serde_json::from_str(&obs_resp.body).unwrap_or(json!({}));
-                    let observations = obs_body.get("value").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+                    let observations = obs_body
+                        .get("value")
+                        .and_then(|v| v.as_array())
+                        .cloned()
+                        .unwrap_or_default();
 
                     // Guard: need 2+ different Probes
-                    let mut probe_ids: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+                    let mut probe_ids: std::collections::BTreeSet<String> =
+                        std::collections::BTreeSet::new();
                     for obs in &observations {
-                        if let Some(pid) = obs.get("fields").and_then(|f| f.get("probe_agent_id")).and_then(|v| v.as_str()) {
-                            if !pid.is_empty() { probe_ids.insert(pid.to_string()); }
+                        if let Some(pid) = obs
+                            .get("fields")
+                            .and_then(|f| f.get("probe_agent_id"))
+                            .and_then(|v| v.as_str())
+                        {
+                            if !pid.is_empty() {
+                                probe_ids.insert(pid.to_string());
+                            }
                         }
                     }
 
                     if probe_ids.len() >= 2 && !observations.is_empty() {
-                        let obs_json = serde_json::to_string_pretty(&observations).unwrap_or_default();
-                        if let Err(e) = spawn_convergence_analyst(&ctx, &temper_api_url, &headers, entity_id, prev_step, &obs_json) {
-                            ctx.log("warn", &format!("advance_step: failed to spawn convergence analyst: {e}"));
+                        let obs_json =
+                            serde_json::to_string_pretty(&observations).unwrap_or_default();
+                        if let Err(e) = spawn_convergence_analyst(
+                            &ctx,
+                            &temper_api_url,
+                            &headers,
+                            entity_id,
+                            prev_step,
+                            &obs_json,
+                            &agent_model,
+                            &agent_provider,
+                        ) {
+                            ctx.log(
+                                "warn",
+                                &format!("advance_step: failed to spawn convergence analyst: {e}"),
+                            );
                         }
                     } else {
-                        ctx.log("info", &format!("advance_step: skipping convergence (need 2+ probes, have {})", probe_ids.len()));
+                        ctx.log(
+                            "info",
+                            &format!(
+                                "advance_step: skipping convergence (need 2+ probes, have {})",
+                                probe_ids.len()
+                            ),
+                        );
                     }
                 }
             }
@@ -202,10 +266,24 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
 
         // 5. Respawn all Probes for the next step
         for (agent_id, _session_id, _state, _is_terminal) in &probe_session_states {
-            if let Err(e) = respawn_probe(&ctx, &temper_api_url, &headers, agent_id, product_model_id) {
-                ctx.log("warn", &format!("advance_step: failed to respawn Probe {agent_id}: {e}"));
+            if let Err(e) = respawn_probe(
+                &ctx,
+                &temper_api_url,
+                &headers,
+                agent_id,
+                product_model_id,
+                &agent_model,
+                &agent_provider,
+            ) {
+                ctx.log(
+                    "warn",
+                    &format!("advance_step: failed to respawn Probe {agent_id}: {e}"),
+                );
             } else {
-                ctx.log("info", &format!("advance_step: respawned Probe {agent_id} for step {current_step}"));
+                ctx.log(
+                    "info",
+                    &format!("advance_step: respawned Probe {agent_id} for step {current_step}"),
+                );
             }
         }
 
@@ -215,21 +293,30 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 "info",
                 &format!("advance_step: Projection {entity_id} reached max_steps ({current_step}/{max_steps}), completing"),
             );
-            set_success_result("Complete", &json!({
-                "final_step": current_step,
-                "days_offset": days_offset
-            }));
+            set_success_result(
+                "Complete",
+                &json!({
+                    "final_step": current_step,
+                    "days_offset": days_offset
+                }),
+            );
         } else {
             // All Probes done, convergence analyzed, respawned — advance to next step.
             // Return "AdvanceStep" to increment the step counter and trigger the next iteration.
-            ctx.log("info", &format!(
-                "advance_step: all Probes done at step {current_step}, advancing to next step"
-            ));
-            set_success_result("AdvanceStep", &json!({
-                "current_step": current_step,
-                "days_offset": days_offset,
-                "probes_steered": probe_agent_ids.len()
-            }));
+            ctx.log(
+                "info",
+                &format!(
+                    "advance_step: all Probes done at step {current_step}, advancing to next step"
+                ),
+            );
+            set_success_result(
+                "AdvanceStep",
+                &json!({
+                    "current_step": current_step,
+                    "days_offset": days_offset,
+                    "probes_steered": probe_agent_ids.len()
+                }),
+            );
         }
 
         ctx.log("info", "advance_step: done");
@@ -251,6 +338,8 @@ fn spawn_convergence_analyst(
     projection_id: &str,
     prev_step: usize,
     observations_json: &str,
+    agent_model: &str,
+    agent_provider: &str,
 ) -> Result<(), String> {
     // 1. Create Agent entity
     let agent_url = format!("{temper_api_url}/tdata/Agents");
@@ -260,24 +349,35 @@ fn spawn_convergence_analyst(
     });
     let agent_resp = ctx.http_call("POST", &agent_url, headers, &agent_body.to_string())?;
     if agent_resp.status < 200 || agent_resp.status >= 300 {
-        return Err(format!("failed to create Agent (HTTP {})", agent_resp.status));
+        return Err(format!(
+            "failed to create Agent (HTTP {})",
+            agent_resp.status
+        ));
     }
     let agent_parsed: Value = serde_json::from_str(&agent_resp.body).unwrap_or(json!({}));
-    let agent_id = agent_parsed.get("entity_id").and_then(|v| v.as_str()).unwrap_or("unknown");
+    let agent_id = agent_parsed
+        .get("entity_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown");
 
     // 2. Create Session entity
     let session_url = format!("{temper_api_url}/tdata/Sessions");
     let session_resp = ctx.http_call("POST", &session_url, headers, &json!({}).to_string())?;
     if session_resp.status < 200 || session_resp.status >= 300 {
-        return Err(format!("failed to create Session (HTTP {})", session_resp.status));
+        return Err(format!(
+            "failed to create Session (HTTP {})",
+            session_resp.status
+        ));
     }
     let session_parsed: Value = serde_json::from_str(&session_resp.body).unwrap_or(json!({}));
-    let session_id = session_parsed.get("entity_id").and_then(|v| v.as_str()).unwrap_or("unknown");
+    let session_id = session_parsed
+        .get("entity_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown");
 
     // 3. Configure — observations inline, no soul
-    let configure_url = format!(
-        "{temper_api_url}/tdata/Sessions('{session_id}')/TemperPaw.Configure"
-    );
+    let configure_url =
+        format!("{temper_api_url}/tdata/Sessions('{session_id}')/TemperPaw.Configure");
 
     let obs_for_prompt = if observations_json.len() > 40000 {
         format!("{}... (truncated)", &observations_json[..40000])
@@ -303,7 +403,8 @@ fn spawn_convergence_analyst(
     );
 
     let configure_body = json!({
-        "model": "claude-sonnet-4-6",
+        "model": agent_model,
+        "provider": agent_provider,
         "agent_name": "convergence-analyst",
         "tools_enabled": "temper_get,temper_list,temper_action,temper_create",
         "max_turns": "30",
@@ -311,12 +412,17 @@ fn spawn_convergence_analyst(
         "sandbox_url": "none",
         "temper_api_url": temper_api_url
     });
-    let configure_resp = ctx.http_call("POST", &configure_url, headers, &configure_body.to_string())?;
+    let configure_resp =
+        ctx.http_call("POST", &configure_url, headers, &configure_body.to_string())?;
     if configure_resp.status < 200 || configure_resp.status >= 300 {
-        ctx.log("warn", &format!(
-            "spawn_convergence_analyst: Configure failed (HTTP {}): {}",
-            configure_resp.status, &configure_resp.body[..configure_resp.body.len().min(200)]
-        ));
+        ctx.log(
+            "warn",
+            &format!(
+                "spawn_convergence_analyst: Configure failed (HTTP {}): {}",
+                configure_resp.status,
+                &configure_resp.body[..configure_resp.body.len().min(200)]
+            ),
+        );
     } else {
         ctx.log("info", &format!(
             "spawn_convergence_analyst: spawned analyst {agent_id} session {session_id} for step {prev_step}"
@@ -333,6 +439,8 @@ fn respawn_probe(
     headers: &[(String, String)],
     agent_id: &str,
     product_model_id: &str,
+    agent_model: &str,
+    agent_provider: &str,
 ) -> Result<(), String> {
     // Create new Session (with agent_id so advance_step can find it)
     let session_url = format!("{temper_api_url}/tdata/Sessions");
@@ -349,24 +457,23 @@ fn respawn_probe(
         return Ok(());
     }
 
-    let session_parsed: Value =
-        serde_json::from_str(&session_resp.body).unwrap_or(json!({}));
+    let session_parsed: Value = serde_json::from_str(&session_resp.body).unwrap_or(json!({}));
     let session_id = session_parsed
         .get("entity_id")
         .and_then(|v| v.as_str())
         .unwrap_or("unknown");
 
     // Configure new Session
-    let configure_url = format!(
-        "{temper_api_url}/tdata/Sessions('{session_id}')/TemperPaw.Configure"
-    );
+    let configure_url =
+        format!("{temper_api_url}/tdata/Sessions('{session_id}')/TemperPaw.Configure");
     let user_message = format!(
         "You are a Foresight Probe. ProductModel ID: {product_model_id}. \
          Use temper_get to read the ProductModel and begin projecting. \
          Read other Probes' Observations with temper_list."
     );
     let configure_body = json!({
-        "model": "claude-sonnet-4-6",
+        "model": agent_model,
+        "provider": agent_provider,
         "soul_id": "Probe",
         "tools_enabled": "temper_get,temper_list,temper_action,temper_create",
         "max_turns": "50",
@@ -374,12 +481,8 @@ fn respawn_probe(
         "sandbox_url": "none",
         "temper_api_url": temper_api_url
     });
-    let configure_resp = ctx.http_call(
-        "POST",
-        &configure_url,
-        headers,
-        &configure_body.to_string(),
-    )?;
+    let configure_resp =
+        ctx.http_call("POST", &configure_url, headers, &configure_body.to_string())?;
     if configure_resp.status < 200 || configure_resp.status >= 300 {
         ctx.log(
             "warn",
@@ -391,9 +494,7 @@ fn respawn_probe(
     } else {
         ctx.log(
             "info",
-            &format!(
-                "advance_step: re-spawned probe {agent_id} with new Session {session_id}"
-            ),
+            &format!("advance_step: re-spawned probe {agent_id} with new Session {session_id}"),
         );
     }
 

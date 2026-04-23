@@ -45,13 +45,15 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         let seed_model = fields
             .get("seed_model")
             .and_then(|v| v.as_str())
-            .unwrap_or("claude-sonnet-4-6")
+            .filter(|value| !value.trim().is_empty())
+            .ok_or("ForesightModel.seed_model is required")?
             .to_string();
 
         let seed_provider = fields
             .get("seed_provider")
             .and_then(|v| v.as_str())
-            .unwrap_or("anthropic")
+            .filter(|value| !value.trim().is_empty())
+            .ok_or("ForesightModel.seed_provider is required")?
             .to_string();
 
         let seed_soul_id = fields
@@ -86,7 +88,11 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         ];
 
         // --- Build user_message ---
-        let callback_action = if is_refresh { "RefreshComplete" } else { "SeedComplete" };
+        let callback_action = if is_refresh {
+            "RefreshComplete"
+        } else {
+            "SeedComplete"
+        };
 
         let user_message = format!(
             r#"You are seeding a ForesightModel ({model_type}) named '{name}'.
@@ -137,7 +143,11 @@ temper.action('ForesightModels', '{entity_id}', 'SeedFailed', {{
 temper.done("seed failed")
 ```
 "#,
-            operation = if is_refresh { "refresh" } else { "initial seed" },
+            operation = if is_refresh {
+                "refresh"
+            } else {
+                "initial seed"
+            },
         );
 
         // --- Create Session ---
@@ -188,9 +198,10 @@ temper.done("seed failed")
             ));
         }
 
-        ctx.log("info", &format!(
-            "spawn_seed_agent: session '{session_id}' for model_type '{model_type}'"
-        ));
+        ctx.log(
+            "info",
+            &format!("spawn_seed_agent: session '{session_id}' for model_type '{model_type}'"),
+        );
         set_success_result(
             "",
             &json!({

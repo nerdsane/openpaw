@@ -39,8 +39,8 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             .unwrap_or("[]")
             .to_string();
 
-        let configs: Vec<serde_json::Value> = serde_json::from_str(&config_raw)
-            .map_err(|e| format!("Invalid config_json: {e}"))?;
+        let configs: Vec<serde_json::Value> =
+            serde_json::from_str(&config_raw).map_err(|e| format!("Invalid config_json: {e}"))?;
 
         if configs.is_empty() {
             return Err("spawn_perspectives: config_json is empty".to_string());
@@ -73,10 +73,24 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         let mut perspective_ids: Vec<String> = Vec::new();
 
         for config in &configs {
-            let role = config.get("role").and_then(|v| v.as_str()).unwrap_or("analyst");
-            let model = config.get("model").and_then(|v| v.as_str()).unwrap_or("claude-sonnet-4-6");
-            let provider = config.get("provider").and_then(|v| v.as_str()).unwrap_or("anthropic");
-            let temperature = config.get("temperature").and_then(|v| v.as_str()).unwrap_or("1.0");
+            let role = config
+                .get("role")
+                .and_then(|v| v.as_str())
+                .unwrap_or("analyst");
+            let model = config
+                .get("model")
+                .and_then(|v| v.as_str())
+                .filter(|value| !value.trim().is_empty())
+                .ok_or("Perspective config requires model")?;
+            let provider = config
+                .get("provider")
+                .and_then(|v| v.as_str())
+                .filter(|value| !value.trim().is_empty())
+                .ok_or("Perspective config requires provider")?;
+            let temperature = config
+                .get("temperature")
+                .and_then(|v| v.as_str())
+                .unwrap_or("1.0");
             let lens = config.get("lens").and_then(|v| v.as_str()).unwrap_or("");
 
             // Create Perspective entity
@@ -112,7 +126,9 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             });
             let config_resp = ctx.http_call(
                 "POST",
-                &format!("{api_url}/tdata/Perspectives('{perspective_id}')/{odata_namespace}.Configure"),
+                &format!(
+                    "{api_url}/tdata/Perspectives('{perspective_id}')/{odata_namespace}.Configure"
+                ),
                 &headers,
                 &config_body.to_string(),
             )?;
@@ -138,8 +154,9 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                     &create_session_resp.body[..create_session_resp.body.len().min(300)]
                 ));
             }
-            let session_created: serde_json::Value = serde_json::from_str(&create_session_resp.body)
-                .map_err(|e| format!("Failed to parse Session response: {e}"))?;
+            let session_created: serde_json::Value =
+                serde_json::from_str(&create_session_resp.body)
+                    .map_err(|e| format!("Failed to parse Session response: {e}"))?;
             let session_id = session_created
                 .get("entity_id")
                 .and_then(|v| v.as_str())
@@ -212,15 +229,20 @@ temper.done("perspective failed")
             // Mark Perspective as generating
             let begin_resp = ctx.http_call(
                 "POST",
-                &format!("{api_url}/tdata/Perspectives('{perspective_id}')/{odata_namespace}.Begin"),
+                &format!(
+                    "{api_url}/tdata/Perspectives('{perspective_id}')/{odata_namespace}.Begin"
+                ),
                 &headers,
                 &json!({"session_id": session_id}).to_string(),
             )?;
             if !(200..300).contains(&begin_resp.status) {
-                ctx.log("warn", &format!(
-                    "Failed to Begin Perspective '{perspective_id}': HTTP {}",
-                    begin_resp.status
-                ));
+                ctx.log(
+                    "warn",
+                    &format!(
+                        "Failed to Begin Perspective '{perspective_id}': HTTP {}",
+                        begin_resp.status
+                    ),
+                );
             }
 
             perspective_ids.push(perspective_id);
@@ -241,10 +263,13 @@ temper.done("perspective failed")
             ));
         }
 
-        ctx.log("info", &format!(
-            "spawn_perspectives: spawned {} perspectives",
-            perspective_ids.len()
-        ));
+        ctx.log(
+            "info",
+            &format!(
+                "spawn_perspectives: spawned {} perspectives",
+                perspective_ids.len()
+            ),
+        );
 
         set_success_result(
             "",

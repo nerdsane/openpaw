@@ -50,12 +50,12 @@ initial = ""
 [[state]]
 name = "model"
 type = "string"
-initial = "claude-sonnet-4-6"
+initial = ""
 
 [[state]]
 name = "provider"
 type = "string"
-initial = "anthropic"
+initial = ""
 
 [[state]]
 name = "temperature"

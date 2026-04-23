@@ -108,17 +108,12 @@ pub fn is_terminal_status(status: &str) -> bool {
     )
 }
 
-pub fn infer_provider(model_id: &str) -> &'static str {
-    if model_id.starts_with("gpt-") || model_id.starts_with("o1") || model_id.starts_with("o3") {
-        "openai"
-    } else if model_id.contains('/') {
-        "openrouter"
-    } else {
-        "anthropic"
-    }
-}
-
 pub fn managed_agent_provider(managed_agent: &Value) -> String {
+    let provider = field_string(managed_agent, &["Provider", "provider"]);
+    if !provider.trim().is_empty() {
+        return provider;
+    }
+
     let metadata = field_string(managed_agent, &["Metadata", "metadata"]);
     if !metadata.trim().is_empty() {
         if let Ok(parsed) = serde_json::from_str::<Value>(&metadata) {
@@ -138,7 +133,7 @@ pub fn managed_agent_provider(managed_agent: &Value) -> String {
         }
     }
 
-    infer_provider(&field_string(managed_agent, &["ModelId", "model_id"])).to_string()
+    String::new()
 }
 
 pub fn escape_odata_string(value: &str) -> String {
@@ -684,13 +679,6 @@ mod tests {
             "first\n\nsecond\n\nThe user marked tool call tool-1 as allow."
         );
         assert_eq!(last_seq, 3);
-    }
-
-    #[test]
-    fn infers_provider_from_model_name() {
-        assert_eq!(infer_provider("gpt-5.4"), "openai");
-        assert_eq!(infer_provider("anthropic/claude-sonnet-4.6"), "openrouter");
-        assert_eq!(infer_provider("claude-sonnet-4-6"), "anthropic");
     }
 
     #[test]

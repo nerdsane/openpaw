@@ -12,7 +12,11 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         ctx.log("info", "run_round: starting");
 
         let fields = ctx.entity_state.get("fields").cloned().unwrap_or(json!({}));
-        let counters = ctx.entity_state.get("counters").cloned().unwrap_or(json!({}));
+        let counters = ctx
+            .entity_state
+            .get("counters")
+            .cloned()
+            .unwrap_or(json!({}));
 
         let entity_id = ctx
             .entity_state
@@ -37,6 +41,18 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             .get("author_temperature")
             .and_then(|v| v.as_str())
             .unwrap_or("0.8")
+            .to_string();
+        let author_model = fields
+            .get("author_model")
+            .and_then(|v| v.as_str())
+            .filter(|value| !value.trim().is_empty())
+            .ok_or("Tournament.author_model is required")?
+            .to_string();
+        let author_provider = fields
+            .get("author_provider")
+            .and_then(|v| v.as_str())
+            .filter(|value| !value.trim().is_empty())
+            .ok_or("Tournament.author_provider is required")?
             .to_string();
 
         let judge_temperature = fields
@@ -93,7 +109,10 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             &json!({"fields": {}}).to_string(),
         )?;
         if !(200..300).contains(&create_resp.status) {
-            return Err(format!("Failed to create referee Session: HTTP {}", create_resp.status));
+            return Err(format!(
+                "Failed to create referee Session: HTTP {}",
+                create_resp.status
+            ));
         }
         let created: serde_json::Value = serde_json::from_str(&create_resp.body)
             .map_err(|e| format!("Failed to parse Session response: {e}"))?;
@@ -134,8 +153,8 @@ Follow the referee skill instructions precisely. Context firewalls are the proto
 
         let session_config = json!({
             "user_message": user_message,
-            "model": "claude-sonnet-4-6",
-            "provider": "anthropic",
+            "model": author_model,
+            "provider": author_provider,
             "temperature": author_temperature,
             "tools_enabled": "temper_get,temper_list,temper_create,temper_action,temper_write,temper_read",
             "max_turns": "100",
@@ -153,7 +172,10 @@ Follow the referee skill instructions precisely. Context firewalls are the proto
             ));
         }
 
-        ctx.log("info", &format!("run_round: spawned referee session '{session_id}' for round {round_count}"));
+        ctx.log(
+            "info",
+            &format!("run_round: spawned referee session '{session_id}' for round {round_count}"),
+        );
 
         set_success_result(
             "",

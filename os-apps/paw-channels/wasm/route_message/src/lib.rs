@@ -162,10 +162,9 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 .or_else(|| nested_str_field(&cs, &["Id", "entity_id"]))
                 .unwrap_or_default()
                 .to_string();
-            let agent_entity_id =
-                nested_str_field(&cs, &["AgentEntityId", "agent_entity_id"])
-                    .unwrap_or_default()
-                    .to_string();
+            let agent_entity_id = nested_str_field(&cs, &["AgentEntityId", "agent_entity_id"])
+                .unwrap_or_default()
+                .to_string();
             let session_entity_id =
                 nested_str_field(&cs, &["SessionEntityId", "session_entity_id"])
                     .unwrap_or_default()
@@ -192,8 +191,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                         &session,
                         (timestamp_millis_string().parse::<i64>().unwrap_or(0)) / 1000,
                         RESUME_STALENESS_THRESHOLD_SECS,
-                    )
-                        && let Some(action_name) = resume_action_for_status(session_status)
+                    ) && let Some(action_name) = resume_action_for_status(session_status)
                     {
                         if let Err(e) = wake_session(
                             &ctx,
@@ -481,12 +479,7 @@ fn resume_session(
 ) -> Result<(), String> {
     let url = format!("{temper_api_url}/tdata/ChannelSessions('{session_id}')/Paw.Channel.Resume");
     let body = json!({ "last_message_at": timestamp_millis_string() });
-    let _ = ctx.http_call(
-        "POST",
-        &url,
-        &odata_headers(ctx, tenant),
-        &body.to_string(),
-    )?;
+    let _ = ctx.http_call("POST", &url, &odata_headers(ctx, tenant), &body.to_string())?;
     Ok(())
 }
 
@@ -584,10 +577,12 @@ fn create_session_for_agent(
                 .unwrap_or("")
                 .to_string();
             let model = nested_str_field(&agent, &["Model", "model"])
-                .unwrap_or("claude-sonnet-4-6")
+                .filter(|value| !value.trim().is_empty())
+                .ok_or_else(|| format!("Agent {route_agent_id} has no configured model"))?
                 .to_string();
             let provider = nested_str_field(&agent, &["Provider", "provider"])
-                .unwrap_or("anthropic")
+                .filter(|value| !value.trim().is_empty())
+                .ok_or_else(|| format!("Agent {route_agent_id} has no configured provider"))?
                 .to_string();
             let tools = nested_str_field(&agent, &["ToolsEnabled", "tools_enabled"])
                 .filter(|s| !s.is_empty())
@@ -614,12 +609,14 @@ fn create_session_for_agent(
             let model = config
                 .get("model")
                 .and_then(Value::as_str)
-                .unwrap_or("claude-sonnet-4-6")
+                .filter(|value| !value.trim().is_empty())
+                .ok_or("AgentRoute config requires model when agent_id is not set")?
                 .to_string();
             let provider = config
                 .get("provider")
                 .and_then(Value::as_str)
-                .unwrap_or("anthropic")
+                .filter(|value| !value.trim().is_empty())
+                .ok_or("AgentRoute config requires provider when agent_id is not set")?
                 .to_string();
             let tools = config
                 .get("tools_enabled")
@@ -727,13 +724,8 @@ fn continue_with_new_session(
     let conversation_file_id =
         str_field(&fields, &["conversation_file_id", "ConversationFileId"]).unwrap_or("");
     let prior_leaf_id = str_field(&fields, &["session_leaf_id", "SessionLeafId"]).unwrap_or("");
-    let workspace_id = resolve_workspace_id_for_session(
-        ctx,
-        temper_api_url,
-        tenant,
-        &fields,
-        session_file_id,
-    )?;
+    let workspace_id =
+        resolve_workspace_id_for_session(ctx, temper_api_url, tenant, &fields, session_file_id)?;
 
     let new_leaf_id = if !session_file_id.is_empty() {
         Some(append_user_message_to_session(
@@ -817,12 +809,16 @@ fn continue_with_new_session(
     let effective_model = if !agent_model.is_empty() {
         &agent_model
     } else {
-        str_field(&fields, &["model", "Model"]).unwrap_or("claude-sonnet-4-6")
+        str_field(&fields, &["model", "Model"])
+            .filter(|value| !value.trim().is_empty())
+            .ok_or("route_message requires a configured model from AgentRoute, Agent, or prior Session")?
     };
     let effective_provider = if !agent_provider.is_empty() {
         &agent_provider
     } else {
-        str_field(&fields, &["provider", "Provider"]).unwrap_or("anthropic")
+        str_field(&fields, &["provider", "Provider"])
+            .filter(|value| !value.trim().is_empty())
+            .ok_or("route_message requires a configured provider from AgentRoute, Agent, or prior Session")?
     };
     let effective_tools = if !agent_tools.is_empty() {
         &agent_tools
@@ -864,13 +860,7 @@ fn continue_with_new_session(
     )?;
 
     // Update ChannelSession: agent_entity_id stays the same, only session_entity_id changes
-    update_session_binding(
-        ctx,
-        temper_api_url,
-        tenant,
-        cs_id,
-        &new_session_id,
-    )?;
+    update_session_binding(ctx, temper_api_url, tenant, cs_id, &new_session_id)?;
     Ok(new_session_id)
 }
 
@@ -1011,9 +1001,8 @@ fn update_session_binding(
     cs_id: &str,
     new_session_id: &str,
 ) -> Result<(), String> {
-    let url = format!(
-        "{temper_api_url}/tdata/ChannelSessions('{cs_id}')/Paw.Channel.UpdateSession"
-    );
+    let url =
+        format!("{temper_api_url}/tdata/ChannelSessions('{cs_id}')/Paw.Channel.UpdateSession");
     let body = json!({
         "session_entity_id": new_session_id,
         "last_message_at": timestamp_millis_string(),
@@ -1040,7 +1029,8 @@ fn append_user_message_to_session(
     session_leaf_id: &str,
     user_message: &str,
 ) -> Result<String, String> {
-    let session_jsonl = read_file_value(ctx, temper_api_url, tenant, workspace_id, session_file_id)?;
+    let session_jsonl =
+        read_file_value(ctx, temper_api_url, tenant, workspace_id, session_file_id)?;
     let mut tree = SessionTree::from_jsonl(&session_jsonl);
     let mut parent_id = if !session_leaf_id.is_empty() {
         session_leaf_id.to_string()
@@ -1067,7 +1057,9 @@ fn append_user_message_to_session(
             &file_name,
             user_message,
         ) {
-            Ok(content_file_id) => tree.append_user_message_file(&parent_id, &content_file_id, tokens),
+            Ok(content_file_id) => {
+                tree.append_user_message_file(&parent_id, &content_file_id, tokens)
+            }
             Err(err) => {
                 ctx.log(
                     "warn",
@@ -1100,7 +1092,13 @@ fn append_user_message_to_conversation(
     conversation_file_id: &str,
     user_message: &str,
 ) -> Result<(), String> {
-    let raw = read_file_value(ctx, temper_api_url, tenant, workspace_id, conversation_file_id)?;
+    let raw = read_file_value(
+        ctx,
+        temper_api_url,
+        tenant,
+        workspace_id,
+        conversation_file_id,
+    )?;
     let parsed: Value = serde_json::from_str(&raw).unwrap_or_else(|_| json!({ "messages": [] }));
     let mut messages = parsed
         .get("messages")
@@ -1139,9 +1137,11 @@ fn resolve_workspace_id_for_session(
         &format!("{temper_api_url}/tdata/Files('{session_file_id}')"),
         tenant,
     )?;
-    Ok(nested_str_field(&session_file, &["workspace_id", "WorkspaceId"])
-        .unwrap_or("")
-        .to_string())
+    Ok(
+        nested_str_field(&session_file, &["workspace_id", "WorkspaceId"])
+            .unwrap_or("")
+            .to_string(),
+    )
 }
 
 fn read_file_value(
@@ -1314,9 +1314,8 @@ fn wake_session(
     session_entity_id: &str,
     action_name: &str,
 ) -> Result<(), String> {
-    let url = format!(
-        "{temper_api_url}/tdata/Sessions('{session_entity_id}')/TemperPaw.{action_name}"
-    );
+    let url =
+        format!("{temper_api_url}/tdata/Sessions('{session_entity_id}')/TemperPaw.{action_name}");
     let _ = ctx.http_call("POST", &url, &odata_headers(ctx, tenant), "{}")?;
     Ok(())
 }
@@ -1399,8 +1398,8 @@ fn switch_mode_and_steer(
         json!({})
     };
 
-    let current_tools =
-        nested_str_field(&session, &["ToolsEnabled", "tools_enabled"]).unwrap_or(DEFAULT_TOOLS_ENABLED);
+    let current_tools = nested_str_field(&session, &["ToolsEnabled", "tools_enabled"])
+        .unwrap_or(DEFAULT_TOOLS_ENABLED);
 
     // 2. Build SwitchMode body
     let mut body = serde_json::Map::new();
@@ -1411,15 +1410,17 @@ fn switch_mode_and_steer(
         body.insert("tools_enabled".into(), json!(PLAN_MODE_TOOLS));
     } else {
         // "execute" — restore stashed tools
-        let stashed = nested_str_field(&session, &["PrePlanToolsEnabled", "pre_plan_tools_enabled"])
-            .filter(|s| !s.is_empty())
-            .unwrap_or(DEFAULT_TOOLS_ENABLED);
+        let stashed =
+            nested_str_field(&session, &["PrePlanToolsEnabled", "pre_plan_tools_enabled"])
+                .filter(|s| !s.is_empty())
+                .unwrap_or(DEFAULT_TOOLS_ENABLED);
         body.insert("tools_enabled".into(), json!(stashed));
         body.insert("pre_plan_tools_enabled".into(), json!(""));
     }
 
     // 3. Dispatch SwitchMode
-    let switch_url = format!("{temper_api_url}/tdata/Sessions('{session_id}')/TemperPaw.SwitchMode");
+    let switch_url =
+        format!("{temper_api_url}/tdata/Sessions('{session_id}')/TemperPaw.SwitchMode");
     let resp = ctx.http_call(
         "POST",
         &switch_url,
@@ -1499,10 +1500,19 @@ mod tests {
     #[test]
     fn resume_action_for_status_covers_all_driving_states() {
         assert_eq!(resume_action_for_status("Executing"), Some("ResumeTools"));
-        assert_eq!(resume_action_for_status("CallingProvider"), Some("ResumeProvider"));
-        assert_eq!(resume_action_for_status("PreparingContext"), Some("ResumeContext"));
+        assert_eq!(
+            resume_action_for_status("CallingProvider"),
+            Some("ResumeProvider")
+        );
+        assert_eq!(
+            resume_action_for_status("PreparingContext"),
+            Some("ResumeContext")
+        );
         assert_eq!(resume_action_for_status("Thinking"), Some("ResumeThinking"));
-        assert_eq!(resume_action_for_status("Compacting"), Some("ResumeCompacting"));
+        assert_eq!(
+            resume_action_for_status("Compacting"),
+            Some("ResumeCompacting")
+        );
         assert_eq!(resume_action_for_status("Steering"), Some("ResumeSteering"));
     }
 

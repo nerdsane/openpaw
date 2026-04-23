@@ -29,7 +29,6 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             .and_then(|v| v.as_str())
             .and_then(|s| s.parse().ok())
             .unwrap_or(0);
-
         let perspectives_complete: usize = fields
             .get("perspectives_complete")
             .and_then(|v| v.as_str())
@@ -52,7 +51,21 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             return Ok(());
         }
 
-        ctx.log("info", "check_and_synthesize: all perspectives complete, spawning synthesizer");
+        let synthesis_model = fields
+            .get("synthesis_model")
+            .and_then(|v| v.as_str())
+            .filter(|value| !value.trim().is_empty())
+            .ok_or("Deliberation.synthesis_model is required")?;
+        let synthesis_provider = fields
+            .get("synthesis_provider")
+            .and_then(|v| v.as_str())
+            .filter(|value| !value.trim().is_empty())
+            .ok_or("Deliberation.synthesis_provider is required")?;
+
+        ctx.log(
+            "info",
+            "check_and_synthesize: all perspectives complete, spawning synthesizer",
+        );
 
         // --- Config ---
         let api_url = ctx
@@ -81,7 +94,9 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         // Transition to Synthesizing
         let synth_resp = ctx.http_call(
             "POST",
-            &format!("{api_url}/tdata/Deliberations('{entity_id}')/{odata_namespace}.BeginSynthesis"),
+            &format!(
+                "{api_url}/tdata/Deliberations('{entity_id}')/{odata_namespace}.BeginSynthesis"
+            ),
             &headers,
             "{}",
         )?;
@@ -143,8 +158,8 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             .ok_or("Created Session has no entity_id")?
             .to_string();
 
-        let perspectives_json = serde_json::to_string(&perspective_outputs)
-            .unwrap_or_else(|_| "[]".to_string());
+        let perspectives_json =
+            serde_json::to_string(&perspective_outputs).unwrap_or_else(|_| "[]".to_string());
 
         let user_message = format!(
             r#"You are the synthesizer agent in a consilium deliberation.
@@ -190,8 +205,8 @@ temper.done("synthesis complete")
 
         let session_config = json!({
             "user_message": user_message,
-            "model": "claude-sonnet-4-6",
-            "provider": "anthropic",
+            "model": synthesis_model,
+            "provider": synthesis_provider,
             "temperature": "0.7",
             "tools_enabled": "temper_get,temper_list,temper_create,temper_action,temper_write,temper_read",
             "max_turns": "50",

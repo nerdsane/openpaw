@@ -3,7 +3,7 @@
 //! These methods are dispatched from `temper.<method>()` calls in Monty code.
 //! They use the same HTTP patterns as dispatch.rs (ctx.http_call, JSON serialization).
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use temper_wasm_sdk::context::Context;
 use wasm_helpers::runtime_headers;
 
@@ -37,7 +37,8 @@ pub fn spawn_session(
         .and_then(|v| v.as_str())
         .unwrap_or("");
 
-    // Three-tier fallback: explicit input → parent session fields → hardcoded default.
+    // Provider/model selection is explicit input first, then inherited parent
+    // Session config. A missing value is a configuration error.
     let parent_provider = fields
         .get("provider")
         .and_then(|v| v.as_str())
@@ -58,7 +59,10 @@ pub fn spawn_session(
                 Some(parent_model)
             }
         })
-        .unwrap_or("claude-sonnet-4-6");
+        .ok_or_else(|| {
+            "spawn_session requires model: pass opts.model or invoke from a configured parent Session"
+                .to_string()
+        })?;
     let provider = input
         .get("provider")
         .and_then(|v| v.as_str())
@@ -70,7 +74,10 @@ pub fn spawn_session(
                 Some(parent_provider)
             }
         })
-        .unwrap_or("anthropic");
+        .ok_or_else(|| {
+            "spawn_session requires provider: pass opts.provider or invoke from a configured parent Session"
+                .to_string()
+        })?;
     let temperature = input
         .get("temperature")
         .and_then(|v| v.as_str())
