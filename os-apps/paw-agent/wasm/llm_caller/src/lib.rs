@@ -977,6 +977,7 @@ anthropic_api_token (or api_key) for anthropic, openrouter_api_key (or api_key) 
                     "_gen_ai_input_messages": build_gen_ai_input_messages(&messages),
                     "_gen_ai_output_messages": build_gen_ai_output_messages(&response.content, &response.stop_reason),
                     "_gen_ai_provider": provider.as_str(),
+                    "_gen_ai_model": model.as_str(),
                     "_gen_ai_finish_reason": response.stop_reason.clone(),
                     "system_prompt_hash": new_prompt_hash,
                     "system_prompt_file_id": new_prompt_file_id,
@@ -1069,6 +1070,7 @@ anthropic_api_token (or api_key) for anthropic, openrouter_api_key (or api_key) 
                                     "_gen_ai_input_messages": gen_ai_input,
                                     "_gen_ai_output_messages": gen_ai_output,
                                     "_gen_ai_provider": provider.as_str(),
+                                    "_gen_ai_model": model.as_str(),
                                     "_gen_ai_finish_reason": response.stop_reason.clone(),
                                     "system_prompt_hash": new_prompt_hash,
                                     "system_prompt_file_id": new_prompt_file_id,
@@ -1084,6 +1086,7 @@ anthropic_api_token (or api_key) for anthropic, openrouter_api_key (or api_key) 
                                 "_gen_ai_input_messages": gen_ai_input,
                                 "_gen_ai_output_messages": gen_ai_output,
                                 "_gen_ai_provider": provider.as_str(),
+                                "_gen_ai_model": model.as_str(),
                                 "_gen_ai_finish_reason": response.stop_reason.clone(),
                                 "system_prompt_hash": new_prompt_hash,
                                 "system_prompt_file_id": new_prompt_file_id,
@@ -1101,6 +1104,7 @@ anthropic_api_token (or api_key) for anthropic, openrouter_api_key (or api_key) 
                         "_gen_ai_input_messages": build_gen_ai_input_messages(&messages),
                         "_gen_ai_output_messages": build_gen_ai_output_messages(&response.content, &response.stop_reason),
                         "_gen_ai_provider": provider.as_str(),
+                        "_gen_ai_model": model.as_str(),
                         "_gen_ai_finish_reason": response.stop_reason.clone(),
                         "system_prompt_hash": new_prompt_hash,
                         "system_prompt_file_id": new_prompt_file_id,
@@ -1192,7 +1196,22 @@ fn build_provider_response_ready_params(
             &artifact.stop_reason,
         ),
         "_gen_ai_provider": artifact.provider,
+        "_gen_ai_model": artifact.model,
         "_gen_ai_finish_reason": artifact.stop_reason,
+    })
+}
+
+fn build_provider_response_applier_base_params(
+    prepared: &PreparedContextArtifact,
+    artifact: &ProviderResponseArtifact,
+) -> Value {
+    json!({
+        "input_tokens": artifact.input_tokens,
+        "output_tokens": artifact.output_tokens,
+        "system_prompt_hash": prepared.system_prompt_hash,
+        "system_prompt_file_id": prepared.system_prompt_file_id,
+        "provider_request_bytes": artifact.request_bytes,
+        "provider_response_bytes": artifact.response_bytes,
     })
 }
 
@@ -4369,18 +4388,8 @@ pub fn run_provider_response_applier() -> Result<(), String> {
             )?;
 
             let tool_calls_json = serde_json::to_string(&tool_calls).unwrap_or_default();
-            let mut params = json!({
-                "pending_tool_calls": tool_calls_json,
-                "input_tokens": response.input_tokens,
-                "output_tokens": response.output_tokens,
-                "_gen_ai_system_instructions": build_gen_ai_system_instructions(&prepared.system_prompt),
-                "_gen_ai_input_messages": build_gen_ai_input_messages(&prepared.messages),
-                "_gen_ai_output_messages": build_gen_ai_output_messages(&response.content, &response.stop_reason),
-                "_gen_ai_provider": response.provider.clone(),
-                "_gen_ai_finish_reason": response.stop_reason.clone(),
-                "system_prompt_hash": prepared.system_prompt_hash,
-                "system_prompt_file_id": prepared.system_prompt_file_id,
-            });
+            let mut params = build_provider_response_applier_base_params(&prepared, &response);
+            params["pending_tool_calls"] = json!(tool_calls_json);
             if let Some(leaf) = new_leaf {
                 params["session_leaf_id"] = json!(leaf);
             }
@@ -4413,12 +4422,9 @@ pub fn run_provider_response_applier() -> Result<(), String> {
                 &response.content,
                 response.output_tokens as usize,
             )?;
-
-            let gen_ai_system_instructions =
-                build_gen_ai_system_instructions(&prepared.system_prompt);
-            let gen_ai_input = build_gen_ai_input_messages(&prepared.messages);
-            let gen_ai_output =
-                build_gen_ai_output_messages(&response.content, &response.stop_reason);
+            let mut base_params = build_provider_response_applier_base_params(&prepared, &response);
+            base_params["result"] = json!(result_text);
+            base_params["session_leaf_id"] = json!(new_leaf);
 
             if fields
                 .get("max_follow_ups")
@@ -4427,40 +4433,9 @@ pub fn run_provider_response_applier() -> Result<(), String> {
                 .unwrap_or(5)
                 > 0
             {
-                set_success_result(
-                    "CheckSteering",
-                    &json!({
-                        "result": result_text,
-                        "session_leaf_id": new_leaf,
-                        "input_tokens": response.input_tokens,
-                        "output_tokens": response.output_tokens,
-                        "_gen_ai_system_instructions": gen_ai_system_instructions,
-                        "_gen_ai_input_messages": gen_ai_input,
-                        "_gen_ai_output_messages": gen_ai_output,
-                        "_gen_ai_provider": response.provider.clone(),
-                        "_gen_ai_finish_reason": response.stop_reason.clone(),
-                        "system_prompt_hash": prepared.system_prompt_hash,
-                        "system_prompt_file_id": prepared.system_prompt_file_id,
-                        "provider_request_bytes": response.request_bytes,
-                        "provider_response_bytes": response.response_bytes,
-                    }),
-                );
+                set_success_result("CheckSteering", &base_params);
             } else {
-                let mut params = json!({
-                    "result": result_text,
-                    "session_leaf_id": new_leaf,
-                    "input_tokens": response.input_tokens,
-                    "output_tokens": response.output_tokens,
-                    "_gen_ai_system_instructions": gen_ai_system_instructions,
-                    "_gen_ai_input_messages": gen_ai_input,
-                    "_gen_ai_output_messages": gen_ai_output,
-                    "_gen_ai_provider": response.provider.clone(),
-                    "_gen_ai_finish_reason": response.stop_reason.clone(),
-                    "system_prompt_hash": prepared.system_prompt_hash,
-                    "system_prompt_file_id": prepared.system_prompt_file_id,
-                    "provider_request_bytes": response.request_bytes,
-                    "provider_response_bytes": response.response_bytes,
-                });
+                let mut params = base_params;
                 if let Some(ref conv) = conv_param {
                     params["conversation"] = json!(conv);
                 }
@@ -5837,6 +5812,7 @@ mod tests {
             "provider-response-file"
         );
         assert_eq!(params["_gen_ai_provider"], "anthropic");
+        assert_eq!(params["_gen_ai_model"], "claude-sonnet-4-6");
         assert_eq!(params["_gen_ai_finish_reason"], "end_turn");
 
         let input: Value =
@@ -5852,6 +5828,52 @@ mod tests {
             output[0]["parts"][0]["content"],
             "The LLM span now has content."
         );
+    }
+
+    #[test]
+    fn provider_response_applier_base_params_do_not_emit_llm_observability_content() {
+        let prepared = PreparedContextArtifact {
+            version: 1,
+            messages: vec![json!({"role": "user", "content": "What changed?"})],
+            tools: vec![],
+            system_prompt: "You are concise.".to_string(),
+            system_prompt_hash: "hash-123".to_string(),
+            system_prompt_file_id: "file-system".to_string(),
+            conversation_file_id: String::new(),
+            session_file_id: String::new(),
+            session_leaf_id: String::new(),
+            workspace_id: "workspace-1".to_string(),
+            use_session_tree: false,
+            context_tokens: 12,
+            context_bytes: 128,
+            entries_loaded: 1,
+            content_files_loaded: 0,
+        };
+        let artifact = ProviderResponseArtifact {
+            version: 1,
+            provider: "anthropic".to_string(),
+            model: "claude-sonnet-4-6".to_string(),
+            content: json!([{"type": "text", "text": "The provider call already emitted LLMObs content."}]),
+            stop_reason: "end_turn".to_string(),
+            input_tokens: 10,
+            output_tokens: 20,
+            cache_read_input_tokens: 0,
+            cache_creation_input_tokens: 0,
+            request_bytes: 256,
+            response_bytes: 512,
+        };
+
+        let params = build_provider_response_applier_base_params(&prepared, &artifact);
+
+        assert_eq!(params["input_tokens"], 10);
+        assert_eq!(params["output_tokens"], 20);
+        assert_eq!(params["system_prompt_hash"], "hash-123");
+        assert!(params.get("_gen_ai_system_instructions").is_none());
+        assert!(params.get("_gen_ai_input_messages").is_none());
+        assert!(params.get("_gen_ai_output_messages").is_none());
+        assert!(params.get("_gen_ai_provider").is_none());
+        assert!(params.get("_gen_ai_model").is_none());
+        assert!(params.get("_gen_ai_finish_reason").is_none());
     }
 
     #[test]

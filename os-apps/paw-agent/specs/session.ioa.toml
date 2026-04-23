@@ -1007,6 +1007,7 @@ name = "call_llm"
 trigger = "call_llm"
 type = "wasm"
 module = "llm_caller"
+llm = true
 on_failure = "Fail"
 
 [integration.config]
