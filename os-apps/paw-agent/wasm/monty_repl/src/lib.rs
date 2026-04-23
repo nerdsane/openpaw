@@ -181,6 +181,22 @@ enum RunOutcome {
     PropagateError,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ToolProgressBoundary {
+    Start,
+    End,
+}
+
+fn run_with_tool_progress<T>(
+    mut emit_progress: impl FnMut(ToolProgressBoundary),
+    run_tool: impl FnOnce() -> T,
+) -> T {
+    emit_progress(ToolProgressBoundary::Start);
+    let result = run_tool();
+    emit_progress(ToolProgressBoundary::End);
+    result
+}
+
 const INVARIANT_VIOLATION_MSG: &str =
     "monty_repl exited without dispatching any Session action — invariant violation (ADR-0039 Sub-Decision 3a)";
 
@@ -861,16 +877,29 @@ fn drive_repl_loop(
                 let tool_arguments_json = serde_json::to_string(&json_args).unwrap_or_default();
                 let started_ms = Context::get_time_millis();
 
-                let result = dispatch::dispatch(
-                    ctx,
-                    temper_api_url,
-                    tenant,
-                    sandbox_url,
-                    workdir,
-                    &obj_name,
-                    &fn_name,
-                    Some(tool_call_id.as_str()),
-                    &json_args,
+                let result = run_with_tool_progress(
+                    |boundary| {
+                        ctx.log(
+                            "debug",
+                            &format!(
+                                "monty_repl: tool progress boundary={boundary:?} tool_name={tool_name} tool_call_id={tool_call_id}"
+                            ),
+                        );
+                        session::send_progress(ctx, temper_api_url, tenant);
+                    },
+                    || {
+                        dispatch::dispatch(
+                            ctx,
+                            temper_api_url,
+                            tenant,
+                            sandbox_url,
+                            workdir,
+                            &obj_name,
+                            &fn_name,
+                            Some(tool_call_id.as_str()),
+                            &json_args,
+                        )
+                    },
                 );
                 let duration_ms = (Context::get_time_millis() - started_ms).max(0) as u64;
 
@@ -1183,5 +1212,34 @@ mod tests {
         assert!(INVARIANT_VIOLATION_MSG.contains("monty_repl"));
         assert!(INVARIANT_VIOLATION_MSG.contains("Session action"));
         assert!(INVARIANT_VIOLATION_MSG.contains("ADR-0039"));
+    }
+
+    #[test]
+    fn tool_progress_wrapper_emits_start_and_end_on_success() {
+        let mut events = Vec::new();
+
+        let result = run_with_tool_progress(|event| events.push(event), || Ok::<_, String>(42));
+
+        assert_eq!(result, Ok(42));
+        assert_eq!(
+            events,
+            vec![ToolProgressBoundary::Start, ToolProgressBoundary::End]
+        );
+    }
+
+    #[test]
+    fn tool_progress_wrapper_emits_end_on_error() {
+        let mut events = Vec::new();
+
+        let result = run_with_tool_progress(
+            |event| events.push(event),
+            || Err::<(), _>("tool failed".to_string()),
+        );
+
+        assert_eq!(result, Err("tool failed".to_string()));
+        assert_eq!(
+            events,
+            vec![ToolProgressBoundary::Start, ToolProgressBoundary::End]
+        );
     }
 }

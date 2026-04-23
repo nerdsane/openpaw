@@ -1235,23 +1235,23 @@ params = { error_message = "context preparation did not complete within 120s" }
 
 [[state_timeout]]
 state = "CallingProvider"
-after_seconds = 1200
+after_seconds = 600
 on_timeout = "TimeoutFail"
 reset_on = ["ProgressMade", "ResumeProvider"]
-params = { error_message = "provider call made no progress within 1200s" }
+params = { error_message = "provider call made no progress within 600s" }
 
 [[state_timeout]]
 state = "ApplyingProviderResponse"
-after_seconds = 180
+after_seconds = 60
 on_timeout = "TimeoutFail"
-params = { error_message = "applying provider response did not complete within 180s" }
+params = { error_message = "applying provider response did not complete within 60s" }
 
 [[state_timeout]]
 state = "Executing"
-after_seconds = 1800
+after_seconds = 300
 on_timeout = "TimeoutFail"
 reset_on = ["ProgressMade", "CheckpointToolBatch", "ResumeTools"]
-params = { error_message = "tool execution made no progress for 1800s" }
+params = { error_message = "tool execution made no progress for 300s" }
 
 [[state_timeout]]
 state = "Steering"
