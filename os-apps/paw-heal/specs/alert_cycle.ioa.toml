@@ -71,12 +71,22 @@ name = "report_thread_id"
 type = "string"
 initial = ""
 
+[[state]]
+name = "agent_model"
+type = "string"
+initial = ""
+
+[[state]]
+name = "agent_provider"
+type = "string"
+initial = ""
+
 [[action]]
 name = "Open"
 kind = "input"
 from = ["Created"]
 to = "Triaging"
-params = ["monitor_id", "alert_payload", "report_channel_entity_id", "report_thread_id"]
+params = ["monitor_id", "alert_payload", "report_channel_entity_id", "report_thread_id", "agent_model", "agent_provider"]
 hint = "Open a triage cycle and optionally attach the SRE agent responsible for diagnosis."
 effect = [{ type = "trigger", name = "spawn_sre" }]
 
@@ -203,7 +213,8 @@ on_failure = "Escalate"
 
 [integration.config]
 temper_api_url = "{secret:temper_api_url}"
-default_agent_model = "claude-sonnet-4-6"
+agent_model = "{secret:llm_model}"
+agent_provider = "{secret:llm_provider}"
 default_sre_workdir = "/workspace/temperpaw-sre-webhook"
 default_developer_workdir = "/workspace/temperpaw-self-heal"
 

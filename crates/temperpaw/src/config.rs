@@ -46,8 +46,11 @@ pub struct Config {
     pub openai_codex_token: Option<String>,
 
     /// LLM provider name: "anthropic", "openrouter", or "openai-codex".
-    /// Set during interactive setup. Defaults to "anthropic" if not set.
+    /// Set during interactive setup or via the Temper secrets world.
     pub llm_provider: Option<String>,
+
+    /// LLM model identifier selected during setup.
+    pub llm_model: Option<String>,
 
     /// Tensorlake API key for remote sandbox provisioning.
     pub tensorlake_api_key: Option<String>,
@@ -145,6 +148,7 @@ impl Config {
         let openai_api_key = optional_env("OPENAI_API_KEY");
         let openai_codex_token = optional_env("OPENAI_CODEX_TOKEN");
         let llm_provider = optional_env("LLM_PROVIDER");
+        let llm_model = optional_env("LLM_MODEL");
 
         Ok(Self {
             discord_bot_token: optional_env("DISCORD_BOT_TOKEN"),
@@ -162,6 +166,7 @@ impl Config {
             openai_api_key,
             openai_codex_token,
             llm_provider,
+            llm_model,
             tensorlake_api_key: optional_env("TL_API_KEY"),
             sandbox_provider: optional_env("SANDBOX_PROVIDER"),
             modal_token_id: optional_env("MODAL_TOKEN_ID"),

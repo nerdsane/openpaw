@@ -59,12 +59,12 @@ initial = ""
 [[state]]
 name = "model"
 type = "string"
-initial = "claude-sonnet-4-6"
+initial = ""
 
 [[state]]
 name = "provider"
 type = "string"
-initial = "anthropic"
+initial = ""
 
 [[state]]
 name = "temperature"
@@ -94,7 +94,7 @@ hint = "Set up the agent identity and session configuration."
 name = "Update"
 kind = "input"
 from = ["Active"]
-params = ["description", "instructions_file_id", "model", "temperature", "tools_enabled", "max_turns"]
+params = ["description", "instructions_file_id", "model", "provider", "temperature", "tools_enabled", "max_turns"]
 hint = "Update agent configuration."
 
 [[action]]

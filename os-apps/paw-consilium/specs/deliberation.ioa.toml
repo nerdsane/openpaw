@@ -56,6 +56,16 @@ name = "brief_id"
 type = "string"
 initial = ""
 
+[[state]]
+name = "synthesis_model"
+type = "string"
+initial = ""
+
+[[state]]
+name = "synthesis_provider"
+type = "string"
+initial = ""
+
 # Error details
 [[state]]
 name = "error_message"
@@ -68,7 +78,7 @@ initial = ""
 name = "Configure"
 kind = "input"
 from = ["Created"]
-params = ["intent", "knowledge_file_id", "config_json"]
+params = ["intent", "knowledge_file_id", "config_json", "synthesis_model", "synthesis_provider"]
 hint = "Set deliberation parameters."
 
 [[action]]

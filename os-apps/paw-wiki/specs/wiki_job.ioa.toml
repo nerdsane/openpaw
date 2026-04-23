@@ -74,13 +74,13 @@ initial = ""
 [[state]]
 name = "model"
 type = "string"
-initial = "claude-sonnet-4-6"
+initial = ""
 
 # LLM provider
 [[state]]
 name = "provider"
 type = "string"
-initial = "anthropic"
+initial = ""
 
 # Temperature for LLM calls
 [[state]]

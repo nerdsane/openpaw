@@ -27,7 +27,12 @@ initial = ""
 [[state]]
 name = "model_id"
 type = "string"
-initial = "claude-sonnet-4-6"
+initial = ""
+
+[[state]]
+name = "provider"
+type = "string"
+initial = ""
 
 [[state]]
 name = "model_speed"
@@ -65,7 +70,7 @@ hint = "Record the bridged TemperPaw Agent entity id."
 name = "UpdateManagedAgent"
 kind = "input"
 from = ["Active"]
-params = ["Name", "Description", "System", "ModelId", "ModelSpeed", "Metadata"]
+params = ["Name", "Description", "System", "ModelId", "Provider", "ModelSpeed", "Metadata"]
 hint = "Update the managed-agent configuration and increment its version."
 effect = [
   { type = "increment", field = "version" },

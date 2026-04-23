@@ -78,6 +78,22 @@
         <Property Name="ProjectId" Type="Edm.String"/>
       </EntityType>
 
+      <EntityType Name="SessionLink">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.String" Nullable="false"/>
+        <Property Name="Status" Type="Edm.String"/>
+        <Property Name="ParentEntitySet" Type="Edm.String"/>
+        <Property Name="ParentEntityId" Type="Edm.String"/>
+        <Property Name="ParentActionNamespace" Type="Edm.String"/>
+        <Property Name="ChildSessionId" Type="Edm.String"/>
+        <Property Name="OnCompletedAction" Type="Edm.String"/>
+        <Property Name="OnFailureAction" Type="Edm.String"/>
+        <Property Name="LastChildStatus" Type="Edm.String"/>
+        <Property Name="ErrorMessage" Type="Edm.String"/>
+        <Property Name="CheckCount" Type="Edm.Int64"/>
+        <Property Name="MaxChecks" Type="Edm.String"/>
+      </EntityType>
+
       <EntityType Name="Soul">
         <Key><PropertyRef Name="Id"/></Key>
         <Property Name="Id" Type="Edm.String" Nullable="false"/>
@@ -429,6 +445,41 @@
         <ReturnType Type="TemperPaw.Session"/>
       </Action>
 
+      <Action Name="Configure" IsBound="true">
+        <Parameter Name="bindingParameter" Type="TemperPaw.SessionLink"/>
+        <Parameter Name="ParentEntitySet" Type="Edm.String"/>
+        <Parameter Name="ParentEntityId" Type="Edm.String"/>
+        <Parameter Name="ParentActionNamespace" Type="Edm.String"/>
+        <Parameter Name="ChildSessionId" Type="Edm.String"/>
+        <Parameter Name="OnCompletedAction" Type="Edm.String"/>
+        <Parameter Name="OnFailureAction" Type="Edm.String"/>
+        <Parameter Name="MaxChecks" Type="Edm.String"/>
+        <ReturnType Type="TemperPaw.SessionLink"/>
+      </Action>
+
+      <Action Name="CheckChild" IsBound="true">
+        <Parameter Name="bindingParameter" Type="TemperPaw.SessionLink"/>
+        <ReturnType Type="TemperPaw.SessionLink"/>
+      </Action>
+
+      <Action Name="ChildPending" IsBound="true">
+        <Parameter Name="bindingParameter" Type="TemperPaw.SessionLink"/>
+        <Parameter Name="LastChildStatus" Type="Edm.String"/>
+        <ReturnType Type="TemperPaw.SessionLink"/>
+      </Action>
+
+      <Action Name="ParentNotified" IsBound="true">
+        <Parameter Name="bindingParameter" Type="TemperPaw.SessionLink"/>
+        <Parameter Name="LastChildStatus" Type="Edm.String"/>
+        <ReturnType Type="TemperPaw.SessionLink"/>
+      </Action>
+
+      <Action Name="NotifyFailed" IsBound="true">
+        <Parameter Name="bindingParameter" Type="TemperPaw.SessionLink"/>
+        <Parameter Name="ErrorMessage" Type="Edm.String"/>
+        <ReturnType Type="TemperPaw.SessionLink"/>
+      </Action>
+
       <Action Name="Create" IsBound="true">
         <Parameter Name="bindingParameter" Type="TemperPaw.Soul"/>
         <Parameter Name="name" Type="Edm.String" Nullable="false"/>
@@ -651,6 +702,7 @@
         <Parameter Name="description" Type="Edm.String"/>
         <Parameter Name="instructions_file_id" Type="Edm.String"/>
         <Parameter Name="model" Type="Edm.String"/>
+        <Parameter Name="provider" Type="Edm.String"/>
         <Parameter Name="tools_enabled" Type="Edm.String"/>
         <Parameter Name="max_turns" Type="Edm.String"/>
         <ReturnType Type="TemperPaw.Agent"/>
@@ -747,6 +799,7 @@
 
       <EntityContainer Name="Service">
         <EntitySet Name="Sessions" EntityType="TemperPaw.Session"/>
+        <EntitySet Name="SessionLinks" EntityType="TemperPaw.SessionLink"/>
         <EntitySet Name="Apps" EntityType="TemperPaw.App"/>
         <EntitySet Name="Agents" EntityType="TemperPaw.Agent"/>
         <EntitySet Name="Teams" EntityType="TemperPaw.Team"/>

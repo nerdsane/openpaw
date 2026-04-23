@@ -438,26 +438,7 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
             "llm_provider",
             config.llm_provider
         );
-        // Seed llm_model derived from llm_provider
-        {
-            let provider = config.llm_provider.as_deref().unwrap_or("anthropic");
-            let default_model = match provider {
-                "openai" | "openai_codex" => {
-                    std::env::var("LLM_MODEL").unwrap_or_else(|_| "gpt-5.4".to_string())
-                }
-                "openrouter" => std::env::var("LLM_MODEL")
-                    .unwrap_or_else(|_| "anthropic/claude-sonnet-4.6".to_string()),
-                _ => std::env::var("LLM_MODEL").unwrap_or_else(|_| "claude-sonnet-4-6".to_string()),
-            };
-            cache_platform_and_persist_secret(
-                vault,
-                &turso_store,
-                &tenant,
-                "llm_model",
-                default_model,
-            )
-            .await;
-        }
+        seed_secret!(vault, &turso_store, &tenant, "llm_model", config.llm_model);
         seed_secret!(
             vault,
             &turso_store,
@@ -1139,14 +1120,20 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
     state.server.spawn_runtime_metrics_loop();
     spawn_actor_passivation_loop(&state);
 
-    // Resolve LLM provider from vault (dashboard-set) before falling back to env var / default.
+    // Resolve LLM config from vault/dashboard before env. Runtime must not
+    // invent provider/model defaults.
     let resolved_llm_provider = state
         .server
         .secrets_vault
         .as_ref()
         .and_then(|v| v.get_secret(&tenant, "llm_provider"))
-        .or_else(|| config.llm_provider.clone())
-        .unwrap_or_else(|| "anthropic".to_string());
+        .or_else(|| config.llm_provider.clone());
+    let resolved_llm_model = state
+        .server
+        .secrets_vault
+        .as_ref()
+        .and_then(|v| v.get_secret(&tenant, "llm_model"))
+        .or_else(|| config.llm_model.clone());
     let preserve_personalized_paw_soul = state
         .server
         .secrets_vault
@@ -1154,13 +1141,20 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
         .and_then(|v| v.get_secret(&tenant, "paw_personalized_soul"))
         .is_some_and(|value| matches!(value.trim(), "1" | "true" | "yes"));
 
-    spawn_soul_bootstrap(
-        actual_port,
-        tenant.clone(),
-        config.temper_api_key.clone(),
-        resolved_llm_provider,
-        preserve_personalized_paw_soul,
-    );
+    if let (Some(llm_provider), Some(llm_model)) = (resolved_llm_provider, resolved_llm_model) {
+        spawn_soul_bootstrap(
+            actual_port,
+            tenant.clone(),
+            config.temper_api_key.clone(),
+            llm_provider,
+            llm_model,
+            preserve_personalized_paw_soul,
+        );
+    } else {
+        tracing::warn!(
+            "Skipping agent bootstrap because llm_provider and llm_model are not both configured"
+        );
+    }
 
     // Print startup summary
     {
@@ -1229,16 +1223,34 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
             .secrets_vault
             .as_ref()
             .and_then(|v| v.get_secret(&tenant, "llm_provider"))
-            .unwrap_or_else(|| "anthropic".to_string());
+            .or_else(|| config.llm_provider.clone());
+        let model_name = state
+            .server
+            .secrets_vault
+            .as_ref()
+            .and_then(|v| v.get_secret(&tenant, "llm_model"))
+            .or_else(|| config.llm_model.clone());
         let setup_auth = crate::setup::SetupRequestAuth::from_cookie(
             crate::auth::issue_session_cookie_value(&vault_key_bytes, "bootstrap@local.temperpaw")?,
         );
 
-        if let Err(e) =
-            crate::setup::run_setup_soul(actual_port, &api_key, &provider_name, &tenant, setup_auth)
-                .await
-        {
-            tracing::warn!("Soul setup failed: {e}");
+        if let (Some(provider_name), Some(model_name)) = (provider_name, model_name) {
+            if let Err(e) = crate::setup::run_setup_soul(
+                actual_port,
+                &api_key,
+                &provider_name,
+                &model_name,
+                &tenant,
+                setup_auth,
+            )
+            .await
+            {
+                tracing::warn!("Soul setup failed: {e}");
+            }
+        } else {
+            tracing::warn!(
+                "Skipping soul setup because llm_provider and llm_model are not both configured"
+            );
         }
 
         serve_handle.await??;
@@ -1642,6 +1654,7 @@ fn spawn_soul_bootstrap(
     tenant: String,
     api_key: Option<String>,
     llm_provider: String,
+    llm_model: String,
     preserve_personalized_paw_soul: bool,
 ) {
     tokio::spawn(async move {
@@ -1705,7 +1718,7 @@ fn spawn_soul_bootstrap(
             ),
         ];
 
-        let default_config = default_agent_config(&api_url, &api_key, &llm_provider);
+        let default_config = default_agent_config(&api_url, &api_key, &llm_provider, &llm_model);
 
         for (name, role, description, soul_paths) in &agents {
             // Step 1: Create Agent entity (agent-first)
@@ -1832,8 +1845,14 @@ async fn bootstrap_agent(
         .to_string();
 
     // Configure the agent
-    let model = config["model"].as_str().unwrap_or("claude-sonnet-4-6");
-    let provider = config["provider"].as_str().unwrap_or("anthropic");
+    let model = config["model"]
+        .as_str()
+        .filter(|value| !value.trim().is_empty())
+        .context("Agent bootstrap requires model in agent config")?;
+    let provider = config["provider"]
+        .as_str()
+        .filter(|value| !value.trim().is_empty())
+        .context("Agent bootstrap requires provider in agent config")?;
     let tools_enabled = config["tools_enabled"].as_str().unwrap_or("");
     let max_turns = config["max_turns"].as_str().unwrap_or("24");
 
@@ -2187,9 +2206,12 @@ async fn set_default_agent(
         if let Ok(created) = create_resp {
             let route_id = entity_id_from_json(&created).unwrap_or("");
             if !route_id.is_empty() {
-                let resolved_provider =
-                    std::env::var("LLM_PROVIDER").unwrap_or_else(|_| "anthropic".to_string());
-                let agent_config = default_agent_config(api_url, api_key, &resolved_provider);
+                let target_model =
+                    entity_field_str(target_agent, &["Model", "model"]).unwrap_or("");
+                let target_provider =
+                    entity_field_str(target_agent, &["Provider", "provider"]).unwrap_or("");
+                let agent_config =
+                    default_agent_config(api_url, api_key, target_provider, target_model);
                 odata_post(
                     client,
                     &format!("{api_url}/tdata/AgentRoutes('{route_id}')/Paw.Channel.Register"),
@@ -2220,18 +2242,10 @@ fn default_agent_config(
     api_url: &str,
     api_key: &Option<String>,
     llm_provider: &str,
+    llm_model: &str,
 ) -> serde_json::Value {
-    let default_model = match llm_provider {
-        "openai" | "openai_codex" => {
-            std::env::var("LLM_MODEL").unwrap_or_else(|_| "gpt-5.4".to_string())
-        }
-        "openrouter" => {
-            std::env::var("LLM_MODEL").unwrap_or_else(|_| "anthropic/claude-sonnet-4.6".to_string())
-        }
-        _ => std::env::var("LLM_MODEL").unwrap_or_else(|_| "claude-sonnet-4-6".to_string()),
-    };
     let mut config = serde_json::json!({
-        "model": default_model,
+        "model": llm_model,
         "provider": llm_provider,
         "tools_enabled": DEFAULT_AGENT_TOOLS_ENABLED,
         "workdir": DEFAULT_AGENT_WORKDIR,
@@ -2262,17 +2276,6 @@ fn repaired_agent_config(
     };
 
     let original_normalized = serde_json::to_string(&config).ok();
-    // Use the provider already stored in the config if available, otherwise fall back to env/default.
-    let existing_provider = config
-        .get("provider")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
-    let provider_for_defaults = if existing_provider.is_empty() {
-        std::env::var("LLM_PROVIDER").unwrap_or_else(|_| "anthropic".to_string())
-    } else {
-        existing_provider.to_string()
-    };
-    let defaults = default_agent_config(api_url, api_key, &provider_for_defaults);
     let normalized_tools = normalize_tools_enabled(
         config
             .get("tools_enabled")
@@ -2294,12 +2297,6 @@ fn repaired_agent_config(
         return None;
     }
 
-    if !config.contains_key("model") {
-        config.insert("model".to_string(), defaults["model"].clone());
-    }
-    if !config.contains_key("provider") {
-        config.insert("provider".to_string(), defaults["provider"].clone());
-    }
     config.insert(
         "temper_api_url".to_string(),
         serde_json::Value::String(api_url.to_string()),

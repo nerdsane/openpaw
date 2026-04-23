@@ -482,15 +482,12 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             .unwrap_or(0);
 
         // Read configuration
-        let model = fields
-            .get("model")
-            .and_then(|v| v.as_str())
-            .unwrap_or("claude-sonnet-4-6");
+        let model_raw = fields.get("model").and_then(|v| v.as_str()).unwrap_or("");
         let provider_raw = fields
             .get("provider")
             .and_then(|v| v.as_str())
-            .unwrap_or("anthropic");
-        let provider = normalize_provider(provider_raw);
+            .unwrap_or("");
+        let (provider, model, api_key) = resolve_provider_and_model(&ctx, provider_raw, model_raw)?;
         let temperature: f64 = fields
             .get("temperature")
             .and_then(|v| v.as_str())
@@ -517,74 +514,6 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             .get("workdir")
             .and_then(|v| v.as_str())
             .unwrap_or("/workspace");
-
-        // Resolve provider credentials from integration config.
-        // If the configured provider's key is unresolved (not set in vault),
-        // auto-detect a provider that has a valid key available.
-        let (provider, api_key) = if provider == "mock" {
-            (provider, String::new())
-        } else {
-            let key = resolve_provider_api_key(&ctx, &provider)?;
-            if is_unresolved_secret_template(&key) {
-                // Try other providers
-                let alternatives = ["anthropic", "openai_codex", "openai", "openrouter"];
-                let mut found = None;
-                for alt in &alternatives {
-                    if *alt == provider {
-                        continue;
-                    }
-                    if let Ok(alt_key) = resolve_provider_api_key(&ctx, alt) {
-                        if !alt_key.is_empty() && !is_unresolved_secret_template(&alt_key) {
-                            ctx.log(
-                                "warn",
-                                &format!(
-                                    "llm_caller: provider={provider} has no key, falling back to {alt}"
-                                ),
-                            );
-                            found = Some((alt.to_string(), alt_key));
-                            break;
-                        }
-                    }
-                }
-                match found {
-                    Some((p, k)) => (p, k),
-                    None => {
-                        return Err(format!(
-                            "provider={provider} api key is unresolved secret template: '{key}'. \
-set tenant secret and retry"
-                        ));
-                    }
-                }
-            } else {
-                (provider, key)
-            }
-        };
-
-        // If provider changed via fallback, remap model to the vault default
-        // for the new provider (the original model won't work cross-provider).
-        let model = if provider != normalize_provider(provider_raw) {
-            // Prefer vault-configured default model, fall back to hardcoded defaults
-            let vault_model = ctx
-                .config
-                .get("default_llm_model")
-                .filter(|v| !v.is_empty() && !is_unresolved_secret_template(v));
-            let new_model = if let Some(m) = vault_model {
-                m.clone()
-            } else {
-                match provider.as_str() {
-                    "openai" => "gpt-4.1".to_string(),
-                    "openai_codex" => "gpt-5.4".to_string(),
-                    "openrouter" => "anthropic/claude-sonnet-4".to_string(),
-                    _ => "claude-sonnet-4-6".to_string(),
-                }
-            };
-            ctx.log("warn", &format!(
-                "llm_caller: remapping model from {model} to {new_model} for provider={provider}"
-            ));
-            new_model
-        } else {
-            model.to_string()
-        };
 
         let anthropic_api_url = ctx
             .config
@@ -3969,7 +3898,13 @@ pub fn run_context_preparer() -> Result<(), String> {
     let model = fields
         .get("model")
         .and_then(|v| v.as_str())
-        .unwrap_or("claude-sonnet-4-6");
+        .filter(|value| !value.trim().is_empty())
+        .ok_or("context_preparer requires Session.model")?;
+    let provider = fields
+        .get("provider")
+        .and_then(|v| v.as_str())
+        .filter(|value| !value.trim().is_empty())
+        .ok_or("context_preparer requires Session.provider")?;
     let tools_enabled = fields
         .get("tools_enabled")
         .and_then(|v| v.as_str())
@@ -4055,16 +3990,7 @@ pub fn run_context_preparer() -> Result<(), String> {
         estimate_message_tokens(&messages) as usize
     };
 
-    let metric_tags = session_metric_tags(
-        normalize_provider(
-            fields
-                .get("provider")
-                .and_then(|v| v.as_str())
-                .unwrap_or("anthropic"),
-        )
-        .as_str(),
-        model,
-    );
+    let metric_tags = session_metric_tags(normalize_provider(provider).as_str(), model);
     emit_metric_ignore(
         &ctx,
         "temper_session_context_tokens",
@@ -4244,11 +4170,8 @@ pub fn run_provider_caller() -> Result<(), String> {
     let provider_raw = fields
         .get("provider")
         .and_then(|v| v.as_str())
-        .unwrap_or("anthropic");
-    let model_raw = fields
-        .get("model")
-        .and_then(|v| v.as_str())
-        .unwrap_or("claude-sonnet-4-6");
+        .unwrap_or("");
+    let model_raw = fields.get("model").and_then(|v| v.as_str()).unwrap_or("");
     let temperature: f64 = fields
         .get("temperature")
         .and_then(|v| v.as_str())
@@ -4716,67 +4639,33 @@ fn resolve_provider_and_model(
     provider_raw: &str,
     model_raw: &str,
 ) -> Result<(String, String, String), String> {
+    if model_raw.trim().is_empty() {
+        return Err(
+            "Session model is required; configure the Agent or pass an explicit override"
+                .to_string(),
+        );
+    }
+    if provider_raw.trim().is_empty() {
+        return Err(
+            "Session provider is required; configure the Agent or pass an explicit override"
+                .to_string(),
+        );
+    }
     let provider = normalize_provider(provider_raw);
-    let (provider, api_key) = if provider == "mock" {
-        (provider, String::new())
+    let api_key = if provider == "mock" {
+        String::new()
     } else {
         let key = resolve_provider_api_key(ctx, &provider)?;
         if is_unresolved_secret_template(&key) {
-            let alternatives = ["anthropic", "openai_codex", "openai", "openrouter"];
-            let mut found = None;
-            for alt in &alternatives {
-                if *alt == provider {
-                    continue;
-                }
-                if let Ok(alt_key) = resolve_provider_api_key(ctx, alt) {
-                    if !alt_key.is_empty() && !is_unresolved_secret_template(&alt_key) {
-                        // ADR-0054 warn-audit: provider-selection fallback is a
-                        // configuration fact, not an operator-actionable
-                        // warning. Fires once per LLM call which is too noisy
-                        // for the warn level (81 in a 45-min window during the
-                        // 2026-04-18 Katagami incident). Downgraded to info.
-                        ctx.log(
-                            "info",
-                            &format!(
-                                "provider selection: provider={provider} has no key, falling back to {alt}"
-                            ),
-                        );
-                        found = Some((alt.to_string(), alt_key));
-                        break;
-                    }
-                }
-            }
-            match found {
-                Some((p, k)) => (p, k),
-                None => {
-                    return Err(format!(
-                        "provider={provider} api key is unresolved secret template: '{key}'. set tenant secret and retry"
-                    ));
-                }
-            }
+            return Err(format!(
+                "provider={provider} api key is unresolved secret template: '{key}'. set tenant secret and retry"
+            ));
         } else {
-            (provider, key)
+            key
         }
     };
 
-    let model = if provider != normalize_provider(provider_raw) {
-        let vault_model = ctx
-            .config
-            .get("default_llm_model")
-            .filter(|v| !v.is_empty() && !is_unresolved_secret_template(v));
-        if let Some(model) = vault_model {
-            model.clone()
-        } else {
-            match provider.as_str() {
-                "openai" => "gpt-4.1".to_string(),
-                "openai_codex" => "gpt-5.4".to_string(),
-                "openrouter" => "anthropic/claude-sonnet-4".to_string(),
-                _ => "claude-sonnet-4-6".to_string(),
-            }
-        }
-    } else {
-        model_raw.to_string()
-    };
+    let model = model_raw.trim().to_string();
 
     if provider != "mock" && api_key.is_empty() {
         return Err(format!("missing API key for provider={provider}"));
