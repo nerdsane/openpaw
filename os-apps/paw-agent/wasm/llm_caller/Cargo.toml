@@ -4,13 +4,13 @@ version = "0.1.0"
 edition = "2024"
 
 [lib]
-crate-type = ["cdylib", "rlib"]
+# Library-only: consumed by context_preparer, provider_caller, and
+# provider_response_applier shims via rlib. The monolithic
+# `#[no_mangle] extern "C" fn run` standalone entry was retired when
+# the session flow was split into 3 stages.
+crate-type = ["rlib"]
 
 [workspace]
-
-[features]
-default = ["standalone-wasm"]
-standalone-wasm = []
 
 [dependencies]
 temper-wasm-sdk = { git = "https://github.com/nerdsane/temper.git", branch = "main" }
