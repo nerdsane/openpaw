@@ -26,6 +26,10 @@ fn session_link_is_a_reusable_temperpaw_child_session_monitor() {
         "name = \"NotifyFailed\"",
         "module = \"session_link_monitor\"",
         "max_checks",
+        "[[state_timeout]]",
+        "state = \"Created\"",
+        "state = \"Watching\"",
+        "from = [\"Created\", \"Watching\"]",
     ] {
         assert!(
             spec.contains(needle),

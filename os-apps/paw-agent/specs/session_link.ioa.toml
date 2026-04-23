@@ -99,10 +99,22 @@ hint = "The child Session reached a terminal state and the parent callback was d
 [[action]]
 name = "NotifyFailed"
 kind = "input"
-from = ["Watching"]
+from = ["Created", "Watching"]
 to = "Failed"
 params = ["ErrorMessage"]
 hint = "Monitoring failed before the parent could be notified."
+
+[[state_timeout]]
+state = "Created"
+after_seconds = 60
+on_timeout = "NotifyFailed"
+params = { ErrorMessage = "SessionLink Configure never arrived within 60s" }
+
+[[state_timeout]]
+state = "Watching"
+after_seconds = 2400
+on_timeout = "NotifyFailed"
+params = { ErrorMessage = "SessionLink child monitoring exceeded 2400s" }
 
 [[field_invariant]]
 name = "WatchingRequiresParent"

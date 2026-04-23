@@ -22,6 +22,7 @@ Branch: `codex/session-lifecycle-config`
 3. Unit/workspace verification.
 4. WASM target verification for touched modules.
 5. Local bounded server boot smoke with no LLM provider/model configured.
+6. Live local OData/WASM E2E for parent/child Session failure propagation through `SessionLink`.
 
 ## Verification Results
 
@@ -36,6 +37,7 @@ Branch: `codex/session-lifecycle-config`
 | `cargo check --target wasm32-wasip1` for `monty_repl` | Monty REPL compiles to WASI | Passed with existing unused doc-comment warning | Pass |
 | `bash os-apps/paw-agent/wasm/build.sh` | Paw-agent WASM bundle builds, including new monitor | All modules built; `session_link_monitor` built successfully | Pass |
 | Bounded boot smoke | Server reaches `/healthz` without provider/model fallback env | `/healthz` responded on local port 19467; load-only startup logged expected missing local WASM artifact errors | Pass |
+| Live local `SessionLink` E2E | Child Session failure notifies parent Session through scheduled `CheckChild` | Parent `Session` reached `Failed`; `SessionLink` reached `Completed`; link `LastChildStatus=Failed`; parent error preserved `scheduler e2e child failure` | Pass |
 
 ## What Worked
 
@@ -43,6 +45,7 @@ Branch: `codex/session-lifecycle-config`
 - Wiki jobs now create a reusable child-session link as soon as a child Session is spawned.
 - Runtime LLM calls now fail loudly when model/provider are not configured instead of silently choosing Anthropic/Sonnet.
 - Server boot reached health with `LLM_PROVIDER` and `LLM_MODEL` unset, proving startup no longer invents those values.
+- Live local OData dispatch exercised `Sessions`, `SessionLinks`, scheduled `CheckChild`, `session_link_monitor`, parent `Fail`, and final entity state reads.
 
 ## What Didn't Work
 
@@ -51,6 +54,7 @@ Branch: `codex/session-lifecycle-config`
 ## Limitations
 
 - The boot smoke used load-only WASM startup to keep the local run bounded. That mode logs missing artifact errors for modules that were not installed into the isolated temporary home. The paw-agent bundle itself was built separately with `build.sh`.
+- `SessionLink.Created` has a 60s timeout for unconfigured links. `SessionLink.Watching` has a 2400s outer liveness timeout. WikiJob-created links still use `MaxChecks=180` with 10s `ChildPending` intervals, so the intended child wait budget is about 30 minutes; the 40 minute state timeout is a safety cap.
 
 ## What Still Doesn't Work
 
@@ -60,6 +64,9 @@ Branch: `codex/session-lifecycle-config`
 
 - Boot log: `/tmp/openpaw-session-lifecycle-boot.log`
 - Health response capture: `/tmp/openpaw-session-lifecycle-health.out`
+- Live local E2E ids: `/tmp/openpaw-sessionlink-e2e4-ids.txt`
+- Live local parent final state: `/tmp/openpaw-sessionlink-e2e4-parent-final.json`
+- Live local SessionLink final state: `/tmp/openpaw-sessionlink-e2e4-link-final.json`
 
 ## Architecture Diagram
 
