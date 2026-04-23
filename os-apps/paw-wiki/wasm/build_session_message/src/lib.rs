@@ -43,17 +43,8 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             .unwrap_or("")
             .to_string();
 
-        let model = fields
-            .get("model")
-            .and_then(|v| v.as_str())
-            .unwrap_or("claude-sonnet-4-6")
-            .to_string();
-
-        let provider = fields
-            .get("provider")
-            .and_then(|v| v.as_str())
-            .unwrap_or("anthropic")
-            .to_string();
+        let model = required_field(&fields, &["model", "Model"], "WikiJob.model")?;
+        let provider = required_field(&fields, &["provider", "Provider"], "WikiJob.provider")?;
 
         let temperature = fields
             .get("temperature")
@@ -249,9 +240,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
 
         let spawned_resp = ctx.http_call(
             "POST",
-            &format!(
-                "{api_url}/tdata/WikiJobs('{entity_id}')/{odata_namespace}.SessionSpawned"
-            ),
+            &format!("{api_url}/tdata/WikiJobs('{entity_id}')/{odata_namespace}.SessionSpawned"),
             &headers,
             &spawned_body.to_string(),
         )?;
@@ -261,6 +250,31 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 spawned_resp.status,
                 &spawned_resp.body[..spawned_resp.body.len().min(500)]
             ));
+        }
+
+        if let Err(link_error) = create_session_link(
+            &ctx,
+            &api_url,
+            &headers,
+            &entity_id,
+            &odata_namespace,
+            &session_id,
+        ) {
+            let message =
+                format!("SessionLink setup failed for child Session '{session_id}': {link_error}");
+            if let Err(fail_error) = dispatch_wiki_job_failure(
+                &ctx,
+                &api_url,
+                &headers,
+                &entity_id,
+                &odata_namespace,
+                &message,
+            ) {
+                return Err(format!(
+                    "{message}; additionally failed to mark WikiJob failed: {fail_error}"
+                ));
+            }
+            return Err(message);
         }
 
         ctx.log("info", "build_session_message: completed successfully");
@@ -280,6 +294,103 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         set_error_result(&e);
     }
     0
+}
+
+fn required_field(fields: &Value, keys: &[&str], name: &str) -> Result<String, String> {
+    keys.iter()
+        .find_map(|key| fields.get(*key).and_then(|value| value.as_str()))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .ok_or_else(|| {
+            format!("{name} is required; configure an Agent or pass an explicit override")
+        })
+}
+
+fn create_session_link(
+    ctx: &Context,
+    api_url: &str,
+    headers: &[(String, String)],
+    parent_job_id: &str,
+    parent_action_namespace: &str,
+    child_session_id: &str,
+) -> Result<(), String> {
+    let create_resp = ctx.http_call(
+        "POST",
+        &format!("{api_url}/tdata/SessionLinks"),
+        headers,
+        "{}",
+    )?;
+    if create_resp.status < 200 || create_resp.status >= 300 {
+        return Err(format!(
+            "Failed to create SessionLink: HTTP {}: {}",
+            create_resp.status,
+            &create_resp.body[..create_resp.body.len().min(500)]
+        ));
+    }
+    let created: Value = serde_json::from_str(&create_resp.body)
+        .map_err(|err| format!("Failed to parse SessionLink creation response: {err}"))?;
+    let link_id = created
+        .get("entity_id")
+        .or_else(|| created.get("Id"))
+        .and_then(|value| value.as_str())
+        .ok_or("Created SessionLink has no entity_id")?;
+
+    let configure_body = json!({
+        "ParentEntitySet": "WikiJobs",
+        "ParentEntityId": parent_job_id,
+        "ParentActionNamespace": parent_action_namespace,
+        "ChildSessionId": child_session_id,
+        "OnCompletedAction": "Complete",
+        "OnFailureAction": "Fail",
+        "MaxChecks": "180",
+    });
+    let configure_resp = ctx.http_call(
+        "POST",
+        &format!("{api_url}/tdata/SessionLinks('{link_id}')/TemperPaw.Configure"),
+        headers,
+        &configure_body.to_string(),
+    )?;
+    if configure_resp.status < 200 || configure_resp.status >= 300 {
+        return Err(format!(
+            "Failed to configure SessionLink: HTTP {}: {}",
+            configure_resp.status,
+            &configure_resp.body[..configure_resp.body.len().min(500)]
+        ));
+    }
+
+    ctx.log(
+        "info",
+        &format!("build_session_message: linked WikiJob '{parent_job_id}' to Session '{child_session_id}'"),
+    );
+    Ok(())
+}
+
+fn dispatch_wiki_job_failure(
+    ctx: &Context,
+    api_url: &str,
+    headers: &[(String, String)],
+    wiki_job_id: &str,
+    odata_namespace: &str,
+    error_message: &str,
+) -> Result<(), String> {
+    let body = json!({
+        "error_message": error_message,
+    });
+    let response = ctx.http_call(
+        "POST",
+        &format!("{api_url}/tdata/WikiJobs('{wiki_job_id}')/{odata_namespace}.Fail"),
+        headers,
+        &body.to_string(),
+    )?;
+    if response.status < 200 || response.status >= 300 {
+        return Err(format!(
+            "Failed to dispatch WikiJob.Fail after SessionLink setup failure: HTTP {}: {}",
+            response.status,
+            &response.body[..response.body.len().min(500)]
+        ));
+    }
+    Ok(())
 }
 
 /// Shared operating model prepended to all mission templates.
@@ -349,7 +460,13 @@ fn build_source_search_message(
     workspace_id: &str,
     workspace_label: &str,
 ) -> String {
-    let header = operating_model(scope_id, job_id, workspace_id, workspace_label, "source_search");
+    let header = operating_model(
+        scope_id,
+        job_id,
+        workspace_id,
+        workspace_label,
+        "source_search",
+    );
     format!(
         r#"{header}
 ## Orient First
@@ -460,7 +577,13 @@ fn build_synthesize_message(
     workspace_id: &str,
     workspace_label: &str,
 ) -> String {
-    let header = operating_model(scope_id, job_id, workspace_id, workspace_label, "synthesize");
+    let header = operating_model(
+        scope_id,
+        job_id,
+        workspace_id,
+        workspace_label,
+        "synthesize",
+    );
     let scope_block = render_synthesis_scope(fields, input);
     format!(
         r#"{header}

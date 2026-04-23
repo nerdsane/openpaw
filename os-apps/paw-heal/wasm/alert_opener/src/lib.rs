@@ -46,11 +46,30 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             .filter(|s| !s.is_empty() && !s.contains("{secret:"))
             .cloned()
             .unwrap_or_else(|| "http://127.0.0.1:3000".to_string());
-        let default_agent_model = ctx
-            .config
-            .get("default_agent_model")
-            .cloned()
-            .unwrap_or_else(|| "claude-sonnet-4-6".to_string());
+        let agent_model = fields
+            .get("agent_model")
+            .and_then(|v| v.as_str())
+            .filter(|value| !value.trim().is_empty())
+            .map(str::to_string)
+            .or_else(|| {
+                ctx.config
+                    .get("agent_model")
+                    .filter(|value| !value.trim().is_empty() && !value.contains("{secret:"))
+                    .cloned()
+            })
+            .ok_or("AlertCycle.agent_model or integration agent_model secret is required")?;
+        let agent_provider = fields
+            .get("agent_provider")
+            .and_then(|v| v.as_str())
+            .filter(|value| !value.trim().is_empty())
+            .map(str::to_string)
+            .or_else(|| {
+                ctx.config
+                    .get("agent_provider")
+                    .filter(|value| !value.trim().is_empty() && !value.contains("{secret:"))
+                    .cloned()
+            })
+            .ok_or("AlertCycle.agent_provider or integration agent_provider secret is required")?;
         let default_sre_workdir = ctx
             .config
             .get("default_sre_workdir")
@@ -100,8 +119,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             .unwrap_or("");
 
         // 4. Query Harness entities looking for one matching the alert repo
-        let alert_json: Value =
-            serde_json::from_str(alert_payload).unwrap_or_else(|_| json!({}));
+        let alert_json: Value = serde_json::from_str(alert_payload).unwrap_or_else(|_| json!({}));
         let alert_repo = alert_json
             .get("repo_url")
             .or_else(|| alert_json.get("repository"))
@@ -120,8 +138,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             let harness_resp = ctx.http_call("GET", &harness_url, &headers, "");
             if let Ok(resp) = harness_resp {
                 if resp.status >= 200 && resp.status < 300 {
-                    let harness_body: Value =
-                        serde_json::from_str(&resp.body).unwrap_or(json!({}));
+                    let harness_body: Value = serde_json::from_str(&resp.body).unwrap_or(json!({}));
                     if let Some(items) = harness_body.get("value").and_then(|v| v.as_array()) {
                         if let Some(harness) = items.first() {
                             project_harness_id = harness
@@ -246,12 +263,11 @@ ISSUE_ID=<id or empty>"
         ctx.log("info", &format!("alert_opener: created Session {agent_id}"));
 
         // 7. Dispatch Sessions.TemperPaw.Configure
-        let configure_url = format!(
-            "{temper_api_url}/tdata/Sessions('{agent_id}')/TemperPaw.Configure"
-        );
+        let configure_url =
+            format!("{temper_api_url}/tdata/Sessions('{agent_id}')/TemperPaw.Configure");
         let configure_body = json!({
-            "model": default_agent_model,
-            "provider": "anthropic",
+            "model": agent_model,
+            "provider": agent_provider,
             "tools_enabled": "temper_get,temper_list,temper_action,temper_create,temper_spawn_session,temper_read",
             "workdir": default_sre_workdir,
             "soul_id": "SRE",
@@ -259,8 +275,12 @@ ISSUE_ID=<id or empty>"
             "user_message": sre_message,
             "project_harness_id": project_harness_id,
         });
-        let configure_resp =
-            ctx.http_call("POST", &configure_url, &headers, &configure_body.to_string())?;
+        let configure_resp = ctx.http_call(
+            "POST",
+            &configure_url,
+            &headers,
+            &configure_body.to_string(),
+        )?;
         if configure_resp.status < 200 || configure_resp.status >= 300 {
             return Err(format!(
                 "alert_opener: Configure failed (HTTP {}): {}",
@@ -268,15 +288,16 @@ ISSUE_ID=<id or empty>"
                 &configure_resp.body[..configure_resp.body.len().min(300)]
             ));
         }
-        ctx.log("info", &format!("alert_opener: configured Session {agent_id}"));
+        ctx.log(
+            "info",
+            &format!("alert_opener: configured Session {agent_id}"),
+        );
 
         // Configure schedules ProvisionWorkspace automatically (ADR-0022).
         // Sandbox is provisioned lazily on first sandbox tool call.
 
         // 9. PATCH AlertCycle to set sre_agent_id
-        let patch_url = format!(
-            "{temper_api_url}/tdata/AlertCycles('{entity_id}')"
-        );
+        let patch_url = format!("{temper_api_url}/tdata/AlertCycles('{entity_id}')");
         let patch_body = json!({ "sre_agent_id": agent_id });
         let patch_resp = ctx.http_call("PATCH", &patch_url, &headers, &patch_body.to_string())?;
         if patch_resp.status < 200 || patch_resp.status >= 300 {

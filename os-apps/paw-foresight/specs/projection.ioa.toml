@@ -76,6 +76,16 @@ type = "string"
 initial = "[]"
 
 [[state]]
+name = "agent_model"
+type = "string"
+initial = ""
+
+[[state]]
+name = "agent_provider"
+type = "string"
+initial = ""
+
+[[state]]
 name = "observation_count"
 type = "counter"
 initial = "0"
@@ -96,7 +106,7 @@ initial = ""
 name = "Configure"
 kind = "input"
 from = ["Created"]
-params = ["foresight_model_id", "horizon", "max_steps", "step_schedule", "probe_config", "parent_projection_id", "branch_reason"]
+params = ["foresight_model_id", "horizon", "max_steps", "step_schedule", "probe_config", "agent_model", "agent_provider", "parent_projection_id", "branch_reason"]
 hint = "Configure projection parameters. Self-loop on Created."
 
 [[action]]

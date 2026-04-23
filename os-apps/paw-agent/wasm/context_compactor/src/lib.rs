@@ -40,7 +40,9 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             .unwrap_or("");
 
         if session_file_id.is_empty() || session_leaf_id.is_empty() {
-            return Err("context_compactor: missing session_file_id or session_leaf_id".to_string());
+            return Err(
+                "context_compactor: missing session_file_id or session_leaf_id".to_string(),
+            );
         }
 
         let temper_api_url = resolve_temper_api_url(&ctx, &fields);
@@ -55,25 +57,38 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             read_session_from_temperfs(&ctx, &temper_api_url, tenant, &fields, session_file_id)?;
         let mut tree = SessionTree::from_jsonl(&session_jsonl);
 
-        ctx.log("info", &format!(
-            "context_compactor: tree has {} entries, estimating tokens from leaf {}",
-            tree.len(), session_leaf_id
-        ));
+        ctx.log(
+            "info",
+            &format!(
+                "context_compactor: tree has {} entries, estimating tokens from leaf {}",
+                tree.len(),
+                session_leaf_id
+            ),
+        );
 
         // 2. Find cut point
         let cut_point = match tree.find_cut_point(session_leaf_id, keep_recent_tokens) {
             Some(cp) => cp,
             None => {
-                ctx.log("warn", "context_compactor: no valid cut point found, skipping compaction");
-                set_success_result("CompactionComplete", &json!({
-                    "session_leaf_id": session_leaf_id,
-                    "context_tokens": tree.estimate_tokens(session_leaf_id),
-                }));
+                ctx.log(
+                    "warn",
+                    "context_compactor: no valid cut point found, skipping compaction",
+                );
+                set_success_result(
+                    "CompactionComplete",
+                    &json!({
+                        "session_leaf_id": session_leaf_id,
+                        "context_tokens": tree.estimate_tokens(session_leaf_id),
+                    }),
+                );
                 return Ok(());
             }
         };
 
-        ctx.log("info", &format!("context_compactor: cut point at entry {}", cut_point));
+        ctx.log(
+            "info",
+            &format!("context_compactor: cut point at entry {}", cut_point),
+        );
 
         // 3. Build compaction prompt from messages being cut
         let context_refs = tree.build_context_refs(&cut_point);
@@ -81,10 +96,13 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             resolve_context_refs_for_compaction(&ctx, &temper_api_url, tenant, &context_refs);
         if messages_to_summarize.is_empty() {
             ctx.log("warn", "context_compactor: no messages to summarize");
-            set_success_result("CompactionComplete", &json!({
-                "session_leaf_id": session_leaf_id,
-                "context_tokens": tree.estimate_tokens(session_leaf_id),
-            }));
+            set_success_result(
+                "CompactionComplete",
+                &json!({
+                    "session_leaf_id": session_leaf_id,
+                    "context_tokens": tree.estimate_tokens(session_leaf_id),
+                }),
+            );
             return Ok(());
         }
 
@@ -94,35 +112,42 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         let configured_provider = fields
             .get("provider")
             .and_then(|v| v.as_str())
-            .unwrap_or("anthropic");
+            .filter(|value| !value.trim().is_empty())
+            .ok_or("context_compactor requires Session.provider")?;
 
-        // Resolve provider and API key with auto-fallback
-        let (provider, api_key) = resolve_compaction_provider(&ctx, configured_provider);
+        let (provider, api_key) = resolve_compaction_provider(&ctx, configured_provider)?;
 
         let compaction_model = fields
             .get("compaction_model")
             .and_then(|v| v.as_str())
             .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| {
-                fields.get("model").and_then(|v| v.as_str()).unwrap_or_else(|| {
-                    match provider.as_str() {
-                        "openai" | "openai_codex" => "gpt-5.4",
-                        "openrouter" => "anthropic/claude-sonnet-4.6",
-                        _ => "claude-sonnet-4-6",
-                    }
-                })
-            });
+            .or_else(|| {
+                fields
+                    .get("model")
+                    .and_then(|v| v.as_str())
+                    .filter(|s| !s.is_empty())
+            })
+            .ok_or("context_compactor requires compaction_model or Session.model")?;
 
-        let summary = if provider == "mock" || api_key.trim().is_empty() {
+        let summary = if provider == "mock" {
             build_mock_summary(&conversation_text)
         } else {
-            call_compaction_llm(&ctx, &provider, &api_key, compaction_model, &conversation_text)?
+            call_compaction_llm(
+                &ctx,
+                &provider,
+                &api_key,
+                compaction_model,
+                &conversation_text,
+            )?
         };
 
-        ctx.log("info", &format!(
-            "context_compactor: generated summary ({} chars)",
-            summary.len()
-        ));
+        ctx.log(
+            "info",
+            &format!(
+                "context_compactor: generated summary ({} chars)",
+                summary.len()
+            ),
+        );
 
         // 5. Append compaction entry to session tree
         let summary_tokens = estimate_summary_tokens(&summary);
@@ -136,14 +161,12 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 &format!("compaction-{}.txt", tree.len()),
                 &summary,
             ) {
-                Ok(summary_file_id) => {
-                    tree.append_compaction_file(
-                        session_leaf_id,
-                        &summary_file_id,
-                        &cut_point,
-                        summary_tokens,
-                    )
-                }
+                Ok(summary_file_id) => tree.append_compaction_file(
+                    session_leaf_id,
+                    &summary_file_id,
+                    &cut_point,
+                    summary_tokens,
+                ),
                 Err(_) => tree.append_compaction(session_leaf_id, &summary, &cut_point),
             }
         } else {
@@ -163,10 +186,13 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
 
         // 7. Return CompactionComplete with new leaf pointing after compaction
         let new_token_estimate = tree.estimate_tokens(&compaction_id);
-        set_success_result("CompactionComplete", &json!({
-            "session_leaf_id": compaction_id,
-            "context_tokens": new_token_estimate,
-        }));
+        set_success_result(
+            "CompactionComplete",
+            &json!({
+                "session_leaf_id": compaction_id,
+                "context_tokens": new_token_estimate,
+            }),
+        );
 
         Ok(())
     })();
@@ -251,28 +277,43 @@ fn build_mock_summary(conversation_text: &str) -> String {
 fn format_messages_for_summary(messages: &[Value]) -> String {
     let mut text = String::new();
     for msg in messages {
-        let role = msg.get("role").and_then(|v| v.as_str()).unwrap_or("unknown");
+        let role = msg
+            .get("role")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown");
         let content = msg.get("content").cloned().unwrap_or(json!(""));
         let content_str = match content {
             Value::String(s) => s,
-            Value::Array(arr) => {
-                arr.iter()
-                    .filter_map(|block| {
-                        if block.get("type").and_then(|v| v.as_str()) == Some("text") {
-                            block.get("text").and_then(|v| v.as_str()).map(String::from)
-                        } else if block.get("type").and_then(|v| v.as_str()) == Some("tool_use") {
-                            Some(format!("[tool_use: {}]", block.get("name").and_then(|v| v.as_str()).unwrap_or("unknown")))
-                        } else if block.get("type").and_then(|v| v.as_str()) == Some("tool_result") {
-                            let content = block.get("content").and_then(|v| v.as_str()).unwrap_or("...");
-                            let truncated = if content.len() > 200 { &content[..200] } else { content };
-                            Some(format!("[tool_result: {}]", truncated))
+            Value::Array(arr) => arr
+                .iter()
+                .filter_map(|block| {
+                    if block.get("type").and_then(|v| v.as_str()) == Some("text") {
+                        block.get("text").and_then(|v| v.as_str()).map(String::from)
+                    } else if block.get("type").and_then(|v| v.as_str()) == Some("tool_use") {
+                        Some(format!(
+                            "[tool_use: {}]",
+                            block
+                                .get("name")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("unknown")
+                        ))
+                    } else if block.get("type").and_then(|v| v.as_str()) == Some("tool_result") {
+                        let content = block
+                            .get("content")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("...");
+                        let truncated = if content.len() > 200 {
+                            &content[..200]
                         } else {
-                            None
-                        }
-                    })
-                    .collect::<Vec<_>>()
-                    .join("\n")
-            }
+                            content
+                        };
+                        Some(format!("[tool_result: {}]", truncated))
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join("\n"),
             _ => serde_json::to_string(&content).unwrap_or_default(),
         };
         text.push_str(&format!("## {role}\n{content_str}\n\n"));
@@ -285,46 +326,40 @@ fn is_unresolved_secret_template(value: &str) -> bool {
     value.contains("{secret:")
 }
 
-/// Resolve the best available provider and API key, with auto-fallback.
-fn resolve_compaction_provider(ctx: &Context, configured_provider: &str) -> (String, String) {
+fn resolve_compaction_provider(
+    ctx: &Context,
+    configured_provider: &str,
+) -> Result<(String, String), String> {
     let provider_keys: &[(&str, &[&str])] = &[
         ("anthropic", &["anthropic_api_key", "api_key"]),
         ("openai", &["openai_codex_token"]),
+        ("openai_codex", &["openai_codex_token"]),
         ("openrouter", &["openrouter_api_key"]),
+        ("mock", &[]),
     ];
 
-    // Try configured provider first
     for &(prov, keys) in provider_keys {
-        if prov != configured_provider { continue; }
+        if prov != configured_provider {
+            continue;
+        }
+        if prov == "mock" {
+            return Ok((prov.to_string(), String::new()));
+        }
         for &key_name in keys {
             if let Some(val) = ctx.config.get(key_name) {
                 if !val.trim().is_empty() && !is_unresolved_secret_template(val) {
-                    return (prov.to_string(), val.clone());
+                    return Ok((prov.to_string(), val.clone()));
                 }
             }
         }
+        return Err(format!(
+            "missing API key for provider={configured_provider}"
+        ));
     }
 
-    // Fallback: try any provider with a valid key
-    ctx.log("warn", &format!(
-        "context_compactor: provider={configured_provider} has no valid key, trying alternatives"
-    ));
-    for &(prov, keys) in provider_keys {
-        if prov == configured_provider { continue; }
-        for &key_name in keys {
-            if let Some(val) = ctx.config.get(key_name) {
-                if !val.trim().is_empty() && !is_unresolved_secret_template(val) {
-                    ctx.log("warn", &format!(
-                        "context_compactor: falling back to provider={prov}"
-                    ));
-                    return (prov.to_string(), val.clone());
-                }
-            }
-        }
-    }
-
-    // No valid key found — return configured provider with empty key (will use mock path)
-    (configured_provider.to_string(), String::new())
+    Err(format!(
+        "unsupported compaction provider: {configured_provider}"
+    ))
 }
 
 /// Call the LLM with a compaction-specific system prompt.
@@ -348,8 +383,13 @@ fn call_compaction_llm(
                 ("authorization".to_string(), format!("Bearer {api_key}")),
                 ("content-type".to_string(), "application/json".to_string()),
             ];
-            let body_str = serde_json::to_string(&body).map_err(|e| format!("JSON serialize error: {e}"))?;
-            ("https://api.openai.com/v1/responses".to_string(), headers, body_str)
+            let body_str =
+                serde_json::to_string(&body).map_err(|e| format!("JSON serialize error: {e}"))?;
+            (
+                "https://api.openai.com/v1/responses".to_string(),
+                headers,
+                body_str,
+            )
         }
         "openrouter" => {
             let body = json!({
@@ -364,8 +404,13 @@ fn call_compaction_llm(
                 ("authorization".to_string(), format!("Bearer {api_key}")),
                 ("content-type".to_string(), "application/json".to_string()),
             ];
-            let body_str = serde_json::to_string(&body).map_err(|e| format!("JSON serialize error: {e}"))?;
-            ("https://openrouter.ai/api/v1/chat/completions".to_string(), headers, body_str)
+            let body_str =
+                serde_json::to_string(&body).map_err(|e| format!("JSON serialize error: {e}"))?;
+            (
+                "https://openrouter.ai/api/v1/chat/completions".to_string(),
+                headers,
+                body_str,
+            )
         }
         _ => {
             // Anthropic (default)
@@ -393,12 +438,20 @@ fn call_compaction_llm(
                     ("content-type".to_string(), "application/json".to_string()),
                 ]
             };
-            let body_str = serde_json::to_string(&body).map_err(|e| format!("JSON serialize error: {e}"))?;
-            ("https://api.anthropic.com/v1/messages".to_string(), headers, body_str)
+            let body_str =
+                serde_json::to_string(&body).map_err(|e| format!("JSON serialize error: {e}"))?;
+            (
+                "https://api.anthropic.com/v1/messages".to_string(),
+                headers,
+                body_str,
+            )
         }
     };
 
-    ctx.log("info", &format!("context_compactor: calling {provider} at {url} with model={model}"));
+    ctx.log(
+        "info",
+        &format!("context_compactor: calling {provider} at {url} with model={model}"),
+    );
     let resp = ctx.http_call("POST", &url, &headers, &body_str)?;
     if resp.status != 200 {
         return Err(format!(
@@ -415,9 +468,13 @@ fn call_compaction_llm(
     let text = match provider {
         "openai" => {
             // OpenAI responses API
-            parsed.get("output")
+            parsed
+                .get("output")
                 .and_then(|v| v.as_array())
-                .and_then(|arr| arr.iter().find(|b| b.get("type").and_then(|v| v.as_str()) == Some("message")))
+                .and_then(|arr| {
+                    arr.iter()
+                        .find(|b| b.get("type").and_then(|v| v.as_str()) == Some("message"))
+                })
                 .and_then(|b| b.get("content"))
                 .and_then(|v| v.as_array())
                 .and_then(|arr| arr.first())
@@ -427,7 +484,8 @@ fn call_compaction_llm(
         }
         "openrouter" => {
             // OpenRouter chat completions
-            parsed.get("choices")
+            parsed
+                .get("choices")
                 .and_then(|v| v.as_array())
                 .and_then(|arr| arr.first())
                 .and_then(|c| c.get("message"))
@@ -441,7 +499,10 @@ fn call_compaction_llm(
             parsed
                 .get("content")
                 .and_then(|v| v.as_array())
-                .and_then(|arr| arr.iter().find(|b| b.get("type").and_then(|v| v.as_str()) == Some("text")))
+                .and_then(|arr| {
+                    arr.iter()
+                        .find(|b| b.get("type").and_then(|v| v.as_str()) == Some("text"))
+                })
                 .and_then(|b| b.get("text").and_then(|v| v.as_str()))
                 .unwrap_or("Summary unavailable")
                 .to_string()

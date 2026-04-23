@@ -130,7 +130,7 @@ fn secrets_schema() -> Vec<SecretSchema> {
             category: "llm",
             label: "LLM Model",
             required: false,
-            description: "Override default model (e.g. claude-sonnet-4-6, o3-mini)",
+            description: "Configured model for the active LLM provider",
         },
         SecretSchema {
             key: "discord_bot_token",
@@ -693,7 +693,10 @@ async fn resolve_llm_provider(state: &SetupApiState) -> Result<LlmProvider> {
 
     let provider_hint = vault
         .get_secret(&state.tenant, "llm_provider")
-        .unwrap_or_else(|| "anthropic".to_string());
+        .context("Configure llm_provider before personalizing Paw")?;
+    let model = vault
+        .get_secret(&state.tenant, "llm_model")
+        .context("Configure llm_model before personalizing Paw")?;
 
     let api_key = [
         "anthropic_api_key",
@@ -705,7 +708,7 @@ async fn resolve_llm_provider(state: &SetupApiState) -> Result<LlmProvider> {
     .find_map(|key| vault.get_secret(&state.tenant, key))
     .context("Configure an LLM API key before personalizing Paw")?;
 
-    Ok(LlmProvider::detect(&api_key, &provider_hint))
+    LlmProvider::detect(&api_key, &provider_hint, &model)
 }
 
 async fn load_current_paw_soul(
@@ -783,6 +786,7 @@ struct CreateAgentRequest {
     role: Option<String>,
     _soul_template: Option<String>,
     model: Option<String>,
+    provider: Option<String>,
     tools_enabled: Option<String>,
     max_turns: Option<String>,
 }
@@ -815,18 +819,43 @@ async fn create_agent(
         }
     }
 
-    // Dispatch Configure action — resolve provider/model from vault
+    // Dispatch Configure action — resolve provider/model from explicit request
+    // or tenant-level Temper secrets. Do not infer runtime LLM config.
     let vault = state.platform.server.secrets_vault.as_ref();
-    let resolved_provider = vault
-        .and_then(|v| v.get_secret(&state.tenant, "llm_provider"))
-        .unwrap_or_else(|| "anthropic".to_string());
-    let default_model = match resolved_provider.as_str() {
-        "openai" | "openai_codex" => "gpt-5.4".to_string(),
-        "openrouter" => "anthropic/claude-sonnet-4.6".to_string(),
-        _ => "claude-sonnet-4-6".to_string(),
+    let resolved_provider = req
+        .provider
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| {
+            vault
+                .and_then(|v| v.get_secret(&state.tenant, "llm_provider"))
+                .filter(|value| !value.trim().is_empty())
+        });
+    let resolved_model = req
+        .model
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| {
+            vault
+                .and_then(|v| v.get_secret(&state.tenant, "llm_model"))
+                .filter(|value| !value.trim().is_empty())
+        });
+    let Some(resolved_provider) = resolved_provider else {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(
+                serde_json::json!({ "error": "Agent creation requires provider or tenant llm_provider" }),
+            ),
+        );
+    };
+    let Some(resolved_model) = resolved_model else {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(
+                serde_json::json!({ "error": "Agent creation requires model or tenant llm_model" }),
+            ),
+        );
     };
     let configure_params = serde_json::json!({
-        "model": req.model.unwrap_or(default_model),
+        "model": resolved_model,
         "provider": resolved_provider,
         "tools_enabled": req.tools_enabled.unwrap_or_else(|| DEFAULT_SETUP_AGENT_TOOLS_ENABLED.to_string()),
         "workdir": "/workspace",

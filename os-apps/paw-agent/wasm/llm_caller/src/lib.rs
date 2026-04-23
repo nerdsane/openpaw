@@ -15,8 +15,8 @@
 //!
 //! Build: `cargo build --target wasm32-unknown-unknown --release`
 
-use session_tree_lib::{EntryType, SessionTree};
 use serde::{Deserialize, Serialize};
+use session_tree_lib::{EntryType, SessionTree};
 use std::collections::BTreeSet;
 use temper_wasm_sdk::prelude::*;
 use wasm_helpers::{
@@ -26,6 +26,22 @@ use wasm_helpers::{
 
 const SESSION_ENTRY_FILE_THRESHOLD_BYTES: usize = 4096;
 const DEFAULT_TOOLS_ENABLED: &str = "temper_create,temper_get,temper_list,temper_action,temper_patch,temper_submit_specs,temper_show_spec,temper_specs,temper_upload_wasm,temper_get_trajectories,temper_get_insights,temper_get_decisions,temper_poll_decision,temper_approve_decision,temper_deny_decision,temper_submit_policy,temper_list_policies,temper_get_policy,temper_update_policy,temper_delete_policy,temper_install_app,temper_list_apps,temper_spawn_session,temper_list_sessions,temper_abort_session,temper_steer_session,temper_save_memory,temper_recall_memory,temper_write,temper_read,temper_ls,temper_grep,temper_glob,temper_edit,temper_rename,temper_search_history,temper_run_coding_agent,temper_get_secret,temper_datadog_query,temper_railway,temper_vercel,temper_web_search,temper_web_fetch,read,write,edit,bash";
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ProviderProgressBoundary {
+    Start,
+    End,
+}
+
+fn run_with_provider_progress<T>(
+    mut emit_progress: impl FnMut(ProviderProgressBoundary),
+    call_provider: impl FnOnce() -> T,
+) -> T {
+    emit_progress(ProviderProgressBoundary::Start);
+    let result = call_provider();
+    emit_progress(ProviderProgressBoundary::End);
+    result
+}
 
 struct ReplMethodSpec {
     object: &'static str,
@@ -511,6 +527,43 @@ pub struct ProviderResponseArtifact {
     response_bytes: usize,
 }
 
+fn build_provider_response_ready_params(
+    provider_response_file_id: &str,
+    prepared: &PreparedContextArtifact,
+    artifact: &ProviderResponseArtifact,
+) -> Value {
+    json!({
+        "provider_response_file_id": provider_response_file_id,
+        "provider_request_bytes": artifact.request_bytes,
+        "provider_response_bytes": artifact.response_bytes,
+        "input_tokens": artifact.input_tokens,
+        "output_tokens": artifact.output_tokens,
+        "_gen_ai_system_instructions": build_gen_ai_system_instructions(&prepared.system_prompt),
+        "_gen_ai_input_messages": build_gen_ai_input_messages(&prepared.messages),
+        "_gen_ai_output_messages": build_gen_ai_output_messages(
+            &artifact.content,
+            &artifact.stop_reason,
+        ),
+        "_gen_ai_provider": artifact.provider,
+        "_gen_ai_model": artifact.model,
+        "_gen_ai_finish_reason": artifact.stop_reason,
+    })
+}
+
+fn build_provider_response_applier_base_params(
+    prepared: &PreparedContextArtifact,
+    artifact: &ProviderResponseArtifact,
+) -> Value {
+    json!({
+        "input_tokens": artifact.input_tokens,
+        "output_tokens": artifact.output_tokens,
+        "system_prompt_hash": prepared.system_prompt_hash,
+        "system_prompt_file_id": prepared.system_prompt_file_id,
+        "provider_request_bytes": artifact.request_bytes,
+        "provider_response_bytes": artifact.response_bytes,
+    })
+}
+
 /// Max bytes for gen_ai message attributes to avoid bloating spans.
 const GEN_AI_MESSAGE_ATTR_LIMIT: usize = 16_384;
 
@@ -853,9 +906,7 @@ fn resolve_provider_api_key(ctx: &Context, provider: &str) -> Result<String, Str
             ctx.config.get("openai_api_key").cloned(),
             ctx.config.get("api_key").cloned(),
         ]),
-        "openai_codex" => first_non_empty(&[
-            ctx.config.get("openai_codex_token").cloned(),
-        ]),
+        "openai_codex" => first_non_empty(&[ctx.config.get("openai_codex_token").cloned()]),
         "openrouter" => first_non_empty(&[
             ctx.config.get("openrouter_api_key").cloned(),
             ctx.config.get("api_key").cloned(),
@@ -981,6 +1032,39 @@ fn format_llm_hang_hint(provider: &str, attempt: u32, attempt_elapsed_ms: i64) -
 /// constant so the value is reusable as a `gen_ai.request.max_tokens`
 /// span-hint attribute without drifting from the body payload.
 const LLM_MAX_TOKENS: u32 = 16384;
+
+/// Upper bound for the `gen_ai.prompt` span-hint value emitted from this
+/// module. The host truncates at 20 KB; we cap slightly lower so our
+/// `[truncated]` suffix lines up with the guest-level cut rather than the
+/// host-level one (easier for operators reading traces to spot). Values
+/// are truncated on a UTF-8 boundary.
+const LLM_PROMPT_ATTR_MAX_BYTES: usize = 18 * 1024;
+
+/// Serialize `system_prompt` + `messages` as a compact JSON object suitable
+/// for the `gen_ai.prompt` span attribute, truncating at a UTF-8 boundary
+/// if the payload is larger than [`LLM_PROMPT_ATTR_MAX_BYTES`]. The shape
+/// (`{"system": ..., "messages": ...}`) mirrors what DD LLM Obs parsers
+/// expect for OpenAI-style payloads and is also readable for Anthropic
+/// (whose native shape has system separate).
+fn format_gen_ai_prompt_attr(system_prompt: &str, messages: &[Value]) -> String {
+    let payload = if system_prompt.is_empty() {
+        json!({ "messages": messages })
+    } else {
+        json!({
+            "system": system_prompt,
+            "messages": messages,
+        })
+    };
+    let raw = serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string());
+    if raw.len() <= LLM_PROMPT_ATTR_MAX_BYTES {
+        return raw;
+    }
+    let mut cut = LLM_PROMPT_ATTR_MAX_BYTES;
+    while cut > 0 && !raw.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    format!("{}…[truncated]", &raw[..cut])
+}
 
 /// Format a post-response usage log line using OpenTelemetry
 /// `gen_ai.*` semconv keys so DD's grok parser indexes them as
@@ -1147,6 +1231,17 @@ fn call_anthropic(
         "X-Temper-Span-Attr-gen_ai.request.max_tokens".to_string(),
         LLM_MAX_TOKENS.to_string(),
     ));
+    // LLM content capture: prompt is request-side (serialize now), completion
+    // is response-side (host resolves pointer against Anthropic's
+    // /v1/messages response, which has {content: [{type, text}, ...]}).
+    headers.push((
+        "X-Temper-Span-Attr-gen_ai.prompt".to_string(),
+        format_gen_ai_prompt_attr(&effective_system, &effective_messages),
+    ));
+    headers.push((
+        "X-Temper-Span-Capture-Response-gen_ai.completion".to_string(),
+        "/content/0/text".to_string(),
+    ));
 
     // Retry on transient API errors (500, 529, and 400 with vague "Error" message).
     // Per-attempt timing added by ADR-0037 Fix B so a hung upstream surfaces
@@ -1304,9 +1399,7 @@ fn call_anthropic(
                     "exhausted_retries",
                 ),
             );
-            return Err(format!(
-                "Anthropic API failed after 5 attempts: {last_err}"
-            ));
+            return Err(format!("Anthropic API failed after 5 attempts: {last_err}"));
         }
     };
     ctx.log(
@@ -1441,6 +1534,17 @@ fn call_openrouter(
     headers.push((
         "X-Temper-Span-Attr-gen_ai.request.max_tokens".to_string(),
         LLM_MAX_TOKENS.to_string(),
+    ));
+    // LLM content capture: OpenRouter/OpenAI response shape is
+    // {choices: [{message: {content: "..."}}]}. Prompt is serialized
+    // request-side; completion is resolved by the host post-response.
+    headers.push((
+        "X-Temper-Span-Attr-gen_ai.prompt".to_string(),
+        format_gen_ai_prompt_attr(system_prompt, &or_messages),
+    ));
+    headers.push((
+        "X-Temper-Span-Capture-Response-gen_ai.completion".to_string(),
+        "/choices/0/message/content".to_string(),
     ));
 
     ctx.log(
@@ -2072,10 +2176,7 @@ fn call_openai(
                 body.lines().count(),
                 body.len()
             );
-            ctx.log(
-                "warn",
-                &format!("llm_caller: {last_err}, will retry"),
-            );
+            ctx.log("warn", &format!("llm_caller: {last_err}, will retry"));
             continue;
         }
 
@@ -2238,6 +2339,29 @@ fn send_heartbeat(ctx: &Context, temper_api_url: &str, tenant: &str) -> Result<(
         ctx.entity_id
     );
     let body = json!({ "last_heartbeat_at": timestamp_millis_string() });
+    let fields = ctx
+        .entity_state
+        .get("fields")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    let headers = runtime_headers_as(
+        ctx,
+        tenant,
+        &fields,
+        "system",
+        Some("application/json"),
+        None,
+    );
+    let _ = ctx.http_call("POST", &url, &headers, &body.to_string())?;
+    Ok(())
+}
+
+fn send_progress(ctx: &Context, temper_api_url: &str, tenant: &str) -> Result<(), String> {
+    let url = format!(
+        "{temper_api_url}/tdata/Sessions('{}')/TemperPaw.ProgressMade",
+        ctx.entity_id
+    );
+    let body = json!({ "last_progress_at": timestamp_millis_string() });
     let fields = ctx
         .entity_state
         .get("fields")
@@ -3130,7 +3254,11 @@ pub fn run_context_preparer() -> Result<(), String> {
     let ctx = Context::from_host()?;
     ctx.log("info", "context_preparer: starting");
 
-    let fields = ctx.entity_state.get("fields").cloned().unwrap_or_else(|| json!({}));
+    let fields = ctx
+        .entity_state
+        .get("fields")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
     let user_message = fields
         .get("user_message")
         .and_then(|v| v.as_str())
@@ -3142,7 +3270,13 @@ pub fn run_context_preparer() -> Result<(), String> {
     let model = fields
         .get("model")
         .and_then(|v| v.as_str())
-        .unwrap_or("claude-sonnet-4-6");
+        .filter(|value| !value.trim().is_empty())
+        .ok_or("context_preparer requires Session.model")?;
+    let provider = fields
+        .get("provider")
+        .and_then(|v| v.as_str())
+        .filter(|value| !value.trim().is_empty())
+        .ok_or("context_preparer requires Session.provider")?;
     let tools_enabled = fields
         .get("tools_enabled")
         .and_then(|v| v.as_str())
@@ -3181,10 +3315,7 @@ pub fn run_context_preparer() -> Result<(), String> {
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
-    let soul_id = fields
-        .get("soul_id")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
+    let soul_id = fields.get("soul_id").and_then(|v| v.as_str()).unwrap_or("");
     let reserve_tokens: usize = fields
         .get("reserve_tokens")
         .and_then(|v| v.as_str())
@@ -3231,16 +3362,7 @@ pub fn run_context_preparer() -> Result<(), String> {
         estimate_message_tokens(&messages) as usize
     };
 
-    let metric_tags = session_metric_tags(
-        normalize_provider(
-            fields
-                .get("provider")
-                .and_then(|v| v.as_str())
-                .unwrap_or("anthropic"),
-        )
-        .as_str(),
-        model,
-    );
+    let metric_tags = session_metric_tags(normalize_provider(provider).as_str(), model);
     emit_metric_ignore(
         &ctx,
         "temper_session_context_tokens",
@@ -3401,7 +3523,11 @@ pub fn run_provider_caller() -> Result<(), String> {
     let ctx = Context::from_host()?;
     ctx.log("info", "provider_caller: starting");
 
-    let fields = ctx.entity_state.get("fields").cloned().unwrap_or_else(|| json!({}));
+    let fields = ctx
+        .entity_state
+        .get("fields")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
     let prepared_context_file_id = fields
         .get("prepared_context_file_id")
         .and_then(|v| v.as_str())
@@ -3411,20 +3537,13 @@ pub fn run_provider_caller() -> Result<(), String> {
     }
     let temper_api_url = resolve_temper_api_url(&ctx, &fields);
     let tenant = &ctx.tenant;
-    let prepared = read_prepared_context_artifact(
-        &ctx,
-        &temper_api_url,
-        tenant,
-        prepared_context_file_id,
-    )?;
+    let prepared =
+        read_prepared_context_artifact(&ctx, &temper_api_url, tenant, prepared_context_file_id)?;
     let provider_raw = fields
         .get("provider")
         .and_then(|v| v.as_str())
-        .unwrap_or("anthropic");
-    let model_raw = fields
-        .get("model")
-        .and_then(|v| v.as_str())
-        .unwrap_or("claude-sonnet-4-6");
+        .unwrap_or("");
+    let model_raw = fields.get("model").and_then(|v| v.as_str()).unwrap_or("");
     let temperature: f64 = fields
         .get("temperature")
         .and_then(|v| v.as_str())
@@ -3471,49 +3590,60 @@ pub fn run_provider_caller() -> Result<(), String> {
         entity_field_str(&fields, &["agent_id", "AgentId"]).unwrap_or(&ctx.entity_id);
     send_typing_indicator(&ctx, &temper_api_url, tenant, typing_agent_id);
 
-    let response = match provider.as_str() {
-        "mock" => call_mock(
-            &ctx,
-            &prepared.messages,
-            &prepared.system_prompt,
-            &prepared.tools,
-        )?,
-        "anthropic" => call_anthropic(
-            &ctx,
-            &api_key,
-            &anthropic_api_url,
-            &model,
-            &prepared.system_prompt,
-            &prepared.messages,
-            &prepared.tools,
-            &anthropic_auth_mode,
-            temperature,
-        )?,
-        "openrouter" => call_openrouter(
-            &ctx,
-            &api_key,
-            &openrouter_api_url,
-            &model,
-            &prepared.system_prompt,
-            &prepared.messages,
-            &prepared.tools,
-            &openrouter_site_url,
-            &openrouter_app_name,
-            temperature,
-        )?,
-        "openai" | "openai_codex" => call_openai(
-            &ctx,
-            &api_key,
-            &openai_api_url,
-            &model,
-            &prepared.system_prompt,
-            &prepared.messages,
-            &prepared.tools,
-            temperature,
-            &provider,
-        )?,
-        other => return Err(format!("unsupported LLM provider: {other}")),
-    };
+    let response = run_with_provider_progress(
+        |boundary| {
+            ctx.log(
+                "debug",
+                &format!(
+                    "provider_caller: provider progress boundary={boundary:?} provider={provider} model={model}"
+                ),
+            );
+            let _ = send_progress(&ctx, &temper_api_url, tenant);
+        },
+        || match provider.as_str() {
+            "mock" => call_mock(
+                &ctx,
+                &prepared.messages,
+                &prepared.system_prompt,
+                &prepared.tools,
+            ),
+            "anthropic" => call_anthropic(
+                &ctx,
+                &api_key,
+                &anthropic_api_url,
+                &model,
+                &prepared.system_prompt,
+                &prepared.messages,
+                &prepared.tools,
+                &anthropic_auth_mode,
+                temperature,
+            ),
+            "openrouter" => call_openrouter(
+                &ctx,
+                &api_key,
+                &openrouter_api_url,
+                &model,
+                &prepared.system_prompt,
+                &prepared.messages,
+                &prepared.tools,
+                &openrouter_site_url,
+                &openrouter_app_name,
+                temperature,
+            ),
+            "openai" | "openai_codex" => call_openai(
+                &ctx,
+                &api_key,
+                &openai_api_url,
+                &model,
+                &prepared.system_prompt,
+                &prepared.messages,
+                &prepared.tools,
+                temperature,
+                &provider,
+            ),
+            other => Err(format!("unsupported LLM provider: {other}")),
+        },
+    )?;
 
     let metric_tags = session_metric_tags(&provider, &model);
     emit_metric_ignore(
@@ -3561,14 +3691,9 @@ pub fn run_provider_caller() -> Result<(), String> {
         "application/json",
     )?;
 
-    set_success_result(
-        "ProviderResponseReady",
-        &json!({
-            "provider_response_file_id": provider_response_file_id,
-            "provider_request_bytes": artifact.request_bytes,
-            "provider_response_bytes": artifact.response_bytes,
-        }),
-    );
+    let params =
+        build_provider_response_ready_params(&provider_response_file_id, &prepared, &artifact);
+    set_success_result("ProviderResponseReady", &params);
     Ok(())
 }
 
@@ -3576,7 +3701,11 @@ pub fn run_provider_response_applier() -> Result<(), String> {
     let ctx = Context::from_host()?;
     ctx.log("info", "provider_response_applier: starting");
 
-    let fields = ctx.entity_state.get("fields").cloned().unwrap_or_else(|| json!({}));
+    let fields = ctx
+        .entity_state
+        .get("fields")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
     let prepared_context_file_id = fields
         .get("prepared_context_file_id")
         .and_then(|v| v.as_str())
@@ -3594,18 +3723,10 @@ pub fn run_provider_response_applier() -> Result<(), String> {
 
     let temper_api_url = resolve_temper_api_url(&ctx, &fields);
     let tenant = &ctx.tenant;
-    let prepared = read_prepared_context_artifact(
-        &ctx,
-        &temper_api_url,
-        tenant,
-        prepared_context_file_id,
-    )?;
-    let response = read_provider_response_artifact(
-        &ctx,
-        &temper_api_url,
-        tenant,
-        provider_response_file_id,
-    )?;
+    let prepared =
+        read_prepared_context_artifact(&ctx, &temper_api_url, tenant, prepared_context_file_id)?;
+    let response =
+        read_provider_response_artifact(&ctx, &temper_api_url, tenant, provider_response_file_id)?;
 
     let mut messages = prepared.messages.clone();
     messages.push(json!({
@@ -3650,18 +3771,8 @@ pub fn run_provider_response_applier() -> Result<(), String> {
             )?;
 
             let tool_calls_json = serde_json::to_string(&tool_calls).unwrap_or_default();
-            let mut params = json!({
-                "pending_tool_calls": tool_calls_json,
-                "input_tokens": response.input_tokens,
-                "output_tokens": response.output_tokens,
-                "_gen_ai_system_instructions": build_gen_ai_system_instructions(&prepared.system_prompt),
-                "_gen_ai_input_messages": build_gen_ai_input_messages(&prepared.messages),
-                "_gen_ai_output_messages": build_gen_ai_output_messages(&response.content, &response.stop_reason),
-                "_gen_ai_provider": response.provider.clone(),
-                "_gen_ai_finish_reason": response.stop_reason.clone(),
-                "system_prompt_hash": prepared.system_prompt_hash,
-                "system_prompt_file_id": prepared.system_prompt_file_id,
-            });
+            let mut params = build_provider_response_applier_base_params(&prepared, &response);
+            params["pending_tool_calls"] = json!(tool_calls_json);
             if let Some(leaf) = new_leaf {
                 params["session_leaf_id"] = json!(leaf);
             }
@@ -3694,12 +3805,9 @@ pub fn run_provider_response_applier() -> Result<(), String> {
                 &response.content,
                 response.output_tokens as usize,
             )?;
-
-            let gen_ai_system_instructions =
-                build_gen_ai_system_instructions(&prepared.system_prompt);
-            let gen_ai_input = build_gen_ai_input_messages(&prepared.messages);
-            let gen_ai_output =
-                build_gen_ai_output_messages(&response.content, &response.stop_reason);
+            let mut base_params = build_provider_response_applier_base_params(&prepared, &response);
+            base_params["result"] = json!(result_text);
+            base_params["session_leaf_id"] = json!(new_leaf);
 
             if fields
                 .get("max_follow_ups")
@@ -3708,40 +3816,9 @@ pub fn run_provider_response_applier() -> Result<(), String> {
                 .unwrap_or(5)
                 > 0
             {
-                set_success_result(
-                    "CheckSteering",
-                    &json!({
-                        "result": result_text,
-                        "session_leaf_id": new_leaf,
-                        "input_tokens": response.input_tokens,
-                        "output_tokens": response.output_tokens,
-                        "_gen_ai_system_instructions": gen_ai_system_instructions,
-                        "_gen_ai_input_messages": gen_ai_input,
-                        "_gen_ai_output_messages": gen_ai_output,
-                        "_gen_ai_provider": response.provider.clone(),
-                        "_gen_ai_finish_reason": response.stop_reason.clone(),
-                        "system_prompt_hash": prepared.system_prompt_hash,
-                        "system_prompt_file_id": prepared.system_prompt_file_id,
-                        "provider_request_bytes": response.request_bytes,
-                        "provider_response_bytes": response.response_bytes,
-                    }),
-                );
+                set_success_result("CheckSteering", &base_params);
             } else {
-                let mut params = json!({
-                    "result": result_text,
-                    "session_leaf_id": new_leaf,
-                    "input_tokens": response.input_tokens,
-                    "output_tokens": response.output_tokens,
-                    "_gen_ai_system_instructions": gen_ai_system_instructions,
-                    "_gen_ai_input_messages": gen_ai_input,
-                    "_gen_ai_output_messages": gen_ai_output,
-                    "_gen_ai_provider": response.provider.clone(),
-                    "_gen_ai_finish_reason": response.stop_reason.clone(),
-                    "system_prompt_hash": prepared.system_prompt_hash,
-                    "system_prompt_file_id": prepared.system_prompt_file_id,
-                    "provider_request_bytes": response.request_bytes,
-                    "provider_response_bytes": response.response_bytes,
-                });
+                let mut params = base_params;
                 if let Some(ref conv) = conv_param {
                     params["conversation"] = json!(conv);
                 }
@@ -3766,7 +3843,8 @@ fn load_messages_for_prepare(
 ) -> Result<(Vec<Value>, Option<SessionTree>, usize, usize), String> {
     let use_session_tree = !session_file_id.is_empty() && !session_leaf_id.is_empty();
     if use_session_tree {
-        let session_jsonl = read_session_from_temperfs(ctx, temper_api_url, tenant, session_file_id)?;
+        let session_jsonl =
+            read_session_from_temperfs(ctx, temper_api_url, tenant, session_file_id)?;
         if session_jsonl.is_empty() {
             let tree = SessionTree::from_jsonl(&session_jsonl);
             return Ok((
@@ -3835,9 +3913,8 @@ fn load_messages_for_prepare(
                 0,
             ))
         } else {
-            let messages = serde_json::from_str(conversation_json).unwrap_or_else(|_| {
-                vec![json!({ "role": "user", "content": user_message })]
-            });
+            let messages = serde_json::from_str(conversation_json)
+                .unwrap_or_else(|_| vec![json!({ "role": "user", "content": user_message })]);
             Ok((messages.clone(), None, messages.len(), 0))
         }
     }
@@ -3894,47 +3971,50 @@ fn assemble_cached_system_prompt(
         .and_then(|v| v.as_str())
         .unwrap_or("");
 
-    let (assembled_system_prompt, system_prompt_file_id) =
-        if !prev_hash.is_empty() && prev_hash == new_prompt_hash && !prev_file_id.is_empty() {
-            match read_temperfs_file(ctx, temper_api_url, tenant, prev_file_id) {
-                Ok(cached) if !cached.is_empty() => {
-                    ctx.log("info", "context_preparer: system prompt cache HIT");
-                    (cached, prev_file_id.to_string())
-                }
-                _ => {
-                    ctx.log(
-                        "warn",
-                        "context_preparer: system prompt cache file unreadable, rebuilding",
-                    );
-                    let prompt =
-                        assemble_system_prompt(ctx, temper_api_url, tenant, soul_id, system_prompt_override)?;
-                    let file_id = write_system_prompt_cache(
-                        ctx,
-                        temper_api_url,
-                        tenant,
-                        workspace_id,
-                        &prompt,
-                    )
-                    .unwrap_or_default();
-                    (prompt, file_id)
-                }
+    let (assembled_system_prompt, system_prompt_file_id) = if !prev_hash.is_empty()
+        && prev_hash == new_prompt_hash
+        && !prev_file_id.is_empty()
+    {
+        match read_temperfs_file(ctx, temper_api_url, tenant, prev_file_id) {
+            Ok(cached) if !cached.is_empty() => {
+                ctx.log("info", "context_preparer: system prompt cache HIT");
+                (cached, prev_file_id.to_string())
             }
-        } else {
-            ctx.log("info", "context_preparer: system prompt cache MISS, assembling");
-            let prompt =
-                assemble_system_prompt(ctx, temper_api_url, tenant, soul_id, system_prompt_override)?;
-            let file_id = write_system_prompt_cache(
-                ctx,
-                temper_api_url,
-                tenant,
-                workspace_id,
-                &prompt,
-            )
+            _ => {
+                ctx.log(
+                    "warn",
+                    "context_preparer: system prompt cache file unreadable, rebuilding",
+                );
+                let prompt = assemble_system_prompt(
+                    ctx,
+                    temper_api_url,
+                    tenant,
+                    soul_id,
+                    system_prompt_override,
+                )?;
+                let file_id =
+                    write_system_prompt_cache(ctx, temper_api_url, tenant, workspace_id, &prompt)
+                        .unwrap_or_default();
+                (prompt, file_id)
+            }
+        }
+    } else {
+        ctx.log(
+            "info",
+            "context_preparer: system prompt cache MISS, assembling",
+        );
+        let prompt =
+            assemble_system_prompt(ctx, temper_api_url, tenant, soul_id, system_prompt_override)?;
+        let file_id = write_system_prompt_cache(ctx, temper_api_url, tenant, workspace_id, &prompt)
             .unwrap_or_default();
-            (prompt, file_id)
-        };
+        (prompt, file_id)
+    };
 
-    Ok((assembled_system_prompt, new_prompt_hash, system_prompt_file_id))
+    Ok((
+        assembled_system_prompt,
+        new_prompt_hash,
+        system_prompt_file_id,
+    ))
 }
 
 fn resolve_provider_and_model(
@@ -3942,67 +4022,33 @@ fn resolve_provider_and_model(
     provider_raw: &str,
     model_raw: &str,
 ) -> Result<(String, String, String), String> {
+    if model_raw.trim().is_empty() {
+        return Err(
+            "Session model is required; configure the Agent or pass an explicit override"
+                .to_string(),
+        );
+    }
+    if provider_raw.trim().is_empty() {
+        return Err(
+            "Session provider is required; configure the Agent or pass an explicit override"
+                .to_string(),
+        );
+    }
     let provider = normalize_provider(provider_raw);
-    let (provider, api_key) = if provider == "mock" {
-        (provider, String::new())
+    let api_key = if provider == "mock" {
+        String::new()
     } else {
         let key = resolve_provider_api_key(ctx, &provider)?;
         if is_unresolved_secret_template(&key) {
-            let alternatives = ["anthropic", "openai_codex", "openai", "openrouter"];
-            let mut found = None;
-            for alt in &alternatives {
-                if *alt == provider {
-                    continue;
-                }
-                if let Ok(alt_key) = resolve_provider_api_key(ctx, alt) {
-                    if !alt_key.is_empty() && !is_unresolved_secret_template(&alt_key) {
-                        // ADR-0054 warn-audit: provider-selection fallback is a
-                        // configuration fact, not an operator-actionable
-                        // warning. Fires once per LLM call which is too noisy
-                        // for the warn level (81 in a 45-min window during the
-                        // 2026-04-18 Katagami incident). Downgraded to info.
-                        ctx.log(
-                            "info",
-                            &format!(
-                                "provider selection: provider={provider} has no key, falling back to {alt}"
-                            ),
-                        );
-                        found = Some((alt.to_string(), alt_key));
-                        break;
-                    }
-                }
-            }
-            match found {
-                Some((p, k)) => (p, k),
-                None => {
-                    return Err(format!(
-                        "provider={provider} api key is unresolved secret template: '{key}'. set tenant secret and retry"
-                    ));
-                }
-            }
+            return Err(format!(
+                "provider={provider} api key is unresolved secret template: '{key}'. set tenant secret and retry"
+            ));
         } else {
-            (provider, key)
+            key
         }
     };
 
-    let model = if provider != normalize_provider(provider_raw) {
-        let vault_model = ctx
-            .config
-            .get("default_llm_model")
-            .filter(|v| !v.is_empty() && !is_unresolved_secret_template(v));
-        if let Some(model) = vault_model {
-            model.clone()
-        } else {
-            match provider.as_str() {
-                "openai" => "gpt-4.1".to_string(),
-                "openai_codex" => "gpt-5.4".to_string(),
-                "openrouter" => "anthropic/claude-sonnet-4".to_string(),
-                _ => "claude-sonnet-4-6".to_string(),
-            }
-        }
-    } else {
-        model_raw.to_string()
-    };
+    let model = model_raw.trim().to_string();
 
     if provider != "mock" && api_key.is_empty() {
         return Err(format!("missing API key for provider={provider}"));
@@ -4091,36 +4137,38 @@ fn append_assistant_response_to_session_tree(
         read_session_from_temperfs(ctx, temper_api_url, tenant, &prepared.session_file_id)?;
     let mut tree = SessionTree::from_jsonl(&session_jsonl);
     let content_str = serde_json::to_string(content).unwrap_or_default();
-    let (new_leaf, externalized) = if !prepared.workspace_id.is_empty()
-        && should_store_entry_as_file(&content_str)
-    {
-        match create_content_file_for_entry(
-            ctx,
-            temper_api_url,
-            tenant,
-            &prepared.workspace_id,
-            &format!("a-{}", tree.len()),
-            &content_str,
-        ) {
-            Ok(content_file_id) => {
-                let (leaf, _) = tree.append_assistant_message_file(
-                    &prepared.session_leaf_id,
-                    &content_file_id,
-                    output_tokens,
-                );
-                (leaf, true)
+    let (new_leaf, externalized) =
+        if !prepared.workspace_id.is_empty() && should_store_entry_as_file(&content_str) {
+            match create_content_file_for_entry(
+                ctx,
+                temper_api_url,
+                tenant,
+                &prepared.workspace_id,
+                &format!("a-{}", tree.len()),
+                &content_str,
+            ) {
+                Ok(content_file_id) => {
+                    let (leaf, _) = tree.append_assistant_message_file(
+                        &prepared.session_leaf_id,
+                        &content_file_id,
+                        output_tokens,
+                    );
+                    (leaf, true)
+                }
+                Err(_) => {
+                    let (leaf, _) = tree.append_assistant_message(
+                        &prepared.session_leaf_id,
+                        content,
+                        output_tokens,
+                    );
+                    (leaf, false)
+                }
             }
-            Err(_) => {
-                let (leaf, _) =
-                    tree.append_assistant_message(&prepared.session_leaf_id, content, output_tokens);
-                (leaf, false)
-            }
-        }
-    } else {
-        let (leaf, _) =
-            tree.append_assistant_message(&prepared.session_leaf_id, content, output_tokens);
-        (leaf, false)
-    };
+        } else {
+            let (leaf, _) =
+                tree.append_assistant_message(&prepared.session_leaf_id, content, output_tokens);
+            (leaf, false)
+        };
 
     if externalized {
         emit_metric_ignore(
@@ -4133,7 +4181,13 @@ fn append_assistant_response_to_session_tree(
     }
 
     let updated_jsonl = tree.to_jsonl();
-    write_session_to_temperfs(ctx, temper_api_url, tenant, &prepared.session_file_id, &updated_jsonl)?;
+    write_session_to_temperfs(
+        ctx,
+        temper_api_url,
+        tenant,
+        &prepared.session_file_id,
+        &updated_jsonl,
+    )?;
     Ok(Some(new_leaf))
 }
 
@@ -4144,13 +4198,7 @@ fn session_metric_tags(provider: &str, model: &str) -> Value {
     })
 }
 
-fn emit_metric_ignore(
-    ctx: &Context,
-    name: &str,
-    value: f64,
-    tags: &Value,
-    kind: Option<&str>,
-) {
+fn emit_metric_ignore(ctx: &Context, name: &str, value: f64, tags: &Value, kind: Option<&str>) {
     let _ = ctx.emit_metric(name, value, tags, kind);
 }
 
@@ -4645,10 +4693,9 @@ fn load_skills_block(
                         let path = entity_field_str(item, &["Path", "path"])
                             .unwrap_or("")
                             .to_string();
-                        let workspace_id =
-                            entity_field_str(item, &["WorkspaceId", "workspace_id"])
-                                .unwrap_or("")
-                                .to_string();
+                        let workspace_id = entity_field_str(item, &["WorkspaceId", "workspace_id"])
+                            .unwrap_or("")
+                            .to_string();
                         if !id.is_empty() {
                             file_entries.push((id, path, workspace_id));
                         }
@@ -5042,6 +5089,35 @@ mod tests {
     use super::*;
 
     #[test]
+    fn provider_progress_wrapper_emits_start_and_end_on_success() {
+        let mut events = Vec::new();
+
+        let result = run_with_provider_progress(|event| events.push(event), || Ok::<_, String>(42));
+
+        assert_eq!(result, Ok(42));
+        assert_eq!(
+            events,
+            vec![ProviderProgressBoundary::Start, ProviderProgressBoundary::End]
+        );
+    }
+
+    #[test]
+    fn provider_progress_wrapper_emits_end_on_error() {
+        let mut events = Vec::new();
+
+        let result = run_with_provider_progress(
+            |event| events.push(event),
+            || Err::<(), _>("provider failed".to_string()),
+        );
+
+        assert_eq!(result, Err("provider failed".to_string()));
+        assert_eq!(
+            events,
+            vec![ProviderProgressBoundary::Start, ProviderProgressBoundary::End]
+        );
+    }
+
+    #[test]
     fn gen_ai_system_instructions_use_otel_schema() {
         let payload = build_gen_ai_system_instructions("You are a precise assistant.");
         let parsed: Value = serde_json::from_str(&payload).unwrap();
@@ -5105,6 +5181,111 @@ mod tests {
         assert_eq!(parsed[0]["parts"][0]["type"], "text");
         assert_eq!(parsed[0]["parts"][1]["type"], "tool_call");
         assert_eq!(parsed[0]["parts"][1]["id"], "tool_456");
+    }
+
+    #[test]
+    fn provider_response_ready_params_include_llm_observability_content() {
+        let prepared = PreparedContextArtifact {
+            version: 1,
+            messages: vec![json!({"role": "user", "content": "What changed?"})],
+            tools: vec![],
+            system_prompt: "You are concise.".to_string(),
+            system_prompt_hash: "hash-123".to_string(),
+            system_prompt_file_id: "file-system".to_string(),
+            conversation_file_id: String::new(),
+            session_file_id: String::new(),
+            session_leaf_id: String::new(),
+            workspace_id: "workspace-1".to_string(),
+            use_session_tree: false,
+            context_tokens: 12,
+            context_bytes: 128,
+            entries_loaded: 1,
+            content_files_loaded: 0,
+        };
+        let artifact = ProviderResponseArtifact {
+            version: 1,
+            provider: "anthropic".to_string(),
+            model: "claude-sonnet-4-6".to_string(),
+            content: json!([{"type": "text", "text": "The LLM span now has content."}]),
+            stop_reason: "end_turn".to_string(),
+            input_tokens: 10,
+            output_tokens: 20,
+            cache_read_input_tokens: 0,
+            cache_creation_input_tokens: 0,
+            request_bytes: 256,
+            response_bytes: 512,
+        };
+
+        let params =
+            build_provider_response_ready_params("provider-response-file", &prepared, &artifact);
+
+        assert_eq!(
+            params["provider_response_file_id"],
+            "provider-response-file"
+        );
+        assert_eq!(params["_gen_ai_provider"], "anthropic");
+        assert_eq!(params["_gen_ai_model"], "claude-sonnet-4-6");
+        assert_eq!(params["_gen_ai_finish_reason"], "end_turn");
+
+        let input: Value =
+            serde_json::from_str(params["_gen_ai_input_messages"].as_str().unwrap()).unwrap();
+        let output: Value =
+            serde_json::from_str(params["_gen_ai_output_messages"].as_str().unwrap()).unwrap();
+        let system: Value =
+            serde_json::from_str(params["_gen_ai_system_instructions"].as_str().unwrap()).unwrap();
+
+        assert_eq!(system[0]["content"], "You are concise.");
+        assert_eq!(input[0]["parts"][0]["content"], "What changed?");
+        assert_eq!(
+            output[0]["parts"][0]["content"],
+            "The LLM span now has content."
+        );
+    }
+
+    #[test]
+    fn provider_response_applier_base_params_do_not_emit_llm_observability_content() {
+        let prepared = PreparedContextArtifact {
+            version: 1,
+            messages: vec![json!({"role": "user", "content": "What changed?"})],
+            tools: vec![],
+            system_prompt: "You are concise.".to_string(),
+            system_prompt_hash: "hash-123".to_string(),
+            system_prompt_file_id: "file-system".to_string(),
+            conversation_file_id: String::new(),
+            session_file_id: String::new(),
+            session_leaf_id: String::new(),
+            workspace_id: "workspace-1".to_string(),
+            use_session_tree: false,
+            context_tokens: 12,
+            context_bytes: 128,
+            entries_loaded: 1,
+            content_files_loaded: 0,
+        };
+        let artifact = ProviderResponseArtifact {
+            version: 1,
+            provider: "anthropic".to_string(),
+            model: "claude-sonnet-4-6".to_string(),
+            content: json!([{"type": "text", "text": "The provider call already emitted LLMObs content."}]),
+            stop_reason: "end_turn".to_string(),
+            input_tokens: 10,
+            output_tokens: 20,
+            cache_read_input_tokens: 0,
+            cache_creation_input_tokens: 0,
+            request_bytes: 256,
+            response_bytes: 512,
+        };
+
+        let params = build_provider_response_applier_base_params(&prepared, &artifact);
+
+        assert_eq!(params["input_tokens"], 10);
+        assert_eq!(params["output_tokens"], 20);
+        assert_eq!(params["system_prompt_hash"], "hash-123");
+        assert!(params.get("_gen_ai_system_instructions").is_none());
+        assert!(params.get("_gen_ai_input_messages").is_none());
+        assert!(params.get("_gen_ai_output_messages").is_none());
+        assert!(params.get("_gen_ai_provider").is_none());
+        assert!(params.get("_gen_ai_model").is_none());
+        assert!(params.get("_gen_ai_finish_reason").is_none());
     }
 
     #[test]
@@ -5327,6 +5508,44 @@ mod tests {
         assert!(msg.contains("anthropic"));
         assert!(msg.contains("attempt 1"));
         assert!(msg.contains("70123"));
+    }
+
+    #[test]
+    fn gen_ai_prompt_attr_includes_system_and_messages() {
+        let msgs = vec![
+            json!({"role": "user", "content": "hello"}),
+            json!({"role": "assistant", "content": "hi"}),
+        ];
+        let out = format_gen_ai_prompt_attr("you are helpful", &msgs);
+        let v: Value = serde_json::from_str(&out).expect("must be valid JSON");
+        assert_eq!(v["system"], "you are helpful");
+        assert_eq!(v["messages"].as_array().unwrap().len(), 2);
+        assert_eq!(v["messages"][0]["content"], "hello");
+    }
+
+    #[test]
+    fn gen_ai_prompt_attr_omits_system_when_empty() {
+        let msgs = vec![json!({"role": "user", "content": "hi"})];
+        let out = format_gen_ai_prompt_attr("", &msgs);
+        let v: Value = serde_json::from_str(&out).expect("must be valid JSON");
+        assert!(v.get("system").is_none());
+        assert_eq!(v["messages"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn gen_ai_prompt_attr_truncates_on_utf8_boundary_with_suffix() {
+        // Build a huge message payload to force truncation.
+        let big = "🎉".repeat(10 * 1024); // 40 KB of 4-byte chars.
+        let msgs = vec![json!({"role": "user", "content": big})];
+        let out = format_gen_ai_prompt_attr("", &msgs);
+        assert!(out.ends_with("…[truncated]"));
+        assert!(
+            out.len() <= LLM_PROMPT_ATTR_MAX_BYTES + "…[truncated]".len(),
+            "attr length {} exceeded expected cap",
+            out.len()
+        );
+        // Truncation must keep the prefix valid UTF-8.
+        let _ = std::str::from_utf8(out.as_bytes()).expect("must remain valid utf-8");
     }
 
     #[test]

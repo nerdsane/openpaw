@@ -179,6 +179,7 @@ pub async fn run_setup_config(config: &Config) -> anyhow::Result<SetupResult> {
 pub async fn run_setup_soul_interview(
     api_key: &str,
     provider_name: &str,
+    model_name: &str,
 ) -> anyhow::Result<Option<GeneratedSoul>> {
     if !std::io::stdin().is_terminal() || api_key.is_empty() {
         return Ok(None);
@@ -198,7 +199,7 @@ pub async fn run_setup_soul_interview(
         .placeholder("how they think, how they talk, what makes them great to work with")
         .interact()?;
 
-    let provider = LlmProvider::detect(api_key, provider_name);
+    let provider = LlmProvider::detect(api_key, provider_name, model_name)?;
 
     // Round 2: LLM-generated follow-ups
     let mut followup_answers = Vec::new();
@@ -306,13 +307,14 @@ pub async fn run_setup_soul(
     api_port: u16,
     api_key: &str,
     provider_name: &str,
+    model_name: &str,
     tenant: &str,
     auth: SetupRequestAuth,
 ) -> anyhow::Result<()> {
     let base = format!("http://127.0.0.1:{api_port}");
     let client = reqwest::Client::new();
 
-    if let Some(generated) = run_setup_soul_interview(api_key, provider_name).await? {
+    if let Some(generated) = run_setup_soul_interview(api_key, provider_name, model_name).await? {
         let save_spinner = cliclack::spinner();
         save_spinner.start("Saving soul to Temper...");
         match save_soul_to_temper(&client, &base, tenant, &generated, &auth).await {

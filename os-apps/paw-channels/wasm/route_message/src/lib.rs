@@ -162,10 +162,9 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 .or_else(|| nested_str_field(&cs, &["Id", "entity_id"]))
                 .unwrap_or_default()
                 .to_string();
-            let agent_entity_id =
-                nested_str_field(&cs, &["AgentEntityId", "agent_entity_id"])
-                    .unwrap_or_default()
-                    .to_string();
+            let agent_entity_id = nested_str_field(&cs, &["AgentEntityId", "agent_entity_id"])
+                .unwrap_or_default()
+                .to_string();
             let session_entity_id =
                 nested_str_field(&cs, &["SessionEntityId", "session_entity_id"])
                     .unwrap_or_default()
@@ -183,6 +182,39 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
 
                 if is_steerable_status(session_status) {
                     resume_session(&ctx, &temper_api_url, &ctx.tenant, &cs_id).ok();
+                    // ADR-0039 Sub-Decision 1: if the Session hasn't made
+                    // forward progress recently, dispatch the state-specific
+                    // Resume* action to wake its driving integration. Cheap
+                    // no-op for actively progressing sessions (is_session_stale
+                    // returns false when last_progress_at is fresh).
+                    if is_session_stale(
+                        &session,
+                        (timestamp_millis_string().parse::<i64>().unwrap_or(0)) / 1000,
+                        RESUME_STALENESS_THRESHOLD_SECS,
+                    ) && let Some(action_name) = resume_action_for_status(session_status)
+                    {
+                        if let Err(e) = wake_session(
+                            &ctx,
+                            &temper_api_url,
+                            &ctx.tenant,
+                            &session_entity_id,
+                            action_name,
+                        ) {
+                            ctx.log(
+                                "warn",
+                                &format!(
+                                    "route_message: wake-up failed for session {session_entity_id} (status={session_status}, action={action_name}): {e}"
+                                ),
+                            );
+                        } else {
+                            ctx.log(
+                                "info",
+                                &format!(
+                                    "route_message: dispatched {action_name} on stale session {session_entity_id} (status={session_status})"
+                                ),
+                            );
+                        }
+                    }
                     if !command.is_empty() {
                         // Slash command: switch mode first, then steer
                         switch_mode_and_steer(
@@ -447,12 +479,7 @@ fn resume_session(
 ) -> Result<(), String> {
     let url = format!("{temper_api_url}/tdata/ChannelSessions('{session_id}')/Paw.Channel.Resume");
     let body = json!({ "last_message_at": timestamp_millis_string() });
-    let _ = ctx.http_call(
-        "POST",
-        &url,
-        &odata_headers(ctx, tenant),
-        &body.to_string(),
-    )?;
+    let _ = ctx.http_call("POST", &url, &odata_headers(ctx, tenant), &body.to_string())?;
     Ok(())
 }
 
@@ -550,10 +577,12 @@ fn create_session_for_agent(
                 .unwrap_or("")
                 .to_string();
             let model = nested_str_field(&agent, &["Model", "model"])
-                .unwrap_or("claude-sonnet-4-6")
+                .filter(|value| !value.trim().is_empty())
+                .ok_or_else(|| format!("Agent {route_agent_id} has no configured model"))?
                 .to_string();
             let provider = nested_str_field(&agent, &["Provider", "provider"])
-                .unwrap_or("anthropic")
+                .filter(|value| !value.trim().is_empty())
+                .ok_or_else(|| format!("Agent {route_agent_id} has no configured provider"))?
                 .to_string();
             let tools = nested_str_field(&agent, &["ToolsEnabled", "tools_enabled"])
                 .filter(|s| !s.is_empty())
@@ -580,12 +609,14 @@ fn create_session_for_agent(
             let model = config
                 .get("model")
                 .and_then(Value::as_str)
-                .unwrap_or("claude-sonnet-4-6")
+                .filter(|value| !value.trim().is_empty())
+                .ok_or("AgentRoute config requires model when agent_id is not set")?
                 .to_string();
             let provider = config
                 .get("provider")
                 .and_then(Value::as_str)
-                .unwrap_or("anthropic")
+                .filter(|value| !value.trim().is_empty())
+                .ok_or("AgentRoute config requires provider when agent_id is not set")?
                 .to_string();
             let tools = config
                 .get("tools_enabled")
@@ -693,13 +724,8 @@ fn continue_with_new_session(
     let conversation_file_id =
         str_field(&fields, &["conversation_file_id", "ConversationFileId"]).unwrap_or("");
     let prior_leaf_id = str_field(&fields, &["session_leaf_id", "SessionLeafId"]).unwrap_or("");
-    let workspace_id = resolve_workspace_id_for_session(
-        ctx,
-        temper_api_url,
-        tenant,
-        &fields,
-        session_file_id,
-    )?;
+    let workspace_id =
+        resolve_workspace_id_for_session(ctx, temper_api_url, tenant, &fields, session_file_id)?;
 
     let new_leaf_id = if !session_file_id.is_empty() {
         Some(append_user_message_to_session(
@@ -783,12 +809,16 @@ fn continue_with_new_session(
     let effective_model = if !agent_model.is_empty() {
         &agent_model
     } else {
-        str_field(&fields, &["model", "Model"]).unwrap_or("claude-sonnet-4-6")
+        str_field(&fields, &["model", "Model"])
+            .filter(|value| !value.trim().is_empty())
+            .ok_or("route_message requires a configured model from AgentRoute, Agent, or prior Session")?
     };
     let effective_provider = if !agent_provider.is_empty() {
         &agent_provider
     } else {
-        str_field(&fields, &["provider", "Provider"]).unwrap_or("anthropic")
+        str_field(&fields, &["provider", "Provider"])
+            .filter(|value| !value.trim().is_empty())
+            .ok_or("route_message requires a configured provider from AgentRoute, Agent, or prior Session")?
     };
     let effective_tools = if !agent_tools.is_empty() {
         &agent_tools
@@ -830,13 +860,7 @@ fn continue_with_new_session(
     )?;
 
     // Update ChannelSession: agent_entity_id stays the same, only session_entity_id changes
-    update_session_binding(
-        ctx,
-        temper_api_url,
-        tenant,
-        cs_id,
-        &new_session_id,
-    )?;
+    update_session_binding(ctx, temper_api_url, tenant, cs_id, &new_session_id)?;
     Ok(new_session_id)
 }
 
@@ -977,9 +1001,8 @@ fn update_session_binding(
     cs_id: &str,
     new_session_id: &str,
 ) -> Result<(), String> {
-    let url = format!(
-        "{temper_api_url}/tdata/ChannelSessions('{cs_id}')/Paw.Channel.UpdateSession"
-    );
+    let url =
+        format!("{temper_api_url}/tdata/ChannelSessions('{cs_id}')/Paw.Channel.UpdateSession");
     let body = json!({
         "session_entity_id": new_session_id,
         "last_message_at": timestamp_millis_string(),
@@ -1006,7 +1029,8 @@ fn append_user_message_to_session(
     session_leaf_id: &str,
     user_message: &str,
 ) -> Result<String, String> {
-    let session_jsonl = read_file_value(ctx, temper_api_url, tenant, workspace_id, session_file_id)?;
+    let session_jsonl =
+        read_file_value(ctx, temper_api_url, tenant, workspace_id, session_file_id)?;
     let mut tree = SessionTree::from_jsonl(&session_jsonl);
     let mut parent_id = if !session_leaf_id.is_empty() {
         session_leaf_id.to_string()
@@ -1033,7 +1057,9 @@ fn append_user_message_to_session(
             &file_name,
             user_message,
         ) {
-            Ok(content_file_id) => tree.append_user_message_file(&parent_id, &content_file_id, tokens),
+            Ok(content_file_id) => {
+                tree.append_user_message_file(&parent_id, &content_file_id, tokens)
+            }
             Err(err) => {
                 ctx.log(
                     "warn",
@@ -1066,7 +1092,13 @@ fn append_user_message_to_conversation(
     conversation_file_id: &str,
     user_message: &str,
 ) -> Result<(), String> {
-    let raw = read_file_value(ctx, temper_api_url, tenant, workspace_id, conversation_file_id)?;
+    let raw = read_file_value(
+        ctx,
+        temper_api_url,
+        tenant,
+        workspace_id,
+        conversation_file_id,
+    )?;
     let parsed: Value = serde_json::from_str(&raw).unwrap_or_else(|_| json!({ "messages": [] }));
     let mut messages = parsed
         .get("messages")
@@ -1105,9 +1137,11 @@ fn resolve_workspace_id_for_session(
         &format!("{temper_api_url}/tdata/Files('{session_file_id}')"),
         tenant,
     )?;
-    Ok(nested_str_field(&session_file, &["workspace_id", "WorkspaceId"])
-        .unwrap_or("")
-        .to_string())
+    Ok(
+        nested_str_field(&session_file, &["workspace_id", "WorkspaceId"])
+            .unwrap_or("")
+            .to_string(),
+    )
 }
 
 fn read_file_value(
@@ -1172,6 +1206,118 @@ fn is_terminal_status(status: &str) -> bool {
 
 fn is_steerable_status(status: &str) -> bool {
     matches!(status, "Thinking" | "Executing" | "Steering" | "Compacting")
+}
+
+/// Maximum staleness, in seconds, before `route_message` preemptively
+/// dispatches a Resume* action on a session before Steer. The session's
+/// state_timeouts are typically 300-600s; a 60s staleness threshold is
+/// well below any of those, so Resume fires before the state_timeout
+/// TimeoutFail would have triggered, giving the user a fast response
+/// path on DM arrival instead of waiting for the safety net.
+const RESUME_STALENESS_THRESHOLD_SECS: i64 = 60;
+
+/// Maps a Session.status to the Resume* action name that wakes that state's
+/// driving integration. Per ADR-0039 Sub-Decision 1. Returns `None` for
+/// terminal states (where wake-up is meaningless) and for intermediate
+/// states with no declared driver (currently none).
+///
+/// States that don't get a Resume* action:
+/// - Created, Provisioning (bootstrap states — different wake-up mechanism)
+/// - ApplyingProviderResponse (brief glue state; state_timeout=60s is enough)
+/// - WaitingForApproval (human-gated by design, ADR-0005)
+/// - Recovering (already a recovery state; Recover* actions cover it)
+/// - Completed, Failed, Cancelled (terminal)
+fn resume_action_for_status(status: &str) -> Option<&'static str> {
+    match status {
+        "Executing" => Some("ResumeTools"),
+        "CallingProvider" => Some("ResumeProvider"),
+        "PreparingContext" => Some("ResumeContext"),
+        "Thinking" => Some("ResumeThinking"),
+        "Compacting" => Some("ResumeCompacting"),
+        "Steering" => Some("ResumeSteering"),
+        _ => None,
+    }
+}
+
+/// True if the session's `last_progress_at` is older than `threshold_secs`
+/// relative to `now_secs`. Missing or unparseable `last_progress_at`
+/// returns true (safe default — prefer to wake than to silently stall).
+fn is_session_stale(session: &Value, now_secs: i64, threshold_secs: i64) -> bool {
+    let last_str = session
+        .pointer("/fields/last_progress_at")
+        .and_then(|v| v.as_str())
+        .or_else(|| nested_str_field(session, &["LastProgressAt", "last_progress_at"]));
+    let Some(s) = last_str else {
+        return true; // field missing (old snapshot) — wake-up is safe.
+    };
+    let Some(last_secs) = parse_iso8601_secs(s) else {
+        return true;
+    };
+    now_secs.saturating_sub(last_secs) > threshold_secs
+}
+
+/// Parse an ISO-8601 / RFC-3339 timestamp string into Unix seconds.
+/// Supports the `YYYY-MM-DDTHH:MM:SS[.fff]Z` shape temper-observe emits.
+/// Returns `None` on any parse failure.
+fn parse_iso8601_secs(s: &str) -> Option<i64> {
+    // Minimal parser: strip trailing Z, split T, parse date and time.
+    // Avoids pulling chrono into this crate just for one parse path.
+    let bytes = s.as_bytes();
+    if bytes.len() < 19 {
+        return None;
+    }
+    let date = &s[..10];
+    let time_start = 11;
+    let time_end = if let Some(z) = s.find(['Z', '+', '.']) {
+        z
+    } else {
+        s.len()
+    };
+    if time_end <= time_start + 7 {
+        return None;
+    }
+    let time = &s[time_start..time_start + 8]; // HH:MM:SS
+
+    let (y, m, d) = {
+        let mut parts = date.split('-');
+        (
+            parts.next()?.parse::<i32>().ok()?,
+            parts.next()?.parse::<u32>().ok()?,
+            parts.next()?.parse::<u32>().ok()?,
+        )
+    };
+    let (hh, mm, ss) = {
+        let mut parts = time.split(':');
+        (
+            parts.next()?.parse::<u32>().ok()?,
+            parts.next()?.parse::<u32>().ok()?,
+            parts.next()?.parse::<u32>().ok()?,
+        )
+    };
+
+    // Days-from-civil (Hinnant), avoids chrono dep in this WASM crate.
+    let y_adj = y - if m <= 2 { 1 } else { 0 };
+    let era = if y_adj >= 0 { y_adj } else { y_adj - 399 } / 400;
+    let yoe = (y_adj - era * 400) as u32;
+    let doy = (153 * (if m > 2 { m - 3 } else { m + 9 }) + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days_since_epoch = era as i64 * 146097 + doe as i64 - 719468;
+    Some(days_since_epoch * 86400 + hh as i64 * 3600 + mm as i64 * 60 + ss as i64)
+}
+
+/// Dispatch the matching Resume* action on the Session entity to wake its
+/// driving integration. ADR-0039 Sub-Decision 1.
+fn wake_session(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+    session_entity_id: &str,
+    action_name: &str,
+) -> Result<(), String> {
+    let url =
+        format!("{temper_api_url}/tdata/Sessions('{session_entity_id}')/TemperPaw.{action_name}");
+    let _ = ctx.http_call("POST", &url, &odata_headers(ctx, tenant), "{}")?;
+    Ok(())
 }
 
 fn estimate_tokens(text: &str) -> usize {
@@ -1252,8 +1398,8 @@ fn switch_mode_and_steer(
         json!({})
     };
 
-    let current_tools =
-        nested_str_field(&session, &["ToolsEnabled", "tools_enabled"]).unwrap_or(DEFAULT_TOOLS_ENABLED);
+    let current_tools = nested_str_field(&session, &["ToolsEnabled", "tools_enabled"])
+        .unwrap_or(DEFAULT_TOOLS_ENABLED);
 
     // 2. Build SwitchMode body
     let mut body = serde_json::Map::new();
@@ -1264,15 +1410,17 @@ fn switch_mode_and_steer(
         body.insert("tools_enabled".into(), json!(PLAN_MODE_TOOLS));
     } else {
         // "execute" — restore stashed tools
-        let stashed = nested_str_field(&session, &["PrePlanToolsEnabled", "pre_plan_tools_enabled"])
-            .filter(|s| !s.is_empty())
-            .unwrap_or(DEFAULT_TOOLS_ENABLED);
+        let stashed =
+            nested_str_field(&session, &["PrePlanToolsEnabled", "pre_plan_tools_enabled"])
+                .filter(|s| !s.is_empty())
+                .unwrap_or(DEFAULT_TOOLS_ENABLED);
         body.insert("tools_enabled".into(), json!(stashed));
         body.insert("pre_plan_tools_enabled".into(), json!(""));
     }
 
     // 3. Dispatch SwitchMode
-    let switch_url = format!("{temper_api_url}/tdata/Sessions('{session_id}')/TemperPaw.SwitchMode");
+    let switch_url =
+        format!("{temper_api_url}/tdata/Sessions('{session_id}')/TemperPaw.SwitchMode");
     let resp = ctx.http_call(
         "POST",
         &switch_url,
@@ -1346,6 +1494,107 @@ fn nested_str_field<'a>(value: &'a Value, keys: &[&str]) -> Option<&'a str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // --- Stale-session wake-up (ADR-0039) -------------------------------
+
+    #[test]
+    fn resume_action_for_status_covers_all_driving_states() {
+        assert_eq!(resume_action_for_status("Executing"), Some("ResumeTools"));
+        assert_eq!(
+            resume_action_for_status("CallingProvider"),
+            Some("ResumeProvider")
+        );
+        assert_eq!(
+            resume_action_for_status("PreparingContext"),
+            Some("ResumeContext")
+        );
+        assert_eq!(resume_action_for_status("Thinking"), Some("ResumeThinking"));
+        assert_eq!(
+            resume_action_for_status("Compacting"),
+            Some("ResumeCompacting")
+        );
+        assert_eq!(resume_action_for_status("Steering"), Some("ResumeSteering"));
+    }
+
+    #[test]
+    fn resume_action_for_status_returns_none_for_non_driving_states() {
+        for status in [
+            "Created",
+            "Provisioning",
+            "ApplyingProviderResponse",
+            "WaitingForApproval",
+            "Recovering",
+            "Completed",
+            "Failed",
+            "Cancelled",
+        ] {
+            assert_eq!(
+                resume_action_for_status(status),
+                None,
+                "status {status} must not produce a Resume* action"
+            );
+        }
+    }
+
+    #[test]
+    fn parse_iso8601_secs_handles_utc_z_suffix() {
+        // 2026-04-21T14:30:00Z → Unix seconds
+        // Hand-computed: (2026-1970)*365.25 ~ 56*365.25 = 20_454 days + some leap days.
+        // Easier to use a round-trip check against a known anchor.
+        let anchor = parse_iso8601_secs("1970-01-01T00:00:00Z").unwrap();
+        assert_eq!(anchor, 0);
+        let day_later = parse_iso8601_secs("1970-01-02T00:00:00Z").unwrap();
+        assert_eq!(day_later, 86_400);
+        let hour_later = parse_iso8601_secs("1970-01-01T01:00:00Z").unwrap();
+        assert_eq!(hour_later, 3_600);
+    }
+
+    #[test]
+    fn parse_iso8601_secs_handles_fractional_and_offset() {
+        // Fractional seconds suffix (".123Z") truncates at the dot.
+        let parsed = parse_iso8601_secs("2026-04-21T14:30:00.123Z").unwrap();
+        // Same whole-second base whether fractional present or not.
+        let baseline = parse_iso8601_secs("2026-04-21T14:30:00Z").unwrap();
+        assert_eq!(parsed, baseline);
+    }
+
+    #[test]
+    fn parse_iso8601_secs_returns_none_for_garbage() {
+        assert_eq!(parse_iso8601_secs("not-a-timestamp"), None);
+        assert_eq!(parse_iso8601_secs(""), None);
+        assert_eq!(parse_iso8601_secs("short"), None);
+    }
+
+    #[test]
+    fn is_session_stale_returns_true_when_last_progress_older_than_threshold() {
+        // Anchor on the actual parsed timestamp to avoid off-by-wall-clock
+        // errors. last_progress_at is a fixed instant; we probe staleness
+        // at different "now" offsets relative to it.
+        let ts = "2026-04-21T14:30:00Z";
+        let ts_secs = parse_iso8601_secs(ts).expect("anchor parses");
+        let session = json!({ "fields": { "last_progress_at": ts } });
+
+        // "now" 20s after last_progress_at, threshold 60s → not stale.
+        assert!(!is_session_stale(&session, ts_secs + 20, 60));
+        // "now" 20s after, threshold 10s → stale.
+        assert!(is_session_stale(&session, ts_secs + 20, 10));
+        // "now" 120s after, threshold 60s → stale.
+        assert!(is_session_stale(&session, ts_secs + 120, 60));
+    }
+
+    #[test]
+    fn is_session_stale_returns_true_when_last_progress_missing() {
+        // Safe default: old snapshots pre-PR#98 don't have last_progress_at.
+        // Better to wake-up unnecessarily than to silently stall.
+        let session = json!({ "fields": {} });
+        assert!(is_session_stale(&session, 1_000_000, 60));
+    }
+
+    #[test]
+    fn is_session_stale_returns_true_on_unparseable_timestamp() {
+        let session = json!({ "fields": { "last_progress_at": "not-a-date" } });
+        assert!(is_session_stale(&session, 1_000_000, 60));
+    }
 
     #[test]
     fn trace_context_is_read_from_receive_message_trigger_params() {

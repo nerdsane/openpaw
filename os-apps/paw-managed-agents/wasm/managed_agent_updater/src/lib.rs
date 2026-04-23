@@ -54,14 +54,14 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 .get("fields")
                 .cloned()
                 .unwrap_or_else(|| current_agent.clone());
-            let model_id = {
-                let value = field_string(&current_fields, &["ModelId", "model_id"]);
-                if value.is_empty() {
-                    "claude-sonnet-4-6".to_string()
-                } else {
-                    value
-                }
-            };
+            let model_id = field_string(&current_fields, &["ModelId", "model_id"]);
+            if model_id.is_empty() {
+                return Err("ManagedAgent requires ModelId before syncing inner Agent".into());
+            }
+            let provider = field_string(&current_fields, &["Provider", "provider"]);
+            if provider.is_empty() {
+                return Err("ManagedAgent requires Provider before syncing inner Agent".into());
+            }
             let _ = post_absolute_action(
                 &ctx,
                 &headers,
@@ -69,6 +69,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 &json!({
                     "description": field_string(&current_fields, &["Description", "description"]),
                     "model": model_id,
+                    "provider": provider,
                     "tools_enabled": tools_enabled,
                     "max_turns": "60",
                 }),
@@ -106,11 +107,7 @@ fn agent_tool_config_query(tool_rows: &[Value]) -> String {
 
 fn next_version(fields: &Value) -> i64 {
     let current = field_i64(fields, &["Version", "version"]);
-    if current < 1 {
-        1
-    } else {
-        current + 1
-    }
+    if current < 1 { 1 } else { current + 1 }
 }
 
 #[cfg(test)]

@@ -65,6 +65,16 @@ name = "author_temperature"
 type = "string"
 initial = "0.8"
 
+[[state]]
+name = "author_model"
+type = "string"
+initial = ""
+
+[[state]]
+name = "author_provider"
+type = "string"
+initial = ""
+
 # Temperature for judge agents
 [[state]]
 name = "judge_temperature"
@@ -101,7 +111,7 @@ initial = ""
 name = "Configure"
 kind = "input"
 from = ["Created"]
-params = ["artifact_file_id", "domain_context", "max_rounds", "convergence_k", "judge_count", "author_temperature", "judge_temperature", "judge_config_json"]
+params = ["artifact_file_id", "domain_context", "max_rounds", "convergence_k", "judge_count", "author_temperature", "author_model", "author_provider", "judge_temperature", "judge_config_json"]
 hint = "Set tournament parameters."
 
 [[action]]
