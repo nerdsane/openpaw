@@ -27,6 +27,22 @@ use wasm_helpers::{
 const SESSION_ENTRY_FILE_THRESHOLD_BYTES: usize = 4096;
 const DEFAULT_TOOLS_ENABLED: &str = "temper_create,temper_get,temper_list,temper_action,temper_patch,temper_submit_specs,temper_show_spec,temper_specs,temper_upload_wasm,temper_get_trajectories,temper_get_insights,temper_get_decisions,temper_poll_decision,temper_approve_decision,temper_deny_decision,temper_submit_policy,temper_list_policies,temper_get_policy,temper_update_policy,temper_delete_policy,temper_install_app,temper_list_apps,temper_spawn_session,temper_list_sessions,temper_abort_session,temper_steer_session,temper_save_memory,temper_recall_memory,temper_write,temper_read,temper_ls,temper_grep,temper_glob,temper_edit,temper_rename,temper_search_history,temper_run_coding_agent,temper_get_secret,temper_datadog_query,temper_railway,temper_vercel,temper_web_search,temper_web_fetch,read,write,edit,bash";
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ProviderProgressBoundary {
+    Start,
+    End,
+}
+
+fn run_with_provider_progress<T>(
+    mut emit_progress: impl FnMut(ProviderProgressBoundary),
+    call_provider: impl FnOnce() -> T,
+) -> T {
+    emit_progress(ProviderProgressBoundary::Start);
+    let result = call_provider();
+    emit_progress(ProviderProgressBoundary::End);
+    result
+}
+
 struct ReplMethodSpec {
     object: &'static str,
     method: &'static str,
@@ -821,44 +837,55 @@ anthropic_api_token (or api_key) for anthropic, openrouter_api_key (or api_key) 
         send_typing_indicator(&ctx, &temper_api_url, tenant, typing_agent_id);
 
         // Call LLM API
-        let response = match provider.as_str() {
-            "mock" => call_mock(&ctx, &messages, &assembled_system_prompt, &tools)?,
-            "anthropic" => call_anthropic(
-                &ctx,
-                &api_key,
-                &anthropic_api_url,
-                &model,
-                &assembled_system_prompt,
-                &messages,
-                &tools,
-                &anthropic_auth_mode,
-                temperature,
-            )?,
-            "openrouter" => call_openrouter(
-                &ctx,
-                &api_key,
-                &openrouter_api_url,
-                &model,
-                &assembled_system_prompt,
-                &messages,
-                &tools,
-                &openrouter_site_url,
-                &openrouter_app_name,
-                temperature,
-            )?,
-            "openai" | "openai_codex" => call_openai(
-                &ctx,
-                &api_key,
-                &openai_api_url,
-                &model,
-                &assembled_system_prompt,
-                &messages,
-                &tools,
-                temperature,
-                &provider,
-            )?,
-            other => return Err(format!("unsupported LLM provider: {other}")),
-        };
+        let response = run_with_provider_progress(
+            |boundary| {
+                ctx.log(
+                    "debug",
+                    &format!(
+                        "llm_caller: provider progress boundary={boundary:?} provider={provider} model={model}"
+                    ),
+                );
+                let _ = send_progress(&ctx, &temper_api_url, tenant);
+            },
+            || match provider.as_str() {
+                "mock" => call_mock(&ctx, &messages, &assembled_system_prompt, &tools),
+                "anthropic" => call_anthropic(
+                    &ctx,
+                    &api_key,
+                    &anthropic_api_url,
+                    &model,
+                    &assembled_system_prompt,
+                    &messages,
+                    &tools,
+                    &anthropic_auth_mode,
+                    temperature,
+                ),
+                "openrouter" => call_openrouter(
+                    &ctx,
+                    &api_key,
+                    &openrouter_api_url,
+                    &model,
+                    &assembled_system_prompt,
+                    &messages,
+                    &tools,
+                    &openrouter_site_url,
+                    &openrouter_app_name,
+                    temperature,
+                ),
+                "openai" | "openai_codex" => call_openai(
+                    &ctx,
+                    &api_key,
+                    &openai_api_url,
+                    &model,
+                    &assembled_system_prompt,
+                    &messages,
+                    &tools,
+                    temperature,
+                    &provider,
+                ),
+                other => Err(format!("unsupported LLM provider: {other}")),
+            },
+        )?;
 
         ctx.log(
             "info",
@@ -3007,6 +3034,29 @@ fn send_heartbeat(ctx: &Context, temper_api_url: &str, tenant: &str) -> Result<(
     Ok(())
 }
 
+fn send_progress(ctx: &Context, temper_api_url: &str, tenant: &str) -> Result<(), String> {
+    let url = format!(
+        "{temper_api_url}/tdata/Sessions('{}')/TemperPaw.ProgressMade",
+        ctx.entity_id
+    );
+    let body = json!({ "last_progress_at": timestamp_millis_string() });
+    let fields = ctx
+        .entity_state
+        .get("fields")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    let headers = runtime_headers_as(
+        ctx,
+        tenant,
+        &fields,
+        "system",
+        Some("application/json"),
+        None,
+    );
+    let _ = ctx.http_call("POST", &url, &headers, &body.to_string())?;
+    Ok(())
+}
+
 fn mock_plan_requests_hang(messages: &[Value]) -> bool {
     if let Some(steps) = extract_mock_plan(messages)
         && steps
@@ -4218,49 +4268,60 @@ pub fn run_provider_caller() -> Result<(), String> {
         entity_field_str(&fields, &["agent_id", "AgentId"]).unwrap_or(&ctx.entity_id);
     send_typing_indicator(&ctx, &temper_api_url, tenant, typing_agent_id);
 
-    let response = match provider.as_str() {
-        "mock" => call_mock(
-            &ctx,
-            &prepared.messages,
-            &prepared.system_prompt,
-            &prepared.tools,
-        )?,
-        "anthropic" => call_anthropic(
-            &ctx,
-            &api_key,
-            &anthropic_api_url,
-            &model,
-            &prepared.system_prompt,
-            &prepared.messages,
-            &prepared.tools,
-            &anthropic_auth_mode,
-            temperature,
-        )?,
-        "openrouter" => call_openrouter(
-            &ctx,
-            &api_key,
-            &openrouter_api_url,
-            &model,
-            &prepared.system_prompt,
-            &prepared.messages,
-            &prepared.tools,
-            &openrouter_site_url,
-            &openrouter_app_name,
-            temperature,
-        )?,
-        "openai" | "openai_codex" => call_openai(
-            &ctx,
-            &api_key,
-            &openai_api_url,
-            &model,
-            &prepared.system_prompt,
-            &prepared.messages,
-            &prepared.tools,
-            temperature,
-            &provider,
-        )?,
-        other => return Err(format!("unsupported LLM provider: {other}")),
-    };
+    let response = run_with_provider_progress(
+        |boundary| {
+            ctx.log(
+                "debug",
+                &format!(
+                    "provider_caller: provider progress boundary={boundary:?} provider={provider} model={model}"
+                ),
+            );
+            let _ = send_progress(&ctx, &temper_api_url, tenant);
+        },
+        || match provider.as_str() {
+            "mock" => call_mock(
+                &ctx,
+                &prepared.messages,
+                &prepared.system_prompt,
+                &prepared.tools,
+            ),
+            "anthropic" => call_anthropic(
+                &ctx,
+                &api_key,
+                &anthropic_api_url,
+                &model,
+                &prepared.system_prompt,
+                &prepared.messages,
+                &prepared.tools,
+                &anthropic_auth_mode,
+                temperature,
+            ),
+            "openrouter" => call_openrouter(
+                &ctx,
+                &api_key,
+                &openrouter_api_url,
+                &model,
+                &prepared.system_prompt,
+                &prepared.messages,
+                &prepared.tools,
+                &openrouter_site_url,
+                &openrouter_app_name,
+                temperature,
+            ),
+            "openai" | "openai_codex" => call_openai(
+                &ctx,
+                &api_key,
+                &openai_api_url,
+                &model,
+                &prepared.system_prompt,
+                &prepared.messages,
+                &prepared.tools,
+                temperature,
+                &provider,
+            ),
+            other => Err(format!("unsupported LLM provider: {other}")),
+        },
+    )?;
 
     let metric_tags = session_metric_tags(&provider, &model);
     emit_metric_ignore(
@@ -5704,6 +5765,35 @@ fn resolve_temper_api_url(ctx: &Context, fields: &Value) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn provider_progress_wrapper_emits_start_and_end_on_success() {
+        let mut events = Vec::new();
+
+        let result = run_with_provider_progress(|event| events.push(event), || Ok::<_, String>(42));
+
+        assert_eq!(result, Ok(42));
+        assert_eq!(
+            events,
+            vec![ProviderProgressBoundary::Start, ProviderProgressBoundary::End]
+        );
+    }
+
+    #[test]
+    fn provider_progress_wrapper_emits_end_on_error() {
+        let mut events = Vec::new();
+
+        let result = run_with_provider_progress(
+            |event| events.push(event),
+            || Err::<(), _>("provider failed".to_string()),
+        );
+
+        assert_eq!(result, Err("provider failed".to_string()));
+        assert_eq!(
+            events,
+            vec![ProviderProgressBoundary::Start, ProviderProgressBoundary::End]
+        );
+    }
 
     #[test]
     fn gen_ai_system_instructions_use_otel_schema() {
