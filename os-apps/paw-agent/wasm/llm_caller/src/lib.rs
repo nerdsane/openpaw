@@ -1104,7 +1104,7 @@ anthropic_api_token (or api_key) for anthropic, openrouter_api_key (or api_key) 
                                 }),
                             );
                         } else {
-                            let params = json!({
+                            let mut params = json!({
                                 "result": result_text,
                                 "session_leaf_id": new_leaf,
                                 "input_tokens": response.input_tokens,
@@ -1118,6 +1118,7 @@ anthropic_api_token (or api_key) for anthropic, openrouter_api_key (or api_key) 
                                 "system_prompt_hash": new_prompt_hash,
                                 "system_prompt_file_id": new_prompt_file_id,
                             });
+                            clear_pending_execution_state(&mut params);
                             set_success_result("RecordResult", &params);
                         }
                     }
@@ -1139,6 +1140,7 @@ anthropic_api_token (or api_key) for anthropic, openrouter_api_key (or api_key) 
                     if let Some(ref conv) = conv_param {
                         params["conversation"] = json!(conv);
                     }
+                    clear_pending_execution_state(&mut params);
                     set_success_result("RecordResult", &params);
                 }
             }
@@ -2516,6 +2518,216 @@ fn extract_text_and_images_from_tool_content(
 ///
 /// Uses the Responses API format (not Chat Completions): instructions, input, stream=true.
 /// The WASM http_call buffers the full SSE stream — we parse the response.completed event.
+#[derive(Debug, PartialEq)]
+struct ParsedOpenAiSseResponse {
+    output_items: Vec<Value>,
+    usage: Value,
+}
+
+#[derive(Debug, PartialEq)]
+enum OpenAiSseParseError {
+    MissingCompleted { line_count: usize, body_len: usize },
+    EmptyCompleted { line_count: usize, body_len: usize },
+}
+
+impl std::fmt::Display for OpenAiSseParseError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            OpenAiSseParseError::MissingCompleted {
+                line_count,
+                body_len,
+            } => write!(
+                f,
+                "SSE stream truncated: {line_count} lines ({body_len}B) with no response.completed event"
+            ),
+            OpenAiSseParseError::EmptyCompleted {
+                line_count,
+                body_len,
+            } => write!(
+                f,
+                "OpenAI: no output items found in {line_count} lines ({body_len}B) despite response.completed"
+            ),
+        }
+    }
+}
+
+fn parse_openai_sse_response_body(
+    body: &str,
+) -> Result<ParsedOpenAiSseResponse, OpenAiSseParseError> {
+    let mut output_items = Vec::<Value>::new();
+    let mut usage = json!({});
+    let mut streamed_text = String::new();
+    let mut saw_completed = false;
+
+    for line in body.lines() {
+        let line = line.trim();
+        if line.is_empty() || line == "[DONE]" {
+            continue;
+        }
+        let json_str = line.strip_prefix("data: ").unwrap_or(line);
+        if let Ok(event) = serde_json::from_str::<Value>(json_str) {
+            let event_type = event.get("type").and_then(Value::as_str).unwrap_or("");
+            match event_type {
+                "response.output_item.done" => {
+                    if let Some(item) = event.get("item") {
+                        output_items.push(item.clone());
+                    }
+                }
+                "response.output_text.delta" => {
+                    if let Some(delta) = event.get("delta").and_then(Value::as_str) {
+                        streamed_text.push_str(delta);
+                    } else if let Some(text) = event.get("text").and_then(Value::as_str) {
+                        streamed_text.push_str(text);
+                    }
+                }
+                "response.output_text.done" => {
+                    if let Some(text) = event.get("text").and_then(Value::as_str) {
+                        if streamed_text.is_empty() {
+                            streamed_text.push_str(text);
+                        }
+                    }
+                }
+                "response.completed" => {
+                    saw_completed = true;
+                    if let Some(resp) = event.get("response") {
+                        if let Some(u) = resp.get("usage") {
+                            usage = u.clone();
+                        }
+                        if let Some(out) = resp.get("output").and_then(Value::as_array) {
+                            if !out.is_empty() {
+                                output_items = out.clone();
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    if !saw_completed {
+        return Err(OpenAiSseParseError::MissingCompleted {
+            line_count: body.lines().count(),
+            body_len: body.len(),
+        });
+    }
+
+    if output_items.is_empty() {
+        let trimmed = streamed_text.trim();
+        if !trimmed.is_empty() {
+            output_items.push(json!({
+                "type": "message",
+                "content": [{
+                    "type": "output_text",
+                    "text": trimmed,
+                }],
+            }));
+        }
+    }
+
+    if output_items.is_empty() {
+        return Err(OpenAiSseParseError::EmptyCompleted {
+            line_count: body.lines().count(),
+            body_len: body.len(),
+        });
+    }
+
+    Ok(ParsedOpenAiSseResponse {
+        output_items,
+        usage,
+    })
+}
+
+fn build_openai_llm_response_from_output(
+    output_items: &[Value],
+    usage: &Value,
+    request_bytes: usize,
+    response_bytes: usize,
+) -> LlmResponse {
+    let mut content_blocks = Vec::<Value>::new();
+    let mut has_tool_calls = false;
+
+    for item in output_items {
+        let item_type = item.get("type").and_then(Value::as_str).unwrap_or("");
+        match item_type {
+            "message" => {
+                if let Some(content) = item.get("content").and_then(Value::as_array) {
+                    for part in content {
+                        let part_type = part.get("type").and_then(Value::as_str).unwrap_or("");
+                        if part_type == "output_text" {
+                            if let Some(text) = part.get("text").and_then(Value::as_str) {
+                                if !text.is_empty() {
+                                    content_blocks.push(json!({
+                                        "type": "text",
+                                        "text": text,
+                                    }));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            "function_call" => {
+                let call_id = item
+                    .get("call_id")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
+                let name = item
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
+                let arguments = item
+                    .get("arguments")
+                    .and_then(Value::as_str)
+                    .unwrap_or("{}");
+                let input = serde_json::from_str::<Value>(arguments).unwrap_or(json!({}));
+                content_blocks.push(json!({
+                    "type": "tool_use",
+                    "id": call_id,
+                    "name": name,
+                    "input": input,
+                }));
+                has_tool_calls = true;
+            }
+            _ => {} // reasoning, etc. — skip
+        }
+    }
+
+    let input_tokens = usage
+        .get("input_tokens")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
+    let output_tokens = usage
+        .get("output_tokens")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
+
+    let stop_reason = if has_tool_calls {
+        "tool_use".to_string()
+    } else {
+        "end_turn".to_string()
+    };
+
+    LlmResponse {
+        content: Value::Array(content_blocks),
+        stop_reason,
+        input_tokens,
+        output_tokens,
+        cache_read_input_tokens: 0,
+        cache_creation_input_tokens: 0,
+        request_bytes,
+        response_bytes,
+    }
+}
+
+fn clear_pending_execution_state(params: &mut Value) {
+    params["pending_tool_calls"] = json!("");
+    params["pending_tool_context"] = json!("");
+    params["pending_decision_id"] = json!("");
+}
+
 fn call_openai(
     ctx: &Context,
     api_key: &str,
@@ -2739,8 +2951,7 @@ fn call_openai(
     );
 
     let mut last_err = String::new();
-    let mut output_items = Vec::<Value>::new();
-    let mut usage = json!({});
+    let mut parsed_response = None;
 
     for attempt in 0..5 {
         if attempt > 0 {
@@ -2772,198 +2983,51 @@ fn call_openai(
             }
         };
 
-        // Parse SSE data payloads (newline-separated JSON lines from host).
-        // The Codex endpoint streams individual events — output_item.done events
-        // contain the actual tool calls and messages. response.completed may have
-        // empty output (Codex strips it for bandwidth). So we accumulate output
-        // items from output_item.done events and usage from response.completed.
         let body = &resp.body;
-        output_items.clear();
-        usage = json!({});
-        let mut streamed_text = String::new();
-        let mut saw_completed = false;
-
-        for line in body.lines() {
-            let line = line.trim();
-            if line.is_empty() || line == "[DONE]" {
+        match parse_openai_sse_response_body(body) {
+            Ok(parsed) => {
+                parsed_response = Some((parsed, body.len()));
+                break;
+            }
+            Err(err @ OpenAiSseParseError::MissingCompleted { .. }) => {
+                last_err = err.to_string();
+                ctx.log("warn", &format!("llm_caller: {last_err}, will retry"));
                 continue;
             }
-            let json_str = line.strip_prefix("data: ").unwrap_or(line);
-            if let Ok(event) = serde_json::from_str::<Value>(json_str) {
-                let event_type = event.get("type").and_then(Value::as_str).unwrap_or("");
-                match event_type {
-                    "response.output_item.done" => {
-                        if let Some(item) = event.get("item") {
-                            output_items.push(item.clone());
-                        }
-                    }
-                    "response.output_text.delta" => {
-                        if let Some(delta) = event.get("delta").and_then(Value::as_str) {
-                            streamed_text.push_str(delta);
-                        } else if let Some(text) = event.get("text").and_then(Value::as_str) {
-                            streamed_text.push_str(text);
-                        }
-                    }
-                    "response.output_text.done" => {
-                        if let Some(text) = event.get("text").and_then(Value::as_str) {
-                            if streamed_text.is_empty() {
-                                streamed_text.push_str(text);
-                            }
-                        }
-                    }
-                    "response.completed" => {
-                        saw_completed = true;
-                        if let Some(resp) = event.get("response") {
-                            if let Some(u) = resp.get("usage") {
-                                usage = u.clone();
-                            }
-                            if let Some(out) = resp.get("output").and_then(Value::as_array) {
-                                if !out.is_empty() {
-                                    output_items = out.clone();
-                                }
-                            }
-                        }
-                    }
-                    _ => {}
-                }
+            Err(err) => {
+                return Err(err.to_string());
             }
         }
-
-        if output_items.is_empty() {
-            let trimmed = streamed_text.trim();
-            if !trimmed.is_empty() {
-                output_items.push(json!({
-                    "type": "message",
-                    "content": [{
-                        "type": "output_text",
-                        "text": trimmed,
-                    }],
-                }));
-            }
-        }
-
-        if !output_items.is_empty() {
-            break;
-        }
-
-        // No output items — stream was likely truncated (SSE decode error
-        // during reasoning phase). Retry if we never saw response.completed.
-        if !saw_completed {
-            last_err = format!(
-                "SSE stream truncated: {} lines ({}B) but no response.completed event",
-                body.lines().count(),
-                body.len()
-            );
-            ctx.log("warn", &format!("llm_caller: {last_err}, will retry"));
-            continue;
-        }
-
-        // Saw response.completed but still no output — genuine empty response
-        return Err(format!(
-            "OpenAI: no output items found in {} lines ({}B) despite response.completed",
-            body.lines().count(),
-            body.len()
-        ));
     }
 
-    if output_items.is_empty() {
+    let Some((parsed_response, response_bytes)) = parsed_response else {
         return Err(format!(
             "OpenAI Codex API failed after 5 attempts: {last_err}"
         ));
-    }
-
-    // Build a synthetic response object for the existing parsing code
-    let response = json!({
-        "output": output_items,
-        "usage": usage,
-    });
-
-    // Extract content and tool calls from response.output
-    let mut content_blocks = Vec::<Value>::new();
-    let mut has_tool_calls = false;
-
-    if let Some(output) = response.get("output").and_then(Value::as_array) {
-        for item in output {
-            let item_type = item.get("type").and_then(Value::as_str).unwrap_or("");
-            match item_type {
-                "message" => {
-                    if let Some(content) = item.get("content").and_then(Value::as_array) {
-                        for part in content {
-                            let part_type = part.get("type").and_then(Value::as_str).unwrap_or("");
-                            if part_type == "output_text" {
-                                if let Some(text) = part.get("text").and_then(Value::as_str) {
-                                    if !text.is_empty() {
-                                        content_blocks.push(json!({
-                                            "type": "text",
-                                            "text": text,
-                                        }));
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                "function_call" => {
-                    let call_id = item
-                        .get("call_id")
-                        .and_then(Value::as_str)
-                        .unwrap_or("")
-                        .to_string();
-                    let name = item
-                        .get("name")
-                        .and_then(Value::as_str)
-                        .unwrap_or("")
-                        .to_string();
-                    let arguments = item
-                        .get("arguments")
-                        .and_then(Value::as_str)
-                        .unwrap_or("{}");
-                    let input = serde_json::from_str::<Value>(arguments).unwrap_or(json!({}));
-                    content_blocks.push(json!({
-                        "type": "tool_use",
-                        "id": call_id,
-                        "name": name,
-                        "input": input,
-                    }));
-                    has_tool_calls = true;
-                }
-                _ => {} // reasoning, etc. — skip
-            }
-        }
-    }
-
-    let usage = response.get("usage").cloned().unwrap_or(json!({}));
-    let input_tokens = usage
-        .get("input_tokens")
-        .and_then(|v| v.as_i64())
-        .unwrap_or(0);
-    let output_tokens = usage
-        .get("output_tokens")
-        .and_then(|v| v.as_i64())
-        .unwrap_or(0);
-
-    let stop_reason = if has_tool_calls {
-        "tool_use".to_string()
-    } else {
-        "end_turn".to_string()
     };
 
+    let response = build_openai_llm_response_from_output(
+        &parsed_response.output_items,
+        &parsed_response.usage,
+        body_str.len(),
+        response_bytes,
+    );
     ctx.log(
         "info",
-        &format!("llm_caller: OpenAI Codex response: blocks={}, stop={stop_reason}, in={input_tokens}, out={output_tokens}",
-            content_blocks.len()),
+        &format!(
+            "llm_caller: OpenAI Codex response: blocks={}, stop={}, in={}, out={}",
+            response
+                .content
+                .as_array()
+                .map(|arr| arr.len())
+                .unwrap_or(0),
+            response.stop_reason,
+            response.input_tokens,
+            response.output_tokens
+        ),
     );
 
-    Ok(LlmResponse {
-        content: Value::Array(content_blocks),
-        stop_reason,
-        input_tokens,
-        output_tokens,
-        cache_read_input_tokens: 0,
-        cache_creation_input_tokens: 0,
-        request_bytes: body_str.len(),
-        response_bytes: serde_json::to_string(&response).unwrap_or_default().len(),
-    })
+    Ok(response)
 }
 
 fn extract_openrouter_text(message: &Value) -> String {
@@ -4500,6 +4564,7 @@ pub fn run_provider_response_applier() -> Result<(), String> {
                 if let Some(ref conv) = conv_param {
                     params["conversation"] = json!(conv);
                 }
+                clear_pending_execution_state(&mut params);
                 set_success_result("RecordResult", &params);
             }
         }
@@ -5775,7 +5840,10 @@ mod tests {
         assert_eq!(result, Ok(42));
         assert_eq!(
             events,
-            vec![ProviderProgressBoundary::Start, ProviderProgressBoundary::End]
+            vec![
+                ProviderProgressBoundary::Start,
+                ProviderProgressBoundary::End
+            ]
         );
     }
 
@@ -5791,7 +5859,10 @@ mod tests {
         assert_eq!(result, Err("provider failed".to_string()));
         assert_eq!(
             events,
-            vec![ProviderProgressBoundary::Start, ProviderProgressBoundary::End]
+            vec![
+                ProviderProgressBoundary::Start,
+                ProviderProgressBoundary::End
+            ]
         );
     }
 
@@ -5859,6 +5930,47 @@ mod tests {
         assert_eq!(parsed[0]["parts"][0]["type"], "text");
         assert_eq!(parsed[0]["parts"][1]["type"], "tool_call");
         assert_eq!(parsed[0]["parts"][1]["id"], "tool_456");
+    }
+
+    #[test]
+    fn openai_sse_parser_keeps_all_function_calls_from_completed_stream() {
+        let body = concat!(
+            "data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"function_call\",\"call_id\":\"call_1\",\"name\":\"execute\",\"arguments\":\"{\\\"code\\\":\\\"temper.action('CurationJobs', 'job-1', 'Complete', {})\\\"}\"}}\n",
+            "data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"function_call\",\"call_id\":\"call_2\",\"name\":\"execute\",\"arguments\":\"{\\\"code\\\":\\\"temper.done('quality_review complete')\\\"}\"}}\n",
+            "data: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":11,\"output_tokens\":7}}}\n",
+            "data: [DONE]\n"
+        );
+
+        let parsed = parse_openai_sse_response_body(body).unwrap();
+        let response = build_openai_llm_response_from_output(
+            &parsed.output_items,
+            &parsed.usage,
+            123,
+            body.len(),
+        );
+
+        assert_eq!(response.stop_reason, "tool_use");
+        assert_eq!(response.input_tokens, 11);
+        assert_eq!(response.output_tokens, 7);
+        assert_eq!(response.content.as_array().unwrap().len(), 2);
+        assert_eq!(response.content[0]["type"], "tool_use");
+        assert_eq!(response.content[0]["id"], "call_1");
+        assert_eq!(response.content[1]["type"], "tool_use");
+        assert_eq!(response.content[1]["id"], "call_2");
+    }
+
+    #[test]
+    fn openai_sse_parser_rejects_partial_function_call_batch_without_completed_event() {
+        let body = concat!(
+            "data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"function_call\",\"call_id\":\"call_1\",\"name\":\"execute\",\"arguments\":\"{\\\"code\\\":\\\"temper.done('quality_review complete')\\\"}\"}}\n",
+            "data: {\"type\":\"response.output_text.delta\",\"delta\":\"thinking...\"}\n"
+        );
+
+        let err = parse_openai_sse_response_body(body)
+            .unwrap_err()
+            .to_string();
+
+        assert!(err.contains("no response.completed event"));
     }
 
     #[test]
