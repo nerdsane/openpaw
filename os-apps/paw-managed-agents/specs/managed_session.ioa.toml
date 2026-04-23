@@ -117,6 +117,19 @@ to = "Running"
 hint = "Create or resume the bridged TemperPaw session and begin processing."
 effect = [{ type = "trigger", name = "orchestrate_start" }]
 
+# ADR-0046: inline trigger — migrated from [[integration]] below.
+# Post-parse expansion re-synthesizes the equivalent Integration so
+# the existing WASM/webhook runtime handles execution unchanged.
+[[action.triggers]]
+name = "orchestrate_start"
+kind = "wasm"
+module = "session_orchestrator"
+
+[action.triggers.config]
+mode = "start"
+temper_api_url = "{secret:temper_api_url}"
+
+
 [[action]]
 name = "InnerSessionReady"
 kind = "input"
@@ -134,6 +147,18 @@ params = ["ErrorMessage", "TerminationReason"]
 hint = "Record an inner-session failure and terminate the managed session."
 effect = [{ type = "trigger", name = "terminate_inner" }]
 
+# ADR-0046: inline trigger — migrated from [[integration]] below.
+# Post-parse expansion re-synthesizes the equivalent Integration so
+# the existing WASM/webhook runtime handles execution unchanged.
+[[action.triggers]]
+name = "terminate_inner"
+kind = "wasm"
+module = "session_terminator"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+
+
 [[action]]
 name = "IdleSession"
 kind = "input"
@@ -143,6 +168,18 @@ params = ["StopReason"]
 hint = "Mark the managed session idle and emit derived session events."
 effect = [{ type = "trigger", name = "emit_idle_event" }]
 
+# ADR-0046: inline trigger — migrated from [[integration]] below.
+# Post-parse expansion re-synthesizes the equivalent Integration so
+# the existing WASM/webhook runtime handles execution unchanged.
+[[action.triggers]]
+name = "emit_idle_event"
+kind = "wasm"
+module = "event_emitter"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+
+
 [[action]]
 name = "ResumeSession"
 kind = "input"
@@ -150,6 +187,19 @@ from = ["Idle"]
 to = "Running"
 hint = "Resume an idle managed session with any pending user input."
 effect = [{ type = "trigger", name = "orchestrate_resume" }]
+
+# ADR-0046: inline trigger — migrated from [[integration]] below.
+# Post-parse expansion re-synthesizes the equivalent Integration so
+# the existing WASM/webhook runtime handles execution unchanged.
+[[action.triggers]]
+name = "orchestrate_resume"
+kind = "wasm"
+module = "session_orchestrator"
+
+[action.triggers.config]
+mode = "resume"
+temper_api_url = "{secret:temper_api_url}"
+
 
 [[action]]
 name = "InnerSessionPending"
@@ -167,6 +217,19 @@ kind = "input"
 from = ["Running"]
 hint = "Poll the bridged TemperPaw session state through a bounded self-loop."
 effect = [{ type = "trigger", name = "orchestrate_check" }]
+
+# ADR-0046: inline trigger — migrated from [[integration]] below.
+# Post-parse expansion re-synthesizes the equivalent Integration so
+# the existing WASM/webhook runtime handles execution unchanged.
+[[action.triggers]]
+name = "orchestrate_check"
+kind = "wasm"
+module = "session_orchestrator"
+
+[action.triggers.config]
+mode = "check"
+temper_api_url = "{secret:temper_api_url}"
+
 
 [[action]]
 name = "UpdateUsage"
@@ -252,51 +315,3 @@ when = { any_of = [
 ] }
 require = { field = "Status", equals = "Terminated" }
 message = "ManagedSession.ArchivedAt may only be set once the session is Terminated"
-
-[[integration]]
-name = "session_orchestrator_start"
-trigger = "orchestrate_start"
-type = "wasm"
-module = "session_orchestrator"
-
-[integration.config]
-mode = "start"
-temper_api_url = "{secret:temper_api_url}"
-
-[[integration]]
-name = "session_orchestrator_resume"
-trigger = "orchestrate_resume"
-type = "wasm"
-module = "session_orchestrator"
-
-[integration.config]
-mode = "resume"
-temper_api_url = "{secret:temper_api_url}"
-
-[[integration]]
-name = "session_orchestrator_check"
-trigger = "orchestrate_check"
-type = "wasm"
-module = "session_orchestrator"
-
-[integration.config]
-mode = "check"
-temper_api_url = "{secret:temper_api_url}"
-
-[[integration]]
-name = "event_emitter"
-trigger = "emit_idle_event"
-type = "wasm"
-module = "event_emitter"
-
-[integration.config]
-temper_api_url = "{secret:temper_api_url}"
-
-[[integration]]
-name = "session_terminator"
-trigger = "terminate_inner"
-type = "wasm"
-module = "session_terminator"
-
-[integration.config]
-temper_api_url = "{secret:temper_api_url}"

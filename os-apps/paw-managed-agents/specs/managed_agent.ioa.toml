@@ -72,6 +72,18 @@ effect = [
   { type = "trigger", name = "update_managed_agent" },
 ]
 
+# ADR-0046: inline trigger — migrated from [[integration]] below.
+# Post-parse expansion re-synthesizes the equivalent Integration so
+# the existing WASM/webhook runtime handles execution unchanged.
+[[action.triggers]]
+name = "update_managed_agent"
+kind = "wasm"
+module = "managed_agent_updater"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+
+
 [[action]]
 name = "SyncComplete"
 kind = "input"
@@ -113,12 +125,3 @@ require = { any_of = [
   { not = { field = "ArchivedAt", empty = true } },
 ] }
 message = "Archived managed agents must set ArchivedAt"
-
-[[integration]]
-name = "managed_agent_updater"
-trigger = "update_managed_agent"
-type = "wasm"
-module = "managed_agent_updater"
-
-[integration.config]
-temper_api_url = "{secret:temper_api_url}"
