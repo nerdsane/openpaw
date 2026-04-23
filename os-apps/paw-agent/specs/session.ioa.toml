@@ -656,7 +656,7 @@ name = "FinalizeResult"
 kind = "input"
 from = ["Steering"]
 to = "Completed"
-params = ["result", "conversation", "session_leaf_id"]
+params = ["result", "conversation", "session_leaf_id", "pending_tool_calls", "pending_tool_context", "pending_decision_id"]
 hint = "No steering messages queued. Set result and complete."
 effect = [
   { type = "set_bool", var = "has_result", value = "true" },
@@ -744,7 +744,7 @@ name = "RecordResult"
 kind = "input"
 from = ["ApplyingProviderResponse", "Executing"]
 to = "Completed"
-params = ["result", "conversation", "input_tokens", "output_tokens", "session_leaf_id", "repl_file_id", "tool_spans_file_id", "system_prompt_hash", "system_prompt_file_id"]
+params = ["result", "conversation", "input_tokens", "output_tokens", "session_leaf_id", "repl_file_id", "tool_spans_file_id", "system_prompt_hash", "system_prompt_file_id", "pending_tool_calls", "pending_tool_context", "pending_decision_id"]
 hint = "Session complete. Triggered by LLM end_turn or agent calling temper.done(result)."
 effect = [
   { type = "increment", var = "input_tokens" },

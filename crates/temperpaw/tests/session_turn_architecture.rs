@@ -97,3 +97,85 @@ fn session_spec_passes_modal_bridge_url_to_modal_integrations() {
         "session spec should pass modal_bridge_url into sandbox-related integrations"
     );
 }
+
+#[test]
+fn record_result_clears_pending_tool_state_on_terminal_completion() {
+    let root = repo_root();
+    let spec = fs::read_to_string(root.join("os-apps/paw-agent/specs/session.ioa.toml"))
+        .expect("session.ioa.toml should exist");
+    let csdl = fs::read_to_string(root.join("os-apps/paw-agent/specs/model.csdl.xml"))
+        .expect("model.csdl.xml should exist");
+    let monty = fs::read_to_string(root.join("os-apps/paw-agent/wasm/monty_repl/src/lib.rs"))
+        .expect("monty_repl source should exist");
+
+    assert!(
+        spec.contains(
+            "params = [\"result\", \"conversation\", \"input_tokens\", \"output_tokens\", \"session_leaf_id\", \"repl_file_id\", \"tool_spans_file_id\", \"system_prompt_hash\", \"system_prompt_file_id\", \"pending_tool_calls\", \"pending_tool_context\", \"pending_decision_id\"]"
+        ),
+        "RecordResult should be able to clear pending tool and approval fields on completion"
+    );
+
+    for needle in [
+        "<Parameter Name=\"pending_tool_calls\" Type=\"Edm.String\" Nullable=\"true\"/>",
+        "<Parameter Name=\"pending_tool_context\" Type=\"Edm.String\" Nullable=\"true\"/>",
+        "<Parameter Name=\"pending_decision_id\" Type=\"Edm.String\" Nullable=\"true\"/>",
+    ] {
+        assert!(
+            csdl.contains(needle),
+            "RecordResult CSDL should contain {needle}"
+        );
+    }
+
+    for needle in [
+        "done_params[\"pending_tool_calls\"] = json!(\"\")",
+        "done_params[\"pending_tool_context\"] = json!(\"\")",
+        "done_params[\"pending_decision_id\"] = json!(\"\")",
+    ] {
+        assert!(
+            monty.contains(needle),
+            "temper.done completion path should contain {needle}"
+        );
+    }
+}
+
+#[test]
+fn finalize_result_clears_pending_tool_state_on_terminal_completion() {
+    let root = repo_root();
+    let spec = fs::read_to_string(root.join("os-apps/paw-agent/specs/session.ioa.toml"))
+        .expect("session.ioa.toml should exist");
+    let csdl = fs::read_to_string(root.join("os-apps/paw-agent/specs/model.csdl.xml"))
+        .expect("model.csdl.xml should exist");
+    let steering_checker =
+        fs::read_to_string(root.join("os-apps/paw-agent/wasm/steering_checker/src/lib.rs"))
+            .expect("steering_checker source should exist");
+
+    assert!(
+        spec.contains(
+            "params = [\"result\", \"conversation\", \"session_leaf_id\", \"pending_tool_calls\", \"pending_tool_context\", \"pending_decision_id\"]"
+        ),
+        "FinalizeResult should be able to clear pending tool and approval fields on completion"
+    );
+
+    for needle in [
+        "<Action Name=\"FinalizeResult\" IsBound=\"true\">",
+        "<Parameter Name=\"pending_tool_calls\" Type=\"Edm.String\" Nullable=\"true\"/>",
+        "<Parameter Name=\"pending_tool_context\" Type=\"Edm.String\" Nullable=\"true\"/>",
+        "<Parameter Name=\"pending_decision_id\" Type=\"Edm.String\" Nullable=\"true\"/>",
+    ] {
+        assert!(
+            csdl.contains(needle),
+            "FinalizeResult CSDL should contain {needle}"
+        );
+    }
+
+    for needle in [
+        "\"pending_tool_calls\": \"\"",
+        "\"pending_tool_context\": \"\"",
+        "\"pending_decision_id\": \"\"",
+    ] {
+        assert!(
+            steering_checker.contains(needle),
+            "steering_checker finalize path should contain {needle}"
+        );
+    }
+}

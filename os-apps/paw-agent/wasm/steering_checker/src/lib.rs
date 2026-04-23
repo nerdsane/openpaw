@@ -185,6 +185,9 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             set_success_result("FinalizeResult", &json!({
                 "result": result_text,
                 "session_leaf_id": session_leaf_id,
+                "pending_tool_calls": "",
+                "pending_tool_context": "",
+                "pending_decision_id": "",
             }));
         }
 
