@@ -77,6 +77,20 @@ from = ["Watching"]
 hint = "Check the child Session and notify the parent if terminal."
 effect = [{ type = "trigger", name = "check_child_session" }]
 
+# ADR-0046: inline trigger — migrated from [[integration]] below.
+# Post-parse expansion re-synthesizes the equivalent Integration so
+# the existing WASM/webhook runtime handles execution unchanged.
+[[action.triggers]]
+name = "check_child_session"
+kind = "wasm"
+module = "session_link_monitor"
+on_failure = "NotifyFailed"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+max_memory = "67108864"
+
+
 [[action]]
 name = "ChildPending"
 kind = "input"
@@ -125,14 +139,3 @@ require = { all_of = [
   { not = { field = "ChildSessionId", empty = true } },
 ] }
 message = "SessionLink.Watching requires parent and child identifiers"
-
-[[integration]]
-name = "session_link_monitor"
-trigger = "check_child_session"
-type = "wasm"
-module = "session_link_monitor"
-on_failure = "NotifyFailed"
-
-[integration.config]
-temper_api_url = "{secret:temper_api_url}"
-max_memory = "67108864"
