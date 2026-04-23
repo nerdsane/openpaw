@@ -1140,33 +1140,6 @@ name = "TurnCountNonNegative"
 when = ["Created", "Provisioning", "Thinking", "PreparingContext", "CallingProvider", "ApplyingProviderResponse", "Executing", "Compacting", "Steering", "WaitingForApproval", "Recovering", "Completed", "Failed", "Cancelled"]
 assert = "turn_count >= 0"
 
-# --- Integrations ---
-
-[[integration]]
-name = "call_llm"
-trigger = "call_llm"
-type = "wasm"
-module = "llm_caller"
-on_failure = "Fail"
-
-[integration.config]
-api_key = "{secret:anthropic_api_key}"
-anthropic_api_key = "{secret:anthropic_api_key}"
-openai_codex_token = "{secret:openai_codex_token}"
-openrouter_api_key = "{secret:openrouter_api_key}"
-anthropic_api_url = "https://api.anthropic.com/v1/messages"
-openai_api_url = "https://chatgpt.com/backend-api/codex/responses"
-openrouter_api_url = "https://openrouter.ai/api/v1/chat/completions"
-anthropic_auth_mode = "auto"
-openrouter_site_url = ""
-openrouter_app_name = "temperpaw-agent"
-default_llm_provider = "{secret:llm_provider}"
-default_llm_model = "{secret:llm_model}"
-temper_api_url = "{secret:temper_api_url}"
-timeout_secs = "600"
-max_response_bytes = "4194304"
-max_memory = "268435456"
-
 [[state_timeout]]
 state = "Created"
 after_seconds = 60
