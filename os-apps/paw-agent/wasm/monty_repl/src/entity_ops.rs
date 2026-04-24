@@ -6,7 +6,7 @@
 use serde_json::{Value, json};
 use temper_wasm_sdk::context::Context;
 use tool_catalog::DEFAULT_TOOLS_ENABLED;
-use wasm_helpers::runtime_headers;
+use wasm_helpers::{read_content_file_version, runtime_headers};
 
 use crate::dispatch;
 
@@ -529,6 +529,16 @@ pub fn read(ctx: &Context, api_url: &str, tenant: &str, args: &[Value]) -> Resul
     let path = pos_str(args, 0, "path", "read")?;
     let opts = obj_arg_or_empty(args, 1);
 
+    if opts
+        .get("workspace_id")
+        .and_then(|value| value.as_str())
+        .filter(|value| !value.is_empty())
+        .is_none()
+        && let Some(content) = try_read_global_scoped_path(ctx, api_url, tenant, &path)?
+    {
+        return Ok(render_read_output(content, &opts));
+    }
+
     // 1. Resolve the target workspace. Prefer an explicit workspace override,
     // then the session's attached workspace_id, then the legacy "default"
     // workspace name.
@@ -568,46 +578,7 @@ pub fn read(ctx: &Context, api_url: &str, tenant: &str, args: &[Value]) -> Resul
         ));
     }
 
-    let content = resp.body;
-
-    // Support offset/limit for partial reads (0-indexed line numbers)
-    let offset = opts
-        .get("offset")
-        .and_then(|v| v.as_u64())
-        .map(|v| v as usize);
-    let limit = opts
-        .get("limit")
-        .and_then(|v| v.as_u64())
-        .map(|v| v as usize);
-
-    if offset.is_some() || limit.is_some() {
-        let lines: Vec<&str> = content.lines().collect();
-        let start = offset.unwrap_or(0);
-        let end = limit
-            .map(|l| (start + l).min(lines.len()))
-            .unwrap_or(lines.len());
-        if start >= lines.len() {
-            return Ok(json!({
-                "content": "",
-                "total_lines": lines.len(),
-                "offset": start,
-                "limit": limit.unwrap_or(0),
-            }));
-        }
-        let numbered: Vec<String> = lines[start..end]
-            .iter()
-            .enumerate()
-            .map(|(i, line)| format!("{}\t{}", start + i + 1, line))
-            .collect();
-        return Ok(json!({
-            "content": numbered.join("\n"),
-            "total_lines": lines.len(),
-            "offset": start,
-            "limit": end - start,
-        }));
-    }
-
-    Ok(json!(content))
+    Ok(render_read_output(resp.body, &opts))
 }
 
 // ---------------------------------------------------------------------------
@@ -781,7 +752,40 @@ pub fn search_history(
             continue;
         }
 
-        // If entry has content_file_id and no inline match, fetch the file content
+        // If entry has immutable content version and no inline match, fetch that.
+        if let Some(ref content_file_version_id) = entry.content_file_version_id {
+            if content_fetches >= MAX_CONTENT_FETCHES {
+                continue;
+            }
+            content_fetches += 1;
+
+            match read_content_file_version(
+                ctx,
+                api_url,
+                tenant,
+                &json!({}),
+                content_file_version_id,
+            ) {
+                Ok(raw) => {
+                    let raw_lower = raw.to_lowercase();
+                    if raw_lower.contains(&pattern_lower) {
+                        let excerpt = extract_excerpt(&raw, &pattern, 500);
+                        matches.push(json!({
+                            "entry_id": entry_id,
+                            "role": role,
+                            "entry_type": entry_type_str,
+                            "excerpt": excerpt,
+                            "source": "content_file_version",
+                            "content_file_version_id": content_file_version_id,
+                        }));
+                        continue;
+                    }
+                }
+                Err(_) => {}
+            }
+        }
+
+        // Fall back to current file head for older session entries.
         if let Some(ref content_file_id) = entry.content_file_id {
             if content_fetches >= MAX_CONTENT_FETCHES {
                 continue;
@@ -1455,6 +1459,82 @@ fn entity_field_str_val(value: &Value, key: &str) -> String {
         .to_string()
 }
 
+fn entity_field_str_any<'a>(value: &'a Value, keys: &[&str]) -> Option<&'a str> {
+    for key in keys {
+        if let Some(found) = value.get(*key).and_then(|v| v.as_str()) {
+            return Some(found);
+        }
+        if let Some(found) = value
+            .get("fields")
+            .and_then(|fields| fields.get(*key))
+            .and_then(|v| v.as_str())
+        {
+            return Some(found);
+        }
+    }
+    None
+}
+
+fn is_global_scoped_path(path: &str) -> bool {
+    path == "/system"
+        || path == "/agents"
+        || path == "/projects"
+        || path.starts_with("/system/")
+        || path.starts_with("/agents/")
+        || path.starts_with("/projects/")
+}
+
+fn escape_odata_string(value: &str) -> String {
+    value.replace('\'', "''")
+}
+
+fn global_scoped_file_filter(path: &str) -> String {
+    format!(
+        "path eq '{}' and Status ne 'Archived'",
+        escape_odata_string(path)
+    )
+}
+
+fn render_read_output(content: String, opts: &Value) -> Value {
+    let offset = opts
+        .get("offset")
+        .and_then(|v| v.as_u64())
+        .map(|v| v as usize);
+    let limit = opts
+        .get("limit")
+        .and_then(|v| v.as_u64())
+        .map(|v| v as usize);
+
+    if offset.is_some() || limit.is_some() {
+        let lines: Vec<&str> = content.lines().collect();
+        let start = offset.unwrap_or(0);
+        let end = limit
+            .map(|l| (start + l).min(lines.len()))
+            .unwrap_or(lines.len());
+        if start >= lines.len() {
+            return json!({
+                "content": "",
+                "total_lines": lines.len(),
+                "offset": start,
+                "limit": limit.unwrap_or(0),
+            });
+        }
+        let numbered: Vec<String> = lines[start..end]
+            .iter()
+            .enumerate()
+            .map(|(i, line)| format!("{}\t{}", start + i + 1, line))
+            .collect();
+        return json!({
+            "content": numbered.join("\n"),
+            "total_lines": lines.len(),
+            "offset": start,
+            "limit": end - start,
+        });
+    }
+
+    json!(content)
+}
+
 /// Minimal headers for internal Temper API calls.
 /// Auth headers (tenant, principal, agent-type, bearer token) are injected
 /// by the WASM host for internal calls — see ADR-0043.
@@ -1549,6 +1629,46 @@ fn session_workspace_id(ctx: &Context) -> Option<String> {
         .map(|value| value.to_string())
 }
 
+fn try_read_global_scoped_path(
+    ctx: &Context,
+    api_url: &str,
+    tenant: &str,
+    path: &str,
+) -> Result<Option<String>, String> {
+    if !is_global_scoped_path(path) {
+        return Ok(None);
+    }
+
+    let eid = ctx_entity_id(ctx);
+    let filter = urlenc(&global_scoped_file_filter(path));
+    let resp = http_get(
+        ctx,
+        api_url,
+        tenant,
+        eid,
+        &format!("/tdata/Files?$filter={filter}"),
+    )?;
+    let Some(file_id) = resp
+        .get("value")
+        .and_then(|value| value.as_array())
+        .and_then(|items| items.first())
+        .and_then(|item| entity_field_str_any(item, &["entity_id", "Id", "id"]))
+    else {
+        return Ok(None);
+    };
+
+    let url = format!("{api_url}/tdata/Files('{file_id}')/$value");
+    let headers = vec![("Accept".to_string(), "application/octet-stream".to_string())];
+    let resp = ctx.http_call("GET", &url, &headers, "")?;
+    if resp.status >= 400 {
+        return Err(format!(
+            "temper.read(): content read failed (HTTP {})",
+            resp.status
+        ));
+    }
+    Ok(Some(resp.body))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1613,6 +1733,22 @@ mod tests {
     fn recall_memory_input_accepts_legacy_query_argument() {
         let input = recall_memory_input(&[json!("openclaw")]).unwrap();
         assert_eq!(input["query"], "openclaw");
+    }
+
+    #[test]
+    fn scoped_virtual_path_detection_covers_global_scope_roots() {
+        assert!(is_global_scoped_path("/system/knowledge/design-principles.md"));
+        assert!(is_global_scoped_path("/agents/sl-bootstrap-agent-soul-curator/skills/research-direction/SKILL.md"));
+        assert!(is_global_scoped_path("/projects/proj-123/skills/review-quality/SKILL.md"));
+        assert!(!is_global_scoped_path("/katagami/index.md"));
+    }
+
+    #[test]
+    fn scoped_virtual_path_file_filter_escapes_single_quotes() {
+        assert_eq!(
+            global_scoped_file_filter("/system/knowledge/we're-here.md"),
+            "path eq '/system/knowledge/we''re-here.md' and Status ne 'Archived'"
+        );
     }
 }
 

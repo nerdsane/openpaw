@@ -5,7 +5,7 @@
 
 use temper_wasm_sdk::prelude::*;
 use wasm_helpers::{
-    create_content_file, entity_field_str, runtime_headers_as, send_typing_indicator,
+    create_content_file_ref, entity_field_str, runtime_headers_as, send_typing_indicator,
     timestamp_millis_string,
 };
 
@@ -44,7 +44,7 @@ pub fn persist_results(
 
         let (new_leaf, _) =
             if !workspace_id.is_empty() && should_store_entry_as_file(&content_str) {
-            match create_content_file(
+            match create_content_file_ref(
                 ctx,
                 temper_api_url,
                 tenant,
@@ -52,14 +52,17 @@ pub fn persist_results(
                 &format!("t-{}", tree.len()),
                 &content_str,
             ) {
-                Ok(content_file_id) => {
-                    tree.append_tool_results_file(session_leaf_id, &content_file_id, tokens_est)
-                }
+                Ok(content_ref) => tree.append_tool_results_file(
+                    session_leaf_id,
+                    &content_ref.file_id,
+                    Some(&content_ref.file_version_id),
+                    tokens_est,
+                ),
                 Err(_) => {
                     tree.append_tool_results(session_leaf_id, &tool_results_value, tokens_est)
                 }
             }
-            } else {
+        } else {
             tree.append_tool_results(session_leaf_id, &tool_results_value, tokens_est)
         };
 
@@ -112,7 +115,13 @@ pub fn persist_results(
 /// HTTP call). For real forward progress (tool batch completed, chunk
 /// received), call `send_progress` instead.
 pub fn send_heartbeat(ctx: &Context, temper_api_url: &str, tenant: &str) {
-    post_session_action(ctx, temper_api_url, tenant, "Heartbeat", "last_heartbeat_at");
+    post_session_action(
+        ctx,
+        temper_api_url,
+        tenant,
+        "Heartbeat",
+        "last_heartbeat_at",
+    );
 }
 
 /// Signal real forward progress: dispatches `ProgressMade` (resets the
@@ -123,7 +132,13 @@ pub fn send_heartbeat(ctx: &Context, temper_api_url: &str, tenant: &str) {
 /// streamed chunk. Contrast with `send_heartbeat`, which only signals
 /// liveness and does not reset timeouts.
 pub fn send_progress(ctx: &Context, temper_api_url: &str, tenant: &str) {
-    post_session_action(ctx, temper_api_url, tenant, "ProgressMade", "last_progress_at");
+    post_session_action(
+        ctx,
+        temper_api_url,
+        tenant,
+        "ProgressMade",
+        "last_progress_at",
+    );
 }
 
 fn post_session_action(
@@ -325,14 +340,7 @@ fn workspace_headers(ctx: &Context, tenant: &str, workspace_id: &str) -> Vec<(St
         .get("fields")
         .cloned()
         .unwrap_or_else(|| json!({}));
-    let mut headers = runtime_headers_as(
-        ctx,
-        tenant,
-        &fields,
-        "system",
-        Some("text/plain"),
-        None,
-    );
+    let mut headers = runtime_headers_as(ctx, tenant, &fields, "system", Some("text/plain"), None);
     headers.push(("X-Workspace-Id".to_string(), workspace_id.to_string()));
     headers
 }
@@ -515,9 +523,7 @@ fn read_temperfs_file(
 }
 
 fn is_retriable_write_failure(status: u16, body: &str) -> bool {
-    (500..600).contains(&status)
-        || body.contains("BlobUploadFailed")
-        || body.contains("HTTP -1")
+    (500..600).contains(&status) || body.contains("BlobUploadFailed") || body.contains("HTTP -1")
 }
 
 fn write_temperfs_file_with_retry(
@@ -627,14 +633,7 @@ fn file_headers_text(ctx: &Context, tenant: &str) -> Vec<(String, String)> {
         .get("fields")
         .cloned()
         .unwrap_or_else(|| json!({}));
-    runtime_headers_as(
-        ctx,
-        tenant,
-        &fields,
-        "system",
-        Some("text/plain"),
-        None,
-    )
+    runtime_headers_as(ctx, tenant, &fields, "system", Some("text/plain"), None)
 }
 
 #[cfg(test)]
@@ -650,10 +649,15 @@ mod tests {
         ];
         let out = encode_tool_spans_jsonl("", &events);
         let lines: Vec<&str> = out.split_terminator('\n').collect();
-        assert_eq!(lines.len(), 3, "expected 3 JSONL lines, got {}\n{}", lines.len(), out);
+        assert_eq!(
+            lines.len(),
+            3,
+            "expected 3 JSONL lines, got {}\n{}",
+            lines.len(),
+            out
+        );
         for (i, line) in lines.iter().enumerate() {
-            let parsed: Value =
-                serde_json::from_str(line).expect("each line must be valid JSON");
+            let parsed: Value = serde_json::from_str(line).expect("each line must be valid JSON");
             assert_eq!(parsed["tool_call_id"], events[i]["tool_call_id"]);
         }
         assert!(out.ends_with('\n'), "output must end with newline");

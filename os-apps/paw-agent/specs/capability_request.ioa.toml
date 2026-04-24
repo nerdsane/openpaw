@@ -62,6 +62,19 @@ to = "Installing"
 hint = "Human or Cedar policy approves the capability request. Triggers installation."
 effect = [{ type = "trigger", name = "install_capability" }]
 
+# ADR-0046: inline trigger — migrated from [[integration]] below.
+# Post-parse expansion re-synthesizes the equivalent Integration so
+# the existing WASM/webhook runtime handles execution unchanged.
+[[action.triggers]]
+name = "install_capability"
+kind = "wasm"
+module = "capability_installer"
+on_failure = "InstallFailed"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+
+
 [[action]]
 name = "Reject"
 kind = "input"
@@ -102,13 +115,3 @@ when = ["Failed"]
 assert = "no_further_transitions"
 
 # --- Integration ---
-
-[[integration]]
-name = "install_capability"
-trigger = "install_capability"
-type = "wasm"
-module = "capability_installer"
-on_failure = "InstallFailed"
-
-[integration.config]
-temper_api_url = "{secret:temper_api_url}"

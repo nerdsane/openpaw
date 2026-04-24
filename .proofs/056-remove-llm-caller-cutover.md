@@ -11,6 +11,8 @@ Completed the one-shot Session-turn cutover from the fresh `main` worktree:
 - made `context_preparer`, `provider_caller`, and `provider_response_applier` standalone WASM owners
 - added ADR-0040 to record the final architecture decision
 - centralized prompt/executor tool defaults and alias normalization in `tool-catalog`
+- reconciled the cutover with newer `main` changes, including the updated
+  `session-tree-lib::append_assistant_message_file(...)` signature
 
 ## Structural Red/Green
 
@@ -237,6 +239,60 @@ Observed staged artifacts on the live Session:
 
 This is the required live local E2E proof for the cutover: the new Session turn
 path completed end-to-end with no `llm_caller` integration present.
+
+### Post-merge verification against updated `main`
+
+After merging newer `origin/main` into the worktree branch, the staged WASM
+build surfaced a new compatibility issue: `session-tree-lib` had added an
+optional `content_file_version_id` parameter to
+`append_assistant_message_file(...)`.
+
+Patched the staged crates to pass `None` for that new optional argument and
+re-verified:
+
+```text
+cargo build -p temperpaw --bin temperpaw-server --release
+result: passed
+```
+
+```text
+./build.sh
+cwd: os-apps/paw-agent/wasm
+result: passed after the staged-crate signature fix
+```
+
+```text
+./build.sh
+cwd: os-apps/paw-fs/wasm/blob_adapter
+result: passed
+```
+
+```text
+./build.sh
+cwd: os-apps/paw-fs/wasm/workspace_fs
+result: passed
+```
+
+Started another fresh isolated server on port `61481` and reran the live mock
+provider Session proof. Session
+`ss-019dc142-eea8-7853-9eb7-b0ac94660f40` reached `Completed` with result:
+
+```text
+remove-llm-caller post-merge e2e complete
+```
+
+Observed staged actions on the post-merge run:
+
+- `WorkspaceReady`
+- `ContextReady`
+- `ProviderResponseReady`
+- `CheckSteering`
+- `FinalizeResult`
+
+Observed post-merge artifact IDs:
+
+- `prepared_context_file_id = fl-019dc142-ef92-7940-a3f6-bea64b581343`
+- `provider_response_file_id = fl-019dc142-efe5-7073-86a8-6d3e701732c7`
 
 ## Files of Interest
 

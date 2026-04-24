@@ -48,6 +48,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9a8e94ea7f378bd32cbbd37198a4a91436180c5bb472411e48b5ec2e2124ae9e"
 dependencies = [
  "serde_core",
+ "serde_derive",
 ]
 
 [[package]]
@@ -97,8 +98,9 @@ dependencies = [
 [[package]]
 name = "temper-wasm-sdk"
 version = "0.1.0"
-source = "git+https://github.com/nerdsane/temper.git?branch=main#d5d513dce6552fe69ecedb348ff4c86c06192146"
+source = "git+https://github.com/nerdsane/temper.git?branch=main#d0ddca35d3846228732602b4f8ffab5eee36ff0f"
 dependencies = [
+ "serde",
  "serde_json",
 ]
 

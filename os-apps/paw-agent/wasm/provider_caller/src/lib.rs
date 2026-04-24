@@ -4153,6 +4153,7 @@ fn append_assistant_response_to_session_tree(
                     let (leaf, _) = tree.append_assistant_message_file(
                         &prepared.session_leaf_id,
                         &content_file_id,
+                        None,
                         output_tokens,
                     );
                     (leaf, true)

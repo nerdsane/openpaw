@@ -5,7 +5,8 @@
 //!
 //! Storage format: JSONL (one JSON object per line) with tree structure via
 //! id/parentId. Entries can carry content inline or reference TemperFS files
-//! through `content_file_id`.
+//! through `content_file_id`, with optional immutable `content_file_version_id`
+//! refs for stable historical reads.
 
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
@@ -19,6 +20,7 @@ pub struct SessionEntry {
     pub data: Value,
     pub tokens: usize,
     pub content_file_id: Option<String>,
+    pub content_file_version_id: Option<String>,
 }
 
 /// Type of session tree entry.
@@ -56,14 +58,22 @@ impl EntryType {
 }
 
 /// A reference to a context entry for building LLM messages.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ContextRef {
     pub entry_id: String,
     pub role: String,
     pub content_file_id: Option<String>,
+    pub content_file_version_id: Option<String>,
     pub entry_type: EntryType,
     pub inline_content: Option<Value>,
     pub inline_summary: Option<String>,
+}
+
+/// Delta refs between a previously prepared leaf and the current leaf.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ContextRefDelta {
+    pub refs: Vec<ContextRef>,
+    pub includes_compaction: bool,
 }
 
 /// The session tree — an append-only tree of conversation entries.
@@ -110,6 +120,11 @@ impl SessionTree {
                     .and_then(|v| v.as_str())
                     .filter(|s| !s.is_empty())
                     .map(|s| s.to_string());
+                let content_file_version_id = val
+                    .get("content_file_version_id")
+                    .and_then(|v| v.as_str())
+                    .filter(|s| !s.is_empty())
+                    .map(|s| s.to_string());
 
                 if !id.is_empty() {
                     let entry = SessionEntry {
@@ -119,6 +134,7 @@ impl SessionTree {
                         data: val,
                         tokens,
                         content_file_id,
+                        content_file_version_id,
                     };
                     order.push(id.clone());
                     entries.insert(id, entry);
@@ -153,6 +169,7 @@ impl SessionTree {
             data: header,
             tokens: 0,
             content_file_id: None,
+            content_file_version_id: None,
         };
 
         let mut entries = BTreeMap::new();
@@ -238,60 +255,21 @@ impl SessionTree {
 
     /// Build context entry refs by walking from leaf_id to root.
     pub fn build_context_refs(&self, leaf_id: &str) -> Vec<ContextRef> {
-        let mut chain: Vec<&SessionEntry> = Vec::new();
-        let mut current_id = Some(leaf_id.to_string());
+        let Some(chain) = self.chain_from_leaf(leaf_id) else {
+            return Vec::new();
+        };
+        context_refs_from_chain(&chain).refs
+    }
 
-        while let Some(id) = current_id {
-            if let Some(entry) = self.entries.get(&id) {
-                chain.push(entry);
-                current_id = entry.parent_id.clone();
-            } else {
-                break;
-            }
-        }
-
-        chain.reverse();
-
-        let mut refs: Vec<ContextRef> = Vec::new();
-
-        for entry in &chain {
-            match entry.entry_type {
-                EntryType::Header => continue,
-                EntryType::Compaction => {
-                    refs.clear();
-                    refs.push(ContextRef {
-                        entry_id: entry.id.clone(),
-                        role: "user".to_string(),
-                        content_file_id: entry.content_file_id.clone(),
-                        entry_type: EntryType::Compaction,
-                        inline_content: None,
-                        inline_summary: entry
-                            .data
-                            .get("summary")
-                            .and_then(|v| v.as_str())
-                            .map(|s| s.to_string()),
-                    });
-                }
-                EntryType::Message | EntryType::Steering => {
-                    let role = entry
-                        .data
-                        .get("role")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("user")
-                        .to_string();
-                    refs.push(ContextRef {
-                        entry_id: entry.id.clone(),
-                        role,
-                        content_file_id: entry.content_file_id.clone(),
-                        entry_type: entry.entry_type.clone(),
-                        inline_content: entry.data.get("content").cloned(),
-                        inline_summary: None,
-                    });
-                }
-            }
-        }
-
-        refs
+    /// Build the refs between `after_entry_id` and `leaf_id` when the former
+    /// is an ancestor of the latter. Returns `None` when ancestry diverges.
+    pub fn build_context_refs_since(
+        &self,
+        leaf_id: &str,
+        after_entry_id: &str,
+    ) -> Option<ContextRefDelta> {
+        let chain = self.chain_after_ancestor(leaf_id, after_entry_id)?;
+        Some(context_refs_from_chain(&chain))
     }
 
     /// Append a new entry to the tree. Returns the JSONL line for the new entry.
@@ -331,6 +309,11 @@ impl SessionTree {
             .and_then(|v| v.as_str())
             .filter(|s| !s.is_empty())
             .map(|s| s.to_string());
+        let content_file_version_id = data
+            .get("content_file_version_id")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string());
 
         let line = serde_json::to_string(&data).unwrap_or_default();
 
@@ -341,6 +324,7 @@ impl SessionTree {
             data,
             tokens,
             content_file_id,
+            content_file_version_id,
         };
 
         self.order.push(id.to_string());
@@ -358,15 +342,23 @@ impl SessionTree {
         entry_type: EntryType,
         role: Option<&str>,
         content_file_id: &str,
+        content_file_version_id: Option<&str>,
         tokens: usize,
         extra_fields: Option<&Value>,
     ) -> String {
         let extra = if let Some(existing) = extra_fields {
             let mut obj = existing.clone();
             obj["content_file_id"] = json!(content_file_id);
+            if let Some(version_id) = content_file_version_id.filter(|value| !value.is_empty()) {
+                obj["content_file_version_id"] = json!(version_id);
+            }
             Some(obj)
         } else {
-            Some(json!({ "content_file_id": content_file_id }))
+            let mut obj = json!({ "content_file_id": content_file_id });
+            if let Some(version_id) = content_file_version_id.filter(|value| !value.is_empty()) {
+                obj["content_file_version_id"] = json!(version_id);
+            }
+            Some(obj)
         };
         self.append_entry(
             id,
@@ -404,6 +396,7 @@ impl SessionTree {
         &mut self,
         parent_id: &str,
         content_file_id: &str,
+        content_file_version_id: Option<&str>,
         tokens: usize,
     ) -> (String, String) {
         let id = format!("u-{}", self.order.len());
@@ -413,6 +406,7 @@ impl SessionTree {
             EntryType::Message,
             Some("user"),
             content_file_id,
+            content_file_version_id,
             tokens,
             None,
         );
@@ -444,6 +438,7 @@ impl SessionTree {
         &mut self,
         parent_id: &str,
         content_file_id: &str,
+        content_file_version_id: Option<&str>,
         tokens: usize,
     ) -> (String, String) {
         let id = format!("a-{}", self.order.len());
@@ -453,6 +448,7 @@ impl SessionTree {
             EntryType::Message,
             Some("assistant"),
             content_file_id,
+            content_file_version_id,
             tokens,
             None,
         );
@@ -484,6 +480,7 @@ impl SessionTree {
         &mut self,
         parent_id: &str,
         content_file_id: &str,
+        content_file_version_id: Option<&str>,
         tokens: usize,
     ) -> (String, String) {
         let id = format!("t-{}", self.order.len());
@@ -493,6 +490,7 @@ impl SessionTree {
             EntryType::Message,
             Some("user"),
             content_file_id,
+            content_file_version_id,
             tokens,
             None,
         );
@@ -529,6 +527,7 @@ impl SessionTree {
         &mut self,
         parent_id: &str,
         content_file_id: &str,
+        content_file_version_id: Option<&str>,
         first_kept: &str,
         summary_tokens: usize,
     ) -> (String, String) {
@@ -542,6 +541,7 @@ impl SessionTree {
             EntryType::Compaction,
             None,
             content_file_id,
+            content_file_version_id,
             summary_tokens,
             Some(&extra),
         );
@@ -658,6 +658,98 @@ impl SessionTree {
     }
 }
 
+impl SessionTree {
+    fn chain_from_leaf(&self, leaf_id: &str) -> Option<Vec<&SessionEntry>> {
+        let mut chain: Vec<&SessionEntry> = Vec::new();
+        let mut current_id = Some(leaf_id.to_string());
+
+        while let Some(id) = current_id {
+            let entry = self.entries.get(&id)?;
+            chain.push(entry);
+            current_id = entry.parent_id.clone();
+        }
+
+        chain.reverse();
+        Some(chain)
+    }
+
+    fn chain_after_ancestor(
+        &self,
+        leaf_id: &str,
+        after_entry_id: &str,
+    ) -> Option<Vec<&SessionEntry>> {
+        if !self.entries.contains_key(leaf_id) || !self.entries.contains_key(after_entry_id) {
+            return None;
+        }
+
+        let mut chain: Vec<&SessionEntry> = Vec::new();
+        let mut current_id = Some(leaf_id.to_string());
+
+        while let Some(id) = current_id {
+            if id == after_entry_id {
+                chain.reverse();
+                return Some(chain);
+            }
+
+            let entry = self.entries.get(&id)?;
+            chain.push(entry);
+            current_id = entry.parent_id.clone();
+        }
+
+        None
+    }
+}
+
+fn context_refs_from_chain(chain: &[&SessionEntry]) -> ContextRefDelta {
+    let mut refs: Vec<ContextRef> = Vec::new();
+    let mut includes_compaction = false;
+
+    for entry in chain {
+        match entry.entry_type {
+            EntryType::Header => continue,
+            EntryType::Compaction => {
+                includes_compaction = true;
+                refs.clear();
+                refs.push(ContextRef {
+                    entry_id: entry.id.clone(),
+                    role: "user".to_string(),
+                    content_file_id: entry.content_file_id.clone(),
+                    content_file_version_id: entry.content_file_version_id.clone(),
+                    entry_type: EntryType::Compaction,
+                    inline_content: None,
+                    inline_summary: entry
+                        .data
+                        .get("summary")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string()),
+                });
+            }
+            EntryType::Message | EntryType::Steering => {
+                let role = entry
+                    .data
+                    .get("role")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("user")
+                    .to_string();
+                refs.push(ContextRef {
+                    entry_id: entry.id.clone(),
+                    role,
+                    content_file_id: entry.content_file_id.clone(),
+                    content_file_version_id: entry.content_file_version_id.clone(),
+                    entry_type: entry.entry_type.clone(),
+                    inline_content: entry.data.get("content").cloned(),
+                    inline_summary: None,
+                });
+            }
+        }
+    }
+
+    ContextRefDelta {
+        refs,
+        includes_compaction,
+    }
+}
+
 fn estimate_summary_tokens(summary: &str) -> usize {
     let trimmed = summary.trim();
     if trimmed.is_empty() {
@@ -744,14 +836,61 @@ mod tests {
     #[test]
     fn test_build_context_refs_for_file_backed_entries() {
         let jsonl = r#"{"id":"h-1","parentId":null,"type":"header","version":1,"tokens":0}
-{"id":"u-1","parentId":"h-1","type":"message","role":"user","content_file_id":"file-1","tokens":10}
-{"id":"a-1","parentId":"u-1","type":"message","role":"assistant","content_file_id":"file-2","tokens":5}"#;
+{"id":"u-1","parentId":"h-1","type":"message","role":"user","content_file_id":"file-1","content_file_version_id":"ver-1","tokens":10}
+{"id":"a-1","parentId":"u-1","type":"message","role":"assistant","content_file_id":"file-2","content_file_version_id":"ver-2","tokens":5}"#;
 
         let tree = SessionTree::from_jsonl(jsonl);
         let refs = tree.build_context_refs("a-1");
         assert_eq!(refs.len(), 2);
         assert_eq!(refs[0].content_file_id.as_deref(), Some("file-1"));
+        assert_eq!(refs[0].content_file_version_id.as_deref(), Some("ver-1"));
         assert_eq!(refs[1].content_file_id.as_deref(), Some("file-2"));
+        assert_eq!(refs[1].content_file_version_id.as_deref(), Some("ver-2"));
+    }
+
+    #[test]
+    fn test_build_context_refs_since_returns_appendable_delta_for_descendant_leaf() {
+        let jsonl = r#"{"id":"h-1","parentId":null,"type":"header","version":1,"tokens":0}
+{"id":"u-1","parentId":"h-1","type":"message","role":"user","content":"hello","tokens":10}
+{"id":"a-1","parentId":"u-1","type":"message","role":"assistant","content":[{"type":"text","text":"hi"}],"tokens":5}
+{"id":"u-2","parentId":"a-1","type":"message","role":"user","content":"next","tokens":7}"#;
+
+        let tree = SessionTree::from_jsonl(jsonl);
+        let delta = tree.build_context_refs_since("u-2", "a-1").unwrap();
+
+        assert!(!delta.includes_compaction);
+        assert_eq!(delta.refs.len(), 1);
+        assert_eq!(delta.refs[0].entry_id, "u-2");
+        assert_eq!(delta.refs[0].role, "user");
+    }
+
+    #[test]
+    fn test_build_context_refs_since_marks_compaction_in_delta() {
+        let jsonl = r#"{"id":"h-1","parentId":null,"type":"header","version":1,"tokens":0}
+{"id":"u-1","parentId":"h-1","type":"message","role":"user","content":"hello","tokens":10}
+{"id":"a-1","parentId":"u-1","type":"message","role":"assistant","content":[{"type":"text","text":"hi"}],"tokens":5}
+{"id":"c-1","parentId":"a-1","type":"compaction","summary":"summary","first_kept":"a-1","tokens":3}
+{"id":"u-2","parentId":"c-1","type":"message","role":"user","content":"next","tokens":7}"#;
+
+        let tree = SessionTree::from_jsonl(jsonl);
+        let delta = tree.build_context_refs_since("u-2", "a-1").unwrap();
+
+        assert!(delta.includes_compaction);
+        assert_eq!(delta.refs.len(), 2);
+        assert_eq!(delta.refs[0].entry_id, "c-1");
+        assert_eq!(delta.refs[1].entry_id, "u-2");
+    }
+
+    #[test]
+    fn test_build_context_refs_since_returns_none_for_divergent_branch() {
+        let jsonl = r#"{"id":"h-1","parentId":null,"type":"header","version":1,"tokens":0}
+{"id":"u-1","parentId":"h-1","type":"message","role":"user","content":"hello","tokens":10}
+{"id":"a-1","parentId":"u-1","type":"message","role":"assistant","content":[{"type":"text","text":"hi"}],"tokens":5}
+{"id":"u-2","parentId":"a-1","type":"message","role":"user","content":"branch-a","tokens":7}
+{"id":"u-3","parentId":"a-1","type":"message","role":"user","content":"branch-b","tokens":7}"#;
+
+        let tree = SessionTree::from_jsonl(jsonl);
+        assert!(tree.build_context_refs_since("u-2", "u-3").is_none());
     }
 
     #[test]

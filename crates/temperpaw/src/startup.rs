@@ -8,9 +8,11 @@ use std::collections::HashSet;
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
+use axum::response::IntoResponse;
 use temper_platform::PlatformState;
 use temper_platform::os_apps::{get_os_app, list_startup_os_apps};
 use temper_platform::recovery::{recover_cedar_policies, restore_installed_skills};
@@ -37,6 +39,21 @@ enum RuntimeRecoveryStep {
 enum LocalWasmStartupPolicy {
     BuildIfMissing,
     LoadPersistedOnly,
+}
+
+#[derive(Clone, Default)]
+struct StartupReadiness {
+    ready: Arc<AtomicBool>,
+}
+
+impl StartupReadiness {
+    fn is_ready(&self) -> bool {
+        self.ready.load(Ordering::SeqCst)
+    }
+
+    fn mark_ready(&self) {
+        self.ready.store(true, Ordering::SeqCst);
+    }
 }
 
 fn local_wasm_startup_policy(raw: Option<&str>) -> LocalWasmStartupPolicy {
@@ -83,6 +100,44 @@ fn spawn_runtime_server(
     router: axum::Router,
 ) -> JoinHandle<std::io::Result<()>> {
     tokio::spawn(async move { axum::serve(listener, router).await })
+}
+
+async fn startup_gate_middleware(
+    readiness: StartupReadiness,
+    request: axum::http::Request<axum::body::Body>,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let path = request.uri().path();
+    if readiness.is_ready() || path == "/healthz" || path == "/readyz" {
+        return next.run(request).await;
+    }
+
+    axum::http::StatusCode::SERVICE_UNAVAILABLE.into_response()
+}
+
+fn runtime_router_with_startup_gates(
+    router: axum::Router,
+    readiness: StartupReadiness,
+) -> axum::Router {
+    let readyz_state = readiness.clone();
+    router
+        .layer(axum::middleware::from_fn(move |request, next| {
+            let readiness = readiness.clone();
+            async move { startup_gate_middleware(readiness, request, next).await }
+        }))
+        .route(
+            "/readyz",
+            axum::routing::get(move || {
+                let readiness = readyz_state.clone();
+                async move {
+                    if readiness.is_ready() {
+                        axum::http::StatusCode::OK
+                    } else {
+                        axum::http::StatusCode::SERVICE_UNAVAILABLE
+                    }
+                }
+            }),
+        )
 }
 
 async fn wait_for_runtime_server(url: &str, timeout: Duration) -> Result<()> {
@@ -734,6 +789,76 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
         }
     }
 
+    let startup_readiness = StartupReadiness::default();
+    let _ = state.server.listen_port.set(actual_port);
+
+    let transport_manager = Arc::new(crate::transport_manager::TransportManager::new(
+        tenant.clone(),
+        actual_port,
+        config.temper_api_key.clone(),
+        config.public_base_url.clone(),
+        config.ngrok_bin.clone(),
+        config.ngrok_authtoken.clone(),
+    ));
+
+    let cookie_secure = config
+        .public_base_url
+        .as_deref()
+        .map(|url| url.starts_with("https://"))
+        .unwrap_or(false);
+    let auth_state = crate::auth::AuthState::new(
+        turso_store.clone(),
+        state
+            .server
+            .secrets_vault
+            .as_ref()
+            .context("Vault must be initialized before auth")?
+            .clone(),
+        vault_key_bytes.to_vec(),
+        tenant.clone(),
+        cookie_secure,
+    );
+
+    let router = build_platform_router(state.clone());
+    let setup_state = crate::setup_api::SetupApiState {
+        platform: state.clone(),
+        turso_store: turso_store.clone(),
+        transport_manager: transport_manager.clone(),
+        tenant: tenant.clone(),
+        agents_dir: PathBuf::from("os-apps/paw-agent/agents"),
+        base_url: format!("http://127.0.0.1:{actual_port}"),
+        build_version: config.build_version.clone(),
+        build_sha: config.build_sha.clone(),
+    };
+    let router = router
+        .merge(crate::setup_api::router(setup_state))
+        .merge(crate::auth::router(auth_state.clone()));
+
+    let router = router.layer(axum::extract::DefaultBodyLimit::max(50 * 1024 * 1024));
+
+    let router = if std::path::Path::new("dashboard/build").exists() {
+        use tower_http::services::{ServeDir, ServeFile};
+        router.nest_service(
+            "/dashboard",
+            ServeDir::new("dashboard/build").fallback(ServeFile::new("dashboard/build/index.html")),
+        )
+    } else {
+        router
+    };
+    let router = router.layer(axum::middleware::from_fn_with_state(
+        auth_state,
+        crate::auth::middleware,
+    ));
+    let router = runtime_router_with_startup_gates(router, startup_readiness.clone());
+
+    let serve_handle = spawn_runtime_server(listener, router);
+    wait_for_runtime_server(
+        format!("http://127.0.0.1:{actual_port}/healthz").as_str(),
+        Duration::from_secs(5),
+    )
+    .await
+    .context("Temper Paw HTTP API failed to become reachable during startup")?;
+
     // Phase 6a: Recover persisted WASM modules + Cedar policies BEFORE app install.
     //
     // OS app install (Phase 6b) runs an integrity check that verifies each
@@ -920,80 +1045,8 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
     // Phase 8: Banner (printed after bind so we show the actual port)
     tracing::info!("Phase 8: Bootstrap complete");
 
-    // Phase 9: Start transports + serve using the reserved listener
-    tracing::info!("Phase 9: Starting server...");
-    let _ = state.server.listen_port.set(actual_port);
-
-    // Create transport manager for hot-connect/disconnect of Discord/Slack
-    let transport_manager = Arc::new(crate::transport_manager::TransportManager::new(
-        tenant.clone(),
-        actual_port,
-        config.temper_api_key.clone(),
-        config.public_base_url.clone(),
-        config.ngrok_bin.clone(),
-        config.ngrok_authtoken.clone(),
-    ));
-
-    // Build platform router + setup API
-    let cookie_secure = config
-        .public_base_url
-        .as_deref()
-        .map(|url| url.starts_with("https://"))
-        .unwrap_or(false);
-    let auth_state = crate::auth::AuthState::new(
-        turso_store.clone(),
-        state
-            .server
-            .secrets_vault
-            .as_ref()
-            .context("Vault must be initialized before auth")?
-            .clone(),
-        vault_key_bytes.to_vec(),
-        tenant.clone(),
-        cookie_secure,
-    );
-
-    let router = build_platform_router(state.clone());
-    let setup_state = crate::setup_api::SetupApiState {
-        platform: state.clone(),
-        turso_store: turso_store.clone(),
-        transport_manager: transport_manager.clone(),
-        tenant: tenant.clone(),
-        agents_dir: PathBuf::from("os-apps/paw-agent/agents"),
-        base_url: format!("http://127.0.0.1:{actual_port}"),
-        build_version: config.build_version.clone(),
-        build_sha: config.build_sha.clone(),
-    };
-    let router = router
-        .merge(crate::setup_api::router(setup_state))
-        .merge(crate::auth::router(auth_state.clone()));
-
-    // Raise the default body limit from 2 MB to 50 MB so large REPL state
-    // files and embodiment uploads don't get rejected with HTTP 413.
-    let router = router.layer(axum::extract::DefaultBodyLimit::max(50 * 1024 * 1024));
-
-    // Serve the dashboard SPA from dashboard/build if available.
-    let router = if std::path::Path::new("dashboard/build").exists() {
-        use tower_http::services::{ServeDir, ServeFile};
-        router.nest_service(
-            "/dashboard",
-            ServeDir::new("dashboard/build").fallback(ServeFile::new("dashboard/build/index.html")),
-        )
-    } else {
-        router
-    };
-    let router = router.layer(axum::middleware::from_fn_with_state(
-        auth_state,
-        crate::auth::middleware,
-    ));
-
-    let serve_handle = spawn_runtime_server(listener, router);
-    wait_for_runtime_server(
-        format!("http://127.0.0.1:{actual_port}/healthz").as_str(),
-        Duration::from_secs(5),
-    )
-    .await
-    .context("Temper Paw HTTP API failed to become reachable during startup")?;
+    // Phase 9: Finish runtime bring-up on the already-running HTTP server.
+    tracing::info!("Phase 9: Finalizing runtime bring-up...");
 
     // Match Temper's serve bootstrap: query projections are warmed in the background
     // after the entity index exists so startup does not block health checks on replay work.
@@ -1202,6 +1255,7 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
         }
         println!();
     }
+    startup_readiness.mark_ready();
     tracing::info!("Temper Paw listening on port {actual_port}");
     tracing::info!(elapsed_ms = startup_started.elapsed().as_millis(), tenant = %tenant, "startup: time to healthy");
 
@@ -2738,10 +2792,11 @@ mod tests {
     use temper_server::secrets::vault::SecretsVault;
 
     use super::{
-        LocalWasmStartupPolicy, RuntimeRecoveryStep, actor_passivation_check_interval_secs,
-        bootstrap_soul, load_or_create_temper_api_key, local_wasm_startup_policy,
-        paw_soul_content_is_personalized, resolve_startup_secret, runtime_recovery_plan,
-        soul_lookup_filters, spawn_runtime_server, startup_discord_connect_result, startup_os_apps,
+        LocalWasmStartupPolicy, RuntimeRecoveryStep, StartupReadiness,
+        actor_passivation_check_interval_secs, bootstrap_soul, load_or_create_temper_api_key,
+        local_wasm_startup_policy, paw_soul_content_is_personalized, resolve_startup_secret,
+        runtime_recovery_plan, runtime_router_with_startup_gates, soul_lookup_filters,
+        spawn_runtime_server, startup_discord_connect_result, startup_os_apps,
         wait_for_runtime_server,
     };
 
@@ -3524,6 +3579,63 @@ mod tests {
         )
         .await
         .expect("runtime server should be reachable before transport boot");
+
+        server_handle.abort();
+    }
+
+    #[tokio::test]
+    async fn startup_gates_keep_liveness_up_while_readiness_stays_blocked() {
+        use axum::{Router, routing::get};
+
+        let readiness = StartupReadiness::default();
+        let app = runtime_router_with_startup_gates(
+            Router::new()
+                .route("/healthz", get(|| async { StatusCode::OK }))
+                .route("/probe", get(|| async { StatusCode::OK })),
+            readiness.clone(),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let server_handle = spawn_runtime_server(listener, app);
+        let client = reqwest::Client::new();
+
+        let health = client
+            .get(format!("http://{addr}/healthz"))
+            .send()
+            .await
+            .expect("healthz request");
+        assert_eq!(health.status(), StatusCode::OK);
+
+        let ready = client
+            .get(format!("http://{addr}/readyz"))
+            .send()
+            .await
+            .expect("readyz request");
+        assert_eq!(ready.status(), StatusCode::SERVICE_UNAVAILABLE);
+
+        let probe = client
+            .get(format!("http://{addr}/probe"))
+            .send()
+            .await
+            .expect("probe request");
+        assert_eq!(probe.status(), StatusCode::SERVICE_UNAVAILABLE);
+
+        readiness.mark_ready();
+
+        let ready = client
+            .get(format!("http://{addr}/readyz"))
+            .send()
+            .await
+            .expect("readyz request after mark_ready");
+        assert_eq!(ready.status(), StatusCode::OK);
+
+        let probe = client
+            .get(format!("http://{addr}/probe"))
+            .send()
+            .await
+            .expect("probe request after mark_ready");
+        assert_eq!(probe.status(), StatusCode::OK);
 
         server_handle.abort();
     }
