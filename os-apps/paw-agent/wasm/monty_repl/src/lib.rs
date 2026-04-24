@@ -161,7 +161,10 @@ fn dispatch_error(error: &str) {
 ///
 /// Pure helper, unit-testable. The actual FFI `dispatch_error` call for
 /// the violation path is wired in `run()` after consulting this function.
-fn classify_run_outcome(closure_result: &Result<(), String>, action_dispatched: bool) -> RunOutcome {
+fn classify_run_outcome(
+    closure_result: &Result<(), String>,
+    action_dispatched: bool,
+) -> RunOutcome {
     match (closure_result, action_dispatched) {
         (Ok(()), true) => RunOutcome::Success,
         (Ok(()), false) => RunOutcome::InvariantViolation,
@@ -197,8 +200,98 @@ fn run_with_tool_progress<T>(
     result
 }
 
-const INVARIANT_VIOLATION_MSG: &str =
-    "monty_repl exited without dispatching any Session action — invariant violation (ADR-0039 Sub-Decision 3a)";
+fn batch_window_len(start_index: usize, total_calls: usize, checkpoint_every_n: usize) -> usize {
+    let remaining = total_calls.saturating_sub(start_index);
+    let next_boundary = ((start_index / checkpoint_every_n) + 1) * checkpoint_every_n;
+    let until_boundary = if next_boundary < total_calls {
+        next_boundary.saturating_sub(start_index)
+    } else {
+        remaining
+    };
+    remaining.min(until_boundary.max(1))
+}
+
+fn batchable_run_len(tool_calls: &[Value], start_index: usize, max_batch_len: usize) -> usize {
+    let upper_bound = tool_calls
+        .len()
+        .min(start_index.saturating_add(max_batch_len));
+    let mut run_len = 0usize;
+    for call in &tool_calls[start_index..upper_bound] {
+        let code = call
+            .get("input")
+            .and_then(|input| input.get("code"))
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        if dispatch::batchable_tool_plan_from_code(code).is_none() {
+            break;
+        }
+        run_len += 1;
+    }
+    run_len
+}
+
+fn collect_batchable_tool_calls(
+    tool_calls: &[Value],
+    start_index: usize,
+    run_len: usize,
+) -> Vec<dispatch::BatchableToolCall> {
+    tool_calls[start_index..start_index + run_len]
+        .iter()
+        .filter_map(|call| {
+            let tool_call_id = call.get("id").and_then(Value::as_str)?;
+            let code = call
+                .get("input")
+                .and_then(|input| input.get("code"))
+                .and_then(Value::as_str)?;
+            let plan = dispatch::batchable_tool_plan_from_code(code)?;
+            Some(dispatch::BatchableToolCall {
+                tool_call_id: tool_call_id.to_string(),
+                plan,
+            })
+        })
+        .collect()
+}
+
+fn push_batch_tool_result(
+    ctx: &Context,
+    tool_results: &mut Vec<Value>,
+    tool_id: &str,
+    result: &Result<Value, String>,
+) {
+    match result {
+        Ok(value) => {
+            let expr_val = serde_json::to_string(value).unwrap_or_else(|_| "null".to_string());
+            let content = if expr_val == "null" || expr_val.is_empty() {
+                "(no output)".to_string()
+            } else {
+                truncate_output(&expr_val)
+            };
+            ctx.log(
+                "info",
+                &format!(
+                    "monty_repl: batched tool completed {tool_id}, expr_bytes={}, result_bytes={}, is_error=false",
+                    expr_val.len(),
+                    content.len()
+                ),
+            );
+            tool_results.push(make_tool_result(tool_id, &content, false));
+        }
+        Err(error) => {
+            let content = truncate_output(error);
+            ctx.log(
+                "info",
+                &format!(
+                    "monty_repl: batched tool completed {tool_id}, error_bytes={}, result_bytes={}, is_error=true",
+                    error.len(),
+                    content.len()
+                ),
+            );
+            tool_results.push(make_tool_result(tool_id, &content, true));
+        }
+    }
+}
+
+const INVARIANT_VIOLATION_MSG: &str = "monty_repl exited without dispatching any Session action — invariant violation (ADR-0039 Sub-Decision 3a)";
 
 /// Entry point — invoked by the Temper WASM engine on the `run_tools` trigger.
 #[unsafe(no_mangle)]
@@ -321,14 +414,18 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         // threshold in a single turn (~1000 tool calls at chunk=20).
         const MAX_CHECKPOINTS_PER_TURN: u64 = 50;
 
-        for (i, call) in tool_calls.iter().enumerate() {
+        let mut i = 0usize;
+        while i < tool_calls.len() {
             // Checkpoint check (before executing the i-th call). Skip on i=0
             // because we just entered; only fire at whole chunk boundaries and
             // only when there is actually more work after us.
             if i > 0 && i % CHECKPOINT_EVERY_N == 0 && i < tool_calls.len() {
                 let current_ckpt: u64 = fields
                     .get("checkpoint_count")
-                    .and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
+                    .and_then(|v| {
+                        v.as_u64()
+                            .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+                    })
                     .unwrap_or(0);
 
                 if current_ckpt >= MAX_CHECKPOINTS_PER_TURN {
@@ -396,6 +493,63 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 return Ok(());
             }
 
+            let max_batch_len = batch_window_len(i, tool_calls.len(), CHECKPOINT_EVERY_N);
+            let batch_len = batchable_run_len(&tool_calls, i, max_batch_len);
+            if batch_len >= 2 {
+                let batch_calls = collect_batchable_tool_calls(&tool_calls, i, batch_len);
+                ctx.log(
+                    "info",
+                    &format!(
+                        "monty_repl: batching {batch_len} read-only tool calls starting at i={i}"
+                    ),
+                );
+
+                let batch_started_ms = Context::get_time_millis();
+                let batch_results = run_with_tool_progress(
+                    |boundary| {
+                        ctx.log(
+                            "debug",
+                            &format!(
+                                "monty_repl: tool progress boundary={boundary:?} tool_name=batch tool_call_id=batch:{i}"
+                            ),
+                        );
+                        session::send_progress(&ctx, &temper_api_url, tenant);
+                    },
+                    || {
+                        dispatch::execute_batchable_tool_calls(
+                            &ctx,
+                            &temper_api_url,
+                            tenant,
+                            &batch_calls,
+                            || session::send_progress(&ctx, &temper_api_url, tenant),
+                        )
+                    },
+                );
+
+                for (offset, result) in batch_results.into_iter().enumerate() {
+                    let call = &tool_calls[i + offset];
+                    let tool_id = call.get("id").and_then(|v| v.as_str()).unwrap_or("unknown");
+                    let input = call.get("input").cloned().unwrap_or(json!({}));
+                    let duration_ms = (Context::get_time_millis() - batch_started_ms).max(0) as u64;
+                    let tool_arguments_json = serde_json::to_string(&input).unwrap_or_default();
+
+                    tool_span_events.push(emit_tool_call_telemetry(
+                        &ctx,
+                        &batch_calls[offset].plan.tool_name,
+                        &batch_calls[offset].tool_call_id,
+                        &tool_arguments_json,
+                        &result,
+                        duration_ms,
+                    ));
+                    push_batch_tool_result(&ctx, &mut tool_results, tool_id, &result);
+                }
+
+                i += batch_len;
+                continue;
+            }
+
+            let call = &tool_calls[i];
+
             let tool_id = call.get("id").and_then(|v| v.as_str()).unwrap_or("unknown");
             let input = call.get("input").cloned().unwrap_or(json!({}));
             let code = input.get("code").and_then(|v| v.as_str()).unwrap_or("");
@@ -428,6 +582,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                     }
                     combined.push_str(&msg);
                     tool_results.push(make_tool_result(tool_id, &truncate_output(&combined), true));
+                    i += 1;
                     continue;
                 }
             };
@@ -455,7 +610,10 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             // Check the thread-local flag (set by dispatch even if Monty catches
             // the exception). If a Cedar denial occurred, save state and pause.
             if let Some(cedar_ctx_json) = dispatch::take_cedar_denial() {
-                ctx.log("info", "monty_repl: Cedar denial detected, pausing for approval");
+                ctx.log(
+                    "info",
+                    "monty_repl: Cedar denial detected, pausing for approval",
+                );
 
                 // Parse the Cedar context to extract decision_id
                 let cedar_ctx: Value = serde_json::from_str(&cedar_ctx_json)
@@ -593,6 +751,8 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                     tool_results.push(make_tool_result(tool_id, &content, true));
                 }
             };
+
+            i += 1;
         }
 
         // Merge prior results from Cedar resume (if any) with newly collected results
@@ -832,7 +992,11 @@ fn drive_repl_loop(
     workdir: &str,
     mut progress: ReplProgress<LimitedTracker>,
     print_buf: &mut BoundedOutputCollector,
-) -> (Result<String, String>, MontyRepl<LimitedTracker>, Vec<Value>) {
+) -> (
+    Result<String, String>,
+    MontyRepl<LimitedTracker>,
+    Vec<Value>,
+) {
     let mut pending_results: BTreeMap<u32, ExtFunctionResult> = BTreeMap::new();
     let mut tool_span_events = Vec::new();
 
@@ -939,7 +1103,11 @@ fn drive_repl_loop(
                 match call.resume(ext_result, print) {
                     Ok(p) => progress = p,
                     Err(e) => {
-                        return (Err(format_monty_exception(&e.error)), e.repl, tool_span_events);
+                        return (
+                            Err(format_monty_exception(&e.error)),
+                            e.repl,
+                            tool_span_events,
+                        );
                     }
                 }
             }
@@ -956,7 +1124,11 @@ fn drive_repl_loop(
                 match state.resume(ready, print) {
                     Ok(p) => progress = p,
                     Err(e) => {
-                        return (Err(format_monty_exception(&e.error)), e.repl, tool_span_events);
+                        return (
+                            Err(format_monty_exception(&e.error)),
+                            e.repl,
+                            tool_span_events,
+                        );
                     }
                 }
             }
@@ -966,7 +1138,11 @@ fn drive_repl_loop(
                 match lookup.resume(monty::NameLookupResult::Undefined, print) {
                     Ok(p) => progress = p,
                     Err(e) => {
-                        return (Err(format_monty_exception(&e.error)), e.repl, tool_span_events);
+                        return (
+                            Err(format_monty_exception(&e.error)),
+                            e.repl,
+                            tool_span_events,
+                        );
                     }
                 }
             }
@@ -982,7 +1158,11 @@ fn drive_repl_loop(
                 match os_call.resume(ext_result, print) {
                     Ok(p) => progress = p,
                     Err(e) => {
-                        return (Err(format_monty_exception(&e.error)), e.repl, tool_span_events);
+                        return (
+                            Err(format_monty_exception(&e.error)),
+                            e.repl,
+                            tool_span_events,
+                        );
                     }
                 }
             }
@@ -1178,10 +1358,7 @@ mod tests {
 
     #[test]
     fn classify_ok_with_dispatch_is_success() {
-        assert_eq!(
-            classify_run_outcome(&Ok(()), true),
-            RunOutcome::Success
-        );
+        assert_eq!(classify_run_outcome(&Ok(()), true), RunOutcome::Success);
     }
 
     #[test]
@@ -1244,5 +1421,28 @@ mod tests {
             events,
             vec![ToolProgressBoundary::Start, ToolProgressBoundary::End]
         );
+    }
+
+    #[test]
+    fn batchable_run_len_stops_before_non_batchable_snippet() {
+        let tool_calls = vec![
+            json!({"input": {"code": "temper.web_search('terminal ui inspiration')"}}),
+            json!({"input": {"code": "temper.web_fetch('https://example.com/guide')"}}),
+            json!({"input": {"code": "result = temper.web_search(query)"}}),
+            json!({"input": {"code": "temper.specs()"}}),
+        ];
+
+        assert_eq!(batchable_run_len(&tool_calls, 0, tool_calls.len()), 2);
+    }
+
+    #[test]
+    fn batchable_run_len_respects_checkpoint_window_limit() {
+        let tool_calls = vec![
+            json!({"input": {"code": "temper.web_search('one')"}}),
+            json!({"input": {"code": "temper.web_fetch('https://example.com/two')"}}),
+            json!({"input": {"code": "temper.specs()"}}),
+        ];
+
+        assert_eq!(batchable_run_len(&tool_calls, 0, 2), 2);
     }
 }

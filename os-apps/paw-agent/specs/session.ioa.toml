@@ -394,6 +394,7 @@ initial = "0"
 name = "last_heartbeat_at"
 type = "string"
 initial = ""
+query_indexed = false
 
 [[state]]
 name = "heartbeat_timeout_seconds"
@@ -408,11 +409,13 @@ initial = "300"
 name = "progress_token"
 type = "counter"
 initial = "0"
+query_indexed = false
 
 [[state]]
 name = "last_progress_at"
 type = "string"
 initial = ""
+query_indexed = false
 
 # --- State Variables: Cedar Approval ---
 
