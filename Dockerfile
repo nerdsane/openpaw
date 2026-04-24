@@ -26,7 +26,7 @@ COPY os-apps ./os-apps
 # is needed; defaults to main.
 ARG KATAGAMI_REF=master
 RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates && rm -rf /var/lib/apt/lists/* \
-    && rm -f os-apps/katagami-curation os-apps/katagami-commons \
+    && rm -rf os-apps/katagami-curation os-apps/katagami-commons \
     && git clone --depth 1 --branch "${KATAGAMI_REF}" https://github.com/arni-labs/katagami.git /tmp/katagami \
     && cp -a /tmp/katagami/katagami-curation os-apps/katagami-curation \
     && cp -a /tmp/katagami/katagami-commons  os-apps/katagami-commons  \
