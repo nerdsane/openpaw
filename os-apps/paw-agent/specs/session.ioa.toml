@@ -394,6 +394,7 @@ initial = "0"
 name = "last_heartbeat_at"
 type = "string"
 initial = ""
+query_indexed = false
 
 [[state]]
 name = "heartbeat_timeout_seconds"
@@ -408,11 +409,13 @@ initial = "300"
 name = "progress_token"
 type = "counter"
 initial = "0"
+query_indexed = false
 
 [[state]]
 name = "last_progress_at"
 type = "string"
 initial = ""
+query_indexed = false
 
 # --- State Variables: Cedar Approval ---
 
@@ -605,12 +608,13 @@ on_failure = "Fail"
 llm = true
 
 [action.triggers.config]
-api_key = "{secret:anthropic_api_key}"
 anthropic_api_key = "{secret:anthropic_api_key}"
+openai_api_key = "{secret:openai_api_key}"
 openai_codex_token = "{secret:openai_codex_token}"
 openrouter_api_key = "{secret:openrouter_api_key}"
 anthropic_api_url = "https://api.anthropic.com/v1/messages"
-openai_api_url = "https://chatgpt.com/backend-api/codex/responses"
+openai_api_url = "https://api.openai.com/v1/responses"
+openai_codex_api_url = "https://chatgpt.com/backend-api/codex/responses"
 openrouter_api_url = "https://openrouter.ai/api/v1/chat/completions"
 anthropic_auth_mode = "auto"
 openrouter_site_url = ""
@@ -740,10 +744,14 @@ module = "context_compactor"
 on_failure = "Fail"
 
 [action.triggers.config]
-api_key = "{secret:anthropic_api_key}"
 anthropic_api_key = "{secret:anthropic_api_key}"
+openai_api_key = "{secret:openai_api_key}"
 openai_codex_token = "{secret:openai_codex_token}"
 openrouter_api_key = "{secret:openrouter_api_key}"
+anthropic_api_url = "https://api.anthropic.com/v1/messages"
+openai_api_url = "https://api.openai.com/v1/responses"
+openai_codex_api_url = "https://chatgpt.com/backend-api/codex/responses"
+openrouter_api_url = "https://openrouter.ai/api/v1/chat/completions"
 temper_api_url = "{secret:temper_api_url}"
 timeout_secs = "120"
 
@@ -808,7 +816,7 @@ name = "FinalizeResult"
 kind = "input"
 from = ["Steering"]
 to = "Completed"
-params = ["result", "conversation", "session_leaf_id"]
+params = ["result", "conversation", "session_leaf_id", "pending_tool_calls", "pending_tool_context", "pending_decision_id"]
 hint = "No steering messages queued. Set result and complete."
 effect = [
   { type = "set_bool", var = "has_result", value = "true" },
@@ -947,7 +955,7 @@ name = "RecordResult"
 kind = "input"
 from = ["ApplyingProviderResponse", "Executing"]
 to = "Completed"
-params = ["result", "conversation", "input_tokens", "output_tokens", "session_leaf_id", "repl_file_id", "tool_spans_file_id", "system_prompt_hash", "system_prompt_file_id"]
+params = ["result", "conversation", "input_tokens", "output_tokens", "session_leaf_id", "repl_file_id", "tool_spans_file_id", "system_prompt_hash", "system_prompt_file_id", "pending_tool_calls", "pending_tool_context", "pending_decision_id"]
 hint = "Session complete. Triggered by LLM end_turn or agent calling temper.done(result)."
 effect = [
   { type = "increment", var = "input_tokens" },

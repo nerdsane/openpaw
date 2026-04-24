@@ -10,8 +10,8 @@
 use session_tree_lib::SessionTree;
 use temper_wasm_sdk::prelude::*;
 use wasm_helpers::{
-    create_content_file, read_content_file, read_session_from_temperfs, resolve_temper_api_url,
-    write_session_to_temperfs,
+    create_content_file_ref, read_content_file, read_content_file_version, read_session_from_temperfs,
+    resolve_temper_api_url, write_session_to_temperfs,
 };
 
 /// Entry point.
@@ -84,7 +84,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
 
                 let entry_id = format!("s-{}", tree.len());
                 let new_leaf_id = if !workspace_id.is_empty() {
-                    match create_content_file(
+                    match create_content_file_ref(
                         &ctx,
                         &temper_api_url,
                         tenant,
@@ -92,13 +92,14 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                         &format!("msg-{entry_id}.txt"),
                         msg_content,
                     ) {
-                        Ok(content_file_id) => {
+                        Ok(content_ref) => {
                             let _line = tree.append_entry_with_file(
                                 &entry_id,
                                 Some(session_leaf_id),
                                 session_tree_lib::EntryType::Steering,
                                 Some("user"),
-                                &content_file_id,
+                                &content_ref.file_id,
+                                Some(&content_ref.file_version_id),
                                 estimate_tokens(msg_content),
                                 None,
                             );
@@ -185,6 +186,9 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             set_success_result("FinalizeResult", &json!({
                 "result": result_text,
                 "session_leaf_id": session_leaf_id,
+                "pending_tool_calls": "",
+                "pending_tool_context": "",
+                "pending_decision_id": "",
             }));
         }
 
@@ -216,6 +220,28 @@ fn extract_last_result(
             if msg_ref.role != "assistant" {
                 continue;
             }
+            if let Some(ref file_version_id) = msg_ref.content_file_version_id {
+                match read_content_file_version(
+                    ctx,
+                    temper_api_url,
+                    tenant,
+                    fields,
+                    file_version_id,
+                ) {
+                    Ok(raw) if !raw.is_empty() => {
+                        let content: Value = serde_json::from_str(&raw).unwrap_or(json!(raw));
+                        return Ok(extract_text_from_content(Some(&content)));
+                    }
+                    Ok(_) => {}
+                    Err(err) => ctx.log(
+                        "warn",
+                        &format!(
+                            "steering_checker: immutable version read unavailable for {file_version_id}, falling back to file head: {err}"
+                        ),
+                    ),
+                }
+            }
+
             if let Some(ref file_id) = msg_ref.content_file_id {
                 if let Ok(raw) = read_content_file(ctx, temper_api_url, tenant, fields, file_id) {
                     if !raw.is_empty() {

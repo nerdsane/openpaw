@@ -5,7 +5,7 @@
 
 use serde_json::{Value, json};
 use temper_wasm_sdk::context::Context;
-use wasm_helpers::runtime_headers;
+use wasm_helpers::{read_content_file_version, runtime_headers};
 
 use crate::dispatch;
 
@@ -753,7 +753,40 @@ pub fn search_history(
             continue;
         }
 
-        // If entry has content_file_id and no inline match, fetch the file content
+        // If entry has immutable content version and no inline match, fetch that.
+        if let Some(ref content_file_version_id) = entry.content_file_version_id {
+            if content_fetches >= MAX_CONTENT_FETCHES {
+                continue;
+            }
+            content_fetches += 1;
+
+            match read_content_file_version(
+                ctx,
+                api_url,
+                tenant,
+                &json!({}),
+                content_file_version_id,
+            ) {
+                Ok(raw) => {
+                    let raw_lower = raw.to_lowercase();
+                    if raw_lower.contains(&pattern_lower) {
+                        let excerpt = extract_excerpt(&raw, &pattern, 500);
+                        matches.push(json!({
+                            "entry_id": entry_id,
+                            "role": role,
+                            "entry_type": entry_type_str,
+                            "excerpt": excerpt,
+                            "source": "content_file_version",
+                            "content_file_version_id": content_file_version_id,
+                        }));
+                        continue;
+                    }
+                }
+                Err(_) => {}
+            }
+        }
+
+        // Fall back to current file head for older session entries.
         if let Some(ref content_file_id) = entry.content_file_id {
             if content_fetches >= MAX_CONTENT_FETCHES {
                 continue;

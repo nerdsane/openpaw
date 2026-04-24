@@ -97,3 +97,30 @@ fn runtime_model_provider_selection_has_no_hardcoded_llm_fallbacks() {
         }
     }
 }
+
+#[test]
+fn session_spec_uses_provider_specific_llm_secrets_and_urls() {
+    let root = repo_root();
+    let spec = read(root.join("os-apps/paw-agent/specs/session.ioa.toml"));
+
+    assert!(
+        !spec
+            .lines()
+            .any(|line| { line.trim() == "api_key = \"{secret:anthropic_api_key}\"" }),
+        "session integrations should not inject a generic anthropic api_key into multi-provider LLM modules"
+    );
+
+    for needle in [
+        "anthropic_api_key = \"{secret:anthropic_api_key}\"",
+        "openai_api_key = \"{secret:openai_api_key}\"",
+        "openai_codex_token = \"{secret:openai_codex_token}\"",
+        "openrouter_api_key = \"{secret:openrouter_api_key}\"",
+        "openai_api_url = \"https://api.openai.com/v1/responses\"",
+        "openai_codex_api_url = \"https://chatgpt.com/backend-api/codex/responses\"",
+    ] {
+        assert!(
+            spec.contains(needle),
+            "session spec should contain {needle}"
+        );
+    }
+}

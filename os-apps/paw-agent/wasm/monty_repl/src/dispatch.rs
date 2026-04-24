@@ -8,9 +8,9 @@
 //! Mirrors the method signatures from `temper-sandbox/src/dispatch.rs`
 //! so agents see the exact same Python interface as `mcp__temper__execute`.
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::{cell::RefCell, collections::BTreeSet};
-use temper_wasm_sdk::context::Context;
+use temper_wasm_sdk::context::{Context, HttpRequest, HttpResponse};
 use wasm_helpers::runtime_headers;
 
 const DEFAULT_TOOLS_ENABLED: &str = "temper_create,temper_get,temper_list,temper_action,temper_patch,temper_submit_specs,temper_show_spec,temper_specs,temper_upload_wasm,temper_get_trajectories,temper_get_insights,temper_get_decisions,temper_poll_decision,temper_approve_decision,temper_deny_decision,temper_submit_policy,temper_list_policies,temper_get_policy,temper_update_policy,temper_delete_policy,temper_install_app,temper_list_apps,temper_spawn_session,temper_list_sessions,temper_abort_session,temper_steer_session,temper_save_memory,temper_recall_memory,temper_write,temper_read,temper_ls,temper_grep,temper_glob,temper_edit,temper_rename,temper_search_history,temper_run_coding_agent,temper_get_secret,temper_datadog_query,temper_railway,temper_vercel,temper_web_search,temper_web_fetch,read,write,edit,bash";
@@ -85,15 +85,170 @@ impl Drop for ToolScope {
 fn tool_span_hint_headers() -> Vec<(String, String)> {
     let tool_name = CURRENT_TOOL_NAME.with(|cell| cell.borrow().clone());
     let tool_call_id = CURRENT_TOOL_CALL_ID.with(|cell| cell.borrow().clone());
+    tool_span_hint_headers_for(tool_name.as_deref(), tool_call_id.as_deref())
+}
+
+fn tool_span_hint_headers_for(
+    tool_name: Option<&str>,
+    tool_call_id: Option<&str>,
+) -> Vec<(String, String)> {
     let mut headers = Vec::new();
-    if let Some(name) = tool_name {
+    if let Some(name) = tool_name.filter(|name| !name.is_empty()) {
         headers.push(("X-Temper-Span-Name".to_string(), format!("tool.{name}")));
-        headers.push(("X-Temper-Span-Attr-tool.name".to_string(), name));
+        headers.push(("X-Temper-Span-Attr-tool.name".to_string(), name.to_string()));
     }
-    if let Some(id) = tool_call_id.filter(|s| !s.is_empty()) {
-        headers.push(("X-Temper-Span-Attr-tool.call_id".to_string(), id));
+    if let Some(id) = tool_call_id.filter(|id| !id.is_empty()) {
+        headers.push((
+            "X-Temper-Span-Attr-tool.call_id".to_string(),
+            id.to_string(),
+        ));
     }
     headers
+}
+
+pub(crate) fn internal_headers_for_tool(
+    tool_name: &str,
+    tool_call_id: Option<&str>,
+) -> Vec<(String, String)> {
+    let mut headers = vec![("Content-Type".to_string(), "application/json".to_string())];
+    headers.extend(tool_span_hint_headers_for(Some(tool_name), tool_call_id));
+    headers
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct BatchableToolPlan {
+    pub tool_name: String,
+    pub kind: BatchableToolPlanKind,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum BatchableToolPlanKind {
+    DirectGet {
+        path: String,
+        unwrap_value_array: bool,
+    },
+    WebQuerySearch {
+        query: String,
+    },
+    WebQueryFetch {
+        url: String,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct BatchableToolCall {
+    pub tool_call_id: String,
+    pub plan: BatchableToolPlan,
+}
+
+pub(crate) fn batchable_tool_plan_from_code(code: &str) -> Option<BatchableToolPlan> {
+    let (object, method, args) = parse_batchable_tool_call(code)?;
+    if object != "temper" {
+        return None;
+    }
+
+    let kind = match method.as_str() {
+        "web_search" if args.len() == 1 => BatchableToolPlanKind::WebQuerySearch {
+            query: args[0].clone(),
+        },
+        "web_fetch" if args.len() == 1 => BatchableToolPlanKind::WebQueryFetch {
+            url: args[0].clone(),
+        },
+        _ => {
+            let (path, unwrap_value_array) = batchable_direct_get_path(&method, &args)?;
+            BatchableToolPlanKind::DirectGet {
+                path,
+                unwrap_value_array,
+            }
+        }
+    };
+
+    Some(BatchableToolPlan {
+        tool_name: format!("{object}.{method}"),
+        kind,
+    })
+}
+
+pub(crate) fn execute_batchable_tool_calls<F>(
+    ctx: &Context,
+    api_url: &str,
+    tenant: &str,
+    calls: &[BatchableToolCall],
+    mut emit_progress: F,
+) -> Vec<Result<Value, String>>
+where
+    F: FnMut(),
+{
+    let mut results: Vec<Option<Result<Value, String>>> = vec![None; calls.len()];
+    let mut direct_calls: Vec<(usize, &BatchableToolCall, String, bool)> = Vec::new();
+    let mut web_calls: Vec<(usize, &BatchableToolCall, String, String)> = Vec::new();
+
+    for (index, call) in calls.iter().enumerate() {
+        match &call.plan.kind {
+            BatchableToolPlanKind::DirectGet {
+                path,
+                unwrap_value_array,
+            } => direct_calls.push((index, call, path.clone(), *unwrap_value_array)),
+            BatchableToolPlanKind::WebQuerySearch { query } => {
+                web_calls.push((index, call, "search".to_string(), query.clone()))
+            }
+            BatchableToolPlanKind::WebQueryFetch { url } => {
+                web_calls.push((index, call, "fetch".to_string(), url.clone()))
+            }
+        }
+    }
+
+    if !direct_calls.is_empty() {
+        emit_progress();
+        let requests: Vec<HttpRequest> = direct_calls
+            .iter()
+            .map(|(_, call, path, _)| HttpRequest {
+                method: "GET".to_string(),
+                url: format!("{api_url}{}", path.replace("{tenant}", tenant)),
+                headers: internal_headers_for_tool(
+                    &call.plan.tool_name,
+                    Some(call.tool_call_id.as_str()),
+                ),
+                body: String::new(),
+            })
+            .collect();
+
+        match ctx.http_call_batch(&requests) {
+            Ok(responses) => {
+                for ((index, _, path, unwrap_value_array), response) in
+                    direct_calls.iter().zip(responses.into_iter())
+                {
+                    results[*index] = Some(interpret_batch_json_response(
+                        path,
+                        response,
+                        *unwrap_value_array,
+                        tenant,
+                    ));
+                }
+            }
+            Err(error) => {
+                for (index, _, _, _) in &direct_calls {
+                    results[*index] = Some(Err(error.clone()));
+                }
+            }
+        }
+    }
+
+    if !web_calls.is_empty() {
+        execute_batchable_web_query_calls(
+            ctx,
+            api_url,
+            tenant,
+            &web_calls,
+            &mut results,
+            &mut emit_progress,
+        );
+    }
+
+    results
+        .into_iter()
+        .map(|result| result.unwrap_or_else(|| Err("batchable tool result missing".to_string())))
+        .collect()
 }
 
 /// Take the done result (if set). Clears it after reading.
@@ -225,11 +380,10 @@ pub fn dispatch(
         "sandbox" => {
             let fields = ctx.entity_state.get("fields").cloned().unwrap_or(json!({}));
             let (sandbox_id, cached_provider) = sandbox_identity_from_fields(&fields);
-            let provider = cached_provider
-                .unwrap_or_else(|| {
-                    wasm_helpers::sandbox::resolve_sandbox_provider(ctx, &fields)
-                        .unwrap_or_else(|_| "tensorlake".to_string())
-                });
+            let provider = cached_provider.unwrap_or_else(|| {
+                wasm_helpers::sandbox::resolve_sandbox_provider(ctx, &fields)
+                    .unwrap_or_else(|_| "tensorlake".to_string())
+            });
             dispatch_sandbox(
                 ctx,
                 &effective_sandbox_url,
@@ -959,6 +1113,15 @@ fn web_query_dispatch(
     query: &str,
     url: &str,
 ) -> Result<Value, String> {
+    if let Some(cached) = lookup_completed_web_query(ctx, api_url, tenant, query_type, query, url)?
+    {
+        ctx.log(
+            "info",
+            &format!("web_query: reusing completed cached {query_type} result"),
+        );
+        return Ok(cached);
+    }
+
     // 1. Create WebQuery entity
     let body = json!({
         "QueryType": query_type,
@@ -1019,6 +1182,66 @@ fn web_query_dispatch(
             Ok(json!(results_raw))
         }
     }
+}
+
+fn lookup_completed_web_query(
+    ctx: &Context,
+    api_url: &str,
+    tenant: &str,
+    query_type: &str,
+    query: &str,
+    url: &str,
+) -> Result<Option<Value>, String> {
+    let path = web_query_cache_lookup_path(query_type, query, url);
+    let lookup = match http_get(ctx, api_url, tenant, &path) {
+        Ok(value) => value,
+        Err(error) => {
+            ctx.log(
+                "warn",
+                &format!("web_query: cache lookup failed, falling back to fresh query: {error}"),
+            );
+            return Ok(None);
+        }
+    };
+
+    interpret_cached_web_query_result(query_type, &lookup)
+}
+
+fn web_query_cache_lookup_path(query_type: &str, query: &str, url: &str) -> String {
+    let (field_name, raw_value) = if query_type == "search" {
+        ("Query", query)
+    } else {
+        ("Url", url)
+    };
+    let escaped_value = encode_odata_filter_literal(raw_value);
+    format!(
+        "/tdata/WebQueries?$filter=Status%20eq%20'Complete'%20and%20QueryType%20eq%20'{query_type}'%20and%20{field_name}%20eq%20'{escaped_value}'&$top=1"
+    )
+}
+
+fn interpret_cached_web_query_result(
+    query_type: &str,
+    lookup: &Value,
+) -> Result<Option<Value>, String> {
+    let entity = lookup
+        .get("value")
+        .and_then(Value::as_array)
+        .and_then(|items| items.first())
+        .cloned();
+    let Some(entity) = entity else {
+        return Ok(None);
+    };
+
+    let result_fields = entity.get("fields").cloned().unwrap_or(entity);
+    let (status, results_raw) = interpret_web_query_entity_result(query_type, &result_fields)?;
+
+    let parsed = match serde_json::from_str::<Value>(results_raw) {
+        Ok(parsed) => parsed,
+        Err(_) => json!(results_raw),
+    };
+
+    let _ = status;
+    Ok(Some(parsed))
 }
 
 const GENERIC_SEARCH_TOKENS: &[&str] = &[
@@ -1759,6 +1982,463 @@ fn sandbox_edit(
 // Helpers
 // ---------------------------------------------------------------------------
 
+fn parse_batchable_tool_call(code: &str) -> Option<(String, String, Vec<String>)> {
+    let trimmed = code.trim();
+    let open_paren = trimmed.find('(')?;
+    let close_paren = trimmed.rfind(')')?;
+    if close_paren != trimmed.len().checked_sub(1)? {
+        return None;
+    }
+
+    let receiver = trimmed[..open_paren].trim();
+    if receiver.split('.').count() != 2 {
+        return None;
+    }
+    let (object, method) = receiver.split_once('.')?;
+    if object.is_empty() || method.is_empty() {
+        return None;
+    }
+
+    let args = parse_batchable_string_arguments(&trimmed[open_paren + 1..close_paren])?;
+    Some((object.to_string(), method.to_string(), args))
+}
+
+fn parse_batchable_string_arguments(args_src: &str) -> Option<Vec<String>> {
+    let bytes = args_src.as_bytes();
+    let mut index = 0usize;
+    let mut args = Vec::new();
+
+    loop {
+        while index < bytes.len() && bytes[index].is_ascii_whitespace() {
+            index += 1;
+        }
+        if index >= bytes.len() {
+            return Some(args);
+        }
+
+        let quote = *bytes.get(index)?;
+        if quote != b'\'' && quote != b'"' {
+            return None;
+        }
+        index += 1;
+
+        let mut value = String::new();
+        let mut closed = false;
+        while index < bytes.len() {
+            let ch = bytes[index];
+            index += 1;
+            if ch == quote {
+                closed = true;
+                break;
+            }
+            if ch == b'\\' {
+                let escaped = *bytes.get(index)?;
+                index += 1;
+                value.push(match escaped {
+                    b'\\' => '\\',
+                    b'\'' => '\'',
+                    b'"' => '"',
+                    b'n' => '\n',
+                    b'r' => '\r',
+                    b't' => '\t',
+                    other => other as char,
+                });
+                continue;
+            }
+            value.push(ch as char);
+        }
+        if !closed {
+            return None;
+        }
+
+        args.push(value);
+
+        while index < bytes.len() && bytes[index].is_ascii_whitespace() {
+            index += 1;
+        }
+        if index >= bytes.len() {
+            return Some(args);
+        }
+        if bytes[index] != b',' {
+            return None;
+        }
+        index += 1;
+    }
+}
+
+fn batchable_direct_get_path(method: &str, args: &[String]) -> Option<(String, bool)> {
+    match method {
+        "show_spec" | "spec_detail" if args.len() == 1 => {
+            Some((format!("/observe/specs/{}", args[0]), false))
+        }
+        "specs" if args.is_empty() => Some(("/observe/specs".to_string(), false)),
+        "get_insights" if args.is_empty() => Some(("/api/evolution/insights".to_string(), false)),
+        "get_decisions" if args.is_empty() => Some(("/api/decisions".to_string(), false)),
+        "list_policies" if args.is_empty() => {
+            Some(("/api/tenants/{tenant}/policies/list".to_string(), false))
+        }
+        "list_apps" if args.is_empty() => Some(("/api/apps".to_string(), false)),
+        _ => None,
+    }
+}
+
+fn interpret_batch_json_response(
+    path: &str,
+    response: HttpResponse,
+    unwrap_value_array: bool,
+    tenant: &str,
+) -> Result<Value, String> {
+    let resolved_path = path.replace("{tenant}", tenant);
+    if let Some(denial) = check_cedar_denial(response.status, &response.body) {
+        return Err(denial);
+    }
+    if response.status >= 400 {
+        return Err(format!(
+            "HTTP GET {resolved_path}: {} {}",
+            response.status, response.body
+        ));
+    }
+    let parsed: Value = serde_json::from_str(&response.body)
+        .map_err(|e| format!("failed to parse response from {resolved_path}: {e}"))?;
+    if unwrap_value_array {
+        Ok(parsed.get("value").cloned().unwrap_or(parsed))
+    } else {
+        Ok(parsed)
+    }
+}
+
+fn execute_batchable_web_query_calls<F>(
+    ctx: &Context,
+    api_url: &str,
+    tenant: &str,
+    web_calls: &[(usize, &BatchableToolCall, String, String)],
+    results: &mut [Option<Result<Value, String>>],
+    emit_progress: &mut F,
+) where
+    F: FnMut(),
+{
+    let lookup_requests: Vec<HttpRequest> = web_calls
+        .iter()
+        .map(|(_, call, query_type, raw_value)| {
+            let (query, url) = if query_type == "search" {
+                (raw_value.as_str(), "")
+            } else {
+                ("", raw_value.as_str())
+            };
+            HttpRequest {
+                method: "GET".to_string(),
+                url: format!(
+                    "{api_url}{}",
+                    web_query_cache_lookup_path(query_type, query, url)
+                ),
+                headers: internal_headers_for_tool(
+                    &call.plan.tool_name,
+                    Some(call.tool_call_id.as_str()),
+                ),
+                body: String::new(),
+            }
+        })
+        .collect();
+
+    emit_progress();
+    let lookup_responses = match ctx.http_call_batch(&lookup_requests) {
+        Ok(responses) => responses,
+        Err(error) => {
+            for (index, _, _, _) in web_calls {
+                results[*index] = Some(Err(error.clone()));
+            }
+            return;
+        }
+    };
+
+    #[derive(Clone)]
+    struct PendingWebQuery<'a> {
+        index: usize,
+        call: &'a BatchableToolCall,
+        query_type: String,
+        raw_value: String,
+    }
+
+    let mut pending = Vec::<PendingWebQuery<'_>>::new();
+    for ((index, call, query_type, raw_value), response) in
+        web_calls.iter().zip(lookup_responses.into_iter())
+    {
+        let lookup_path = if query_type == "search" {
+            web_query_cache_lookup_path(query_type, raw_value, "")
+        } else {
+            web_query_cache_lookup_path(query_type, "", raw_value)
+        };
+        let lookup_json = match interpret_batch_json_response(&lookup_path, response, false, tenant)
+        {
+            Ok(value) => value,
+            Err(error) => {
+                ctx.log(
+                    "warn",
+                    &format!(
+                        "web_query: cache lookup failed, falling back to fresh query: {error}"
+                    ),
+                );
+                pending.push(PendingWebQuery {
+                    index: *index,
+                    call,
+                    query_type: query_type.clone(),
+                    raw_value: raw_value.clone(),
+                });
+                continue;
+            }
+        };
+
+        match interpret_cached_web_query_result(query_type, &lookup_json) {
+            Ok(Some(value)) => results[*index] = Some(Ok(value)),
+            Ok(None) => pending.push(PendingWebQuery {
+                index: *index,
+                call,
+                query_type: query_type.clone(),
+                raw_value: raw_value.clone(),
+            }),
+            Err(error) => results[*index] = Some(Err(error)),
+        }
+    }
+
+    if pending.is_empty() {
+        return;
+    }
+
+    emit_progress();
+    let create_requests: Vec<HttpRequest> = pending
+        .iter()
+        .map(|item| {
+            let (query, url) = if item.query_type == "search" {
+                (item.raw_value.clone(), String::new())
+            } else {
+                (String::new(), item.raw_value.clone())
+            };
+            HttpRequest {
+                method: "POST".to_string(),
+                url: format!("{api_url}/tdata/WebQueries"),
+                headers: internal_headers_for_tool(
+                    &item.call.plan.tool_name,
+                    Some(item.call.tool_call_id.as_str()),
+                ),
+                body: json!({
+                    "QueryType": item.query_type,
+                    "Query": query,
+                    "Url": url,
+                })
+                .to_string(),
+            }
+        })
+        .collect();
+
+    let create_responses = match ctx.http_call_batch(&create_requests) {
+        Ok(responses) => responses,
+        Err(error) => {
+            for item in &pending {
+                results[item.index] = Some(Err(error.clone()));
+            }
+            return;
+        }
+    };
+
+    #[derive(Clone)]
+    struct CreatedWebQuery<'a> {
+        index: usize,
+        call: &'a BatchableToolCall,
+        query_type: String,
+        raw_value: String,
+        entity_id: String,
+    }
+
+    let mut created = Vec::<CreatedWebQuery<'_>>::new();
+    for (item, response) in pending.iter().zip(create_responses.into_iter()) {
+        match interpret_batch_json_response("/tdata/WebQueries", response, false, tenant) {
+            Ok(entity) => {
+                let entity_id = entity
+                    .get("entity_id")
+                    .or_else(|| entity.get("EntityId"))
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string);
+                match entity_id {
+                    Some(entity_id) => created.push(CreatedWebQuery {
+                        index: item.index,
+                        call: item.call,
+                        query_type: item.query_type.clone(),
+                        raw_value: item.raw_value.clone(),
+                        entity_id,
+                    }),
+                    None => {
+                        results[item.index] = Some(Err(
+                            "web_query: failed to get entity_id from created WebQuery".to_string(),
+                        ))
+                    }
+                }
+            }
+            Err(error) => results[item.index] = Some(Err(error)),
+        }
+    }
+
+    if created.is_empty() {
+        return;
+    }
+
+    emit_progress();
+    let action_requests: Vec<HttpRequest> = created
+        .iter()
+        .map(|item| {
+            let action_name = if item.query_type == "search" {
+                "ExecuteSearch"
+            } else {
+                "ExecuteFetch"
+            };
+            let action_params = if item.query_type == "search" {
+                json!({ "query": item.raw_value })
+            } else {
+                json!({ "url": item.raw_value })
+            };
+            let key = escape_odata_key(&item.entity_id);
+            HttpRequest {
+                method: "POST".to_string(),
+                url: format!(
+                    "{api_url}/tdata/WebQueries('{key}')/Temper.{action_name}?await_integration=true"
+                ),
+                headers: internal_headers_for_tool(
+                    &item.call.plan.tool_name,
+                    Some(item.call.tool_call_id.as_str()),
+                ),
+                body: action_params.to_string(),
+            }
+        })
+        .collect();
+
+    let action_responses = match ctx.http_call_batch(&action_requests) {
+        Ok(responses) => responses,
+        Err(error) => {
+            for item in &created {
+                results[item.index] = Some(Err(error.clone()));
+            }
+            return;
+        }
+    };
+
+    let mut completed = Vec::<CreatedWebQuery<'_>>::new();
+    for (item, response) in created.iter().zip(action_responses.into_iter()) {
+        let action_name = if item.query_type == "search" {
+            "ExecuteSearch"
+        } else {
+            "ExecuteFetch"
+        };
+        let key = escape_odata_key(&item.entity_id);
+        let action_path =
+            format!("/tdata/WebQueries('{key}')/Temper.{action_name}?await_integration=true");
+        match interpret_batch_json_response(&action_path, response, false, tenant) {
+            Ok(_) => completed.push(item.clone()),
+            Err(error) => results[item.index] = Some(Err(error)),
+        }
+    }
+
+    if completed.is_empty() {
+        return;
+    }
+
+    emit_progress();
+    let get_requests: Vec<HttpRequest> = completed
+        .iter()
+        .map(|item| {
+            let key = escape_odata_key(&item.entity_id);
+            HttpRequest {
+                method: "GET".to_string(),
+                url: format!("{api_url}/tdata/WebQueries('{key}')"),
+                headers: internal_headers_for_tool(
+                    &item.call.plan.tool_name,
+                    Some(item.call.tool_call_id.as_str()),
+                ),
+                body: String::new(),
+            }
+        })
+        .collect();
+
+    let get_responses = match ctx.http_call_batch(&get_requests) {
+        Ok(responses) => responses,
+        Err(error) => {
+            for item in &completed {
+                results[item.index] = Some(Err(error.clone()));
+            }
+            return;
+        }
+    };
+
+    let recent_user_messages = if completed.iter().any(|item| item.query_type == "search") {
+        Some(recent_user_messages(ctx, api_url, tenant, 8))
+    } else {
+        None
+    };
+
+    for (item, response) in completed.iter().zip(get_responses.into_iter()) {
+        let key = escape_odata_key(&item.entity_id);
+        let entity_path = format!("/tdata/WebQueries('{key}')");
+        let result = match interpret_batch_json_response(&entity_path, response, false, tenant) {
+            Ok(value) => value,
+            Err(error) => {
+                results[item.index] = Some(Err(error));
+                continue;
+            }
+        };
+
+        let result_fields = result.get("fields").cloned().unwrap_or(result.clone());
+        let (status, results_raw) =
+            match interpret_web_query_entity_result(&item.query_type, &result_fields) {
+                Ok(parts) => parts,
+                Err(error) => {
+                    results[item.index] = Some(Err(error));
+                    continue;
+                }
+            };
+
+        let parsed_result =
+            serde_json::from_str::<Value>(results_raw).unwrap_or_else(|_| json!(results_raw));
+        if item.query_type == "fetch" && web_search_results_empty(&parsed_result) {
+            results[item.index] = Some(Err(format!(
+                "web_fetch: fetched no readable content from {}; try a more specific page or search first",
+                item.raw_value
+            )));
+            continue;
+        }
+
+        if item.query_type == "search" && web_search_results_empty(&parsed_result) {
+            let retry_query = recent_user_messages
+                .as_ref()
+                .and_then(|messages| fallback_web_search_query(&item.raw_value, messages));
+            if let Some(retry_query) = retry_query {
+                ctx.log(
+                    "info",
+                    &format!(
+                        "web_search: retrying vague zero-result query '{}' as '{}'",
+                        item.raw_value, retry_query
+                    ),
+                );
+                results[item.index] = Some(web_query_dispatch(
+                    ctx,
+                    api_url,
+                    tenant,
+                    "search",
+                    &retry_query,
+                    "",
+                ));
+                continue;
+            }
+        }
+
+        ctx.log(
+            "info",
+            &format!(
+                "web_query: {} completed with status {status}",
+                item.query_type
+            ),
+        );
+        results[item.index] = Some(Ok(parsed_result));
+    }
+}
+
 fn str_arg(args: &[Value], idx: usize, name: &str, method: &str) -> Result<String, String> {
     args.get(idx)
         .and_then(|v| v.as_str())
@@ -1790,6 +2470,20 @@ fn obj_arg_or_empty(args: &[Value], idx: usize) -> Value {
 
 fn escape_odata_key(key: &str) -> String {
     key.replace('\'', "''")
+}
+
+fn escape_odata_string_literal(value: &str) -> String {
+    value.replace('\'', "''")
+}
+
+fn encode_odata_filter_literal(value: &str) -> String {
+    escape_odata_string_literal(value)
+        .replace('%', "%25")
+        .replace(' ', "%20")
+        .replace('&', "%26")
+        .replace('?', "%3F")
+        .replace('#', "%23")
+        .replace('+', "%2B")
 }
 
 /// Minimal headers for internal Temper API calls.
@@ -1950,9 +2644,11 @@ fn shell_quote(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        fallback_web_search_query, has_model_csdl, interpret_web_query_entity_result,
-        is_image_extension, media_type_from_extension, is_vague_web_search_query,
-        sandbox_identity_from_fields, web_search_results_empty, LAZY_SANDBOX,
+        BatchableToolPlan, BatchableToolPlanKind, LAZY_SANDBOX, batchable_tool_plan_from_code,
+        encode_odata_filter_literal, escape_odata_string_literal, fallback_web_search_query,
+        has_model_csdl, interpret_cached_web_query_result, interpret_web_query_entity_result,
+        is_image_extension, is_vague_web_search_query, media_type_from_extension,
+        sandbox_identity_from_fields, web_query_cache_lookup_path, web_search_results_empty,
     };
     use serde_json::json;
 
@@ -2033,6 +2729,33 @@ mod tests {
     }
 
     #[test]
+    fn web_query_cache_lookup_path_escapes_single_quotes() {
+        let path = web_query_cache_lookup_path("fetch", "", "https://example.com/that's-all");
+
+        assert!(path.contains("Status%20eq%20'Complete'"));
+        assert!(path.contains("QueryType%20eq%20'fetch'"));
+        assert!(path.contains("Url%20eq%20'https://example.com/that''s-all'"));
+    }
+
+    #[test]
+    fn interpret_cached_web_query_result_reads_first_completed_entity() {
+        let cached = interpret_cached_web_query_result(
+            "fetch",
+            &json!({
+                "value": [{
+                    "fields": {
+                        "status": "Complete",
+                        "results": "{\"title\":\"cached\"}"
+                    }
+                }]
+            }),
+        )
+        .expect("cached lookup should parse");
+
+        assert_eq!(cached, Some(json!({"title": "cached"})));
+    }
+
+    #[test]
     fn web_search_results_empty_treats_blank_strings_as_empty() {
         assert!(web_search_results_empty(&json!("")));
         assert!(web_search_results_empty(&json!("[]")));
@@ -2102,5 +2825,61 @@ mod tests {
         assert_eq!(provider.as_deref(), Some("tensorlake"));
 
         LAZY_SANDBOX.with(|cell| *cell.borrow_mut() = None);
+    }
+
+    #[test]
+    fn escape_odata_string_literal_doubles_apostrophes() {
+        assert_eq!(escape_odata_string_literal("that's it"), "that''s it");
+    }
+
+    #[test]
+    fn encode_odata_filter_literal_percent_encodes_spaces() {
+        assert_eq!(
+            encode_odata_filter_literal("neo brutalism ui"),
+            "neo%20brutalism%20ui"
+        );
+    }
+
+    #[test]
+    fn batchable_tool_plan_parses_web_fetch_literal() {
+        let plan = batchable_tool_plan_from_code("temper.web_fetch('https://example.com/docs')");
+
+        assert_eq!(
+            plan,
+            Some(BatchableToolPlan {
+                tool_name: "temper.web_fetch".to_string(),
+                kind: BatchableToolPlanKind::WebQueryFetch {
+                    url: "https://example.com/docs".to_string(),
+                },
+            })
+        );
+    }
+
+    #[test]
+    fn batchable_tool_plan_parses_show_spec_literal() {
+        let plan = batchable_tool_plan_from_code("temper.show_spec(\"Session\")");
+
+        assert_eq!(
+            plan,
+            Some(BatchableToolPlan {
+                tool_name: "temper.show_spec".to_string(),
+                kind: BatchableToolPlanKind::DirectGet {
+                    path: "/observe/specs/Session".to_string(),
+                    unwrap_value_array: false,
+                },
+            })
+        );
+    }
+
+    #[test]
+    fn batchable_tool_plan_rejects_assignments_and_non_literal_args() {
+        assert_eq!(
+            batchable_tool_plan_from_code("result = temper.web_search(query)"),
+            None
+        );
+        assert_eq!(
+            batchable_tool_plan_from_code("temper.get(\"Sessions\", session_id)"),
+            None
+        );
     }
 }

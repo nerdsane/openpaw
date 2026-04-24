@@ -8,7 +8,7 @@
 
 use temper_wasm_sdk::prelude::*;
 use wasm_helpers::{
-    resolve_temper_api_url, runtime_headers, runtime_headers_for_workspace,
+    create_content_file_ref, resolve_temper_api_url, runtime_headers, runtime_headers_for_workspace,
     write_temperfs_value_with_retry,
 };
 
@@ -422,46 +422,15 @@ fn create_session_tree(
     }
 
     // Create a TemperFS file for the first user message content.
-    let content_file_headers =
-        workspace_headers(ctx, tenant, workspace_id, Some("application/json"), None);
-    let content_file_body = json!({
-        "workspace_id": workspace_id,
-        "name": format!("msg-u-{agent_id}-0.txt"),
-        "mime_type": "text/plain",
-        "path": format!("/msg-u-{agent_id}-0.txt")
-    });
-    let content_file_resp = ctx.http_call(
-        "POST",
-        &format!("{temper_api_url}/tdata/Files"),
-        &content_file_headers,
-        &serde_json::to_string(&content_file_body).unwrap_or_default(),
-    );
-    let content_file_id = match content_file_resp {
-        Ok(resp) if resp.status >= 200 && resp.status < 300 => {
-            let parsed: Value = serde_json::from_str(&resp.body).unwrap_or(json!({}));
-            let file_id = parsed
-                .get("entity_id")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-            if !file_id.is_empty() {
-                let content_write_url =
-                    format!("{temper_api_url}/tdata/Files('{file_id}')/$value");
-                let content_write_headers =
-                    workspace_headers(ctx, tenant, workspace_id, Some("text/plain"), None);
-                match ctx.http_call("PUT", &content_write_url, &content_write_headers, user_message)
-                {
-                    Ok(write_resp) if write_resp.status >= 200 && write_resp.status < 300 => {
-                        Some(file_id)
-                    }
-                    _ => None,
-                }
-            } else {
-                None
-            }
-        }
-        _ => None,
-    };
+    let content_file_ref = create_content_file_ref(
+        ctx,
+        temper_api_url,
+        tenant,
+        workspace_id,
+        &format!("msg-u-{agent_id}-0.txt"),
+        user_message,
+    )
+    .ok();
 
     // Initialize session file with JSONL header + first user message.
     let header_id = format!("h-{agent_id}");
@@ -475,13 +444,14 @@ fn create_session_tree(
     let header_line = serde_json::to_string(&header_entry).unwrap_or_default();
 
     let session_leaf_id = format!("u-{agent_id}-0");
-    let user_entry = if let Some(content_file_id) = content_file_id {
+    let user_entry = if let Some(content_file_ref) = content_file_ref {
         json!({
             "id": session_leaf_id,
             "parentId": header_id,
             "type": "message",
             "role": "user",
-            "content_file_id": content_file_id,
+            "content_file_id": content_file_ref.file_id,
+            "content_file_version_id": content_file_ref.file_version_id,
             "tokens": user_message.len() / 4
         })
     } else {

@@ -1,7 +1,8 @@
 use session_tree_lib::SessionTree;
 use temper_wasm_sdk::prelude::*;
 use wasm_helpers::{
-    create_content_file, runtime_headers, runtime_headers_for_workspace, timestamp_millis_string,
+    create_content_file_ref, runtime_headers, runtime_headers_for_workspace,
+    timestamp_millis_string,
 };
 
 const DEFAULT_TOOLS_ENABLED: &str = "temper_create,temper_get,temper_list,temper_action,temper_patch,temper_submit_specs,temper_show_spec,temper_specs,temper_upload_wasm,temper_get_trajectories,temper_get_insights,temper_get_decisions,temper_poll_decision,temper_approve_decision,temper_deny_decision,temper_submit_policy,temper_list_policies,temper_get_policy,temper_update_policy,temper_delete_policy,temper_install_app,temper_list_apps,temper_spawn_session,temper_list_sessions,temper_abort_session,temper_steer_session,temper_save_memory,temper_recall_memory,temper_write,temper_read,temper_run_coding_agent,temper_get_secret,temper_datadog_query,temper_railway,temper_vercel,temper_web_search,temper_web_fetch,read,write,edit,bash";
@@ -1049,7 +1050,7 @@ fn append_user_message_to_session(
     let tokens = estimate_tokens(user_message);
     let (new_leaf_id, _) = if !workspace_id.is_empty() {
         let file_name = format!("session-user-{}.txt", tree.len());
-        match create_content_file(
+        match create_content_file_ref(
             ctx,
             temper_api_url,
             tenant,
@@ -1057,9 +1058,13 @@ fn append_user_message_to_session(
             &file_name,
             user_message,
         ) {
-            Ok(content_file_id) => {
-                tree.append_user_message_file(&parent_id, &content_file_id, tokens)
-            }
+            Ok(content_ref) => append_externalized_user_message(
+                &mut tree,
+                &parent_id,
+                &content_ref.file_id,
+                Some(content_ref.file_version_id.as_str()),
+                tokens,
+            ),
             Err(err) => {
                 ctx.log(
                     "warn",
@@ -1082,6 +1087,21 @@ fn append_user_message_to_session(
         &tree.to_jsonl(),
     )?;
     Ok(new_leaf_id)
+}
+
+fn append_externalized_user_message(
+    tree: &mut SessionTree,
+    parent_id: &str,
+    content_file_id: &str,
+    content_file_version_id: Option<&str>,
+    tokens: usize,
+) -> (String, String) {
+    tree.append_user_message_file(
+        parent_id,
+        content_file_id,
+        content_file_version_id,
+        tokens,
+    )
 }
 
 fn append_user_message_to_conversation(
@@ -1633,5 +1653,24 @@ mod tests {
                 .and_then(Value::as_str),
             Some("00f067aa0ba902b7")
         );
+    }
+
+    #[test]
+    fn continued_externalized_user_messages_preserve_file_version() {
+        let mut tree = SessionTree::new("route-message-file-ref");
+        let parent_id = tree.last_entry_id().unwrap().to_string();
+
+        let (leaf_id, _) = append_externalized_user_message(
+            &mut tree,
+            &parent_id,
+            "file-123",
+            Some("ver-456"),
+            17,
+        );
+
+        let refs = tree.build_context_refs(&leaf_id);
+        assert_eq!(refs.len(), 1);
+        assert_eq!(refs[0].content_file_id.as_deref(), Some("file-123"));
+        assert_eq!(refs[0].content_file_version_id.as_deref(), Some("ver-456"));
     }
 }
