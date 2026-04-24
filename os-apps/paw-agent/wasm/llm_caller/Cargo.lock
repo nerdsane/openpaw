@@ -107,6 +107,7 @@ dependencies = [
 [[package]]
 name = "temper-wasm-sdk"
 version = "0.1.0"
+source = "git+https://github.com/nerdsane/temper.git?branch=main#dd9a06f167031ac07578339e3f87e7eabe9b495b"
 dependencies = [
  "serde_json",
 ]
@@ -130,59 +131,3 @@ name = "zmij"
 version = "1.0.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b8848ee67ecc8aedbaf3e4122217aff892639231befc6a1b58d29fff4c2cabaa"
-
-[[patch.unused]]
-name = "temper-authz"
-version = "0.1.0"
-
-[[patch.unused]]
-name = "temper-jit"
-version = "0.1.0"
-
-[[patch.unused]]
-name = "temper-macros"
-version = "0.1.0"
-
-[[patch.unused]]
-name = "temper-observe"
-version = "0.1.0"
-
-[[patch.unused]]
-name = "temper-odata"
-version = "0.1.0"
-
-[[patch.unused]]
-name = "temper-platform"
-version = "0.1.0"
-
-[[patch.unused]]
-name = "temper-runtime"
-version = "0.1.0"
-
-[[patch.unused]]
-name = "temper-sandbox"
-version = "0.1.0"
-
-[[patch.unused]]
-name = "temper-server"
-version = "0.1.0"
-
-[[patch.unused]]
-name = "temper-spec"
-version = "0.1.0"
-
-[[patch.unused]]
-name = "temper-store-postgres"
-version = "0.1.0"
-
-[[patch.unused]]
-name = "temper-store-redis"
-version = "0.1.0"
-
-[[patch.unused]]
-name = "temper-store-turso"
-version = "0.1.0"
-
-[[patch.unused]]
-name = "temper-wasm"
-version = "0.1.0"

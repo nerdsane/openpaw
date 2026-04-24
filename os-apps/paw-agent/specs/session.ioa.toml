@@ -1011,12 +1011,13 @@ llm = true
 on_failure = "Fail"
 
 [integration.config]
-api_key = "{secret:anthropic_api_key}"
 anthropic_api_key = "{secret:anthropic_api_key}"
+openai_api_key = "{secret:openai_api_key}"
 openai_codex_token = "{secret:openai_codex_token}"
 openrouter_api_key = "{secret:openrouter_api_key}"
 anthropic_api_url = "https://api.anthropic.com/v1/messages"
-openai_api_url = "https://chatgpt.com/backend-api/codex/responses"
+openai_api_url = "https://api.openai.com/v1/responses"
+openai_codex_api_url = "https://chatgpt.com/backend-api/codex/responses"
 openrouter_api_url = "https://openrouter.ai/api/v1/chat/completions"
 anthropic_auth_mode = "auto"
 openrouter_site_url = ""
@@ -1049,12 +1050,13 @@ llm = true
 on_failure = "Fail"
 
 [integration.config]
-api_key = "{secret:anthropic_api_key}"
 anthropic_api_key = "{secret:anthropic_api_key}"
+openai_api_key = "{secret:openai_api_key}"
 openai_codex_token = "{secret:openai_codex_token}"
 openrouter_api_key = "{secret:openrouter_api_key}"
 anthropic_api_url = "https://api.anthropic.com/v1/messages"
-openai_api_url = "https://chatgpt.com/backend-api/codex/responses"
+openai_api_url = "https://api.openai.com/v1/responses"
+openai_codex_api_url = "https://chatgpt.com/backend-api/codex/responses"
 openrouter_api_url = "https://openrouter.ai/api/v1/chat/completions"
 anthropic_auth_mode = "auto"
 openrouter_site_url = ""
@@ -1117,10 +1119,12 @@ module = "context_compactor"
 on_failure = "Fail"
 
 [integration.config]
-api_key = "{secret:anthropic_api_key}"
 anthropic_api_key = "{secret:anthropic_api_key}"
+openai_api_key = "{secret:openai_api_key}"
 openai_codex_token = "{secret:openai_codex_token}"
 openrouter_api_key = "{secret:openrouter_api_key}"
+openai_api_url = "https://api.openai.com/v1/responses"
+openai_codex_api_url = "https://chatgpt.com/backend-api/codex/responses"
 temper_api_url = "{secret:temper_api_url}"
 timeout_secs = "120"
 
