@@ -6116,7 +6116,14 @@ fn resolve_context_refs(
                     String::new()
                 });
             }
-            return read_content_file_raw(ctx, temper_api_url, tenant, file_id);
+            return read_temperfs_file_value(
+                ctx,
+                temper_api_url,
+                tenant,
+                file_id,
+                None,
+                "Content file read failed",
+            );
         }
 
         Ok(String::new())
@@ -6129,22 +6136,14 @@ fn render_context_refs(
 ) -> Result<Vec<Value>, String> {
     let mut messages = Vec::new();
 
-    let planned_reads = batchable_context_ref_reads(refs);
-    let file_ids: Vec<String> = planned_reads
-        .iter()
-        .map(|(_, file_id)| file_id.clone())
-        .collect();
-    let batch_results =
-        read_temperfs_file_values_batched(ctx, temper_api_url, tenant, &file_ids, None, "Content file read failed");
-    let mut file_results_by_index: BTreeMap<usize, Result<String, String>> = BTreeMap::new();
-    for ((index, _), result) in planned_reads.iter().zip(batch_results.into_iter()) {
-        file_results_by_index.insert(*index, result);
-    }
-
-    for (index, ctx_ref) in refs.iter().enumerate() {
-        if let Some(message) =
-            resolve_context_ref_message(ctx_ref, file_results_by_index.remove(&index))?
-        {
+    for ctx_ref in refs {
+        let raw_result =
+            if ctx_ref.content_file_id.is_some() || ctx_ref.content_file_version_id.is_some() {
+                Some(read_file(ctx_ref))
+            } else {
+                None
+            };
+        if let Some(message) = resolve_context_ref_message(ctx_ref, raw_result)? {
             messages.push(message);
         }
     }
@@ -6625,6 +6624,7 @@ mod tests {
                 entry_id: "m1".to_string(),
                 role: "assistant".to_string(),
                 content_file_id: Some("file-a".to_string()),
+                content_file_version_id: None,
                 entry_type: EntryType::Message,
                 inline_content: None,
                 inline_summary: None,
@@ -6633,6 +6633,7 @@ mod tests {
                 entry_id: "h1".to_string(),
                 role: "system".to_string(),
                 content_file_id: Some("ignored".to_string()),
+                content_file_version_id: None,
                 entry_type: EntryType::Header,
                 inline_content: None,
                 inline_summary: None,
@@ -6641,6 +6642,7 @@ mod tests {
                 entry_id: "c1".to_string(),
                 role: "user".to_string(),
                 content_file_id: Some("file-b".to_string()),
+                content_file_version_id: None,
                 entry_type: EntryType::Compaction,
                 inline_content: None,
                 inline_summary: Some("fallback".to_string()),
@@ -6659,6 +6661,7 @@ mod tests {
             entry_id: "c1".to_string(),
             role: "user".to_string(),
             content_file_id: Some("file-c".to_string()),
+            content_file_version_id: None,
             entry_type: EntryType::Compaction,
             inline_content: None,
             inline_summary: Some("cached summary".to_string()),
@@ -6684,6 +6687,7 @@ mod tests {
             entry_id: "m1".to_string(),
             role: "assistant".to_string(),
             content_file_id: Some("file-a".to_string()),
+            content_file_version_id: None,
             entry_type: EntryType::Message,
             inline_content: Some(json!("inline fallback")),
             inline_summary: None,
@@ -6706,6 +6710,7 @@ mod tests {
             entry_id: "m1".to_string(),
             role: "assistant".to_string(),
             content_file_id: Some("file-a".to_string()),
+            content_file_version_id: None,
             entry_type: EntryType::Message,
             inline_content: Some(json!("inline fallback")),
             inline_summary: None,
