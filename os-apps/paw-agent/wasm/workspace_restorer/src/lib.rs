@@ -2,8 +2,8 @@
 //!
 //! Triggered by the `Resume` action's `restore_workspace` integration.
 //! Reads the file manifest from TemperFS, downloads each file, and writes
-//! it to the sandbox at the original path. Then triggers `call_llm` to
-//! continue the agent loop.
+//! it to the sandbox at the original path. Then returns `SandboxReady` so
+//! the staged session turn flow can resume at context preparation.
 //!
 //! Build: `cargo build --target wasm32-unknown-unknown --release`
 
@@ -119,7 +119,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             &format!("workspace_restorer: restored {restored} files, {failed} failed"),
         );
 
-        // Dispatch SandboxReady to transition Provisioning → Thinking and trigger call_llm
+        // Dispatch SandboxReady so the normal staged Session turn loop resumes.
         set_success_result("SandboxReady", &sandbox_ready_params);
 
         Ok(())

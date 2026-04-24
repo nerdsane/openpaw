@@ -11,9 +11,8 @@
 use serde_json::{json, Value};
 use std::{cell::RefCell, collections::BTreeSet};
 use temper_wasm_sdk::context::Context;
+use tool_catalog::{DEFAULT_TOOLS_ENABLED, enabled_tool_set};
 use wasm_helpers::runtime_headers;
-
-const DEFAULT_TOOLS_ENABLED: &str = "temper_create,temper_get,temper_list,temper_action,temper_patch,temper_submit_specs,temper_show_spec,temper_specs,temper_upload_wasm,temper_get_trajectories,temper_get_insights,temper_get_decisions,temper_poll_decision,temper_approve_decision,temper_deny_decision,temper_submit_policy,temper_list_policies,temper_get_policy,temper_update_policy,temper_delete_policy,temper_install_app,temper_list_apps,temper_spawn_session,temper_list_sessions,temper_abort_session,temper_steer_session,temper_save_memory,temper_recall_memory,temper_write,temper_read,temper_ls,temper_grep,temper_glob,temper_edit,temper_rename,temper_search_history,temper_run_coding_agent,temper_get_secret,temper_datadog_query,temper_railway,temper_vercel,temper_web_search,temper_web_fetch,read,write,edit,bash";
 
 /// Tools available in plan mode (ADR-004). Blocks sandbox mutation (write, edit)
 /// and governance writes. Allows read ops, research, memory, Plan CRUD, and
@@ -312,29 +311,13 @@ fn ensure_method_enabled(
 }
 
 fn enabled_tools(ctx: &Context) -> BTreeSet<String> {
-    ctx.entity_state
-        .get("fields")
-        .and_then(|fields| fields.get("tools_enabled"))
-        .and_then(|value| value.as_str())
-        .unwrap_or(DEFAULT_TOOLS_ENABLED)
-        .split(',')
-        .map(str::trim)
-        .filter(|tool| !tool.is_empty())
-        .map(|tool| match tool {
-            "read_entity" => "temper_get",
-            "save_memory" => "temper_save_memory",
-            "recall_memory" => "temper_recall_memory",
-            "spawn_agent" | "spawn_session" => "temper_spawn_session",
-            "temper_file_upload" => "temper_write",
-            // sandbox_* prefixed aliases → bare tokens (spec canonical form)
-            "sandbox_bash" | "sandbox_exec" => "bash",
-            "sandbox_read" => "read",
-            "sandbox_write" => "write",
-            "sandbox_edit" => "edit",
-            other => other,
-        })
-        .map(ToOwned::to_owned)
-        .collect()
+    enabled_tool_set(
+        ctx.entity_state
+            .get("fields")
+            .and_then(|fields| fields.get("tools_enabled"))
+            .and_then(|value| value.as_str())
+            .unwrap_or(DEFAULT_TOOLS_ENABLED),
+    )
 }
 
 fn format_enabled_tools(enabled: &BTreeSet<String>) -> String {

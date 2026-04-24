@@ -1,6 +1,6 @@
 # ADR-0034: Bounded Session Context and LLM Turn Decomposition
 
-**Status:** Proposed
+**Status:** Superseded by ADR-0040
 **Date:** 2026-04-15
 **Related:** ADR-0005 (Temper-Native Orchestration), ADR-0020 (File-Backed Storage for Document-Sized App Content), ADR-0022 (LLM Calling Infrastructure Optimizations), ADR-0025 (Session Recovery and Conversation Reset), ADR-0032 (TemperFS Agent Operations)
 
