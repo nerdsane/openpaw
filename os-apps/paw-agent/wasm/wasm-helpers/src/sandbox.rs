@@ -1,7 +1,7 @@
 //! Sandbox provider abstraction — match-based dispatch for sandbox lifecycle,
 //! file I/O, and command execution across multiple providers (Tensorlake, Modal).
 //!
-//! Follows the same pattern as `llm_caller`'s provider selection:
+//! Follows the same pattern as the staged provider caller's provider selection:
 //! entity field → config → error. No dynamic dispatch (`dyn Trait`),
 //! WASM-compatible throughout.
 
