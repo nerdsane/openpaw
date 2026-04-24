@@ -48,14 +48,12 @@ fn paw_fs_specs_use_inline_triggers_and_explicit_counter_assignment() {
         );
     }
 
-    for needle in
-        ["type = \"set_counter_from_param\", var = \"quota_limit\", param = \"quota_limit\""]
-    {
-        assert!(
-            workspace_spec.contains(needle),
-            "workspace spec should contain {needle}"
-        );
-    }
+    let needle =
+        "type = \"set_counter_from_param\", var = \"quota_limit\", param = \"quota_limit\"";
+    assert!(
+        workspace_spec.contains(needle),
+        "workspace spec should contain {needle}"
+    );
 }
 
 #[test]

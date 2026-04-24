@@ -19,11 +19,25 @@ permit(
   resource is ChannelSession
 );
 
+permit(
+  principal is Admin,
+  action,
+  resource is TransportConnection
+);
+
 // Supervisors and humans can manage channels and routes
 permit(
   principal,
   action in [Action::"create", Action::"Configure", Action::"Connect", Action::"Disconnect", Action::"Reconnect", Action::"Archive"],
   resource is Channel
+) when {
+  ["supervisor", "human"].contains(principal.agent_type)
+};
+
+permit(
+  principal,
+  action in [Action::"create", Action::"Configure", Action::"Start", Action::"Disable"],
+  resource is TransportConnection
 ) when {
   ["supervisor", "human"].contains(principal.agent_type)
 };
@@ -41,6 +55,14 @@ permit(
   principal,
   action in [Action::"Ready", Action::"ReceiveMessage", Action::"SendReply", Action::"ReplyDelivered", Action::"ConnectFailed", Action::"RouteFailed", Action::"ReplyFailed", Action::"UpdateCursor"],
   resource is Channel
+) when {
+  principal.agent_type == "system"
+};
+
+permit(
+  principal,
+  action in [Action::"StartSucceeded", Action::"StartRetry", Action::"RetryDue", Action::"StartFailed", Action::"MarkDisconnected"],
+  resource is TransportConnection
 ) when {
   principal.agent_type == "system"
 };
@@ -82,9 +104,15 @@ permit(
 );
 
 permit(
+  principal,
+  action in [Action::"read", Action::"list"],
+  resource is TransportConnection
+);
+
+permit(
   principal is Agent,
   action == Action::"http_call",
   resource is HttpEndpoint
 ) when {
-  ["channel_connect", "route_message", "send_reply"].contains(context.module)
+  ["channel_connect", "route_message", "send_reply", "transport_reconcile"].contains(context.module)
 };

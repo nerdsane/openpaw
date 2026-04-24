@@ -40,6 +40,20 @@
         <Property Name="LastMessageAt" Type="Edm.String"/>
       </EntityType>
 
+      <EntityType Name="TransportConnection">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.String" Nullable="false"/>
+        <Property Name="Status" Type="Edm.String"/>
+        <Property Name="Platform" Type="Edm.String"/>
+        <Property Name="DesiredState" Type="Edm.String"/>
+        <Property Name="LastError" Type="Edm.String"/>
+        <Property Name="ErrorMessage" Type="Edm.String"/>
+        <Property Name="NextRetryAt" Type="Edm.String"/>
+        <Property Name="InteractionUrl" Type="Edm.String"/>
+        <Property Name="LastConnectedAt" Type="Edm.String"/>
+        <Property Name="AttemptCount" Type="Edm.Int64"/>
+      </EntityType>
+
       <Action Name="Configure" IsBound="true">
         <Parameter Name="bindingParameter" Type="Paw.Channel.Channel"/>
         <Parameter Name="channel_type" Type="Edm.String" Nullable="false"/>
@@ -186,10 +200,63 @@
         <ReturnType Type="Paw.Channel.ChannelSession"/>
       </Action>
 
+      <Action Name="Configure" IsBound="true">
+        <Parameter Name="bindingParameter" Type="Paw.Channel.TransportConnection"/>
+        <Parameter Name="platform" Type="Edm.String" Nullable="false"/>
+        <Parameter Name="desired_state" Type="Edm.String" Nullable="false"/>
+        <ReturnType Type="Paw.Channel.TransportConnection"/>
+      </Action>
+
+      <Action Name="Start" IsBound="true">
+        <Parameter Name="bindingParameter" Type="Paw.Channel.TransportConnection"/>
+        <ReturnType Type="Paw.Channel.TransportConnection"/>
+      </Action>
+
+      <Action Name="StartSucceeded" IsBound="true">
+        <Parameter Name="bindingParameter" Type="Paw.Channel.TransportConnection"/>
+        <Parameter Name="interaction_url" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="last_connected_at" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="last_error" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="next_retry_at" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="Paw.Channel.TransportConnection"/>
+      </Action>
+
+      <Action Name="StartRetry" IsBound="true">
+        <Parameter Name="bindingParameter" Type="Paw.Channel.TransportConnection"/>
+        <Parameter Name="last_error" Type="Edm.String" Nullable="false"/>
+        <Parameter Name="next_retry_at" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="Paw.Channel.TransportConnection"/>
+      </Action>
+
+      <Action Name="RetryDue" IsBound="true">
+        <Parameter Name="bindingParameter" Type="Paw.Channel.TransportConnection"/>
+        <ReturnType Type="Paw.Channel.TransportConnection"/>
+      </Action>
+
+      <Action Name="StartFailed" IsBound="true">
+        <Parameter Name="bindingParameter" Type="Paw.Channel.TransportConnection"/>
+        <Parameter Name="last_error" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="error_message" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="Paw.Channel.TransportConnection"/>
+      </Action>
+
+      <Action Name="MarkDisconnected" IsBound="true">
+        <Parameter Name="bindingParameter" Type="Paw.Channel.TransportConnection"/>
+        <Parameter Name="last_error" Type="Edm.String" Nullable="false"/>
+        <Parameter Name="next_retry_at" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="Paw.Channel.TransportConnection"/>
+      </Action>
+
+      <Action Name="Disable" IsBound="true">
+        <Parameter Name="bindingParameter" Type="Paw.Channel.TransportConnection"/>
+        <ReturnType Type="Paw.Channel.TransportConnection"/>
+      </Action>
+
       <EntityContainer Name="Service">
         <EntitySet Name="Channels" EntityType="Paw.Channel.Channel"/>
         <EntitySet Name="AgentRoutes" EntityType="Paw.Channel.AgentRoute"/>
         <EntitySet Name="ChannelSessions" EntityType="Paw.Channel.ChannelSession"/>
+        <EntitySet Name="TransportConnections" EntityType="Paw.Channel.TransportConnection"/>
       </EntityContainer>
 
     </Schema>

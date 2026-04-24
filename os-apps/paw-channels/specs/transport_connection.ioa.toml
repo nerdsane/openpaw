@@ -1,0 +1,129 @@
+[automaton]
+name = "TransportConnection"
+states = ["Created", "Configured", "Starting", "Connected", "Retrying", "Failed", "Disabled"]
+initial = "Created"
+
+allow_indefinite_states = ["Created", "Configured", "Connected", "Retrying", "Failed", "Disabled"]
+
+[[state_timeout]]
+state = "Starting"
+after_seconds = 90
+on_timeout = "StartRetry"
+params = { last_error = "Discord transport startup did not complete within 90s", next_retry_at = "" }
+
+[[state]]
+name = "platform"
+type = "string"
+initial = ""
+
+[[state]]
+name = "desired_state"
+type = "string"
+initial = ""
+
+[[state]]
+name = "last_error"
+type = "string"
+initial = ""
+
+[[state]]
+name = "next_retry_at"
+type = "string"
+initial = ""
+
+[[state]]
+name = "interaction_url"
+type = "string"
+initial = ""
+
+[[state]]
+name = "last_connected_at"
+type = "string"
+initial = ""
+
+[[state]]
+name = "attempt_count"
+type = "counter"
+initial = "0"
+
+[[action]]
+name = "Configure"
+kind = "input"
+from = ["Created", "Configured", "Starting", "Connected", "Retrying", "Failed", "Disabled"]
+to = "Configured"
+params = ["platform", "desired_state"]
+hint = "Configure a runtime transport connection and desired state."
+
+[[action]]
+name = "Start"
+kind = "input"
+from = ["Configured", "Connected", "Retrying", "Failed"]
+to = "Starting"
+hint = "Reconcile the configured runtime transport toward its desired state."
+effect = [{ type = "trigger", name = "transport_reconcile" }]
+
+[[action]]
+name = "StartSucceeded"
+kind = "input"
+from = ["Starting"]
+to = "Connected"
+params = ["interaction_url", "last_connected_at", "last_error", "next_retry_at"]
+hint = "Runtime transport reached a connected state."
+
+[[action]]
+name = "StartRetry"
+kind = "input"
+from = ["Starting"]
+to = "Retrying"
+params = ["last_error", "next_retry_at"]
+hint = "Runtime transport startup failed with a transient error; schedule another reconcile attempt."
+effect = [
+  { type = "increment", var = "attempt_count" },
+  { type = "schedule", action = "RetryDue", delay_seconds = 30 },
+]
+
+[[action]]
+name = "RetryDue"
+kind = "input"
+from = ["Retrying"]
+to = "Starting"
+hint = "Retry runtime transport startup."
+effect = [{ type = "trigger", name = "transport_reconcile" }]
+
+[[action]]
+name = "StartFailed"
+kind = "input"
+from = ["Starting"]
+to = "Failed"
+params = ["last_error", "error_message"]
+hint = "Runtime transport startup failed with a non-retryable error."
+effect = [{ type = "increment", var = "attempt_count" }]
+
+[[action]]
+name = "MarkDisconnected"
+kind = "input"
+from = ["Connected"]
+to = "Retrying"
+params = ["last_error", "next_retry_at"]
+hint = "Runtime transport disconnected after it had been connected; schedule reconciliation."
+effect = [
+  { type = "increment", var = "attempt_count" },
+  { type = "schedule", action = "RetryDue", delay_seconds = 30 },
+]
+
+[[action]]
+name = "Disable"
+kind = "input"
+from = ["Configured", "Starting", "Connected", "Retrying", "Failed"]
+to = "Disabled"
+hint = "Stop reconciling this runtime transport."
+
+[[integration]]
+name = "transport_reconcile"
+trigger = "transport_reconcile"
+type = "wasm"
+module = "transport_reconcile"
+on_failure = "StartFailed"
+
+[integration.config]
+temper_api_url = "{secret:temper_api_url}"
