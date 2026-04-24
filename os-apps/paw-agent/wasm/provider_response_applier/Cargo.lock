@@ -30,6 +30,7 @@ dependencies = [
  "serde",
  "serde_json",
  "session-tree-lib",
+ "session-turn-artifacts",
  "temper-wasm-sdk",
  "wasm-helpers",
 ]
@@ -90,6 +91,14 @@ dependencies = [
 name = "session-tree-lib"
 version = "0.1.0"
 dependencies = [
+ "serde_json",
+]
+
+[[package]]
+name = "session-turn-artifacts"
+version = "0.1.0"
+dependencies = [
+ "serde",
  "serde_json",
 ]
 
