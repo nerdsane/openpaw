@@ -16,6 +16,14 @@ permit(
     resource.id == principal.workspaceid
 };
 
+permit(
+    principal is Agent,
+    action == Action::"IncrementUsage",
+    resource is Workspace
+) when {
+    principal.agent_type == "file-service"
+};
+
 // Agents can perform filesystem operations (FUSE-mapped)
 permit(
     principal is Agent,

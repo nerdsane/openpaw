@@ -4288,7 +4288,7 @@ fn assemble_system_prompt(
     //    Path = scope: /system/skills/, /agents/{id}/skills/, /projects/{id}/skills/
     {
         let fields_val = ctx.entity_state.get("fields");
-        let agent_id = fields_val
+        let explicit_agent_id = fields_val
             .and_then(|f| f.get("agent_id").or_else(|| f.get("AgentId")))
             .and_then(|v| v.as_str())
             .unwrap_or("");
@@ -4296,7 +4296,33 @@ fn assemble_system_prompt(
             .and_then(|f| f.get("project_id").or_else(|| f.get("ProjectId")))
             .and_then(|v| v.as_str())
             .unwrap_or("");
-        match load_skills_block(ctx, temper_api_url, tenant, project_id, agent_id) {
+        let resolved_soul_entity_id = if explicit_agent_id.is_empty() && !soul_id.is_empty() {
+            match resolve_soul_entity(ctx, temper_api_url, tenant, soul_id) {
+                Ok(soul) => entity_field_str(&soul, &["Id", "entity_id"])
+                    .filter(|id| !id.is_empty())
+                    .map(str::to_string),
+                Err(e) => {
+                    ctx.log(
+                        "warn",
+                        &format!(
+                            "assemble_system_prompt: failed to resolve soul for skill scope: {e}"
+                        ),
+                    );
+                    None
+                }
+            }
+        } else {
+            None
+        };
+        let skill_scope_agent_id =
+            effective_skill_scope_agent_id(explicit_agent_id, resolved_soul_entity_id.as_deref());
+        match load_skills_block(
+            ctx,
+            temper_api_url,
+            tenant,
+            project_id,
+            skill_scope_agent_id.as_deref().unwrap_or(""),
+        ) {
             Ok(block) if !block.is_empty() => parts.push(block),
             Ok(_) => {}
             Err(e) => ctx.log(
@@ -4545,6 +4571,18 @@ fn resolve_soul_entity(
         .and_then(|souls| souls.first())
         .cloned()
         .ok_or_else(|| "soul read failed (no active soul matched reference)".to_string())
+}
+
+fn effective_skill_scope_agent_id(
+    explicit_agent_id: &str,
+    resolved_soul_entity_id: Option<&str>,
+) -> Option<String> {
+    if !explicit_agent_id.is_empty() {
+        return Some(explicit_agent_id.to_string());
+    }
+    resolved_soul_entity_id
+        .filter(|id| !id.is_empty())
+        .map(str::to_string)
 }
 
 fn normalize_skill_key(name: &str) -> String {
@@ -5457,6 +5495,22 @@ mod tests {
         assert!(attr.contains("&quot;"));
         assert!(attr.contains("&lt;"));
         assert!(attr.contains("&gt;"));
+    }
+
+    #[test]
+    fn effective_skill_scope_agent_id_prefers_explicit_agent_id() {
+        assert_eq!(
+            effective_skill_scope_agent_id("ag-curator", Some("sl-bootstrap-agent-soul-curator")),
+            Some("ag-curator".to_string())
+        );
+    }
+
+    #[test]
+    fn effective_skill_scope_agent_id_falls_back_to_resolved_soul_entity_id() {
+        assert_eq!(
+            effective_skill_scope_agent_id("", Some("sl-bootstrap-agent-soul-curator")),
+            Some("sl-bootstrap-agent-soul-curator".to_string())
+        );
     }
 
     // --- ADR-0037 Fix B: per-attempt timing + hang diagnostics ---

@@ -26,10 +26,10 @@ An app is not a shell script. An app is not a binary on PATH. An app is a govern
 - **Entity specs** (`.ioa.toml`) — state machines with named states, actions, transitions, invariants
 - **Cedar policies** (`.cedar`) — attribute-based access control governing who can do what
 - **WASM modules** (`.wasm`) — integration logic triggered by entity actions (API calls, provisioning, computation)
-- **Reactions** (`reactions.toml`) — cross-entity cascades that fire when an action completes
+- **Inline action triggers** (`[[action.triggers]]`) — cross-entity cascades and post-commit integrations declared on the source action
 - **A manifest** (`app.toml`) — name, version, dependencies on other apps
 
-When an app is installed, the platform registers its entity types, loads its policies, wires its WASM triggers, and activates its reactions. After that, you can `create`, `list`, `action`, and `get` against those entity types. Before that, you can't.
+When an app is installed, the platform registers its entity types, loads its policies, and wires its triggers and WASM modules. After that, you can `create`, `list`, `action`, and `get` against those entity types. Before that, you can't.
 
 **This is the difference between a Temper-native capability and a shell tool.** A Temper-native app has state machines, authorization, audit trails, and governed transitions. A shell tool has none of that. Never confuse the two.
 
@@ -212,8 +212,6 @@ my-app/
 │   │   ├── Cargo.toml        # Rust crate
 │   │   └── src/lib.rs        # integration logic
 │   └── module_name.wasm      # compiled binary
-└── reactions/
-    └── reactions.toml         # cross-entity cascades
 ```
 
 ## What you should never do
