@@ -76,4 +76,5 @@ cliclack = "0.3"
 
 [dev-dependencies]
 tempfile = "3"
+toml = "0.8"
 tower = "0.5"

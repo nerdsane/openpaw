@@ -12,10 +12,58 @@ use wasm_helpers::{
     write_temperfs_value_with_retry,
 };
 
+fn elapsed_ms_since(started_at: i64) -> i64 {
+    Context::get_time_millis().saturating_sub(started_at)
+}
+
+fn emit_phase_duration(ctx: &Context, phase: &str, started_at: i64, result: &str) {
+    let elapsed_ms = elapsed_ms_since(started_at);
+    let _ = ctx.emit_metric(
+        "temper_session_phase_duration_ms",
+        elapsed_ms as f64,
+        &json!({
+            "phase": phase,
+            "result": result,
+        }),
+        Some("histogram"),
+    );
+    ctx.log(
+        "info",
+        &format!("session_phase phase={phase} result={result} elapsed_ms={elapsed_ms}"),
+    );
+}
+
+fn emit_phase_step_duration(
+    ctx: &Context,
+    phase: &str,
+    step: &str,
+    started_at: i64,
+    result: &str,
+) {
+    let elapsed_ms = elapsed_ms_since(started_at);
+    let _ = ctx.emit_metric(
+        "temper_session_phase_step_duration_ms",
+        elapsed_ms as f64,
+        &json!({
+            "phase": phase,
+            "step": step,
+            "result": result,
+        }),
+        Some("histogram"),
+    );
+    ctx.log(
+        "info",
+        &format!(
+            "session_phase phase={phase} step={step} result={result} elapsed_ms={elapsed_ms}"
+        ),
+    );
+}
+
 /// Entry point.
 #[unsafe(no_mangle)]
 pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
     let result = (|| -> Result<(), String> {
+        let started_at = Context::get_time_millis();
         let ctx = Context::from_host()?;
         ctx.log("info", "workspace_provisioner: starting");
 
@@ -90,6 +138,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                         "workspace_provisioner: using configured workspace {prior_workspace_id} for fresh session storage"
                     ),
                 );
+                let bootstrap_started_at = Context::get_time_millis();
                 let fs_result = create_conversation_storage_in_workspace(
                     &ctx,
                     &temper_api_url,
@@ -97,6 +146,13 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                     &prior_workspace_id,
                     entity_id,
                     user_message,
+                );
+                emit_phase_step_duration(
+                    &ctx,
+                    "workspace_provisioner",
+                    "bootstrap_existing_workspace",
+                    bootstrap_started_at,
+                    if fs_result.is_ok() { "ok" } else { "error" },
                 );
                 match fs_result {
                     Ok((conv, manifest, sess_file, sess_leaf)) => (
@@ -124,8 +180,16 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 }
             } else {
                 // Fresh session — create new conversation storage.
+                let bootstrap_started_at = Context::get_time_millis();
                 let fs_result =
                     create_conversation_storage(&ctx, &temper_api_url, tenant, entity_id, user_message);
+                emit_phase_step_duration(
+                    &ctx,
+                    "workspace_provisioner",
+                    "bootstrap_new_workspace",
+                    bootstrap_started_at,
+                    if fs_result.is_ok() { "ok" } else { "error" },
+                );
                 match fs_result {
                     Ok((ws, conv, manifest, sess_file, sess_leaf)) => {
                         (ws, conv, manifest, sess_file, sess_leaf)
@@ -158,6 +222,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 "session_leaf_id": session_leaf_id,
             }),
         );
+        emit_phase_duration(&ctx, "workspace_provisioner", started_at, "workspace_ready");
 
         Ok(())
     })();

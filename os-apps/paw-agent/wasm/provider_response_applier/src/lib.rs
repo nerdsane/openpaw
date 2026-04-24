@@ -20,6 +20,7 @@ use wasm_helpers::{
 };
 
 const SESSION_ENTRY_FILE_THRESHOLD_BYTES: usize = 4096;
+const DEFAULT_PROVIDER_RESPONSE_APPLY_BUDGET_MS: i64 = 30_000;
 
 #[unsafe(no_mangle)]
 pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
@@ -30,6 +31,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
 }
 
 pub fn run_provider_response_applier() -> Result<(), String> {
+    let started_at = Context::get_time_millis();
     let ctx = Context::from_host()?;
     ctx.log("info", "provider_response_applier: starting");
 
@@ -55,40 +57,85 @@ pub fn run_provider_response_applier() -> Result<(), String> {
 
     let temper_api_url = resolve_temper_api_url(&ctx, &fields);
     let tenant = &ctx.tenant;
-    let prepared = read_prepared_context_artifact(
+    let apply_budget_ms = configured_budget_ms(
+        &ctx,
+        &fields,
+        "provider_response_apply_budget_ms",
+        DEFAULT_PROVIDER_RESPONSE_APPLY_BUDGET_MS,
+    );
+    let read_prepared_started_at = Context::get_time_millis();
+    let prepared_result = read_prepared_context_artifact(
         &ctx,
         &temper_api_url,
         tenant,
         &fields,
         prepared_context_file_id,
+    );
+    emit_phase_step_duration(
+        &ctx,
+        "provider_response_applier",
+        "read_prepared_artifact",
+        read_prepared_started_at,
+        if prepared_result.is_ok() {
+            "ok"
+        } else {
+            "error"
+        },
+    );
+    let prepared = prepared_result?;
+    check_phase_budget(
+        &ctx,
+        "provider_response_applier",
+        started_at,
+        apply_budget_ms,
+        "read_prepared_artifact",
     )?;
-    let response = read_provider_response_artifact(
+
+    let read_response_started_at = Context::get_time_millis();
+    let response_result = read_provider_response_artifact(
         &ctx,
         &temper_api_url,
         tenant,
         &fields,
         provider_response_file_id,
+    );
+    emit_phase_step_duration(
+        &ctx,
+        "provider_response_applier",
+        "read_provider_response_artifact",
+        read_response_started_at,
+        if response_result.is_ok() {
+            "ok"
+        } else {
+            "error"
+        },
+    );
+    let response = response_result?;
+    check_phase_budget(
+        &ctx,
+        "provider_response_applier",
+        started_at,
+        apply_budget_ms,
+        "read_provider_response_artifact",
     )?;
 
-    let mut messages = prepared.messages.clone();
-    messages.push(json!({
-        "role": "assistant",
-        "content": response.content.clone(),
-    }));
-
-    let updated_conversation = serde_json::to_string(&messages).unwrap_or_default();
-    if !prepared.conversation_file_id.is_empty() && !prepared.use_session_tree {
+    let legacy_conversation = legacy_updated_conversation_payload(&prepared, &response);
+    if let Some(ref updated_conversation) = legacy_conversation
+        && !prepared.conversation_file_id.is_empty()
+    {
         write_conversation_to_temperfs(
             &ctx,
             &temper_api_url,
             tenant,
             &fields,
             &prepared.conversation_file_id,
-            &updated_conversation,
+            updated_conversation,
         )?;
     }
-    let inline_conversation = if prepared.conversation_file_id.is_empty() {
-        Some(updated_conversation)
+    let inline_conversation = if !prepared.use_session_tree
+        && prepared.conversation_file_id.is_empty()
+    {
+        legacy_conversation
     } else {
         None
     };
@@ -96,7 +143,8 @@ pub fn run_provider_response_applier() -> Result<(), String> {
     match response.stop_reason.as_str() {
         "tool_use" => {
             let tool_calls = extract_tool_calls(&response.content);
-            let new_leaf = append_assistant_response_to_session_tree(
+            let append_started_at = Context::get_time_millis();
+            let append_result = append_assistant_response_to_session_tree(
                 &ctx,
                 &prepared,
                 &temper_api_url,
@@ -104,6 +152,21 @@ pub fn run_provider_response_applier() -> Result<(), String> {
                 &fields,
                 &response.content,
                 response.output_tokens as usize,
+            );
+            emit_phase_step_duration(
+                &ctx,
+                "provider_response_applier",
+                "append_session_tree",
+                append_started_at,
+                if append_result.is_ok() { "ok" } else { "error" },
+            );
+            let new_leaf = append_result?;
+            check_phase_budget(
+                &ctx,
+                "provider_response_applier",
+                started_at,
+                apply_budget_ms,
+                "append_session_tree",
             )?;
 
             let mut params = build_provider_response_applier_base_params(&prepared, &response);
@@ -116,10 +179,17 @@ pub fn run_provider_response_applier() -> Result<(), String> {
                 params["conversation"] = json!(conversation);
             }
             set_success_result("ProcessToolCalls", &params);
+            emit_phase_total_duration(
+                &ctx,
+                "provider_response_applier",
+                started_at,
+                "process_tool_calls",
+            );
         }
         "end_turn" | "stop" => {
             let result_text = extract_text_response(&response.content);
-            let new_leaf = append_assistant_response_to_session_tree(
+            let append_started_at = Context::get_time_millis();
+            let append_result = append_assistant_response_to_session_tree(
                 &ctx,
                 &prepared,
                 &temper_api_url,
@@ -127,6 +197,21 @@ pub fn run_provider_response_applier() -> Result<(), String> {
                 &fields,
                 &response.content,
                 response.output_tokens as usize,
+            );
+            emit_phase_step_duration(
+                &ctx,
+                "provider_response_applier",
+                "append_session_tree",
+                append_started_at,
+                if append_result.is_ok() { "ok" } else { "error" },
+            );
+            let new_leaf = append_result?;
+            check_phase_budget(
+                &ctx,
+                "provider_response_applier",
+                started_at,
+                apply_budget_ms,
+                "append_session_tree",
             )?;
 
             let mut params = build_provider_response_applier_base_params(&prepared, &response);
@@ -140,11 +225,23 @@ pub fn run_provider_response_applier() -> Result<(), String> {
                 .unwrap_or(5);
             if max_follow_ups > 0 {
                 set_success_result("CheckSteering", &params);
+                emit_phase_total_duration(
+                    &ctx,
+                    "provider_response_applier",
+                    started_at,
+                    "check_steering",
+                );
             } else {
                 if let Some(conversation) = inline_conversation {
                     params["conversation"] = json!(conversation);
                 }
                 set_success_result("RecordResult", &params);
+                emit_phase_total_duration(
+                    &ctx,
+                    "provider_response_applier",
+                    started_at,
+                    "record_result",
+                );
             }
         }
         other => return Err(format!("unsupported stop_reason: {other}")),
@@ -173,6 +270,22 @@ fn read_provider_response_artifact(
 ) -> Result<ProviderResponseArtifact, String> {
     let raw = read_content_file(ctx, temper_api_url, tenant, fields, file_id)?;
     serde_json::from_str(&raw).map_err(|e| format!("parse provider response artifact: {e}"))
+}
+
+fn legacy_updated_conversation_payload(
+    prepared: &PreparedContextArtifact,
+    artifact: &ProviderResponseArtifact,
+) -> Option<String> {
+    if prepared.use_session_tree {
+        return None;
+    }
+
+    let mut messages = prepared.messages.clone();
+    messages.push(json!({
+        "role": "assistant",
+        "content": artifact.content.clone(),
+    }));
+    Some(serde_json::to_string(&messages).unwrap_or_default())
 }
 
 fn append_assistant_response_to_session_tree(
@@ -320,6 +433,88 @@ fn emit_metric_ignore(ctx: &Context, name: &str, value: f64, tags: &Value, kind:
     let _ = ctx.emit_metric(name, value, tags, kind);
 }
 
+fn elapsed_ms_since(started_at: i64) -> i64 {
+    Context::get_time_millis().saturating_sub(started_at)
+}
+
+fn configured_budget_ms(ctx: &Context, fields: &Value, key: &str, default_value: i64) -> i64 {
+    fields
+        .get(key)
+        .and_then(|v| v.as_str())
+        .and_then(|s| s.parse::<i64>().ok())
+        .or_else(|| ctx.config.get(key).and_then(|s| s.parse::<i64>().ok()))
+        .filter(|value| *value > 0)
+        .unwrap_or(default_value)
+}
+
+fn emit_phase_step_duration(
+    ctx: &Context,
+    phase: &str,
+    step: &str,
+    started_at: i64,
+    result: &str,
+) -> i64 {
+    let elapsed_ms = elapsed_ms_since(started_at);
+    emit_metric_ignore(
+        ctx,
+        "temper_session_phase_step_duration_ms",
+        elapsed_ms as f64,
+        &json!({
+            "phase": phase,
+            "step": step,
+            "result": result,
+        }),
+        Some("histogram"),
+    );
+    ctx.log(
+        "info",
+        &format!("session_phase phase={phase} step={step} result={result} elapsed_ms={elapsed_ms}"),
+    );
+    elapsed_ms
+}
+
+fn emit_phase_total_duration(ctx: &Context, phase: &str, started_at: i64, result: &str) -> i64 {
+    let elapsed_ms = elapsed_ms_since(started_at);
+    emit_metric_ignore(
+        ctx,
+        "temper_session_phase_duration_ms",
+        elapsed_ms as f64,
+        &json!({
+            "phase": phase,
+            "result": result,
+        }),
+        Some("histogram"),
+    );
+    elapsed_ms
+}
+
+fn check_phase_budget(
+    ctx: &Context,
+    phase: &str,
+    started_at: i64,
+    budget_ms: i64,
+    last_step: &str,
+) -> Result<(), String> {
+    let elapsed_ms = elapsed_ms_since(started_at);
+    if elapsed_ms <= budget_ms {
+        return Ok(());
+    }
+
+    emit_metric_ignore(
+        ctx,
+        "temper_session_phase_budget_exceeded_total",
+        1.0,
+        &json!({
+            "phase": phase,
+            "last_step": last_step,
+        }),
+        Some("count"),
+    );
+    Err(format!(
+        "{phase}: exceeded local budget after {last_step} (elapsed_ms={elapsed_ms}, budget_ms={budget_ms})"
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -354,5 +549,81 @@ mod tests {
         assert!(should_store_entry_as_file(
             &"a".repeat(SESSION_ENTRY_FILE_THRESHOLD_BYTES + 1)
         ));
+    }
+
+    #[test]
+    fn fresh_session_tree_response_apply_does_not_build_legacy_conversation_payload() {
+        let prepared = PreparedContextArtifact {
+            version: 1,
+            messages: vec![json!({"role": "user", "content": "hello"})],
+            tools: vec![],
+            system_prompt: "You are concise.".to_string(),
+            system_prompt_hash: "hash-123".to_string(),
+            system_prompt_file_id: "file-system".to_string(),
+            conversation_file_id: String::new(),
+            session_file_id: "session-file".to_string(),
+            session_leaf_id: "leaf-1".to_string(),
+            workspace_id: "workspace-1".to_string(),
+            use_session_tree: true,
+            context_tokens: 12,
+            context_bytes: 128,
+            entries_loaded: 1,
+            content_files_loaded: 0,
+        };
+        let artifact = ProviderResponseArtifact {
+            version: 1,
+            provider: "openai_codex".to_string(),
+            model: "gpt-5.4-codex".to_string(),
+            content: json!([{"type": "tool_use", "id": "call_1", "name": "temper.read", "input": {"path": "/x"}}]),
+            stop_reason: "tool_use".to_string(),
+            input_tokens: 10,
+            output_tokens: 20,
+            cache_read_input_tokens: 0,
+            cache_creation_input_tokens: 0,
+            request_bytes: 256,
+            response_bytes: 512,
+        };
+
+        assert!(legacy_updated_conversation_payload(&prepared, &artifact).is_none());
+    }
+
+    #[test]
+    fn legacy_inline_response_apply_keeps_conversation_payload() {
+        let prepared = PreparedContextArtifact {
+            version: 1,
+            messages: vec![json!({"role": "user", "content": "hello"})],
+            tools: vec![],
+            system_prompt: "You are concise.".to_string(),
+            system_prompt_hash: "hash-123".to_string(),
+            system_prompt_file_id: "file-system".to_string(),
+            conversation_file_id: String::new(),
+            session_file_id: String::new(),
+            session_leaf_id: String::new(),
+            workspace_id: String::new(),
+            use_session_tree: false,
+            context_tokens: 12,
+            context_bytes: 128,
+            entries_loaded: 1,
+            content_files_loaded: 0,
+        };
+        let artifact = ProviderResponseArtifact {
+            version: 1,
+            provider: "anthropic".to_string(),
+            model: "claude-sonnet-4-6".to_string(),
+            content: json!([{"type": "text", "text": "hi"}]),
+            stop_reason: "end_turn".to_string(),
+            input_tokens: 10,
+            output_tokens: 20,
+            cache_read_input_tokens: 0,
+            cache_creation_input_tokens: 0,
+            request_bytes: 256,
+            response_bytes: 512,
+        };
+
+        let payload = legacy_updated_conversation_payload(&prepared, &artifact)
+            .expect("legacy inline mode still needs a conversation param");
+        let messages: Vec<Value> = serde_json::from_str(&payload).unwrap();
+        assert_eq!(messages.len(), 2);
+        assert_eq!(messages[1]["role"], "assistant");
     }
 }

@@ -342,6 +342,30 @@
                 }
               ]
             }
+          },
+          {
+            "definition": {
+              "title": "Query Projection Update Duration",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "q": "avg:temper_query_projection_update_duration_ms{service:openpaw} by {operation,result}.rollup(avg, 60)",
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "Query Projection Update Errors",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "q": "default_zero(sum:temper_query_projection_update_error_total{service:openpaw} by {operation}.as_count().rollup(sum, 60))",
+                  "display_type": "bars"
+                }
+              ]
+            }
           }
         ]
       }
@@ -639,6 +663,30 @@
                 {
                   "q": "avg:temper_session_context_prepare_duration_ms{service:openpaw}.rollup(avg, 60)",
                   "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "Session Phase Duration",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "q": "avg:temper_session_phase_duration_ms{service:openpaw} by {phase,result}.rollup(avg, 60)",
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "Session Phase Budget Exceeded",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "q": "default_zero(sum:temper_session_phase_budget_exceeded_total{service:openpaw} by {phase,last_step}.as_count().rollup(sum, 60))",
+                  "display_type": "bars"
                 }
               ]
             }

@@ -3110,6 +3110,39 @@ mod tests {
     }
 
     #[test]
+    fn paw_agent_manifest_declares_terminal_session_wasm_modules() {
+        #[derive(serde::Deserialize)]
+        struct AppManifest {
+            #[serde(default)]
+            wasm_modules: Vec<WasmModuleManifest>,
+        }
+
+        #[derive(serde::Deserialize)]
+        struct WasmModuleManifest {
+            name: String,
+        }
+
+        let repo_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let manifest_path = repo_root.join("os-apps/paw-agent/app.toml");
+        let manifest_source =
+            std::fs::read_to_string(&manifest_path).expect("paw-agent app.toml should be readable");
+        let manifest: AppManifest =
+            toml::from_str(&manifest_source).expect("paw-agent app.toml should parse");
+        let module_names: std::collections::BTreeSet<_> = manifest
+            .wasm_modules
+            .into_iter()
+            .map(|module| module.name)
+            .collect();
+
+        for module in ["agent_reply", "emit_ots_trajectory"] {
+            assert!(
+                module_names.contains(module),
+                "paw-agent app.toml must declare terminal Session module {module}"
+            );
+        }
+    }
+
+    #[test]
     fn startup_metric_names_match_datadog_contract() {
         assert_eq!(
             STARTUP_PHASE_DURATION_METRIC,
@@ -3661,6 +3694,19 @@ mod tests {
         );
 
         let dashboard_json = dashboard.to_string();
+        let monitors_json = monitors.to_string();
+        assert!(
+            monitors_json.contains(
+                "sum(last_15m):sum:temper_session_phase_budget_exceeded_total{service:openpaw}.as_count() >= 1"
+            ),
+            "Monitors should alert on session phase budget failures."
+        );
+        assert!(
+            monitors_json.contains(
+                "sum(last_15m):sum:temper_query_projection_update_error_total{service:openpaw}.as_count() >= 1"
+            ),
+            "Monitors should alert on background query projection update errors."
+        );
         assert!(
             dashboard_json.contains("avg:temper_up{service:openpaw}"),
             "Dashboard should include the metrics pipeline canary."
@@ -3676,6 +3722,18 @@ mod tests {
                 "avg:temper_turso_query_duration{service:openpaw} by {operation}.rollup(avg, 60)"
             ),
             "Dashboard should include Turso query duration."
+        );
+        assert!(
+            dashboard_json.contains(
+                "avg:temper_query_projection_update_duration_ms{service:openpaw} by {operation,result}.rollup(avg, 60)"
+            ),
+            "Dashboard should include background query projection update duration."
+        );
+        assert!(
+            dashboard_json.contains(
+                "default_zero(sum:temper_query_projection_update_error_total{service:openpaw} by {operation}.as_count().rollup(sum, 60))"
+            ),
+            "Dashboard should include background query projection update errors."
         );
         assert!(
             dashboard_json.contains(
@@ -3700,6 +3758,18 @@ mod tests {
                 "avg:temper_session_context_prepare_duration_ms{service:openpaw}.rollup(avg, 60)"
             ),
             "Dashboard should include session context prepare duration."
+        );
+        assert!(
+            dashboard_json.contains(
+                "avg:temper_session_phase_duration_ms{service:openpaw} by {phase,result}.rollup(avg, 60)"
+            ),
+            "Dashboard should include session phase duration."
+        );
+        assert!(
+            dashboard_json.contains(
+                "default_zero(sum:temper_session_phase_budget_exceeded_total{service:openpaw} by {phase,last_step}.as_count().rollup(sum, 60))"
+            ),
+            "Dashboard should include session phase budget failures."
         );
         assert!(
             dashboard_json.contains(
