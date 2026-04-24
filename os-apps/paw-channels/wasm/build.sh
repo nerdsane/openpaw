@@ -16,7 +16,7 @@ copy_artifact() {
 }
 
 # Standard modules (wasm32-unknown-unknown)
-for module in channel_connect send_reply; do
+for module in channel_connect send_reply transport_reconcile; do
     echo "Building $module..."
     (cd "$SCRIPT_DIR/$module" && cargo build --target wasm32-unknown-unknown --release)
     copy_artifact "$module" "wasm32-unknown-unknown"
@@ -33,7 +33,7 @@ done
 
 echo ""
 echo "All Temper channel WASM modules built. Binaries at:"
-for module in channel_connect send_reply; do
+for module in channel_connect send_reply transport_reconcile; do
     wasm_file="$SCRIPT_DIR/$module/target/wasm32-unknown-unknown/release/${module}.wasm"
     if [ ! -f "$wasm_file" ]; then
         wasm_file="$SCRIPT_DIR/$module/target/wasm32-unknown-unknown/release/$(echo "$module" | tr '_' '-').wasm"
