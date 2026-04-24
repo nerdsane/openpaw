@@ -9,7 +9,9 @@ dependencies = [
  "serde",
  "serde_json",
  "session-tree-lib",
+ "session-turn-artifacts",
  "temper-wasm-sdk",
+ "tool-catalog",
  "wasm-helpers",
 ]
 
@@ -94,6 +96,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "session-turn-artifacts"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "syn"
 version = "2.0.117"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -112,6 +122,10 @@ dependencies = [
  "serde",
  "serde_json",
 ]
+
+[[package]]
+name = "tool-catalog"
+version = "0.1.0"
 
 [[package]]
 name = "unicode-ident"
