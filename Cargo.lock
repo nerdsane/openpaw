@@ -757,9 +757,9 @@ dependencies = [
 
 [[package]]
 name = "cedar-policy"
-version = "4.9.1"
+version = "4.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "50368b44367cd7664627bbee9bfe5721d10ab2433daf77645833645e8eb746da"
+checksum = "9e5ac4e9c213c70c8bba1b4e7c93143129b889c44bb52de70f0498377373e4df"
 dependencies = [
  "cedar-policy-core",
  "cedar-policy-formatter",
@@ -777,9 +777,9 @@ dependencies = [
 
 [[package]]
 name = "cedar-policy-core"
-version = "4.9.1"
+version = "4.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c9700d95c08701d5e43d30756ab0ec791649c2a93dee1274fac0fe8a17c7b24f"
+checksum = "80d3a8fa85292d3b6cbbaeffd9fa776dde108c55d50f138cfd0d078949309621"
 dependencies = [
  "chrono",
  "educe",
@@ -805,9 +805,9 @@ dependencies = [
 
 [[package]]
 name = "cedar-policy-formatter"
-version = "4.9.1"
+version = "4.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "18c03e1d143e1c222d2ea48453ab4f4b11e545ac5a268a15bb163769fe568b90"
+checksum = "c34306a24ad75b78fb39de84f182352918bf5ca1f4066a465bafc4a4ebf44fdc"
 dependencies = [
  "cedar-policy-core",
  "itertools 0.14.0",
@@ -2378,7 +2378,7 @@ dependencies = [
  "http 1.4.0",
  "hyper 1.9.0",
  "hyper-util",
- "rustls 0.23.38",
+ "rustls 0.23.39",
  "tokio",
  "tokio-rustls 0.26.4",
  "tower-service",
@@ -2845,9 +2845,9 @@ checksum = "09edd9e8b54e49e587e4f6295a7d29c3ea94d469cb40ab8ca70b288248a81db2"
 
 [[package]]
 name = "libc"
-version = "0.2.185"
+version = "0.2.186"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "52ff2c0fe9bc6cb6b14a0592c2ff4fa9ceb83eea9db979b0487cd054946a2b8f"
+checksum = "68ab91017fe16c622486840e4c83c9a37afeff978bd239b5293d61ece587de66"
 
 [[package]]
 name = "libloading"
@@ -4145,7 +4145,7 @@ dependencies = [
  "quinn-proto",
  "quinn-udp",
  "rustc-hash 2.1.2",
- "rustls 0.23.38",
+ "rustls 0.23.39",
  "socket2 0.6.3",
  "thiserror 2.0.18",
  "tokio",
@@ -4165,7 +4165,7 @@ dependencies = [
  "rand 0.9.4",
  "ring",
  "rustc-hash 2.1.2",
- "rustls 0.23.38",
+ "rustls 0.23.39",
  "rustls-pki-types",
  "slab",
  "thiserror 2.0.18",
@@ -4453,7 +4453,7 @@ dependencies = [
  "percent-encoding",
  "pin-project-lite",
  "quinn",
- "rustls 0.23.38",
+ "rustls 0.23.39",
  "rustls-pki-types",
  "serde",
  "serde_json",
@@ -4659,9 +4659,9 @@ dependencies = [
 
 [[package]]
 name = "rustls"
-version = "0.23.38"
+version = "0.23.39"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "69f9466fb2c14ea04357e91413efb882e2a6d4a406e625449bc0a5d360d53a21"
+checksum = "7c2c118cb077cca2822033836dfb1b975355dfb784b5e8da48f7b6c5db74e60e"
 dependencies = [
  "once_cell",
  "ring",
@@ -5439,9 +5439,9 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
 name = "symbolic-common"
-version = "12.18.2"
+version = "12.18.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4bbc8b4f883265fb2207a0d6ce67095f4bd6cf13e5f9183eb8b3e73fa1b2466a"
+checksum = "332615d90111d8eeaf86a84dc9bbe9f65d0d8c5cf11b4caccedc37754eb0dcfd"
 dependencies = [
  "debugid",
  "memmap2",
@@ -5451,9 +5451,9 @@ dependencies = [
 
 [[package]]
 name = "symbolic-demangle"
-version = "12.18.2"
+version = "12.18.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8eda470a26ea40eb5cafc35487718e23a2f19153d3a589affb9e8f7fa1aa73b3"
+checksum = "912017718eb4d21930546245af9a3475c9dccf15675a5c215664e76621afc471"
 dependencies = [
  "cpp_demangle",
  "rustc-demangle",
@@ -5543,6 +5543,7 @@ checksum = "adb6935a6f5c20170eeceb1a3835a49e12e19d792f6dd344ccc76a985ca5a6ca"
 [[package]]
 name = "temper-authz"
 version = "0.1.0"
+source = "git+https://github.com/nerdsane/temper.git?branch=main#735c35b8b79d398022f51c5929e9c0cb493b28b6"
 dependencies = [
  "cedar-policy",
  "opentelemetry",
@@ -5556,6 +5557,7 @@ dependencies = [
 [[package]]
 name = "temper-evolution"
 version = "0.1.0"
+source = "git+https://github.com/nerdsane/temper.git?branch=main#735c35b8b79d398022f51c5929e9c0cb493b28b6"
 dependencies = [
  "chrono",
  "serde",
@@ -5572,6 +5574,7 @@ dependencies = [
 [[package]]
 name = "temper-jit"
 version = "0.1.0"
+source = "git+https://github.com/nerdsane/temper.git?branch=main#735c35b8b79d398022f51c5929e9c0cb493b28b6"
 dependencies = [
  "serde",
  "serde_json",
@@ -5583,6 +5586,7 @@ dependencies = [
 [[package]]
 name = "temper-observe"
 version = "0.1.0"
+source = "git+https://github.com/nerdsane/temper.git?branch=main#735c35b8b79d398022f51c5929e9c0cb493b28b6"
 dependencies = [
  "chrono",
  "opentelemetry",
@@ -5605,6 +5609,7 @@ dependencies = [
 [[package]]
 name = "temper-odata"
 version = "0.1.0"
+source = "git+https://github.com/nerdsane/temper.git?branch=main#735c35b8b79d398022f51c5929e9c0cb493b28b6"
 dependencies = [
  "axum 0.8.9",
  "chrono",
@@ -5618,6 +5623,7 @@ dependencies = [
 [[package]]
 name = "temper-optimize"
 version = "0.1.0"
+source = "git+https://github.com/nerdsane/temper.git?branch=main#735c35b8b79d398022f51c5929e9c0cb493b28b6"
 dependencies = [
  "serde",
  "serde_json",
@@ -5631,6 +5637,7 @@ dependencies = [
 [[package]]
 name = "temper-platform"
 version = "0.1.0"
+source = "git+https://github.com/nerdsane/temper.git?branch=main#735c35b8b79d398022f51c5929e9c0cb493b28b6"
 dependencies = [
  "anyhow",
  "axum 0.8.9",
@@ -5661,6 +5668,7 @@ dependencies = [
 [[package]]
 name = "temper-runtime"
 version = "0.1.0"
+source = "git+https://github.com/nerdsane/temper.git?branch=main#735c35b8b79d398022f51c5929e9c0cb493b28b6"
 dependencies = [
  "anyhow",
  "chrono",
@@ -5675,6 +5683,7 @@ dependencies = [
 [[package]]
 name = "temper-sandbox"
 version = "0.1.0"
+source = "git+https://github.com/nerdsane/temper.git?branch=main#735c35b8b79d398022f51c5929e9c0cb493b28b6"
 dependencies = [
  "anyhow",
  "monty",
@@ -5688,6 +5697,7 @@ dependencies = [
 [[package]]
 name = "temper-server"
 version = "0.1.0"
+source = "git+https://github.com/nerdsane/temper.git?branch=main#735c35b8b79d398022f51c5929e9c0cb493b28b6"
 dependencies = [
  "aes-gcm",
  "async-trait",
@@ -5696,6 +5706,7 @@ dependencies = [
  "chrono",
  "ed25519-dalek",
  "futures-util",
+ "hmac",
  "hyper 1.9.0",
  "libc",
  "lru",
@@ -5734,6 +5745,7 @@ dependencies = [
 [[package]]
 name = "temper-spec"
 version = "0.1.0"
+source = "git+https://github.com/nerdsane/temper.git?branch=main#735c35b8b79d398022f51c5929e9c0cb493b28b6"
 dependencies = [
  "quick-xml",
  "serde",
@@ -5746,6 +5758,7 @@ dependencies = [
 [[package]]
 name = "temper-store-postgres"
 version = "0.1.0"
+source = "git+https://github.com/nerdsane/temper.git?branch=main#735c35b8b79d398022f51c5929e9c0cb493b28b6"
 dependencies = [
  "chrono",
  "serde",
@@ -5759,6 +5772,7 @@ dependencies = [
 [[package]]
 name = "temper-store-redis"
 version = "0.1.0"
+source = "git+https://github.com/nerdsane/temper.git?branch=main#735c35b8b79d398022f51c5929e9c0cb493b28b6"
 dependencies = [
  "chrono",
  "fred",
@@ -5775,6 +5789,7 @@ dependencies = [
 [[package]]
 name = "temper-store-turso"
 version = "0.1.0"
+source = "git+https://github.com/nerdsane/temper.git?branch=main#735c35b8b79d398022f51c5929e9c0cb493b28b6"
 dependencies = [
  "libsql",
  "opentelemetry",
@@ -5790,6 +5805,7 @@ dependencies = [
 [[package]]
 name = "temper-verify"
 version = "0.1.0"
+source = "git+https://github.com/nerdsane/temper.git?branch=main#735c35b8b79d398022f51c5929e9c0cb493b28b6"
 dependencies = [
  "proptest",
  "serde",
@@ -5803,6 +5819,7 @@ dependencies = [
 [[package]]
 name = "temper-wasm"
 version = "0.1.0"
+source = "git+https://github.com/nerdsane/temper.git?branch=main#735c35b8b79d398022f51c5929e9c0cb493b28b6"
 dependencies = [
  "async-trait",
  "chrono",
@@ -6098,7 +6115,7 @@ version = "0.26.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1729aa945f29d91ba541258c8df89027d5792d85a8841fb65e8bf0f4ede4ef61"
 dependencies = [
- "rustls 0.23.38",
+ "rustls 0.23.39",
  "tokio",
 ]
 
@@ -8008,7 +8025,3 @@ dependencies = [
  "cc",
  "pkg-config",
 ]
-
-[[patch.unused]]
-name = "temper-wasm-sdk"
-version = "0.1.0"

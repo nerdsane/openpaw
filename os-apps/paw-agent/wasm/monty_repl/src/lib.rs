@@ -839,6 +839,9 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             // Agent called temper.done() — complete the session
             let mut done_params = params.clone();
             done_params["result"] = json!(result_text);
+            done_params["pending_tool_calls"] = json!("");
+            done_params["pending_tool_context"] = json!("");
+            done_params["pending_decision_id"] = json!("");
             dispatch_success("RecordResult", &done_params);
         } else {
             dispatch_success("HandleToolResults", &params);

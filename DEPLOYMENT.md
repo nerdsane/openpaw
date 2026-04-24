@@ -127,12 +127,12 @@ dockerfilePath = "Dockerfile"
 
 [deploy]
 healthcheckPath = "/healthz"
-healthcheckTimeout = 60
+healthcheckTimeout = 3600
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 3
 ```
 
-Railway builds the Docker image from the repo's Dockerfile. The health check hits `/healthz` on the service's assigned port.
+Railway builds the Docker image from the repo's Dockerfile. The health check hits `/healthz` on the service's assigned port. TemperPaw cold boots can take a long time while the server restores state and reconciles OS apps, so the health window is intentionally set to one hour.
 
 ### Two-service architecture
 

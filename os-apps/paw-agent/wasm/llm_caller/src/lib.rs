@@ -16,16 +16,66 @@
 //! Build: `cargo build --target wasm32-unknown-unknown --release`
 
 use serde::{Deserialize, Serialize};
-use session_tree_lib::{EntryType, SessionTree};
+use session_tree_lib::{ContextRef, EntryType, SessionTree};
 use std::collections::{BTreeMap, BTreeSet};
 use temper_wasm_sdk::prelude::*;
 use wasm_helpers::{
-    create_content_file, runtime_headers, runtime_headers_as, send_typing_indicator,
+    create_content_file, create_content_file_ref, read_text_file_versions_batch,
+    read_text_files_batch, runtime_headers, runtime_headers_as, send_typing_indicator,
     timestamp_millis_string, write_temperfs_value_with_retry,
 };
 
 const SESSION_ENTRY_FILE_THRESHOLD_BYTES: usize = 4096;
+const DEFAULT_PRUNE_TOOL_RESULTS_AFTER_TURNS: usize = 4;
 const DEFAULT_TOOLS_ENABLED: &str = "temper_create,temper_get,temper_list,temper_action,temper_patch,temper_submit_specs,temper_show_spec,temper_specs,temper_upload_wasm,temper_get_trajectories,temper_get_insights,temper_get_decisions,temper_poll_decision,temper_approve_decision,temper_deny_decision,temper_submit_policy,temper_list_policies,temper_get_policy,temper_update_policy,temper_delete_policy,temper_install_app,temper_list_apps,temper_spawn_session,temper_list_sessions,temper_abort_session,temper_steer_session,temper_save_memory,temper_recall_memory,temper_write,temper_read,temper_ls,temper_grep,temper_glob,temper_edit,temper_rename,temper_search_history,temper_run_coding_agent,temper_get_secret,temper_datadog_query,temper_railway,temper_vercel,temper_web_search,temper_web_fetch,read,write,edit,bash";
+
+#[cfg(not(target_arch = "wasm32"))]
+#[unsafe(no_mangle)]
+extern "C" fn host_get_context(_buf_ptr: i32, _buf_len: i32) -> i32 {
+    -1
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[unsafe(no_mangle)]
+extern "C" fn host_http_call(
+    _method_ptr: i32,
+    _method_len: i32,
+    _url_ptr: i32,
+    _url_len: i32,
+    _headers_ptr: i32,
+    _headers_len: i32,
+    _body_ptr: i32,
+    _body_len: i32,
+    _result_buf_ptr: i32,
+    _result_buf_len: i32,
+) -> i32 {
+    -1
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[unsafe(no_mangle)]
+extern "C" fn host_log(_level_ptr: i32, _level_len: i32, _msg_ptr: i32, _msg_len: i32) {}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[unsafe(no_mangle)]
+extern "C" fn host_set_result(_ptr: i32, _len: i32) {}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[unsafe(no_mangle)]
+extern "C" fn host_get_time_millis() -> i64 {
+    0
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[unsafe(no_mangle)]
+extern "C" fn host_read_field(
+    _field_name_ptr: i32,
+    _field_name_len: i32,
+    _buf_ptr: i32,
+    _buf_len: i32,
+) -> i32 {
+    -1
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ProviderProgressBoundary {
@@ -531,21 +581,9 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             .and_then(|v| v.as_str())
             .unwrap_or("/workspace");
 
-        let anthropic_api_url = ctx
-            .config
-            .get("anthropic_api_url")
-            .cloned()
-            .unwrap_or_else(|| "https://api.anthropic.com/v1/messages".to_string());
-        let openrouter_api_url = ctx
-            .config
-            .get("openrouter_api_url")
-            .cloned()
-            .unwrap_or_else(|| "https://openrouter.ai/api/v1/chat/completions".to_string());
-        let openai_api_url = ctx
-            .config
-            .get("openai_api_url")
-            .cloned()
-            .unwrap_or_else(|| "https://chatgpt.com/backend-api/codex/responses".to_string());
+        let anthropic_api_url = configured_provider_api_url(&ctx, "anthropic");
+        let openrouter_api_url = configured_provider_api_url(&ctx, "openrouter");
+        let openai_api_url = configured_provider_api_url(&ctx, &provider);
         let anthropic_auth_mode = ctx
             .config
             .get("anthropic_auth_mode")
@@ -565,7 +603,9 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         if provider != "mock" && api_key.is_empty() {
             return Err(format!(
                 "missing API key for provider={provider}. expected secrets: \
-anthropic_api_token (or api_key) for anthropic, openrouter_api_key (or api_key) for openrouter"
+anthropic_api_key (or anthropic_api_token or api_key) for anthropic, \
+openai_api_key for openai, openai_codex_token for openai_codex, \
+openrouter_api_key (or api_key) for openrouter"
             ));
         }
 
@@ -960,9 +1000,10 @@ anthropic_api_token (or api_key) for anthropic, openrouter_api_key (or api_key) 
                                 &format!("a-{}", tree.len()),
                                 &content_str,
                             ) {
-                                Ok(content_file_id) => tree.append_assistant_message_file(
+                                Ok(content_ref) => tree.append_assistant_message_file(
                                     parent,
-                                    &content_file_id,
+                                    &content_ref.file_id,
+                                    Some(&content_ref.file_version_id),
                                     response.output_tokens as usize,
                                 ),
                                 Err(_) => tree.append_assistant_message(
@@ -1050,9 +1091,10 @@ anthropic_api_token (or api_key) for anthropic, openrouter_api_key (or api_key) 
                                 &format!("a-{}", tree.len()),
                                 &content_str,
                             ) {
-                                Ok(content_file_id) => tree.append_assistant_message_file(
+                                Ok(content_ref) => tree.append_assistant_message_file(
                                     parent,
-                                    &content_file_id,
+                                    &content_ref.file_id,
+                                    Some(&content_ref.file_version_id),
                                     response.output_tokens as usize,
                                 ),
                                 Err(_) => tree.append_assistant_message(
@@ -1104,7 +1146,7 @@ anthropic_api_token (or api_key) for anthropic, openrouter_api_key (or api_key) 
                                 }),
                             );
                         } else {
-                            let params = json!({
+                            let mut params = json!({
                                 "result": result_text,
                                 "session_leaf_id": new_leaf,
                                 "input_tokens": response.input_tokens,
@@ -1118,6 +1160,7 @@ anthropic_api_token (or api_key) for anthropic, openrouter_api_key (or api_key) 
                                 "system_prompt_hash": new_prompt_hash,
                                 "system_prompt_file_id": new_prompt_file_id,
                             });
+                            clear_pending_execution_state(&mut params);
                             set_success_result("RecordResult", &params);
                         }
                     }
@@ -1139,6 +1182,7 @@ anthropic_api_token (or api_key) for anthropic, openrouter_api_key (or api_key) 
                     if let Some(ref conv) = conv_param {
                         params["conversation"] = json!(conv);
                     }
+                    clear_pending_execution_state(&mut params);
                     set_success_result("RecordResult", &params);
                 }
             }
@@ -1188,6 +1232,8 @@ pub struct PreparedContextArtifact {
     context_bytes: usize,
     entries_loaded: usize,
     content_files_loaded: usize,
+    #[serde(default = "default_prune_tool_results_after_turns")]
+    prune_tool_results_after_turns: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1203,6 +1249,20 @@ pub struct ProviderResponseArtifact {
     cache_creation_input_tokens: i64,
     request_bytes: usize,
     response_bytes: usize,
+}
+
+#[derive(Debug, PartialEq)]
+enum PreparedContextReuse {
+    Reused {
+        messages: Vec<Value>,
+        entries_loaded: usize,
+        content_files_loaded: usize,
+        delta_entries_loaded: usize,
+        delta_content_files_loaded: usize,
+    },
+    RebuildRequired {
+        reason: &'static str,
+    },
 }
 
 fn build_provider_response_ready_params(
@@ -1226,6 +1286,10 @@ fn build_provider_response_ready_params(
         "_gen_ai_model": artifact.model,
         "_gen_ai_finish_reason": artifact.stop_reason,
     })
+}
+
+fn default_prune_tool_results_after_turns() -> usize {
+    DEFAULT_PRUNE_TOOL_RESULTS_AFTER_TURNS
 }
 
 fn build_provider_response_applier_base_params(
@@ -1571,6 +1635,33 @@ fn first_non_empty(values: &[Option<String>]) -> String {
         }
     }
     String::new()
+}
+
+fn default_provider_api_url(provider: &str) -> &'static str {
+    match provider {
+        "anthropic" => "https://api.anthropic.com/v1/messages",
+        "openrouter" => "https://openrouter.ai/api/v1/chat/completions",
+        "openai" => "https://api.openai.com/v1/responses",
+        "openai_codex" => "https://chatgpt.com/backend-api/codex/responses",
+        _ => "",
+    }
+}
+
+fn configured_provider_api_url(ctx: &Context, provider: &str) -> String {
+    let key = match provider {
+        "anthropic" => "anthropic_api_url",
+        "openrouter" => "openrouter_api_url",
+        "openai" => "openai_api_url",
+        "openai_codex" => "openai_codex_api_url",
+        _ => "",
+    };
+    if key.is_empty() {
+        return String::new();
+    }
+    ctx.config
+        .get(key)
+        .cloned()
+        .unwrap_or_else(|| default_provider_api_url(provider).to_string())
 }
 
 fn resolve_provider_api_key(ctx: &Context, provider: &str) -> Result<String, String> {
@@ -2512,10 +2603,220 @@ fn extract_text_and_images_from_tool_content(
     (text_parts.join("\n"), images)
 }
 
-/// Call OpenAI Codex Responses API (chatgpt.com/backend-api/codex/responses).
+/// Call an OpenAI-compatible Responses API endpoint.
 ///
 /// Uses the Responses API format (not Chat Completions): instructions, input, stream=true.
 /// The WASM http_call buffers the full SSE stream — we parse the response.completed event.
+#[derive(Debug, PartialEq)]
+struct ParsedOpenAiSseResponse {
+    output_items: Vec<Value>,
+    usage: Value,
+}
+
+#[derive(Debug, PartialEq)]
+enum OpenAiSseParseError {
+    MissingCompleted { line_count: usize, body_len: usize },
+    EmptyCompleted { line_count: usize, body_len: usize },
+}
+
+impl std::fmt::Display for OpenAiSseParseError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            OpenAiSseParseError::MissingCompleted {
+                line_count,
+                body_len,
+            } => write!(
+                f,
+                "SSE stream truncated: {line_count} lines ({body_len}B) with no response.completed event"
+            ),
+            OpenAiSseParseError::EmptyCompleted {
+                line_count,
+                body_len,
+            } => write!(
+                f,
+                "OpenAI: no output items found in {line_count} lines ({body_len}B) despite response.completed"
+            ),
+        }
+    }
+}
+
+fn parse_openai_sse_response_body(
+    body: &str,
+) -> Result<ParsedOpenAiSseResponse, OpenAiSseParseError> {
+    let mut output_items = Vec::<Value>::new();
+    let mut usage = json!({});
+    let mut streamed_text = String::new();
+    let mut saw_completed = false;
+
+    for line in body.lines() {
+        let line = line.trim();
+        if line.is_empty() || line == "[DONE]" {
+            continue;
+        }
+        let json_str = line.strip_prefix("data: ").unwrap_or(line);
+        if let Ok(event) = serde_json::from_str::<Value>(json_str) {
+            let event_type = event.get("type").and_then(Value::as_str).unwrap_or("");
+            match event_type {
+                "response.output_item.done" => {
+                    if let Some(item) = event.get("item") {
+                        output_items.push(item.clone());
+                    }
+                }
+                "response.output_text.delta" => {
+                    if let Some(delta) = event.get("delta").and_then(Value::as_str) {
+                        streamed_text.push_str(delta);
+                    } else if let Some(text) = event.get("text").and_then(Value::as_str) {
+                        streamed_text.push_str(text);
+                    }
+                }
+                "response.output_text.done" => {
+                    if let Some(text) = event.get("text").and_then(Value::as_str) {
+                        if streamed_text.is_empty() {
+                            streamed_text.push_str(text);
+                        }
+                    }
+                }
+                "response.completed" => {
+                    saw_completed = true;
+                    if let Some(resp) = event.get("response") {
+                        if let Some(u) = resp.get("usage") {
+                            usage = u.clone();
+                        }
+                        if let Some(out) = resp.get("output").and_then(Value::as_array) {
+                            if !out.is_empty() {
+                                output_items = out.clone();
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    if !saw_completed {
+        return Err(OpenAiSseParseError::MissingCompleted {
+            line_count: body.lines().count(),
+            body_len: body.len(),
+        });
+    }
+
+    if output_items.is_empty() {
+        let trimmed = streamed_text.trim();
+        if !trimmed.is_empty() {
+            output_items.push(json!({
+                "type": "message",
+                "content": [{
+                    "type": "output_text",
+                    "text": trimmed,
+                }],
+            }));
+        }
+    }
+
+    if output_items.is_empty() {
+        return Err(OpenAiSseParseError::EmptyCompleted {
+            line_count: body.lines().count(),
+            body_len: body.len(),
+        });
+    }
+
+    Ok(ParsedOpenAiSseResponse {
+        output_items,
+        usage,
+    })
+}
+
+fn build_openai_llm_response_from_output(
+    output_items: &[Value],
+    usage: &Value,
+    request_bytes: usize,
+    response_bytes: usize,
+) -> LlmResponse {
+    let mut content_blocks = Vec::<Value>::new();
+    let mut has_tool_calls = false;
+
+    for item in output_items {
+        let item_type = item.get("type").and_then(Value::as_str).unwrap_or("");
+        match item_type {
+            "message" => {
+                if let Some(content) = item.get("content").and_then(Value::as_array) {
+                    for part in content {
+                        let part_type = part.get("type").and_then(Value::as_str).unwrap_or("");
+                        if part_type == "output_text" {
+                            if let Some(text) = part.get("text").and_then(Value::as_str) {
+                                if !text.is_empty() {
+                                    content_blocks.push(json!({
+                                        "type": "text",
+                                        "text": text,
+                                    }));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            "function_call" => {
+                let call_id = item
+                    .get("call_id")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
+                let name = item
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
+                let arguments = item
+                    .get("arguments")
+                    .and_then(Value::as_str)
+                    .unwrap_or("{}");
+                let input = serde_json::from_str::<Value>(arguments).unwrap_or(json!({}));
+                content_blocks.push(json!({
+                    "type": "tool_use",
+                    "id": call_id,
+                    "name": name,
+                    "input": input,
+                }));
+                has_tool_calls = true;
+            }
+            _ => {} // reasoning, etc. — skip
+        }
+    }
+
+    let input_tokens = usage
+        .get("input_tokens")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
+    let output_tokens = usage
+        .get("output_tokens")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
+
+    let stop_reason = if has_tool_calls {
+        "tool_use".to_string()
+    } else {
+        "end_turn".to_string()
+    };
+
+    LlmResponse {
+        content: Value::Array(content_blocks),
+        stop_reason,
+        input_tokens,
+        output_tokens,
+        cache_read_input_tokens: 0,
+        cache_creation_input_tokens: 0,
+        request_bytes,
+        response_bytes,
+    }
+}
+
+fn clear_pending_execution_state(params: &mut Value) {
+    params["pending_tool_calls"] = json!("");
+    params["pending_tool_context"] = json!("");
+    params["pending_decision_id"] = json!("");
+}
+
 fn call_openai(
     ctx: &Context,
     api_key: &str,
@@ -2739,8 +3040,7 @@ fn call_openai(
     );
 
     let mut last_err = String::new();
-    let mut output_items = Vec::<Value>::new();
-    let mut usage = json!({});
+    let mut parsed_response = None;
 
     for attempt in 0..5 {
         if attempt > 0 {
@@ -2772,198 +3072,51 @@ fn call_openai(
             }
         };
 
-        // Parse SSE data payloads (newline-separated JSON lines from host).
-        // The Codex endpoint streams individual events — output_item.done events
-        // contain the actual tool calls and messages. response.completed may have
-        // empty output (Codex strips it for bandwidth). So we accumulate output
-        // items from output_item.done events and usage from response.completed.
         let body = &resp.body;
-        output_items.clear();
-        usage = json!({});
-        let mut streamed_text = String::new();
-        let mut saw_completed = false;
-
-        for line in body.lines() {
-            let line = line.trim();
-            if line.is_empty() || line == "[DONE]" {
+        match parse_openai_sse_response_body(body) {
+            Ok(parsed) => {
+                parsed_response = Some((parsed, body.len()));
+                break;
+            }
+            Err(err @ OpenAiSseParseError::MissingCompleted { .. }) => {
+                last_err = err.to_string();
+                ctx.log("warn", &format!("llm_caller: {last_err}, will retry"));
                 continue;
             }
-            let json_str = line.strip_prefix("data: ").unwrap_or(line);
-            if let Ok(event) = serde_json::from_str::<Value>(json_str) {
-                let event_type = event.get("type").and_then(Value::as_str).unwrap_or("");
-                match event_type {
-                    "response.output_item.done" => {
-                        if let Some(item) = event.get("item") {
-                            output_items.push(item.clone());
-                        }
-                    }
-                    "response.output_text.delta" => {
-                        if let Some(delta) = event.get("delta").and_then(Value::as_str) {
-                            streamed_text.push_str(delta);
-                        } else if let Some(text) = event.get("text").and_then(Value::as_str) {
-                            streamed_text.push_str(text);
-                        }
-                    }
-                    "response.output_text.done" => {
-                        if let Some(text) = event.get("text").and_then(Value::as_str) {
-                            if streamed_text.is_empty() {
-                                streamed_text.push_str(text);
-                            }
-                        }
-                    }
-                    "response.completed" => {
-                        saw_completed = true;
-                        if let Some(resp) = event.get("response") {
-                            if let Some(u) = resp.get("usage") {
-                                usage = u.clone();
-                            }
-                            if let Some(out) = resp.get("output").and_then(Value::as_array) {
-                                if !out.is_empty() {
-                                    output_items = out.clone();
-                                }
-                            }
-                        }
-                    }
-                    _ => {}
-                }
+            Err(err) => {
+                return Err(err.to_string());
             }
         }
-
-        if output_items.is_empty() {
-            let trimmed = streamed_text.trim();
-            if !trimmed.is_empty() {
-                output_items.push(json!({
-                    "type": "message",
-                    "content": [{
-                        "type": "output_text",
-                        "text": trimmed,
-                    }],
-                }));
-            }
-        }
-
-        if !output_items.is_empty() {
-            break;
-        }
-
-        // No output items — stream was likely truncated (SSE decode error
-        // during reasoning phase). Retry if we never saw response.completed.
-        if !saw_completed {
-            last_err = format!(
-                "SSE stream truncated: {} lines ({}B) but no response.completed event",
-                body.lines().count(),
-                body.len()
-            );
-            ctx.log("warn", &format!("llm_caller: {last_err}, will retry"));
-            continue;
-        }
-
-        // Saw response.completed but still no output — genuine empty response
-        return Err(format!(
-            "OpenAI: no output items found in {} lines ({}B) despite response.completed",
-            body.lines().count(),
-            body.len()
-        ));
     }
 
-    if output_items.is_empty() {
+    let Some((parsed_response, response_bytes)) = parsed_response else {
         return Err(format!(
             "OpenAI Codex API failed after 5 attempts: {last_err}"
         ));
-    }
-
-    // Build a synthetic response object for the existing parsing code
-    let response = json!({
-        "output": output_items,
-        "usage": usage,
-    });
-
-    // Extract content and tool calls from response.output
-    let mut content_blocks = Vec::<Value>::new();
-    let mut has_tool_calls = false;
-
-    if let Some(output) = response.get("output").and_then(Value::as_array) {
-        for item in output {
-            let item_type = item.get("type").and_then(Value::as_str).unwrap_or("");
-            match item_type {
-                "message" => {
-                    if let Some(content) = item.get("content").and_then(Value::as_array) {
-                        for part in content {
-                            let part_type = part.get("type").and_then(Value::as_str).unwrap_or("");
-                            if part_type == "output_text" {
-                                if let Some(text) = part.get("text").and_then(Value::as_str) {
-                                    if !text.is_empty() {
-                                        content_blocks.push(json!({
-                                            "type": "text",
-                                            "text": text,
-                                        }));
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                "function_call" => {
-                    let call_id = item
-                        .get("call_id")
-                        .and_then(Value::as_str)
-                        .unwrap_or("")
-                        .to_string();
-                    let name = item
-                        .get("name")
-                        .and_then(Value::as_str)
-                        .unwrap_or("")
-                        .to_string();
-                    let arguments = item
-                        .get("arguments")
-                        .and_then(Value::as_str)
-                        .unwrap_or("{}");
-                    let input = serde_json::from_str::<Value>(arguments).unwrap_or(json!({}));
-                    content_blocks.push(json!({
-                        "type": "tool_use",
-                        "id": call_id,
-                        "name": name,
-                        "input": input,
-                    }));
-                    has_tool_calls = true;
-                }
-                _ => {} // reasoning, etc. — skip
-            }
-        }
-    }
-
-    let usage = response.get("usage").cloned().unwrap_or(json!({}));
-    let input_tokens = usage
-        .get("input_tokens")
-        .and_then(|v| v.as_i64())
-        .unwrap_or(0);
-    let output_tokens = usage
-        .get("output_tokens")
-        .and_then(|v| v.as_i64())
-        .unwrap_or(0);
-
-    let stop_reason = if has_tool_calls {
-        "tool_use".to_string()
-    } else {
-        "end_turn".to_string()
     };
 
+    let response = build_openai_llm_response_from_output(
+        &parsed_response.output_items,
+        &parsed_response.usage,
+        body_str.len(),
+        response_bytes,
+    );
     ctx.log(
         "info",
-        &format!("llm_caller: OpenAI Codex response: blocks={}, stop={stop_reason}, in={input_tokens}, out={output_tokens}",
-            content_blocks.len()),
+        &format!(
+            "llm_caller: OpenAI Codex response: blocks={}, stop={}, in={}, out={}",
+            response
+                .content
+                .as_array()
+                .map(|arr| arr.len())
+                .unwrap_or(0),
+            response.stop_reason,
+            response.input_tokens,
+            response.output_tokens
+        ),
     );
 
-    Ok(LlmResponse {
-        content: Value::Array(content_blocks),
-        stop_reason,
-        input_tokens,
-        output_tokens,
-        cache_read_input_tokens: 0,
-        cache_creation_input_tokens: 0,
-        request_bytes: body_str.len(),
-        response_bytes: serde_json::to_string(&response).unwrap_or_default().len(),
-    })
+    Ok(response)
 }
 
 fn extract_openrouter_text(message: &Value) -> String {
@@ -4010,6 +4163,24 @@ pub fn run_context_preparer() -> Result<(), String> {
         })
         .unwrap_or(48 * 1024 * 1024);
     let use_session_tree = !session_file_id.is_empty() && !session_leaf_id.is_empty();
+    let prune_after_turns: usize = fields
+        .get("prune_tool_results_after_turns")
+        .and_then(|v| v.as_str())
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(DEFAULT_PRUNE_TOOL_RESULTS_AFTER_TURNS);
+    let existing_prepared = if use_session_tree {
+        try_read_existing_prepared_context_artifact(
+            &ctx,
+            &temper_api_url,
+            tenant,
+            fields
+                .get("prepared_context_file_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or(""),
+        )
+    } else {
+        None
+    };
 
     let (mut messages, session_tree, entries_loaded, content_files_loaded) =
         load_messages_for_prepare(
@@ -4021,13 +4192,11 @@ pub fn run_context_preparer() -> Result<(), String> {
             &conversation_file_id,
             &session_file_id,
             &session_leaf_id,
+            &workspace_id,
+            prune_after_turns,
+            existing_prepared.as_ref(),
         )?;
     messages = repair_interrupted_tool_use_messages(&ctx, messages);
-    let prune_after_turns: usize = fields
-        .get("prune_tool_results_after_turns")
-        .and_then(|v| v.as_str())
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(4);
     prune_old_tool_results(&mut messages, prune_after_turns);
 
     let tools = build_tool_definitions(tools_enabled, sandbox_url, workdir);
@@ -4163,6 +4332,7 @@ pub fn run_context_preparer() -> Result<(), String> {
         context_bytes,
         entries_loaded,
         content_files_loaded,
+        prune_tool_results_after_turns: prune_after_turns,
     };
     let artifact_json = serde_json::to_string(&artifact)
         .map_err(|e| format!("prepared context artifact serialize: {e}"))?;
@@ -4229,21 +4399,9 @@ pub fn run_provider_caller() -> Result<(), String> {
         .unwrap_or(1.0);
     let (provider, model, api_key) = resolve_provider_and_model(&ctx, provider_raw, model_raw)?;
 
-    let anthropic_api_url = ctx
-        .config
-        .get("anthropic_api_url")
-        .cloned()
-        .unwrap_or_else(|| "https://api.anthropic.com/v1/messages".to_string());
-    let openrouter_api_url = ctx
-        .config
-        .get("openrouter_api_url")
-        .cloned()
-        .unwrap_or_else(|| "https://openrouter.ai/api/v1/chat/completions".to_string());
-    let openai_api_url = ctx
-        .config
-        .get("openai_api_url")
-        .cloned()
-        .unwrap_or_else(|| "https://chatgpt.com/backend-api/codex/responses".to_string());
+    let anthropic_api_url = configured_provider_api_url(&ctx, "anthropic");
+    let openrouter_api_url = configured_provider_api_url(&ctx, "openrouter");
+    let openai_api_url = configured_provider_api_url(&ctx, &provider);
     let anthropic_auth_mode = ctx
         .config
         .get("anthropic_auth_mode")
@@ -4500,6 +4658,7 @@ pub fn run_provider_response_applier() -> Result<(), String> {
                 if let Some(ref conv) = conv_param {
                     params["conversation"] = json!(conv);
                 }
+                clear_pending_execution_state(&mut params);
                 set_success_result("RecordResult", &params);
             }
         }
@@ -4518,6 +4677,9 @@ fn load_messages_for_prepare(
     conversation_file_id: &str,
     session_file_id: &str,
     session_leaf_id: &str,
+    workspace_id: &str,
+    prune_after_turns: usize,
+    existing_prepared: Option<&PreparedContextArtifact>,
 ) -> Result<(Vec<Value>, Option<SessionTree>, usize, usize), String> {
     let use_session_tree = !session_file_id.is_empty() && !session_leaf_id.is_empty();
     if use_session_tree {
@@ -4534,6 +4696,39 @@ fn load_messages_for_prepare(
         }
 
         let tree = SessionTree::from_jsonl(&session_jsonl);
+        if let Some(prepared) = existing_prepared {
+            match try_reuse_prepared_context(
+                prepared,
+                &tree,
+                conversation_file_id,
+                session_file_id,
+                session_leaf_id,
+                workspace_id,
+                prune_after_turns,
+                |refs| resolve_context_refs(ctx, temper_api_url, tenant, refs),
+            )? {
+                PreparedContextReuse::Reused {
+                    messages,
+                    entries_loaded,
+                    content_files_loaded,
+                    delta_entries_loaded,
+                    delta_content_files_loaded,
+                } => {
+                    ctx.log(
+                        "info",
+                        &format!(
+                            "context_preparer: reused prepared context delta_entries={delta_entries_loaded} delta_content_files={delta_content_files_loaded}"
+                        ),
+                    );
+                    return Ok((messages, Some(tree), entries_loaded, content_files_loaded));
+                }
+                PreparedContextReuse::RebuildRequired { reason } => ctx.log(
+                    "info",
+                    &format!("context_preparer: prepared context reuse miss: {reason}"),
+                ),
+            }
+        }
+
         let context_refs = tree.build_context_refs(session_leaf_id);
         let messages = if context_refs.is_empty() {
             vec![json!({ "role": "user", "content": user_message })]
@@ -4543,7 +4738,9 @@ fn load_messages_for_prepare(
         let entries_loaded = usize::max(1, context_refs.len());
         let content_files_loaded = context_refs
             .iter()
-            .filter(|ctx_ref| ctx_ref.content_file_id.is_some())
+            .filter(|ctx_ref| {
+                ctx_ref.content_file_id.is_some() || ctx_ref.content_file_version_id.is_some()
+            })
             .count();
         if messages.is_empty() {
             Ok((
@@ -4596,6 +4793,109 @@ fn load_messages_for_prepare(
             Ok((messages.clone(), None, messages.len(), 0))
         }
     }
+}
+
+fn try_read_existing_prepared_context_artifact(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+    file_id: &str,
+) -> Option<PreparedContextArtifact> {
+    if file_id.is_empty() {
+        return None;
+    }
+
+    match read_prepared_context_artifact(ctx, temper_api_url, tenant, file_id) {
+        Ok(prepared) => Some(prepared),
+        Err(err) => {
+            ctx.log(
+                "warn",
+                &format!(
+                    "context_preparer: prepared context reuse unavailable, ignoring cached artifact: {err}"
+                ),
+            );
+            None
+        }
+    }
+}
+
+fn try_reuse_prepared_context(
+    prepared: &PreparedContextArtifact,
+    tree: &SessionTree,
+    conversation_file_id: &str,
+    session_file_id: &str,
+    session_leaf_id: &str,
+    workspace_id: &str,
+    prune_after_turns: usize,
+    resolve_delta: impl FnOnce(&[ContextRef]) -> Result<Vec<Value>, String>,
+) -> Result<PreparedContextReuse, String> {
+    if !prepared.use_session_tree {
+        return Ok(PreparedContextReuse::RebuildRequired {
+            reason: "prepared artifact is not session-tree based",
+        });
+    }
+    if prepared.conversation_file_id != conversation_file_id {
+        return Ok(PreparedContextReuse::RebuildRequired {
+            reason: "conversation file changed",
+        });
+    }
+    if prepared.session_file_id != session_file_id {
+        return Ok(PreparedContextReuse::RebuildRequired {
+            reason: "session file changed",
+        });
+    }
+    if prepared.workspace_id != workspace_id {
+        return Ok(PreparedContextReuse::RebuildRequired {
+            reason: "workspace changed",
+        });
+    }
+    if prepared.prune_tool_results_after_turns != prune_after_turns {
+        return Ok(PreparedContextReuse::RebuildRequired {
+            reason: "prune window changed",
+        });
+    }
+    if prepared.session_leaf_id.is_empty() {
+        return Ok(PreparedContextReuse::RebuildRequired {
+            reason: "prepared artifact has no session leaf",
+        });
+    }
+
+    let Some(delta) = tree.build_context_refs_since(session_leaf_id, &prepared.session_leaf_id) else {
+        return Ok(PreparedContextReuse::RebuildRequired {
+            reason: "prepared leaf is not an ancestor of current leaf",
+        });
+    };
+
+    if delta.includes_compaction {
+        return Ok(PreparedContextReuse::RebuildRequired {
+            reason: "delta includes compaction",
+        });
+    }
+
+    let delta_entries_loaded = delta.refs.len();
+    let delta_content_files_loaded = delta
+        .refs
+        .iter()
+        .filter(|ctx_ref| {
+            ctx_ref.content_file_id.is_some() || ctx_ref.content_file_version_id.is_some()
+        })
+        .count();
+    let delta_messages = if delta.refs.is_empty() {
+        Vec::new()
+    } else {
+        resolve_delta(&delta.refs)?
+    };
+
+    let mut messages = prepared.messages.clone();
+    messages.extend(delta_messages);
+
+    Ok(PreparedContextReuse::Reused {
+        messages,
+        entries_loaded: prepared.entries_loaded + delta_entries_loaded,
+        content_files_loaded: prepared.content_files_loaded + delta_content_files_loaded,
+        delta_entries_loaded,
+        delta_content_files_loaded,
+    })
 }
 
 fn assemble_cached_system_prompt(
@@ -4825,10 +5125,11 @@ fn append_assistant_response_to_session_tree(
                 &format!("a-{}", tree.len()),
                 &content_str,
             ) {
-                Ok(content_file_id) => {
+                Ok(content_ref) => {
                     let (leaf, _) = tree.append_assistant_message_file(
                         &prepared.session_leaf_id,
-                        &content_file_id,
+                        &content_ref.file_id,
+                        Some(&content_ref.file_version_id),
                         output_tokens,
                     );
                     (leaf, true)
@@ -5732,6 +6033,100 @@ fn resolve_context_refs(
     tenant: &str,
     refs: &[session_tree_lib::ContextRef],
 ) -> Result<Vec<Value>, String> {
+    let mut unique_file_version_ids = Vec::new();
+    let mut unique_file_ids = Vec::new();
+    let mut seen = BTreeSet::new();
+    for ctx_ref in refs {
+        if let Some(file_version_id) = &ctx_ref.content_file_version_id
+            && seen.insert(format!("version:{file_version_id}"))
+        {
+            unique_file_version_ids.push(file_version_id.clone());
+        }
+        if let Some(file_id) = &ctx_ref.content_file_id
+            && seen.insert(format!("file:{file_id}"))
+        {
+            unique_file_ids.push(file_id.clone());
+        }
+    }
+
+    let version_batch_results = if unique_file_version_ids.len() > 1 {
+        match read_text_file_versions_batch(
+            ctx,
+            temper_api_url,
+            tenant,
+            &json!({}),
+            &unique_file_version_ids,
+        ) {
+            Ok(results) => results,
+            Err(err) => {
+                ctx.log(
+                    "warn",
+                    &format!(
+                        "llm_caller: batch file version read unavailable, falling back: {err}"
+                    ),
+                );
+                BTreeMap::new()
+            }
+        }
+    } else {
+        BTreeMap::new()
+    };
+
+    let file_batch_results = if unique_file_ids.len() > 1 {
+        match read_text_files_batch(ctx, temper_api_url, tenant, &json!({}), &unique_file_ids) {
+            Ok(results) => results,
+            Err(err) => {
+                ctx.log(
+                    "warn",
+                    &format!("llm_caller: batch file read unavailable, falling back: {err}"),
+                );
+                BTreeMap::new()
+            }
+        }
+    } else {
+        BTreeMap::new()
+    };
+
+    render_context_refs(refs, |ctx_ref| {
+        if let Some(file_version_id) = &ctx_ref.content_file_version_id {
+            if let Some(item) = version_batch_results.get(file_version_id) {
+                return Ok(if item.found {
+                    item.text.clone()
+                } else {
+                    String::new()
+                });
+            }
+            match read_content_file_version_raw(ctx, temper_api_url, tenant, file_version_id) {
+                Ok(raw) if !raw.is_empty() => return Ok(raw),
+                Ok(_) => {}
+                Err(err) => ctx.log(
+                    "warn",
+                    &format!(
+                        "llm_caller: immutable version read unavailable for {file_version_id}, falling back to file head: {err}"
+                    ),
+                ),
+            }
+        }
+
+        if let Some(file_id) = &ctx_ref.content_file_id {
+            if let Some(item) = file_batch_results.get(file_id) {
+                return Ok(if item.found {
+                    item.text.clone()
+                } else {
+                    String::new()
+                });
+            }
+            return read_content_file_raw(ctx, temper_api_url, tenant, file_id);
+        }
+
+        Ok(String::new())
+    })
+}
+
+fn render_context_refs(
+    refs: &[session_tree_lib::ContextRef],
+    mut read_file: impl FnMut(&session_tree_lib::ContextRef) -> Result<String, String>,
+) -> Result<Vec<Value>, String> {
     let mut messages = Vec::new();
 
     let planned_reads = batchable_context_ref_reads(refs);
@@ -5842,6 +6237,26 @@ fn read_temperfs_file_values_batched(
         .collect()
 }
 
+fn read_content_file_version_raw(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+    file_version_id: &str,
+) -> Result<String, String> {
+    let results = read_text_file_versions_batch(
+        ctx,
+        temper_api_url,
+        tenant,
+        &json!({}),
+        &[file_version_id.to_string()],
+    )?;
+    Ok(results
+        .get(file_version_id)
+        .filter(|item| item.found)
+        .map(|item| item.text.clone())
+        .unwrap_or_default())
+}
+
 fn create_content_file_for_entry(
     ctx: &Context,
     temper_api_url: &str,
@@ -5849,9 +6264,9 @@ fn create_content_file_for_entry(
     workspace_id: &str,
     entry_id: &str,
     content: &str,
-) -> Result<String, String> {
+) -> Result<wasm_helpers::CreatedContentFileRef, String> {
     let file_name = format!("msg-{entry_id}.txt");
-    create_content_file(
+    create_content_file_ref(
         ctx,
         temper_api_url,
         tenant,
@@ -5887,6 +6302,222 @@ mod tests {
     use super::*;
 
     #[test]
+    fn render_context_refs_uses_loaded_file_content_and_inline_fallbacks() {
+        let refs = vec![
+            session_tree_lib::ContextRef {
+                entry_id: "cmp-1".to_string(),
+                role: "user".to_string(),
+                content_file_id: Some("cmp-file".to_string()),
+                content_file_version_id: Some("cmp-ver".to_string()),
+                entry_type: EntryType::Compaction,
+                inline_content: None,
+                inline_summary: Some("inline summary".to_string()),
+            },
+            session_tree_lib::ContextRef {
+                entry_id: "msg-1".to_string(),
+                role: "assistant".to_string(),
+                content_file_id: Some("msg-file".to_string()),
+                content_file_version_id: Some("msg-ver".to_string()),
+                entry_type: EntryType::Message,
+                inline_content: None,
+                inline_summary: None,
+            },
+            session_tree_lib::ContextRef {
+                entry_id: "steer-1".to_string(),
+                role: "system".to_string(),
+                content_file_id: Some("steer-file".to_string()),
+                content_file_version_id: Some("steer-ver".to_string()),
+                entry_type: EntryType::Steering,
+                inline_content: Some(json!("inline steering")),
+                inline_summary: None,
+            },
+        ];
+
+        let rendered = render_context_refs(&refs, |ctx_ref| match ctx_ref.entry_id.as_str() {
+            "cmp-1" => Err("blob missing".to_string()),
+            "msg-1" => Ok("{\"type\":\"text\",\"text\":\"hello\"}".to_string()),
+            "steer-1" => Ok(String::new()),
+            other => Err(format!("unexpected context ref: {other}")),
+        })
+        .expect("render context refs");
+
+        assert_eq!(rendered.len(), 3);
+        assert_eq!(
+            rendered[0]["content"],
+            "[Previous conversation summary]\ninline summary"
+        );
+        assert_eq!(rendered[1]["role"], "assistant");
+        assert_eq!(rendered[1]["content"]["text"], "hello");
+        assert_eq!(rendered[2]["role"], "system");
+        assert_eq!(rendered[2]["content"], "inline steering");
+    }
+
+    #[test]
+    fn try_reuse_prepared_context_appends_only_delta_messages() {
+        let tree = SessionTree::from_jsonl(
+            r#"{"id":"h-1","parentId":null,"type":"header","version":1,"tokens":0}
+{"id":"u-1","parentId":"h-1","type":"message","role":"user","content":"hello","tokens":10}
+{"id":"a-1","parentId":"u-1","type":"message","role":"assistant","content":[{"type":"text","text":"hi"}],"tokens":5}
+{"id":"u-2","parentId":"a-1","type":"message","role":"user","content":"next","tokens":7}"#,
+        );
+        let prepared = PreparedContextArtifact {
+            version: 1,
+            messages: vec![
+                json!({"role": "user", "content": "hello"}),
+                json!({"role": "assistant", "content": [{"type":"text","text":"hi"}]}),
+            ],
+            tools: vec![],
+            system_prompt: "You are concise.".to_string(),
+            system_prompt_hash: "hash-123".to_string(),
+            system_prompt_file_id: "file-system".to_string(),
+            conversation_file_id: String::new(),
+            session_file_id: "session-1".to_string(),
+            session_leaf_id: "a-1".to_string(),
+            workspace_id: "workspace-1".to_string(),
+            use_session_tree: true,
+            context_tokens: 12,
+            context_bytes: 128,
+            entries_loaded: 2,
+            content_files_loaded: 0,
+            prune_tool_results_after_turns: 4,
+        };
+
+        let outcome = try_reuse_prepared_context(
+            &prepared,
+            &tree,
+            "",
+            "session-1",
+            "u-2",
+            "workspace-1",
+            4,
+            |refs| {
+                assert_eq!(refs.len(), 1);
+                assert_eq!(refs[0].entry_id, "u-2");
+                Ok(vec![json!({"role": "user", "content": "next"})])
+            },
+        )
+        .expect("reuse prepared context");
+
+        match outcome {
+            PreparedContextReuse::Reused {
+                messages,
+                entries_loaded,
+                content_files_loaded,
+                delta_entries_loaded,
+                delta_content_files_loaded,
+            } => {
+                assert_eq!(messages.len(), 3);
+                assert_eq!(messages[2]["content"], "next");
+                assert_eq!(entries_loaded, 3);
+                assert_eq!(content_files_loaded, 0);
+                assert_eq!(delta_entries_loaded, 1);
+                assert_eq!(delta_content_files_loaded, 0);
+            }
+            other => panic!("expected reuse, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn try_reuse_prepared_context_requires_rebuild_when_compaction_enters_delta() {
+        let tree = SessionTree::from_jsonl(
+            r#"{"id":"h-1","parentId":null,"type":"header","version":1,"tokens":0}
+{"id":"u-1","parentId":"h-1","type":"message","role":"user","content":"hello","tokens":10}
+{"id":"a-1","parentId":"u-1","type":"message","role":"assistant","content":[{"type":"text","text":"hi"}],"tokens":5}
+{"id":"c-1","parentId":"a-1","type":"compaction","summary":"summary","first_kept":"a-1","tokens":3}
+{"id":"u-2","parentId":"c-1","type":"message","role":"user","content":"next","tokens":7}"#,
+        );
+        let prepared = PreparedContextArtifact {
+            version: 1,
+            messages: vec![
+                json!({"role": "user", "content": "hello"}),
+                json!({"role": "assistant", "content": [{"type":"text","text":"hi"}]}),
+            ],
+            tools: vec![],
+            system_prompt: "You are concise.".to_string(),
+            system_prompt_hash: "hash-123".to_string(),
+            system_prompt_file_id: "file-system".to_string(),
+            conversation_file_id: String::new(),
+            session_file_id: "session-1".to_string(),
+            session_leaf_id: "a-1".to_string(),
+            workspace_id: "workspace-1".to_string(),
+            use_session_tree: true,
+            context_tokens: 12,
+            context_bytes: 128,
+            entries_loaded: 2,
+            content_files_loaded: 0,
+            prune_tool_results_after_turns: 4,
+        };
+
+        let outcome = try_reuse_prepared_context(
+            &prepared,
+            &tree,
+            "",
+            "session-1",
+            "u-2",
+            "workspace-1",
+            4,
+            |_| panic!("compaction delta should not resolve file content"),
+        )
+        .expect("reuse decision");
+
+        assert!(matches!(
+            outcome,
+            PreparedContextReuse::RebuildRequired {
+                reason: "delta includes compaction"
+            }
+        ));
+    }
+
+    #[test]
+    fn try_reuse_prepared_context_requires_rebuild_when_prune_window_changes() {
+        let tree = SessionTree::from_jsonl(
+            r#"{"id":"h-1","parentId":null,"type":"header","version":1,"tokens":0}
+{"id":"u-1","parentId":"h-1","type":"message","role":"user","content":"hello","tokens":10}
+{"id":"a-1","parentId":"u-1","type":"message","role":"assistant","content":[{"type":"text","text":"hi"}],"tokens":5}"#,
+        );
+        let prepared = PreparedContextArtifact {
+            version: 1,
+            messages: vec![
+                json!({"role": "user", "content": "hello"}),
+                json!({"role": "assistant", "content": [{"type":"text","text":"hi"}]}),
+            ],
+            tools: vec![],
+            system_prompt: "You are concise.".to_string(),
+            system_prompt_hash: "hash-123".to_string(),
+            system_prompt_file_id: "file-system".to_string(),
+            conversation_file_id: String::new(),
+            session_file_id: "session-1".to_string(),
+            session_leaf_id: "a-1".to_string(),
+            workspace_id: "workspace-1".to_string(),
+            use_session_tree: true,
+            context_tokens: 12,
+            context_bytes: 128,
+            entries_loaded: 2,
+            content_files_loaded: 0,
+            prune_tool_results_after_turns: 4,
+        };
+
+        let outcome = try_reuse_prepared_context(
+            &prepared,
+            &tree,
+            "",
+            "session-1",
+            "a-1",
+            "workspace-1",
+            1,
+            |_| panic!("prune mismatch should bypass delta resolution"),
+        )
+        .expect("reuse decision");
+
+        assert!(matches!(
+            outcome,
+            PreparedContextReuse::RebuildRequired {
+                reason: "prune window changed"
+            }
+        ));
+    }
+
+    #[test]
     fn provider_progress_wrapper_emits_start_and_end_on_success() {
         let mut events = Vec::new();
 
@@ -5895,7 +6526,10 @@ mod tests {
         assert_eq!(result, Ok(42));
         assert_eq!(
             events,
-            vec![ProviderProgressBoundary::Start, ProviderProgressBoundary::End]
+            vec![
+                ProviderProgressBoundary::Start,
+                ProviderProgressBoundary::End
+            ]
         );
     }
 
@@ -5911,7 +6545,10 @@ mod tests {
         assert_eq!(result, Err("provider failed".to_string()));
         assert_eq!(
             events,
-            vec![ProviderProgressBoundary::Start, ProviderProgressBoundary::End]
+            vec![
+                ProviderProgressBoundary::Start,
+                ProviderProgressBoundary::End
+            ]
         );
     }
 
@@ -6084,6 +6721,47 @@ mod tests {
     }
 
     #[test]
+    fn openai_sse_parser_keeps_all_function_calls_from_completed_stream() {
+        let body = concat!(
+            "data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"function_call\",\"call_id\":\"call_1\",\"name\":\"execute\",\"arguments\":\"{\\\"code\\\":\\\"temper.action('CurationJobs', 'job-1', 'Complete', {})\\\"}\"}}\n",
+            "data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"function_call\",\"call_id\":\"call_2\",\"name\":\"execute\",\"arguments\":\"{\\\"code\\\":\\\"temper.done('quality_review complete')\\\"}\"}}\n",
+            "data: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":11,\"output_tokens\":7}}}\n",
+            "data: [DONE]\n"
+        );
+
+        let parsed = parse_openai_sse_response_body(body).unwrap();
+        let response = build_openai_llm_response_from_output(
+            &parsed.output_items,
+            &parsed.usage,
+            123,
+            body.len(),
+        );
+
+        assert_eq!(response.stop_reason, "tool_use");
+        assert_eq!(response.input_tokens, 11);
+        assert_eq!(response.output_tokens, 7);
+        assert_eq!(response.content.as_array().unwrap().len(), 2);
+        assert_eq!(response.content[0]["type"], "tool_use");
+        assert_eq!(response.content[0]["id"], "call_1");
+        assert_eq!(response.content[1]["type"], "tool_use");
+        assert_eq!(response.content[1]["id"], "call_2");
+    }
+
+    #[test]
+    fn openai_sse_parser_rejects_partial_function_call_batch_without_completed_event() {
+        let body = concat!(
+            "data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"function_call\",\"call_id\":\"call_1\",\"name\":\"execute\",\"arguments\":\"{\\\"code\\\":\\\"temper.done('quality_review complete')\\\"}\"}}\n",
+            "data: {\"type\":\"response.output_text.delta\",\"delta\":\"thinking...\"}\n"
+        );
+
+        let err = parse_openai_sse_response_body(body)
+            .unwrap_err()
+            .to_string();
+
+        assert!(err.contains("no response.completed event"));
+    }
+
+    #[test]
     fn provider_response_ready_params_include_llm_observability_content() {
         let prepared = PreparedContextArtifact {
             version: 1,
@@ -6101,6 +6779,7 @@ mod tests {
             context_bytes: 128,
             entries_loaded: 1,
             content_files_loaded: 0,
+            prune_tool_results_after_turns: 4,
         };
         let artifact = ProviderResponseArtifact {
             version: 1,
@@ -6160,6 +6839,7 @@ mod tests {
             context_bytes: 128,
             entries_loaded: 1,
             content_files_loaded: 0,
+            prune_tool_results_after_turns: 4,
         };
         let artifact = ProviderResponseArtifact {
             version: 1,
@@ -6465,5 +7145,21 @@ mod tests {
     fn gen_ai_usage_log_includes_human_prefix() {
         let msg = format_gen_ai_usage_log("openrouter", "anthropic/claude-sonnet-4.6", 0, 0, 0, 0);
         assert!(msg.starts_with("llm_caller: usage "));
+    }
+
+    #[test]
+    fn provider_api_defaults_keep_openai_and_codex_separate() {
+        assert_eq!(
+            default_provider_api_url("openai"),
+            "https://api.openai.com/v1/responses"
+        );
+        assert_eq!(
+            default_provider_api_url("openai_codex"),
+            "https://chatgpt.com/backend-api/codex/responses"
+        );
+        assert_eq!(
+            default_provider_api_url("anthropic"),
+            "https://api.anthropic.com/v1/messages"
+        );
     }
 }

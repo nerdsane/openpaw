@@ -6,10 +6,60 @@
 //!
 //! Build: `cargo build --target wasm32-unknown-unknown --release`
 
+#[cfg(not(target_arch = "wasm32"))]
+#[unsafe(no_mangle)]
+extern "C" fn host_get_context(_buf_ptr: i32, _buf_len: i32) -> i32 {
+    -1
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[unsafe(no_mangle)]
+extern "C" fn host_http_call(
+    _method_ptr: i32,
+    _method_len: i32,
+    _url_ptr: i32,
+    _url_len: i32,
+    _headers_ptr: i32,
+    _headers_len: i32,
+    _body_ptr: i32,
+    _body_len: i32,
+    _result_buf_ptr: i32,
+    _result_buf_len: i32,
+) -> i32 {
+    -1
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[unsafe(no_mangle)]
+extern "C" fn host_log(_level_ptr: i32, _level_len: i32, _msg_ptr: i32, _msg_len: i32) {}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[unsafe(no_mangle)]
+extern "C" fn host_set_result(_ptr: i32, _len: i32) {}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[unsafe(no_mangle)]
+extern "C" fn host_get_time_millis() -> i64 {
+    0
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[unsafe(no_mangle)]
+extern "C" fn host_read_field(
+    _field_name_ptr: i32,
+    _field_name_len: i32,
+    _buf_ptr: i32,
+    _buf_len: i32,
+) -> i32 {
+    -1
+}
+
 use session_tree_lib::SessionTree;
+use std::collections::BTreeSet;
 use temper_wasm_sdk::prelude::*;
 use wasm_helpers::{
-    create_content_file, read_content_file, read_session_from_temperfs, resolve_temper_api_url,
+    create_content_file_ref, read_content_file, read_content_file_version, read_session_from_temperfs,
+    read_text_file_versions_batch, read_text_files_batch, resolve_temper_api_url,
     write_session_to_temperfs,
 };
 
@@ -92,8 +142,13 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
 
         // 3. Build compaction prompt from messages being cut
         let context_refs = tree.build_context_refs(&cut_point);
-        let messages_to_summarize =
-            resolve_context_refs_for_compaction(&ctx, &temper_api_url, tenant, &context_refs);
+        let messages_to_summarize = resolve_context_refs_for_compaction(
+            &ctx,
+            &temper_api_url,
+            tenant,
+            &fields,
+            &context_refs,
+        );
         if messages_to_summarize.is_empty() {
             ctx.log("warn", "context_compactor: no messages to summarize");
             set_success_result(
@@ -153,7 +208,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         let summary_tokens = estimate_summary_tokens(&summary);
 
         let (compaction_id, _line) = if !workspace_id.is_empty() {
-            match create_content_file(
+            match create_content_file_ref(
                 &ctx,
                 &temper_api_url,
                 tenant,
@@ -161,9 +216,10 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 &format!("compaction-{}.txt", tree.len()),
                 &summary,
             ) {
-                Ok(summary_file_id) => tree.append_compaction_file(
+                Ok(summary_ref) => tree.append_compaction_file(
                     session_leaf_id,
-                    &summary_file_id,
+                    &summary_ref.file_id,
+                    Some(&summary_ref.file_version_id),
                     &cut_point,
                     summary_tokens,
                 ),
@@ -207,15 +263,114 @@ fn resolve_context_refs_for_compaction(
     ctx: &Context,
     temper_api_url: &str,
     tenant: &str,
+    fields: &Value,
     refs: &[session_tree_lib::ContextRef],
+) -> Vec<Value> {
+    let mut unique_file_version_ids = Vec::new();
+    let mut unique_file_ids = Vec::new();
+    let mut seen = BTreeSet::new();
+    for ctx_ref in refs {
+        if let Some(file_version_id) = &ctx_ref.content_file_version_id
+            && seen.insert(format!("version:{file_version_id}"))
+        {
+            unique_file_version_ids.push(file_version_id.clone());
+        }
+        if let Some(file_id) = &ctx_ref.content_file_id
+            && seen.insert(format!("file:{file_id}"))
+        {
+            unique_file_ids.push(file_id.clone());
+        }
+    }
+
+    let version_batch_results = if unique_file_version_ids.len() > 1 {
+        match read_text_file_versions_batch(
+            ctx,
+            temper_api_url,
+            tenant,
+            fields,
+            &unique_file_version_ids,
+        ) {
+            Ok(results) => results,
+            Err(err) => {
+                ctx.log(
+                    "warn",
+                    &format!(
+                        "context_compactor: batch file version read unavailable, falling back: {err}"
+                    ),
+                );
+                std::collections::BTreeMap::new()
+            }
+        }
+    } else {
+        std::collections::BTreeMap::new()
+    };
+
+    let file_batch_results = if unique_file_ids.len() > 1 {
+        match read_text_files_batch(ctx, temper_api_url, tenant, fields, &unique_file_ids) {
+            Ok(results) => results,
+            Err(err) => {
+                ctx.log(
+                    "warn",
+                    &format!(
+                        "context_compactor: batch file read unavailable, falling back: {err}"
+                    ),
+                );
+                std::collections::BTreeMap::new()
+            }
+        }
+    } else {
+        std::collections::BTreeMap::new()
+    };
+
+    render_context_refs_for_compaction(refs, |ctx_ref| {
+        if let Some(file_version_id) = &ctx_ref.content_file_version_id {
+            if let Some(item) = version_batch_results.get(file_version_id) {
+                return Ok(if item.found {
+                    item.text.clone()
+                } else {
+                    String::new()
+                });
+            }
+            match read_content_file_version(ctx, temper_api_url, tenant, fields, file_version_id) {
+                Ok(raw) if !raw.is_empty() => return Ok(raw),
+                Ok(_) => {}
+                Err(err) => ctx.log(
+                    "warn",
+                    &format!(
+                        "context_compactor: immutable version read unavailable for {file_version_id}, falling back to file head: {err}"
+                    ),
+                ),
+            }
+        }
+
+        if let Some(file_id) = &ctx_ref.content_file_id {
+            if let Some(item) = file_batch_results.get(file_id) {
+                return Ok(if item.found {
+                    item.text.clone()
+                } else {
+                    String::new()
+                });
+            }
+            return read_content_file(ctx, temper_api_url, tenant, fields, file_id);
+        }
+
+        Ok(String::new())
+    })
+}
+
+fn render_context_refs_for_compaction(
+    refs: &[session_tree_lib::ContextRef],
+    mut read_file: impl FnMut(&session_tree_lib::ContextRef) -> Result<String, String>,
 ) -> Vec<Value> {
     let mut messages = Vec::new();
 
     for ctx_ref in refs {
         match ctx_ref.entry_type {
             session_tree_lib::EntryType::Compaction => {
-                let summary = if let Some(ref file_id) = ctx_ref.content_file_id {
-                    read_content_file(ctx, temper_api_url, tenant, &json!({}), file_id)
+                let summary = if ctx_ref.content_file_id.is_some()
+                    || ctx_ref.content_file_version_id.is_some()
+                {
+                    read_file(ctx_ref)
                         .unwrap_or_else(|_| ctx_ref.inline_summary.clone().unwrap_or_default())
                 } else {
                     ctx_ref.inline_summary.clone().unwrap_or_default()
@@ -228,10 +383,8 @@ fn resolve_context_refs_for_compaction(
                 }
             }
             session_tree_lib::EntryType::Message | session_tree_lib::EntryType::Steering => {
-                if let Some(ref file_id) = ctx_ref.content_file_id {
-                    if let Ok(raw) =
-                        read_content_file(ctx, temper_api_url, tenant, &json!({}), file_id)
-                    {
+                if ctx_ref.content_file_id.is_some() || ctx_ref.content_file_version_id.is_some() {
+                    if let Ok(raw) = read_file(ctx_ref) {
                         if !raw.is_empty() {
                             let content: Value = serde_json::from_str(&raw).unwrap_or(json!(raw));
                             messages.push(json!({
@@ -326,13 +479,35 @@ fn is_unresolved_secret_template(value: &str) -> bool {
     value.contains("{secret:")
 }
 
+fn default_compaction_provider_api_url(provider: &str) -> &'static str {
+    match provider {
+        "openai" => "https://api.openai.com/v1/responses",
+        "openai_codex" => "https://chatgpt.com/backend-api/codex/responses",
+        "openrouter" => "https://openrouter.ai/api/v1/chat/completions",
+        _ => "https://api.anthropic.com/v1/messages",
+    }
+}
+
+fn configured_compaction_provider_api_url(ctx: &Context, provider: &str) -> String {
+    let key = match provider {
+        "openai" => "openai_api_url",
+        "openai_codex" => "openai_codex_api_url",
+        "openrouter" => "openrouter_api_url",
+        _ => "anthropic_api_url",
+    };
+    ctx.config
+        .get(key)
+        .cloned()
+        .unwrap_or_else(|| default_compaction_provider_api_url(provider).to_string())
+}
+
 fn resolve_compaction_provider(
     ctx: &Context,
     configured_provider: &str,
 ) -> Result<(String, String), String> {
     let provider_keys: &[(&str, &[&str])] = &[
         ("anthropic", &["anthropic_api_key", "api_key"]),
-        ("openai", &["openai_codex_token"]),
+        ("openai", &["openai_api_key"]),
         ("openai_codex", &["openai_codex_token"]),
         ("openrouter", &["openrouter_api_key"]),
         ("mock", &[]),
@@ -386,7 +561,7 @@ fn call_compaction_llm(
             let body_str =
                 serde_json::to_string(&body).map_err(|e| format!("JSON serialize error: {e}"))?;
             (
-                "https://api.openai.com/v1/responses".to_string(),
+                configured_compaction_provider_api_url(ctx, provider),
                 headers,
                 body_str,
             )
@@ -407,7 +582,7 @@ fn call_compaction_llm(
             let body_str =
                 serde_json::to_string(&body).map_err(|e| format!("JSON serialize error: {e}"))?;
             (
-                "https://openrouter.ai/api/v1/chat/completions".to_string(),
+                configured_compaction_provider_api_url(ctx, provider),
                 headers,
                 body_str,
             )
@@ -441,7 +616,7 @@ fn call_compaction_llm(
             let body_str =
                 serde_json::to_string(&body).map_err(|e| format!("JSON serialize error: {e}"))?;
             (
-                "https://api.anthropic.com/v1/messages".to_string(),
+                configured_compaction_provider_api_url(ctx, provider),
                 headers,
                 body_str,
             )
@@ -510,4 +685,75 @@ fn call_compaction_llm(
     };
 
     Ok(text)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use session_tree_lib::EntryType;
+
+    #[test]
+    fn render_context_refs_for_compaction_uses_loaded_file_content_and_inline_fallbacks() {
+        let refs = vec![
+            session_tree_lib::ContextRef {
+                entry_id: "cmp-1".to_string(),
+                role: "user".to_string(),
+                content_file_id: Some("cmp-file".to_string()),
+                content_file_version_id: Some("cmp-ver".to_string()),
+                entry_type: EntryType::Compaction,
+                inline_content: None,
+                inline_summary: Some("inline summary".to_string()),
+            },
+            session_tree_lib::ContextRef {
+                entry_id: "msg-1".to_string(),
+                role: "assistant".to_string(),
+                content_file_id: Some("msg-file".to_string()),
+                content_file_version_id: Some("msg-ver".to_string()),
+                entry_type: EntryType::Message,
+                inline_content: None,
+                inline_summary: None,
+            },
+            session_tree_lib::ContextRef {
+                entry_id: "steer-1".to_string(),
+                role: "system".to_string(),
+                content_file_id: Some("steer-file".to_string()),
+                content_file_version_id: Some("steer-ver".to_string()),
+                entry_type: EntryType::Steering,
+                inline_content: Some(json!("inline steering")),
+                inline_summary: None,
+            },
+        ];
+
+        let rendered = render_context_refs_for_compaction(&refs, |ctx_ref| match ctx_ref
+            .entry_id
+            .as_str()
+        {
+            "cmp-1" => Err("blob missing".to_string()),
+            "msg-1" => Ok("{\"type\":\"text\",\"text\":\"hello\"}".to_string()),
+            "steer-1" => Ok(String::new()),
+            other => Err(format!("unexpected context ref: {other}")),
+        });
+
+        assert_eq!(rendered.len(), 3);
+        assert_eq!(
+            rendered[0]["content"],
+            "[Previous conversation summary]\ninline summary"
+        );
+        assert_eq!(rendered[1]["role"], "assistant");
+        assert_eq!(rendered[1]["content"]["text"], "hello");
+        assert_eq!(rendered[2]["role"], "system");
+        assert_eq!(rendered[2]["content"], "inline steering");
+    }
+
+    #[test]
+    fn compaction_provider_defaults_keep_openai_and_codex_separate() {
+        assert_eq!(
+            default_compaction_provider_api_url("openai"),
+            "https://api.openai.com/v1/responses"
+        );
+        assert_eq!(
+            default_compaction_provider_api_url("openai_codex"),
+            "https://chatgpt.com/backend-api/codex/responses"
+        );
+    }
 }
