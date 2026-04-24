@@ -163,6 +163,21 @@ from = ["InProgress"]
 to = "Testing"
 effect = [{ type = "trigger", name = "verify_level1_gates" }]
 
+# ADR-0046: inline trigger — migrated from [[integration]] below.
+# Post-parse expansion re-synthesizes the equivalent Integration so
+# the existing WASM/webhook runtime handles execution unchanged.
+[[action.triggers]]
+name = "verify_level1_gates"
+kind = "wasm"
+module = "gate_verifier"
+on_failure = "Fail"
+
+[action.triggers.config]
+gate_level = "1"
+temper_api_url = "{secret:temper_api_url}"
+tensorlake_api_key = "{secret:tensorlake_api_key}"
+
+
 [[action]]
 name = "PassTests"
 kind = "input"
@@ -175,6 +190,21 @@ effect = [
 ]
 
 # --- Review ---
+
+# ADR-0046: inline trigger — migrated from [[integration]] below.
+# Post-parse expansion re-synthesizes the equivalent Integration so
+# the existing WASM/webhook runtime handles execution unchanged.
+[[action.triggers]]
+name = "verify_level2_gates"
+kind = "wasm"
+module = "gate_verifier"
+on_failure = "Fail"
+
+[action.triggers.config]
+gate_level = "2"
+temper_api_url = "{secret:temper_api_url}"
+tensorlake_api_key = "{secret:tensorlake_api_key}"
+
 [[action]]
 name = "Approve"
 kind = "input"
@@ -209,26 +239,3 @@ when = ["Failed"]
 assert = "no_further_transitions"
 
 # --- Integrations ---
-[[integration]]
-name = "verify_level1_gates"
-trigger = "verify_level1_gates"
-type = "wasm"
-module = "gate_verifier"
-on_failure = "Fail"
-
-[integration.config]
-gate_level = "1"
-temper_api_url = "{secret:temper_api_url}"
-tensorlake_api_key = "{secret:tensorlake_api_key}"
-
-[[integration]]
-name = "verify_level2_gates"
-trigger = "verify_level2_gates"
-type = "wasm"
-module = "gate_verifier"
-on_failure = "Fail"
-
-[integration.config]
-gate_level = "2"
-temper_api_url = "{secret:temper_api_url}"
-tensorlake_api_key = "{secret:tensorlake_api_key}"

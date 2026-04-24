@@ -92,6 +92,20 @@ effect = [{ type = "trigger", name = "spawn_perspectives" }]
 
 # --- Convened (perspectives being spawned) ---
 
+# ADR-0046: inline trigger — migrated from [[integration]] below.
+# Post-parse expansion re-synthesizes the equivalent Integration so
+# the existing WASM/webhook runtime handles execution unchanged.
+[[action.triggers]]
+name = "spawn_perspectives"
+kind = "wasm"
+module = "spawn_perspectives"
+on_failure = "SpawnFailed"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+odata_namespace = "Consilium"
+
+
 [[action]]
 name = "AllSpawned"
 kind = "input"
@@ -117,6 +131,19 @@ from = ["Generating"]
 params = ["perspectives_complete"]
 hint = "A perspective finished. Triggers fan-in check."
 effect = [{ type = "trigger", name = "check_and_synthesize" }]
+
+# ADR-0046: inline trigger — migrated from [[integration]] below.
+# Post-parse expansion re-synthesizes the equivalent Integration so
+# the existing WASM/webhook runtime handles execution unchanged.
+[[action.triggers]]
+name = "check_and_synthesize"
+kind = "wasm"
+module = "check_and_synthesize"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+odata_namespace = "Consilium"
+
 
 [[action]]
 name = "PerspectiveFailed"
@@ -164,24 +191,3 @@ when = ["Failed"]
 assert = "no_further_transitions"
 
 # --- Integrations ---
-
-[[integration]]
-name = "spawn_perspectives"
-trigger = "spawn_perspectives"
-type = "wasm"
-module = "spawn_perspectives"
-on_failure = "SpawnFailed"
-
-[integration.config]
-temper_api_url = "{secret:temper_api_url}"
-odata_namespace = "Consilium"
-
-[[integration]]
-name = "check_and_synthesize"
-trigger = "check_and_synthesize"
-type = "wasm"
-module = "check_and_synthesize"
-
-[integration.config]
-temper_api_url = "{secret:temper_api_url}"
-odata_namespace = "Consilium"

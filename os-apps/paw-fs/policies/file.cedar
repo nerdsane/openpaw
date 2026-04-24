@@ -16,6 +16,14 @@ permit(
     resource.workspaceId == principal.workspaceid
 };
 
+permit(
+    principal is Agent,
+    action == Action::"RecordVersion",
+    resource is File
+) when {
+    principal.agent_type == "file-service"
+};
+
 // Locked files reject StreamUpdated (defense in depth — transition table also rejects)
 forbid(
     principal,

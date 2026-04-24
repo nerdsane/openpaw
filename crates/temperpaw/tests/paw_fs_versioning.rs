@@ -11,7 +11,7 @@ fn read(path: impl AsRef<Path>) -> String {
 }
 
 #[test]
-fn paw_fs_specs_use_explicit_counter_assignment_and_spawn_fresh_versions() {
+fn paw_fs_specs_use_inline_triggers_and_explicit_counter_assignment() {
     let root = repo_root();
     let file_spec = read(root.join("os-apps/paw-fs/specs/file.ioa.toml"));
     let file_version_spec = read(root.join("os-apps/paw-fs/specs/file_version.ioa.toml"));
@@ -20,15 +20,21 @@ fn paw_fs_specs_use_explicit_counter_assignment_and_spawn_fresh_versions() {
     for needle in [
         "name = \"last_version_id\"",
         "type = \"set_counter_from_param\", var = \"size_bytes\", param = \"size_bytes\"",
-        "type = \"spawn\", entity_type = \"FileVersion\"",
-        "store_id_in = \"last_version_id\"",
-        "\"version_number\", \"previous_version_id\", \"created_by\"",
+        "name = \"file_stream_updated_creates_version\"",
+        "[action.triggers.params_from]",
+        "file_id = \"Id\"",
+        "version_number = \"version_count\"",
+        "previous_version_id = \"previous_version_id\"",
     ] {
         assert!(
             file_spec.contains(needle),
             "file spec should contain {needle}"
         );
     }
+    assert!(
+        !file_spec.contains("type = \"spawn\", entity_type = \"FileVersion\""),
+        "file spec should not create FileVersion via spawn after the inline trigger hard cut"
+    );
 
     for needle in [
         "name = \"mime_type\"",
@@ -53,25 +59,25 @@ fn paw_fs_specs_use_explicit_counter_assignment_and_spawn_fresh_versions() {
 }
 
 #[test]
-fn paw_fs_reactions_supersede_previous_version_without_create_if_missing() {
+fn paw_fs_versioning_contract_uses_no_legacy_reactions_file() {
     let root = repo_root();
-    let reactions = read(root.join("os-apps/paw-fs/reactions/reactions.toml"));
+    let reactions_path = root.join("os-apps/paw-fs/reactions/reactions.toml");
+    let file_version_spec = read(root.join("os-apps/paw-fs/specs/file_version.ioa.toml"));
     let csdl = read(root.join("os-apps/paw-fs/specs/model.csdl.xml"));
 
     assert!(
-        !reactions.contains("CreateIfMissing"),
-        "paw-fs reactions should not use CreateIfMissing for file versioning"
+        !reactions_path.exists(),
+        "legacy paw-fs reactions.toml should stay removed after the inline trigger hard cut"
     );
     for needle in [
-        "name = \"file_version_create_supersedes_previous\"",
-        "entity_type = \"FileVersion\"",
-        "action = \"Create\"",
-        "field = \"previous_version_id\"",
-        "field = \"workspace_id\"",
+        "name = \"record_newest_version_on_file\"",
+        "target_entity = \"File\"",
+        "target_action = \"RecordVersion\"",
+        "field = \"file_id\"",
     ] {
         assert!(
-            reactions.contains(needle),
-            "reactions should contain {needle}"
+            file_version_spec.contains(needle),
+            "file_version spec should contain {needle}"
         );
     }
 

@@ -35,8 +35,6 @@ my-app/
       Cargo.toml        # Rust crate
       src/lib.rs         # Integration logic
     module_name.wasm     # Compiled binary
-  reactions/
-    reactions.toml       # Cross-entity cascades
   agents/                # Agent definitions (if the app includes agents)
     agent-name/
       AGENT.md           # Agent instructions
@@ -195,7 +193,7 @@ action so creation captures metadata without introducing a staging state.
 | **Manifest** | `app.toml` | Metadata: name, version, dependencies on other apps |
 | **Documentation** | `APP.md` | Human-readable description of what the app does |
 | **ADRs** | `adrs/*.md` | Decision records: why this state machine, why these entity types, why this policy approach |
-| **Reactions** | `reactions/reactions.toml` | Cross-entity cascades: action on entity A triggers action on entity B |
+| **Action triggers** | `[[action.triggers]]` in `specs/*.ioa.toml` | Cross-entity cascades and post-commit integrations declared inline on the source action |
 
 ### Part relationships
 

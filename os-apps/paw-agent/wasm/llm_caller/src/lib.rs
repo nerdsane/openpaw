@@ -530,679 +530,6 @@ fn build_method_listing(enabled: &BTreeSet<String>) -> String {
         .join("\n")
 }
 
-/// Entry point — NOT using `temper_module!` because we need dynamic callback actions.
-#[cfg(feature = "standalone-wasm")]
-#[unsafe(no_mangle)]
-pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
-    let result = (|| -> Result<(), String> {
-        let ctx = Context::from_host()?;
-        ctx.log("info", "llm_caller: starting");
-
-        // Read entity state
-        let fields = ctx.entity_state.get("fields").cloned().unwrap_or(json!({}));
-
-        // Check turn budget
-        let _turn_count = fields
-            .get("turn_count")
-            .and_then(|v| v.as_i64())
-            .unwrap_or(0);
-
-        // Read configuration
-        let model_raw = fields.get("model").and_then(|v| v.as_str()).unwrap_or("");
-        let provider_raw = fields
-            .get("provider")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        let (provider, model, api_key) = resolve_provider_and_model(&ctx, provider_raw, model_raw)?;
-        let temperature: f64 = fields
-            .get("temperature")
-            .and_then(|v| v.as_str())
-            .and_then(|s| s.parse::<f64>().ok())
-            .unwrap_or(1.0);
-        let tools_enabled = fields
-            .get("tools_enabled")
-            .and_then(|v| v.as_str())
-            .unwrap_or(DEFAULT_TOOLS_ENABLED);
-        // `system_prompt` is the Anthropic API system parameter (agent persona/behavior).
-        // `user_message` is the actual user task from the Provision action.
-        //
-        // Read via the ceiling-aware SDK helper so values stored as blob refs
-        // (>128KB, see temper ADR-0045 / ADR-0046) resolve transparently.
-        let system_prompt_owned = ctx.read_field_string("system_prompt").unwrap_or_default();
-        let system_prompt: &str = &system_prompt_owned;
-        let user_message_owned = ctx.read_field_string("user_message").unwrap_or_default();
-        let user_message: &str = &user_message_owned;
-        let sandbox_url = fields
-            .get("sandbox_url")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        let workdir = fields
-            .get("workdir")
-            .and_then(|v| v.as_str())
-            .unwrap_or("/workspace");
-
-        let anthropic_api_url = configured_provider_api_url(&ctx, "anthropic");
-        let openrouter_api_url = configured_provider_api_url(&ctx, "openrouter");
-        let openai_api_url = configured_provider_api_url(&ctx, &provider);
-        let anthropic_auth_mode = ctx
-            .config
-            .get("anthropic_auth_mode")
-            .cloned()
-            .unwrap_or_else(|| "auto".to_string());
-        let openrouter_site_url = ctx
-            .config
-            .get("openrouter_site_url")
-            .cloned()
-            .unwrap_or_default();
-        let openrouter_app_name = ctx
-            .config
-            .get("openrouter_app_name")
-            .cloned()
-            .unwrap_or_else(|| "temper-agent".to_string());
-
-        if provider != "mock" && api_key.is_empty() {
-            return Err(format!(
-                "missing API key for provider={provider}. expected secrets: \
-anthropic_api_key (or anthropic_api_token or api_key) for anthropic, \
-openai_api_key for openai, openai_codex_token for openai_codex, \
-openrouter_api_key (or api_key) for openrouter"
-            ));
-        }
-
-        // TemperFS conversation storage
-        let conversation_file_id = fields
-            .get("conversation_file_id")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        let temper_api_url = resolve_temper_api_url(&ctx, &fields);
-        let tenant = &ctx.tenant;
-
-        // Session tree fields (Pi architecture)
-        let session_file_id = fields
-            .get("session_file_id")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        let session_leaf_id = fields
-            .get("session_leaf_id")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        let workspace_id = fields
-            .get("workspace_id")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-
-        // Soul and steering fields
-        let soul_id = fields.get("soul_id").and_then(|v| v.as_str()).unwrap_or("");
-        let max_follow_ups: i64 = fields
-            .get("max_follow_ups")
-            .and_then(|v| v.as_str())
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(5);
-        let reserve_tokens: usize = fields
-            .get("reserve_tokens")
-            .and_then(|v| v.as_str())
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(20000);
-
-        // Read conversation — from TemperFS if file_id set, else inline state.
-        // First turn uses `user_message` (the actual user task from Provision).
-        // `system_prompt` is always sent as the Anthropic system parameter, never as a message.
-        if user_message.is_empty() {
-            return Err("user_message is empty — nothing to send to the LLM".to_string());
-        }
-        let first_turn_content = user_message;
-
-        // Determine which session storage to use
-        let use_session_tree = !session_file_id.is_empty() && !session_leaf_id.is_empty();
-
-        let (mut messages, mut session_tree) = if use_session_tree {
-            let session_jsonl =
-                read_session_from_temperfs(&ctx, &temper_api_url, tenant, session_file_id)?;
-            if session_jsonl.is_empty() {
-                // First turn — tree was just created by sandbox_provisioner but empty
-                let tree = SessionTree::from_jsonl(&session_jsonl);
-                let msgs = vec![json!({ "role": "user", "content": first_turn_content })];
-                (msgs, Some(tree))
-            } else {
-                let tree = SessionTree::from_jsonl(&session_jsonl);
-                let context_refs = tree.build_context_refs(session_leaf_id);
-                let msgs = if context_refs.is_empty() {
-                    vec![json!({ "role": "user", "content": first_turn_content })]
-                } else {
-                    resolve_context_refs(&ctx, &temper_api_url, tenant, &context_refs)?
-                };
-                if msgs.is_empty() {
-                    (
-                        vec![json!({ "role": "user", "content": first_turn_content })],
-                        Some(tree),
-                    )
-                } else {
-                    (msgs, Some(tree))
-                }
-            }
-        } else if !conversation_file_id.is_empty() {
-            // Legacy flat JSON mode
-            let msgs = read_conversation_from_temperfs(
-                &ctx,
-                &temper_api_url,
-                tenant,
-                conversation_file_id,
-                first_turn_content,
-            )?;
-            (msgs, None)
-        } else {
-            // Inline state
-            let conversation_json = fields
-                .get("conversation")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            if conversation_json.is_empty() {
-                (
-                    vec![json!({ "role": "user", "content": first_turn_content })],
-                    None,
-                )
-            } else {
-                (
-                    serde_json::from_str(conversation_json).unwrap_or_else(|_| {
-                        vec![json!({ "role": "user", "content": first_turn_content })]
-                    }),
-                    None,
-                )
-            }
-        };
-        messages = repair_interrupted_tool_use_messages(&ctx, messages);
-        let prune_after_turns: usize = fields
-            .get("prune_tool_results_after_turns")
-            .and_then(|v| v.as_str())
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(4);
-        prune_old_tool_results(&mut messages, prune_after_turns);
-
-        // Build tool definitions based on tools_enabled
-        let tools = build_tool_definitions(tools_enabled, sandbox_url, workdir);
-
-        // Check compaction threshold (Pi architecture)
-        if use_session_tree {
-            if let Some(ref tree) = session_tree {
-                let context_tokens = tree.estimate_tokens(session_leaf_id);
-                // Model context windows (approximate)
-                let context_window: usize = if model.contains("opus") {
-                    200000
-                } else if model.contains("haiku") {
-                    200000
-                } else {
-                    200000
-                }; // sonnet default
-                if context_tokens > context_window.saturating_sub(reserve_tokens) {
-                    ctx.log("info", &format!(
-                        "llm_caller: context_tokens ({}) exceeds threshold ({}), triggering compaction",
-                        context_tokens, context_window.saturating_sub(reserve_tokens)
-                    ));
-                    // Pass through existing hash/file_id from fields (before recomputation)
-                    let existing_hash = fields
-                        .get("system_prompt_hash")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("");
-                    let existing_file_id = fields
-                        .get("system_prompt_file_id")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("");
-                    set_success_result(
-                        "NeedsCompaction",
-                        &json!({
-                            "context_tokens": context_tokens,
-                            "session_leaf_id": session_leaf_id,
-                            "system_prompt_hash": existing_hash,
-                            "system_prompt_file_id": existing_file_id,
-                        }),
-                    );
-                    return Ok(());
-                }
-            }
-        }
-
-        // System prompt assembly with hash-based caching (Pi architecture):
-        // Components: Soul + agent instructions + override + harness + skills + memory
-        // If hash matches previous run, re-use cached prompt from TemperFS.
-        let agent_id = fields
-            .get("agent_id")
-            .or_else(|| fields.get("AgentId"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        let project_harness_id = fields
-            .get("project_harness_id")
-            .or_else(|| fields.get("ProjectHarnessId"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        let project_id = fields
-            .get("project_id")
-            .or_else(|| fields.get("ProjectId"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        let session_mode = fields
-            .get("session_mode")
-            .and_then(|v| v.as_str())
-            .unwrap_or("execute");
-        let active_plan_id = fields
-            .get("active_plan_id")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-
-        let new_prompt_hash = compute_system_prompt_hash(
-            soul_id,
-            agent_id,
-            project_harness_id,
-            project_id,
-            session_mode,
-            active_plan_id,
-            system_prompt,
-        );
-
-        let prev_hash = fields
-            .get("system_prompt_hash")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        let prev_file_id = fields
-            .get("system_prompt_file_id")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-
-        let (assembled_system_prompt, new_prompt_file_id) =
-            if !prev_hash.is_empty() && prev_hash == new_prompt_hash && !prev_file_id.is_empty() {
-                // Cache hit — read from TemperFS (1 HTTP call instead of many)
-                match read_temperfs_file(&ctx, &temper_api_url, tenant, prev_file_id) {
-                    Ok(cached) if !cached.is_empty() => {
-                        ctx.log("info", "llm_caller: system prompt cache HIT");
-                        (cached, prev_file_id.to_string())
-                    }
-                    _ => {
-                        ctx.log(
-                            "warn",
-                            "llm_caller: system prompt cache file unreadable, rebuilding",
-                        );
-                        let prompt = assemble_system_prompt(
-                            &ctx,
-                            &temper_api_url,
-                            tenant,
-                            soul_id,
-                            system_prompt,
-                        )?;
-                        let file_id = write_system_prompt_cache(
-                            &ctx,
-                            &temper_api_url,
-                            tenant,
-                            workspace_id,
-                            &prompt,
-                        )
-                        .unwrap_or_default();
-                        (prompt, file_id)
-                    }
-                }
-            } else {
-                // Cache miss — full assembly
-                ctx.log("info", "llm_caller: system prompt cache MISS, assembling");
-                let prompt =
-                    assemble_system_prompt(&ctx, &temper_api_url, tenant, soul_id, system_prompt)?;
-                let file_id =
-                    write_system_prompt_cache(&ctx, &temper_api_url, tenant, workspace_id, &prompt)
-                        .unwrap_or_default();
-                (prompt, file_id)
-            };
-        let new_prompt_hash = new_prompt_hash; // rebind for clarity
-
-        emit_progress_ignore(
-            &ctx,
-            json!({
-                "kind": "prompt_assembled",
-                "message": "system prompt assembled",
-                "system_prompt": assembled_system_prompt,
-            }),
-        );
-        let mock_hang = provider == "mock" && mock_plan_requests_hang(&messages);
-        if !mock_hang {
-            let _ = send_heartbeat(&ctx, &temper_api_url, tenant);
-        }
-        emit_progress_ignore(
-            &ctx,
-            json!({
-                "kind": "llm_request_started",
-                "message": format!("calling provider={provider} model={model}"),
-            }),
-        );
-
-        // Send typing indicator to Discord before LLM call.
-        // Use the persistent Agent entity ID (from session fields) for ChannelSession lookup.
-        let typing_agent_id =
-            entity_field_str(&fields, &["agent_id", "AgentId"]).unwrap_or(&ctx.entity_id);
-        send_typing_indicator(&ctx, &temper_api_url, tenant, typing_agent_id);
-
-        // Call LLM API
-        let response = run_with_provider_progress(
-            |boundary| {
-                ctx.log(
-                    "debug",
-                    &format!(
-                        "llm_caller: provider progress boundary={boundary:?} provider={provider} model={model}"
-                    ),
-                );
-                let _ = send_progress(&ctx, &temper_api_url, tenant);
-            },
-            || match provider.as_str() {
-                "mock" => call_mock(&ctx, &messages, &assembled_system_prompt, &tools),
-                "anthropic" => call_anthropic(
-                    &ctx,
-                    &api_key,
-                    &anthropic_api_url,
-                    &model,
-                    &assembled_system_prompt,
-                    &messages,
-                    &tools,
-                    &anthropic_auth_mode,
-                    temperature,
-                ),
-                "openrouter" => call_openrouter(
-                    &ctx,
-                    &api_key,
-                    &openrouter_api_url,
-                    &model,
-                    &assembled_system_prompt,
-                    &messages,
-                    &tools,
-                    &openrouter_site_url,
-                    &openrouter_app_name,
-                    temperature,
-                ),
-                "openai" | "openai_codex" => call_openai(
-                    &ctx,
-                    &api_key,
-                    &openai_api_url,
-                    &model,
-                    &assembled_system_prompt,
-                    &messages,
-                    &tools,
-                    temperature,
-                    &provider,
-                ),
-                other => Err(format!("unsupported LLM provider: {other}")),
-            },
-        )?;
-
-        ctx.log(
-            "info",
-            &format!(
-                "llm_caller: got response, stop_reason={}",
-                response.stop_reason
-            ),
-        );
-
-        emit_progress_ignore(
-            &ctx,
-            json!({
-                "kind": "llm_response",
-                "message": format!("provider returned stop_reason={}", response.stop_reason),
-                "stop_reason": response.stop_reason.clone(),
-            }),
-        );
-
-        // Append assistant response to conversation
-        messages.push(json!({
-            "role": "assistant",
-            "content": response.content,
-        }));
-
-        // Write updated conversation to TemperFS (if file_id set) or pass inline
-        let updated_conversation = serde_json::to_string(&messages).unwrap_or_default();
-
-        if !conversation_file_id.is_empty() && !use_session_tree {
-            write_conversation_to_temperfs(
-                &ctx,
-                &temper_api_url,
-                tenant,
-                conversation_file_id,
-                &updated_conversation,
-            )?;
-        }
-
-        // For TemperFS mode, don't pass conversation inline (it's in the File)
-        let conv_param = if conversation_file_id.is_empty() {
-            Some(updated_conversation.clone())
-        } else {
-            None
-        };
-
-        // Route based on stop_reason
-        match response.stop_reason.as_str() {
-            "tool_use" => {
-                // Extract tool_use blocks
-                let tool_calls: Vec<Value> = response
-                    .content
-                    .as_array()
-                    .unwrap_or(&vec![])
-                    .iter()
-                    .filter(|block| block.get("type").and_then(|v| v.as_str()) == Some("tool_use"))
-                    .cloned()
-                    .collect();
-
-                // Update session tree if in tree mode
-                let new_leaf = if use_session_tree {
-                    if let Some(ref mut tree) = session_tree {
-                        let parent = session_leaf_id;
-                        let content_str =
-                            serde_json::to_string(&response.content).unwrap_or_default();
-                        let (leaf, _) = if !workspace_id.is_empty()
-                            && should_store_entry_as_file(&content_str)
-                        {
-                            match create_content_file_for_entry(
-                                &ctx,
-                                &temper_api_url,
-                                tenant,
-                                workspace_id,
-                                &format!("a-{}", tree.len()),
-                                &content_str,
-                            ) {
-                                Ok(content_ref) => tree.append_assistant_message_file(
-                                    parent,
-                                    &content_ref.file_id,
-                                    Some(&content_ref.file_version_id),
-                                    response.output_tokens as usize,
-                                ),
-                                Err(_) => tree.append_assistant_message(
-                                    parent,
-                                    &response.content,
-                                    response.output_tokens as usize,
-                                ),
-                            }
-                        } else {
-                            tree.append_assistant_message(
-                                parent,
-                                &response.content,
-                                response.output_tokens as usize,
-                            )
-                        };
-                        let updated_jsonl = tree.to_jsonl();
-                        write_session_to_temperfs(
-                            &ctx,
-                            &temper_api_url,
-                            tenant,
-                            session_file_id,
-                            &updated_jsonl,
-                        )?;
-                        Some(leaf)
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                };
-
-                let tool_calls_json = serde_json::to_string(&tool_calls).unwrap_or_default();
-                let mut params = json!({
-                    "pending_tool_calls": tool_calls_json,
-                    "input_tokens": response.input_tokens,
-                    "output_tokens": response.output_tokens,
-                    // GenAI observability: input/output messages for Datadog LLM Obs
-                    "_gen_ai_system_instructions": build_gen_ai_system_instructions(&assembled_system_prompt),
-                    "_gen_ai_input_messages": build_gen_ai_input_messages(&messages),
-                    "_gen_ai_output_messages": build_gen_ai_output_messages(&response.content, &response.stop_reason),
-                    "_gen_ai_provider": provider.as_str(),
-                    "_gen_ai_model": model.as_str(),
-                    "_gen_ai_finish_reason": response.stop_reason.clone(),
-                    "system_prompt_hash": new_prompt_hash,
-                    "system_prompt_file_id": new_prompt_file_id,
-                });
-                if let Some(leaf) = new_leaf {
-                    params["session_leaf_id"] = json!(leaf);
-                }
-                if let Some(ref conv) = conv_param {
-                    params["conversation"] = json!(conv);
-                }
-                set_success_result("ProcessToolCalls", &params);
-            }
-            "end_turn" | "stop" => {
-                let result_text = response
-                    .content
-                    .as_array()
-                    .unwrap_or(&vec![])
-                    .iter()
-                    .filter_map(|block| {
-                        if block.get("type").and_then(|v| v.as_str()) == Some("text") {
-                            block.get("text").and_then(|v| v.as_str()).map(String::from)
-                        } else {
-                            None
-                        }
-                    })
-                    .collect::<Vec<_>>()
-                    .join("\n");
-
-                // Update session tree if in tree mode
-                if use_session_tree {
-                    if let Some(ref mut tree) = session_tree {
-                        let parent = session_leaf_id;
-                        let content_str =
-                            serde_json::to_string(&response.content).unwrap_or_default();
-                        let (new_leaf, _) = if !workspace_id.is_empty()
-                            && should_store_entry_as_file(&content_str)
-                        {
-                            match create_content_file_for_entry(
-                                &ctx,
-                                &temper_api_url,
-                                tenant,
-                                workspace_id,
-                                &format!("a-{}", tree.len()),
-                                &content_str,
-                            ) {
-                                Ok(content_ref) => tree.append_assistant_message_file(
-                                    parent,
-                                    &content_ref.file_id,
-                                    Some(&content_ref.file_version_id),
-                                    response.output_tokens as usize,
-                                ),
-                                Err(_) => tree.append_assistant_message(
-                                    parent,
-                                    &response.content,
-                                    response.output_tokens as usize,
-                                ),
-                            }
-                        } else {
-                            tree.append_assistant_message(
-                                parent,
-                                &response.content,
-                                response.output_tokens as usize,
-                            )
-                        };
-                        let updated_jsonl = tree.to_jsonl();
-                        write_session_to_temperfs(
-                            &ctx,
-                            &temper_api_url,
-                            tenant,
-                            session_file_id,
-                            &updated_jsonl,
-                        )?;
-
-                        // GenAI observability messages for this turn
-                        let gen_ai_system_instructions =
-                            build_gen_ai_system_instructions(&assembled_system_prompt);
-                        let gen_ai_input = build_gen_ai_input_messages(&messages);
-                        let gen_ai_output =
-                            build_gen_ai_output_messages(&response.content, &response.stop_reason);
-
-                        // Route through steering check if follow-ups are enabled
-                        if max_follow_ups > 0 {
-                            set_success_result(
-                                "CheckSteering",
-                                &json!({
-                                    "result": result_text,
-                                    "session_leaf_id": new_leaf,
-                                    "input_tokens": response.input_tokens,
-                                    "output_tokens": response.output_tokens,
-                                    "_gen_ai_system_instructions": gen_ai_system_instructions,
-                                    "_gen_ai_input_messages": gen_ai_input,
-                                    "_gen_ai_output_messages": gen_ai_output,
-                                    "_gen_ai_provider": provider.as_str(),
-                                    "_gen_ai_model": model.as_str(),
-                                    "_gen_ai_finish_reason": response.stop_reason.clone(),
-                                    "system_prompt_hash": new_prompt_hash,
-                                    "system_prompt_file_id": new_prompt_file_id,
-                                }),
-                            );
-                        } else {
-                            let mut params = json!({
-                                "result": result_text,
-                                "session_leaf_id": new_leaf,
-                                "input_tokens": response.input_tokens,
-                                "output_tokens": response.output_tokens,
-                                "_gen_ai_system_instructions": gen_ai_system_instructions,
-                                "_gen_ai_input_messages": gen_ai_input,
-                                "_gen_ai_output_messages": gen_ai_output,
-                                "_gen_ai_provider": provider.as_str(),
-                                "_gen_ai_model": model.as_str(),
-                                "_gen_ai_finish_reason": response.stop_reason.clone(),
-                                "system_prompt_hash": new_prompt_hash,
-                                "system_prompt_file_id": new_prompt_file_id,
-                            });
-                            clear_pending_execution_state(&mut params);
-                            set_success_result("RecordResult", &params);
-                        }
-                    }
-                } else {
-                    // Legacy mode — direct to RecordResult
-                    let mut params = json!({
-                        "result": result_text,
-                        "input_tokens": response.input_tokens,
-                        "output_tokens": response.output_tokens,
-                        "_gen_ai_system_instructions": build_gen_ai_system_instructions(&assembled_system_prompt),
-                        "_gen_ai_input_messages": build_gen_ai_input_messages(&messages),
-                        "_gen_ai_output_messages": build_gen_ai_output_messages(&response.content, &response.stop_reason),
-                        "_gen_ai_provider": provider.as_str(),
-                        "_gen_ai_model": model.as_str(),
-                        "_gen_ai_finish_reason": response.stop_reason.clone(),
-                        "system_prompt_hash": new_prompt_hash,
-                        "system_prompt_file_id": new_prompt_file_id,
-                    });
-                    if let Some(ref conv) = conv_param {
-                        params["conversation"] = json!(conv);
-                    }
-                    clear_pending_execution_state(&mut params);
-                    set_success_result("RecordResult", &params);
-                }
-            }
-            other => {
-                set_success_result(
-                    "Fail",
-                    &json!({ "error_message": format!("unexpected stop_reason: {other}") }),
-                );
-            }
-        }
-
-        Ok(())
-    })();
-
-    if let Err(e) = result {
-        set_error_result(&e);
-    }
-    0
-}
-
 /// Parsed LLM response.
 struct LlmResponse {
     content: Value,
@@ -5267,7 +4594,7 @@ fn assemble_system_prompt(
     //    Path = scope: /system/skills/, /agents/{id}/skills/, /projects/{id}/skills/
     {
         let fields_val = ctx.entity_state.get("fields");
-        let agent_id = fields_val
+        let explicit_agent_id = fields_val
             .and_then(|f| f.get("agent_id").or_else(|| f.get("AgentId")))
             .and_then(|v| v.as_str())
             .unwrap_or("");
@@ -5275,7 +4602,33 @@ fn assemble_system_prompt(
             .and_then(|f| f.get("project_id").or_else(|| f.get("ProjectId")))
             .and_then(|v| v.as_str())
             .unwrap_or("");
-        match load_skills_block(ctx, temper_api_url, tenant, project_id, agent_id) {
+        let resolved_soul_entity_id = if explicit_agent_id.is_empty() && !soul_id.is_empty() {
+            match resolve_soul_entity(ctx, temper_api_url, tenant, soul_id) {
+                Ok(soul) => entity_field_str(&soul, &["Id", "entity_id"])
+                    .filter(|id| !id.is_empty())
+                    .map(str::to_string),
+                Err(e) => {
+                    ctx.log(
+                        "warn",
+                        &format!(
+                            "assemble_system_prompt: failed to resolve soul for skill scope: {e}"
+                        ),
+                    );
+                    None
+                }
+            }
+        } else {
+            None
+        };
+        let skill_scope_agent_id =
+            effective_skill_scope_agent_id(explicit_agent_id, resolved_soul_entity_id.as_deref());
+        match load_skills_block(
+            ctx,
+            temper_api_url,
+            tenant,
+            project_id,
+            skill_scope_agent_id.as_deref().unwrap_or(""),
+        ) {
             Ok(block) if !block.is_empty() => parts.push(block),
             Ok(_) => {}
             Err(e) => ctx.log(
@@ -5524,6 +4877,18 @@ fn resolve_soul_entity(
         .and_then(|souls| souls.first())
         .cloned()
         .ok_or_else(|| "soul read failed (no active soul matched reference)".to_string())
+}
+
+fn effective_skill_scope_agent_id(
+    explicit_agent_id: &str,
+    resolved_soul_entity_id: Option<&str>,
+) -> Option<String> {
+    if !explicit_agent_id.is_empty() {
+        return Some(explicit_agent_id.to_string());
+    }
+    resolved_soul_entity_id
+        .filter(|id| !id.is_empty())
+        .map(str::to_string)
 }
 
 fn normalize_skill_key(name: &str) -> String {
@@ -7042,6 +6407,22 @@ mod tests {
         assert!(attr.contains("&quot;"));
         assert!(attr.contains("&lt;"));
         assert!(attr.contains("&gt;"));
+    }
+
+    #[test]
+    fn effective_skill_scope_agent_id_prefers_explicit_agent_id() {
+        assert_eq!(
+            effective_skill_scope_agent_id("ag-curator", Some("sl-bootstrap-agent-soul-curator")),
+            Some("ag-curator".to_string())
+        );
+    }
+
+    #[test]
+    fn effective_skill_scope_agent_id_falls_back_to_resolved_soul_entity_id() {
+        assert_eq!(
+            effective_skill_scope_agent_id("", Some("sl-bootstrap-agent-soul-curator")),
+            Some("sl-bootstrap-agent-soul-curator".to_string())
+        );
     }
 
     // --- ADR-0037 Fix B: per-attempt timing + hang diagnostics ---

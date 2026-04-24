@@ -116,6 +116,19 @@ to = "Active"
 hint = "Lead or human approves the plan. Implementation can proceed."
 effect = [{ type = "trigger", name = "plan_approved_switch" }]
 
+# ADR-0046: inline trigger — migrated from [[integration]] below.
+# Post-parse expansion re-synthesizes the equivalent Integration so
+# the existing WASM/webhook runtime handles execution unchanged.
+[[action.triggers]]
+name = "plan_approved_switch"
+kind = "wasm"
+module = "plan_approval_handler"
+on_failure = "Fail"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+
+
 [[action]]
 name = "RequestChanges"
 kind = "input"
@@ -124,6 +137,19 @@ to = "Draft"
 params = ["review_notes"]
 hint = "Reviewer requests changes. Plan returns to Draft with feedback."
 effect = [{ type = "trigger", name = "plan_changes_requested_switch" }]
+
+# ADR-0046: inline trigger — migrated from [[integration]] below.
+# Post-parse expansion re-synthesizes the equivalent Integration so
+# the existing WASM/webhook runtime handles execution unchanged.
+[[action.triggers]]
+name = "plan_changes_requested_switch"
+kind = "wasm"
+module = "plan_review_feedback_handler"
+on_failure = "Fail"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+
 
 [[action]]
 name = "Escalate"
@@ -194,23 +220,3 @@ when = ["Failed"]
 assert = "no_further_transitions"
 
 # --- Integrations (ADR-004: Plan Mode) ---
-
-[[integration]]
-name = "plan_approved_switch"
-trigger = "plan_approved_switch"
-type = "wasm"
-module = "plan_approval_handler"
-on_failure = "Fail"
-
-[integration.config]
-temper_api_url = "{secret:temper_api_url}"
-
-[[integration]]
-name = "plan_changes_requested_switch"
-trigger = "plan_changes_requested_switch"
-type = "wasm"
-module = "plan_review_feedback_handler"
-on_failure = "Fail"
-
-[integration.config]
-temper_api_url = "{secret:temper_api_url}"

@@ -78,6 +78,19 @@ params = ["raw_payload", "raw_headers", "route_key"]
 hint = "Accept a webhook payload and begin validation."
 effect = [{ type = "trigger", name = "validate_webhook" }]
 
+# ADR-0046: inline trigger — migrated from [[integration]] below.
+# Post-parse expansion re-synthesizes the equivalent Integration so
+# the existing WASM/webhook runtime handles execution unchanged.
+[[action.triggers]]
+name = "validate_webhook"
+kind = "wasm"
+module = "validate_webhook"
+on_failure = "ValidationFailed"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+
+
 [[action]]
 name = "Validated"
 kind = "input"
@@ -87,6 +100,19 @@ params = ["source_type", "hmac_verified", "normalized_payload"]
 hint = "Payload validated and source identified. Begin routing."
 effect = [{ type = "trigger", name = "route_webhook" }]
 
+# ADR-0046: inline trigger — migrated from [[integration]] below.
+# Post-parse expansion re-synthesizes the equivalent Integration so
+# the existing WASM/webhook runtime handles execution unchanged.
+[[action.triggers]]
+name = "route_webhook"
+kind = "wasm"
+module = "route_webhook"
+on_failure = "RouteFailed"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+
+
 [[action]]
 name = "Routed"
 kind = "input"
@@ -95,6 +121,19 @@ to = "Processing"
 params = ["target_entity_type", "target_entity_id", "target_action", "webhook_route_id"]
 hint = "Route resolved. Begin processing the webhook against the target entity."
 effect = [{ type = "trigger", name = "process_webhook" }]
+
+# ADR-0046: inline trigger — migrated from [[integration]] below.
+# Post-parse expansion re-synthesizes the equivalent Integration so
+# the existing WASM/webhook runtime handles execution unchanged.
+[[action.triggers]]
+name = "process_webhook"
+kind = "wasm"
+module = "process_webhook"
+on_failure = "ProcessFailed"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+
 
 [[action]]
 name = "Processed"
@@ -136,33 +175,3 @@ assert = "no_further_transitions"
 name = "RejectedIsFinal"
 when = ["Rejected"]
 assert = "no_further_transitions"
-
-[[integration]]
-name = "validate_webhook"
-trigger = "validate_webhook"
-type = "wasm"
-module = "validate_webhook"
-on_failure = "ValidationFailed"
-
-[integration.config]
-temper_api_url = "{secret:temper_api_url}"
-
-[[integration]]
-name = "route_webhook"
-trigger = "route_webhook"
-type = "wasm"
-module = "route_webhook"
-on_failure = "RouteFailed"
-
-[integration.config]
-temper_api_url = "{secret:temper_api_url}"
-
-[[integration]]
-name = "process_webhook"
-trigger = "process_webhook"
-type = "wasm"
-module = "process_webhook"
-on_failure = "ProcessFailed"
-
-[integration.config]
-temper_api_url = "{secret:temper_api_url}"

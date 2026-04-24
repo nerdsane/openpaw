@@ -122,6 +122,19 @@ to = "Active"
 hint = "Start the cron schedule — computes first next_run_at."
 effect = [{ type = "trigger", name = "cron_activate" }]
 
+# ADR-0046: inline trigger — migrated from [[integration]] below.
+# Post-parse expansion re-synthesizes the equivalent Integration so
+# the existing WASM/webhook runtime handles execution unchanged.
+[[action.triggers]]
+name = "cron_activate"
+kind = "wasm"
+module = "cron_compute_next"
+on_failure = "ActivateFailed"
+
+[action.triggers.config]
+mode = "activate"
+
+
 [[action]]
 name = "ActivateComplete"
 kind = "input"
@@ -160,6 +173,19 @@ params = ["last_run_at"]
 hint = "Fire the cron job — increments run count and computes next schedule + user message."
 effect = [{ type = "increment", var = "run_count" }, { type = "trigger", name = "cron_compute_next" }]
 
+# ADR-0046: inline trigger — migrated from [[integration]] below.
+# Post-parse expansion re-synthesizes the equivalent Integration so
+# the existing WASM/webhook runtime handles execution unchanged.
+[[action.triggers]]
+name = "cron_compute_next"
+kind = "wasm"
+module = "cron_compute_next"
+on_failure = "TriggerFailed"
+
+[action.triggers.config]
+mode = "trigger"
+
+
 [[action]]
 name = "TriggerComplete"
 kind = "input"
@@ -189,23 +215,3 @@ hint = "Max runs reached or manually expired."
 name = "ExpiredIsFinal"
 when = ["Expired"]
 assert = "no_further_transitions"
-
-[[integration]]
-name = "cron_activate"
-trigger = "cron_activate"
-type = "wasm"
-module = "cron_compute_next"
-on_failure = "ActivateFailed"
-
-[integration.config]
-mode = "activate"
-
-[[integration]]
-name = "cron_compute_next"
-trigger = "cron_compute_next"
-type = "wasm"
-module = "cron_compute_next"
-on_failure = "TriggerFailed"
-
-[integration.config]
-mode = "trigger"
