@@ -6,10 +6,38 @@
 
 pub mod sandbox;
 
+use std::collections::BTreeMap;
+
 use temper_wasm_sdk::prelude::*;
 
 const TEMPERFS_READ_ATTEMPTS: usize = 10;
 const TEMPERFS_WRITE_ATTEMPTS: usize = 5;
+const TEMPERFS_BATCH_READ_ATTEMPTS: usize = 3;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BatchTextFileReadItem {
+    pub file_id: String,
+    pub found: bool,
+    pub content_hash: String,
+    pub mime_type: String,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BatchTextFileVersionReadItem {
+    pub file_version_id: String,
+    pub found: bool,
+    pub content_hash: String,
+    pub mime_type: String,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CreatedContentFileRef {
+    pub file_id: String,
+    pub file_version_id: String,
+    pub content_hash: String,
+}
 
 /// Current wall-clock time as a millis-since-epoch string.
 ///
@@ -172,6 +200,233 @@ pub fn read_content_file(
     read_temperfs_value_with_retry(ctx, &url, &headers, "TemperFS content file read failed")
 }
 
+pub fn read_content_file_version(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+    fields: &Value,
+    file_version_id: &str,
+) -> Result<String, String> {
+    let results = read_text_file_versions_batch(
+        ctx,
+        temper_api_url,
+        tenant,
+        fields,
+        &[file_version_id.to_string()],
+    )?;
+    Ok(results
+        .get(file_version_id)
+        .filter(|item| item.found)
+        .map(|item| item.text.clone())
+        .unwrap_or_default())
+}
+
+pub fn read_text_files_batch(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+    fields: &Value,
+    file_ids: &[String],
+) -> Result<BTreeMap<String, BatchTextFileReadItem>, String> {
+    if file_ids.is_empty() {
+        return Ok(BTreeMap::new());
+    }
+
+    let url = format!("{temper_api_url}/api/files/read-text-batch");
+    let headers = runtime_headers(
+        ctx,
+        tenant,
+        fields,
+        Some("application/json"),
+        Some("application/json"),
+    );
+    let body = json!({ "file_ids": file_ids }).to_string();
+
+    let mut last_status = 0;
+    let mut last_body = String::new();
+
+    for attempt in 0..TEMPERFS_BATCH_READ_ATTEMPTS {
+        let resp = ctx.http_call("POST", &url, &headers, &body)?;
+        if resp.status == 200 {
+            return parse_batch_text_file_read_response(&resp.body);
+        }
+
+        last_status = resp.status;
+        last_body = resp.body;
+
+        if (500..600).contains(&last_status) && attempt + 1 < TEMPERFS_BATCH_READ_ATTEMPTS {
+            ctx.log(
+                "warn",
+                &format!(
+                    "TemperFS batch read transient failure (HTTP {}), retry {}/{}",
+                    last_status,
+                    attempt + 2,
+                    TEMPERFS_BATCH_READ_ATTEMPTS
+                ),
+            );
+            continue;
+        }
+        break;
+    }
+
+    Err(format!(
+        "TemperFS batch read failed (HTTP {}): {}",
+        last_status,
+        &last_body[..last_body.len().min(200)]
+    ))
+}
+
+pub fn read_text_file_versions_batch(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+    fields: &Value,
+    file_version_ids: &[String],
+) -> Result<BTreeMap<String, BatchTextFileVersionReadItem>, String> {
+    if file_version_ids.is_empty() {
+        return Ok(BTreeMap::new());
+    }
+
+    let url = format!("{temper_api_url}/api/files/read-version-text-batch");
+    let headers = runtime_headers(
+        ctx,
+        tenant,
+        fields,
+        Some("application/json"),
+        Some("application/json"),
+    );
+    let body = json!({ "file_version_ids": file_version_ids }).to_string();
+
+    let mut last_status = 0;
+    let mut last_body = String::new();
+
+    for attempt in 0..TEMPERFS_BATCH_READ_ATTEMPTS {
+        let resp = ctx.http_call("POST", &url, &headers, &body)?;
+        if resp.status == 200 {
+            return parse_batch_text_file_version_read_response(&resp.body);
+        }
+
+        last_status = resp.status;
+        last_body = resp.body;
+
+        if (500..600).contains(&last_status) && attempt + 1 < TEMPERFS_BATCH_READ_ATTEMPTS {
+            ctx.log(
+                "warn",
+                &format!(
+                    "TemperFS batch version read transient failure (HTTP {}), retry {}/{}",
+                    last_status,
+                    attempt + 2,
+                    TEMPERFS_BATCH_READ_ATTEMPTS
+                ),
+            );
+            continue;
+        }
+        break;
+    }
+
+    Err(format!(
+        "TemperFS batch version read failed (HTTP {}): {}",
+        last_status,
+        &last_body[..last_body.len().min(200)]
+    ))
+}
+
+pub fn parse_batch_text_file_read_response(
+    body: &str,
+) -> Result<BTreeMap<String, BatchTextFileReadItem>, String> {
+    let parsed: Value =
+        serde_json::from_str(body).map_err(|e| format!("parse batch file read response: {e}"))?;
+    let files = parsed
+        .get("files")
+        .and_then(Value::as_array)
+        .ok_or("batch file read response missing files array")?;
+
+    let mut by_id = BTreeMap::new();
+    for file in files {
+        let file_id = file
+            .get("file_id")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        if file_id.is_empty() {
+            continue;
+        }
+
+        by_id.insert(
+            file_id.clone(),
+            BatchTextFileReadItem {
+                file_id,
+                found: file.get("found").and_then(Value::as_bool).unwrap_or(false),
+                content_hash: file
+                    .get("content_hash")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string(),
+                mime_type: file
+                    .get("mime_type")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string(),
+                text: file
+                    .get("text")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string(),
+            },
+        );
+    }
+
+    Ok(by_id)
+}
+
+pub fn parse_batch_text_file_version_read_response(
+    body: &str,
+) -> Result<BTreeMap<String, BatchTextFileVersionReadItem>, String> {
+    let parsed: Value = serde_json::from_str(body)
+        .map_err(|e| format!("parse batch file version read response: {e}"))?;
+    let files = parsed
+        .get("files")
+        .and_then(Value::as_array)
+        .ok_or("batch file version read response missing files array")?;
+
+    let mut by_id = BTreeMap::new();
+    for file in files {
+        let file_version_id = file
+            .get("file_version_id")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        if file_version_id.is_empty() {
+            continue;
+        }
+
+        by_id.insert(
+            file_version_id.clone(),
+            BatchTextFileVersionReadItem {
+                file_version_id,
+                found: file.get("found").and_then(Value::as_bool).unwrap_or(false),
+                content_hash: file
+                    .get("content_hash")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string(),
+                mime_type: file
+                    .get("mime_type")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string(),
+                text: file
+                    .get("text")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string(),
+            },
+        );
+    }
+
+    Ok(by_id)
+}
+
 /// Create a TemperFS file and write content into it.
 pub fn create_content_file(
     ctx: &Context,
@@ -181,6 +436,20 @@ pub fn create_content_file(
     file_name: &str,
     content: &str,
 ) -> Result<String, String> {
+    create_content_file_ref(ctx, temper_api_url, tenant, workspace_id, file_name, content)
+        .map(|created| created.file_id)
+}
+
+/// Create a TemperFS file, write content into it, and resolve the immutable
+/// file version produced by that write.
+pub fn create_content_file_ref(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+    workspace_id: &str,
+    file_name: &str,
+    content: &str,
+) -> Result<CreatedContentFileRef, String> {
     let headers = runtime_headers_with_workspace(
         ctx,
         tenant,
@@ -238,7 +507,19 @@ pub fn create_content_file(
         "content file write failed",
     )?;
 
-    Ok(file_id)
+    let file_state = read_content_file_head(ctx, temper_api_url, tenant, workspace_id, &file_id)?;
+    let file_version_id = entity_field_str(&file_state, &["LastVersionId", "last_version_id"])
+        .unwrap_or("")
+        .to_string();
+    let content_hash = entity_field_str(&file_state, &["ContentHash", "content_hash"])
+        .unwrap_or("")
+        .to_string();
+
+    Ok(CreatedContentFileRef {
+        file_id,
+        file_version_id,
+        content_hash,
+    })
 }
 
 /// Build standard OData headers for tenant-scoped requests.
@@ -354,6 +635,34 @@ fn runtime_headers_with_workspace(
     }
 
     headers
+}
+
+fn read_content_file_head(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+    workspace_id: &str,
+    file_id: &str,
+) -> Result<Value, String> {
+    let url = format!("{temper_api_url}/tdata/Files('{file_id}')");
+    let headers = runtime_headers_with_workspace(
+        ctx,
+        tenant,
+        &serde_json::json!({}),
+        Some(workspace_id),
+        None,
+        Some("application/json"),
+        Some("application/json"),
+    );
+    let resp = ctx.http_call("GET", &url, &headers, "")?;
+    if resp.status != 200 {
+        return Err(format!(
+            "content file head read failed (HTTP {}): {}",
+            resp.status,
+            &resp.body[..resp.body.len().min(200)]
+        ));
+    }
+    serde_json::from_str(&resp.body).map_err(|e| format!("parse content file head response: {e}"))
 }
 
 /// Derive agent type from entity type for WASM modules that construct their own headers.
@@ -489,6 +798,37 @@ pub fn parse_iso8601_to_epoch_secs(s: &str) -> Option<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parse_batch_text_file_read_response_deserializes_found_and_missing_items() {
+        let by_id = parse_batch_text_file_read_response(
+            r#"{
+                "files": [
+                    {
+                        "file_id": "file-a",
+                        "found": true,
+                        "content_hash": "sha256:file-a",
+                        "mime_type": "application/json",
+                        "text": "{\"ok\":true}"
+                    },
+                    {
+                        "file_id": "file-missing",
+                        "found": false,
+                        "content_hash": "",
+                        "mime_type": "",
+                        "text": ""
+                    }
+                ]
+            }"#,
+        )
+        .expect("parse batch response");
+
+        assert!(by_id["file-a"].found);
+        assert_eq!(by_id["file-a"].text, "{\"ok\":true}");
+        assert_eq!(by_id["file-a"].content_hash, "sha256:file-a");
+        assert!(!by_id["file-missing"].found);
+        assert_eq!(by_id["file-missing"].text, "");
+    }
 
     #[test]
     fn test_parse_iso8601() {

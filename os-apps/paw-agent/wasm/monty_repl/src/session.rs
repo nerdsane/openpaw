@@ -5,7 +5,7 @@
 
 use temper_wasm_sdk::prelude::*;
 use wasm_helpers::{
-    create_content_file, entity_field_str, runtime_headers_as, send_typing_indicator,
+    create_content_file_ref, entity_field_str, runtime_headers_as, send_typing_indicator,
     timestamp_millis_string,
 };
 
@@ -44,7 +44,7 @@ pub fn persist_results(
 
         let (new_leaf, _) =
             if !workspace_id.is_empty() && should_store_entry_as_file(&content_str) {
-            match create_content_file(
+            match create_content_file_ref(
                 ctx,
                 temper_api_url,
                 tenant,
@@ -52,9 +52,12 @@ pub fn persist_results(
                 &format!("t-{}", tree.len()),
                 &content_str,
             ) {
-                Ok(content_file_id) => {
-                    tree.append_tool_results_file(session_leaf_id, &content_file_id, tokens_est)
-                }
+                Ok(content_ref) => tree.append_tool_results_file(
+                    session_leaf_id,
+                    &content_ref.file_id,
+                    Some(&content_ref.file_version_id),
+                    tokens_est,
+                ),
                 Err(_) => {
                     tree.append_tool_results(session_leaf_id, &tool_results_value, tokens_est)
                 }
