@@ -1883,10 +1883,9 @@ fn as_str_slice(values: &[String]) -> Vec<&str> {
 mod tests {
     use super::{
         RAILWAY_HEALTH_POLL_ATTEMPTS, RAILWAY_HEALTH_POLL_INTERVAL_SECS,
-        RAILWAY_SERVICE_HEALTHCHECK_TIMEOUT_SECS,
-        generate_temper_api_key, infer_domain, infer_modal_bridge_base_url,
-        modal_bridge_script_path, otel_datadog_config, otel_debug_config,
-        prebuilt_railway_manifest, read_modal_credentials_from_str, slugify,
+        RAILWAY_SERVICE_HEALTHCHECK_TIMEOUT_SECS, generate_temper_api_key, infer_domain,
+        infer_modal_bridge_base_url, modal_bridge_script_path, otel_datadog_config,
+        otel_debug_config, prebuilt_railway_manifest, read_modal_credentials_from_str, slugify,
     };
 
     #[test]
