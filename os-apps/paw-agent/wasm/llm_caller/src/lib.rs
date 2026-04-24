@@ -17,7 +17,7 @@
 
 use serde::{Deserialize, Serialize};
 use session_tree_lib::{EntryType, SessionTree};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use temper_wasm_sdk::prelude::*;
 use wasm_helpers::{
     create_content_file, runtime_headers, runtime_headers_as, send_typing_indicator,
@@ -5404,11 +5404,23 @@ fn load_skills_block(
     // body: full content (sans frontmatter) for system skills; empty for others (L0 only)
     let mut entries: Vec<(String, u8, String, String, String, String, String)> = Vec::new();
 
-    for (file_id, path, workspace_id) in &file_entries {
-        let url = format!("{temper_api_url}/tdata/Files('{file_id}')/$value");
-        match ctx.http_call("GET", &url, &headers, "") {
-            Ok(resp) if resp.status == 200 && !resp.body.is_empty() => {
-                let (fm_name, fm_desc, _) = parse_skill_frontmatter(&resp.body);
+    let file_ids: Vec<String> = file_entries
+        .iter()
+        .map(|(file_id, _, _)| file_id.clone())
+        .collect();
+    let bodies = read_temperfs_file_values_batched(
+        ctx,
+        temper_api_url,
+        tenant,
+        &file_ids,
+        None,
+        "Skill file read failed",
+    );
+
+    for ((file_id, path, workspace_id), body_result) in file_entries.iter().zip(bodies.into_iter()) {
+        match body_result {
+            Ok(body_text) if !body_text.is_empty() => {
+                let (fm_name, fm_desc, _) = parse_skill_frontmatter(&body_text);
 
                 let name = if fm_name.is_empty() {
                     skill_name_from_path(path)
@@ -5426,7 +5438,7 @@ fn load_skills_block(
 
                 // System skills get fully injected; others stay L0 (name+desc only)
                 let body = if scope_priority == 2 {
-                    strip_skill_frontmatter(&resp.body).to_string()
+                    strip_skill_frontmatter(&body_text).to_string()
                 } else {
                     String::new()
                 };
@@ -5651,6 +5663,69 @@ fn entity_field_str<'a>(value: &'a Value, keys: &[&str]) -> Option<&'a str> {
     })
 }
 
+fn batchable_context_ref_reads(refs: &[session_tree_lib::ContextRef]) -> Vec<(usize, String)> {
+    refs.iter()
+        .enumerate()
+        .filter_map(|(index, ctx_ref)| match ctx_ref.entry_type {
+            EntryType::Compaction | EntryType::Message | EntryType::Steering => ctx_ref
+                .content_file_id
+                .as_ref()
+                .map(|file_id| (index, file_id.clone())),
+            EntryType::Header => None,
+        })
+        .collect()
+}
+
+fn resolve_context_ref_message(
+    ctx_ref: &session_tree_lib::ContextRef,
+    raw_result: Option<Result<String, String>>,
+) -> Result<Option<Value>, String> {
+    match ctx_ref.entry_type {
+        EntryType::Compaction => {
+            let summary = match raw_result {
+                Some(Ok(raw)) if !raw.is_empty() => raw,
+                Some(Ok(_)) | Some(Err(_)) | None => {
+                    ctx_ref.inline_summary.clone().unwrap_or_default()
+                }
+            };
+            if summary.is_empty() {
+                return Ok(None);
+            }
+            Ok(Some(json!({
+                "role": "user",
+                "content": format!("[Previous conversation summary]\n{summary}")
+            })))
+        }
+        EntryType::Message | EntryType::Steering => {
+            if let Some(result) = raw_result {
+                let raw = result?;
+                if raw.is_empty() {
+                    return Ok(ctx_ref.inline_content.as_ref().map(|inline| {
+                        json!({
+                            "role": ctx_ref.role,
+                            "content": inline.clone(),
+                        })
+                    }));
+                }
+
+                let content: Value = serde_json::from_str(&raw).unwrap_or(json!(raw));
+                return Ok(Some(json!({
+                    "role": ctx_ref.role,
+                    "content": content,
+                })));
+            }
+
+            Ok(ctx_ref.inline_content.as_ref().map(|inline| {
+                json!({
+                    "role": ctx_ref.role,
+                    "content": inline.clone(),
+                })
+            }))
+        }
+        EntryType::Header => Ok(None),
+    }
+}
+
 fn resolve_context_refs(
     ctx: &Context,
     temper_api_url: &str,
@@ -5659,67 +5734,112 @@ fn resolve_context_refs(
 ) -> Result<Vec<Value>, String> {
     let mut messages = Vec::new();
 
-    for ctx_ref in refs {
-        match ctx_ref.entry_type {
-            EntryType::Compaction => {
-                let summary = if let Some(ref file_id) = ctx_ref.content_file_id {
-                    read_content_file_raw(ctx, temper_api_url, tenant, file_id)
-                        .unwrap_or_else(|_| ctx_ref.inline_summary.clone().unwrap_or_default())
-                } else {
-                    ctx_ref.inline_summary.clone().unwrap_or_default()
-                };
-                if !summary.is_empty() {
-                    messages.push(json!({
-                        "role": "user",
-                        "content": format!("[Previous conversation summary]\n{summary}")
-                    }));
-                }
-            }
-            EntryType::Message | EntryType::Steering => {
-                if let Some(ref file_id) = ctx_ref.content_file_id {
-                    let raw = read_content_file_raw(ctx, temper_api_url, tenant, file_id)?;
-                    if raw.is_empty() {
-                        if let Some(ref inline) = ctx_ref.inline_content {
-                            messages.push(json!({
-                                "role": ctx_ref.role,
-                                "content": inline.clone(),
-                            }));
-                        }
-                        continue;
-                    }
-                    let content: Value = serde_json::from_str(&raw).unwrap_or(json!(raw));
-                    messages.push(json!({
-                        "role": ctx_ref.role,
-                        "content": content,
-                    }));
-                } else if let Some(ref inline) = ctx_ref.inline_content {
-                    messages.push(json!({
-                        "role": ctx_ref.role,
-                        "content": inline.clone(),
-                    }));
-                }
-            }
-            EntryType::Header => {}
+    let planned_reads = batchable_context_ref_reads(refs);
+    let file_ids: Vec<String> = planned_reads
+        .iter()
+        .map(|(_, file_id)| file_id.clone())
+        .collect();
+    let batch_results =
+        read_temperfs_file_values_batched(ctx, temper_api_url, tenant, &file_ids, None, "Content file read failed");
+    let mut file_results_by_index: BTreeMap<usize, Result<String, String>> = BTreeMap::new();
+    for ((index, _), result) in planned_reads.iter().zip(batch_results.into_iter()) {
+        file_results_by_index.insert(*index, result);
+    }
+
+    for (index, ctx_ref) in refs.iter().enumerate() {
+        if let Some(message) =
+            resolve_context_ref_message(ctx_ref, file_results_by_index.remove(&index))?
+        {
+            messages.push(message);
         }
     }
 
     Ok(messages)
 }
 
-fn read_content_file_raw(
+fn read_temperfs_file_values_batched(
     ctx: &Context,
     temper_api_url: &str,
     tenant: &str,
-    file_id: &str,
-) -> Result<String, String> {
-    read_temperfs_file_value(
-        ctx,
-        temper_api_url,
-        tenant,
-        file_id,
-        None,
-        "Content file read failed",
-    )
+    file_ids: &[String],
+    content_type: Option<&str>,
+    label: &str,
+) -> Vec<Result<String, String>> {
+    if file_ids.is_empty() {
+        return Vec::new();
+    }
+
+    if file_ids.len() == 1 {
+        return vec![read_temperfs_file_value(
+            ctx,
+            temper_api_url,
+            tenant,
+            file_ids[0].as_str(),
+            content_type,
+            label,
+        )];
+    }
+
+    let headers = agent_headers(ctx, tenant, None, content_type);
+    let requests: Vec<HttpRequest> = file_ids
+        .iter()
+        .map(|file_id| HttpRequest {
+            method: "GET".to_string(),
+            url: format!("{temper_api_url}/tdata/Files('{file_id}')/$value"),
+            headers: headers.clone(),
+            body: String::new(),
+        })
+        .collect();
+
+    let mut batched: Vec<Option<Result<String, String>>> = vec![None; file_ids.len()];
+    match ctx.http_call_batch(&requests) {
+        Ok(responses) if responses.len() == file_ids.len() => {
+            for (index, response) in responses.into_iter().enumerate() {
+                batched[index] = Some(match response.status {
+                    200 => Ok(response.body),
+                    404 => Ok(String::new()),
+                    _ => Err(format!(
+                        "{label} (HTTP {}): {}",
+                        response.status,
+                        &response.body[..response.body.len().min(200)]
+                    )),
+                });
+            }
+        }
+        Ok(responses) => {
+            ctx.log(
+                "warn",
+                &format!(
+                    "llm_caller: batch file read response count mismatch (expected {}, got {}), falling back",
+                    file_ids.len(),
+                    responses.len()
+                ),
+            );
+        }
+        Err(err) => {
+            ctx.log(
+                "warn",
+                &format!("llm_caller: batch file read failed: {err}, falling back"),
+            );
+        }
+    }
+
+    file_ids
+        .iter()
+        .enumerate()
+        .map(|(index, file_id)| {
+            batched[index].take().unwrap_or_else(|| {
+                read_temperfs_file_value(
+                    ctx,
+                    temper_api_url,
+                    tenant,
+                    file_id.as_str(),
+                    content_type,
+                    label,
+                )
+            })
+        })
+        .collect()
 }
 
 fn create_content_file_for_entry(
@@ -5859,6 +5979,108 @@ mod tests {
         assert_eq!(parsed[0]["parts"][0]["type"], "text");
         assert_eq!(parsed[0]["parts"][1]["type"], "tool_call");
         assert_eq!(parsed[0]["parts"][1]["id"], "tool_456");
+    }
+
+    #[test]
+    fn batchable_context_ref_reads_preserve_context_order() {
+        let refs = vec![
+            session_tree_lib::ContextRef {
+                entry_id: "m1".to_string(),
+                role: "assistant".to_string(),
+                content_file_id: Some("file-a".to_string()),
+                entry_type: EntryType::Message,
+                inline_content: None,
+                inline_summary: None,
+            },
+            session_tree_lib::ContextRef {
+                entry_id: "h1".to_string(),
+                role: "system".to_string(),
+                content_file_id: Some("ignored".to_string()),
+                entry_type: EntryType::Header,
+                inline_content: None,
+                inline_summary: None,
+            },
+            session_tree_lib::ContextRef {
+                entry_id: "c1".to_string(),
+                role: "user".to_string(),
+                content_file_id: Some("file-b".to_string()),
+                entry_type: EntryType::Compaction,
+                inline_content: None,
+                inline_summary: Some("fallback".to_string()),
+            },
+        ];
+
+        assert_eq!(
+            batchable_context_ref_reads(&refs),
+            vec![(0, "file-a".to_string()), (2, "file-b".to_string())]
+        );
+    }
+
+    #[test]
+    fn resolve_context_ref_message_uses_inline_summary_for_compaction_errors() {
+        let ctx_ref = session_tree_lib::ContextRef {
+            entry_id: "c1".to_string(),
+            role: "user".to_string(),
+            content_file_id: Some("file-c".to_string()),
+            entry_type: EntryType::Compaction,
+            inline_content: None,
+            inline_summary: Some("cached summary".to_string()),
+        };
+
+        let message = resolve_context_ref_message(
+            &ctx_ref,
+            Some(Err("content file unavailable".to_string())),
+        )
+        .expect("compaction fallback")
+        .expect("summary message");
+
+        assert_eq!(message["role"], "user");
+        assert_eq!(
+            message["content"],
+            "[Previous conversation summary]\ncached summary"
+        );
+    }
+
+    #[test]
+    fn resolve_context_ref_message_parses_externalized_json_content() {
+        let ctx_ref = session_tree_lib::ContextRef {
+            entry_id: "m1".to_string(),
+            role: "assistant".to_string(),
+            content_file_id: Some("file-a".to_string()),
+            entry_type: EntryType::Message,
+            inline_content: Some(json!("inline fallback")),
+            inline_summary: None,
+        };
+
+        let message = resolve_context_ref_message(
+            &ctx_ref,
+            Some(Ok(r#"[{"type":"text","text":"hello"}]"#.to_string())),
+        )
+        .expect("message content")
+        .expect("resolved message");
+
+        assert_eq!(message["role"], "assistant");
+        assert_eq!(message["content"][0]["text"], "hello");
+    }
+
+    #[test]
+    fn resolve_context_ref_message_preserves_message_errors() {
+        let ctx_ref = session_tree_lib::ContextRef {
+            entry_id: "m1".to_string(),
+            role: "assistant".to_string(),
+            content_file_id: Some("file-a".to_string()),
+            entry_type: EntryType::Message,
+            inline_content: Some(json!("inline fallback")),
+            inline_summary: None,
+        };
+
+        let err = resolve_context_ref_message(
+            &ctx_ref,
+            Some(Err("content file unavailable".to_string())),
+        )
+        .expect_err("message reads should stay strict");
+
+        assert!(err.contains("content file unavailable"));
     }
 
     #[test]
