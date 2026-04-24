@@ -10,6 +10,10 @@ use anyhow::{Context, Result};
 const MODAL_BRIDGE_SECRET_NAME: &str = "temperpaw-bridge-auth";
 const MODAL_BRIDGE_SECRET_KEY: &str = "BRIDGE_AUTH_TOKEN";
 const MODAL_BRIDGE_APP_NAME: &str = "temperpaw-sandbox-bridge";
+const RAILWAY_SERVICE_HEALTHCHECK_TIMEOUT_SECS: u64 = 3600;
+const RAILWAY_HEALTH_POLL_INTERVAL_SECS: u64 = 10;
+const RAILWAY_HEALTH_POLL_ATTEMPTS: u64 =
+    RAILWAY_SERVICE_HEALTHCHECK_TIMEOUT_SECS / RAILWAY_HEALTH_POLL_INTERVAL_SECS;
 
 // ---------------------------------------------------------------------------
 // Credential cache — persists tokens/keys between deploy runs
@@ -1044,9 +1048,7 @@ fn deploy_prebuilt_image(project_id: &str, env_id: &str) -> Result<()> {
     )?;
     std::fs::write(
         tmp.join("railway.toml"),
-        "[build]\nbuilder = \"dockerfile\"\ndockerfilePath = \"Dockerfile\"\n\n\
-         [deploy]\nhealthcheckPath = \"/healthz\"\nhealthcheckTimeout = 300\n\
-         restartPolicyType = \"ON_FAILURE\"\nrestartPolicyMaxRetries = 3\n",
+        prebuilt_railway_manifest("Dockerfile"),
     )?;
 
     let status = Command::new("railway")
@@ -1439,17 +1441,28 @@ fn infer_domain(raw: &str) -> Option<String> {
         })
 }
 
+fn prebuilt_railway_manifest(dockerfile_path: &str) -> String {
+    format!(
+        "[build]\nbuilder = \"dockerfile\"\ndockerfilePath = \"{dockerfile_path}\"\n\n\
+         [deploy]\nhealthcheckPath = \"/healthz\"\nhealthcheckTimeout = {RAILWAY_SERVICE_HEALTHCHECK_TIMEOUT_SECS}\n\
+         restartPolicyType = \"ON_FAILURE\"\nrestartPolicyMaxRetries = 3\n",
+    )
+}
+
 async fn poll_health(base_url: &str) -> Result<()> {
     let client = reqwest::Client::new();
     let health_url = format!("{base_url}/healthz");
 
-    for _ in 0..90 {
+    // Cold boots can take a long time while Railway waits for the service to
+    // finish restoring state and reconciling OS apps, so keep the local poll
+    // window aligned with Railway's health check timeout.
+    for _ in 0..RAILWAY_HEALTH_POLL_ATTEMPTS {
         if let Ok(response) = client.get(&health_url).send().await {
             if response.status().is_success() {
                 return Ok(());
             }
         }
-        tokio::time::sleep(Duration::from_secs(10)).await;
+        tokio::time::sleep(Duration::from_secs(RAILWAY_HEALTH_POLL_INTERVAL_SECS)).await;
     }
 
     anyhow::bail!("Timed out waiting for {health_url}");
@@ -1869,9 +1882,11 @@ fn as_str_slice(values: &[String]) -> Vec<&str> {
 #[cfg(test)]
 mod tests {
     use super::{
+        RAILWAY_HEALTH_POLL_ATTEMPTS, RAILWAY_HEALTH_POLL_INTERVAL_SECS,
+        RAILWAY_SERVICE_HEALTHCHECK_TIMEOUT_SECS,
         generate_temper_api_key, infer_domain, infer_modal_bridge_base_url,
         modal_bridge_script_path, otel_datadog_config, otel_debug_config,
-        read_modal_credentials_from_str, slugify,
+        prebuilt_railway_manifest, read_modal_credentials_from_str, slugify,
     };
 
     #[test]
@@ -2037,5 +2052,21 @@ active = true
         assert!(cfg.contains("debug:"));
         assert!(!cfg.contains("datadog:"));
         assert!(cfg.contains("otlp:"));
+    }
+
+    #[test]
+    fn prebuilt_manifest_uses_extended_railway_health_window() {
+        let manifest = prebuilt_railway_manifest("Dockerfile");
+        assert!(manifest.contains("healthcheckPath = \"/healthz\""));
+        assert!(manifest.contains("healthcheckTimeout = 3600"));
+        assert_eq!(RAILWAY_SERVICE_HEALTHCHECK_TIMEOUT_SECS, 3600);
+    }
+
+    #[test]
+    fn local_health_poll_window_covers_railway_health_window() {
+        assert_eq!(
+            RAILWAY_HEALTH_POLL_ATTEMPTS * RAILWAY_HEALTH_POLL_INTERVAL_SECS,
+            RAILWAY_SERVICE_HEALTHCHECK_TIMEOUT_SECS
+        );
     }
 }
