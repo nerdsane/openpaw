@@ -146,6 +146,12 @@ fn installed_app_runtime_recovery_result(
     }
 }
 
+fn runtime_indexes_required_before_reconcile(
+    summary: &InstalledAppsRuntimeRecoverySummary,
+) -> bool {
+    summary.store_error > 0 || summary.missing_bundle > 0 || summary.needs_reconcile > 0
+}
+
 fn app_required_wasm_failure(app_name: &str, install: &InstallResult) -> Option<String> {
     if install.wasm_failures.is_empty() {
         return None;
@@ -342,6 +348,121 @@ async fn recover_runtime_indexes(state: &PlatformState, tenant_ids: &[TenantId])
             }
         }
     }
+}
+
+async fn recover_orphaned_sessions(state: &PlatformState, tenant: &str) {
+    let terminal_states: HashSet<&str> = ["Completed", "Failed", "Cancelled"].into_iter().collect();
+    let recoverable_states: HashSet<&str> = [
+        "Thinking",
+        "Executing",
+        "Compacting",
+        "Steering",
+        "WaitingForApproval",
+    ]
+    .into_iter()
+    .collect();
+    let tenant_id = TenantId::new(tenant);
+    let session_ids: Vec<String> = {
+        let index = state.server.entity_index.read().unwrap(); // ci-ok: infallible lock
+        let index_key = format!("{tenant_id}:Session");
+        index
+            .get(&index_key)
+            .cloned()
+            .unwrap_or_default()
+            .into_iter()
+            .collect()
+    };
+
+    let mut failed = 0u32;
+    let mut recovering = 0u32;
+    for session_id in &session_ids {
+        match state
+            .server
+            .get_tenant_entity_state(&tenant_id, "Session", session_id)
+            .await
+        {
+            Ok(resp) if recoverable_states.contains(resp.state.status.as_str()) => {
+                let status = &resp.state.status;
+                tracing::info!(session_id, status, "Recovering session from restart");
+                let params = serde_json::json!({
+                    "error_message": format!("process restart — recovering from {status}")
+                });
+                match state
+                    .server
+                    .dispatch_tenant_action(
+                        &tenant_id,
+                        "Session",
+                        session_id,
+                        "RecoverFromRestart",
+                        params.clone(),
+                        &temper_server::request_context::AgentContext::system(),
+                    )
+                    .await
+                {
+                    Ok(_) => recovering += 1,
+                    Err(e) => {
+                        tracing::warn!(session_id, %e, "RecoverFromRestart failed, falling back to Fail");
+                        let _ = state
+                            .server
+                            .dispatch_tenant_action(
+                                &tenant_id,
+                                "Session",
+                                session_id,
+                                "Fail",
+                                params,
+                                &temper_server::request_context::AgentContext::system(),
+                            )
+                            .await;
+                        failed += 1;
+                    }
+                }
+            }
+            Ok(resp) if !terminal_states.contains(resp.state.status.as_str()) => {
+                let status = &resp.state.status;
+                tracing::info!(session_id, status, "Failing orphaned session");
+                let params = serde_json::json!({
+                    "error_message": format!("process restart — session recovered from {status} state")
+                });
+                let _ = state
+                    .server
+                    .dispatch_tenant_action(
+                        &tenant_id,
+                        "Session",
+                        session_id,
+                        "Fail",
+                        params,
+                        &temper_server::request_context::AgentContext::system(),
+                    )
+                    .await;
+                failed += 1;
+            }
+            Ok(_) => {}
+            Err(e) => tracing::warn!(session_id, %e, "Failed to read session state"),
+        }
+    }
+    if recovering > 0 || failed > 0 {
+        tracing::info!(recovering, failed, "Session recovery complete");
+    }
+}
+
+fn spawn_deferred_runtime_recovery(
+    state: PlatformState,
+    tenant_ids: Vec<TenantId>,
+    tenant: String,
+) {
+    tokio::spawn(async move {
+        tracing::info!(
+            tenants = tenant_ids.len(),
+            "Deferred runtime index recovery scheduled after readiness"
+        );
+        let started = Instant::now();
+        recover_runtime_indexes(&state, &tenant_ids).await;
+        tracing::info!(
+            elapsed_ms = started.elapsed().as_millis(),
+            "Deferred runtime index recovery complete"
+        );
+        recover_orphaned_sessions(&state, &tenant).await;
+    });
 }
 
 fn spawn_query_projection_backfill(
@@ -1033,7 +1154,7 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
     // so the registry must be populated first. Cedar policies are similarly
     // needed for any effects dispatched during install (e.g. workspace
     // bootstrap actions).
-    {
+    let app_runtime_recovery = {
         let phase_started = Instant::now();
         tracing::info!(
             "Phase 6a: Recovering runtime app state, persisted WASM modules + Cedar policies..."
@@ -1058,25 +1179,34 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
             elapsed_ms = phase_started.elapsed().as_millis(),
             "phase_6a_pre_recovery complete"
         );
-    }
+        app_runtime_recovery
+    };
 
     // Phase 6a.5: Runtime index recovery before app reconcile.
     //
-    // Changed/cold app reconcile may bootstrap durable TemperFS content. Those
-    // helpers use existence checks, so the entity index must reflect durable
-    // state before any hot-path helper can decide whether to create entities.
-    let tenant_ids = {
+    // Changed/cold app reconcile may bootstrap durable TemperFS content, whose
+    // helpers still use runtime existence checks. If installed apps are already
+    // runtime-ready, defer full event/index replay until after readiness.
+    let tenant_ids = registry_tenant_ids(&state);
+    let recover_indexes_before_reconcile =
+        runtime_indexes_required_before_reconcile(&app_runtime_recovery);
+    if recover_indexes_before_reconcile {
         let phase_started = Instant::now();
         tracing::info!("Phase 6a.5: Recovering runtime indexes before app reconcile...");
-        let tenant_ids = registry_tenant_ids(&state);
         recover_runtime_indexes(&state, &tenant_ids).await;
         record_startup_phase_duration("phase_6a5_runtime_index_recovery", phase_started.elapsed());
         tracing::info!(
             elapsed_ms = phase_started.elapsed().as_millis(),
             "phase_6a5_runtime_index_recovery complete"
         );
-        tenant_ids
-    };
+    } else {
+        let phase_started = Instant::now();
+        record_startup_phase_duration("phase_6a5_runtime_index_recovery", phase_started.elapsed());
+        tracing::info!(
+            elapsed_ms = phase_started.elapsed().as_millis(),
+            "phase_6a5_runtime_index_recovery skipped; deferring until after readiness"
+        );
+    }
 
     // Phase 6b: Reconcile Paw OS apps
     let phase_started = Instant::now();
@@ -1170,103 +1300,11 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
         "phase_7_dispatcher_refresh complete"
     );
 
-    // Phase 7b: Session recovery — recover or fail orphaned sessions (ADR-0025)
-    {
-        let terminal_states: HashSet<&str> =
-            ["Completed", "Failed", "Cancelled"].into_iter().collect();
-        let recoverable_states: HashSet<&str> = [
-            "Thinking",
-            "Executing",
-            "Compacting",
-            "Steering",
-            "WaitingForApproval",
-        ]
-        .into_iter()
-        .collect();
-        let tenant_id = TenantId::new(&tenant);
-        let session_ids: Vec<String> = {
-            let index = state.server.entity_index.read().unwrap(); // ci-ok: infallible lock
-            let index_key = format!("{tenant_id}:Session");
-            index
-                .get(&index_key)
-                .cloned()
-                .unwrap_or_default()
-                .into_iter()
-                .collect()
-        };
-
-        let mut failed = 0u32;
-        let mut recovering = 0u32;
-        for session_id in &session_ids {
-            match state
-                .server
-                .get_tenant_entity_state(&tenant_id, "Session", session_id)
-                .await
-            {
-                Ok(resp) if recoverable_states.contains(resp.state.status.as_str()) => {
-                    // Recoverable state — attempt RecoverFromRestart (ADR-0025)
-                    let status = &resp.state.status;
-                    tracing::info!(session_id, status, "Recovering session from restart");
-                    let params = serde_json::json!({
-                        "error_message": format!("process restart — recovering from {status}")
-                    });
-                    match state
-                        .server
-                        .dispatch_tenant_action(
-                            &tenant_id,
-                            "Session",
-                            session_id,
-                            "RecoverFromRestart",
-                            params.clone(),
-                            &temper_server::request_context::AgentContext::system(),
-                        )
-                        .await
-                    {
-                        Ok(_) => recovering += 1,
-                        Err(e) => {
-                            tracing::warn!(session_id, %e, "RecoverFromRestart failed, falling back to Fail");
-                            let _ = state
-                                .server
-                                .dispatch_tenant_action(
-                                    &tenant_id,
-                                    "Session",
-                                    session_id,
-                                    "Fail",
-                                    params,
-                                    &temper_server::request_context::AgentContext::system(),
-                                )
-                                .await;
-                            failed += 1;
-                        }
-                    }
-                }
-                Ok(resp) if !terminal_states.contains(resp.state.status.as_str()) => {
-                    // Non-recoverable (Created, Provisioning) — just fail
-                    let status = &resp.state.status;
-                    tracing::info!(session_id, status, "Failing orphaned session");
-                    let params = serde_json::json!({
-                        "error_message": format!("process restart — session recovered from {status} state")
-                    });
-                    let _ = state
-                        .server
-                        .dispatch_tenant_action(
-                            &tenant_id,
-                            "Session",
-                            session_id,
-                            "Fail",
-                            params,
-                            &temper_server::request_context::AgentContext::system(),
-                        )
-                        .await;
-                    failed += 1;
-                }
-                Ok(_) => {} // terminal state, skip
-                Err(e) => tracing::warn!(session_id, %e, "Failed to read session state"),
-            }
-        }
-        if recovering > 0 || failed > 0 {
-            tracing::info!(recovering, failed, "Session recovery complete");
-        }
+    // Phase 7b: Session recovery — recover or fail orphaned sessions (ADR-0025).
+    if recover_indexes_before_reconcile {
+        recover_orphaned_sessions(&state, &tenant).await;
+    } else {
+        tracing::info!("Session recovery deferred until post-ready runtime index recovery");
     }
 
     // Phase 8: Banner (printed after bind so we show the actual port)
@@ -1475,6 +1513,9 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
     record_startup_time_to_ready(startup_started.elapsed(), &tenant);
     tracing::info!("Temper Paw listening on port {actual_port}");
     tracing::info!(elapsed_ms = startup_started.elapsed().as_millis(), tenant = %tenant, "startup: time to ready");
+    if !recover_indexes_before_reconcile {
+        spawn_deferred_runtime_recovery(state.clone(), tenant_ids.clone(), tenant.clone());
+    }
 
     // Phase 10: Soul personalization (post-boot, writes to TemperFS via OData)
     if needs_soul_setup {
@@ -3016,9 +3057,10 @@ mod tests {
         actor_passivation_check_interval_secs, app_required_wasm_failure, bootstrap_soul,
         installed_app_runtime_recovery_result, load_or_create_temper_api_key,
         local_wasm_startup_policy, paw_soul_content_is_personalized, resolve_startup_secret,
-        runtime_recovery_plan, runtime_router_with_startup_gates, soul_lookup_filters,
-        spawn_runtime_server, startup_discord_connect_result, startup_discord_summary_label,
-        startup_os_apps, wait_for_runtime_server,
+        runtime_indexes_required_before_reconcile, runtime_recovery_plan,
+        runtime_router_with_startup_gates, soul_lookup_filters, spawn_runtime_server,
+        startup_discord_connect_result, startup_discord_summary_label, startup_os_apps,
+        wait_for_runtime_server,
     };
     use crate::transport_manager::TransportStatus;
 
@@ -3119,6 +3161,36 @@ mod tests {
             }),
             "error"
         );
+    }
+
+    #[test]
+    fn runtime_indexes_are_deferred_when_installed_apps_are_runtime_ready() {
+        assert!(!runtime_indexes_required_before_reconcile(
+            &InstalledAppsRuntimeRecoverySummary {
+                ready: 6,
+                ..InstalledAppsRuntimeRecoverySummary::default()
+            }
+        ));
+        assert!(!runtime_indexes_required_before_reconcile(
+            &InstalledAppsRuntimeRecoverySummary {
+                ready: 4,
+                healed: 2,
+                ..InstalledAppsRuntimeRecoverySummary::default()
+            }
+        ));
+        assert!(runtime_indexes_required_before_reconcile(
+            &InstalledAppsRuntimeRecoverySummary {
+                ready: 5,
+                needs_reconcile: 1,
+                ..InstalledAppsRuntimeRecoverySummary::default()
+            }
+        ));
+        assert!(runtime_indexes_required_before_reconcile(
+            &InstalledAppsRuntimeRecoverySummary {
+                store_error: 1,
+                ..InstalledAppsRuntimeRecoverySummary::default()
+            }
+        ));
     }
 
     #[test]
