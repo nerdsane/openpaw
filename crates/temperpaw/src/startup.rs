@@ -315,7 +315,7 @@ async fn recover_runtime_indexes(state: &PlatformState, tenant_ids: &[TenantId])
                     .get(&tenant)
                     .copied()
                     .unwrap_or(0);
-                record_startup_live_restore_entities(&tenant, count as u64);
+                record_startup_live_restore_entities(&tenant, count);
                 tracing::info!(tenant = %tenant, count, "live restore: populate_index");
             }
         }

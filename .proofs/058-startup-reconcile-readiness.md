@@ -12,6 +12,7 @@ Discord was intentionally out of scope.
 
 ```sh
 cargo check --manifest-path /Users/seshendranalla/Development/openpaw/.worktrees/startup-readiness-latest-main/Cargo.toml -p temperpaw --locked
+cargo clippy --manifest-path /Users/seshendranalla/Development/openpaw/.worktrees/startup-readiness-latest-main/Cargo.toml -p temperpaw --all-targets -- -D warnings
 cargo test --manifest-path /Users/seshendranalla/Development/openpaw/.worktrees/startup-readiness-latest-main/Cargo.toml -p temperpaw startup_ --locked
 cargo test --manifest-path /Users/seshendranalla/Development/openpaw/.worktrees/startup-readiness-latest-main/Cargo.toml -p temperpaw wasm_failures --locked
 cargo test --manifest-path /Users/seshendranalla/Development/openpaw/.worktrees/startup-readiness-latest-main/Cargo.toml -p temperpaw-cli prebuilt_manifest_uses_extended_railway_health_window --locked
