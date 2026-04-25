@@ -4,7 +4,7 @@
 use session_tree_lib::SessionTree;
 use temper_wasm_sdk::prelude::*;
 use wasm_helpers::{
-    create_content_file_ref, entity_field_str, read_session_from_temperfs,
+    create_content_file_ref, entity_field_str, is_session_entries_ref, read_session_from_temperfs,
     resolve_temper_api_url, runtime_headers, write_session_to_temperfs,
 };
 
@@ -183,7 +183,8 @@ fn inject_review_message(
     let workspace_id =
         entity_field_str(session_fields, &["workspace_id", "WorkspaceId"]).unwrap_or("");
 
-    let new_leaf_id = if !workspace_id.is_empty() {
+    let entity_backed_session = is_session_entries_ref(session_file_id);
+    let new_leaf_id = if !entity_backed_session && !workspace_id.is_empty() {
         let file_name = format!("review-feedback-{}.txt", tree.len());
         let content_ref = create_content_file_ref(
             ctx,

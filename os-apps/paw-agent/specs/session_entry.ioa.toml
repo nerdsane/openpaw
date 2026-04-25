@@ -1,0 +1,82 @@
+# SessionEntry -- Temper-native hot session log entry.
+#
+# SessionEntry is the operational source of truth for agent turn history. Each
+# user, assistant, tool-result, compaction, or steering entry is recorded as its
+# own small entity so ordinary turns do not rewrite and re-version a PawFS file.
+# PawFS remains the governed artifact surface for exported transcripts, saved
+# outputs, and larger durable files.
+
+[automaton]
+name = "SessionEntry"
+states = ["Recorded"]
+initial = "Recorded"
+allow_indefinite_states = ["Recorded"]
+
+[[state]]
+name = "session_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "entry_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "parent_entry_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "sequence"
+type = "counter"
+initial = "0"
+
+[[state]]
+name = "entry_type"
+type = "string"
+initial = "message"
+
+[[state]]
+name = "role"
+type = "string"
+initial = ""
+
+[[state]]
+name = "content"
+type = "string"
+initial = ""
+# Inline JSON for the entry content. Hot conversational turns are intentionally
+# inline here; large governed artifacts should be referenced with content_file_id
+# instead of making PawFS part of every turn mutation.
+overflow_inline_max_bytes = "1048576"
+
+[[state]]
+name = "content_file_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "content_file_version_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "extra_json"
+type = "string"
+initial = "{}"
+overflow_inline_max_bytes = "131072"
+
+[[state]]
+name = "tokens"
+type = "counter"
+initial = "0"
+
+[[field_invariant]]
+name = "RecordedRequiresSessionAndEntryIds"
+when = { field = "Status", equals = "Recorded" }
+require = { all_of = [
+  { not = { field = "SessionId", empty = true } },
+  { not = { field = "EntryId", empty = true } },
+] }
+message = "SessionEntry.Recorded requires SessionId and EntryId"

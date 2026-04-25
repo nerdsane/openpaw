@@ -11,11 +11,13 @@
 //!
 //! Build: `cargo build --target wasm32-unknown-unknown --release`
 
-use session_turn_artifacts::PreparedContextArtifact;
 use session_tree_lib::{ContextRef, EntryType, SessionTree};
+use session_turn_artifacts::PreparedContextArtifact;
 use std::collections::{BTreeMap, BTreeSet};
 use temper_wasm_sdk::prelude::*;
-use tool_catalog::{DEFAULT_TOOLS_ENABLED, build_method_listing, enabled_tool_set, has_sandbox_surface};
+use tool_catalog::{
+    DEFAULT_TOOLS_ENABLED, build_method_listing, enabled_tool_set, has_sandbox_surface,
+};
 use wasm_helpers::{
     create_content_file, read_text_file_versions_batch, read_text_files_batch, runtime_headers,
     runtime_headers_as, timestamp_millis_string, write_temperfs_value_with_retry,
@@ -267,10 +269,8 @@ fn prune_old_tool_results(messages: &mut [Value], keep_recent_turns: usize) {
                                 part.get("type").and_then(Value::as_str) != Some("image")
                             });
                             for part in parts.iter_mut() {
-                                if let Some(text) = part
-                                    .get("text")
-                                    .and_then(Value::as_str)
-                                    .map(String::from)
+                                if let Some(text) =
+                                    part.get("text").and_then(Value::as_str).map(String::from)
                                     && text.len() > 200
                                 {
                                     part["text"] =
@@ -283,8 +283,10 @@ fn prune_old_tool_results(messages: &mut [Value], keep_recent_turns: usize) {
                                 None => serde_json::to_string(&*result_content).unwrap_or_default(),
                             };
                             if content_str.len() > 200 {
-                                *result_content =
-                                    json!(format!("[tool result pruned — {} chars]", content_str.len()));
+                                *result_content = json!(format!(
+                                    "[tool result pruned — {} chars]",
+                                    content_str.len()
+                                ));
                             }
                         }
                     }
@@ -425,6 +427,17 @@ fn read_session_from_temperfs(
     tenant: &str,
     file_id: &str,
 ) -> Result<String, String> {
+    if wasm_helpers::is_session_entries_ref(file_id) {
+        let fields = ctx.entity_state.get("fields").cloned().unwrap_or(json!({}));
+        return wasm_helpers::read_session_from_temperfs(
+            ctx,
+            temper_api_url,
+            tenant,
+            &fields,
+            file_id,
+        );
+    }
+
     read_temperfs_file_value(
         ctx,
         temper_api_url,
@@ -678,12 +691,7 @@ pub fn run_context_preparer() -> Result<(), String> {
         .get("prepared_context_file_id")
         .and_then(|v| v.as_str())
         .and_then(|file_id| {
-            try_read_existing_prepared_context_artifact(
-                &ctx,
-                &temper_api_url,
-                tenant,
-                file_id,
-            )
+            try_read_existing_prepared_context_artifact(&ctx, &temper_api_url, tenant, file_id)
         });
 
     let load_started_at = Context::get_time_millis();
@@ -2222,9 +2230,7 @@ fn resolve_context_refs(
             Err(err) => {
                 ctx.log(
                     "warn",
-                    &format!(
-                        "context_preparer: batch file read unavailable, falling back: {err}"
-                    ),
+                    &format!("context_preparer: batch file read unavailable, falling back: {err}"),
                 );
                 BTreeMap::new()
             }
@@ -2408,7 +2414,7 @@ mod tests {
                 }]
             }),
             json!({"role": "assistant", "content": [{"type": "text", "text": "middle turn"}]}),
-            json!({"role": "assistant", "content": [{"type": "text", "text": "recent turn"}]})
+            json!({"role": "assistant", "content": [{"type": "text", "text": "recent turn"}]}),
         ];
 
         prune_old_tool_results(&mut messages, 1);

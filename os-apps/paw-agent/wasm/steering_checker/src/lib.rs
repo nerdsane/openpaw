@@ -10,8 +10,8 @@
 use session_tree_lib::SessionTree;
 use temper_wasm_sdk::prelude::*;
 use wasm_helpers::{
-    create_content_file_ref, read_content_file, read_content_file_version, read_session_from_temperfs,
-    resolve_temper_api_url, write_session_to_temperfs,
+    create_content_file_ref, is_session_entries_ref, read_content_file, read_content_file_version,
+    read_session_from_temperfs, resolve_temper_api_url, write_session_to_temperfs,
 };
 
 /// Entry point.
@@ -29,8 +29,8 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             .and_then(|v| v.as_str())
             .unwrap_or("[]");
 
-        let mut steering_messages: Vec<Value> = serde_json::from_str(steering_messages_json)
-            .unwrap_or_default();
+        let mut steering_messages: Vec<Value> =
+            serde_json::from_str(steering_messages_json).unwrap_or_default();
 
         let follow_up_count = fields
             .get("follow_up_count")
@@ -58,14 +58,20 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         if !steering_messages.is_empty() && follow_up_count < max_follow_ups {
             // Dequeue the first steering message
             let msg = steering_messages.remove(0);
-            let msg_content = msg.get("content")
+            let msg_content = msg
+                .get("content")
                 .and_then(|v| v.as_str())
                 .unwrap_or_else(|| msg.as_str().unwrap_or(""));
 
-            ctx.log("info", &format!(
-                "steering_checker: injecting steering message ({} remaining, follow_up {}/{})",
-                steering_messages.len(), follow_up_count + 1, max_follow_ups
-            ));
+            ctx.log(
+                "info",
+                &format!(
+                    "steering_checker: injecting steering message ({} remaining, follow_up {}/{})",
+                    steering_messages.len(),
+                    follow_up_count + 1,
+                    max_follow_ups
+                ),
+            );
 
             // If session tree mode, inject into session tree
             if !session_file_id.is_empty() && !session_leaf_id.is_empty() {
@@ -83,7 +89,8 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                     .unwrap_or("");
 
                 let entry_id = format!("s-{}", tree.len());
-                let new_leaf_id = if !workspace_id.is_empty() {
+                let entity_backed_session = is_session_entries_ref(session_file_id);
+                let new_leaf_id = if !entity_backed_session && !workspace_id.is_empty() {
                     match create_content_file_ref(
                         &ctx,
                         &temper_api_url,
@@ -137,42 +144,59 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 // Update steering_messages in entity state (remove dequeued message)
                 let updated_queue =
                     serde_json::to_string(&steering_messages).unwrap_or_else(|_| "[]".to_string());
-                set_success_result("ContinueWithSteering", &json!({
-                    "session_leaf_id": new_leaf_id,
-                    "steering_messages": updated_queue,
-                }));
+                set_success_result(
+                    "ContinueWithSteering",
+                    &json!({
+                        "session_leaf_id": new_leaf_id,
+                        "steering_messages": updated_queue,
+                    }),
+                );
             } else {
                 // Inline conversation mode (legacy fallback)
                 let conversation_json = fields
                     .get("conversation")
                     .and_then(|v| v.as_str())
                     .unwrap_or("[]");
-                let mut messages: Vec<Value> = serde_json::from_str(conversation_json).unwrap_or_default();
+                let mut messages: Vec<Value> =
+                    serde_json::from_str(conversation_json).unwrap_or_default();
                 messages.push(json!({
                     "role": "user",
                     "content": msg_content,
                 }));
                 let updated_conversation = serde_json::to_string(&messages).unwrap_or_default();
 
-                set_success_result("ContinueWithSteering", &json!({
-                    "conversation": updated_conversation,
-                    "steering_messages": serde_json::to_string(&steering_messages)
-                        .unwrap_or_else(|_| "[]".to_string()),
-                }));
+                set_success_result(
+                    "ContinueWithSteering",
+                    &json!({
+                        "conversation": updated_conversation,
+                        "steering_messages": serde_json::to_string(&steering_messages)
+                            .unwrap_or_else(|_| "[]".to_string()),
+                    }),
+                );
             }
         } else {
             // No steering messages or follow-up limit reached — finalize
             if follow_up_count >= max_follow_ups {
-                ctx.log("info", &format!(
-                    "steering_checker: follow-up limit reached ({}/{}), finalizing",
-                    follow_up_count, max_follow_ups
-                ));
+                ctx.log(
+                    "info",
+                    &format!(
+                        "steering_checker: follow-up limit reached ({}/{}), finalizing",
+                        follow_up_count, max_follow_ups
+                    ),
+                );
             } else {
                 ctx.log("info", "steering_checker: no steering messages, finalizing");
             }
 
             // Extract the result text from the last assistant message
-            let result_text = extract_last_result(&ctx, &fields, &temper_api_url, tenant, session_file_id, session_leaf_id)?;
+            let result_text = extract_last_result(
+                &ctx,
+                &fields,
+                &temper_api_url,
+                tenant,
+                session_file_id,
+                session_leaf_id,
+            )?;
 
             // Track FinalizeResult dispatches — paired with temperpaw#60 fix.
             // Before Phase 2a + 2b landed, the callback for this action could be
@@ -183,13 +207,16 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 ctx.entity_id, follow_up_count, result_text.len()
             ));
 
-            set_success_result("FinalizeResult", &json!({
-                "result": result_text,
-                "session_leaf_id": session_leaf_id,
-                "pending_tool_calls": "",
-                "pending_tool_context": "",
-                "pending_decision_id": "",
-            }));
+            set_success_result(
+                "FinalizeResult",
+                &json!({
+                    "result": result_text,
+                    "session_leaf_id": session_leaf_id,
+                    "pending_tool_calls": "",
+                    "pending_tool_context": "",
+                    "pending_decision_id": "",
+                }),
+            );
         }
 
         Ok(())
@@ -275,18 +302,17 @@ fn extract_last_result(
 fn extract_text_from_content(content: Option<&Value>) -> String {
     match content {
         Some(Value::String(s)) => s.clone(),
-        Some(Value::Array(arr)) => {
-            arr.iter()
-                .filter_map(|block| {
-                    if block.get("type").and_then(|v| v.as_str()) == Some("text") {
-                        block.get("text").and_then(|v| v.as_str()).map(String::from)
-                    } else {
-                        None
-                    }
-                })
-                .collect::<Vec<_>>()
-                .join("\n")
-        }
+        Some(Value::Array(arr)) => arr
+            .iter()
+            .filter_map(|block| {
+                if block.get("type").and_then(|v| v.as_str()) == Some("text") {
+                    block.get("text").and_then(|v| v.as_str()).map(String::from)
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n"),
         _ => String::new(),
     }
 }

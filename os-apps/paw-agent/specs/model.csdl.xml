@@ -94,6 +94,23 @@
         <Property Name="MaxChecks" Type="Edm.String"/>
       </EntityType>
 
+      <EntityType Name="SessionEntry">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.String" Nullable="false"/>
+        <Property Name="Status" Type="Edm.String"/>
+        <Property Name="SessionId" Type="Edm.String"/>
+        <Property Name="EntryId" Type="Edm.String"/>
+        <Property Name="ParentEntryId" Type="Edm.String"/>
+        <Property Name="Sequence" Type="Edm.Int64"/>
+        <Property Name="EntryType" Type="Edm.String"/>
+        <Property Name="Role" Type="Edm.String"/>
+        <Property Name="Content" Type="Edm.String"/>
+        <Property Name="ContentFileId" Type="Edm.String"/>
+        <Property Name="ContentFileVersionId" Type="Edm.String"/>
+        <Property Name="ExtraJson" Type="Edm.String"/>
+        <Property Name="Tokens" Type="Edm.Int64"/>
+      </EntityType>
+
       <EntityType Name="OpenAICodexAuth">
         <Key><PropertyRef Name="Id"/></Key>
         <Property Name="Id" Type="Edm.String" Nullable="false"/>
@@ -867,6 +884,7 @@
       <EntityContainer Name="Service">
         <EntitySet Name="Sessions" EntityType="TemperPaw.Session"/>
         <EntitySet Name="SessionLinks" EntityType="TemperPaw.SessionLink"/>
+        <EntitySet Name="SessionEntries" EntityType="TemperPaw.SessionEntry"/>
         <EntitySet Name="OpenAICodexAuths" EntityType="TemperPaw.OpenAICodexAuth"/>
         <EntitySet Name="Apps" EntityType="TemperPaw.App"/>
         <EntitySet Name="Agents" EntityType="TemperPaw.Agent"/>

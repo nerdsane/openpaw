@@ -59,7 +59,7 @@ use session_tree_lib::SessionTree;
 use std::collections::BTreeSet;
 use temper_wasm_sdk::prelude::*;
 use wasm_helpers::{
-    create_content_file_ref, read_content_file, read_content_file_version,
+    create_content_file_ref, is_session_entries_ref, read_content_file, read_content_file_version,
     read_session_from_temperfs, read_text_file_versions_batch, read_text_files_batch,
     resolve_temper_api_url, write_session_to_temperfs,
 };
@@ -208,7 +208,8 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         // 5. Append compaction entry to session tree
         let summary_tokens = estimate_summary_tokens(&summary);
 
-        let (compaction_id, _line) = if !workspace_id.is_empty() {
+        let entity_backed_session = is_session_entries_ref(session_file_id);
+        let (compaction_id, _line) = if !entity_backed_session && !workspace_id.is_empty() {
             match create_content_file_ref(
                 &ctx,
                 &temper_api_url,

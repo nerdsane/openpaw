@@ -12,7 +12,7 @@ use serde_json::{Value, json};
 use std::{cell::RefCell, collections::BTreeSet};
 use temper_wasm_sdk::context::{Context, HttpRequest, HttpResponse};
 use tool_catalog::{DEFAULT_TOOLS_ENABLED, enabled_tool_set};
-use wasm_helpers::runtime_headers;
+use wasm_helpers::read_session_from_temperfs;
 
 /// Tools available in plan mode (ADR-004). Blocks sandbox mutation (write, edit)
 /// and governance writes. Allows read ops, research, memory, Plan CRUD, and
@@ -1435,16 +1435,13 @@ fn recent_user_messages(ctx: &Context, api_url: &str, tenant: &str, limit: usize
         return messages;
     }
 
-    let headers = runtime_headers(ctx, tenant, &fields, None, Some("text/plain"));
-    let file_url = format!("{api_url}/tdata/Files('{session_file_id}')/$value");
-    let Ok(resp) = ctx.http_call("GET", &file_url, &headers, "") else {
+    let Ok(session_jsonl) =
+        read_session_from_temperfs(ctx, api_url, tenant, &fields, session_file_id)
+    else {
         return messages;
     };
-    if resp.status >= 400 {
-        return messages;
-    }
 
-    let tree = session_tree_lib::SessionTree::from_jsonl(&resp.body);
+    let tree = session_tree_lib::SessionTree::from_jsonl(&session_jsonl);
     for entry_id in tree.entry_ids() {
         let Some(entry) = tree.get(entry_id) else {
             continue;

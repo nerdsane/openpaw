@@ -10,6 +10,7 @@ use std::collections::BTreeMap;
 
 use temper_wasm_sdk::prelude::*;
 
+pub const SESSION_ENTRIES_REF_PREFIX: &str = "session-entries:";
 const TEMPERFS_READ_ATTEMPTS: usize = 10;
 const TEMPERFS_WRITE_ATTEMPTS: usize = 5;
 const TEMPERFS_BATCH_READ_ATTEMPTS: usize = 3;
@@ -39,6 +40,12 @@ pub struct CreatedContentFileRef {
     pub content_hash: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CreatedSessionEntry {
+    pub entity_id: String,
+    pub entry_id: String,
+}
+
 /// Current wall-clock time as a millis-since-epoch string.
 ///
 /// Used as the value for OData fields shaped `last_*_at` (e.g.
@@ -51,6 +58,20 @@ pub struct CreatedContentFileRef {
 /// decimal representation of the host's wall clock.
 pub fn timestamp_millis_string() -> String {
     Context::get_time_millis().to_string()
+}
+
+pub fn session_entries_ref(session_id: &str) -> String {
+    format!("{SESSION_ENTRIES_REF_PREFIX}{session_id}")
+}
+
+pub fn session_id_from_entries_ref(reference: &str) -> Option<&str> {
+    reference
+        .strip_prefix(SESSION_ENTRIES_REF_PREFIX)
+        .filter(|session_id| !session_id.is_empty())
+}
+
+pub fn is_session_entries_ref(reference: &str) -> bool {
+    session_id_from_entries_ref(reference).is_some()
 }
 
 fn read_temperfs_value_with_retry(
@@ -168,6 +189,10 @@ pub fn read_session_from_temperfs(
     fields: &Value,
     file_id: &str,
 ) -> Result<String, String> {
+    if let Some(session_id) = session_id_from_entries_ref(file_id) {
+        return read_session_from_entries(ctx, temper_api_url, tenant, fields, session_id);
+    }
+
     let url = format!("{temper_api_url}/tdata/Files('{file_id}')/$value");
     let headers = runtime_headers(ctx, tenant, fields, None, None);
     read_temperfs_value_with_retry(ctx, &url, &headers, "TemperFS session read failed")
@@ -182,9 +207,314 @@ pub fn write_session_to_temperfs(
     file_id: &str,
     jsonl: &str,
 ) -> Result<(), String> {
+    if let Some(session_id) = session_id_from_entries_ref(file_id) {
+        return sync_session_entries_from_jsonl(
+            ctx,
+            temper_api_url,
+            tenant,
+            fields,
+            session_id,
+            jsonl,
+        );
+    }
+
     let url = format!("{temper_api_url}/tdata/Files('{file_id}')/$value");
     let headers = runtime_headers(ctx, tenant, fields, Some("text/plain"), None);
     write_temperfs_value_with_retry(ctx, &url, &headers, jsonl, "TemperFS session write failed")
+}
+
+pub fn create_session_entry(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+    fields: &Value,
+    session_id: &str,
+    entry_id: &str,
+    parent_entry_id: Option<&str>,
+    sequence: i64,
+    entry_type: &str,
+    role: Option<&str>,
+    content: Option<&Value>,
+    content_file_id: Option<&str>,
+    content_file_version_id: Option<&str>,
+    extra_json: Option<&Value>,
+    tokens: usize,
+) -> Result<CreatedSessionEntry, String> {
+    let content_json = content
+        .map(serde_json::to_string)
+        .transpose()
+        .map_err(|err| format!("serialize SessionEntry content: {err}"))?
+        .unwrap_or_default();
+    let extra_json = extra_json
+        .map(serde_json::to_string)
+        .transpose()
+        .map_err(|err| format!("serialize SessionEntry extra_json: {err}"))?
+        .unwrap_or_else(|| "{}".to_string());
+
+    let body = json!({
+        "SessionId": session_id,
+        "EntryId": entry_id,
+        "ParentEntryId": parent_entry_id.unwrap_or(""),
+        "Sequence": sequence,
+        "EntryType": entry_type,
+        "Role": role.unwrap_or(""),
+        "Content": content_json,
+        "ContentFileId": content_file_id.unwrap_or(""),
+        "ContentFileVersionId": content_file_version_id.unwrap_or(""),
+        "ExtraJson": extra_json,
+        "Tokens": tokens as i64,
+    });
+    let url = format!("{temper_api_url}/tdata/SessionEntries");
+    let headers = runtime_headers(
+        ctx,
+        tenant,
+        fields,
+        Some("application/json"),
+        Some("application/json"),
+    );
+    let resp = ctx.http_call("POST", &url, &headers, &body.to_string())?;
+    if resp.status < 200 || resp.status >= 300 {
+        return Err(format!(
+            "SessionEntry creation failed (HTTP {}): {}",
+            resp.status,
+            &resp.body[..resp.body.len().min(300)]
+        ));
+    }
+
+    let parsed: Value = serde_json::from_str(&resp.body)
+        .map_err(|err| format!("parse SessionEntry creation response: {err}"))?;
+    let entity_id = entity_field_str(&parsed, &["entity_id", "Id"])
+        .unwrap_or("")
+        .to_string();
+
+    Ok(CreatedSessionEntry {
+        entity_id,
+        entry_id: entry_id.to_string(),
+    })
+}
+
+pub fn read_session_from_entries(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+    fields: &Value,
+    session_id: &str,
+) -> Result<String, String> {
+    let entries = list_session_entries(ctx, temper_api_url, tenant, fields, session_id)?;
+    Ok(session_entries_jsonl_from_entities(&entries))
+}
+
+pub fn sync_session_entries_from_jsonl(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+    fields: &Value,
+    session_id: &str,
+    jsonl: &str,
+) -> Result<(), String> {
+    let existing = list_session_entries(ctx, temper_api_url, tenant, fields, session_id)?;
+    let existing_ids: std::collections::BTreeSet<String> = existing
+        .iter()
+        .filter_map(|entry| entity_field_str(entry, &["EntryId", "entry_id"]).map(str::to_string))
+        .collect();
+
+    for (sequence, line) in jsonl.lines().enumerate() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let parsed: Value = serde_json::from_str(line)
+            .map_err(|err| format!("parse SessionTree JSONL line for SessionEntry sync: {err}"))?;
+        let entry_id = parsed
+            .get("id")
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+            .ok_or("SessionTree JSONL line missing id")?;
+        if existing_ids.contains(entry_id) {
+            continue;
+        }
+
+        create_session_entry_from_jsonl_value(
+            ctx,
+            temper_api_url,
+            tenant,
+            fields,
+            session_id,
+            &parsed,
+            sequence as i64,
+        )?;
+    }
+
+    Ok(())
+}
+
+pub fn session_entries_jsonl_from_entities(entries: &[Value]) -> String {
+    let mut rows: Vec<(i64, String, String)> = entries
+        .iter()
+        .filter_map(|entry| {
+            let sequence = entity_field_i64(entry, &["Sequence", "sequence"]).unwrap_or(0);
+            let entry_id = entity_field_str(entry, &["EntryId", "entry_id"])
+                .unwrap_or("")
+                .to_string();
+            if entry_id.is_empty() {
+                return None;
+            }
+            session_entry_entity_to_jsonl(entry).map(|line| (sequence, entry_id, line))
+        })
+        .collect();
+    rows.sort_by(|left, right| left.0.cmp(&right.0).then_with(|| left.1.cmp(&right.1)));
+    rows.into_iter()
+        .map(|(_, _, line)| line)
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn create_session_entry_from_jsonl_value(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+    fields: &Value,
+    session_id: &str,
+    entry: &Value,
+    sequence: i64,
+) -> Result<CreatedSessionEntry, String> {
+    let entry_id = entry
+        .get("id")
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .ok_or("SessionTree JSONL entry missing id")?;
+    let parent_entry_id = entry.get("parentId").and_then(Value::as_str);
+    let entry_type = entry
+        .get("type")
+        .and_then(Value::as_str)
+        .unwrap_or("message");
+    let role = entry.get("role").and_then(Value::as_str);
+    let tokens = entry.get("tokens").and_then(Value::as_u64).unwrap_or(0) as usize;
+    let content = entry.get("content");
+    let content_file_id = entry.get("content_file_id").and_then(Value::as_str);
+    let content_file_version_id = entry.get("content_file_version_id").and_then(Value::as_str);
+    let extra_json = session_entry_extra_json(entry);
+
+    create_session_entry(
+        ctx,
+        temper_api_url,
+        tenant,
+        fields,
+        session_id,
+        entry_id,
+        parent_entry_id,
+        sequence,
+        entry_type,
+        role,
+        content,
+        content_file_id,
+        content_file_version_id,
+        Some(&extra_json),
+        tokens,
+    )
+}
+
+fn list_session_entries(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+    fields: &Value,
+    session_id: &str,
+) -> Result<Vec<Value>, String> {
+    let escaped = session_id.replace('\'', "''");
+    let url = format!(
+        "{temper_api_url}/tdata/SessionEntries?$filter=SessionId eq '{escaped}'&$top=10000"
+    );
+    let headers = runtime_headers(ctx, tenant, fields, None, Some("application/json"));
+    let resp = ctx.http_call("GET", &url, &headers, "")?;
+    if resp.status != 200 {
+        return Err(format!(
+            "SessionEntry list failed (HTTP {}): {}",
+            resp.status,
+            &resp.body[..resp.body.len().min(300)]
+        ));
+    }
+    let parsed: Value = serde_json::from_str(&resp.body)
+        .map_err(|err| format!("parse SessionEntry list response: {err}"))?;
+    Ok(parsed
+        .get("value")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default())
+}
+
+fn session_entry_entity_to_jsonl(entry: &Value) -> Option<String> {
+    let entry_id = entity_field_str(entry, &["EntryId", "entry_id"])?;
+    let parent_entry_id =
+        entity_field_str(entry, &["ParentEntryId", "parent_entry_id"]).unwrap_or("");
+    let entry_type = entity_field_str(entry, &["EntryType", "entry_type"]).unwrap_or("message");
+    let role = entity_field_str(entry, &["Role", "role"]).unwrap_or("");
+    let tokens = entity_field_i64(entry, &["Tokens", "tokens"]).unwrap_or(0);
+    let content = entity_field_str(entry, &["Content", "content"]).unwrap_or("");
+    let content_file_id =
+        entity_field_str(entry, &["ContentFileId", "content_file_id"]).unwrap_or("");
+    let content_file_version_id =
+        entity_field_str(entry, &["ContentFileVersionId", "content_file_version_id"]).unwrap_or("");
+    let extra_json = entity_field_str(entry, &["ExtraJson", "extra_json"]).unwrap_or("{}");
+
+    let mut line = json!({
+        "id": entry_id,
+        "parentId": if parent_entry_id.is_empty() { Value::Null } else { json!(parent_entry_id) },
+        "type": entry_type,
+        "tokens": tokens,
+    });
+
+    if let Ok(extra) = serde_json::from_str::<Value>(extra_json) {
+        if let (Some(target), Some(extra_obj)) = (line.as_object_mut(), extra.as_object()) {
+            for (key, value) in extra_obj {
+                if !is_session_entry_canonical_key(key) {
+                    target.insert(key.clone(), value.clone());
+                }
+            }
+        }
+    }
+
+    if !role.is_empty() {
+        line["role"] = json!(role);
+    }
+    if !content.is_empty() {
+        line["content"] = serde_json::from_str::<Value>(content)
+            .unwrap_or_else(|_| Value::String(content.to_string()));
+    }
+    if !content_file_id.is_empty() {
+        line["content_file_id"] = json!(content_file_id);
+    }
+    if !content_file_version_id.is_empty() {
+        line["content_file_version_id"] = json!(content_file_version_id);
+    }
+
+    serde_json::to_string(&line).ok()
+}
+
+fn session_entry_extra_json(entry: &Value) -> Value {
+    let mut extra = serde_json::Map::new();
+    let Some(obj) = entry.as_object() else {
+        return json!({});
+    };
+    for (key, value) in obj {
+        if !is_session_entry_canonical_key(key) {
+            extra.insert(key.clone(), value.clone());
+        }
+    }
+    Value::Object(extra)
+}
+
+fn is_session_entry_canonical_key(key: &str) -> bool {
+    matches!(
+        key,
+        "id" | "parentId"
+            | "type"
+            | "role"
+            | "content"
+            | "tokens"
+            | "content_file_id"
+            | "content_file_version_id"
+    )
 }
 
 /// Read raw file content from TemperFS by file ID.
@@ -436,8 +766,15 @@ pub fn create_content_file(
     file_name: &str,
     content: &str,
 ) -> Result<String, String> {
-    create_content_file_ref(ctx, temper_api_url, tenant, workspace_id, file_name, content)
-        .map(|created| created.file_id)
+    create_content_file_ref(
+        ctx,
+        temper_api_url,
+        tenant,
+        workspace_id,
+        file_name,
+        content,
+    )
+    .map(|created| created.file_id)
 }
 
 /// Create a TemperFS file, write content into it, and resolve the immutable
@@ -694,6 +1031,20 @@ pub fn entity_field_str<'a>(value: &'a Value, keys: &[&str]) -> Option<&'a str> 
     })
 }
 
+/// Look up an integer-ish field on a JSON value, accepting JSON numbers or strings.
+pub fn entity_field_i64(value: &Value, keys: &[&str]) -> Option<i64> {
+    keys.iter().find_map(|key| {
+        value
+            .get(*key)
+            .or_else(|| value.get("fields").and_then(|fields| fields.get(*key)))
+            .and_then(|raw| {
+                raw.as_i64()
+                    .or_else(|| raw.as_u64().and_then(|num| i64::try_from(num).ok()))
+                    .or_else(|| raw.as_str().and_then(|text| text.parse::<i64>().ok()))
+            })
+    })
+}
+
 /// List entities returned by an OData collection URL.
 pub fn list_entities(ctx: &Context, url: &str, tenant: &str) -> Result<Vec<Value>, String> {
     let fields = ctx
@@ -872,6 +1223,69 @@ mod tests {
     fn test_entity_field_str() {
         let val = serde_json::json!({"fields": {"Status": "Active"}});
         assert_eq!(entity_field_str(&val, &["Status"]), Some("Active"));
+    }
+
+    #[test]
+    fn test_session_entries_ref_round_trips_session_id() {
+        let reference = session_entries_ref("ses-123");
+        assert_eq!(reference, "session-entries:ses-123");
+        assert_eq!(session_id_from_entries_ref(&reference), Some("ses-123"));
+        assert!(is_session_entries_ref(&reference));
+        assert_eq!(session_id_from_entries_ref("fl-123"), None);
+    }
+
+    #[test]
+    fn test_session_entries_jsonl_from_entities_sorts_and_reconstructs() {
+        let entities = vec![
+            json!({
+                "EntryId": "u-1",
+                "ParentEntryId": "h-1",
+                "Sequence": 1,
+                "EntryType": "message",
+                "Role": "user",
+                "Content": "\"hello\"",
+                "Tokens": 2,
+                "ExtraJson": "{}"
+            }),
+            json!({
+                "EntryId": "h-1",
+                "ParentEntryId": "",
+                "Sequence": 0,
+                "EntryType": "header",
+                "Role": "",
+                "Content": "",
+                "Tokens": 0,
+                "ExtraJson": "{\"version\":1}"
+            }),
+        ];
+
+        let jsonl = session_entries_jsonl_from_entities(&entities);
+        let lines: Vec<Value> = jsonl
+            .lines()
+            .map(|line| serde_json::from_str(line).expect("valid json line"))
+            .collect();
+
+        assert_eq!(lines[0]["id"], "h-1");
+        assert_eq!(lines[0]["version"], 1);
+        assert_eq!(lines[1]["id"], "u-1");
+        assert_eq!(lines[1]["parentId"], "h-1");
+        assert_eq!(lines[1]["content"], "hello");
+    }
+
+    #[test]
+    fn test_session_entry_extra_json_omits_canonical_fields() {
+        let entry = json!({
+            "id": "c-1",
+            "parentId": "a-1",
+            "type": "compaction",
+            "tokens": 10,
+            "summary": "short",
+            "first_kept": "u-1"
+        });
+        let extra = session_entry_extra_json(&entry);
+        assert!(extra.get("id").is_none());
+        assert_eq!(extra["summary"], "short");
+        assert_eq!(extra["first_kept"], "u-1");
     }
 }
 

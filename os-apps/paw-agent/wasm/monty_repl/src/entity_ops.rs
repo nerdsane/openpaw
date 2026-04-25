@@ -6,7 +6,7 @@
 use serde_json::{Value, json};
 use temper_wasm_sdk::context::Context;
 use tool_catalog::DEFAULT_TOOLS_ENABLED;
-use wasm_helpers::{read_content_file_version, runtime_headers};
+use wasm_helpers::{read_content_file_version, read_session_from_temperfs, runtime_headers};
 
 use crate::dispatch;
 
@@ -699,18 +699,10 @@ pub fn search_history(
         return Err("search_history: no session_file_id in entity state".into());
     }
 
-    // Read full session JSONL
-    let url = format!("{api_url}/tdata/Files('{session_file_id}')/$value");
     let headers = runtime_headers(ctx, tenant, &fields, None, Some("application/json"));
-    let resp = ctx.http_call("GET", &url, &headers, "")?;
-    if resp.status >= 400 {
-        return Err(format!(
-            "search_history: failed to read session file (HTTP {})",
-            resp.status
-        ));
-    }
+    let session_jsonl = read_session_from_temperfs(ctx, api_url, tenant, &fields, session_file_id)?;
 
-    let tree = session_tree_lib::SessionTree::from_jsonl(&resp.body);
+    let tree = session_tree_lib::SessionTree::from_jsonl(&session_jsonl);
     let pattern_lower = pattern.to_lowercase();
     let mut matches: Vec<Value> = Vec::new();
     let mut content_fetches = 0;
@@ -1737,9 +1729,15 @@ mod tests {
 
     #[test]
     fn scoped_virtual_path_detection_covers_global_scope_roots() {
-        assert!(is_global_scoped_path("/system/knowledge/design-principles.md"));
-        assert!(is_global_scoped_path("/agents/sl-bootstrap-agent-soul-curator/skills/research-direction/SKILL.md"));
-        assert!(is_global_scoped_path("/projects/proj-123/skills/review-quality/SKILL.md"));
+        assert!(is_global_scoped_path(
+            "/system/knowledge/design-principles.md"
+        ));
+        assert!(is_global_scoped_path(
+            "/agents/sl-bootstrap-agent-soul-curator/skills/research-direction/SKILL.md"
+        ));
+        assert!(is_global_scoped_path(
+            "/projects/proj-123/skills/review-quality/SKILL.md"
+        ));
         assert!(!is_global_scoped_path("/katagami/index.md"));
     }
 

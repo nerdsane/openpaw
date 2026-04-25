@@ -15,7 +15,8 @@
 #   - Heartbeat: pure liveness ping (Discord typing + last_heartbeat_at); does NOT reset state_timeouts
 #   - ProgressMade: real forward progress (bytes received, tool batch completed); resets state_timeouts
 #
-# Conversation history stored in TemperFS as JSONL session tree.
+# Conversation history uses SessionEntry entities for hot turns, with legacy
+# TemperFS JSONL session files still accepted for existing sessions.
 # Budget enforced via turn_count guard. Tools governed by Cedar.
 
 [automaton]
