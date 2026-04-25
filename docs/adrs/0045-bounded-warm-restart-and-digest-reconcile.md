@@ -23,15 +23,20 @@ OpenPaw startup uses Temper's bounded warm-restart contract:
 
 1. Phase 6a performs runtime-only installed-app recovery from durable app
    metadata, plus persisted WASM and Cedar recovery.
-2. Phase 6a.5 recovers runtime indexes before any app reconcile helpers run, so
-   existence checks see durable entities instead of an empty in-memory index.
+2. Phase 6a.5 recovers runtime indexes before app reconcile only when runtime
+   app recovery says a cold or changed-bundle reconcile is required. If the
+   installed app set is already runtime-ready, full event/index replay is
+   deferred until after readiness.
 3. Phase 6b runs digest-aware app reconcile. If the installed bundle digest
    matches the bundled app and specs are available, the app is skipped; if spec
    readiness is stale but the digest matches, Temper heals runtime readiness
    metadata instead of reinstalling content.
 4. Phase 7 only refreshes the reaction dispatcher after app reconcile decisions
    are known.
-5. Readiness remains gated on the server being truly usable; configured
+5. Orphan-session recovery runs before readiness only when runtime indexes were
+   already recovered for a required reconcile. Otherwise it runs after readiness
+   behind the deferred runtime-index recovery task.
+6. Readiness remains gated on the server being truly usable; configured
    transport connection status is reported separately from mere configuration.
 
 Production must consume prebuilt app artifacts. Local startup builds remain a
@@ -40,9 +45,9 @@ part of the production boot contract.
 
 ## Consequences
 
-Warm restart becomes bounded by runtime recovery, index recovery, WASM restore,
-and digest checks. It no longer pays the bulky content-bootstrap cost when app
-digests match.
+Warm restart becomes bounded by runtime app recovery, WASM restore, and digest
+checks. It no longer pays bulky content-bootstrap or full event/index replay
+costs when app digests match.
 
 Cold bootstrap and changed-bundle deploys still reconcile content once. That is
 intentional: digest-aware startup skips only when durable metadata proves the
@@ -50,8 +55,8 @@ installed app already matches the bundled app.
 
 The remaining startup costs are now visible by phase and by app reconcile
 result. If production is still slow after this change, the next bottlenecks are
-runtime index replay, query/projection repair, or real changed-bundle reconcile
-work rather than unconditional content bootstrap.
+WASM restore, query/projection repair, or real changed-bundle reconcile work
+rather than unconditional content bootstrap or same-bundle index replay.
 
 ## Verification
 
@@ -62,6 +67,8 @@ Verification for this decision requires:
 - a local cold boot followed by a warm restart on the same DB
 - proof that warm restart reports installed apps as runtime-ready and skips all
   unchanged startup app reconciles by digest
+- proof that same-bundle warm restart defers full runtime index and orphan
+  session recovery until after readiness
 
 The 2026-04-25 local proof is recorded in
 `.proofs/2026-04-25-warm-restart-digest-reconcile-e2e.md`.
