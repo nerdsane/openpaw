@@ -20,7 +20,7 @@ TemperPaw is a **single-user, self-hosted** platform. Each deployment serves one
          |                              |
          |  temperpaw (main service)      |
          |    port 3467                 |
-         |    /healthz healthcheck      |
+         |    /readyz readiness check   |
          |                              |
          |  otel-collector (sidecar)    |
          |    port 4318 (internal)      |
@@ -66,7 +66,7 @@ This command:
 6. Seeds all environment variables (DB credentials, blob keys, LLM keys, OTEL config)
 7. Deploys the OTEL collector sidecar
 8. Deploys the pre-built Docker image from GHCR
-9. Assigns a public domain and polls `/healthz` until healthy
+9. Assigns a public domain and polls `/readyz` until the new deployment is ready
 10. Prints the dashboard URL
 
 ### LLM credential auto-detection
@@ -126,13 +126,13 @@ builder = "dockerfile"
 dockerfilePath = "Dockerfile"
 
 [deploy]
-healthcheckPath = "/healthz"
+healthcheckPath = "/readyz"
 healthcheckTimeout = 3600
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 3
 ```
 
-Railway builds the Docker image from the repo's Dockerfile. The health check hits `/healthz` on the service's assigned port. TemperPaw cold boots can take a long time while the server restores state and reconciles OS apps, so the health window is intentionally set to one hour.
+Railway builds the Docker image from the repo's Dockerfile. The deployment health check hits `/readyz` on the service's assigned port, while `/healthz` remains process liveness. TemperPaw cold boots can take a long time while the server restores state and reconciles OS apps, so the health window is intentionally set to one hour and traffic should not move to a new container until readiness succeeds.
 
 ### Two-service architecture
 

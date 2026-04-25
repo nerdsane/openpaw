@@ -1444,14 +1444,14 @@ fn infer_domain(raw: &str) -> Option<String> {
 fn prebuilt_railway_manifest(dockerfile_path: &str) -> String {
     format!(
         "[build]\nbuilder = \"dockerfile\"\ndockerfilePath = \"{dockerfile_path}\"\n\n\
-         [deploy]\nhealthcheckPath = \"/healthz\"\nhealthcheckTimeout = {RAILWAY_SERVICE_HEALTHCHECK_TIMEOUT_SECS}\n\
+         [deploy]\nhealthcheckPath = \"/readyz\"\nhealthcheckTimeout = {RAILWAY_SERVICE_HEALTHCHECK_TIMEOUT_SECS}\n\
          restartPolicyType = \"ON_FAILURE\"\nrestartPolicyMaxRetries = 3\n",
     )
 }
 
 async fn poll_health(base_url: &str) -> Result<()> {
     let client = reqwest::Client::new();
-    let health_url = format!("{base_url}/healthz");
+    let health_url = format!("{base_url}/readyz");
 
     // Cold boots can take a long time while Railway waits for the service to
     // finish restoring state and reconciling OS apps, so keep the local poll
@@ -2056,7 +2056,7 @@ active = true
     #[test]
     fn prebuilt_manifest_uses_extended_railway_health_window() {
         let manifest = prebuilt_railway_manifest("Dockerfile");
-        assert!(manifest.contains("healthcheckPath = \"/healthz\""));
+        assert!(manifest.contains("healthcheckPath = \"/readyz\""));
         assert!(manifest.contains("healthcheckTimeout = 3600"));
         assert_eq!(RAILWAY_SERVICE_HEALTHCHECK_TIMEOUT_SECS, 3600);
     }

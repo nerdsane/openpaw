@@ -13,8 +13,13 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use axum::response::IntoResponse;
+use opentelemetry::metrics::{Counter, Histogram};
+use opentelemetry::{KeyValue, global};
 use temper_platform::PlatformState;
-use temper_platform::os_apps::{get_os_app, list_startup_os_apps};
+use temper_platform::os_apps::{
+    InstallResult, OsAppReconcileResult, get_os_app, list_startup_os_apps, reconcile_os_app,
+    resolve_os_app_install_order,
+};
 use temper_platform::recovery::{recover_cedar_policies, restore_installed_skills};
 use temper_platform::router::build_platform_router;
 use temper_runtime::scheduler::sim_now;
@@ -29,6 +34,111 @@ use crate::config::Config;
 
 const DEFAULT_AGENT_TOOLS_ENABLED: &str = "temper_create,temper_get,temper_list,temper_action,temper_patch,temper_submit_specs,temper_show_spec,temper_specs,temper_upload_wasm,temper_get_trajectories,temper_get_insights,temper_get_decisions,temper_poll_decision,temper_approve_decision,temper_deny_decision,temper_submit_policy,temper_list_policies,temper_get_policy,temper_update_policy,temper_delete_policy,temper_install_app,temper_list_apps,temper_spawn_session,temper_list_sessions,temper_abort_session,temper_steer_session,temper_save_memory,temper_recall_memory,temper_write,temper_read,temper_run_coding_agent,temper_get_secret,temper_datadog_query,temper_railway,temper_vercel,temper_web_search,temper_web_fetch,read,write,edit,bash";
 const DEFAULT_AGENT_WORKDIR: &str = "/workspace";
+const STARTUP_PHASE_DURATION_METRIC: &str = "temper_startup_phase_duration_ms";
+const STARTUP_TIME_TO_READY_METRIC: &str = "temper_startup_time_to_healthy_ms";
+const STARTUP_LIVE_RESTORE_ENTITIES_METRIC: &str = "temper_startup_live_restore_entities_total";
+const OS_APP_RECONCILE_TOTAL_METRIC: &str = "temper_os_app_reconcile_total";
+const OS_APP_RECONCILE_DURATION_METRIC: &str = "temper_os_app_reconcile_duration_ms";
+const WASM_MODULE_LOAD_FAILURES_METRIC: &str = "temper_wasm_module_load_failures_total";
+
+struct StartupMetrics {
+    phase_duration_ms: Histogram<f64>,
+    time_to_ready_ms: Histogram<f64>,
+    live_restore_entities_total: Counter<u64>,
+    os_app_reconcile_total: Counter<u64>,
+    os_app_reconcile_duration_ms: Histogram<f64>,
+    wasm_module_load_failures_total: Counter<u64>,
+}
+
+fn startup_metrics() -> &'static StartupMetrics {
+    static METRICS: std::sync::OnceLock<StartupMetrics> = std::sync::OnceLock::new();
+    METRICS.get_or_init(|| {
+        let meter = global::meter("openpaw.startup");
+        StartupMetrics {
+            phase_duration_ms: meter
+                .f64_histogram(STARTUP_PHASE_DURATION_METRIC)
+                .with_unit("ms")
+                .with_description("TemperPaw startup phase duration.")
+                .build(),
+            time_to_ready_ms: meter
+                .f64_histogram(STARTUP_TIME_TO_READY_METRIC)
+                .with_unit("ms")
+                .with_description(
+                    "TemperPaw process startup duration until the deployment is ready.",
+                )
+                .build(),
+            live_restore_entities_total: meter
+                .u64_counter(STARTUP_LIVE_RESTORE_ENTITIES_METRIC)
+                .with_description("Entities restored into runtime indexes during startup.")
+                .build(),
+            os_app_reconcile_total: meter
+                .u64_counter(OS_APP_RECONCILE_TOTAL_METRIC)
+                .with_description("Startup OS-app reconcile attempts by app and result.")
+                .build(),
+            os_app_reconcile_duration_ms: meter
+                .f64_histogram(OS_APP_RECONCILE_DURATION_METRIC)
+                .with_unit("ms")
+                .with_description("Startup OS-app reconcile duration by app and result.")
+                .build(),
+            wasm_module_load_failures_total: meter
+                .u64_counter(WASM_MODULE_LOAD_FAILURES_METRIC)
+                .with_description("Required WASM module load/build failures during startup.")
+                .build(),
+        }
+    })
+}
+
+fn duration_ms(duration: Duration) -> f64 {
+    duration.as_secs_f64() * 1000.0
+}
+
+fn record_startup_phase_duration(phase: &'static str, duration: Duration) {
+    startup_metrics().phase_duration_ms.record(
+        duration_ms(duration),
+        &[KeyValue::new("phase", phase.to_string())],
+    );
+}
+
+fn record_startup_time_to_ready(duration: Duration, tenant: &str) {
+    startup_metrics().time_to_ready_ms.record(
+        duration_ms(duration),
+        &[KeyValue::new("tenant", tenant.to_string())],
+    );
+}
+
+fn record_startup_live_restore_entities(tenant: &str, count: u64) {
+    startup_metrics()
+        .live_restore_entities_total
+        .add(count, &[KeyValue::new("tenant", tenant.to_string())]);
+}
+
+fn record_os_app_reconcile(app: &str, result: &'static str, duration: Duration) {
+    let attrs = [
+        KeyValue::new("app", app.to_string()),
+        KeyValue::new("result", result.to_string()),
+    ];
+    startup_metrics().os_app_reconcile_total.add(1, &attrs);
+    startup_metrics()
+        .os_app_reconcile_duration_ms
+        .record(duration_ms(duration), &attrs);
+}
+
+fn record_wasm_module_load_failure(stage: &'static str) {
+    startup_metrics()
+        .wasm_module_load_failures_total
+        .add(1, &[KeyValue::new("stage", stage.to_string())]);
+}
+
+fn app_required_wasm_failure(app_name: &str, install: &InstallResult) -> Option<String> {
+    if install.wasm_failures.is_empty() {
+        return None;
+    }
+
+    Some(format!(
+        "{app_name}: required WASM module(s) failed to load or validate: {}",
+        install.wasm_failures.join(", ")
+    ))
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum RuntimeRecoveryStep {
@@ -205,6 +315,7 @@ async fn recover_runtime_indexes(state: &PlatformState, tenant_ids: &[TenantId])
                     .get(&tenant)
                     .copied()
                     .unwrap_or(0);
+                record_startup_live_restore_entities(&tenant, count);
                 tracing::info!(tenant = %tenant, count, "live restore: populate_index");
             }
         }
@@ -905,20 +1016,20 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
         tracing::info!("Phase 6a: Recovering persisted WASM modules + Cedar policies...");
         recover_cedar_policies(&state, &turso_store).await;
         restore_installed_skills(&state, &turso_store).await;
-        state
-            .server
-            .load_wasm_modules()
-            .await
-            .map_err(|e| anyhow::anyhow!("Failed to recover WASM modules: {e}"))?;
+        if let Err(error) = state.server.load_wasm_modules().await {
+            record_wasm_module_load_failure("phase_6a_pre_recovery");
+            return Err(anyhow::anyhow!("Failed to recover WASM modules: {error}"));
+        }
+        record_startup_phase_duration("phase_6a_pre_recovery", phase_started.elapsed());
         tracing::info!(
             elapsed_ms = phase_started.elapsed().as_millis(),
             "phase_6a_pre_recovery complete"
         );
     }
 
-    // Phase 6b: Install Paw OS apps
+    // Phase 6b: Reconcile Paw OS apps
     let phase_started = Instant::now();
-    tracing::info!("Phase 6b: Installing Paw OS apps...");
+    tracing::info!("Phase 6b: Reconciling Paw OS apps...");
     let wasm_policy = local_wasm_startup_policy(
         std::env::var("TEMPERPAW_WASM_STARTUP_POLICY")
             .ok()
@@ -927,23 +1038,58 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
     tracing::info!(?wasm_policy, "WASM startup policy selected");
     let startup_apps = startup_os_apps();
     tracing::info!(apps = ?startup_apps, "Startup OS app surface resolved from manifests");
+    let startup_app_order = resolve_os_app_install_order(&startup_apps)
+        .map_err(|error| anyhow::anyhow!("Failed to resolve startup OS app order: {error}"))?;
+    tracing::info!(apps = ?startup_app_order, "Startup OS app reconcile order resolved");
     if wasm_policy == LocalWasmStartupPolicy::BuildIfMissing
-        && let Err(error) = build_missing_wasm_modules(&os_apps_dir, &startup_apps)
+        && let Err(error) = build_missing_wasm_modules(&os_apps_dir, &startup_app_order)
     {
+        record_wasm_module_load_failure("phase_6b_local_build");
         tracing::error!(%error, "Failed to build local OS app WASM artifacts");
     }
-    for app_name in &startup_apps {
-        if temper_platform::os_apps::get_os_app(app_name).is_none() {
-            tracing::warn!("Skipping OS app '{app_name}' because its bundle is missing or invalid");
+
+    let mut reconcile_errors = Vec::new();
+    for app_name in &startup_app_order {
+        let app_started = Instant::now();
+        if get_os_app(app_name).is_none() {
+            record_os_app_reconcile(app_name, "missing", app_started.elapsed());
+            let error = format!("OS app '{app_name}' bundle is missing or invalid");
+            tracing::error!("{error}");
+            reconcile_errors.push(error);
             continue;
         }
-        match temper_platform::install_os_app(&state, &tenant, app_name).await {
-            Ok(result) => {
-                persist_os_app_verification(&state, &turso_store, &tenant, app_name).await;
-                tracing::info!("  Installed {app_name}: {result:?}");
+        match reconcile_os_app(&state, &tenant, app_name).await {
+            Ok(OsAppReconcileResult::Skipped { bundle_digest, .. }) => {
+                record_os_app_reconcile(app_name, "skipped", app_started.elapsed());
+                tracing::info!(
+                    app = %app_name,
+                    bundle_digest = %bundle_digest,
+                    "  Skipped unchanged OS app"
+                );
             }
-            Err(e) => tracing::error!("  Failed to install {app_name}: {e}"),
+            Ok(OsAppReconcileResult::Installed { install, .. }) => {
+                persist_os_app_verification(&state, &turso_store, &tenant, app_name).await;
+                if let Some(error) = app_required_wasm_failure(app_name, &install) {
+                    record_wasm_module_load_failure("phase_6b_required_app_wasm");
+                    reconcile_errors.push(error);
+                }
+                record_os_app_reconcile(app_name, "installed", app_started.elapsed());
+                tracing::info!("  Reconciled {app_name}: {install:?}");
+            }
+            Err(error) => {
+                record_os_app_reconcile(app_name, "error", app_started.elapsed());
+                tracing::error!("  Failed to reconcile {app_name}: {error}");
+                reconcile_errors.push(format!("{app_name}: {error}"));
+            }
         }
+    }
+
+    if !reconcile_errors.is_empty() {
+        anyhow::bail!(
+            "Startup OS app reconcile failed for {} app(s): {}",
+            reconcile_errors.len(),
+            reconcile_errors.join("; ")
+        );
     }
 
     // Safety net: commit all specs for the tenant.
@@ -957,6 +1103,7 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
     } else {
         tracing::info!("Specs committed for tenant {tenant}");
     }
+    record_startup_phase_duration("phase_6b_os_app_reconcile", phase_started.elapsed());
     tracing::info!(
         elapsed_ms = phase_started.elapsed().as_millis(),
         "phase_6b_os_app_reconcile complete"
@@ -971,6 +1118,7 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
         registry.tenant_ids().into_iter().cloned().collect()
     };
     recover_runtime_indexes(&state, &tenant_ids).await;
+    record_startup_phase_duration("phase_7_runtime_recovery", phase_started.elapsed());
     tracing::info!(
         elapsed_ms = phase_started.elapsed().as_millis(),
         "phase_7_runtime_recovery complete"
@@ -1278,8 +1426,9 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
         println!();
     }
     startup_readiness.mark_ready();
+    record_startup_time_to_ready(startup_started.elapsed(), &tenant);
     tracing::info!("Temper Paw listening on port {actual_port}");
-    tracing::info!(elapsed_ms = startup_started.elapsed().as_millis(), tenant = %tenant, "startup: time to healthy");
+    tracing::info!(elapsed_ms = startup_started.elapsed().as_millis(), tenant = %tenant, "startup: time to ready");
 
     // Phase 10: Soul personalization (post-boot, writes to TemperFS via OData)
     if needs_soul_setup {
@@ -2814,14 +2963,31 @@ mod tests {
     use temper_server::secrets::vault::SecretsVault;
 
     use super::{
-        LocalWasmStartupPolicy, RuntimeRecoveryStep, StartupReadiness,
-        actor_passivation_check_interval_secs, bootstrap_soul, load_or_create_temper_api_key,
-        local_wasm_startup_policy, paw_soul_content_is_personalized, resolve_startup_secret,
-        runtime_recovery_plan, runtime_router_with_startup_gates, soul_lookup_filters,
-        spawn_runtime_server, startup_discord_connect_result, startup_discord_summary_label,
-        startup_os_apps, wait_for_runtime_server,
+        LocalWasmStartupPolicy, OS_APP_RECONCILE_DURATION_METRIC, OS_APP_RECONCILE_TOTAL_METRIC,
+        RuntimeRecoveryStep, STARTUP_LIVE_RESTORE_ENTITIES_METRIC, STARTUP_PHASE_DURATION_METRIC,
+        STARTUP_TIME_TO_READY_METRIC, StartupReadiness, WASM_MODULE_LOAD_FAILURES_METRIC,
+        actor_passivation_check_interval_secs, app_required_wasm_failure, bootstrap_soul,
+        load_or_create_temper_api_key, local_wasm_startup_policy, paw_soul_content_is_personalized,
+        resolve_startup_secret, runtime_recovery_plan, runtime_router_with_startup_gates,
+        soul_lookup_filters, spawn_runtime_server, startup_discord_connect_result,
+        startup_discord_summary_label, startup_os_apps, wait_for_runtime_server,
     };
     use crate::transport_manager::TransportStatus;
+
+    fn empty_install_result() -> temper_platform::os_apps::InstallResult {
+        temper_platform::os_apps::InstallResult {
+            added: Vec::new(),
+            updated: Vec::new(),
+            skipped: Vec::new(),
+            wasm_modules: Vec::new(),
+            wasm_skipped: Vec::new(),
+            wasm_failures: Vec::new(),
+            agents: Vec::new(),
+            skills: Vec::new(),
+            adrs_bootstrapped: Vec::new(),
+            seed_instances: Vec::new(),
+        }
+    }
 
     #[test]
     fn actor_passivation_interval_defaults_and_clamps() {
@@ -2919,6 +3085,75 @@ mod tests {
                 "expected startup OS app {expected} to be present in {apps:?}"
             );
         }
+    }
+
+    #[test]
+    fn startup_os_app_order_dedupes_shared_dependencies() {
+        let repo_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        temper_platform::os_apps::set_os_apps_dir(repo_root.join("os-apps"));
+        let apps = startup_os_apps();
+        let order = temper_platform::os_apps::resolve_os_app_install_order(&apps)
+            .expect("startup OS app order should resolve");
+        let unique = order.iter().collect::<std::collections::HashSet<_>>();
+
+        assert_eq!(
+            order.len(),
+            unique.len(),
+            "startup OS app reconcile order should not reinstall duplicate shared dependencies"
+        );
+        for app in apps {
+            assert!(
+                order.iter().any(|candidate| candidate == &app),
+                "startup reconcile order should include requested app {app}"
+            );
+        }
+    }
+
+    #[test]
+    fn startup_metric_names_match_datadog_contract() {
+        assert_eq!(
+            STARTUP_PHASE_DURATION_METRIC,
+            "temper_startup_phase_duration_ms"
+        );
+        assert_eq!(
+            STARTUP_TIME_TO_READY_METRIC,
+            "temper_startup_time_to_healthy_ms"
+        );
+        assert_eq!(
+            STARTUP_LIVE_RESTORE_ENTITIES_METRIC,
+            "temper_startup_live_restore_entities_total"
+        );
+        assert_eq!(
+            OS_APP_RECONCILE_TOTAL_METRIC,
+            "temper_os_app_reconcile_total"
+        );
+        assert_eq!(
+            OS_APP_RECONCILE_DURATION_METRIC,
+            "temper_os_app_reconcile_duration_ms"
+        );
+        assert_eq!(
+            WASM_MODULE_LOAD_FAILURES_METRIC,
+            "temper_wasm_module_load_failures_total"
+        );
+    }
+
+    #[test]
+    fn required_wasm_failures_block_readiness() {
+        let mut install = empty_install_result();
+        install.wasm_failures = vec!["route_message".to_string(), "send_reply".to_string()];
+
+        let error = app_required_wasm_failure("paw-channels", &install)
+            .expect("app-required WASM failures should block startup readiness");
+
+        assert!(error.contains("paw-channels"));
+        assert!(error.contains("route_message, send_reply"));
+    }
+
+    #[test]
+    fn installed_apps_without_wasm_failures_do_not_block_readiness() {
+        let install = empty_install_result();
+
+        assert!(app_required_wasm_failure("paw-fs", &install).is_none());
     }
 
     #[test]
@@ -3473,16 +3708,16 @@ mod tests {
             "Dashboard should include provider response bytes."
         );
         assert!(
-            !dashboard_json.contains("temper_startup_phase_duration_ms"),
-            "Dashboard should not reference the stale startup phase duration metric."
+            dashboard_json.contains("temper_startup_phase_duration_ms"),
+            "Dashboard should include startup phase duration."
         );
         assert!(
-            !dashboard_json.contains("temper_startup_time_to_healthy_ms"),
-            "Dashboard should not reference the stale startup healthy metric."
+            dashboard_json.contains("temper_startup_time_to_healthy_ms"),
+            "Dashboard should include startup time to ready."
         );
         assert!(
-            !dashboard_json.contains("temper_wasm_module_load_failures_total"),
-            "Dashboard should not reference the stale WASM load failures metric."
+            dashboard_json.contains("temper_wasm_module_load_failures_total"),
+            "Dashboard should include required WASM load failures."
         );
         assert!(
             !dashboard_json.contains("temper_wasm_module_skipped_total"),
