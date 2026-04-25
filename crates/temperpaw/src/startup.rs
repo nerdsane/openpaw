@@ -20,7 +20,10 @@ use temper_platform::os_apps::{
     InstallResult, OsAppReconcileResult, get_os_app, list_startup_os_apps, reconcile_os_app,
     resolve_os_app_install_order,
 };
-use temper_platform::recovery::{recover_cedar_policies, restore_installed_skills};
+use temper_platform::recovery::{
+    InstalledAppsRuntimeRecoverySummary, recover_cedar_policies,
+    recover_installed_apps_runtime_state,
+};
 use temper_platform::router::build_platform_router;
 use temper_runtime::scheduler::sim_now;
 use temper_runtime::tenant::TenantId;
@@ -129,6 +132,20 @@ fn record_wasm_module_load_failure(stage: &'static str) {
         .add(1, &[KeyValue::new("stage", stage.to_string())]);
 }
 
+fn installed_app_runtime_recovery_result(
+    summary: &InstalledAppsRuntimeRecoverySummary,
+) -> &'static str {
+    if summary.store_error > 0 || summary.missing_bundle > 0 {
+        "error"
+    } else if summary.needs_reconcile > 0 {
+        "needs_reconcile"
+    } else if summary.healed > 0 {
+        "healed"
+    } else {
+        "ready"
+    }
+}
+
 fn app_required_wasm_failure(app_name: &str, install: &InstallResult) -> Option<String> {
     if install.wasm_failures.is_empty() {
         return None;
@@ -164,6 +181,11 @@ impl StartupReadiness {
     fn mark_ready(&self) {
         self.ready.store(true, Ordering::SeqCst);
     }
+}
+
+fn registry_tenant_ids(state: &PlatformState) -> Vec<TenantId> {
+    let registry = state.registry.read().unwrap(); // ci-ok: infallible lock
+    registry.tenant_ids().into_iter().cloned().collect()
 }
 
 fn local_wasm_startup_policy(raw: Option<&str>) -> LocalWasmStartupPolicy {
@@ -1013,9 +1035,20 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
     // bootstrap actions).
     {
         let phase_started = Instant::now();
-        tracing::info!("Phase 6a: Recovering persisted WASM modules + Cedar policies...");
+        tracing::info!(
+            "Phase 6a: Recovering runtime app state, persisted WASM modules + Cedar policies..."
+        );
         recover_cedar_policies(&state, &turso_store).await;
-        restore_installed_skills(&state, &turso_store).await;
+        let app_runtime_recovery = recover_installed_apps_runtime_state(&state, &turso_store).await;
+        tracing::info!(
+            ready = app_runtime_recovery.ready,
+            healed = app_runtime_recovery.healed,
+            needs_reconcile = app_runtime_recovery.needs_reconcile,
+            missing_bundle = app_runtime_recovery.missing_bundle,
+            store_error = app_runtime_recovery.store_error,
+            result = installed_app_runtime_recovery_result(&app_runtime_recovery),
+            "Installed OS app runtime recovery complete"
+        );
         if let Err(error) = state.server.load_wasm_modules().await {
             record_wasm_module_load_failure("phase_6a_pre_recovery");
             return Err(anyhow::anyhow!("Failed to recover WASM modules: {error}"));
@@ -1026,6 +1059,24 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
             "phase_6a_pre_recovery complete"
         );
     }
+
+    // Phase 6a.5: Runtime index recovery before app reconcile.
+    //
+    // Changed/cold app reconcile may bootstrap durable TemperFS content. Those
+    // helpers use existence checks, so the entity index must reflect durable
+    // state before any hot-path helper can decide whether to create entities.
+    let tenant_ids = {
+        let phase_started = Instant::now();
+        tracing::info!("Phase 6a.5: Recovering runtime indexes before app reconcile...");
+        let tenant_ids = registry_tenant_ids(&state);
+        recover_runtime_indexes(&state, &tenant_ids).await;
+        record_startup_phase_duration("phase_6a5_runtime_index_recovery", phase_started.elapsed());
+        tracing::info!(
+            elapsed_ms = phase_started.elapsed().as_millis(),
+            "phase_6a5_runtime_index_recovery complete"
+        );
+        tenant_ids
+    };
 
     // Phase 6b: Reconcile Paw OS apps
     let phase_started = Instant::now();
@@ -1109,19 +1160,14 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
         "phase_6b_os_app_reconcile complete"
     );
 
-    // Phase 7: Remaining recovery (reaction dispatcher, runtime indexes)
+    // Phase 7: Refresh reaction dispatcher after any app reconcile changes.
     let phase_started = Instant::now();
-    tracing::info!("Phase 7: Runtime recovery...");
+    tracing::info!("Phase 7: Runtime dispatcher refresh...");
     state.server.rebuild_reaction_dispatcher();
-    let tenant_ids: Vec<TenantId> = {
-        let registry = state.registry.read().unwrap(); // ci-ok: infallible lock
-        registry.tenant_ids().into_iter().cloned().collect()
-    };
-    recover_runtime_indexes(&state, &tenant_ids).await;
-    record_startup_phase_duration("phase_7_runtime_recovery", phase_started.elapsed());
+    record_startup_phase_duration("phase_7_dispatcher_refresh", phase_started.elapsed());
     tracing::info!(
         elapsed_ms = phase_started.elapsed().as_millis(),
-        "phase_7_runtime_recovery complete"
+        "phase_7_dispatcher_refresh complete"
     );
 
     // Phase 7b: Session recovery — recover or fail orphaned sessions (ADR-0025)
@@ -2959,6 +3005,7 @@ mod tests {
 
     use anyhow::anyhow;
     use serde_json::Value;
+    use temper_platform::recovery::InstalledAppsRuntimeRecoverySummary;
     use temper_runtime::tenant::TenantId;
     use temper_server::secrets::vault::SecretsVault;
 
@@ -2967,10 +3014,11 @@ mod tests {
         RuntimeRecoveryStep, STARTUP_LIVE_RESTORE_ENTITIES_METRIC, STARTUP_PHASE_DURATION_METRIC,
         STARTUP_TIME_TO_READY_METRIC, StartupReadiness, WASM_MODULE_LOAD_FAILURES_METRIC,
         actor_passivation_check_interval_secs, app_required_wasm_failure, bootstrap_soul,
-        load_or_create_temper_api_key, local_wasm_startup_policy, paw_soul_content_is_personalized,
-        resolve_startup_secret, runtime_recovery_plan, runtime_router_with_startup_gates,
-        soul_lookup_filters, spawn_runtime_server, startup_discord_connect_result,
-        startup_discord_summary_label, startup_os_apps, wait_for_runtime_server,
+        installed_app_runtime_recovery_result, load_or_create_temper_api_key,
+        local_wasm_startup_policy, paw_soul_content_is_personalized, resolve_startup_secret,
+        runtime_recovery_plan, runtime_router_with_startup_gates, soul_lookup_filters,
+        spawn_runtime_server, startup_discord_connect_result, startup_discord_summary_label,
+        startup_os_apps, wait_for_runtime_server,
     };
     use crate::transport_manager::TransportStatus;
 
@@ -3036,6 +3084,40 @@ mod tests {
         assert_eq!(
             local_wasm_startup_policy(None),
             LocalWasmStartupPolicy::LoadPersistedOnly
+        );
+    }
+
+    #[test]
+    fn installed_app_runtime_recovery_result_prioritizes_bounded_hot_path_state() {
+        assert_eq!(
+            installed_app_runtime_recovery_result(&InstalledAppsRuntimeRecoverySummary {
+                ready: 4,
+                ..InstalledAppsRuntimeRecoverySummary::default()
+            }),
+            "ready"
+        );
+        assert_eq!(
+            installed_app_runtime_recovery_result(&InstalledAppsRuntimeRecoverySummary {
+                healed: 2,
+                ..InstalledAppsRuntimeRecoverySummary::default()
+            }),
+            "healed"
+        );
+        assert_eq!(
+            installed_app_runtime_recovery_result(&InstalledAppsRuntimeRecoverySummary {
+                needs_reconcile: 1,
+                healed: 2,
+                ..InstalledAppsRuntimeRecoverySummary::default()
+            }),
+            "needs_reconcile"
+        );
+        assert_eq!(
+            installed_app_runtime_recovery_result(&InstalledAppsRuntimeRecoverySummary {
+                store_error: 1,
+                needs_reconcile: 1,
+                ..InstalledAppsRuntimeRecoverySummary::default()
+            }),
+            "error"
         );
     }
 
