@@ -261,6 +261,42 @@
           },
           {
             "definition": {
+              "title": "Startup Phase Duration",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "q": "default_zero(avg:temper_startup_phase_duration_ms{service:openpaw} by {phase}.rollup(avg, 60))",
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "Startup Time to Ready",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "q": "default_zero(avg:temper_startup_time_to_healthy_ms{service:openpaw}.rollup(avg, 60))",
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "Required WASM Load Failures",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "q": "default_zero(sum:temper_wasm_module_load_failures_total{service:openpaw} by {stage}.as_count().rollup(sum, 60))",
+                  "display_type": "bars"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
               "title": "OS App Reconcile",
               "type": "timeseries",
               "requests": [

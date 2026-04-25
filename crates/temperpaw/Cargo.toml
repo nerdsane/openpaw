@@ -35,6 +35,7 @@ axum = { workspace = true }
 axum-extra = { version = "0.10", features = ["cookie"] }
 
 # Logging & Observability
+opentelemetry = { workspace = true }
 tracing = { workspace = true }
 
 # Error handling

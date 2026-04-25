@@ -483,7 +483,7 @@ fn deploy_prebuilt_image() -> Result<()> {
     std::fs::write(
         tmp.join("railway.toml"),
         "[build]\nbuilder = \"dockerfile\"\ndockerfilePath = \"Dockerfile\"\n\n\
-         [deploy]\nhealthcheckPath = \"/healthz\"\nhealthcheckTimeout = 60\n\
+         [deploy]\nhealthcheckPath = \"/readyz\"\nhealthcheckTimeout = 60\n\
          restartPolicyType = \"ON_FAILURE\"\nrestartPolicyMaxRetries = 3\n",
     )?;
 
@@ -670,7 +670,7 @@ fn infer_domain(raw: &str) -> Option<String> {
 
 async fn poll_health(base_url: &str) -> Result<()> {
     let client = reqwest::Client::new();
-    let health_url = format!("{base_url}/healthz");
+    let health_url = format!("{base_url}/readyz");
 
     // First build can take 5-10 minutes (Rust compile on Railway).
     // Poll for up to 15 minutes.
