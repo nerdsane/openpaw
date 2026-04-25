@@ -4,7 +4,7 @@ Date: 2026-04-25
 
 ## Scope
 
-Validated the startup/reconcile/readiness change on a local live TemperPaw server using a fresh file-backed Turso database, then restarted the same database to prove the warm digest skip path.
+Validated the startup/reconcile/readiness change on the merged latest-main TemperPaw tree using a local live server with a fresh file-backed Turso database, then restarted the same database to prove the warm digest skip path.
 
 Discord was intentionally out of scope.
 
@@ -18,18 +18,18 @@ cargo test --manifest-path /Users/seshendranalla/Development/openpaw/.worktrees/
 git diff --check
 ```
 
-Result: all passed.
+Result: all passed on the merged PR tree. The `startup_` suite contained 7 tests after merging the latest Discord startup status test from `main`.
 
 ## Cold Boot
 
 ```sh
-HOME=/tmp/openpaw-startup-e2e-home \
+HOME=/tmp/openpaw-startup-e2e-merged-home \
 RUSTUP_HOME=/Users/seshendranalla/.rustup \
 CARGO_HOME=/Users/seshendranalla/.cargo \
-PORT=4491 \
-TURSO_URL=file:/tmp/openpaw-startup-e2e.db \
+PORT=4492 \
+TURSO_URL=file:/tmp/openpaw-startup-e2e-merged.db \
 TEMPER_API_KEY=startup-e2e-key \
-TEMPERPAW_WASM_STARTUP_POLICY=build \
+TEMPERPAW_WASM_STARTUP_POLICY=load-only \
 OTEL_ENABLED=false \
 RUST_LOG=info,temperpaw_server::startup=debug \
 ./target/debug/temperpaw-server
@@ -38,28 +38,28 @@ RUST_LOG=info,temperpaw_server::startup=debug \
 Observed:
 
 ```text
-phase_6b_os_app_reconcile complete elapsed_ms=20947
-Temper Paw listening on port 4491
-startup: time to ready elapsed_ms=21666 tenant=default
+phase_6b_os_app_reconcile complete elapsed_ms=10135
+Temper Paw listening on port 4492
+startup: time to ready elapsed_ms=10797 tenant=default
 healthz=200
 readyz=200
-apps=4
+readyz_body={"status":"ready","healthz":"/healthz","discord":{"status":"disconnected","configured":false,"connected":false}}
 ```
 
-The final cold boot did not log required WASM module failures. A prior failed attempt with a missing `monty_repl` artifact correctly kept `/readyz` at 503 and exited with:
+The final cold boot did not log required WASM module failures. After merging latest `main`, `paw-channels` gained the required `transport_reconcile` module; a prior failed attempt without that artifact correctly kept `/readyz` at 503 and exited with:
 
 ```text
-Startup OS app reconcile failed for 1 app(s): paw-agent: required WASM module(s) failed to load or validate: monty_repl
+Startup OS app reconcile failed for 1 app(s): paw-channels: required WASM module(s) failed to load or validate: transport_reconcile
 ```
 
 ## Warm Restart
 
 ```sh
-HOME=/tmp/openpaw-startup-e2e-home \
+HOME=/tmp/openpaw-startup-e2e-merged-home \
 RUSTUP_HOME=/Users/seshendranalla/.rustup \
 CARGO_HOME=/Users/seshendranalla/.cargo \
-PORT=4491 \
-TURSO_URL=file:/tmp/openpaw-startup-e2e.db \
+PORT=4492 \
+TURSO_URL=file:/tmp/openpaw-startup-e2e-merged.db \
 TEMPER_API_KEY=startup-e2e-key \
 TEMPERPAW_WASM_STARTUP_POLICY=load-only \
 OTEL_ENABLED=false \
@@ -76,11 +76,11 @@ Skipped unchanged OS app app=paw-agent
 Skipped unchanged OS app app=paw-research
 Skipped unchanged OS app app=katagami-curation
 Skipped unchanged OS app app=paw-channels
-phase_6b_os_app_reconcile complete elapsed_ms=639
-startup: time to ready elapsed_ms=1334 tenant=default
+phase_6b_os_app_reconcile complete elapsed_ms=653
+startup: time to ready elapsed_ms=1314 tenant=default
 healthz=200
 readyz=200
-apps=4
+readyz_body={"status":"ready","healthz":"/healthz","discord":{"status":"disconnected","configured":false,"connected":false}}
 ```
 
 ## Result
