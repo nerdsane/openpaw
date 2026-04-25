@@ -198,6 +198,7 @@ fn is_public_path(method: &str, path: &str) -> bool {
     path.starts_with("/auth/")
         || path == "/auth"
         || path == "/healthz"
+        || path == "/readyz"
         || path.starts_with("/discord/interaction")
         || (method == "GET" && (path == "/tdata" || path == "/tdata/"))
         || is_dashboard_public_path(path)

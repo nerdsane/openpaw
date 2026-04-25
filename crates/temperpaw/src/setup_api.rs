@@ -7,7 +7,7 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, anyhow};
 use axum::body::{Body, Bytes};
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
@@ -16,6 +16,8 @@ use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use temper_platform::PlatformState;
+use temper_runtime::tenant::TenantId;
+use temper_server::request_context::AgentContext;
 use temper_store_turso::TursoEventStore;
 
 use crate::setup::{
@@ -25,9 +27,12 @@ use crate::setup::{
 use crate::setup_llm::{
     GeneratedSoul, LlmProvider, UserInterview, generate_personalized_soul, refine_soul,
 };
-use crate::transport_manager::{DiscordConnectParams, SlackConnectParams, TransportManager};
+use crate::transport_manager::{
+    DiscordConnectParams, SlackConnectParams, TransportManager, TransportStatus,
+};
 
 const DEFAULT_SETUP_AGENT_TOOLS_ENABLED: &str = "temper_create,temper_get,temper_list,temper_action,temper_patch,temper_submit_specs,temper_show_spec,temper_specs,temper_upload_wasm,temper_get_trajectories,temper_get_insights,temper_get_decisions,temper_poll_decision,temper_approve_decision,temper_deny_decision,temper_submit_policy,temper_list_policies,temper_get_policy,temper_update_policy,temper_delete_policy,temper_install_app,temper_list_apps,temper_spawn_session,temper_list_sessions,temper_abort_session,temper_steer_session,temper_save_memory,temper_recall_memory,temper_write,temper_read,temper_run_coding_agent,temper_get_secret,temper_datadog_query,temper_railway,temper_vercel,temper_web_search,temper_web_fetch,read,write,edit,bash";
+pub(crate) const DISCORD_TRANSPORT_CONNECTION_ID: &str = "transport-discord";
 
 /// Shared state for the setup API.
 #[derive(Clone)]
@@ -253,6 +258,10 @@ pub fn router(state: SetupApiState) -> Router {
         .route("/paw/transports/status", get(get_transport_status))
         .route("/paw/transports/discord/connect", post(connect_discord))
         .route(
+            "/paw/internal/transports/discord/start",
+            post(start_discord_internal),
+        )
+        .route(
             "/paw/transports/discord/disconnect",
             post(disconnect_discord),
         )
@@ -283,6 +292,281 @@ struct SetupStatus {
     discord_interaction_url: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+struct TransportStatusReport {
+    status: String,
+    configured: bool,
+    connected: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    guild_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    message: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    desired_state: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    connection_state: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    last_error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    next_retry_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    interaction_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    attempt_count: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct TransportStatusResponse {
+    discord: TransportStatusReport,
+    slack: TransportStatusReport,
+}
+
+#[derive(Debug, Clone)]
+struct TransportConnectionSnapshot {
+    status: String,
+    fields: serde_json::Value,
+    counters: std::collections::BTreeMap<String, usize>,
+}
+
+fn secret_is_configured(value: Option<String>) -> bool {
+    value.is_some_and(|value| !value.trim().is_empty())
+}
+
+fn field_str<'a>(fields: &'a serde_json::Value, keys: &[&str]) -> Option<&'a str> {
+    keys.iter()
+        .find_map(|key| fields.get(*key).and_then(serde_json::Value::as_str))
+        .filter(|value| !value.trim().is_empty())
+}
+
+fn transport_status_report(
+    configured: bool,
+    runtime: &TransportStatus,
+    desired_state: Option<&str>,
+    connection_state: Option<&str>,
+) -> TransportStatusReport {
+    let (status, connected, guild_id, message) = match runtime {
+        TransportStatus::Disconnected => ("disconnected".to_string(), false, None, None),
+        TransportStatus::Connecting => ("connecting".to_string(), false, None, None),
+        TransportStatus::Connected { guild_id } => {
+            ("connected".to_string(), true, guild_id.clone(), None)
+        }
+        TransportStatus::Error { message } => {
+            ("error".to_string(), false, None, Some(message.clone()))
+        }
+    };
+
+    TransportStatusReport {
+        status,
+        configured,
+        connected,
+        guild_id,
+        message,
+        desired_state: desired_state.map(str::to_string),
+        connection_state: connection_state.map(str::to_string),
+        last_error: None,
+        next_retry_at: None,
+        interaction_url: None,
+        attempt_count: None,
+    }
+}
+
+fn transport_status_report_with_connection(
+    configured: bool,
+    runtime: &TransportStatus,
+    connection: Option<&TransportConnectionSnapshot>,
+) -> TransportStatusReport {
+    let mut report = transport_status_report(
+        configured,
+        runtime,
+        connection
+            .and_then(|snapshot| field_str(&snapshot.fields, &["desired_state", "DesiredState"])),
+        connection.map(|snapshot| snapshot.status.as_str()),
+    );
+
+    if let Some(snapshot) = connection {
+        report.last_error = field_str(&snapshot.fields, &["last_error", "LastError"])
+            .map(str::to_string)
+            .or_else(|| {
+                field_str(&snapshot.fields, &["error_message", "ErrorMessage"]).map(str::to_string)
+            })
+            .or_else(|| report.message.clone());
+        report.next_retry_at =
+            field_str(&snapshot.fields, &["next_retry_at", "NextRetryAt"]).map(str::to_string);
+        report.interaction_url =
+            field_str(&snapshot.fields, &["interaction_url", "InteractionUrl"]).map(str::to_string);
+        report.attempt_count = snapshot.counters.get("attempt_count").copied();
+    }
+
+    report
+}
+
+fn discord_readyz_response(
+    configured: bool,
+    runtime: &TransportStatus,
+    desired_state: Option<&str>,
+    connection_state: Option<&str>,
+) -> (StatusCode, serde_json::Value) {
+    let report = transport_status_report(configured, runtime, desired_state, connection_state);
+    let ready = !configured || report.connected;
+    let status = if ready {
+        StatusCode::OK
+    } else {
+        StatusCode::SERVICE_UNAVAILABLE
+    };
+    let body = serde_json::json!({
+        "status": if ready { "ready" } else { "degraded" },
+        "healthz": "/healthz",
+        "discord": report,
+    });
+    (status, body)
+}
+
+fn discord_start_error_is_retryable(error: &str) -> bool {
+    let error = error.to_ascii_lowercase();
+    [
+        " 429 ",
+        "429 too many requests",
+        " 500 ",
+        "500 internal server error",
+        " 502 ",
+        "502 bad gateway",
+        " 503 ",
+        "503 service unavailable",
+        " 504 ",
+        "504 gateway timeout",
+        "timed out",
+        "timeout",
+        "connection refused",
+        "connection reset",
+        "request sending failed",
+        "error sending request",
+        "startup task ended unexpectedly",
+    ]
+    .iter()
+    .any(|needle| error.contains(needle))
+}
+
+fn discord_start_failure_status(error: &str) -> StatusCode {
+    if discord_start_error_is_retryable(error) {
+        StatusCode::SERVICE_UNAVAILABLE
+    } else {
+        StatusCode::BAD_REQUEST
+    }
+}
+
+fn discord_connect_params_from_vault(
+    state: &SetupApiState,
+) -> Result<Option<DiscordConnectParams>> {
+    let Some(vault) = state.platform.server.secrets_vault.as_ref() else {
+        return Err(anyhow!("secrets vault is not configured"));
+    };
+
+    let Some(bot_token) = vault
+        .get_secret(&state.tenant, "discord_bot_token")
+        .filter(|value| !value.trim().is_empty())
+    else {
+        return Ok(None);
+    };
+
+    Ok(Some(DiscordConnectParams {
+        bot_token,
+        public_key: vault
+            .get_secret(&state.tenant, "discord_public_key")
+            .filter(|value| !value.trim().is_empty()),
+        guild_id: vault
+            .get_secret(&state.tenant, "discord_guild_id")
+            .filter(|value| !value.trim().is_empty()),
+        feed_channel_id: vault
+            .get_secret(&state.tenant, "discord_feed_channel_id")
+            .filter(|value| !value.trim().is_empty()),
+        forum_channel_id: vault
+            .get_secret(&state.tenant, "discord_forum_channel_id")
+            .filter(|value| !value.trim().is_empty()),
+    }))
+}
+
+pub(crate) async fn schedule_discord_reconcile(
+    platform: &PlatformState,
+    tenant: &str,
+) -> Result<()> {
+    let tenant_id = TenantId::new(tenant);
+    platform
+        .server
+        .get_or_create_tenant_entity(
+            &tenant_id,
+            "TransportConnection",
+            DISCORD_TRANSPORT_CONNECTION_ID,
+            serde_json::json!({
+                "id": DISCORD_TRANSPORT_CONNECTION_ID,
+                "platform": "discord",
+                "desired_state": "connected",
+            }),
+        )
+        .await
+        .map_err(|error| anyhow!("create TransportConnection failed: {error}"))?;
+
+    let system = AgentContext::system();
+    platform
+        .server
+        .dispatch_tenant_action(
+            &tenant_id,
+            "TransportConnection",
+            DISCORD_TRANSPORT_CONNECTION_ID,
+            "Configure",
+            serde_json::json!({
+                "platform": "discord",
+                "desired_state": "connected",
+            }),
+            &system,
+        )
+        .await
+        .map_err(|error| anyhow!("configure Discord TransportConnection failed: {error}"))?;
+
+    platform
+        .server
+        .dispatch_tenant_action(
+            &tenant_id,
+            "TransportConnection",
+            DISCORD_TRANSPORT_CONNECTION_ID,
+            "Start",
+            serde_json::json!({}),
+            &system,
+        )
+        .await
+        .map_err(|error| anyhow!("start Discord TransportConnection failed: {error}"))?;
+
+    Ok(())
+}
+
+async fn discord_transport_connection_snapshot(
+    state: &SetupApiState,
+) -> Option<TransportConnectionSnapshot> {
+    let tenant_id = TenantId::new(&state.tenant);
+    if !state.platform.server.entity_exists(
+        &tenant_id,
+        "TransportConnection",
+        DISCORD_TRANSPORT_CONNECTION_ID,
+    ) {
+        return None;
+    }
+
+    state
+        .platform
+        .server
+        .get_tenant_entity_state(
+            &tenant_id,
+            "TransportConnection",
+            DISCORD_TRANSPORT_CONNECTION_ID,
+        )
+        .await
+        .ok()
+        .map(|response| TransportConnectionSnapshot {
+            status: response.state.status,
+            fields: response.state.fields,
+            counters: response.state.counters,
+        })
+}
+
 async fn get_setup_status(State(state): State<SetupApiState>) -> Json<SetupStatus> {
     let vault = state.platform.server.secrets_vault.as_ref();
 
@@ -295,12 +579,10 @@ async fn get_setup_status(State(state): State<SetupApiState>) -> Json<SetupStatu
         })
         .is_some();
     let llm_provider = vault.and_then(|v| v.get_secret(&state.tenant, "llm_provider"));
-    let has_discord = vault
-        .and_then(|v| v.get_secret(&state.tenant, "discord_bot_token"))
-        .is_some();
-    let has_slack = vault
-        .and_then(|v| v.get_secret(&state.tenant, "slack_bot_token"))
-        .is_some();
+    let has_discord =
+        secret_is_configured(vault.and_then(|v| v.get_secret(&state.tenant, "discord_bot_token")));
+    let has_slack =
+        secret_is_configured(vault.and_then(|v| v.get_secret(&state.tenant, "slack_bot_token")));
 
     // Count agents from entity index
     let agent_count = {
@@ -530,7 +812,7 @@ async fn upsert_secret(
         );
     };
 
-    let discord_params = discord_connect_params_for_secret_update(
+    let should_schedule_discord = discord_connect_params_for_secret_update(
         |key| {
             vault
                 .get_secret(&state.tenant, key)
@@ -539,17 +821,6 @@ async fn upsert_secret(
         &req.key,
         &req.value,
     );
-
-    if let Some(params) = discord_params
-        && let Err(error) = state.transport_manager.connect_discord(params).await
-    {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({
-                "error": format!("Saved value would not produce a working Discord connection: {error}")
-            })),
-        );
-    }
 
     // Cache in memory + persist to Turso
     let _ = vault.cache_secret(&state.tenant, &req.key, req.value.clone());
@@ -561,10 +832,19 @@ async fn upsert_secret(
             .await;
     }
 
-    (
-        StatusCode::OK,
-        Json(serde_json::json!({ "saved": req.key })),
-    )
+    let mut response = serde_json::json!({ "saved": req.key });
+    if should_schedule_discord.is_some() {
+        match schedule_discord_reconcile(&state.platform, &state.tenant).await {
+            Ok(()) => response["discord_reconcile"] = serde_json::json!("scheduled"),
+            Err(error) => {
+                tracing::warn!(%error, "Saved Discord secret but could not schedule reconcile");
+                response["discord_reconcile"] = serde_json::json!("schedule_failed");
+                response["discord_reconcile_error"] = serde_json::json!(error.to_string());
+            }
+        }
+    }
+
+    (StatusCode::OK, Json(response))
 }
 
 async fn delete_secret(
@@ -1362,10 +1642,60 @@ async fn railway_redeploy(
 
 // ──────────────────────────────── Transports ─────────────────────────────────
 
-async fn get_transport_status(
-    State(state): State<SetupApiState>,
-) -> Json<crate::transport_manager::AllTransportStatus> {
-    Json(state.transport_manager.status().await)
+async fn get_transport_status(State(state): State<SetupApiState>) -> Json<TransportStatusResponse> {
+    let runtime = state.transport_manager.status().await;
+    let vault = state.platform.server.secrets_vault.as_ref();
+    let has_discord =
+        secret_is_configured(vault.and_then(|v| v.get_secret(&state.tenant, "discord_bot_token")));
+    let has_slack =
+        secret_is_configured(vault.and_then(|v| v.get_secret(&state.tenant, "slack_bot_token")));
+    let discord_connection = discord_transport_connection_snapshot(&state).await;
+
+    Json(TransportStatusResponse {
+        discord: transport_status_report_with_connection(
+            has_discord,
+            &runtime.discord,
+            discord_connection.as_ref(),
+        ),
+        slack: transport_status_report(has_slack, &runtime.slack, None, None),
+    })
+}
+
+pub(crate) async fn get_readyz(State(state): State<SetupApiState>) -> impl IntoResponse {
+    let runtime = state.transport_manager.status().await;
+    let vault = state.platform.server.secrets_vault.as_ref();
+    let has_discord =
+        secret_is_configured(vault.and_then(|v| v.get_secret(&state.tenant, "discord_bot_token")));
+    let discord_connection = if has_discord {
+        discord_transport_connection_snapshot(&state).await
+    } else {
+        None
+    };
+    let desired_state = discord_connection
+        .as_ref()
+        .and_then(|snapshot| field_str(&snapshot.fields, &["desired_state", "DesiredState"]));
+    let connection_state = discord_connection
+        .as_ref()
+        .map(|snapshot| snapshot.status.as_str());
+    let (status, mut body) = discord_readyz_response(
+        has_discord,
+        &runtime.discord,
+        desired_state,
+        connection_state,
+    );
+
+    if let Some(connection) = discord_connection.as_ref() {
+        body["discord"]["last_error"] = field_str(&connection.fields, &["last_error", "LastError"])
+            .or_else(|| field_str(&connection.fields, &["error_message", "ErrorMessage"]))
+            .map(|value| serde_json::json!(value))
+            .unwrap_or(serde_json::Value::Null);
+        body["discord"]["next_retry_at"] =
+            field_str(&connection.fields, &["next_retry_at", "NextRetryAt"])
+                .map(|value| serde_json::json!(value))
+                .unwrap_or(serde_json::Value::Null);
+    }
+
+    (status, Json(body))
 }
 
 async fn proxy_discord_interaction(
@@ -1582,6 +1912,79 @@ fn verify_discord_signature(
 }
 
 #[derive(Deserialize)]
+struct InternalDiscordStartRequest {
+    transport_connection_id: Option<String>,
+}
+
+async fn start_discord_internal(
+    State(state): State<SetupApiState>,
+    Json(req): Json<InternalDiscordStartRequest>,
+) -> impl IntoResponse {
+    if req
+        .transport_connection_id
+        .as_deref()
+        .is_some_and(|id| !id.is_empty() && id != DISCORD_TRANSPORT_CONNECTION_ID)
+    {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error": "unknown Discord transport connection",
+                "retryable": false
+            })),
+        )
+            .into_response();
+    }
+
+    let params = match discord_connect_params_from_vault(&state) {
+        Ok(Some(params)) => params,
+        Ok(None) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "error": "discord_bot_token is not configured",
+                    "retryable": false
+                })),
+            )
+                .into_response();
+        }
+        Err(error) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({
+                    "error": error.to_string(),
+                    "retryable": true
+                })),
+            )
+                .into_response();
+        }
+    };
+
+    match state.transport_manager.connect_discord(params).await {
+        Ok(interaction_url) => (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "status": "connected",
+                "discord_interaction_url": interaction_url
+            })),
+        )
+            .into_response(),
+        Err(error) => {
+            let error = error.to_string();
+            let retryable = discord_start_error_is_retryable(&error);
+            (
+                discord_start_failure_status(&error),
+                Json(serde_json::json!({
+                    "status": "failed",
+                    "error": error,
+                    "retryable": retryable
+                })),
+            )
+                .into_response()
+        }
+    }
+}
+
+#[derive(Deserialize)]
 struct DiscordConnectRequest {
     bot_token: String,
     public_key: Option<String>,
@@ -1624,56 +2027,50 @@ async fn connect_discord(
         }
     };
 
-    match state
-        .transport_manager
-        .connect_discord(DiscordConnectParams {
-            bot_token: req.bot_token.clone(),
-            public_key: Some(resolved_public_key.clone()),
-            guild_id: req.guild_id.clone(),
-            feed_channel_id: req.feed_channel_id.clone(),
-            forum_channel_id: req.forum_channel_id.clone(),
-        })
-        .await
-    {
-        Ok(interaction_url) => {
-            // Save Discord config to vault + Turso only after the endpoint is valid enough to start.
-            let _ = vault.cache_secret(&state.tenant, "discord_bot_token", req.bot_token.clone());
-            if let Ok((ct, nc)) = vault.encrypt(req.bot_token.as_bytes()) {
+    let _ = vault.cache_secret(&state.tenant, "discord_bot_token", req.bot_token.clone());
+    if let Ok((ct, nc)) = vault.encrypt(req.bot_token.as_bytes()) {
+        let _ = state
+            .turso_store
+            .upsert_secret(&state.tenant, "discord_bot_token", &ct, &nc)
+            .await;
+    }
+    let _ = vault.cache_secret(
+        &state.tenant,
+        "discord_public_key",
+        resolved_public_key.clone(),
+    );
+
+    for (key, value) in [
+        ("discord_guild_id", req.guild_id.clone()),
+        ("discord_feed_channel_id", req.feed_channel_id.clone()),
+        ("discord_forum_channel_id", req.forum_channel_id.clone()),
+    ] {
+        if let Some(value) = value {
+            let _ = vault.cache_secret(&state.tenant, key, value.clone());
+            if let Ok((ct, nc)) = vault.encrypt(value.as_bytes()) {
                 let _ = state
                     .turso_store
-                    .upsert_secret(&state.tenant, "discord_bot_token", &ct, &nc)
+                    .upsert_secret(&state.tenant, key, &ct, &nc)
                     .await;
             }
-
-            for (key, value) in [
-                ("discord_guild_id", req.guild_id.clone()),
-                ("discord_feed_channel_id", req.feed_channel_id.clone()),
-                ("discord_forum_channel_id", req.forum_channel_id.clone()),
-            ] {
-                if let Some(value) = value {
-                    let _ = vault.cache_secret(&state.tenant, key, value.clone());
-                    if let Ok((ct, nc)) = vault.encrypt(value.as_bytes()) {
-                        let _ = state
-                            .turso_store
-                            .upsert_secret(&state.tenant, key, &ct, &nc)
-                            .await;
-                    }
-                }
-            }
-
-            (
-                StatusCode::OK,
-                Json(serde_json::json!({
-                    "status": "connecting",
-                    "discord_interaction_url": interaction_url
-                })),
-            )
-                .into_response()
         }
-        Err(error) => (
-            StatusCode::BAD_REQUEST,
+    }
+
+    match schedule_discord_reconcile(&state.platform, &state.tenant).await {
+        Ok(()) => (
+            StatusCode::OK,
             Json(serde_json::json!({
-                "error": error.to_string()
+                "status": "scheduled",
+                "discord_interaction_url": state.transport_manager.discord_interaction_public_url().await
+            })),
+        )
+            .into_response(),
+        Err(error) => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({
+                "status": "schedule_failed",
+                "error": error.to_string(),
+                "retryable": true
             })),
         )
             .into_response(),
@@ -1734,10 +2131,13 @@ async fn disconnect_slack(State(state): State<SetupApiState>) -> Json<serde_json
 #[cfg(test)]
 mod tests {
     use super::{
-        allowed_secret_keys, discord_connect_params_for_secret_update, is_discord_ping,
-        persist_discord_public_key, personalized_soul_flag_value, secrets_schema,
+        allowed_secret_keys, discord_connect_params_for_secret_update, discord_readyz_response,
+        discord_start_error_is_retryable, is_discord_ping, persist_discord_public_key,
+        personalized_soul_flag_value, secrets_schema, transport_status_report,
         verify_discord_signature,
     };
+    use crate::transport_manager::TransportStatus;
+    use axum::http::StatusCode;
     use ed25519_dalek::{Signer, SigningKey};
     use std::sync::Arc;
     use temper_server::secrets::SecretsVault;
@@ -1786,6 +2186,69 @@ mod tests {
         assert_eq!(params.bot_token, "new-token");
         assert_eq!(params.public_key, None);
         assert_eq!(params.guild_id.as_deref(), Some("guild-123"));
+    }
+
+    #[test]
+    fn discord_start_error_retryability_detects_local_odata_503() {
+        assert!(discord_start_error_is_retryable(
+            "create Channels returned 503 Service Unavailable: "
+        ));
+        assert!(discord_start_error_is_retryable(
+            "Timed out waiting for Discord to reach READY"
+        ));
+        assert!(!discord_start_error_is_retryable(
+            "Discord requires a public interactions URL"
+        ));
+        assert!(!discord_start_error_is_retryable(
+            "Discord API returned 400 Bad Request"
+        ));
+    }
+
+    #[test]
+    fn discord_readyz_reports_degraded_without_changing_liveness() {
+        let (status, body) = discord_readyz_response(
+            true,
+            &TransportStatus::Disconnected,
+            Some("connected"),
+            Some("Retrying"),
+        );
+
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(body["status"], "degraded");
+        assert_eq!(body["healthz"], "/healthz");
+        assert_eq!(body["discord"]["configured"], true);
+        assert_eq!(body["discord"]["connected"], false);
+        assert_eq!(body["discord"]["desired_state"], "connected");
+        assert_eq!(body["discord"]["connection_state"], "Retrying");
+
+        let (status, body) =
+            discord_readyz_response(false, &TransportStatus::Disconnected, None, None);
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["status"], "ready");
+        assert_eq!(body["discord"]["configured"], false);
+    }
+
+    #[test]
+    fn transport_status_report_distinguishes_configured_from_connected() {
+        let report = transport_status_report(
+            true,
+            &TransportStatus::Error {
+                message: "create Channels returned 503 Service Unavailable: ".to_string(),
+            },
+            Some("connected"),
+            Some("Retrying"),
+        );
+
+        assert_eq!(report.status, "error");
+        assert!(report.configured);
+        assert!(!report.connected);
+        assert_eq!(report.desired_state.as_deref(), Some("connected"));
+        assert_eq!(report.connection_state.as_deref(), Some("Retrying"));
+        assert_eq!(
+            report.message.as_deref(),
+            Some("create Channels returned 503 Service Unavailable: ")
+        );
     }
 
     #[test]

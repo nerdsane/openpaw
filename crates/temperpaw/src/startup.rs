@@ -192,6 +192,7 @@ fn startup_os_apps() -> Vec<String> {
     list_startup_os_apps()
 }
 
+#[cfg(test)]
 fn startup_discord_connect_result(result: anyhow::Result<String>) -> Option<String> {
     match result {
         Ok(interaction_url) => Some(interaction_url),
@@ -201,6 +202,28 @@ fn startup_discord_connect_result(result: anyhow::Result<String>) -> Option<Stri
                 "Discord transport failed during startup; continuing without Discord"
             );
             None
+        }
+    }
+}
+
+fn startup_discord_summary_label(
+    configured: bool,
+    status: &crate::transport_manager::TransportStatus,
+) -> Option<String> {
+    if !configured {
+        return None;
+    }
+
+    match status {
+        crate::transport_manager::TransportStatus::Connected { .. } => {
+            Some("✓ Discord connected".to_string())
+        }
+        crate::transport_manager::TransportStatus::Connecting => {
+            Some("~ Discord configured; connecting".to_string())
+        }
+        crate::transport_manager::TransportStatus::Disconnected
+        | crate::transport_manager::TransportStatus::Error { .. } => {
+            Some("~ Discord configured; reconnect pending".to_string())
         }
     }
 }
@@ -228,8 +251,10 @@ async fn startup_gate_middleware(
 fn runtime_router_with_startup_gates(
     router: axum::Router,
     readiness: StartupReadiness,
+    setup_state: Option<crate::setup_api::SetupApiState>,
 ) -> axum::Router {
     let readyz_state = readiness.clone();
+    let readyz_setup_state = setup_state.clone();
     router
         .layer(axum::middleware::from_fn(move |request, next| {
             let readiness = readiness.clone();
@@ -239,11 +264,18 @@ fn runtime_router_with_startup_gates(
             "/readyz",
             axum::routing::get(move || {
                 let readiness = readyz_state.clone();
+                let setup_state = readyz_setup_state.clone();
                 async move {
-                    if readiness.is_ready() {
-                        axum::http::StatusCode::OK
+                    if !readiness.is_ready() {
+                        return axum::http::StatusCode::SERVICE_UNAVAILABLE.into_response();
+                    }
+
+                    if let Some(setup_state) = setup_state {
+                        crate::setup_api::get_readyz(axum::extract::State(setup_state))
+                            .await
+                            .into_response()
                     } else {
-                        axum::http::StatusCode::SERVICE_UNAVAILABLE
+                        axum::http::StatusCode::OK.into_response()
                     }
                 }
             }),
@@ -942,7 +974,7 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
         build_sha: config.build_sha.clone(),
     };
     let router = router
-        .merge(crate::setup_api::router(setup_state))
+        .merge(crate::setup_api::router(setup_state.clone()))
         .merge(crate::auth::router(auth_state.clone()));
 
     let router = router.layer(axum::extract::DefaultBodyLimit::max(50 * 1024 * 1024));
@@ -960,7 +992,8 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
         auth_state,
         crate::auth::middleware,
     ));
-    let router = runtime_router_with_startup_gates(router, startup_readiness.clone());
+    let router =
+        runtime_router_with_startup_gates(router, startup_readiness.clone(), Some(setup_state));
 
     let serve_handle = spawn_runtime_server(listener, router);
     wait_for_runtime_server(
@@ -1215,7 +1248,7 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
             let configured_public_key = vault
                 .and_then(|v| v.get_secret(&tenant, "discord_public_key"))
                 .or_else(|| config.discord_public_key.clone());
-            let public_key = if let Some(vault) = vault {
+            let _public_key = if let Some(vault) = vault {
                 match crate::setup_api::resolve_and_persist_discord_public_key(
                     vault,
                     &turso_store,
@@ -1244,9 +1277,6 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
             } else {
                 configured_public_key
             };
-            let guild_id = vault
-                .and_then(|v| v.get_secret(&tenant, "discord_guild_id"))
-                .or_else(|| config.discord_guild_id.clone());
             let feed_channel_id = vault
                 .and_then(|v| v.get_secret(&tenant, "discord_feed_channel_id"))
                 .or_else(|| config.discord_feed_channel_id.clone());
@@ -1254,45 +1284,36 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
                 .and_then(|v| v.get_secret(&tenant, "discord_forum_channel_id"))
                 .or_else(|| config.discord_forum_channel_id.clone());
 
-            if let Some(interaction_url) = startup_discord_connect_result(
-                transport_manager
-                    .connect_discord(crate::transport_manager::DiscordConnectParams {
-                        bot_token: token,
-                        public_key,
-                        guild_id: guild_id.clone(),
-                        feed_channel_id: feed_channel_id.clone(),
-                        forum_channel_id: forum_channel_id.clone(),
-                    })
-                    .await,
-            ) {
-                tracing::info!(%interaction_url, "Discord transport ready");
-
-                // Spawn Discord observer (SSE → Discord feed/forum).
-                if feed_channel_id.is_some() || forum_channel_id.is_some() {
-                    let bot_token_for_observer = vault
-                        .and_then(|v| v.get_secret(&tenant, "discord_bot_token"))
-                        .unwrap_or_default();
-                    let observer_api =
-                        paw_transport::PawApiClient::new(paw_transport::PawApiConfig {
-                            base_url: format!("http://127.0.0.1:{actual_port}"),
-                            tenant: tenant.clone(),
-                            api_key: config.temper_api_key.clone(),
-                        });
-                    let observer_config = paw_transport::discord::ObserverConfig {
-                        bot_token: bot_token_for_observer,
-                        feed_channel_id,
-                        forum_channel_id,
-                    };
-                    tokio::spawn(async move {
-                        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-                        if let Err(e) =
-                            paw_transport::discord::run_observer(observer_api, observer_config)
-                                .await
-                        {
-                            tracing::error!("Discord observer failed: {e}");
-                        }
-                    });
+            match crate::setup_api::schedule_discord_reconcile(&state, &tenant).await {
+                Ok(()) => {
+                    tracing::info!("Discord transport reconcile scheduled from TransportConnection")
                 }
+                Err(error) => tracing::error!(
+                    %error,
+                    "Discord transport reconcile could not be scheduled during startup"
+                ),
+            }
+
+            // Spawn Discord observer (SSE → Discord feed/forum).
+            if feed_channel_id.is_some() || forum_channel_id.is_some() {
+                let observer_api = paw_transport::PawApiClient::new(paw_transport::PawApiConfig {
+                    base_url: format!("http://127.0.0.1:{actual_port}"),
+                    tenant: tenant.clone(),
+                    api_key: config.temper_api_key.clone(),
+                });
+                let observer_config = paw_transport::discord::ObserverConfig {
+                    bot_token: token,
+                    feed_channel_id,
+                    forum_channel_id,
+                };
+                tokio::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                    if let Err(e) =
+                        paw_transport::discord::run_observer(observer_api, observer_config).await
+                    {
+                        tracing::error!("Discord observer failed: {e}");
+                    }
+                });
             }
         } else {
             tracing::warn!("No discord_bot_token in vault — Discord transport not started");
@@ -1370,10 +1391,11 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
             .is_some();
         let has_discord = vault
             .and_then(|v| v.get_secret(&tenant, "discord_bot_token"))
-            .is_some();
+            .is_some_and(|value| !value.trim().is_empty());
         let has_slack = vault
             .and_then(|v| v.get_secret(&tenant, "slack_bot_token"))
             .is_some();
+        let transport_status = transport_manager.status().await;
 
         println!();
         println!("  Temper Paw is running.");
@@ -1388,8 +1410,8 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
         if has_api_key {
             println!("  \u{2713} LLM API key");
         }
-        if has_discord {
-            println!("  \u{2713} Discord");
+        if let Some(label) = startup_discord_summary_label(has_discord, &transport_status.discord) {
+            println!("  {label}");
             if let Some(interaction_url) = transport_manager.discord_interaction_public_url().await
             {
                 println!("  Discord interactions: {interaction_url}");
@@ -2947,9 +2969,10 @@ mod tests {
         actor_passivation_check_interval_secs, app_required_wasm_failure, bootstrap_soul,
         load_or_create_temper_api_key, local_wasm_startup_policy, paw_soul_content_is_personalized,
         resolve_startup_secret, runtime_recovery_plan, runtime_router_with_startup_gates,
-        soul_lookup_filters, spawn_runtime_server, startup_discord_connect_result, startup_os_apps,
-        wait_for_runtime_server,
+        soul_lookup_filters, spawn_runtime_server, startup_discord_connect_result,
+        startup_discord_summary_label, startup_os_apps, wait_for_runtime_server,
     };
+    use crate::transport_manager::TransportStatus;
 
     fn empty_install_result() -> temper_platform::os_apps::InstallResult {
         temper_platform::os_apps::InstallResult {
@@ -3027,6 +3050,28 @@ mod tests {
     #[test]
     fn startup_discord_connect_result_drops_failure() {
         assert_eq!(startup_discord_connect_result(Err(anyhow!("boom"))), None);
+    }
+
+    #[test]
+    fn startup_discord_summary_distinguishes_configured_from_connected() {
+        assert_eq!(
+            startup_discord_summary_label(false, &TransportStatus::Disconnected),
+            None
+        );
+        assert_eq!(
+            startup_discord_summary_label(true, &TransportStatus::Disconnected).as_deref(),
+            Some("~ Discord configured; reconnect pending")
+        );
+        assert_eq!(
+            startup_discord_summary_label(
+                true,
+                &TransportStatus::Connected {
+                    guild_id: Some("guild-123".to_string())
+                }
+            )
+            .as_deref(),
+            Some("✓ Discord connected")
+        );
     }
 
     #[test]
@@ -3828,6 +3873,7 @@ mod tests {
                 .route("/healthz", get(|| async { StatusCode::OK }))
                 .route("/probe", get(|| async { StatusCode::OK })),
             readiness.clone(),
+            None,
         );
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();

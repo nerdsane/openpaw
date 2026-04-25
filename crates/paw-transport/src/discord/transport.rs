@@ -404,14 +404,36 @@ impl DiscordTransport {
     /// (preserving ChannelSessions and conversation state across restarts).
     /// Archives any duplicates. Only creates a new Channel if none exists.
     async fn bootstrap_channel(&self, webhook_url: &str) -> Result<(), String> {
+        let mut attempt = 0usize;
+        let mut backoff = Duration::from_millis(200);
+
+        loop {
+            attempt += 1;
+            match self.bootstrap_channel_once(webhook_url).await {
+                Ok(()) => return Ok(()),
+                Err(error) if attempt < 5 && is_retryable_local_odata_bootstrap_error(&error) => {
+                    tracing::warn!(
+                        attempt,
+                        backoff_ms = backoff.as_millis(),
+                        error = %error,
+                        "discord Channel bootstrap hit a transient local OData error; retrying"
+                    );
+                    tokio::time::sleep(backoff).await;
+                    backoff = (backoff * 2).min(Duration::from_secs(3));
+                }
+                Err(error) => return Err(error),
+            }
+        }
+    }
+
+    async fn bootstrap_channel_once(&self, webhook_url: &str) -> Result<(), String> {
         let existing = self
             .api
             .query_entities(
                 "Channels",
                 "ChannelType eq 'discord' and Status ne 'Archived'",
             )
-            .await
-            .unwrap_or_default();
+            .await?;
 
         // Find the best Channel to reuse: prefer Connected > Disconnected,
         // and among those, the one with the highest message_count (most active).
@@ -1692,6 +1714,30 @@ fn verify_discord_signature(
     verifying_key.verify(&message, &signature).is_ok()
 }
 
+fn is_retryable_local_odata_bootstrap_error(error: &str) -> bool {
+    let error = error.to_ascii_lowercase();
+    [
+        " 429 ",
+        "429 too many requests",
+        " 500 ",
+        "500 internal server error",
+        " 502 ",
+        "502 bad gateway",
+        " 503 ",
+        "503 service unavailable",
+        " 504 ",
+        "504 gateway timeout",
+        "timed out",
+        "timeout",
+        "connection refused",
+        "connection reset",
+        "request sending failed",
+        "error sending request",
+    ]
+    .iter()
+    .any(|needle| error.contains(needle))
+}
+
 /// Read one Gateway payload from the WebSocket with timeout.
 async fn read_payload(read: &mut WsStream) -> Result<Option<GatewayPayload>, String> {
     let frame = tokio::time::timeout(Duration::from_secs(60), read.next())
@@ -1707,6 +1753,7 @@ async fn read_payload(read: &mut WsStream) -> Result<Option<GatewayPayload>, Str
 #[cfg(test)]
 mod tests {
     use std::io;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Arc, Mutex};
 
     use axum::extract::{Query, State};
@@ -1911,6 +1958,81 @@ mod tests {
             update.get("webhook_url").and_then(|value| value.as_str()),
             Some("http://127.0.0.1:3488/reply"),
             "reused discord channels must refresh the reply webhook target"
+        );
+    }
+
+    #[tokio::test]
+    async fn bootstrap_channel_retries_transient_create_failure() {
+        let create_attempts = Arc::new(AtomicUsize::new(0));
+        let attempts_for_route = create_attempts.clone();
+        let app = Router::new()
+            .route(
+                "/tdata/Channels",
+                get(
+                    |Query(_query): Query<std::collections::HashMap<String, String>>| async move {
+                        (
+                            StatusCode::OK,
+                            Json(json!({
+                                "value": []
+                            })),
+                        )
+                    },
+                )
+                .post(move || {
+                    let attempts = attempts_for_route.clone();
+                    async move {
+                        let attempt = attempts.fetch_add(1, Ordering::SeqCst) + 1;
+                        if attempt == 1 {
+                            return (
+                                StatusCode::SERVICE_UNAVAILABLE,
+                                Json(json!({"error": "store warming up"})),
+                            );
+                        }
+
+                        (
+                            StatusCode::CREATED,
+                            Json(json!({"entity_id": "ch_retry", "ChannelType": "discord"})),
+                        )
+                    }
+                }),
+            )
+            .route(
+                "/tdata/Channels('ch_retry')/Paw.Channel.Configure",
+                post(|| async { (StatusCode::OK, Json(json!({"ok": true}))) }),
+            )
+            .route(
+                "/tdata/Channels('ch_retry')/Paw.Channel.Connect",
+                post(|| async { (StatusCode::OK, Json(json!({"ok": true}))) }),
+            );
+
+        let base_url = spawn_test_server(app).await;
+        let api = crate::PawApiClient::new(crate::PawApiConfig {
+            base_url,
+            tenant: "default".to_string(),
+            api_key: None,
+        });
+        let transport = DiscordTransport::new(
+            DiscordConfig {
+                bot_token: "token".to_string(),
+                intents: intents::DEFAULT,
+                webhook_port: 3488,
+                public_key: "public-key".to_string(),
+                guild_id: None,
+                feed_channel_id: None,
+                forum_channel_id: None,
+            },
+            api,
+        );
+
+        transport
+            .bootstrap_channel("http://127.0.0.1:3488/reply")
+            .await
+            .expect("transient Channel creation failures should be retried");
+
+        assert_eq!(
+            create_attempts.load(Ordering::SeqCst),
+            2,
+            "expected one failed create attempt followed by a retry"
         );
     }
 
