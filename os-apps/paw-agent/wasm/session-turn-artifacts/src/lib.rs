@@ -18,6 +18,12 @@ pub struct PreparedContextArtifact {
     pub context_bytes: usize,
     pub entries_loaded: usize,
     pub content_files_loaded: usize,
+    #[serde(default = "default_prune_tool_results_after_turns")]
+    pub prune_tool_results_after_turns: usize,
+}
+
+fn default_prune_tool_results_after_turns() -> usize {
+    4
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -473,6 +479,7 @@ mod tests {
             context_bytes: 128,
             entries_loaded: 1,
             content_files_loaded: 0,
+            prune_tool_results_after_turns: 4,
         };
         let artifact = ProviderResponseArtifact {
             version: 1,
@@ -517,6 +524,30 @@ mod tests {
     }
 
     #[test]
+    fn prepared_context_artifact_defaults_prune_window_for_legacy_files() {
+        let artifact: PreparedContextArtifact = serde_json::from_value(json!({
+            "version": 1,
+            "messages": [],
+            "tools": [],
+            "system_prompt": "",
+            "system_prompt_hash": "",
+            "system_prompt_file_id": "",
+            "conversation_file_id": "",
+            "session_file_id": "session-1",
+            "session_leaf_id": "u-1",
+            "workspace_id": "workspace-1",
+            "use_session_tree": true,
+            "context_tokens": 0,
+            "context_bytes": 0,
+            "entries_loaded": 0,
+            "content_files_loaded": 0
+        }))
+        .expect("legacy prepared context artifact should deserialize");
+
+        assert_eq!(artifact.prune_tool_results_after_turns, 4);
+    }
+
+    #[test]
     fn provider_response_applier_base_params_do_not_emit_llm_observability_content() {
         let prepared = PreparedContextArtifact {
             version: 1,
@@ -534,6 +565,7 @@ mod tests {
             context_bytes: 128,
             entries_loaded: 1,
             content_files_loaded: 0,
+            prune_tool_results_after_turns: 4,
         };
         let artifact = ProviderResponseArtifact {
             version: 1,

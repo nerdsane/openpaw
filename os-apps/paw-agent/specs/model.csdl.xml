@@ -194,6 +194,9 @@
         <Parameter Name="file_manifest_id" Type="Edm.String" Nullable="true"/>
         <Parameter Name="session_file_id" Type="Edm.String" Nullable="true"/>
         <Parameter Name="session_leaf_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="prepared_context_file_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="system_prompt_hash" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="system_prompt_file_id" Type="Edm.String" Nullable="true"/>
         <Parameter Name="session_mode" Type="Edm.String" Nullable="true"/>
         <Parameter Name="gen_ai_parent_trace_id" Type="Edm.String" Nullable="true"/>
         <Parameter Name="gen_ai_parent_span_id" Type="Edm.String" Nullable="true"/>

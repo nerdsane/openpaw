@@ -38,6 +38,53 @@ fn session_spec_defines_bounded_turn_pipeline() {
 }
 
 #[test]
+fn active_context_preparer_owns_delta_batch_read_contract() {
+    let root = repo_root();
+    let preparer =
+        fs::read_to_string(root.join("os-apps/paw-agent/wasm/context_preparer/src/lib.rs"))
+            .expect("context_preparer source should exist");
+    let spec = fs::read_to_string(root.join("os-apps/paw-agent/specs/session.ioa.toml"))
+        .expect("session.ioa.toml should exist");
+
+    for needle in [
+        "try_reuse_prepared_context",
+        "build_context_refs_since",
+        "read_text_file_versions_batch",
+        "read_text_files_batch",
+        "read_content_file_version_raw",
+        "context_preparer: reused prepared context",
+    ] {
+        assert!(
+            preparer.contains(needle),
+            "active context_preparer should contain {needle}"
+        );
+    }
+
+    assert!(
+        spec.contains("reset_on = [\"ProgressMade\", \"ResumeContext\"]"),
+        "PreparingContext state_timeout should reset on real ProgressMade"
+    );
+}
+
+#[test]
+fn route_message_carries_context_cache_fields_to_continuations() {
+    let source =
+        fs::read_to_string(repo_root().join("os-apps/paw-channels/wasm/route_message/src/lib.rs"))
+            .expect("route_message source should exist");
+
+    for needle in [
+        "\"prepared_context_file_id\": str_field(fields, &[\"prepared_context_file_id\", \"PreparedContextFileId\"]).unwrap_or(\"\")",
+        "\"system_prompt_hash\": str_field(fields, &[\"system_prompt_hash\", \"SystemPromptHash\"]).unwrap_or(\"\")",
+        "\"system_prompt_file_id\": str_field(fields, &[\"system_prompt_file_id\", \"SystemPromptFileId\"]).unwrap_or(\"\")",
+    ] {
+        assert!(
+            source.contains(needle),
+            "continuation Configure body should carry {needle}"
+        );
+    }
+}
+
+#[test]
 fn session_policy_authorizes_new_pipeline_callbacks_and_modules() {
     let policy = fs::read_to_string(repo_root().join("os-apps/paw-agent/policies/session.cedar"))
         .expect("session.cedar should exist");
