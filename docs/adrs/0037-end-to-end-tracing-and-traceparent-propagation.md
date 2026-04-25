@@ -1,6 +1,6 @@
 # ADR-0037: End-to-End Tracing and W3C Traceparent Propagation
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-04-20
 - Deciders: OpenPaw maintainers
 - Related:
@@ -8,7 +8,7 @@
   - ADR-0029 (deployment-architecture): `scripts/otel-collector-datadog.yaml` is the current OTEL→Datadog exporter pipeline this ADR fixes.
   - ADR-0035 (ots-trajectory-emission): defines `gen_ai_parent_trace_id` / `gen_ai_parent_span_id` — this ADR wires those fields to real OpenTelemetry span IDs.
   - ADR-0054 (agent-log-schema-datadog-correlation): log schema already carries `trace_id` / `span_id`; this ADR finally gives those IDs real spans to correlate against.
-  - temper ADR (to be filed alongside this one): `temper-wasm-sdk` `traceparent` propagation API.
+  - Temper ADR-0059: Workflow Trace Context Propagation — dispatch-level workflow roots and context inheritance.
   - `crates/temperpaw/src/main.rs:98` (existing `temper_observe::otel::init_observability()` call — do not duplicate).
   - `os-apps/paw-agent/wasm/llm_caller/src/lib.rs` (primary consumer of `gen_ai.*` attributes).
   - `os-apps/paw-agent/wasm/monty_repl/src/dispatch.rs:117-131` (tool-dispatch loop — primary site for per-tool spans).
@@ -23,6 +23,25 @@ The 2026-04-20 Katagami investigation exposed three defects in the current obser
 3. **DD log severity is polluted.** `temper-observe` emits a structured-log field named `status` holding the entity state-machine state (`CallingProvider`, `Executing`, `PreparingContext`). DD's log ingestion interprets that as log severity and promotes these `INFO`-level logs to `critical`/`emergency`/`alert` — **197 false-alarm logs per 22 min** observed live. Monitors fire on noise; real criticals are hidden.
 
 The slowness itself is visible but not decomposable: `temper.write` tool calls take 26–37 s each; underlying `workspace_fs.CreateFile` is ~10 s alone. We cannot attribute those 10 s to Turso writes vs. projection replay vs. blob transport without spans.
+
+## 2026-04-24 Implementation Update
+
+Temper ADR-0059 is the architectural owner for true end-to-end workflow
+flamegraphs. OpenPaw consumes that platform primitive by updating its Temper
+lockfile to `97acd90fc7f0e10bc8b2624db65568adbb625571`.
+
+The resulting model is:
+
+- OpenPaw keeps its product spans, log pipeline, and `gen_ai.*` agent telemetry.
+- Temper owns `workflow.root_entity_type`, `workflow.root_entity_id`, and
+  `workflow.run_id` on dispatch spans.
+- Service callbacks, WASM callbacks, adapter callbacks, reactions, scheduled
+  actions, and spawned child entities preserve the same workflow trace context
+  through `AgentContext`.
+
+This supersedes any OpenPaw-local plan to create curation-specific root spans.
+If a workflow cannot be traced end-to-end, the fix belongs in Temper dispatch
+context propagation, not in per-workflow orchestration.
 
 ## Decision
 
