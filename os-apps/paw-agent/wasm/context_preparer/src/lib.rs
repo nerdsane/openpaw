@@ -12,11 +12,14 @@
 //! Build: `cargo build --target wasm32-unknown-unknown --release`
 
 use session_turn_artifacts::PreparedContextArtifact;
-use session_tree_lib::{EntryType, SessionTree};
-use std::collections::BTreeSet;
+use session_tree_lib::{ContextRef, EntryType, SessionTree};
+use std::collections::{BTreeMap, BTreeSet};
 use temper_wasm_sdk::prelude::*;
 use tool_catalog::{DEFAULT_TOOLS_ENABLED, build_method_listing, enabled_tool_set, has_sandbox_surface};
-use wasm_helpers::{create_content_file, runtime_headers, write_temperfs_value_with_retry};
+use wasm_helpers::{
+    create_content_file, read_text_file_versions_batch, read_text_files_batch, runtime_headers,
+    runtime_headers_as, timestamp_millis_string, write_temperfs_value_with_retry,
+};
 
 #[unsafe(no_mangle)]
 pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
@@ -35,6 +38,20 @@ fn normalize_provider(provider: &str) -> String {
     }
 }
 
+#[derive(Debug, PartialEq)]
+enum PreparedContextReuse {
+    Reused {
+        messages: Vec<Value>,
+        entries_loaded: usize,
+        content_files_loaded: usize,
+        delta_entries_loaded: usize,
+        delta_content_files_loaded: usize,
+    },
+    RebuildRequired {
+        reason: &'static str,
+    },
+}
+
 fn stringify_content(value: &Value) -> String {
     if let Some(s) = value.as_str() {
         s.to_string()
@@ -46,6 +63,38 @@ fn stringify_content(value: &Value) -> String {
 #[allow(dead_code)]
 fn emit_progress_ignore(ctx: &Context, payload: Value) {
     let _ = (ctx, payload);
+}
+
+fn send_progress(ctx: &Context, temper_api_url: &str, tenant: &str) -> Result<(), String> {
+    let url = format!(
+        "{temper_api_url}/tdata/Sessions('{}')/TemperPaw.ProgressMade",
+        ctx.entity_id
+    );
+    let body = json!({ "last_progress_at": timestamp_millis_string() });
+    let fields = ctx
+        .entity_state
+        .get("fields")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    let headers = runtime_headers_as(
+        ctx,
+        tenant,
+        &fields,
+        "system",
+        Some("application/json"),
+        None,
+    );
+    let _ = ctx.http_call("POST", &url, &headers, &body.to_string())?;
+    Ok(())
+}
+
+fn send_progress_ignore(ctx: &Context, temper_api_url: &str, tenant: &str, phase: &str) {
+    if let Err(err) = send_progress(ctx, temper_api_url, tenant) {
+        ctx.log(
+            "warn",
+            &format!("context_preparer: ProgressMade dispatch failed phase={phase}: {err}"),
+        );
+    }
 }
 
 fn agent_headers(
@@ -612,6 +661,22 @@ pub fn run_context_preparer() -> Result<(), String> {
         })
         .unwrap_or(48 * 1024 * 1024);
     let use_session_tree = !session_file_id.is_empty() && !session_leaf_id.is_empty();
+    let prune_after_turns: usize = fields
+        .get("prune_tool_results_after_turns")
+        .and_then(|v| v.as_str())
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(4);
+    let existing_prepared = fields
+        .get("prepared_context_file_id")
+        .and_then(|v| v.as_str())
+        .and_then(|file_id| {
+            try_read_existing_prepared_context_artifact(
+                &ctx,
+                &temper_api_url,
+                tenant,
+                file_id,
+            )
+        });
 
     let (mut messages, session_tree, entries_loaded, content_files_loaded) =
         load_messages_for_prepare(
@@ -623,13 +688,12 @@ pub fn run_context_preparer() -> Result<(), String> {
             &conversation_file_id,
             &session_file_id,
             &session_leaf_id,
+            &workspace_id,
+            prune_after_turns,
+            existing_prepared.as_ref(),
         )?;
+    send_progress_ignore(&ctx, &temper_api_url, tenant, "context_loaded");
     messages = repair_interrupted_tool_use_messages(&ctx, messages);
-    let prune_after_turns: usize = fields
-        .get("prune_tool_results_after_turns")
-        .and_then(|v| v.as_str())
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(4);
     prune_old_tool_results(&mut messages, prune_after_turns);
 
     let tools = build_tool_definitions(tools_enabled, sandbox_url, workdir);
@@ -708,6 +772,7 @@ pub fn run_context_preparer() -> Result<(), String> {
             system_prompt_override,
             &workspace_id,
         )?;
+    send_progress_ignore(&ctx, &temper_api_url, tenant, "system_prompt_ready");
     let context_bytes =
         estimate_prepared_context_bytes(&messages, &tools, &assembled_system_prompt);
     emit_metric_ignore(
@@ -765,6 +830,7 @@ pub fn run_context_preparer() -> Result<(), String> {
         context_bytes,
         entries_loaded,
         content_files_loaded,
+        prune_tool_results_after_turns: prune_after_turns,
     };
     let artifact_json = serde_json::to_string(&artifact)
         .map_err(|e| format!("prepared context artifact serialize: {e}"))?;
@@ -782,6 +848,7 @@ pub fn run_context_preparer() -> Result<(), String> {
         &artifact_json,
         "application/json",
     )?;
+    send_progress_ignore(&ctx, &temper_api_url, tenant, "prepared_context_written");
 
     emit_prepare_duration_metric(&ctx, &metric_tags, started_at);
     set_success_result(
@@ -808,6 +875,9 @@ fn load_messages_for_prepare(
     conversation_file_id: &str,
     session_file_id: &str,
     session_leaf_id: &str,
+    workspace_id: &str,
+    prune_after_turns: usize,
+    existing_prepared: Option<&PreparedContextArtifact>,
 ) -> Result<(Vec<Value>, Option<SessionTree>, usize, usize), String> {
     let use_session_tree = !session_file_id.is_empty() && !session_leaf_id.is_empty();
     if use_session_tree {
@@ -824,6 +894,41 @@ fn load_messages_for_prepare(
         }
 
         let tree = SessionTree::from_jsonl(&session_jsonl);
+        if let Some(prepared) = existing_prepared {
+            match try_reuse_prepared_context(
+                prepared,
+                &tree,
+                conversation_file_id,
+                session_file_id,
+                session_leaf_id,
+                workspace_id,
+                prune_after_turns,
+                |refs| resolve_context_refs(ctx, temper_api_url, tenant, refs),
+            )? {
+                PreparedContextReuse::Reused {
+                    messages,
+                    entries_loaded,
+                    content_files_loaded,
+                    delta_entries_loaded,
+                    delta_content_files_loaded,
+                } => {
+                    ctx.log(
+                        "info",
+                        &format!(
+                            "context_preparer: reused prepared context delta_entries={delta_entries_loaded} delta_content_files={delta_content_files_loaded}"
+                        ),
+                    );
+                    return Ok((messages, Some(tree), entries_loaded, content_files_loaded));
+                }
+                PreparedContextReuse::RebuildRequired { reason } => {
+                    ctx.log(
+                        "info",
+                        &format!("context_preparer: prepared context reuse miss: {reason}"),
+                    );
+                }
+            }
+        }
+
         let context_refs = tree.build_context_refs(session_leaf_id);
         let messages = if context_refs.is_empty() {
             vec![json!({ "role": "user", "content": user_message })]
@@ -833,7 +938,9 @@ fn load_messages_for_prepare(
         let entries_loaded = usize::max(1, context_refs.len());
         let content_files_loaded = context_refs
             .iter()
-            .filter(|ctx_ref| ctx_ref.content_file_id.is_some())
+            .filter(|ctx_ref| {
+                ctx_ref.content_file_id.is_some() || ctx_ref.content_file_version_id.is_some()
+            })
             .count();
         if messages.is_empty() {
             Ok((
@@ -886,6 +993,120 @@ fn load_messages_for_prepare(
             Ok((messages.clone(), None, messages.len(), 0))
         }
     }
+}
+
+fn try_read_existing_prepared_context_artifact(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+    file_id: &str,
+) -> Option<PreparedContextArtifact> {
+    if file_id.is_empty() {
+        return None;
+    }
+
+    match read_prepared_context_artifact(ctx, temper_api_url, tenant, file_id) {
+        Ok(prepared) => Some(prepared),
+        Err(err) => {
+            ctx.log(
+                "warn",
+                &format!(
+                    "context_preparer: prepared context reuse unavailable, ignoring cached artifact: {err}"
+                ),
+            );
+            None
+        }
+    }
+}
+
+fn read_prepared_context_artifact(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+    file_id: &str,
+) -> Result<PreparedContextArtifact, String> {
+    let raw = read_content_file_raw(ctx, temper_api_url, tenant, file_id)?;
+    serde_json::from_str(&raw).map_err(|e| format!("parse prepared context artifact: {e}"))
+}
+
+fn try_reuse_prepared_context(
+    prepared: &PreparedContextArtifact,
+    tree: &SessionTree,
+    conversation_file_id: &str,
+    session_file_id: &str,
+    session_leaf_id: &str,
+    workspace_id: &str,
+    prune_after_turns: usize,
+    resolve_delta: impl FnOnce(&[ContextRef]) -> Result<Vec<Value>, String>,
+) -> Result<PreparedContextReuse, String> {
+    if !prepared.use_session_tree {
+        return Ok(PreparedContextReuse::RebuildRequired {
+            reason: "prepared artifact is not session-tree based",
+        });
+    }
+    if prepared.conversation_file_id != conversation_file_id {
+        return Ok(PreparedContextReuse::RebuildRequired {
+            reason: "conversation file changed",
+        });
+    }
+    if prepared.session_file_id != session_file_id {
+        return Ok(PreparedContextReuse::RebuildRequired {
+            reason: "session file changed",
+        });
+    }
+    if prepared.workspace_id != workspace_id {
+        return Ok(PreparedContextReuse::RebuildRequired {
+            reason: "workspace changed",
+        });
+    }
+    if prepared.prune_tool_results_after_turns != prune_after_turns {
+        return Ok(PreparedContextReuse::RebuildRequired {
+            reason: "prune window changed",
+        });
+    }
+    if prepared.session_leaf_id.is_empty() {
+        return Ok(PreparedContextReuse::RebuildRequired {
+            reason: "prepared artifact has no session leaf",
+        });
+    }
+
+    let Some(delta) = tree.build_context_refs_since(session_leaf_id, &prepared.session_leaf_id)
+    else {
+        return Ok(PreparedContextReuse::RebuildRequired {
+            reason: "prepared leaf is not an ancestor of current leaf",
+        });
+    };
+
+    if delta.includes_compaction {
+        return Ok(PreparedContextReuse::RebuildRequired {
+            reason: "delta includes compaction",
+        });
+    }
+
+    let delta_entries_loaded = delta.refs.len();
+    let delta_content_files_loaded = delta
+        .refs
+        .iter()
+        .filter(|ctx_ref| {
+            ctx_ref.content_file_id.is_some() || ctx_ref.content_file_version_id.is_some()
+        })
+        .count();
+    let delta_messages = if delta.refs.is_empty() {
+        Vec::new()
+    } else {
+        resolve_delta(&delta.refs)?
+    };
+
+    let mut messages = prepared.messages.clone();
+    messages.extend(delta_messages);
+
+    Ok(PreparedContextReuse::Reused {
+        messages,
+        entries_loaded: prepared.entries_loaded + delta_entries_loaded,
+        content_files_loaded: prepared.content_files_loaded + delta_content_files_loaded,
+        delta_entries_loaded,
+        delta_content_files_loaded,
+    })
 }
 
 fn assemble_cached_system_prompt(
@@ -1817,13 +2038,110 @@ fn resolve_context_refs(
     tenant: &str,
     refs: &[session_tree_lib::ContextRef],
 ) -> Result<Vec<Value>, String> {
-    let mut messages = Vec::new();
+    let mut unique_file_version_ids = Vec::new();
+    let mut unique_file_ids = Vec::new();
+    let mut seen = BTreeSet::new();
+    for ctx_ref in refs {
+        if let Some(file_version_id) = &ctx_ref.content_file_version_id
+            && seen.insert(format!("version:{file_version_id}"))
+        {
+            unique_file_version_ids.push(file_version_id.clone());
+        }
+        if let Some(file_id) = &ctx_ref.content_file_id
+            && seen.insert(format!("file:{file_id}"))
+        {
+            unique_file_ids.push(file_id.clone());
+        }
+    }
 
+    let version_batch_results = if !unique_file_version_ids.is_empty() {
+        match read_text_file_versions_batch(
+            ctx,
+            temper_api_url,
+            tenant,
+            &json!({}),
+            &unique_file_version_ids,
+        ) {
+            Ok(results) => results,
+            Err(err) => {
+                ctx.log(
+                    "warn",
+                    &format!(
+                        "context_preparer: batch file version read unavailable, falling back: {err}"
+                    ),
+                );
+                BTreeMap::new()
+            }
+        }
+    } else {
+        BTreeMap::new()
+    };
+
+    let file_batch_results = if !unique_file_ids.is_empty() {
+        match read_text_files_batch(ctx, temper_api_url, tenant, &json!({}), &unique_file_ids) {
+            Ok(results) => results,
+            Err(err) => {
+                ctx.log(
+                    "warn",
+                    &format!(
+                        "context_preparer: batch file read unavailable, falling back: {err}"
+                    ),
+                );
+                BTreeMap::new()
+            }
+        }
+    } else {
+        BTreeMap::new()
+    };
+
+    render_context_refs(refs, |ctx_ref| {
+        if let Some(file_version_id) = &ctx_ref.content_file_version_id {
+            if let Some(item) = version_batch_results.get(file_version_id) {
+                return Ok(if item.found {
+                    item.text.clone()
+                } else {
+                    String::new()
+                });
+            }
+            match read_content_file_version_raw(ctx, temper_api_url, tenant, file_version_id) {
+                Ok(raw) if !raw.is_empty() => return Ok(raw),
+                Ok(_) => {}
+                Err(err) => ctx.log(
+                    "warn",
+                    &format!(
+                        "context_preparer: immutable version read unavailable for {file_version_id}, falling back to file head: {err}"
+                    ),
+                ),
+            }
+        }
+
+        if let Some(file_id) = &ctx_ref.content_file_id {
+            if let Some(item) = file_batch_results.get(file_id) {
+                return Ok(if item.found {
+                    item.text.clone()
+                } else {
+                    String::new()
+                });
+            }
+            return read_content_file_raw(ctx, temper_api_url, tenant, file_id);
+        }
+
+        Ok(String::new())
+    })
+}
+
+fn render_context_refs(
+    refs: &[session_tree_lib::ContextRef],
+    mut read_file: impl FnMut(&session_tree_lib::ContextRef) -> Result<String, String>,
+) -> Result<Vec<Value>, String> {
+    let mut messages = Vec::new();
     for ctx_ref in refs {
         match ctx_ref.entry_type {
             EntryType::Compaction => {
-                let summary = if let Some(ref file_id) = ctx_ref.content_file_id {
-                    read_content_file_raw(ctx, temper_api_url, tenant, file_id)
+                let summary = if ctx_ref.content_file_id.is_some()
+                    || ctx_ref.content_file_version_id.is_some()
+                {
+                    read_file(ctx_ref)
                         .unwrap_or_else(|_| ctx_ref.inline_summary.clone().unwrap_or_default())
                 } else {
                     ctx_ref.inline_summary.clone().unwrap_or_default()
@@ -1836,8 +2154,8 @@ fn resolve_context_refs(
                 }
             }
             EntryType::Message | EntryType::Steering => {
-                if let Some(ref file_id) = ctx_ref.content_file_id {
-                    let raw = read_content_file_raw(ctx, temper_api_url, tenant, file_id)?;
+                if ctx_ref.content_file_id.is_some() || ctx_ref.content_file_version_id.is_some() {
+                    let raw = read_file(ctx_ref)?;
                     if raw.is_empty() {
                         if let Some(ref inline) = ctx_ref.inline_content {
                             messages.push(json!({
@@ -1880,6 +2198,26 @@ fn read_content_file_raw(
         None,
         "Content file read failed",
     )
+}
+
+fn read_content_file_version_raw(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+    file_version_id: &str,
+) -> Result<String, String> {
+    let results = read_text_file_versions_batch(
+        ctx,
+        temper_api_url,
+        tenant,
+        &json!({}),
+        &[file_version_id.to_string()],
+    )?;
+    Ok(results
+        .get(file_version_id)
+        .filter(|item| item.found)
+        .map(|item| item.text.clone())
+        .unwrap_or_default())
 }
 
 fn resolve_temper_api_url(ctx: &Context, fields: &Value) -> String {
@@ -1948,5 +2286,121 @@ mod tests {
         assert!(description.contains("temper.get(entity_set, entity_id)"));
         assert!(description.contains("temper.list(entity_set, filter_str)"));
         assert!(!description.contains("temper.submit_specs(files_dict)"));
+    }
+
+    #[test]
+    fn try_reuse_prepared_context_appends_only_delta_messages() {
+        let tree = SessionTree::from_jsonl(
+            r#"{"id":"h-1","parentId":null,"type":"header","version":1,"tokens":0}
+{"id":"u-1","parentId":"h-1","type":"message","role":"user","content":"hello","tokens":10}
+{"id":"a-1","parentId":"u-1","type":"message","role":"assistant","content":[{"type":"text","text":"hi"}],"tokens":5}
+{"id":"u-2","parentId":"a-1","type":"message","role":"user","content":"next","tokens":7}"#,
+        );
+        let prepared = PreparedContextArtifact {
+            version: 1,
+            messages: vec![
+                json!({"role": "user", "content": "hello"}),
+                json!({"role": "assistant", "content": [{"type":"text","text":"hi"}]}),
+            ],
+            tools: vec![],
+            system_prompt: "You are concise.".to_string(),
+            system_prompt_hash: "hash-123".to_string(),
+            system_prompt_file_id: "file-system".to_string(),
+            conversation_file_id: String::new(),
+            session_file_id: "session-1".to_string(),
+            session_leaf_id: "a-1".to_string(),
+            workspace_id: "workspace-1".to_string(),
+            use_session_tree: true,
+            context_tokens: 12,
+            context_bytes: 128,
+            entries_loaded: 2,
+            content_files_loaded: 0,
+            prune_tool_results_after_turns: 4,
+        };
+
+        let outcome = try_reuse_prepared_context(
+            &prepared,
+            &tree,
+            "",
+            "session-1",
+            "u-2",
+            "workspace-1",
+            4,
+            |refs| {
+                assert_eq!(refs.len(), 1);
+                assert_eq!(refs[0].entry_id, "u-2");
+                Ok(vec![json!({"role": "user", "content": "next"})])
+            },
+        )
+        .expect("reuse prepared context");
+
+        match outcome {
+            PreparedContextReuse::Reused {
+                messages,
+                entries_loaded,
+                content_files_loaded,
+                delta_entries_loaded,
+                delta_content_files_loaded,
+            } => {
+                assert_eq!(messages.len(), 3);
+                assert_eq!(messages[2]["content"], "next");
+                assert_eq!(entries_loaded, 3);
+                assert_eq!(content_files_loaded, 0);
+                assert_eq!(delta_entries_loaded, 1);
+                assert_eq!(delta_content_files_loaded, 0);
+            }
+            other => panic!("expected reuse, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn try_reuse_prepared_context_requires_rebuild_when_compaction_enters_delta() {
+        let tree = SessionTree::from_jsonl(
+            r#"{"id":"h-1","parentId":null,"type":"header","version":1,"tokens":0}
+{"id":"u-1","parentId":"h-1","type":"message","role":"user","content":"hello","tokens":10}
+{"id":"a-1","parentId":"u-1","type":"message","role":"assistant","content":[{"type":"text","text":"hi"}],"tokens":5}
+{"id":"c-1","parentId":"a-1","type":"compaction","summary":"summary","first_kept":"a-1","tokens":3}
+{"id":"u-2","parentId":"c-1","type":"message","role":"user","content":"next","tokens":7}"#,
+        );
+        let prepared = PreparedContextArtifact {
+            version: 1,
+            messages: vec![
+                json!({"role": "user", "content": "hello"}),
+                json!({"role": "assistant", "content": [{"type":"text","text":"hi"}]}),
+            ],
+            tools: vec![],
+            system_prompt: "You are concise.".to_string(),
+            system_prompt_hash: "hash-123".to_string(),
+            system_prompt_file_id: "file-system".to_string(),
+            conversation_file_id: String::new(),
+            session_file_id: "session-1".to_string(),
+            session_leaf_id: "a-1".to_string(),
+            workspace_id: "workspace-1".to_string(),
+            use_session_tree: true,
+            context_tokens: 12,
+            context_bytes: 128,
+            entries_loaded: 2,
+            content_files_loaded: 0,
+            prune_tool_results_after_turns: 4,
+        };
+
+        let outcome = try_reuse_prepared_context(
+            &prepared,
+            &tree,
+            "",
+            "session-1",
+            "u-2",
+            "workspace-1",
+            4,
+            |_| panic!("compaction delta should not resolve file content"),
+        )
+        .expect("reuse decision");
+
+        assert!(matches!(
+            outcome,
+            PreparedContextReuse::RebuildRequired {
+                reason: "delta includes compaction"
+            }
+        ));
     }
 }
