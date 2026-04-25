@@ -9,14 +9,15 @@
 //!
 //! Build: `cargo build --target wasm32-unknown-unknown --release`
 
+use session_tree_lib::SessionTree;
 use session_turn_artifacts::{
     PreparedContextArtifact, ProviderResponseArtifact, build_provider_response_applier_base_params,
 };
-use session_tree_lib::SessionTree;
 use temper_wasm_sdk::prelude::*;
 use wasm_helpers::{
-    create_content_file, read_content_file, read_session_from_temperfs, resolve_temper_api_url,
-    runtime_headers, write_session_to_temperfs, write_temperfs_value_with_retry,
+    create_content_file, is_session_entries_ref, read_content_file, read_session_from_temperfs,
+    resolve_temper_api_url, runtime_headers, write_session_to_temperfs,
+    write_temperfs_value_with_retry,
 };
 
 const SESSION_ENTRY_FILE_THRESHOLD_BYTES: usize = 4096;
@@ -132,13 +133,12 @@ pub fn run_provider_response_applier() -> Result<(), String> {
             updated_conversation,
         )?;
     }
-    let inline_conversation = if !prepared.use_session_tree
-        && prepared.conversation_file_id.is_empty()
-    {
-        legacy_conversation
-    } else {
-        None
-    };
+    let inline_conversation =
+        if !prepared.use_session_tree && prepared.conversation_file_id.is_empty() {
+            legacy_conversation
+        } else {
+            None
+        };
 
     match response.stop_reason.as_str() {
         "tool_use" => {
@@ -301,43 +301,51 @@ fn append_assistant_response_to_session_tree(
         return Ok(None);
     }
 
-    let session_jsonl =
-        read_session_from_temperfs(ctx, temper_api_url, tenant, fields, &prepared.session_file_id)?;
+    let session_jsonl = read_session_from_temperfs(
+        ctx,
+        temper_api_url,
+        tenant,
+        fields,
+        &prepared.session_file_id,
+    )?;
     let mut tree = SessionTree::from_jsonl(&session_jsonl);
     let content_str = serde_json::to_string(content).unwrap_or_default();
-    let (new_leaf, externalized) =
-        if !prepared.workspace_id.is_empty() && should_store_entry_as_file(&content_str) {
-            match create_content_file_for_entry(
-                ctx,
-                temper_api_url,
-                tenant,
-                &prepared.workspace_id,
-                &format!("a-{}", tree.len()),
-                &content_str,
-            ) {
-                Ok(content_file_id) => {
-                    let (leaf, _) = tree.append_assistant_message_file(
-                        &prepared.session_leaf_id,
-                        &content_file_id,
-                        None,
-                        output_tokens,
-                    );
-                    (leaf, true)
-                }
-                Err(_) => {
-                    let (leaf, _) = tree.append_assistant_message(
-                        &prepared.session_leaf_id,
-                        content,
-                        output_tokens,
-                    );
-                    (leaf, false)
-                }
+    let entity_backed_session = is_session_entries_ref(&prepared.session_file_id);
+    let (new_leaf, externalized) = if !entity_backed_session
+        && !prepared.workspace_id.is_empty()
+        && should_store_entry_as_file(&content_str)
+    {
+        match create_content_file_for_entry(
+            ctx,
+            temper_api_url,
+            tenant,
+            &prepared.workspace_id,
+            &format!("a-{}", tree.len()),
+            &content_str,
+        ) {
+            Ok(content_file_id) => {
+                let (leaf, _) = tree.append_assistant_message_file(
+                    &prepared.session_leaf_id,
+                    &content_file_id,
+                    None,
+                    output_tokens,
+                );
+                (leaf, true)
             }
-        } else {
-            let (leaf, _) =
-                tree.append_assistant_message(&prepared.session_leaf_id, content, output_tokens);
-            (leaf, false)
-        };
+            Err(_) => {
+                let (leaf, _) = tree.append_assistant_message(
+                    &prepared.session_leaf_id,
+                    content,
+                    output_tokens,
+                );
+                (leaf, false)
+            }
+        }
+    } else {
+        let (leaf, _) =
+            tree.append_assistant_message(&prepared.session_leaf_id, content, output_tokens);
+        (leaf, false)
+    };
 
     if externalized {
         emit_metric_ignore(
@@ -545,7 +553,9 @@ mod tests {
 
     #[test]
     fn stores_large_entries_as_files_only_after_threshold() {
-        assert!(!should_store_entry_as_file(&"a".repeat(SESSION_ENTRY_FILE_THRESHOLD_BYTES)));
+        assert!(!should_store_entry_as_file(
+            &"a".repeat(SESSION_ENTRY_FILE_THRESHOLD_BYTES)
+        ));
         assert!(should_store_entry_as_file(
             &"a".repeat(SESSION_ENTRY_FILE_THRESHOLD_BYTES + 1)
         ));

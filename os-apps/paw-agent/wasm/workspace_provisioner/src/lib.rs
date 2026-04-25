@@ -8,8 +8,8 @@
 
 use temper_wasm_sdk::prelude::*;
 use wasm_helpers::{
-    create_content_file_ref, resolve_temper_api_url, runtime_headers, runtime_headers_for_workspace,
-    write_temperfs_value_with_retry,
+    create_session_entry, resolve_temper_api_url, runtime_headers, runtime_headers_for_workspace,
+    session_entries_ref, write_temperfs_value_with_retry,
 };
 
 fn elapsed_ms_since(started_at: i64) -> i64 {
@@ -33,13 +33,7 @@ fn emit_phase_duration(ctx: &Context, phase: &str, started_at: i64, result: &str
     );
 }
 
-fn emit_phase_step_duration(
-    ctx: &Context,
-    phase: &str,
-    step: &str,
-    started_at: i64,
-    result: &str,
-) {
+fn emit_phase_step_duration(ctx: &Context, phase: &str, step: &str, started_at: i64, result: &str) {
     let elapsed_ms = elapsed_ms_since(started_at);
     let _ = ctx.emit_metric(
         "temper_session_phase_step_duration_ms",
@@ -53,9 +47,7 @@ fn emit_phase_step_duration(
     );
     ctx.log(
         "info",
-        &format!(
-            "session_phase phase={phase} step={step} result={result} elapsed_ms={elapsed_ms}"
-        ),
+        &format!("session_phase phase={phase} step={step} result={result} elapsed_ms={elapsed_ms}"),
     );
 }
 
@@ -114,103 +106,104 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             .unwrap_or("")
             .to_string();
 
-        let (workspace_id, conversation_file_id, file_manifest_id, session_file_id, session_leaf_id) =
-            if !prior_conversation_file_id.is_empty() {
-                // Continuation session — reuse prior workspace and conversation storage.
-                ctx.log(
+        let (
+            workspace_id,
+            conversation_file_id,
+            file_manifest_id,
+            session_file_id,
+            session_leaf_id,
+        ) = if !prior_conversation_file_id.is_empty() {
+            // Continuation session — reuse prior workspace and conversation storage.
+            ctx.log(
                     "info",
                     &format!(
                         "workspace_provisioner: continuation detected — reusing workspace={prior_workspace_id} conv={prior_conversation_file_id} session={prior_session_file_id}"
                     ),
                 );
-                (
-                    prior_workspace_id,
-                    prior_conversation_file_id,
-                    prior_file_manifest_id,
-                    prior_session_file_id,
-                    prior_session_leaf_id,
-                )
-            } else if !prior_workspace_id.is_empty() {
-                // Fresh session with an explicitly configured workspace.
-                ctx.log(
+            (
+                prior_workspace_id,
+                prior_conversation_file_id,
+                prior_file_manifest_id,
+                prior_session_file_id,
+                prior_session_leaf_id,
+            )
+        } else if !prior_workspace_id.is_empty() {
+            // Fresh session with an explicitly configured workspace.
+            ctx.log(
                     "info",
                     &format!(
                         "workspace_provisioner: using configured workspace {prior_workspace_id} for fresh session storage"
                     ),
                 );
-                let bootstrap_started_at = Context::get_time_millis();
-                let fs_result = create_conversation_storage_in_workspace(
-                    &ctx,
-                    &temper_api_url,
-                    tenant,
-                    &prior_workspace_id,
-                    entity_id,
-                    user_message,
-                );
-                emit_phase_step_duration(
-                    &ctx,
-                    "workspace_provisioner",
-                    "bootstrap_existing_workspace",
-                    bootstrap_started_at,
-                    if fs_result.is_ok() { "ok" } else { "error" },
-                );
-                match fs_result {
-                    Ok((conv, manifest, sess_file, sess_leaf)) => (
-                        prior_workspace_id,
-                        conv,
-                        manifest,
-                        sess_file,
-                        sess_leaf,
-                    ),
-                    Err(e) => {
-                        ctx.log(
+            let bootstrap_started_at = Context::get_time_millis();
+            let fs_result = create_conversation_storage_in_workspace(
+                &ctx,
+                &temper_api_url,
+                tenant,
+                &prior_workspace_id,
+                entity_id,
+                user_message,
+            );
+            emit_phase_step_duration(
+                &ctx,
+                "workspace_provisioner",
+                "bootstrap_existing_workspace",
+                bootstrap_started_at,
+                if fs_result.is_ok() { "ok" } else { "error" },
+            );
+            match fs_result {
+                Ok((conv, manifest, sess_file, sess_leaf)) => {
+                    (prior_workspace_id, conv, manifest, sess_file, sess_leaf)
+                }
+                Err(e) => {
+                    ctx.log(
                             "warn",
                             &format!(
                                 "workspace_provisioner: configured workspace bootstrap failed: {e}. Falling back to inline."
                             ),
                         );
-                        (
-                            prior_workspace_id,
-                            String::new(),
-                            String::new(),
-                            String::new(),
-                            String::new(),
-                        )
-                    }
+                    (
+                        prior_workspace_id,
+                        String::new(),
+                        String::new(),
+                        String::new(),
+                        String::new(),
+                    )
                 }
-            } else {
-                // Fresh session — create new conversation storage.
-                let bootstrap_started_at = Context::get_time_millis();
-                let fs_result =
-                    create_conversation_storage(&ctx, &temper_api_url, tenant, entity_id, user_message);
-                emit_phase_step_duration(
-                    &ctx,
-                    "workspace_provisioner",
-                    "bootstrap_new_workspace",
-                    bootstrap_started_at,
-                    if fs_result.is_ok() { "ok" } else { "error" },
-                );
-                match fs_result {
-                    Ok((ws, conv, manifest, sess_file, sess_leaf)) => {
-                        (ws, conv, manifest, sess_file, sess_leaf)
-                    }
-                    Err(e) => {
-                        ctx.log(
+            }
+        } else {
+            // Fresh session — create new conversation storage.
+            let bootstrap_started_at = Context::get_time_millis();
+            let fs_result =
+                create_conversation_storage(&ctx, &temper_api_url, tenant, entity_id, user_message);
+            emit_phase_step_duration(
+                &ctx,
+                "workspace_provisioner",
+                "bootstrap_new_workspace",
+                bootstrap_started_at,
+                if fs_result.is_ok() { "ok" } else { "error" },
+            );
+            match fs_result {
+                Ok((ws, conv, manifest, sess_file, sess_leaf)) => {
+                    (ws, conv, manifest, sess_file, sess_leaf)
+                }
+                Err(e) => {
+                    ctx.log(
                             "warn",
                             &format!(
                                 "workspace_provisioner: TemperFS bootstrap failed at {temper_api_url}/tdata (tenant={tenant}, agent={entity_id}): {e}. Falling back to inline."
                             ),
                         );
-                        (
-                            String::new(),
-                            String::new(),
-                            String::new(),
-                            String::new(),
-                            String::new(),
-                        )
-                    }
+                    (
+                        String::new(),
+                        String::new(),
+                        String::new(),
+                        String::new(),
+                        String::new(),
+                    )
                 }
-            };
+            }
+        };
 
         set_success_result(
             "WorkspaceReady",
@@ -300,10 +293,22 @@ fn create_conversation_storage(
         &format!("workspace_provisioner: created workspace {workspace_id}"),
     );
 
-    let (file_id, manifest_id, session_file_id, session_leaf_id) =
-        create_session_storage_files(ctx, temper_api_url, tenant, &workspace_id, agent_id, user_message)?;
+    let (file_id, manifest_id, session_file_id, session_leaf_id) = create_session_storage_files(
+        ctx,
+        temper_api_url,
+        tenant,
+        &workspace_id,
+        agent_id,
+        user_message,
+    )?;
 
-    Ok((workspace_id, file_id, manifest_id, session_file_id, session_leaf_id))
+    Ok((
+        workspace_id,
+        file_id,
+        manifest_id,
+        session_file_id,
+        session_leaf_id,
+    ))
 }
 
 /// Create conversation + manifest + session files inside an existing workspace.
@@ -318,7 +323,14 @@ fn create_conversation_storage_in_workspace(
     if workspace_id.is_empty() {
         return Err("configured workspace_id is empty".to_string());
     }
-    create_session_storage_files(ctx, temper_api_url, tenant, workspace_id, agent_id, user_message)
+    create_session_storage_files(
+        ctx,
+        temper_api_url,
+        tenant,
+        workspace_id,
+        agent_id,
+        user_message,
+    )
 }
 
 /// Create conversation + manifest + session files inside the provided workspace.
@@ -390,7 +402,8 @@ fn create_session_storage_files(
         "path": "/file_manifest.json"
     });
 
-    let manifest_resp = ctx.http_call("POST", &file_url, &file_headers, &manifest_body.to_string())?;
+    let manifest_resp =
+        ctx.http_call("POST", &file_url, &file_headers, &manifest_body.to_string())?;
 
     if manifest_resp.status < 200 || manifest_resp.status >= 300 {
         return Err(format!(
@@ -426,128 +439,85 @@ fn create_session_storage_files(
         ctx.log("warn", &err);
     }
 
-    let (session_file_id, session_leaf_id) =
-        create_session_tree(ctx, temper_api_url, tenant, workspace_id, agent_id, user_message);
+    let (session_file_id, session_leaf_id) = create_session_tree(
+        ctx,
+        temper_api_url,
+        tenant,
+        workspace_id,
+        agent_id,
+        user_message,
+    );
 
     Ok((file_id, manifest_id, session_file_id, session_leaf_id))
 }
 
-/// Create a session tree JSONL file in TemperFS.
+/// Create a Temper-native session tree using one SessionEntry entity per turn.
 /// Returns (session_file_id, session_leaf_id). Non-fatal on failure.
 fn create_session_tree(
     ctx: &Context,
     temper_api_url: &str,
     tenant: &str,
-    workspace_id: &str,
+    _workspace_id: &str,
     agent_id: &str,
     user_message: &str,
 ) -> (String, String) {
-    let headers = workspace_headers(ctx, tenant, workspace_id, Some("application/json"), None);
+    let fields = ctx.entity_state.get("fields").cloned().unwrap_or(json!({}));
+    let session_ref = session_entries_ref(agent_id);
+    let header_id = format!("h-{agent_id}");
+    let session_leaf_id = format!("u-{agent_id}-0");
 
-    let session_file_body = json!({
-        "FileId": format!("session-{agent_id}"),
-        "workspace_id": workspace_id,
-        "name": "session.jsonl",
-        "mime_type": "text/plain",
-        "path": "/session.jsonl"
-    });
-    let session_file_resp = match ctx.http_call(
-        "POST",
-        &format!("{temper_api_url}/tdata/Files"),
-        &headers,
-        &serde_json::to_string(&session_file_body).unwrap_or_default(),
-    ) {
-        Ok(resp) => resp,
-        Err(e) => {
-            ctx.log("warn", &format!("Failed to create session file: {e}"));
-            return (String::new(), String::new());
-        }
-    };
-
-    let session_file_id = if session_file_resp.status >= 200 && session_file_resp.status < 300 {
-        let parsed: Value = serde_json::from_str(&session_file_resp.body).unwrap_or(json!({}));
-        parsed
-            .get("entity_id")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string()
-    } else {
-        ctx.log(
-            "warn",
-            &format!(
-                "Failed to create session file (HTTP {})",
-                session_file_resp.status
-            ),
-        );
-        return (String::new(), String::new());
-    };
-
-    if session_file_id.is_empty() {
-        return (String::new(), String::new());
-    }
-
-    // Create a TemperFS file for the first user message content.
-    let content_file_ref = create_content_file_ref(
+    let header_result = create_session_entry(
         ctx,
         temper_api_url,
         tenant,
-        workspace_id,
-        &format!("msg-u-{agent_id}-0.txt"),
-        user_message,
-    )
-    .ok();
+        &fields,
+        agent_id,
+        &header_id,
+        None,
+        0,
+        "header",
+        None,
+        None,
+        None,
+        None,
+        Some(&json!({ "version": 1 })),
+        0,
+    );
+    if let Err(e) = header_result {
+        ctx.log(
+            "warn",
+            &format!("Failed to create session header entry: {e}"),
+        );
+        return (String::new(), String::new());
+    }
 
-    // Initialize session file with JSONL header + first user message.
-    let header_id = format!("h-{agent_id}");
-    let header_entry = json!({
-        "id": header_id,
-        "parentId": null,
-        "type": "header",
-        "version": 1,
-        "tokens": 0
-    });
-    let header_line = serde_json::to_string(&header_entry).unwrap_or_default();
-
-    let session_leaf_id = format!("u-{agent_id}-0");
-    let user_entry = if let Some(content_file_ref) = content_file_ref {
-        json!({
-            "id": session_leaf_id,
-            "parentId": header_id,
-            "type": "message",
-            "role": "user",
-            "content_file_id": content_file_ref.file_id,
-            "content_file_version_id": content_file_ref.file_version_id,
-            "tokens": user_message.len() / 4
-        })
-    } else {
-        json!({
-            "id": session_leaf_id,
-            "parentId": header_id,
-            "type": "message",
-            "role": "user",
-            "content": user_message,
-            "tokens": user_message.len() / 4
-        })
-    };
-    let user_line = serde_json::to_string(&user_entry).unwrap_or_default();
-    let initial_jsonl = format!("{header_line}\n{user_line}");
-
-    let write_url = format!("{temper_api_url}/tdata/Files('{session_file_id}')/$value");
-    let write_headers = workspace_headers(ctx, tenant, workspace_id, Some("text/plain"), None);
-    match write_temperfs_value_with_retry(
+    let user_result = create_session_entry(
         ctx,
-        &write_url,
-        &write_headers,
-        &initial_jsonl,
-        "Failed to write session file",
-    ) {
-        Ok(()) => {
-            ctx.log("info", "workspace_provisioner: session tree initialized");
-        }
+        temper_api_url,
+        tenant,
+        &fields,
+        agent_id,
+        &session_leaf_id,
+        Some(&header_id),
+        1,
+        "message",
+        Some("user"),
+        Some(&json!(user_message)),
+        None,
+        None,
+        None,
+        user_message.len() / 4,
+    );
+    match user_result {
+        Ok(_) => ctx.log("info", "workspace_provisioner: session entries initialized"),
         Err(e) => {
-            ctx.log("warn", &e);
+            ctx.log(
+                "warn",
+                &format!("Failed to create initial user SessionEntry: {e}"),
+            );
+            return (String::new(), String::new());
         }
     }
 
-    (session_file_id, session_leaf_id)
+    (session_ref, session_leaf_id)
 }

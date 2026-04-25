@@ -36,14 +36,27 @@ pub fn persist_results(
 
     if !session_file_id.is_empty() && !session_leaf_id.is_empty() {
         // Session tree mode
-        let session_jsonl = read_temperfs_file(ctx, temper_api_url, tenant, session_file_id)?;
+        let entity_backed_session = wasm_helpers::is_session_entries_ref(session_file_id);
+        let session_jsonl = if entity_backed_session {
+            wasm_helpers::read_session_from_temperfs(
+                ctx,
+                temper_api_url,
+                tenant,
+                fields,
+                session_file_id,
+            )?
+        } else {
+            read_temperfs_file(ctx, temper_api_url, tenant, session_file_id)?
+        };
         let mut tree = session_tree_lib::SessionTree::from_jsonl(&session_jsonl);
         let tool_results_value = json!(tool_results);
         let tokens_est = results_json.len() / 4;
         let content_str = serde_json::to_string(&tool_results_value).unwrap_or_default();
 
-        let (new_leaf, _) =
-            if !workspace_id.is_empty() && should_store_entry_as_file(&content_str) {
+        let (new_leaf, _) = if !entity_backed_session
+            && !workspace_id.is_empty()
+            && should_store_entry_as_file(&content_str)
+        {
             match create_content_file_ref(
                 ctx,
                 temper_api_url,
@@ -67,7 +80,18 @@ pub fn persist_results(
         };
 
         let updated_jsonl = tree.to_jsonl();
-        write_temperfs_file(ctx, temper_api_url, tenant, session_file_id, &updated_jsonl)?;
+        if entity_backed_session {
+            wasm_helpers::write_session_to_temperfs(
+                ctx,
+                temper_api_url,
+                tenant,
+                fields,
+                session_file_id,
+                &updated_jsonl,
+            )?;
+        } else {
+            write_temperfs_file(ctx, temper_api_url, tenant, session_file_id, &updated_jsonl)?;
+        }
 
         params["pending_tool_calls"] = json!(compact_tool_results_marker(tool_results));
         params["session_leaf_id"] = json!(new_leaf);

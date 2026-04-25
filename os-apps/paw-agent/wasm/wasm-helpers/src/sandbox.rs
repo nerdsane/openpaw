@@ -5,7 +5,7 @@
 //! entity field → config → error. No dynamic dispatch (`dyn Trait`),
 //! WASM-compatible throughout.
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::path::Path;
 use temper_wasm_sdk::context::Context;
 
