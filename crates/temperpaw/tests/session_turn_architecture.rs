@@ -85,6 +85,18 @@ fn route_message_carries_context_cache_fields_to_continuations() {
 }
 
 #[test]
+fn route_message_records_immediate_parent_session_on_continuation() {
+    let source =
+        fs::read_to_string(repo_root().join("os-apps/paw-channels/wasm/route_message/src/lib.rs"))
+            .expect("route_message source should exist");
+
+    assert!(
+        source.contains("\"parent_session_id\": prior_session_id,"),
+        "continuation Configure body should record the immediate prior Session as parent_session_id"
+    );
+}
+
+#[test]
 fn session_policy_authorizes_new_pipeline_callbacks_and_modules() {
     let policy = fs::read_to_string(repo_root().join("os-apps/paw-agent/policies/session.cedar"))
         .expect("session.cedar should exist");
