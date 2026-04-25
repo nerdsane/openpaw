@@ -45,6 +45,8 @@ WASM modules (`llm_caller`, `context_compactor`) receive all provider API keys v
 [integration.config]
 api_key = "{secret:anthropic_api_key}"
 anthropic_api_key = "{secret:anthropic_api_key}"
+openai_codex_access_token = "{secret:openai_codex_access_token}"
+openai_codex_account_id = "{secret:openai_codex_account_id}"
 openai_codex_token = "{secret:openai_codex_token}"
 openrouter_api_key = "{secret:openrouter_api_key}"
 ```
@@ -66,9 +68,13 @@ Each WASM module selects the correct API endpoint based on the resolved provider
 |-------------|---------------------------------------------------|
 | `anthropic` | `https://api.anthropic.com/v1/messages`           |
 | `openai`    | `https://api.openai.com/v1/responses`             |
+| `openai_codex` | `https://chatgpt.com/backend-api/codex/responses` |
 | `openrouter`| `https://openrouter.ai/api/v1/chat/completions`  |
 
 The endpoint URL is not configurable per-entity; it is derived from the provider name. This prevents mismatches between provider and endpoint.
+
+`openai_codex` is a ChatGPT/Codex subscription route, not a public OpenAI
+Platform API route. See ADR-0044.
 
 ### 5. Startup seeding
 

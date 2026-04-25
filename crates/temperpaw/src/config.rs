@@ -42,7 +42,7 @@ pub struct Config {
     /// OpenAI API key for standard API usage (sk-... from platform.openai.com/api-keys).
     pub openai_api_key: Option<String>,
 
-    /// OpenAI Codex OAuth token (JWT from ~/.codex/auth.json or OPENAI_CODEX_TOKEN env).
+    /// Legacy OpenAI Codex OAuth token fallback. Prefer dashboard device-code login.
     pub openai_codex_token: Option<String>,
 
     /// LLM provider name: "anthropic", "openrouter", or "openai-codex".

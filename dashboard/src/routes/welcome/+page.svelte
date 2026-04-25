@@ -42,7 +42,6 @@
   const providerKeyMap: Record<string, string> = {
     anthropic: 'anthropic_api_key',
     openai: 'openai_api_key',
-    openai_codex: 'openai_codex_token',
     openrouter: 'openrouter_api_key',
   };
 
@@ -84,6 +83,11 @@
   });
 
   async function saveLlmKey() {
+    if (llmProvider === 'openai_codex') {
+      await saveSecret('llm_provider', llmProvider);
+      keyError = 'Use Settings to sign in with OpenAI Codex.';
+      return;
+    }
     const key = llmKey.trim();
     if (!key) return;
     savingKey = true;
@@ -215,12 +219,18 @@
               <button class="tab" class:tab-active={llmProvider === 'openai_codex'} onclick={() => llmProvider = 'openai_codex'} type="button">Codex</button>
               <button class="tab" class:tab-active={llmProvider === 'openrouter'} onclick={() => llmProvider = 'openrouter'} type="button">OpenRouter</button>
             </div>
-            <div class="input-row">
-              <input type="password" bind:value={llmKey} placeholder="API key or token" disabled={savingKey} />
-              <button class="btn" type="submit" disabled={!llmKey.trim() || savingKey}>
-                {savingKey ? '...' : 'Save'}
-              </button>
-            </div>
+            {#if llmProvider === 'openai_codex'}
+              <div class="input-row">
+                <a class="btn" href="{base}/settings">Open Codex sign in</a>
+              </div>
+            {:else}
+              <div class="input-row">
+                <input type="password" bind:value={llmKey} placeholder="API key" disabled={savingKey} />
+                <button class="btn" type="submit" disabled={!llmKey.trim() || savingKey}>
+                  {savingKey ? '...' : 'Save'}
+                </button>
+              </div>
+            {/if}
             {#if keyError}
               <p class="err">{keyError}</p>
             {/if}

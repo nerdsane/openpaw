@@ -10,9 +10,20 @@
 //!
 //! Build: `cargo build --target wasm32-unknown-unknown --release`
 
-use session_turn_artifacts::{PreparedContextArtifact, ProviderResponseArtifact, build_provider_response_ready_params};
+#[cfg(test)]
+use openai_codex_wire::base64_url_no_pad;
+use openai_codex_wire::{
+    build_openai_headers, extract_chatgpt_account_id_from_jwt, select_openai_responses_url,
+};
+use session_turn_artifacts::{
+    PreparedContextArtifact, ProviderResponseArtifact, build_provider_response_ready_params,
+};
 use temper_wasm_sdk::prelude::*;
-use wasm_helpers::{create_content_file, read_content_file, resolve_temper_api_url, runtime_headers, runtime_headers_as, send_typing_indicator, timestamp_millis_string, write_temperfs_value_with_retry};
+use wasm_helpers::{
+    create_content_file, read_content_file, resolve_temper_api_url, runtime_headers,
+    runtime_headers_as, send_typing_indicator, timestamp_millis_string,
+    write_temperfs_value_with_retry,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ProviderProgressBoundary {
@@ -83,7 +94,10 @@ fn resolve_provider_api_key(ctx: &Context, provider: &str) -> Result<String, Str
             ctx.config.get("openai_api_key").cloned(),
             ctx.config.get("api_key").cloned(),
         ]),
-        "openai_codex" => first_non_empty(&[ctx.config.get("openai_codex_token").cloned()]),
+        "openai_codex" => first_non_empty(&[
+            ctx.config.get("openai_codex_access_token").cloned(),
+            ctx.config.get("openai_codex_token").cloned(),
+        ]),
         "openrouter" => first_non_empty(&[
             ctx.config.get("openrouter_api_key").cloned(),
             ctx.config.get("api_key").cloned(),
@@ -1019,6 +1033,7 @@ fn call_openai(
     ctx: &Context,
     api_key: &str,
     api_url: &str,
+    codex_account_id: Option<&str>,
     model: &str,
     system_prompt: &str,
     messages: &[Value],
@@ -1206,10 +1221,7 @@ fn call_openai(
     let body_str =
         serde_json::to_string(&body).map_err(|e| format!("JSON serialize error: {e}"))?;
 
-    let headers = vec![
-        ("authorization".to_string(), format!("Bearer {api_key}")),
-        ("content-type".to_string(), "application/json".to_string()),
-    ];
+    let headers = build_openai_headers(provider, api_key, codex_account_id);
 
     // Log input types for debugging conversation format issues
     let input_types: Vec<String> = input
@@ -1977,11 +1989,22 @@ pub fn run_provider_caller() -> Result<(), String> {
         .get("openrouter_api_url")
         .cloned()
         .unwrap_or_else(|| "https://openrouter.ai/api/v1/chat/completions".to_string());
-    let openai_api_url = ctx
-        .config
-        .get("openai_api_url")
-        .cloned()
-        .unwrap_or_else(|| "https://chatgpt.com/backend-api/codex/responses".to_string());
+    let openai_api_url = select_openai_responses_url(&ctx.config, &provider);
+    let openai_codex_account_id = if provider == "openai_codex" {
+        ctx.config
+            .get("openai_codex_account_id")
+            .filter(|value| !value.trim().is_empty() && !is_unresolved_secret_template(value))
+            .cloned()
+            .or_else(|| extract_chatgpt_account_id_from_jwt(&api_key))
+    } else {
+        None
+    };
+    if provider == "openai_codex" && openai_codex_account_id.is_none() {
+        return Err(
+            "openai_codex requires openai_codex_account_id or a ChatGPT OAuth token containing chatgpt_account_id"
+                .to_string(),
+        );
+    }
     let anthropic_auth_mode = ctx
         .config
         .get("anthropic_auth_mode")
@@ -2053,6 +2076,7 @@ pub fn run_provider_caller() -> Result<(), String> {
                 &ctx,
                 &api_key,
                 &openai_api_url,
+                openai_codex_account_id.as_deref(),
                 &model,
                 &prepared.system_prompt,
                 &prepared.messages,
@@ -2225,7 +2249,10 @@ mod tests {
         assert_eq!(result, Ok(42));
         assert_eq!(
             events,
-            vec![ProviderProgressBoundary::Start, ProviderProgressBoundary::End]
+            vec![
+                ProviderProgressBoundary::Start,
+                ProviderProgressBoundary::End
+            ]
         );
     }
 
@@ -2241,7 +2268,10 @@ mod tests {
         assert_eq!(result, Err("provider failed".to_string()));
         assert_eq!(
             events,
-            vec![ProviderProgressBoundary::Start, ProviderProgressBoundary::End]
+            vec![
+                ProviderProgressBoundary::Start,
+                ProviderProgressBoundary::End
+            ]
         );
     }
 
@@ -2349,5 +2379,63 @@ mod tests {
     fn gen_ai_usage_log_includes_human_prefix() {
         let msg = format_gen_ai_usage_log("openrouter", "anthropic/claude-sonnet-4.6", 0, 0, 0, 0);
         assert!(msg.starts_with("session_turn: usage "));
+    }
+
+    #[test]
+    fn openai_codex_uses_subscription_endpoint_not_public_responses_api() {
+        let mut config = std::collections::BTreeMap::new();
+        config.insert(
+            "openai_api_url".to_string(),
+            "https://api.openai.com/v1/responses".to_string(),
+        );
+        config.insert(
+            "openai_codex_api_url".to_string(),
+            "https://chatgpt.com/backend-api/codex/responses".to_string(),
+        );
+
+        assert_eq!(
+            select_openai_responses_url(&config, "openai"),
+            "https://api.openai.com/v1/responses"
+        );
+        assert_eq!(
+            select_openai_responses_url(&config, "openai_codex"),
+            "https://chatgpt.com/backend-api/codex/responses"
+        );
+    }
+
+    #[test]
+    fn openai_codex_headers_include_chatgpt_account_and_sse_contract() {
+        let headers = build_openai_headers("openai_codex", "access-token", Some("acct_123"));
+
+        assert!(headers.contains(&(
+            "authorization".to_string(),
+            "Bearer access-token".to_string()
+        )));
+        assert!(headers.contains(&("chatgpt-account-id".to_string(), "acct_123".to_string())));
+        assert!(headers.contains(&(
+            "OpenAI-Beta".to_string(),
+            "responses=experimental".to_string()
+        )));
+        assert!(headers.contains(&("accept".to_string(), "text/event-stream".to_string())));
+    }
+
+    #[test]
+    fn public_openai_headers_do_not_include_codex_subscription_headers() {
+        let headers = build_openai_headers("openai", "sk-test", Some("acct_123"));
+
+        assert!(!headers.iter().any(|(name, _)| name == "chatgpt-account-id"));
+        assert!(!headers.iter().any(|(name, _)| name == "OpenAI-Beta"));
+        assert!(headers.contains(&("authorization".to_string(), "Bearer sk-test".to_string())));
+    }
+
+    #[test]
+    fn chatgpt_account_id_is_extracted_from_codex_jwt() {
+        let payload = r#"{"https://api.openai.com/auth":{"chatgpt_account_id":"acct_456"}}"#;
+        let token = format!("header.{}.sig", base64_url_no_pad(payload.as_bytes()));
+
+        assert_eq!(
+            extract_chatgpt_account_id_from_jwt(&token).as_deref(),
+            Some("acct_456")
+        );
     }
 }

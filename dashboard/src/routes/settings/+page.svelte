@@ -11,8 +11,13 @@
     disconnectDiscord,
     connectSlack,
     disconnectSlack,
+    fetchOpenAICodexStatus,
+    startOpenAICodexDeviceLogin,
+    pollOpenAICodexDeviceLogin,
+    disconnectOpenAICodexAuth,
     type SecretSchemaEntry,
     type SetupStatus,
+    type OpenAICodexAuthStatus,
   } from '$lib/api';
   import { changePassword } from '$lib/auth';
 
@@ -43,6 +48,8 @@
   // Service connect states
   let connectingDiscord = $state(false);
   let connectingSlack = $state(false);
+  let connectingCodex = $state(false);
+  let codexStatus = $state<OpenAICodexAuthStatus | null>(null);
 
   // Account
   let apiKey = $state('');
@@ -53,7 +60,7 @@
 
   // Keys that should be masked (actual secrets). Non-secret config values show plain.
   const SENSITIVE_KEYS = new Set([
-    'anthropic_api_key', 'openai_api_key', 'openai_codex_token', 'openrouter_api_key',
+    'anthropic_api_key', 'openai_api_key', 'openai_codex_access_token', 'openai_codex_refresh_token', 'openai_codex_token', 'openrouter_api_key',
     'discord_bot_token', 'slack_app_token', 'slack_bot_token', 'slack_signing_secret',
     'github_token', 'exa_api_key', 'tensorlake_api_key', 'modal_token_id', 'modal_token_secret', 'dd_api_key', 'dd_app_key', 'temper_api_key',
   ]);
@@ -90,6 +97,7 @@
         getSecret('temper_api_key'),
       ]);
       status = nextStatus;
+      codexStatus = await fetchOpenAICodexStatus().catch(() => null);
       apiKey = savedApiKey ?? '';
 
       const schemaKeys = new Set(schema.map(s => s.key));
@@ -314,6 +322,44 @@
     } finally { connectingSlack = false; }
   }
 
+  async function handleStartCodexLogin() {
+    connectingCodex = true;
+    feedback = null;
+    try {
+      codexStatus = await startOpenAICodexDeviceLogin();
+      showFeedback('success', 'OpenAI Codex device login started');
+    } catch (err) {
+      showFeedback('error', err instanceof Error ? err.message : 'OpenAI Codex login failed');
+    } finally { connectingCodex = false; }
+  }
+
+  async function handlePollCodexLogin() {
+    connectingCodex = true;
+    feedback = null;
+    try {
+      codexStatus = await pollOpenAICodexDeviceLogin();
+      status = await fetchSetupStatus();
+      if (codexStatus.configured) {
+        showFeedback('success', 'OpenAI Codex connected');
+        await load();
+      }
+    } catch (err) {
+      showFeedback('error', err instanceof Error ? err.message : 'OpenAI Codex polling failed');
+    } finally { connectingCodex = false; }
+  }
+
+  async function handleDisconnectCodex() {
+    connectingCodex = true;
+    try {
+      codexStatus = await disconnectOpenAICodexAuth();
+      status = await fetchSetupStatus();
+      await load();
+      showFeedback('success', 'OpenAI Codex disconnected');
+    } catch (err) {
+      showFeedback('error', err instanceof Error ? err.message : 'OpenAI Codex disconnect failed');
+    } finally { connectingCodex = false; }
+  }
+
   async function updatePassword() {
     accountFeedback = null;
     try {
@@ -386,7 +432,30 @@
               {/if}
             </div>
           {/if}
+          {#if group.category === 'llm'}
+            <div class="cat-actions">
+              {#if codexStatus?.configured}
+                <button class="cat-act" onclick={handleDisconnectCodex} disabled={connectingCodex}>
+                  <span class="cat-dot cat-dot--on"></span> Codex <span class="cat-act-label">Disconnect</span>
+                </button>
+              {:else}
+                <button class="cat-act" onclick={handleStartCodexLogin} disabled={connectingCodex}>
+                  <span class="cat-dot"></span> Codex <span class="cat-act-label">Sign in</span>
+                </button>
+              {/if}
+            </div>
+          {/if}
         </div>
+        {#if group.category === 'llm' && codexStatus?.user_code}
+          <div class="cat-hint">
+            <div class="interaction-copy-row">
+              <span class="interaction-copy-label">OpenAI Codex Device Code</span>
+              <button class="act" onclick={handlePollCodexLogin} disabled={connectingCodex}>Check</button>
+            </div>
+            <code class="interaction-url">{codexStatus.user_code}</code>
+            <div><a href={codexStatus.verification_url} target="_blank" rel="noreferrer">{codexStatus.verification_url}</a></div>
+          </div>
+        {/if}
         {#if group.category === 'messaging'}
           <div class="cat-hint">Saving Discord credentials applies them immediately. Use Connect only to retry manually.</div>
         {/if}

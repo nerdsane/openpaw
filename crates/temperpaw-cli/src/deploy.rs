@@ -1651,26 +1651,15 @@ fn collect_provider_key(provider: &str) -> Result<(String, String)> {
             Ok(("openai_api_key".into(), key.trim().to_string()))
         }
         "openai_codex" => {
-            // Check env, then ~/.codex/auth.json
             if let Some(token) = optional_env("OPENAI_CODEX_TOKEN") {
-                cliclack::log::success("Codex token detected from environment")?;
-                return Ok(("openai_codex_token".into(), token));
+                cliclack::log::warning(
+                    "Using legacy OPENAI_CODEX_TOKEN fallback. Prefer dashboard device-code login.",
+                )?;
+                return Ok(("openai_codex_access_token".into(), token));
             }
-            if let Ok(token) = read_codex_token_file() {
-                cliclack::log::success("Codex token detected from ~/.codex/auth.json")?;
-                return Ok(("openai_codex_token".into(), token));
-            }
-            let token: String = cliclack::password("Codex OAuth token")
-                .mask('*')
-                .validate(|input: &String| {
-                    if input.trim().is_empty() {
-                        Err("Required — run `codex login` first, or paste from ~/.codex/auth.json")
-                    } else {
-                        Ok(())
-                    }
-                })
-                .interact()?;
-            Ok(("openai_codex_token".into(), token.trim().to_string()))
+            anyhow::bail!(
+                "OpenAI Codex subscription auth is configured after deploy in the dashboard with device-code login"
+            )
         }
         "openrouter" => {
             if let Some(key) = optional_env("OPENROUTER_API_KEY") {
@@ -1858,21 +1847,6 @@ fn optional_env(name: &str) -> Option<String> {
         .ok()
         .map(|v| v.trim().to_string())
         .filter(|v| !v.is_empty())
-}
-
-/// Read OpenAI Codex OAuth token from ~/.codex/auth.json.
-fn read_codex_token_file() -> Result<String> {
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
-    let auth_path = std::path::Path::new(&home).join(".codex/auth.json");
-    let data = std::fs::read_to_string(&auth_path)
-        .with_context(|| format!("Cannot read {}", auth_path.display()))?;
-    let json: serde_json::Value = serde_json::from_str(&data)?;
-    json.get("tokens")
-        .and_then(|t| t.get("access_token"))
-        .and_then(|v| v.as_str())
-        .filter(|s| !s.is_empty())
-        .map(|s| s.to_string())
-        .context("~/.codex/auth.json missing tokens.access_token")
 }
 
 fn as_str_slice(values: &[String]) -> Vec<&str> {

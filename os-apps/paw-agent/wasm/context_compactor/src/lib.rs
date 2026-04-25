@@ -54,13 +54,14 @@ extern "C" fn host_read_field(
     -1
 }
 
+use openai_codex_wire::{build_openai_headers, extract_chatgpt_account_id_from_jwt};
 use session_tree_lib::SessionTree;
 use std::collections::BTreeSet;
 use temper_wasm_sdk::prelude::*;
 use wasm_helpers::{
-    create_content_file_ref, read_content_file, read_content_file_version, read_session_from_temperfs,
-    read_text_file_versions_batch, read_text_files_batch, resolve_temper_api_url,
-    write_session_to_temperfs,
+    create_content_file_ref, read_content_file, read_content_file_version,
+    read_session_from_temperfs, read_text_file_versions_batch, read_text_files_batch,
+    resolve_temper_api_url, write_session_to_temperfs,
 };
 
 /// Entry point.
@@ -311,9 +312,7 @@ fn resolve_context_refs_for_compaction(
             Err(err) => {
                 ctx.log(
                     "warn",
-                    &format!(
-                        "context_compactor: batch file read unavailable, falling back: {err}"
-                    ),
+                    &format!("context_compactor: batch file read unavailable, falling back: {err}"),
                 );
                 std::collections::BTreeMap::new()
             }
@@ -508,7 +507,10 @@ fn resolve_compaction_provider(
     let provider_keys: &[(&str, &[&str])] = &[
         ("anthropic", &["anthropic_api_key", "api_key"]),
         ("openai", &["openai_api_key"]),
-        ("openai_codex", &["openai_codex_token"]),
+        (
+            "openai_codex",
+            &["openai_codex_access_token", "openai_codex_token"],
+        ),
         ("openrouter", &["openrouter_api_key"]),
         ("mock", &[]),
     ];
@@ -554,10 +556,18 @@ fn call_compaction_llm(
                 "instructions": system_prompt,
                 "input": format!("Summarize this conversation:\n\n{conversation_text}")
             });
-            let headers = vec![
-                ("authorization".to_string(), format!("Bearer {api_key}")),
-                ("content-type".to_string(), "application/json".to_string()),
-            ];
+            let codex_account_id = if provider == "openai_codex" {
+                ctx.config
+                    .get("openai_codex_account_id")
+                    .filter(|value| {
+                        !value.trim().is_empty() && !is_unresolved_secret_template(value)
+                    })
+                    .cloned()
+                    .or_else(|| extract_chatgpt_account_id_from_jwt(api_key))
+            } else {
+                None
+            };
+            let headers = build_openai_headers(provider, api_key, codex_account_id.as_deref());
             let body_str =
                 serde_json::to_string(&body).map_err(|e| format!("JSON serialize error: {e}"))?;
             (
@@ -724,15 +734,13 @@ mod tests {
             },
         ];
 
-        let rendered = render_context_refs_for_compaction(&refs, |ctx_ref| match ctx_ref
-            .entry_id
-            .as_str()
-        {
-            "cmp-1" => Err("blob missing".to_string()),
-            "msg-1" => Ok("{\"type\":\"text\",\"text\":\"hello\"}".to_string()),
-            "steer-1" => Ok(String::new()),
-            other => Err(format!("unexpected context ref: {other}")),
-        });
+        let rendered =
+            render_context_refs_for_compaction(&refs, |ctx_ref| match ctx_ref.entry_id.as_str() {
+                "cmp-1" => Err("blob missing".to_string()),
+                "msg-1" => Ok("{\"type\":\"text\",\"text\":\"hello\"}".to_string()),
+                "steer-1" => Ok(String::new()),
+                other => Err(format!("unexpected context ref: {other}")),
+            });
 
         assert_eq!(rendered.len(), 3);
         assert_eq!(

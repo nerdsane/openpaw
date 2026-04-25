@@ -229,6 +229,16 @@ export interface SecretSchemaEntry {
   description: string;
 }
 
+export interface OpenAICodexAuthStatus {
+  configured: boolean;
+  status?: string;
+  verification_url?: string;
+  user_code?: string;
+  expires_at_ms?: string;
+  account_id?: string;
+  last_error?: string;
+}
+
 export async function fetchSecretsSchema(): Promise<SecretSchemaEntry[]> {
   const res = await apiFetch(`${BASE}/paw/setup/secrets/schema`);
   if (!res.ok) return [];
@@ -238,6 +248,39 @@ export async function fetchSecretsSchema(): Promise<SecretSchemaEntry[]> {
 export async function fetchSetupStatus(): Promise<SetupStatus> {
   const res = await apiFetch(`${BASE}/paw/setup/status`);
   if (!res.ok) throw new Error(`Setup status failed: ${res.status}`);
+  return res.json();
+}
+
+export async function fetchOpenAICodexStatus(): Promise<OpenAICodexAuthStatus> {
+  const res = await apiFetch(`${BASE}/paw/setup/openai-codex/status`);
+  if (!res.ok) throw new Error(`OpenAI Codex status failed: ${res.status}`);
+  return res.json();
+}
+
+export async function startOpenAICodexDeviceLogin(): Promise<OpenAICodexAuthStatus> {
+  const res = await apiFetch(`${BASE}/paw/setup/openai-codex/device-login`, { method: 'POST' });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `OpenAI Codex device login failed: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function pollOpenAICodexDeviceLogin(): Promise<OpenAICodexAuthStatus> {
+  const res = await apiFetch(`${BASE}/paw/setup/openai-codex/poll`, { method: 'POST' });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `OpenAI Codex poll failed: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function disconnectOpenAICodexAuth(): Promise<OpenAICodexAuthStatus> {
+  const res = await apiFetch(`${BASE}/paw/setup/openai-codex/disconnect`, { method: 'POST' });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `OpenAI Codex disconnect failed: ${res.status}`);
+  }
   return res.json();
 }
 

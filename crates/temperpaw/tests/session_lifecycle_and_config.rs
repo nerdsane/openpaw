@@ -115,6 +115,10 @@ fn session_spec_uses_provider_specific_llm_secrets_and_urls() {
     for needle in [
         "anthropic_api_key = \"{secret:anthropic_api_key}\"",
         "openai_api_key = \"{secret:openai_api_key}\"",
+        "openai_codex_access_token = \"{secret:openai_codex_access_token}\"",
+        "openai_codex_refresh_token = \"{secret:openai_codex_refresh_token}\"",
+        "openai_codex_expires_at_ms = \"{secret:openai_codex_expires_at_ms}\"",
+        "openai_codex_account_id = \"{secret:openai_codex_account_id}\"",
         "openai_codex_token = \"{secret:openai_codex_token}\"",
         "openrouter_api_key = \"{secret:openrouter_api_key}\"",
         "openai_api_url = \"https://api.openai.com/v1/responses\"",
@@ -123,6 +127,43 @@ fn session_spec_uses_provider_specific_llm_secrets_and_urls() {
         assert!(
             spec.contains(needle),
             "session spec should contain {needle}"
+        );
+    }
+}
+
+#[test]
+fn paw_agent_defines_temper_native_openai_codex_auth_entity() {
+    let root = repo_root();
+    let spec = read(root.join("os-apps/paw-agent/specs/openai_codex_auth.ioa.toml"));
+    let model = read(root.join("os-apps/paw-agent/specs/model.csdl.xml"));
+
+    for needle in [
+        "name = \"OpenAICodexAuth\"",
+        "StartDeviceLogin",
+        "PollDeviceLogin",
+        "Refresh",
+        "Disconnect",
+        "module = \"openai_codex_auth\"",
+        "name = \"error_message\"",
+        "state = \"Starting\"",
+        "state = \"Polling\"",
+        "state = \"Refreshing\"",
+        "on_timeout = \"Fail\"",
+    ] {
+        assert!(
+            spec.contains(needle),
+            "OpenAICodexAuth spec should contain {needle}"
+        );
+    }
+
+    for needle in [
+        "<EntityType Name=\"OpenAICodexAuth\">",
+        "<Property Name=\"ErrorMessage\" Type=\"Edm.String\"/>",
+        "<EntitySet Name=\"OpenAICodexAuths\" EntityType=\"TemperPaw.OpenAICodexAuth\"/>",
+    ] {
+        assert!(
+            model.contains(needle),
+            "paw-agent CSDL should expose OpenAICodexAuth through OData: {needle}"
         );
     }
 }

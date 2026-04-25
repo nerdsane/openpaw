@@ -57,6 +57,17 @@ fn session_policy_authorizes_new_pipeline_callbacks_and_modules() {
 }
 
 #[test]
+fn session_policy_authorizes_openai_codex_auth_wasm_boundaries() {
+    let policy = fs::read_to_string(repo_root().join("os-apps/paw-agent/policies/session.cedar"))
+        .expect("session.cedar should exist");
+
+    assert!(
+        policy.matches("\"openai_codex_auth\"").count() >= 2,
+        "openai_codex_auth must be authorized for http_call and access_secret"
+    );
+}
+
+#[test]
 fn dashboard_and_monitors_cover_session_context_metrics() {
     let dashboard = fs::read_to_string(repo_root().join("dd-dashboards/temperpaw-overview.json"))
         .expect("dashboard json should exist");

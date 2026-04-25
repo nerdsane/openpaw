@@ -126,7 +126,7 @@ pub async fn run_setup_config(config: &Config) -> anyhow::Result<SetupResult> {
             .item(
                 "openai_codex",
                 "OpenAI (Codex subscription)",
-                "Included in ChatGPT Plus/Pro · ~/.codex/auth.json",
+                "Included in ChatGPT Plus/Pro · dashboard device-code login",
             )
             .item(
                 "openrouter",
@@ -136,9 +136,9 @@ pub async fn run_setup_config(config: &Config) -> anyhow::Result<SetupResult> {
             .interact()?;
 
         if provider == "openai_codex" {
-            // Read token directly from ~/.codex/auth.json (written by `codex login`)
-            let key = read_codex_token()?;
-            result.api_key = Some(key);
+            cliclack::log::info(
+                "OpenAI Codex subscription auth is configured in the dashboard with device-code login.",
+            )?;
             result.provider = Some(provider.to_string());
         } else {
             let prompt = match provider {
@@ -499,45 +499,6 @@ pub(crate) async fn save_soul_to_temper(
 }
 
 /// Merge Phase A results into config.
-/// Read the OpenAI Codex access token from `~/.codex/auth.json`.
-/// This file is written by `codex login` (part of the OpenAI Codex CLI).
-fn read_codex_token() -> anyhow::Result<String> {
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
-    let auth_path = std::path::Path::new(&home).join(".codex/auth.json");
-
-    if !auth_path.exists() {
-        anyhow::bail!(
-            "~/.codex/auth.json not found.\n\
-             Run \x1b[1mcodex login\x1b[0m first to authenticate with OpenAI."
-        );
-    }
-
-    let data = std::fs::read_to_string(&auth_path)
-        .with_context(|| format!("Failed to read {}", auth_path.display()))?;
-    let json: serde_json::Value = serde_json::from_str(&data)
-        .with_context(|| format!("Failed to parse {}", auth_path.display()))?;
-
-    let token = json
-        .get("tokens")
-        .and_then(|t| t.get("access_token"))
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| {
-            anyhow::anyhow!(
-                "~/.codex/auth.json missing tokens.access_token.\n\
-             Try running \x1b[1mcodex login\x1b[0m again."
-            )
-        })?;
-
-    if token.is_empty() {
-        anyhow::bail!(
-            "~/.codex/auth.json has an empty access token.\n\
-             Try running \x1b[1mcodex login\x1b[0m again."
-        );
-    }
-
-    Ok(token.to_string())
-}
-
 pub fn merge_setup_into_config(config: &mut Config, setup: SetupResult) {
     if let Some(key) = setup.api_key {
         match setup.provider.as_deref() {

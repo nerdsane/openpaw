@@ -33,6 +33,12 @@ use crate::transport_manager::{
 
 const DEFAULT_SETUP_AGENT_TOOLS_ENABLED: &str = "temper_create,temper_get,temper_list,temper_action,temper_patch,temper_submit_specs,temper_show_spec,temper_specs,temper_upload_wasm,temper_get_trajectories,temper_get_insights,temper_get_decisions,temper_poll_decision,temper_approve_decision,temper_deny_decision,temper_submit_policy,temper_list_policies,temper_get_policy,temper_update_policy,temper_delete_policy,temper_install_app,temper_list_apps,temper_spawn_session,temper_list_sessions,temper_abort_session,temper_steer_session,temper_save_memory,temper_recall_memory,temper_write,temper_read,temper_run_coding_agent,temper_get_secret,temper_datadog_query,temper_railway,temper_vercel,temper_web_search,temper_web_fetch,read,write,edit,bash";
 pub(crate) const DISCORD_TRANSPORT_CONNECTION_ID: &str = "transport-discord";
+const OPENAI_CODEX_AUTH_ENTITY_ID: &str = "openai-codex-auth";
+const OPENAI_CODEX_AUTH_ENTITY_TYPE: &str = "OpenAICodexAuth";
+const OPENAI_CODEX_ACCESS_TOKEN: &str = "openai_codex_access_token";
+const OPENAI_CODEX_REFRESH_TOKEN: &str = "openai_codex_refresh_token";
+const OPENAI_CODEX_EXPIRES_AT_MS: &str = "openai_codex_expires_at_ms";
+const OPENAI_CODEX_ACCOUNT_ID: &str = "openai_codex_account_id";
 
 /// Shared state for the setup API.
 #[derive(Clone)]
@@ -52,6 +58,10 @@ fn allowed_secret_keys() -> HashSet<&'static str> {
     [
         "anthropic_api_key",
         "openai_api_key",
+        "openai_codex_access_token",
+        "openai_codex_refresh_token",
+        "openai_codex_expires_at_ms",
+        "openai_codex_account_id",
         "openai_codex_token",
         "openrouter_api_key",
         "discord_bot_token",
@@ -110,11 +120,11 @@ fn secrets_schema() -> Vec<SecretSchema> {
             description: "GPT models — platform.openai.com/api-keys",
         },
         SecretSchema {
-            key: "openai_codex_token",
+            key: "openai_codex_access_token",
             category: "llm",
-            label: "OpenAI Codex Token",
+            label: "OpenAI Codex Access Token",
             required: false,
-            description: "OAuth token from codex login (~/.codex/auth.json)",
+            description: "OpenPaw-managed ChatGPT/Codex subscription OAuth access token",
         },
         SecretSchema {
             key: "openrouter_api_key",
@@ -250,6 +260,26 @@ pub fn router(state: SetupApiState) -> Router {
         .route("/paw/setup/secrets", post(upsert_secret))
         .route("/paw/setup/secrets/{key}", get(get_secret))
         .route("/paw/setup/secrets/{key}", delete(delete_secret))
+        .route(
+            "/paw/setup/openai-codex/status",
+            get(get_openai_codex_status),
+        )
+        .route(
+            "/paw/setup/openai-codex/device-login",
+            post(start_openai_codex_device_login),
+        )
+        .route(
+            "/paw/setup/openai-codex/poll",
+            post(poll_openai_codex_device_login),
+        )
+        .route(
+            "/paw/setup/openai-codex/refresh",
+            post(refresh_openai_codex_auth),
+        )
+        .route(
+            "/paw/setup/openai-codex/disconnect",
+            post(disconnect_openai_codex_auth),
+        )
         .route("/paw/setup/soul", get(get_current_soul))
         .route("/paw/setup/soul/generate", post(generate_soul_preview))
         .route("/paw/setup/soul/save", post(save_soul))
@@ -290,6 +320,17 @@ struct SetupStatus {
     discord_connected: bool,
     slack_connected: bool,
     discord_interaction_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct OpenAICodexAuthStatus {
+    configured: bool,
+    status: Option<String>,
+    verification_url: Option<String>,
+    user_code: Option<String>,
+    expires_at_ms: Option<String>,
+    account_id: Option<String>,
+    last_error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -398,6 +439,123 @@ fn transport_status_report_with_connection(
     }
 
     report
+}
+
+fn openai_codex_configured(state: &SetupApiState) -> bool {
+    let Some(vault) = state.platform.server.secrets_vault.as_ref() else {
+        return false;
+    };
+    [
+        OPENAI_CODEX_ACCESS_TOKEN,
+        OPENAI_CODEX_REFRESH_TOKEN,
+        OPENAI_CODEX_EXPIRES_AT_MS,
+        OPENAI_CODEX_ACCOUNT_ID,
+    ]
+    .iter()
+    .all(|key| secret_is_configured(vault.get_secret(&state.tenant, key)))
+}
+
+async fn openai_codex_auth_snapshot(state: &SetupApiState) -> Option<TransportConnectionSnapshot> {
+    let tenant_id = TenantId::new(&state.tenant);
+    if !state.platform.server.entity_exists(
+        &tenant_id,
+        OPENAI_CODEX_AUTH_ENTITY_TYPE,
+        OPENAI_CODEX_AUTH_ENTITY_ID,
+    ) {
+        return None;
+    }
+
+    state
+        .platform
+        .server
+        .get_tenant_entity_state(
+            &tenant_id,
+            OPENAI_CODEX_AUTH_ENTITY_TYPE,
+            OPENAI_CODEX_AUTH_ENTITY_ID,
+        )
+        .await
+        .ok()
+        .map(|response| TransportConnectionSnapshot {
+            status: response.state.status,
+            fields: response.state.fields,
+            counters: response.state.counters,
+        })
+}
+
+fn openai_codex_status_from_snapshot(
+    configured: bool,
+    snapshot: Option<TransportConnectionSnapshot>,
+) -> OpenAICodexAuthStatus {
+    let Some(snapshot) = snapshot else {
+        return OpenAICodexAuthStatus {
+            configured,
+            status: None,
+            verification_url: None,
+            user_code: None,
+            expires_at_ms: None,
+            account_id: None,
+            last_error: None,
+        };
+    };
+    OpenAICodexAuthStatus {
+        configured,
+        status: Some(snapshot.status),
+        verification_url: field_str(&snapshot.fields, &["verification_url", "VerificationUrl"])
+            .map(str::to_string),
+        user_code: field_str(&snapshot.fields, &["user_code", "UserCode"]).map(str::to_string),
+        expires_at_ms: field_str(&snapshot.fields, &["expires_at_ms", "ExpiresAtMs"])
+            .map(str::to_string),
+        account_id: field_str(&snapshot.fields, &["account_id", "AccountId"]).map(str::to_string),
+        last_error: field_str(
+            &snapshot.fields,
+            &["last_error", "LastError", "error_message", "ErrorMessage"],
+        )
+        .map(str::to_string),
+    }
+}
+
+async fn ensure_openai_codex_auth_entity(state: &SetupApiState) -> Result<()> {
+    let tenant_id = TenantId::new(&state.tenant);
+    state
+        .platform
+        .server
+        .get_or_create_tenant_entity(
+            &tenant_id,
+            OPENAI_CODEX_AUTH_ENTITY_TYPE,
+            OPENAI_CODEX_AUTH_ENTITY_ID,
+            serde_json::json!({ "id": OPENAI_CODEX_AUTH_ENTITY_ID }),
+        )
+        .await
+        .map_err(|error| anyhow!("create OpenAICodexAuth failed: {error}"))?;
+    Ok(())
+}
+
+async fn dispatch_openai_codex_auth_action(
+    state: &SetupApiState,
+    action: &str,
+) -> Result<OpenAICodexAuthStatus> {
+    ensure_openai_codex_auth_entity(state).await?;
+    let tenant_id = TenantId::new(&state.tenant);
+    let system = AgentContext::system();
+    state
+        .platform
+        .server
+        .dispatch_tenant_action(
+            &tenant_id,
+            OPENAI_CODEX_AUTH_ENTITY_TYPE,
+            OPENAI_CODEX_AUTH_ENTITY_ID,
+            action,
+            serde_json::json!({}),
+            &system,
+        )
+        .await
+        .map_err(|error| anyhow!("OpenAICodexAuth.{action} failed: {error}"))?;
+
+    let snapshot = openai_codex_auth_snapshot(state).await;
+    Ok(openai_codex_status_from_snapshot(
+        openai_codex_configured(state),
+        snapshot,
+    ))
 }
 
 fn discord_readyz_response(
@@ -574,6 +732,7 @@ async fn get_setup_status(State(state): State<SetupApiState>) -> Json<SetupStatu
         .and_then(|v| {
             v.get_secret(&state.tenant, "anthropic_api_key")
                 .or_else(|| v.get_secret(&state.tenant, "openai_api_key"))
+                .or_else(|| v.get_secret(&state.tenant, OPENAI_CODEX_ACCESS_TOKEN))
                 .or_else(|| v.get_secret(&state.tenant, "openai_codex_token"))
                 .or_else(|| v.get_secret(&state.tenant, "openrouter_api_key"))
         })
@@ -718,6 +877,56 @@ async fn get_secret(
         None => (
             StatusCode::NOT_FOUND,
             Json(serde_json::json!({ "error": "Secret not found" })),
+        ),
+    }
+}
+
+async fn get_openai_codex_status(
+    State(state): State<SetupApiState>,
+) -> Json<OpenAICodexAuthStatus> {
+    let snapshot = openai_codex_auth_snapshot(&state).await;
+    Json(openai_codex_status_from_snapshot(
+        openai_codex_configured(&state),
+        snapshot,
+    ))
+}
+
+async fn start_openai_codex_device_login(State(state): State<SetupApiState>) -> impl IntoResponse {
+    match dispatch_openai_codex_auth_action(&state, "StartDeviceLogin").await {
+        Ok(status) => (StatusCode::OK, Json(serde_json::json!(status))),
+        Err(error) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": error.to_string() })),
+        ),
+    }
+}
+
+async fn poll_openai_codex_device_login(State(state): State<SetupApiState>) -> impl IntoResponse {
+    match dispatch_openai_codex_auth_action(&state, "PollDeviceLogin").await {
+        Ok(status) => (StatusCode::OK, Json(serde_json::json!(status))),
+        Err(error) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": error.to_string() })),
+        ),
+    }
+}
+
+async fn refresh_openai_codex_auth(State(state): State<SetupApiState>) -> impl IntoResponse {
+    match dispatch_openai_codex_auth_action(&state, "Refresh").await {
+        Ok(status) => (StatusCode::OK, Json(serde_json::json!(status))),
+        Err(error) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": error.to_string() })),
+        ),
+    }
+}
+
+async fn disconnect_openai_codex_auth(State(state): State<SetupApiState>) -> impl IntoResponse {
+    match dispatch_openai_codex_auth_action(&state, "Disconnect").await {
+        Ok(status) => (StatusCode::OK, Json(serde_json::json!(status))),
+        Err(error) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": error.to_string() })),
         ),
     }
 }
@@ -982,6 +1191,7 @@ async fn resolve_llm_provider(state: &SetupApiState) -> Result<LlmProvider> {
         "anthropic_api_key",
         "openrouter_api_key",
         "openai_api_key",
+        OPENAI_CODEX_ACCESS_TOKEN,
         "openai_codex_token",
     ]
     .into_iter()
@@ -2333,5 +2543,33 @@ mod tests {
                 .any(|secret| secret.key == "modal_bridge_url"),
             "modal_bridge_url should be provisioned by deploy, not shown in the dashboard schema"
         );
+    }
+
+    #[test]
+    fn openai_codex_canonical_secret_keys_are_allowed() {
+        let allowed = allowed_secret_keys();
+        for key in [
+            "openai_codex_access_token",
+            "openai_codex_refresh_token",
+            "openai_codex_expires_at_ms",
+            "openai_codex_account_id",
+        ] {
+            assert!(
+                allowed.contains(key),
+                "{key} must be settable by Codex auth flow"
+            );
+        }
+    }
+
+    #[test]
+    fn openai_codex_secret_schema_points_to_managed_oauth_not_codex_cli_import() {
+        let codex = secrets_schema()
+            .into_iter()
+            .find(|secret| secret.key == "openai_codex_access_token")
+            .expect("canonical Codex access token schema");
+
+        assert_eq!(codex.label, "OpenAI Codex Access Token");
+        assert!(codex.description.contains("OpenPaw-managed"));
+        assert!(!codex.description.contains("~/.codex"));
     }
 }
