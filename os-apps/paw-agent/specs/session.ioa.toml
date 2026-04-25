@@ -529,6 +529,7 @@ on_failure = "Fail"
 temper_api_url = "{secret:temper_api_url}"
 max_live_context_bytes = "50331648"
 max_memory = "268435456"
+context_prepare_budget_ms = "120000"
 
 
 [[action]]
@@ -625,6 +626,7 @@ temper_api_url = "{secret:temper_api_url}"
 timeout_secs = "600"
 max_response_bytes = "4194304"
 max_memory = "268435456"
+provider_caller_budget_ms = "600000"
 
 
 [[action]]
@@ -648,6 +650,7 @@ on_failure = "Fail"
 [action.triggers.config]
 temper_api_url = "{secret:temper_api_url}"
 max_memory = "134217728"
+provider_response_apply_budget_ms = "30000"
 
 
 [[action]]

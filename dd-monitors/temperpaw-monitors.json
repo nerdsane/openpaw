@@ -698,5 +698,39 @@
       "notify_no_data": false,
       "renotify_interval": 60
     }
+  },
+  {
+    "name": "[OpenPaw] Session Phase Budget Exceeded",
+    "type": "metric alert",
+    "query": "sum(last_15m):sum:temper_session_phase_budget_exceeded_total{service:openpaw}.as_count() >= 1",
+    "message": "A fresh agent session phase exceeded its local budget before the state timeout fired. Inspect `phase` and `last_step` tags, then open the corresponding trace for the session.\n\n@slack-openpaw-alerts",
+    "tags": [
+      "team:openpaw",
+      "severity:high"
+    ],
+    "options": {
+      "thresholds": {
+        "critical": 1
+      },
+      "notify_no_data": false,
+      "renotify_interval": 60
+    }
+  },
+  {
+    "name": "[Temper] Query Projection Update Errors",
+    "type": "metric alert",
+    "query": "sum(last_15m):sum:temper_query_projection_update_error_total{service:openpaw}.as_count() >= 1",
+    "message": "Background query-plane projection maintenance failed. Entity transitions are no longer blocked by projection writes, so this monitor is the safety rail for projection lag or data-plane errors.\n\n@slack-openpaw-alerts",
+    "tags": [
+      "team:openpaw",
+      "severity:medium"
+    ],
+    "options": {
+      "thresholds": {
+        "critical": 1
+      },
+      "notify_no_data": false,
+      "renotify_interval": 120
+    }
   }
 ]

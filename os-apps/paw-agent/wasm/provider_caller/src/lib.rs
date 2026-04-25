@@ -14,6 +14,8 @@ use session_turn_artifacts::{PreparedContextArtifact, ProviderResponseArtifact, 
 use temper_wasm_sdk::prelude::*;
 use wasm_helpers::{create_content_file, read_content_file, resolve_temper_api_url, runtime_headers, runtime_headers_as, send_typing_indicator, timestamp_millis_string, write_temperfs_value_with_retry};
 
+const DEFAULT_PROVIDER_CALLER_BUDGET_MS: i64 = 600_000;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ProviderProgressBoundary {
     Start,
@@ -1931,6 +1933,7 @@ fn convert_tools_to_openrouter(tools: &[Value]) -> Vec<Value> {
 /// code using `temper.*` and `sandbox.*` objects. The method listing is
 /// inline in the tool description so agents see it immediately.
 pub fn run_provider_caller() -> Result<(), String> {
+    let started_at = Context::get_time_millis();
     let ctx = Context::from_host()?;
     ctx.log("info", "provider_caller: starting");
 
@@ -1948,12 +1951,38 @@ pub fn run_provider_caller() -> Result<(), String> {
     }
     let temper_api_url = resolve_temper_api_url(&ctx, &fields);
     let tenant = &ctx.tenant;
-    let prepared = read_prepared_context_artifact(
+    let provider_caller_budget_ms = configured_budget_ms(
+        &ctx,
+        &fields,
+        "provider_caller_budget_ms",
+        DEFAULT_PROVIDER_CALLER_BUDGET_MS,
+    );
+    let read_started_at = Context::get_time_millis();
+    let prepared_result = read_prepared_context_artifact(
         &ctx,
         &temper_api_url,
         tenant,
         &fields,
         prepared_context_file_id,
+    );
+    emit_phase_step_duration(
+        &ctx,
+        "provider_caller",
+        "read_prepared_artifact",
+        read_started_at,
+        if prepared_result.is_ok() {
+            "ok"
+        } else {
+            "error"
+        },
+    );
+    let prepared = prepared_result?;
+    check_phase_budget(
+        &ctx,
+        "provider_caller",
+        started_at,
+        provider_caller_budget_ms,
+        "read_prepared_artifact",
     )?;
     let provider_raw = fields
         .get("provider")
@@ -2009,7 +2038,8 @@ pub fn run_provider_caller() -> Result<(), String> {
         .unwrap_or(&ctx.entity_id);
     send_typing_indicator(&ctx, &temper_api_url, tenant, typing_agent_id);
 
-    let response = run_with_provider_progress(
+    let provider_call_started_at = Context::get_time_millis();
+    let response_result = run_with_provider_progress(
         |boundary| {
             ctx.log(
                 "debug",
@@ -2062,6 +2092,25 @@ pub fn run_provider_caller() -> Result<(), String> {
             ),
             other => Err(format!("unsupported LLM provider: {other}")),
         },
+    );
+    emit_phase_step_duration(
+        &ctx,
+        "provider_caller",
+        "provider_http",
+        provider_call_started_at,
+        if response_result.is_ok() {
+            "ok"
+        } else {
+            "error"
+        },
+    );
+    let response = response_result?;
+    check_phase_budget(
+        &ctx,
+        "provider_caller",
+        started_at,
+        provider_caller_budget_ms,
+        "provider_http",
     )?;
 
     let metric_tags = session_metric_tags(&provider, &model);
@@ -2095,7 +2144,8 @@ pub fn run_provider_caller() -> Result<(), String> {
     };
     let artifact_json = serde_json::to_string(&artifact)
         .map_err(|e| format!("provider response artifact serialize: {e}"))?;
-    let provider_response_file_id = upsert_artifact_file(
+    let write_started_at = Context::get_time_millis();
+    let write_result = upsert_artifact_file(
         &ctx,
         &fields,
         &temper_api_url,
@@ -2108,11 +2158,32 @@ pub fn run_provider_caller() -> Result<(), String> {
         "session-provider-response.json",
         &artifact_json,
         "application/json",
+    );
+    emit_phase_step_duration(
+        &ctx,
+        "provider_caller",
+        "write_provider_response_artifact",
+        write_started_at,
+        if write_result.is_ok() { "ok" } else { "error" },
+    );
+    let provider_response_file_id = write_result?;
+    check_phase_budget(
+        &ctx,
+        "provider_caller",
+        started_at,
+        provider_caller_budget_ms,
+        "write_provider_response_artifact",
     )?;
 
     let params =
         build_provider_response_ready_params(&provider_response_file_id, &prepared, &artifact);
     set_success_result("ProviderResponseReady", &params);
+    emit_phase_total_duration(
+        &ctx,
+        "provider_caller",
+        started_at,
+        "provider_response_ready",
+    );
     Ok(())
 }
 
@@ -2210,6 +2281,88 @@ fn session_metric_tags(provider: &str, model: &str) -> Value {
 
 fn emit_metric_ignore(ctx: &Context, name: &str, value: f64, tags: &Value, kind: Option<&str>) {
     let _ = ctx.emit_metric(name, value, tags, kind);
+}
+
+fn elapsed_ms_since(started_at: i64) -> i64 {
+    Context::get_time_millis().saturating_sub(started_at)
+}
+
+fn configured_budget_ms(ctx: &Context, fields: &Value, key: &str, default_value: i64) -> i64 {
+    fields
+        .get(key)
+        .and_then(|v| v.as_str())
+        .and_then(|s| s.parse::<i64>().ok())
+        .or_else(|| ctx.config.get(key).and_then(|s| s.parse::<i64>().ok()))
+        .filter(|value| *value > 0)
+        .unwrap_or(default_value)
+}
+
+fn emit_phase_step_duration(
+    ctx: &Context,
+    phase: &str,
+    step: &str,
+    started_at: i64,
+    result: &str,
+) -> i64 {
+    let elapsed_ms = elapsed_ms_since(started_at);
+    emit_metric_ignore(
+        ctx,
+        "temper_session_phase_step_duration_ms",
+        elapsed_ms as f64,
+        &json!({
+            "phase": phase,
+            "step": step,
+            "result": result,
+        }),
+        Some("histogram"),
+    );
+    ctx.log(
+        "info",
+        &format!("session_phase phase={phase} step={step} result={result} elapsed_ms={elapsed_ms}"),
+    );
+    elapsed_ms
+}
+
+fn emit_phase_total_duration(ctx: &Context, phase: &str, started_at: i64, result: &str) -> i64 {
+    let elapsed_ms = elapsed_ms_since(started_at);
+    emit_metric_ignore(
+        ctx,
+        "temper_session_phase_duration_ms",
+        elapsed_ms as f64,
+        &json!({
+            "phase": phase,
+            "result": result,
+        }),
+        Some("histogram"),
+    );
+    elapsed_ms
+}
+
+fn check_phase_budget(
+    ctx: &Context,
+    phase: &str,
+    started_at: i64,
+    budget_ms: i64,
+    last_step: &str,
+) -> Result<(), String> {
+    let elapsed_ms = elapsed_ms_since(started_at);
+    if elapsed_ms <= budget_ms {
+        return Ok(());
+    }
+
+    emit_metric_ignore(
+        ctx,
+        "temper_session_phase_budget_exceeded_total",
+        1.0,
+        &json!({
+            "phase": phase,
+            "last_step": last_step,
+        }),
+        Some("count"),
+    );
+    Err(format!(
+        "{phase}: exceeded local budget after {last_step} (elapsed_ms={elapsed_ms}, budget_ms={budget_ms})"
+    ))
 }
 
 #[cfg(test)]

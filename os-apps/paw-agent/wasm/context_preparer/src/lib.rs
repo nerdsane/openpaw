@@ -21,6 +21,8 @@ use wasm_helpers::{
     runtime_headers_as, timestamp_millis_string, write_temperfs_value_with_retry,
 };
 
+const DEFAULT_CONTEXT_PREPARE_BUDGET_MS: i64 = 120_000;
+
 #[unsafe(no_mangle)]
 pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
     if let Err(err) = run_context_preparer() {
@@ -660,6 +662,12 @@ pub fn run_context_preparer() -> Result<(), String> {
                 .and_then(|s| s.parse().ok())
         })
         .unwrap_or(48 * 1024 * 1024);
+    let context_prepare_budget_ms = configured_budget_ms(
+        &ctx,
+        &fields,
+        "context_prepare_budget_ms",
+        DEFAULT_CONTEXT_PREPARE_BUDGET_MS,
+    );
     let use_session_tree = !session_file_id.is_empty() && !session_leaf_id.is_empty();
     let prune_after_turns: usize = fields
         .get("prune_tool_results_after_turns")
@@ -678,20 +686,35 @@ pub fn run_context_preparer() -> Result<(), String> {
             )
         });
 
-    let (mut messages, session_tree, entries_loaded, content_files_loaded) =
-        load_messages_for_prepare(
-            &ctx,
-            &fields,
-            &temper_api_url,
-            tenant,
-            user_message,
-            &conversation_file_id,
-            &session_file_id,
-            &session_leaf_id,
-            &workspace_id,
-            prune_after_turns,
-            existing_prepared.as_ref(),
-        )?;
+    let load_started_at = Context::get_time_millis();
+    let load_result = load_messages_for_prepare(
+        &ctx,
+        &fields,
+        &temper_api_url,
+        tenant,
+        user_message,
+        &conversation_file_id,
+        &session_file_id,
+        &session_leaf_id,
+        &workspace_id,
+        prune_after_turns,
+        existing_prepared.as_ref(),
+    );
+    emit_phase_step_duration(
+        &ctx,
+        "context_preparer",
+        "load_messages",
+        load_started_at,
+        if load_result.is_ok() { "ok" } else { "error" },
+    );
+    let (mut messages, session_tree, entries_loaded, content_files_loaded) = load_result?;
+    check_phase_budget(
+        &ctx,
+        "context_preparer",
+        started_at,
+        context_prepare_budget_ms,
+        "load_messages",
+    )?;
     send_progress_ignore(&ctx, &temper_api_url, tenant, "context_loaded");
     messages = repair_interrupted_tool_use_messages(&ctx, messages);
     prune_old_tool_results(&mut messages, prune_after_turns);
@@ -739,6 +762,7 @@ pub fn run_context_preparer() -> Result<(), String> {
             Some("count"),
         );
         emit_prepare_duration_metric(&ctx, &metric_tags, started_at);
+        emit_phase_total_duration(&ctx, "context_preparer", started_at, "needs_compaction");
         let existing_hash = fields
             .get("system_prompt_hash")
             .and_then(|v| v.as_str())
@@ -762,6 +786,7 @@ pub fn run_context_preparer() -> Result<(), String> {
         return Ok(());
     }
 
+    let prompt_started_at = Context::get_time_millis();
     let (assembled_system_prompt, system_prompt_hash, system_prompt_file_id) =
         assemble_cached_system_prompt(
             &ctx,
@@ -772,6 +797,20 @@ pub fn run_context_preparer() -> Result<(), String> {
             system_prompt_override,
             &workspace_id,
         )?;
+    emit_phase_step_duration(
+        &ctx,
+        "context_preparer",
+        "assemble_system_prompt",
+        prompt_started_at,
+        "ok",
+    );
+    check_phase_budget(
+        &ctx,
+        "context_preparer",
+        started_at,
+        context_prepare_budget_ms,
+        "assemble_system_prompt",
+    )?;
     send_progress_ignore(&ctx, &temper_api_url, tenant, "system_prompt_ready");
     let context_bytes =
         estimate_prepared_context_bytes(&messages, &tools, &assembled_system_prompt);
@@ -799,6 +838,7 @@ pub fn run_context_preparer() -> Result<(), String> {
             Some("count"),
         );
         emit_prepare_duration_metric(&ctx, &metric_tags, started_at);
+        emit_phase_total_duration(&ctx, "context_preparer", started_at, "needs_compaction");
         set_success_result(
             "NeedsCompaction",
             &json!({
@@ -834,7 +874,8 @@ pub fn run_context_preparer() -> Result<(), String> {
     };
     let artifact_json = serde_json::to_string(&artifact)
         .map_err(|e| format!("prepared context artifact serialize: {e}"))?;
-    let prepared_context_file_id = upsert_artifact_file(
+    let upsert_started_at = Context::get_time_millis();
+    let upsert_result = upsert_artifact_file(
         &ctx,
         &fields,
         &temper_api_url,
@@ -847,10 +888,26 @@ pub fn run_context_preparer() -> Result<(), String> {
         "session-prepared-context.json",
         &artifact_json,
         "application/json",
+    );
+    emit_phase_step_duration(
+        &ctx,
+        "context_preparer",
+        "write_prepared_artifact",
+        upsert_started_at,
+        if upsert_result.is_ok() { "ok" } else { "error" },
+    );
+    let prepared_context_file_id = upsert_result?;
+    check_phase_budget(
+        &ctx,
+        "context_preparer",
+        started_at,
+        context_prepare_budget_ms,
+        "write_prepared_artifact",
     )?;
     send_progress_ignore(&ctx, &temper_api_url, tenant, "prepared_context_written");
 
     emit_prepare_duration_metric(&ctx, &metric_tags, started_at);
+    emit_phase_total_duration(&ctx, "context_preparer", started_at, "context_ready");
     set_success_result(
         "ContextReady",
         &json!({
@@ -1261,8 +1318,90 @@ fn emit_metric_ignore(ctx: &Context, name: &str, value: f64, tags: &Value, kind:
     let _ = ctx.emit_metric(name, value, tags, kind);
 }
 
+fn elapsed_ms_since(started_at: i64) -> i64 {
+    Context::get_time_millis().saturating_sub(started_at)
+}
+
+fn configured_budget_ms(ctx: &Context, fields: &Value, key: &str, default_value: i64) -> i64 {
+    fields
+        .get(key)
+        .and_then(|v| v.as_str())
+        .and_then(|s| s.parse::<i64>().ok())
+        .or_else(|| ctx.config.get(key).and_then(|s| s.parse::<i64>().ok()))
+        .filter(|value| *value > 0)
+        .unwrap_or(default_value)
+}
+
+fn emit_phase_step_duration(
+    ctx: &Context,
+    phase: &str,
+    step: &str,
+    started_at: i64,
+    result: &str,
+) -> i64 {
+    let elapsed_ms = elapsed_ms_since(started_at);
+    emit_metric_ignore(
+        ctx,
+        "temper_session_phase_step_duration_ms",
+        elapsed_ms as f64,
+        &json!({
+            "phase": phase,
+            "step": step,
+            "result": result,
+        }),
+        Some("histogram"),
+    );
+    ctx.log(
+        "info",
+        &format!("session_phase phase={phase} step={step} result={result} elapsed_ms={elapsed_ms}"),
+    );
+    elapsed_ms
+}
+
+fn emit_phase_total_duration(ctx: &Context, phase: &str, started_at: i64, result: &str) -> i64 {
+    let elapsed_ms = elapsed_ms_since(started_at);
+    emit_metric_ignore(
+        ctx,
+        "temper_session_phase_duration_ms",
+        elapsed_ms as f64,
+        &json!({
+            "phase": phase,
+            "result": result,
+        }),
+        Some("histogram"),
+    );
+    elapsed_ms
+}
+
+fn check_phase_budget(
+    ctx: &Context,
+    phase: &str,
+    started_at: i64,
+    budget_ms: i64,
+    last_step: &str,
+) -> Result<(), String> {
+    let elapsed_ms = elapsed_ms_since(started_at);
+    if elapsed_ms <= budget_ms {
+        return Ok(());
+    }
+
+    emit_metric_ignore(
+        ctx,
+        "temper_session_phase_budget_exceeded_total",
+        1.0,
+        &json!({
+            "phase": phase,
+            "last_step": last_step,
+        }),
+        Some("count"),
+    );
+    Err(format!(
+        "{phase}: exceeded local budget after {last_step} (elapsed_ms={elapsed_ms}, budget_ms={budget_ms})"
+    ))
+}
+
 fn emit_prepare_duration_metric(ctx: &Context, tags: &Value, started_at: i64) {
-    let elapsed = Context::get_time_millis().saturating_sub(started_at);
+    let elapsed = elapsed_ms_since(started_at);
     emit_metric_ignore(
         ctx,
         "temper_session_context_prepare_duration_ms",
