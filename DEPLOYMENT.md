@@ -75,7 +75,7 @@ The deploy wizard checks environment variables in this order:
 - `ANTHROPIC_API_KEY` -> sets `LLM_PROVIDER=anthropic`
 - `OPENROUTER_API_KEY` -> sets `LLM_PROVIDER=openrouter`
 - `OPENAI_API_KEY` -> sets `LLM_PROVIDER=openai`
-- `OPENAI_CODEX_TOKEN` (or `~/.codex/auth.json`) -> sets `LLM_PROVIDER=openai_codex`
+- OpenAI Codex subscription auth is configured in the dashboard via device-code login.
 
 If none are found, you can configure the LLM provider later via the dashboard Settings page.
 
@@ -174,7 +174,7 @@ These are set on the `temperpaw` Railway service:
 | `LLM_PROVIDER` | Provider name: `anthropic`, `openai`, `openai_codex`, `openrouter` |
 | `ANTHROPIC_API_KEY` | Anthropic API key (if using Anthropic) |
 | `OPENAI_API_KEY` | OpenAI API key (if using OpenAI) |
-| `OPENAI_CODEX_TOKEN` | OpenAI Codex OAuth token (if using Codex) |
+| `OPENAI_CODEX_TOKEN` | Legacy Codex OAuth token fallback. Prefer dashboard device-code login. |
 | `OPENROUTER_API_KEY` | OpenRouter API key (if using OpenRouter) |
 
 ### Observability

@@ -94,6 +94,20 @@
         <Property Name="MaxChecks" Type="Edm.String"/>
       </EntityType>
 
+      <EntityType Name="OpenAICodexAuth">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.String" Nullable="false"/>
+        <Property Name="Status" Type="Edm.String"/>
+        <Property Name="VerificationUrl" Type="Edm.String"/>
+        <Property Name="UserCode" Type="Edm.String"/>
+        <Property Name="DeviceAuthId" Type="Edm.String"/>
+        <Property Name="PollIntervalMs" Type="Edm.String"/>
+        <Property Name="ExpiresAtMs" Type="Edm.String"/>
+        <Property Name="AccountId" Type="Edm.String"/>
+        <Property Name="LastError" Type="Edm.String"/>
+        <Property Name="ErrorMessage" Type="Edm.String"/>
+      </EntityType>
+
       <EntityType Name="Soul">
         <Key><PropertyRef Name="Id"/></Key>
         <Property Name="Id" Type="Edm.String" Nullable="false"/>
@@ -806,9 +820,54 @@
         <ReturnType Type="TemperPaw.Plan"/>
       </Action>
 
+      <Action Name="StartDeviceLogin" IsBound="true">
+        <Parameter Name="bindingParameter" Type="TemperPaw.OpenAICodexAuth"/>
+        <ReturnType Type="TemperPaw.OpenAICodexAuth"/>
+      </Action>
+
+      <Action Name="DeviceCodeReady" IsBound="true">
+        <Parameter Name="bindingParameter" Type="TemperPaw.OpenAICodexAuth"/>
+        <Parameter Name="verification_url" Type="Edm.String" Nullable="false"/>
+        <Parameter Name="user_code" Type="Edm.String" Nullable="false"/>
+        <Parameter Name="device_auth_id" Type="Edm.String" Nullable="false"/>
+        <Parameter Name="poll_interval_ms" Type="Edm.String" Nullable="false"/>
+        <Parameter Name="expires_at_ms" Type="Edm.String" Nullable="false"/>
+        <ReturnType Type="TemperPaw.OpenAICodexAuth"/>
+      </Action>
+
+      <Action Name="PollDeviceLogin" IsBound="true">
+        <Parameter Name="bindingParameter" Type="TemperPaw.OpenAICodexAuth"/>
+        <ReturnType Type="TemperPaw.OpenAICodexAuth"/>
+      </Action>
+
+      <Action Name="LoginComplete" IsBound="true">
+        <Parameter Name="bindingParameter" Type="TemperPaw.OpenAICodexAuth"/>
+        <Parameter Name="expires_at_ms" Type="Edm.String" Nullable="false"/>
+        <Parameter Name="account_id" Type="Edm.String" Nullable="false"/>
+        <ReturnType Type="TemperPaw.OpenAICodexAuth"/>
+      </Action>
+
+      <Action Name="Refresh" IsBound="true">
+        <Parameter Name="bindingParameter" Type="TemperPaw.OpenAICodexAuth"/>
+        <ReturnType Type="TemperPaw.OpenAICodexAuth"/>
+      </Action>
+
+      <Action Name="Disconnect" IsBound="true">
+        <Parameter Name="bindingParameter" Type="TemperPaw.OpenAICodexAuth"/>
+        <ReturnType Type="TemperPaw.OpenAICodexAuth"/>
+      </Action>
+
+      <Action Name="Fail" IsBound="true">
+        <Parameter Name="bindingParameter" Type="TemperPaw.OpenAICodexAuth"/>
+        <Parameter Name="last_error" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="error_message" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="TemperPaw.OpenAICodexAuth"/>
+      </Action>
+
       <EntityContainer Name="Service">
         <EntitySet Name="Sessions" EntityType="TemperPaw.Session"/>
         <EntitySet Name="SessionLinks" EntityType="TemperPaw.SessionLink"/>
+        <EntitySet Name="OpenAICodexAuths" EntityType="TemperPaw.OpenAICodexAuth"/>
         <EntitySet Name="Apps" EntityType="TemperPaw.App"/>
         <EntitySet Name="Agents" EntityType="TemperPaw.Agent"/>
         <EntitySet Name="Teams" EntityType="TemperPaw.Team"/>

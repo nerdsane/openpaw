@@ -1,0 +1,166 @@
+# OpenAICodexAuth — ChatGPT/Codex subscription OAuth state.
+#
+# Device-code OAuth is modeled as entity state transitions. Setup routes create
+# this singleton entity and dispatch one action; all external OpenAI auth calls
+# and vault writes happen in the WASM integration.
+
+[automaton]
+name = "OpenAICodexAuth"
+states = ["Idle", "Starting", "DeviceCodeReady", "Polling", "Ready", "Refreshing", "Disconnected", "Failed"]
+initial = "Idle"
+
+allow_indefinite_states = ["Idle", "DeviceCodeReady", "Ready", "Disconnected", "Failed"]
+
+[[state]]
+name = "verification_url"
+type = "string"
+initial = ""
+
+[[state]]
+name = "user_code"
+type = "string"
+initial = ""
+
+[[state]]
+name = "device_auth_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "poll_interval_ms"
+type = "string"
+initial = "5000"
+
+[[state]]
+name = "expires_at_ms"
+type = "string"
+initial = ""
+
+[[state]]
+name = "account_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "last_error"
+type = "string"
+initial = ""
+
+[[state]]
+name = "error_message"
+type = "string"
+initial = ""
+
+[[action]]
+name = "StartDeviceLogin"
+kind = "input"
+from = ["Idle", "DeviceCodeReady", "Ready", "Disconnected", "Failed"]
+to = "Starting"
+hint = "Request an OpenAI Codex device code."
+effect = [{ type = "trigger", name = "openai_codex_auth_start" }]
+
+[[action.triggers]]
+name = "openai_codex_auth_start"
+kind = "wasm"
+module = "openai_codex_auth"
+on_failure = "Fail"
+
+[action.triggers.config]
+mode = "start"
+temper_api_url = "{secret:temper_api_url}"
+
+[[action]]
+name = "DeviceCodeReady"
+kind = "input"
+from = ["Starting", "Polling"]
+to = "DeviceCodeReady"
+params = ["verification_url", "user_code", "device_auth_id", "poll_interval_ms", "expires_at_ms"]
+hint = "Device code is ready for the user, or authorization is still pending."
+
+[[action]]
+name = "PollDeviceLogin"
+kind = "input"
+from = ["DeviceCodeReady"]
+to = "Polling"
+hint = "Poll OpenAI for device authorization once."
+effect = [{ type = "trigger", name = "openai_codex_auth_poll" }]
+
+[[action.triggers]]
+name = "openai_codex_auth_poll"
+kind = "wasm"
+module = "openai_codex_auth"
+on_failure = "Fail"
+
+[action.triggers.config]
+mode = "poll"
+temper_api_url = "{secret:temper_api_url}"
+
+[[action]]
+name = "LoginComplete"
+kind = "input"
+from = ["Polling", "Refreshing"]
+to = "Ready"
+params = ["expires_at_ms", "account_id"]
+hint = "OAuth tokens were stored in the vault and Codex subscription auth is ready."
+
+[[action]]
+name = "Refresh"
+kind = "input"
+from = ["Ready", "Failed"]
+to = "Refreshing"
+hint = "Refresh the OpenAI Codex access token from the stored refresh token."
+effect = [{ type = "trigger", name = "openai_codex_auth_refresh" }]
+
+[[action.triggers]]
+name = "openai_codex_auth_refresh"
+kind = "wasm"
+module = "openai_codex_auth"
+on_failure = "Fail"
+
+[action.triggers.config]
+mode = "refresh"
+temper_api_url = "{secret:temper_api_url}"
+
+[[action]]
+name = "Disconnect"
+kind = "input"
+from = ["Idle", "DeviceCodeReady", "Ready", "Failed", "Disconnected"]
+to = "Disconnected"
+hint = "Clear OpenAI Codex OAuth secrets."
+effect = [{ type = "trigger", name = "openai_codex_auth_disconnect" }]
+
+[[action.triggers]]
+name = "openai_codex_auth_disconnect"
+kind = "wasm"
+module = "openai_codex_auth"
+on_failure = "Fail"
+
+[action.triggers.config]
+mode = "disconnect"
+temper_api_url = "{secret:temper_api_url}"
+
+[[action]]
+name = "Fail"
+kind = "input"
+from = ["Starting", "Polling", "Refreshing", "Disconnected"]
+to = "Failed"
+params = ["last_error", "error_message"]
+hint = "OpenAI Codex OAuth failed."
+
+[[state_timeout]]
+state = "Starting"
+after_seconds = 60
+on_timeout = "Fail"
+params = { last_error = "OpenAI Codex device-code start exceeded 60s", error_message = "OpenAI Codex device-code start exceeded 60s" }
+
+[[state_timeout]]
+state = "Polling"
+after_seconds = 60
+on_timeout = "Fail"
+params = { last_error = "OpenAI Codex device-code poll exceeded 60s", error_message = "OpenAI Codex device-code poll exceeded 60s" }
+
+[[state_timeout]]
+state = "Refreshing"
+after_seconds = 60
+on_timeout = "Fail"
+params = { last_error = "OpenAI Codex token refresh exceeded 60s", error_message = "OpenAI Codex token refresh exceeded 60s" }
