@@ -21,13 +21,15 @@ use temper_platform::os_apps::{
     resolve_os_app_install_order,
 };
 use temper_platform::recovery::{
-    InstalledAppsRuntimeRecoverySummary, recover_cedar_policies,
+    InstalledAppRuntimeRecoveryOutcome, InstalledAppsRuntimeRecoverySummary,
+    recover_cedar_policies, recover_installed_app_runtime_state,
     recover_installed_apps_runtime_state,
 };
 use temper_platform::router::build_platform_router;
 use temper_runtime::scheduler::sim_now;
 use temper_runtime::tenant::TenantId;
 use temper_server::event_store::ServerEventStore;
+use temper_server::platform_store::PlatformStore;
 use temper_server::registry::{EntityLevelSummary, EntityVerificationResult, VerificationStatus};
 use temper_server::registry_bootstrap::restore_registry_from_turso;
 use temper_store_turso::{TursoEventStore, TursoSpecVerificationUpdate};
@@ -146,10 +148,85 @@ fn installed_app_runtime_recovery_result(
     }
 }
 
+#[cfg(test)]
 fn runtime_indexes_required_before_reconcile(
     summary: &InstalledAppsRuntimeRecoverySummary,
 ) -> bool {
     summary.store_error > 0 || summary.missing_bundle > 0 || summary.needs_reconcile > 0
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct StartupSurfaceRuntimeRecoverySummary {
+    ready: usize,
+    healed: usize,
+    cold: usize,
+    needs_reconcile: usize,
+    missing_bundle: usize,
+    store_error: usize,
+}
+
+fn startup_surface_runtime_recovery_result(
+    summary: &StartupSurfaceRuntimeRecoverySummary,
+) -> &'static str {
+    if summary.store_error > 0 || summary.missing_bundle > 0 {
+        "error"
+    } else if summary.needs_reconcile > 0 {
+        "needs_reconcile"
+    } else if summary.healed > 0 {
+        "healed"
+    } else if summary.cold > 0 && summary.ready == 0 {
+        "cold"
+    } else {
+        "ready"
+    }
+}
+
+fn startup_surface_runtime_indexes_required_before_reconcile(
+    summary: &StartupSurfaceRuntimeRecoverySummary,
+) -> bool {
+    summary.store_error > 0 || summary.missing_bundle > 0 || summary.needs_reconcile > 0
+}
+
+async fn recover_startup_surface_runtime_state(
+    state: &PlatformState,
+    ps: &dyn PlatformStore,
+    tenant: &str,
+    startup_app_order: &[String],
+) -> StartupSurfaceRuntimeRecoverySummary {
+    let mut summary = StartupSurfaceRuntimeRecoverySummary::default();
+    for app_name in startup_app_order {
+        match ps.get_installed_app(tenant, app_name).await {
+            Ok(None) => {
+                summary.cold += 1;
+                tracing::info!(
+                    tenant,
+                    app = %app_name,
+                    "Startup OS app has no durable install record; cold reconcile will install it"
+                );
+                continue;
+            }
+            Err(error) => {
+                summary.store_error += 1;
+                tracing::warn!(
+                    tenant,
+                    app = %app_name,
+                    error = %error,
+                    "Failed to read startup OS app metadata during scoped runtime recovery"
+                );
+                continue;
+            }
+            Ok(Some(_)) => {}
+        }
+
+        match recover_installed_app_runtime_state(state, ps, tenant, app_name).await {
+            InstalledAppRuntimeRecoveryOutcome::Ready => summary.ready += 1,
+            InstalledAppRuntimeRecoveryOutcome::Healed => summary.healed += 1,
+            InstalledAppRuntimeRecoveryOutcome::NeedsReconcile => summary.needs_reconcile += 1,
+            InstalledAppRuntimeRecoveryOutcome::MissingBundle => summary.missing_bundle += 1,
+            InstalledAppRuntimeRecoveryOutcome::StoreError => summary.store_error += 1,
+        }
+    }
+    summary
 }
 
 fn app_required_wasm_failure(app_name: &str, install: &InstallResult) -> Option<String> {
@@ -1182,6 +1259,28 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
         app_runtime_recovery
     };
 
+    let startup_apps = startup_os_apps();
+    tracing::info!(apps = ?startup_apps, "Startup OS app surface resolved from manifests");
+    let startup_app_order = resolve_os_app_install_order(&startup_apps)
+        .map_err(|error| anyhow::anyhow!("Failed to resolve startup OS app order: {error}"))?;
+    tracing::info!(apps = ?startup_app_order, "Startup OS app reconcile order resolved");
+    let startup_surface_runtime_recovery =
+        recover_startup_surface_runtime_state(&state, &turso_store, &tenant, &startup_app_order)
+            .await;
+    tracing::info!(
+        ready = startup_surface_runtime_recovery.ready,
+        healed = startup_surface_runtime_recovery.healed,
+        cold = startup_surface_runtime_recovery.cold,
+        needs_reconcile = startup_surface_runtime_recovery.needs_reconcile,
+        missing_bundle = startup_surface_runtime_recovery.missing_bundle,
+        store_error = startup_surface_runtime_recovery.store_error,
+        global_ready = app_runtime_recovery.ready,
+        global_healed = app_runtime_recovery.healed,
+        global_needs_reconcile = app_runtime_recovery.needs_reconcile,
+        result = startup_surface_runtime_recovery_result(&startup_surface_runtime_recovery),
+        "Startup OS app runtime recovery scoped to readiness surface complete"
+    );
+
     // Phase 6a.5: Runtime index recovery before app reconcile.
     //
     // Changed/cold app reconcile may bootstrap durable TemperFS content, whose
@@ -1189,7 +1288,9 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
     // runtime-ready, defer full event/index replay until after readiness.
     let tenant_ids = registry_tenant_ids(&state);
     let recover_indexes_before_reconcile =
-        runtime_indexes_required_before_reconcile(&app_runtime_recovery);
+        startup_surface_runtime_indexes_required_before_reconcile(
+            &startup_surface_runtime_recovery,
+        );
     if recover_indexes_before_reconcile {
         let phase_started = Instant::now();
         tracing::info!("Phase 6a.5: Recovering runtime indexes before app reconcile...");
@@ -1217,11 +1318,6 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
             .as_deref(),
     );
     tracing::info!(?wasm_policy, "WASM startup policy selected");
-    let startup_apps = startup_os_apps();
-    tracing::info!(apps = ?startup_apps, "Startup OS app surface resolved from manifests");
-    let startup_app_order = resolve_os_app_install_order(&startup_apps)
-        .map_err(|error| anyhow::anyhow!("Failed to resolve startup OS app order: {error}"))?;
-    tracing::info!(apps = ?startup_app_order, "Startup OS app reconcile order resolved");
     if wasm_policy == LocalWasmStartupPolicy::BuildIfMissing
         && let Err(error) = build_missing_wasm_modules(&os_apps_dir, &startup_app_order)
     {
@@ -3053,14 +3149,14 @@ mod tests {
     use super::{
         LocalWasmStartupPolicy, OS_APP_RECONCILE_DURATION_METRIC, OS_APP_RECONCILE_TOTAL_METRIC,
         RuntimeRecoveryStep, STARTUP_LIVE_RESTORE_ENTITIES_METRIC, STARTUP_PHASE_DURATION_METRIC,
-        STARTUP_TIME_TO_READY_METRIC, StartupReadiness, WASM_MODULE_LOAD_FAILURES_METRIC,
-        actor_passivation_check_interval_secs, app_required_wasm_failure, bootstrap_soul,
-        installed_app_runtime_recovery_result, load_or_create_temper_api_key,
-        local_wasm_startup_policy, paw_soul_content_is_personalized, resolve_startup_secret,
-        runtime_indexes_required_before_reconcile, runtime_recovery_plan,
+        STARTUP_TIME_TO_READY_METRIC, StartupReadiness, StartupSurfaceRuntimeRecoverySummary,
+        WASM_MODULE_LOAD_FAILURES_METRIC, actor_passivation_check_interval_secs,
+        app_required_wasm_failure, bootstrap_soul, installed_app_runtime_recovery_result,
+        load_or_create_temper_api_key, local_wasm_startup_policy, paw_soul_content_is_personalized,
+        resolve_startup_secret, runtime_indexes_required_before_reconcile, runtime_recovery_plan,
         runtime_router_with_startup_gates, soul_lookup_filters, spawn_runtime_server,
         startup_discord_connect_result, startup_discord_summary_label, startup_os_apps,
-        wait_for_runtime_server,
+        startup_surface_runtime_indexes_required_before_reconcile, wait_for_runtime_server,
     };
     use crate::transport_manager::TransportStatus;
 
@@ -3189,6 +3285,35 @@ mod tests {
             &InstalledAppsRuntimeRecoverySummary {
                 store_error: 1,
                 ..InstalledAppsRuntimeRecoverySummary::default()
+            }
+        ));
+    }
+
+    #[test]
+    fn runtime_indexes_are_deferred_when_startup_surface_is_ready_despite_global_reconcile_work() {
+        let global = InstalledAppsRuntimeRecoverySummary {
+            ready: 6,
+            needs_reconcile: 6,
+            ..InstalledAppsRuntimeRecoverySummary::default()
+        };
+        let startup_surface = StartupSurfaceRuntimeRecoverySummary {
+            ready: 4,
+            healed: 2,
+            cold: 1,
+            ..StartupSurfaceRuntimeRecoverySummary::default()
+        };
+
+        assert_eq!(
+            installed_app_runtime_recovery_result(&global),
+            "needs_reconcile"
+        );
+        assert!(!startup_surface_runtime_indexes_required_before_reconcile(
+            &startup_surface
+        ));
+        assert!(startup_surface_runtime_indexes_required_before_reconcile(
+            &StartupSurfaceRuntimeRecoverySummary {
+                needs_reconcile: 1,
+                ..StartupSurfaceRuntimeRecoverySummary::default()
             }
         ));
     }
