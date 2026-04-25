@@ -712,7 +712,7 @@ fn continue_with_new_session(
     cs_id: &str,
     agent_entity_id: &str,
     prior_session: &Value,
-    _prior_session_id: &str,
+    prior_session_id: &str,
     user_message: &str,
     command: &str,
     trace_context: Option<&TraceContextFields>,
@@ -849,6 +849,7 @@ fn continue_with_new_session(
         &new_session_id,
         &fields,
         &user_message_with_notice,
+        prior_session_id,
         agent_entity_id,
         effective_soul_id,
         effective_model,
@@ -911,6 +912,7 @@ fn configure_session_from_prior(
     session_id: &str,
     fields: &Value,
     user_message: &str,
+    prior_session_id: &str,
     agent_entity_id: &str,
     soul_id: &str,
     model: &str,
@@ -947,11 +949,7 @@ fn configure_session_from_prior(
         "temper_api_url": str_field(fields, &["temper_api_url", "TemperApiUrl"]).unwrap_or(""),
         "soul_id": soul_id,
         "agent_id": agent_entity_id,
-        "parent_session_id": if !agent_entity_id.is_empty() {
-            str_field(fields, &["parent_session_id", "ParentSessionId"]).unwrap_or("")
-        } else {
-            str_field(fields, &["parent_session_id", "ParentSessionId"]).unwrap_or("")
-        },
+        "parent_session_id": prior_session_id,
         "session_depth": str_field(fields, &["session_depth", "SessionDepth"]).unwrap_or("0"),
         "max_follow_ups": str_field(fields, &["max_follow_ups", "MaxFollowUps"]).unwrap_or("5"),
         "hook_policy": str_field(fields, &["hook_policy", "HookPolicy"]).unwrap_or("none"),
