@@ -49,14 +49,28 @@ RUN cd os-apps/paw-agent/wasm && bash build.sh \
     && cd /app/os-apps/katagami-curation/wasm && bash build.sh
 
 FROM debian:bookworm-slim
-RUN apt-get update && apt-get install -y ca-certificates libz3-4 git && rm -rf /var/lib/apt/lists/*
+ARG TARGETARCH
+ARG DDPROF_VERSION=0.26.0
+RUN apt-get update \
+    && apt-get install -y ca-certificates curl libz3-4 git xz-utils \
+    && rm -rf /var/lib/apt/lists/* \
+    && case "${TARGETARCH:-amd64}" in \
+        amd64|arm64) ddprof_arch="${TARGETARCH:-amd64}" ;; \
+        *) echo "unsupported ddprof architecture: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac \
+    && curl -fsSL "https://github.com/DataDog/ddprof/releases/download/v${DDPROF_VERSION}/ddprof-${DDPROF_VERSION}-${ddprof_arch}-linux.tar.xz" -o /tmp/ddprof.tar.xz \
+    && tar -xJf /tmp/ddprof.tar.xz -C /usr/local/bin --strip-components=2 ddprof/bin/ddprof \
+    && chmod +x /usr/local/bin/ddprof \
+    && rm -f /tmp/ddprof.tar.xz
 ARG BUILD_VERSION=dev
 ARG BUILD_SHA=unknown
 WORKDIR /app
 COPY --from=rust-build /app/target/release/temperpaw-server ./temperpaw
 COPY --from=rust-build /app/dashboard/build ./dashboard/build
 COPY --from=rust-build /app/os-apps ./os-apps
+COPY scripts/temperpaw-entrypoint.sh ./scripts/temperpaw-entrypoint.sh
+RUN chmod +x ./scripts/temperpaw-entrypoint.sh
 ENV BUILD_VERSION=${BUILD_VERSION}
 ENV BUILD_SHA=${BUILD_SHA}
 EXPOSE 3467
-CMD ["./temperpaw"]
+ENTRYPOINT ["./scripts/temperpaw-entrypoint.sh"]
