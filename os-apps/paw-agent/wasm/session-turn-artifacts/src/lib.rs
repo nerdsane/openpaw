@@ -46,8 +46,23 @@ pub fn build_provider_response_ready_params(
     prepared: &PreparedContextArtifact,
     artifact: &ProviderResponseArtifact,
 ) -> Value {
+    build_provider_response_ready_params_with_inline(
+        provider_response_file_id,
+        "",
+        prepared,
+        artifact,
+    )
+}
+
+pub fn build_provider_response_ready_params_with_inline(
+    provider_response_file_id: &str,
+    provider_response_inline_json: &str,
+    prepared: &PreparedContextArtifact,
+    artifact: &ProviderResponseArtifact,
+) -> Value {
     json!({
         "provider_response_file_id": provider_response_file_id,
+        "provider_response_inline_json": provider_response_inline_json,
         "provider_request_bytes": artifact.request_bytes,
         "provider_response_bytes": artifact.response_bytes,
         "input_tokens": artifact.input_tokens,
@@ -69,6 +84,8 @@ pub fn build_provider_response_applier_base_params(
     artifact: &ProviderResponseArtifact,
 ) -> Value {
     json!({
+        "provider_response_file_id": "",
+        "provider_response_inline_json": "",
         "input_tokens": artifact.input_tokens,
         "output_tokens": artifact.output_tokens,
         "system_prompt_hash": prepared.system_prompt_hash,

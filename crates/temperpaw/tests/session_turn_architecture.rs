@@ -180,12 +180,14 @@ fn record_result_clears_pending_tool_state_on_terminal_completion() {
 
     assert!(
         spec.contains(
-            "params = [\"result\", \"conversation\", \"input_tokens\", \"output_tokens\", \"session_leaf_id\", \"repl_file_id\", \"tool_spans_file_id\", \"system_prompt_hash\", \"system_prompt_file_id\", \"pending_tool_calls\", \"pending_tool_context\", \"pending_decision_id\"]"
+            "params = [\"result\", \"conversation\", \"input_tokens\", \"output_tokens\", \"session_leaf_id\", \"repl_file_id\", \"tool_spans_file_id\", \"system_prompt_hash\", \"system_prompt_file_id\", \"provider_response_file_id\", \"provider_response_inline_json\", \"pending_tool_calls\", \"pending_tool_context\", \"pending_decision_id\"]"
         ),
         "RecordResult should be able to clear pending tool and approval fields on completion"
     );
 
     for needle in [
+        "<Parameter Name=\"provider_response_file_id\" Type=\"Edm.String\" Nullable=\"true\"/>",
+        "<Parameter Name=\"provider_response_inline_json\" Type=\"Edm.String\" Nullable=\"true\"/>",
         "<Parameter Name=\"pending_tool_calls\" Type=\"Edm.String\" Nullable=\"true\"/>",
         "<Parameter Name=\"pending_tool_context\" Type=\"Edm.String\" Nullable=\"true\"/>",
         "<Parameter Name=\"pending_decision_id\" Type=\"Edm.String\" Nullable=\"true\"/>",

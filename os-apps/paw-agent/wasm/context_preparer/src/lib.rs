@@ -687,12 +687,14 @@ pub fn run_context_preparer() -> Result<(), String> {
         .and_then(|v| v.as_str())
         .and_then(|s| s.parse().ok())
         .unwrap_or(4);
-    let existing_prepared = fields
-        .get("prepared_context_file_id")
-        .and_then(|v| v.as_str())
-        .and_then(|file_id| {
-            try_read_existing_prepared_context_artifact(&ctx, &temper_api_url, tenant, file_id)
-        });
+    let existing_prepared = try_read_existing_prepared_context_inline(&ctx, &fields).or_else(|| {
+        fields
+            .get("prepared_context_file_id")
+            .and_then(|v| v.as_str())
+            .and_then(|file_id| {
+                try_read_existing_prepared_context_artifact(&ctx, &temper_api_url, tenant, file_id)
+            })
+    });
 
     let load_started_at = Context::get_time_millis();
     let load_result = load_messages_for_prepare(
@@ -882,29 +884,14 @@ pub fn run_context_preparer() -> Result<(), String> {
     };
     let artifact_json = serde_json::to_string(&artifact)
         .map_err(|e| format!("prepared context artifact serialize: {e}"))?;
-    let upsert_started_at = Context::get_time_millis();
-    let upsert_result = upsert_artifact_file(
-        &ctx,
-        &fields,
-        &temper_api_url,
-        tenant,
-        workspace_id.as_str(),
-        fields
-            .get("prepared_context_file_id")
-            .and_then(|v| v.as_str())
-            .unwrap_or(""),
-        "session-prepared-context.json",
-        &artifact_json,
-        "application/json",
-    );
+    let stage_started_at = Context::get_time_millis();
     emit_phase_step_duration(
         &ctx,
         "context_preparer",
         "write_prepared_artifact",
-        upsert_started_at,
-        if upsert_result.is_ok() { "ok" } else { "error" },
+        stage_started_at,
+        "ok",
     );
-    let prepared_context_file_id = upsert_result?;
     check_phase_budget(
         &ctx,
         "context_preparer",
@@ -919,7 +906,8 @@ pub fn run_context_preparer() -> Result<(), String> {
     set_success_result(
         "ContextReady",
         &json!({
-            "prepared_context_file_id": prepared_context_file_id,
+            "prepared_context_file_id": "",
+            "prepared_context_inline_json": artifact_json,
             "prepared_context_bytes": context_bytes,
             "prepared_context_entries_loaded": entries_loaded,
             "prepared_context_content_files_loaded": content_files_loaded,
@@ -929,6 +917,17 @@ pub fn run_context_preparer() -> Result<(), String> {
         }),
     );
     Ok(())
+}
+
+fn read_state_string_field(ctx: &Context, fields: &Value, field_name: &str) -> String {
+    match ctx.read_field_string(field_name) {
+        Ok(value) if !value.is_empty() => value,
+        _ => fields
+            .get(field_name)
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string(),
+    }
 }
 
 fn load_messages_for_prepare(
@@ -1077,6 +1076,29 @@ fn try_read_existing_prepared_context_artifact(
                 "warn",
                 &format!(
                     "context_preparer: prepared context reuse unavailable, ignoring cached artifact: {err}"
+                ),
+            );
+            None
+        }
+    }
+}
+
+fn try_read_existing_prepared_context_inline(
+    ctx: &Context,
+    fields: &Value,
+) -> Option<PreparedContextArtifact> {
+    let raw = read_state_string_field(ctx, fields, "prepared_context_inline_json");
+    if raw.is_empty() {
+        return None;
+    }
+
+    match serde_json::from_str(&raw) {
+        Ok(prepared) => Some(prepared),
+        Err(err) => {
+            ctx.log(
+                "warn",
+                &format!(
+                    "context_preparer: prepared context reuse unavailable, ignoring inline artifact: {err}"
                 ),
             );
             None

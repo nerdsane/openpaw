@@ -41,10 +41,12 @@
         <Property Name="SessionLeafId" Type="Edm.String"/>
         <Property Name="ContextTokens" Type="Edm.Int64"/>
         <Property Name="PreparedContextFileId" Type="Edm.String"/>
+        <Property Name="PreparedContextInlineJson" Type="Edm.String"/>
         <Property Name="PreparedContextBytes" Type="Edm.Int64"/>
         <Property Name="PreparedContextEntriesLoaded" Type="Edm.Int64"/>
         <Property Name="PreparedContextContentFilesLoaded" Type="Edm.Int64"/>
         <Property Name="ProviderResponseFileId" Type="Edm.String"/>
+        <Property Name="ProviderResponseInlineJson" Type="Edm.String"/>
         <Property Name="ProviderRequestBytes" Type="Edm.Int64"/>
         <Property Name="ProviderResponseBytes" Type="Edm.Int64"/>
         <Property Name="ReserveTokens" Type="Edm.String"/>
@@ -226,6 +228,7 @@
         <Parameter Name="session_file_id" Type="Edm.String" Nullable="true"/>
         <Parameter Name="session_leaf_id" Type="Edm.String" Nullable="true"/>
         <Parameter Name="prepared_context_file_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="prepared_context_inline_json" Type="Edm.String" Nullable="true"/>
         <Parameter Name="system_prompt_hash" Type="Edm.String" Nullable="true"/>
         <Parameter Name="system_prompt_file_id" Type="Edm.String" Nullable="true"/>
         <Parameter Name="session_mode" Type="Edm.String" Nullable="true"/>
@@ -254,6 +257,7 @@
       <Action Name="ContextReady" IsBound="true">
         <Parameter Name="bindingParameter" Type="TemperPaw.Session"/>
         <Parameter Name="prepared_context_file_id" Type="Edm.String" Nullable="false"/>
+        <Parameter Name="prepared_context_inline_json" Type="Edm.String" Nullable="true"/>
         <Parameter Name="prepared_context_bytes" Type="Edm.Int64" Nullable="true"/>
         <Parameter Name="prepared_context_entries_loaded" Type="Edm.Int64" Nullable="true"/>
         <Parameter Name="prepared_context_content_files_loaded" Type="Edm.Int64" Nullable="true"/>
@@ -266,6 +270,7 @@
       <Action Name="ProviderResponseReady" IsBound="true">
         <Parameter Name="bindingParameter" Type="TemperPaw.Session"/>
         <Parameter Name="provider_response_file_id" Type="Edm.String" Nullable="false"/>
+        <Parameter Name="provider_response_inline_json" Type="Edm.String" Nullable="true"/>
         <Parameter Name="provider_request_bytes" Type="Edm.Int64" Nullable="true"/>
         <Parameter Name="provider_response_bytes" Type="Edm.Int64" Nullable="true"/>
         <ReturnType Type="TemperPaw.Session"/>
@@ -281,6 +286,8 @@
         <Parameter Name="context_tokens" Type="Edm.Int64" Nullable="true"/>
         <Parameter Name="system_prompt_hash" Type="Edm.String" Nullable="true"/>
         <Parameter Name="system_prompt_file_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="provider_response_file_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="provider_response_inline_json" Type="Edm.String" Nullable="true"/>
         <Parameter Name="gen_ai_parent_trace_id" Type="Edm.String" Nullable="true"/>
         <Parameter Name="gen_ai_parent_span_id" Type="Edm.String" Nullable="true"/>
         <ReturnType Type="TemperPaw.Session"/>
@@ -345,6 +352,8 @@
         <Parameter Name="context_tokens" Type="Edm.Int64" Nullable="true"/>
         <Parameter Name="system_prompt_hash" Type="Edm.String" Nullable="true"/>
         <Parameter Name="system_prompt_file_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="provider_response_file_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="provider_response_inline_json" Type="Edm.String" Nullable="true"/>
         <ReturnType Type="TemperPaw.Session"/>
       </Action>
 
@@ -432,6 +441,8 @@
         <Parameter Name="repl_file_id" Type="Edm.String" Nullable="true"/>
         <Parameter Name="system_prompt_hash" Type="Edm.String" Nullable="true"/>
         <Parameter Name="system_prompt_file_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="provider_response_file_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="provider_response_inline_json" Type="Edm.String" Nullable="true"/>
         <Parameter Name="pending_tool_calls" Type="Edm.String" Nullable="true"/>
         <Parameter Name="pending_tool_context" Type="Edm.String" Nullable="true"/>
         <Parameter Name="pending_decision_id" Type="Edm.String" Nullable="true"/>
