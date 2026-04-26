@@ -1,8 +1,8 @@
 use session_tree_lib::SessionTree;
 use temper_wasm_sdk::prelude::*;
 use wasm_helpers::{
-    create_content_file_ref, runtime_headers, runtime_headers_for_workspace,
-    timestamp_millis_string,
+    create_content_file_ref, is_session_entries_ref, read_session_from_temperfs, runtime_headers,
+    runtime_headers_for_workspace, timestamp_millis_string, write_session_to_temperfs,
 };
 
 const DEFAULT_TOOLS_ENABLED: &str = "temper_create,temper_get,temper_list,temper_action,temper_patch,temper_submit_specs,temper_show_spec,temper_specs,temper_upload_wasm,temper_get_trajectories,temper_get_insights,temper_get_decisions,temper_poll_decision,temper_approve_decision,temper_deny_decision,temper_submit_policy,temper_list_policies,temper_get_policy,temper_update_policy,temper_delete_policy,temper_install_app,temper_list_apps,temper_spawn_session,temper_list_sessions,temper_abort_session,temper_steer_session,temper_save_memory,temper_recall_memory,temper_write,temper_read,temper_run_coding_agent,temper_get_secret,temper_datadog_query,temper_railway,temper_vercel,temper_web_search,temper_web_fetch,read,write,edit,bash";
@@ -51,6 +51,12 @@ extern "C" fn host_log(_level_ptr: i32, _level_len: i32, _msg_ptr: i32, _msg_len
 #[cfg(not(target_arch = "wasm32"))]
 #[unsafe(no_mangle)]
 extern "C" fn host_set_result(_ptr: i32, _len: i32) {}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[unsafe(no_mangle)]
+extern "C" fn host_get_time_millis() -> i64 {
+    0
+}
 
 #[unsafe(no_mangle)]
 pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
@@ -725,14 +731,21 @@ fn continue_with_new_session(
     let conversation_file_id =
         str_field(&fields, &["conversation_file_id", "ConversationFileId"]).unwrap_or("");
     let prior_leaf_id = str_field(&fields, &["session_leaf_id", "SessionLeafId"]).unwrap_or("");
-    let workspace_id =
-        resolve_workspace_id_for_session(ctx, temper_api_url, tenant, &fields, session_file_id)?;
+    let workspace_id = resolve_workspace_id_for_session(
+        ctx,
+        temper_api_url,
+        tenant,
+        &fields,
+        session_file_id,
+        conversation_file_id,
+    )?;
 
     let new_leaf_id = if !session_file_id.is_empty() {
         Some(append_user_message_to_session(
             ctx,
             temper_api_url,
             tenant,
+            &fields,
             &workspace_id,
             session_file_id,
             prior_leaf_id,
@@ -856,6 +869,7 @@ fn continue_with_new_session(
         effective_provider,
         effective_tools,
         effective_max_turns,
+        &workspace_id,
         new_leaf_id.as_deref().unwrap_or(prior_leaf_id),
         command,
         trace_context,
@@ -919,6 +933,7 @@ fn configure_session_from_prior(
     provider: &str,
     tools_enabled: &str,
     max_turns: &str,
+    workspace_id: &str,
     session_leaf_id: &str,
     command: &str,
     trace_context: Option<&TraceContextFields>,
@@ -933,6 +948,12 @@ fn configure_session_from_prior(
     // Include resume-specific fields (workspace, conversation, session tree) in Configure
     // so they're stored as session fields before auto-Provision fires. The provision_sandbox
     // integration checks these to decide whether to restore an existing workspace or provision new.
+    let effective_workspace_id = if workspace_id.is_empty() {
+        str_field(fields, &["workspace_id", "WorkspaceId"]).unwrap_or("")
+    } else {
+        workspace_id
+    };
+
     let mut configure_body = json!({
         "system_prompt": str_field(fields, &["system_prompt", "SystemPrompt"]).unwrap_or(""),
         "user_message": user_message,
@@ -958,7 +979,7 @@ fn configure_session_from_prior(
         "compaction_model": str_field(fields, &["compaction_model", "CompactionModel"]).unwrap_or(""),
         "heartbeat_timeout_seconds": str_field(fields, &["heartbeat_timeout_seconds", "HeartbeatTimeoutSeconds"]).unwrap_or("300"),
         // Resume fields — folded into Configure so auto-Provision can restore prior state.
-        "workspace_id": str_field(fields, &["workspace_id", "WorkspaceId"]).unwrap_or(""),
+        "workspace_id": effective_workspace_id,
         "conversation_file_id": str_field(fields, &["conversation_file_id", "ConversationFileId"]).unwrap_or(""),
         "file_manifest_id": str_field(fields, &["file_manifest_id", "FileManifestId"]).unwrap_or(""),
         "session_file_id": str_field(fields, &["session_file_id", "SessionFileId"]).unwrap_or(""),
@@ -1026,13 +1047,19 @@ fn append_user_message_to_session(
     ctx: &Context,
     temper_api_url: &str,
     tenant: &str,
+    fields: &Value,
     workspace_id: &str,
     session_file_id: &str,
     session_leaf_id: &str,
     user_message: &str,
 ) -> Result<String, String> {
-    let session_jsonl =
-        read_file_value(ctx, temper_api_url, tenant, workspace_id, session_file_id)?;
+    let entity_backed_session = is_session_entries_ref(session_file_id);
+    let helper_fields = fields_with_workspace(fields, workspace_id);
+    let session_jsonl = if entity_backed_session {
+        read_session_from_temperfs(ctx, temper_api_url, tenant, &helper_fields, session_file_id)?
+    } else {
+        read_file_value(ctx, temper_api_url, tenant, workspace_id, session_file_id)?
+    };
     let mut tree = SessionTree::from_jsonl(&session_jsonl);
     let mut parent_id = if !session_leaf_id.is_empty() {
         session_leaf_id.to_string()
@@ -1049,7 +1076,9 @@ fn append_user_message_to_session(
         parent_id = tool_result_id;
     }
     let tokens = estimate_tokens(user_message);
-    let (new_leaf_id, _) = if !workspace_id.is_empty() {
+    let (new_leaf_id, _) = if entity_backed_session || workspace_id.is_empty() {
+        tree.append_user_message(&parent_id, user_message, tokens)
+    } else {
         let file_name = format!("session-user-{}.txt", tree.len());
         match create_content_file_ref(
             ctx,
@@ -1076,17 +1105,26 @@ fn append_user_message_to_session(
                 tree.append_user_message(&parent_id, user_message, tokens)
             }
         }
-    } else {
-        tree.append_user_message(&parent_id, user_message, tokens)
     };
-    write_file_value(
-        ctx,
-        temper_api_url,
-        tenant,
-        workspace_id,
-        session_file_id,
-        &tree.to_jsonl(),
-    )?;
+    if entity_backed_session {
+        write_session_to_temperfs(
+            ctx,
+            temper_api_url,
+            tenant,
+            &helper_fields,
+            session_file_id,
+            &tree.to_jsonl(),
+        )?;
+    } else {
+        write_file_value(
+            ctx,
+            temper_api_url,
+            tenant,
+            workspace_id,
+            session_file_id,
+            &tree.to_jsonl(),
+        )?;
+    }
     Ok(new_leaf_id)
 }
 
@@ -1097,12 +1135,7 @@ fn append_externalized_user_message(
     content_file_version_id: Option<&str>,
     tokens: usize,
 ) -> (String, String) {
-    tree.append_user_message_file(
-        parent_id,
-        content_file_id,
-        content_file_version_id,
-        tokens,
-    )
+    tree.append_user_message_file(parent_id, content_file_id, content_file_version_id, tokens)
 }
 
 fn append_user_message_to_conversation(
@@ -1144,13 +1177,41 @@ fn resolve_workspace_id_for_session(
     tenant: &str,
     fields: &Value,
     session_file_id: &str,
+    conversation_file_id: &str,
 ) -> Result<String, String> {
     if let Some(workspace_id) = str_field(fields, &["workspace_id", "WorkspaceId"]) {
         if !workspace_id.is_empty() {
             return Ok(workspace_id.to_string());
         }
     }
+    if !conversation_file_id.is_empty() {
+        match fetch_entity(
+            ctx,
+            &format!("{temper_api_url}/tdata/Files('{conversation_file_id}')"),
+            tenant,
+        ) {
+            Ok(conversation_file) => {
+                if let Some(workspace_id) =
+                    nested_str_field(&conversation_file, &["workspace_id", "WorkspaceId"])
+                        .filter(|value| !value.is_empty())
+                {
+                    return Ok(workspace_id.to_string());
+                }
+            }
+            Err(err) => {
+                ctx.log(
+                    "warn",
+                    &format!(
+                        "route_message: failed to resolve workspace from conversation file {conversation_file_id}: {err}"
+                    ),
+                );
+            }
+        }
+    }
     if session_file_id.is_empty() {
+        return Ok(String::new());
+    }
+    if is_session_entries_ref(session_file_id) {
         return Ok(String::new());
     }
     let session_file = fetch_entity(
@@ -1163,6 +1224,21 @@ fn resolve_workspace_id_for_session(
             .unwrap_or("")
             .to_string(),
     )
+}
+
+fn fields_with_workspace(fields: &Value, workspace_id: &str) -> Value {
+    if workspace_id.is_empty() || str_field(fields, &["workspace_id", "WorkspaceId"]).is_some() {
+        return fields.clone();
+    }
+
+    let mut next = fields.clone();
+    if let Some(obj) = next.as_object_mut() {
+        obj.insert(
+            "workspace_id".to_string(),
+            Value::String(workspace_id.to_string()),
+        );
+    }
+    next
 }
 
 fn read_file_value(
@@ -1673,5 +1749,31 @@ mod tests {
         assert_eq!(refs.len(), 1);
         assert_eq!(refs[0].content_file_id.as_deref(), Some("file-123"));
         assert_eq!(refs[0].content_file_version_id.as_deref(), Some("ver-456"));
+    }
+
+    #[test]
+    fn fields_with_workspace_adds_missing_workspace_for_helper_headers() {
+        let fields = json!({ "soul_id": "soul-1" });
+        let updated = fields_with_workspace(&fields, "workspace-1");
+
+        assert_eq!(
+            updated.get("workspace_id").and_then(Value::as_str),
+            Some("workspace-1")
+        );
+        assert_eq!(fields.get("workspace_id").and_then(Value::as_str), None);
+    }
+
+    #[test]
+    fn fields_with_workspace_preserves_existing_workspace() {
+        let fields = json!({
+            "workspace_id": "workspace-existing",
+            "soul_id": "soul-1",
+        });
+        let updated = fields_with_workspace(&fields, "workspace-new");
+
+        assert_eq!(
+            updated.get("workspace_id").and_then(Value::as_str),
+            Some("workspace-existing")
+        );
     }
 }
