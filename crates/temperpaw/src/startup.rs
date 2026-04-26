@@ -45,6 +45,7 @@ const STARTUP_LIVE_RESTORE_ENTITIES_METRIC: &str = "temper_startup_live_restore_
 const OS_APP_RECONCILE_TOTAL_METRIC: &str = "temper_os_app_reconcile_total";
 const OS_APP_RECONCILE_DURATION_METRIC: &str = "temper_os_app_reconcile_duration_ms";
 const WASM_MODULE_LOAD_FAILURES_METRIC: &str = "temper_wasm_module_load_failures_total";
+const DEFAULT_PRE_RECONCILE_RUNTIME_INDEX_RECOVERY_BUDGET_MS: u64 = 5_000;
 
 struct StartupMetrics {
     phase_duration_ms: Histogram<f64>,
@@ -293,6 +294,21 @@ fn runtime_recovery_plan(tenant_ids: &[TenantId]) -> Vec<RuntimeRecoveryStep> {
     steps
 }
 
+fn pre_reconcile_runtime_index_recovery_budget_from_raw(raw: Option<&str>) -> Duration {
+    let budget_ms = raw
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .unwrap_or(DEFAULT_PRE_RECONCILE_RUNTIME_INDEX_RECOVERY_BUDGET_MS);
+    Duration::from_millis(budget_ms)
+}
+
+fn pre_reconcile_runtime_index_recovery_budget() -> Duration {
+    pre_reconcile_runtime_index_recovery_budget_from_raw(
+        std::env::var("TEMPERPAW_PRE_RECONCILE_RUNTIME_INDEX_RECOVERY_BUDGET_MS")
+            .ok()
+            .as_deref(),
+    )
+}
+
 fn startup_os_apps() -> Vec<String> {
     list_startup_os_apps()
 }
@@ -423,6 +439,52 @@ async fn recover_runtime_indexes(state: &PlatformState, tenant_ids: &[TenantId])
                 record_startup_live_restore_entities(&tenant, count);
                 tracing::info!(tenant = %tenant, count, "live restore: populate_index");
             }
+        }
+    }
+}
+
+async fn recover_runtime_indexes_before_reconcile(
+    state: &PlatformState,
+    tenant_ids: &[TenantId],
+) -> bool {
+    let budget = pre_reconcile_runtime_index_recovery_budget();
+    let phase_started = Instant::now();
+
+    if budget.is_zero() {
+        record_startup_phase_duration("phase_6a5_runtime_index_recovery", phase_started.elapsed());
+        tracing::warn!(
+            "phase_6a5_runtime_index_recovery disabled; deferring until after readiness"
+        );
+        return false;
+    }
+
+    tracing::info!(
+        budget_ms = budget.as_millis(),
+        "Phase 6a.5: Recovering runtime indexes before app reconcile..."
+    );
+    match tokio::time::timeout(budget, recover_runtime_indexes(state, tenant_ids)).await {
+        Ok(()) => {
+            record_startup_phase_duration(
+                "phase_6a5_runtime_index_recovery",
+                phase_started.elapsed(),
+            );
+            tracing::info!(
+                elapsed_ms = phase_started.elapsed().as_millis(),
+                "phase_6a5_runtime_index_recovery complete"
+            );
+            true
+        }
+        Err(_) => {
+            record_startup_phase_duration(
+                "phase_6a5_runtime_index_recovery",
+                phase_started.elapsed(),
+            );
+            tracing::warn!(
+                budget_ms = budget.as_millis(),
+                elapsed_ms = phase_started.elapsed().as_millis(),
+                "phase_6a5_runtime_index_recovery timed out; deferring until after readiness"
+            );
+            false
         }
     }
 }
@@ -1287,19 +1349,12 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
     // helpers still use runtime existence checks. If installed apps are already
     // runtime-ready, defer full event/index replay until after readiness.
     let tenant_ids = registry_tenant_ids(&state);
-    let recover_indexes_before_reconcile =
+    let should_recover_indexes_before_reconcile =
         startup_surface_runtime_indexes_required_before_reconcile(
             &startup_surface_runtime_recovery,
         );
-    if recover_indexes_before_reconcile {
-        let phase_started = Instant::now();
-        tracing::info!("Phase 6a.5: Recovering runtime indexes before app reconcile...");
-        recover_runtime_indexes(&state, &tenant_ids).await;
-        record_startup_phase_duration("phase_6a5_runtime_index_recovery", phase_started.elapsed());
-        tracing::info!(
-            elapsed_ms = phase_started.elapsed().as_millis(),
-            "phase_6a5_runtime_index_recovery complete"
-        );
+    let recovered_indexes_before_reconcile = if should_recover_indexes_before_reconcile {
+        recover_runtime_indexes_before_reconcile(&state, &tenant_ids).await
     } else {
         let phase_started = Instant::now();
         record_startup_phase_duration("phase_6a5_runtime_index_recovery", phase_started.elapsed());
@@ -1307,7 +1362,8 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
             elapsed_ms = phase_started.elapsed().as_millis(),
             "phase_6a5_runtime_index_recovery skipped; deferring until after readiness"
         );
-    }
+        false
+    };
 
     // Phase 6b: Reconcile Paw OS apps
     let phase_started = Instant::now();
@@ -1397,7 +1453,7 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
     );
 
     // Phase 7b: Session recovery — recover or fail orphaned sessions (ADR-0025).
-    if recover_indexes_before_reconcile {
+    if recovered_indexes_before_reconcile {
         recover_orphaned_sessions(&state, &tenant).await;
     } else {
         tracing::info!("Session recovery deferred until post-ready runtime index recovery");
@@ -1609,7 +1665,7 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
     record_startup_time_to_ready(startup_started.elapsed(), &tenant);
     tracing::info!("Temper Paw listening on port {actual_port}");
     tracing::info!(elapsed_ms = startup_started.elapsed().as_millis(), tenant = %tenant, "startup: time to ready");
-    if !recover_indexes_before_reconcile {
+    if !recovered_indexes_before_reconcile {
         spawn_deferred_runtime_recovery(state.clone(), tenant_ids.clone(), tenant.clone());
     }
 
@@ -3139,6 +3195,7 @@ mod tests {
     use axum::routing::any;
     use std::path::Path;
     use std::sync::{Arc, Mutex};
+    use std::time::Duration;
 
     use anyhow::anyhow;
     use serde_json::Value;
@@ -3147,13 +3204,15 @@ mod tests {
     use temper_server::secrets::vault::SecretsVault;
 
     use super::{
-        LocalWasmStartupPolicy, OS_APP_RECONCILE_DURATION_METRIC, OS_APP_RECONCILE_TOTAL_METRIC,
-        RuntimeRecoveryStep, STARTUP_LIVE_RESTORE_ENTITIES_METRIC, STARTUP_PHASE_DURATION_METRIC,
+        DEFAULT_PRE_RECONCILE_RUNTIME_INDEX_RECOVERY_BUDGET_MS, LocalWasmStartupPolicy,
+        OS_APP_RECONCILE_DURATION_METRIC, OS_APP_RECONCILE_TOTAL_METRIC, RuntimeRecoveryStep,
+        STARTUP_LIVE_RESTORE_ENTITIES_METRIC, STARTUP_PHASE_DURATION_METRIC,
         STARTUP_TIME_TO_READY_METRIC, StartupReadiness, StartupSurfaceRuntimeRecoverySummary,
         WASM_MODULE_LOAD_FAILURES_METRIC, actor_passivation_check_interval_secs,
         app_required_wasm_failure, bootstrap_soul, installed_app_runtime_recovery_result,
         load_or_create_temper_api_key, local_wasm_startup_policy, paw_soul_content_is_personalized,
-        resolve_startup_secret, runtime_indexes_required_before_reconcile, runtime_recovery_plan,
+        pre_reconcile_runtime_index_recovery_budget_from_raw, resolve_startup_secret,
+        runtime_indexes_required_before_reconcile, runtime_recovery_plan,
         runtime_router_with_startup_gates, soul_lookup_filters, spawn_runtime_server,
         startup_discord_connect_result, startup_discord_summary_label, startup_os_apps,
         startup_surface_runtime_indexes_required_before_reconcile, wait_for_runtime_server,
@@ -3316,6 +3375,26 @@ mod tests {
                 ..StartupSurfaceRuntimeRecoverySummary::default()
             }
         ));
+    }
+
+    #[test]
+    fn pre_reconcile_runtime_index_recovery_budget_is_bounded_and_configurable() {
+        assert_eq!(
+            pre_reconcile_runtime_index_recovery_budget_from_raw(None),
+            Duration::from_millis(DEFAULT_PRE_RECONCILE_RUNTIME_INDEX_RECOVERY_BUDGET_MS)
+        );
+        assert_eq!(
+            pre_reconcile_runtime_index_recovery_budget_from_raw(Some("250")),
+            Duration::from_millis(250)
+        );
+        assert_eq!(
+            pre_reconcile_runtime_index_recovery_budget_from_raw(Some("0")),
+            Duration::ZERO
+        );
+        assert_eq!(
+            pre_reconcile_runtime_index_recovery_budget_from_raw(Some("not-a-number")),
+            Duration::from_millis(DEFAULT_PRE_RECONCILE_RUNTIME_INDEX_RECOVERY_BUDGET_MS)
+        );
     }
 
     #[test]
