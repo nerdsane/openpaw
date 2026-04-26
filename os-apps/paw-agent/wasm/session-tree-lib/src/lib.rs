@@ -3,10 +3,11 @@
 //! Provides append-only tree-structured conversation storage with branching,
 //! compaction support, and leaf-to-root context assembly.
 //!
-//! Storage format: JSONL (one JSON object per line) with tree structure via
-//! id/parentId. Entries can carry content inline or reference TemperFS files
-//! through `content_file_id`, with optional immutable `content_file_version_id`
-//! refs for stable historical reads.
+//! Logical storage format: JSONL (one JSON object per line) with tree structure
+//! via id/parentId. New hot sessions persist each logical line as a
+//! `SessionEntry` entity; legacy sessions may still use a PawFS JSONL file.
+//! Entries can carry content inline, spill large fields through Temper blob-ref
+//! overflow, or reference governed PawFS artifacts through `content_file_id`.
 
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
@@ -830,7 +831,10 @@ mod tests {
     #[test]
     fn test_interrupted_tool_results_for_nonexistent_leaf() {
         let tree = SessionTree::new("test-r4");
-        assert!(tree.interrupted_tool_results_for_leaf("nonexistent").is_none());
+        assert!(
+            tree.interrupted_tool_results_for_leaf("nonexistent")
+                .is_none()
+        );
     }
 
     #[test]

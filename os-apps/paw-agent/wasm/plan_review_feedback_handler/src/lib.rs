@@ -4,8 +4,9 @@
 use session_tree_lib::SessionTree;
 use temper_wasm_sdk::prelude::*;
 use wasm_helpers::{
-    create_content_file_ref, entity_field_str, is_session_entries_ref, read_session_from_temperfs,
-    resolve_temper_api_url, runtime_headers, write_session_to_temperfs,
+    append_session_entry_line_to_ref, create_content_file_ref, entity_field_str,
+    is_session_entries_ref, read_session_from_temperfs, resolve_temper_api_url, runtime_headers,
+    write_session_to_temperfs,
 };
 
 const DEFAULT_REVIEW_NOTES: &str =
@@ -184,7 +185,7 @@ fn inject_review_message(
         entity_field_str(session_fields, &["workspace_id", "WorkspaceId"]).unwrap_or("");
 
     let entity_backed_session = is_session_entries_ref(session_file_id);
-    let new_leaf_id = if !entity_backed_session && !workspace_id.is_empty() {
+    let (new_leaf_id, line) = if !entity_backed_session && !workspace_id.is_empty() {
         let file_name = format!("review-feedback-{}.txt", tree.len());
         let content_ref = create_content_file_ref(
             ctx,
@@ -194,30 +195,42 @@ fn inject_review_message(
             &file_name,
             review_message,
         )?;
-        let (leaf_id, _) = tree.append_user_message_file(
+        let (leaf_id, line) = tree.append_user_message_file(
             session_leaf_id,
             &content_ref.file_id,
             Some(&content_ref.file_version_id),
             estimate_tokens(review_message),
         );
-        leaf_id
+        (leaf_id, line)
     } else {
-        let (leaf_id, _) = tree.append_user_message(
+        let (leaf_id, line) = tree.append_user_message(
             session_leaf_id,
             review_message,
             estimate_tokens(review_message),
         );
-        leaf_id
+        (leaf_id, line)
     };
 
-    write_session_to_temperfs(
-        ctx,
-        temper_api_url,
-        tenant,
-        session_fields,
-        session_file_id,
-        &tree.to_jsonl(),
-    )?;
+    if entity_backed_session {
+        append_session_entry_line_to_ref(
+            ctx,
+            temper_api_url,
+            tenant,
+            session_fields,
+            session_file_id,
+            &line,
+            tree.len().saturating_sub(1) as i64,
+        )?;
+    } else {
+        write_session_to_temperfs(
+            ctx,
+            temper_api_url,
+            tenant,
+            session_fields,
+            session_file_id,
+            &tree.to_jsonl(),
+        )?;
+    }
 
     Ok(Some(new_leaf_id))
 }

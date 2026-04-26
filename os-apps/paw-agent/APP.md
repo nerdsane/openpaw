@@ -17,6 +17,13 @@ Ephemeral agent run. Created per task, transitions through execution phases.
 - **Key actions**: `Configure`, `Start`, `Heartbeat`, `Complete`, `Fail`, `TimeoutFail`
 - **WASM**: `sandbox_provisioner` provisions compute on session start
 
+### SessionEntry
+Hot operational session log. Each user/assistant/tool/steering/compaction entry is its own entity.
+
+- **States**: Recorded
+- **Storage**: bounded content fields with blob-ref overflow for large bytes
+- **Use**: source of truth for session history and recovery; PawFS is only for exported or governed artifacts
+
 ### Soul
 Agent personality — identity and communication style. Optional; task agents skip this.
 

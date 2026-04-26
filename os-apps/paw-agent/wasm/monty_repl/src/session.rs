@@ -5,8 +5,8 @@
 
 use temper_wasm_sdk::prelude::*;
 use wasm_helpers::{
-    create_content_file_ref, entity_field_str, runtime_headers_as, send_typing_indicator,
-    timestamp_millis_string,
+    append_session_entry_line_to_ref, create_content_file_ref, entity_field_str,
+    runtime_headers_as, send_typing_indicator, timestamp_millis_string,
 };
 
 const SESSION_ENTRY_FILE_THRESHOLD_BYTES: usize = 4096;
@@ -53,7 +53,7 @@ pub fn persist_results(
         let tokens_est = results_json.len() / 4;
         let content_str = serde_json::to_string(&tool_results_value).unwrap_or_default();
 
-        let (new_leaf, _) = if !entity_backed_session
+        let (new_leaf, line) = if !entity_backed_session
             && !workspace_id.is_empty()
             && should_store_entry_as_file(&content_str)
         {
@@ -79,17 +79,18 @@ pub fn persist_results(
             tree.append_tool_results(session_leaf_id, &tool_results_value, tokens_est)
         };
 
-        let updated_jsonl = tree.to_jsonl();
         if entity_backed_session {
-            wasm_helpers::write_session_to_temperfs(
+            append_session_entry_line_to_ref(
                 ctx,
                 temper_api_url,
                 tenant,
                 fields,
                 session_file_id,
-                &updated_jsonl,
+                &line,
+                tree.len().saturating_sub(1) as i64,
             )?;
         } else {
+            let updated_jsonl = tree.to_jsonl();
             write_temperfs_file(ctx, temper_api_url, tenant, session_file_id, &updated_jsonl)?;
         }
 

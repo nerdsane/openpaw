@@ -48,11 +48,19 @@ my-app/
   seed-data/             # Initial entities to create on install
 ```
 
-## Document Storage Rule
+## Storage Rule
 
-If an app produces a document-sized artifact, store it in `Files` and keep only a file reference on the entity.
+Choose storage by intent, not by size alone.
 
-Use inline string fields for:
+Use Temper entities and actions for operational state:
+
+- session turns and tool results
+- job progress and review decisions
+- parent/child session links
+- durable memory records
+- state that another workflow must query, resume, or react to
+
+Use inline fields for bounded data:
 
 - short descriptions
 - comments
@@ -60,7 +68,12 @@ Use inline string fields for:
 - bounded notes
 - prompts that are intentionally small
 
-Use `Files` plus `content_file_id` or another `*FileId` field for:
+For large operational payloads, prefer a Temper entity with a bounded field and
+let Temper's blob-ref overflow move the bytes to the object/blob data plane.
+The entity stays the control-plane record; the blob is just bytes.
+
+Use `Files` plus `content_file_id` or another `*FileId` field only when the
+thing is intentionally a governed file/artifact:
 
 - markdown pages
 - reports
@@ -69,7 +82,7 @@ Use `Files` plus `content_file_id` or another `*FileId` field for:
 - compiled analyses
 - large JSON outputs
 - HTML or rendered artifacts
-- long LLM outputs that need to survive round-trips in full
+- exported or reviewable LLM outputs that should have file provenance
 
 Pattern:
 
@@ -77,7 +90,8 @@ Pattern:
 2. store the returned file id on the entity
 3. keep only metadata inline
 
-Temper's blob-backed overflow protection is a safety net for accidental large field values. It is **not** the preferred app design for document storage.
+Do not store hot session or workflow state by rewriting a PawFS file. Create a
+domain entity or dispatch a domain action instead.
 
 ## Recording design decisions
 

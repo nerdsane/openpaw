@@ -10,8 +10,9 @@
 use session_tree_lib::SessionTree;
 use temper_wasm_sdk::prelude::*;
 use wasm_helpers::{
-    create_content_file_ref, is_session_entries_ref, read_content_file, read_content_file_version,
-    read_session_from_temperfs, resolve_temper_api_url, write_session_to_temperfs,
+    append_session_entry_line_to_ref, create_content_file_ref, is_session_entries_ref,
+    read_content_file, read_content_file_version, read_session_from_temperfs,
+    resolve_temper_api_url, write_session_to_temperfs,
 };
 
 /// Entry point.
@@ -90,7 +91,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
 
                 let entry_id = format!("s-{}", tree.len());
                 let entity_backed_session = is_session_entries_ref(session_file_id);
-                let new_leaf_id = if !entity_backed_session && !workspace_id.is_empty() {
+                let (new_leaf_id, line) = if !entity_backed_session && !workspace_id.is_empty() {
                     match create_content_file_ref(
                         &ctx,
                         &temper_api_url,
@@ -100,7 +101,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                         msg_content,
                     ) {
                         Ok(content_ref) => {
-                            let _line = tree.append_entry_with_file(
+                            let line = tree.append_entry_with_file(
                                 &entry_id,
                                 Some(session_leaf_id),
                                 session_tree_lib::EntryType::Steering,
@@ -110,36 +111,47 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                                 estimate_tokens(msg_content),
                                 None,
                             );
-                            entry_id.clone()
+                            (entry_id.clone(), line)
                         }
                         Err(_) => {
-                            let (leaf, _) = tree.append_steering_message(
+                            let (leaf, line) = tree.append_steering_message(
                                 session_leaf_id,
                                 msg_content,
                                 estimate_tokens(msg_content),
                             );
-                            leaf
+                            (leaf, line)
                         }
                     }
                 } else {
-                    let (leaf, _) = tree.append_steering_message(
+                    let (leaf, line) = tree.append_steering_message(
                         session_leaf_id,
                         msg_content,
                         estimate_tokens(msg_content),
                     );
-                    leaf
+                    (leaf, line)
                 };
 
-                // Write back
-                let updated_jsonl = tree.to_jsonl();
-                write_session_to_temperfs(
-                    &ctx,
-                    &temper_api_url,
-                    tenant,
-                    &fields,
-                    session_file_id,
-                    &updated_jsonl,
-                )?;
+                if entity_backed_session {
+                    append_session_entry_line_to_ref(
+                        &ctx,
+                        &temper_api_url,
+                        tenant,
+                        &fields,
+                        session_file_id,
+                        &line,
+                        tree.len().saturating_sub(1) as i64,
+                    )?;
+                } else {
+                    let updated_jsonl = tree.to_jsonl();
+                    write_session_to_temperfs(
+                        &ctx,
+                        &temper_api_url,
+                        tenant,
+                        &fields,
+                        session_file_id,
+                        &updated_jsonl,
+                    )?;
+                }
 
                 // Update steering_messages in entity state (remove dequeued message)
                 let updated_queue =

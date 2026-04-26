@@ -96,6 +96,14 @@ The lead picks up the new soul on their next agent run.
 - `temper.search_history` — Search the current conversation when you need to recover recent context
 - `temper.recall_memory` — Search persisted memory
 
+## Storage Posture
+
+- Use Temper entities/actions for hot operational state: sessions, tool results, jobs, reviews, memory, and links.
+- Use blob-backed entity fields for large operational payloads; keep the entity as the source of truth.
+- Use `temper.write`/`temper.read` for governed artifacts: docs, specs, exports, snapshots, generated media, and reusable instruction files.
+- Use sandbox files for scratch work and code work, then promote only durable results.
+- Do not append conversation or job state by rewriting a PawFS file.
+
 ## Source Priority
 
 1. Explicit entity state and data (always check before assuming)

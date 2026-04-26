@@ -15,9 +15,9 @@ use session_turn_artifacts::{
 };
 use temper_wasm_sdk::prelude::*;
 use wasm_helpers::{
-    create_content_file, is_session_entries_ref, read_content_file, read_session_from_temperfs,
-    resolve_temper_api_url, runtime_headers, write_session_to_temperfs,
-    write_temperfs_value_with_retry,
+    append_session_entry_line_to_ref, create_content_file, is_session_entries_ref,
+    read_content_file, read_session_from_temperfs, resolve_temper_api_url, runtime_headers,
+    write_session_to_temperfs, write_temperfs_value_with_retry,
 };
 
 const SESSION_ENTRY_FILE_THRESHOLD_BYTES: usize = 4096;
@@ -311,7 +311,7 @@ fn append_assistant_response_to_session_tree(
     let mut tree = SessionTree::from_jsonl(&session_jsonl);
     let content_str = serde_json::to_string(content).unwrap_or_default();
     let entity_backed_session = is_session_entries_ref(&prepared.session_file_id);
-    let (new_leaf, externalized) = if !entity_backed_session
+    let (new_leaf, line, externalized) = if !entity_backed_session
         && !prepared.workspace_id.is_empty()
         && should_store_entry_as_file(&content_str)
     {
@@ -324,27 +324,27 @@ fn append_assistant_response_to_session_tree(
             &content_str,
         ) {
             Ok(content_file_id) => {
-                let (leaf, _) = tree.append_assistant_message_file(
+                let (leaf, line) = tree.append_assistant_message_file(
                     &prepared.session_leaf_id,
                     &content_file_id,
                     None,
                     output_tokens,
                 );
-                (leaf, true)
+                (leaf, line, true)
             }
             Err(_) => {
-                let (leaf, _) = tree.append_assistant_message(
+                let (leaf, line) = tree.append_assistant_message(
                     &prepared.session_leaf_id,
                     content,
                     output_tokens,
                 );
-                (leaf, false)
+                (leaf, line, false)
             }
         }
     } else {
-        let (leaf, _) =
+        let (leaf, line) =
             tree.append_assistant_message(&prepared.session_leaf_id, content, output_tokens);
-        (leaf, false)
+        (leaf, line, false)
     };
 
     if externalized {
@@ -357,14 +357,26 @@ fn append_assistant_response_to_session_tree(
         );
     }
 
-    write_session_to_temperfs(
-        ctx,
-        temper_api_url,
-        tenant,
-        fields,
-        &prepared.session_file_id,
-        &tree.to_jsonl(),
-    )?;
+    if entity_backed_session {
+        append_session_entry_line_to_ref(
+            ctx,
+            temper_api_url,
+            tenant,
+            fields,
+            &prepared.session_file_id,
+            &line,
+            tree.len().saturating_sub(1) as i64,
+        )?;
+    } else {
+        write_session_to_temperfs(
+            ctx,
+            temper_api_url,
+            tenant,
+            fields,
+            &prepared.session_file_id,
+            &tree.to_jsonl(),
+        )?;
+    }
     Ok(Some(new_leaf))
 }
 
