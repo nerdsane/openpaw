@@ -16,13 +16,13 @@ use openai_codex_wire::{
     build_openai_headers, extract_chatgpt_account_id_from_jwt, select_openai_responses_url,
 };
 use session_turn_artifacts::{
-    PreparedContextArtifact, ProviderResponseArtifact, build_provider_response_ready_params,
+    PreparedContextArtifact, ProviderResponseArtifact,
+    build_provider_response_ready_params_with_inline,
 };
 use temper_wasm_sdk::prelude::*;
 use wasm_helpers::{
-    create_content_file, read_content_file, resolve_temper_api_url, runtime_headers,
-    runtime_headers_as, send_typing_indicator, timestamp_millis_string,
-    write_temperfs_value_with_retry,
+    read_content_file, resolve_temper_api_url, runtime_headers, runtime_headers_as,
+    send_typing_indicator, timestamp_millis_string,
 };
 
 const DEFAULT_PROVIDER_CALLER_BUDGET_MS: i64 = 600_000;
@@ -1958,8 +1958,13 @@ pub fn run_provider_caller() -> Result<(), String> {
         .get("prepared_context_file_id")
         .and_then(|v| v.as_str())
         .unwrap_or("");
-    if prepared_context_file_id.is_empty() {
-        return Err("provider_caller: missing prepared_context_file_id".to_string());
+    let prepared_context_inline_json =
+        read_state_string_field(&ctx, &fields, "prepared_context_inline_json");
+    if prepared_context_file_id.is_empty() && prepared_context_inline_json.is_empty() {
+        return Err(
+            "provider_caller: missing prepared_context_inline_json or prepared_context_file_id"
+                .to_string(),
+        );
     }
     let temper_api_url = resolve_temper_api_url(&ctx, &fields);
     let tenant = &ctx.tenant;
@@ -1976,6 +1981,7 @@ pub fn run_provider_caller() -> Result<(), String> {
         tenant,
         &fields,
         prepared_context_file_id,
+        &prepared_context_inline_json,
     );
     emit_phase_step_duration(
         &ctx,
@@ -2168,29 +2174,14 @@ pub fn run_provider_caller() -> Result<(), String> {
     };
     let artifact_json = serde_json::to_string(&artifact)
         .map_err(|e| format!("provider response artifact serialize: {e}"))?;
-    let write_started_at = Context::get_time_millis();
-    let write_result = upsert_artifact_file(
-        &ctx,
-        &fields,
-        &temper_api_url,
-        tenant,
-        prepared.workspace_id.as_str(),
-        fields
-            .get("provider_response_file_id")
-            .and_then(|v| v.as_str())
-            .unwrap_or(""),
-        "session-provider-response.json",
-        &artifact_json,
-        "application/json",
-    );
+    let stage_started_at = Context::get_time_millis();
     emit_phase_step_duration(
         &ctx,
         "provider_caller",
         "write_provider_response_artifact",
-        write_started_at,
-        if write_result.is_ok() { "ok" } else { "error" },
+        stage_started_at,
+        "ok",
     );
-    let provider_response_file_id = write_result?;
     check_phase_budget(
         &ctx,
         "provider_caller",
@@ -2199,8 +2190,12 @@ pub fn run_provider_caller() -> Result<(), String> {
         "write_provider_response_artifact",
     )?;
 
-    let params =
-        build_provider_response_ready_params(&provider_response_file_id, &prepared, &artifact);
+    let params = build_provider_response_ready_params_with_inline(
+        "",
+        &artifact_json,
+        &prepared,
+        &artifact,
+    );
     set_success_result("ProviderResponseReady", &params);
     emit_phase_total_duration(
         &ctx,
@@ -2251,49 +2246,31 @@ fn resolve_provider_and_model(
     Ok((provider, model, api_key))
 }
 
-fn upsert_artifact_file(
-    ctx: &Context,
-    fields: &Value,
-    temper_api_url: &str,
-    tenant: &str,
-    workspace_id: &str,
-    existing_file_id: &str,
-    file_name: &str,
-    body: &str,
-    content_type: &str,
-) -> Result<String, String> {
-    if !existing_file_id.is_empty() {
-        let value_url = format!("{temper_api_url}/tdata/Files('{existing_file_id}')/$value");
-        let headers = runtime_headers(ctx, tenant, fields, Some(content_type), None);
-        if write_temperfs_value_with_retry(ctx, &value_url, &headers, body, file_name).is_ok() {
-            return Ok(existing_file_id.to_string());
-        }
-    }
-
-    let effective_workspace = if workspace_id.is_empty() {
-        "default"
-    } else {
-        workspace_id
-    };
-    create_content_file(
-        ctx,
-        temper_api_url,
-        tenant,
-        effective_workspace,
-        file_name,
-        body,
-    )
-}
-
 fn read_prepared_context_artifact(
     ctx: &Context,
     temper_api_url: &str,
     tenant: &str,
     fields: &Value,
     file_id: &str,
+    inline_json: &str,
 ) -> Result<PreparedContextArtifact, String> {
-    let raw = read_content_file(ctx, temper_api_url, tenant, fields, file_id)?;
+    let raw = if inline_json.is_empty() {
+        read_content_file(ctx, temper_api_url, tenant, fields, file_id)?
+    } else {
+        inline_json.to_string()
+    };
     serde_json::from_str(&raw).map_err(|e| format!("parse prepared context artifact: {e}"))
+}
+
+fn read_state_string_field(ctx: &Context, fields: &Value, field_name: &str) -> String {
+    match ctx.read_field_string(field_name) {
+        Ok(value) if !value.is_empty() => value,
+        _ => fields
+            .get(field_name)
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string(),
+    }
 }
 
 fn session_metric_tags(provider: &str, model: &str) -> Value {

@@ -985,6 +985,7 @@ fn configure_session_from_prior(
         "session_file_id": str_field(fields, &["session_file_id", "SessionFileId"]).unwrap_or(""),
         "session_leaf_id": session_leaf_id,
         "prepared_context_file_id": str_field(fields, &["prepared_context_file_id", "PreparedContextFileId"]).unwrap_or(""),
+        "prepared_context_inline_json": str_field(fields, &["prepared_context_inline_json", "PreparedContextInlineJson"]).unwrap_or(""),
         "system_prompt_hash": str_field(fields, &["system_prompt_hash", "SystemPromptHash"]).unwrap_or(""),
         "system_prompt_file_id": str_field(fields, &["system_prompt_file_id", "SystemPromptFileId"]).unwrap_or(""),
         "project_harness_id": str_field(fields, &["project_harness_id", "ProjectHarnessId"]).unwrap_or(""),

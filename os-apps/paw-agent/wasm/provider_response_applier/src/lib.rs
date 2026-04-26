@@ -49,9 +49,15 @@ pub fn run_provider_response_applier() -> Result<(), String> {
         .get("provider_response_file_id")
         .and_then(|v| v.as_str())
         .unwrap_or("");
-    if prepared_context_file_id.is_empty() || provider_response_file_id.is_empty() {
+    let prepared_context_inline_json =
+        read_state_string_field(&ctx, &fields, "prepared_context_inline_json");
+    let provider_response_inline_json =
+        read_state_string_field(&ctx, &fields, "provider_response_inline_json");
+    if (prepared_context_file_id.is_empty() && prepared_context_inline_json.is_empty())
+        || (provider_response_file_id.is_empty() && provider_response_inline_json.is_empty())
+    {
         return Err(
-            "provider_response_applier: missing prepared_context_file_id or provider_response_file_id"
+            "provider_response_applier: missing prepared/provider response inline JSON or file IDs"
                 .to_string(),
         );
     }
@@ -71,6 +77,7 @@ pub fn run_provider_response_applier() -> Result<(), String> {
         tenant,
         &fields,
         prepared_context_file_id,
+        &prepared_context_inline_json,
     );
     emit_phase_step_duration(
         &ctx,
@@ -99,6 +106,7 @@ pub fn run_provider_response_applier() -> Result<(), String> {
         tenant,
         &fields,
         provider_response_file_id,
+        &provider_response_inline_json,
     );
     emit_phase_step_duration(
         &ctx,
@@ -256,8 +264,13 @@ fn read_prepared_context_artifact(
     tenant: &str,
     fields: &Value,
     file_id: &str,
+    inline_json: &str,
 ) -> Result<PreparedContextArtifact, String> {
-    let raw = read_content_file(ctx, temper_api_url, tenant, fields, file_id)?;
+    let raw = if inline_json.is_empty() {
+        read_content_file(ctx, temper_api_url, tenant, fields, file_id)?
+    } else {
+        inline_json.to_string()
+    };
     serde_json::from_str(&raw).map_err(|e| format!("parse prepared context artifact: {e}"))
 }
 
@@ -267,9 +280,25 @@ fn read_provider_response_artifact(
     tenant: &str,
     fields: &Value,
     file_id: &str,
+    inline_json: &str,
 ) -> Result<ProviderResponseArtifact, String> {
-    let raw = read_content_file(ctx, temper_api_url, tenant, fields, file_id)?;
+    let raw = if inline_json.is_empty() {
+        read_content_file(ctx, temper_api_url, tenant, fields, file_id)?
+    } else {
+        inline_json.to_string()
+    };
     serde_json::from_str(&raw).map_err(|e| format!("parse provider response artifact: {e}"))
+}
+
+fn read_state_string_field(ctx: &Context, fields: &Value, field_name: &str) -> String {
+    match ctx.read_field_string(field_name) {
+        Ok(value) if !value.is_empty() => value,
+        _ => fields
+            .get(field_name)
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string(),
+    }
 }
 
 fn legacy_updated_conversation_payload(
