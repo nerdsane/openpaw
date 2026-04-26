@@ -17,7 +17,7 @@ use openai_codex_wire::{
 };
 use session_turn_artifacts::{
     PreparedContextArtifact, ProviderResponseArtifact,
-    build_provider_response_ready_params_with_inline,
+    build_provider_response_ready_params_with_inline, parse_prepared_context_artifact,
 };
 use temper_wasm_sdk::prelude::*;
 use wasm_helpers::{
@@ -2259,7 +2259,7 @@ fn read_prepared_context_artifact(
     } else {
         inline_json.to_string()
     };
-    serde_json::from_str(&raw).map_err(|e| format!("parse prepared context artifact: {e}"))
+    parse_prepared_context_artifact(&raw)
 }
 
 fn read_state_string_field(ctx: &Context, fields: &Value, field_name: &str) -> String {

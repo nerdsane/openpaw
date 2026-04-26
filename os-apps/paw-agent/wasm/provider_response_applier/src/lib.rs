@@ -12,6 +12,7 @@
 use session_tree_lib::SessionTree;
 use session_turn_artifacts::{
     PreparedContextArtifact, ProviderResponseArtifact, build_provider_response_applier_base_params,
+    parse_prepared_context_artifact, parse_provider_response_artifact,
 };
 use temper_wasm_sdk::prelude::*;
 use wasm_helpers::{
@@ -271,7 +272,7 @@ fn read_prepared_context_artifact(
     } else {
         inline_json.to_string()
     };
-    serde_json::from_str(&raw).map_err(|e| format!("parse prepared context artifact: {e}"))
+    parse_prepared_context_artifact(&raw)
 }
 
 fn read_provider_response_artifact(
@@ -287,7 +288,7 @@ fn read_provider_response_artifact(
     } else {
         inline_json.to_string()
     };
-    serde_json::from_str(&raw).map_err(|e| format!("parse provider response artifact: {e}"))
+    parse_provider_response_artifact(&raw)
 }
 
 fn read_state_string_field(ctx: &Context, fields: &Value, field_name: &str) -> String {
@@ -608,6 +609,7 @@ mod tests {
             context_bytes: 128,
             entries_loaded: 1,
             content_files_loaded: 0,
+            prune_tool_results_after_turns: 4,
         };
         let artifact = ProviderResponseArtifact {
             version: 1,
@@ -644,6 +646,7 @@ mod tests {
             context_bytes: 128,
             entries_loaded: 1,
             content_files_loaded: 0,
+            prune_tool_results_after_turns: 4,
         };
         let artifact = ProviderResponseArtifact {
             version: 1,
