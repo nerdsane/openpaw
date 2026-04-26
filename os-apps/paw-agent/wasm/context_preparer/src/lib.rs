@@ -130,6 +130,10 @@ fn estimate_message_tokens(messages: &[Value]) -> i64 {
 
 fn build_tool_definitions(tools_enabled: &str, _sandbox_url: &str, _workdir: &str) -> Vec<Value> {
     let enabled = enabled_tool_set(tools_enabled);
+    if enabled.is_empty() {
+        return Vec::new();
+    }
+
     let method_listing = build_method_listing(&enabled);
     let description = format!(
         "Execute Python code in the Temper REPL. Variables persist across calls.\n\n\
@@ -568,6 +572,10 @@ fn compute_system_prompt_hash(
     project_id: &str,
     session_mode: &str,
     active_plan_id: &str,
+    skills_prompt_mode: &str,
+    tools_enabled: &str,
+    sandbox_url: &str,
+    workdir: &str,
     system_prompt_override: &str,
 ) -> String {
     // Simple additive hash — we just need change detection, not cryptographic security.
@@ -584,6 +592,14 @@ fn compute_system_prompt_hash(
         .chain(session_mode.bytes())
         .chain(b"|".iter().copied())
         .chain(active_plan_id.bytes())
+        .chain(b"|".iter().copied())
+        .chain(skills_prompt_mode.bytes())
+        .chain(b"|".iter().copied())
+        .chain(tools_enabled.bytes())
+        .chain(b"|".iter().copied())
+        .chain(sandbox_url.bytes())
+        .chain(b"|".iter().copied())
+        .chain(workdir.bytes())
         .chain(b"|".iter().copied())
         .chain(system_prompt_override.bytes())
     {
@@ -687,14 +703,20 @@ pub fn run_context_preparer() -> Result<(), String> {
         .and_then(|v| v.as_str())
         .and_then(|s| s.parse().ok())
         .unwrap_or(4);
-    let existing_prepared = try_read_existing_prepared_context_inline(&ctx, &fields).or_else(|| {
-        fields
-            .get("prepared_context_file_id")
-            .and_then(|v| v.as_str())
-            .and_then(|file_id| {
-                try_read_existing_prepared_context_artifact(&ctx, &temper_api_url, tenant, file_id)
-            })
-    });
+    let existing_prepared =
+        try_read_existing_prepared_context_inline(&ctx, &fields).or_else(|| {
+            fields
+                .get("prepared_context_file_id")
+                .and_then(|v| v.as_str())
+                .and_then(|file_id| {
+                    try_read_existing_prepared_context_artifact(
+                        &ctx,
+                        &temper_api_url,
+                        tenant,
+                        file_id,
+                    )
+                })
+        });
 
     let load_started_at = Context::get_time_millis();
     let load_result = load_messages_for_prepare(
@@ -806,6 +828,9 @@ pub fn run_context_preparer() -> Result<(), String> {
             tenant,
             soul_id,
             system_prompt_override,
+            tools_enabled,
+            sandbox_url,
+            workdir,
             &workspace_id,
         )?;
     emit_phase_step_duration(
@@ -1205,6 +1230,9 @@ fn assemble_cached_system_prompt(
     tenant: &str,
     soul_id: &str,
     system_prompt_override: &str,
+    tools_enabled: &str,
+    sandbox_url: &str,
+    workdir: &str,
     workspace_id: &str,
 ) -> Result<(String, String, String), String> {
     let agent_id = fields
@@ -1230,6 +1258,7 @@ fn assemble_cached_system_prompt(
         .get("active_plan_id")
         .and_then(|v| v.as_str())
         .unwrap_or("");
+    let skills_prompt_mode = configured_string(ctx, fields, "skills_prompt_mode", "index");
 
     let new_prompt_hash = compute_system_prompt_hash(
         soul_id,
@@ -1238,6 +1267,10 @@ fn assemble_cached_system_prompt(
         project_id,
         session_mode,
         active_plan_id,
+        &skills_prompt_mode,
+        tools_enabled,
+        sandbox_url,
+        workdir,
         system_prompt_override,
     );
     let prev_hash = fields
@@ -1260,10 +1293,7 @@ fn assemble_cached_system_prompt(
             prepared.system_prompt.clone(),
             prepared.system_prompt_file_id.clone(),
         )
-    } else if !prev_hash.is_empty()
-        && prev_hash == new_prompt_hash
-        && !prev_file_id.is_empty()
-    {
+    } else if !prev_hash.is_empty() && prev_hash == new_prompt_hash && !prev_file_id.is_empty() {
         match read_temperfs_file(ctx, temper_api_url, tenant, prev_file_id) {
             Ok(cached) if !cached.is_empty() => {
                 ctx.log("info", "context_preparer: system prompt cache HIT");
@@ -1280,6 +1310,9 @@ fn assemble_cached_system_prompt(
                     tenant,
                     soul_id,
                     system_prompt_override,
+                    tools_enabled,
+                    sandbox_url,
+                    workdir,
                 )?;
                 let file_id = write_system_prompt_cache_if_enabled(
                     ctx,
@@ -1297,8 +1330,16 @@ fn assemble_cached_system_prompt(
             "info",
             "context_preparer: system prompt cache MISS, assembling",
         );
-        let prompt =
-            assemble_system_prompt(ctx, temper_api_url, tenant, soul_id, system_prompt_override)?;
+        let prompt = assemble_system_prompt(
+            ctx,
+            temper_api_url,
+            tenant,
+            soul_id,
+            system_prompt_override,
+            tools_enabled,
+            sandbox_url,
+            workdir,
+        )?;
         let file_id = write_system_prompt_cache_if_enabled(
             ctx,
             fields,
@@ -1322,8 +1363,24 @@ fn bool_field_or_config(ctx: &Context, fields: &Value, key: &str, default_value:
         .get(key)
         .and_then(Value::as_str)
         .or_else(|| ctx.config.get(key).map(String::as_str))
-        .map(|value| matches!(value.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
+        .map(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes"
+            )
+        })
         .unwrap_or(default_value)
+}
+
+fn configured_string(ctx: &Context, fields: &Value, key: &str, default_value: &str) -> String {
+    fields
+        .get(key)
+        .and_then(Value::as_str)
+        .or_else(|| ctx.config.get(key).map(String::as_str))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(default_value)
+        .to_ascii_lowercase()
 }
 
 fn write_system_prompt_cache_if_enabled(
@@ -1499,6 +1556,9 @@ fn assemble_system_prompt(
     tenant: &str,
     soul_id: &str,
     system_prompt_override: &str,
+    tools_enabled: &str,
+    sandbox_url: &str,
+    workdir: &str,
 ) -> Result<String, String> {
     let mut parts: Vec<String> = Vec::new();
 
@@ -1571,13 +1631,33 @@ fn assemble_system_prompt(
             .and_then(|f| f.get("project_id").or_else(|| f.get("ProjectId")))
             .and_then(|v| v.as_str())
             .unwrap_or("");
-        match load_skills_block(ctx, temper_api_url, tenant, project_id, agent_id) {
-            Ok(block) if !block.is_empty() => parts.push(block),
-            Ok(_) => {}
-            Err(e) => ctx.log(
-                "warn",
-                &format!("assemble_system_prompt: failed to load skills: {e}"),
-            ),
+        let empty_fields = json!({});
+        let fields_for_config = fields_val.unwrap_or(&empty_fields);
+        let skills_prompt_mode =
+            configured_string(ctx, fields_for_config, "skills_prompt_mode", "index");
+        if !matches!(
+            skills_prompt_mode.as_str(),
+            "off" | "none" | "disabled" | "false"
+        ) {
+            let include_bodies = matches!(
+                skills_prompt_mode.as_str(),
+                "full" | "body" | "bodies" | "legacy"
+            );
+            match load_skills_block(
+                ctx,
+                temper_api_url,
+                tenant,
+                project_id,
+                agent_id,
+                include_bodies,
+            ) {
+                Ok(block) if !block.is_empty() => parts.push(block),
+                Ok(_) => {}
+                Err(e) => ctx.log(
+                    "warn",
+                    &format!("assemble_system_prompt: failed to load skills: {e}"),
+                ),
+            }
         }
     }
 
@@ -1654,25 +1734,7 @@ fn assemble_system_prompt(
     }
 
     // 5. Temper SDK reference (available REPL commands)
-    {
-        let tools_enabled = ctx
-            .entity_state
-            .get("fields")
-            .and_then(|f| f.get("tools_enabled"))
-            .and_then(|v| v.as_str())
-            .unwrap_or(DEFAULT_TOOLS_ENABLED);
-        let sandbox_url = ctx
-            .entity_state
-            .get("fields")
-            .and_then(|f| f.get("sandbox_url"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        let workdir = ctx
-            .entity_state
-            .get("fields")
-            .and_then(|f| f.get("workdir"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("/workspace");
+    if !enabled_tool_set(tools_enabled).is_empty() {
         parts.push(build_sdk_reference(tools_enabled, sandbox_url, workdir));
     }
 
@@ -1690,6 +1752,10 @@ fn assemble_system_prompt(
 /// `execute` tool description so agents see them immediately.
 fn build_sdk_reference(tools_enabled: &str, sandbox_url: &str, workdir: &str) -> String {
     let enabled = enabled_tool_set(tools_enabled);
+    if enabled.is_empty() {
+        return String::new();
+    }
+
     let has_sandbox = has_sandbox_surface(&enabled);
 
     let mut sections = Vec::new();
@@ -1933,6 +1999,7 @@ fn load_skills_block(
     tenant: &str,
     project_id: &str,
     agent_id: &str,
+    include_bodies: bool,
 ) -> Result<String, String> {
     let headers = agent_headers(ctx, tenant, None, Some("application/json"));
 
@@ -1993,6 +2060,10 @@ fn load_skills_block(
 
     if file_entries.is_empty() {
         return Ok(String::new());
+    }
+
+    if !include_bodies {
+        return Ok(render_skill_index(file_entries));
     }
 
     // Read each file's content, parse frontmatter for name + description.
@@ -2086,6 +2157,49 @@ fn load_skills_block(
     }
     xml.push_str("</available_skills>");
     Ok(xml)
+}
+
+fn render_skill_index(mut file_entries: Vec<(String, String, String)>) -> String {
+    file_entries.sort_by(|a, b| {
+        let a_name = normalize_skill_key(&skill_name_from_path(&a.1));
+        let b_name = normalize_skill_key(&skill_name_from_path(&b.1));
+        a_name
+            .cmp(&b_name)
+            .then(scope_priority(&a.1).cmp(&scope_priority(&b.1)))
+    });
+
+    let mut seen_names = BTreeSet::new();
+    let mut xml = String::from("<available_skills mode=\"index\">\n");
+    for (_file_id, path, workspace_id) in file_entries {
+        let name = skill_name_from_path(&path);
+        let norm = normalize_skill_key(&name);
+        if !seen_names.insert(norm) {
+            continue;
+        }
+        let ws_attr = if workspace_id.is_empty() {
+            String::new()
+        } else {
+            format!(" workspace_id=\"{}\"", xml_escape(&workspace_id))
+        };
+        xml.push_str(&format!(
+            "  <skill name=\"{}\" path=\"{}\"{} />\n",
+            xml_escape(&name),
+            xml_escape(&path),
+            ws_attr,
+        ));
+    }
+    xml.push_str("</available_skills>");
+    xml
+}
+
+fn scope_priority(path: &str) -> u8 {
+    if path.starts_with("/agents/") {
+        0
+    } else if path.starts_with("/projects/") {
+        1
+    } else {
+        2
+    }
 }
 
 /// Load agent instructions from the Agent entity's instructions_file_id.
@@ -2500,6 +2614,34 @@ mod tests {
         assert!(description.contains("temper.get(entity_set, entity_id)"));
         assert!(description.contains("temper.list(entity_set, filter_str)"));
         assert!(!description.contains("temper.submit_specs(files_dict)"));
+    }
+
+    #[test]
+    fn build_tool_definitions_empty_when_no_tools_enabled() {
+        assert!(build_tool_definitions("", "", "/workspace").is_empty());
+        assert!(build_sdk_reference("", "", "/workspace").is_empty());
+    }
+
+    #[test]
+    fn render_skill_index_avoids_body_injection() {
+        let block = render_skill_index(vec![
+            (
+                "file-1".to_string(),
+                "/system/skills/platform-awareness/SKILL.md".to_string(),
+                "os-app-docs".to_string(),
+            ),
+            (
+                "file-2".to_string(),
+                "/agents/paw/skills/platform-awareness/SKILL.md".to_string(),
+                "agent-docs".to_string(),
+            ),
+        ]);
+
+        assert!(block.contains("mode=\"index\""));
+        assert!(block.contains("path=\"/agents/paw/skills/platform-awareness/SKILL.md\""));
+        assert!(block.contains("workspace_id=\"agent-docs\""));
+        assert!(!block.contains("file-1"));
+        assert!(!block.contains("</skill>"));
     }
 
     #[test]
