@@ -1,8 +1,10 @@
 //! Workspace Provisioner — WASM module for creating TemperFS conversation storage.
 //!
-//! Creates a TemperFS Workspace, conversation File, manifest File, and session
-//! tree JSONL file. This is the fast, always-needed provisioning step that runs
-//! before the agent starts thinking. Sandbox provisioning is lazy (ADR-0022).
+//! Creates the hot session log needed before the agent starts thinking.
+//!
+//! Fresh sessions default to SessionEntry hot state and avoid bootstrapping
+//! empty TemperFS files. PawFS workspace files are opt-in for legacy flows and
+//! governed artifacts; sandbox provisioning remains lazy (ADR-0022).
 //!
 //! Build: `cargo build --target wasm32-unknown-unknown --release`
 
@@ -112,7 +114,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             file_manifest_id,
             session_file_id,
             session_leaf_id,
-        ) = if !prior_conversation_file_id.is_empty() {
+        ) = if !prior_conversation_file_id.is_empty() || !prior_session_file_id.is_empty() {
             // Continuation session — reuse prior workspace and conversation storage.
             ctx.log(
                     "info",
@@ -136,14 +138,23 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                     ),
                 );
             let bootstrap_started_at = Context::get_time_millis();
-            let fs_result = create_conversation_storage_in_workspace(
-                &ctx,
-                &temper_api_url,
-                tenant,
-                &prior_workspace_id,
-                entity_id,
-                user_message,
-            );
+            let fs_result = if legacy_session_files_enabled(&ctx, &fields) {
+                create_conversation_storage_in_workspace(
+                    &ctx,
+                    &temper_api_url,
+                    tenant,
+                    &prior_workspace_id,
+                    entity_id,
+                    user_message,
+                )
+            } else {
+                Ok(create_hot_session_storage_in_workspace(
+                    &ctx,
+                    entity_id,
+                    user_message,
+                    &prior_workspace_id,
+                ))
+            };
             emit_phase_step_duration(
                 &ctx,
                 "workspace_provisioner",
@@ -162,20 +173,17 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                                 "workspace_provisioner: configured workspace bootstrap failed: {e}. Falling back to inline."
                             ),
                         );
-                    (
-                        prior_workspace_id,
-                        String::new(),
-                        String::new(),
-                        String::new(),
-                        String::new(),
-                    )
+                    create_hot_session_storage(&ctx, entity_id, user_message, &prior_workspace_id)
                 }
             }
         } else {
             // Fresh session — create new conversation storage.
             let bootstrap_started_at = Context::get_time_millis();
-            let fs_result =
-                create_conversation_storage(&ctx, &temper_api_url, tenant, entity_id, user_message);
+            let fs_result = if legacy_session_files_enabled(&ctx, &fields) {
+                create_conversation_storage(&ctx, &temper_api_url, tenant, entity_id, user_message)
+            } else {
+                Ok(create_hot_session_storage(&ctx, entity_id, user_message, ""))
+            };
             emit_phase_step_duration(
                 &ctx,
                 "workspace_provisioner",
@@ -194,13 +202,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                                 "workspace_provisioner: TemperFS bootstrap failed at {temper_api_url}/tdata (tenant={tenant}, agent={entity_id}): {e}. Falling back to inline."
                             ),
                         );
-                    (
-                        String::new(),
-                        String::new(),
-                        String::new(),
-                        String::new(),
-                        String::new(),
-                    )
+                    create_hot_session_storage(&ctx, entity_id, user_message, "")
                 }
             }
         };
@@ -248,6 +250,123 @@ fn workspace_headers(
     accept: Option<&str>,
 ) -> Vec<(String, String)> {
     runtime_headers_for_workspace(ctx, tenant, &json!({}), workspace_id, content_type, accept)
+}
+
+fn bool_field_or_config(ctx: &Context, fields: &Value, key: &str, default_value: bool) -> bool {
+    fields
+        .get(key)
+        .and_then(|value| value.as_str())
+        .or_else(|| ctx.config.get(key).map(String::as_str))
+        .map(|value| matches!(value.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
+        .unwrap_or(default_value)
+}
+
+fn legacy_session_files_enabled(ctx: &Context, fields: &Value) -> bool {
+    bool_field_or_config(ctx, fields, "bootstrap_temperfs_session_files", false)
+}
+
+fn create_hot_session_storage(
+    ctx: &Context,
+    session_id: &str,
+    user_message: &str,
+    workspace_id: &str,
+) -> (String, String, String, String, String) {
+    let session_ref = session_entries_ref(session_id);
+    let header_id = format!("h-{session_id}");
+    let session_leaf_id = format!("u-{session_id}-0");
+    let fields = ctx.entity_state.get("fields").cloned().unwrap_or(json!({}));
+    let temper_api_url = resolve_temper_api_url(ctx, &fields);
+    let tenant = &ctx.tenant;
+
+    let header_result = create_session_entry(
+        ctx,
+        &temper_api_url,
+        tenant,
+        &fields,
+        session_id,
+        &header_id,
+        None,
+        0,
+        "header",
+        None,
+        None,
+        None,
+        None,
+        Some(&json!({ "version": 1 })),
+        0,
+    );
+    if let Err(e) = header_result {
+        ctx.log(
+            "warn",
+            &format!("workspace_provisioner: hot session header entry failed: {e}"),
+        );
+        return (
+            workspace_id.to_string(),
+            String::new(),
+            String::new(),
+            String::new(),
+            String::new(),
+        );
+    }
+
+    let user_result = create_session_entry(
+        ctx,
+        &temper_api_url,
+        tenant,
+        &fields,
+        session_id,
+        &session_leaf_id,
+        Some(&header_id),
+        1,
+        "message",
+        Some("user"),
+        Some(&json!(user_message)),
+        None,
+        None,
+        None,
+        user_message.len() / 4,
+    );
+    if let Err(e) = user_result {
+        ctx.log(
+            "warn",
+            &format!("workspace_provisioner: hot session user entry failed: {e}"),
+        );
+        return (
+            workspace_id.to_string(),
+            String::new(),
+            String::new(),
+            String::new(),
+            String::new(),
+        );
+    }
+
+    ctx.log(
+        "info",
+        "workspace_provisioner: hot session entries initialized without PawFS bootstrap",
+    );
+    (
+        workspace_id.to_string(),
+        String::new(),
+        String::new(),
+        session_ref,
+        session_leaf_id,
+    )
+}
+
+fn create_hot_session_storage_in_workspace(
+    ctx: &Context,
+    session_id: &str,
+    user_message: &str,
+    workspace_id: &str,
+) -> (String, String, String, String) {
+    let (_, conversation_file_id, file_manifest_id, session_file_id, session_leaf_id) =
+        create_hot_session_storage(ctx, session_id, user_message, workspace_id);
+    (
+        conversation_file_id,
+        file_manifest_id,
+        session_file_id,
+        session_leaf_id,
+    )
 }
 
 /// Create a TemperFS Workspace, conversation File, manifest File, and session file.

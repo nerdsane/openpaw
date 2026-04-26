@@ -801,6 +801,7 @@ pub fn run_context_preparer() -> Result<(), String> {
         assemble_cached_system_prompt(
             &ctx,
             &fields,
+            existing_prepared.as_ref(),
             &temper_api_url,
             tenant,
             soul_id,
@@ -1199,6 +1200,7 @@ fn try_reuse_prepared_context(
 fn assemble_cached_system_prompt(
     ctx: &Context,
     fields: &Value,
+    existing_prepared: Option<&PreparedContextArtifact>,
     temper_api_url: &str,
     tenant: &str,
     soul_id: &str,
@@ -1247,7 +1249,18 @@ fn assemble_cached_system_prompt(
         .and_then(|v| v.as_str())
         .unwrap_or("");
 
-    let (assembled_system_prompt, system_prompt_file_id) = if !prev_hash.is_empty()
+    let inline_cached_prompt = existing_prepared.filter(|prepared| {
+        prepared.system_prompt_hash == new_prompt_hash && !prepared.system_prompt.is_empty()
+    });
+    let (assembled_system_prompt, system_prompt_file_id) = if let Some(prepared) =
+        inline_cached_prompt
+    {
+        ctx.log("info", "context_preparer: system prompt inline cache HIT");
+        (
+            prepared.system_prompt.clone(),
+            prepared.system_prompt_file_id.clone(),
+        )
+    } else if !prev_hash.is_empty()
         && prev_hash == new_prompt_hash
         && !prev_file_id.is_empty()
     {
@@ -1268,9 +1281,14 @@ fn assemble_cached_system_prompt(
                     soul_id,
                     system_prompt_override,
                 )?;
-                let file_id =
-                    write_system_prompt_cache(ctx, temper_api_url, tenant, workspace_id, &prompt)
-                        .unwrap_or_default();
+                let file_id = write_system_prompt_cache_if_enabled(
+                    ctx,
+                    fields,
+                    temper_api_url,
+                    tenant,
+                    workspace_id,
+                    &prompt,
+                );
                 (prompt, file_id)
             }
         }
@@ -1281,8 +1299,14 @@ fn assemble_cached_system_prompt(
         );
         let prompt =
             assemble_system_prompt(ctx, temper_api_url, tenant, soul_id, system_prompt_override)?;
-        let file_id = write_system_prompt_cache(ctx, temper_api_url, tenant, workspace_id, &prompt)
-            .unwrap_or_default();
+        let file_id = write_system_prompt_cache_if_enabled(
+            ctx,
+            fields,
+            temper_api_url,
+            tenant,
+            workspace_id,
+            &prompt,
+        );
         (prompt, file_id)
     };
 
@@ -1291,6 +1315,29 @@ fn assemble_cached_system_prompt(
         new_prompt_hash,
         system_prompt_file_id,
     ))
+}
+
+fn bool_field_or_config(ctx: &Context, fields: &Value, key: &str, default_value: bool) -> bool {
+    fields
+        .get(key)
+        .and_then(Value::as_str)
+        .or_else(|| ctx.config.get(key).map(String::as_str))
+        .map(|value| matches!(value.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
+        .unwrap_or(default_value)
+}
+
+fn write_system_prompt_cache_if_enabled(
+    ctx: &Context,
+    fields: &Value,
+    temper_api_url: &str,
+    tenant: &str,
+    workspace_id: &str,
+    prompt: &str,
+) -> String {
+    if !bool_field_or_config(ctx, fields, "system_prompt_cache_file_enabled", false) {
+        return String::new();
+    }
+    write_system_prompt_cache(ctx, temper_api_url, tenant, workspace_id, prompt).unwrap_or_default()
 }
 
 fn estimate_prepared_context_bytes(
