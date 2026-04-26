@@ -47,9 +47,10 @@ name = "content"
 type = "string"
 initial = ""
 # Inline JSON for the entry content. Hot conversational turns are intentionally
-# inline here; large governed artifacts should be referenced with content_file_id
-# instead of making PawFS part of every turn mutation.
-overflow_inline_max_bytes = "1048576"
+# inline while small. Larger content spills through Temper's blob-ref overflow
+# path so the entry remains the control-plane record and object/blob storage is
+# the data plane. PawFS is reserved for governed artifacts, not turn appends.
+overflow_inline_max_bytes = "131072"
 
 [[state]]
 name = "content_file_id"

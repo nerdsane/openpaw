@@ -121,7 +121,7 @@ pub const REPL_METHOD_SPECS: &[ReplMethodSpec] = &[
         object: "temper",
         method: "write",
         signature: "(path, content, opts=None)",
-        description: "write file by path (auto-creates workspace/dirs), returns {file_id, path, workspace_id}",
+        description: "write governed artifact file by path (auto-creates workspace/dirs), returns {file_id, path, workspace_id}; use entities/actions for hot state",
         token: Some("temper_write"),
     },
     ReplMethodSpec {

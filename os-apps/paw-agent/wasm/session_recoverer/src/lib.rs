@@ -9,7 +9,10 @@
 
 use session_tree_lib::SessionTree;
 use temper_wasm_sdk::prelude::*;
-use wasm_helpers::{read_session_from_temperfs, resolve_temper_api_url, write_session_to_temperfs};
+use wasm_helpers::{
+    append_session_entry_line_to_ref, is_session_entries_ref, read_session_from_temperfs,
+    resolve_temper_api_url, write_session_to_temperfs,
+};
 
 /// Entry point.
 #[unsafe(no_mangle)]
@@ -18,11 +21,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         let ctx = Context::from_host()?;
         ctx.log("info", "session_recoverer: starting");
 
-        let fields = ctx
-            .entity_state
-            .get("fields")
-            .cloned()
-            .unwrap_or(json!({}));
+        let fields = ctx.entity_state.get("fields").cloned().unwrap_or(json!({}));
 
         let session_file_id = fields
             .get("session_file_id")
@@ -52,6 +51,8 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         }
 
         let mut tree = SessionTree::from_jsonl(&session_jsonl);
+        let entity_backed_session = is_session_entries_ref(session_file_id);
+        let mut appended_lines: Vec<(i64, String)> = Vec::new();
 
         // Determine the current leaf
         let mut leaf_id = if !session_leaf_id.is_empty() {
@@ -66,9 +67,10 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         if let Some(interrupted_results) = tree.interrupted_tool_results_for_leaf(&leaf_id) {
             let note = "Tool execution was interrupted by a server restart.";
             let tokens = estimate_tokens(note);
-            let (tool_result_id, _) =
+            let (tool_result_id, line) =
                 tree.append_tool_results(&leaf_id, &interrupted_results, tokens);
             leaf_id = tool_result_id;
+            appended_lines.push((tree.len().saturating_sub(1) as i64, line));
             ctx.log(
                 "info",
                 "session_recoverer: appended synthetic tool_results for interrupted execution",
@@ -78,18 +80,33 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         // Inject a recovery steering message
         let recovery_msg = "[System: Session recovered after server restart. Your conversation context is preserved. If you were executing tools when interrupted, the results were lost — check current state before retrying.]";
         let tokens = estimate_tokens(recovery_msg);
-        let (steering_id, _) = tree.append_steering_message(&leaf_id, recovery_msg, tokens);
+        let (steering_id, line) = tree.append_steering_message(&leaf_id, recovery_msg, tokens);
         leaf_id = steering_id;
+        appended_lines.push((tree.len().saturating_sub(1) as i64, line));
 
-        // Write the repaired tree back to TemperFS
-        write_session_to_temperfs(
-            &ctx,
-            &temper_api_url,
-            tenant,
-            &fields,
-            session_file_id,
-            &tree.to_jsonl(),
-        )?;
+        if entity_backed_session {
+            for (sequence, line) in &appended_lines {
+                append_session_entry_line_to_ref(
+                    &ctx,
+                    &temper_api_url,
+                    tenant,
+                    &fields,
+                    session_file_id,
+                    line,
+                    *sequence,
+                )?;
+            }
+        } else {
+            // Legacy PawFS sessions still need the repaired tree written back.
+            write_session_to_temperfs(
+                &ctx,
+                &temper_api_url,
+                tenant,
+                &fields,
+                session_file_id,
+                &tree.to_jsonl(),
+            )?;
+        }
 
         ctx.log(
             "info",
@@ -125,8 +142,8 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string();
-            let pending_tool_calls = serde_json::to_string(&remaining)
-                .unwrap_or_else(|_| "[]".to_string());
+            let pending_tool_calls =
+                serde_json::to_string(&remaining).unwrap_or_else(|_| "[]".to_string());
             let pending_tool_context = pending_ctx_str.unwrap_or("{}").to_string();
 
             ctx.log(

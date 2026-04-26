@@ -74,6 +74,20 @@ pub fn is_session_entries_ref(reference: &str) -> bool {
     session_id_from_entries_ref(reference).is_some()
 }
 
+pub fn session_entry_entity_id(session_id: &str, entry_id: &str) -> String {
+    let mut hash = 0xcbf29ce484222325u64;
+    for byte in session_id
+        .as_bytes()
+        .iter()
+        .chain([0x1f].iter())
+        .chain(entry_id.as_bytes().iter())
+    {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    format!("se-{hash:016x}")
+}
+
 fn read_temperfs_value_with_retry(
     ctx: &Context,
     url: &str,
@@ -223,6 +237,56 @@ pub fn write_session_to_temperfs(
     write_temperfs_value_with_retry(ctx, &url, &headers, jsonl, "TemperFS session write failed")
 }
 
+pub fn append_session_entry_to_ref(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+    fields: &Value,
+    session_ref: &str,
+    entry: &Value,
+    sequence: i64,
+) -> Result<Option<CreatedSessionEntry>, String> {
+    let Some(session_id) = session_id_from_entries_ref(session_ref) else {
+        return Ok(None);
+    };
+
+    create_session_entry_from_jsonl_value(
+        ctx,
+        temper_api_url,
+        tenant,
+        fields,
+        session_id,
+        entry,
+        sequence,
+    )
+    .map(Some)
+}
+
+pub fn append_session_entry_line_to_ref(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+    fields: &Value,
+    session_ref: &str,
+    line: &str,
+    sequence: i64,
+) -> Result<Option<CreatedSessionEntry>, String> {
+    let Some(_) = session_id_from_entries_ref(session_ref) else {
+        return Ok(None);
+    };
+    let parsed: Value = serde_json::from_str(line)
+        .map_err(|err| format!("parse SessionTree JSONL appended line: {err}"))?;
+    append_session_entry_to_ref(
+        ctx,
+        temper_api_url,
+        tenant,
+        fields,
+        session_ref,
+        &parsed,
+        sequence,
+    )
+}
+
 pub fn create_session_entry(
     ctx: &Context,
     temper_api_url: &str,
@@ -252,6 +316,7 @@ pub fn create_session_entry(
         .unwrap_or_else(|| "{}".to_string());
 
     let body = json!({
+        "id": session_entry_entity_id(session_id, entry_id),
         "SessionId": session_id,
         "EntryId": entry_id,
         "ParentEntryId": parent_entry_id.unwrap_or(""),
@@ -369,7 +434,7 @@ pub fn session_entries_jsonl_from_entities(entries: &[Value]) -> String {
         .join("\n")
 }
 
-fn create_session_entry_from_jsonl_value(
+pub fn create_session_entry_from_jsonl_value(
     ctx: &Context,
     temper_api_url: &str,
     tenant: &str,
@@ -1232,6 +1297,15 @@ mod tests {
         assert_eq!(session_id_from_entries_ref(&reference), Some("ses-123"));
         assert!(is_session_entries_ref(&reference));
         assert_eq!(session_id_from_entries_ref("fl-123"), None);
+    }
+
+    #[test]
+    fn test_session_entry_entity_id_is_stable_and_safe() {
+        let id = session_entry_entity_id("ss-123", "a-2");
+        assert_eq!(id, session_entry_entity_id("ss-123", "a-2"));
+        assert_ne!(id, session_entry_entity_id("ss-123", "a-3"));
+        assert!(id.starts_with("se-"));
+        assert!(id.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '-'));
     }
 
     #[test]
