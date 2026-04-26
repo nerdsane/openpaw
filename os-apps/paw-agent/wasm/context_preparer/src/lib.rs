@@ -12,7 +12,7 @@
 //! Build: `cargo build --target wasm32-unknown-unknown --release`
 
 use session_tree_lib::{ContextRef, EntryType, SessionTree};
-use session_turn_artifacts::PreparedContextArtifact;
+use session_turn_artifacts::{PreparedContextArtifact, parse_prepared_context_artifact};
 use std::collections::{BTreeMap, BTreeSet};
 use temper_wasm_sdk::prelude::*;
 use tool_catalog::{
@@ -1093,7 +1093,7 @@ fn try_read_existing_prepared_context_inline(
         return None;
     }
 
-    match serde_json::from_str(&raw) {
+    match parse_prepared_context_artifact(&raw) {
         Ok(prepared) => Some(prepared),
         Err(err) => {
             ctx.log(
@@ -1114,7 +1114,7 @@ fn read_prepared_context_artifact(
     file_id: &str,
 ) -> Result<PreparedContextArtifact, String> {
     let raw = read_content_file_raw(ctx, temper_api_url, tenant, file_id)?;
-    serde_json::from_str(&raw).map_err(|e| format!("parse prepared context artifact: {e}"))
+    parse_prepared_context_artifact(&raw)
 }
 
 fn try_reuse_prepared_context(

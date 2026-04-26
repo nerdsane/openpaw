@@ -1,4 +1,4 @@
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::{Value, json};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -39,6 +39,39 @@ pub struct ProviderResponseArtifact {
     pub cache_creation_input_tokens: i64,
     pub request_bytes: usize,
     pub response_bytes: usize,
+}
+
+pub fn parse_prepared_context_artifact(raw: &str) -> Result<PreparedContextArtifact, String> {
+    parse_artifact_json(raw, "prepared context artifact")
+}
+
+pub fn parse_provider_response_artifact(raw: &str) -> Result<ProviderResponseArtifact, String> {
+    parse_artifact_json(raw, "provider response artifact")
+}
+
+fn parse_artifact_json<T>(raw: &str, label: &str) -> Result<T, String>
+where
+    T: DeserializeOwned,
+{
+    let value = parse_artifact_value(raw, label)?;
+    serde_json::from_value(value).map_err(|err| format!("parse {label}: {err}"))
+}
+
+fn parse_artifact_value(raw: &str, label: &str) -> Result<Value, String> {
+    let mut current = raw.trim().to_string();
+
+    for _ in 0..3 {
+        let value: Value =
+            serde_json::from_str(&current).map_err(|err| format!("parse {label}: {err}"))?;
+        match value {
+            Value::String(inner) => {
+                current = inner.trim().to_string();
+            }
+            other => return Ok(other),
+        }
+    }
+
+    Err(format!("parse {label}: nested JSON string exceeded limit"))
 }
 
 pub fn build_provider_response_ready_params(
@@ -527,10 +560,8 @@ mod tests {
             serde_json::from_str(params["_gen_ai_input_messages"].as_str().unwrap()).unwrap();
         let output: Value =
             serde_json::from_str(params["_gen_ai_output_messages"].as_str().unwrap()).unwrap();
-        let system: Value = serde_json::from_str(
-            params["_gen_ai_system_instructions"].as_str().unwrap(),
-        )
-        .unwrap();
+        let system: Value =
+            serde_json::from_str(params["_gen_ai_system_instructions"].as_str().unwrap()).unwrap();
 
         assert_eq!(system[0]["content"], "You are concise.");
         assert_eq!(input[0]["parts"][0]["content"], "What changed?");
@@ -562,6 +593,61 @@ mod tests {
         .expect("legacy prepared context artifact should deserialize");
 
         assert_eq!(artifact.prune_tool_results_after_turns, 4);
+    }
+
+    #[test]
+    fn parses_prepared_context_artifact_from_direct_or_json_string_payload() {
+        let raw = json!({
+            "version": 1,
+            "messages": [{"role": "user", "content": "hello"}],
+            "tools": [],
+            "system_prompt": "You are concise.",
+            "system_prompt_hash": "hash-123",
+            "system_prompt_file_id": "system-file",
+            "conversation_file_id": "",
+            "session_file_id": "session-entries:session-1",
+            "session_leaf_id": "u-1",
+            "workspace_id": "workspace-1",
+            "use_session_tree": true,
+            "context_tokens": 12,
+            "context_bytes": 128,
+            "entries_loaded": 1,
+            "content_files_loaded": 0
+        })
+        .to_string();
+        let wrapped = serde_json::to_string(&raw).unwrap();
+
+        let direct = parse_prepared_context_artifact(&raw).unwrap();
+        let encoded = parse_prepared_context_artifact(&wrapped).unwrap();
+
+        assert_eq!(direct.session_leaf_id, "u-1");
+        assert_eq!(encoded.session_leaf_id, "u-1");
+        assert_eq!(encoded.prune_tool_results_after_turns, 4);
+    }
+
+    #[test]
+    fn parses_provider_response_artifact_from_direct_or_json_string_payload() {
+        let raw = json!({
+            "version": 1,
+            "provider": "mock",
+            "model": "mock-fast",
+            "content": [{"type": "text", "text": "hi"}],
+            "stop_reason": "end_turn",
+            "input_tokens": 1,
+            "output_tokens": 2,
+            "cache_read_input_tokens": 0,
+            "cache_creation_input_tokens": 0,
+            "request_bytes": 64,
+            "response_bytes": 32
+        })
+        .to_string();
+        let wrapped = serde_json::to_string(&raw).unwrap();
+
+        let direct = parse_provider_response_artifact(&raw).unwrap();
+        let encoded = parse_provider_response_artifact(&wrapped).unwrap();
+
+        assert_eq!(direct.stop_reason, "end_turn");
+        assert_eq!(encoded.provider, "mock");
     }
 
     #[test]
