@@ -67,6 +67,25 @@ fn active_context_preparer_owns_delta_batch_read_contract() {
 }
 
 #[test]
+fn provider_caller_does_not_persist_provider_boundary_progress_by_default() {
+    let source =
+        fs::read_to_string(repo_root().join("os-apps/paw-agent/wasm/provider_caller/src/lib.rs"))
+            .expect("provider_caller source should exist");
+
+    for needle in [
+        "fn provider_progress_dispatch_enabled",
+        "provider_progress_dispatch_enabled",
+        ".unwrap_or(false)",
+        "if provider_progress_enabled",
+    ] {
+        assert!(
+            source.contains(needle),
+            "provider_caller should gate provider-boundary ProgressMade writes with {needle}"
+        );
+    }
+}
+
+#[test]
 fn route_message_carries_context_cache_fields_to_continuations() {
     let source =
         fs::read_to_string(repo_root().join("os-apps/paw-channels/wasm/route_message/src/lib.rs"))

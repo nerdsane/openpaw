@@ -59,7 +59,7 @@ initial = "0"
 [[state]]
 name = "max_checks"
 type = "string"
-initial = "180"
+initial = "80"
 
 [[action]]
 name = "Configure"
@@ -99,7 +99,7 @@ params = ["LastChildStatus"]
 hint = "Child Session is still running. Re-check shortly."
 effect = [
   { type = "increment", var = "check_count" },
-  { type = "schedule", action = "CheckChild", delay_seconds = 10 },
+  { type = "schedule", action = "CheckChild", delay_seconds = 30 },
 ]
 
 [[action]]

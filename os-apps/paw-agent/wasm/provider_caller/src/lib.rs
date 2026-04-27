@@ -1570,6 +1570,19 @@ fn send_progress(ctx: &Context, temper_api_url: &str, tenant: &str) -> Result<()
     Ok(())
 }
 
+fn provider_progress_dispatch_enabled(ctx: &Context) -> bool {
+    ctx.config
+        .get("provider_progress_dispatch_enabled")
+        .or_else(|| ctx.config.get("session_provider_progress_enabled"))
+        .map(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
+        .unwrap_or(false)
+}
+
 fn mock_plan_requests_hang(messages: &[Value]) -> bool {
     if let Some(steps) = extract_mock_plan(messages)
         && steps
@@ -2068,6 +2081,7 @@ pub fn run_provider_caller() -> Result<(), String> {
     send_typing_indicator(&ctx, &temper_api_url, tenant, typing_agent_id);
 
     let provider_call_started_at = Context::get_time_millis();
+    let provider_progress_enabled = provider_progress_dispatch_enabled(&ctx);
     let response_result = run_with_provider_progress(
         |boundary| {
             ctx.log(
@@ -2076,7 +2090,9 @@ pub fn run_provider_caller() -> Result<(), String> {
                     "provider_caller: provider progress boundary={boundary:?} provider={provider} model={model}"
                 ),
             );
-            let _ = send_progress(&ctx, &temper_api_url, tenant);
+            if provider_progress_enabled {
+                let _ = send_progress(&ctx, &temper_api_url, tenant);
+            }
         },
         || match provider.as_str() {
             "mock" => call_mock(
@@ -2190,12 +2206,8 @@ pub fn run_provider_caller() -> Result<(), String> {
         "write_provider_response_artifact",
     )?;
 
-    let params = build_provider_response_ready_params_with_inline(
-        "",
-        &artifact_json,
-        &prepared,
-        &artifact,
-    );
+    let params =
+        build_provider_response_ready_params_with_inline("", &artifact_json, &prepared, &artifact);
     set_success_result("ProviderResponseReady", &params);
     emit_phase_total_duration(
         &ctx,
