@@ -28,6 +28,17 @@ cargo test -p temperpaw startup::tests
 
 Result: passed. `26` startup tests passed.
 
+After Temper PR #189 was merged to `main`, updated `Cargo.lock` from
+Temper `3927a2291279cc5fc5bd425e668959e006ae48a9` to
+`ebef37df0734cde1aab4a5006d1189a641076af3` and reran:
+
+```bash
+cargo test -p temperpaw startup_skips_builtin_default_agent_specs_when_paw_agent_owns_them
+```
+
+Result: passed. `1` focused startup test passed against the merged Temper
+revision.
+
 ## Live Local E2E
 
 Ran a real `temperpaw-server` from a disposable OpenPaw worktree patched to use
