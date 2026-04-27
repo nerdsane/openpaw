@@ -529,13 +529,7 @@ pub fn read(ctx: &Context, api_url: &str, tenant: &str, args: &[Value]) -> Resul
     let path = pos_str(args, 0, "path", "read")?;
     let opts = obj_arg_or_empty(args, 1);
 
-    if opts
-        .get("workspace_id")
-        .and_then(|value| value.as_str())
-        .filter(|value| !value.is_empty())
-        .is_none()
-        && let Some(content) = try_read_global_scoped_path(ctx, api_url, tenant, &path)?
-    {
+    if let Some(content) = try_read_global_scoped_path(ctx, api_url, tenant, &path)? {
         return Ok(render_read_output(content, &opts));
     }
 
