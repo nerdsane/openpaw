@@ -298,6 +298,10 @@ fn startup_os_apps() -> Vec<String> {
     list_startup_os_apps()
 }
 
+fn default_agent_specs_bootstrap_needed(startup_apps: &[String]) -> bool {
+    !startup_apps.iter().any(|app| app == "paw-agent")
+}
+
 #[cfg(test)]
 fn startup_discord_connect_result(result: anyhow::Result<String>) -> Option<String> {
     match result {
@@ -769,14 +773,22 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
         let sys_hashes = temper_platform::bootstrap_system_tenant(&state, &sys_cache);
         temper_platform::persist_system_verification(&turso_store, &sys_hashes).await;
 
-        let agent_cache = turso_store
-            .load_verification_cache(&tenant)
-            .await
-            .unwrap_or_default();
-        let agent_hashes =
-            temper_platform::bootstrap_agent_specs(&state, &tenant, true, &agent_cache);
-        temper_platform::persist_agent_verification(&turso_store, &tenant, &agent_hashes).await;
-        tracing::info!("Bootstrapped system + agent specs for temper-system and {tenant}");
+        let startup_apps = startup_os_apps();
+        if default_agent_specs_bootstrap_needed(&startup_apps) {
+            let agent_cache = turso_store
+                .load_verification_cache(&tenant)
+                .await
+                .unwrap_or_default();
+            let agent_hashes =
+                temper_platform::bootstrap_agent_specs(&state, &tenant, true, &agent_cache);
+            temper_platform::persist_agent_verification(&turso_store, &tenant, &agent_hashes).await;
+        } else {
+            tracing::info!(
+                tenant = %tenant,
+                "Skipping built-in default agent specs bootstrap; paw-agent OS app owns default agent specs"
+            );
+        }
+        tracing::info!("Bootstrapped startup platform specs for temper-system and {tenant}");
     }
 
     // Phase 5: Secrets vault
@@ -3236,9 +3248,10 @@ mod tests {
         RuntimeRecoveryStep, STARTUP_LIVE_RESTORE_ENTITIES_METRIC, STARTUP_PHASE_DURATION_METRIC,
         STARTUP_TIME_TO_READY_METRIC, StartupReadiness, StartupSurfaceRuntimeRecoverySummary,
         WASM_MODULE_LOAD_FAILURES_METRIC, actor_passivation_check_interval_secs,
-        app_required_wasm_failure, bootstrap_soul, installed_app_runtime_recovery_result,
-        load_or_create_temper_api_key, local_wasm_startup_policy, paw_soul_content_is_personalized,
-        resolve_startup_secret, runtime_indexes_required_before_reconcile, runtime_recovery_plan,
+        app_required_wasm_failure, bootstrap_soul, default_agent_specs_bootstrap_needed,
+        installed_app_runtime_recovery_result, load_or_create_temper_api_key,
+        local_wasm_startup_policy, paw_soul_content_is_personalized, resolve_startup_secret,
+        runtime_indexes_required_before_reconcile, runtime_recovery_plan,
         runtime_router_with_startup_gates, soul_lookup_filters, spawn_runtime_server,
         startup_discord_connect_result, startup_discord_summary_label, startup_os_apps,
         startup_surface_runtime_indexes_required_before_reconcile, wait_for_runtime_server,
@@ -3308,6 +3321,19 @@ mod tests {
             local_wasm_startup_policy(None),
             LocalWasmStartupPolicy::LoadPersistedOnly
         );
+    }
+
+    #[test]
+    fn startup_skips_builtin_default_agent_specs_when_paw_agent_owns_them() {
+        assert!(!default_agent_specs_bootstrap_needed(&[
+            "paw-fs".to_string(),
+            "paw-agent".to_string(),
+            "paw-channels".to_string(),
+        ]));
+        assert!(default_agent_specs_bootstrap_needed(&[
+            "paw-fs".to_string(),
+            "paw-channels".to_string(),
+        ]));
     }
 
     #[test]
