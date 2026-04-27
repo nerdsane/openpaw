@@ -92,7 +92,29 @@ fn send_progress(ctx: &Context, temper_api_url: &str, tenant: &str) -> Result<()
     Ok(())
 }
 
+fn context_progress_dispatch_enabled(ctx: &Context) -> bool {
+    let fields = ctx
+        .entity_state
+        .get("fields")
+        .and_then(|value| value.as_object());
+    let value = fields
+        .and_then(|fields| fields.get("context_progress_enabled"))
+        .or_else(|| fields.and_then(|fields| fields.get("ContextProgressEnabled")));
+
+    match value {
+        Some(Value::Bool(enabled)) => *enabled,
+        Some(Value::String(enabled)) => matches!(
+            enabled.trim().to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "on"
+        ),
+        _ => false,
+    }
+}
+
 fn send_progress_ignore(ctx: &Context, temper_api_url: &str, tenant: &str, phase: &str) {
+    if !context_progress_dispatch_enabled(ctx) {
+        return;
+    }
     if let Err(err) = send_progress(ctx, temper_api_url, tenant) {
         ctx.log(
             "warn",
