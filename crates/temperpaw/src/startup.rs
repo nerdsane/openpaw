@@ -243,8 +243,13 @@ fn app_required_wasm_failure(app_name: &str, install: &InstallResult) -> Option<
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum RuntimeRecoveryStep {
-    PopulateIndex(String),
+    PopulateTypeIndex {
+        tenant: String,
+        entity_type: &'static str,
+    },
 }
+
+const STARTUP_RUNTIME_INDEX_ENTITY_TYPES: &[&str] = &["App", "Agent", "Soul"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum LocalWasmStartupPolicy {
@@ -285,11 +290,14 @@ fn local_wasm_startup_policy(raw: Option<&str>) -> LocalWasmStartupPolicy {
 }
 
 fn runtime_recovery_plan(tenant_ids: &[TenantId]) -> Vec<RuntimeRecoveryStep> {
-    let mut steps = Vec::with_capacity(tenant_ids.len());
+    let mut steps = Vec::with_capacity(tenant_ids.len() * STARTUP_RUNTIME_INDEX_ENTITY_TYPES.len());
     for tenant_id in tenant_ids {
-        steps.push(RuntimeRecoveryStep::PopulateIndex(
-            tenant_id.as_str().to_string(),
-        ));
+        for entity_type in STARTUP_RUNTIME_INDEX_ENTITY_TYPES {
+            steps.push(RuntimeRecoveryStep::PopulateTypeIndex {
+                tenant: tenant_id.as_str().to_string(),
+                entity_type,
+            });
+        }
     }
     steps
 }
@@ -416,17 +424,22 @@ async fn wait_for_runtime_server(url: &str, timeout: Duration) -> Result<()> {
 async fn recover_runtime_indexes(state: &PlatformState, tenant_ids: &[TenantId]) {
     for step in runtime_recovery_plan(tenant_ids) {
         match step {
-            RuntimeRecoveryStep::PopulateIndex(tenant) => {
+            RuntimeRecoveryStep::PopulateTypeIndex {
+                tenant,
+                entity_type,
+            } => {
                 let tenant_id = TenantId::new(&tenant);
-                state.server.populate_index_from_store(&tenant_id).await;
                 let count = state
                     .server
-                    .active_entity_counts_by_tenant()
-                    .get(&tenant)
-                    .copied()
-                    .unwrap_or(0);
+                    .populate_index_from_store_by_type(&tenant_id, entity_type)
+                    .await as u64;
                 record_startup_live_restore_entities(&tenant, count);
-                tracing::info!(tenant = %tenant, count, "live restore: populate_index");
+                tracing::info!(
+                    tenant = %tenant,
+                    entity_type,
+                    count,
+                    "live restore: populate_typed_index"
+                );
             }
         }
     }
@@ -475,6 +488,10 @@ async fn recover_orphaned_sessions(state: &PlatformState, tenant: &str) {
     .into_iter()
     .collect();
     let tenant_id = TenantId::new(tenant);
+    state
+        .server
+        .populate_index_from_store_by_type(&tenant_id, "Session")
+        .await;
     let session_ids: Vec<String> = {
         let index = state.server.entity_index.read().unwrap(); // ci-ok: infallible lock
         let index_key = format!("{tenant_id}:Session");
@@ -573,23 +590,15 @@ async fn recover_orphaned_sessions(state: &PlatformState, tenant: &str) {
     );
 }
 
-fn spawn_deferred_runtime_recovery(
-    state: PlatformState,
-    tenant_ids: Vec<TenantId>,
-    tenant: String,
-) {
+fn spawn_deferred_session_recovery(state: PlatformState, tenant: String) {
     tokio::spawn(async move {
-        tracing::info!(
-            tenants = tenant_ids.len(),
-            "Deferred runtime index recovery scheduled after readiness"
-        );
+        tracing::info!("Deferred session recovery scheduled after readiness");
         let started = Instant::now();
-        recover_runtime_indexes(&state, &tenant_ids).await;
+        recover_orphaned_sessions(&state, &tenant).await;
         tracing::info!(
             elapsed_ms = started.elapsed().as_millis(),
-            "Deferred runtime index recovery complete"
+            "Deferred session recovery complete"
         );
-        recover_orphaned_sessions(&state, &tenant).await;
     });
 }
 
@@ -1382,8 +1391,8 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
     // Phase 6a.5: Runtime index recovery before app reconcile.
     //
     // Changed/cold app reconcile may bootstrap durable TemperFS content, whose
-    // helpers still use runtime existence checks. If installed apps are already
-    // runtime-ready, defer full event/index replay until after readiness.
+    // helpers may need a few startup entity indexes. These are recovered by
+    // entity type so deploys never do a whole-tenant event/index replay.
     let tenant_ids = registry_tenant_ids(&state);
     let recover_indexes_before_reconcile =
         startup_surface_runtime_indexes_required_before_reconcile(
@@ -1391,7 +1400,7 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
         );
     if recover_indexes_before_reconcile {
         let phase_started = Instant::now();
-        tracing::info!("Phase 6a.5: Recovering runtime indexes before app reconcile...");
+        tracing::info!("Phase 6a.5: Recovering startup runtime indexes before app reconcile...");
         recover_runtime_indexes(&state, &tenant_ids).await;
         record_startup_phase_duration("phase_6a5_runtime_index_recovery", phase_started.elapsed());
         tracing::info!(
@@ -1403,7 +1412,7 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
         record_startup_phase_duration("phase_6a5_runtime_index_recovery", phase_started.elapsed());
         tracing::info!(
             elapsed_ms = phase_started.elapsed().as_millis(),
-            "phase_6a5_runtime_index_recovery skipped; deferring until after readiness"
+            "phase_6a5_runtime_index_recovery skipped; runtime indexes recover lazily by type"
         );
     }
 
@@ -1498,7 +1507,7 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
     if recover_indexes_before_reconcile {
         recover_orphaned_sessions(&state, &tenant).await;
     } else {
-        tracing::info!("Session recovery deferred until post-ready runtime index recovery");
+        tracing::info!("Session recovery deferred until after readiness");
     }
 
     // Phase 8: Banner (printed after bind so we show the actual port)
@@ -1704,7 +1713,7 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
     tracing::info!("Temper Paw listening on port {actual_port}");
     tracing::info!(elapsed_ms = startup_started.elapsed().as_millis(), tenant = %tenant, "startup: time to ready");
     if !recover_indexes_before_reconcile {
-        spawn_deferred_runtime_recovery(state.clone(), tenant_ids.clone(), tenant.clone());
+        spawn_deferred_session_recovery(state.clone(), tenant.clone());
     }
     // Query projections are repaired as optional maintenance, not startup work.
     // Incremental projection writes remain active on entity changes.
@@ -3293,8 +3302,30 @@ mod tests {
         assert_eq!(
             plan,
             vec![
-                RuntimeRecoveryStep::PopulateIndex("default".to_string()),
-                RuntimeRecoveryStep::PopulateIndex("temper-system".to_string()),
+                RuntimeRecoveryStep::PopulateTypeIndex {
+                    tenant: "default".to_string(),
+                    entity_type: "App",
+                },
+                RuntimeRecoveryStep::PopulateTypeIndex {
+                    tenant: "default".to_string(),
+                    entity_type: "Agent",
+                },
+                RuntimeRecoveryStep::PopulateTypeIndex {
+                    tenant: "default".to_string(),
+                    entity_type: "Soul",
+                },
+                RuntimeRecoveryStep::PopulateTypeIndex {
+                    tenant: "temper-system".to_string(),
+                    entity_type: "App",
+                },
+                RuntimeRecoveryStep::PopulateTypeIndex {
+                    tenant: "temper-system".to_string(),
+                    entity_type: "Agent",
+                },
+                RuntimeRecoveryStep::PopulateTypeIndex {
+                    tenant: "temper-system".to_string(),
+                    entity_type: "Soul",
+                },
             ]
         );
     }
