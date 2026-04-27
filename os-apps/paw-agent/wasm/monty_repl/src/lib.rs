@@ -823,7 +823,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             params["sandbox_id"] = json!(id);
             params["sandbox_provider"] = json!(provider);
         }
-        if !tool_span_events.is_empty() {
+        if persist_tool_spans_file(&ctx) && !tool_span_events.is_empty() {
             let existing_tool_spans_file_id = fields
                 .get("tool_spans_file_id")
                 .and_then(|v| v.as_str())
@@ -845,6 +845,14 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                     &format!("monty_repl: tool_spans append failed: {e}"),
                 ),
             }
+        } else if !tool_span_events.is_empty() {
+            ctx.log(
+                "debug",
+                &format!(
+                    "monty_repl: skipping tool_spans file persist events={}",
+                    tool_span_events.len()
+                ),
+            );
         }
 
         // Clear Cedar approval state after successful resume so the next
@@ -1002,6 +1010,13 @@ fn normal_repl_state_max_bytes(ctx: &Context) -> usize {
         .get("normal_repl_state_max_bytes")
         .and_then(|value| value.parse::<usize>().ok())
         .unwrap_or(DEFAULT_NORMAL_REPL_STATE_MAX_BYTES)
+}
+
+fn persist_tool_spans_file(ctx: &Context) -> bool {
+    ctx.config
+        .get("persist_tool_spans_file")
+        .map(|value| matches!(value.as_str(), "1" | "true" | "yes" | "on"))
+        .unwrap_or(false)
 }
 
 /// Drive the Monty REPL event loop to completion.
