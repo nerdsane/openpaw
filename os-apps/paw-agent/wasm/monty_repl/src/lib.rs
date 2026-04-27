@@ -50,6 +50,7 @@ use monty::{
 };
 
 const MAX_TOOL_RESULT_BYTES: usize = 16 * 1024;
+const DEFAULT_NORMAL_REPL_STATE_MAX_BYTES: usize = 128 * 1024;
 
 /// Captures `print()` output without allowing Monty to grow an unbounded host-side buffer.
 ///
@@ -761,7 +762,10 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             tool_results = prior_results;
         }
 
-        // Save REPL state to TemperFS file (not entity field)
+        // Save small REPL states between provider turns, but do not route the
+        // normal hot path through a large versioned TemperFS rewrite. Checkpoint
+        // and approval pauses still persist state above because they need exact
+        // mid-batch recovery.
         let saved_state = save_repl_state(&repl)?;
         ctx.log(
             "info",
@@ -771,14 +775,27 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 tool_results.len()
             ),
         );
-        let repl_file_id = session::save_repl_to_file(
-            &ctx,
-            &temper_api_url,
-            tenant,
-            workspace_id,
-            repl_file_id,
-            &saved_state,
-        )?;
+        let max_normal_repl_state_bytes = normal_repl_state_max_bytes(&ctx);
+        let repl_file_id = if saved_state.len() <= max_normal_repl_state_bytes {
+            session::save_repl_to_file(
+                &ctx,
+                &temper_api_url,
+                tenant,
+                workspace_id,
+                repl_file_id,
+                &saved_state,
+            )?
+        } else {
+            ctx.log(
+                "warn",
+                &format!(
+                    "monty_repl: skipping normal repl state persist bytes={} max_bytes={}",
+                    saved_state.len(),
+                    max_normal_repl_state_bytes
+                ),
+            );
+            String::new()
+        };
 
         // ProgressMade: a tool batch completed — this is real forward progress,
         // so reset the Executing state_timeout (not just ping liveness).
@@ -976,6 +993,13 @@ fn save_repl_state(repl: &MontyRepl<LimitedTracker>) -> Result<String, String> {
         .dump()
         .map_err(|e| format!("failed to serialize REPL state: {e}"))?;
     Ok(base64_encode(&bytes))
+}
+
+fn normal_repl_state_max_bytes(ctx: &Context) -> usize {
+    ctx.config
+        .get("normal_repl_state_max_bytes")
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or(DEFAULT_NORMAL_REPL_STATE_MAX_BYTES)
 }
 
 /// Drive the Monty REPL event loop to completion.
