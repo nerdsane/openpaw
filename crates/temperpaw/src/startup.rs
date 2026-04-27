@@ -45,6 +45,7 @@ const STARTUP_LIVE_RESTORE_ENTITIES_METRIC: &str = "temper_startup_live_restore_
 const OS_APP_RECONCILE_TOTAL_METRIC: &str = "temper_os_app_reconcile_total";
 const OS_APP_RECONCILE_DURATION_METRIC: &str = "temper_os_app_reconcile_duration_ms";
 const WASM_MODULE_LOAD_FAILURES_METRIC: &str = "temper_wasm_module_load_failures_total";
+const DEFAULT_ORPHANED_SESSION_RECOVERY_LIMIT: usize = 25;
 
 struct StartupMetrics {
     phase_duration_ms: Histogram<f64>,
@@ -427,7 +428,38 @@ async fn recover_runtime_indexes(state: &PlatformState, tenant_ids: &[TenantId])
     }
 }
 
+fn orphaned_session_recovery_limit() -> Option<usize> {
+    let enabled = std::env::var("TEMPERPAW_ORPHANED_SESSION_RECOVERY")
+        .ok()
+        .map(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on" | "enabled" | "bounded"
+            )
+        })
+        .unwrap_or(false);
+    if !enabled {
+        return None;
+    }
+
+    Some(
+        std::env::var("TEMPERPAW_ORPHANED_SESSION_RECOVERY_MAX")
+            .ok()
+            .and_then(|value| value.trim().parse::<usize>().ok())
+            .filter(|limit| *limit > 0)
+            .unwrap_or(DEFAULT_ORPHANED_SESSION_RECOVERY_LIMIT),
+    )
+}
+
 async fn recover_orphaned_sessions(state: &PlatformState, tenant: &str) {
+    let Some(recovery_limit) = orphaned_session_recovery_limit() else {
+        tracing::info!(
+            tenant,
+            "Orphaned session recovery skipped; set TEMPERPAW_ORPHANED_SESSION_RECOVERY=true to enable bounded recovery"
+        );
+        return;
+    };
+
     let terminal_states: HashSet<&str> = ["Completed", "Failed", "Cancelled"].into_iter().collect();
     let recoverable_states: HashSet<&str> = [
         "Thinking",
@@ -449,10 +481,21 @@ async fn recover_orphaned_sessions(state: &PlatformState, tenant: &str) {
             .into_iter()
             .collect()
     };
+    if session_ids.len() > recovery_limit {
+        tracing::warn!(
+            tenant,
+            total_sessions = session_ids.len(),
+            recovery_limit,
+            skipped_sessions = session_ids.len() - recovery_limit,
+            "Orphaned session recovery bounded to avoid post-ready actor hydration storm"
+        );
+    }
 
     let mut failed = 0u32;
     let mut recovering = 0u32;
-    for session_id in &session_ids {
+    let mut inspected = 0u32;
+    for session_id in session_ids.iter().take(recovery_limit) {
+        inspected += 1;
         match state
             .server
             .get_tenant_entity_state(&tenant_id, "Session", session_id)
@@ -517,9 +560,13 @@ async fn recover_orphaned_sessions(state: &PlatformState, tenant: &str) {
             Err(e) => tracing::warn!(session_id, %e, "Failed to read session state"),
         }
     }
-    if recovering > 0 || failed > 0 {
-        tracing::info!(recovering, failed, "Session recovery complete");
-    }
+    tracing::info!(
+        tenant,
+        inspected,
+        recovering,
+        failed,
+        "Session recovery complete"
+    );
 }
 
 fn spawn_deferred_runtime_recovery(
