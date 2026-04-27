@@ -593,7 +593,24 @@ fn spawn_query_projection_backfill(
     server: temper_server::state::ServerState,
     tenant_ids: Vec<TenantId>,
 ) {
+    if !query_projection_backfill_on_startup() {
+        tracing::info!(
+            tenants = tenant_ids.len(),
+            "Background query projection backfill disabled for startup"
+        );
+        return;
+    }
+
     tokio::spawn(async move {
+        let delay = query_projection_backfill_delay();
+        if !delay.is_zero() {
+            tracing::info!(
+                tenants = tenant_ids.len(),
+                delay_secs = delay.as_secs(),
+                "Background query projection backfill delayed"
+            );
+            tokio::time::sleep(delay).await;
+        }
         tracing::info!(
             tenants = tenant_ids.len(),
             "Background query projection backfill scheduled"
@@ -603,6 +620,28 @@ fn spawn_query_projection_backfill(
             tracing::info!(tenant = %tenant_id, "Background query projection backfill complete");
         }
     });
+}
+
+fn query_projection_backfill_on_startup() -> bool {
+    std::env::var("TEMPERPAW_QUERY_PROJECTION_BACKFILL_ON_STARTUP")
+        .ok()
+        .is_some_and(|value| {
+            matches!(
+                value.trim(),
+                "1" | "true" | "TRUE" | "yes" | "YES" | "on" | "ON"
+            )
+        })
+}
+
+fn query_projection_backfill_delay() -> Duration {
+    const DEFAULT_QUERY_PROJECTION_BACKFILL_DELAY_SECS: u64 = 300;
+
+    let configured = std::env::var("TEMPERPAW_QUERY_PROJECTION_BACKFILL_DELAY_SECS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or(DEFAULT_QUERY_PROJECTION_BACKFILL_DELAY_SECS);
+
+    Duration::from_secs(configured)
 }
 
 /// Run the Temper Paw daemon.
@@ -1456,10 +1495,6 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
     // Phase 9: Finish runtime bring-up on the already-running HTTP server.
     tracing::info!("Phase 9: Finalizing runtime bring-up...");
 
-    // Match Temper's serve bootstrap: query projections are warmed in the background
-    // after the entity index exists so startup does not block health checks on replay work.
-    spawn_query_projection_backfill(state.server.clone(), tenant_ids.clone());
-
     // Spawn webhook trigger (ONE entity, ONE action per request).
     spawn_webhook_trigger(&tenant, actual_port, config.temper_api_key.clone());
 
@@ -1659,6 +1694,9 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
     if !recover_indexes_before_reconcile {
         spawn_deferred_runtime_recovery(state.clone(), tenant_ids.clone(), tenant.clone());
     }
+    // Query projections are repaired as optional maintenance, not startup work.
+    // Incremental projection writes remain active on entity changes.
+    spawn_query_projection_backfill(state.server.clone(), tenant_ids.clone());
 
     // Phase 10: Soul personalization (post-boot, writes to TemperFS via OData)
     if needs_soul_setup {
