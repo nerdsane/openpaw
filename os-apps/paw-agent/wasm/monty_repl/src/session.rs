@@ -139,12 +139,13 @@ pub fn persist_results(
 /// HTTP call). For real forward progress (tool batch completed, chunk
 /// received), call `send_progress` instead.
 pub fn send_heartbeat(ctx: &Context, temper_api_url: &str, tenant: &str) {
-    post_session_action(
+    post_session_progress_signal(
         ctx,
         temper_api_url,
         tenant,
         "Heartbeat",
         "last_heartbeat_at",
+        "heartbeat_dispatch_enabled",
     );
 }
 
@@ -156,41 +157,45 @@ pub fn send_heartbeat(ctx: &Context, temper_api_url: &str, tenant: &str) {
 /// streamed chunk. Contrast with `send_heartbeat`, which only signals
 /// liveness and does not reset timeouts.
 pub fn send_progress(ctx: &Context, temper_api_url: &str, tenant: &str) {
-    post_session_action(
+    post_session_progress_signal(
         ctx,
         temper_api_url,
         tenant,
         "ProgressMade",
         "last_progress_at",
+        "tool_progress_dispatch_enabled",
     );
 }
 
-fn post_session_action(
+fn post_session_progress_signal(
     ctx: &Context,
     temper_api_url: &str,
     tenant: &str,
     action: &str,
     timestamp_field: &str,
+    enabled_key: &str,
 ) {
     let fields = ctx
         .entity_state
         .get("fields")
         .cloned()
         .unwrap_or_else(|| json!({}));
-    let url = format!(
-        "{temper_api_url}/tdata/Sessions('{}')/TemperPaw.{action}",
-        ctx.entity_id
-    );
-    let body = json!({ timestamp_field: timestamp_millis_string() });
-    let headers = runtime_headers_as(
-        ctx,
-        tenant,
-        &fields,
-        "system",
-        Some("application/json"),
-        None,
-    );
-    let _ = ctx.http_call("POST", &url, &headers, &body.to_string());
+    if progress_action_dispatch_enabled(ctx, &fields, enabled_key) {
+        let url = format!(
+            "{temper_api_url}/tdata/Sessions('{}')/TemperPaw.{action}",
+            ctx.entity_id
+        );
+        let body = json!({ timestamp_field: timestamp_millis_string() });
+        let headers = runtime_headers_as(
+            ctx,
+            tenant,
+            &fields,
+            "system",
+            Some("application/json"),
+            None,
+        );
+        let _ = ctx.http_call("POST", &url, &headers, &body.to_string());
+    }
 
     // Post typing indicator directly (replaces the old `heartbeat_typing`
     // trigger cascade). Uses the persistent Agent entity ID from session
@@ -199,6 +204,15 @@ fn post_session_action(
     let typing_agent_id =
         entity_field_str(&fields, &["agent_id", "AgentId"]).unwrap_or(&ctx.entity_id);
     send_typing_indicator(ctx, temper_api_url, tenant, typing_agent_id);
+}
+
+fn progress_action_dispatch_enabled(ctx: &Context, fields: &Value, key: &str) -> bool {
+    fields
+        .get(key)
+        .and_then(Value::as_str)
+        .or_else(|| ctx.config.get(key).map(String::as_str))
+        .map(|value| matches!(value.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
+        .unwrap_or(false)
 }
 
 /// Encode a tool-span JSONL document by appending new events to the existing content.
