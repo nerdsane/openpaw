@@ -50,7 +50,7 @@ use monty::{
 };
 
 const MAX_TOOL_RESULT_BYTES: usize = 16 * 1024;
-const DEFAULT_NORMAL_REPL_STATE_MAX_BYTES: usize = 128 * 1024;
+const DEFAULT_NORMAL_REPL_STATE_MAX_BYTES: usize = 0;
 
 /// Captures `print()` output without allowing Monty to grow an unbounded host-side buffer.
 ///
@@ -776,7 +776,9 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             ),
         );
         let max_normal_repl_state_bytes = normal_repl_state_max_bytes(&ctx);
-        let repl_file_id = if saved_state.len() <= max_normal_repl_state_bytes {
+        let repl_file_id = if max_normal_repl_state_bytes > 0
+            && saved_state.len() <= max_normal_repl_state_bytes
+        {
             session::save_repl_to_file(
                 &ctx,
                 &temper_api_url,
