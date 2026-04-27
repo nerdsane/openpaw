@@ -170,13 +170,13 @@ pub fn run_provider_response_applier() -> Result<(), String> {
                 if append_result.is_ok() { "ok" } else { "error" },
             );
             let new_leaf = append_result?;
-            check_phase_budget(
+            note_phase_budget_overrun_after_committed_step(
                 &ctx,
                 "provider_response_applier",
                 started_at,
                 apply_budget_ms,
                 "append_session_tree",
-            )?;
+            );
 
             let mut params = build_provider_response_applier_base_params(&prepared, &response);
             params["pending_tool_calls"] =
@@ -215,13 +215,13 @@ pub fn run_provider_response_applier() -> Result<(), String> {
                 if append_result.is_ok() { "ok" } else { "error" },
             );
             let new_leaf = append_result?;
-            check_phase_budget(
+            note_phase_budget_overrun_after_committed_step(
                 &ctx,
                 "provider_response_applier",
                 started_at,
                 apply_budget_ms,
                 "append_session_tree",
-            )?;
+            );
 
             let mut params = build_provider_response_applier_base_params(&prepared, &response);
             params["result"] = json!(result_text);
@@ -551,6 +551,36 @@ fn check_phase_budget(
     Err(format!(
         "{phase}: exceeded local budget after {last_step} (elapsed_ms={elapsed_ms}, budget_ms={budget_ms})"
     ))
+}
+
+fn note_phase_budget_overrun_after_committed_step(
+    ctx: &Context,
+    phase: &str,
+    started_at: i64,
+    budget_ms: i64,
+    committed_step: &str,
+) {
+    let elapsed_ms = elapsed_ms_since(started_at);
+    if elapsed_ms <= budget_ms {
+        return;
+    }
+
+    emit_metric_ignore(
+        ctx,
+        "temper_session_phase_budget_exceeded_after_commit_total",
+        1.0,
+        &json!({
+            "phase": phase,
+            "committed_step": committed_step,
+        }),
+        Some("count"),
+    );
+    ctx.log(
+        "warn",
+        &format!(
+            "{phase}: exceeded local budget after committed {committed_step}; continuing because the session append already succeeded (elapsed_ms={elapsed_ms}, budget_ms={budget_ms})"
+        ),
+    );
 }
 
 #[cfg(test)]
