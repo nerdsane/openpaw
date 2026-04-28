@@ -786,7 +786,7 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
             .await
             .unwrap_or_default();
         let sys_hashes = temper_platform::bootstrap_system_tenant(&state, &sys_cache);
-        temper_platform::persist_system_verification(&turso_store, &sys_hashes).await;
+        temper_platform::persist_system_verification(&turso_store, &sys_hashes, &sys_cache).await;
 
         let startup_apps = startup_os_apps();
         if default_agent_specs_bootstrap_needed(&startup_apps) {
@@ -796,7 +796,13 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
                 .unwrap_or_default();
             let agent_hashes =
                 temper_platform::bootstrap_agent_specs(&state, &tenant, true, &agent_cache);
-            temper_platform::persist_agent_verification(&turso_store, &tenant, &agent_hashes).await;
+            temper_platform::persist_agent_verification(
+                &turso_store,
+                &tenant,
+                &agent_hashes,
+                &agent_cache,
+            )
+            .await;
         } else {
             tracing::info!(
                 tenant = %tenant,
