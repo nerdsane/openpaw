@@ -158,7 +158,7 @@ fn build_tool_definitions(tools_enabled: &str, _sandbox_url: &str, _workdir: &st
 
     let method_listing = build_method_listing(&enabled);
     let description = format!(
-        "Execute Python code in the Temper REPL. Variables persist across calls.\n\n\
+        "Execute Python code in the Temper REPL. Treat each call as self-contained: normal sessions may reset the Python heap between provider turns, so do not rely on variables or helper definitions from an earlier call.\n\n\
          Available methods:\n\
          {method_listing}\n\n\
          IMPORTANT PYTHON RULES (this is Monty, a restricted Python — NOT standard CPython):\n\
@@ -1804,9 +1804,10 @@ fn build_sdk_reference(tools_enabled: &str, sandbox_url: &str, workdir: &str) ->
          - No pip packages (no requests, httpx, numpy, pandas, etc.)\n\
          - No network access from Python — use sandbox.bash(\"curl ...\") for HTTP\n\
          - No filesystem access from Python — use sandbox.read/write/edit\n\
-         - Python variables and helper definitions persist across execute calls within this session; persist important artifacts to Temper entities or Files so they survive crashes, handoffs, or later jobs\n\
-         - Prefer short, focused execute scripts; avoid monolithic one-shot programs when the task can be split across turns\n\
-         - If a script starts getting large, stop and continue in a follow-up execute call instead of building a giant helper framework\n\
+         - Treat each execute call as self-contained. Normal sessions may reset the Python heap between provider turns, so do not rely on variables or helper definitions created in an earlier call\n\
+         - Persist important artifacts to Temper entities or Files so they survive crashes, handoffs, or later jobs\n\
+         - Prefer focused execute scripts that complete a coherent unit of work in one call; avoid splitting tiny dependent snippets across turns\n\
+         - If a script starts getting large, persist intermediate results to Temper entities/files and continue in a follow-up execute call with explicit IDs\n\
          - Write substantial code blocks using simple Python: for/if/while, string concat, list indexing\n\
          - Sandbox working directory: {workdir}",
         sandbox_note = sandbox_note,
@@ -1845,10 +1846,10 @@ fn build_sdk_reference(tools_enabled: &str, sandbox_url: &str, workdir: &str) ->
 
     sections.push(
         "## Efficiency\n\n\
-         Batch closely related steps in one execute call, but do not force an entire long-running workflow into one giant script.\n\
+         Batch closely related dependent steps in one execute call, but do not force an entire long-running workflow into one giant script.\n\
          BAD: 5 separate execute calls for 5 one-line operations\n\
          BAD: 1 monolithic execute call that tries to ingest, plan, synthesize, and publish everything at once\n\
-         GOOD: 1 focused execute call per coherent chunk of work, with state carried in the session between calls\n\n\
+         GOOD: 1 focused execute call per coherent chunk of work, with durable IDs/results carried explicitly between calls\n\n\
          Each execute call is an LLM turn. Fewer turns help, but reliability matters more than forcing one oversized script."
             .to_string(),
     );
@@ -2637,6 +2638,8 @@ mod tests {
 
         assert!(description.contains("temper.get(entity_set, entity_id)"));
         assert!(description.contains("temper.list(entity_set, filter_str)"));
+        assert!(description.contains("Treat each call as self-contained"));
+        assert!(!description.contains("Variables persist across calls"));
         assert!(!description.contains("temper.submit_specs(files_dict)"));
     }
 
