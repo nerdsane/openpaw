@@ -74,6 +74,16 @@ pub fn is_session_entries_ref(reference: &str) -> bool {
     session_id_from_entries_ref(reference).is_some()
 }
 
+pub fn next_session_entry_id(prefix: &str, parent_entry_id: &str) -> (String, i64) {
+    let next_sequence = parent_entry_id
+        .rsplit('-')
+        .next()
+        .and_then(|value| value.parse::<i64>().ok())
+        .unwrap_or(0)
+        + 1;
+    (format!("{prefix}-{next_sequence}"), next_sequence)
+}
+
 fn read_temperfs_value_with_retry(
     ctx: &Context,
     url: &str,
@@ -291,6 +301,43 @@ pub fn create_session_entry(
         entity_id,
         entry_id: entry_id.to_string(),
     })
+}
+
+pub fn append_session_entry_inline(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+    fields: &Value,
+    session_ref: &str,
+    parent_entry_id: &str,
+    entry_prefix: &str,
+    role: &str,
+    content: &Value,
+    tokens: usize,
+) -> Result<CreatedSessionEntry, String> {
+    let session_id = session_id_from_entries_ref(session_ref)
+        .ok_or("append_session_entry_inline requires session-entries:<session_id> ref")?;
+    if parent_entry_id.is_empty() {
+        return Err("append_session_entry_inline requires parent_entry_id".to_string());
+    }
+    let (entry_id, sequence) = next_session_entry_id(entry_prefix, parent_entry_id);
+    create_session_entry(
+        ctx,
+        temper_api_url,
+        tenant,
+        fields,
+        session_id,
+        &entry_id,
+        Some(parent_entry_id),
+        sequence,
+        "message",
+        Some(role),
+        Some(content),
+        None,
+        None,
+        None,
+        tokens,
+    )
 }
 
 pub fn read_session_from_entries(
@@ -1232,6 +1279,26 @@ mod tests {
         assert_eq!(session_id_from_entries_ref(&reference), Some("ses-123"));
         assert!(is_session_entries_ref(&reference));
         assert_eq!(session_id_from_entries_ref("fl-123"), None);
+    }
+
+    #[test]
+    fn next_session_entry_id_advances_numeric_suffix() {
+        assert_eq!(
+            next_session_entry_id("a", "u-ss-019dd16f-0da6-7863-932c-f5a477da4f00-0"),
+            ("a-1".to_string(), 1)
+        );
+        assert_eq!(
+            next_session_entry_id("t", "a-17"),
+            ("t-18".to_string(), 18)
+        );
+    }
+
+    #[test]
+    fn next_session_entry_id_defaults_to_first_child_when_parent_suffix_is_not_numeric() {
+        assert_eq!(
+            next_session_entry_id("a", "legacy-leaf"),
+            ("a-1".to_string(), 1)
+        );
     }
 
     #[test]
