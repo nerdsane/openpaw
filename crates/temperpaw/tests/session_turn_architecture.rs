@@ -67,6 +67,35 @@ fn active_context_preparer_owns_delta_batch_read_contract() {
 }
 
 #[test]
+fn entity_backed_session_appends_use_direct_session_entry_create() {
+    let root = repo_root();
+    let provider_applier = fs::read_to_string(
+        root.join("os-apps/paw-agent/wasm/provider_response_applier/src/lib.rs"),
+    )
+    .expect("provider_response_applier source should exist");
+    let monty_session =
+        fs::read_to_string(root.join("os-apps/paw-agent/wasm/monty_repl/src/session.rs"))
+            .expect("monty_repl session source should exist");
+    let helpers = fs::read_to_string(root.join("os-apps/paw-agent/wasm/wasm-helpers/src/lib.rs"))
+        .expect("wasm helpers source should exist");
+
+    for (name, source) in [
+        ("provider_response_applier", provider_applier.as_str()),
+        ("monty_repl session", monty_session.as_str()),
+    ] {
+        assert!(
+            source.contains("append_session_entry_inline"),
+            "{name} should directly create one SessionEntry for entity-backed turn appends"
+        );
+    }
+
+    assert!(
+        helpers.contains("pub fn append_session_entry_inline"),
+        "wasm helpers should expose the direct SessionEntry append primitive"
+    );
+}
+
+#[test]
 fn provider_caller_does_not_persist_provider_boundary_progress_by_default() {
     let source =
         fs::read_to_string(repo_root().join("os-apps/paw-agent/wasm/provider_caller/src/lib.rs"))

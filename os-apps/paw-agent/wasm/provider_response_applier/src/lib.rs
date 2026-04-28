@@ -16,8 +16,8 @@ use session_turn_artifacts::{
 };
 use temper_wasm_sdk::prelude::*;
 use wasm_helpers::{
-    create_content_file, is_session_entries_ref, read_content_file, read_session_from_temperfs,
-    resolve_temper_api_url, runtime_headers, write_session_to_temperfs,
+    append_session_entry_inline, create_content_file, is_session_entries_ref, read_content_file,
+    read_session_from_temperfs, resolve_temper_api_url, runtime_headers, write_session_to_temperfs,
     write_temperfs_value_with_retry,
 };
 
@@ -329,6 +329,22 @@ fn append_assistant_response_to_session_tree(
 ) -> Result<Option<String>, String> {
     if !prepared.use_session_tree {
         return Ok(None);
+    }
+
+    if is_session_entries_ref(&prepared.session_file_id) {
+        let created = append_session_entry_inline(
+            ctx,
+            temper_api_url,
+            tenant,
+            fields,
+            &prepared.session_file_id,
+            &prepared.session_leaf_id,
+            "a",
+            "assistant",
+            content,
+            output_tokens,
+        )?;
+        return Ok(Some(created.entry_id));
     }
 
     let session_jsonl = read_session_from_temperfs(

@@ -5,8 +5,8 @@
 
 use temper_wasm_sdk::prelude::*;
 use wasm_helpers::{
-    create_content_file_ref, entity_field_str, runtime_headers_as, send_typing_indicator,
-    timestamp_millis_string,
+    append_session_entry_inline, create_content_file_ref, entity_field_str, runtime_headers_as,
+    send_typing_indicator, timestamp_millis_string,
 };
 
 const SESSION_ENTRY_FILE_THRESHOLD_BYTES: usize = 4096;
@@ -37,6 +37,27 @@ pub fn persist_results(
     if !session_file_id.is_empty() && !session_leaf_id.is_empty() {
         // Session tree mode
         let entity_backed_session = wasm_helpers::is_session_entries_ref(session_file_id);
+        if entity_backed_session {
+            let tool_results_value = json!(tool_results);
+            let tokens_est = results_json.len() / 4;
+            let created = append_session_entry_inline(
+                ctx,
+                temper_api_url,
+                tenant,
+                fields,
+                session_file_id,
+                session_leaf_id,
+                "t",
+                "user",
+                &tool_results_value,
+                tokens_est,
+            )?;
+
+            params["pending_tool_calls"] = json!(compact_tool_results_marker(tool_results));
+            params["session_leaf_id"] = json!(created.entry_id);
+            return Ok(params);
+        }
+
         let session_jsonl = if entity_backed_session {
             wasm_helpers::read_session_from_temperfs(
                 ctx,
