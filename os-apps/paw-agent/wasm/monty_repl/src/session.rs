@@ -232,7 +232,12 @@ fn progress_action_dispatch_enabled(ctx: &Context, fields: &Value, key: &str) ->
         .get(key)
         .and_then(Value::as_str)
         .or_else(|| ctx.config.get(key).map(String::as_str))
-        .map(|value| matches!(value.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
+        .map(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes"
+            )
+        })
         .unwrap_or(false)
 }
 

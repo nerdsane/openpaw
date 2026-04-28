@@ -163,6 +163,7 @@ fn build_tool_definitions(tools_enabled: &str, _sandbox_url: &str, _workdir: &st
          {method_listing}\n\n\
          IMPORTANT PYTHON RULES (this is Monty, a restricted Python — NOT standard CPython):\n\
          - No 'import' statements at all (no import json, os, re, typing, sys — NOTHING)\n\
+         - `json` is preloaded for `json.dumps(...)` and `json.loads(...)`; use it without importing\n\
          - No enumerate(x, start=N) — use range(len(x)) instead\n\
          - No f-strings with nested quotes — use string concatenation\n\
          - No tuple comparison operators (<, >, etc.)\n\
@@ -1795,6 +1796,7 @@ fn build_sdk_reference(tools_enabled: &str, sandbox_url: &str, workdir: &str) ->
          Your `execute` tool runs Python in a sandboxed REPL.{sandbox_note}\n\n\
          Constraints (Monty — restricted Python, NOT standard CPython):\n\
          - No 'import' statements at all (no import json, os, re, typing, sys)\n\
+         - `json` is preloaded for `json.dumps(...)` and `json.loads(...)`; use it without importing\n\
          - No enumerate(x, start=N) — use range(len(x)) instead\n\
          - No f-strings with nested quotes — use string concatenation\n\
          - No tuple comparison (<, >) — compare individual elements\n\

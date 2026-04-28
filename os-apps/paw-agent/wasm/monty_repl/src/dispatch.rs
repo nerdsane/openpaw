@@ -330,6 +330,7 @@ pub fn dispatch(
     method: &str,
     tool_call_id: Option<&str>,
     args: &[Value],
+    kwargs: &[(Value, Value)],
 ) -> Result<Value, String> {
     // Activate the tool-scope guard so every ctx.http_call made through
     // internal_headers() during this dispatch carries span-hint headers
@@ -367,16 +368,20 @@ pub fn dispatch(
 
     ensure_method_enabled(ctx, obj_name, method, &effective_sandbox_url)?;
     let result = match obj_name {
-        "temper" => dispatch_temper(
-            ctx,
-            temper_api_url,
-            tenant,
-            &effective_sandbox_url,
-            workdir,
-            method,
-            args,
-        ),
+        "temper" => {
+            reject_kwargs("temper", method, kwargs)?;
+            dispatch_temper(
+                ctx,
+                temper_api_url,
+                tenant,
+                &effective_sandbox_url,
+                workdir,
+                method,
+                args,
+            )
+        }
         "sandbox" => {
+            reject_kwargs("sandbox", method, kwargs)?;
             let fields = ctx.entity_state.get("fields").cloned().unwrap_or(json!({}));
             let (sandbox_id, cached_provider) = sandbox_identity_from_fields(&fields);
             let provider = cached_provider.unwrap_or_else(|| {
@@ -393,6 +398,7 @@ pub fn dispatch(
                 args,
             )
         }
+        "json" => dispatch_json(method, args, kwargs),
         _ => Err(format!("unknown object: {obj_name}")),
     };
 
@@ -460,8 +466,112 @@ fn ensure_method_enabled(
                 format_enabled_tools(&enabled)
             ))
         }
+        "json" => {
+            if method == "dumps" || method == "loads" {
+                Ok(())
+            } else {
+                Err(format!(
+                    "json.{method}() is not available. Available: json.dumps, json.loads"
+                ))
+            }
+        }
         _ => Ok(()),
     }
+}
+
+fn reject_kwargs(obj_name: &str, method: &str, kwargs: &[(Value, Value)]) -> Result<(), String> {
+    if kwargs.is_empty() {
+        return Ok(());
+    }
+
+    let names = kwargs
+        .iter()
+        .filter_map(|(key, _)| key.as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
+    Err(format!(
+        "{obj_name}.{method}() does not support keyword arguments{}",
+        if names.is_empty() {
+            ".".to_string()
+        } else {
+            format!(": {names}")
+        }
+    ))
+}
+
+fn dispatch_json(method: &str, args: &[Value], kwargs: &[(Value, Value)]) -> Result<Value, String> {
+    match method {
+        "dumps" => json_dumps(args, kwargs),
+        "loads" => json_loads(args, kwargs),
+        _ => Err(format!(
+            "unknown json method '{method}'. Available: dumps, loads"
+        )),
+    }
+}
+
+fn json_dumps(args: &[Value], kwargs: &[(Value, Value)]) -> Result<Value, String> {
+    if args.is_empty() {
+        return Err("json.dumps(): missing required argument 'obj'".to_string());
+    }
+    if args.len() > 1 {
+        return Err("json.dumps(): only the object positional argument is supported".to_string());
+    }
+
+    let mut pretty = false;
+    for (key, value) in kwargs {
+        let Some(name) = key.as_str() else {
+            return Err("json.dumps(): keyword names must be strings".to_string());
+        };
+        match name {
+            "ensure_ascii" | "sort_keys" => {
+                // serde_json already emits valid UTF-8 JSON and object order is stable for
+                // serde_json::Map in this path, so these flags are accepted for prompt
+                // compatibility without changing semantics.
+                if !value.is_boolean() {
+                    return Err(format!("json.dumps(): {name} must be bool"));
+                }
+            }
+            "indent" => {
+                if value.is_null() {
+                    pretty = false;
+                } else if value.as_i64().is_some() {
+                    pretty = true;
+                } else {
+                    return Err("json.dumps(): indent must be an int or None".to_string());
+                }
+            }
+            "separators" => {
+                // Compact/default separators are equivalent for the entity-field use cases.
+            }
+            other => {
+                return Err(format!(
+                    "json.dumps(): keyword argument '{other}' is not supported"
+                ));
+            }
+        }
+    }
+
+    let serialized = if pretty {
+        serde_json::to_string_pretty(&args[0])
+    } else {
+        serde_json::to_string(&args[0])
+    }
+    .map_err(|e| format!("json.dumps(): failed to serialize value: {e}"))?;
+
+    Ok(Value::String(serialized))
+}
+
+fn json_loads(args: &[Value], kwargs: &[(Value, Value)]) -> Result<Value, String> {
+    if !kwargs.is_empty() {
+        return Err("json.loads(): keyword arguments are not supported".to_string());
+    }
+    if args.len() != 1 {
+        return Err("json.loads(): expected exactly one string argument".to_string());
+    }
+    let raw = args[0]
+        .as_str()
+        .ok_or_else(|| "json.loads(): expected a string argument".to_string())?;
+    serde_json::from_str(raw).map_err(|e| format!("json.loads(): invalid JSON: {e}"))
 }
 
 fn enabled_tools(ctx: &Context) -> BTreeSet<String> {
@@ -2637,14 +2747,47 @@ mod tests {
         batchable_tool_plan_from_code, encode_odata_filter_literal, escape_odata_string_literal,
         fallback_web_search_query, has_model_csdl, interpret_cached_web_query_result,
         interpret_web_query_entity_result, is_image_extension, is_vague_web_search_query,
-        media_type_from_extension, normalize_odata_query_arg, sandbox_identity_from_fields,
-        web_query_cache_lookup_path, web_search_results_empty,
+        json_dumps, json_loads, media_type_from_extension, normalize_odata_query_arg,
+        sandbox_identity_from_fields, web_query_cache_lookup_path, web_search_results_empty,
     };
     use serde_json::json;
 
     #[test]
     fn detects_model_csdl_at_root() {
         assert!(has_model_csdl(&["model.csdl.xml".to_string()]));
+    }
+
+    #[test]
+    fn json_dumps_serializes_agent_payloads_without_imports() {
+        let serialized = json_dumps(
+            &[json!({
+                "source_ids": ["src-1", "src-2"],
+                "summary": "ink + editorial",
+            })],
+            &[(json!("ensure_ascii"), json!(false))],
+        )
+        .expect("json.dumps should serialize supported values");
+
+        assert_eq!(
+            serialized,
+            json!("{\"source_ids\":[\"src-1\",\"src-2\"],\"summary\":\"ink + editorial\"}")
+        );
+    }
+
+    #[test]
+    fn json_loads_parses_agent_payloads_without_imports() {
+        let parsed = json_loads(
+            &[json!(
+                "{\"source_ids\":[\"src-1\"],\"archive_status\":\"deferred\"}"
+            )],
+            &[],
+        )
+        .expect("json.loads should parse supported JSON");
+
+        assert_eq!(
+            parsed,
+            json!({"source_ids": ["src-1"], "archive_status": "deferred"})
+        );
     }
 
     #[test]

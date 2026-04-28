@@ -934,6 +934,16 @@ fn load_or_create_repl(
                     frozen: true,
                 },
             ),
+            (
+                "json".to_string(),
+                MontyObject::Dataclass {
+                    name: "Json".to_string(),
+                    type_id: 3,
+                    field_names: vec![],
+                    attrs: DictPairs::from(Vec::<(MontyObject, MontyObject)>::new()),
+                    frozen: true,
+                },
+            ),
         ];
 
         let print = PrintWriter::Disabled;
@@ -945,7 +955,7 @@ fn load_or_create_repl(
 
         ctx.log(
             "info",
-            "monty_repl: created fresh REPL with temper + sandbox objects",
+            "monty_repl: created fresh REPL with temper + sandbox + json objects",
         );
         Ok(repl)
     } else {
@@ -1073,6 +1083,7 @@ fn drive_repl_loop(
                 let _call_id = call.call_id;
                 let fn_name = call.function_name.clone();
                 let args = call.args.clone();
+                let kwargs = call.kwargs.clone();
 
                 let (obj_name, user_args) = classify_method_call(&args);
 
@@ -1080,9 +1091,26 @@ fn drive_repl_loop(
                     .iter()
                     .map(|a| convert::monty_object_to_json(a))
                     .collect();
+                let json_kwargs: Vec<(Value, Value)> = kwargs
+                    .iter()
+                    .map(|(k, v)| {
+                        (
+                            convert::monty_object_to_json(k),
+                            convert::monty_object_to_json(v),
+                        )
+                    })
+                    .collect();
                 let tool_name = format!("{obj_name}.{fn_name}");
                 let tool_call_id = call.call_id.to_string();
-                let tool_arguments_json = serde_json::to_string(&json_args).unwrap_or_default();
+                let tool_arguments_json = if json_kwargs.is_empty() {
+                    serde_json::to_string(&json_args).unwrap_or_default()
+                } else {
+                    serde_json::to_string(&json!({
+                        "args": json_args,
+                        "kwargs": json_kwargs,
+                    }))
+                    .unwrap_or_default()
+                };
                 let started_ms = Context::get_time_millis();
 
                 let result = run_with_tool_progress(
@@ -1106,6 +1134,7 @@ fn drive_repl_loop(
                             &fn_name,
                             Some(tool_call_id.as_str()),
                             &json_args,
+                            &json_kwargs,
                         )
                     },
                 );
@@ -1221,6 +1250,7 @@ fn classify_method_call(args: &[MontyObject]) -> (String, Vec<MontyObject>) {
         MontyObject::Dataclass { name, .. } => match name.as_str() {
             "Temper" => "temper",
             "Sandbox" => "sandbox",
+            "Json" => "json",
             _ => "unknown",
         },
         _ => "unknown",
