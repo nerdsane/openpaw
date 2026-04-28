@@ -20,7 +20,7 @@ OpenPaw currently runs only on Seshendra's machine. Going to production and open
 
 ### Current state of the code
 
-- **Storage defaults work with zero config:** If `TURSO_URL` is unset, the server defaults to local SQLite at `~/.local/share/openpaw/paw.db` (`startup.rs:94-98`). If `BLOB_ENDPOINT` is unset, blobs go into the DB via `/_internal/blobs`.
+- **Storage defaults work locally:** If `TURSO_URL` is unset, the server defaults to local SQLite at `~/.local/share/openpaw/paw.db`. If `BLOB_ENDPOINT` is unset locally, Temper uses its internal blob route backed by the filesystem object store under the data directory. Railway deployments require `BLOB_ENDPOINT` so blob bytes go to R2/S3, not SQL.
 - **Vault key auto-generates:** Three-tier fallback — env var, persisted file, generate-and-save (`startup.rs:174-247`).
 - **Dashboard is embedded:** The Rust binary serves the SvelteKit static build at `/dashboard` from `dashboard/build/` (`startup.rs:744-750`). One binary, one port, one service.
 - **Bearer auth is optional:** If `TEMPER_API_KEY` is unset, all requests pass through (`bearer_auth.rs:43-46`). This is fine for local dev but not production.

@@ -47,6 +47,12 @@ const OS_APP_RECONCILE_DURATION_METRIC: &str = "temper_os_app_reconcile_duration
 const WASM_MODULE_LOAD_FAILURES_METRIC: &str = "temper_wasm_module_load_failures_total";
 const DEFAULT_ORPHANED_SESSION_RECOVERY_LIMIT: usize = 25;
 
+fn running_on_railway() -> bool {
+    std::env::var_os("RAILWAY_ENVIRONMENT").is_some()
+        || std::env::var_os("RAILWAY_PROJECT_ID").is_some()
+        || std::env::var_os("RAILWAY_SERVICE_ID").is_some()
+}
+
 struct StartupMetrics {
     phase_duration_ms: Histogram<f64>,
     time_to_ready_ms: Histogram<f64>,
@@ -1223,12 +1229,15 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
 
         // Blob store for TemperFS content uploads/downloads.
         //
-        // Default to Temper's own internal blob route so local deployments keep
-        // storage in-process and can benefit from server-side backpressure and
-        // fast paths. External S3/R2-compatible endpoints can still override via
-        // BLOB_ENDPOINT.
+        // Production must use an external S3/R2-compatible object store. Local
+        // development can use Temper's internal route, which now writes through
+        // Temper's filesystem object store rather than Turso DB blobs.
         let blob_endpoint = if let Ok(url) = std::env::var("BLOB_ENDPOINT") {
             url
+        } else if running_on_railway() {
+            anyhow::bail!(
+                "BLOB_ENDPOINT is required on Railway; blob bytes must be stored in R2/S3, not in the database"
+            );
         } else {
             format!("http://127.0.0.1:{actual_port}/_internal/blobs")
         };
