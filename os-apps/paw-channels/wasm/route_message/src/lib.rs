@@ -179,11 +179,70 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
 
             if !session_entity_id.is_empty() {
                 // Fetch the current Session entity to check its status
-                let session = fetch_entity(
+                let session = match fetch_entity(
                     &ctx,
                     &session_entity_url(&temper_api_url, &session_entity_id),
                     &ctx.tenant,
-                )?;
+                ) {
+                    Ok(session) => session,
+                    Err(err) => {
+                        ctx.log(
+                            "warn",
+                            &format!(
+                                "route_message: ChannelSession {cs_id} points at unreadable Session {session_entity_id}: {err}; starting a fresh session"
+                            ),
+                        );
+                        let route = find_route(&ctx, &temper_api_url, &ctx.tenant, channel_id)?;
+                        let route_config = route
+                            .as_ref()
+                            .and_then(|value| {
+                                nested_str_field(value, &["AgentConfig", "agent_config"])
+                            })
+                            .filter(|value| !value.trim().is_empty())
+                            .unwrap_or(default_agent_config);
+                        let route_agent_id = route
+                            .as_ref()
+                            .and_then(|value| nested_str_field(value, &["AgentId", "agent_id"]))
+                            .filter(|value| !value.trim().is_empty())
+                            .unwrap_or(&agent_entity_id);
+                        expire_session(&ctx, &temper_api_url, &ctx.tenant, &cs_id).ok();
+                        let (new_agent_id, new_session_id) = create_session_for_agent(
+                            &ctx,
+                            &temper_api_url,
+                            &ctx.tenant,
+                            route_config,
+                            route_agent_id,
+                            content,
+                            command,
+                            trace_context.as_ref(),
+                        )?;
+                        create_channel_session(
+                            &ctx,
+                            &temper_api_url,
+                            &ctx.tenant,
+                            channel_id,
+                            thread_id,
+                            author_id,
+                            &new_agent_id,
+                            &new_session_id,
+                        )?;
+                        ctx.log(
+                            "info",
+                            &format!(
+                                "route_message: routed thread {thread_id} to fresh session {new_session_id} after stale binding"
+                            ),
+                        );
+                        set_success_result(
+                            "",
+                            &json!({
+                                "status": "routed",
+                                "thread_id": thread_id,
+                                "agent_entity_id": new_session_id,
+                            }),
+                        );
+                        return Ok(());
+                    }
+                };
                 let session_status =
                     nested_str_field(&session, &["Status", "status"]).unwrap_or("");
 

@@ -783,7 +783,7 @@ fn temper_list(
     args: &[Value],
 ) -> Result<Value, String> {
     let entity_set = str_arg(args, 0, "entity_set", "list")?;
-    let query = opt_str_arg(args, 1).map(|arg| normalize_odata_query_arg(&arg));
+    let query = opt_str_arg(args, 1).and_then(|arg| normalize_odata_query_arg(&arg));
     let path = match query {
         Some(ODataQueryArg::Filter(filter)) => {
             let encoded = encode_odata_query_value(&filter);
@@ -811,19 +811,28 @@ fn temper_get(ctx: &Context, api_url: &str, tenant: &str, args: &[Value]) -> Res
     )
 }
 
+#[derive(Debug, PartialEq, Eq)]
 enum ODataQueryArg {
     Filter(String),
     Raw(String),
 }
 
-fn normalize_odata_query_arg(arg: &str) -> ODataQueryArg {
+fn normalize_odata_query_arg(arg: &str) -> Option<ODataQueryArg> {
     let trimmed = arg.trim().trim_start_matches('?');
+    if trimmed.is_empty() {
+        return None;
+    }
     if let Some(filter) = trimmed.strip_prefix("$filter=") {
-        ODataQueryArg::Filter(filter.trim().to_string())
+        let filter = filter.trim();
+        if filter.is_empty() {
+            None
+        } else {
+            Some(ODataQueryArg::Filter(filter.to_string()))
+        }
     } else if trimmed.starts_with('$') {
-        ODataQueryArg::Raw(trimmed.to_string())
+        Some(ODataQueryArg::Raw(trimmed.to_string()))
     } else {
-        ODataQueryArg::Filter(trimmed.to_string())
+        Some(ODataQueryArg::Filter(trimmed.to_string()))
     }
 }
 
@@ -2624,11 +2633,12 @@ fn shell_quote(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        BatchableToolPlan, BatchableToolPlanKind, LAZY_SANDBOX, batchable_tool_plan_from_code,
-        encode_odata_filter_literal, escape_odata_string_literal, fallback_web_search_query,
-        has_model_csdl, interpret_cached_web_query_result, interpret_web_query_entity_result,
-        is_image_extension, is_vague_web_search_query, media_type_from_extension,
-        sandbox_identity_from_fields, web_query_cache_lookup_path, web_search_results_empty,
+        BatchableToolPlan, BatchableToolPlanKind, LAZY_SANDBOX, ODataQueryArg,
+        batchable_tool_plan_from_code, encode_odata_filter_literal, escape_odata_string_literal,
+        fallback_web_search_query, has_model_csdl, interpret_cached_web_query_result,
+        interpret_web_query_entity_result, is_image_extension, is_vague_web_search_query,
+        media_type_from_extension, normalize_odata_query_arg, sandbox_identity_from_fields,
+        web_query_cache_lookup_path, web_search_results_empty,
     };
     use serde_json::json;
 
@@ -2817,6 +2827,28 @@ mod tests {
         assert_eq!(
             encode_odata_filter_literal("neo brutalism ui"),
             "neo%20brutalism%20ui"
+        );
+    }
+
+    #[test]
+    fn normalize_odata_query_arg_treats_blank_filters_as_no_query() {
+        assert_eq!(normalize_odata_query_arg(""), None);
+        assert_eq!(normalize_odata_query_arg("   "), None);
+        assert_eq!(normalize_odata_query_arg("$filter="), None);
+        assert_eq!(normalize_odata_query_arg("?$filter=   "), None);
+    }
+
+    #[test]
+    fn normalize_odata_query_arg_preserves_filters_and_raw_queries() {
+        assert_eq!(
+            normalize_odata_query_arg("Status eq 'Ready'"),
+            Some(ODataQueryArg::Filter("Status eq 'Ready'".to_string()))
+        );
+        assert_eq!(
+            normalize_odata_query_arg("?$top=5&$orderby=CreatedAt desc"),
+            Some(ODataQueryArg::Raw(
+                "$top=5&$orderby=CreatedAt desc".to_string()
+            ))
         );
     }
 
