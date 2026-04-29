@@ -18,7 +18,6 @@ use serde::{Deserialize, Serialize};
 use temper_platform::PlatformState;
 use temper_runtime::tenant::TenantId;
 use temper_server::request_context::AgentContext;
-use temper_store_turso::TursoEventStore;
 
 use crate::setup::{
     SetupRequestAuth, default_paw_soul_content, has_local_personalized_paw_soul,
@@ -27,6 +26,7 @@ use crate::setup::{
 use crate::setup_llm::{
     GeneratedSoul, LlmProvider, UserInterview, generate_personalized_soul, refine_soul,
 };
+use crate::storage::PawStorage;
 use crate::transport_manager::{
     DiscordConnectParams, SlackConnectParams, TransportManager, TransportStatus,
 };
@@ -44,7 +44,7 @@ const OPENAI_CODEX_ACCOUNT_ID: &str = "openai_codex_account_id";
 #[derive(Clone)]
 pub struct SetupApiState {
     pub platform: PlatformState,
-    pub turso_store: TursoEventStore,
+    pub storage: PawStorage,
     pub transport_manager: Arc<TransportManager>,
     pub tenant: String,
     pub agents_dir: PathBuf,
@@ -1036,7 +1036,7 @@ async fn upsert_secret(
 
     if let Ok((ciphertext, nonce)) = vault.encrypt(req.value.as_bytes()) {
         let _ = state
-            .turso_store
+            .storage
             .upsert_secret(&state.tenant, &req.key, &ciphertext, &nonce)
             .await;
     }
@@ -1063,7 +1063,7 @@ async fn delete_secret(
     if let Some(vault) = state.platform.server.secrets_vault.as_ref() {
         vault.remove_secret(&state.tenant, &key);
     }
-    let _ = state.turso_store.delete_secret(&state.tenant, &key).await;
+    let _ = state.storage.delete_secret(&state.tenant, &key).await;
 
     (StatusCode::OK, Json(serde_json::json!({ "deleted": key })))
 }
@@ -1156,7 +1156,7 @@ async fn save_soul(
                     vault.cache_secret(&state.tenant, "paw_personalized_soul", "true".to_string());
                 if let Ok((ciphertext, nonce)) = vault.encrypt(b"true") {
                     let _ = state
-                        .turso_store
+                        .storage
                         .upsert_secret(&state.tenant, "paw_personalized_soul", &ciphertext, &nonce)
                         .await;
                 }
@@ -1938,7 +1938,7 @@ async fn proxy_discord_interaction(
             if let (Some(vault), Some(bot_token)) = (vault, bot_token) {
                 match resolve_and_persist_discord_public_key(
                     vault,
-                    &state.turso_store,
+                    &state.storage,
                     &state.tenant,
                     &bot_token,
                     configured_public_key.as_deref(),
@@ -2046,26 +2046,26 @@ async fn proxy_discord_interaction(
 
 pub(crate) async fn resolve_and_persist_discord_public_key(
     vault: &Arc<temper_server::secrets::SecretsVault>,
-    turso_store: &TursoEventStore,
+    storage: &PawStorage,
     tenant: &str,
     bot_token: &str,
     configured_public_key: Option<&str>,
 ) -> Result<String> {
     let public_key =
         crate::discord_app::resolve_verify_key(bot_token, configured_public_key).await?;
-    persist_discord_public_key(vault, turso_store, tenant, &public_key).await;
+    persist_discord_public_key(vault, storage, tenant, &public_key).await;
     Ok(public_key)
 }
 
 async fn persist_discord_public_key(
     vault: &Arc<temper_server::secrets::SecretsVault>,
-    turso_store: &TursoEventStore,
+    storage: &PawStorage,
     tenant: &str,
     public_key: &str,
 ) {
     let _ = vault.cache_secret(tenant, "discord_public_key", public_key.to_string());
     if let Ok((ct, nc)) = vault.encrypt(public_key.as_bytes()) {
-        let _ = turso_store
+        let _ = storage
             .upsert_secret(tenant, "discord_public_key", &ct, &nc)
             .await;
     }
@@ -2218,7 +2218,7 @@ async fn connect_discord(
     };
     let resolved_public_key = match resolve_and_persist_discord_public_key(
         vault,
-        &state.turso_store,
+        &state.storage,
         &state.tenant,
         &req.bot_token,
         req.public_key.as_deref(),
@@ -2240,7 +2240,7 @@ async fn connect_discord(
     let _ = vault.cache_secret(&state.tenant, "discord_bot_token", req.bot_token.clone());
     if let Ok((ct, nc)) = vault.encrypt(req.bot_token.as_bytes()) {
         let _ = state
-            .turso_store
+            .storage
             .upsert_secret(&state.tenant, "discord_bot_token", &ct, &nc)
             .await;
     }
@@ -2259,7 +2259,7 @@ async fn connect_discord(
             let _ = vault.cache_secret(&state.tenant, key, value.clone());
             if let Ok((ct, nc)) = vault.encrypt(value.as_bytes()) {
                 let _ = state
-                    .turso_store
+                    .storage
                     .upsert_secret(&state.tenant, key, &ct, &nc)
                     .await;
             }
@@ -2309,13 +2309,13 @@ async fn connect_slack(
         let _ = vault.cache_secret(&state.tenant, "slack_app_token", req.app_token.clone());
         if let Ok((ct, nc)) = vault.encrypt(req.bot_token.as_bytes()) {
             let _ = state
-                .turso_store
+                .storage
                 .upsert_secret(&state.tenant, "slack_bot_token", &ct, &nc)
                 .await;
         }
         if let Ok((ct, nc)) = vault.encrypt(req.app_token.as_bytes()) {
             let _ = state
-                .turso_store
+                .storage
                 .upsert_secret(&state.tenant, "slack_app_token", &ct, &nc)
                 .await;
         }
@@ -2507,8 +2507,9 @@ mod tests {
         let tenant = "default";
         let refreshed_public_key =
             "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+        let storage = crate::storage::PawStorage::from(turso_store.clone());
 
-        persist_discord_public_key(&vault, &turso_store, tenant, refreshed_public_key).await;
+        persist_discord_public_key(&vault, &storage, tenant, refreshed_public_key).await;
         assert_eq!(
             vault.get_secret(tenant, "discord_public_key").as_deref(),
             Some(refreshed_public_key)

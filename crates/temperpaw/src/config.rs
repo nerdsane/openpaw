@@ -1,5 +1,33 @@
 //! Configuration loaded from environment variables.
 
+use anyhow::{Context, anyhow};
+
+/// Durable storage backend selected for Temper platform state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StorageBackend {
+    Turso,
+    Postgres,
+}
+
+impl StorageBackend {
+    pub fn from_env_value(name: &str, value: &str) -> anyhow::Result<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "turso" | "libsql" => Ok(Self::Turso),
+            "postgres" | "postgresql" => Ok(Self::Postgres),
+            other => Err(anyhow!(
+                "{name} must be one of: postgres, turso; got {other:?}"
+            )),
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Turso => "turso",
+            Self::Postgres => "postgres",
+        }
+    }
+}
+
 /// Temper Paw daemon configuration.
 pub struct Config {
     /// Discord bot token for the Paw agent.
@@ -32,6 +60,18 @@ pub struct Config {
 
     /// Turso auth token (for Turso Cloud).
     pub turso_auth_token: Option<String>,
+
+    /// Postgres connection URL for Railway-managed Postgres.
+    pub database_url: Option<String>,
+
+    /// Runtime event store backend. Defaults to Turso for local compatibility.
+    pub event_store_backend: StorageBackend,
+
+    /// Platform metadata backend. Defaults to the event store backend.
+    pub platform_store_backend: StorageBackend,
+
+    /// Query projection backend. Defaults to the event store backend.
+    pub query_projection_store_backend: StorageBackend,
 
     /// Anthropic API key (sk-ant-api03-... from console.anthropic.com).
     pub anthropic_api_key: Option<String>,
@@ -149,6 +189,11 @@ impl Config {
         let openai_codex_token = optional_env("OPENAI_CODEX_TOKEN");
         let llm_provider = optional_env("LLM_PROVIDER");
         let llm_model = optional_env("LLM_MODEL");
+        let event_store_backend = parse_storage_backend("TEMPER_EVENT_STORE", None)?;
+        let platform_store_backend =
+            parse_storage_backend("TEMPER_PLATFORM_STORE", Some(event_store_backend))?;
+        let query_projection_store_backend =
+            parse_storage_backend("TEMPER_QUERY_PROJECTION_STORE", Some(event_store_backend))?;
 
         Ok(Self {
             discord_bot_token: optional_env("DISCORD_BOT_TOKEN"),
@@ -161,6 +206,10 @@ impl Config {
             slack_signing_secret: optional_env("SLACK_SIGNING_SECRET"),
             turso_url: optional_env("TURSO_URL"),
             turso_auth_token: optional_env("TURSO_AUTH_TOKEN"),
+            database_url: optional_env("DATABASE_URL"),
+            event_store_backend,
+            platform_store_backend,
+            query_projection_store_backend,
             anthropic_api_key,
             openrouter_api_key,
             openai_api_key,
@@ -207,9 +256,101 @@ impl Config {
     }
 }
 
+fn parse_storage_backend(
+    name: &str,
+    default: Option<StorageBackend>,
+) -> anyhow::Result<StorageBackend> {
+    match optional_env(name) {
+        Some(value) => StorageBackend::from_env_value(name, &value),
+        None => default
+            .or(Some(StorageBackend::Turso))
+            .with_context(|| format!("{name} has no default")),
+    }
+}
+
 fn optional_env(name: &str) -> Option<String> {
     std::env::var(name)
         .ok()
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Config, StorageBackend};
+    use std::sync::Mutex;
+
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    fn with_clean_storage_env(test: impl FnOnce()) {
+        let _guard = ENV_LOCK.lock().expect("env lock");
+        let names = [
+            "TEMPER_EVENT_STORE",
+            "TEMPER_PLATFORM_STORE",
+            "TEMPER_QUERY_PROJECTION_STORE",
+            "DATABASE_URL",
+            "TURSO_URL",
+            "TURSO_AUTH_TOKEN",
+        ];
+        let previous: Vec<_> = names
+            .iter()
+            .map(|name| (*name, std::env::var(name).ok()))
+            .collect();
+        for name in names {
+            unsafe {
+                std::env::remove_var(name);
+            }
+        }
+
+        test();
+
+        for (name, value) in previous {
+            unsafe {
+                match value {
+                    Some(value) => std::env::set_var(name, value),
+                    None => std::env::remove_var(name),
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn from_env_selects_postgres_storage_from_temper_event_store() {
+        with_clean_storage_env(|| {
+            unsafe {
+                std::env::set_var("TEMPER_EVENT_STORE", "postgres");
+                std::env::set_var("DATABASE_URL", "postgres://temperpaw.example/db");
+            }
+
+            let config = Config::from_env().expect("config");
+
+            assert_eq!(config.event_store_backend, StorageBackend::Postgres);
+            assert_eq!(
+                config.database_url.as_deref(),
+                Some("postgres://temperpaw.example/db")
+            );
+            assert_eq!(
+                config.platform_store_backend,
+                StorageBackend::Postgres,
+                "platform storage should follow the event store backend by default"
+            );
+            assert_eq!(
+                config.query_projection_store_backend,
+                StorageBackend::Postgres,
+                "query projection storage should follow the event store backend by default"
+            );
+        });
+    }
+
+    #[test]
+    fn from_env_defaults_to_turso_for_local_compatibility() {
+        with_clean_storage_env(|| {
+            let config = Config::from_env().expect("config");
+
+            assert_eq!(config.event_store_backend, StorageBackend::Turso);
+            assert_eq!(config.platform_store_backend, StorageBackend::Turso);
+            assert_eq!(config.query_projection_store_backend, StorageBackend::Turso);
+            assert!(config.database_url.is_none());
+        });
+    }
 }

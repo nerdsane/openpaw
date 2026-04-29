@@ -10,6 +10,7 @@ mod setup;
 mod setup_api;
 mod setup_llm;
 mod startup;
+mod storage;
 mod transport_manager;
 
 use clap::{Parser, Subcommand};

@@ -28,14 +28,13 @@ use temper_platform::recovery::{
 use temper_platform::router::build_platform_router;
 use temper_runtime::scheduler::sim_now;
 use temper_runtime::tenant::TenantId;
-use temper_server::event_store::ServerEventStore;
-use temper_server::platform_store::PlatformStore;
+use temper_server::platform_store::{PlatformStore, SpecVerificationUpdate};
 use temper_server::registry::{EntityLevelSummary, EntityVerificationResult, VerificationStatus};
-use temper_server::registry_bootstrap::restore_registry_from_turso;
-use temper_store_turso::{TursoEventStore, TursoSpecVerificationUpdate};
+use temper_server::registry_bootstrap::restore_registry_from_platform_store;
 use tokio::task::JoinHandle;
 
 use crate::config::Config;
+use crate::storage::PawStorage;
 
 const DEFAULT_AGENT_TOOLS_ENABLED: &str = "temper_create,temper_get,temper_list,temper_action,temper_patch,temper_submit_specs,temper_show_spec,temper_specs,temper_upload_wasm,temper_get_trajectories,temper_get_insights,temper_get_decisions,temper_poll_decision,temper_approve_decision,temper_deny_decision,temper_submit_policy,temper_list_policies,temper_get_policy,temper_update_policy,temper_delete_policy,temper_install_app,temper_list_apps,temper_spawn_session,temper_list_sessions,temper_abort_session,temper_steer_session,temper_save_memory,temper_recall_memory,temper_write,temper_read,temper_run_coding_agent,temper_get_secret,temper_datadog_query,temper_railway,temper_vercel,temper_web_search,temper_web_fetch,read,write,edit,bash";
 const DEFAULT_AGENT_WORKDIR: &str = "/workspace";
@@ -600,17 +599,11 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
         tracing::info!("Using port {actual_port} instead of {port}");
     }
 
-    // Phase 1: Storage backend (Turso)
+    // Phase 1: Storage backend
     tracing::info!("Phase 1: Initializing storage...");
     let default_db_path = data_dir.join("paw.db");
-    let turso_url = config
-        .turso_url
-        .clone()
-        .unwrap_or_else(|| format!("file:{}", default_db_path.display()));
-    let turso_store = TursoEventStore::new(&turso_url, config.turso_auth_token.as_deref())
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to connect to Turso/libSQL: {e}"))?;
-    tracing::info!("Storage: turso ({turso_url})");
+    let storage = PawStorage::connect(&config, &default_db_path).await?;
+    let platform_store = storage.platform_store();
 
     // Phase 2: Build empty registry
     tracing::info!("Phase 2: Building spec registry...");
@@ -664,32 +657,42 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
     let mut state = PlatformState::with_registry(registry, llm_api_key);
     state.api_token = config.temper_api_key.clone();
     state.server.data_dir = data_dir.clone();
-    state.server.event_store = Some(Arc::new(ServerEventStore::Turso(turso_store.clone())));
+    state.server.set_storage_stack(storage.storage_stack());
 
     {
-        let restored = restore_registry_guarded(&state, &turso_store).await?;
+        let restored = restore_registry_guarded(&state, platform_store).await?;
         if restored > 0 {
-            tracing::info!("Restored {restored} specs from Turso");
+            tracing::info!(
+                backend = storage.backend_name(),
+                restored,
+                "Restored specs from storage"
+            );
         }
     }
 
     // Phase 4b: Bootstrap system + agent specs (GovernanceDecision, Agent, Plan, etc.)
     // Required for Cedar authorization to work — temper-system needs GovernanceDecision.
     {
-        let sys_cache = turso_store
+        let sys_cache = platform_store
             .load_verification_cache("temper-system")
             .await
             .unwrap_or_default();
         let sys_hashes = temper_platform::bootstrap_system_tenant(&state, &sys_cache);
-        temper_platform::persist_system_verification(&turso_store, &sys_hashes).await;
+        temper_platform::persist_system_verification(platform_store, &sys_hashes, &sys_cache).await;
 
-        let agent_cache = turso_store
+        let agent_cache = platform_store
             .load_verification_cache(&tenant)
             .await
             .unwrap_or_default();
         let agent_hashes =
             temper_platform::bootstrap_agent_specs(&state, &tenant, true, &agent_cache);
-        temper_platform::persist_agent_verification(&turso_store, &tenant, &agent_hashes).await;
+        temper_platform::persist_agent_verification(
+            platform_store,
+            &tenant,
+            &agent_hashes,
+            &agent_cache,
+        )
+        .await;
         tracing::info!("Bootstrapped system + agent specs for temper-system and {tenant}");
     }
 
@@ -796,19 +799,19 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
         key_bytes
     };
 
-    // Phase 5b: Restore secrets from Turso (before env seeding so env vars take priority)
+    // Phase 5b: Restore secrets from durable storage (before env seeding so env vars take priority)
     if let Some(ref vault) = state.server.secrets_vault {
-        restore_secrets_from_turso_as_platform(vault, &turso_store, &tenant).await;
+        restore_secrets_as_platform(vault, &storage, &tenant).await;
         if tenant != "default" {
             // Migration shim for older deployments that stored shared startup
             // secrets under the legacy "default" tenant bucket.
-            restore_secrets_from_turso_as_platform(vault, &turso_store, "default").await;
+            restore_secrets_as_platform(vault, &storage, "default").await;
         }
     }
 
-    // Phase 5c: Seed secrets from env (env vars override Turso-stored values)
+    // Phase 5c: Seed secrets from env (env vars override stored values)
     //
-    // Each secret is cached in-memory AND persisted to Turso so it survives
+    // Each secret is cached in-memory AND persisted so it survives
     // restarts even if the env var is later removed.
     if let Some(ref vault) = state.server.secrets_vault {
         /// Helper to seed a shared platform secret from an optional env value.
@@ -823,204 +826,186 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
 
         seed_secret!(
             vault,
-            &turso_store,
+            &storage,
             &tenant,
             "anthropic_api_key",
             config.anthropic_api_key
         );
         seed_secret!(
             vault,
-            &turso_store,
+            &storage,
             &tenant,
             "openrouter_api_key",
             config.openrouter_api_key
         );
         seed_secret!(
             vault,
-            &turso_store,
+            &storage,
             &tenant,
             "openai_api_key",
             config.openai_api_key
         );
         seed_secret!(
             vault,
-            &turso_store,
+            &storage,
             &tenant,
             "openai_codex_token",
             config.openai_codex_token
         );
         seed_secret!(
             vault,
-            &turso_store,
+            &storage,
             &tenant,
             "llm_provider",
             config.llm_provider
         );
-        seed_secret!(vault, &turso_store, &tenant, "llm_model", config.llm_model);
+        seed_secret!(vault, &storage, &tenant, "llm_model", config.llm_model);
         seed_secret!(
             vault,
-            &turso_store,
+            &storage,
             &tenant,
             "tensorlake_api_key",
             config.tensorlake_api_key
         );
         seed_secret!(
             vault,
-            &turso_store,
+            &storage,
             &tenant,
             "sandbox_provider",
             config.sandbox_provider
         );
         seed_secret!(
             vault,
-            &turso_store,
+            &storage,
             &tenant,
             "modal_token_id",
             config.modal_token_id
         );
         seed_secret!(
             vault,
-            &turso_store,
+            &storage,
             &tenant,
             "modal_token_secret",
             config.modal_token_secret
         );
         seed_secret!(
             vault,
-            &turso_store,
+            &storage,
             &tenant,
             "modal_bridge_url",
             config.modal_bridge_url
         );
         seed_secret!(
             vault,
-            &turso_store,
+            &storage,
             &tenant,
             "github_token",
             config.github_token
         );
+        seed_secret!(vault, &storage, &tenant, "dd_api_key", config.dd_api_key);
+        seed_secret!(vault, &storage, &tenant, "dd_app_key", config.dd_app_key);
+        seed_secret!(vault, &storage, &tenant, "exa_api_key", config.exa_api_key);
         seed_secret!(
             vault,
-            &turso_store,
-            &tenant,
-            "dd_api_key",
-            config.dd_api_key
-        );
-        seed_secret!(
-            vault,
-            &turso_store,
-            &tenant,
-            "dd_app_key",
-            config.dd_app_key
-        );
-        seed_secret!(
-            vault,
-            &turso_store,
-            &tenant,
-            "exa_api_key",
-            config.exa_api_key
-        );
-        seed_secret!(
-            vault,
-            &turso_store,
+            &storage,
             &tenant,
             "temper_api_key",
             config.temper_api_key
         );
         seed_secret!(
             vault,
-            &turso_store,
+            &storage,
             &tenant,
             "discord_bot_token",
             config.discord_bot_token
         );
         seed_secret!(
             vault,
-            &turso_store,
+            &storage,
             &tenant,
             "discord_public_key",
             config.discord_public_key
         );
         seed_secret!(
             vault,
-            &turso_store,
+            &storage,
             &tenant,
             "discord_guild_id",
             config.discord_guild_id
         );
         seed_secret!(
             vault,
-            &turso_store,
+            &storage,
             &tenant,
             "discord_feed_channel_id",
             config.discord_feed_channel_id
         );
         seed_secret!(
             vault,
-            &turso_store,
+            &storage,
             &tenant,
             "discord_forum_channel_id",
             config.discord_forum_channel_id
         );
         seed_secret!(
             vault,
-            &turso_store,
+            &storage,
             &tenant,
             "slack_bot_token",
             config.slack_bot_token
         );
         seed_secret!(
             vault,
-            &turso_store,
+            &storage,
             &tenant,
             "slack_app_token",
             config.slack_app_token
         );
         seed_secret!(
             vault,
-            &turso_store,
+            &storage,
             &tenant,
             "fly_api_token",
             config.fly_api_token
         );
         seed_secret!(
             vault,
-            &turso_store,
+            &storage,
             &tenant,
             "railway_token",
             config.railway_token
         );
         seed_secret!(
             vault,
-            &turso_store,
+            &storage,
             &tenant,
             "railway_project_id",
             config.railway_project_id
         );
         seed_secret!(
             vault,
-            &turso_store,
+            &storage,
             &tenant,
             "railway_environment_id",
             config.railway_environment_id
         );
         seed_secret!(
             vault,
-            &turso_store,
+            &storage,
             &tenant,
             "railway_otel_service_id",
             config.railway_otel_service_id
         );
         seed_secret!(
             vault,
-            &turso_store,
+            &storage,
             &tenant,
             "railway_service_id",
             config.railway_service_id
         );
         seed_secret!(
             vault,
-            &turso_store,
+            &storage,
             &tenant,
             "vercel_token",
             config.vercel_token
@@ -1029,7 +1014,7 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
         // dd_site always has a value (defaults to "datadoghq.com")
         cache_platform_and_persist_secret(
             vault,
-            &turso_store,
+            &storage,
             &tenant,
             "dd_site",
             config.dd_site.clone(),
@@ -1044,7 +1029,7 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
         if let Some(sandbox_url) = std::env::var("SANDBOX_URL").ok().filter(|s| !s.is_empty()) {
             cache_platform_and_persist_secret(
                 vault,
-                &turso_store,
+                &storage,
                 &tenant,
                 "sandbox_url",
                 sandbox_url.clone(),
@@ -1133,7 +1118,7 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
         if let Ok(key) = std::env::var("BLOB_ACCESS_KEY") {
             cache_platform_and_persist_secret(
                 vault,
-                &turso_store,
+                &storage,
                 &tenant,
                 "blob_access_key",
                 key.clone(),
@@ -1143,7 +1128,7 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
         if let Ok(key) = std::env::var("BLOB_SECRET_KEY") {
             cache_platform_and_persist_secret(
                 vault,
-                &turso_store,
+                &storage,
                 &tenant,
                 "blob_secret_key",
                 key.clone(),
@@ -1170,7 +1155,7 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
         .map(|url| url.starts_with("https://"))
         .unwrap_or(false);
     let auth_state = crate::auth::AuthState::new(
-        turso_store.clone(),
+        storage.clone(),
         state
             .server
             .secrets_vault
@@ -1185,7 +1170,7 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
     let router = build_platform_router(state.clone());
     let setup_state = crate::setup_api::SetupApiState {
         platform: state.clone(),
-        turso_store: turso_store.clone(),
+        storage: storage.clone(),
         transport_manager: transport_manager.clone(),
         tenant: tenant.clone(),
         agents_dir: PathBuf::from("os-apps/paw-agent/agents"),
@@ -1227,7 +1212,7 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
     //
     // OS app install (Phase 6b) runs an integrity check that verifies each
     // spec's [[integration]] references a WASM module in the registry. On
-    // subsequent startups the modules live in Turso, not in the app bundle,
+    // subsequent startups the modules live in durable storage, not in the app bundle,
     // so the registry must be populated first. Cedar policies are similarly
     // needed for any effects dispatched during install (e.g. workspace
     // bootstrap actions).
@@ -1236,8 +1221,9 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
         tracing::info!(
             "Phase 6a: Recovering runtime app state, persisted WASM modules + Cedar policies..."
         );
-        recover_cedar_policies(&state, &turso_store).await;
-        let app_runtime_recovery = recover_installed_apps_runtime_state(&state, &turso_store).await;
+        recover_cedar_policies(&state, platform_store).await;
+        let app_runtime_recovery =
+            recover_installed_apps_runtime_state(&state, platform_store).await;
         tracing::info!(
             ready = app_runtime_recovery.ready,
             healed = app_runtime_recovery.healed,
@@ -1265,7 +1251,7 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
         .map_err(|error| anyhow::anyhow!("Failed to resolve startup OS app order: {error}"))?;
     tracing::info!(apps = ?startup_app_order, "Startup OS app reconcile order resolved");
     let startup_surface_runtime_recovery =
-        recover_startup_surface_runtime_state(&state, &turso_store, &tenant, &startup_app_order)
+        recover_startup_surface_runtime_state(&state, platform_store, &tenant, &startup_app_order)
             .await;
     tracing::info!(
         ready = startup_surface_runtime_recovery.ready,
@@ -1345,7 +1331,7 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
                 );
             }
             Ok(OsAppReconcileResult::Installed { install, .. }) => {
-                persist_os_app_verification(&state, &turso_store, &tenant, app_name).await;
+                persist_os_app_verification(&state, platform_store, &tenant, app_name).await;
                 if let Some(error) = app_required_wasm_failure(app_name, &install) {
                     record_wasm_module_load_failure("phase_6b_required_app_wasm");
                     reconcile_errors.push(error);
@@ -1375,7 +1361,7 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
     // would be left uncommitted and deleted on the NEXT restart by
     // delete_uncommitted_specs(). This explicit commit ensures all OS app specs
     // are durable before we proceed to entity hydration.
-    if let Err(e) = turso_store.commit_specs(&tenant).await {
+    if let Err(e) = platform_store.commit_specs(&tenant).await {
         tracing::error!("Failed to commit specs after OS app install: {e}");
     } else {
         tracing::info!("Specs committed for tenant {tenant}");
@@ -1431,7 +1417,7 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
             let _public_key = if let Some(vault) = vault {
                 match crate::setup_api::resolve_and_persist_discord_public_key(
                     vault,
-                    &turso_store,
+                    &storage,
                     &tenant,
                     &token,
                     configured_public_key.as_deref(),
@@ -1670,10 +1656,10 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
 }
 
 /// Cache a shared platform secret in-memory and persist it under the configured
-/// tenant bucket so it survives restarts without a Turso schema change.
+/// tenant bucket so it survives restarts.
 async fn cache_platform_and_persist_secret(
     vault: &temper_server::secrets::vault::SecretsVault,
-    store: &TursoEventStore,
+    store: &PawStorage,
     tenant: &str,
     key: &str,
     value: String,
@@ -1682,7 +1668,7 @@ async fn cache_platform_and_persist_secret(
     match vault.encrypt(value.as_bytes()) {
         Ok((ciphertext, nonce)) => {
             if let Err(e) = store.upsert_secret(tenant, key, &ciphertext, &nonce).await {
-                tracing::warn!(key, tenant, %e, "Failed to persist secret to Turso");
+                tracing::warn!(key, tenant, %e, "Failed to persist secret");
             }
         }
         Err(e) => {
@@ -1691,13 +1677,13 @@ async fn cache_platform_and_persist_secret(
     }
 }
 
-/// Restore persisted shared secrets from Turso into the platform cache.
+/// Restore persisted shared secrets from durable storage into the platform cache.
 ///
 /// The first restored value wins so a configured tenant bucket takes
 /// precedence over the legacy `"default"` bucket during migration.
-async fn restore_secrets_from_turso_as_platform(
+async fn restore_secrets_as_platform(
     vault: &temper_server::secrets::vault::SecretsVault,
-    store: &TursoEventStore,
+    store: &PawStorage,
     tenant: &str,
 ) {
     match store.load_secrets_for_tenant(tenant).await {
@@ -1718,17 +1704,17 @@ async fn restore_secrets_from_turso_as_platform(
                             key = key_name,
                             tenant,
                             %e,
-                            "Failed to decrypt secret from Turso — skipping"
+                            "Failed to decrypt persisted secret — skipping"
                         );
                     }
                 }
             }
             if restored > 0 {
-                tracing::info!(tenant, restored, "Restored secrets from Turso");
+                tracing::info!(tenant, restored, "Restored secrets from durable storage");
             }
         }
         Err(e) => {
-            tracing::warn!(tenant, %e, "Failed to load secrets from Turso");
+            tracing::warn!(tenant, %e, "Failed to load secrets from durable storage");
         }
     }
 }
@@ -2000,7 +1986,7 @@ fn save_temper_api_key(path: &Path, key: &str) -> Result<()> {
 
 async fn persist_os_app_verification(
     state: &PlatformState,
-    store: &TursoEventStore,
+    store: &dyn PlatformStore,
     tenant: &str,
     app_name: &str,
 ) {
@@ -2015,7 +2001,7 @@ async fn persist_os_app_verification(
             .persist_spec_verification(
                 tenant,
                 entity_type,
-                TursoSpecVerificationUpdate {
+                SpecVerificationUpdate {
                     status: "completed",
                     verified: true,
                     levels_passed: None,
@@ -2196,19 +2182,19 @@ fn spawn_soul_bootstrap(
     });
 }
 
-// Restore spec registry from Turso. The write guard must outlive the await
+// Restore spec registry from durable platform storage. The write guard must outlive the await
 // because the upstream bootstrap helper needs `&mut RegistryGuard`. This runs
 // once at startup before any request path touches the registry, so the
 // lock-across-await clippy guidance doesn't apply.
 #[allow(clippy::await_holding_lock)]
 async fn restore_registry_guarded(
     state: &PlatformState,
-    turso_store: &TursoEventStore,
+    store: &dyn PlatformStore,
 ) -> Result<usize> {
     let mut registry = state.registry.write().unwrap();
-    restore_registry_from_turso(&mut registry, turso_store)
+    restore_registry_from_platform_store(&mut registry, store)
         .await
-        .map_err(|e| anyhow::anyhow!("Failed to restore registry from Turso: {e}"))
+        .map_err(|e| anyhow::anyhow!("Failed to restore registry from platform store: {e}"))
 }
 
 /// Create or find an Agent entity by name.

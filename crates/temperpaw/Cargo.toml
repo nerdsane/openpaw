@@ -18,6 +18,7 @@ temper-server = { git = "https://github.com/nerdsane/temper.git", branch = "main
 temper-runtime = { git = "https://github.com/nerdsane/temper.git", branch = "main" }
 temper-jit = { git = "https://github.com/nerdsane/temper.git", branch = "main" }
 temper-authz = { git = "https://github.com/nerdsane/temper.git", branch = "main" }
+temper-store-postgres = { git = "https://github.com/nerdsane/temper.git", branch = "main" }
 temper-store-turso = { git = "https://github.com/nerdsane/temper.git", branch = "main" }
 
 # Paw transport (local)
@@ -25,6 +26,7 @@ paw-transport = { path = "../paw-transport" }
 
 # Async runtime
 tokio = { workspace = true }
+sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "postgres"] }
 
 # Serialization
 serde = { workspace = true }
