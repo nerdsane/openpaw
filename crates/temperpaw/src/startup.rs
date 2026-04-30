@@ -44,6 +44,13 @@ const STARTUP_LIVE_RESTORE_ENTITIES_METRIC: &str = "temper_startup_live_restore_
 const OS_APP_RECONCILE_TOTAL_METRIC: &str = "temper_os_app_reconcile_total";
 const OS_APP_RECONCILE_DURATION_METRIC: &str = "temper_os_app_reconcile_duration_ms";
 const WASM_MODULE_LOAD_FAILURES_METRIC: &str = "temper_wasm_module_load_failures_total";
+const DEFAULT_ORPHANED_SESSION_RECOVERY_LIMIT: usize = 25;
+
+fn running_on_railway() -> bool {
+    std::env::var_os("RAILWAY_ENVIRONMENT").is_some()
+        || std::env::var_os("RAILWAY_PROJECT_ID").is_some()
+        || std::env::var_os("RAILWAY_SERVICE_ID").is_some()
+}
 
 struct StartupMetrics {
     phase_duration_ms: Histogram<f64>,
@@ -241,8 +248,13 @@ fn app_required_wasm_failure(app_name: &str, install: &InstallResult) -> Option<
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum RuntimeRecoveryStep {
-    PopulateIndex(String),
+    PopulateTypeIndex {
+        tenant: String,
+        entity_type: &'static str,
+    },
 }
+
+const STARTUP_RUNTIME_INDEX_ENTITY_TYPES: &[&str] = &["App", "Agent", "Soul"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum LocalWasmStartupPolicy {
@@ -283,17 +295,24 @@ fn local_wasm_startup_policy(raw: Option<&str>) -> LocalWasmStartupPolicy {
 }
 
 fn runtime_recovery_plan(tenant_ids: &[TenantId]) -> Vec<RuntimeRecoveryStep> {
-    let mut steps = Vec::with_capacity(tenant_ids.len());
+    let mut steps = Vec::with_capacity(tenant_ids.len() * STARTUP_RUNTIME_INDEX_ENTITY_TYPES.len());
     for tenant_id in tenant_ids {
-        steps.push(RuntimeRecoveryStep::PopulateIndex(
-            tenant_id.as_str().to_string(),
-        ));
+        for entity_type in STARTUP_RUNTIME_INDEX_ENTITY_TYPES {
+            steps.push(RuntimeRecoveryStep::PopulateTypeIndex {
+                tenant: tenant_id.as_str().to_string(),
+                entity_type,
+            });
+        }
     }
     steps
 }
 
 fn startup_os_apps() -> Vec<String> {
     list_startup_os_apps()
+}
+
+fn default_agent_specs_bootstrap_needed(startup_apps: &[String]) -> bool {
+    !startup_apps.iter().any(|app| app == "paw-agent")
 }
 
 #[cfg(test)]
@@ -410,23 +429,59 @@ async fn wait_for_runtime_server(url: &str, timeout: Duration) -> Result<()> {
 async fn recover_runtime_indexes(state: &PlatformState, tenant_ids: &[TenantId]) {
     for step in runtime_recovery_plan(tenant_ids) {
         match step {
-            RuntimeRecoveryStep::PopulateIndex(tenant) => {
+            RuntimeRecoveryStep::PopulateTypeIndex {
+                tenant,
+                entity_type,
+            } => {
                 let tenant_id = TenantId::new(&tenant);
-                state.server.populate_index_from_store(&tenant_id).await;
                 let count = state
                     .server
-                    .active_entity_counts_by_tenant()
-                    .get(&tenant)
-                    .copied()
-                    .unwrap_or(0);
+                    .populate_index_from_store_by_type(&tenant_id, entity_type)
+                    .await as u64;
                 record_startup_live_restore_entities(&tenant, count);
-                tracing::info!(tenant = %tenant, count, "live restore: populate_index");
+                tracing::info!(
+                    tenant = %tenant,
+                    entity_type,
+                    count,
+                    "live restore: populate_typed_index"
+                );
             }
         }
     }
 }
 
+fn orphaned_session_recovery_limit() -> Option<usize> {
+    let enabled = std::env::var("TEMPERPAW_ORPHANED_SESSION_RECOVERY")
+        .ok()
+        .map(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on" | "enabled" | "bounded"
+            )
+        })
+        .unwrap_or(false);
+    if !enabled {
+        return None;
+    }
+
+    Some(
+        std::env::var("TEMPERPAW_ORPHANED_SESSION_RECOVERY_MAX")
+            .ok()
+            .and_then(|value| value.trim().parse::<usize>().ok())
+            .filter(|limit| *limit > 0)
+            .unwrap_or(DEFAULT_ORPHANED_SESSION_RECOVERY_LIMIT),
+    )
+}
+
 async fn recover_orphaned_sessions(state: &PlatformState, tenant: &str) {
+    let Some(recovery_limit) = orphaned_session_recovery_limit() else {
+        tracing::info!(
+            tenant,
+            "Orphaned session recovery skipped; set TEMPERPAW_ORPHANED_SESSION_RECOVERY=true to enable bounded recovery"
+        );
+        return;
+    };
+
     let terminal_states: HashSet<&str> = ["Completed", "Failed", "Cancelled"].into_iter().collect();
     let recoverable_states: HashSet<&str> = [
         "Thinking",
@@ -438,6 +493,10 @@ async fn recover_orphaned_sessions(state: &PlatformState, tenant: &str) {
     .into_iter()
     .collect();
     let tenant_id = TenantId::new(tenant);
+    state
+        .server
+        .populate_index_from_store_by_type(&tenant_id, "Session")
+        .await;
     let session_ids: Vec<String> = {
         let index = state.server.entity_index.read().unwrap(); // ci-ok: infallible lock
         let index_key = format!("{tenant_id}:Session");
@@ -448,10 +507,21 @@ async fn recover_orphaned_sessions(state: &PlatformState, tenant: &str) {
             .into_iter()
             .collect()
     };
+    if session_ids.len() > recovery_limit {
+        tracing::warn!(
+            tenant,
+            total_sessions = session_ids.len(),
+            recovery_limit,
+            skipped_sessions = session_ids.len() - recovery_limit,
+            "Orphaned session recovery bounded to avoid post-ready actor hydration storm"
+        );
+    }
 
     let mut failed = 0u32;
     let mut recovering = 0u32;
-    for session_id in &session_ids {
+    let mut inspected = 0u32;
+    for session_id in session_ids.iter().take(recovery_limit) {
+        inspected += 1;
         match state
             .server
             .get_tenant_entity_state(&tenant_id, "Session", session_id)
@@ -516,28 +586,24 @@ async fn recover_orphaned_sessions(state: &PlatformState, tenant: &str) {
             Err(e) => tracing::warn!(session_id, %e, "Failed to read session state"),
         }
     }
-    if recovering > 0 || failed > 0 {
-        tracing::info!(recovering, failed, "Session recovery complete");
-    }
+    tracing::info!(
+        tenant,
+        inspected,
+        recovering,
+        failed,
+        "Session recovery complete"
+    );
 }
 
-fn spawn_deferred_runtime_recovery(
-    state: PlatformState,
-    tenant_ids: Vec<TenantId>,
-    tenant: String,
-) {
+fn spawn_deferred_session_recovery(state: PlatformState, tenant: String) {
     tokio::spawn(async move {
-        tracing::info!(
-            tenants = tenant_ids.len(),
-            "Deferred runtime index recovery scheduled after readiness"
-        );
+        tracing::info!("Deferred session recovery scheduled after readiness");
         let started = Instant::now();
-        recover_runtime_indexes(&state, &tenant_ids).await;
+        recover_orphaned_sessions(&state, &tenant).await;
         tracing::info!(
             elapsed_ms = started.elapsed().as_millis(),
-            "Deferred runtime index recovery complete"
+            "Deferred session recovery complete"
         );
-        recover_orphaned_sessions(&state, &tenant).await;
     });
 }
 
@@ -545,7 +611,24 @@ fn spawn_query_projection_backfill(
     server: temper_server::state::ServerState,
     tenant_ids: Vec<TenantId>,
 ) {
+    if !query_projection_backfill_on_startup() {
+        tracing::info!(
+            tenants = tenant_ids.len(),
+            "Background query projection backfill disabled for startup"
+        );
+        return;
+    }
+
     tokio::spawn(async move {
+        let delay = query_projection_backfill_delay();
+        if !delay.is_zero() {
+            tracing::info!(
+                tenants = tenant_ids.len(),
+                delay_secs = delay.as_secs(),
+                "Background query projection backfill delayed"
+            );
+            tokio::time::sleep(delay).await;
+        }
         tracing::info!(
             tenants = tenant_ids.len(),
             "Background query projection backfill scheduled"
@@ -555,6 +638,28 @@ fn spawn_query_projection_backfill(
             tracing::info!(tenant = %tenant_id, "Background query projection backfill complete");
         }
     });
+}
+
+fn query_projection_backfill_on_startup() -> bool {
+    std::env::var("TEMPERPAW_QUERY_PROJECTION_BACKFILL_ON_STARTUP")
+        .ok()
+        .is_some_and(|value| {
+            matches!(
+                value.trim(),
+                "1" | "true" | "TRUE" | "yes" | "YES" | "on" | "ON"
+            )
+        })
+}
+
+fn query_projection_backfill_delay() -> Duration {
+    const DEFAULT_QUERY_PROJECTION_BACKFILL_DELAY_SECS: u64 = 300;
+
+    let configured = std::env::var("TEMPERPAW_QUERY_PROJECTION_BACKFILL_DELAY_SECS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or(DEFAULT_QUERY_PROJECTION_BACKFILL_DELAY_SECS);
+
+    Duration::from_secs(configured)
 }
 
 /// Run the Temper Paw daemon.
@@ -680,20 +785,28 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
         let sys_hashes = temper_platform::bootstrap_system_tenant(&state, &sys_cache);
         temper_platform::persist_system_verification(platform_store, &sys_hashes, &sys_cache).await;
 
-        let agent_cache = platform_store
-            .load_verification_cache(&tenant)
-            .await
-            .unwrap_or_default();
-        let agent_hashes =
-            temper_platform::bootstrap_agent_specs(&state, &tenant, true, &agent_cache);
-        temper_platform::persist_agent_verification(
-            platform_store,
-            &tenant,
-            &agent_hashes,
-            &agent_cache,
-        )
-        .await;
-        tracing::info!("Bootstrapped system + agent specs for temper-system and {tenant}");
+        let startup_apps = startup_os_apps();
+        if default_agent_specs_bootstrap_needed(&startup_apps) {
+            let agent_cache = platform_store
+                .load_verification_cache(&tenant)
+                .await
+                .unwrap_or_default();
+            let agent_hashes =
+                temper_platform::bootstrap_agent_specs(&state, &tenant, true, &agent_cache);
+            temper_platform::persist_agent_verification(
+                platform_store,
+                &tenant,
+                &agent_hashes,
+                &agent_cache,
+            )
+            .await;
+        } else {
+            tracing::info!(
+                tenant = %tenant,
+                "Skipping built-in default agent specs bootstrap; paw-agent OS app owns default agent specs"
+            );
+        }
+        tracing::info!("Bootstrapped startup platform specs for temper-system and {tenant}");
     }
 
     // Phase 5: Secrets vault
@@ -1101,12 +1214,15 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
 
         // Blob store for TemperFS content uploads/downloads.
         //
-        // Default to Temper's own internal blob route so local deployments keep
-        // storage in-process and can benefit from server-side backpressure and
-        // fast paths. External S3/R2-compatible endpoints can still override via
-        // BLOB_ENDPOINT.
+        // Production must use an external S3/R2-compatible object store. Local
+        // development can use Temper's internal route, which now writes through
+        // Temper's filesystem object store rather than Turso DB blobs.
         let blob_endpoint = if let Ok(url) = std::env::var("BLOB_ENDPOINT") {
             url
+        } else if running_on_railway() {
+            anyhow::bail!(
+                "BLOB_ENDPOINT is required on Railway; blob bytes must be stored in R2/S3, not in the database"
+            );
         } else {
             format!("http://127.0.0.1:{actual_port}/_internal/blobs")
         };
@@ -1270,8 +1386,8 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
     // Phase 6a.5: Runtime index recovery before app reconcile.
     //
     // Changed/cold app reconcile may bootstrap durable TemperFS content, whose
-    // helpers still use runtime existence checks. If installed apps are already
-    // runtime-ready, defer full event/index replay until after readiness.
+    // helpers may need a few startup entity indexes. These are recovered by
+    // entity type so deploys never do a whole-tenant event/index replay.
     let tenant_ids = registry_tenant_ids(&state);
     let recover_indexes_before_reconcile =
         startup_surface_runtime_indexes_required_before_reconcile(
@@ -1279,7 +1395,7 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
         );
     if recover_indexes_before_reconcile {
         let phase_started = Instant::now();
-        tracing::info!("Phase 6a.5: Recovering runtime indexes before app reconcile...");
+        tracing::info!("Phase 6a.5: Recovering startup runtime indexes before app reconcile...");
         recover_runtime_indexes(&state, &tenant_ids).await;
         record_startup_phase_duration("phase_6a5_runtime_index_recovery", phase_started.elapsed());
         tracing::info!(
@@ -1291,7 +1407,7 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
         record_startup_phase_duration("phase_6a5_runtime_index_recovery", phase_started.elapsed());
         tracing::info!(
             elapsed_ms = phase_started.elapsed().as_millis(),
-            "phase_6a5_runtime_index_recovery skipped; deferring until after readiness"
+            "phase_6a5_runtime_index_recovery skipped; runtime indexes recover lazily by type"
         );
     }
 
@@ -1386,7 +1502,7 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
     if recover_indexes_before_reconcile {
         recover_orphaned_sessions(&state, &tenant).await;
     } else {
-        tracing::info!("Session recovery deferred until post-ready runtime index recovery");
+        tracing::info!("Session recovery deferred until after readiness");
     }
 
     // Phase 8: Banner (printed after bind so we show the actual port)
@@ -1394,10 +1510,6 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
 
     // Phase 9: Finish runtime bring-up on the already-running HTTP server.
     tracing::info!("Phase 9: Finalizing runtime bring-up...");
-
-    // Match Temper's serve bootstrap: query projections are warmed in the background
-    // after the entity index exists so startup does not block health checks on replay work.
-    spawn_query_projection_backfill(state.server.clone(), tenant_ids.clone());
 
     // Spawn webhook trigger (ONE entity, ONE action per request).
     spawn_webhook_trigger(&tenant, actual_port, config.temper_api_key.clone());
@@ -1596,8 +1708,11 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
     tracing::info!("Temper Paw listening on port {actual_port}");
     tracing::info!(elapsed_ms = startup_started.elapsed().as_millis(), tenant = %tenant, "startup: time to ready");
     if !recover_indexes_before_reconcile {
-        spawn_deferred_runtime_recovery(state.clone(), tenant_ids.clone(), tenant.clone());
+        spawn_deferred_session_recovery(state.clone(), tenant.clone());
     }
+    // Query projections are repaired as optional maintenance, not startup work.
+    // Incremental projection writes remain active on entity changes.
+    spawn_query_projection_backfill(state.server.clone(), tenant_ids.clone());
 
     // Phase 10: Soul personalization (post-boot, writes to TemperFS via OData)
     if needs_soul_setup {
@@ -3137,9 +3252,10 @@ mod tests {
         RuntimeRecoveryStep, STARTUP_LIVE_RESTORE_ENTITIES_METRIC, STARTUP_PHASE_DURATION_METRIC,
         STARTUP_TIME_TO_READY_METRIC, StartupReadiness, StartupSurfaceRuntimeRecoverySummary,
         WASM_MODULE_LOAD_FAILURES_METRIC, actor_passivation_check_interval_secs,
-        app_required_wasm_failure, bootstrap_soul, installed_app_runtime_recovery_result,
-        load_or_create_temper_api_key, local_wasm_startup_policy, paw_soul_content_is_personalized,
-        resolve_startup_secret, runtime_indexes_required_before_reconcile, runtime_recovery_plan,
+        app_required_wasm_failure, bootstrap_soul, default_agent_specs_bootstrap_needed,
+        installed_app_runtime_recovery_result, load_or_create_temper_api_key,
+        local_wasm_startup_policy, paw_soul_content_is_personalized, resolve_startup_secret,
+        runtime_indexes_required_before_reconcile, runtime_recovery_plan,
         runtime_router_with_startup_gates, soul_lookup_filters, spawn_runtime_server,
         startup_discord_connect_result, startup_discord_summary_label, startup_os_apps,
         startup_surface_runtime_indexes_required_before_reconcile, wait_for_runtime_server,
@@ -3181,8 +3297,30 @@ mod tests {
         assert_eq!(
             plan,
             vec![
-                RuntimeRecoveryStep::PopulateIndex("default".to_string()),
-                RuntimeRecoveryStep::PopulateIndex("temper-system".to_string()),
+                RuntimeRecoveryStep::PopulateTypeIndex {
+                    tenant: "default".to_string(),
+                    entity_type: "App",
+                },
+                RuntimeRecoveryStep::PopulateTypeIndex {
+                    tenant: "default".to_string(),
+                    entity_type: "Agent",
+                },
+                RuntimeRecoveryStep::PopulateTypeIndex {
+                    tenant: "default".to_string(),
+                    entity_type: "Soul",
+                },
+                RuntimeRecoveryStep::PopulateTypeIndex {
+                    tenant: "temper-system".to_string(),
+                    entity_type: "App",
+                },
+                RuntimeRecoveryStep::PopulateTypeIndex {
+                    tenant: "temper-system".to_string(),
+                    entity_type: "Agent",
+                },
+                RuntimeRecoveryStep::PopulateTypeIndex {
+                    tenant: "temper-system".to_string(),
+                    entity_type: "Soul",
+                },
             ]
         );
     }
@@ -3209,6 +3347,19 @@ mod tests {
             local_wasm_startup_policy(None),
             LocalWasmStartupPolicy::LoadPersistedOnly
         );
+    }
+
+    #[test]
+    fn startup_skips_builtin_default_agent_specs_when_paw_agent_owns_them() {
+        assert!(!default_agent_specs_bootstrap_needed(&[
+            "paw-fs".to_string(),
+            "paw-agent".to_string(),
+            "paw-channels".to_string(),
+        ]));
+        assert!(default_agent_specs_bootstrap_needed(&[
+            "paw-fs".to_string(),
+            "paw-channels".to_string(),
+        ]));
     }
 
     #[test]

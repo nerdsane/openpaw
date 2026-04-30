@@ -5,8 +5,8 @@
 
 use temper_wasm_sdk::prelude::*;
 use wasm_helpers::{
-    create_content_file_ref, entity_field_str, runtime_headers_as, send_typing_indicator,
-    timestamp_millis_string,
+    append_session_entry_inline, create_content_file_ref, entity_field_str, runtime_headers_as,
+    send_typing_indicator, timestamp_millis_string,
 };
 
 const SESSION_ENTRY_FILE_THRESHOLD_BYTES: usize = 4096;
@@ -37,6 +37,27 @@ pub fn persist_results(
     if !session_file_id.is_empty() && !session_leaf_id.is_empty() {
         // Session tree mode
         let entity_backed_session = wasm_helpers::is_session_entries_ref(session_file_id);
+        if entity_backed_session {
+            let tool_results_value = json!(tool_results);
+            let tokens_est = results_json.len() / 4;
+            let created = append_session_entry_inline(
+                ctx,
+                temper_api_url,
+                tenant,
+                fields,
+                session_file_id,
+                session_leaf_id,
+                "t",
+                "user",
+                &tool_results_value,
+                tokens_est,
+            )?;
+
+            params["pending_tool_calls"] = json!(compact_tool_results_marker(tool_results));
+            params["session_leaf_id"] = json!(created.entry_id);
+            return Ok(params);
+        }
+
         let session_jsonl = if entity_backed_session {
             wasm_helpers::read_session_from_temperfs(
                 ctx,
@@ -139,12 +160,13 @@ pub fn persist_results(
 /// HTTP call). For real forward progress (tool batch completed, chunk
 /// received), call `send_progress` instead.
 pub fn send_heartbeat(ctx: &Context, temper_api_url: &str, tenant: &str) {
-    post_session_action(
+    post_session_progress_signal(
         ctx,
         temper_api_url,
         tenant,
         "Heartbeat",
         "last_heartbeat_at",
+        "heartbeat_dispatch_enabled",
     );
 }
 
@@ -156,41 +178,45 @@ pub fn send_heartbeat(ctx: &Context, temper_api_url: &str, tenant: &str) {
 /// streamed chunk. Contrast with `send_heartbeat`, which only signals
 /// liveness and does not reset timeouts.
 pub fn send_progress(ctx: &Context, temper_api_url: &str, tenant: &str) {
-    post_session_action(
+    post_session_progress_signal(
         ctx,
         temper_api_url,
         tenant,
         "ProgressMade",
         "last_progress_at",
+        "tool_progress_dispatch_enabled",
     );
 }
 
-fn post_session_action(
+fn post_session_progress_signal(
     ctx: &Context,
     temper_api_url: &str,
     tenant: &str,
     action: &str,
     timestamp_field: &str,
+    enabled_key: &str,
 ) {
     let fields = ctx
         .entity_state
         .get("fields")
         .cloned()
         .unwrap_or_else(|| json!({}));
-    let url = format!(
-        "{temper_api_url}/tdata/Sessions('{}')/TemperPaw.{action}",
-        ctx.entity_id
-    );
-    let body = json!({ timestamp_field: timestamp_millis_string() });
-    let headers = runtime_headers_as(
-        ctx,
-        tenant,
-        &fields,
-        "system",
-        Some("application/json"),
-        None,
-    );
-    let _ = ctx.http_call("POST", &url, &headers, &body.to_string());
+    if progress_action_dispatch_enabled(ctx, &fields, enabled_key) {
+        let url = format!(
+            "{temper_api_url}/tdata/Sessions('{}')/TemperPaw.{action}",
+            ctx.entity_id
+        );
+        let body = json!({ timestamp_field: timestamp_millis_string() });
+        let headers = runtime_headers_as(
+            ctx,
+            tenant,
+            &fields,
+            "system",
+            Some("application/json"),
+            None,
+        );
+        let _ = ctx.http_call("POST", &url, &headers, &body.to_string());
+    }
 
     // Post typing indicator directly (replaces the old `heartbeat_typing`
     // trigger cascade). Uses the persistent Agent entity ID from session
@@ -199,6 +225,20 @@ fn post_session_action(
     let typing_agent_id =
         entity_field_str(&fields, &["agent_id", "AgentId"]).unwrap_or(&ctx.entity_id);
     send_typing_indicator(ctx, temper_api_url, tenant, typing_agent_id);
+}
+
+fn progress_action_dispatch_enabled(ctx: &Context, fields: &Value, key: &str) -> bool {
+    fields
+        .get(key)
+        .and_then(Value::as_str)
+        .or_else(|| ctx.config.get(key).map(String::as_str))
+        .map(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes"
+            )
+        })
+        .unwrap_or(false)
 }
 
 /// Encode a tool-span JSONL document by appending new events to the existing content.

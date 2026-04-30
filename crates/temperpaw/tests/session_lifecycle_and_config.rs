@@ -43,10 +43,20 @@ fn session_link_is_a_reusable_temperpaw_child_session_monitor() {
     );
 
     assert!(
+        spec.contains("initial = \"80\""),
+        "SessionLink should default to the 40 minute bounded monitor budget at a 30s poll interval"
+    );
+    assert!(
+        spec.contains("{ type = \"schedule\", action = \"CheckChild\", delay_seconds = 30 }"),
+        "SessionLink pending child checks should avoid 10s write-amplifying polling"
+    );
+
+    assert!(
         wiki_builder.contains("/tdata/SessionLinks")
             && wiki_builder.contains("ParentEntitySet")
             && wiki_builder.contains("ChildSessionId")
-            && wiki_builder.contains("OnFailureAction"),
+            && wiki_builder.contains("OnFailureAction")
+            && wiki_builder.contains("\"MaxChecks\": \"80\""),
         "WikiJob should use the reusable SessionLink monitor instead of bespoke child-session polling"
     );
 

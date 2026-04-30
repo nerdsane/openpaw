@@ -50,6 +50,7 @@ use monty::{
 };
 
 const MAX_TOOL_RESULT_BYTES: usize = 16 * 1024;
+const DEFAULT_NORMAL_REPL_STATE_MAX_BYTES: usize = 0;
 
 /// Captures `print()` output without allowing Monty to grow an unbounded host-side buffer.
 ///
@@ -761,7 +762,10 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             tool_results = prior_results;
         }
 
-        // Save REPL state to TemperFS file (not entity field)
+        // Save small REPL states between provider turns, but do not route the
+        // normal hot path through a large versioned TemperFS rewrite. Checkpoint
+        // and approval pauses still persist state above because they need exact
+        // mid-batch recovery.
         let saved_state = save_repl_state(&repl)?;
         ctx.log(
             "info",
@@ -771,14 +775,29 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 tool_results.len()
             ),
         );
-        let repl_file_id = session::save_repl_to_file(
-            &ctx,
-            &temper_api_url,
-            tenant,
-            workspace_id,
-            repl_file_id,
-            &saved_state,
-        )?;
+        let max_normal_repl_state_bytes = normal_repl_state_max_bytes(&ctx);
+        let repl_file_id = if max_normal_repl_state_bytes > 0
+            && saved_state.len() <= max_normal_repl_state_bytes
+        {
+            session::save_repl_to_file(
+                &ctx,
+                &temper_api_url,
+                tenant,
+                workspace_id,
+                repl_file_id,
+                &saved_state,
+            )?
+        } else {
+            ctx.log(
+                "warn",
+                &format!(
+                    "monty_repl: skipping normal repl state persist bytes={} max_bytes={}",
+                    saved_state.len(),
+                    max_normal_repl_state_bytes
+                ),
+            );
+            String::new()
+        };
 
         // ProgressMade: a tool batch completed — this is real forward progress,
         // so reset the Executing state_timeout (not just ping liveness).
@@ -804,7 +823,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             params["sandbox_id"] = json!(id);
             params["sandbox_provider"] = json!(provider);
         }
-        if !tool_span_events.is_empty() {
+        if persist_tool_spans_file(&ctx) && !tool_span_events.is_empty() {
             let existing_tool_spans_file_id = fields
                 .get("tool_spans_file_id")
                 .and_then(|v| v.as_str())
@@ -826,6 +845,14 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                     &format!("monty_repl: tool_spans append failed: {e}"),
                 ),
             }
+        } else if !tool_span_events.is_empty() {
+            ctx.log(
+                "debug",
+                &format!(
+                    "monty_repl: skipping tool_spans file persist events={}",
+                    tool_span_events.len()
+                ),
+            );
         }
 
         // Clear Cedar approval state after successful resume so the next
@@ -907,6 +934,16 @@ fn load_or_create_repl(
                     frozen: true,
                 },
             ),
+            (
+                "json".to_string(),
+                MontyObject::Dataclass {
+                    name: "Json".to_string(),
+                    type_id: 3,
+                    field_names: vec![],
+                    attrs: DictPairs::from(Vec::<(MontyObject, MontyObject)>::new()),
+                    frozen: true,
+                },
+            ),
         ];
 
         let print = PrintWriter::Disabled;
@@ -918,7 +955,7 @@ fn load_or_create_repl(
 
         ctx.log(
             "info",
-            "monty_repl: created fresh REPL with temper + sandbox objects",
+            "monty_repl: created fresh REPL with temper + sandbox + json objects",
         );
         Ok(repl)
     } else {
@@ -978,6 +1015,20 @@ fn save_repl_state(repl: &MontyRepl<LimitedTracker>) -> Result<String, String> {
     Ok(base64_encode(&bytes))
 }
 
+fn normal_repl_state_max_bytes(ctx: &Context) -> usize {
+    ctx.config
+        .get("normal_repl_state_max_bytes")
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or(DEFAULT_NORMAL_REPL_STATE_MAX_BYTES)
+}
+
+fn persist_tool_spans_file(ctx: &Context) -> bool {
+    ctx.config
+        .get("persist_tool_spans_file")
+        .map(|value| matches!(value.as_str(), "1" | "true" | "yes" | "on"))
+        .unwrap_or(false)
+}
+
 /// Drive the Monty REPL event loop to completion.
 ///
 /// Accepts a print buffer (from the initial `feed_start()` call) and continues
@@ -1032,6 +1083,7 @@ fn drive_repl_loop(
                 let _call_id = call.call_id;
                 let fn_name = call.function_name.clone();
                 let args = call.args.clone();
+                let kwargs = call.kwargs.clone();
 
                 let (obj_name, user_args) = classify_method_call(&args);
 
@@ -1039,9 +1091,26 @@ fn drive_repl_loop(
                     .iter()
                     .map(|a| convert::monty_object_to_json(a))
                     .collect();
+                let json_kwargs: Vec<(Value, Value)> = kwargs
+                    .iter()
+                    .map(|(k, v)| {
+                        (
+                            convert::monty_object_to_json(k),
+                            convert::monty_object_to_json(v),
+                        )
+                    })
+                    .collect();
                 let tool_name = format!("{obj_name}.{fn_name}");
                 let tool_call_id = call.call_id.to_string();
-                let tool_arguments_json = serde_json::to_string(&json_args).unwrap_or_default();
+                let tool_arguments_json = if json_kwargs.is_empty() {
+                    serde_json::to_string(&json_args).unwrap_or_default()
+                } else {
+                    serde_json::to_string(&json!({
+                        "args": json_args,
+                        "kwargs": json_kwargs,
+                    }))
+                    .unwrap_or_default()
+                };
                 let started_ms = Context::get_time_millis();
 
                 let result = run_with_tool_progress(
@@ -1065,6 +1134,7 @@ fn drive_repl_loop(
                             &fn_name,
                             Some(tool_call_id.as_str()),
                             &json_args,
+                            &json_kwargs,
                         )
                     },
                 );
@@ -1180,6 +1250,7 @@ fn classify_method_call(args: &[MontyObject]) -> (String, Vec<MontyObject>) {
         MontyObject::Dataclass { name, .. } => match name.as_str() {
             "Temper" => "temper",
             "Sandbox" => "sandbox",
+            "Json" => "json",
             _ => "unknown",
         },
         _ => "unknown",

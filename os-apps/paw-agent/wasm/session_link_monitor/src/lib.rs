@@ -113,7 +113,7 @@ impl SessionLinkFields {
         let on_failure_action = require_field(fields, &["OnFailureAction", "on_failure_action"])?;
         let max_checks = non_empty_field(fields, &["MaxChecks", "max_checks"])
             .and_then(|value| value.parse::<i64>().ok())
-            .unwrap_or(180)
+            .unwrap_or(80)
             .max(1);
 
         Ok(Self {
@@ -318,6 +318,6 @@ mod tests {
         let parsed = SessionLinkFields::from_entity(&fields).expect("valid link fields");
         assert_eq!(parsed.parent_entity_set, "WikiJobs");
         assert_eq!(parsed.parent_action_namespace, "TemperPaw");
-        assert_eq!(parsed.max_checks, 180);
+        assert_eq!(parsed.max_checks, 80);
     }
 }

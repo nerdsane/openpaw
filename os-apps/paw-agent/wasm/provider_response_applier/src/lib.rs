@@ -16,8 +16,8 @@ use session_turn_artifacts::{
 };
 use temper_wasm_sdk::prelude::*;
 use wasm_helpers::{
-    create_content_file, is_session_entries_ref, read_content_file, read_session_from_temperfs,
-    resolve_temper_api_url, runtime_headers, write_session_to_temperfs,
+    append_session_entry_inline, create_content_file, is_session_entries_ref, read_content_file,
+    read_session_from_temperfs, resolve_temper_api_url, runtime_headers, write_session_to_temperfs,
     write_temperfs_value_with_retry,
 };
 
@@ -170,13 +170,13 @@ pub fn run_provider_response_applier() -> Result<(), String> {
                 if append_result.is_ok() { "ok" } else { "error" },
             );
             let new_leaf = append_result?;
-            check_phase_budget(
+            note_phase_budget_overrun_after_committed_step(
                 &ctx,
                 "provider_response_applier",
                 started_at,
                 apply_budget_ms,
                 "append_session_tree",
-            )?;
+            );
 
             let mut params = build_provider_response_applier_base_params(&prepared, &response);
             params["pending_tool_calls"] =
@@ -215,13 +215,13 @@ pub fn run_provider_response_applier() -> Result<(), String> {
                 if append_result.is_ok() { "ok" } else { "error" },
             );
             let new_leaf = append_result?;
-            check_phase_budget(
+            note_phase_budget_overrun_after_committed_step(
                 &ctx,
                 "provider_response_applier",
                 started_at,
                 apply_budget_ms,
                 "append_session_tree",
-            )?;
+            );
 
             let mut params = build_provider_response_applier_base_params(&prepared, &response);
             params["result"] = json!(result_text);
@@ -329,6 +329,22 @@ fn append_assistant_response_to_session_tree(
 ) -> Result<Option<String>, String> {
     if !prepared.use_session_tree {
         return Ok(None);
+    }
+
+    if is_session_entries_ref(&prepared.session_file_id) {
+        let created = append_session_entry_inline(
+            ctx,
+            temper_api_url,
+            tenant,
+            fields,
+            &prepared.session_file_id,
+            &prepared.session_leaf_id,
+            "a",
+            "assistant",
+            content,
+            output_tokens,
+        )?;
+        return Ok(Some(created.entry_id));
     }
 
     let session_jsonl = read_session_from_temperfs(
@@ -551,6 +567,36 @@ fn check_phase_budget(
     Err(format!(
         "{phase}: exceeded local budget after {last_step} (elapsed_ms={elapsed_ms}, budget_ms={budget_ms})"
     ))
+}
+
+fn note_phase_budget_overrun_after_committed_step(
+    ctx: &Context,
+    phase: &str,
+    started_at: i64,
+    budget_ms: i64,
+    committed_step: &str,
+) {
+    let elapsed_ms = elapsed_ms_since(started_at);
+    if elapsed_ms <= budget_ms {
+        return;
+    }
+
+    emit_metric_ignore(
+        ctx,
+        "temper_session_phase_budget_exceeded_after_commit_total",
+        1.0,
+        &json!({
+            "phase": phase,
+            "committed_step": committed_step,
+        }),
+        Some("count"),
+    );
+    ctx.log(
+        "warn",
+        &format!(
+            "{phase}: exceeded local budget after committed {committed_step}; continuing because the session append already succeeded (elapsed_ms={elapsed_ms}, budget_ms={budget_ms})"
+        ),
+    );
 }
 
 #[cfg(test)]
