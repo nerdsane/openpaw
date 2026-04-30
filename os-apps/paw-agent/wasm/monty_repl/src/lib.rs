@@ -455,15 +455,31 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
 
                 // Save REPL state to TemperFS so the re-entered invocation
                 // restarts from the same interpreter heap.
-                let saved_state = save_repl_state(&repl)?;
-                let new_repl_file_id = session::save_repl_to_file(
+                // Graceful: if save fails, skip this checkpoint — the agent
+                // gets a fresh REPL on resume but the session stays alive.
+                let saved_state = match save_repl_state(&repl) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        ctx.log("warn", &format!("monty_repl: checkpoint repl save failed, skipping checkpoint: {e}"));
+                        i += 1;
+                        continue;
+                    }
+                };
+                let new_repl_file_id = match session::save_repl_to_file(
                     &ctx,
                     &temper_api_url,
                     tenant,
                     workspace_id,
                     repl_file_id,
                     &saved_state,
-                )?;
+                ) {
+                    Ok(id) => id,
+                    Err(e) => {
+                        ctx.log("warn", &format!("monty_repl: checkpoint file save failed, skipping checkpoint: {e}"));
+                        i += 1;
+                        continue;
+                    }
+                };
 
                 // Build checkpoint context — same shape the Cedar pause path
                 // uses, so the existing resume branch at the top of this
@@ -624,16 +640,23 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                     .and_then(|v| v.as_str())
                     .unwrap_or("unknown");
 
-                // Save REPL state before pausing
-                let saved_state = save_repl_state(&repl)?;
-                let repl_file_id = session::save_repl_to_file(
-                    &ctx,
-                    &temper_api_url,
-                    tenant,
-                    workspace_id,
-                    repl_file_id,
-                    &saved_state,
-                )?;
+                // Save REPL state before pausing.
+                // Graceful: if save fails, agent gets a fresh REPL on resume.
+                let repl_file_id = match save_repl_state(&repl)
+                    .and_then(|saved_state| {
+                        session::save_repl_to_file(
+                            &ctx, &temper_api_url, tenant, workspace_id,
+                            repl_file_id, &saved_state,
+                        )
+                    }) {
+                    Ok(id) => id,
+                    Err(e) => {
+                        ctx.log("warn", &format!(
+                            "monty_repl: Cedar pause repl save failed (agent gets fresh REPL on resume): {e}"
+                        ));
+                        repl_file_id.to_string()
+                    }
+                };
 
                 // Build pause context: all completed results (prior + current) +
                 // remaining tool calls (current denied call + any after it)
@@ -766,37 +789,51 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         // normal hot path through a large versioned TemperFS rewrite. Checkpoint
         // and approval pauses still persist state above because they need exact
         // mid-batch recovery.
-        let saved_state = save_repl_state(&repl)?;
-        ctx.log(
-            "info",
-            &format!(
-                "monty_repl: saving repl state bytes={}, tool_results={}",
-                saved_state.len(),
-                tool_results.len()
-            ),
-        );
-        let max_normal_repl_state_bytes = normal_repl_state_max_bytes(&ctx);
-        let repl_file_id = if max_normal_repl_state_bytes > 0
-            && saved_state.len() <= max_normal_repl_state_bytes
-        {
-            session::save_repl_to_file(
-                &ctx,
-                &temper_api_url,
-                tenant,
-                workspace_id,
-                repl_file_id,
-                &saved_state,
-            )?
-        } else {
-            ctx.log(
-                "warn",
-                &format!(
-                    "monty_repl: skipping normal repl state persist bytes={} max_bytes={}",
-                    saved_state.len(),
-                    max_normal_repl_state_bytes
-                ),
-            );
-            String::new()
+        // Graceful: REPL state save failure should not kill the session.
+        let repl_file_id = match save_repl_state(&repl) {
+            Ok(saved_state) => {
+                ctx.log(
+                    "info",
+                    &format!(
+                        "monty_repl: saving repl state bytes={}, tool_results={}",
+                        saved_state.len(),
+                        tool_results.len()
+                    ),
+                );
+                let max_normal_repl_state_bytes = normal_repl_state_max_bytes(&ctx);
+                if max_normal_repl_state_bytes > 0
+                    && saved_state.len() <= max_normal_repl_state_bytes
+                {
+                    match session::save_repl_to_file(
+                        &ctx,
+                        &temper_api_url,
+                        tenant,
+                        workspace_id,
+                        repl_file_id,
+                        &saved_state,
+                    ) {
+                        Ok(id) => id,
+                        Err(e) => {
+                            ctx.log("warn", &format!("monty_repl: end-of-batch file save failed: {e}"));
+                            repl_file_id.to_string()
+                        }
+                    }
+                } else {
+                    ctx.log(
+                        "warn",
+                        &format!(
+                            "monty_repl: skipping normal repl state persist bytes={} max_bytes={}",
+                            saved_state.len(),
+                            max_normal_repl_state_bytes
+                        ),
+                    );
+                    String::new()
+                }
+            }
+            Err(e) => {
+                ctx.log("warn", &format!("monty_repl: end-of-batch repl save failed: {e}"));
+                repl_file_id.to_string()
+            }
         };
 
         // ProgressMade: a tool batch completed — this is real forward progress,
@@ -806,15 +843,23 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         // Check if agent signaled completion via temper.done(result)
         let done_result = dispatch::take_done_result();
 
-        // Persist results (without repl_state in entity params)
-        let mut params = session::persist_results(
+        // Persist results (without repl_state in entity params).
+        // Graceful: fall back to inline JSON if file persistence fails.
+        let mut params = match session::persist_results(
             &ctx,
             &temper_api_url,
             tenant,
             &fields,
             &tool_results,
             &repl_file_id,
-        )?;
+        ) {
+            Ok(p) => p,
+            Err(e) => {
+                ctx.log("warn", &format!("monty_repl: persist_results failed, falling back to inline: {e}"));
+                let results_json = serde_json::to_string(&tool_results).unwrap_or_default();
+                json!({"pending_tool_calls": results_json, "repl_file_id": repl_file_id})
+            }
+        };
 
         // If a sandbox was lazily provisioned during this invocation,
         // include it in the callback params so it persists to entity state (ADR-0022).
