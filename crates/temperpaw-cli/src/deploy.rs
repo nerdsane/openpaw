@@ -15,6 +15,51 @@ const RAILWAY_HEALTH_POLL_INTERVAL_SECS: u64 = 10;
 const RAILWAY_HEALTH_POLL_ATTEMPTS: u64 =
     RAILWAY_SERVICE_HEALTHCHECK_TIMEOUT_SECS / RAILWAY_HEALTH_POLL_INTERVAL_SECS;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum DeployStorageMode {
+    Postgres,
+    Turso,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum RailwayStorageTarget {
+    Postgres,
+    Turso { url: String, auth_token: String },
+}
+
+fn deploy_storage_mode_from_env() -> Result<DeployStorageMode> {
+    match optional_env("TEMPERPAW_DEPLOY_STORAGE")
+        .unwrap_or_else(|| "postgres".to_string())
+        .trim()
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "postgres" | "postgresql" => Ok(DeployStorageMode::Postgres),
+        "turso" | "libsql" => Ok(DeployStorageMode::Turso),
+        other => {
+            anyhow::bail!("TEMPERPAW_DEPLOY_STORAGE must be `postgres` or `turso`; got {other:?}")
+        }
+    }
+}
+
+fn railway_storage_variables(target: RailwayStorageTarget) -> Vec<String> {
+    match target {
+        RailwayStorageTarget::Postgres => vec![
+            "TEMPER_EVENT_STORE=postgres".to_string(),
+            "TEMPER_PLATFORM_STORE=postgres".to_string(),
+            "TEMPER_QUERY_PROJECTION_STORE=postgres".to_string(),
+            "DATABASE_URL=${{Postgres.DATABASE_URL}}".to_string(),
+        ],
+        RailwayStorageTarget::Turso { url, auth_token } => vec![
+            "TEMPER_EVENT_STORE=turso".to_string(),
+            "TEMPER_PLATFORM_STORE=turso".to_string(),
+            "TEMPER_QUERY_PROJECTION_STORE=turso".to_string(),
+            format!("TURSO_URL={url}"),
+            format!("TURSO_AUTH_TOKEN={auth_token}"),
+        ],
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Credential cache — persists tokens/keys between deploy runs
 // ---------------------------------------------------------------------------
@@ -85,13 +130,18 @@ pub async fn run_deploy() -> Result<()> {
     cliclack::log::info("All services use free tiers — no credit card required.")?;
 
     cliclack::log::step("Checking prerequisites...")?;
+    let storage_mode = deploy_storage_mode_from_env()?;
     ensure_or_install("railway", &install_railway)?;
-    ensure_or_install("turso", &install_turso)?;
+    if storage_mode == DeployStorageMode::Turso {
+        ensure_or_install("turso", &install_turso)?;
+    }
     ensure_or_install("wrangler", &install_wrangler)?;
     ensure_or_install("modal", &install_modal)?;
 
     ensure_auth_railway()?;
-    ensure_auth_turso(&mut cache)?;
+    if storage_mode == DeployStorageMode::Turso {
+        ensure_auth_turso(&mut cache)?;
+    }
     ensure_auth_wrangler(&mut cache)?;
 
     let modal_bridge = match configure_modal_bridge() {
@@ -112,11 +162,6 @@ pub async fn run_deploy() -> Result<()> {
     let database_name = format!("temperpaw-{owner}");
     let bucket_name = format!("temperpaw-fs-{owner}");
 
-    cliclack::log::step("Provisioning Turso database (free tier: 9 GB, 500M rows)...")?;
-    create_turso_db_idempotent(&database_name)?;
-    let turso_url = capture_trimmed("turso", &["db", "show", &database_name, "--url"])?;
-    let turso_auth_token = capture_trimmed("turso", &["db", "tokens", "create", &database_name])?;
-
     cliclack::log::step("Provisioning R2 bucket (free tier: 10 GB storage)...")?;
     create_r2_bucket_idempotent(&bucket_name)?;
 
@@ -125,6 +170,27 @@ pub async fn run_deploy() -> Result<()> {
 
     cliclack::log::step("Creating Railway project (free tier: 512 MB RAM, 1 vCPU)...")?;
     create_railway_project_idempotent(&project_name)?;
+
+    let storage_target = match storage_mode {
+        DeployStorageMode::Postgres => {
+            cliclack::log::step("Provisioning Railway Postgres database...")?;
+            ensure_railway_postgres_database()?;
+            RailwayStorageTarget::Postgres
+        }
+        DeployStorageMode::Turso => {
+            cliclack::log::step(
+                "Provisioning legacy Turso database (free tier: 9 GB, 500M rows)...",
+            )?;
+            create_turso_db_idempotent(&database_name)?;
+            let turso_url = capture_trimmed("turso", &["db", "show", &database_name, "--url"])?;
+            let turso_auth_token =
+                capture_trimmed("turso", &["db", "tokens", "create", &database_name])?;
+            RailwayStorageTarget::Turso {
+                url: turso_url,
+                auth_token: turso_auth_token,
+            }
+        }
+    };
 
     let existing_temperpaw_vars = load_service_variables("temperpaw").unwrap_or_default();
     let vault_key_b64 = existing_temperpaw_vars
@@ -150,16 +216,15 @@ pub async fn run_deploy() -> Result<()> {
             generated
         });
 
-    let mut variables = vec![
-        format!("TURSO_URL={turso_url}"),
-        format!("TURSO_AUTH_TOKEN={turso_auth_token}"),
+    let mut variables = railway_storage_variables(storage_target);
+    variables.extend([
         format!("BLOB_ENDPOINT={blob_endpoint}"),
         format!("BLOB_BUCKET={bucket_name}"),
         format!("BLOB_ACCESS_KEY={blob_access_key}"),
         format!("BLOB_SECRET_KEY={blob_secret_key}"),
         format!("TEMPER_API_KEY={temper_api_key}"),
         format!("TEMPER_VAULT_KEY={vault_key_b64}"),
-    ];
+    ]);
 
     if let Some(modal_bridge) = &modal_bridge {
         variables.push("SANDBOX_PROVIDER=modal".to_string());
@@ -1338,6 +1403,30 @@ fn create_railway_project_idempotent(project_name: &str) -> Result<()> {
     Ok(())
 }
 
+fn ensure_railway_postgres_database() -> Result<()> {
+    if load_service_variables("Postgres").is_ok() {
+        cliclack::log::success("Railway Postgres already provisioned ✓")?;
+        return Ok(());
+    }
+
+    let status = Command::new("railway")
+        .args(["add", "--database", "postgres"])
+        .stdin(std::process::Stdio::inherit())
+        .stdout(std::process::Stdio::inherit())
+        .stderr(std::process::Stdio::inherit())
+        .status()
+        .context("Failed to provision Railway Postgres")?;
+
+    if !status.success() {
+        anyhow::bail!(
+            "Railway Postgres provisioning failed. Add a Postgres database to the Railway project and retry."
+        );
+    }
+
+    cliclack::log::success("Railway Postgres provisioned ✓")?;
+    Ok(())
+}
+
 fn get_cloudflare_account_id() -> Option<String> {
     let output = Command::new("wrangler").args(["whoami"]).output().ok()?;
     let text = String::from_utf8_lossy(&output.stdout);
@@ -1857,9 +1946,10 @@ fn as_str_slice(values: &[String]) -> Vec<&str> {
 mod tests {
     use super::{
         RAILWAY_HEALTH_POLL_ATTEMPTS, RAILWAY_HEALTH_POLL_INTERVAL_SECS,
-        RAILWAY_SERVICE_HEALTHCHECK_TIMEOUT_SECS, generate_temper_api_key, infer_domain,
-        infer_modal_bridge_base_url, modal_bridge_script_path, otel_datadog_config,
-        otel_debug_config, prebuilt_railway_manifest, read_modal_credentials_from_str, slugify,
+        RAILWAY_SERVICE_HEALTHCHECK_TIMEOUT_SECS, RailwayStorageTarget, generate_temper_api_key,
+        infer_domain, infer_modal_bridge_base_url, modal_bridge_script_path, otel_datadog_config,
+        otel_debug_config, prebuilt_railway_manifest, railway_storage_variables,
+        read_modal_credentials_from_str, slugify,
     };
 
     #[test]
@@ -1874,6 +1964,41 @@ mod tests {
         assert_eq!(
             value.as_deref(),
             Some("https://temperpaw-production.up.railway.app")
+        );
+    }
+
+    #[test]
+    fn railway_postgres_storage_variables_do_not_emit_turso_credentials() {
+        let variables = railway_storage_variables(RailwayStorageTarget::Postgres);
+
+        assert_eq!(
+            variables,
+            vec![
+                "TEMPER_EVENT_STORE=postgres",
+                "TEMPER_PLATFORM_STORE=postgres",
+                "TEMPER_QUERY_PROJECTION_STORE=postgres",
+                "DATABASE_URL=${{Postgres.DATABASE_URL}}",
+            ]
+        );
+        assert!(variables.iter().all(|var| !var.starts_with("TURSO_")));
+    }
+
+    #[test]
+    fn railway_turso_storage_variables_are_explicit_legacy_mode() {
+        let variables = railway_storage_variables(RailwayStorageTarget::Turso {
+            url: "libsql://temperpaw.turso.io".to_string(),
+            auth_token: "secret-token".to_string(),
+        });
+
+        assert_eq!(
+            variables,
+            vec![
+                "TEMPER_EVENT_STORE=turso",
+                "TEMPER_PLATFORM_STORE=turso",
+                "TEMPER_QUERY_PROJECTION_STORE=turso",
+                "TURSO_URL=libsql://temperpaw.turso.io",
+                "TURSO_AUTH_TOKEN=secret-token",
+            ]
         );
     }
 

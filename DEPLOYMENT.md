@@ -160,12 +160,18 @@ These are set on the `temperpaw` Railway service:
 
 | Variable | Description |
 |----------|-------------|
-| `TURSO_URL` | libSQL database URL (e.g., `libsql://temperpaw-xxx.turso.io`) |
-| `TURSO_AUTH_TOKEN` | Turso authentication token |
+| `TEMPER_EVENT_STORE` | `postgres` for Railway Postgres |
+| `TEMPER_PLATFORM_STORE` | `postgres` for platform specs, policies, WASM metadata, and secrets |
+| `TEMPER_QUERY_PROJECTION_STORE` | `postgres` for OData/query projections |
+| `DATABASE_URL` | Railway Postgres connection URL, usually `${{Postgres.DATABASE_URL}}` |
 | `BLOB_ENDPOINT` | R2/S3-compatible endpoint URL |
 | `BLOB_BUCKET` | Bucket name |
 | `BLOB_ACCESS_KEY` | S3 access key ID |
 | `BLOB_SECRET_KEY` | S3 secret access key |
+
+Turso remains available only as an explicit legacy mode by setting
+`TEMPERPAW_DEPLOY_STORAGE=turso` during deployment and providing `TURSO_URL` /
+`TURSO_AUTH_TOKEN`.
 
 ### LLM Configuration
 
@@ -242,8 +248,10 @@ railway up -s temperpaw
 ```bash
 docker run -d \
   -p 3467:3467 \
-  -e TURSO_URL=libsql://your-db.turso.io \
-  -e TURSO_AUTH_TOKEN=your-token \
+  -e TEMPER_EVENT_STORE=postgres \
+  -e TEMPER_PLATFORM_STORE=postgres \
+  -e TEMPER_QUERY_PROJECTION_STORE=postgres \
+  -e DATABASE_URL=postgres://user:pass@host:5432/db \
   -e BLOB_ENDPOINT=https://your-r2-endpoint \
   -e BLOB_BUCKET=your-bucket \
   -e BLOB_ACCESS_KEY=your-key \
@@ -295,8 +303,10 @@ The local server runs on `http://localhost:3467`. The dashboard dev server proxi
 Create a `.env` file in the repo root:
 
 ```
-TURSO_URL=libsql://...
-TURSO_AUTH_TOKEN=...
+TEMPER_EVENT_STORE=postgres
+TEMPER_PLATFORM_STORE=postgres
+TEMPER_QUERY_PROJECTION_STORE=postgres
+DATABASE_URL=postgres://user:pass@host:5432/db
 BLOB_ENDPOINT=https://...
 BLOB_BUCKET=...
 BLOB_ACCESS_KEY=...
@@ -310,7 +320,7 @@ ANTHROPIC_API_KEY=sk-ant-...
 ## Troubleshooting
 
 **Server won't start / panics on boot:**
-- Check that all required env vars are set (especially `TURSO_URL` and `TURSO_AUTH_TOKEN`)
+- Check that all required env vars are set, especially `DATABASE_URL` when `TEMPER_EVENT_STORE=postgres`
 - Check Railway logs: `railway logs` or view in the Railway dashboard
 
 **"Unresolved secret template" error in Paw chat:**

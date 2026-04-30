@@ -59,11 +59,9 @@ pub async fn run_deploy(config: Config, with_datadog: bool) -> Result<()> {
 
     cliclack::log::step("Checking prerequisites...")?;
     ensure_or_install("railway", &install_railway)?;
-    ensure_or_install("turso", &install_turso)?;
     ensure_or_install("wrangler", &install_wrangler)?;
 
     ensure_auth_railway()?;
-    ensure_auth_turso(&mut cache)?;
     ensure_auth_wrangler(&mut cache)?;
 
     let owner = slugify(
@@ -72,13 +70,7 @@ pub async fn run_deploy(config: Config, with_datadog: bool) -> Result<()> {
             .unwrap_or_else(|_| "temperpaw".to_string()),
     );
     let project_name = format!("temperpaw-{owner}");
-    let database_name = format!("temperpaw-{owner}");
     let bucket_name = format!("temperpaw-fs-{owner}");
-
-    cliclack::log::step("Provisioning Turso database (free tier: 9 GB, 500M rows)...")?;
-    create_turso_db_idempotent(&database_name)?;
-    let turso_url = capture_trimmed("turso", &["db", "show", &database_name, "--url"])?;
-    let turso_auth_token = capture_trimmed("turso", &["db", "tokens", "create", &database_name])?;
 
     cliclack::log::step("Provisioning R2 bucket (free tier: 10 GB storage)...")?;
     create_r2_bucket_idempotent(&bucket_name)?;
@@ -90,9 +82,19 @@ pub async fn run_deploy(config: Config, with_datadog: bool) -> Result<()> {
     cliclack::log::step("Creating Railway project (free tier: 512 MB RAM, 1 vCPU)...")?;
     create_railway_project_idempotent(&project_name)?;
 
+    cliclack::log::step("Provisioning Railway Postgres database...")?;
+    let _ = Command::new("railway")
+        .args(["add", "--database", "postgres"])
+        .stdin(std::process::Stdio::inherit())
+        .stdout(std::process::Stdio::inherit())
+        .stderr(std::process::Stdio::inherit())
+        .status();
+
     let mut variables = vec![
-        format!("TURSO_URL={turso_url}"),
-        format!("TURSO_AUTH_TOKEN={turso_auth_token}"),
+        "TEMPER_EVENT_STORE=postgres".to_string(),
+        "TEMPER_PLATFORM_STORE=postgres".to_string(),
+        "TEMPER_QUERY_PROJECTION_STORE=postgres".to_string(),
+        "DATABASE_URL=${{Postgres.DATABASE_URL}}".to_string(),
         format!("BLOB_ENDPOINT={blob_endpoint}"),
         format!("BLOB_BUCKET={bucket_name}"),
         format!("BLOB_ACCESS_KEY={blob_access_key}"),

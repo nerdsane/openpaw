@@ -20,7 +20,10 @@ use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
 use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation, decode, encode};
 use serde::{Deserialize, Serialize};
 use temper_platform::bearer_auth::PreAuthenticatedRequest;
+#[cfg(test)]
 use temper_store_turso::TursoEventStore;
+
+use crate::storage::PawStorage;
 
 type SecretsVault = temper_server::secrets::vault::SecretsVault;
 
@@ -30,7 +33,7 @@ const SESSION_DURATION_SECS: usize = 60 * 60 * 24 * 7;
 
 #[derive(Clone)]
 pub struct AuthState {
-    turso_store: TursoEventStore,
+    storage: PawStorage,
     vault: Arc<SecretsVault>,
     jwt_secret: Arc<Vec<u8>>,
     tenant: Arc<String>,
@@ -40,14 +43,14 @@ pub struct AuthState {
 
 impl AuthState {
     pub fn new(
-        turso_store: TursoEventStore,
+        storage: impl Into<PawStorage>,
         vault: Arc<SecretsVault>,
         jwt_secret: Vec<u8>,
         tenant: String,
         cookie_secure: bool,
     ) -> Self {
         Self {
-            turso_store,
+            storage: storage.into(),
             vault,
             jwt_secret: Arc::new(jwt_secret),
             tenant: Arc::new(tenant),
@@ -513,9 +516,10 @@ async fn save_accounts(state: &AuthState, accounts: &BTreeMap<String, LocalAccou
         .map_err(anyhow::Error::msg)
         .context("Failed to encrypt auth accounts")?;
     state
-        .turso_store
+        .storage
         .upsert_secret(state.tenant(), ACCOUNTS_SECRET_KEY, &ciphertext, &nonce)
         .await
+        .map_err(anyhow::Error::msg)
         .context("Failed to persist auth accounts")?;
 
     Ok(())
