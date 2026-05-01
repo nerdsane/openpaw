@@ -602,19 +602,9 @@ fn compute_system_prompt_hash(
     system_prompt_override: &str,
 ) -> String {
     // Simple additive hash — we just need change detection, not cryptographic security.
-    //
-    // The leading version tag is a manual cache-bust knob. Bump it whenever
-    // the assembled prompt SHAPE changes in a way the inputs don't already
-    // reflect (e.g., new sources discovered, new sections injected, fix to
-    // a query that previously returned zero results). Every cached
-    // system_prompt_hash from the prior version automatically becomes a
-    // cache miss on the next turn and the prompt is re-assembled fresh.
-    const PROMPT_ASSEMBLY_VERSION: &str = "v3-system-skill-files-restored-2026-05-01";
     let mut hash: u64 = 0xcbf29ce484222325; // FNV offset basis
-    for b in PROMPT_ASSEMBLY_VERSION
+    for b in soul_id
         .bytes()
-        .chain(b"|".iter().copied())
-        .chain(soul_id.bytes())
         .chain(b"|".iter().copied())
         .chain(agent_id.bytes())
         .chain(b"|".iter().copied())
@@ -2100,20 +2090,9 @@ fn load_skills_block(
         return Ok(String::new());
     }
 
-    // Split into system skills (always full body) and project/agent skills
-    // (body controlled by `include_bodies`).
-    //
-    // System skills carry universal platform knowledge — agents need their full
-    // content to understand how the platform works (installed apps, entity
-    // discovery, etc.). They must load on every session regardless of the
-    // configured `skills_prompt_mode`. Project/agent-scoped skills stay
-    // mode-controlled to keep the prompt budget bounded.
-    let (system_files, scoped_files): (
-        Vec<(String, String, String)>,
-        Vec<(String, String, String)>,
-    ) = file_entries
-        .into_iter()
-        .partition(|(_, path, _)| !path.starts_with("/agents/") && !path.starts_with("/projects/"));
+    if !include_bodies {
+        return Ok(render_skill_index(file_entries));
+    }
 
     // Read each file's content, parse frontmatter for name + description.
     // Tuple: (norm_key, scope_priority, name, desc, path, workspace_id, body)
@@ -2121,21 +2100,36 @@ fn load_skills_block(
     // body: full content (sans frontmatter) for system skills; empty for others (L0 only)
     let mut entries: Vec<(String, u8, String, String, String, String, String)> = Vec::new();
 
-    // Always fetch system skill bodies.
-    for (file_id, path, workspace_id) in &system_files {
+    for (file_id, path, workspace_id) in &file_entries {
         let url = format!("{temper_api_url}/tdata/Files('{file_id}')/$value");
         match ctx.http_call("GET", &url, &headers, "") {
             Ok(resp) if resp.status == 200 && !resp.body.is_empty() => {
                 let (fm_name, fm_desc, _) = parse_skill_frontmatter(&resp.body);
+
                 let name = if fm_name.is_empty() {
                     skill_name_from_path(path)
                 } else {
                     fm_name
                 };
-                let body = strip_skill_frontmatter(&resp.body).to_string();
+
+                let scope_priority = if path.starts_with("/agents/") {
+                    0
+                } else if path.starts_with("/projects/") {
+                    1
+                } else {
+                    2
+                };
+
+                // System skills get fully injected; others stay L0 (name+desc only)
+                let body = if scope_priority == 2 {
+                    strip_skill_frontmatter(&resp.body).to_string()
+                } else {
+                    String::new()
+                };
+
                 entries.push((
                     normalize_skill_key(&name),
-                    2,
+                    scope_priority,
                     name,
                     fm_desc,
                     path.clone(),
@@ -2143,58 +2137,11 @@ fn load_skills_block(
                     body,
                 ));
             }
-            Ok(_) => {}
+            Ok(_) => {} // silently skip empty or missing files
             Err(e) => ctx.log(
                 "warn",
-                &format!("load_skills_block: failed to read system skill {file_id}: {e}"),
+                &format!("load_skills_block: failed to read {file_id}: {e}"),
             ),
-        }
-    }
-
-    // Project/agent skills: fetch bodies only when caller asked for full mode;
-    // otherwise emit them as L0 index entries (no extra HTTP fetch).
-    if include_bodies {
-        for (file_id, path, workspace_id) in &scoped_files {
-            let url = format!("{temper_api_url}/tdata/Files('{file_id}')/$value");
-            match ctx.http_call("GET", &url, &headers, "") {
-                Ok(resp) if resp.status == 200 && !resp.body.is_empty() => {
-                    let (fm_name, fm_desc, _) = parse_skill_frontmatter(&resp.body);
-                    let name = if fm_name.is_empty() {
-                        skill_name_from_path(path)
-                    } else {
-                        fm_name
-                    };
-                    let scope_priority = if path.starts_with("/agents/") { 0 } else { 1 };
-                    entries.push((
-                        normalize_skill_key(&name),
-                        scope_priority,
-                        name,
-                        fm_desc,
-                        path.clone(),
-                        workspace_id.clone(),
-                        String::new(),
-                    ));
-                }
-                Ok(_) => {}
-                Err(e) => ctx.log(
-                    "warn",
-                    &format!("load_skills_block: failed to read scoped skill {file_id}: {e}"),
-                ),
-            }
-        }
-    } else {
-        for (_file_id, path, workspace_id) in &scoped_files {
-            let name = skill_name_from_path(path);
-            let scope_priority = if path.starts_with("/agents/") { 0 } else { 1 };
-            entries.push((
-                normalize_skill_key(&name),
-                scope_priority,
-                name,
-                String::new(),
-                path.clone(),
-                workspace_id.clone(),
-                String::new(),
-            ));
         }
     }
 
