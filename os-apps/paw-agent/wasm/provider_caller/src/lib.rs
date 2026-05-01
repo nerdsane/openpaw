@@ -2016,17 +2016,20 @@ pub fn run_provider_caller() -> Result<(), String> {
         provider_caller_budget_ms,
         "read_prepared_artifact",
     )?;
-    let provider_raw = fields
-        .get("provider")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
-    let model_raw = fields.get("model").and_then(|v| v.as_str()).unwrap_or("");
+    // Read provider/model via the blob-aware reader so we transparently
+    // dereference any host-side $blob_ref that hydration left in
+    // entity_state.fields. Direct `fields.get(...).as_str()` returns None on
+    // blob_ref objects, which is why long-running sessions trip
+    // "Session model is required" once accumulated state pushes the entity
+    // past the inline ceiling.
+    let provider_raw = read_state_string_field(&ctx, &fields, "provider");
+    let model_raw = read_state_string_field(&ctx, &fields, "model");
     let temperature: f64 = fields
         .get("temperature")
         .and_then(|v| v.as_str())
         .and_then(|s| s.parse::<f64>().ok())
         .unwrap_or(1.0);
-    let (provider, model, api_key) = resolve_provider_and_model(&ctx, provider_raw, model_raw)?;
+    let (provider, model, api_key) = resolve_provider_and_model(&ctx, &provider_raw, &model_raw)?;
 
     let anthropic_api_url = ctx
         .config
