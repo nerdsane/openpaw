@@ -50,7 +50,13 @@ use monty::{
 };
 
 const MAX_TOOL_RESULT_BYTES: usize = 16 * 1024;
-const DEFAULT_NORMAL_REPL_STATE_MAX_BYTES: usize = 0;
+// 512 KB default. Empirically the Monty dump after a typical katagami-style
+// turn (specs lookup + a handful of entity reads) is ~180 KB, so 512 KB gives
+// comfortable headroom. Persistence is not optional — without it, every
+// `temper.execute` invocation re-creates the REPL from scratch and the agent
+// loses every variable, import, and intermediate result, which turns a 5-turn
+// task into a 50+ turn rediscovery loop.
+const DEFAULT_NORMAL_REPL_STATE_MAX_BYTES: usize = 512 * 1024;
 
 /// Captures `print()` output without allowing Monty to grow an unbounded host-side buffer.
 ///
@@ -1061,10 +1067,21 @@ fn save_repl_state(repl: &MontyRepl<LimitedTracker>) -> Result<String, String> {
 }
 
 fn normal_repl_state_max_bytes(ctx: &Context) -> usize {
-    ctx.config
+    // Treat an explicitly-zero config the same as missing — fall back to the
+    // default. PR #162 shipped `"0"` as a temporary kill-switch and that
+    // value is currently baked into the deployed spec; we don't want a stale
+    // override to silently disable persistence (and the resulting agent
+    // re-discovery loop) until the next Docker bake.
+    let configured = ctx
+        .config
         .get("normal_repl_state_max_bytes")
         .and_then(|value| value.parse::<usize>().ok())
-        .unwrap_or(DEFAULT_NORMAL_REPL_STATE_MAX_BYTES)
+        .unwrap_or(0);
+    if configured > 0 {
+        configured
+    } else {
+        DEFAULT_NORMAL_REPL_STATE_MAX_BYTES
+    }
 }
 
 fn persist_tool_spans_file(ctx: &Context) -> bool {
