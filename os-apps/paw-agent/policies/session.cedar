@@ -85,7 +85,17 @@ permit(
     Action::"PauseForPlanApproval",
     Action::"RecoverFromRestart",
     Action::"RecoveryComplete",
-    Action::"ResumeFromCheckpoint"
+    Action::"ResumeFromCheckpoint",
+    // Wake-stalled actions fired by route_message when a DM arrives on a
+    // session whose last_progress_at has passed its deadline. Self-loops
+    // that re-trigger the corresponding driver. Without these permits Cedar
+    // denies, the session falls through to TimeoutFail, and the user sees
+    // the canned "tool execution made no progress for 300s" reply.
+    Action::"ResumeTools",
+    Action::"ResumeProvider",
+    Action::"ResumeContext",
+    Action::"ResumeCompacting",
+    Action::"ResumeSteering"
   ],
   resource is Session
 ) when {

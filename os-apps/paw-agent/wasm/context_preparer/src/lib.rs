@@ -602,9 +602,19 @@ fn compute_system_prompt_hash(
     system_prompt_override: &str,
 ) -> String {
     // Simple additive hash — we just need change detection, not cryptographic security.
+    //
+    // The leading version tag is a manual cache-bust knob. Bump it whenever
+    // the assembled prompt SHAPE changes in a way the inputs don't already
+    // reflect (e.g., new sources discovered, new sections injected, fix to
+    // a query that previously returned zero results). Every cached
+    // system_prompt_hash from the prior version automatically becomes a
+    // cache miss on the next turn and the prompt is re-assembled fresh.
+    const PROMPT_ASSEMBLY_VERSION: &str = "v3-system-skill-files-restored-2026-05-01";
     let mut hash: u64 = 0xcbf29ce484222325; // FNV offset basis
-    for b in soul_id
+    for b in PROMPT_ASSEMBLY_VERSION
         .bytes()
+        .chain(b"|".iter().copied())
+        .chain(soul_id.bytes())
         .chain(b"|".iter().copied())
         .chain(agent_id.bytes())
         .chain(b"|".iter().copied())
@@ -2047,7 +2057,10 @@ fn load_skills_block(
 
     for prefix in &prefixes {
         let filter =
-            format!("startswith(path,'{prefix}') and name eq 'SKILL.md' and Status ne 'Archived'");
+            // OData field names match the canonical capitalized form on File
+            // entities (Path/Name/Status). Lowercase aliases aren't indexed,
+            // so case-mismatched filters silently return zero results.
+            format!("startswith(Path,'{prefix}') and Name eq 'SKILL.md' and Status ne 'Archived'");
         let url = format!("{temper_api_url}/tdata/Files?$filter={filter}");
         match ctx.http_call("GET", &url, &headers, "") {
             Ok(resp) if resp.status == 200 => {

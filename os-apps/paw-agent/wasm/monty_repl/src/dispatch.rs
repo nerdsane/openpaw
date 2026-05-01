@@ -369,7 +369,28 @@ pub fn dispatch(
     ensure_method_enabled(ctx, obj_name, method, &effective_sandbox_url)?;
     let result = match obj_name {
         "temper" => {
-            reject_kwargs("temper", method, kwargs)?;
+            // Coalesce kwargs into args[0] when caller used keyword form
+            // (`temper.list_sessions(filter="x", top=10)`). Most entity-ops
+            // methods accept an input dict as the first positional arg, so
+            // this unblocks the natural Python-style call shape without
+            // changing any per-method signature. Methods that don't expect
+            // a dict will surface their own clearer error.
+            let temper_args: Vec<Value> =
+                if args.is_empty() && !kwargs.is_empty() {
+                    let mut obj = serde_json::Map::new();
+                    for (k, v) in kwargs {
+                        if let Some(key) = k.as_str() {
+                            obj.insert(key.to_string(), v.clone());
+                        }
+                    }
+                    vec![Value::Object(obj)]
+                } else if !args.is_empty() && !kwargs.is_empty() {
+                    return Err(format!(
+                        "temper.{method}() does not accept mixed positional and keyword arguments — pass either a single dict or kwargs"
+                    ));
+                } else {
+                    args.to_vec()
+                };
             dispatch_temper(
                 ctx,
                 temper_api_url,
@@ -377,7 +398,7 @@ pub fn dispatch(
                 &effective_sandbox_url,
                 workdir,
                 method,
-                args,
+                &temper_args,
             )
         }
         "sandbox" => {
@@ -1868,7 +1889,11 @@ fn temper_create_app(
 }
 
 fn temper_list_apps(ctx: &Context, api_url: &str, tenant: &str) -> Result<Value, String> {
-    http_get(ctx, api_url, tenant, "/api/apps")
+    // Canonical app discovery endpoint. Returns installed os-apps with
+    // descriptions and entity_types so agents can route requests to the
+    // right app (matches the path used by temper-sandbox and the
+    // platform-awareness skill's stated discovery flow).
+    http_get(ctx, api_url, tenant, "/api/os-apps")
 }
 
 // ---------------------------------------------------------------------------
@@ -2176,7 +2201,7 @@ fn batchable_direct_get_path(method: &str, args: &[String]) -> Option<(String, b
         "list_policies" if args.is_empty() => {
             Some(("/api/tenants/{tenant}/policies/list".to_string(), false))
         }
-        "list_apps" if args.is_empty() => Some(("/api/apps".to_string(), false)),
+        "list_apps" if args.is_empty() => Some(("/api/os-apps".to_string(), false)),
         _ => None,
     }
 }
