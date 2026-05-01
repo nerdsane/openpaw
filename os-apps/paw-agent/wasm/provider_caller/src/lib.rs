@@ -2275,13 +2275,22 @@ fn read_prepared_context_artifact(
 }
 
 fn read_state_string_field(ctx: &Context, fields: &Value, field_name: &str) -> String {
+    // Inline-first: when the field is already a plain string in
+    // entity_state.fields, return it directly. The host-side
+    // `read_field_string` path goes through `format!()` for its error
+    // branches; under heavy entity-state pressure (large
+    // prepared_context_inline_json, deep conversation history) those
+    // allocations OOM the wasm linear memory and trap inside
+    // `core::fmt::write`. Hitting the inline path avoids the host call
+    // entirely for the common case.
+    if let Some(s) = fields.get(field_name).and_then(Value::as_str)
+        && !s.is_empty()
+    {
+        return s.to_string();
+    }
     match ctx.read_field_string(field_name) {
-        Ok(value) if !value.is_empty() => value,
-        _ => fields
-            .get(field_name)
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_string(),
+        Ok(value) => value,
+        Err(_) => String::new(),
     }
 }
 
