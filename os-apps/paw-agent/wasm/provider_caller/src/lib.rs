@@ -1359,25 +1359,24 @@ fn call_openai(
             break;
         }
 
-        // No output items — either the stream was truncated (no response.completed
-        // event) or Codex returned response.completed with empty output. Both
-        // happen transiently on the Codex backend; retry up to the attempt budget
-        // before giving up so a single flaky response doesn't fail the turn.
-        last_err = if saw_completed {
-            format!(
-                "OpenAI: no output items found in {} lines ({}B) despite response.completed",
-                body.lines().count(),
-                body.len()
-            )
-        } else {
-            format!(
+        // No output items — stream was likely truncated (SSE decode error
+        // during reasoning phase). Retry if we never saw response.completed.
+        if !saw_completed {
+            last_err = format!(
                 "SSE stream truncated: {} lines ({}B) but no response.completed event",
                 body.lines().count(),
                 body.len()
-            )
-        };
-        ctx.log("warn", &format!("session_turn: {last_err}, will retry"));
-        continue;
+            );
+            ctx.log("warn", &format!("session_turn: {last_err}, will retry"));
+            continue;
+        }
+
+        // Saw response.completed but still no output — genuine empty response
+        return Err(format!(
+            "OpenAI: no output items found in {} lines ({}B) despite response.completed",
+            body.lines().count(),
+            body.len()
+        ));
     }
 
     if output_items.is_empty() {
@@ -2016,20 +2015,17 @@ pub fn run_provider_caller() -> Result<(), String> {
         provider_caller_budget_ms,
         "read_prepared_artifact",
     )?;
-    // Read provider/model via the blob-aware reader so we transparently
-    // dereference any host-side $blob_ref that hydration left in
-    // entity_state.fields. Direct `fields.get(...).as_str()` returns None on
-    // blob_ref objects, which is why long-running sessions trip
-    // "Session model is required" once accumulated state pushes the entity
-    // past the inline ceiling.
-    let provider_raw = read_state_string_field(&ctx, &fields, "provider");
-    let model_raw = read_state_string_field(&ctx, &fields, "model");
+    let provider_raw = fields
+        .get("provider")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let model_raw = fields.get("model").and_then(|v| v.as_str()).unwrap_or("");
     let temperature: f64 = fields
         .get("temperature")
         .and_then(|v| v.as_str())
         .and_then(|s| s.parse::<f64>().ok())
         .unwrap_or(1.0);
-    let (provider, model, api_key) = resolve_provider_and_model(&ctx, &provider_raw, &model_raw)?;
+    let (provider, model, api_key) = resolve_provider_and_model(&ctx, provider_raw, model_raw)?;
 
     let anthropic_api_url = ctx
         .config
