@@ -1359,24 +1359,25 @@ fn call_openai(
             break;
         }
 
-        // No output items — stream was likely truncated (SSE decode error
-        // during reasoning phase). Retry if we never saw response.completed.
-        if !saw_completed {
-            last_err = format!(
+        // No output items — either the stream was truncated (no response.completed
+        // event) or Codex returned response.completed with empty output. Both
+        // happen transiently on the Codex backend; retry up to the attempt budget
+        // before giving up so a single flaky response doesn't fail the turn.
+        last_err = if saw_completed {
+            format!(
+                "OpenAI: no output items found in {} lines ({}B) despite response.completed",
+                body.lines().count(),
+                body.len()
+            )
+        } else {
+            format!(
                 "SSE stream truncated: {} lines ({}B) but no response.completed event",
                 body.lines().count(),
                 body.len()
-            );
-            ctx.log("warn", &format!("session_turn: {last_err}, will retry"));
-            continue;
-        }
-
-        // Saw response.completed but still no output — genuine empty response
-        return Err(format!(
-            "OpenAI: no output items found in {} lines ({}B) despite response.completed",
-            body.lines().count(),
-            body.len()
-        ));
+            )
+        };
+        ctx.log("warn", &format!("session_turn: {last_err}, will retry"));
+        continue;
     }
 
     if output_items.is_empty() {
