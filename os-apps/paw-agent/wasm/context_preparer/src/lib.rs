@@ -1043,12 +1043,36 @@ fn load_messages_for_prepare(
         }
 
         let context_refs = tree.build_context_refs(session_leaf_id);
+        // An empty walk from a non-empty tree means a parent_id pointer
+        // dangles — the leaf or one of its ancestors references an
+        // EntryId that wasn't in the SessionEntries list response.
+        // Silently substituting `user_message` here was the cause of
+        // ss-019de804's 110-min runaway: every PreparingContext rebuilt
+        // from a 1-entry context, so the LLM kept rediscovering tools
+        // forever. Fail loudly instead of swallowing.
+        if context_refs.is_empty() && !tree.is_empty() {
+            ctx.log(
+                "error",
+                &format!(
+                    "context_preparer: session-tree walk from leaf '{}' returned 0 entries against a non-empty tree (tree_len={}, file_id='{}'). Conversation context would be wiped — failing PreparingContext to prevent runaway loop.",
+                    session_leaf_id,
+                    tree.len(),
+                    session_file_id,
+                ),
+            );
+            return Err(format!(
+                "session-tree walk from leaf '{}' produced no entries against {}-entry tree (file_id='{}'); refusing to feed empty conversation to LLM",
+                session_leaf_id,
+                tree.len(),
+                session_file_id,
+            ));
+        }
         let messages = if context_refs.is_empty() {
             vec![json!({ "role": "user", "content": user_message })]
         } else {
             resolve_context_refs(ctx, temper_api_url, tenant, &context_refs)?
         };
-        let entries_loaded = usize::max(1, context_refs.len());
+        let entries_loaded = context_refs.len();
         let content_files_loaded = context_refs
             .iter()
             .filter(|ctx_ref| {
