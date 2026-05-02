@@ -302,50 +302,73 @@ pub fn create_session_entry(
     // returned 2xx but the row was never visible afterwards. Refusing to
     // claim success without a confirming read prevents callers from
     // advancing session_leaf_id past a write that didn't actually land.
+    //
+    // Postgres + OData has some natural read-after-write latency between
+    // commit and the index being queryable. Retry the read-back a few
+    // times before declaring the write lost. Real loss is permanent;
+    // transient propagation lag clears in tens of ms.
     let verify_url = format!(
         "{temper_api_url}/tdata/SessionEntries?$filter=SessionId%20eq%20%27{}%27%20and%20EntryId%20eq%20%27{}%27&$top=1",
         session_id.replace('\'', "''"),
         entry_id.replace('\'', "''"),
     );
     let verify_headers = runtime_headers(ctx, tenant, fields, None, Some("application/json"));
-    match ctx.http_call("GET", &verify_url, &verify_headers, "") {
-        Ok(verify_resp) if verify_resp.status == 200 => {
-            let verify_parsed: Value =
-                serde_json::from_str(&verify_resp.body).unwrap_or_else(|_| json!({"value": []}));
-            let count = verify_parsed
-                .get("value")
-                .and_then(|v| v.as_array())
-                .map(|a| a.len())
-                .unwrap_or(0);
-            if count == 0 {
-                ctx.log(
-                    "error",
-                    &format!(
-                        "create_session_entry: WRITE LOST — POST 2xx for SessionId={session_id} EntryId={entry_id} but read-back found 0 rows"
-                    ),
-                );
-                return Err(format!(
-                    "session entry write acknowledged but read-back missed: SessionId={session_id} EntryId={entry_id}"
-                ));
+    const VERIFY_ATTEMPTS: u32 = 4;
+    let mut verified = false;
+    let mut last_status: i64 = 0;
+    let mut last_err = String::new();
+    for attempt in 0..VERIFY_ATTEMPTS {
+        match ctx.http_call("GET", &verify_url, &verify_headers, "") {
+            Ok(verify_resp) if verify_resp.status == 200 => {
+                let parsed: Value = serde_json::from_str(&verify_resp.body)
+                    .unwrap_or_else(|_| json!({"value": []}));
+                let count = parsed
+                    .get("value")
+                    .and_then(|v| v.as_array())
+                    .map(|a| a.len())
+                    .unwrap_or(0);
+                last_status = verify_resp.status as i64;
+                if count > 0 {
+                    if attempt > 0 {
+                        ctx.log(
+                            "info",
+                            &format!(
+                                "create_session_entry: read-back visible on attempt {} (SessionId={session_id} EntryId={entry_id})",
+                                attempt + 1
+                            ),
+                        );
+                    }
+                    verified = true;
+                    break;
+                }
+            }
+            Ok(resp) => {
+                last_status = resp.status as i64;
+            }
+            Err(e) => {
+                last_err = e.to_string();
+                last_status = -1;
             }
         }
-        Ok(verify_resp) => {
-            ctx.log(
-                "warn",
-                &format!(
-                    "create_session_entry: read-back verify HTTP {} for SessionId={session_id} EntryId={entry_id}",
-                    verify_resp.status
-                ),
-            );
+        // Quick backoff: 50ms, 150ms, 350ms (skip after final attempt).
+        if attempt + 1 < VERIFY_ATTEMPTS {
+            let target_delay_ms = 50_i64 << attempt;
+            let until = Context::get_time_millis() + target_delay_ms;
+            while Context::get_time_millis() < until {
+                // busy wait; wasm SDK has no sleep primitive
+            }
         }
-        Err(e) => {
-            ctx.log(
-                "warn",
-                &format!(
-                    "create_session_entry: read-back verify failed for SessionId={session_id} EntryId={entry_id}: {e}"
-                ),
-            );
-        }
+    }
+    if !verified {
+        ctx.log(
+            "error",
+            &format!(
+                "create_session_entry: WRITE LOST — POST 2xx for SessionId={session_id} EntryId={entry_id} but read-back found 0 rows after {VERIFY_ATTEMPTS} attempts (last_status={last_status} last_err={last_err:?})"
+            ),
+        );
+        return Err(format!(
+            "session entry write acknowledged but read-back missed after {VERIFY_ATTEMPTS} attempts: SessionId={session_id} EntryId={entry_id}"
+        ));
     }
 
     Ok(CreatedSessionEntry {
