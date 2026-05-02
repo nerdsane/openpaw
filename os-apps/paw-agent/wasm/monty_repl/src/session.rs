@@ -40,6 +40,13 @@ pub fn persist_results(
         if entity_backed_session {
             let tool_results_value = json!(tool_results);
             let tokens_est = results_json.len() / 4;
+            ctx.log(
+                "info",
+                &format!(
+                    "monty_repl.persist_results: writing tool_result entry parent={session_leaf_id} session_file={session_file_id} tokens_est={tokens_est} count={}",
+                    tool_results.len()
+                ),
+            );
             let created = append_session_entry_inline(
                 ctx,
                 temper_api_url,
@@ -52,6 +59,76 @@ pub fn persist_results(
                 &tool_results_value,
                 tokens_est,
             )?;
+            ctx.log(
+                "info",
+                &format!(
+                    "monty_repl.persist_results: append OK entry_id={} entity_id={}",
+                    created.entry_id, created.entity_id
+                ),
+            );
+            // Verify the entry actually persisted. The runaway bug we shipped
+            // 2abaa917 caught was caused by session_leaf_id field advancing to
+            // an EntryId that didn't actually exist in the SessionEntries
+            // table. The append above returns Ok if the OData POST got 2xx
+            // even when the entity isn't readable afterwards (root cause
+            // unclear — possibly stale-read against Postgres or a write-
+            // ack-then-rollback path). A single retry/read-back confirms
+            // visibility before we commit the leaf advance.
+            let session_id = wasm_helpers::session_id_from_entries_ref(session_file_id)
+                .unwrap_or("");
+            if !session_id.is_empty() {
+                let verify_url = format!(
+                    "{temper_api_url}/tdata/SessionEntries?$filter=SessionId%20eq%20%27{session_id}%27%20and%20EntryId%20eq%20%27{}%27&$top=1",
+                    created.entry_id,
+                );
+                let headers = wasm_helpers::runtime_headers(
+                    ctx,
+                    tenant,
+                    fields,
+                    None,
+                    Some("application/json"),
+                );
+                match ctx.http_call("GET", &verify_url, &headers, "") {
+                    Ok(resp) if resp.status == 200 => {
+                        let parsed: Value =
+                            serde_json::from_str(&resp.body).unwrap_or_else(|_| json!({"value":[]}));
+                        let count = parsed
+                            .get("value")
+                            .and_then(|v| v.as_array())
+                            .map(|a| a.len())
+                            .unwrap_or(0);
+                        if count == 0 {
+                            ctx.log(
+                                "error",
+                                &format!(
+                                    "monty_repl.persist_results: WRITE LOST — POST returned 2xx for entry_id={} but read-back found 0 entries (SessionId={session_id}). Refusing to advance session_leaf_id.",
+                                    created.entry_id
+                                ),
+                            );
+                            return Err(format!(
+                                "session entry write was acknowledged but read-back missed: SessionId={session_id} EntryId={}",
+                                created.entry_id
+                            ));
+                        }
+                    }
+                    Ok(resp) => {
+                        ctx.log(
+                            "warn",
+                            &format!(
+                                "monty_repl.persist_results: read-back verify HTTP {} body={}",
+                                resp.status,
+                                &resp.body[..resp.body.len().min(200)]
+                            ),
+                        );
+                    }
+                    Err(e) => {
+                        ctx.log(
+                            "warn",
+                            &format!("monty_repl.persist_results: read-back verify failed: {e}"),
+                        );
+                    }
+                }
+            }
 
             params["pending_tool_calls"] = json!(compact_tool_results_marker(tool_results));
             params["session_leaf_id"] = json!(created.entry_id);
