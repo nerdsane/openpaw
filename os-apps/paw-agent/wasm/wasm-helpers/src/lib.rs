@@ -297,6 +297,57 @@ pub fn create_session_entry(
         .unwrap_or("")
         .to_string();
 
+    // Read-back verify. The orphan-chain bug we hit on ss-019de892-8be2
+    // (parent=t-8, t-8 missing from db) had this exact symptom: POST
+    // returned 2xx but the row was never visible afterwards. Refusing to
+    // claim success without a confirming read prevents callers from
+    // advancing session_leaf_id past a write that didn't actually land.
+    let verify_url = format!(
+        "{temper_api_url}/tdata/SessionEntries?$filter=SessionId%20eq%20%27{}%27%20and%20EntryId%20eq%20%27{}%27&$top=1",
+        session_id.replace('\'', "''"),
+        entry_id.replace('\'', "''"),
+    );
+    let verify_headers = runtime_headers(ctx, tenant, fields, None, Some("application/json"));
+    match ctx.http_call("GET", &verify_url, &verify_headers, "") {
+        Ok(verify_resp) if verify_resp.status == 200 => {
+            let verify_parsed: Value =
+                serde_json::from_str(&verify_resp.body).unwrap_or_else(|_| json!({"value": []}));
+            let count = verify_parsed
+                .get("value")
+                .and_then(|v| v.as_array())
+                .map(|a| a.len())
+                .unwrap_or(0);
+            if count == 0 {
+                ctx.log(
+                    "error",
+                    &format!(
+                        "create_session_entry: WRITE LOST — POST 2xx for SessionId={session_id} EntryId={entry_id} but read-back found 0 rows"
+                    ),
+                );
+                return Err(format!(
+                    "session entry write acknowledged but read-back missed: SessionId={session_id} EntryId={entry_id}"
+                ));
+            }
+        }
+        Ok(verify_resp) => {
+            ctx.log(
+                "warn",
+                &format!(
+                    "create_session_entry: read-back verify HTTP {} for SessionId={session_id} EntryId={entry_id}",
+                    verify_resp.status
+                ),
+            );
+        }
+        Err(e) => {
+            ctx.log(
+                "warn",
+                &format!(
+                    "create_session_entry: read-back verify failed for SessionId={session_id} EntryId={entry_id}: {e}"
+                ),
+            );
+        }
+    }
+
     Ok(CreatedSessionEntry {
         entity_id,
         entry_id: entry_id.to_string(),

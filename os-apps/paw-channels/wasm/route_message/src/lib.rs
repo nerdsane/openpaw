@@ -1197,13 +1197,31 @@ fn append_user_message_to_session_entries(
     let session_id = session_id_from_entries_ref(session_file_id)
         .ok_or("session entries reference missing Session id")?;
     let latest = latest_session_entry(ctx, temper_api_url, tenant, session_id)?;
-    let parent_entry_id = if !session_leaf_id.is_empty() {
-        session_leaf_id.to_string()
-    } else {
-        latest
-            .as_ref()
-            .map(|(entry_id, _)| entry_id.clone())
-            .ok_or("session entries continuation missing parent leaf")?
+    // Trust the database, not the entity field. The Session.session_leaf_id
+    // field can drift past the actual db tip when an upstream writer
+    // advances the field but its SessionEntry POST didn't durably land
+    // (e.g., the orphan-chain case we hit on ss-019de892-8be2 where
+    // session_leaf_id="t-8" pointed at an entry that was never created).
+    // Using the field as parent in that state produces u-N rows with
+    // dangling parent_id, which break every subsequent context_preparer
+    // walk forever. Always use the latest verified entry as parent and
+    // log when we override a non-matching field hint.
+    let parent_entry_id = match latest.as_ref() {
+        Some((entry_id, _)) => {
+            if !session_leaf_id.is_empty() && session_leaf_id != entry_id {
+                ctx.log(
+                    "warn",
+                    &format!(
+                        "append_user_message: session_leaf_id field={} disagrees with db latest={} for SessionId={session_id} — using db latest as parent",
+                        session_leaf_id, entry_id
+                    ),
+                );
+            }
+            entry_id.clone()
+        }
+        None => {
+            return Err("session entries continuation missing parent leaf".to_string());
+        }
     };
     let sequence = latest
         .as_ref()
