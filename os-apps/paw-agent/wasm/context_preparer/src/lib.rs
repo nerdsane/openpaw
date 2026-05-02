@@ -2063,7 +2063,24 @@ fn load_skills_block(
                         let path = entity_field_str(item, &["Path", "path"])
                             .unwrap_or("")
                             .to_string();
-                        let workspace_id = entity_field_str(item, &["WorkspaceId", "workspace_id"])
+                        // Prefer the snake_case `workspace_id` — that's the
+                        // workspace the file actually lives in. The
+                        // PascalCase `WorkspaceId` field on File rows is
+                        // populated with stale or app-grouping values that
+                        // diverge from the row's real workspace (observed:
+                        // `workspace_id=null`, `WorkspaceId="os-app-docs"`
+                        // on system skill files that are in the default
+                        // workspace). Advertising the PascalCase value in
+                        // the skill index leads agents to issue
+                        // workspace-scoped reads against the wrong
+                        // workspace — e.g. `os-app-docs` is the workspace
+                        // bundling OS-app docs, including
+                        // `os-app-guide-katagami-curation`, so a guest
+                        // reading `/system/skills/platform-awareness/SKILL.md`
+                        // with `workspace_id="os-app-docs"` can land on the
+                        // katagami launch guide instead of the platform
+                        // awareness primer.
+                        let workspace_id = entity_field_str(item, &["workspace_id", "WorkspaceId"])
                             .unwrap_or("")
                             .to_string();
                         if !id.is_empty() {
