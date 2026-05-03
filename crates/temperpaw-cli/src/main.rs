@@ -1,4 +1,7 @@
+mod cli_channel;
 mod deploy;
+mod events;
+mod tui;
 
 use clap::{Parser, Subcommand};
 use std::process::Command as Cmd;
@@ -18,6 +21,8 @@ enum Command {
     Deploy,
     /// Diagnose configuration and show what's working
     Doctor,
+    /// Open the interactive terminal UI
+    Tui(tui::TuiArgs),
 }
 
 #[tokio::main(flavor = "multi_thread")]
@@ -33,6 +38,9 @@ async fn main() -> anyhow::Result<()> {
         }
         Command::Doctor => {
             run_server(&["doctor"])?;
+        }
+        Command::Tui(args) => {
+            tui::run(args).await?;
         }
     }
 
@@ -71,5 +79,27 @@ fn run_server(args: &[&str]) -> anyhow::Result<()> {
             std::process::exit(1);
         }
         Err(e) => anyhow::bail!("Failed to start temperpaw-server: {e}"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use clap::Parser;
+
+    use super::Cli;
+
+    #[test]
+    fn parses_tui_command() {
+        assert!(
+            Cli::try_parse_from([
+                "temperpaw",
+                "tui",
+                "--profile",
+                "codex",
+                "--session",
+                "main",
+            ])
+            .is_ok()
+        );
     }
 }

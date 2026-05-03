@@ -24,6 +24,7 @@ use wasm_helpers::{
 };
 
 const DEFAULT_CONTEXT_PREPARE_BUDGET_MS: i64 = 120_000;
+const DEFAULT_PREPARED_CONTEXT_INLINE_MAX_BYTES: usize = 32 * 1024;
 
 #[unsafe(no_mangle)]
 pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
@@ -54,6 +55,12 @@ enum PreparedContextReuse {
     RebuildRequired {
         reason: &'static str,
     },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PreparedContextStorage {
+    file_id: String,
+    inline_json: String,
 }
 
 fn stringify_content(value: &Value) -> String {
@@ -934,6 +941,31 @@ pub fn run_context_preparer() -> Result<(), String> {
     let artifact_json = serde_json::to_string(&artifact)
         .map_err(|e| format!("prepared context artifact serialize: {e}"))?;
     let stage_started_at = Context::get_time_millis();
+    let existing_prepared_context_file_id = fields
+        .get("prepared_context_file_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let prepared_context_inline_max_bytes =
+        configured_usize(&ctx, &fields, "prepared_context_inline_max_bytes")
+            .unwrap_or(DEFAULT_PREPARED_CONTEXT_INLINE_MAX_BYTES);
+    let artifact_storage = choose_prepared_context_storage(
+        &artifact_json,
+        existing_prepared_context_file_id,
+        prepared_context_inline_max_bytes,
+        |body| {
+            upsert_artifact_file(
+                &ctx,
+                &fields,
+                &temper_api_url,
+                tenant,
+                &workspace_id,
+                existing_prepared_context_file_id,
+                &format!("prepared-context-{}.json", ctx.entity_id),
+                body,
+                "application/json",
+            )
+        },
+    )?;
     emit_phase_step_duration(
         &ctx,
         "context_preparer",
@@ -955,8 +987,8 @@ pub fn run_context_preparer() -> Result<(), String> {
     set_success_result(
         "ContextReady",
         &json!({
-            "prepared_context_file_id": "",
-            "prepared_context_inline_json": artifact_json,
+            "prepared_context_file_id": artifact_storage.file_id,
+            "prepared_context_inline_json": artifact_storage.inline_json,
             "prepared_context_bytes": context_bytes,
             "prepared_context_entries_loaded": entries_loaded,
             "prepared_context_content_files_loaded": content_files_loaded,
@@ -1488,6 +1520,30 @@ fn upsert_artifact_file(
     )
 }
 
+fn choose_prepared_context_storage(
+    artifact_json: &str,
+    _existing_file_id: &str,
+    inline_max_bytes: usize,
+    write_file: impl FnOnce(&str) -> Result<String, String>,
+) -> Result<PreparedContextStorage, String> {
+    if artifact_json.len() <= inline_max_bytes {
+        return Ok(PreparedContextStorage {
+            file_id: String::new(),
+            inline_json: artifact_json.to_string(),
+        });
+    }
+
+    let file_id = write_file(artifact_json)?;
+    if file_id.trim().is_empty() {
+        return Err("prepared context artifact externalized without a file id".to_string());
+    }
+
+    Ok(PreparedContextStorage {
+        file_id,
+        inline_json: String::new(),
+    })
+}
+
 fn session_metric_tags(provider: &str, model: &str) -> Value {
     json!({
         "provider": provider,
@@ -1511,6 +1567,14 @@ fn configured_budget_ms(ctx: &Context, fields: &Value, key: &str, default_value:
         .or_else(|| ctx.config.get(key).and_then(|s| s.parse::<i64>().ok()))
         .filter(|value| *value > 0)
         .unwrap_or(default_value)
+}
+
+fn configured_usize(ctx: &Context, fields: &Value, key: &str) -> Option<usize> {
+    fields
+        .get(key)
+        .and_then(|v| v.as_str())
+        .and_then(|s| s.parse::<usize>().ok())
+        .or_else(|| ctx.config.get(key).and_then(|s| s.parse::<usize>().ok()))
 }
 
 fn emit_phase_step_duration(
@@ -2691,6 +2755,29 @@ mod tests {
     fn build_tool_definitions_empty_when_no_tools_enabled() {
         assert!(build_tool_definitions("", "", "/workspace").is_empty());
         assert!(build_sdk_reference("", "", "/workspace").is_empty());
+    }
+
+    #[test]
+    fn prepared_context_storage_keeps_small_artifacts_inline() {
+        let storage = choose_prepared_context_storage("small", "existing-file", 32, |_| {
+            panic!("small artifacts should not be written to TemperFS")
+        })
+        .expect("storage decision");
+
+        assert_eq!(storage.file_id, "");
+        assert_eq!(storage.inline_json, "small");
+    }
+
+    #[test]
+    fn prepared_context_storage_externalizes_large_artifacts() {
+        let storage = choose_prepared_context_storage("larger-than-threshold", "existing-file", 8, |body| {
+            assert_eq!(body, "larger-than-threshold");
+            Ok("prepared-file".to_string())
+        })
+        .expect("storage decision");
+
+        assert_eq!(storage.file_id, "prepared-file");
+        assert_eq!(storage.inline_json, "");
     }
 
     #[test]

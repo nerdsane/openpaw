@@ -10,6 +10,12 @@ const PLAN_MODE_TOOLS: &str = "temper_create,temper_get,temper_list,temper_actio
 const DEFAULT_WORKDIR: &str = "/workspace";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+struct ContinuationPreparedContextStorage {
+    file_id: String,
+    inline_json: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct TraceContextFields {
     trace_id: String,
     span_id: String,
@@ -1012,6 +1018,7 @@ fn configure_session_from_prior(
     } else {
         workspace_id
     };
+    let prepared_context_storage = continuation_prepared_context_storage(fields);
 
     let mut configure_body = json!({
         "system_prompt": str_field(fields, &["system_prompt", "SystemPrompt"]).unwrap_or(""),
@@ -1043,8 +1050,8 @@ fn configure_session_from_prior(
         "file_manifest_id": str_field(fields, &["file_manifest_id", "FileManifestId"]).unwrap_or(""),
         "session_file_id": str_field(fields, &["session_file_id", "SessionFileId"]).unwrap_or(""),
         "session_leaf_id": session_leaf_id,
-        "prepared_context_file_id": str_field(fields, &["prepared_context_file_id", "PreparedContextFileId"]).unwrap_or(""),
-        "prepared_context_inline_json": str_field(fields, &["prepared_context_inline_json", "PreparedContextInlineJson"]).unwrap_or(""),
+        "prepared_context_file_id": prepared_context_storage.file_id,
+        "prepared_context_inline_json": prepared_context_storage.inline_json,
         "system_prompt_hash": str_field(fields, &["system_prompt_hash", "SystemPromptHash"]).unwrap_or(""),
         "system_prompt_file_id": str_field(fields, &["system_prompt_file_id", "SystemPromptFileId"]).unwrap_or(""),
         "project_harness_id": str_field(fields, &["project_harness_id", "ProjectHarnessId"]).unwrap_or(""),
@@ -1073,6 +1080,15 @@ fn configure_session_from_prior(
     // Provision is auto-scheduled by Configure's spec effect. No explicit Resume needed —
     // the resume fields are already stored and provision_sandbox will restore the workspace.
     Ok(())
+}
+
+fn continuation_prepared_context_storage(fields: &Value) -> ContinuationPreparedContextStorage {
+    ContinuationPreparedContextStorage {
+        file_id: str_field(fields, &["prepared_context_file_id", "PreparedContextFileId"])
+            .unwrap_or("")
+            .to_string(),
+        inline_json: String::new(),
+    }
 }
 
 /// Update a ChannelSession to point to a new Session via the UpdateSession action.
@@ -1773,6 +1789,19 @@ mod tests {
                 "status {status} must not produce a Resume* action"
             );
         }
+    }
+
+    #[test]
+    fn continuation_drops_inline_prepared_context() {
+        let fields = json!({
+            "prepared_context_file_id": "fl-prepared",
+            "prepared_context_inline_json": "large inline artifact"
+        });
+
+        let storage = continuation_prepared_context_storage(&fields);
+
+        assert_eq!(storage.file_id, "fl-prepared");
+        assert_eq!(storage.inline_json, "");
     }
 
     #[test]
