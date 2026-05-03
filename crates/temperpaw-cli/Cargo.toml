@@ -11,8 +11,12 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow.workspace = true
-clap = { version = "4", features = ["derive"] }
+clap = { version = "4", features = ["derive", "env"] }
 cliclack = "0.3"
+crossterm = "0.29"
+futures-util = "0.3"
+paw-transport = { path = "../paw-transport" }
 reqwest = { version = "0.12", features = ["json"] }
+serde = { workspace = true }
 serde_json.workspace = true
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync"] }
