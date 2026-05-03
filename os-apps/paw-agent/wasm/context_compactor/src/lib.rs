@@ -540,6 +540,211 @@ fn resolve_compaction_provider(
     ))
 }
 
+const COMPACTION_SYSTEM_PROMPT: &str = "You are a conversation compactor. Extract distinct episodes from this conversation — each a coherent task or sub-task the agent attempted. Be concise but preserve the trajectory: what was tried, what worked, what failed, and why.\n\nOutput the summary in this exact format:\n\n## Active Goal\n<the current overarching objective>\n\n## Episodes\n\n### Episode: <short title>\n- **Goal:** <what was attempted>\n- **Worked:** <actions that succeeded and why>\n- **Failed:** <approaches tried and abandoned, what went wrong>\n- **Discoveries:** <facts learned, decisions made>\n- **Artifacts:** <files changed, entities created, useful outputs>\n\n(Repeat chronologically for each distinct episode)\n\n## Current State\n- **Where we are:** <what just completed or is in progress>\n- **Next:** <immediate next steps>\n- **Open questions:** <unresolved issues>\n\nIMPORTANT: Preserve the trajectory. A future model reading this needs to know which approaches were already tried and failed, not just what worked. This prevents repeating failed approaches.";
+
+fn compaction_user_prompt(conversation_text: &str) -> String {
+    format!("Summarize this conversation:\n\n{conversation_text}")
+}
+
+/// Build the request body for the compaction LLM call.
+///
+/// The OpenAI Responses API (especially the Codex backend at
+/// `chatgpt.com/backend-api/codex/responses`) requires `input` to be a list of
+/// input items, not a string — sending a string yields HTTP 400 "Input must be
+/// a list".
+fn build_compaction_request_body(
+    provider: &str,
+    model: &str,
+    system_prompt: &str,
+    conversation_text: &str,
+) -> Value {
+    let user_text = compaction_user_prompt(conversation_text);
+    match provider {
+        "openai" | "openai_codex" => json!({
+            "model": model,
+            "instructions": system_prompt,
+            "input": [{
+                "role": "user",
+                "content": user_text,
+            }],
+        }),
+        "openrouter" => json!({
+            "model": model,
+            "max_tokens": 2048,
+            "messages": [
+                { "role": "system", "content": system_prompt },
+                { "role": "user", "content": user_text },
+            ],
+        }),
+        _ => json!({
+            "model": model,
+            "max_tokens": 2048,
+            "system": system_prompt,
+            "messages": [{
+                "role": "user",
+                "content": user_text,
+            }],
+        }),
+    }
+}
+
+fn anthropic_compaction_headers(api_key: &str) -> Vec<(String, String)> {
+    let is_oauth = api_key.contains("sk-ant-oat");
+    if is_oauth {
+        vec![
+            ("authorization".to_string(), format!("Bearer {api_key}")),
+            ("anthropic-version".to_string(), "2023-06-01".to_string()),
+            ("anthropic-beta".to_string(), "oauth-2025-04-20".to_string()),
+            ("content-type".to_string(), "application/json".to_string()),
+        ]
+    } else {
+        vec![
+            ("x-api-key".to_string(), api_key.to_string()),
+            ("anthropic-version".to_string(), "2023-06-01".to_string()),
+            ("content-type".to_string(), "application/json".to_string()),
+        ]
+    }
+}
+
+/// Extract summary text from a compaction LLM response body.
+///
+/// `openai_codex` returns SSE (`text/event-stream`) because the Codex backend
+/// requires `accept: text/event-stream`; everything else returns plain JSON.
+fn parse_compaction_response_text(provider: &str, body: &str) -> String {
+    const FALLBACK: &str = "Summary unavailable";
+    match provider {
+        "openai_codex" => parse_openai_responses_text(&collect_codex_sse_output(body))
+            .unwrap_or_else(|| FALLBACK.to_string()),
+        "openai" => {
+            let parsed: Value = match serde_json::from_str(body) {
+                Ok(v) => v,
+                Err(_) => return FALLBACK.to_string(),
+            };
+            parse_openai_responses_text(&parsed).unwrap_or_else(|| FALLBACK.to_string())
+        }
+        "openrouter" => {
+            let parsed: Value = match serde_json::from_str(body) {
+                Ok(v) => v,
+                Err(_) => return FALLBACK.to_string(),
+            };
+            parsed
+                .get("choices")
+                .and_then(|v| v.as_array())
+                .and_then(|arr| arr.first())
+                .and_then(|c| c.get("message"))
+                .and_then(|m| m.get("content"))
+                .and_then(|v| v.as_str())
+                .unwrap_or(FALLBACK)
+                .to_string()
+        }
+        _ => {
+            let parsed: Value = match serde_json::from_str(body) {
+                Ok(v) => v,
+                Err(_) => return FALLBACK.to_string(),
+            };
+            parsed
+                .get("content")
+                .and_then(|v| v.as_array())
+                .and_then(|arr| {
+                    arr.iter()
+                        .find(|b| b.get("type").and_then(|v| v.as_str()) == Some("text"))
+                })
+                .and_then(|b| b.get("text").and_then(|v| v.as_str()))
+                .unwrap_or(FALLBACK)
+                .to_string()
+        }
+    }
+}
+
+fn parse_openai_responses_text(parsed: &Value) -> Option<String> {
+    let output = parsed.get("output")?.as_array()?;
+    for item in output {
+        if item.get("type").and_then(|v| v.as_str()) != Some("message") {
+            continue;
+        }
+        if let Some(content) = item.get("content").and_then(|v| v.as_array()) {
+            let mut combined = String::new();
+            for part in content {
+                if let Some(text) = part.get("text").and_then(|v| v.as_str()) {
+                    if !text.is_empty() {
+                        combined.push_str(text);
+                    }
+                }
+            }
+            if !combined.is_empty() {
+                return Some(combined);
+            }
+        }
+    }
+    None
+}
+
+/// Collect output items and streamed text from a Codex SSE response into a
+/// synthetic Responses-API JSON value that `parse_openai_responses_text` can
+/// consume.
+fn collect_codex_sse_output(body: &str) -> Value {
+    let mut output_items: Vec<Value> = Vec::new();
+    let mut streamed_text = String::new();
+
+    for line in body.lines() {
+        let line = line.trim();
+        if line.is_empty() || line == "[DONE]" {
+            continue;
+        }
+        let json_str = line.strip_prefix("data: ").unwrap_or(line);
+        let event: Value = match serde_json::from_str(json_str) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        let event_type = event.get("type").and_then(|v| v.as_str()).unwrap_or("");
+        match event_type {
+            "response.output_item.done" => {
+                if let Some(item) = event.get("item") {
+                    output_items.push(item.clone());
+                }
+            }
+            "response.output_text.delta" => {
+                if let Some(delta) = event.get("delta").and_then(|v| v.as_str()) {
+                    streamed_text.push_str(delta);
+                } else if let Some(text) = event.get("text").and_then(|v| v.as_str()) {
+                    streamed_text.push_str(text);
+                }
+            }
+            "response.output_text.done" => {
+                if streamed_text.is_empty() {
+                    if let Some(text) = event.get("text").and_then(|v| v.as_str()) {
+                        streamed_text.push_str(text);
+                    }
+                }
+            }
+            "response.completed" => {
+                if let Some(out) = event
+                    .get("response")
+                    .and_then(|r| r.get("output"))
+                    .and_then(|v| v.as_array())
+                {
+                    if !out.is_empty() {
+                        output_items = out.clone();
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    if output_items.is_empty() {
+        let trimmed = streamed_text.trim();
+        if !trimmed.is_empty() {
+            output_items.push(json!({
+                "type": "message",
+                "content": [{ "type": "output_text", "text": trimmed }],
+            }));
+        }
+    }
+
+    json!({ "output": output_items })
+}
+
 /// Call the LLM with a compaction-specific system prompt.
 fn call_compaction_llm(
     ctx: &Context,
@@ -548,15 +753,14 @@ fn call_compaction_llm(
     model: &str,
     conversation_text: &str,
 ) -> Result<String, String> {
-    let system_prompt = "You are a conversation compactor. Extract distinct episodes from this conversation — each a coherent task or sub-task the agent attempted. Be concise but preserve the trajectory: what was tried, what worked, what failed, and why.\n\nOutput the summary in this exact format:\n\n## Active Goal\n<the current overarching objective>\n\n## Episodes\n\n### Episode: <short title>\n- **Goal:** <what was attempted>\n- **Worked:** <actions that succeeded and why>\n- **Failed:** <approaches tried and abandoned, what went wrong>\n- **Discoveries:** <facts learned, decisions made>\n- **Artifacts:** <files changed, entities created, useful outputs>\n\n(Repeat chronologically for each distinct episode)\n\n## Current State\n- **Where we are:** <what just completed or is in progress>\n- **Next:** <immediate next steps>\n- **Open questions:** <unresolved issues>\n\nIMPORTANT: Preserve the trajectory. A future model reading this needs to know which approaches were already tried and failed, not just what worked. This prevents repeating failed approaches.";
+    let body =
+        build_compaction_request_body(provider, model, COMPACTION_SYSTEM_PROMPT, conversation_text);
+    let body_str =
+        serde_json::to_string(&body).map_err(|e| format!("JSON serialize error: {e}"))?;
+    let url = configured_compaction_provider_api_url(ctx, provider);
 
-    let (url, headers, body_str) = match provider {
+    let headers = match provider {
         "openai" | "openai_codex" => {
-            let body = json!({
-                "model": model,
-                "instructions": system_prompt,
-                "input": format!("Summarize this conversation:\n\n{conversation_text}")
-            });
             let codex_account_id = if provider == "openai_codex" {
                 ctx.config
                     .get("openai_codex_account_id")
@@ -568,70 +772,13 @@ fn call_compaction_llm(
             } else {
                 None
             };
-            let headers = build_openai_headers(provider, api_key, codex_account_id.as_deref());
-            let body_str =
-                serde_json::to_string(&body).map_err(|e| format!("JSON serialize error: {e}"))?;
-            (
-                configured_compaction_provider_api_url(ctx, provider),
-                headers,
-                body_str,
-            )
+            build_openai_headers(provider, api_key, codex_account_id.as_deref())
         }
-        "openrouter" => {
-            let body = json!({
-                "model": model,
-                "max_tokens": 2048,
-                "messages": [
-                    { "role": "system", "content": system_prompt },
-                    { "role": "user", "content": format!("Summarize this conversation:\n\n{conversation_text}") }
-                ]
-            });
-            let headers = vec![
-                ("authorization".to_string(), format!("Bearer {api_key}")),
-                ("content-type".to_string(), "application/json".to_string()),
-            ];
-            let body_str =
-                serde_json::to_string(&body).map_err(|e| format!("JSON serialize error: {e}"))?;
-            (
-                configured_compaction_provider_api_url(ctx, provider),
-                headers,
-                body_str,
-            )
-        }
-        _ => {
-            // Anthropic (default)
-            let body = json!({
-                "model": model,
-                "max_tokens": 2048,
-                "system": system_prompt,
-                "messages": [{
-                    "role": "user",
-                    "content": format!("Summarize this conversation:\n\n{conversation_text}")
-                }]
-            });
-            let is_oauth = api_key.contains("sk-ant-oat");
-            let headers = if is_oauth {
-                vec![
-                    ("authorization".to_string(), format!("Bearer {api_key}")),
-                    ("anthropic-version".to_string(), "2023-06-01".to_string()),
-                    ("anthropic-beta".to_string(), "oauth-2025-04-20".to_string()),
-                    ("content-type".to_string(), "application/json".to_string()),
-                ]
-            } else {
-                vec![
-                    ("x-api-key".to_string(), api_key.to_string()),
-                    ("anthropic-version".to_string(), "2023-06-01".to_string()),
-                    ("content-type".to_string(), "application/json".to_string()),
-                ]
-            };
-            let body_str =
-                serde_json::to_string(&body).map_err(|e| format!("JSON serialize error: {e}"))?;
-            (
-                configured_compaction_provider_api_url(ctx, provider),
-                headers,
-                body_str,
-            )
-        }
+        "openrouter" => vec![
+            ("authorization".to_string(), format!("Bearer {api_key}")),
+            ("content-type".to_string(), "application/json".to_string()),
+        ],
+        _ => anthropic_compaction_headers(api_key),
     };
 
     ctx.log(
@@ -647,55 +794,7 @@ fn call_compaction_llm(
         ));
     }
 
-    let parsed: Value = serde_json::from_str(&resp.body)
-        .map_err(|e| format!("failed to parse compaction LLM response: {e}"))?;
-
-    // Extract text — format varies by provider
-    let text = match provider {
-        "openai" => {
-            // OpenAI responses API
-            parsed
-                .get("output")
-                .and_then(|v| v.as_array())
-                .and_then(|arr| {
-                    arr.iter()
-                        .find(|b| b.get("type").and_then(|v| v.as_str()) == Some("message"))
-                })
-                .and_then(|b| b.get("content"))
-                .and_then(|v| v.as_array())
-                .and_then(|arr| arr.first())
-                .and_then(|b| b.get("text").and_then(|v| v.as_str()))
-                .unwrap_or("Summary unavailable")
-                .to_string()
-        }
-        "openrouter" => {
-            // OpenRouter chat completions
-            parsed
-                .get("choices")
-                .and_then(|v| v.as_array())
-                .and_then(|arr| arr.first())
-                .and_then(|c| c.get("message"))
-                .and_then(|m| m.get("content"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("Summary unavailable")
-                .to_string()
-        }
-        _ => {
-            // Anthropic messages
-            parsed
-                .get("content")
-                .and_then(|v| v.as_array())
-                .and_then(|arr| {
-                    arr.iter()
-                        .find(|b| b.get("type").and_then(|v| v.as_str()) == Some("text"))
-                })
-                .and_then(|b| b.get("text").and_then(|v| v.as_str()))
-                .unwrap_or("Summary unavailable")
-                .to_string()
-        }
-    };
-
-    Ok(text)
+    Ok(parse_compaction_response_text(provider, &resp.body))
 }
 
 #[cfg(test)]
@@ -763,6 +862,137 @@ mod tests {
         assert_eq!(
             default_compaction_provider_api_url("openai_codex"),
             "https://chatgpt.com/backend-api/codex/responses"
+        );
+    }
+
+    #[test]
+    fn openai_compaction_body_sends_input_as_list_not_string() {
+        // Regression: the Codex Responses backend rejects string `input` with
+        // HTTP 400 "Input must be a list".
+        for provider in ["openai", "openai_codex"] {
+            let body = build_compaction_request_body(
+                provider,
+                "gpt-test",
+                "system text",
+                "conversation text",
+            );
+            assert_eq!(body["model"], "gpt-test");
+            assert_eq!(body["instructions"], "system text");
+            let input = body
+                .get("input")
+                .unwrap_or_else(|| panic!("{provider}: missing input"));
+            let arr = input
+                .as_array()
+                .unwrap_or_else(|| panic!("{provider}: input must be a list, got {input:?}"));
+            assert_eq!(arr.len(), 1, "{provider}: expected single input item");
+            assert_eq!(arr[0]["role"], "user");
+            assert!(
+                arr[0]["content"]
+                    .as_str()
+                    .unwrap_or("")
+                    .contains("conversation text"),
+                "{provider}: user content must include conversation text"
+            );
+        }
+    }
+
+    #[test]
+    fn openrouter_compaction_body_uses_chat_messages() {
+        let body =
+            build_compaction_request_body("openrouter", "anthropic/claude-3-haiku", "sys", "convo");
+        let messages = body["messages"].as_array().expect("messages must be array");
+        assert_eq!(messages.len(), 2);
+        assert_eq!(messages[0]["role"], "system");
+        assert_eq!(messages[0]["content"], "sys");
+        assert_eq!(messages[1]["role"], "user");
+        assert!(
+            messages[1]["content"]
+                .as_str()
+                .unwrap_or("")
+                .contains("convo")
+        );
+    }
+
+    #[test]
+    fn anthropic_compaction_body_uses_messages_with_system_field() {
+        let body = build_compaction_request_body("anthropic", "claude-test", "sys", "convo");
+        assert_eq!(body["model"], "claude-test");
+        assert_eq!(body["system"], "sys");
+        let messages = body["messages"].as_array().expect("messages array");
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0]["role"], "user");
+    }
+
+    #[test]
+    fn parse_compaction_response_handles_openai_responses_json() {
+        let body = json!({
+            "output": [{
+                "type": "message",
+                "content": [{ "type": "output_text", "text": "the summary" }],
+            }]
+        })
+        .to_string();
+        assert_eq!(
+            parse_compaction_response_text("openai", &body),
+            "the summary"
+        );
+    }
+
+    #[test]
+    fn parse_compaction_response_handles_codex_sse_stream() {
+        // Codex backend returns text/event-stream — the previous code blindly
+        // ran serde_json on the whole body and produced "Summary unavailable".
+        let body = "\
+data: {\"type\":\"response.output_text.delta\",\"delta\":\"hello \"}\n\
+data: {\"type\":\"response.output_text.delta\",\"delta\":\"world\"}\n\
+data: {\"type\":\"response.completed\",\"response\":{\"output\":[]}}\n\
+data: [DONE]\n";
+        assert_eq!(
+            parse_compaction_response_text("openai_codex", body),
+            "hello world"
+        );
+    }
+
+    #[test]
+    fn parse_compaction_response_codex_prefers_completed_output_when_present() {
+        let body = "\
+data: {\"type\":\"response.output_text.delta\",\"delta\":\"partial\"}\n\
+data: {\"type\":\"response.completed\",\"response\":{\"output\":[{\"type\":\"message\",\"content\":[{\"type\":\"output_text\",\"text\":\"final summary\"}]}]}}\n";
+        assert_eq!(
+            parse_compaction_response_text("openai_codex", body),
+            "final summary"
+        );
+    }
+
+    #[test]
+    fn parse_compaction_response_handles_anthropic_messages_json() {
+        let body = json!({
+            "content": [{ "type": "text", "text": "anthropic summary" }]
+        })
+        .to_string();
+        assert_eq!(
+            parse_compaction_response_text("anthropic", &body),
+            "anthropic summary"
+        );
+    }
+
+    #[test]
+    fn parse_compaction_response_handles_openrouter_chat_completions() {
+        let body = json!({
+            "choices": [{ "message": { "content": "router summary" } }]
+        })
+        .to_string();
+        assert_eq!(
+            parse_compaction_response_text("openrouter", &body),
+            "router summary"
+        );
+    }
+
+    #[test]
+    fn parse_compaction_response_falls_back_when_body_unparseable() {
+        assert_eq!(
+            parse_compaction_response_text("openai", "not json"),
+            "Summary unavailable"
         );
     }
 }
