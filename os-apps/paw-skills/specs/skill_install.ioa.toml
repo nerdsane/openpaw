@@ -1,0 +1,162 @@
+# SkillInstall — approved request to install an external skill package into a TemperFS skill scope.
+
+[automaton]
+name = "SkillInstall"
+states = ["Requested", "Installing", "Installed", "Rejected", "Failed", "Archived"]
+initial = "Requested"
+
+allow_indefinite_states = ["Requested", "Installing", "Installed", "Rejected", "Failed"]
+
+[[state]]
+name = "source_type"
+type = "string"
+initial = ""
+
+[[state]]
+name = "source_url"
+type = "string"
+initial = ""
+
+[[state]]
+name = "source_ref"
+type = "string"
+initial = ""
+
+[[state]]
+name = "source_subpath"
+type = "string"
+initial = ""
+
+[[state]]
+name = "requested_skill_name"
+type = "string"
+initial = ""
+
+[[state]]
+name = "target_scope_type"
+type = "string"
+initial = ""
+
+[[state]]
+name = "target_scope_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "reason"
+type = "string"
+initial = ""
+
+[[state]]
+name = "requesting_agent_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "inline_content"
+type = "string"
+initial = ""
+
+[[state]]
+name = "companion_manifest"
+type = "string"
+initial = ""
+
+[[state]]
+name = "package_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "binding_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "skill_path"
+type = "string"
+initial = ""
+
+[[state]]
+name = "workspace_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "file_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "content_digest"
+type = "string"
+initial = ""
+
+[[state]]
+name = "installed_skill_name"
+type = "string"
+initial = ""
+
+[[state]]
+name = "installed_at"
+type = "string"
+initial = ""
+
+[[state]]
+name = "error_message"
+type = "string"
+initial = ""
+
+[[action]]
+name = "Approve"
+kind = "input"
+from = ["Requested"]
+to = "Installing"
+params = ["approved_by"]
+hint = "Approve and start installing this skill package."
+effect = [{ type = "trigger", name = "install_skill" }]
+
+[[action.triggers]]
+name = "install_skill"
+kind = "wasm"
+module = "skill_installer"
+on_failure = "InstallFailed"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+
+[[action]]
+name = "Reject"
+kind = "input"
+from = ["Requested"]
+to = "Rejected"
+params = ["error_message"]
+hint = "Reject the skill installation request."
+
+[[action]]
+name = "InstallComplete"
+kind = "input"
+from = ["Installing"]
+to = "Installed"
+params = ["package_id", "binding_id", "skill_path", "workspace_id", "file_id", "content_digest", "installed_skill_name", "installed_at"]
+hint = "The skill package was installed into the requested scope."
+
+[[action]]
+name = "InstallFailed"
+kind = "input"
+from = ["Installing"]
+to = "Failed"
+params = ["error_message"]
+hint = "The skill package installation failed."
+
+[[action]]
+name = "Archive"
+kind = "input"
+from = ["Installed", "Rejected", "Failed"]
+to = "Archived"
+hint = "Archive this installation record."
+
+[[invariant]]
+name = "ArchivedIsFinal"
+when = ["Archived"]
+assert = "no_further_transitions"

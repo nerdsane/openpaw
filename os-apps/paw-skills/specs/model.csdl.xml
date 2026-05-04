@@ -1,0 +1,151 @@
+<?xml version="1.0" encoding="utf-8"?>
+<edmx:Edmx Version="4.0" xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx">
+  <edmx:DataServices>
+    <Schema Namespace="Paw.Skills" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+
+      <EntityType Name="SkillInstall">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.String" Nullable="false"/>
+        <Property Name="Status" Type="Edm.String"/>
+        <Property Name="SourceType" Type="Edm.String"/>
+        <Property Name="SourceUrl" Type="Edm.String"/>
+        <Property Name="SourceRef" Type="Edm.String"/>
+        <Property Name="SourceSubpath" Type="Edm.String"/>
+        <Property Name="RequestedSkillName" Type="Edm.String"/>
+        <Property Name="TargetScopeType" Type="Edm.String"/>
+        <Property Name="TargetScopeId" Type="Edm.String"/>
+        <Property Name="Reason" Type="Edm.String"/>
+        <Property Name="RequestingAgentId" Type="Edm.String"/>
+        <Property Name="InlineContent" Type="Edm.String"/>
+        <Property Name="CompanionManifest" Type="Edm.String"/>
+        <Property Name="PackageId" Type="Edm.String"/>
+        <Property Name="BindingId" Type="Edm.String"/>
+        <Property Name="SkillPath" Type="Edm.String"/>
+        <Property Name="WorkspaceId" Type="Edm.String"/>
+        <Property Name="FileId" Type="Edm.String"/>
+        <Property Name="ContentDigest" Type="Edm.String"/>
+        <Property Name="InstalledSkillName" Type="Edm.String"/>
+        <Property Name="InstalledAt" Type="Edm.String"/>
+        <Property Name="ErrorMessage" Type="Edm.String"/>
+        <Annotation Term="Paw.Vocab.AuthZ.CedarPolicy" String="policies/skills.cedar"/>
+        <Annotation Term="Paw.Vocab.Agent.Hint" String="Approved request to install an external SKILL.md package into a TemperFS skill scope."/>
+      </EntityType>
+
+      <EntityType Name="SkillPackage">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.String" Nullable="false"/>
+        <Property Name="Status" Type="Edm.String"/>
+        <Property Name="PackageName" Type="Edm.String"/>
+        <Property Name="SkillName" Type="Edm.String"/>
+        <Property Name="Description" Type="Edm.String"/>
+        <Property Name="SourceType" Type="Edm.String"/>
+        <Property Name="SourceUrl" Type="Edm.String"/>
+        <Property Name="SourceRef" Type="Edm.String"/>
+        <Property Name="SourceSubpath" Type="Edm.String"/>
+        <Property Name="ContentDigest" Type="Edm.String"/>
+        <Property Name="MainFilePath" Type="Edm.String"/>
+        <Property Name="CompanionManifest" Type="Edm.String"/>
+        <Property Name="Publisher" Type="Edm.String"/>
+        <Property Name="License" Type="Edm.String"/>
+        <Property Name="LastInstallId" Type="Edm.String"/>
+        <Annotation Term="Paw.Vocab.AuthZ.CedarPolicy" String="policies/skills.cedar"/>
+        <Annotation Term="Paw.Vocab.Agent.Hint" String="Provenance record for installable skill content."/>
+      </EntityType>
+
+      <EntityType Name="SkillBinding">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.String" Nullable="false"/>
+        <Property Name="Status" Type="Edm.String"/>
+        <Property Name="PackageId" Type="Edm.String"/>
+        <Property Name="InstallId" Type="Edm.String"/>
+        <Property Name="SkillName" Type="Edm.String"/>
+        <Property Name="ScopeType" Type="Edm.String"/>
+        <Property Name="ScopeId" Type="Edm.String"/>
+        <Property Name="SkillPath" Type="Edm.String"/>
+        <Property Name="WorkspaceId" Type="Edm.String"/>
+        <Property Name="FileId" Type="Edm.String"/>
+        <Property Name="ContentDigest" Type="Edm.String"/>
+        <Property Name="SourceUrl" Type="Edm.String"/>
+        <Property Name="ActivatedAt" Type="Edm.String"/>
+        <Annotation Term="Paw.Vocab.AuthZ.CedarPolicy" String="policies/skills.cedar"/>
+        <Annotation Term="Paw.Vocab.Agent.Hint" String="Active relationship between a skill package and a runtime skill scope."/>
+      </EntityType>
+
+      <Action Name="Approve" IsBound="true">
+        <Parameter Name="bindingParameter" Type="Paw.Skills.SkillInstall"/>
+        <Parameter Name="approved_by" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="Paw.Skills.SkillInstall"/>
+      </Action>
+
+      <Action Name="Reject" IsBound="true">
+        <Parameter Name="bindingParameter" Type="Paw.Skills.SkillInstall"/>
+        <Parameter Name="error_message" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="Paw.Skills.SkillInstall"/>
+      </Action>
+
+      <Action Name="InstallComplete" IsBound="true">
+        <Parameter Name="bindingParameter" Type="Paw.Skills.SkillInstall"/>
+        <Parameter Name="package_id" Type="Edm.String" Nullable="false"/>
+        <Parameter Name="binding_id" Type="Edm.String" Nullable="false"/>
+        <Parameter Name="skill_path" Type="Edm.String" Nullable="false"/>
+        <Parameter Name="workspace_id" Type="Edm.String" Nullable="false"/>
+        <Parameter Name="file_id" Type="Edm.String" Nullable="false"/>
+        <Parameter Name="content_digest" Type="Edm.String" Nullable="false"/>
+        <Parameter Name="installed_skill_name" Type="Edm.String" Nullable="false"/>
+        <Parameter Name="installed_at" Type="Edm.String" Nullable="false"/>
+        <ReturnType Type="Paw.Skills.SkillInstall"/>
+      </Action>
+
+      <Action Name="InstallFailed" IsBound="true">
+        <Parameter Name="bindingParameter" Type="Paw.Skills.SkillInstall"/>
+        <Parameter Name="error_message" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="Paw.Skills.SkillInstall"/>
+      </Action>
+
+      <Action Name="Archive" IsBound="true">
+        <Parameter Name="bindingParameter" Type="Paw.Skills.SkillInstall"/>
+        <ReturnType Type="Paw.Skills.SkillInstall"/>
+      </Action>
+
+      <Action Name="Register" IsBound="true">
+        <Parameter Name="bindingParameter" Type="Paw.Skills.SkillPackage"/>
+        <Parameter Name="package_name" Type="Edm.String" Nullable="false"/>
+        <Parameter Name="skill_name" Type="Edm.String" Nullable="false"/>
+        <Parameter Name="description" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="source_type" Type="Edm.String" Nullable="false"/>
+        <Parameter Name="source_url" Type="Edm.String" Nullable="false"/>
+        <Parameter Name="source_ref" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="source_subpath" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="content_digest" Type="Edm.String" Nullable="false"/>
+        <Parameter Name="main_file_path" Type="Edm.String" Nullable="false"/>
+        <Parameter Name="companion_manifest" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="publisher" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="license" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="last_install_id" Type="Edm.String" Nullable="false"/>
+        <ReturnType Type="Paw.Skills.SkillPackage"/>
+      </Action>
+
+      <Action Name="Activate" IsBound="true">
+        <Parameter Name="bindingParameter" Type="Paw.Skills.SkillBinding"/>
+        <Parameter Name="package_id" Type="Edm.String" Nullable="false"/>
+        <Parameter Name="install_id" Type="Edm.String" Nullable="false"/>
+        <Parameter Name="skill_name" Type="Edm.String" Nullable="false"/>
+        <Parameter Name="scope_type" Type="Edm.String" Nullable="false"/>
+        <Parameter Name="scope_id" Type="Edm.String" Nullable="false"/>
+        <Parameter Name="skill_path" Type="Edm.String" Nullable="false"/>
+        <Parameter Name="workspace_id" Type="Edm.String" Nullable="false"/>
+        <Parameter Name="file_id" Type="Edm.String" Nullable="false"/>
+        <Parameter Name="content_digest" Type="Edm.String" Nullable="false"/>
+        <Parameter Name="source_url" Type="Edm.String" Nullable="false"/>
+        <Parameter Name="activated_at" Type="Edm.String" Nullable="false"/>
+        <ReturnType Type="Paw.Skills.SkillBinding"/>
+      </Action>
+
+      <EntityContainer Name="SkillsService">
+        <EntitySet Name="SkillInstalls" EntityType="Paw.Skills.SkillInstall"/>
+        <EntitySet Name="SkillPackages" EntityType="Paw.Skills.SkillPackage"/>
+        <EntitySet Name="SkillBindings" EntityType="Paw.Skills.SkillBinding"/>
+      </EntityContainer>
+    </Schema>
+  </edmx:DataServices>
+</edmx:Edmx>

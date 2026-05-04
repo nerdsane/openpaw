@@ -7,10 +7,19 @@ os-apps/**/*.wasm
 *.swp
 *.swo
 .DS_Store
-.claude/
+.claude/worktrees/
+.claude/scheduled_tasks.lock
 .worktrees/
+.extracted/
+docs/plans/
 dashboard/node_modules/
+**/node_modules/
 dashboard/.svelte-kit/
 dashboard/build/
+**/.next/
+**/dist/
 .cargo/config.toml
 tmp_*.log
+
+# Standalone OS-app WASM crates generate local locks during per-module builds.
+os-apps/*/wasm/**/Cargo.lock

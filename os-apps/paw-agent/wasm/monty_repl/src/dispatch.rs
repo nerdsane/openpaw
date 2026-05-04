@@ -646,6 +646,7 @@ fn temper_method_token(method: &str) -> Option<&'static str> {
         "update_policy" => Some("temper_update_policy"),
         "delete_policy" => Some("temper_delete_policy"),
         "install_app" => Some("temper_install_app"),
+        "install_skill" => Some("temper_install_skill"),
         "create_app" => Some("temper_create_app"),
         "list_apps" => Some("temper_list_apps"),
         "spawn_session" => Some("temper_spawn_session"),
@@ -722,6 +723,7 @@ fn dispatch_temper(
 
         // Apps
         "install_app" => temper_install_app(ctx, api_url, tenant, args),
+        "install_skill" => temper_install_skill(ctx, api_url, tenant, args),
         "create_app" => temper_create_app(ctx, api_url, tenant, args),
         "list_apps" => temper_list_apps(ctx, api_url, tenant),
 
@@ -896,7 +898,7 @@ fn dispatch_temper(
              upload_wasm, get_trajectories, get_insights, \
              get_decisions, poll_decision, approve_decision, deny_decision, \
              submit_policy, list_policies, get_policy, update_policy, delete_policy, \
-             get_secret, done, install_app, list_apps, get_agent_id, get_session_id, \
+             get_secret, done, install_app, install_skill, list_apps, get_agent_id, get_session_id, \
              spawn_session, list_sessions, abort_session, steer_session, \
              save_memory, recall_memory, write, read, ls, grep, glob, edit, rename, \
              search_history, run_coding_agent, datadog_query, railway, vercel, \
@@ -1809,6 +1811,111 @@ fn temper_install_app(
         "Payload": payload,
     });
     http_post(ctx, api_url, tenant, "/tdata/CapabilityRequests", &body)
+}
+
+fn temper_install_skill(
+    ctx: &Context,
+    api_url: &str,
+    tenant: &str,
+    args: &[Value],
+) -> Result<Value, String> {
+    let input = args.first().filter(|value| value.is_object());
+    let source_url = input
+        .and_then(|value| value.get("source_url").and_then(|v| v.as_str()))
+        .map(str::to_string)
+        .or_else(|| opt_str_arg(args, 0))
+        .unwrap_or_default();
+    let target_scope_type = input
+        .and_then(|value| value.get("target_scope_type").and_then(|v| v.as_str()))
+        .map(str::to_string)
+        .or_else(|| opt_str_arg(args, 1))
+        .unwrap_or_else(|| "agent".to_string());
+    let target_scope_id = input
+        .and_then(|value| value.get("target_scope_id").and_then(|v| v.as_str()))
+        .map(str::to_string)
+        .or_else(|| opt_str_arg(args, 2))
+        .unwrap_or_default();
+    let requested_skill_name = input
+        .and_then(|value| value.get("requested_skill_name").and_then(|v| v.as_str()))
+        .map(str::to_string)
+        .or_else(|| opt_str_arg(args, 3))
+        .unwrap_or_default();
+    let reason = input
+        .and_then(|value| value.get("reason").and_then(|v| v.as_str()))
+        .map(str::to_string)
+        .or_else(|| opt_str_arg(args, 4))
+        .unwrap_or_default();
+    let source_type = input
+        .and_then(|value| value.get("source_type").and_then(|v| v.as_str()))
+        .unwrap_or("");
+    let source_ref = input
+        .and_then(|value| value.get("source_ref").and_then(|v| v.as_str()))
+        .unwrap_or("");
+    let source_subpath = input
+        .and_then(|value| value.get("source_subpath").and_then(|v| v.as_str()))
+        .unwrap_or("");
+    let inline_content = input
+        .and_then(|value| value.get("inline_content").and_then(|v| v.as_str()))
+        .unwrap_or("");
+    let companion_manifest = input
+        .and_then(|value| value.get("companion_manifest"))
+        .map(|value| {
+            if value.is_string() {
+                value.as_str().unwrap_or("").to_string()
+            } else {
+                value.to_string()
+            }
+        })
+        .unwrap_or_default();
+
+    if source_url.is_empty() && inline_content.is_empty() {
+        return Err(
+            "temper.install_skill() requires source_url, or inline_content with source_type='inline'"
+                .to_string(),
+        );
+    }
+
+    let fields = ctx.entity_state.get("fields").cloned().unwrap_or(json!({}));
+    let session_agent_id = fields
+        .get("agent_id")
+        .or_else(|| fields.get("AgentId"))
+        .and_then(|value| value.as_str())
+        .unwrap_or("");
+    let fallback_agent_id = ctx
+        .entity_state
+        .get("entity_id")
+        .and_then(|value| value.as_str())
+        .unwrap_or("");
+    let requesting_agent_id = input
+        .and_then(|value| value.get("requesting_agent_id").and_then(|v| v.as_str()))
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| {
+            if session_agent_id.is_empty() {
+                fallback_agent_id
+            } else {
+                session_agent_id
+            }
+        });
+
+    let mut resolved_scope_id = target_scope_id;
+    if resolved_scope_id.is_empty() && target_scope_type == "agent" {
+        resolved_scope_id = session_agent_id.to_string();
+    }
+
+    let body = json!({
+        "SourceType": source_type,
+        "SourceUrl": source_url,
+        "SourceRef": source_ref,
+        "SourceSubpath": source_subpath,
+        "RequestedSkillName": requested_skill_name,
+        "TargetScopeType": target_scope_type,
+        "TargetScopeId": resolved_scope_id,
+        "Reason": reason,
+        "RequestingAgentId": requesting_agent_id,
+        "InlineContent": inline_content,
+        "CompanionManifest": companion_manifest,
+    });
+    http_post(ctx, api_url, tenant, "/tdata/SkillInstalls", &body)
 }
 
 /// Create an app at runtime by bundling specs, policies, and WASM modules inline.

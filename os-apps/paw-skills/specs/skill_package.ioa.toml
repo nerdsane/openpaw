@@ -1,0 +1,93 @@
+# SkillPackage — provenance record for installable skill content.
+
+[automaton]
+name = "SkillPackage"
+states = ["Discovered", "Available", "Archived"]
+initial = "Discovered"
+
+allow_indefinite_states = ["Discovered", "Available"]
+
+[[state]]
+name = "package_name"
+type = "string"
+initial = ""
+
+[[state]]
+name = "skill_name"
+type = "string"
+initial = ""
+
+[[state]]
+name = "description"
+type = "string"
+initial = ""
+
+[[state]]
+name = "source_type"
+type = "string"
+initial = ""
+
+[[state]]
+name = "source_url"
+type = "string"
+initial = ""
+
+[[state]]
+name = "source_ref"
+type = "string"
+initial = ""
+
+[[state]]
+name = "source_subpath"
+type = "string"
+initial = ""
+
+[[state]]
+name = "content_digest"
+type = "string"
+initial = ""
+
+[[state]]
+name = "main_file_path"
+type = "string"
+initial = ""
+
+[[state]]
+name = "companion_manifest"
+type = "string"
+initial = ""
+
+[[state]]
+name = "publisher"
+type = "string"
+initial = ""
+
+[[state]]
+name = "license"
+type = "string"
+initial = ""
+
+[[state]]
+name = "last_install_id"
+type = "string"
+initial = ""
+
+[[action]]
+name = "Register"
+kind = "input"
+from = ["Discovered", "Available"]
+to = "Available"
+params = ["package_name", "skill_name", "description", "source_type", "source_url", "source_ref", "source_subpath", "content_digest", "main_file_path", "companion_manifest", "publisher", "license", "last_install_id"]
+hint = "Register or refresh package provenance after validating source content."
+
+[[action]]
+name = "Archive"
+kind = "input"
+from = ["Available"]
+to = "Archived"
+hint = "Archive this package provenance record."
+
+[[invariant]]
+name = "ArchivedIsFinal"
+when = ["Archived"]
+assert = "no_further_transitions"
