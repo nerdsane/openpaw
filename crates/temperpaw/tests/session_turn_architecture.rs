@@ -121,7 +121,17 @@ fn route_message_carries_context_cache_fields_to_continuations() {
             .expect("route_message source should exist");
 
     for needle in [
-        "\"prepared_context_file_id\": str_field(fields, &[\"prepared_context_file_id\", \"PreparedContextFileId\"]).unwrap_or(\"\")",
+        "\"prepared_context_file_id\": prepared_context_storage.file_id",
+        "fn continuation_prepared_context_storage",
+        "file_id: str_field(fields, &[\"prepared_context_file_id\", \"PreparedContextFileId\"])",
+    ] {
+        assert!(
+            source.contains(needle),
+            "continuation Configure body should carry prepared context via {needle}"
+        );
+    }
+
+    for needle in [
         "\"system_prompt_hash\": str_field(fields, &[\"system_prompt_hash\", \"SystemPromptHash\"]).unwrap_or(\"\")",
         "\"system_prompt_file_id\": str_field(fields, &[\"system_prompt_file_id\", \"SystemPromptFileId\"]).unwrap_or(\"\")",
     ] {
