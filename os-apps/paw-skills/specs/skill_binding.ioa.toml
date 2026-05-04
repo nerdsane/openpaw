@@ -1,0 +1,83 @@
+# SkillBinding — active relationship between a skill package and a runtime skill scope.
+
+[automaton]
+name = "SkillBinding"
+states = ["Created", "Active", "Archived"]
+initial = "Created"
+
+allow_indefinite_states = ["Created", "Active"]
+
+[[state]]
+name = "package_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "install_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "skill_name"
+type = "string"
+initial = ""
+
+[[state]]
+name = "scope_type"
+type = "string"
+initial = ""
+
+[[state]]
+name = "scope_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "skill_path"
+type = "string"
+initial = ""
+
+[[state]]
+name = "workspace_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "file_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "content_digest"
+type = "string"
+initial = ""
+
+[[state]]
+name = "source_url"
+type = "string"
+initial = ""
+
+[[state]]
+name = "activated_at"
+type = "string"
+initial = ""
+
+[[action]]
+name = "Activate"
+kind = "input"
+from = ["Created"]
+to = "Active"
+params = ["package_id", "install_id", "skill_name", "scope_type", "scope_id", "skill_path", "workspace_id", "file_id", "content_digest", "source_url", "activated_at"]
+hint = "Bind this package to a runtime TemperFS skill path."
+
+[[action]]
+name = "Archive"
+kind = "input"
+from = ["Active"]
+to = "Archived"
+hint = "Archive this package binding."
+
+[[invariant]]
+name = "ArchivedIsFinal"
+when = ["Archived"]
+assert = "no_further_transitions"

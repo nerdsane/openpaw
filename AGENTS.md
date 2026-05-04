@@ -56,6 +56,12 @@ Ask: **"Can someone understand this entire flow by reading entity state transiti
 
 If the answer is no, some logic is hiding in imperative code. Refactor it into entities + WASM integrations.
 
+## Architecture Decision Records (Mandatory)
+
+Any material architecture change MUST be captured in an ADR before implementation is considered complete. This includes changes to Temper apps, entity specs, WASM integrations, Cedar policies, storage/provenance models, deployment behavior, triggers, and agent capability surfaces.
+
+Write app-scoped decisions in `os-apps/<app>/adrs/`. Write platform-wide decisions in `docs/adrs/`. If a change is deliberately too small for an ADR, record that judgement in the proof or PR notes.
+
 ## Where Things Live
 
 | Layer | What | Where |

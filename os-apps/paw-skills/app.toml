@@ -1,0 +1,10 @@
+name = "paw-skills"
+description = "Native skill package installation and scope binding for TemperPaw agents"
+version = "0.1.0"
+startup_install = "core"
+dependencies = ["paw-agent", "paw-fs"]
+
+[[wasm_modules]]
+name = "skill_installer"
+criticality = "app-required"
+startup_loading = "lazy"

@@ -1,0 +1,15 @@
+[package]
+name = "skill-installer"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib"]
+
+[workspace]
+
+[dependencies]
+hex = "0.4"
+serde_json = "1"
+sha2 = "0.10"
+temper-wasm-sdk = { git = "https://github.com/nerdsane/temper.git", branch = "main" }
