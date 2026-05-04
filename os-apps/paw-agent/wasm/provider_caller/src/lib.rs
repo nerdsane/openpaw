@@ -19,6 +19,7 @@ use session_turn_artifacts::{
     PreparedContextArtifact, ProviderResponseArtifact,
     build_provider_response_ready_params_with_inline, parse_prepared_context_artifact,
 };
+use std::collections::BTreeMap;
 use temper_wasm_sdk::prelude::*;
 use wasm_helpers::{
     read_content_file, resolve_temper_api_url, runtime_headers, runtime_headers_as,
@@ -221,6 +222,1074 @@ fn format_llm_hang_hint(provider: &str, attempt: u32, attempt_elapsed_ms: i64) -
     )
 }
 
+fn format_openai_codex_host_http_failure_log(attempt: u32, total: u32, err: &str) -> String {
+    format!(
+        "session_turn: OpenAI Codex host HTTP call failed before a provider HTTP response was returned \
+         attempt={attempt}/{total} host_http_timeout_or_transport_error=true error={err}"
+    )
+}
+
+fn format_openai_codex_exhausted_error(attempts: u32, last_err: &str) -> String {
+    format!(
+        "OpenAI Codex host HTTP call failed after {attempts} attempts before a provider HTTP response was returned \
+         (host HTTP timeout or transport error): {last_err}"
+    )
+}
+
+const LLM_STREAM_PROGRESS_INTERVAL_MS: i64 = 15_000;
+const LLM_STREAM_PROGRESS_BYTES: usize = 16 * 1024;
+#[cfg(target_arch = "wasm32")]
+const LLM_STREAM_READ_BUFFER_BYTES: usize = 16 * 1024;
+#[cfg(target_arch = "wasm32")]
+const LLM_STREAM_REQUEST_CHUNK_BYTES: usize = 16 * 1024;
+const LLM_MAX_ATTEMPTS: u32 = 5;
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct LlmStreamDelta {
+    delta_text: String,
+    accumulated_text_chars: usize,
+    tool_call_id: Option<String>,
+    tool_name: Option<String>,
+    tool_arguments_delta: Option<String>,
+}
+
+impl LlmStreamDelta {
+    fn text(delta_text: &str, accumulated_text_chars: usize) -> Self {
+        Self {
+            delta_text: delta_text.to_string(),
+            accumulated_text_chars,
+            tool_call_id: None,
+            tool_name: None,
+            tool_arguments_delta: None,
+        }
+    }
+
+    fn tool(
+        tool_call_id: Option<String>,
+        tool_name: Option<String>,
+        tool_arguments_delta: Option<String>,
+        accumulated_text_chars: usize,
+    ) -> Self {
+        Self {
+            delta_text: String::new(),
+            accumulated_text_chars,
+            tool_call_id,
+            tool_name,
+            tool_arguments_delta,
+        }
+    }
+
+    fn is_semantic(&self) -> bool {
+        !self.delta_text.is_empty()
+            || self.tool_call_id.is_some()
+            || self.tool_name.is_some()
+            || self.tool_arguments_delta.is_some()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct ParsedProviderStream {
+    content: Value,
+    stop_reason: String,
+    input_tokens: i64,
+    output_tokens: i64,
+    cache_read_input_tokens: i64,
+    cache_creation_input_tokens: i64,
+    response_bytes: usize,
+    semantic_deltas: Vec<LlmStreamDelta>,
+    completed: bool,
+}
+
+impl ParsedProviderStream {
+    fn into_llm_response(self, request_bytes: usize) -> LlmResponse {
+        LlmResponse {
+            content: self.content,
+            stop_reason: self.stop_reason,
+            input_tokens: self.input_tokens,
+            output_tokens: self.output_tokens,
+            cache_read_input_tokens: self.cache_read_input_tokens,
+            cache_creation_input_tokens: self.cache_creation_input_tokens,
+            request_bytes,
+            response_bytes: self.response_bytes,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct StreamParseFailure {
+    message: String,
+    semantic_output_seen: bool,
+}
+
+impl StreamParseFailure {
+    fn new(message: impl Into<String>, semantic_output_seen: bool) -> Self {
+        Self {
+            message: message.into(),
+            semantic_output_seen,
+        }
+    }
+}
+
+impl std::fmt::Display for StreamParseFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.message)
+    }
+}
+
+fn should_retry_stream_failure(
+    attempt: u32,
+    max_attempts: u32,
+    semantic_output_seen: bool,
+) -> bool {
+    attempt < max_attempts && !semantic_output_seen
+}
+
+#[derive(Default)]
+struct SseDataDecoder {
+    pending: String,
+}
+
+impl SseDataDecoder {
+    fn push_chunk(&mut self, chunk: &[u8]) -> Vec<String> {
+        self.pending.push_str(&String::from_utf8_lossy(chunk));
+        self.drain_complete_lines(false)
+    }
+
+    fn finish(&mut self) -> Vec<String> {
+        self.drain_complete_lines(true)
+    }
+
+    fn drain_complete_lines(&mut self, include_partial: bool) -> Vec<String> {
+        let mut events = Vec::new();
+        loop {
+            let Some(newline) = self.pending.find('\n') else {
+                break;
+            };
+            let line = self.pending[..newline].trim_end_matches('\r').to_string();
+            self.pending = self.pending[newline + 1..].to_string();
+            push_sse_data_line(&line, &mut events);
+        }
+
+        if include_partial {
+            let line = self.pending.trim_end_matches('\r').to_string();
+            self.pending.clear();
+            push_sse_data_line(&line, &mut events);
+        }
+
+        events
+    }
+}
+
+fn push_sse_data_line(line: &str, events: &mut Vec<String>) {
+    let Some(data) = line.strip_prefix("data:") else {
+        return;
+    };
+    let data = data.trim_start();
+    if !data.is_empty() {
+        events.push(data.to_string());
+    }
+}
+
+#[cfg(any(test, not(target_arch = "wasm32")))]
+fn collect_sse_data_events(chunks: &[&[u8]]) -> Result<Vec<String>, String> {
+    let mut decoder = SseDataDecoder::default();
+    let mut events = Vec::new();
+    for chunk in chunks {
+        events.extend(decoder.push_chunk(chunk));
+    }
+    events.extend(decoder.finish());
+    Ok(events)
+}
+
+#[cfg(test)]
+fn stream_chunks_response_bytes(chunks: &[&[u8]]) -> usize {
+    chunks.iter().map(|chunk| chunk.len()).sum()
+}
+
+#[cfg(test)]
+fn parse_openai_stream_chunks(
+    chunks: &[&[u8]],
+) -> Result<ParsedProviderStream, StreamParseFailure> {
+    let events =
+        collect_sse_data_events(chunks).map_err(|err| StreamParseFailure::new(err, false))?;
+    parse_openai_stream_events(&events, stream_chunks_response_bytes(chunks))
+}
+
+#[cfg(test)]
+fn parse_anthropic_stream_chunks(
+    chunks: &[&[u8]],
+) -> Result<ParsedProviderStream, StreamParseFailure> {
+    let events =
+        collect_sse_data_events(chunks).map_err(|err| StreamParseFailure::new(err, false))?;
+    parse_anthropic_stream_events(&events, stream_chunks_response_bytes(chunks))
+}
+
+#[cfg(test)]
+fn parse_openrouter_stream_chunks(
+    chunks: &[&[u8]],
+) -> Result<ParsedProviderStream, StreamParseFailure> {
+    let events =
+        collect_sse_data_events(chunks).map_err(|err| StreamParseFailure::new(err, false))?;
+    parse_openrouter_stream_events(&events, stream_chunks_response_bytes(chunks))
+}
+
+#[derive(Default)]
+struct OpenAiStreamAccumulator {
+    output_items: Vec<Value>,
+    usage: Value,
+    streamed_text: String,
+    saw_completed: bool,
+    semantic_deltas: Vec<LlmStreamDelta>,
+}
+
+impl OpenAiStreamAccumulator {
+    fn ingest_data(&mut self, data: &str) -> Result<Vec<LlmStreamDelta>, StreamParseFailure> {
+        if data.trim() == "[DONE]" {
+            return Ok(Vec::new());
+        }
+
+        let event: Value = serde_json::from_str(data).map_err(|err| {
+            StreamParseFailure::new(
+                format!("parse OpenAI stream event: {err}"),
+                self.semantic_output_seen(),
+            )
+        })?;
+        let event_type = event.get("type").and_then(Value::as_str).unwrap_or("");
+        let mut deltas = Vec::new();
+        match event_type {
+            "response.output_text.delta" => {
+                let delta = event
+                    .get("delta")
+                    .or_else(|| event.get("text"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
+                if !delta.is_empty() {
+                    self.streamed_text.push_str(delta);
+                    deltas.push(LlmStreamDelta::text(
+                        delta,
+                        self.streamed_text.chars().count(),
+                    ));
+                }
+            }
+            "response.output_text.done" => {
+                if self.streamed_text.is_empty()
+                    && let Some(text) = event.get("text").and_then(Value::as_str)
+                    && !text.is_empty()
+                {
+                    self.streamed_text.push_str(text);
+                    deltas.push(LlmStreamDelta::text(
+                        text,
+                        self.streamed_text.chars().count(),
+                    ));
+                }
+            }
+            "response.output_item.done" => {
+                if let Some(item) = event.get("item") {
+                    if item.get("type").and_then(Value::as_str) == Some("function_call") {
+                        deltas.push(LlmStreamDelta::tool(
+                            item.get("call_id")
+                                .and_then(Value::as_str)
+                                .map(str::to_string),
+                            item.get("name").and_then(Value::as_str).map(str::to_string),
+                            item.get("arguments")
+                                .and_then(Value::as_str)
+                                .map(str::to_string),
+                            self.streamed_text.chars().count(),
+                        ));
+                    }
+                    self.output_items.push(item.clone());
+                }
+            }
+            "response.completed" => {
+                self.saw_completed = true;
+                if let Some(resp) = event.get("response") {
+                    if let Some(usage) = resp.get("usage") {
+                        self.usage = usage.clone();
+                    }
+                    if let Some(out) = resp.get("output").and_then(Value::as_array)
+                        && !out.is_empty()
+                    {
+                        self.output_items = out.clone();
+                    }
+                }
+            }
+            "error" => {
+                return Err(StreamParseFailure::new(
+                    format!("OpenAI stream error event: {event}"),
+                    self.semantic_output_seen(),
+                ));
+            }
+            _ => {}
+        }
+        self.semantic_deltas.extend(deltas.clone());
+        Ok(deltas)
+    }
+
+    fn semantic_output_seen(&self) -> bool {
+        !self.streamed_text.is_empty()
+            || !self.output_items.is_empty()
+            || self.semantic_deltas.iter().any(LlmStreamDelta::is_semantic)
+    }
+
+    fn finalize(self, response_bytes: usize) -> Result<ParsedProviderStream, StreamParseFailure> {
+        if !self.saw_completed {
+            return Err(StreamParseFailure::new(
+                "OpenAI SSE stream ended before response.completed",
+                self.semantic_output_seen(),
+            ));
+        }
+
+        let (mut content_blocks, has_tool_calls) =
+            openai_output_items_to_content_blocks(&self.output_items);
+        if content_blocks.is_empty() && !self.streamed_text.trim().is_empty() {
+            content_blocks.push(json!({
+                "type": "text",
+                "text": self.streamed_text.trim(),
+            }));
+        }
+
+        Ok(ParsedProviderStream {
+            content: Value::Array(content_blocks),
+            stop_reason: if has_tool_calls {
+                "tool_use".to_string()
+            } else {
+                "end_turn".to_string()
+            },
+            input_tokens: self
+                .usage
+                .get("input_tokens")
+                .and_then(Value::as_i64)
+                .unwrap_or(0),
+            output_tokens: self
+                .usage
+                .get("output_tokens")
+                .and_then(Value::as_i64)
+                .unwrap_or(0),
+            cache_read_input_tokens: 0,
+            cache_creation_input_tokens: 0,
+            response_bytes,
+            semantic_deltas: self.semantic_deltas,
+            completed: true,
+        })
+    }
+}
+
+fn openai_output_items_to_content_blocks(output_items: &[Value]) -> (Vec<Value>, bool) {
+    let mut content_blocks = Vec::<Value>::new();
+    let mut has_tool_calls = false;
+
+    for item in output_items {
+        let item_type = item.get("type").and_then(Value::as_str).unwrap_or("");
+        match item_type {
+            "message" => {
+                if let Some(content) = item.get("content").and_then(Value::as_array) {
+                    for part in content {
+                        if part.get("type").and_then(Value::as_str) == Some("output_text")
+                            && let Some(text) = part.get("text").and_then(Value::as_str)
+                            && !text.is_empty()
+                        {
+                            content_blocks.push(json!({
+                                "type": "text",
+                                "text": text,
+                            }));
+                        }
+                    }
+                }
+            }
+            "function_call" => {
+                let arguments = item
+                    .get("arguments")
+                    .and_then(Value::as_str)
+                    .unwrap_or("{}");
+                let input = serde_json::from_str::<Value>(arguments).unwrap_or(json!({}));
+                content_blocks.push(json!({
+                    "type": "tool_use",
+                    "id": item.get("call_id").and_then(Value::as_str).unwrap_or(""),
+                    "name": item.get("name").and_then(Value::as_str).unwrap_or(""),
+                    "input": input,
+                }));
+                has_tool_calls = true;
+            }
+            _ => {}
+        }
+    }
+
+    (content_blocks, has_tool_calls)
+}
+
+#[cfg(test)]
+fn parse_openai_stream_events(
+    events: &[String],
+    response_bytes: usize,
+) -> Result<ParsedProviderStream, StreamParseFailure> {
+    let mut acc = OpenAiStreamAccumulator::default();
+    for event in events {
+        acc.ingest_data(event)?;
+    }
+    acc.finalize(response_bytes)
+}
+
+#[derive(Default)]
+struct AnthropicBlockAccum {
+    block_type: String,
+    id: String,
+    name: String,
+    text: String,
+    input_json: String,
+}
+
+#[derive(Default)]
+struct AnthropicStreamAccumulator {
+    blocks: BTreeMap<usize, AnthropicBlockAccum>,
+    stop_reason: String,
+    input_tokens: i64,
+    output_tokens: i64,
+    cache_read_input_tokens: i64,
+    cache_creation_input_tokens: i64,
+    saw_stop: bool,
+    semantic_deltas: Vec<LlmStreamDelta>,
+}
+
+impl AnthropicStreamAccumulator {
+    fn ingest_data(&mut self, data: &str) -> Result<Vec<LlmStreamDelta>, StreamParseFailure> {
+        if data.trim() == "[DONE]" {
+            return Ok(Vec::new());
+        }
+
+        let event: Value = serde_json::from_str(data).map_err(|err| {
+            StreamParseFailure::new(
+                format!("parse Anthropic stream event: {err}"),
+                self.semantic_output_seen(),
+            )
+        })?;
+        let event_type = event.get("type").and_then(Value::as_str).unwrap_or("");
+        let mut deltas = Vec::new();
+
+        match event_type {
+            "message_start" => {
+                if let Some(usage) = event.get("message").and_then(|m| m.get("usage")) {
+                    self.input_tokens = usage
+                        .get("input_tokens")
+                        .and_then(Value::as_i64)
+                        .unwrap_or(self.input_tokens);
+                    self.cache_read_input_tokens = usage
+                        .get("cache_read_input_tokens")
+                        .and_then(Value::as_i64)
+                        .unwrap_or(self.cache_read_input_tokens);
+                    self.cache_creation_input_tokens = usage
+                        .get("cache_creation_input_tokens")
+                        .and_then(Value::as_i64)
+                        .unwrap_or(self.cache_creation_input_tokens);
+                }
+            }
+            "content_block_start" => {
+                let index = event.get("index").and_then(Value::as_u64).unwrap_or(0) as usize;
+                let content_block = event.get("content_block").cloned().unwrap_or(json!({}));
+                let block_type = content_block
+                    .get("type")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
+                let mut block = AnthropicBlockAccum {
+                    block_type,
+                    id: content_block
+                        .get("id")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_string(),
+                    name: content_block
+                        .get("name")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_string(),
+                    text: content_block
+                        .get("text")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_string(),
+                    input_json: String::new(),
+                };
+                if let Some(input) = content_block.get("input")
+                    && !input.as_object().is_some_and(|obj| obj.is_empty())
+                {
+                    block.input_json = serde_json::to_string(input).unwrap_or_default();
+                }
+                if block.block_type == "tool_use" {
+                    deltas.push(LlmStreamDelta::tool(
+                        (!block.id.is_empty()).then(|| block.id.clone()),
+                        (!block.name.is_empty()).then(|| block.name.clone()),
+                        None,
+                        self.accumulated_text_chars(),
+                    ));
+                }
+                self.blocks.insert(index, block);
+            }
+            "content_block_delta" => {
+                let index = event.get("index").and_then(Value::as_u64).unwrap_or(0) as usize;
+                let delta = event.get("delta").cloned().unwrap_or(json!({}));
+                let block = self.blocks.entry(index).or_default();
+                match delta.get("type").and_then(Value::as_str).unwrap_or("") {
+                    "text_delta" => {
+                        let text = delta.get("text").and_then(Value::as_str).unwrap_or("");
+                        if !text.is_empty() {
+                            block.block_type = "text".to_string();
+                            block.text.push_str(text);
+                            let accumulated = self.accumulated_text_chars();
+                            deltas.push(LlmStreamDelta::text(text, accumulated));
+                        }
+                    }
+                    "input_json_delta" => {
+                        let partial = delta
+                            .get("partial_json")
+                            .and_then(Value::as_str)
+                            .unwrap_or("");
+                        if !partial.is_empty() {
+                            block.block_type = "tool_use".to_string();
+                            block.input_json.push_str(partial);
+                            deltas.push(LlmStreamDelta::tool(
+                                (!block.id.is_empty()).then(|| block.id.clone()),
+                                (!block.name.is_empty()).then(|| block.name.clone()),
+                                Some(partial.to_string()),
+                                self.accumulated_text_chars(),
+                            ));
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            "message_delta" => {
+                if let Some(stop_reason) = event
+                    .get("delta")
+                    .and_then(|d| d.get("stop_reason"))
+                    .and_then(Value::as_str)
+                {
+                    self.stop_reason = stop_reason.to_string();
+                }
+                if let Some(usage) = event.get("usage") {
+                    self.output_tokens = usage
+                        .get("output_tokens")
+                        .and_then(Value::as_i64)
+                        .unwrap_or(self.output_tokens);
+                }
+            }
+            "message_stop" => {
+                self.saw_stop = true;
+            }
+            "error" => {
+                return Err(StreamParseFailure::new(
+                    format!("Anthropic stream error event: {event}"),
+                    self.semantic_output_seen(),
+                ));
+            }
+            _ => {}
+        }
+
+        self.semantic_deltas.extend(deltas.clone());
+        Ok(deltas)
+    }
+
+    fn accumulated_text_chars(&self) -> usize {
+        self.blocks
+            .values()
+            .map(|block| block.text.chars().count())
+            .sum()
+    }
+
+    fn semantic_output_seen(&self) -> bool {
+        self.accumulated_text_chars() > 0
+            || self
+                .blocks
+                .values()
+                .any(|block| block.block_type == "tool_use" && !block.input_json.is_empty())
+            || self.semantic_deltas.iter().any(LlmStreamDelta::is_semantic)
+    }
+
+    fn finalize(self, response_bytes: usize) -> Result<ParsedProviderStream, StreamParseFailure> {
+        if !self.saw_stop {
+            return Err(StreamParseFailure::new(
+                "Anthropic SSE stream ended before message_stop",
+                self.semantic_output_seen(),
+            ));
+        }
+
+        let mut content = Vec::<Value>::new();
+        let mut has_tool_calls = false;
+        for block in self.blocks.values() {
+            match block.block_type.as_str() {
+                "text" => {
+                    if !block.text.is_empty() {
+                        content.push(json!({
+                            "type": "text",
+                            "text": block.text,
+                        }));
+                    }
+                }
+                "tool_use" => {
+                    let input = if block.input_json.trim().is_empty() {
+                        json!({})
+                    } else {
+                        serde_json::from_str::<Value>(&block.input_json).unwrap_or(json!({}))
+                    };
+                    content.push(json!({
+                        "type": "tool_use",
+                        "id": block.id,
+                        "name": block.name,
+                        "input": input,
+                    }));
+                    has_tool_calls = true;
+                }
+                _ => {}
+            }
+        }
+
+        Ok(ParsedProviderStream {
+            content: Value::Array(content),
+            stop_reason: if !self.stop_reason.is_empty() {
+                self.stop_reason
+            } else if has_tool_calls {
+                "tool_use".to_string()
+            } else {
+                "end_turn".to_string()
+            },
+            input_tokens: self.input_tokens,
+            output_tokens: self.output_tokens,
+            cache_read_input_tokens: self.cache_read_input_tokens,
+            cache_creation_input_tokens: self.cache_creation_input_tokens,
+            response_bytes,
+            semantic_deltas: self.semantic_deltas,
+            completed: true,
+        })
+    }
+}
+
+#[cfg(test)]
+fn parse_anthropic_stream_events(
+    events: &[String],
+    response_bytes: usize,
+) -> Result<ParsedProviderStream, StreamParseFailure> {
+    let mut acc = AnthropicStreamAccumulator::default();
+    for event in events {
+        acc.ingest_data(event)?;
+    }
+    acc.finalize(response_bytes)
+}
+
+#[derive(Default)]
+struct OpenRouterToolCallAccum {
+    id: String,
+    name: String,
+    arguments: String,
+}
+
+#[derive(Default)]
+struct OpenRouterStreamAccumulator {
+    text: String,
+    tool_calls: BTreeMap<usize, OpenRouterToolCallAccum>,
+    finish_reason: String,
+    input_tokens: i64,
+    output_tokens: i64,
+    saw_done: bool,
+    semantic_deltas: Vec<LlmStreamDelta>,
+}
+
+impl OpenRouterStreamAccumulator {
+    fn ingest_data(&mut self, data: &str) -> Result<Vec<LlmStreamDelta>, StreamParseFailure> {
+        if data.trim() == "[DONE]" {
+            self.saw_done = true;
+            return Ok(Vec::new());
+        }
+
+        let event: Value = serde_json::from_str(data).map_err(|err| {
+            StreamParseFailure::new(
+                format!("parse OpenRouter stream event: {err}"),
+                self.semantic_output_seen(),
+            )
+        })?;
+        let mut deltas = Vec::new();
+
+        if let Some(usage) = event.get("usage") {
+            self.input_tokens = usage
+                .get("prompt_tokens")
+                .and_then(Value::as_i64)
+                .or_else(|| usage.get("input_tokens").and_then(Value::as_i64))
+                .unwrap_or(self.input_tokens);
+            self.output_tokens = usage
+                .get("completion_tokens")
+                .and_then(Value::as_i64)
+                .or_else(|| usage.get("output_tokens").and_then(Value::as_i64))
+                .unwrap_or(self.output_tokens);
+        }
+
+        if let Some(choice) = event
+            .get("choices")
+            .and_then(Value::as_array)
+            .and_then(|choices| choices.first())
+        {
+            if let Some(finish_reason) = choice.get("finish_reason").and_then(Value::as_str) {
+                self.finish_reason = finish_reason.to_string();
+            }
+            if let Some(delta) = choice.get("delta") {
+                if let Some(text) = delta.get("content").and_then(Value::as_str)
+                    && !text.is_empty()
+                {
+                    self.text.push_str(text);
+                    deltas.push(LlmStreamDelta::text(text, self.text.chars().count()));
+                }
+                if let Some(tool_calls) = delta.get("tool_calls").and_then(Value::as_array) {
+                    for tool_call in tool_calls {
+                        let index =
+                            tool_call.get("index").and_then(Value::as_u64).unwrap_or(0) as usize;
+                        let accum = self.tool_calls.entry(index).or_default();
+                        if let Some(id) = tool_call.get("id").and_then(Value::as_str) {
+                            accum.id = id.to_string();
+                        }
+                        if let Some(name) = tool_call
+                            .get("function")
+                            .and_then(|f| f.get("name"))
+                            .and_then(Value::as_str)
+                        {
+                            accum.name = name.to_string();
+                        }
+                        let args_delta = tool_call
+                            .get("function")
+                            .and_then(|f| f.get("arguments"))
+                            .and_then(Value::as_str)
+                            .unwrap_or("");
+                        if !args_delta.is_empty() {
+                            accum.arguments.push_str(args_delta);
+                        }
+                        deltas.push(LlmStreamDelta::tool(
+                            (!accum.id.is_empty()).then(|| accum.id.clone()),
+                            (!accum.name.is_empty()).then(|| accum.name.clone()),
+                            (!args_delta.is_empty()).then(|| args_delta.to_string()),
+                            self.text.chars().count(),
+                        ));
+                    }
+                }
+            }
+        }
+
+        self.semantic_deltas.extend(deltas.clone());
+        Ok(deltas)
+    }
+
+    fn semantic_output_seen(&self) -> bool {
+        !self.text.is_empty()
+            || !self.tool_calls.is_empty()
+            || self.semantic_deltas.iter().any(LlmStreamDelta::is_semantic)
+    }
+
+    fn finalize(self, response_bytes: usize) -> Result<ParsedProviderStream, StreamParseFailure> {
+        if !self.saw_done && self.finish_reason.is_empty() {
+            return Err(StreamParseFailure::new(
+                "OpenRouter SSE stream ended before [DONE] or finish_reason",
+                self.semantic_output_seen(),
+            ));
+        }
+
+        let mut content = Vec::<Value>::new();
+        if !self.text.is_empty() {
+            content.push(json!({
+                "type": "text",
+                "text": self.text,
+            }));
+        }
+        for (idx, tool_call) in &self.tool_calls {
+            let input = if tool_call.arguments.trim().is_empty() {
+                json!({})
+            } else {
+                serde_json::from_str::<Value>(&tool_call.arguments).unwrap_or(json!({}))
+            };
+            content.push(json!({
+                "type": "tool_use",
+                "id": if tool_call.id.is_empty() { format!("or_tool_{}", idx + 1) } else { tool_call.id.clone() },
+                "name": if tool_call.name.is_empty() { "unknown_tool".to_string() } else { tool_call.name.clone() },
+                "input": input,
+            }));
+        }
+
+        Ok(ParsedProviderStream {
+            content: Value::Array(content),
+            stop_reason: if !self.tool_calls.is_empty() {
+                "tool_use".to_string()
+            } else {
+                "end_turn".to_string()
+            },
+            input_tokens: self.input_tokens,
+            output_tokens: self.output_tokens,
+            cache_read_input_tokens: 0,
+            cache_creation_input_tokens: 0,
+            response_bytes,
+            semantic_deltas: self.semantic_deltas,
+            completed: true,
+        })
+    }
+}
+
+#[cfg(test)]
+fn parse_openrouter_stream_events(
+    events: &[String],
+    response_bytes: usize,
+) -> Result<ParsedProviderStream, StreamParseFailure> {
+    let mut acc = OpenRouterStreamAccumulator::default();
+    for event in events {
+        acc.ingest_data(event)?;
+    }
+    acc.finalize(response_bytes)
+}
+
+struct StreamingHttpResponse {
+    status: u16,
+    body: String,
+    response_bytes: usize,
+}
+
+#[cfg(target_arch = "wasm32")]
+fn response_header_value<'a>(headers: &'a [(String, String)], name: &str) -> Option<&'a str> {
+    headers
+        .iter()
+        .find(|(key, _)| key.eq_ignore_ascii_case(name))
+        .map(|(_, value)| value.as_str())
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn feed_sse_or_json_lines<F>(body: &str, mut on_data: F) -> Result<(), StreamParseFailure>
+where
+    F: FnMut(&str) -> Result<(), StreamParseFailure>,
+{
+    if body
+        .lines()
+        .any(|line| line.trim_start().starts_with("data:"))
+    {
+        let events = collect_sse_data_events(&[body.as_bytes()])
+            .map_err(|err| StreamParseFailure::new(err, false))?;
+        for event in events {
+            on_data(&event)?;
+        }
+        return Ok(());
+    }
+
+    for line in body.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        on_data(line)?;
+    }
+    Ok(())
+}
+
+#[cfg(target_arch = "wasm32")]
+fn post_sse_streaming<F>(
+    _ctx: &Context,
+    api_url: &str,
+    headers: &[(String, String)],
+    body: &str,
+    mut on_data: F,
+) -> Result<StreamingHttpResponse, StreamParseFailure>
+where
+    F: FnMut(&str) -> Result<(), StreamParseFailure>,
+{
+    let header_refs: Vec<(&str, &str)> = headers
+        .iter()
+        .map(|(key, value)| (key.as_str(), value.as_str()))
+        .collect();
+    let (mut request_body, mut response_body, fetch_head) =
+        temper_wasm_sdk::http_stream::streaming_call("POST", api_url, &header_refs).map_err(
+            |err| StreamParseFailure::new(format!("streaming_call begin: {err}"), false),
+        )?;
+
+    for chunk in body.as_bytes().chunks(LLM_STREAM_REQUEST_CHUNK_BYTES) {
+        request_body.write_all_chunk(chunk).map_err(|err| {
+            StreamParseFailure::new(format!("streaming request write: {err}"), false)
+        })?;
+    }
+    request_body.finish().map_err(|err| {
+        StreamParseFailure::new(format!("streaming request finish: {err}"), false)
+    })?;
+
+    let head = fetch_head()
+        .map_err(|err| StreamParseFailure::new(format!("streaming response head: {err}"), false))?;
+    let success = (200..300).contains(&head.status);
+    let mut response_bytes = 0usize;
+    let mut body_text = String::new();
+    let mut decoder = SseDataDecoder::default();
+    let mut buf = vec![0u8; LLM_STREAM_READ_BUFFER_BYTES];
+
+    loop {
+        let n = match response_body.read_next_chunk(&mut buf) {
+            Ok(Some(n)) => n,
+            Ok(None) => break,
+            Err(err) => {
+                return Err(StreamParseFailure::new(
+                    format!("streaming response read: {err}"),
+                    false,
+                ));
+            }
+        };
+        response_bytes += n;
+        if success {
+            for event in decoder.push_chunk(&buf[..n]) {
+                on_data(&event)?;
+            }
+        } else {
+            body_text.push_str(&String::from_utf8_lossy(&buf[..n]));
+        }
+    }
+
+    if success {
+        for event in decoder.finish() {
+            on_data(&event)?;
+        }
+    } else if head.status == 0
+        && let Some(stream_error) = response_header_value(&head.headers, "x-temper-stream-error")
+        && body_text.is_empty()
+    {
+        body_text.push_str(stream_error);
+    }
+
+    let _ = response_body.close();
+    Ok(StreamingHttpResponse {
+        status: head.status,
+        body: body_text,
+        response_bytes,
+    })
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn post_sse_streaming<F>(
+    ctx: &Context,
+    api_url: &str,
+    headers: &[(String, String)],
+    body: &str,
+    on_data: F,
+) -> Result<StreamingHttpResponse, StreamParseFailure>
+where
+    F: FnMut(&str) -> Result<(), StreamParseFailure>,
+{
+    let resp = ctx
+        .http_call("POST", api_url, headers, body)
+        .map_err(|err| StreamParseFailure::new(err, false))?;
+    if (200..300).contains(&resp.status) {
+        feed_sse_or_json_lines(&resp.body, on_data)?;
+    }
+    Ok(StreamingHttpResponse {
+        status: resp.status,
+        response_bytes: resp.body.len(),
+        body: resp.body,
+    })
+}
+
+struct LlmLiveProgress<'a> {
+    ctx: &'a Context,
+    temper_api_url: &'a str,
+    tenant: &'a str,
+    provider: &'a str,
+    model: &'a str,
+    sequence: u64,
+    saw_semantic_output: bool,
+    semantic_output_bytes: usize,
+    last_progress_ms: Option<i64>,
+    last_progress_bytes: usize,
+}
+
+impl<'a> LlmLiveProgress<'a> {
+    fn new(
+        ctx: &'a Context,
+        temper_api_url: &'a str,
+        tenant: &'a str,
+        provider: &'a str,
+        model: &'a str,
+    ) -> Self {
+        Self {
+            ctx,
+            temper_api_url,
+            tenant,
+            provider,
+            model,
+            sequence: 0,
+            saw_semantic_output: false,
+            semantic_output_bytes: 0,
+            last_progress_ms: None,
+            last_progress_bytes: 0,
+        }
+    }
+
+    fn saw_semantic_output(&self) -> bool {
+        self.saw_semantic_output
+    }
+
+    fn emit_deltas(&mut self, deltas: &[LlmStreamDelta]) {
+        for delta in deltas {
+            self.emit_delta(delta);
+        }
+    }
+
+    fn emit_delta(&mut self, delta: &LlmStreamDelta) {
+        if !delta.is_semantic() {
+            return;
+        }
+
+        let was_first_semantic_output = !self.saw_semantic_output;
+        self.saw_semantic_output = true;
+        self.sequence += 1;
+        self.semantic_output_bytes += delta.delta_text.len();
+        if let Some(tool_delta) = &delta.tool_arguments_delta {
+            self.semantic_output_bytes += tool_delta.len();
+        }
+
+        let mut payload = json!({
+            "kind": "llm_delta",
+            "provider": self.provider,
+            "model": self.model,
+            "sequence": self.sequence,
+            "delta_text": delta.delta_text,
+            "accumulated_text_chars": delta.accumulated_text_chars,
+        });
+        if let Some(obj) = payload.as_object_mut() {
+            if let Some(tool_call_id) = &delta.tool_call_id {
+                obj.insert("tool_call_id".to_string(), json!(tool_call_id));
+            }
+            if let Some(tool_name) = &delta.tool_name {
+                obj.insert("tool_name".to_string(), json!(tool_name));
+            }
+            if let Some(tool_arguments_delta) = &delta.tool_arguments_delta {
+                obj.insert(
+                    "tool_arguments_delta".to_string(),
+                    json!(tool_arguments_delta),
+                );
+            }
+        }
+
+        if let Err(err) = self.ctx.emit_progress(&payload) {
+            self.ctx.log(
+                "warn",
+                &format!("session_turn: failed to emit llm_delta progress event: {err}"),
+            );
+        }
+
+        let now = Context::get_time_millis();
+        let should_dispatch = was_first_semantic_output
+            || self
+                .last_progress_ms
+                .is_some_and(|last| now - last >= LLM_STREAM_PROGRESS_INTERVAL_MS)
+            || self
+                .semantic_output_bytes
+                .saturating_sub(self.last_progress_bytes)
+                >= LLM_STREAM_PROGRESS_BYTES;
+        if should_dispatch {
+            if let Err(err) = send_progress(self.ctx, self.temper_api_url, self.tenant) {
+                self.ctx.log(
+                    "warn",
+                    &format!("session_turn: failed to dispatch ProgressMade for LLM stream: {err}"),
+                );
+            }
+            self.last_progress_ms = Some(now);
+            self.last_progress_bytes = self.semantic_output_bytes;
+        }
+    }
+}
+
 /// Max output tokens passed to both Anthropic and OpenRouter. Kept as a
 /// constant so the value is reusable as a `gen_ai.request.max_tokens`
 /// span-hint attribute without drifting from the body payload.
@@ -287,6 +1356,8 @@ fn format_gen_ai_usage_log(
 
 fn call_anthropic(
     ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
     api_key: &str,
     api_url: &str,
     model: &str,
@@ -322,6 +1393,7 @@ fn call_anthropic(
         "max_tokens": LLM_MAX_TOKENS,
         "messages": effective_messages,
         "temperature": temperature,
+        "stream": true,
     });
 
     if !effective_system.is_empty() {
@@ -387,6 +1459,7 @@ fn call_anthropic(
                 "oauth-2025-04-20,computer-use-2025-01-24,prompt-caching-2024-07-31".to_string(),
             ),
             ("content-type".to_string(), "application/json".to_string()),
+            ("accept".to_string(), "text/event-stream".to_string()),
             ("user-agent".to_string(), "claude-cli/2.1.75".to_string()),
             ("x-app".to_string(), "cli".to_string()),
         ]
@@ -399,6 +1472,7 @@ fn call_anthropic(
                 "prompt-caching-2024-07-31".to_string(),
             ),
             ("content-type".to_string(), "application/json".to_string()),
+            ("accept".to_string(), "text/event-stream".to_string()),
         ]
     };
     // Span hint headers — consumed + stripped by the host's split_span_hint_headers
@@ -436,14 +1510,15 @@ fn call_anthropic(
         "/content/0/text".to_string(),
     ));
 
-    // Retry on transient API errors (500, 529, and 400 with vague "Error" message).
-    // Per-attempt timing added by ADR-0037 Fix B so a hung upstream surfaces
-    // in DD logs long before the 600 s WASM-host timeout kills the module.
+    // Retry on transient API errors only until the stream emits visible output.
+    // Once the user has seen a semantic delta, replaying the call would duplicate
+    // live output, so a midstream failure is surfaced clearly instead.
     let overall_start_ms = Context::get_time_millis();
     let mut last_err = String::new();
-    let mut resp = None;
+    let mut parsed_stream = None;
     let mut attempts_used: u32 = 0;
-    for attempt in 0..5u32 {
+    let mut live_progress = LlmLiveProgress::new(ctx, temper_api_url, tenant, "anthropic", model);
+    for attempt in 0..LLM_MAX_ATTEMPTS {
         let attempt_num = attempt + 1;
         attempts_used = attempt_num;
         if attempt > 0 {
@@ -460,12 +1535,18 @@ fn call_anthropic(
                 "anthropic",
                 model,
                 attempt_num,
-                5,
+                LLM_MAX_ATTEMPTS,
                 Context::get_time_millis() - overall_start_ms,
             ),
         );
         let attempt_start_ms = Context::get_time_millis();
-        match ctx.http_call("POST", api_url, &headers, &body_str) {
+        let mut accumulator = AnthropicStreamAccumulator::default();
+        let stream_result = post_sse_streaming(ctx, api_url, &headers, &body_str, |data| {
+            let deltas = accumulator.ingest_data(data)?;
+            live_progress.emit_deltas(&deltas);
+            Ok(())
+        });
+        match stream_result {
             Ok(r) if r.status == 200 => {
                 let elapsed = Context::get_time_millis() - attempt_start_ms;
                 ctx.log(
@@ -474,8 +1555,8 @@ fn call_anthropic(
                         "anthropic",
                         attempt_num,
                         elapsed,
-                        r.status as u16,
-                        r.body.len(),
+                        r.status,
+                        r.response_bytes,
                     ),
                 );
                 if should_emit_hang_hint(elapsed) {
@@ -484,8 +1565,27 @@ fn call_anthropic(
                         &format_llm_hang_hint("anthropic", attempt_num, elapsed),
                     );
                 }
-                resp = Some(r);
-                break;
+                match accumulator.finalize(r.response_bytes) {
+                    Ok(parsed) => {
+                        parsed_stream = Some(parsed);
+                        break;
+                    }
+                    Err(err) => {
+                        last_err = err.to_string();
+                        let visible =
+                            err.semantic_output_seen || live_progress.saw_semantic_output();
+                        if should_retry_stream_failure(attempt_num, LLM_MAX_ATTEMPTS, visible) {
+                            ctx.log(
+                                "warn",
+                                &format!("session_turn: Anthropic stream parse failed before visible output, will retry: {last_err}"),
+                            );
+                            continue;
+                        }
+                        return Err(format!(
+                            "Anthropic stream failed after visible output or final attempt: {last_err}"
+                        ));
+                    }
+                }
             }
             Ok(r) if r.status == 500 || r.status == 529 => {
                 let elapsed = Context::get_time_millis() - attempt_start_ms;
@@ -495,8 +1595,8 @@ fn call_anthropic(
                         "anthropic",
                         attempt_num,
                         elapsed,
-                        r.status as u16,
-                        r.body.len(),
+                        r.status,
+                        r.response_bytes,
                     ),
                 );
                 if should_emit_hang_hint(elapsed) {
@@ -506,6 +1606,13 @@ fn call_anthropic(
                     );
                 }
                 last_err = format!("HTTP {}: {}", r.status, &r.body[..r.body.len().min(200)]);
+                if live_progress.saw_semantic_output() {
+                    return Err(format!(
+                        "Anthropic stream returned transient HTTP {} after visible output: {}",
+                        r.status,
+                        &r.body[..r.body.len().min(500)]
+                    ));
+                }
                 continue;
             }
             Ok(r) if r.status == 400 && r.body.contains("\"message\":\"Error\"") => {
@@ -517,8 +1624,8 @@ fn call_anthropic(
                         "anthropic",
                         attempt_num,
                         elapsed,
-                        r.status as u16,
-                        r.body.len(),
+                        r.status,
+                        r.response_bytes,
                     ),
                 );
                 if should_emit_hang_hint(elapsed) {
@@ -528,6 +1635,12 @@ fn call_anthropic(
                     );
                 }
                 last_err = format!("HTTP 400 (transient): {}", &r.body[..r.body.len().min(200)]);
+                if live_progress.saw_semantic_output() {
+                    return Err(format!(
+                        "Anthropic stream returned transient HTTP 400 after visible output: {}",
+                        &r.body[..r.body.len().min(500)]
+                    ));
+                }
                 continue;
             }
             Ok(r) => {
@@ -538,8 +1651,8 @@ fn call_anthropic(
                         "anthropic",
                         attempt_num,
                         elapsed,
-                        r.status as u16,
-                        r.body.len(),
+                        r.status,
+                        r.response_bytes,
                     ),
                 );
                 let total_elapsed = Context::get_time_millis() - overall_start_ms;
@@ -564,7 +1677,7 @@ fn call_anthropic(
                 ctx.log(
                     "warn",
                     &format!(
-                        "session_turn: anthropic attempt {attempt_num} transport error elapsed_ms={elapsed} err={e}"
+                        "session_turn: anthropic attempt {attempt_num} stream error elapsed_ms={elapsed} err={e}"
                     ),
                 );
                 if should_emit_hang_hint(elapsed) {
@@ -573,13 +1686,19 @@ fn call_anthropic(
                         &format_llm_hang_hint("anthropic", attempt_num, elapsed),
                     );
                 }
-                last_err = e;
+                last_err = e.to_string();
+                let visible = e.semantic_output_seen || live_progress.saw_semantic_output();
+                if !should_retry_stream_failure(attempt_num, LLM_MAX_ATTEMPTS, visible) {
+                    return Err(format!(
+                        "Anthropic stream failed after visible output or final attempt: {last_err}"
+                    ));
+                }
                 continue;
             }
         }
     }
-    let resp = match resp {
-        Some(r) => r,
+    let parsed = match parsed_stream {
+        Some(parsed) => parsed,
         None => {
             let total_elapsed = Context::get_time_millis() - overall_start_ms;
             ctx.log(
@@ -606,63 +1725,26 @@ fn call_anthropic(
         ),
     );
 
-    let parsed: Value = serde_json::from_str(&resp.body)
-        .map_err(|e| format!("failed to parse LLM response: {e}"))?;
-
-    let stop_reason = parsed
-        .get("stop_reason")
-        .and_then(|v| v.as_str())
-        .unwrap_or("end_turn")
-        .to_string();
-
-    let content = parsed.get("content").cloned().unwrap_or(json!([]));
-
-    // Extract token usage from Anthropic response
-    let usage = parsed.get("usage").cloned().unwrap_or(json!({}));
-    let input_tokens = usage
-        .get("input_tokens")
-        .and_then(|v| v.as_i64())
-        .unwrap_or(0);
-    let output_tokens = usage
-        .get("output_tokens")
-        .and_then(|v| v.as_i64())
-        .unwrap_or(0);
-    let cache_read_input_tokens = usage
-        .get("cache_read_input_tokens")
-        .and_then(|v| v.as_i64())
-        .unwrap_or(0);
-    let cache_creation_input_tokens = usage
-        .get("cache_creation_input_tokens")
-        .and_then(|v| v.as_i64())
-        .unwrap_or(0);
-
     ctx.log(
         "info",
         &format_gen_ai_usage_log(
             "anthropic",
             model,
-            input_tokens,
-            output_tokens,
-            cache_read_input_tokens,
-            cache_creation_input_tokens,
+            parsed.input_tokens,
+            parsed.output_tokens,
+            parsed.cache_read_input_tokens,
+            parsed.cache_creation_input_tokens,
         ),
     );
 
-    Ok(LlmResponse {
-        content,
-        stop_reason,
-        input_tokens,
-        output_tokens,
-        cache_read_input_tokens,
-        cache_creation_input_tokens,
-        request_bytes: body_str.len(),
-        response_bytes: resp.body.len(),
-    })
+    Ok(parsed.into_llm_response(body_str.len()))
 }
 
 /// Call OpenRouter Chat Completions API (OpenAI-compatible schema).
 fn call_openrouter(
     ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
     api_key: &str,
     api_url: &str,
     model: &str,
@@ -688,6 +1770,8 @@ fn call_openrouter(
         "messages": or_messages,
         "max_tokens": LLM_MAX_TOKENS,
         "temperature": temperature,
+        "stream": true,
+        "stream_options": {"include_usage": true},
     });
     if !openai_tools.is_empty() {
         body["tools"] = json!(openai_tools);
@@ -700,6 +1784,7 @@ fn call_openrouter(
     let mut headers = vec![
         ("authorization".to_string(), format!("Bearer {api_key}")),
         ("content-type".to_string(), "application/json".to_string()),
+        ("accept".to_string(), "text/event-stream".to_string()),
     ];
     if !site_url.trim().is_empty() {
         headers.push(("HTTP-Referer".to_string(), site_url.trim().to_string()));
@@ -748,12 +1833,14 @@ fn call_openrouter(
         ),
     );
 
-    // Per-attempt timing + hang hint per ADR-0037 Fix B.
+    // Per-attempt timing + hang hint per ADR-0037 Fix B. Streaming retries are
+    // allowed only before any semantic delta has been emitted to observers.
     let overall_start_ms = Context::get_time_millis();
     let mut last_err = String::new();
-    let mut resp = None;
+    let mut parsed_stream = None;
     let mut attempts_used: u32 = 0;
-    for attempt in 0..5u32 {
+    let mut live_progress = LlmLiveProgress::new(ctx, temper_api_url, tenant, "openrouter", model);
+    for attempt in 0..LLM_MAX_ATTEMPTS {
         let attempt_num = attempt + 1;
         attempts_used = attempt_num;
         if attempt > 0 {
@@ -770,12 +1857,18 @@ fn call_openrouter(
                 "openrouter",
                 model,
                 attempt_num,
-                5,
+                LLM_MAX_ATTEMPTS,
                 Context::get_time_millis() - overall_start_ms,
             ),
         );
         let attempt_start_ms = Context::get_time_millis();
-        match ctx.http_call("POST", api_url, &headers, &body_str) {
+        let mut accumulator = OpenRouterStreamAccumulator::default();
+        let stream_result = post_sse_streaming(ctx, api_url, &headers, &body_str, |data| {
+            let deltas = accumulator.ingest_data(data)?;
+            live_progress.emit_deltas(&deltas);
+            Ok(())
+        });
+        match stream_result {
             Ok(r) if r.status == 200 => {
                 let elapsed = Context::get_time_millis() - attempt_start_ms;
                 ctx.log(
@@ -784,8 +1877,8 @@ fn call_openrouter(
                         "openrouter",
                         attempt_num,
                         elapsed,
-                        r.status as u16,
-                        r.body.len(),
+                        r.status,
+                        r.response_bytes,
                     ),
                 );
                 if should_emit_hang_hint(elapsed) {
@@ -794,8 +1887,27 @@ fn call_openrouter(
                         &format_llm_hang_hint("openrouter", attempt_num, elapsed),
                     );
                 }
-                resp = Some(r);
-                break;
+                match accumulator.finalize(r.response_bytes) {
+                    Ok(parsed) => {
+                        parsed_stream = Some(parsed);
+                        break;
+                    }
+                    Err(err) => {
+                        last_err = err.to_string();
+                        let visible =
+                            err.semantic_output_seen || live_progress.saw_semantic_output();
+                        if should_retry_stream_failure(attempt_num, LLM_MAX_ATTEMPTS, visible) {
+                            ctx.log(
+                                "warn",
+                                &format!("session_turn: OpenRouter stream parse failed before visible output, will retry: {last_err}"),
+                            );
+                            continue;
+                        }
+                        return Err(format!(
+                            "OpenRouter stream failed after visible output or final attempt: {last_err}"
+                        ));
+                    }
+                }
             }
             Ok(r) if matches!(r.status, 429 | 500 | 502 | 503 | 504) => {
                 let elapsed = Context::get_time_millis() - attempt_start_ms;
@@ -805,8 +1917,8 @@ fn call_openrouter(
                         "openrouter",
                         attempt_num,
                         elapsed,
-                        r.status as u16,
-                        r.body.len(),
+                        r.status,
+                        r.response_bytes,
                     ),
                 );
                 if should_emit_hang_hint(elapsed) {
@@ -816,6 +1928,13 @@ fn call_openrouter(
                     );
                 }
                 last_err = format!("HTTP {}: {}", r.status, &r.body[..r.body.len().min(200)]);
+                if live_progress.saw_semantic_output() {
+                    return Err(format!(
+                        "OpenRouter stream returned transient HTTP {} after visible output: {}",
+                        r.status,
+                        &r.body[..r.body.len().min(500)]
+                    ));
+                }
                 continue;
             }
             Ok(r) => {
@@ -826,8 +1945,8 @@ fn call_openrouter(
                         "openrouter",
                         attempt_num,
                         elapsed,
-                        r.status as u16,
-                        r.body.len(),
+                        r.status,
+                        r.response_bytes,
                     ),
                 );
                 let total_elapsed = Context::get_time_millis() - overall_start_ms;
@@ -852,7 +1971,7 @@ fn call_openrouter(
                 ctx.log(
                     "warn",
                     &format!(
-                        "session_turn: openrouter attempt {attempt_num} transport error elapsed_ms={elapsed} err={e}"
+                        "session_turn: openrouter attempt {attempt_num} stream error elapsed_ms={elapsed} err={e}"
                     ),
                 );
                 if should_emit_hang_hint(elapsed) {
@@ -861,13 +1980,19 @@ fn call_openrouter(
                         &format_llm_hang_hint("openrouter", attempt_num, elapsed),
                     );
                 }
-                last_err = e;
+                last_err = e.to_string();
+                let visible = e.semantic_output_seen || live_progress.saw_semantic_output();
+                if !should_retry_stream_failure(attempt_num, LLM_MAX_ATTEMPTS, visible) {
+                    return Err(format!(
+                        "OpenRouter stream failed after visible output or final attempt: {last_err}"
+                    ));
+                }
                 continue;
             }
         }
     }
-    let resp = match resp {
-        Some(r) => r,
+    let parsed = match parsed_stream {
+        Some(parsed) => parsed,
         None => {
             let total_elapsed = Context::get_time_millis() - overall_start_ms;
             ctx.log(
@@ -896,88 +2021,19 @@ fn call_openrouter(
         ),
     );
 
-    let parsed: Value = serde_json::from_str(&resp.body)
-        .map_err(|e| format!("failed to parse OpenRouter response: {e}"))?;
-    let choice = parsed
-        .get("choices")
-        .and_then(|v| v.as_array())
-        .and_then(|arr| arr.first())
-        .cloned()
-        .unwrap_or(json!({}));
-    let message = choice.get("message").cloned().unwrap_or(json!({}));
-
-    let mut content_blocks = Vec::<Value>::new();
-    let text = extract_openrouter_text(&message);
-    if !text.is_empty() {
-        content_blocks.push(json!({
-            "type": "text",
-            "text": text,
-        }));
-    }
-
-    let mut has_tool_calls = false;
-    if let Some(tool_calls) = message.get("tool_calls").and_then(Value::as_array) {
-        for (idx, tc) in tool_calls.iter().enumerate() {
-            let fn_name = tc
-                .get("function")
-                .and_then(|f| f.get("name"))
-                .and_then(Value::as_str)
-                .unwrap_or("unknown_tool");
-            let call_id = tc
-                .get("id")
-                .and_then(Value::as_str)
-                .map(|s| s.to_string())
-                .unwrap_or_else(|| format!("or_tool_{}", idx + 1));
-            let args_str = tc
-                .get("function")
-                .and_then(|f| f.get("arguments"))
-                .and_then(Value::as_str)
-                .unwrap_or("{}");
-            let input = serde_json::from_str::<Value>(args_str).unwrap_or(json!({}));
-
-            content_blocks.push(json!({
-                "type": "tool_use",
-                "id": call_id,
-                "name": fn_name,
-                "input": input,
-            }));
-            has_tool_calls = true;
-        }
-    }
-
-    let usage = parsed.get("usage").cloned().unwrap_or(json!({}));
-    let input_tokens = usage
-        .get("prompt_tokens")
-        .and_then(|v| v.as_i64())
-        .or_else(|| usage.get("input_tokens").and_then(|v| v.as_i64()))
-        .unwrap_or(0);
-    let output_tokens = usage
-        .get("completion_tokens")
-        .and_then(|v| v.as_i64())
-        .or_else(|| usage.get("output_tokens").and_then(|v| v.as_i64()))
-        .unwrap_or(0);
-
-    let stop_reason = if has_tool_calls {
-        "tool_use".to_string()
-    } else {
-        "end_turn".to_string()
-    };
-
     ctx.log(
         "info",
-        &format_gen_ai_usage_log("openrouter", model, input_tokens, output_tokens, 0, 0),
+        &format_gen_ai_usage_log(
+            "openrouter",
+            model,
+            parsed.input_tokens,
+            parsed.output_tokens,
+            0,
+            0,
+        ),
     );
 
-    Ok(LlmResponse {
-        content: Value::Array(content_blocks),
-        stop_reason,
-        input_tokens,
-        output_tokens,
-        cache_read_input_tokens: 0,
-        cache_creation_input_tokens: 0,
-        request_bytes: body_str.len(),
-        response_bytes: resp.body.len(),
-    })
+    Ok(parsed.into_llm_response(body_str.len()))
 }
 
 /// Extract text and image content from a tool_result content field.
@@ -1033,6 +2089,8 @@ fn extract_text_and_images_from_tool_content(
 /// The WASM http_call buffers the full SSE stream — we parse the response.completed event.
 fn call_openai(
     ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
     api_key: &str,
     api_url: &str,
     codex_account_id: Option<&str>,
@@ -1223,7 +2281,13 @@ fn call_openai(
     let body_str =
         serde_json::to_string(&body).map_err(|e| format!("JSON serialize error: {e}"))?;
 
-    let headers = build_openai_headers(provider, api_key, codex_account_id);
+    let mut headers = build_openai_headers(provider, api_key, codex_account_id);
+    if !headers
+        .iter()
+        .any(|(key, _)| key.eq_ignore_ascii_case("accept"))
+    {
+        headers.push(("accept".to_string(), "text/event-stream".to_string()));
+    }
 
     // Log input types for debugging conversation format issues
     let input_types: Vec<String> = input
@@ -1252,20 +2316,56 @@ fn call_openai(
     );
 
     let mut last_err = String::new();
-    let mut output_items = Vec::<Value>::new();
-    let mut usage = json!({});
+    let mut parsed_stream = None;
+    let mut live_progress = LlmLiveProgress::new(ctx, temper_api_url, tenant, provider, model);
 
-    for attempt in 0..5 {
+    for attempt in 0..LLM_MAX_ATTEMPTS {
+        let attempt_num = attempt + 1;
         if attempt > 0 {
             ctx.log(
                 "warn",
-                &format!("session_turn: OpenAI Codex retry {}/{}", attempt + 1, 5),
+                &format!("session_turn: OpenAI Codex retry {attempt_num}/{LLM_MAX_ATTEMPTS}"),
             );
         }
-        let resp = match ctx.http_call("POST", api_url, &headers, &body_str) {
-            Ok(r) if r.status >= 200 && r.status < 300 => r,
+        let mut accumulator = OpenAiStreamAccumulator::default();
+        let stream_result = post_sse_streaming(ctx, api_url, &headers, &body_str, |data| {
+            let deltas = accumulator.ingest_data(data)?;
+            live_progress.emit_deltas(&deltas);
+            Ok(())
+        });
+
+        match stream_result {
+            Ok(r) if r.status >= 200 && r.status < 300 => {
+                match accumulator.finalize(r.response_bytes) {
+                    Ok(parsed) => {
+                        parsed_stream = Some(parsed);
+                        break;
+                    }
+                    Err(err) => {
+                        last_err = err.to_string();
+                        let visible =
+                            err.semantic_output_seen || live_progress.saw_semantic_output();
+                        if should_retry_stream_failure(attempt_num, LLM_MAX_ATTEMPTS, visible) {
+                            ctx.log(
+                                "warn",
+                                &format!("session_turn: OpenAI Codex stream parse failed before visible output, will retry: {last_err}"),
+                            );
+                            continue;
+                        }
+                        return Err(format!(
+                            "OpenAI Codex stream failed after visible output or final attempt: {last_err}"
+                        ));
+                    }
+                }
+            }
             Ok(r) if r.status == 429 => {
                 last_err = format!("OpenAI Codex API rate limited (429)");
+                if live_progress.saw_semantic_output() {
+                    return Err(format!(
+                        "OpenAI Codex stream was rate limited after visible output: {}",
+                        &r.body[..r.body.len().min(300)]
+                    ));
+                }
                 continue;
             }
             Ok(r) => {
@@ -1280,221 +2380,39 @@ fn call_openai(
                 return Err(format!("OpenAI Codex API returned {}: {snippet}", r.status));
             }
             Err(e) => {
-                last_err = e;
+                last_err = e.to_string();
+                ctx.log(
+                    "warn",
+                    &format_openai_codex_host_http_failure_log(
+                        attempt_num,
+                        LLM_MAX_ATTEMPTS,
+                        &last_err,
+                    ),
+                );
+                let visible = e.semantic_output_seen || live_progress.saw_semantic_output();
+                if !should_retry_stream_failure(attempt_num, LLM_MAX_ATTEMPTS, visible) {
+                    return Err(format!(
+                        "OpenAI Codex stream failed after visible output or final attempt: {last_err}"
+                    ));
+                }
                 continue;
             }
-        };
-
-        // Parse SSE data payloads (newline-separated JSON lines from host).
-        // The Codex endpoint streams individual events — output_item.done events
-        // contain the actual tool calls and messages. response.completed may have
-        // empty output (Codex strips it for bandwidth). So we accumulate output
-        // items from output_item.done events and usage from response.completed.
-        let body = &resp.body;
-        output_items.clear();
-        usage = json!({});
-        let mut streamed_text = String::new();
-        let mut saw_completed = false;
-
-        for line in body.lines() {
-            let line = line.trim();
-            if line.is_empty() || line == "[DONE]" {
-                continue;
-            }
-            let json_str = line.strip_prefix("data: ").unwrap_or(line);
-            if let Ok(event) = serde_json::from_str::<Value>(json_str) {
-                let event_type = event.get("type").and_then(Value::as_str).unwrap_or("");
-                match event_type {
-                    "response.output_item.done" => {
-                        if let Some(item) = event.get("item") {
-                            output_items.push(item.clone());
-                        }
-                    }
-                    "response.output_text.delta" => {
-                        if let Some(delta) = event.get("delta").and_then(Value::as_str) {
-                            streamed_text.push_str(delta);
-                        } else if let Some(text) = event.get("text").and_then(Value::as_str) {
-                            streamed_text.push_str(text);
-                        }
-                    }
-                    "response.output_text.done" => {
-                        if let Some(text) = event.get("text").and_then(Value::as_str) {
-                            if streamed_text.is_empty() {
-                                streamed_text.push_str(text);
-                            }
-                        }
-                    }
-                    "response.completed" => {
-                        saw_completed = true;
-                        if let Some(resp) = event.get("response") {
-                            if let Some(u) = resp.get("usage") {
-                                usage = u.clone();
-                            }
-                            if let Some(out) = resp.get("output").and_then(Value::as_array) {
-                                if !out.is_empty() {
-                                    output_items = out.clone();
-                                }
-                            }
-                        }
-                    }
-                    _ => {}
-                }
-            }
-        }
-
-        if output_items.is_empty() {
-            let trimmed = streamed_text.trim();
-            if !trimmed.is_empty() {
-                output_items.push(json!({
-                    "type": "message",
-                    "content": [{
-                        "type": "output_text",
-                        "text": trimmed,
-                    }],
-                }));
-            }
-        }
-
-        if !output_items.is_empty() {
-            break;
-        }
-
-        // No output items — stream was likely truncated (SSE decode error
-        // during reasoning phase). Retry if we never saw response.completed.
-        if !saw_completed {
-            last_err = format!(
-                "SSE stream truncated: {} lines ({}B) but no response.completed event",
-                body.lines().count(),
-                body.len()
-            );
-            ctx.log("warn", &format!("session_turn: {last_err}, will retry"));
-            continue;
-        }
-
-        // Saw response.completed but still no output — genuine empty response
-        return Err(format!(
-            "OpenAI: no output items found in {} lines ({}B) despite response.completed",
-            body.lines().count(),
-            body.len()
-        ));
-    }
-
-    if output_items.is_empty() {
-        return Err(format!(
-            "OpenAI Codex API failed after 5 attempts: {last_err}"
-        ));
-    }
-
-    // Build a synthetic response object for the existing parsing code
-    let response = json!({
-        "output": output_items,
-        "usage": usage,
-    });
-
-    // Extract content and tool calls from response.output
-    let mut content_blocks = Vec::<Value>::new();
-    let mut has_tool_calls = false;
-
-    if let Some(output) = response.get("output").and_then(Value::as_array) {
-        for item in output {
-            let item_type = item.get("type").and_then(Value::as_str).unwrap_or("");
-            match item_type {
-                "message" => {
-                    if let Some(content) = item.get("content").and_then(Value::as_array) {
-                        for part in content {
-                            let part_type = part.get("type").and_then(Value::as_str).unwrap_or("");
-                            if part_type == "output_text" {
-                                if let Some(text) = part.get("text").and_then(Value::as_str) {
-                                    if !text.is_empty() {
-                                        content_blocks.push(json!({
-                                            "type": "text",
-                                            "text": text,
-                                        }));
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                "function_call" => {
-                    let call_id = item
-                        .get("call_id")
-                        .and_then(Value::as_str)
-                        .unwrap_or("")
-                        .to_string();
-                    let name = item
-                        .get("name")
-                        .and_then(Value::as_str)
-                        .unwrap_or("")
-                        .to_string();
-                    let arguments = item
-                        .get("arguments")
-                        .and_then(Value::as_str)
-                        .unwrap_or("{}");
-                    let input = serde_json::from_str::<Value>(arguments).unwrap_or(json!({}));
-                    content_blocks.push(json!({
-                        "type": "tool_use",
-                        "id": call_id,
-                        "name": name,
-                        "input": input,
-                    }));
-                    has_tool_calls = true;
-                }
-                _ => {} // reasoning, etc. — skip
-            }
         }
     }
 
-    let usage = response.get("usage").cloned().unwrap_or(json!({}));
-    let input_tokens = usage
-        .get("input_tokens")
-        .and_then(|v| v.as_i64())
-        .unwrap_or(0);
-    let output_tokens = usage
-        .get("output_tokens")
-        .and_then(|v| v.as_i64())
-        .unwrap_or(0);
-
-    let stop_reason = if has_tool_calls {
-        "tool_use".to_string()
-    } else {
-        "end_turn".to_string()
-    };
+    let parsed = parsed_stream
+        .ok_or_else(|| format_openai_codex_exhausted_error(LLM_MAX_ATTEMPTS, &last_err))?;
+    let content_blocks = parsed.content.as_array().map(Vec::len).unwrap_or(0);
 
     ctx.log(
         "info",
-        &format!("session_turn: OpenAI Codex response: blocks={}, stop={stop_reason}, in={input_tokens}, out={output_tokens}",
-            content_blocks.len()),
+        &format!(
+            "session_turn: OpenAI Codex response: blocks={}, stop={}, in={}, out={}",
+            content_blocks, parsed.stop_reason, parsed.input_tokens, parsed.output_tokens
+        ),
     );
 
-    Ok(LlmResponse {
-        content: Value::Array(content_blocks),
-        stop_reason,
-        input_tokens,
-        output_tokens,
-        cache_read_input_tokens: 0,
-        cache_creation_input_tokens: 0,
-        request_bytes: body_str.len(),
-        response_bytes: serde_json::to_string(&response).unwrap_or_default().len(),
-    })
-}
-
-fn extract_openrouter_text(message: &Value) -> String {
-    if let Some(text) = message.get("content").and_then(Value::as_str) {
-        return text.to_string();
-    }
-    if let Some(arr) = message.get("content").and_then(Value::as_array) {
-        let mut chunks = Vec::<String>::new();
-        for item in arr {
-            if let Some(text) = item.get("text").and_then(Value::as_str) {
-                chunks.push(text.to_string());
-            } else if let Some(text) = item.get("content").and_then(Value::as_str) {
-                chunks.push(text.to_string());
-            }
-        }
-        return chunks.join("\n");
-    }
-    String::new()
+    Ok(parsed.into_llm_response(body_str.len()))
 }
 
 fn stringify_content(value: &Value) -> String {
@@ -2103,6 +3021,8 @@ pub fn run_provider_caller() -> Result<(), String> {
             ),
             "anthropic" => call_anthropic(
                 &ctx,
+                &temper_api_url,
+                tenant,
                 &api_key,
                 &anthropic_api_url,
                 &model,
@@ -2114,6 +3034,8 @@ pub fn run_provider_caller() -> Result<(), String> {
             ),
             "openrouter" => call_openrouter(
                 &ctx,
+                &temper_api_url,
+                tenant,
                 &api_key,
                 &openrouter_api_url,
                 &model,
@@ -2126,6 +3048,8 @@ pub fn run_provider_caller() -> Result<(), String> {
             ),
             "openai" | "openai_codex" => call_openai(
                 &ctx,
+                &temper_api_url,
+                tenant,
                 &api_key,
                 &openai_api_url,
                 openai_codex_account_id.as_deref(),
@@ -2568,6 +3492,152 @@ mod tests {
         assert!(!headers.iter().any(|(name, _)| name == "chatgpt-account-id"));
         assert!(!headers.iter().any(|(name, _)| name == "OpenAI-Beta"));
         assert!(headers.contains(&("authorization".to_string(), "Bearer sk-test".to_string())));
+    }
+
+    #[test]
+    fn openai_codex_host_http_failure_message_names_host_boundary() {
+        let msg = format_openai_codex_exhausted_error(
+            5,
+            "HTTP call failed: POST https://chatgpt.com/backend-api/codex/responses",
+        );
+
+        assert!(msg.contains("OpenAI Codex host HTTP call failed after 5 attempts"));
+        assert!(msg.contains("before a provider HTTP response was returned"));
+        assert!(
+            msg.contains("HTTP call failed: POST https://chatgpt.com/backend-api/codex/responses")
+        );
+        assert!(!msg.starts_with("OpenAI Codex API failed"));
+    }
+
+    #[test]
+    fn fragmented_sse_chunks_reassemble_data_events() {
+        let chunks: Vec<&[u8]> = vec![
+            b"event: message\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"Hel",
+            b"lo\"}\n\n",
+            b"data: [DONE]\n\n",
+        ];
+
+        let events = collect_sse_data_events(&chunks).expect("SSE chunks should decode");
+
+        assert_eq!(
+            events,
+            vec![
+                "{\"type\":\"response.output_text.delta\",\"delta\":\"Hello\"}".to_string(),
+                "[DONE]".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn openai_stream_chunks_reconstruct_text_usage_and_completion() {
+        let chunks: Vec<&[u8]> = vec![
+            br#"data: {"type":"response.output_text.delta","delta":"Hel"}"#,
+            b"\n\n",
+            br#"data: {"type":"response.output_text.delta","delta":"lo"}"#,
+            b"\n\n",
+            br#"data: {"type":"response.completed","response":{"usage":{"input_tokens":3,"output_tokens":2},"output":[]}}"#,
+            b"\n\n",
+        ];
+
+        let parsed = parse_openai_stream_chunks(&chunks).expect("OpenAI stream should parse");
+
+        assert_eq!(parsed.content, json!([{"type": "text", "text": "Hello"}]));
+        assert_eq!(parsed.stop_reason, "end_turn");
+        assert_eq!(parsed.input_tokens, 3);
+        assert_eq!(parsed.output_tokens, 2);
+        assert_eq!(
+            parsed
+                .semantic_deltas
+                .iter()
+                .map(|delta| delta.delta_text.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Hel", "lo"]
+        );
+        assert!(parsed.completed);
+    }
+
+    #[test]
+    fn anthropic_stream_chunks_reconstruct_text_tool_use_and_usage() {
+        let chunks: Vec<&[u8]> = vec![
+            br#"data: {"type":"message_start","message":{"usage":{"input_tokens":11}}}"#,
+            b"\n\n",
+            br#"data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}"#,
+            b"\n\n",
+            br#"data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hi"}}"#,
+            b"\n\n",
+            br#"data: {"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"toolu_1","name":"search","input":{}}}"#,
+            b"\n\n",
+            br#"data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\"q\":\"cats\"}"}}"#,
+            b"\n\n",
+            br#"data: {"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":7}}"#,
+            b"\n\n",
+            br#"data: {"type":"message_stop"}"#,
+            b"\n\n",
+        ];
+
+        let parsed = parse_anthropic_stream_chunks(&chunks).expect("Anthropic stream should parse");
+
+        assert_eq!(
+            parsed.content,
+            json!([
+                {"type": "text", "text": "Hi"},
+                {"type": "tool_use", "id": "toolu_1", "name": "search", "input": {"q": "cats"}},
+            ])
+        );
+        assert_eq!(parsed.stop_reason, "tool_use");
+        assert_eq!(parsed.input_tokens, 11);
+        assert_eq!(parsed.output_tokens, 7);
+        assert_eq!(parsed.semantic_deltas[0].delta_text, "Hi");
+        assert_eq!(
+            parsed.semantic_deltas[1].tool_call_id.as_deref(),
+            Some("toolu_1")
+        );
+        assert!(parsed.completed);
+    }
+
+    #[test]
+    fn openrouter_stream_chunks_reconstruct_text_tool_calls_and_usage() {
+        let chunks: Vec<&[u8]> = vec![
+            br#"data: {"choices":[{"delta":{"content":"He"},"finish_reason":null}]}"#,
+            b"\n\n",
+            br#"data: {"choices":[{"delta":{"content":"y","tool_calls":[{"index":0,"id":"call_1","function":{"name":"lookup","arguments":"{\"id\":"}}]},"finish_reason":null}]}"#,
+            b"\n\n",
+            br#"data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"42}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":5,"completion_tokens":6}}"#,
+            b"\n\n",
+            b"data: [DONE]\n\n",
+        ];
+
+        let parsed =
+            parse_openrouter_stream_chunks(&chunks).expect("OpenRouter stream should parse");
+
+        assert_eq!(
+            parsed.content,
+            json!([
+                {"type": "text", "text": "Hey"},
+                {"type": "tool_use", "id": "call_1", "name": "lookup", "input": {"id": 42}},
+            ])
+        );
+        assert_eq!(parsed.stop_reason, "tool_use");
+        assert_eq!(parsed.input_tokens, 5);
+        assert_eq!(parsed.output_tokens, 6);
+        assert_eq!(parsed.semantic_deltas[0].delta_text, "He");
+        assert_eq!(parsed.semantic_deltas[1].delta_text, "y");
+        assert_eq!(
+            parsed.semantic_deltas[2].tool_arguments_delta.as_deref(),
+            Some("{\"id\":")
+        );
+        assert_eq!(
+            parsed.semantic_deltas[3].tool_arguments_delta.as_deref(),
+            Some("42}")
+        );
+        assert!(parsed.completed);
+    }
+
+    #[test]
+    fn stream_failures_retry_only_before_semantic_output() {
+        assert!(should_retry_stream_failure(1, 5, false));
+        assert!(!should_retry_stream_failure(1, 5, true));
+        assert!(!should_retry_stream_failure(5, 5, false));
     }
 
     #[test]
