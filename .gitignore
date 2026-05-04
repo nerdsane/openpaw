@@ -7,6 +7,8 @@ os-apps/**/*.wasm
 *.swp
 *.swo
 .DS_Store
+.claude/
+.worktrees/
 dashboard/node_modules/
 dashboard/.svelte-kit/
 dashboard/build/
