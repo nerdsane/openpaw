@@ -663,6 +663,10 @@ fn repo_sweep_brief_smoke_exports_visual_proof_bundle() {
         "default_schedule",
         "RepoGraphSnapshots",
         "TemperPaw.Patrol.StartScan",
+        "assessment_session_id",
+        "assessment_status",
+        "assessment_summary_markdown",
+        "Assessment Session",
         "DailyBriefs",
         "TemperPaw.Patrol.Start",
         "repo-graph.json",
@@ -1814,7 +1818,12 @@ fn repo_graph_snapshot_queues_sweep_and_fans_out_findings() {
         "on_failure = \"ScanFailed\"",
         "name = \"work_cycle_id\"",
         "name = \"worker_run_id\"",
+        "name = \"assessment_session_id\"",
+        "name = \"assessment_status\"",
+        "name = \"assessment_summary_markdown\"",
         "name = \"AttachWorkerRun\"",
+        "name = \"AttachAssessmentSession\"",
+        "name = \"AssessmentComplete\"",
         "params = [\"error_message\", \"integration\"]",
     ] {
         assert!(
@@ -1837,14 +1846,21 @@ fn repo_graph_snapshot_queues_sweep_and_fans_out_findings() {
     for needle in [
         "/tdata/WorkCycles",
         "/tdata/WorkerRuns",
+        "/tdata/Sessions",
         "/tdata/QualityFindings",
         "/tdata/SecurityFindings",
         "TemperPaw.Patrol.Configure",
         "TemperPaw.Patrol.WritePlan",
         "TemperPaw.Patrol.StartWork",
         "TemperPaw.Patrol.AttachWorkerRun",
+        "TemperPaw.Configure",
+        "TemperPaw.Patrol.AttachAssessmentSession",
+        "TemperPaw.Patrol.AssessmentComplete",
         "TemperPaw.Patrol.OpenFinding",
         "repo graph and dependency sweep",
+        "deterministic repo graph evidence",
+        "intelligent assessment Session",
+        "\"mock_plan\"",
         "giant modules",
         "duplicate logic",
         "fingerprint",
@@ -1866,11 +1882,25 @@ fn repo_graph_snapshot_queues_sweep_and_fans_out_findings() {
         "SecurityFinding",
         "Action::\"StartScan\"",
         "Action::\"ScanComplete\"",
+        "Action::\"AttachAssessmentSession\"",
+        "Action::\"AssessmentComplete\"",
         "Action::\"OpenFinding\"",
     ] {
         assert!(
             policy.contains(needle),
             "patrol.cedar should authorize repo sweep lifecycle with {needle}"
+        );
+    }
+
+    let app_doc = read(patrol.join("APP.md"));
+    for needle in [
+        "deterministic graph evidence",
+        "intelligent assessment Session",
+        "AssessmentComplete",
+    ] {
+        assert!(
+            app_doc.contains(needle),
+            "APP.md should explain RepoGraphSnapshot session assessment: {needle}"
         );
     }
 }
@@ -2031,6 +2061,9 @@ fn daily_brief_renders_visual_human_review_rollup() {
         "effect = [{ type = \"trigger\", name = \"daily_brief_started\" }]",
         "module = \"daily_brief_lifecycle\"",
         "on_failure = \"Fail\"",
+        "name = \"session_id\"",
+        "name = \"session_status\"",
+        "name = \"AttachSession\"",
         "name = \"Render\"",
         "visual_summary_url",
     ] {
@@ -2056,8 +2089,12 @@ fn daily_brief_renders_visual_human_review_rollup() {
         "/tdata/QualityFindings",
         "/tdata/SecurityFindings",
         "/tdata/WorkCycles",
+        "/tdata/Sessions",
+        "TemperPaw.Configure",
+        "TemperPaw.Patrol.AttachSession",
         "TemperPaw.Patrol.Render",
-        "data:image/svg+xml",
+        "agent-driven DailyBrief Session",
+        "\"mock_plan\"",
         "visual_daily_brief_svg",
         "human-readable daily brief",
         "open risks",
@@ -2074,12 +2111,25 @@ fn daily_brief_renders_visual_human_review_rollup() {
         "daily_brief_lifecycle",
         "DailyBrief",
         "Action::\"Start\"",
+        "Action::\"AttachSession\"",
         "Action::\"Render\"",
         "Action::\"Publish\"",
     ] {
         assert!(
             policy.contains(needle),
             "patrol.cedar should authorize daily brief lifecycle with {needle}"
+        );
+    }
+
+    let app_doc = read(patrol.join("APP.md"));
+    for needle in [
+        "agent-driven DailyBrief Session",
+        "DailyBrief.Render",
+        "visual daily summary",
+    ] {
+        assert!(
+            app_doc.contains(needle),
+            "APP.md should explain DailyBrief session synthesis: {needle}"
         );
     }
 }

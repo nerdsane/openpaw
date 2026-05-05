@@ -172,7 +172,7 @@ write_proof_bundle() {
   local proof_body="$4"
   local brief_body="$5"
   local graph_json proof_json proof_markdown proof_visual brief_visual brief_summary
-  local brief_done brief_risks proof_ids
+  local brief_done brief_risks proof_ids assessment_summary
 
   mkdir -p "$PROOF_DIR"
   printf '%s\n' "$summary_json" >"$PROOF_DIR/summary.json"
@@ -199,6 +199,7 @@ write_proof_bundle() {
   brief_done="$(field done_items <<<"$brief_body")"
   brief_risks="$(field open_risks <<<"$brief_body")"
   proof_ids="$(field proof_packet_ids <<<"$brief_body")"
+  assessment_summary="$(field assessment_summary_markdown <<<"$snapshot_body")"
 
   decode_svg_data_uri "$proof_visual" "$PROOF_DIR/proof.svg"
   decode_svg_data_uri "$brief_visual" "$PROOF_DIR/daily-brief.svg"
@@ -209,6 +210,10 @@ write_proof_bundle() {
 ## Repo Sweep Proof
 
 ${proof_markdown}
+
+## Assessment Session
+
+${assessment_summary}
 
 ## Daily Brief
 
@@ -236,6 +241,7 @@ ${proof_ids}
 
 - PatrolSchedule: ${TEMPER_URL}/tdata/PatrolSchedules('$(jq -r '.entities.default_schedule' <<<"$summary_json")')
 - RepoGraphSnapshot: ${TEMPER_URL}/tdata/RepoGraphSnapshots('$(jq -r '.entities.repo_graph_snapshot' <<<"$summary_json")')
+- Assessment Session: ${TEMPER_URL}/tdata/Sessions('$(jq -r '.entities.assessment_session' <<<"$summary_json")')
 - WorkerRun: ${TEMPER_URL}/tdata/WorkerRuns('$(jq -r '.entities.worker_run' <<<"$summary_json")')
 - ReviewRun: ${TEMPER_URL}/tdata/ReviewRuns('$(jq -r '.entities.review_run' <<<"$summary_json")')
 - EvaluationRun: ${TEMPER_URL}/tdata/EvaluationRuns('$(jq -r '.entities.evaluation_run' <<<"$summary_json")')
@@ -324,6 +330,15 @@ worker_body="$(wait_for_status WorkerRuns "$worker_run_id" Done 180)"
 WORKTREE_PATH="$(field worktree_path <<<"$worker_body")"
 BRANCH_NAME="$(field branch_name <<<"$worker_body")"
 snapshot_ready_body="$(wait_for_status RepoGraphSnapshots "$snapshot_id" Ready 60)"
+snapshot_ready_body="$(wait_for_field RepoGraphSnapshots "$snapshot_id" assessment_session_id 60)"
+snapshot_ready_body="$(wait_for_field RepoGraphSnapshots "$snapshot_id" assessment_summary_markdown 120)"
+assessment_session_id="$(field assessment_session_id <<<"$snapshot_ready_body")"
+assessment_status="$(field assessment_status <<<"$snapshot_ready_body")"
+if [[ "$assessment_status" != "complete" ]]; then
+  log "RepoGraphSnapshot assessment_status was '${assessment_status}', expected 'complete'"
+  curl_json "$(entity_url RepoGraphSnapshots "$snapshot_id")" | jq .
+  exit 1
+fi
 work_cycle_body="$(wait_for_status WorkCycles "$work_cycle_id" Complete 180)"
 
 review_run_id="$(field reviewer_run_id <<<"$work_cycle_body")"
@@ -348,6 +363,7 @@ summary_json="$(jq -n \
   --arg default_schedule "$default_schedule_id" \
   --arg repo_graph_snapshot "$snapshot_id" \
   --arg work_cycle "$work_cycle_id" \
+  --arg assessment_session "$assessment_session_id" \
   --arg worker_run "$worker_run_id" \
   --arg review_run "$review_run_id" \
   --arg evaluation_run "$evaluation_run_id" \
@@ -356,6 +372,7 @@ summary_json="$(jq -n \
   --arg default_schedule_status "$(jq -r '.status' <<<"$default_schedule_body")" \
   --arg default_schedule_next_run_at "$default_schedule_next_run_at" \
   --arg snapshot_status "$(jq -r '.status' <<<"$snapshot_ready_body")" \
+  --arg assessment_status "$assessment_status" \
   --arg work_cycle_status "$(jq -r '.status' <<<"$work_cycle_body")" \
   --arg review_status "$review_status" \
   --arg evaluation_status "$evaluation_status" \
@@ -369,6 +386,7 @@ summary_json="$(jq -n \
     statuses: {
       default_schedule: $default_schedule_status,
       repo_graph_snapshot: $snapshot_status,
+      repo_assessment: $assessment_status,
       work_cycle: $work_cycle_status,
       review: $review_status,
       evaluation: $evaluation_status,
@@ -378,6 +396,7 @@ summary_json="$(jq -n \
     entities: {
       default_schedule: $default_schedule,
       repo_graph_snapshot: $repo_graph_snapshot,
+      assessment_session: $assessment_session,
       work_cycle: $work_cycle,
       worker_run: $worker_run,
       review_run: $review_run,
@@ -386,7 +405,8 @@ summary_json="$(jq -n \
       daily_brief: $daily_brief
     },
     repo_sweep: {
-      finding_count: $finding_count
+      finding_count: $finding_count,
+      assessment_status: $assessment_status
     },
     default_schedule: {
       next_run_at: $default_schedule_next_run_at

@@ -55,7 +55,12 @@ raise risk but cannot silently lower the rule-derived floor.
 
 ### RepoGraphSnapshot
 Recurring codebase/dependency graph snapshot for routing, quality cleanup,
-security sweeps, and agent orientation.
+security sweeps, and agent orientation. The local Codex worker first produces
+deterministic graph evidence: file/dependency indexes, pattern matches, giant
+module candidates, duplicate candidates, and seeded findings. Patrol then
+attaches an intelligent assessment Session that reviews the deterministic graph
+evidence, adds security/readability judgment, produces visual diagrams, and
+closes the assessment by dispatching `AssessmentComplete`.
 
 ### QualityFinding
 Readable code health finding: giant modules, duplicated logic, TODO/HACK
@@ -68,7 +73,11 @@ surface, dependency risk, or risky deploy/billing/provider change.
 
 ### DailyBrief
 Daily visual and textual summary of completed work, open risks, new findings,
-proof packets, and escalations.
+proof packets, and escalations. It is an agent-driven DailyBrief Session:
+`daily_brief_lifecycle` only gathers source facts, creates the Session, and
+attaches it. The Session writes the visual daily summary and dispatches
+`DailyBrief.Render`, so the brief can include judgment, diagrams, and readable
+prioritization instead of a hidden deterministic "tests passed" rollup.
 
 ### PatrolSchedule
 Recurring Patrol job that schedules repo sweeps and daily briefs from Temper

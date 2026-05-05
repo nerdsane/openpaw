@@ -122,11 +122,14 @@ permit(
     Action::"BeginProof",
     Action::"StartScan",
     Action::"ScanComplete",
+    Action::"AttachAssessmentSession",
+    Action::"AssessmentComplete",
     Action::"ScanFailed",
     Action::"OpenFinding",
     Action::"Accept",
     Action::"Resolve",
     Action::"Start",
+    Action::"AttachSession",
     Action::"Render",
     Action::"Publish",
     Action::"Activate",
@@ -203,6 +206,8 @@ permit(
   action in [
     Action::"create",
     Action::"Start",
+    Action::"AttachSession",
+    Action::"Render",
     Action::"Publish",
     Action::"Fail"
   ],
@@ -214,6 +219,8 @@ permit(
   action in [
     Action::"StartScan",
     Action::"ScanComplete",
+    Action::"AttachAssessmentSession",
+    Action::"AssessmentComplete",
     Action::"ScanFailed"
   ],
   resource is RepoGraphSnapshot

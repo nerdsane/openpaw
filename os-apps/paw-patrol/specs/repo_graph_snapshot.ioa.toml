@@ -41,6 +41,21 @@ type = "string"
 initial = ""
 
 [[state]]
+name = "assessment_session_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "assessment_status"
+type = "string"
+initial = "not_started"
+
+[[state]]
+name = "assessment_summary_markdown"
+type = "string"
+initial = ""
+
+[[state]]
 name = "error_message"
 type = "string"
 initial = ""
@@ -94,6 +109,24 @@ on_failure = "ScanFailed"
 
 [action.triggers.config]
 temper_api_url = "{secret:temper_api_url}"
+repo_assessment_model = "{secret:repo_assessment_model}"
+repo_assessment_provider = "{secret:repo_assessment_provider}"
+
+[[action]]
+name = "AttachAssessmentSession"
+kind = "input"
+from = ["Ready"]
+to = "Ready"
+params = ["assessment_session_id", "assessment_status"]
+hint = "Attach the intelligent assessment Session that reviews deterministic repo graph evidence."
+
+[[action]]
+name = "AssessmentComplete"
+kind = "input"
+from = ["Ready"]
+to = "Ready"
+params = ["assessment_summary_markdown", "assessment_status"]
+hint = "Record the intelligent assessment summary for this repo graph snapshot."
 
 [[action]]
 name = "ScanFailed"
