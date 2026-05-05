@@ -6,7 +6,11 @@ Current branch: `codex/paw-patrol-dark-factory`
 
 Current PR: <https://github.com/nerdsane/temperpaw/pull/218>
 
-Current head: `b8be8d80bf72a5737623dadbb3e22dba3e3e80d8`
+Exact current head: inspect PR #218 and
+`/tmp/paw-patrol-production-preflight-current-railway/summary.json`. The
+production preflight summary now records `git_head`, `git_branch`,
+`git_status_short`, and `git_clean` so this committed audit file does not become
+the only source of truth when later proof-only commits move the PR head.
 
 ## Objective Restated
 
@@ -44,23 +48,27 @@ Patrol-controlled Dark Factory:
 | Findings are stable across sweeps | QualityFinding/SecurityFinding specs and repo output include stable `fingerprint` values | Implemented |
 | Recurring sweeps and DailyBriefs exist | `PatrolSchedule` seed data and live repo-sweep/brief proof show default daily maintenance schedule, RepoGraphSnapshot Ready, DailyBrief Ready, and visual brief output | Implemented locally |
 | Acceptance is one-command and visual | `paw-patrol-acceptance.sh quick` and `live` write `summary.json`, `proof.md`, `index.html`, logs, and linked SVGs | Implemented |
-| Production cutover is checkable without mutation | `production-preflight.sh`, preflight diff, observe-only, and readiness smoke produce machine-readable and visual proof while refusing unsafe production writes by default | Implemented locally |
-| PR state is ready | `gh pr view 218` reports head `b8be8d80bf72a5737623dadbb3e22dba3e3e80d8`, merge state `CLEAN`, and CI `SUCCESS` | Ready for human merge |
+| Production cutover is checkable without mutation | `production-preflight.sh`, preflight diff, observe-only, and readiness smoke produce machine-readable and visual proof while refusing unsafe production writes by default; production preflight also stamps `git_head`, `git_branch`, `git_status_short`, and `git_clean` | Implemented locally |
+| PR state is ready | `gh pr view 218` reports the current head, merge state, and CI status; the PR body and current production preflight bundle point to the latest exact-head proof | Ready for human merge |
 | Production Railway/Mac mini activation | Latest production preflight records 12 human blockers, including missing production URL/tokens/secrets, launchd not loaded, Railway project not linked, and PRs unmerged/unapproved | Human-blocked |
 
 ## Current Verification Evidence
 
-- GitHub CI: <https://github.com/nerdsane/temperpaw/actions/runs/25391616919>
+- GitHub CI: inspect PR #218 for the latest run. Latest green run at this audit
+  update: <https://github.com/nerdsane/temperpaw/actions/runs/25393554285>
 - Live acceptance: `/tmp/paw-patrol-acceptance-live-b8be8d80`
 - Live acceptance status: passed, 29 gates, clean worktree, exact head
   `b8be8d80bf72a5737623dadbb3e22dba3e3e80d8`
-- Quick acceptance after reviewer concerns:
-  `/tmp/paw-patrol-acceptance-quick-b8be8d80-post-review`
-- Quick acceptance after reviewer concerns: passed, 24 gates, clean worktree,
-  exact head `b8be8d80bf72a5737623dadbb3e22dba3e3e80d8`
+- Current-head quick acceptance after the production-preflight git stamp:
+  `/tmp/paw-patrol-acceptance-quick-927d9844-preflight-stamp`
+- Current-head quick acceptance status: passed, 24 gates, clean worktree, exact
+  head `927d9844bdd22238e6eade507560a16fee7c1a0b`
 - Railway-enabled read-only production preflight:
   `/tmp/paw-patrol-production-preflight-current-railway`
 - Production preflight status: `blocked`
+- Production preflight exact-head evidence: `git_head`,
+  `git_branch`, `git_status_short`, and `git_clean` in
+  `/tmp/paw-patrol-production-preflight-current-railway/summary.json`
 - Production preflight human blockers: 12
 
 Targeted regressions rerun after independent reviewer concerns:
