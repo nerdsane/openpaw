@@ -225,6 +225,17 @@ input. It does not mutate Railway, launchd, or Temper:
 crates/paw-codex-worker/scripts/production-preflight.sh
 ```
 
+When comparing an earlier preflight to the current one, use the read-only diff
+helper to produce `summary.json`, `proof.md`, and `preflight-diff.svg` showing
+resolved blockers, new blockers, unchanged blockers, gate drift, and Railway
+candidate drift:
+
+```sh
+crates/paw-codex-worker/scripts/production-preflight-diff.sh \
+  /tmp/previous-preflight/summary.json \
+  /tmp/current-preflight/summary.json
+```
+
 Use `STRICT=1` when blocked gates should make the command fail, for example in
 a final cutover checklist:
 

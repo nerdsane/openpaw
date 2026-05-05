@@ -93,6 +93,21 @@ Pass condition: `summary.json.status` is `passed`, or every remaining
 If `railway:linked_project` is blocked, choose the intended project/service
 from `railway-candidates.json` before running `railway link`.
 
+When re-running preflight after making decisions, compare the old and new
+summaries before continuing:
+
+```sh
+crates/paw-codex-worker/scripts/production-preflight-diff.sh \
+  /tmp/previous-preflight/summary.json \
+  /tmp/current-preflight/summary.json
+```
+
+Evidence to capture:
+
+- `summary.json`;
+- `proof.md`;
+- `preflight-diff.svg`.
+
 ## Gate 2: Local Readiness Smoke
 
 Run the guarded local production readiness smoke from a clean worktree. This

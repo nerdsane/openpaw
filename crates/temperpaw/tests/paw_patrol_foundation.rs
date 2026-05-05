@@ -503,6 +503,8 @@ fn production_readiness_script_keeps_mac_mini_activation_checkable() {
     let root = repo_root();
     let script = read(root.join("crates/paw-codex-worker/scripts/production-readiness.sh"));
     let preflight = read(root.join("crates/paw-codex-worker/scripts/production-preflight.sh"));
+    let preflight_diff =
+        read(root.join("crates/paw-codex-worker/scripts/production-preflight-diff.sh"));
     let smoke = read(root.join("crates/paw-codex-worker/scripts/production-readiness-smoke.sh"));
     let readme = read(root.join("crates/paw-codex-worker/README.md"));
     let env_example = read(root.join(".env.example"));
@@ -552,6 +554,21 @@ fn production_readiness_script_keeps_mac_mini_activation_checkable() {
         assert!(
             preflight.contains(needle),
             "production preflight should report non-mutating activation readiness: {needle}"
+        );
+    }
+
+    for needle in [
+        "baseline-summary.json",
+        "current-summary.json",
+        "preflight-diff.svg",
+        "Resolved Blockers",
+        "New Blockers",
+        "Railway Candidate Drift",
+        "does not mutate Railway, launchd, Temper, or git",
+    ] {
+        assert!(
+            preflight_diff.contains(needle),
+            "production preflight diff should report activation drift: {needle}"
         );
     }
 
@@ -754,6 +771,9 @@ fn paw_patrol_acceptance_harness_collects_quick_and_live_proofs() {
         "production-preflight-railway-discovery-smoke/railway-candidates.json",
         "production-preflight-railway-discovery-smoke/operator-handoff.md",
         "Railway Discovery Preflight",
+        "production-preflight-diff-smoke.sh",
+        "production-preflight-diff-smoke/preflight-diff.svg",
+        "Preflight Diff",
         "production-readiness-smoke.sh",
         "deterministic-smoke/proof.svg",
         "webhook-intake-smoke/webhook-intake.svg",
