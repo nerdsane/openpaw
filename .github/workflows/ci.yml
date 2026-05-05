@@ -11,11 +11,11 @@ jobs:
   checks:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6.0.2
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown, wasm32-wasip1
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6.4.0
         with:
           node-version: 22
           cache: npm
@@ -38,7 +38,9 @@ jobs:
           bash -n crates/paw-codex-worker/scripts/production-observe-only.sh
           bash -n crates/paw-codex-worker/scripts/production-observe-only-smoke.sh
           bash -n crates/paw-codex-worker/scripts/production-readiness-smoke.sh
+          bash -n crates/paw-codex-worker/scripts/ci-actions-runtime-smoke.sh
           bash -n crates/paw-codex-worker/scripts/paw-patrol-acceptance.sh
+          crates/paw-codex-worker/scripts/ci-actions-runtime-smoke.sh
       - name: WASM build (os-apps)
         run: |
           set -e

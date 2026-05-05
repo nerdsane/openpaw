@@ -197,9 +197,10 @@ for a human or another agent to review:
 crates/paw-codex-worker/scripts/paw-patrol-acceptance.sh quick
 ```
 
-`quick` runs syntax checks, formatting, diff whitespace checks, `cargo check`,
-the Patrol foundation suite, and worker tests. It writes `index.html`,
-`summary.json`, `proof.md`, and `acceptance.log` under
+`quick` runs syntax checks, a CI action runtime smoke, formatting, diff
+whitespace checks, `cargo check`, the Patrol foundation suite, worker tests,
+production preflight, Railway discovery preflight, and preflight diff smoke.
+It writes `index.html`, `summary.json`, `proof.md`, and `acceptance.log` under
 `/tmp/paw-patrol-acceptance-*`.
 
 For a full local acceptance pass that also runs the live E2E smokes:

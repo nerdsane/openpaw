@@ -19,7 +19,7 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6.0.2
 
       - name: Determine version
         id: version
@@ -59,4 +59,3 @@ jobs:
           build-args: |
             BUILD_VERSION=${{ steps.version.outputs.version }}
             BUILD_SHA=${{ github.sha }}
-

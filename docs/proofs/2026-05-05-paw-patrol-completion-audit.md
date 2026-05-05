@@ -44,7 +44,7 @@ Patrol-controlled Dark Factory:
 | Temper Cedar supports resource ABAC needed by Patrol policies | Temper worktree `crates/temper-authz/src/engine/*`; TemperPaw `crates/temperpaw/Cargo.toml` | `test_resource_attribute_access_in_policy` passes; resource attributes are now attached to Cedar resource entities. The Temper fix is pushed at `557db7f30814801ad42d28e92725d007c6ce7732`, rebased on current Temper main, and TemperPaw is pinned to that portable git revision | Done in sibling Temper branch |
 | Temper dependency handoff is portable | TemperPaw `crates/temperpaw/Cargo.toml`, `Cargo.lock` | The temporary local path patch was removed. TemperPaw now resolves Temper crates from `https://github.com/nerdsane/temper.git` at `557db7f30814801ad42d28e92725d007c6ce7732`; `cargo check --locked -p temperpaw -p paw-codex-worker` passes | Done |
 | Worker runbook is usable from a worktree | `crates/paw-codex-worker/README.md` | Local test and deterministic smoke commands use `REPO_ROOT="$(pwd)"` and fixture paths under the current checkout; README calls out `jq`, fake Codex, stop/cleanup, doctor, and launchd-plist flow | Done |
-| One-command acceptance proof is available | `crates/paw-codex-worker/scripts/paw-patrol-acceptance.sh`, `crates/paw-codex-worker/README.md` | Acceptance harness has `quick` and `live` modes; quick collects syntax, fmt, diff, cargo check, foundation, worker-test, production-preflight, Railway-discovery preflight, and preflight-diff evidence into `index.html`, `summary.json`, `proof.md`, `operator-handoff.md`, and `acceptance.log`; live also runs deterministic, webhook, repo-sweep/brief, production-readiness, and production observe-only smokes into stable subdirectories and embeds available SVG proof visuals in the browser-readable index | Done |
+| One-command acceptance proof is available | `crates/paw-codex-worker/scripts/paw-patrol-acceptance.sh`, `crates/paw-codex-worker/README.md` | Acceptance harness has `quick` and `live` modes; quick collects syntax, CI action runtime, fmt, diff, cargo check, foundation, worker-test, production-preflight, Railway-discovery preflight, and preflight-diff evidence into `index.html`, `summary.json`, `proof.md`, `operator-handoff.md`, and `acceptance.log`; live also runs deterministic, webhook, repo-sweep/brief, production-readiness, and production observe-only smokes into stable subdirectories and embeds available SVG proof visuals in the browser-readable index | Done |
 | Live smoke scripts avoid local port collisions | `deterministic-smoke.sh`, `webhook-intake-smoke.sh`, `repo-sweep-brief-smoke.sh`, `production-readiness-smoke.sh`, `production-observe-only-smoke.sh` | Acceptance found an actual collision on the implicit webhook trigger port. The scripts now choose a base port only when both the OData port and `PORT + 12` webhook trigger port are free; foundation test `live_smoke_scripts_choose_non_colliding_odata_and_webhook_ports` passes | Done |
 | Deterministic smoke can be run as one command | `crates/paw-codex-worker/scripts/deterministic-smoke.sh` | Script boots local TemperPaw, submits a PatrolRequest, starts fake local worker, polls WorkCycle/FactoryCase/Review/Evaluation/Proof states, writes a proof bundle with `summary.json`, `proof.json`, `proof.md`, and `proof.svg`, prints JSON entity summary, and cleans up the temporary worktree/branch | Done |
 | Webhook intake smoke can be run as one command | `crates/paw-codex-worker/scripts/webhook-intake-smoke.sh`, `crates/paw-codex-worker/README.md` | Script boots local TemperPaw, posts to `/triggers/webhook/patrol-request`, `/triggers/webhook/patrol-datadog`, `/triggers/webhook/patrol-github`, and `/triggers/webhook/patrol-discord`, waits for WebhookEvent Processed plus PatrolRequest/Signal Linked states, and writes a visual intake proof bundle | Done |
@@ -55,7 +55,8 @@ Patrol-controlled Dark Factory:
 | Production observe-only proof is executable | `crates/paw-codex-worker/scripts/production-observe-only.sh`, `production-observe-only-smoke.sh`, `README.md`, `docs/runbooks/paw-patrol-production-cutover.md` | Guarded script refuses production writes unless `ALLOW_PRODUCTION_WRITE=1` and `CONFIRM_PAW_CODEX_ENABLE_EXECUTION_0=1`; local smoke booted TemperPaw, ran the worker in `PAW_CODEX_ENABLE_EXECUTION=0`, created a RepoGraphSnapshot, waited for WorkerRun Done, ReviewRun Approved, EvaluationRun Passed, ProofPacket Ready, DailyBrief Ready, and wrote `summary.json`, `proof.md`, `observe-only.svg`, `proof-packet.svg`, and `daily-brief.svg` | Done locally; production run still needs human tokens/launchd |
 | Mac mini Codex auth/session is checkable before launchd | `crates/paw-codex-worker/src/doctor.rs`, `production-readiness.sh`, `production-readiness-smoke.sh`, `README.md`, `docs/runbooks/paw-patrol-production-cutover.md` | `PAW_CODEX_DOCTOR_EXEC_SMOKE=1` makes `paw-codex-worker doctor` run a tiny `codex exec --skip-git-repo-check` prompt in a temporary directory before launchd is rendered/installed. The guarded local readiness smoke now proves `codex_exec_smoke: "doctor pass"` while `PAW_CODEX_ENABLE_EXECUTION=0` remains observe-only | Done locally; production real-Codex smoke still needs Railway token/user approval |
 | Production cutover blockers are mapped to gates | `docs/runbooks/paw-patrol-production-cutover.md`, `crates/paw-codex-worker/README.md` | Runbook gives a visual cutover map, required human inputs, Railway/Cedar/launchd/webhook gates, exact commands, evidence to capture, and rollback; foundation test `production_cutover_runbook_maps_every_human_blocker_to_a_gate` passes | Done |
-| CI covers Patrol worker and WASM gates | `.github/workflows/ci.yml`, `crates/temperpaw/tests/paw_patrol_foundation.rs` | CI now checks `paw-codex-worker` clippy/test/check, validates deterministic smoke script syntax, and builds `paw-ingest` plus `paw-patrol` WASM modules. Foundation test `ci_covers_paw_patrol_worker_and_wasm_gates` passes | Done locally |
+| CI covers Patrol worker and WASM gates | `.github/workflows/ci.yml`, `crates/temperpaw/tests/paw_patrol_foundation.rs` | CI now checks `paw-codex-worker` clippy/test/check, validates worker smoke script syntax, and builds `paw-ingest` plus `paw-patrol` WASM modules. Foundation test `ci_covers_paw_patrol_worker_and_wasm_gates` passes | Done locally |
+| CI action runtime deprecation is ratcheted | `.github/workflows/*.yml`, `crates/paw-codex-worker/scripts/ci-actions-runtime-smoke.sh` | GitHub workflows use `actions/checkout@v6.0.2` and `actions/setup-node@v6.4.0`; CI and quick acceptance run a smoke that fails if checkout/setup-node drift back to deprecated v1-v4 majors | Done locally |
 | Final proof readiness has direct unit coverage | `.github/workflows/ci.yml`, `os-apps/paw-patrol/wasm/review_gate_lifecycle/src/lib.rs` | `review_gate_lifecycle` unit tests assert final ProofPacket summaries remove draft pending labels, final visuals say Review/Evaluation passed, and the changed-files/dependency map no longer carries pending placeholders. CI now runs this WASM test manifest | Done locally |
 | Worker source is readable enough for Patrol to maintain | `crates/paw-codex-worker/src/*.rs`, `crates/temperpaw/tests/paw_patrol_foundation.rs` | The worker was split into topical source files; `paw_codex_worker_sources_stay_under_giant_module_budget` asserts every worker source file stays below the repo-health giant-module threshold | Done |
 | Fresh build does not rely on generated clutter | `.gitignore`, build scripts, status cleanup | WASM build scripts exist; generated `target` dirs and transient lockfiles are removed from the patch surface | Done |
@@ -105,18 +106,26 @@ bash -n crates/paw-codex-worker/scripts/production-observe-only-smoke.sh
 bash -n crates/paw-codex-worker/scripts/production-readiness-smoke.sh
   passed
 
+bash -n crates/paw-codex-worker/scripts/ci-actions-runtime-smoke.sh
+  passed
+
+crates/paw-codex-worker/scripts/ci-actions-runtime-smoke.sh
+  passed
+  Output: GitHub action runtime versions are current enough
+
 crates/paw-codex-worker/scripts/paw-patrol-acceptance.sh quick
   passed
-  Proof bundle: /tmp/paw-patrol-acceptance-quick-preflight-diff-current
-  Browser index: /tmp/paw-patrol-acceptance-quick-preflight-diff-current/index.html
+  Proof bundle: /tmp/paw-patrol-acceptance-quick-ci-runtime-current
+  Browser index: /tmp/paw-patrol-acceptance-quick-ci-runtime-current/index.html
+  Passed gates: 22
   Production preflight visual:
-    /tmp/paw-patrol-acceptance-quick-preflight-diff-current/production-preflight/preflight.svg
+    /tmp/paw-patrol-acceptance-quick-ci-runtime-current/production-preflight/preflight.svg
   Production preflight operator handoff:
-    /tmp/paw-patrol-acceptance-quick-preflight-diff-current/production-preflight/operator-handoff.md
+    /tmp/paw-patrol-acceptance-quick-ci-runtime-current/production-preflight/operator-handoff.md
   Railway discovery candidates:
-    /tmp/paw-patrol-acceptance-quick-preflight-diff-current/production-preflight-railway-discovery-smoke/railway-candidates.json
+    /tmp/paw-patrol-acceptance-quick-ci-runtime-current/production-preflight-railway-discovery-smoke/railway-candidates.json
   Preflight diff visual:
-    /tmp/paw-patrol-acceptance-quick-preflight-diff-current/production-preflight-diff-smoke/preflight-diff.svg
+    /tmp/paw-patrol-acceptance-quick-ci-runtime-current/production-preflight-diff-smoke/preflight-diff.svg
 
 crates/paw-codex-worker/scripts/paw-patrol-acceptance.sh live
   passed
