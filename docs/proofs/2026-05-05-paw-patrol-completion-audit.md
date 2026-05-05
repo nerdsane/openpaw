@@ -33,7 +33,9 @@ Patrol-controlled Dark Factory:
 | High-risk work pauses before start and before completion | `work_cycle.ioa.toml`, `work_cycle_lifecycle`, `review_gate_lifecycle` | Foundation test `high_risk_work_requires_human_start_and_completion_approval` passes | Done |
 | Worker claims are bound to the registered Mac mini identity | `worker_run.ioa.toml`, `patrol.cedar`, Patrol WASM modules, `paw-codex-worker` | `WorkerRun.allowed_worker_id` is configured from `local_codex_worker_id`; Cedar only permits matching worker principals to claim; worker refuses mismatched queued runs; foundation test `worker_claims_are_bound_to_the_configured_local_worker` passes | Done |
 | Independent reviewer before user review | `worker_run_lifecycle`, `review_gate_lifecycle`, `paw-codex-worker` reviewer path | Worker completion queues ReviewRun; worker reviewer requires explicit verdict; live smoke reached ReviewRun Approved before ProofPacket Ready | Done |
-| Automated evaluation gates | `evaluation_run.ioa.toml`, `review_gate_lifecycle`, worker evaluation commands | Worker can run configured local commands; live smoke EvaluationRun Passed with `test -f .paw-fake-codex-implementation` | Done |
+| Automated evaluation gates | `evaluation_run.ioa.toml`, `review_gate_lifecycle`, worker evaluation commands | Worker can run configured local commands; live smoke EvaluationRun Passed with `test -f .paw-fake-codex-implementation`; EvaluationRun Start/Pass/Fail is Cedar-bound to the claimed `evaluator_id` | Done |
+| Live/E2E evidence is a required completion gate | `work_cycle.ioa.toml`, `review_gate_lifecycle`, deterministic smoke proof | `WorkCycle.Complete` now requires `e2e_ok`; `EvaluationRun.Pass` records `WorkCycle.ReportE2e` before `PassEvaluation`; latest deterministic proof JSON contains `"e2e_gate": "passed"` and the proof diagram includes `EvaluationRun --> WorkCycle: ReportE2e recorded live evidence` | Done |
+| Human gates are human-gated in Cedar | `patrol.cedar`, `crates/temperpaw/tests/paw_patrol_foundation.rs` | Actual Cedar regression test `patrol_cedar_human_gate_approvals_are_not_available_to_system_agents` denies `ApproveHumanStart` and `ApproveHumanCompletion` to `agent_type = system`, while allowing `agent_type = human` | Done |
 | Visual ProofPacket | `proof_packet.ioa.toml`, `worker_run_lifecycle`, `review_gate_lifecycle` | Live smoke ProofPacket reached Ready with final `data:image/svg+xml` visual summary, reviewer verdict, residual risk text, Mermaid state diagram, OData links, and log evidence. The final proof no longer carries stale pending-review/pending-evaluation draft labels | Done |
 | Proof changed-files map comes from worker evidence | `crates/paw-codex-worker/src/execution.rs`, `worker_run_lifecycle`, `review_gate_lifecycle` | Local Codex success summaries now include fenced `git-status` and `git-diff-stat` evidence; `worker_run_lifecycle` extracts changed files into `ProofPacket.changed_files_map`; `review_gate_lifecycle` preserves concrete file lists when marking proof ready. Latest deterministic proof contains `changed_files: [".paw-fake-codex-implementation"]` | Done |
 | Repo-health sweeps | `repo_graph_snapshot.ioa.toml`, `repo_sweep_lifecycle`, worker repo scan, `repo-sweep-brief-smoke.sh` | Live repo-sweep smoke reached RepoGraphSnapshot Ready, WorkCycle Complete, ReviewRun Approved, EvaluationRun Passed, ProofPacket Ready, and produced 51 Quality/Security findings in `repo-graph.json` | Done |
@@ -41,6 +43,7 @@ Patrol-controlled Dark Factory:
 | Recurring sweeps and daily briefs | `patrol_schedule.ioa.toml`, `patrol_schedule_lifecycle`, `daily_brief_lifecycle`, `repo-sweep-brief-smoke.sh` | Foundation tests assert PatrolSchedule recurrence; live repo-sweep/brief smoke rendered DailyBrief Ready with `daily-brief.svg`, ready ProofPacket IDs, done items, and open risk JSON | Done |
 | Fresh installs have a default daily maintenance schedule | `os-apps/paw-patrol/seed-data/default_schedules.toml`, `repo-sweep-brief-smoke.sh` | `patrol-default-daily-maintenance` is seeded through PatrolSchedule `Configure` + `Activate`; live repo-sweep/brief smoke captured `patrol-schedule.json` with status `Active` and `next_run_at = 2026-05-06T12:26:12Z` | Done |
 | Human-readable proof docs | `docs/proofs/2026-05-04-paw-patrol-dark-factory-foundation.md`, this audit | Proof doc includes diagrams, commands, E2E IDs, and remaining caveats | Done |
+| Material Patrol architecture is recorded in an app ADR | `os-apps/paw-patrol/adrs/0001-patrol-controlled-dark-factory.md`, `crates/temperpaw/tests/paw_patrol_foundation.rs` | Added an app-scoped accepted ADR covering the Patrol-owned entity set, Temper-native trigger/WASM/Cedar boundaries, Mac mini worker, risk gates, proof requirements, rejected separate factory/quality/harness apps, and verification trail. Test `paw_patrol_dark_factory_architecture_is_recorded_in_app_adr` ratchets this AGENTS.md requirement | Done |
 | Temper Cedar supports resource ABAC needed by Patrol policies | Temper worktree `crates/temper-authz/src/engine/*`; TemperPaw `crates/temperpaw/Cargo.toml` | `test_resource_attribute_access_in_policy` passes; resource attributes are now attached to Cedar resource entities. The Temper fix is pushed at `557db7f30814801ad42d28e92725d007c6ce7732`, rebased on current Temper main, and TemperPaw is pinned to that portable git revision | Done in sibling Temper branch |
 | Temper dependency handoff is portable | TemperPaw `crates/temperpaw/Cargo.toml`, `Cargo.lock` | The temporary local path patch was removed. TemperPaw now resolves Temper crates from `https://github.com/nerdsane/temper.git` at `557db7f30814801ad42d28e92725d007c6ce7732`; `cargo check --locked -p temperpaw -p paw-codex-worker` passes | Done |
 | Worker runbook is usable from a worktree | `crates/paw-codex-worker/README.md` | Local test and deterministic smoke commands use `REPO_ROOT="$(pwd)"` and fixture paths under the current checkout; README calls out `jq`, fake Codex, stop/cleanup, doctor, and launchd-plist flow | Done |
@@ -115,17 +118,17 @@ crates/paw-codex-worker/scripts/ci-actions-runtime-smoke.sh
 
 crates/paw-codex-worker/scripts/paw-patrol-acceptance.sh quick
   passed
-  Proof bundle: /tmp/paw-patrol-acceptance-quick-ready-review-current
-  Browser index: /tmp/paw-patrol-acceptance-quick-ready-review-current/index.html
+  Proof bundle: /tmp/paw-patrol-acceptance-quick-e2e-gates-current
+  Browser index: /tmp/paw-patrol-acceptance-quick-e2e-gates-current/index.html
   Passed gates: 22
   Production preflight visual:
-    /tmp/paw-patrol-acceptance-quick-ready-review-current/production-preflight/preflight.svg
+    /tmp/paw-patrol-acceptance-quick-e2e-gates-current/production-preflight/preflight.svg
   Production preflight operator handoff:
-    /tmp/paw-patrol-acceptance-quick-ready-review-current/production-preflight/operator-handoff.md
+    /tmp/paw-patrol-acceptance-quick-e2e-gates-current/production-preflight/operator-handoff.md
   Railway discovery candidates:
-    /tmp/paw-patrol-acceptance-quick-ready-review-current/production-preflight-railway-discovery-smoke/railway-candidates.json
+    /tmp/paw-patrol-acceptance-quick-e2e-gates-current/production-preflight-railway-discovery-smoke/railway-candidates.json
   Preflight diff visual:
-    /tmp/paw-patrol-acceptance-quick-ready-review-current/production-preflight-diff-smoke/preflight-diff.svg
+    /tmp/paw-patrol-acceptance-quick-e2e-gates-current/production-preflight-diff-smoke/preflight-diff.svg
 
 crates/paw-codex-worker/scripts/paw-patrol-acceptance.sh live
   passed
@@ -148,7 +151,7 @@ cargo check --locked -p temperpaw -p paw-codex-worker
   passed
 
 cargo test --locked -p temperpaw --test paw_patrol_foundation -- --nocapture
-  29 passed
+  33 passed
 
 cargo test --locked -p paw-codex-worker -- --nocapture
   19 passed
@@ -171,28 +174,29 @@ env -u TEMPER_URL -u WORKER_TOKEN crates/paw-codex-worker/scripts/production-rea
 crates/paw-codex-worker/scripts/deterministic-smoke.sh
   passed
   Allowed worker: mac-mini-codex-prod
-  FactoryCase: en-019df6cf-c425-7fc0-bf03-71bce04aa85e Complete
-  WorkCycle: wc-019df6cf-c42e-7240-bfbb-71a268f9f609 Complete
-  WorkerRun: en-019df6cf-c436-7ea3-92bd-e2fc9ac3bfb5 Done
-  ReviewRun: en-019df6cf-cb01-7ff1-914a-0a130906a804 Approved
-  EvaluationRun: en-019df6cf-cb09-79b3-9c63-ee642e2f6b0d Passed
-  ProofPacket: en-019df6cf-caf8-7cb3-a62c-c9eec74cd67f Ready
-  Proof bundle: /tmp/paw-patrol-smoke-proof-3880-67357
+  FactoryCase: en-019df8aa-8af4-7362-ad1b-68925d1474e0 Complete
+  WorkCycle: wc-019df8aa-8afc-7fc2-b585-7983298013a7 Complete
+  WorkerRun: en-019df8aa-8b04-7721-8965-ce8994acf1bb Done
+  ReviewRun: en-019df8aa-9663-7cf1-9520-a93328a7b7b1 Approved
+  EvaluationRun: en-019df8aa-966b-7572-b27e-42ce3c0ffca3 Passed
+  ProofPacket: en-019df8aa-965a-7042-b0a0-3d06ccddb39f Ready
+  Proof JSON includes: "e2e_gate": "passed"
+  Proof bundle: /tmp/paw-patrol-smoke-e2e-gates-current
 
 crates/paw-codex-worker/scripts/repo-sweep-brief-smoke.sh
   passed
   Allowed worker: mac-mini-codex-prod
   Default PatrolSchedule: patrol-default-daily-maintenance Active
-  Default PatrolSchedule next_run_at: 2026-05-06T10:58:01Z
-  RepoGraphSnapshot: en-019df7c9-ad36-7442-860e-6f74523b76ca Ready
-  WorkCycle: wc-019df7c9-af9b-7d83-b0b4-f03a7fc56209 Complete
-  WorkerRun: en-019df7c9-afa4-7923-9108-ec44d4c78e2a Done
-  ReviewRun: en-019df7c9-b82a-77d0-9a35-6e182d5ff3a1 Approved
-  EvaluationRun: en-019df7c9-b838-74b1-a0f9-bf7d81aab34d Passed
-  ProofPacket: en-019df7c9-b805-7b53-a9ae-37146c19b726 Ready
-  DailyBrief: en-019df7c9-be77-7502-b67a-804811997733 Ready
+  Default PatrolSchedule next_run_at: 2026-05-06T15:04:42Z
+  RepoGraphSnapshot: en-019df8ab-8509-7ce1-ae37-e34da6338de5 Ready
+  WorkCycle: wc-019df8ab-8620-7d42-9486-48f33891327a Complete
+  WorkerRun: en-019df8ab-863b-7f60-9ba3-38cdf17572ae Done
+  ReviewRun: en-019df8ab-8de4-70c0-9ddd-043b8dca5d3d Approved
+  EvaluationRun: en-019df8ab-8ded-7e02-a8fb-bb2ffab0a5b9 Passed
+  ProofPacket: en-019df8ab-8ddc-7331-ab5c-17c543e65590 Ready
+  DailyBrief: en-019df8ab-9205-7b41-93a2-4774110807d7 Ready
   Findings: 51
-  Proof bundle: /tmp/paw-patrol-repo-smoke-proof-4106-43312
+  Proof bundle: /tmp/paw-patrol-repo-smoke-e2e-gates-current
 
 crates/paw-codex-worker/scripts/webhook-intake-smoke.sh
   passed

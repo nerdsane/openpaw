@@ -3,6 +3,7 @@ const ACTION_REPORT_DONE_LABEL: &str = "WorkerRun.ReportDone";
 const ACTION_REPORT_FAILED_LABEL: &str = "WorkerRun.ReportFailed";
 const REVIEW_CLAIM_LABEL: &str = "ReviewRun.Claim";
 const REVIEW_APPROVE_LABEL: &str = "ReviewRun.Approve";
+const EVALUATION_CLAIM_LABEL: &str = "EvaluationRun.Claim";
 const EVALUATION_START_LABEL: &str = "EvaluationRun.Start";
 const EVALUATION_PASS_LABEL: &str = "EvaluationRun.Pass";
 
@@ -177,6 +178,8 @@ struct EvaluationRunState {
     status: String,
     #[serde(default, rename = "WorkCycleId")]
     work_cycle_id: String,
+    #[serde(default, rename = "EvaluatorId")]
+    evaluator_id: String,
     #[serde(default, rename = "RequiredChecks")]
     required_checks: String,
 }

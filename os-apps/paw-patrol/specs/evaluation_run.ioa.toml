@@ -11,6 +11,11 @@ type = "string"
 initial = ""
 
 [[state]]
+name = "evaluator_id"
+type = "string"
+initial = ""
+
+[[state]]
 name = "required_checks"
 type = "string"
 initial = "[]"
@@ -35,8 +40,16 @@ name = "Queue"
 kind = "input"
 from = ["Queued"]
 to = "Queued"
-params = ["work_cycle_id", "required_checks"]
+params = ["work_cycle_id", "required_checks", "evaluator_id"]
 hint = "Queue an automated evaluation run for one WorkCycle."
+
+[[action]]
+name = "Claim"
+kind = "input"
+from = ["Queued"]
+to = "Queued"
+params = ["evaluator_id"]
+hint = "Claim this EvaluationRun as the evaluator allowed to start and report the gate."
 
 [[action]]
 name = "Start"

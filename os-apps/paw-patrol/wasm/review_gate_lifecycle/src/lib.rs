@@ -20,6 +20,7 @@ const PATROL_ESCALATE: &str = "TemperPaw.Patrol.Escalate";
 const PATROL_FAIL: &str = "TemperPaw.Patrol.Fail";
 const PATROL_PASS_REVIEW: &str = "TemperPaw.Patrol.PassReview";
 const PATROL_REQUEST_CHANGES: &str = "TemperPaw.Patrol.RequestChanges";
+const PATROL_REPORT_E2E: &str = "TemperPaw.Patrol.ReportE2e";
 const PATROL_PASS_EVALUATION: &str = "TemperPaw.Patrol.PassEvaluation";
 const PATROL_ATTACH_PROOF_PACKET: &str = "TemperPaw.Patrol.AttachProofPacket";
 const PATROL_REQUEST_HUMAN_COMPLETION_APPROVAL: &str =
@@ -90,6 +91,15 @@ fn handle_review_approved(
     if status_from_response(&work_cycle) == "Reviewing"
         && !bool_from_entity(&work_cycle, "review_passed", "ReviewPassed")
     {
+        record_e2e_if_present(
+            ctx,
+            base_url,
+            headers,
+            &work_cycle_id,
+            "ReviewRun",
+            &review_run_id,
+            &live_e2e_summary,
+        )?;
         post_action(
             ctx,
             base_url,
@@ -197,10 +207,30 @@ fn handle_evaluation_passed(
     headers: &[(String, String)],
     fields: &Value,
 ) -> Result<(), String> {
+    let evaluation_run_id = entity_id(ctx);
     let work_cycle_id = string_param(ctx, fields, "work_cycle_id", "WorkCycleId");
+    let results_json = string_param(ctx, fields, "results_json", "ResultsJson");
+    let e2e_summary = string_param(ctx, fields, "e2e_summary", "E2eSummary");
     if work_cycle_id.is_empty() {
         return Err("review_gate_lifecycle: EvaluationRun missing work_cycle_id".to_string());
     }
+    let e2e_evidence = if e2e_summary.trim().is_empty() {
+        format!(
+            "EvaluationRun {evaluation_run_id} passed with results_json evidence: {}",
+            truncate(&results_json, 500)
+        )
+    } else {
+        e2e_summary
+    };
+    record_e2e_if_present(
+        ctx,
+        base_url,
+        headers,
+        &work_cycle_id,
+        "EvaluationRun",
+        &evaluation_run_id,
+        &e2e_evidence,
+    )?;
     finalize_if_ready(ctx, base_url, headers, &work_cycle_id, "")
 }
 
@@ -261,7 +291,9 @@ fn finalize_if_ready(
                 &evaluation_run_id,
             )? == "Passed";
 
-        if review_passed && evaluation_passed {
+        let e2e_ok = bool_from_entity(&work_cycle, "e2e_ok", "E2eOk");
+
+        if review_passed && evaluation_passed && e2e_ok {
             post_action(
                 ctx,
                 base_url,
@@ -282,7 +314,7 @@ fn finalize_if_ready(
         } else {
             ctx.log(
                 "info",
-                "review_gate_lifecycle: waiting for both review and evaluation before proof readiness",
+                "review_gate_lifecycle: waiting for review, evaluation, and ReportE2e before proof readiness",
             );
             return Ok(());
         }
@@ -342,6 +374,7 @@ fn finalize_if_ready(
         && bool_from_entity(&work_cycle, "review_passed", "ReviewPassed")
         && bool_from_entity(&work_cycle, "evaluation_passed", "EvaluationPassed")
         && bool_from_entity(&work_cycle, "proof_attached", "ProofAttached")
+        && bool_from_entity(&work_cycle, "e2e_ok", "E2eOk")
         && requires_human_completion_approval(&work_cycle)
     {
         // L3 completion pauses here: human completion approval required before WorkCycle.Complete.
@@ -367,6 +400,7 @@ fn finalize_if_ready(
         && bool_from_entity(&work_cycle, "review_passed", "ReviewPassed")
         && bool_from_entity(&work_cycle, "evaluation_passed", "EvaluationPassed")
         && bool_from_entity(&work_cycle, "proof_attached", "ProofAttached")
+        && bool_from_entity(&work_cycle, "e2e_ok", "E2eOk")
     {
         post_action(
             ctx,
@@ -431,6 +465,47 @@ fn update_proof_review(
             "changed_files_map": string_from_entity(&proof, "changed_files_map", "ChangedFilesMap"),
             "reviewer_verdict": reviewer_verdict,
             "residual_risks": residual_risks
+        }),
+    )?;
+    Ok(())
+}
+
+fn record_e2e_if_present(
+    ctx: &Context,
+    base_url: &str,
+    headers: &[(String, String)],
+    work_cycle_id: &str,
+    source_kind: &str,
+    source_id: &str,
+    e2e_summary: &str,
+) -> Result<(), String> {
+    let evidence = e2e_summary.trim();
+    if evidence.is_empty() || work_cycle_id.is_empty() {
+        return Ok(());
+    }
+
+    let work_cycle = get_entity(
+        ctx,
+        base_url,
+        headers,
+        entity_set(WORK_CYCLES_PATH),
+        work_cycle_id,
+    )?;
+    if status_from_response(&work_cycle) != "Reviewing"
+        || bool_from_entity(&work_cycle, "e2e_ok", "E2eOk")
+    {
+        return Ok(());
+    }
+
+    post_action(
+        ctx,
+        base_url,
+        headers,
+        entity_set(WORK_CYCLES_PATH),
+        work_cycle_id,
+        PATROL_REPORT_E2E,
+        &json!({
+            "e2e_summary": format!("{source_kind} {source_id}: {evidence}")
         }),
     )?;
     Ok(())
@@ -733,7 +808,7 @@ fn final_summary(proof: &Value) -> String {
             "Review status: pending independent reviewer.\nEvaluation status: queued.",
             "Review status: approved by independent reviewer.\nEvaluation status: passed.\nProof status: ready.",
         );
-    let footer = "\n\nFinal gate: independent review passed, automated evaluation passed, and the ProofPacket is ready for human-readable review only if the risk lane requires it.\n";
+    let footer = "\n\nFinal gate: independent review passed, automated evaluation passed, live/E2E evidence was recorded, and the ProofPacket is ready for human-readable review only if the risk lane requires it.\n";
     if existing.contains("Review status: pending independent reviewer.") {
         existing = existing.replace(
             "Review status: pending independent reviewer.",
@@ -757,6 +832,7 @@ fn final_proof_json(proof: &Value) -> String {
     let mut value = serde_json::from_str(&raw).unwrap_or_else(|_| json!({}));
     if let Some(object) = value.as_object_mut() {
         object.insert("review_gate".to_string(), json!("passed"));
+        object.insert("e2e_gate".to_string(), json!("passed"));
         object.insert("proof_ready".to_string(), json!(true));
         object.insert(
             "human_review_position".to_string(),
@@ -771,9 +847,10 @@ fn final_state_diagram_mermaid(_proof: &Value) -> String {
         "stateDiagram-v2",
         "  WorkerRun --> ReviewRun: ReportDone created independent reviewer",
         "  ReviewRun --> EvaluationRun: reviewer approved",
+        "  EvaluationRun --> WorkCycle: ReportE2e recorded live evidence",
         "  EvaluationRun --> ProofPacket: automated gates passed",
         "  ProofPacket --> WorkCycle: MarkReady + AttachProofPacket",
-        "  WorkCycle --> Complete: proof gates satisfied",
+        "  WorkCycle --> Complete: review + evaluation + E2E + proof satisfied",
     ]
     .join("\n")
 }

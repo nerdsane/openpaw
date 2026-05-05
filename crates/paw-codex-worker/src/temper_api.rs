@@ -210,6 +210,27 @@ async fn report_failed(
     .await
 }
 
+async fn claim_evaluation_run(
+    client: &reqwest::Client,
+    config: &Config,
+    evaluation_run_id: &str,
+) -> Result<()> {
+    info!(
+        evaluation_run_id,
+        action = EVALUATION_CLAIM_LABEL,
+        "claiming EvaluationRun"
+    );
+    post_entity_action(
+        client,
+        config,
+        "EvaluationRuns",
+        evaluation_run_id,
+        "Claim",
+        json!({ "evaluator_id": config.worker_id }),
+    )
+    .await
+}
+
 async fn post_action(
     client: &reqwest::Client,
     config: &Config,
@@ -336,6 +357,12 @@ fn evaluation_run_from_odata_value(value: Value) -> Result<EvaluationRunState> {
             &["work_cycle_id", "WorkCycleId"],
             &["work_cycle_id", "WorkCycleId"],
         ),
+        evaluator_id: first_string(
+            &value,
+            &fields,
+            &["evaluator_id", "EvaluatorId"],
+            &["evaluator_id", "EvaluatorId"],
+        ),
         required_checks: first_string(
             &value,
             &fields,
@@ -380,4 +407,3 @@ fn worker_run_is_claimable_by_local_codex(worker_run: &WorkerRunState, worker_id
         && worker_run.runner_kind == "local_codex"
         && worker_run.allowed_worker_id == worker_id
 }
-

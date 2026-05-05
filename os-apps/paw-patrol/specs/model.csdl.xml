@@ -71,6 +71,7 @@
         <Property Name="ReviewerRunId" Type="Edm.String"/>
         <Property Name="EvaluationRunId" Type="Edm.String"/>
         <Property Name="ProofPacketId" Type="Edm.String"/>
+        <Property Name="E2eSummary" Type="Edm.String"/>
         <Property Name="ErrorMessage" Type="Edm.String"/>
         <Property Name="HasPlan" Type="Edm.Boolean"/>
         <Property Name="WorkerDone" Type="Edm.Boolean"/>
@@ -128,6 +129,7 @@
         <Property Name="Id" Type="Edm.String" Nullable="false"/>
         <Property Name="Status" Type="Edm.String"/>
         <Property Name="WorkCycleId" Type="Edm.String"/>
+        <Property Name="EvaluatorId" Type="Edm.String"/>
         <Property Name="RequiredChecks" Type="Edm.String"/>
         <Property Name="ResultsJson" Type="Edm.String"/>
         <Property Name="E2eSummary" Type="Edm.String"/>

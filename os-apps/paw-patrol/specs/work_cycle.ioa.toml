@@ -66,6 +66,11 @@ type = "string"
 initial = ""
 
 [[state]]
+name = "e2e_summary"
+type = "string"
+initial = ""
+
+[[state]]
 name = "error_message"
 type = "string"
 initial = ""
@@ -205,8 +210,9 @@ hint = "Record implementer completion and move to verification."
 [[action]]
 name = "ReportE2e"
 kind = "input"
-from = ["Testing", "Reviewing"]
-to = "Testing"
+from = ["Reviewing"]
+to = "Reviewing"
+params = ["e2e_summary"]
 effect = "set e2e_ok true"
 hint = "Record targeted live or end-to-end verification evidence."
 
@@ -259,7 +265,10 @@ from = ["Reviewing"]
 to = "Proving"
 params = ["evaluation_run_id"]
 effect = "set evaluation_passed true"
-guard = "is_true review_passed"
+guard = [
+  { type = "is_true", var = "review_passed" },
+  { type = "is_true", var = "e2e_ok" }
+]
 hint = "All required automated gates passed after reviewer approval."
 
 [[action]]
@@ -305,10 +314,11 @@ to = "Complete"
 guard = [
   { type = "is_true", var = "review_passed" },
   { type = "is_true", var = "evaluation_passed" },
-  { type = "is_true", var = "proof_attached" }
+  { type = "is_true", var = "proof_attached" },
+  { type = "is_true", var = "e2e_ok" }
 ]
 effect = [{ type = "trigger", name = "work_cycle_completed" }]
-hint = "Complete only when review, evaluation, and proof are all attached."
+hint = "Complete only when review, evaluation, proof, and live/E2E evidence are all attached."
 
 [[action.triggers]]
 name = "work_cycle_completed"

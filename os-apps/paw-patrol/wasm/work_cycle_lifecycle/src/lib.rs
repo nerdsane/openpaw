@@ -242,7 +242,7 @@ fn handle_complete(
     let reviewer_run_id = string_field(fields, "reviewer_run_id", "ReviewerRunId");
     let evaluation_run_id = string_field(fields, "evaluation_run_id", "EvaluationRunId");
     let resolution_summary = format!(
-        "Resolved by WorkCycle {work_cycle_id}. ProofPacket: {}. ReviewRun: {}. EvaluationRun: {}. Completion required reviewer approval, automated evaluation pass, and attached proof.",
+        "Resolved by WorkCycle {work_cycle_id}. ProofPacket: {}. ReviewRun: {}. EvaluationRun: {}. Completion required reviewer approval, automated evaluation pass, recorded live/E2E evidence, and attached proof.",
         empty_fallback(&proof_packet_id, "not recorded"),
         empty_fallback(&reviewer_run_id, "not recorded"),
         empty_fallback(&evaluation_run_id, "not recorded")

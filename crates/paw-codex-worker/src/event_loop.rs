@@ -291,6 +291,18 @@ async fn handle_queued_evaluation_run(
         return Ok(());
     }
 
+    if !evaluation_run.evaluator_id.is_empty() && evaluation_run.evaluator_id != config.worker_id {
+        debug!(
+            evaluation_run_id,
+            evaluator_id = %evaluation_run.evaluator_id,
+            worker_id = %config.worker_id,
+            "EvaluationRun is reserved for a different evaluator"
+        );
+        return Ok(());
+    }
+
+    claim_evaluation_run(client, config, evaluation_run_id).await?;
+
     if !is_repo_sweep {
         return run_code_change_evaluation(client, config, evaluation_run_id, &worker_run).await;
     }
@@ -343,4 +355,3 @@ async fn handle_queued_evaluation_run(
     )
     .await
 }
-

@@ -1,5 +1,8 @@
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+
+use temper_authz::{AuthzEngine, SecurityContext};
 
 fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -26,6 +29,21 @@ fn read_worker_sources(root: &Path) -> String {
         .map(read)
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+fn agent_context(id: &str, agent_type: &str) -> SecurityContext {
+    SecurityContext::from_headers(&[
+        ("X-Temper-Principal-Id".to_string(), id.to_string()),
+        ("X-Temper-Principal-Kind".to_string(), "agent".to_string()),
+        ("X-Temper-Agent-Type".to_string(), agent_type.to_string()),
+    ])
+}
+
+fn resource_attrs(pairs: &[(&str, serde_json::Value)]) -> HashMap<String, serde_json::Value> {
+    pairs
+        .iter()
+        .map(|(key, value)| ((*key).to_string(), value.clone()))
+        .collect()
 }
 
 #[test]
@@ -142,6 +160,48 @@ fn worker_run_encodes_local_codex_claiming_and_manual_cloud_overflow() {
         assert!(
             spec.contains(needle),
             "WorkerRun spec should contain {needle}"
+        );
+    }
+}
+
+#[test]
+fn paw_patrol_dark_factory_architecture_is_recorded_in_app_adr() {
+    let root = repo_root();
+    let adr = root
+        .join("os-apps/paw-patrol/adrs")
+        .join("0001-patrol-controlled-dark-factory.md");
+
+    assert!(
+        adr.is_file(),
+        "material paw-patrol architecture changes should be recorded in an app-scoped ADR"
+    );
+
+    let text = read(adr);
+    for needle in [
+        "Patrol-Controlled Dark Factory",
+        "Status: Accepted",
+        "Temper-native",
+        "PatrolRequest",
+        "Signal",
+        "FactoryCase",
+        "WorkCycle",
+        "WorkerRun",
+        "ReviewRun",
+        "EvaluationRun",
+        "ProofPacket",
+        "RiskRule",
+        "RepoGraphSnapshot",
+        "QualityFinding",
+        "SecurityFinding",
+        "DailyBrief",
+        "paw-pm",
+        "Mac mini",
+        "Cedar",
+        "human-gated",
+    ] {
+        assert!(
+            text.contains(needle),
+            "paw-patrol Dark Factory ADR should contain {needle}"
         );
     }
 }
@@ -369,11 +429,79 @@ fn local_worker_can_review_and_evaluate_repo_sweep_runs() {
         "run_codex_review",
         "parse_codex_review_verdict",
         "run_code_change_evaluation",
+        "EvaluationRun.Claim",
         "PAW_CODEX_EVAL_COMMANDS",
     ] {
         assert!(
             worker_src.contains(needle),
             "local worker should include repo-sweep review/evaluation support: {needle}"
+        );
+    }
+}
+
+#[test]
+fn patrol_cedar_human_gate_approvals_are_not_available_to_system_agents() {
+    let root = repo_root();
+    let policy = read(root.join("os-apps/paw-patrol/policies/patrol.cedar"));
+    let engine = AuthzEngine::new(&policy).expect("patrol.cedar should parse");
+    let attrs = resource_attrs(&[
+        ("id", serde_json::json!("wc-approval")),
+        ("risk_lane", serde_json::json!("L3")),
+    ]);
+
+    let system_agent = agent_context("patrol-wasm-system", "system");
+    for action in ["ApproveHumanStart", "ApproveHumanCompletion"] {
+        let decision = engine.authorize(&system_agent, action, "WorkCycle", &attrs);
+        assert!(
+            !decision.is_allowed(),
+            "system agent must not be able to dispatch human gate {action}: {decision:?}"
+        );
+    }
+
+    let human = agent_context("sesh", "human");
+    for action in ["ApproveHumanStart", "ApproveHumanCompletion"] {
+        let decision = engine.authorize(&human, action, "WorkCycle", &attrs);
+        assert!(
+            decision.is_allowed(),
+            "human agent should be able to dispatch human gate {action}: {decision:?}"
+        );
+    }
+}
+
+#[test]
+fn patrol_cedar_binds_evaluation_pass_fail_to_claimed_evaluator() {
+    let root = repo_root();
+    let policy = read(root.join("os-apps/paw-patrol/policies/patrol.cedar"));
+    let engine = AuthzEngine::new(&policy).expect("patrol.cedar should parse");
+    let attrs = resource_attrs(&[
+        ("id", serde_json::json!("eval-1")),
+        ("evaluator_id", serde_json::json!("mac-mini-codex-prod")),
+    ]);
+
+    let unrelated_agent = agent_context("generic-agent", "agent");
+    for action in ["Start", "Pass", "Fail"] {
+        let decision = engine.authorize(&unrelated_agent, action, "EvaluationRun", &attrs);
+        assert!(
+            !decision.is_allowed(),
+            "unclaimed generic agent must not be able to dispatch EvaluationRun.{action}: {decision:?}"
+        );
+    }
+
+    let wrong_worker = agent_context("other-worker", "worker");
+    for action in ["Start", "Pass", "Fail"] {
+        let decision = engine.authorize(&wrong_worker, action, "EvaluationRun", &attrs);
+        assert!(
+            !decision.is_allowed(),
+            "wrong worker must not be able to dispatch EvaluationRun.{action}: {decision:?}"
+        );
+    }
+
+    let claimed_worker = agent_context("mac-mini-codex-prod", "worker");
+    for action in ["Start", "Pass", "Fail"] {
+        let decision = engine.authorize(&claimed_worker, action, "EvaluationRun", &attrs);
+        assert!(
+            decision.is_allowed(),
+            "claimed evaluator should be able to dispatch EvaluationRun.{action}: {decision:?}"
         );
     }
 }
@@ -1360,6 +1488,9 @@ fn reviewer_and_evaluator_results_gate_completion_before_human_review() {
 
     let evaluation_spec = read(patrol.join("specs/evaluation_run.ioa.toml"));
     for needle in [
+        "name = \"evaluator_id\"",
+        "name = \"Claim\"",
+        "params = [\"evaluator_id\"]",
         "effect = [{ type = \"trigger\", name = \"evaluation_run_passed\" }]",
         "effect = [{ type = \"trigger\", name = \"evaluation_run_failed\" }]",
         "module = \"review_gate_lifecycle\"",
@@ -1387,6 +1518,7 @@ fn reviewer_and_evaluator_results_gate_completion_before_human_review() {
         "/tdata/ProofPackets",
         "TemperPaw.Patrol.PassReview",
         "TemperPaw.Patrol.RequestChanges",
+        "TemperPaw.Patrol.ReportE2e",
         "TemperPaw.Patrol.PassEvaluation",
         "TemperPaw.Patrol.AttachProofPacket",
         "TemperPaw.Patrol.Complete",
@@ -1394,6 +1526,7 @@ fn reviewer_and_evaluator_results_gate_completion_before_human_review() {
         "TemperPaw.Patrol.MarkReady",
         "TemperPaw.Patrol.Reject",
         "TemperPaw.Patrol.Escalate",
+        "record_e2e_if_present",
         "reviewer approved before human review",
         "evaluation gates passed before proof readiness",
     ] {
@@ -1402,6 +1535,49 @@ fn reviewer_and_evaluator_results_gate_completion_before_human_review() {
             "review_gate_lifecycle should contain {needle}"
         );
     }
+}
+
+#[test]
+fn work_cycle_completion_requires_recorded_live_e2e_evidence() {
+    let root = repo_root();
+    let patrol = root.join("os-apps/paw-patrol");
+    let work_cycle = read(patrol.join("specs/work_cycle.ioa.toml"));
+
+    for needle in [
+        "name = \"ReportE2e\"",
+        "name = \"e2e_summary\"",
+        "from = [\"Reviewing\"]",
+        "to = \"Reviewing\"",
+        "params = [\"e2e_summary\"]",
+        "effect = \"set e2e_ok true\"",
+        "{ type = \"is_true\", var = \"e2e_ok\" }",
+        "Complete only when review, evaluation, proof, and live/E2E evidence are all attached.",
+    ] {
+        assert!(
+            work_cycle.contains(needle),
+            "WorkCycle should require explicit live/E2E evidence before completion: {needle}"
+        );
+    }
+
+    let review_gate = read(patrol.join("wasm/review_gate_lifecycle/src/lib.rs"));
+    for needle in [
+        "TemperPaw.Patrol.ReportE2e",
+        "record_e2e_if_present",
+        "e2e_summary",
+        "EvaluationRun",
+        "live_e2e_summary",
+    ] {
+        assert!(
+            review_gate.contains(needle),
+            "review_gate_lifecycle should record E2E evidence before final gates: {needle}"
+        );
+    }
+
+    let csdl = read(patrol.join("specs/model.csdl.xml"));
+    assert!(
+        csdl.contains("<Property Name=\"E2eSummary\" Type=\"Edm.String\"/>"),
+        "WorkCycle CSDL should expose durable live/E2E evidence"
+    );
 }
 
 #[test]

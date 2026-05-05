@@ -75,6 +75,7 @@ fn handle_done(
     let work_cycle_id = string_field(fields, "work_cycle_id", "WorkCycleId");
     let case_id = string_field(fields, "factory_case_id", "FactoryCaseId");
     let risk_lane = string_field(fields, "risk_lane", "RiskLane");
+    let evaluator_id = string_field(fields, "worker_id", "WorkerId");
     let result_summary = string_param(ctx, fields, "result_summary", "ResultSummary");
     let branch_name = string_param(ctx, fields, "branch_name", "BranchName");
     let mut proof_packet_id = string_param(ctx, fields, "proof_packet_id", "ProofPacketId");
@@ -142,7 +143,8 @@ fn handle_done(
         PATROL_QUEUE_EVALUATION,
         &json!({
             "work_cycle_id": &work_cycle_id,
-            "required_checks": &required_checks
+            "required_checks": &required_checks,
+            "evaluator_id": &evaluator_id
         }),
     )?;
 
@@ -445,7 +447,7 @@ fn proof_json(
 }
 
 fn state_diagram_mermaid() -> &'static str {
-    "stateDiagram-v2\n  WorkerRun --> ReviewRun: ReportDone creates independent reviewer\n  WorkerRun --> EvaluationRun: ReportDone queues gates\n  WorkerRun --> ProofPacket: ReportDone attaches visual ProofPacket draft\n  WorkCycle --> Reviewing: WorkerDone + SubmitForReview\n"
+    "stateDiagram-v2\n  WorkerRun --> ReviewRun: ReportDone creates independent reviewer\n  WorkerRun --> EvaluationRun: ReportDone queues claimed gates\n  WorkerRun --> ProofPacket: ReportDone attaches visual ProofPacket draft\n  EvaluationRun --> WorkCycle: Pass records ReportE2e\n  WorkCycle --> Reviewing: WorkerDone + SubmitForReview\n"
 }
 
 fn changed_files_map(branch_name: &str, result_summary: &str) -> String {

@@ -97,7 +97,6 @@ permit(
     Action::"LinkSource",
     Action::"WritePlan",
     Action::"RequestHumanStartApproval",
-    Action::"ApproveHumanStart",
     Action::"StartWork",
     Action::"AttachWorkerRun",
     Action::"BeginWork",
@@ -106,12 +105,12 @@ permit(
     Action::"SubmitForReview",
     Action::"AttachReviewRun",
     Action::"AttachEvaluationRun",
+    Action::"ReportE2e",
     Action::"PassReview",
     Action::"RequestChanges",
     Action::"PassEvaluation",
     Action::"AttachProofPacket",
     Action::"RequestHumanCompletionApproval",
-    Action::"ApproveHumanCompletion",
     Action::"Complete",
     Action::"Fail",
     Action::"Escalate",
@@ -292,9 +291,30 @@ permit(
 permit(
   principal is Agent,
   action in [
+    Action::"Claim"
+  ],
+  resource is EvaluationRun
+) when {
+  principal.agent_type == "worker" &&
+  (
+    (!(resource has EvaluatorId) && !(resource has evaluator_id)) ||
+    (resource has EvaluatorId && (resource.EvaluatorId == "" || principal.id == resource.EvaluatorId)) ||
+    (resource has evaluator_id && (resource.evaluator_id == "" || principal.id == resource.evaluator_id))
+  )
+};
+
+permit(
+  principal is Agent,
+  action in [
     Action::"Start",
     Action::"Pass",
     Action::"Fail"
   ],
   resource is EvaluationRun
-);
+) when {
+  principal.agent_type == "worker" &&
+  (
+    (resource has EvaluatorId && principal.id == resource.EvaluatorId) ||
+    (resource has evaluator_id && principal.id == resource.evaluator_id)
+  )
+};
