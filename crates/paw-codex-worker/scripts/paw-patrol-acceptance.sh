@@ -156,6 +156,9 @@ EOF
   write_artifact_link "production-preflight-diff-smoke/proof.md" "${PROOF_DIR}/production-preflight-diff-smoke/proof.md"
   write_artifact_link "production-preflight-diff-smoke/summary.json" "${PROOF_DIR}/production-preflight-diff-smoke/summary.json"
   write_artifact_link "production-preflight-diff-smoke/preflight-diff.svg" "${PROOF_DIR}/production-preflight-diff-smoke/preflight-diff.svg"
+  write_artifact_link "production-preflight-github-smoke/proof.md" "${PROOF_DIR}/production-preflight-github-smoke/proof.md"
+  write_artifact_link "production-preflight-github-smoke/summary-without-confirm.json" "${PROOF_DIR}/production-preflight-github-smoke/summary-without-confirm.json"
+  write_artifact_link "production-preflight-github-smoke/summary-with-confirm.json" "${PROOF_DIR}/production-preflight-github-smoke/summary-with-confirm.json"
   write_artifact_link "production-observe-only/proof.md" "${PROOF_DIR}/production-observe-only/proof.md"
   write_artifact_link "production-observe-only/summary.json" "${PROOF_DIR}/production-observe-only/summary.json"
   write_artifact_link "production-observe-only/observe-only.svg" "${PROOF_DIR}/production-observe-only/observe-only.svg"
@@ -214,6 +217,7 @@ write_summary_and_proof() {
     --arg preflight "${PROOF_DIR}/production-preflight" \
     --arg preflight_discovery "${PROOF_DIR}/production-preflight-railway-discovery-smoke" \
     --arg preflight_diff "${PROOF_DIR}/production-preflight-diff-smoke" \
+    --arg preflight_github "${PROOF_DIR}/production-preflight-github-smoke" \
     --arg observe "${PROOF_DIR}/production-observe-only" \
     --arg production "${PROOF_DIR}/production-readiness-smoke" \
     --argjson steps "$steps_json" \
@@ -230,6 +234,7 @@ write_summary_and_proof() {
         production_preflight: $preflight,
         production_preflight_railway_discovery_smoke: $preflight_discovery,
         production_preflight_diff_smoke: $preflight_diff,
+        production_preflight_github_smoke: $preflight_github,
         production_observe_only: $observe,
         production_readiness_smoke: $production
       }
@@ -276,6 +281,9 @@ flowchart TD
   - Operator handoff: ${PROOF_DIR}/production-preflight-railway-discovery-smoke/operator-handoff.md
 - Preflight diff proof bundle: ${PROOF_DIR}/production-preflight-diff-smoke
   - Visual summary: ${PROOF_DIR}/production-preflight-diff-smoke/preflight-diff.svg
+- GitHub preflight proof bundle: ${PROOF_DIR}/production-preflight-github-smoke
+  - Without confirmation: ${PROOF_DIR}/production-preflight-github-smoke/summary-without-confirm.json
+  - With confirmation: ${PROOF_DIR}/production-preflight-github-smoke/summary-with-confirm.json
 - Production observe-only proof bundle: ${PROOF_DIR}/production-observe-only
   - Visual summary: ${PROOF_DIR}/production-observe-only/observe-only.svg
 - Production readiness proof bundle: ${PROOF_DIR}/production-readiness-smoke
@@ -320,6 +328,7 @@ run_step syntax-production-preflight bash -n "${ROOT}/crates/paw-codex-worker/sc
 run_step syntax-production-preflight-diff bash -n "${ROOT}/crates/paw-codex-worker/scripts/production-preflight-diff.sh"
 run_step syntax-production-preflight-diff-smoke bash -n "${ROOT}/crates/paw-codex-worker/scripts/production-preflight-diff-smoke.sh"
 run_step syntax-production-preflight-railway-discovery-smoke bash -n "${ROOT}/crates/paw-codex-worker/scripts/production-preflight-railway-discovery-smoke.sh"
+run_step syntax-production-preflight-github-smoke bash -n "${ROOT}/crates/paw-codex-worker/scripts/production-preflight-github-smoke.sh"
 run_step syntax-production-observe bash -n "${ROOT}/crates/paw-codex-worker/scripts/production-observe-only.sh"
 run_step syntax-production-observe-smoke bash -n "${ROOT}/crates/paw-codex-worker/scripts/production-observe-only-smoke.sh"
 run_step syntax-production-smoke bash -n "${ROOT}/crates/paw-codex-worker/scripts/production-readiness-smoke.sh"
@@ -342,6 +351,9 @@ run_step production-preflight-railway-discovery-smoke env \
 run_step production-preflight-diff-smoke env \
   PROOF_DIR="${PROOF_DIR}/production-preflight-diff-smoke" \
   "${ROOT}/crates/paw-codex-worker/scripts/production-preflight-diff-smoke.sh"
+run_step production-preflight-github-smoke env \
+  PROOF_DIR="${PROOF_DIR}/production-preflight-github-smoke" \
+  "${ROOT}/crates/paw-codex-worker/scripts/production-preflight-github-smoke.sh"
 
 if [[ "$MODE" == "live" ]]; then
   run_step deterministic-smoke env \

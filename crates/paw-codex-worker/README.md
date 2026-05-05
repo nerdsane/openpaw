@@ -200,7 +200,9 @@ crates/paw-codex-worker/scripts/paw-patrol-acceptance.sh quick
 `quick` runs syntax checks, a CI action runtime smoke, formatting, diff
 whitespace checks, `cargo check`, the Patrol foundation suite, worker tests,
 production preflight, Railway discovery preflight, and preflight diff smoke.
-It writes `index.html`, `summary.json`, `proof.md`, and `acceptance.log` under
+It also proves the GitHub cutover gate that blocks an unmerged clean/green
+TemperPaw PR until `CONFIRM_TEMPERPAW_PR_OK=1` is explicitly set. It writes
+`index.html`, `summary.json`, `proof.md`, and `acceptance.log` under
 `/tmp/paw-patrol-acceptance-*`.
 
 For a full local acceptance pass that also runs the live E2E smokes:
@@ -247,6 +249,7 @@ WORKER_TOKEN="$TEMPER_WORKER_TOKEN" \
 PATROL_OPERATOR_TOKEN="$TEMPER_OPERATOR_TOKEN" \
 CONFIRM_LOCAL_CODEX_WORKER_ID=mac-mini-codex-prod \
 CONFIRM_TEMPER_PIN_OK=1 \
+CONFIRM_TEMPERPAW_PR_OK=1 \
 crates/paw-codex-worker/scripts/production-preflight.sh
 ```
 

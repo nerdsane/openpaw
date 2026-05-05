@@ -40,20 +40,24 @@ flowchart TD
 
 Confirm the Temper Cedar resource-attribute fix is available to production
 TemperPaw. Until the Temper PR is merged, TemperPaw may stay pinned to the
-tested commit.
+tested commit. Also confirm the TemperPaw PR that introduces Patrol itself is
+merged, or that its clean/green head is explicitly approved for production
+deployment before merge.
 
 Evidence to capture:
 
 ```sh
 git ls-remote --heads origin codex/cedar-resource-attrs
 gh pr view 216 --repo nerdsane/temper --json url,headRefOid,mergeStateStatus,isDraft
-gh pr view 218 --repo nerdsane/temperpaw --json url,headRefOid,mergeStateStatus,isDraft
+gh pr view 218 --repo nerdsane/temperpaw --json url,headRefOid,mergeStateStatus,isDraft,statusCheckRollup
 ```
 
 Pass condition: the Temper Cedar fix is merged, or TemperPaw production is
 deployed from the PR revision that pins the tested Temper commit. If the pinned
 revision is the approved production path, set `CONFIRM_TEMPER_PIN_OK=1` for
-`production-preflight.sh` so that decision is captured in the proof.
+`production-preflight.sh` so that decision is captured in the proof. If
+TemperPaw PR #218 is clean/green but unmerged and production may deploy that
+head, set `CONFIRM_TEMPERPAW_PR_OK=1`; otherwise wait for the PR to merge.
 
 ## Gate 1: Production Preflight
 
@@ -75,6 +79,7 @@ TEMPER_TENANT=default \
 WORKER_ID=mac-mini-codex-prod \
 WORKER_TOKEN="$TEMPER_WORKER_TOKEN" \
 CONFIRM_LOCAL_CODEX_WORKER_ID=mac-mini-codex-prod \
+CONFIRM_TEMPERPAW_PR_OK=1 \
 crates/paw-codex-worker/scripts/production-preflight.sh
 ```
 

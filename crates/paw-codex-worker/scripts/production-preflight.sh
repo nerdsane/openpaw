@@ -266,8 +266,26 @@ if [[ "$CHECK_GITHUB" == "1" ]]; then
       add_gate "github:temper_pr_216" "warn" "could not inspect Temper PR #216" "${PROOF_DIR}/temper-pr-216.json"
     fi
 
-    if capture_command "${PROOF_DIR}/temperpaw-pr-218.json" gh pr view 218 --repo nerdsane/temperpaw --json url,isDraft,mergeStateStatus,headRefOid; then
-      add_gate "github:temperpaw_pr_218" "pass" "TemperPaw PR #218 is inspectable" "${PROOF_DIR}/temperpaw-pr-218.json"
+    if capture_command "${PROOF_DIR}/temperpaw-pr-218.json" gh pr view 218 --repo nerdsane/temperpaw --json url,isDraft,state,mergeStateStatus,headRefOid,statusCheckRollup; then
+      if jq -e '.state == "MERGED"' "${PROOF_DIR}/temperpaw-pr-218.json" >/dev/null 2>&1; then
+        add_gate "github:temperpaw_pr_218" "pass" "TemperPaw PR #218 is merged" "${PROOF_DIR}/temperpaw-pr-218.json"
+      elif jq -e '
+        .isDraft == false and
+        .mergeStateStatus == "CLEAN" and
+        ((.statusCheckRollup // []) | length > 0) and
+        all(.statusCheckRollup[];
+          ((.status // "") == "COMPLETED") and
+          ((.conclusion // "") as $conclusion | ["SUCCESS", "SKIPPED", "NEUTRAL"] | index($conclusion) != null)
+        )
+      ' "${PROOF_DIR}/temperpaw-pr-218.json" >/dev/null 2>&1; then
+        if [[ "${CONFIRM_TEMPERPAW_PR_OK:-0}" == "1" ]]; then
+          add_gate "github:temperpaw_pr_218" "pass" "operator confirmed the clean and green TemperPaw PR #218 head is approved for production cutover while unmerged" "${PROOF_DIR}/temperpaw-pr-218.json"
+        else
+          add_gate "github:temperpaw_pr_218" "blocked" "TemperPaw PR #218 is clean and green but unmerged; set CONFIRM_TEMPERPAW_PR_OK=1 only if production may deploy this PR head" "${PROOF_DIR}/temperpaw-pr-218.json"
+        fi
+      else
+        add_gate "github:temperpaw_pr_218" "blocked" "TemperPaw PR #218 is not merged and not a confirmed clean/green production candidate" "${PROOF_DIR}/temperpaw-pr-218.json"
+      fi
     else
       add_gate "github:temperpaw_pr_218" "warn" "could not inspect TemperPaw PR #218" "${PROOF_DIR}/temperpaw-pr-218.json"
     fi
@@ -504,6 +522,10 @@ export PATROL_GITHUB_WEBHOOK_SECRET='<github-webhook-secret>'
 
 # Use only after the Temper dependency decision is explicit.
 export CONFIRM_TEMPER_PIN_OK='1'
+
+# Use only after the TemperPaw PR #218 head is explicitly approved for
+# production while it is still unmerged.
+export CONFIRM_TEMPERPAW_PR_OK='1'
 \`\`\`
 
 ## Next Safe Commands

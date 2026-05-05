@@ -677,6 +677,9 @@ fn production_readiness_script_keeps_mac_mini_activation_checkable() {
         "CHECK_RAILWAY",
         "STRICT=1",
         "CONFIRM_TEMPER_PIN_OK",
+        "CONFIRM_TEMPERPAW_PR_OK",
+        "statusCheckRollup",
+        "TemperPaw PR #218 is clean and green but unmerged",
         "does not mutate Railway, launchd, or Temper",
     ] {
         assert!(
@@ -902,6 +905,9 @@ fn paw_patrol_acceptance_harness_collects_quick_and_live_proofs() {
         "production-preflight-diff-smoke.sh",
         "production-preflight-diff-smoke/preflight-diff.svg",
         "Preflight Diff",
+        "production-preflight-github-smoke.sh",
+        "production-preflight-github-smoke/summary-without-confirm.json",
+        "production-preflight-github-smoke/summary-with-confirm.json",
         "production-readiness-smoke.sh",
         "deterministic-smoke/proof.svg",
         "webhook-intake-smoke/webhook-intake.svg",
@@ -955,6 +961,7 @@ fn ci_covers_paw_patrol_worker_and_wasm_gates() {
         "bash -n crates/paw-codex-worker/scripts/webhook-intake-smoke.sh",
         "bash -n crates/paw-codex-worker/scripts/production-readiness.sh",
         "bash -n crates/paw-codex-worker/scripts/production-preflight.sh",
+        "bash -n crates/paw-codex-worker/scripts/production-preflight-github-smoke.sh",
         "bash -n crates/paw-codex-worker/scripts/production-readiness-smoke.sh",
         "bash -n crates/paw-codex-worker/scripts/paw-patrol-acceptance.sh",
         "os-apps/paw-ingest/wasm/build.sh",
