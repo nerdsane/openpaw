@@ -375,22 +375,21 @@ pub fn dispatch(
             // this unblocks the natural Python-style call shape without
             // changing any per-method signature. Methods that don't expect
             // a dict will surface their own clearer error.
-            let temper_args: Vec<Value> =
-                if args.is_empty() && !kwargs.is_empty() {
-                    let mut obj = serde_json::Map::new();
-                    for (k, v) in kwargs {
-                        if let Some(key) = k.as_str() {
-                            obj.insert(key.to_string(), v.clone());
-                        }
+            let temper_args: Vec<Value> = if args.is_empty() && !kwargs.is_empty() {
+                let mut obj = serde_json::Map::new();
+                for (k, v) in kwargs {
+                    if let Some(key) = k.as_str() {
+                        obj.insert(key.to_string(), v.clone());
                     }
-                    vec![Value::Object(obj)]
-                } else if !args.is_empty() && !kwargs.is_empty() {
-                    return Err(format!(
-                        "temper.{method}() does not accept mixed positional and keyword arguments — pass either a single dict or kwargs"
-                    ));
-                } else {
-                    args.to_vec()
-                };
+                }
+                vec![Value::Object(obj)]
+            } else if !args.is_empty() && !kwargs.is_empty() {
+                return Err(format!(
+                    "temper.{method}() does not accept mixed positional and keyword arguments — pass either a single dict or kwargs"
+                ));
+            } else {
+                args.to_vec()
+            };
             dispatch_temper(
                 ctx,
                 temper_api_url,
