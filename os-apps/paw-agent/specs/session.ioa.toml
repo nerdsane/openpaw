@@ -3,7 +3,8 @@
 # The session turn cycle is expressed as state transitions with WASM integration
 # triggers. No Rust while loop — the platform's dispatch pipeline drives
 # iteration through callback chaining:
-#   PreparingContext → (prepare_context) → CallingProvider → (call_provider) →
+#   PreparingContext → (prepare_context) → EnsuringProviderAuth →
+#   (provider_auth_gate) → CallingProvider → (call_provider) →
 #   ApplyingProviderResponse → ProcessToolCalls/CheckSteering/RecordResult
 #
 # Pi architecture additions:
@@ -21,7 +22,7 @@
 
 [automaton]
 name = "Session"
-states = ["Created", "Provisioning", "PreparingContext", "CallingProvider", "ApplyingProviderResponse", "Executing", "Compacting", "Steering", "WaitingForApproval", "Recovering", "Completed", "Failed", "Cancelled"]
+states = ["Created", "Provisioning", "PreparingContext", "EnsuringProviderAuth", "CallingProvider", "ApplyingProviderResponse", "Executing", "EnsuringCompactionAuth", "Compacting", "Steering", "WaitingForApproval", "Recovering", "Completed", "Failed", "Cancelled"]
 initial = "Created"
 # ADR-0050 / ADR-0036: WaitingForApproval is human-blocked on a Cedar
 # decision; a wall-clock timeout here would conflict with governance
@@ -264,6 +265,34 @@ initial = "0"
 
 [[state]]
 name = "provider_response_bytes"
+type = "counter"
+initial = "0"
+
+# --- State Variables: Provider Auth Gate ---
+
+[[state]]
+name = "provider_auth_status"
+type = "string"
+initial = ""
+
+[[state]]
+name = "provider_auth_checked_at_ms"
+type = "string"
+initial = ""
+query_indexed = false
+
+[[state]]
+name = "provider_auth_error"
+type = "string"
+initial = ""
+
+[[state]]
+name = "provider_auth_retry_count"
+type = "counter"
+initial = "0"
+
+[[state]]
+name = "compaction_auth_retry_count"
 type = "counter"
 initial = "0"
 
@@ -608,9 +637,34 @@ effect = [{ type = "trigger", name = "prepare_context" }]
 name = "ContextReady"
 kind = "input"
 from = ["PreparingContext"]
-to = "CallingProvider"
+to = "EnsuringProviderAuth"
 params = ["prepared_context_file_id", "prepared_context_inline_json", "prepared_context_bytes", "prepared_context_entries_loaded", "prepared_context_content_files_loaded", "context_tokens", "system_prompt_hash", "system_prompt_file_id"]
-hint = "Prepared context artifact is ready. Persist artifact references and call the provider."
+hint = "Prepared context artifact is ready. Persist artifact references and ensure provider auth before calling the provider."
+effect = [{ type = "trigger", name = "ensure_provider_auth" }]
+
+# ADR-0046: inline trigger — migrated from [[integration]] below.
+# Post-parse expansion re-synthesizes the equivalent Integration so
+# the existing WASM/webhook runtime handles execution unchanged.
+[[action.triggers]]
+name = "ensure_provider_auth"
+kind = "wasm"
+module = "provider_auth_gate"
+on_failure = "Fail"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+default_llm_provider = "{secret:llm_provider}"
+auth_action = "EnsureFresh"
+ready_action = "ProviderAuthReady"
+
+
+[[action]]
+name = "ProviderAuthReady"
+kind = "input"
+from = ["EnsuringProviderAuth"]
+to = "CallingProvider"
+params = ["provider_auth_status", "provider_auth_checked_at_ms", "provider_auth_error", "provider_auth_retry_count", "compaction_auth_retry_count"]
+hint = "Codex provider auth is fresh, or this provider does not need Codex OAuth. Call the LLM provider."
 effect = [{ type = "trigger", name = "call_provider" }]
 
 # ADR-0046: inline trigger — migrated from [[integration]] below.
@@ -646,6 +700,32 @@ timeout_secs = "600"
 max_response_bytes = "4194304"
 max_memory = "268435456"
 provider_caller_budget_ms = "600000"
+
+
+[[action]]
+name = "ProviderAuthExpired"
+kind = "input"
+from = ["CallingProvider"]
+to = "EnsuringProviderAuth"
+params = ["provider_auth_error"]
+guard = "provider_auth_retry_count < 1"
+hint = "Provider returned an expired Codex token error. Force one token refresh before retrying the provider call."
+effect = [
+  { type = "increment", var = "provider_auth_retry_count" },
+  { type = "trigger", name = "force_provider_auth_refresh" }
+]
+
+[[action.triggers]]
+name = "force_provider_auth_refresh"
+kind = "wasm"
+module = "provider_auth_gate"
+on_failure = "Fail"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+default_llm_provider = "{secret:llm_provider}"
+auth_action = "ForceRefresh"
+ready_action = "ProviderAuthReady"
 
 
 [[action]]
@@ -749,12 +829,36 @@ effect = [
 name = "NeedsCompaction"
 kind = "input"
 from = ["PreparingContext"]
-to = "Compacting"
+to = "EnsuringCompactionAuth"
 params = ["input_tokens", "output_tokens", "context_tokens", "prepared_context_bytes", "prepared_context_entries_loaded", "prepared_context_content_files_loaded", "system_prompt_hash", "system_prompt_file_id"]
-hint = "Context preparation detected that the bounded context budget was exceeded. Trigger compaction."
+hint = "Context preparation detected that the bounded context budget was exceeded. Ensure provider auth before compaction."
 effect = [
   { type = "increment", var = "input_tokens" },
   { type = "increment", var = "output_tokens" },
+  { type = "trigger", name = "ensure_compaction_auth" }
+]
+
+[[action.triggers]]
+name = "ensure_compaction_auth"
+kind = "wasm"
+module = "provider_auth_gate"
+on_failure = "Fail"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+default_llm_provider = "{secret:llm_provider}"
+auth_action = "EnsureFresh"
+ready_action = "CompactionAuthReady"
+
+
+[[action]]
+name = "CompactionAuthReady"
+kind = "input"
+from = ["EnsuringCompactionAuth"]
+to = "Compacting"
+params = ["provider_auth_status", "provider_auth_checked_at_ms", "provider_auth_error", "provider_auth_retry_count", "compaction_auth_retry_count"]
+hint = "Codex compaction auth is fresh, or this provider does not need Codex OAuth. Trigger compaction."
+effect = [
   { type = "trigger", name = "compact_context" }
 ]
 
@@ -782,6 +886,32 @@ openai_codex_api_url = "https://chatgpt.com/backend-api/codex/responses"
 openrouter_api_url = "https://openrouter.ai/api/v1/chat/completions"
 temper_api_url = "{secret:temper_api_url}"
 timeout_secs = "120"
+
+
+[[action]]
+name = "CompactionAuthExpired"
+kind = "input"
+from = ["Compacting"]
+to = "EnsuringCompactionAuth"
+params = ["provider_auth_error"]
+guard = "compaction_auth_retry_count < 1"
+hint = "Compaction LLM returned an expired Codex token error. Force one token refresh before retrying compaction."
+effect = [
+  { type = "increment", var = "compaction_auth_retry_count" },
+  { type = "trigger", name = "force_compaction_auth_refresh" }
+]
+
+[[action.triggers]]
+name = "force_compaction_auth_refresh"
+kind = "wasm"
+module = "provider_auth_gate"
+on_failure = "Fail"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+default_llm_provider = "{secret:llm_provider}"
+auth_action = "ForceRefresh"
+ready_action = "CompactionAuthReady"
 
 
 [[action]]
@@ -880,14 +1010,14 @@ temper_api_url = "{secret:temper_api_url}"
 [[action]]
 name = "Steer"
 kind = "input"
-from = ["PreparingContext", "CallingProvider", "ApplyingProviderResponse", "Executing", "Steering", "Compacting", "WaitingForApproval", "Recovering"]
+from = ["PreparingContext", "EnsuringProviderAuth", "CallingProvider", "ApplyingProviderResponse", "Executing", "EnsuringCompactionAuth", "Steering", "Compacting", "WaitingForApproval", "Recovering"]
 params = ["steering_messages"]
 hint = "Queue a steering message for mid-run injection. External callers append messages while session runs. Self-loop — does not change state."
 
 [[action]]
 name = "SwitchProvider"
 kind = "input"
-from = ["PreparingContext", "CallingProvider", "ApplyingProviderResponse", "Executing", "Steering", "Compacting", "WaitingForApproval", "Provisioning", "Recovering"]
+from = ["PreparingContext", "EnsuringProviderAuth", "CallingProvider", "ApplyingProviderResponse", "Executing", "EnsuringCompactionAuth", "Steering", "Compacting", "WaitingForApproval", "Provisioning", "Recovering"]
 params = ["model", "provider"]
 hint = "Change LLM provider and/or model mid-session. Self-loop — takes effect on the next LLM call. Callable by the session itself or by parent/supervisor."
 
@@ -896,7 +1026,7 @@ hint = "Change LLM provider and/or model mid-session. Self-loop — takes effect
 [[action]]
 name = "SwitchMode"
 kind = "input"
-from = ["PreparingContext", "CallingProvider", "ApplyingProviderResponse", "Executing", "Steering", "Compacting", "WaitingForApproval", "Provisioning"]
+from = ["PreparingContext", "EnsuringProviderAuth", "CallingProvider", "ApplyingProviderResponse", "Executing", "EnsuringCompactionAuth", "Steering", "Compacting", "WaitingForApproval", "Provisioning"]
 params = ["session_mode", "tools_enabled", "pre_plan_tools_enabled", "active_plan_id"]
 hint = "Switch between plan and execute modes. Self-loop — takes effect on next tool call."
 
@@ -998,14 +1128,14 @@ effect = [
 [[action]]
 name = "Heartbeat"
 kind = "input"
-from = ["PreparingContext", "CallingProvider", "ApplyingProviderResponse", "Executing", "Steering", "Compacting", "WaitingForApproval", "Recovering"]
+from = ["PreparingContext", "EnsuringProviderAuth", "CallingProvider", "ApplyingProviderResponse", "Executing", "EnsuringCompactionAuth", "Steering", "Compacting", "WaitingForApproval", "Recovering"]
 params = ["last_heartbeat_at"]
 hint = "Pure liveness ping. Records last_heartbeat_at and drives Discord typing indicator (posted inline by the caller — see wasm-helpers::send_typing_indicator). Does NOT reset any state_timeout — callers that have actually advanced must dispatch ProgressMade instead. A session blocked in a stuck HTTP call can still emit Heartbeats and should die via state_timeout."
 
 [[action]]
 name = "ProgressMade"
 kind = "input"
-from = ["PreparingContext", "CallingProvider", "ApplyingProviderResponse", "Executing", "Compacting", "Recovering"]
+from = ["PreparingContext", "EnsuringProviderAuth", "CallingProvider", "ApplyingProviderResponse", "Executing", "EnsuringCompactionAuth", "Compacting", "Recovering"]
 params = ["last_progress_at"]
 hint = "Signal real forward progress (received first LLM chunk, completed a tool batch, wrote a context chunk, etc). Self-loop; increments progress_token and resets the state_timeout clock for the current state. Contrast with Heartbeat (liveness-only, does NOT reset timeouts)."
 effect = [
@@ -1015,7 +1145,7 @@ effect = [
 [[action]]
 name = "TimeoutFail"
 kind = "input"
-from = ["PreparingContext", "CallingProvider", "ApplyingProviderResponse", "Executing", "Steering", "Compacting"]
+from = ["PreparingContext", "EnsuringProviderAuth", "CallingProvider", "ApplyingProviderResponse", "Executing", "EnsuringCompactionAuth", "Steering", "Compacting"]
 to = "Failed"
 params = ["error_message"]
 hint = "Session timed out — no heartbeat within timeout period."
@@ -1029,7 +1159,7 @@ effect = [
 [[action]]
 name = "Fail"
 kind = "input"
-from = ["Created", "Provisioning", "PreparingContext", "CallingProvider", "ApplyingProviderResponse", "Executing", "Compacting", "Steering", "WaitingForApproval", "Recovering"]
+from = ["Created", "Provisioning", "PreparingContext", "EnsuringProviderAuth", "CallingProvider", "ApplyingProviderResponse", "Executing", "EnsuringCompactionAuth", "Compacting", "Steering", "WaitingForApproval", "Recovering"]
 to = "Failed"
 params = ["error_message"]
 hint = "Mark session run as failed."
@@ -1041,7 +1171,7 @@ effect = [
 [[action]]
 name = "Cancel"
 kind = "input"
-from = ["Created", "Provisioning", "PreparingContext", "CallingProvider", "ApplyingProviderResponse", "Executing", "Compacting", "Steering", "WaitingForApproval", "Recovering"]
+from = ["Created", "Provisioning", "PreparingContext", "EnsuringProviderAuth", "CallingProvider", "ApplyingProviderResponse", "Executing", "EnsuringCompactionAuth", "Compacting", "Steering", "WaitingForApproval", "Recovering"]
 to = "Cancelled"
 hint = "Cancel session execution."
 effect = [
@@ -1092,7 +1222,7 @@ effect = [
 [[action]]
 name = "RecoverFromRestart"
 kind = "input"
-from = ["PreparingContext", "CallingProvider", "ApplyingProviderResponse", "Executing", "Compacting", "Steering", "WaitingForApproval"]
+from = ["PreparingContext", "EnsuringProviderAuth", "CallingProvider", "ApplyingProviderResponse", "Executing", "EnsuringCompactionAuth", "Compacting", "Steering", "WaitingForApproval"]
 to = "Recovering"
 params = ["error_message"]
 guard = "recovery_count < 3"
@@ -1241,7 +1371,7 @@ assert = "has_result"
 
 [[invariant]]
 name = "TurnCountNonNegative"
-when = ["Created", "Provisioning", "PreparingContext", "CallingProvider", "ApplyingProviderResponse", "Executing", "Compacting", "Steering", "WaitingForApproval", "Recovering", "Completed", "Failed", "Cancelled"]
+when = ["Created", "Provisioning", "PreparingContext", "EnsuringProviderAuth", "CallingProvider", "ApplyingProviderResponse", "Executing", "EnsuringCompactionAuth", "Compacting", "Steering", "WaitingForApproval", "Recovering", "Completed", "Failed", "Cancelled"]
 assert = "turn_count >= 0"
 
 [[state_timeout]]
@@ -1263,6 +1393,13 @@ after_seconds = 120
 on_timeout = "TimeoutFail"
 reset_on = ["ProgressMade", "ResumeContext"]
 params = { error_message = "context preparation did not complete within 120s" }
+
+[[state_timeout]]
+state = "EnsuringProviderAuth"
+after_seconds = 60
+on_timeout = "TimeoutFail"
+reset_on = ["ProgressMade"]
+params = { error_message = "provider auth check did not complete within 60s" }
 
 [[state_timeout]]
 state = "CallingProvider"
@@ -1290,6 +1427,13 @@ after_seconds = 60
 on_timeout = "TimeoutFail"
 reset_on = ["ResumeSteering"]
 params = { error_message = "steering check did not complete within 60s" }
+
+[[state_timeout]]
+state = "EnsuringCompactionAuth"
+after_seconds = 60
+on_timeout = "TimeoutFail"
+reset_on = ["ProgressMade"]
+params = { error_message = "compaction auth check did not complete within 60s" }
 
 [[state_timeout]]
 state = "Compacting"

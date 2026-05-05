@@ -38,6 +38,54 @@ fn session_spec_defines_bounded_turn_pipeline() {
 }
 
 #[test]
+fn session_routes_llm_calls_through_codex_auth_gate() {
+    let root = repo_root();
+    let spec = fs::read_to_string(root.join("os-apps/paw-agent/specs/session.ioa.toml"))
+        .expect("session.ioa.toml should exist");
+    let build_sh = fs::read_to_string(root.join("os-apps/paw-agent/wasm/build.sh"))
+        .expect("paw-agent wasm build script should exist");
+
+    for needle in [
+        "EnsuringProviderAuth",
+        "EnsuringCompactionAuth",
+        "ProviderAuthReady",
+        "ProviderAuthExpired",
+        "CompactionAuthReady",
+        "CompactionAuthExpired",
+        "name = \"ensure_provider_auth\"",
+        "name = \"force_provider_auth_refresh\"",
+        "name = \"ensure_compaction_auth\"",
+        "name = \"force_compaction_auth_refresh\"",
+        "module = \"provider_auth_gate\"",
+        "ready_action = \"ProviderAuthReady\"",
+        "ready_action = \"CompactionAuthReady\"",
+        "auth_action = \"EnsureFresh\"",
+        "auth_action = \"ForceRefresh\"",
+        "default_llm_provider = \"{secret:llm_provider}\"",
+    ] {
+        assert!(
+            spec.contains(needle),
+            "session spec should route provider traffic through auth gate: {needle}"
+        );
+    }
+
+    assert!(
+        spec.contains("to = \"EnsuringProviderAuth\"")
+            && spec.contains("effect = [{ type = \"trigger\", name = \"ensure_provider_auth\" }]"),
+        "ContextReady should persist prepared context then enter the provider auth gate"
+    );
+    assert!(
+        spec.contains("to = \"EnsuringCompactionAuth\"")
+            && spec.contains("effect = [\n  { type = \"increment\", var = \"input_tokens\" },\n  { type = \"increment\", var = \"output_tokens\" },\n  { type = \"trigger\", name = \"ensure_compaction_auth\" }\n]"),
+        "NeedsCompaction should enter the compaction auth gate before calling the compactor"
+    );
+    assert!(
+        build_sh.contains("provider_auth_gate"),
+        "provider_auth_gate must be built with the paw-agent wasm bundle"
+    );
+}
+
+#[test]
 fn active_context_preparer_owns_delta_batch_read_contract() {
     let root = repo_root();
     let preparer =
@@ -161,10 +209,15 @@ fn session_policy_authorizes_new_pipeline_callbacks_and_modules() {
 
     for needle in [
         "Action::\"ContextReady\"",
+        "Action::\"ProviderAuthReady\"",
+        "Action::\"ProviderAuthExpired\"",
         "Action::\"ProviderResponseReady\"",
         "\"context_preparer\"",
+        "\"provider_auth_gate\"",
         "\"provider_caller\"",
         "\"provider_response_applier\"",
+        "Action::\"CompactionAuthReady\"",
+        "Action::\"CompactionAuthExpired\"",
     ] {
         assert!(
             policy.contains(needle),

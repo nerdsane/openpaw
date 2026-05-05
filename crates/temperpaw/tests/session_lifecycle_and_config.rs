@@ -146,14 +146,20 @@ fn paw_agent_defines_temper_native_openai_codex_auth_entity() {
     let root = repo_root();
     let spec = read(root.join("os-apps/paw-agent/specs/openai_codex_auth.ioa.toml"));
     let model = read(root.join("os-apps/paw-agent/specs/model.csdl.xml"));
+    let setup_api = read(root.join("crates/temperpaw/src/setup_api.rs"));
 
     for needle in [
         "name = \"OpenAICodexAuth\"",
         "StartDeviceLogin",
         "PollDeviceLogin",
         "Refresh",
+        "EnsureFresh",
+        "ForceRefresh",
         "Disconnect",
         "module = \"openai_codex_auth\"",
+        "mode = \"ensure\"",
+        "mode = \"force_refresh\"",
+        "openai_auth_base_url",
         "name = \"error_message\"",
         "state = \"Starting\"",
         "state = \"Polling\"",
@@ -169,6 +175,8 @@ fn paw_agent_defines_temper_native_openai_codex_auth_entity() {
     for needle in [
         "<EntityType Name=\"OpenAICodexAuth\">",
         "<Property Name=\"ErrorMessage\" Type=\"Edm.String\"/>",
+        "<Action Name=\"EnsureFresh\" IsBound=\"true\">",
+        "<Action Name=\"ForceRefresh\" IsBound=\"true\">",
         "<EntitySet Name=\"OpenAICodexAuths\" EntityType=\"TemperPaw.OpenAICodexAuth\"/>",
     ] {
         assert!(
@@ -176,4 +184,10 @@ fn paw_agent_defines_temper_native_openai_codex_auth_entity() {
             "paw-agent CSDL should expose OpenAICodexAuth through OData: {needle}"
         );
     }
+
+    assert!(
+        setup_api.contains(".dispatch_tenant_action_ext(")
+            && setup_api.contains("await_integration: true"),
+        "setup Codex auth routes should wait for OpenAICodexAuth WASM before reporting readiness"
+    );
 }

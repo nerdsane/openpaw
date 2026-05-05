@@ -49,6 +49,11 @@
         <Property Name="ProviderResponseInlineJson" Type="Edm.String"/>
         <Property Name="ProviderRequestBytes" Type="Edm.Int64"/>
         <Property Name="ProviderResponseBytes" Type="Edm.Int64"/>
+        <Property Name="ProviderAuthStatus" Type="Edm.String"/>
+        <Property Name="ProviderAuthCheckedAtMs" Type="Edm.String"/>
+        <Property Name="ProviderAuthError" Type="Edm.String"/>
+        <Property Name="ProviderAuthRetryCount" Type="Edm.Int64"/>
+        <Property Name="CompactionAuthRetryCount" Type="Edm.Int64"/>
         <Property Name="ReserveTokens" Type="Edm.String"/>
         <Property Name="KeepRecentTokens" Type="Edm.String"/>
         <Property Name="CompactionCount" Type="Edm.Int64"/>
@@ -267,6 +272,22 @@
         <ReturnType Type="TemperPaw.Session"/>
       </Action>
 
+      <Action Name="ProviderAuthReady" IsBound="true">
+        <Parameter Name="bindingParameter" Type="TemperPaw.Session"/>
+        <Parameter Name="provider_auth_status" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="provider_auth_checked_at_ms" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="provider_auth_error" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="provider_auth_retry_count" Type="Edm.Int64" Nullable="true"/>
+        <Parameter Name="compaction_auth_retry_count" Type="Edm.Int64" Nullable="true"/>
+        <ReturnType Type="TemperPaw.Session"/>
+      </Action>
+
+      <Action Name="ProviderAuthExpired" IsBound="true">
+        <Parameter Name="bindingParameter" Type="TemperPaw.Session"/>
+        <Parameter Name="provider_auth_error" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="TemperPaw.Session"/>
+      </Action>
+
       <Action Name="ProviderResponseReady" IsBound="true">
         <Parameter Name="bindingParameter" Type="TemperPaw.Session"/>
         <Parameter Name="provider_response_file_id" Type="Edm.String" Nullable="false"/>
@@ -332,6 +353,22 @@
         <Parameter Name="prepared_context_content_files_loaded" Type="Edm.Int64" Nullable="true"/>
         <Parameter Name="system_prompt_hash" Type="Edm.String" Nullable="true"/>
         <Parameter Name="system_prompt_file_id" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="TemperPaw.Session"/>
+      </Action>
+
+      <Action Name="CompactionAuthReady" IsBound="true">
+        <Parameter Name="bindingParameter" Type="TemperPaw.Session"/>
+        <Parameter Name="provider_auth_status" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="provider_auth_checked_at_ms" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="provider_auth_error" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="provider_auth_retry_count" Type="Edm.Int64" Nullable="true"/>
+        <Parameter Name="compaction_auth_retry_count" Type="Edm.Int64" Nullable="true"/>
+        <ReturnType Type="TemperPaw.Session"/>
+      </Action>
+
+      <Action Name="CompactionAuthExpired" IsBound="true">
+        <Parameter Name="bindingParameter" Type="TemperPaw.Session"/>
+        <Parameter Name="provider_auth_error" Type="Edm.String" Nullable="true"/>
         <ReturnType Type="TemperPaw.Session"/>
       </Action>
 
@@ -876,6 +913,16 @@
       </Action>
 
       <Action Name="Refresh" IsBound="true">
+        <Parameter Name="bindingParameter" Type="TemperPaw.OpenAICodexAuth"/>
+        <ReturnType Type="TemperPaw.OpenAICodexAuth"/>
+      </Action>
+
+      <Action Name="EnsureFresh" IsBound="true">
+        <Parameter Name="bindingParameter" Type="TemperPaw.OpenAICodexAuth"/>
+        <ReturnType Type="TemperPaw.OpenAICodexAuth"/>
+      </Action>
+
+      <Action Name="ForceRefresh" IsBound="true">
         <Parameter Name="bindingParameter" Type="TemperPaw.OpenAICodexAuth"/>
         <ReturnType Type="TemperPaw.OpenAICodexAuth"/>
       </Action>

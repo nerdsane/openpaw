@@ -54,7 +54,9 @@ extern "C" fn host_read_field(
     -1
 }
 
-use openai_codex_wire::{build_openai_headers, extract_chatgpt_account_id_from_jwt};
+use openai_codex_wire::{
+    build_openai_headers, extract_chatgpt_account_id_from_jwt, is_openai_codex_token_expired_error,
+};
 use session_tree_lib::SessionTree;
 use std::collections::BTreeSet;
 use temper_wasm_sdk::prelude::*;
@@ -63,6 +65,8 @@ use wasm_helpers::{
     read_session_from_temperfs, read_text_file_versions_batch, read_text_files_batch,
     resolve_temper_api_url, write_session_to_temperfs,
 };
+
+const COMPACTION_AUTH_EXPIRED_PREFIX: &str = "compaction_auth_expired:";
 
 /// Entry point.
 #[unsafe(no_mangle)]
@@ -185,8 +189,8 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             })
             .ok_or("context_compactor requires compaction_model or Session.model")?;
 
-        let summary = if provider == "mock" {
-            build_mock_summary(&conversation_text)
+        let summary_result = if provider == "mock" {
+            Ok(build_mock_summary(&conversation_text))
         } else {
             call_compaction_llm(
                 &ctx,
@@ -194,7 +198,22 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 &api_key,
                 compaction_model,
                 &conversation_text,
-            )?
+            )
+        };
+        let summary = match summary_result {
+            Ok(summary) => summary,
+            Err(err) => {
+                if let Some(reason) = compaction_auth_expired_reason(&err) {
+                    set_success_result(
+                        "CompactionAuthExpired",
+                        &json!({
+                            "provider_auth_error": reason,
+                        }),
+                    );
+                    return Ok(());
+                }
+                return Err(err);
+            }
         };
 
         ctx.log(
@@ -477,6 +496,19 @@ fn format_messages_for_summary(messages: &[Value]) -> String {
 /// Check if a value is an unresolved secret template like `{secret:key_name}`.
 fn is_unresolved_secret_template(value: &str) -> bool {
     value.contains("{secret:")
+}
+
+fn compaction_auth_expired_error(body: &str) -> String {
+    format!(
+        "{COMPACTION_AUTH_EXPIRED_PREFIX} {}",
+        body.chars().take(300).collect::<String>()
+    )
+}
+
+fn compaction_auth_expired_reason(error: &str) -> Option<&str> {
+    error
+        .strip_prefix(COMPACTION_AUTH_EXPIRED_PREFIX)
+        .map(str::trim)
 }
 
 fn default_compaction_provider_api_url(provider: &str) -> &'static str {
@@ -787,6 +819,11 @@ fn call_compaction_llm(
     );
     let resp = ctx.http_call("POST", &url, &headers, &body_str)?;
     if resp.status != 200 {
+        if provider == "openai_codex"
+            && is_openai_codex_token_expired_error(resp.status as u16, &resp.body)
+        {
+            return Err(compaction_auth_expired_error(&resp.body));
+        }
         return Err(format!(
             "Compaction LLM call failed (HTTP {}): {}",
             resp.status,
@@ -993,6 +1030,18 @@ data: {\"type\":\"response.completed\",\"response\":{\"output\":[{\"type\":\"mes
         assert_eq!(
             parse_compaction_response_text("openai", "not json"),
             "Summary unavailable"
+        );
+    }
+
+    #[test]
+    fn compaction_auth_expired_result_is_action_routable() {
+        let body = r#"{"error":{"code":"token_expired"}}"#;
+        let err = compaction_auth_expired_error(body);
+
+        assert_eq!(compaction_auth_expired_reason(&err), Some(body));
+        assert_eq!(
+            compaction_auth_expired_reason("regular compaction failure"),
+            None
         );
     }
 }

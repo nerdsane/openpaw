@@ -67,12 +67,16 @@ permit(
     Action::"CheckSandboxReady",
     Action::"WorkspaceReady",
     Action::"ContextReady",
+    Action::"ProviderAuthReady",
+    Action::"ProviderAuthExpired",
     Action::"ProviderResponseReady",
     Action::"ProcessToolCalls",
     Action::"HandleToolResults",
     Action::"CheckpointToolBatch",
     Action::"RecordResult",
     Action::"NeedsCompaction",
+    Action::"CompactionAuthReady",
+    Action::"CompactionAuthExpired",
     Action::"CompactionComplete",
     Action::"CheckSteering",
     Action::"ContinueWithSteering",
@@ -120,7 +124,7 @@ permit(
   action == Action::"http_call",
   resource is HttpEndpoint
 ) when {
-  ["agent_reply", "sandbox_provisioner", "workspace_provisioner", "context_preparer", "provider_caller", "provider_response_applier", "tool_runner", "monty_repl", "capability_installer", "workspace_restorer", "context_compactor", "steering_checker", "session_link_monitor", "cron_scheduler_check", "cron_scheduler_heartbeat", "request_approval", "request_plan_review", "plan_approval_handler", "plan_review_feedback_handler", "session_recoverer", "emit_ots_trajectory", "openai_codex_auth"].contains(context.module)
+  ["agent_reply", "sandbox_provisioner", "workspace_provisioner", "context_preparer", "provider_auth_gate", "provider_caller", "provider_response_applier", "tool_runner", "monty_repl", "capability_installer", "workspace_restorer", "context_compactor", "steering_checker", "session_link_monitor", "cron_scheduler_check", "cron_scheduler_heartbeat", "request_approval", "request_plan_review", "plan_approval_handler", "plan_review_feedback_handler", "session_recoverer", "emit_ots_trajectory", "openai_codex_auth"].contains(context.module)
 };
 
 // Allow agent WASM modules to access secrets

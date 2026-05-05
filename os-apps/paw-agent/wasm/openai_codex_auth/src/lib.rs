@@ -1,6 +1,8 @@
 //! OpenAI Codex Auth — device-code OAuth for ChatGPT/Codex subscription access.
 
-use openai_codex_wire::extract_chatgpt_account_id_from_jwt;
+use openai_codex_wire::{
+    codex_access_token_is_fresh, extract_chatgpt_account_id_from_jwt, extract_jwt_expires_at_ms,
+};
 use temper_wasm_sdk::prelude::*;
 use wasm_helpers::{resolve_temper_api_url, runtime_headers};
 
@@ -10,11 +12,12 @@ extern "C" fn host_get_time_millis() -> i64 {
     0
 }
 
-const OPENAI_AUTH_BASE_URL: &str = "https://auth.openai.com";
+const DEFAULT_OPENAI_AUTH_BASE_URL: &str = "https://auth.openai.com";
 const OPENAI_CODEX_CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
 const OPENAI_CODEX_DEVICE_CALLBACK_URL: &str = "https://auth.openai.com/deviceauth/callback";
 const DEVICE_CODE_TTL_MS: i64 = 15 * 60 * 1000;
 const DEFAULT_POLL_INTERVAL_MS: i64 = 5_000;
+const DEFAULT_REFRESH_SKEW_MS: i64 = 5 * 60 * 1000;
 
 const SECRET_ACCESS_TOKEN: &str = "openai_codex_access_token";
 const SECRET_REFRESH_TOKEN: &str = "openai_codex_refresh_token";
@@ -43,17 +46,20 @@ fn run_openai_codex_auth() -> Result<(), String> {
         "start" => start_device_login(&ctx),
         "poll" => poll_device_login(&ctx, &fields),
         "refresh" => refresh_tokens(&ctx),
+        "ensure" => ensure_tokens_fresh(&ctx, false),
+        "force_refresh" => ensure_tokens_fresh(&ctx, true),
         "disconnect" => disconnect(&ctx),
         other => Err(format!("openai_codex_auth: unsupported mode {other}")),
     }
 }
 
 fn start_device_login(ctx: &Context) -> Result<(), String> {
+    let auth_base_url = auth_base_url(ctx);
     let body = json!({ "client_id": OPENAI_CODEX_CLIENT_ID }).to_string();
     let headers = vec![("content-type".to_string(), "application/json".to_string())];
     let resp = ctx.http_call(
         "POST",
-        &format!("{OPENAI_AUTH_BASE_URL}/api/accounts/deviceauth/usercode"),
+        &format!("{auth_base_url}/api/accounts/deviceauth/usercode"),
         &headers,
         &body,
     )?;
@@ -82,7 +88,7 @@ fn start_device_login(ctx: &Context) -> Result<(), String> {
     set_success_result(
         "DeviceCodeReady",
         &json!({
-            "verification_url": format!("{OPENAI_AUTH_BASE_URL}/codex/device"),
+            "verification_url": format!("{auth_base_url}/codex/device"),
             "user_code": user_code,
             "device_auth_id": device_auth_id,
             "poll_interval_ms": poll_interval_ms.to_string(),
@@ -93,6 +99,7 @@ fn start_device_login(ctx: &Context) -> Result<(), String> {
 }
 
 fn poll_device_login(ctx: &Context, fields: &Value) -> Result<(), String> {
+    let auth_base_url = auth_base_url(ctx);
     let device_auth_id = field_str(fields, "device_auth_id")
         .ok_or("OpenAI Codex auth missing device_auth_id; start device login first")?;
     let user_code = field_str(fields, "user_code")
@@ -105,7 +112,7 @@ fn poll_device_login(ctx: &Context, fields: &Value) -> Result<(), String> {
     let headers = vec![("content-type".to_string(), "application/json".to_string())];
     let resp = ctx.http_call(
         "POST",
-        &format!("{OPENAI_AUTH_BASE_URL}/api/accounts/deviceauth/token"),
+        &format!("{auth_base_url}/api/accounts/deviceauth/token"),
         &headers,
         &body,
     )?;
@@ -137,17 +144,62 @@ fn poll_device_login(ctx: &Context, fields: &Value) -> Result<(), String> {
     let authorization_code =
         string_field(&parsed, "authorization_code").ok_or("missing authorization_code")?;
     let code_verifier = string_field(&parsed, "code_verifier").ok_or("missing code_verifier")?;
-    let tokens = exchange_authorization_code(ctx, &authorization_code, &code_verifier)?;
+    let tokens =
+        exchange_authorization_code(ctx, &auth_base_url, &authorization_code, &code_verifier)?;
     store_tokens_and_complete(ctx, tokens)
 }
 
+fn ensure_tokens_fresh(ctx: &Context, force_refresh: bool) -> Result<(), String> {
+    let access_token = resolve_config_or_secret(ctx, SECRET_ACCESS_TOKEN);
+    let expires_at_ms = resolve_config_or_secret(ctx, SECRET_EXPIRES_AT_MS);
+    let account_id = resolve_config_or_secret(ctx, SECRET_ACCOUNT_ID).or_else(|| {
+        access_token
+            .as_deref()
+            .and_then(extract_chatgpt_account_id_from_jwt)
+    });
+    let now_ms = Context::get_time_millis();
+
+    if !force_refresh
+        && codex_access_token_is_fresh(
+            access_token.as_deref(),
+            expires_at_ms.as_deref(),
+            now_ms,
+            DEFAULT_REFRESH_SKEW_MS,
+        )
+    {
+        let expires_at_ms = expires_at_ms
+            .or_else(|| {
+                access_token
+                    .as_deref()
+                    .and_then(extract_jwt_expires_at_ms)
+                    .map(|v| v.to_string())
+            })
+            .unwrap_or_default();
+        set_success_result(
+            "LoginComplete",
+            &json!({
+                "expires_at_ms": expires_at_ms,
+                "account_id": account_id.unwrap_or_default(),
+            }),
+        );
+        return Ok(());
+    }
+
+    refresh_tokens(ctx).map_err(|err| {
+        if err.contains("refresh token is missing")
+            || err.contains("invalid_grant")
+            || err.contains("expired")
+        {
+            format!("{err}. OpenAI Codex sign-in is required; start the Codex device login again.")
+        } else {
+            err
+        }
+    })
+}
+
 fn refresh_tokens(ctx: &Context) -> Result<(), String> {
-    let refresh_token = ctx
-        .config
-        .get(SECRET_REFRESH_TOKEN)
-        .filter(|value| !value.trim().is_empty() && !value.contains("{secret:"))
-        .cloned()
-        .or_else(|| ctx.get_secret(SECRET_REFRESH_TOKEN).ok())
+    let auth_base_url = auth_base_url(ctx);
+    let refresh_token = resolve_config_or_secret(ctx, SECRET_REFRESH_TOKEN)
         .ok_or("OpenAI Codex refresh token is missing")?;
 
     let body = form_encode(&[
@@ -161,7 +213,7 @@ fn refresh_tokens(ctx: &Context) -> Result<(), String> {
     )];
     let resp = ctx.http_call(
         "POST",
-        &format!("{OPENAI_AUTH_BASE_URL}/oauth/token"),
+        &format!("{auth_base_url}/oauth/token"),
         &headers,
         &body,
     )?;
@@ -179,6 +231,7 @@ fn refresh_tokens(ctx: &Context) -> Result<(), String> {
 
 fn exchange_authorization_code(
     ctx: &Context,
+    auth_base_url: &str,
     authorization_code: &str,
     code_verifier: &str,
 ) -> Result<CodexTokens, String> {
@@ -195,7 +248,7 @@ fn exchange_authorization_code(
     )];
     let resp = ctx.http_call(
         "POST",
-        &format!("{OPENAI_AUTH_BASE_URL}/oauth/token"),
+        &format!("{auth_base_url}/oauth/token"),
         &headers,
         &body,
     )?;
@@ -241,6 +294,22 @@ fn disconnect(ctx: &Context) -> Result<(), String> {
     }
     set_success_result("", &json!({ "status": "disconnected" }));
     Ok(())
+}
+
+fn auth_base_url(ctx: &Context) -> String {
+    ctx.config
+        .get("openai_auth_base_url")
+        .filter(|value| !value.trim().is_empty() && !value.contains("{secret:"))
+        .cloned()
+        .unwrap_or_else(|| DEFAULT_OPENAI_AUTH_BASE_URL.to_string())
+}
+
+fn resolve_config_or_secret(ctx: &Context, key: &str) -> Option<String> {
+    ctx.config
+        .get(key)
+        .filter(|value| !value.trim().is_empty() && !value.contains("{secret:"))
+        .cloned()
+        .or_else(|| ctx.get_secret(key).ok())
 }
 
 fn put_secret(ctx: &Context, key: &str, value: &str) -> Result<(), String> {

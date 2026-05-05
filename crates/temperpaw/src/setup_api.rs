@@ -18,6 +18,7 @@ use serde::{Deserialize, Serialize};
 use temper_platform::PlatformState;
 use temper_runtime::tenant::TenantId;
 use temper_server::request_context::AgentContext;
+use temper_server::state::DispatchExtOptions;
 
 use crate::setup::{
     SetupRequestAuth, default_paw_soul_content, has_local_personalized_paw_soul,
@@ -275,6 +276,14 @@ pub fn router(state: SetupApiState) -> Router {
         .route(
             "/paw/setup/openai-codex/refresh",
             post(refresh_openai_codex_auth),
+        )
+        .route(
+            "/paw/setup/openai-codex/ensure-fresh",
+            post(ensure_fresh_openai_codex_auth),
+        )
+        .route(
+            "/paw/setup/openai-codex/force-refresh",
+            post(force_refresh_openai_codex_auth),
         )
         .route(
             "/paw/setup/openai-codex/disconnect",
@@ -540,13 +549,16 @@ async fn dispatch_openai_codex_auth_action(
     state
         .platform
         .server
-        .dispatch_tenant_action(
+        .dispatch_tenant_action_ext(
             &tenant_id,
             OPENAI_CODEX_AUTH_ENTITY_TYPE,
             OPENAI_CODEX_AUTH_ENTITY_ID,
             action,
             serde_json::json!({}),
-            &system,
+            DispatchExtOptions {
+                agent_ctx: &system,
+                await_integration: true,
+            },
         )
         .await
         .map_err(|error| anyhow!("OpenAICodexAuth.{action} failed: {error}"))?;
@@ -913,6 +925,26 @@ async fn poll_openai_codex_device_login(State(state): State<SetupApiState>) -> i
 
 async fn refresh_openai_codex_auth(State(state): State<SetupApiState>) -> impl IntoResponse {
     match dispatch_openai_codex_auth_action(&state, "Refresh").await {
+        Ok(status) => (StatusCode::OK, Json(serde_json::json!(status))),
+        Err(error) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": error.to_string() })),
+        ),
+    }
+}
+
+async fn ensure_fresh_openai_codex_auth(State(state): State<SetupApiState>) -> impl IntoResponse {
+    match dispatch_openai_codex_auth_action(&state, "EnsureFresh").await {
+        Ok(status) => (StatusCode::OK, Json(serde_json::json!(status))),
+        Err(error) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": error.to_string() })),
+        ),
+    }
+}
+
+async fn force_refresh_openai_codex_auth(State(state): State<SetupApiState>) -> impl IntoResponse {
+    match dispatch_openai_codex_auth_action(&state, "ForceRefresh").await {
         Ok(status) => (StatusCode::OK, Json(serde_json::json!(status))),
         Err(error) => (
             StatusCode::INTERNAL_SERVER_ERROR,

@@ -13,7 +13,8 @@
 #[cfg(test)]
 use openai_codex_wire::base64_url_no_pad;
 use openai_codex_wire::{
-    build_openai_headers, extract_chatgpt_account_id_from_jwt, select_openai_responses_url,
+    build_openai_headers, extract_chatgpt_account_id_from_jwt, is_openai_codex_token_expired_error,
+    select_openai_responses_url,
 };
 use session_turn_artifacts::{
     PreparedContextArtifact, ProviderResponseArtifact,
@@ -27,6 +28,7 @@ use wasm_helpers::{
 };
 
 const DEFAULT_PROVIDER_CALLER_BUDGET_MS: i64 = 600_000;
+const PROVIDER_AUTH_EXPIRED_PREFIX: &str = "provider_auth_expired:";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ProviderProgressBoundary {
@@ -75,6 +77,19 @@ fn normalize_provider(provider: &str) -> String {
 
 fn is_unresolved_secret_template(value: &str) -> bool {
     value.contains("{secret:")
+}
+
+fn provider_auth_expired_error(body: &str) -> String {
+    format!(
+        "{PROVIDER_AUTH_EXPIRED_PREFIX} {}",
+        body.chars().take(300).collect::<String>()
+    )
+}
+
+fn provider_auth_expired_reason(error: &str) -> Option<&str> {
+    error
+        .strip_prefix(PROVIDER_AUTH_EXPIRED_PREFIX)
+        .map(str::trim)
 }
 
 fn first_non_empty(values: &[Option<String>]) -> String {
@@ -2370,6 +2385,15 @@ fn call_openai(
             }
             Ok(r) => {
                 let snippet = &r.body[..r.body.len().min(300)];
+                if provider == "openai_codex"
+                    && is_openai_codex_token_expired_error(r.status as u16, &r.body)
+                {
+                    ctx.log(
+                        "warn",
+                        "session_turn: OpenAI Codex token expired; dispatching auth refresh gate",
+                    );
+                    return Err(provider_auth_expired_error(&r.body));
+                }
                 ctx.log(
                     "error",
                     &format!(
@@ -3074,6 +3098,18 @@ pub fn run_provider_caller() -> Result<(), String> {
             "error"
         },
     );
+    if let Err(err) = &response_result
+        && let Some(reason) = provider_auth_expired_reason(err)
+    {
+        set_success_result(
+            "ProviderAuthExpired",
+            &json!({
+                "provider_auth_error": reason,
+            }),
+        );
+        emit_phase_total_duration(&ctx, "provider_caller", started_at, "provider_auth_expired");
+        return Ok(());
+    }
     let response = response_result?;
     check_phase_budget(
         &ctx,
@@ -3388,6 +3424,18 @@ mod tests {
         assert!(msg.contains("anthropic"));
         assert!(msg.contains("attempt 1"));
         assert!(msg.contains("70123"));
+    }
+
+    #[test]
+    fn provider_auth_expired_result_is_action_routable() {
+        let body = r#"{"error":{"code":"token_expired"}}"#;
+        let err = provider_auth_expired_error(body);
+
+        assert_eq!(provider_auth_expired_reason(&err), Some(body));
+        assert_eq!(
+            provider_auth_expired_reason("regular provider failure"),
+            None
+        );
     }
 
     #[test]
