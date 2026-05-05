@@ -132,14 +132,16 @@ crates/paw-codex-worker/scripts/paw-patrol-acceptance.sh quick
 
 crates/paw-codex-worker/scripts/paw-patrol-acceptance.sh live
   passed
-  Proof bundle: /tmp/paw-patrol-acceptance-20260505T122521Z-53784
-  Browser index: /tmp/paw-patrol-acceptance-20260505T122521Z-53784/index.html
-  Passed gates: 20
+  Proof bundle: /tmp/paw-patrol-acceptance-live-e2e-gates-current
+  Browser index: /tmp/paw-patrol-acceptance-live-e2e-gates-current/index.html
+  Passed gates: 27
   Visuals embedded: deterministic-smoke/proof.svg,
     webhook-intake-smoke/webhook-intake.svg,
     repo-sweep-brief-smoke/proof.svg,
     repo-sweep-brief-smoke/daily-brief.svg,
     production-preflight/preflight.svg,
+    production-preflight-railway-discovery-smoke/preflight.svg,
+    production-preflight-diff-smoke/preflight-diff.svg,
     production-observe-only/observe-only.svg
   GitHub webhook evidence: webhook-intake-smoke/github-webhook-event.json,
     webhook-intake-smoke/github-signal.json, GitHub Signal Linked
@@ -262,7 +264,7 @@ git ls-remote --heads origin codex/cedar-resource-attrs
 ```
 
 The latest live local E2E proof bundle at
-`/tmp/paw-patrol-acceptance-20260505T122521Z-53784` booted local TemperPaw with
+`/tmp/paw-patrol-acceptance-live-e2e-gates-current` booted local TemperPaw with
 `TEMPERPAW_WASM_STARTUP_POLICY=build`, submitted a PatrolRequest, ran the fake
 local Codex worker, and observed:
 
