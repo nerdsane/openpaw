@@ -219,7 +219,8 @@ proof bundle goes to `/tmp/paw-patrol-webhook-smoke-proof-*`; set
 
 This exercises the maintenance side of Patrol: RepoGraphSnapshot, local worker
 repo-health scan, QualityFinding/SecurityFinding fan-out, automatic repo-sweep
-review/evaluation, final ProofPacket, and a DailyBrief visual rollup.
+review/evaluation, final ProofPacket, a RepoGraphSnapshot assessment Session,
+and a DailyBrief visual rollup.
 Fresh Patrol installs also seed `patrol-default-daily-maintenance`, an active
 daily PatrolSchedule that creates the same RepoGraphSnapshot and DailyBrief
 entities through Temper `schedule_at` transitions.
@@ -231,6 +232,14 @@ WASM test coverage. The proof summary includes counters for each class so the
 brief can be reviewed visually without reverse-engineering the worker log. Each
 finding also carries a stable `fingerprint` so future sweeps and agents can
 recognize recurring findings even when Temper entity IDs are new.
+
+After the deterministic scan, Patrol creates a RepoGraphSnapshot assessment
+Session. The real Session is configured with `repo_assessment_provider` and
+`repo_assessment_model`; if those secrets are unset, the mock provider writes a
+deterministic `mock_plan` that proves the Temper loop by dispatching
+`AssessmentComplete`. DailyBrief works the same way: `daily_brief_provider` and
+`daily_brief_model` select the real briefing agent, while the mock path proves
+that the DailyBrief Session can dispatch `DailyBrief.Render` without API billing.
 
 Run from the TemperPaw repo/worktree root:
 
@@ -245,8 +254,10 @@ On success, the script writes a proof bundle with `summary.json`,
 stable location.
 
 Expected result: RepoGraphSnapshot reaches `Ready`, WorkCycle reaches
-`Complete`, ReviewRun reaches `Approved`, EvaluationRun reaches `Passed`,
-ProofPacket reaches `Ready`, and DailyBrief reaches `Ready`.
+`Complete`, the RepoGraphSnapshot assessment Session dispatches
+`AssessmentComplete`, ReviewRun reaches `Approved`, EvaluationRun reaches
+`Passed`, ProofPacket reaches `Ready`, and the DailyBrief Session dispatches
+`DailyBrief.Render` so DailyBrief reaches `Ready`.
 
 ## Acceptance Harness
 

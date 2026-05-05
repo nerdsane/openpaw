@@ -973,6 +973,45 @@ fn production_cutover_runbook_maps_every_human_blocker_to_a_gate() {
 }
 
 #[test]
+fn production_docs_explain_patrol_session_provider_configuration() {
+    let root = repo_root();
+    let runbook = read(root.join("docs/runbooks/paw-patrol-production-cutover.md"));
+    let readme = read(root.join("crates/paw-codex-worker/README.md"));
+    let audit = read(root.join("docs/proofs/2026-05-05-paw-patrol-completion-audit.md"));
+
+    for needle in [
+        "repo_assessment_provider",
+        "repo_assessment_model",
+        "daily_brief_provider",
+        "daily_brief_model",
+        "mock provider",
+        "AssessmentComplete",
+        "DailyBrief.Render",
+    ] {
+        assert!(
+            runbook.contains(needle),
+            "production cutover runbook should explain session config: {needle}"
+        );
+    }
+
+    for needle in [
+        "RepoGraphSnapshot assessment Session",
+        "DailyBrief Session",
+        "repo_assessment_provider",
+        "daily_brief_provider",
+    ] {
+        assert!(
+            readme.contains(needle),
+            "worker README should explain Patrol session setup: {needle}"
+        );
+        assert!(
+            audit.contains(needle),
+            "completion audit should record Patrol session setup evidence: {needle}"
+        );
+    }
+}
+
+#[test]
 fn paw_patrol_acceptance_harness_collects_quick_and_live_proofs() {
     let root = repo_root();
     let script = read(root.join("crates/paw-codex-worker/scripts/paw-patrol-acceptance.sh"));

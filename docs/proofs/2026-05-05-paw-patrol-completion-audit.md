@@ -2,21 +2,27 @@
 
 Date: 2026-05-05
 
-Latest exact-head proof bundle inspected after documentation/readability
-ratchets:
+Latest session-driven proof inspected after RepoGraphSnapshot and DailyBrief
+became agent Session owned:
 
-- proof-bundle head: `83cb8966322cb8025f883f00f4a1ac461daa5ccb`
+- exact code head before this documentation ratchet:
+  `d7f663c3682df632a8d4353c1f42d3c9f77440de`
 - GitHub CI: passed at
-  <https://github.com/nerdsane/temperpaw/actions/runs/25403447886>
+  <https://github.com/nerdsane/temperpaw/actions/runs/25406743500/job/74519320006>
 - current-head quick acceptance:
-  `/tmp/paw-patrol-acceptance-quick-83cb8966` with 24/24 gates passed
-- current-head production preflight:
-  `/tmp/paw-patrol-production-preflight-83cb8966`, status `blocked`, with 12
-  human-controlled blockers
+  `/tmp/paw-patrol-acceptance-20260505T225314Z-1411` with 24/24 gates passed
+- current session-driven repo sweep/brief proof:
+  `/tmp/paw-patrol-repo-smoke-proof-4168-97746`
+- current-head production preflight remains intentionally blocked until human
+  production inputs are supplied.
 
-The older live acceptance bundles below remain the full local E2E evidence for
-the last functional code head. The PR body and latest generated preflight
-summary are the canonical moving evidence for later proof-only commits.
+The latest repo sweep proof observed RepoGraphSnapshot assessment Session
+`ss-019dfa57-eb21-7c40-9773-730f874c48d8`, `assessment_status = complete`, 202
+findings, ReviewRun `Approved`, EvaluationRun `Passed`, ProofPacket `Ready`,
+and DailyBrief `Ready`. The mock provider path proved loop closure without API
+billing by dispatching `AssessmentComplete` and `DailyBrief.Render`; production
+intelligence requires configuring `repo_assessment_provider`,
+`repo_assessment_model`, `daily_brief_provider`, and `daily_brief_model`.
 
 ## Objective Restated
 
@@ -54,10 +60,11 @@ Patrol-controlled Dark Factory:
 | Human gates are human-gated in Cedar | `patrol.cedar`, `crates/temperpaw/tests/paw_patrol_foundation.rs` | Actual Cedar regression test `patrol_cedar_human_gate_approvals_are_not_available_to_system_agents` denies `ApproveHumanStart` and `ApproveHumanCompletion` to `agent_type = system`, while allowing `agent_type = human` | Done |
 | Visual ProofPacket | `proof_packet.ioa.toml`, `worker_run_lifecycle`, `review_gate_lifecycle` | Live smoke ProofPacket reached Ready with final `data:image/svg+xml` visual summary, reviewer verdict, residual risk text, Mermaid state diagram, OData links, and log evidence. The final proof no longer carries stale pending-review/pending-evaluation draft labels | Done |
 | Proof changed-files map comes from worker evidence | `crates/paw-codex-worker/src/execution.rs`, `worker_run_lifecycle`, `review_gate_lifecycle` | Local Codex success summaries now include fenced `git-status` and `git-diff-stat` evidence; `worker_run_lifecycle` extracts changed files into `ProofPacket.changed_files_map`; `review_gate_lifecycle` preserves concrete file lists when marking proof ready. Latest deterministic proof contains `changed_files: [".paw-fake-codex-implementation"]` | Done |
-| Repo-health sweeps | `repo_graph_snapshot.ioa.toml`, `repo_sweep_lifecycle`, worker repo scan, `repo-sweep-brief-smoke.sh` | Live repo-sweep smoke reached RepoGraphSnapshot Ready, WorkCycle Complete, ReviewRun Approved, EvaluationRun Passed, ProofPacket Ready, and produced 51 Quality/Security findings in `repo-graph.json` | Done |
+| Repo-health sweeps | `repo_graph_snapshot.ioa.toml`, `repo_sweep_lifecycle`, worker repo scan, `repo-sweep-brief-smoke.sh` | Live repo-sweep smoke reached RepoGraphSnapshot Ready, WorkCycle Complete, ReviewRun Approved, EvaluationRun Passed, ProofPacket Ready, and produced 202 Quality/Security findings in `repo-graph.json` | Done |
+| RepoGraphSnapshot assessment is session-driven | `repo_graph_snapshot.ioa.toml`, `repo_sweep_lifecycle`, `repo-sweep-brief-smoke.sh`, `APP.md` | RepoGraphSnapshot now carries `assessment_session_id`, `assessment_status`, and `assessment_summary_markdown`; `repo_sweep_lifecycle` creates a RepoGraphSnapshot assessment Session, configures it with `repo_assessment_provider` / `repo_assessment_model`, and the smoke waits for `AssessmentComplete`. With unset secrets, the mock provider path still proves loop closure without API billing | Done |
 | Repo-health scanner covers the claimed signal classes | `crates/paw-codex-worker/src/repo_health.rs`, `crates/paw-codex-worker/src/tests.rs` | The worker scan now emits concrete findings, stable `fingerprint` values, and summary counters for duplicate logic candidates, sleep-based polling loops, Cargo/npm dependency risk, and missing WASM test coverage, in addition to giant modules, TODO/HACK band-aids, broad Cedar permits, and hidden Rust orchestration markers. Worker test `repo_health_scan_emits_quality_and_security_findings` ratchets these signal classes | Done locally |
 | Accepted findings become cleanup WorkCycles and resolve on completion | `finding_lifecycle`, `work_cycle_lifecycle` | `accepted_findings_queue_cleanup_work_cycles` and `accepted_finding_work_cycles_resolve_source_findings_on_completion` pass | Done |
-| Recurring sweeps and daily briefs | `patrol_schedule.ioa.toml`, `patrol_schedule_lifecycle`, `daily_brief_lifecycle`, `repo-sweep-brief-smoke.sh` | Foundation tests assert PatrolSchedule recurrence; live repo-sweep/brief smoke rendered DailyBrief Ready with `daily-brief.svg`, ready ProofPacket IDs, done items, and open risk JSON | Done |
+| Recurring sweeps and daily briefs | `patrol_schedule.ioa.toml`, `patrol_schedule_lifecycle`, `daily_brief_lifecycle`, `repo-sweep-brief-smoke.sh` | Foundation tests assert PatrolSchedule recurrence; DailyBrief now carries `session_id` and `session_status`; `daily_brief_lifecycle` creates a DailyBrief Session configured by `daily_brief_provider` / `daily_brief_model`; the smoke observed `DailyBrief.Render`, `daily-brief.svg`, ready ProofPacket IDs, done items, and open risk JSON | Done |
 | Fresh installs have a default daily maintenance schedule | `os-apps/paw-patrol/seed-data/default_schedules.toml`, `repo-sweep-brief-smoke.sh` | `patrol-default-daily-maintenance` is seeded through PatrolSchedule `Configure` + `Activate`; live repo-sweep/brief smoke captured `patrol-schedule.json` with status `Active` and `next_run_at = 2026-05-06T12:26:12Z` | Done |
 | Human-readable proof docs | `docs/proofs/2026-05-04-paw-patrol-dark-factory-foundation.md`, this audit | Proof doc includes diagrams, commands, E2E IDs, and remaining caveats | Done |
 | Material Patrol architecture is recorded in an app ADR | `os-apps/paw-patrol/adrs/0001-patrol-controlled-dark-factory.md`, `crates/temperpaw/tests/paw_patrol_foundation.rs` | Added an app-scoped accepted ADR covering the Patrol-owned entity set, Temper-native trigger/WASM/Cedar boundaries, Mac mini worker, risk gates, proof requirements, rejected separate factory/quality/harness apps, and verification trail. Test `paw_patrol_dark_factory_architecture_is_recorded_in_app_adr` ratchets this AGENTS.md requirement | Done |
@@ -69,7 +76,7 @@ Patrol-controlled Dark Factory:
 | Live smoke scripts avoid local port collisions | `deterministic-smoke.sh`, `webhook-intake-smoke.sh`, `repo-sweep-brief-smoke.sh`, `production-readiness-smoke.sh`, `production-observe-only-smoke.sh` | Acceptance found an actual collision on the implicit webhook trigger port. The scripts now choose a base port only when both the OData port and `PORT + 12` webhook trigger port are free; foundation test `live_smoke_scripts_choose_non_colliding_odata_and_webhook_ports` passes | Done |
 | Deterministic smoke can be run as one command | `crates/paw-codex-worker/scripts/deterministic-smoke.sh` | Script boots local TemperPaw, submits a PatrolRequest, starts fake local worker, polls WorkCycle/FactoryCase/Review/Evaluation/Proof states, writes a proof bundle with `summary.json`, `proof.json`, `proof.md`, and `proof.svg`, prints JSON entity summary, and cleans up the temporary worktree/branch | Done |
 | Webhook intake smoke can be run as one command | `crates/paw-codex-worker/scripts/webhook-intake-smoke.sh`, `crates/paw-codex-worker/README.md` | Script boots local TemperPaw, posts to `/triggers/webhook/patrol-request`, `/triggers/webhook/patrol-datadog`, `/triggers/webhook/patrol-github`, and `/triggers/webhook/patrol-discord`, waits for WebhookEvent Processed plus PatrolRequest/Signal Linked states, and writes a visual intake proof bundle | Done |
-| Repo sweep and daily brief smoke can be run as one command | `crates/paw-codex-worker/scripts/repo-sweep-brief-smoke.sh`, `crates/paw-codex-worker/README.md` | Script boots local TemperPaw, starts RepoGraphSnapshot.StartScan, runs the local worker repo scan, waits for review/evaluation/proof closeout, starts DailyBrief, and writes `summary.json`, `repo-graph.json`, `proof.json`, `proof.md`, `proof.svg`, and `daily-brief.svg` | Done |
+| Repo sweep and daily brief smoke can be run as one command | `crates/paw-codex-worker/scripts/repo-sweep-brief-smoke.sh`, `crates/paw-codex-worker/README.md` | Script boots local TemperPaw, starts RepoGraphSnapshot.StartScan, runs the local worker repo scan, waits for the RepoGraphSnapshot assessment Session to dispatch `AssessmentComplete`, waits for review/evaluation/proof closeout, starts the DailyBrief Session, waits for `DailyBrief.Render`, and writes `summary.json`, `repo-graph.json`, `proof.json`, `proof.md`, `proof.svg`, and `daily-brief.svg` | Done |
 | Mac mini production activation is checkable | `crates/paw-codex-worker/scripts/production-readiness.sh`, `production-readiness-smoke.sh`, `README.md` | Script builds the release worker, runs `paw-codex-worker doctor`, renders launchd only with `WRITE_LAUNCHD_PLIST=1`, installs launchd only with `INSTALL_LAUNCHD=1`, defaults execution off, and does not print `WORKER_TOKEN`. Live readiness smoke proved doctor OData/event-stream checks and plist rendering against local TemperPaw without loading launchd | Done locally; production inputs still human-blocked |
 | Production human blockers are machine-readable and visual | `crates/paw-codex-worker/scripts/production-preflight.sh`, `crates/paw-codex-worker/scripts/production-preflight-railway-discovery-smoke.sh`, `crates/paw-codex-worker/scripts/paw-patrol-acceptance.sh`, `docs/runbooks/paw-patrol-production-cutover.md` | Non-mutating preflight writes `summary.json`, `proof.md`, `operator-handoff.md`, `gates.tsv`, `preflight.svg`, and `railway-candidates.json`; the latest Railway-enabled read-only run proves Railway CLI login works but the checkout is not linked to a Railway project/service, and captures 3 visible project/service candidates. It records current `human_blockers`, including missing `TEMPER_URL`, missing `WORKER_TOKEN`, missing `PATROL_OPERATOR_TOKEN`, missing webhook secrets, launchd not loaded, Railway project not linked, Temper PR #216 ready for review but unmerged, and TemperPaw PR #218 clean/green but unmerged without `CONFIRM_TEMPERPAW_PR_OK=1` | Done locally; blockers require human input |
 | Production preflight gates the Patrol PR itself | `production-preflight.sh`, `production-preflight-github-smoke.sh`, `paw-patrol-acceptance.sh`, `docs/runbooks/paw-patrol-production-cutover.md` | Red-green test added `production-preflight-github-smoke.sh`. The smoke uses fake GitHub state to prove clean/green but unmerged PR #218 blocks production cutover unless `CONFIRM_TEMPERPAW_PR_OK=1`; quick/live acceptance now include this proof and the real preflight records `github:temperpaw_pr_218` as a blocker while this PR remains unmerged | Done locally; blocker requires human merge/approval |
@@ -89,6 +96,38 @@ Patrol-controlled Dark Factory:
 Fresh commands run during this audit:
 
 ```text
+cargo test -p temperpaw --test paw_patrol_foundation
+  36 passed
+
+cargo test --manifest-path os-apps/paw-patrol/wasm/daily_brief_lifecycle/Cargo.toml
+  passed
+
+cargo test --manifest-path os-apps/paw-patrol/wasm/repo_sweep_lifecycle/Cargo.toml
+  passed
+
+cargo check --manifest-path os-apps/paw-patrol/wasm/daily_brief_lifecycle/Cargo.toml --target wasm32-unknown-unknown
+  passed
+
+cargo check --manifest-path os-apps/paw-patrol/wasm/repo_sweep_lifecycle/Cargo.toml --target wasm32-unknown-unknown
+  passed
+
+crates/paw-codex-worker/scripts/repo-sweep-brief-smoke.sh
+  passed
+  RepoGraphSnapshot: en-019dfa57-d303-7892-bf01-3e140e798094 Ready
+  Assessment Session: ss-019dfa57-eb21-7c40-9773-730f874c48d8
+  RepoGraphSnapshot assessment_status: complete
+  WorkCycle: wc-019dfa57-d47c-76c1-b274-c219fbe43353 Complete
+  ReviewRun: en-019dfa57-dcc3-7d40-91da-adc59abee05a Approved
+  EvaluationRun: en-019dfa57-dccb-7582-9e22-e0e02e479ee9 Passed
+  ProofPacket: en-019dfa57-dcb9-7812-bc7a-c58453c12fa1 Ready
+  DailyBrief: en-019dfa58-0df2-7690-9d6c-30cf71f1ae02 Ready
+  Findings: 202
+  Proof bundle: /tmp/paw-patrol-repo-smoke-proof-4168-97746
+
+crates/paw-codex-worker/scripts/paw-patrol-acceptance.sh quick
+  passed
+  Proof bundle: /tmp/paw-patrol-acceptance-20260505T225314Z-1411
+
 cargo fmt --check --all
   passed
 
