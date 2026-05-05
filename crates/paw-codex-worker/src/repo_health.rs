@@ -13,6 +13,7 @@ pub(crate) struct RepoSweepGraph {
 
 #[derive(Clone, Debug, Serialize)]
 pub(crate) struct QualityFindingRecord {
+    pub(crate) fingerprint: String,
     pub(crate) title: String,
     pub(crate) severity: String,
     pub(crate) evidence: String,
@@ -21,6 +22,7 @@ pub(crate) struct QualityFindingRecord {
 
 #[derive(Clone, Debug, Serialize)]
 pub(crate) struct SecurityFindingRecord {
+    pub(crate) fingerprint: String,
     pub(crate) title: String,
     pub(crate) severity: String,
     pub(crate) risk_lane: String,
@@ -91,26 +93,32 @@ pub(crate) fn scan_repo_health(root: &Path) -> Result<RepoSweepGraph> {
 
         if line_count >= 900 && is_source_like(&path) {
             graph.summary.giant_modules += 1;
+            let title = format!("Giant module exceeds readability budget: {relative}");
+            let affected_paths = vec![relative.clone()];
             graph.quality_findings.push(QualityFindingRecord {
-                title: format!("Giant module exceeds readability budget: {relative}"),
+                fingerprint: finding_fingerprint("quality", &title, &affected_paths),
+                title,
                 severity: "medium".to_string(),
                 evidence: format!(
                     "{relative} has {line_count} lines; split concerns before ratcheting this area."
                 ),
-                affected_paths: vec![relative.clone()],
+                affected_paths,
             });
         }
 
         let todo_hack_hits = count_markers(&content, &["TODO", "HACK", "band-aid", "bandaid"]);
         if todo_hack_hits >= 2 && is_source_like(&path) {
             graph.summary.todo_hack_hits += todo_hack_hits;
+            let title = format!("TODO/HACK band-aids need cleanup: {relative}");
+            let affected_paths = vec![relative.clone()];
             graph.quality_findings.push(QualityFindingRecord {
-                title: format!("TODO/HACK band-aids need cleanup: {relative}"),
+                fingerprint: finding_fingerprint("quality", &title, &affected_paths),
+                title,
                 severity: "low".to_string(),
                 evidence: format!(
                     "{relative} contains {todo_hack_hits} TODO/HACK/band-aid markers."
                 ),
-                affected_paths: vec![relative.clone()],
+                affected_paths,
             });
         }
 
@@ -123,13 +131,16 @@ pub(crate) fn scan_repo_health(root: &Path) -> Result<RepoSweepGraph> {
 
         if is_source_like(&path) && contains_polling_loop(&content) {
             graph.summary.polling_loop_hits += 1;
+            let title = format!("Polling loop needs Temper-native self-loop audit: {relative}");
+            let affected_paths = vec![relative.clone()];
             graph.quality_findings.push(QualityFindingRecord {
-                title: format!("Polling loop needs Temper-native self-loop audit: {relative}"),
+                fingerprint: finding_fingerprint("quality", &title, &affected_paths),
+                title,
                 severity: "medium".to_string(),
                 evidence: format!(
                     "{relative} combines a loop/while construct with sleep-based waiting."
                 ),
-                affected_paths: vec![relative.clone()],
+                affected_paths,
             });
         }
 
@@ -137,14 +148,17 @@ pub(crate) fn scan_repo_health(root: &Path) -> Result<RepoSweepGraph> {
             && has_broad_cedar_permit(&content)
         {
             graph.summary.broad_cedar_policies += 1;
+            let title = format!("Broad Cedar permit needs review: {relative}");
+            let affected_paths = vec![relative.clone()];
             graph.security_findings.push(SecurityFindingRecord {
-                title: format!("Broad Cedar permit needs review: {relative}"),
+                fingerprint: finding_fingerprint("security", &title, &affected_paths),
+                title,
                 severity: "high".to_string(),
                 risk_lane: "L2".to_string(),
                 evidence: format!(
                     "{relative} contains an unrestricted principal/action/resource permit shape."
                 ),
-                affected_paths: vec![relative.clone()],
+                affected_paths,
             });
         }
 
@@ -153,11 +167,14 @@ pub(crate) fn scan_repo_health(root: &Path) -> Result<RepoSweepGraph> {
             && contains_any(&content, &["tokio::spawn", "sleep(Duration", "loop {"])
         {
             graph.summary.rust_orchestration_hits += 1;
+            let title = format!("Rust orchestration needs Temper-native audit: {relative}");
+            let affected_paths = vec![relative.clone()];
             graph.quality_findings.push(QualityFindingRecord {
-                title: format!("Rust orchestration needs Temper-native audit: {relative}"),
+                fingerprint: finding_fingerprint("quality", &title, &affected_paths),
+                title,
                 severity: "medium".to_string(),
                 evidence: format!("{relative} contains spawn/sleep/loop orchestration markers; confirm this is trigger/platform logic, not hidden business flow."),
-                affected_paths: vec![relative],
+                affected_paths,
             });
         }
     }
@@ -333,8 +350,10 @@ fn add_duplicate_logic_findings(scanned_files: &[ScannedFile], graph: &mut RepoS
             .map(|(path, line)| format!("{path}:{line}"))
             .collect::<Vec<_>>()
             .join(", ");
+        let title = format!("Duplicate logic candidate across {} files", paths.len());
         graph.quality_findings.push(QualityFindingRecord {
-            title: format!("Duplicate logic candidate across {} files", paths.len()),
+            fingerprint: finding_fingerprint("quality", &title, &paths),
+            title,
             severity: "medium".to_string(),
             evidence: format!(
                 "The same normalized six-line logic block appears at {evidence}; review for shared helper extraction."
@@ -370,14 +389,17 @@ fn add_missing_wasm_test_findings(
             continue;
         }
         graph.summary.missing_test_coverage_hits += 1;
+        let title = format!("Missing WASM test coverage: {}", manifest.relative);
+        let affected_paths = vec![manifest.relative.clone(), lib.relative.clone()];
         graph.quality_findings.push(QualityFindingRecord {
-            title: format!("Missing WASM test coverage: {}", manifest.relative),
+            fingerprint: finding_fingerprint("quality", &title, &affected_paths),
+            title,
             severity: "medium".to_string(),
             evidence: format!(
                 "{} has a src/lib.rs entry point but no #[test], #[cfg(test)], or test module marker.",
                 manifest.relative
             ),
-            affected_paths: vec![manifest.relative.clone(), lib.relative.clone()],
+            affected_paths,
         });
     }
 }
@@ -389,24 +411,30 @@ fn dependency_risk_finding(relative: &str, content: &str) -> Option<SecurityFind
         } else {
             "git dependency is not pinned to a rev"
         };
+        let title = format!("Dependency risk requires freshness review: {relative}");
+        let affected_paths = vec![relative.to_string()];
         return Some(SecurityFindingRecord {
-            title: format!("Dependency risk requires freshness review: {relative}"),
+            fingerprint: finding_fingerprint("security", &title, &affected_paths),
+            title,
             severity: "medium".to_string(),
             risk_lane: "L1".to_string(),
             evidence: format!("{relative} uses a Cargo git dependency; {detail}."),
-            affected_paths: vec![relative.to_string()],
+            affected_paths,
         });
     }
 
     if relative.ends_with("package.json") && contains_any(content, &["\"latest\"", "\": \"*\""]) {
+        let title = format!("Dependency risk requires freshness review: {relative}");
+        let affected_paths = vec![relative.to_string()];
         return Some(SecurityFindingRecord {
-            title: format!("Dependency risk requires freshness review: {relative}"),
+            fingerprint: finding_fingerprint("security", &title, &affected_paths),
+            title,
             severity: "medium".to_string(),
             risk_lane: "L1".to_string(),
             evidence: format!(
                 "{relative} contains a loose npm dependency version such as latest or *."
             ),
-            affected_paths: vec![relative.to_string()],
+            affected_paths,
         });
     }
 
@@ -450,4 +478,16 @@ fn is_wasm_crate_manifest(relative: &str) -> bool {
 
 fn has_rust_tests(content: &str) -> bool {
     content.contains("#[test]") || content.contains("#[cfg(test)]") || content.contains("mod tests")
+}
+
+fn finding_fingerprint(kind: &str, title: &str, affected_paths: &[String]) -> String {
+    let mut paths = affected_paths.to_vec();
+    paths.sort();
+    let material = format!("{kind}|{title}|{}", paths.join("|"));
+    let mut hash = 0xcbf29ce484222325_u64;
+    for byte in material.as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    format!("{kind}:{hash:016x}")
 }

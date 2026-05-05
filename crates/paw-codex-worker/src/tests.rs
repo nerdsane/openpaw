@@ -623,6 +623,13 @@ fn shared_branch(value: u64) -> u64 {
             graph
                 .quality_findings
                 .iter()
+                .all(|finding| finding.fingerprint.starts_with("quality:")),
+            "quality findings should include stable quality fingerprints: {graph:?}"
+        );
+        assert!(
+            graph
+                .quality_findings
+                .iter()
                 .any(|finding| finding.title.contains("Duplicate logic candidate")),
             "quality findings should include duplicate logic evidence: {graph:?}"
         );
@@ -653,6 +660,13 @@ fn shared_branch(value: u64) -> u64 {
                 .iter()
                 .any(|finding| finding.title.contains("Dependency risk")),
             "security findings should include dependency risk evidence: {graph:?}"
+        );
+        assert!(
+            graph
+                .security_findings
+                .iter()
+                .all(|finding| finding.fingerprint.starts_with("security:")),
+            "security findings should include stable security fingerprints: {graph:?}"
         );
         assert!(graph.summary.duplicate_logic_candidates > 0);
         assert!(graph.summary.polling_loop_hits > 0);

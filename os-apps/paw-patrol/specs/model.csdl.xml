@@ -196,6 +196,7 @@
         <Property Name="Severity" Type="Edm.String"/>
         <Property Name="Evidence" Type="Edm.String"/>
         <Property Name="AffectedPaths" Type="Edm.String"/>
+        <Property Name="Fingerprint" Type="Edm.String"/>
         <Property Name="PmIssueId" Type="Edm.String"/>
         <Property Name="WorkCycleId" Type="Edm.String"/>
         <Property Name="ResolutionSummary" Type="Edm.String"/>
@@ -212,6 +213,7 @@
         <Property Name="RiskLane" Type="Edm.String"/>
         <Property Name="Evidence" Type="Edm.String"/>
         <Property Name="AffectedPaths" Type="Edm.String"/>
+        <Property Name="Fingerprint" Type="Edm.String"/>
         <Property Name="PmIssueId" Type="Edm.String"/>
         <Property Name="WorkCycleId" Type="Edm.String"/>
         <Property Name="ResolutionSummary" Type="Edm.String"/>

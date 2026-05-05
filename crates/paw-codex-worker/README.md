@@ -179,7 +179,9 @@ The local scan emits concrete findings for giant modules, duplicate logic
 candidates, TODO/HACK band-aids, broad Cedar permits, Cargo/npm dependency
 risk, hidden Rust orchestration markers, sleep-based polling loops, and missing
 WASM test coverage. The proof summary includes counters for each class so the
-brief can be reviewed visually without reverse-engineering the worker log.
+brief can be reviewed visually without reverse-engineering the worker log. Each
+finding also carries a stable `fingerprint` so future sweeps and agents can
+recognize recurring findings even when Temper entity IDs are new.
 
 Run from the TemperPaw repo/worktree root:
 

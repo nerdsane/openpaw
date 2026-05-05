@@ -1752,6 +1752,7 @@ fn repo_graph_snapshot_queues_sweep_and_fans_out_findings() {
         "repo graph and dependency sweep",
         "giant modules",
         "duplicate logic",
+        "fingerprint",
         "TODO/HACK",
         "Cedar drift",
         "local_codex",
@@ -1796,6 +1797,7 @@ fn accepted_findings_queue_cleanup_work_cycles() {
             "name = \"Accept\"",
             "name = \"LinkPmIssue\"",
             "name = \"StartWork\"",
+            "name = \"fingerprint\"",
         ] {
             assert!(
                 spec.contains(needle),
