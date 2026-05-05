@@ -108,7 +108,8 @@ The guarded production-readiness script was exercised against a live local
 TemperPaw control plane. It built the release worker, ran
 \`paw-codex-worker doctor\`, verified OData plus event-stream access, rendered a
 launchd plist into a temporary proof directory, and did not install or load
-launchd.
+launchd. For production cutover, run \`production-preflight.sh\` first to record
+the non-mutating Railway, launchd, token, and webhook human blockers.
 
 ## Guardrails Checked
 

@@ -215,6 +215,27 @@ review surface with links to logs, JSON, proof markdown, and generated SVGs.
 
 ## Production Readiness
 
+First run the non-mutating preflight. It writes a small proof bundle with
+`summary.json`, `proof.md`, `preflight.svg`, and `human_blockers` so the
+operator can see which Railway, launchd, webhook, and token gates still need
+human input. It does not mutate Railway, launchd, or Temper:
+
+```sh
+crates/paw-codex-worker/scripts/production-preflight.sh
+```
+
+Use `STRICT=1` when blocked gates should make the command fail, for example in
+a final cutover checklist:
+
+```sh
+STRICT=1 \
+TEMPER_URL=https://your-railway-temperpaw.example \
+WORKER_TOKEN="$TEMPER_WORKER_TOKEN" \
+CONFIRM_LOCAL_CODEX_WORKER_ID=mac-mini-codex-prod \
+CONFIRM_TEMPER_PIN_OK=1 \
+crates/paw-codex-worker/scripts/production-preflight.sh
+```
+
 Use the guarded readiness script before loading the Mac mini daemon. It builds
 the release worker, runs `paw-codex-worker doctor`, and can render or install
 the launchd plist only when explicitly requested. It does not print `WORKER_TOKEN`.

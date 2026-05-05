@@ -501,6 +501,7 @@ fn webhook_intake_smoke_exercises_the_trigger_boundary() {
 fn production_readiness_script_keeps_mac_mini_activation_checkable() {
     let root = repo_root();
     let script = read(root.join("crates/paw-codex-worker/scripts/production-readiness.sh"));
+    let preflight = read(root.join("crates/paw-codex-worker/scripts/production-preflight.sh"));
     let smoke = read(root.join("crates/paw-codex-worker/scripts/production-readiness-smoke.sh"));
     let readme = read(root.join("crates/paw-codex-worker/README.md"));
     let env_example = read(root.join(".env.example"));
@@ -525,7 +526,29 @@ fn production_readiness_script_keeps_mac_mini_activation_checkable() {
     }
 
     for needle in [
+        "PROOF_DIR",
+        "summary.json",
+        "proof.md",
+        "preflight.svg",
+        "human_blockers",
+        "TEMPER_URL",
+        "WORKER_TOKEN",
+        "launchctl print",
+        "railway status",
+        "CHECK_RAILWAY",
+        "STRICT=1",
+        "CONFIRM_TEMPER_PIN_OK",
+        "does not mutate Railway, launchd, or Temper",
+    ] {
+        assert!(
+            preflight.contains(needle),
+            "production preflight should report non-mutating activation readiness: {needle}"
+        );
+    }
+
+    for needle in [
         "production-readiness.sh",
+        "production-preflight.sh",
         "paw-codex-worker doctor",
         "WRITE_LAUNCHD_PLIST=1",
         "INSTALL_LAUNCHD=0",
@@ -542,6 +565,7 @@ fn production_readiness_script_keeps_mac_mini_activation_checkable() {
     }
 
     for needle in [
+        "scripts/production-preflight.sh",
         "scripts/production-readiness.sh",
         "scripts/production-readiness-smoke.sh",
         "WRITE_LAUNCHD_PLIST=1",
@@ -580,6 +604,7 @@ fn production_cutover_runbook_maps_every_human_blocker_to_a_gate() {
         "```mermaid",
         "Railway TemperPaw URL",
         "WORKER_TOKEN",
+        "production-preflight.sh",
         "local_codex_worker_id",
         "production-readiness-smoke.sh",
         "production-readiness.sh",
@@ -628,6 +653,10 @@ fn paw_patrol_acceptance_harness_collects_quick_and_live_proofs() {
         "deterministic-smoke.sh",
         "webhook-intake-smoke.sh",
         "repo-sweep-brief-smoke.sh",
+        "production-preflight.sh",
+        "production-preflight/summary.json",
+        "production-preflight/proof.md",
+        "production-preflight/preflight.svg",
         "production-readiness-smoke.sh",
         "deterministic-smoke/proof.svg",
         "webhook-intake-smoke/webhook-intake.svg",
@@ -680,6 +709,7 @@ fn ci_covers_paw_patrol_worker_and_wasm_gates() {
         "bash -n crates/paw-codex-worker/scripts/repo-sweep-brief-smoke.sh",
         "bash -n crates/paw-codex-worker/scripts/webhook-intake-smoke.sh",
         "bash -n crates/paw-codex-worker/scripts/production-readiness.sh",
+        "bash -n crates/paw-codex-worker/scripts/production-preflight.sh",
         "bash -n crates/paw-codex-worker/scripts/production-readiness-smoke.sh",
         "bash -n crates/paw-codex-worker/scripts/paw-patrol-acceptance.sh",
         "os-apps/paw-ingest/wasm/build.sh",

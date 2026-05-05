@@ -10,16 +10,17 @@ gate and the evidence to capture.
 ```mermaid
 flowchart TD
     A["Human approval: start production cutover"] --> B["Confirm Temper Cedar fix is merged or pinned"]
-    B --> C["Set Railway TemperPaw URL and WORKER_TOKEN"]
-    C --> D["Set local_codex_worker_id = mac-mini-codex-prod"]
-    D --> E["Run production-readiness-smoke.sh locally"]
-    E --> F["Run production-readiness.sh against Railway with PAW_CODEX_ENABLE_EXECUTION=0 and exec smoke"]
-    F --> G["Render launchd plist with WRITE_LAUNCHD_PLIST=1"]
-    G --> H["Review plist and logs"]
-    H --> I["Install launchd with INSTALL_LAUNCHD=1"]
-    I --> J["Submit a low-risk PatrolRequest or RepoGraphSnapshot"]
-    J --> K["Capture WorkerRun, ReviewRun, EvaluationRun, ProofPacket, and DailyBrief evidence"]
-    K --> L["Enable code-change execution only after another human approval"]
+    B --> C["Run production-preflight.sh"]
+    C --> D["Set Railway TemperPaw URL and WORKER_TOKEN"]
+    D --> E["Set local_codex_worker_id = mac-mini-codex-prod"]
+    E --> F["Run production-readiness-smoke.sh locally"]
+    F --> G["Run production-readiness.sh against Railway with PAW_CODEX_ENABLE_EXECUTION=0 and exec smoke"]
+    G --> H["Render launchd plist with WRITE_LAUNCHD_PLIST=1"]
+    H --> I["Review plist and logs"]
+    I --> J["Install launchd with INSTALL_LAUNCHD=1"]
+    J --> K["Submit a low-risk PatrolRequest or RepoGraphSnapshot"]
+    K --> L["Capture WorkerRun, ReviewRun, EvaluationRun, ProofPacket, and DailyBrief evidence"]
+    L --> M["Enable code-change execution only after another human approval"]
 ```
 
 ## Inputs Required
@@ -49,9 +50,44 @@ gh pr view 218 --repo nerdsane/temperpaw --json url,headRefOid,mergeStateStatus,
 ```
 
 Pass condition: the Temper Cedar fix is merged, or TemperPaw production is
-deployed from the PR revision that pins the tested Temper commit.
+deployed from the PR revision that pins the tested Temper commit. If the pinned
+revision is the approved production path, set `CONFIRM_TEMPER_PIN_OK=1` for
+`production-preflight.sh` so that decision is captured in the proof.
 
-## Gate 1: Local Readiness Smoke
+## Gate 1: Production Preflight
+
+Run the non-mutating preflight first. It records current machine/env readiness,
+Railway link status, launchd status, webhook-secret presence, and remaining
+`human_blockers` without changing Railway, launchd, or Temper.
+
+```sh
+crates/paw-codex-worker/scripts/production-preflight.sh
+```
+
+For final cutover, make blocked gates fail explicitly:
+
+```sh
+STRICT=1 \
+TEMPER_URL=https://your-railway-temperpaw.example \
+TEMPER_TENANT=default \
+WORKER_ID=mac-mini-codex-prod \
+WORKER_TOKEN="$TEMPER_WORKER_TOKEN" \
+CONFIRM_LOCAL_CODEX_WORKER_ID=mac-mini-codex-prod \
+crates/paw-codex-worker/scripts/production-preflight.sh
+```
+
+Evidence to capture:
+
+- proof bundle path under `/tmp/paw-patrol-production-preflight-*`;
+- `summary.json`;
+- `proof.md`;
+- `gates.tsv`;
+- `human_blockers` list.
+
+Pass condition: `summary.json.status` is `passed`, or every remaining
+`human_blockers` item has an explicit operator decision before continuing.
+
+## Gate 2: Local Readiness Smoke
 
 Run the guarded local production readiness smoke from a clean worktree. This
 proves the release binary builds, doctor can reach OData and event streams, the
@@ -74,7 +110,7 @@ Evidence to capture:
 Pass condition: the script exits 0 and prints `production readiness smoke
 passed`.
 
-## Gate 2: Railway Doctor
+## Gate 3: Railway Doctor
 
 Run production readiness against Railway with execution disabled. This checks
 the actual production URL/token path and local Codex auth/session without
@@ -105,7 +141,7 @@ Evidence to capture:
 
 Pass condition: `production readiness check passed`.
 
-## Gate 3: Render And Review launchd
+## Gate 4: Render And Review launchd
 
 Render the exact launchd plist, then review it before loading anything.
 
@@ -139,9 +175,9 @@ Evidence to capture:
 Pass condition: a human confirms the plist points at Railway, uses the expected
 Mac mini checkout/worktree roots, and still keeps execution disabled.
 
-## Gate 4: Install launchd
+## Gate 5: Install launchd
 
-Install only after Gate 3 human approval.
+Install only after Gate 4 human approval.
 
 ```sh
 WRITE_LAUNCHD_PLIST=1 \
@@ -169,7 +205,7 @@ tail -200 /tmp/paw-codex-worker.err.log
 Pass condition: launchd shows the agent loaded, logs show the worker connected
 to Railway `/tdata/$events`, and no production token is printed.
 
-## Gate 5: Production Observe-Only Proof
+## Gate 6: Production Observe-Only Proof
 
 With `PAW_CODEX_ENABLE_EXECUTION=0`, submit either a low-risk
 `RepoGraphSnapshot.StartScan` or a docs-only PatrolRequest. The first production
@@ -191,7 +227,7 @@ Evidence to capture:
 Pass condition: the entity graph moves through Temper-visible state
 transitions, and the ProofPacket is human-readable.
 
-## Gate 6: Webhook Secrets
+## Gate 7: Webhook Secrets
 
 Configure production Datadog, Discord, and GitHub webhook secrets on the
 corresponding seeded routes:
@@ -214,7 +250,7 @@ Evidence to capture:
 Pass condition: signed production webhooks create only `WebhookEvent` at the
 trigger boundary, then Patrol routes real work through WASM state transitions.
 
-## Gate 7: Enable Code-Change Execution
+## Gate 8: Enable Code-Change Execution
 
 This requires a second human approval after observe-only production proof.
 

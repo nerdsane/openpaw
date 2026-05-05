@@ -145,6 +145,9 @@ EOF
   write_artifact_link "webhook-intake-smoke/proof.md" "${PROOF_DIR}/webhook-intake-smoke/proof.md"
   write_artifact_link "repo-sweep-brief-smoke/proof.md" "${PROOF_DIR}/repo-sweep-brief-smoke/proof.md"
   write_artifact_link "repo-sweep-brief-smoke/patrol-schedule.json" "${PROOF_DIR}/repo-sweep-brief-smoke/patrol-schedule.json"
+  write_artifact_link "production-preflight/proof.md" "${PROOF_DIR}/production-preflight/proof.md"
+  write_artifact_link "production-preflight/summary.json" "${PROOF_DIR}/production-preflight/summary.json"
+  write_artifact_link "production-preflight/preflight.svg" "${PROOF_DIR}/production-preflight/preflight.svg"
   write_artifact_link "production-readiness-smoke/proof.md" "${PROOF_DIR}/production-readiness-smoke/proof.md"
 
   cat >>"${PROOF_DIR}/index.html" <<EOF
@@ -168,6 +171,7 @@ EOF
   write_visual_card "Webhook Intake Proof" "${PROOF_DIR}/webhook-intake-smoke/webhook-intake.svg"
   write_visual_card "Repo Sweep ProofPacket" "${PROOF_DIR}/repo-sweep-brief-smoke/proof.svg"
   write_visual_card "Daily Brief" "${PROOF_DIR}/repo-sweep-brief-smoke/daily-brief.svg"
+  write_visual_card "Production Preflight" "${PROOF_DIR}/production-preflight/preflight.svg"
 
   cat >>"${PROOF_DIR}/index.html" <<EOF
       </section>
@@ -193,6 +197,7 @@ write_summary_and_proof() {
     --arg deterministic "${PROOF_DIR}/deterministic-smoke" \
     --arg webhook "${PROOF_DIR}/webhook-intake-smoke" \
     --arg repo "${PROOF_DIR}/repo-sweep-brief-smoke" \
+    --arg preflight "${PROOF_DIR}/production-preflight" \
     --arg production "${PROOF_DIR}/production-readiness-smoke" \
     --argjson steps "$steps_json" \
     '{
@@ -205,6 +210,7 @@ write_summary_and_proof() {
         deterministic_smoke: $deterministic,
         webhook_intake_smoke: $webhook,
         repo_sweep_brief_smoke: $repo,
+        production_preflight: $preflight,
         production_readiness_smoke: $production
       }
     }')"
@@ -242,6 +248,8 @@ flowchart TD
   - Includes github-webhook-event.json, github-signal.json, and GitHub Signal state evidence.
 - Repo sweep proof bundle: ${PROOF_DIR}/repo-sweep-brief-smoke
   - Default PatrolSchedule evidence: ${PROOF_DIR}/repo-sweep-brief-smoke/patrol-schedule.json
+- Production preflight proof bundle: ${PROOF_DIR}/production-preflight
+  - Visual summary: ${PROOF_DIR}/production-preflight/preflight.svg
 - Production readiness proof bundle: ${PROOF_DIR}/production-readiness-smoke
 
 ## Machine Summary
@@ -280,6 +288,7 @@ run_step syntax-deterministic bash -n "${ROOT}/crates/paw-codex-worker/scripts/d
 run_step syntax-webhook bash -n "${ROOT}/crates/paw-codex-worker/scripts/webhook-intake-smoke.sh"
 run_step syntax-repo-sweep bash -n "${ROOT}/crates/paw-codex-worker/scripts/repo-sweep-brief-smoke.sh"
 run_step syntax-production-readiness bash -n "${ROOT}/crates/paw-codex-worker/scripts/production-readiness.sh"
+run_step syntax-production-preflight bash -n "${ROOT}/crates/paw-codex-worker/scripts/production-preflight.sh"
 run_step syntax-production-smoke bash -n "${ROOT}/crates/paw-codex-worker/scripts/production-readiness-smoke.sh"
 run_step syntax-acceptance bash -n "${ROOT}/crates/paw-codex-worker/scripts/paw-patrol-acceptance.sh"
 run_step fmt cargo fmt --check --all
@@ -287,6 +296,11 @@ run_step diff-check git diff --check
 run_step cargo-check cargo check --locked -p temperpaw -p paw-codex-worker
 run_step foundation cargo test --locked -p temperpaw --test paw_patrol_foundation -- --nocapture
 run_step worker-tests cargo test --locked -p paw-codex-worker --quiet
+run_step production-preflight env \
+  PROOF_DIR="${PROOF_DIR}/production-preflight" \
+  CHECK_RAILWAY=0 \
+  CHECK_GITHUB=0 \
+  "${ROOT}/crates/paw-codex-worker/scripts/production-preflight.sh"
 
 if [[ "$MODE" == "live" ]]; then
   run_step deterministic-smoke env \
