@@ -1,0 +1,193 @@
+[automaton]
+name = "FactoryCase"
+states = ["New", "Triaging", "Scoped", "Queued", "InProgress", "Reviewing", "Proving", "Complete", "Escalated", "Cancelled"]
+initial = "New"
+
+allow_indefinite_states = ["Complete", "Escalated", "Cancelled"]
+
+[[state]]
+name = "signal_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "patrol_request_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "pm_issue_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "summary"
+type = "string"
+initial = ""
+
+[[state]]
+name = "minimum_risk_lane"
+type = "string"
+initial = "L0"
+
+[[state]]
+name = "risk_floor_source"
+type = "string"
+initial = ""
+
+[[state]]
+name = "risk_evidence"
+type = "string"
+initial = ""
+
+[[state]]
+name = "work_cycle_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "escalation_reason"
+type = "string"
+initial = ""
+
+[[action]]
+name = "Open"
+kind = "input"
+from = ["New"]
+to = "Triaging"
+params = ["summary", "signal_id", "patrol_request_id"]
+hint = "Open a case from a PatrolRequest or Signal."
+
+[[action]]
+name = "SetRiskFloor"
+kind = "input"
+from = ["Triaging", "Scoped"]
+to = "Triaging"
+params = ["minimum_risk_lane", "risk_floor_source", "risk_evidence"]
+hint = "Apply explicit RiskRule evidence to set the minimum risk floor."
+
+[[action]]
+name = "RaiseRisk"
+kind = "input"
+from = ["Triaging", "Scoped", "Queued", "InProgress", "Reviewing", "Proving"]
+to = "Triaging"
+params = ["minimum_risk_lane", "risk_floor_source", "risk_evidence"]
+hint = "Raise risk when an agent, reviewer, or evaluator finds new evidence."
+
+[[action]]
+name = "ApproveRiskOverride"
+kind = "input"
+from = ["Triaging", "Scoped"]
+to = "Triaging"
+params = ["minimum_risk_lane", "risk_floor_source", "risk_evidence"]
+hint = "Human-approved risk override. No silent risk lowering action exists."
+
+[[action]]
+name = "LinkPmIssue"
+kind = "input"
+from = ["Triaging", "Scoped"]
+to = "Triaging"
+params = ["pm_issue_id"]
+hint = "Link a durable paw-pm Issue after Patrol decides this is real work."
+
+[[action]]
+name = "OpenWorkCycle"
+kind = "input"
+from = ["Triaging"]
+to = "Scoped"
+params = ["work_cycle_id"]
+hint = "Attach the Patrol WorkCycle for implementation."
+
+[[action]]
+name = "QueueWork"
+kind = "input"
+from = ["Scoped"]
+to = "Queued"
+hint = "Queue the case for a WorkerRun."
+
+[[action]]
+name = "BeginWork"
+kind = "input"
+from = ["Queued"]
+to = "InProgress"
+hint = "A WorkerRun has claimed or started this case."
+
+[[action]]
+name = "BeginReview"
+kind = "input"
+from = ["InProgress"]
+to = "Reviewing"
+hint = "Implementation is complete enough for independent review."
+
+[[action]]
+name = "BeginProof"
+kind = "input"
+from = ["Reviewing"]
+to = "Proving"
+hint = "Review passed and proof/evaluation packaging is underway."
+
+[[action]]
+name = "Complete"
+kind = "input"
+from = ["Proving", "Reviewing"]
+to = "Complete"
+params = ["summary"]
+hint = "Complete after proof, review, and risk gates pass."
+
+[[action]]
+name = "Escalate"
+kind = "input"
+from = ["Triaging", "Scoped", "Queued", "InProgress", "Reviewing", "Proving"]
+to = "Escalated"
+params = ["escalation_reason"]
+hint = "Escalate to the human when risk, failure, or missing proof requires it."
+
+[[action]]
+name = "Cancel"
+kind = "input"
+from = ["New", "Triaging", "Scoped", "Queued"]
+to = "Cancelled"
+params = ["escalation_reason"]
+hint = "Cancel a case before implementation work proceeds."
+
+[[state_timeout]]
+state = "New"
+after_seconds = 86400
+on_timeout = "Cancel"
+params = { escalation_reason = "FactoryCase stayed New for 24h without opening." }
+
+[[state_timeout]]
+state = "Triaging"
+after_seconds = 86400
+on_timeout = "Escalate"
+params = { escalation_reason = "FactoryCase stayed in Triaging for 24h." }
+
+[[state_timeout]]
+state = "Scoped"
+after_seconds = 86400
+on_timeout = "Escalate"
+params = { escalation_reason = "FactoryCase stayed Scoped for 24h without queued work." }
+
+[[state_timeout]]
+state = "Queued"
+after_seconds = 86400
+on_timeout = "Escalate"
+params = { escalation_reason = "FactoryCase was queued for 24h without worker progress." }
+
+[[state_timeout]]
+state = "InProgress"
+after_seconds = 86400
+on_timeout = "Escalate"
+params = { escalation_reason = "FactoryCase stayed InProgress for 24h." }
+
+[[state_timeout]]
+state = "Reviewing"
+after_seconds = 86400
+on_timeout = "Escalate"
+params = { escalation_reason = "FactoryCase stayed Reviewing for 24h." }
+
+[[state_timeout]]
+state = "Proving"
+after_seconds = 21600
+on_timeout = "Escalate"
+params = { escalation_reason = "FactoryCase stayed Proving for 6h." }

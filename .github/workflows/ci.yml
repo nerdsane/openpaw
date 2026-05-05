@@ -1,6 +1,7 @@
 name: CI
 
 on:
+  workflow_dispatch:
   pull_request:
   push:
     branches:
@@ -24,9 +25,17 @@ jobs:
       - name: Cargo fmt
         run: cargo fmt --all -- --check
       - name: Cargo clippy
-        run: cargo clippy -p temperpaw --all-targets -- -D warnings
+        run: cargo clippy --locked -p temperpaw -p paw-codex-worker --all-targets -- -D warnings
       - name: Cargo check
-        run: cargo check -p temperpaw
+        run: cargo check --locked -p temperpaw -p paw-codex-worker
+      - name: Worker smoke script syntax
+        run: |
+          bash -n crates/paw-codex-worker/scripts/deterministic-smoke.sh
+          bash -n crates/paw-codex-worker/scripts/repo-sweep-brief-smoke.sh
+          bash -n crates/paw-codex-worker/scripts/webhook-intake-smoke.sh
+          bash -n crates/paw-codex-worker/scripts/production-readiness.sh
+          bash -n crates/paw-codex-worker/scripts/production-readiness-smoke.sh
+          bash -n crates/paw-codex-worker/scripts/paw-patrol-acceptance.sh
       - name: WASM build (os-apps)
         run: |
           set -e
@@ -35,13 +44,18 @@ jobs:
             os-apps/paw-channels/wasm/build.sh \
             os-apps/paw-fs/wasm/blob_adapter/build.sh \
             os-apps/paw-fs/wasm/workspace_fs/build.sh \
+            os-apps/paw-ingest/wasm/build.sh \
             os-apps/paw-managed-agents/wasm/build.sh \
             os-apps/paw-skills/wasm/build.sh \
-            os-apps/paw-research/wasm/build.sh; do
+            os-apps/paw-research/wasm/build.sh \
+            os-apps/paw-patrol/wasm/build.sh; do
             echo "=== Running $script ==="
             (cd "$(dirname "$script")" && bash "$(basename "$script")")
           done
       - name: Cargo test
-        run: cargo test -p temperpaw --quiet
+        run: |
+          cargo test --locked -p temperpaw --quiet
+          cargo test --locked -p paw-codex-worker --quiet
+          cargo test --manifest-path os-apps/paw-patrol/wasm/review_gate_lifecycle/Cargo.toml --quiet
       - name: Dashboard build
         run: cd dashboard && npm run build

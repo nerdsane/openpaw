@@ -54,8 +54,13 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         let tenant = &ctx.tenant;
         let headers = odata_headers(&ctx, tenant);
 
-        // Build action params from the normalized payload
-        let action_params = build_action_params(target_action, normalized_payload, route_key);
+        // Build action params from the normalized payload.
+        let action_params = build_action_params(
+            target_entity_type,
+            target_action,
+            normalized_payload,
+            route_key,
+        );
 
         // Dispatch the target action via OData POST
         let action_url = format!(
@@ -65,7 +70,10 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
 
         ctx.log(
             "info",
-            &format!("process_webhook: dispatching {} on {}({})", target_action, target_entity_type, target_entity_id),
+            &format!(
+                "process_webhook: dispatching {} on {}({})",
+                target_action, target_entity_type, target_entity_id
+            ),
         );
 
         let resp = ctx.http_call("POST", &action_url, &headers, &action_params.to_string())?;
@@ -118,20 +126,25 @@ fn odata_headers(ctx: &Context, tenant: &str) -> Vec<(String, String)> {
 }
 
 /// Build action parameters for the target entity action based on the normalized payload.
-/// For AlertCycle.Open: extract monitor_id and pass the alert payload.
-/// For other actions: pass the full normalized payload as alert_payload.
-fn build_action_params(target_action: &str, normalized_payload: &str, _route_key: &str) -> Value {
-    let payload: Value = serde_json::from_str(normalized_payload).unwrap_or(json!({}));
+/// Patrol actions get their typed params; legacy alert actions keep alert_payload.
+fn build_action_params(
+    target_entity_type: &str,
+    target_action: &str,
+    normalized_payload: &str,
+    route_key: &str,
+) -> Value {
+    let payload = parse_payload(normalized_payload);
     let action_name = target_action.rsplit('.').next().unwrap_or(target_action);
 
-    match action_name {
-        "Open" => {
+    match (target_entity_type, action_name) {
+        ("PatrolRequest", "Submit") => {
+            build_patrol_request_submit_params(&payload, normalized_payload, route_key)
+        }
+        ("Signal", "Ingest") => build_signal_ingest_params(&payload, normalized_payload, route_key),
+        (_, "Open") => {
             // AlertCycle.Open expects monitor_id and alert_payload
-            let monitor_id = payload
-                .get("monitor_id")
-                .or_else(|| payload.get("dd_monitor_id"))
-                .and_then(|v| v.as_str().map(|s| s.to_string()).or_else(|| Some(v.to_string())))
-                .unwrap_or_default();
+            let monitor_id =
+                first_string(&payload, &["monitor_id", "dd_monitor_id"]).unwrap_or_default();
 
             json!({
                 "monitor_id": monitor_id,
@@ -144,5 +157,123 @@ fn build_action_params(target_action: &str, normalized_payload: &str, _route_key
                 "alert_payload": normalized_payload,
             })
         }
+    }
+}
+
+fn build_patrol_request_submit_params(
+    payload: &Value,
+    normalized_payload: &str,
+    route_key: &str,
+) -> Value {
+    let fallback_source = fallback_source(payload, route_key);
+    let request_text = first_string(
+        payload,
+        &[
+            "request_text",
+            "text",
+            "message",
+            "body",
+            "description",
+            "summary",
+            "title",
+        ],
+    )
+    .or_else(|| combine_title_and_body(payload))
+    .unwrap_or_else(|| normalized_payload.to_string());
+
+    let requester_id = first_string(
+        payload,
+        &[
+            "requester_id",
+            "requester",
+            "user",
+            "username",
+            "author",
+            "actor",
+        ],
+    )
+    .or_else(|| string_at(payload, &["sender", "login"]))
+    .or_else(|| string_at(payload, &["user", "login"]))
+    .unwrap_or_else(|| format!("webhook:{route_key}"));
+
+    json!({
+        "source": fallback_source,
+        "request_text": request_text,
+        "requester_id": requester_id,
+    })
+}
+
+fn build_signal_ingest_params(payload: &Value, normalized_payload: &str, route_key: &str) -> Value {
+    let fallback_source = fallback_source(payload, route_key);
+    let source_url = first_string(
+        payload,
+        &[
+            "source_url",
+            "url",
+            "html_url",
+            "web_url",
+            "log_url",
+            "trace_url",
+            "permalink",
+        ],
+    )
+    .or_else(|| string_at(payload, &["repository", "html_url"]))
+    .unwrap_or_default();
+
+    let severity = first_string(
+        payload,
+        &["severity", "priority", "status", "alert_type", "level"],
+    )
+    .unwrap_or_else(|| "unknown".to_string());
+
+    json!({
+        "source": fallback_source,
+        "payload": normalized_payload,
+        "source_url": source_url,
+        "severity": severity,
+    })
+}
+
+fn parse_payload(normalized_payload: &str) -> Value {
+    serde_json::from_str(normalized_payload)
+        .unwrap_or_else(|_| json!({ "text": normalized_payload }))
+}
+
+fn fallback_source(payload: &Value, route_key: &str) -> String {
+    first_string(payload, &["source", "source_type", "provider"])
+        .unwrap_or_else(|| route_key.trim_start_matches("patrol-").to_string())
+}
+
+fn combine_title_and_body(payload: &Value) -> Option<String> {
+    let title = first_string(payload, &["title"])?;
+    let body = first_string(payload, &["body", "description"]).unwrap_or_default();
+    if body.is_empty() {
+        Some(title)
+    } else {
+        Some(format!("{title}\n\n{body}"))
+    }
+}
+
+fn first_string(payload: &Value, keys: &[&str]) -> Option<String> {
+    keys.iter()
+        .filter_map(|key| value_to_string(payload.get(*key)?))
+        .find(|value| !value.trim().is_empty())
+}
+
+fn string_at(payload: &Value, path: &[&str]) -> Option<String> {
+    let mut cursor = payload;
+    for key in path {
+        cursor = cursor.get(*key)?;
+    }
+    value_to_string(cursor).filter(|value| !value.trim().is_empty())
+}
+
+fn value_to_string(value: &Value) -> Option<String> {
+    match value {
+        Value::String(s) => Some(s.clone()),
+        Value::Number(n) => Some(n.to_string()),
+        Value::Bool(b) => Some(b.to_string()),
+        Value::Null => None,
+        Value::Array(_) | Value::Object(_) => Some(value.to_string()),
     }
 }

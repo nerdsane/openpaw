@@ -1,0 +1,58 @@
+[automaton]
+name = "RiskRule"
+states = ["Draft", "Active", "Archived"]
+initial = "Draft"
+
+allow_indefinite_states = ["Draft", "Active", "Archived"]
+
+[[state]]
+name = "rule_name"
+type = "string"
+initial = ""
+
+[[state]]
+name = "minimum_risk_lane"
+type = "string"
+initial = "L0"
+
+[[state]]
+name = "evidence_selector"
+type = "string"
+initial = ""
+
+[[state]]
+name = "required_checks"
+type = "string"
+initial = "[]"
+
+[[state]]
+name = "review_policy"
+type = "string"
+initial = ""
+
+[[state]]
+name = "description"
+type = "string"
+initial = ""
+
+[[action]]
+name = "Define"
+kind = "input"
+from = ["Draft", "Active"]
+to = "Draft"
+params = ["rule_name", "minimum_risk_lane", "evidence_selector", "required_checks", "review_policy", "description"]
+hint = "Define explicit evidence that sets a minimum risk lane."
+
+[[action]]
+name = "Activate"
+kind = "input"
+from = ["Draft"]
+to = "Active"
+hint = "Activate this risk rule."
+
+[[action]]
+name = "Archive"
+kind = "input"
+from = ["Draft", "Active"]
+to = "Archived"
+hint = "Archive a retired risk rule."

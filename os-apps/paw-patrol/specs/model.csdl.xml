@@ -1,0 +1,274 @@
+<?xml version="1.0" encoding="utf-8"?>
+<edmx:Edmx Version="4.0" xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx">
+  <edmx:DataServices>
+    <Schema Namespace="Paw.Vocab" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+      <Term Name="AuthZ.CedarPolicy" Type="Edm.String" AppliesTo="EntityType Action Function"/>
+      <Term Name="Agent.Hint" Type="Edm.String" AppliesTo="Action Function EntityType"/>
+    </Schema>
+
+    <Schema Namespace="TemperPaw.Patrol" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+      <EntityType Name="PatrolRequest">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.String" Nullable="false"/>
+        <Property Name="Status" Type="Edm.String"/>
+        <Property Name="Source" Type="Edm.String"/>
+        <Property Name="RequestText" Type="Edm.String"/>
+        <Property Name="RequesterId" Type="Edm.String"/>
+        <Property Name="SignalId" Type="Edm.String"/>
+        <Property Name="FactoryCaseId" Type="Edm.String"/>
+        <Property Name="PmIssueId" Type="Edm.String"/>
+        <Property Name="TriageSummary" Type="Edm.String"/>
+        <Property Name="ErrorMessage" Type="Edm.String"/>
+        <Property Name="Integration" Type="Edm.String"/>
+        <Annotation Term="Paw.Vocab.AuthZ.CedarPolicy" String="policies/patrol.cedar"/>
+        <Annotation Term="Paw.Vocab.Agent.Hint" String="Human or manager-agent request submitted into Patrol before PM work is created."/>
+      </EntityType>
+
+      <EntityType Name="Signal">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.String" Nullable="false"/>
+        <Property Name="Status" Type="Edm.String"/>
+        <Property Name="Source" Type="Edm.String"/>
+        <Property Name="Payload" Type="Edm.String"/>
+        <Property Name="SourceUrl" Type="Edm.String"/>
+        <Property Name="Severity" Type="Edm.String"/>
+        <Property Name="Summary" Type="Edm.String"/>
+        <Property Name="FactoryCaseId" Type="Edm.String"/>
+        <Annotation Term="Paw.Vocab.AuthZ.CedarPolicy" String="policies/patrol.cedar"/>
+        <Annotation Term="Paw.Vocab.Agent.Hint" String="Machine-observed event from Discord, Datadog, GitHub, schedules, or sweeps."/>
+      </EntityType>
+
+      <EntityType Name="FactoryCase">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.String" Nullable="false"/>
+        <Property Name="Status" Type="Edm.String"/>
+        <Property Name="SignalId" Type="Edm.String"/>
+        <Property Name="PatrolRequestId" Type="Edm.String"/>
+        <Property Name="PmIssueId" Type="Edm.String"/>
+        <Property Name="Summary" Type="Edm.String"/>
+        <Property Name="MinimumRiskLane" Type="Edm.String"/>
+        <Property Name="RiskFloorSource" Type="Edm.String"/>
+        <Property Name="RiskEvidence" Type="Edm.String"/>
+        <Property Name="WorkCycleId" Type="Edm.String"/>
+        <Property Name="EscalationReason" Type="Edm.String"/>
+        <Annotation Term="Paw.Vocab.AuthZ.CedarPolicy" String="policies/patrol.cedar"/>
+        <Annotation Term="Paw.Vocab.Agent.Hint" String="Operational case that groups signals, risk, work, review, evaluation, and proof."/>
+      </EntityType>
+
+      <EntityType Name="WorkCycle">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.String" Nullable="false"/>
+        <Property Name="Status" Type="Edm.String"/>
+        <Property Name="FactoryCaseId" Type="Edm.String"/>
+        <Property Name="PmIssueId" Type="Edm.String"/>
+        <Property Name="TaskSummary" Type="Edm.String"/>
+        <Property Name="TaskDetail" Type="Edm.String"/>
+        <Property Name="SourceEntityType" Type="Edm.String"/>
+        <Property Name="SourceEntityId" Type="Edm.String"/>
+        <Property Name="PlanSummary" Type="Edm.String"/>
+        <Property Name="RiskLane" Type="Edm.String"/>
+        <Property Name="ImplementerWorkerRunId" Type="Edm.String"/>
+        <Property Name="ReviewerRunId" Type="Edm.String"/>
+        <Property Name="EvaluationRunId" Type="Edm.String"/>
+        <Property Name="ProofPacketId" Type="Edm.String"/>
+        <Property Name="ErrorMessage" Type="Edm.String"/>
+        <Property Name="HasPlan" Type="Edm.Boolean"/>
+        <Property Name="WorkerDone" Type="Edm.Boolean"/>
+        <Property Name="ReviewPassed" Type="Edm.Boolean"/>
+        <Property Name="EvaluationPassed" Type="Edm.Boolean"/>
+        <Property Name="ProofAttached" Type="Edm.Boolean"/>
+        <Property Name="E2eOk" Type="Edm.Boolean"/>
+        <Property Name="HumanStartApprovalRequired" Type="Edm.Boolean"/>
+        <Property Name="HumanStartApproved" Type="Edm.Boolean"/>
+        <Property Name="HumanCompletionApprovalRequired" Type="Edm.Boolean"/>
+        <Property Name="HumanCompletionApproved" Type="Edm.Boolean"/>
+        <Property Name="ApprovalSummary" Type="Edm.String"/>
+        <Annotation Term="Paw.Vocab.AuthZ.CedarPolicy" String="policies/patrol.cedar"/>
+        <Annotation Term="Paw.Vocab.Agent.Hint" String="Patrol-owned implementation loop with worker, reviewer, evaluator, and proof gates."/>
+      </EntityType>
+
+      <EntityType Name="WorkerRun">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.String" Nullable="false"/>
+        <Property Name="Status" Type="Edm.String"/>
+        <Property Name="WorkerId" Type="Edm.String"/>
+        <Property Name="AllowedWorkerId" Type="Edm.String"/>
+        <Property Name="RunnerKind" Type="Edm.String"/>
+        <Property Name="WorkCycleId" Type="Edm.String"/>
+        <Property Name="FactoryCaseId" Type="Edm.String"/>
+        <Property Name="RiskLane" Type="Edm.String"/>
+        <Property Name="Task" Type="Edm.String"/>
+        <Property Name="BranchName" Type="Edm.String"/>
+        <Property Name="WorktreePath" Type="Edm.String"/>
+        <Property Name="ProofPacketId" Type="Edm.String"/>
+        <Property Name="ResultSummary" Type="Edm.String"/>
+        <Property Name="ErrorMessage" Type="Edm.String"/>
+        <Property Name="Claimed" Type="Edm.Boolean"/>
+        <Annotation Term="Paw.Vocab.AuthZ.CedarPolicy" String="policies/patrol.cedar"/>
+        <Annotation Term="Paw.Vocab.Agent.Hint" String="One local Codex or manually approved cloud execution attempt."/>
+      </EntityType>
+
+      <EntityType Name="ReviewRun">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.String" Nullable="false"/>
+        <Property Name="Status" Type="Edm.String"/>
+        <Property Name="WorkCycleId" Type="Edm.String"/>
+        <Property Name="WorkerRunId" Type="Edm.String"/>
+        <Property Name="ReviewerId" Type="Edm.String"/>
+        <Property Name="ReviewSummary" Type="Edm.String"/>
+        <Property Name="LiveE2eSummary" Type="Edm.String"/>
+        <Property Name="Verdict" Type="Edm.String"/>
+        <Property Name="ProofPacketId" Type="Edm.String"/>
+        <Annotation Term="Paw.Vocab.AuthZ.CedarPolicy" String="policies/patrol.cedar"/>
+        <Annotation Term="Paw.Vocab.Agent.Hint" String="Independent reviewer pass over implementation, proof, tests, and live evidence."/>
+      </EntityType>
+
+      <EntityType Name="EvaluationRun">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.String" Nullable="false"/>
+        <Property Name="Status" Type="Edm.String"/>
+        <Property Name="WorkCycleId" Type="Edm.String"/>
+        <Property Name="RequiredChecks" Type="Edm.String"/>
+        <Property Name="ResultsJson" Type="Edm.String"/>
+        <Property Name="E2eSummary" Type="Edm.String"/>
+        <Property Name="ErrorMessage" Type="Edm.String"/>
+        <Annotation Term="Paw.Vocab.AuthZ.CedarPolicy" String="policies/patrol.cedar"/>
+        <Annotation Term="Paw.Vocab.Agent.Hint" String="Automated gate execution and result capture."/>
+      </EntityType>
+
+      <EntityType Name="ProofPacket">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.String" Nullable="false"/>
+        <Property Name="Status" Type="Edm.String"/>
+        <Property Name="WorkCycleId" Type="Edm.String"/>
+        <Property Name="WorkerRunId" Type="Edm.String"/>
+        <Property Name="ReviewRunId" Type="Edm.String"/>
+        <Property Name="EvaluationRunId" Type="Edm.String"/>
+        <Property Name="SummaryMarkdown" Type="Edm.String"/>
+        <Property Name="ProofJson" Type="Edm.String"/>
+        <Property Name="VisualSummaryUrl" Type="Edm.String"/>
+        <Property Name="StateDiagramMermaid" Type="Edm.String"/>
+        <Property Name="ChangedFilesMap" Type="Edm.String"/>
+        <Property Name="ReviewerVerdict" Type="Edm.String"/>
+        <Property Name="ResidualRisks" Type="Edm.String"/>
+        <Annotation Term="Paw.Vocab.AuthZ.CedarPolicy" String="policies/patrol.cedar"/>
+        <Annotation Term="Paw.Vocab.Agent.Hint" String="Visual and machine-readable evidence package for one work cycle."/>
+      </EntityType>
+
+      <EntityType Name="RiskRule">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.String" Nullable="false"/>
+        <Property Name="Status" Type="Edm.String"/>
+        <Property Name="RuleName" Type="Edm.String"/>
+        <Property Name="MinimumRiskLane" Type="Edm.String"/>
+        <Property Name="EvidenceSelector" Type="Edm.String"/>
+        <Property Name="RequiredChecks" Type="Edm.String"/>
+        <Property Name="ReviewPolicy" Type="Edm.String"/>
+        <Property Name="Description" Type="Edm.String"/>
+        <Annotation Term="Paw.Vocab.AuthZ.CedarPolicy" String="policies/patrol.cedar"/>
+        <Annotation Term="Paw.Vocab.Agent.Hint" String="Explicit evidence selector that sets the minimum risk lane."/>
+      </EntityType>
+
+      <EntityType Name="RepoGraphSnapshot">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.String" Nullable="false"/>
+        <Property Name="Status" Type="Edm.String"/>
+        <Property Name="CommitSha" Type="Edm.String"/>
+        <Property Name="GraphJson" Type="Edm.String"/>
+        <Property Name="SummaryMarkdown" Type="Edm.String"/>
+        <Property Name="GeneratedAt" Type="Edm.String"/>
+        <Property Name="FindingCount" Type="Edm.String"/>
+        <Property Name="WorkCycleId" Type="Edm.String"/>
+        <Property Name="WorkerRunId" Type="Edm.String"/>
+        <Property Name="ErrorMessage" Type="Edm.String"/>
+        <Property Name="Integration" Type="Edm.String"/>
+        <Annotation Term="Paw.Vocab.AuthZ.CedarPolicy" String="policies/patrol.cedar"/>
+        <Annotation Term="Paw.Vocab.Agent.Hint" String="Codebase and dependency graph snapshot used for routing and sweeps."/>
+      </EntityType>
+
+      <EntityType Name="QualityFinding">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.String" Nullable="false"/>
+        <Property Name="Status" Type="Edm.String"/>
+        <Property Name="Title" Type="Edm.String"/>
+        <Property Name="Severity" Type="Edm.String"/>
+        <Property Name="Evidence" Type="Edm.String"/>
+        <Property Name="AffectedPaths" Type="Edm.String"/>
+        <Property Name="PmIssueId" Type="Edm.String"/>
+        <Property Name="WorkCycleId" Type="Edm.String"/>
+        <Property Name="ResolutionSummary" Type="Edm.String"/>
+        <Annotation Term="Paw.Vocab.AuthZ.CedarPolicy" String="policies/patrol.cedar"/>
+        <Annotation Term="Paw.Vocab.Agent.Hint" String="Code health finding from Patrol quality sweeps."/>
+      </EntityType>
+
+      <EntityType Name="SecurityFinding">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.String" Nullable="false"/>
+        <Property Name="Status" Type="Edm.String"/>
+        <Property Name="Title" Type="Edm.String"/>
+        <Property Name="Severity" Type="Edm.String"/>
+        <Property Name="RiskLane" Type="Edm.String"/>
+        <Property Name="Evidence" Type="Edm.String"/>
+        <Property Name="AffectedPaths" Type="Edm.String"/>
+        <Property Name="PmIssueId" Type="Edm.String"/>
+        <Property Name="WorkCycleId" Type="Edm.String"/>
+        <Property Name="ResolutionSummary" Type="Edm.String"/>
+        <Annotation Term="Paw.Vocab.AuthZ.CedarPolicy" String="policies/patrol.cedar"/>
+        <Annotation Term="Paw.Vocab.Agent.Hint" String="Security, Cedar, dependency, secret, or deploy risk finding."/>
+      </EntityType>
+
+      <EntityType Name="DailyBrief">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.String" Nullable="false"/>
+        <Property Name="Status" Type="Edm.String"/>
+        <Property Name="BriefDate" Type="Edm.String"/>
+        <Property Name="SummaryMarkdown" Type="Edm.String"/>
+        <Property Name="VisualSummaryUrl" Type="Edm.String"/>
+        <Property Name="ProofPacketIds" Type="Edm.String"/>
+        <Property Name="OpenRisks" Type="Edm.String"/>
+        <Property Name="DoneItems" Type="Edm.String"/>
+        <Property Name="ErrorMessage" Type="Edm.String"/>
+        <Annotation Term="Paw.Vocab.AuthZ.CedarPolicy" String="policies/patrol.cedar"/>
+        <Annotation Term="Paw.Vocab.Agent.Hint" String="Daily visual and textual summary of Patrol outcomes and open risks."/>
+      </EntityType>
+
+      <EntityType Name="PatrolSchedule">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.String" Nullable="false"/>
+        <Property Name="Status" Type="Edm.String"/>
+        <Property Name="Name" Type="Edm.String"/>
+        <Property Name="Cadence" Type="Edm.String"/>
+        <Property Name="EnableRepoSweep" Type="Edm.Boolean"/>
+        <Property Name="EnableDailyBrief" Type="Edm.Boolean"/>
+        <Property Name="CommitSha" Type="Edm.String"/>
+        <Property Name="NextRunAt" Type="Edm.String"/>
+        <Property Name="LastRunAt" Type="Edm.String"/>
+        <Property Name="LastRepoGraphSnapshotId" Type="Edm.String"/>
+        <Property Name="LastDailyBriefId" Type="Edm.String"/>
+        <Property Name="LastSummary" Type="Edm.String"/>
+        <Property Name="RunCount" Type="Edm.Int64"/>
+        <Property Name="MaxRuns" Type="Edm.String"/>
+        <Property Name="ErrorMessage" Type="Edm.String"/>
+        <Annotation Term="Paw.Vocab.AuthZ.CedarPolicy" String="policies/patrol.cedar"/>
+        <Annotation Term="Paw.Vocab.Agent.Hint" String="Recurring Patrol schedule that creates repo sweeps and daily briefs using Temper state transitions."/>
+      </EntityType>
+
+      <EntityContainer Name="Service">
+        <EntitySet Name="PatrolRequests" EntityType="TemperPaw.Patrol.PatrolRequest"/>
+        <EntitySet Name="Signals" EntityType="TemperPaw.Patrol.Signal"/>
+        <EntitySet Name="FactoryCases" EntityType="TemperPaw.Patrol.FactoryCase"/>
+        <EntitySet Name="WorkCycles" EntityType="TemperPaw.Patrol.WorkCycle"/>
+        <EntitySet Name="WorkerRuns" EntityType="TemperPaw.Patrol.WorkerRun"/>
+        <EntitySet Name="ReviewRuns" EntityType="TemperPaw.Patrol.ReviewRun"/>
+        <EntitySet Name="EvaluationRuns" EntityType="TemperPaw.Patrol.EvaluationRun"/>
+        <EntitySet Name="ProofPackets" EntityType="TemperPaw.Patrol.ProofPacket"/>
+        <EntitySet Name="RiskRules" EntityType="TemperPaw.Patrol.RiskRule"/>
+        <EntitySet Name="RepoGraphSnapshots" EntityType="TemperPaw.Patrol.RepoGraphSnapshot"/>
+        <EntitySet Name="QualityFindings" EntityType="TemperPaw.Patrol.QualityFinding"/>
+        <EntitySet Name="SecurityFindings" EntityType="TemperPaw.Patrol.SecurityFinding"/>
+        <EntitySet Name="DailyBriefs" EntityType="TemperPaw.Patrol.DailyBrief"/>
+        <EntitySet Name="PatrolSchedules" EntityType="TemperPaw.Patrol.PatrolSchedule"/>
+      </EntityContainer>
+    </Schema>
+  </edmx:DataServices>
+</edmx:Edmx>

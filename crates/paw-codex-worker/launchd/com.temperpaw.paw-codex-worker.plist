@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.temperpaw.paw-codex-worker</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/seshendranalla/.local/bin/paw-codex-worker</string>
+  </array>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>TEMPER_URL</key>
+    <string>https://your-temperpaw.railway.app</string>
+    <key>TEMPER_TENANT</key>
+    <string>default</string>
+    <key>WORKER_ID</key>
+    <string>mac-mini-codex-1</string>
+    <key>WORKER_TOKEN</key>
+    <string>replace-with-temper-api-key</string>
+    <key>WORKSPACE_ROOT</key>
+    <string>/Users/seshendranalla/Development/temperpaw-worktrees</string>
+    <key>REPO_ROOT</key>
+    <string>/Users/seshendranalla/Development/temperpaw</string>
+    <key>CODEX_BIN</key>
+    <string>codex</string>
+    <key>PAW_CODEX_ENABLE_EXECUTION</key>
+    <string>0</string>
+    <key>PAW_CODEX_DOCTOR_EXEC_SMOKE</key>
+    <string>1</string>
+    <key>PAW_CODEX_POLL_ON_START</key>
+    <string>1</string>
+    <key>RUST_LOG</key>
+    <string>paw_codex_worker=info,info</string>
+  </dict>
+
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>/tmp/paw-codex-worker.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/paw-codex-worker.err.log</string>
+</dict>
+</plist>

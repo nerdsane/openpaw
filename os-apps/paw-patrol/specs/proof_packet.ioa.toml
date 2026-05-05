@@ -1,0 +1,91 @@
+[automaton]
+name = "ProofPacket"
+states = ["Drafting", "Ready", "Rejected"]
+initial = "Drafting"
+
+allow_indefinite_states = ["Ready", "Rejected"]
+
+[[state]]
+name = "work_cycle_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "worker_run_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "review_run_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "evaluation_run_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "summary_markdown"
+type = "string"
+initial = ""
+
+[[state]]
+name = "proof_json"
+type = "string"
+initial = "{}"
+
+[[state]]
+name = "visual_summary_url"
+type = "string"
+initial = ""
+
+[[state]]
+name = "state_diagram_mermaid"
+type = "string"
+initial = ""
+
+[[state]]
+name = "changed_files_map"
+type = "string"
+initial = ""
+
+[[state]]
+name = "reviewer_verdict"
+type = "string"
+initial = ""
+
+[[state]]
+name = "residual_risks"
+type = "string"
+initial = ""
+
+[[action]]
+name = "AttachDraft"
+kind = "input"
+from = ["Drafting"]
+to = "Drafting"
+params = ["work_cycle_id", "worker_run_id", "review_run_id", "evaluation_run_id", "summary_markdown", "proof_json", "visual_summary_url", "state_diagram_mermaid", "changed_files_map", "reviewer_verdict", "residual_risks"]
+hint = "Attach or update the structured and visual proof draft."
+
+[[action]]
+name = "MarkReady"
+kind = "input"
+from = ["Drafting"]
+to = "Ready"
+params = ["summary_markdown", "proof_json"]
+hint = "Mark proof ready for final workflow gates."
+
+[[action]]
+name = "Reject"
+kind = "input"
+from = ["Drafting", "Ready"]
+to = "Rejected"
+params = ["residual_risks"]
+hint = "Reject proof that is incomplete or misleading."
+
+[[state_timeout]]
+state = "Drafting"
+after_seconds = 86400
+on_timeout = "Reject"
+params = { residual_risks = "ProofPacket was not marked ready within 24h." }

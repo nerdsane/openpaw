@@ -1,0 +1,375 @@
+[automaton]
+name = "WorkCycle"
+states = ["Planning", "Planned", "AwaitingHumanStartApproval", "InProgress", "Testing", "Reviewing", "Proving", "AwaitingHumanCompletionApproval", "Complete", "Failed"]
+initial = "Planning"
+
+allow_indefinite_states = ["Complete", "Failed"]
+
+[[state]]
+name = "factory_case_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "pm_issue_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "task_summary"
+type = "string"
+initial = ""
+
+[[state]]
+name = "task_detail"
+type = "string"
+initial = ""
+
+[[state]]
+name = "source_entity_type"
+type = "string"
+initial = ""
+
+[[state]]
+name = "source_entity_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "plan_summary"
+type = "string"
+initial = ""
+
+[[state]]
+name = "risk_lane"
+type = "string"
+initial = "L0"
+
+[[state]]
+name = "implementer_worker_run_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "reviewer_run_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "evaluation_run_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "proof_packet_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "error_message"
+type = "string"
+initial = ""
+
+[[state]]
+name = "has_plan"
+type = "bool"
+initial = "false"
+
+[[state]]
+name = "worker_done"
+type = "bool"
+initial = "false"
+
+[[state]]
+name = "review_passed"
+type = "bool"
+initial = "false"
+
+[[state]]
+name = "evaluation_passed"
+type = "bool"
+initial = "false"
+
+[[state]]
+name = "proof_attached"
+type = "bool"
+initial = "false"
+
+[[state]]
+name = "e2e_ok"
+type = "bool"
+initial = "false"
+
+[[state]]
+name = "human_start_approval_required"
+type = "bool"
+initial = "false"
+
+[[state]]
+name = "human_start_approved"
+type = "bool"
+initial = "false"
+
+[[state]]
+name = "human_completion_approval_required"
+type = "bool"
+initial = "false"
+
+[[state]]
+name = "human_completion_approved"
+type = "bool"
+initial = "false"
+
+[[state]]
+name = "approval_summary"
+type = "string"
+initial = ""
+
+[[action]]
+name = "Configure"
+kind = "input"
+from = ["Planning"]
+to = "Planning"
+params = ["factory_case_id", "pm_issue_id", "task_summary", "task_detail", "risk_lane"]
+hint = "Configure one Patrol-owned work cycle."
+
+[[action]]
+name = "LinkSource"
+kind = "input"
+from = ["Planning"]
+to = "Planning"
+params = ["source_entity_type", "source_entity_id"]
+hint = "Link this WorkCycle to the Patrol entity it is meant to resolve."
+
+[[action]]
+name = "WritePlan"
+kind = "input"
+from = ["Planning"]
+to = "Planned"
+params = ["plan_summary"]
+effect = "set has_plan true"
+hint = "Write the plan before worker implementation starts."
+
+[[action]]
+name = "RequestHumanStartApproval"
+kind = "input"
+from = ["Planned"]
+to = "AwaitingHumanStartApproval"
+params = ["approval_summary"]
+effect = "set human_start_approval_required true"
+hint = "Pause high-risk work before any WorkerRun is queued."
+
+[[action]]
+name = "ApproveHumanStart"
+kind = "input"
+from = ["AwaitingHumanStartApproval"]
+to = "Planned"
+params = ["approval_summary"]
+effect = [{ type = "set_bool", var = "human_start_approved", value = true }, { type = "trigger", name = "human_start_approved" }]
+hint = "Human approval allowing high-risk work to be queued for the local Codex worker."
+
+[[action.triggers]]
+name = "human_start_approved"
+kind = "wasm"
+module = "work_cycle_lifecycle"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+local_codex_worker_id = "{secret:local_codex_worker_id}"
+
+[[action]]
+name = "StartWork"
+kind = "input"
+from = ["Planned"]
+to = "InProgress"
+guard = "is_true has_plan"
+hint = "Start implementation only after a plan exists."
+
+[[action]]
+name = "AttachWorkerRun"
+kind = "input"
+from = ["InProgress"]
+to = "InProgress"
+params = ["implementer_worker_run_id"]
+hint = "Attach the Codex WorkerRun responsible for implementation."
+
+[[action]]
+name = "WorkerDone"
+kind = "input"
+from = ["InProgress"]
+to = "Testing"
+params = ["implementer_worker_run_id"]
+effect = "set worker_done true"
+hint = "Record implementer completion and move to verification."
+
+[[action]]
+name = "ReportE2e"
+kind = "input"
+from = ["Testing", "Reviewing"]
+to = "Testing"
+effect = "set e2e_ok true"
+hint = "Record targeted live or end-to-end verification evidence."
+
+[[action]]
+name = "SubmitForReview"
+kind = "input"
+from = ["Testing"]
+to = "Reviewing"
+guard = "is_true worker_done"
+hint = "Submit the worker output for independent review."
+
+[[action]]
+name = "AttachReviewRun"
+kind = "input"
+from = ["Reviewing"]
+to = "Reviewing"
+params = ["reviewer_run_id"]
+hint = "Attach the independent ReviewRun."
+
+[[action]]
+name = "PassReview"
+kind = "input"
+from = ["Reviewing"]
+to = "Reviewing"
+params = ["reviewer_run_id"]
+effect = "set review_passed true"
+hint = "Reviewer approved after inspecting diff, proof, and relevant tests."
+
+[[action]]
+name = "RequestChanges"
+kind = "input"
+from = ["Reviewing"]
+to = "InProgress"
+params = ["error_message"]
+effect = "set review_passed false"
+hint = "Reviewer requests changes; implementation must resume."
+
+[[action]]
+name = "AttachEvaluationRun"
+kind = "input"
+from = ["Reviewing"]
+to = "Reviewing"
+params = ["evaluation_run_id"]
+hint = "Attach automated gate/evaluation run."
+
+[[action]]
+name = "PassEvaluation"
+kind = "input"
+from = ["Reviewing"]
+to = "Proving"
+params = ["evaluation_run_id"]
+effect = "set evaluation_passed true"
+guard = "is_true review_passed"
+hint = "All required automated gates passed after reviewer approval."
+
+[[action]]
+name = "AttachProofPacket"
+kind = "input"
+from = ["Proving"]
+to = "Proving"
+params = ["proof_packet_id"]
+effect = "set proof_attached true"
+hint = "Attach the human-readable and machine-readable proof packet."
+
+[[action]]
+name = "RequestHumanCompletionApproval"
+kind = "input"
+from = ["Proving"]
+to = "AwaitingHumanCompletionApproval"
+params = ["approval_summary"]
+effect = "set human_completion_approval_required true"
+hint = "Pause high-risk completion after reviewer, evaluator, and proof gates pass."
+
+[[action]]
+name = "ApproveHumanCompletion"
+kind = "input"
+from = ["AwaitingHumanCompletionApproval"]
+to = "Proving"
+params = ["approval_summary"]
+effect = [{ type = "set_bool", var = "human_completion_approved", value = true }, { type = "trigger", name = "human_completion_approved" }]
+hint = "Human approval allowing high-risk proof-ready work to complete."
+
+[[action.triggers]]
+name = "human_completion_approved"
+kind = "wasm"
+module = "work_cycle_lifecycle"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+
+[[action]]
+name = "Complete"
+kind = "input"
+from = ["Proving"]
+to = "Complete"
+guard = [
+  { type = "is_true", var = "review_passed" },
+  { type = "is_true", var = "evaluation_passed" },
+  { type = "is_true", var = "proof_attached" }
+]
+effect = [{ type = "trigger", name = "work_cycle_completed" }]
+hint = "Complete only when review, evaluation, and proof are all attached."
+
+[[action.triggers]]
+name = "work_cycle_completed"
+kind = "wasm"
+module = "work_cycle_lifecycle"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+
+[[action]]
+name = "Fail"
+kind = "input"
+from = ["Planning", "Planned", "AwaitingHumanStartApproval", "InProgress", "Testing", "Reviewing", "Proving", "AwaitingHumanCompletionApproval"]
+to = "Failed"
+params = ["error_message"]
+hint = "Fail this work cycle visibly."
+
+[[state_timeout]]
+state = "Planning"
+after_seconds = 86400
+on_timeout = "Fail"
+params = { error_message = "WorkCycle stayed Planning for 24h." }
+
+[[state_timeout]]
+state = "Planned"
+after_seconds = 86400
+on_timeout = "Fail"
+params = { error_message = "WorkCycle stayed Planned for 24h." }
+
+[[state_timeout]]
+state = "AwaitingHumanStartApproval"
+after_seconds = 604800
+on_timeout = "Fail"
+params = { error_message = "WorkCycle awaited human start approval for 7d." }
+
+[[state_timeout]]
+state = "InProgress"
+after_seconds = 86400
+on_timeout = "Fail"
+params = { error_message = "WorkCycle stayed InProgress for 24h." }
+
+[[state_timeout]]
+state = "Testing"
+after_seconds = 21600
+on_timeout = "Fail"
+params = { error_message = "WorkCycle stayed Testing for 6h." }
+
+[[state_timeout]]
+state = "Reviewing"
+after_seconds = 86400
+on_timeout = "Fail"
+params = { error_message = "WorkCycle stayed Reviewing for 24h." }
+
+[[state_timeout]]
+state = "Proving"
+after_seconds = 21600
+on_timeout = "Fail"
+params = { error_message = "WorkCycle stayed Proving for 6h." }
+
+[[state_timeout]]
+state = "AwaitingHumanCompletionApproval"
+after_seconds = 604800
+on_timeout = "Fail"
+params = { error_message = "WorkCycle awaited human completion approval for 7d." }

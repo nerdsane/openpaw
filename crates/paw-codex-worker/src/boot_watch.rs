@@ -1,0 +1,114 @@
+async fn claim_boot_queued_runs(client: &reqwest::Client, config: &Config) -> Result<()> {
+    let url = format!(
+        "{}/tdata/WorkerRuns?$filter=Status eq 'Queued'&$top=1",
+        config.temper_url
+    );
+    let response = client
+        .get(url)
+        .headers(headers(config)?)
+        .send()
+        .await
+        .context("query queued WorkerRuns on boot")?;
+    if !response.status().is_success() {
+        warn!(status = %response.status(), "queued WorkerRun boot query failed");
+        return Ok(());
+    }
+
+    let body: Value = response
+        .json()
+        .await
+        .context("parse queued WorkerRun response")?;
+    let Some(run) = body
+        .get("value")
+        .and_then(Value::as_array)
+        .and_then(|items| items.first())
+    else {
+        return Ok(());
+    };
+    let worker_run = worker_run_from_odata_value(run.clone())?;
+    if worker_run.status == "Queued" {
+        handle_queued_worker_run(client, config, &worker_run.id).await?;
+    }
+    Ok(())
+}
+
+async fn claim_boot_requested_review_runs(client: &reqwest::Client, config: &Config) -> Result<()> {
+    let ids = query_boot_entity_ids(client, config, "ReviewRuns", "Requested").await?;
+    for review_run_id in ids {
+        handle_requested_review_run(client, config, &review_run_id).await?;
+    }
+    Ok(())
+}
+
+async fn claim_boot_queued_evaluation_runs(
+    client: &reqwest::Client,
+    config: &Config,
+) -> Result<()> {
+    let ids = query_boot_entity_ids(client, config, "EvaluationRuns", "Queued").await?;
+    for evaluation_run_id in ids {
+        handle_queued_evaluation_run(client, config, &evaluation_run_id).await?;
+    }
+    Ok(())
+}
+
+async fn query_boot_entity_ids(
+    client: &reqwest::Client,
+    config: &Config,
+    entity_set: &str,
+    status: &str,
+) -> Result<Vec<String>> {
+    let url = format!(
+        "{}/tdata/{}?$filter=Status eq '{}'&$top=5",
+        config.temper_url, entity_set, status
+    );
+    let response = client
+        .get(url)
+        .headers(headers(config)?)
+        .send()
+        .await
+        .with_context(|| format!("query {entity_set} with status {status} on boot"))?;
+    if !response.status().is_success() {
+        warn!(entity_set, status, http_status = %response.status(), "boot query failed");
+        return Ok(Vec::new());
+    }
+
+    let body: Value = response
+        .json()
+        .await
+        .with_context(|| format!("parse {entity_set} boot query"))?;
+    let ids = body
+        .get("value")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| {
+                    let fields = item.get("fields").cloned().unwrap_or_else(|| json!({}));
+                    let id = first_string(item, &fields, &["entity_id", "id", "Id"], &["id", "Id"]);
+                    if id.is_empty() { None } else { Some(id) }
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    Ok(ids)
+}
+
+async fn watch_events(client: &reqwest::Client, config: &Config) -> Result<()> {
+    let mut last_error = None;
+    for url in config.events_urls() {
+        match connect_and_watch_events(client, config, &url).await {
+            Ok(()) => return Ok(()),
+            Err(error) => {
+                warn!(%error, url, "Temper event stream candidate failed");
+                last_error = Some(error);
+            }
+        }
+    }
+
+    if let Some(error) = last_error {
+        Err(error)
+    } else {
+        bail!("no Temper event stream URLs were configured")
+    }
+}
+

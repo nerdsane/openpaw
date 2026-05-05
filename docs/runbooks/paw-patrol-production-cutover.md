@@ -1,0 +1,263 @@
+# Paw Patrol Production Cutover Runbook
+
+This is the operator checklist for turning the local, verified `paw-patrol`
+Dark Factory loop into the production Railway plus Mac mini loop. It does not
+replace the smoke tests; it maps every remaining human approval or secret to a
+gate and the evidence to capture.
+
+## Cutover Map
+
+```mermaid
+flowchart TD
+    A["Human approval: start production cutover"] --> B["Confirm Temper Cedar fix is merged or pinned"]
+    B --> C["Set Railway TemperPaw URL and WORKER_TOKEN"]
+    C --> D["Set local_codex_worker_id = mac-mini-codex-prod"]
+    D --> E["Run production-readiness-smoke.sh locally"]
+    E --> F["Run production-readiness.sh against Railway with PAW_CODEX_ENABLE_EXECUTION=0 and exec smoke"]
+    F --> G["Render launchd plist with WRITE_LAUNCHD_PLIST=1"]
+    G --> H["Review plist and logs"]
+    H --> I["Install launchd with INSTALL_LAUNCHD=1"]
+    I --> J["Submit a low-risk PatrolRequest or RepoGraphSnapshot"]
+    J --> K["Capture WorkerRun, ReviewRun, EvaluationRun, ProofPacket, and DailyBrief evidence"]
+    K --> L["Enable code-change execution only after another human approval"]
+```
+
+## Inputs Required
+
+| Input | Source | Why it is required |
+| --- | --- | --- |
+| Railway TemperPaw URL | Railway production service | The Mac mini worker connects outbound to production `/tdata/$events` and OData. |
+| `WORKER_TOKEN` | Production Temper/Cedar operator | Authenticates the worker without exposing production database access. |
+| `local_codex_worker_id` | TemperPaw secret/config | Must match `WORKER_ID=mac-mini-codex-prod` so Cedar can authorize `WorkerRun.Claim`. |
+| Production Datadog webhook secret | Datadog/TemperPaw operator | Protects `/triggers/webhook/patrol-datadog`. |
+| Production Discord webhook secret | Discord/TemperPaw operator | Protects `/triggers/webhook/patrol-discord`. |
+| Production GitHub webhook secret | GitHub/TemperPaw operator | Protects `/triggers/webhook/patrol-github`. |
+| Mac mini launchd approval | Human operator | Allows the always-on local worker to start and reconnect after reboot. |
+
+## Gate 0: Dependency
+
+Confirm the Temper Cedar resource-attribute fix is available to production
+TemperPaw. Until the Temper PR is merged, TemperPaw may stay pinned to the
+tested commit.
+
+Evidence to capture:
+
+```sh
+git ls-remote --heads origin codex/cedar-resource-attrs
+gh pr view 216 --repo nerdsane/temper --json url,headRefOid,mergeStateStatus,isDraft
+gh pr view 218 --repo nerdsane/temperpaw --json url,headRefOid,mergeStateStatus,isDraft
+```
+
+Pass condition: the Temper Cedar fix is merged, or TemperPaw production is
+deployed from the PR revision that pins the tested Temper commit.
+
+## Gate 1: Local Readiness Smoke
+
+Run the guarded local production readiness smoke from a clean worktree. This
+proves the release binary builds, doctor can reach OData and event streams, the
+Codex exec-smoke path works, the launchd plist renders, and the fake token is
+not printed.
+
+```sh
+crates/paw-codex-worker/scripts/production-readiness-smoke.sh
+```
+
+Evidence to capture:
+
+- proof bundle path under `/tmp/paw-patrol-production-readiness-proof-*`;
+- `summary.json`;
+- `proof.md`;
+- rendered plist path;
+- confirmation that `codex_exec_smoke` is `doctor pass`;
+- confirmation that `token_not_printed_to_readiness_log` is `true`.
+
+Pass condition: the script exits 0 and prints `production readiness smoke
+passed`.
+
+## Gate 2: Railway Doctor
+
+Run production readiness against Railway with execution disabled. This checks
+the actual production URL/token path and local Codex auth/session without
+letting the worker run code-change tasks.
+
+```sh
+TEMPER_URL=https://your-railway-temperpaw.example \
+TEMPER_TENANT=default \
+WORKER_ID=mac-mini-codex-prod \
+WORKER_TOKEN="$TEMPER_WORKER_TOKEN" \
+REPO_ROOT=/Users/seshendranalla/Development/temperpaw \
+WORKSPACE_ROOT=/Users/seshendranalla/Development/temperpaw-worktrees \
+CODEX_BIN=/Users/seshendranalla/.local/bin/codex \
+PAW_CODEX_ENABLE_EXECUTION=0 \
+PAW_CODEX_DOCTOR_EXEC_SMOKE=1 \
+crates/paw-codex-worker/scripts/production-readiness.sh
+```
+
+Evidence to capture:
+
+- `paw-codex-worker doctor` output;
+- `[pass] worker_token`;
+- `[pass] codex_bin`;
+- `[pass] codex_exec_smoke`;
+- `[pass] odata`;
+- `[pass] event_stream`;
+- no printed `WORKER_TOKEN` value.
+
+Pass condition: `production readiness check passed`.
+
+## Gate 3: Render And Review launchd
+
+Render the exact launchd plist, then review it before loading anything.
+
+```sh
+WRITE_LAUNCHD_PLIST=1 \
+INSTALL_LAUNCHD=0 \
+TEMPER_URL=https://your-railway-temperpaw.example \
+TEMPER_TENANT=default \
+WORKER_ID=mac-mini-codex-prod \
+WORKER_TOKEN="$TEMPER_WORKER_TOKEN" \
+REPO_ROOT=/Users/seshendranalla/Development/temperpaw \
+WORKSPACE_ROOT=/Users/seshendranalla/Development/temperpaw-worktrees \
+CODEX_BIN=/Users/seshendranalla/.local/bin/codex \
+PAW_CODEX_ENABLE_EXECUTION=0 \
+PAW_CODEX_DOCTOR_EXEC_SMOKE=1 \
+crates/paw-codex-worker/scripts/production-readiness.sh
+```
+
+Evidence to capture:
+
+- rendered plist path;
+- `TEMPER_URL`;
+- `WORKER_ID`;
+- `REPO_ROOT`;
+- `WORKSPACE_ROOT`;
+- `CODEX_BIN`;
+- `PAW_CODEX_ENABLE_EXECUTION=0`;
+- `PAW_CODEX_DOCTOR_EXEC_SMOKE=1`;
+- `PAW_CODEX_POLL_ON_START=1`.
+
+Pass condition: a human confirms the plist points at Railway, uses the expected
+Mac mini checkout/worktree roots, and still keeps execution disabled.
+
+## Gate 4: Install launchd
+
+Install only after Gate 3 human approval.
+
+```sh
+WRITE_LAUNCHD_PLIST=1 \
+INSTALL_LAUNCHD=1 \
+TEMPER_URL=https://your-railway-temperpaw.example \
+TEMPER_TENANT=default \
+WORKER_ID=mac-mini-codex-prod \
+WORKER_TOKEN="$TEMPER_WORKER_TOKEN" \
+REPO_ROOT=/Users/seshendranalla/Development/temperpaw \
+WORKSPACE_ROOT=/Users/seshendranalla/Development/temperpaw-worktrees \
+CODEX_BIN=/Users/seshendranalla/.local/bin/codex \
+PAW_CODEX_ENABLE_EXECUTION=0 \
+PAW_CODEX_DOCTOR_EXEC_SMOKE=1 \
+crates/paw-codex-worker/scripts/production-readiness.sh
+```
+
+Evidence to capture:
+
+```sh
+launchctl print gui/$(id -u)/com.temperpaw.paw-codex-worker
+tail -200 /tmp/paw-codex-worker.out.log
+tail -200 /tmp/paw-codex-worker.err.log
+```
+
+Pass condition: launchd shows the agent loaded, logs show the worker connected
+to Railway `/tdata/$events`, and no production token is printed.
+
+## Gate 5: Production Observe-Only Proof
+
+With `PAW_CODEX_ENABLE_EXECUTION=0`, submit either a low-risk
+`RepoGraphSnapshot.StartScan` or a docs-only PatrolRequest. The first production
+test should prove queue visibility and claim authorization without permitting
+code-change execution.
+
+Evidence to capture:
+
+- PatrolRequest or RepoGraphSnapshot entity link;
+- FactoryCase link when applicable;
+- WorkCycle link;
+- WorkerRun link with `allowed_worker_id = mac-mini-codex-prod`;
+- ReviewRun link;
+- EvaluationRun link;
+- ProofPacket link and visual proof;
+- DailyBrief link if the test uses repo sweep or daily summary;
+- worker logs around claim, review, evaluation, and self-report.
+
+Pass condition: the entity graph moves through Temper-visible state
+transitions, and the ProofPacket is human-readable.
+
+## Gate 6: Webhook Secrets
+
+Configure production Datadog, Discord, and GitHub webhook secrets on the
+corresponding seeded routes:
+
+- `/triggers/webhook/patrol-datadog`;
+- `/triggers/webhook/patrol-discord`;
+- `/triggers/webhook/patrol-github`;
+- `/triggers/webhook/patrol-request`;
+- `/triggers/webhook/patrol-signal`.
+
+Evidence to capture:
+
+- route config entity links;
+- one Datadog Signal reaching `Linked`;
+- one Discord Signal reaching `Linked`;
+- one GitHub Signal reaching `Linked`;
+- each WebhookEvent reaching `Processed`;
+- proof bundle or screenshot of the Signal to WorkCycle link.
+
+Pass condition: signed production webhooks create only `WebhookEvent` at the
+trigger boundary, then Patrol routes real work through WASM state transitions.
+
+## Gate 7: Enable Code-Change Execution
+
+This requires a second human approval after observe-only production proof.
+
+```sh
+WRITE_LAUNCHD_PLIST=1 \
+INSTALL_LAUNCHD=1 \
+PAW_CODEX_ENABLE_EXECUTION=1 \
+PAW_CODEX_EVAL_COMMANDS='cargo test --locked -p temperpaw --test paw_patrol_foundation -- --nocapture' \
+TEMPER_URL=https://your-railway-temperpaw.example \
+WORKER_TOKEN="$TEMPER_WORKER_TOKEN" \
+crates/paw-codex-worker/scripts/production-readiness.sh
+```
+
+Pass condition: a low-risk code-change WorkCycle produces an implementer
+WorkerRun, independent reviewer verdict, evaluation output, visual ProofPacket,
+and no human review request unless the risk lane requires it.
+
+## rollback
+
+Stop the worker first. This does not mutate production Temper data; it only
+stops the local executor from claiming more runs.
+
+```sh
+launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/com.temperpaw.paw-codex-worker.plist
+launchctl print gui/$(id -u)/com.temperpaw.paw-codex-worker || true
+```
+
+Then pause or revoke the worker identity/token in production TemperPaw. Leave
+existing WorkerRuns visible in Patrol and dispatch the appropriate fail or
+escalation action from Temper if a run was in progress.
+
+## Done Criteria
+
+Production cutover is complete only when all of these are true:
+
+- Railway OData and `/tdata/$events` pass doctor with the real token;
+- `codex exec` doctor smoke passes under the same Mac mini user/env launchd
+  will use;
+- launchd is installed and survives restart;
+- the registered worker can claim only `allowed_worker_id =
+  mac-mini-codex-prod` runs;
+- observe-only production proof passed with `PAW_CODEX_ENABLE_EXECUTION=0`;
+- Datadog, Discord, and GitHub signed webhook paths produce linked Signals;
+- a DailyBrief is Ready with visual proof links;
+- code-change execution was separately approved and produced a reviewed,
+  evaluated, visual ProofPacket.
