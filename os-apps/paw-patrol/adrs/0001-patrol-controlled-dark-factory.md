@@ -65,6 +65,14 @@ raise risk based on evidence but cannot lower the rule-derived floor. L3 work
 is human-gated before implementation starts and again after review, evaluation,
 and proof gates pass.
 
+Cedar authorization uses resource-bound ownership for agent work. Agent IDs live
+on the Cedar principal, while per-run assignments live on the Cedar resource:
+`principal.id == resource.worker_id` authorizes only the worker assigned to that
+specific `WorkerRun`, and `principal.id == resource.reviewer_id` authorizes
+only the reviewer assigned to that specific `ReviewRun`. A valid worker or
+reviewer identity is not enough by itself because the policy must bind the
+caller to the exact entity being changed.
+
 Every implementation must produce a `ProofPacket` with machine-readable fields
 and human-readable proof. Factual diagrams and SVG summaries are derived from
 structured proof state, not from free-form narrative alone.

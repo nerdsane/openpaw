@@ -85,6 +85,7 @@ fn paw_patrol_owns_the_dark_factory_entities_without_extra_factory_apps() {
         "PatrolSchedule",
         "paw-pm Issues",
         "Mac mini",
+        "resource-bound ownership",
     ] {
         assert!(app_doc.contains(needle), "APP.md should mention {needle}");
     }
@@ -197,6 +198,8 @@ fn paw_patrol_dark_factory_architecture_is_recorded_in_app_adr() {
         "paw-pm",
         "Mac mini",
         "Cedar",
+        "principal.id == resource.worker_id",
+        "principal.id == resource.reviewer_id",
         "human-gated",
     ] {
         assert!(

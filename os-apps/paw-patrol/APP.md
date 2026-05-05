@@ -164,6 +164,15 @@ work through Cedar, starts local Codex, then reports completion back to Temper.
 Patrol sets `WorkerRun.allowed_worker_id` from `local_codex_worker_id` so only
 the registered local worker principal can claim the queued run.
 
+This is resource-bound ownership. The principal ID identifies the caller; the
+resource assignment field identifies which exact Temper entity the caller is
+allowed to operate on. A worker principal with `id = "worker-a"` is not
+authorized merely because it is a worker. It is authorized for a WorkerRun only
+when that WorkerRun carries `allowed_worker_id = "worker-a"` for claim or
+`worker_id = "worker-a"` for start/report actions. Review and evaluation use
+the same pattern with `reviewer_id` and `evaluator_id`, so a valid reviewer can
+review only the ReviewRun assigned to that reviewer.
+
 For L3 requests, no `WorkerRun.Queued` event exists until a human or supervisor
 approves `WorkCycle.ApproveHumanStart`. After proof gates pass, Patrol waits for
 `WorkCycle.ApproveHumanCompletion` before marking the WorkCycle and FactoryCase
