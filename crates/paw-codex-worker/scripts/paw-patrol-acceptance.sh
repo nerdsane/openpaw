@@ -146,9 +146,11 @@ EOF
   write_artifact_link "repo-sweep-brief-smoke/proof.md" "${PROOF_DIR}/repo-sweep-brief-smoke/proof.md"
   write_artifact_link "repo-sweep-brief-smoke/patrol-schedule.json" "${PROOF_DIR}/repo-sweep-brief-smoke/patrol-schedule.json"
   write_artifact_link "production-preflight/proof.md" "${PROOF_DIR}/production-preflight/proof.md"
+  write_artifact_link "production-preflight/operator-handoff.md" "${PROOF_DIR}/production-preflight/operator-handoff.md"
   write_artifact_link "production-preflight/summary.json" "${PROOF_DIR}/production-preflight/summary.json"
   write_artifact_link "production-preflight/preflight.svg" "${PROOF_DIR}/production-preflight/preflight.svg"
   write_artifact_link "production-preflight-railway-discovery-smoke/proof.md" "${PROOF_DIR}/production-preflight-railway-discovery-smoke/proof.md"
+  write_artifact_link "production-preflight-railway-discovery-smoke/operator-handoff.md" "${PROOF_DIR}/production-preflight-railway-discovery-smoke/operator-handoff.md"
   write_artifact_link "production-preflight-railway-discovery-smoke/summary.json" "${PROOF_DIR}/production-preflight-railway-discovery-smoke/summary.json"
   write_artifact_link "production-preflight-railway-discovery-smoke/railway-candidates.json" "${PROOF_DIR}/production-preflight-railway-discovery-smoke/railway-candidates.json"
   write_artifact_link "production-observe-only/proof.md" "${PROOF_DIR}/production-observe-only/proof.md"
@@ -262,8 +264,10 @@ flowchart TD
   - Default PatrolSchedule evidence: ${PROOF_DIR}/repo-sweep-brief-smoke/patrol-schedule.json
 - Production preflight proof bundle: ${PROOF_DIR}/production-preflight
   - Visual summary: ${PROOF_DIR}/production-preflight/preflight.svg
+  - Operator handoff: ${PROOF_DIR}/production-preflight/operator-handoff.md
 - Railway discovery preflight proof bundle: ${PROOF_DIR}/production-preflight-railway-discovery-smoke
   - Candidate list: ${PROOF_DIR}/production-preflight-railway-discovery-smoke/railway-candidates.json
+  - Operator handoff: ${PROOF_DIR}/production-preflight-railway-discovery-smoke/operator-handoff.md
 - Production observe-only proof bundle: ${PROOF_DIR}/production-observe-only
   - Visual summary: ${PROOF_DIR}/production-observe-only/observe-only.svg
 - Production readiness proof bundle: ${PROOF_DIR}/production-readiness-smoke

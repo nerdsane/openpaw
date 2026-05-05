@@ -216,10 +216,10 @@ review surface with links to logs, JSON, proof markdown, and generated SVGs.
 ## Production Readiness
 
 First run the non-mutating preflight. It writes a small proof bundle with
-`summary.json`, `proof.md`, `preflight.svg`, `railway-candidates.json`, and
-`human_blockers` so the operator can see which Railway project/service,
-launchd, webhook, and token gates still need human input. It does not mutate
-Railway, launchd, or Temper:
+`summary.json`, `proof.md`, `operator-handoff.md`, `preflight.svg`,
+`railway-candidates.json`, and `human_blockers` so the operator can see which
+Railway project/service, launchd, webhook, and token gates still need human
+input. It does not mutate Railway, launchd, or Temper:
 
 ```sh
 crates/paw-codex-worker/scripts/production-preflight.sh

@@ -122,6 +122,7 @@ LAUNCHD_PLIST="$FAKE_LAUNCHD_PLIST" \
 
 test -s "${PROOF_DIR}/summary.json"
 test -s "${PROOF_DIR}/railway-projects.json"
+test -s "${PROOF_DIR}/operator-handoff.md"
 
 jq -e '
   .railway.candidates | length == 2
@@ -150,5 +151,20 @@ jq -e '
 ' "${PROOF_DIR}/summary.json" >/dev/null
 
 grep -Fq 'Railway Candidate Projects' "${PROOF_DIR}/proof.md"
+grep -Fq 'Paw Patrol Production Operator Handoff' "${PROOF_DIR}/operator-handoff.md"
+grep -Fq 'Human Blocker Decisions' "${PROOF_DIR}/operator-handoff.md"
+grep -Fq 'Railway Project Choice' "${PROOF_DIR}/operator-handoff.md"
+grep -Fq 'railway link <project_id>' "${PROOF_DIR}/operator-handoff.md"
+grep -Fq 'export TEMPER_URL=' "${PROOF_DIR}/operator-handoff.md"
+grep -Fq 'CONFIRM_TEMPER_PIN_OK' "${PROOF_DIR}/operator-handoff.md"
+grep -Fq 'launchd approval' "${PROOF_DIR}/operator-handoff.md"
+
+if grep -Fq 'fake-worker-token' "${PROOF_DIR}/operator-handoff.md"; then
+  fail "operator handoff leaked the fake worker token"
+fi
+
+if grep -Fq 'fake-operator-token' "${PROOF_DIR}/operator-handoff.md"; then
+  fail "operator handoff leaked the fake operator token"
+fi
 
 log "Railway discovery preflight smoke passed"

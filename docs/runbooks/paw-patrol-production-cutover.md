@@ -83,6 +83,7 @@ Evidence to capture:
 - proof bundle path under `/tmp/paw-patrol-production-preflight-*`;
 - `summary.json`;
 - `proof.md`;
+- `operator-handoff.md`;
 - `gates.tsv`;
 - `railway-candidates.json`;
 - `human_blockers` list.
