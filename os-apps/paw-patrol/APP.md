@@ -136,6 +136,32 @@ POST /triggers/webhook/patrol-discord
 Use `patrol-request` for human or manager-agent asks. Use the signal routes for
 observed failures, alerts, traces, GitHub events, and Discord incidents.
 
+## WASM Modules
+
+Patrol's business logic lives in WASM integrations on entity actions. The Rust
+server hosts Temper and triggers, but these modules own the workflow decisions:
+
+- `patrol_request_router`: turns an accepted `PatrolRequest` into a
+  `FactoryCase`, optional paw-pm Issue linkage, `WorkCycle`, and queued
+  `WorkerRun`.
+- `signal_router`: routes Datadog, Discord, GitHub, and other machine signals
+  into Patrol cases, work cycles, and worker assignments when the signal is
+  real work.
+- `repo_sweep_lifecycle`: starts repo graph scans, assigns the local worker,
+  and fans scan results into quality and security findings.
+- `worker_run_lifecycle`: reacts to worker success or failure, records proof
+  evidence, and starts the independent review/evaluation gates.
+- `review_gate_lifecycle`: applies reviewer verdicts and evaluation results to
+  the `WorkCycle` and final `ProofPacket`.
+- `finding_lifecycle`: turns accepted quality/security findings into cleanup
+  `WorkCycle`s and links the source finding to the resulting work.
+- `work_cycle_lifecycle`: handles high-risk approval transitions, completion,
+  failure, and source-finding resolution.
+- `patrol_schedule_lifecycle`: keeps recurring Patrol schedules inside Temper
+  by creating repo sweeps and daily briefs from schedule transitions.
+- `daily_brief_lifecycle`: renders the human-readable daily rollup from
+  finished proof packets, findings, and open risks.
+
 ## Default Schedule
 
 Patrol seeds a default daily maintenance schedule:

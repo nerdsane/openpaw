@@ -7,6 +7,55 @@ Temper event streams, claims configured `local_codex` WorkerRuns, runs work in a
 Patrol-assigned git worktree, and self-reports through Temper actions. It uses the
 local Codex CLI and ChatGPT/Codex auth, not a raw OpenAI API key.
 
+## Worker Responsibilities
+
+`paw-codex-worker` is the local executor for Patrol, not a second control
+plane. Temper owns the state machine; the worker only performs the work that a
+Temper `WorkerRun`, `ReviewRun`, `EvaluationRun`, or repo sweep assigns to it.
+
+The worker does five concrete jobs:
+
+- watches `/tdata/$events` and falls back to OData polling when needed;
+- claims only WorkerRuns assigned to `WORKER_ID` by Patrol/Cedar;
+- runs implementation work in the Patrol-assigned branch or worktree;
+- runs repo-health scans, reviewer prompts, and evaluation commands when the
+  queued Temper state asks for those phases;
+- reports results back through Temper actions and includes proof evidence for
+  the ProofPacket.
+
+It should be safe to leave running under launchd because it does not decide what
+work exists. Patrol does that by creating Temper entities and actions.
+
+## Scripts Versus Rust Tests
+
+The files in `crates/paw-codex-worker/scripts/` are not one-off migration scripts.
+They are acceptance and operations harnesses. Keep them in the repo because they
+are the easiest way for a human or another agent to prove the full Patrol loop
+works outside a narrow unit-test process.
+
+Rust tests are best for fast, repeatable checks: Cedar policy behavior,
+architecture ratchets, worker parsing, repo-health scanner behavior, and WASM
+unit logic. The scripts cover flows that need process orchestration or operator
+evidence: booting a local TemperPaw server, posting webhooks, claiming
+WorkerRuns, generating SVG/JSON proof bundles, checking Railway/GitHub/launchd
+state, and aggregating the result into a browser-readable `index.html`.
+
+Script inventory:
+
+- `deterministic-smoke.sh`: local fake-Codex implementation, review,
+  evaluation, and ProofPacket loop.
+- `webhook-intake-smoke.sh`: trigger boundary for PatrolRequest plus Datadog,
+  GitHub, and Discord Signals.
+- `repo-sweep-brief-smoke.sh`: RepoGraphSnapshot, QualityFinding,
+  SecurityFinding, ProofPacket, and DailyBrief loop.
+- `production-preflight.sh`: read-only production blocker inventory for tokens,
+  Railway, GitHub PRs, launchd, and webhook secrets.
+- `production-readiness.sh`: guarded doctor/build/plist path before loading the
+  Mac mini daemon.
+- `production-observe-only.sh`: guarded production proof with execution off.
+- `paw-patrol-acceptance.sh`: aggregate harness that runs the relevant checks
+  and writes one proof directory for review.
+
 ## Safe Local Test
 
 Run these commands from the TemperPaw repo/worktree root.

@@ -210,6 +210,46 @@ fn paw_patrol_dark_factory_architecture_is_recorded_in_app_adr() {
 }
 
 #[test]
+fn paw_patrol_docs_explain_worker_scripts_tests_and_wasms() {
+    let root = repo_root();
+    let app_doc = read(root.join("os-apps/paw-patrol/APP.md"));
+    for needle in [
+        "## WASM Modules",
+        "patrol_request_router",
+        "signal_router",
+        "repo_sweep_lifecycle",
+        "worker_run_lifecycle",
+        "review_gate_lifecycle",
+        "finding_lifecycle",
+        "patrol_schedule_lifecycle",
+        "daily_brief_lifecycle",
+    ] {
+        assert!(app_doc.contains(needle), "APP.md should document {needle}");
+    }
+
+    let worker_readme = read(root.join("crates/paw-codex-worker/README.md"));
+    for needle in [
+        "## Worker Responsibilities",
+        "## Scripts Versus Rust Tests",
+        "not one-off migration scripts",
+        "acceptance and operations harnesses",
+        "deterministic-smoke.sh",
+        "webhook-intake-smoke.sh",
+        "repo-sweep-brief-smoke.sh",
+        "production-preflight.sh",
+        "production-readiness.sh",
+        "production-observe-only.sh",
+        "paw-patrol-acceptance.sh",
+        "Rust tests",
+    ] {
+        assert!(
+            worker_readme.contains(needle),
+            "paw-codex-worker README should explain {needle}"
+        );
+    }
+}
+
+#[test]
 fn worker_claims_are_bound_to_the_configured_local_worker() {
     let root = repo_root();
     let spec = read(root.join("os-apps/paw-patrol/specs/worker_run.ioa.toml"));
