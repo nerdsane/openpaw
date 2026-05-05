@@ -4,7 +4,7 @@ Local Mac mini executor for `paw-patrol` WorkerRuns.
 
 The worker connects outbound to the TemperPaw/Temper control plane, watches
 Temper event streams, claims configured `local_codex` WorkerRuns, runs work in a
-local checkout or worktree, and self-reports through Temper actions. It uses the
+Patrol-assigned git worktree, and self-reports through Temper actions. It uses the
 local Codex CLI and ChatGPT/Codex auth, not a raw OpenAI API key.
 
 ## Safe Local Test
@@ -46,6 +46,9 @@ Set `PAW_CODEX_ENABLE_EXECUTION=1` only when you want the worker to invoke
 `codex exec` for non-sweep WorkerRuns and their independent ReviewRuns. The
 reviewer invocation is a fresh Codex prompt and must return one explicit marker:
 `VERDICT: approve`, `VERDICT: request_changes`, or `VERDICT: escalate`.
+The worker refuses to claim a local Codex WorkerRun unless Patrol assigned a
+`branch_name` or `worktree_path`, so implementation, review, evaluation, and
+repo-sweep work do not silently happen in the main checkout.
 
 With execution enabled, non-sweep EvaluationRuns run local shell commands from
 `PAW_CODEX_EVAL_COMMANDS`, one command per line. If unset, the worker runs:

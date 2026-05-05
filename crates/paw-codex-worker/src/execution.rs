@@ -4,16 +4,7 @@ async fn run_repo_sweep(
     worker_run: &WorkerRunState,
     snapshot_id: &str,
 ) -> Result<String> {
-    let scan_root = if worker_run.worktree_path.is_empty() {
-        config.repo_root.clone()
-    } else {
-        let worktree = PathBuf::from(&worker_run.worktree_path);
-        if worktree.exists() {
-            worktree
-        } else {
-            config.repo_root.clone()
-        }
-    };
+    let scan_root = ensure_worktree(config, worker_run).await?;
 
     info!(
         worker_run_id = %worker_run.id,
@@ -482,7 +473,10 @@ fn truncate_middle(value: &str, max_chars: usize) -> String {
 
 async fn ensure_worktree(config: &Config, worker_run: &WorkerRunState) -> Result<PathBuf> {
     if worker_run.worktree_path.is_empty() && worker_run.branch_name.trim().is_empty() {
-        return Ok(config.repo_root.clone());
+        bail!(
+            "WorkerRun {} has no assigned worktree_path or branch_name; refusing to run in the main checkout",
+            worker_run.id
+        );
     }
 
     let worktree = if worker_run.worktree_path.is_empty() {

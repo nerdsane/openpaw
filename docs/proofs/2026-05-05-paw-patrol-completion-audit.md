@@ -31,7 +31,7 @@ Patrol-controlled Dark Factory:
 | Codex Cloud manual overflow only | `worker_run.ioa.toml`, worker tests | WorkerRun encodes `RequestCloudOverflow`; tests assert manual cloud overflow semantics | Done |
 | Risk lanes via explicit rules; agents cannot lower risk | `risk_rules.toml`, `factory_case.ioa.toml`, Patrol tests | `risk_rules_set_a_floor_that_agents_cannot_silently_lower` passes; router risk regression tests pass | Done |
 | High-risk work pauses before start and before completion | `work_cycle.ioa.toml`, `work_cycle_lifecycle`, `review_gate_lifecycle` | Foundation test `high_risk_work_requires_human_start_and_completion_approval` passes | Done |
-| Worker claims are bound to the registered Mac mini identity | `worker_run.ioa.toml`, `patrol.cedar`, Patrol WASM modules, `paw-codex-worker` | `WorkerRun.allowed_worker_id` is configured from `local_codex_worker_id`; Cedar only permits matching worker principals to claim; worker refuses mismatched queued runs; foundation test `worker_claims_are_bound_to_the_configured_local_worker` passes | Done |
+| Worker claims are bound to the registered Mac mini identity and a worktree assignment | `worker_run.ioa.toml`, `patrol.cedar`, Patrol WASM modules, `paw-codex-worker` | `WorkerRun.allowed_worker_id` is configured from `local_codex_worker_id`; Cedar only permits matching worker principals to claim; worker refuses mismatched queued runs and refuses to claim local Codex work without a `branch_name` or `worktree_path`; foundation test `worker_claims_are_bound_to_the_configured_local_worker` and worker unit `local_worker_claims_only_configured_local_codex_runs` pass | Done |
 | Independent reviewer before user review | `worker_run_lifecycle`, `review_gate_lifecycle`, `paw-codex-worker` reviewer path | Worker completion queues ReviewRun; worker reviewer requires explicit verdict; live smoke reached ReviewRun Approved before ProofPacket Ready | Done |
 | Automated evaluation gates | `evaluation_run.ioa.toml`, `review_gate_lifecycle`, worker evaluation commands | Worker can run configured local commands; live smoke EvaluationRun Passed with `test -f .paw-fake-codex-implementation`; EvaluationRun Start/Pass/Fail is Cedar-bound to the claimed `evaluator_id` | Done |
 | Live/E2E evidence is a required completion gate | `work_cycle.ioa.toml`, `review_gate_lifecycle`, deterministic smoke proof | `WorkCycle.Complete` now requires `e2e_ok`; `EvaluationRun.Pass` records `WorkCycle.ReportE2e` before `PassEvaluation`; latest deterministic proof JSON contains `"e2e_gate": "passed"` and the proof diagram includes `EvaluationRun --> WorkCycle: ReportE2e recorded live evidence` | Done |
@@ -46,7 +46,7 @@ Patrol-controlled Dark Factory:
 | Material Patrol architecture is recorded in an app ADR | `os-apps/paw-patrol/adrs/0001-patrol-controlled-dark-factory.md`, `crates/temperpaw/tests/paw_patrol_foundation.rs` | Added an app-scoped accepted ADR covering the Patrol-owned entity set, Temper-native trigger/WASM/Cedar boundaries, Mac mini worker, risk gates, proof requirements, rejected separate factory/quality/harness apps, and verification trail. Test `paw_patrol_dark_factory_architecture_is_recorded_in_app_adr` ratchets this AGENTS.md requirement | Done |
 | Temper Cedar supports resource ABAC needed by Patrol policies | Temper worktree `crates/temper-authz/src/engine/*`; TemperPaw `crates/temperpaw/Cargo.toml` | `test_resource_attribute_access_in_policy` passes; resource attributes are now attached to Cedar resource entities. The Temper fix is pushed at `557db7f30814801ad42d28e92725d007c6ce7732`, rebased on current Temper main, and TemperPaw is pinned to that portable git revision | Done in sibling Temper branch |
 | Temper dependency handoff is portable | TemperPaw `crates/temperpaw/Cargo.toml`, `Cargo.lock` | The temporary local path patch was removed. TemperPaw now resolves Temper crates from `https://github.com/nerdsane/temper.git` at `557db7f30814801ad42d28e92725d007c6ce7732`; `cargo check --locked -p temperpaw -p paw-codex-worker` passes | Done |
-| Worker runbook is usable from a worktree | `crates/paw-codex-worker/README.md` | Local test and deterministic smoke commands use `REPO_ROOT="$(pwd)"` and fixture paths under the current checkout; README calls out `jq`, fake Codex, stop/cleanup, doctor, and launchd-plist flow | Done |
+| Worker runbook is usable from a worktree | `crates/paw-codex-worker/README.md` | Local test and deterministic smoke commands use `REPO_ROOT="$(pwd)"` and fixture paths under the current checkout; README calls out `jq`, fake Codex, stop/cleanup, doctor, launchd-plist flow, and the worker invariant that local Codex work must have a Patrol-assigned `branch_name` or `worktree_path` | Done |
 | One-command acceptance proof is available | `crates/paw-codex-worker/scripts/paw-patrol-acceptance.sh`, `crates/paw-codex-worker/README.md` | Acceptance harness has `quick` and `live` modes; quick collects syntax, CI action runtime, fmt, diff, cargo check, foundation, worker-test, production-preflight, Railway-discovery preflight, GitHub PR cutover preflight, and preflight-diff evidence into `index.html`, `summary.json`, `proof.md`, `operator-handoff.md`, and `acceptance.log`; live also runs deterministic, webhook, repo-sweep/brief, production-readiness, and production observe-only smokes into stable subdirectories and embeds available SVG proof visuals in the browser-readable index | Done |
 | Live smoke scripts avoid local port collisions | `deterministic-smoke.sh`, `webhook-intake-smoke.sh`, `repo-sweep-brief-smoke.sh`, `production-readiness-smoke.sh`, `production-observe-only-smoke.sh` | Acceptance found an actual collision on the implicit webhook trigger port. The scripts now choose a base port only when both the OData port and `PORT + 12` webhook trigger port are free; foundation test `live_smoke_scripts_choose_non_colliding_odata_and_webhook_ports` passes | Done |
 | Deterministic smoke can be run as one command | `crates/paw-codex-worker/scripts/deterministic-smoke.sh` | Script boots local TemperPaw, submits a PatrolRequest, starts fake local worker, polls WorkCycle/FactoryCase/Review/Evaluation/Proof states, writes a proof bundle with `summary.json`, `proof.json`, `proof.md`, and `proof.svg`, prints JSON entity summary, and cleans up the temporary worktree/branch | Done |
@@ -119,25 +119,25 @@ crates/paw-codex-worker/scripts/ci-actions-runtime-smoke.sh
 
 crates/paw-codex-worker/scripts/paw-patrol-acceptance.sh quick
   passed
-  Proof bundle: /tmp/paw-patrol-acceptance-quick-github-pr-gate-current
-  Browser index: /tmp/paw-patrol-acceptance-quick-github-pr-gate-current/index.html
+  Proof bundle: /tmp/paw-patrol-acceptance-quick-worktree-guard-current
+  Browser index: /tmp/paw-patrol-acceptance-quick-worktree-guard-current/index.html
   Passed gates: 24
   Production preflight visual:
-    /tmp/paw-patrol-acceptance-quick-github-pr-gate-current/production-preflight/preflight.svg
+    /tmp/paw-patrol-acceptance-quick-worktree-guard-current/production-preflight/preflight.svg
   Production preflight operator handoff:
-    /tmp/paw-patrol-acceptance-quick-github-pr-gate-current/production-preflight/operator-handoff.md
+    /tmp/paw-patrol-acceptance-quick-worktree-guard-current/production-preflight/operator-handoff.md
   Railway discovery candidates:
-    /tmp/paw-patrol-acceptance-quick-github-pr-gate-current/production-preflight-railway-discovery-smoke/railway-candidates.json
+    /tmp/paw-patrol-acceptance-quick-worktree-guard-current/production-preflight-railway-discovery-smoke/railway-candidates.json
   Preflight diff visual:
-    /tmp/paw-patrol-acceptance-quick-github-pr-gate-current/production-preflight-diff-smoke/preflight-diff.svg
+    /tmp/paw-patrol-acceptance-quick-worktree-guard-current/production-preflight-diff-smoke/preflight-diff.svg
   GitHub preflight gate:
-    /tmp/paw-patrol-acceptance-quick-github-pr-gate-current/production-preflight-github-smoke/summary-without-confirm.json
-    /tmp/paw-patrol-acceptance-quick-github-pr-gate-current/production-preflight-github-smoke/summary-with-confirm.json
+    /tmp/paw-patrol-acceptance-quick-worktree-guard-current/production-preflight-github-smoke/summary-without-confirm.json
+    /tmp/paw-patrol-acceptance-quick-worktree-guard-current/production-preflight-github-smoke/summary-with-confirm.json
 
 crates/paw-codex-worker/scripts/paw-patrol-acceptance.sh live
   passed
-  Proof bundle: /tmp/paw-patrol-acceptance-live-github-pr-gate-current
-  Browser index: /tmp/paw-patrol-acceptance-live-github-pr-gate-current/index.html
+  Proof bundle: /tmp/paw-patrol-acceptance-live-worktree-guard-current
+  Browser index: /tmp/paw-patrol-acceptance-live-worktree-guard-current/index.html
   Passed gates: 29
   Visuals embedded: deterministic-smoke/proof.svg,
     webhook-intake-smoke/webhook-intake.svg,
@@ -161,6 +161,9 @@ cargo test --locked -p temperpaw --test paw_patrol_foundation -- --nocapture
 
 cargo test --locked -p paw-codex-worker -- --nocapture
   19 passed
+
+cargo test --locked -p paw-codex-worker local_worker_claims_only_configured_local_codex_runs -- --nocapture
+  passed; proves local Codex WorkerRuns without a branch/worktree assignment are not claimable
 
 cargo test --manifest-path os-apps/paw-patrol/wasm/worker_run_lifecycle/Cargo.toml -- --nocapture
   1 passed
@@ -269,7 +272,7 @@ git ls-remote --heads origin codex/cedar-resource-attrs
 ```
 
 The latest live local E2E proof bundle at
-`/tmp/paw-patrol-acceptance-live-github-pr-gate-current` booted local TemperPaw with
+`/tmp/paw-patrol-acceptance-live-worktree-guard-current` booted local TemperPaw with
 `TEMPERPAW_WASM_STARTUP_POLICY=build`, submitted a PatrolRequest, ran the fake
 local Codex worker, and observed:
 
@@ -290,7 +293,7 @@ changed-files map from worker git evidence:
 
 ```json
 {
-  "branch_name": "codex/paw-patrol-feca1d27",
+  "branch_name": "codex/paw-patrol-7fdf9743",
   "changed_files": [".paw-fake-codex-implementation"],
   "evidence_source": "WorkerRun result_summary git-status block",
   "review_status": "approved",

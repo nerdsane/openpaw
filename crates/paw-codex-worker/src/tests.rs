@@ -59,6 +59,15 @@ mod tests {
             runner_kind: "codex_cloud".to_string(),
             allowed_worker_id: "mac-mini-codex-1".to_string(),
         };
+        let no_worktree_assignment = WorkerRunState {
+            id: "wr-4".to_string(),
+            status: "Queued".to_string(),
+            task: "Fix a Discord trace leak".to_string(),
+            worktree_path: String::new(),
+            branch_name: String::new(),
+            runner_kind: "local_codex".to_string(),
+            allowed_worker_id: "mac-mini-codex-1".to_string(),
+        };
 
         assert!(worker_run_is_claimable_by_local_codex(
             &configured,
@@ -74,6 +83,10 @@ mod tests {
         ));
         assert!(!worker_run_is_claimable_by_local_codex(
             &cloud,
+            "mac-mini-codex-1"
+        ));
+        assert!(!worker_run_is_claimable_by_local_codex(
+            &no_worktree_assignment,
             "mac-mini-codex-1"
         ));
     }

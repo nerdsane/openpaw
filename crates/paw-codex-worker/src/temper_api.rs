@@ -406,4 +406,9 @@ fn worker_run_is_claimable_by_local_codex(worker_run: &WorkerRunState, worker_id
     worker_run.status == "Queued"
         && worker_run.runner_kind == "local_codex"
         && worker_run.allowed_worker_id == worker_id
+        && worker_run_has_worktree_assignment(worker_run)
+}
+
+fn worker_run_has_worktree_assignment(worker_run: &WorkerRunState) -> bool {
+    !worker_run.worktree_path.trim().is_empty() || !worker_run.branch_name.trim().is_empty()
 }
