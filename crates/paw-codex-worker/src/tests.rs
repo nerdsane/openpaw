@@ -339,6 +339,41 @@ mod tests {
     }
 
     #[test]
+    fn worker_proof_text_does_not_call_assigned_worktree_current_checkout() {
+        let worker_run = WorkerRunState {
+            id: "wr-existing-worktree".to_string(),
+            status: "Running".to_string(),
+            task: "Inspect an existing assigned worktree".to_string(),
+            worktree_path: "/tmp/paw-existing-worktree".to_string(),
+            branch_name: String::new(),
+            runner_kind: "local_codex".to_string(),
+            allowed_worker_id: "mac-mini-codex-1".to_string(),
+        };
+        let evidence = WorktreeEvidence {
+            status_short: String::new(),
+            diff_stat: String::new(),
+        };
+
+        let summary = format_codex_success_summary(
+            &worker_run,
+            Path::new("/tmp/paw-existing-worktree"),
+            "inspected",
+            &evidence,
+        );
+        let review = ReviewRunState {
+            status: "Requested".to_string(),
+            worker_run_id: worker_run.id.clone(),
+            proof_packet_id: "proof-1".to_string(),
+        };
+        let prompt = codex_review_prompt(&worker_run, &review);
+
+        assert!(summary.contains("Branch: (assigned worktree without branch)"));
+        assert!(prompt.contains("Branch: (assigned worktree without branch)"));
+        assert!(!summary.contains("Branch: (current checkout)"));
+        assert!(!prompt.contains("Branch: (current checkout)"));
+    }
+
+    #[test]
     fn review_evaluation_and_work_cycle_state_read_temper_odata_fields() {
         let review = review_run_from_odata_value(json!({
             "entity_id": "rev-1",

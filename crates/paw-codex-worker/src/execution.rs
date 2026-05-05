@@ -159,11 +159,7 @@ fn format_codex_success_summary(
     stdout: &str,
     evidence: &WorktreeEvidence,
 ) -> String {
-    let branch = if worker_run.branch_name.trim().is_empty() {
-        "(current checkout)"
-    } else {
-        worker_run.branch_name.as_str()
-    };
+    let branch = worker_run_branch_label(worker_run);
     let stdout_tail = nonempty_block(&tail_string(stdout.trim(), 4_000), "(no stdout captured)");
     let status_short = nonempty_block(&evidence.status_short, "(clean worktree)");
     let diff_stat = nonempty_block(&evidence.diff_stat, "(no unstaged diff stat)");
@@ -203,6 +199,16 @@ fn nonempty_block(value: &str, fallback: &str) -> String {
         fallback.to_string()
     } else {
         value.trim_end().to_string()
+    }
+}
+
+fn worker_run_branch_label(worker_run: &WorkerRunState) -> String {
+    if !worker_run.branch_name.trim().is_empty() {
+        worker_run.branch_name.clone()
+    } else if !worker_run.worktree_path.trim().is_empty() {
+        "(assigned worktree without branch)".to_string()
+    } else {
+        "(unassigned worktree)".to_string()
     }
 }
 
@@ -372,11 +378,7 @@ fn codex_review_prompt(worker_run: &WorkerRunState, review_run: &ReviewRunState)
         } else {
             review_run.proof_packet_id.as_str()
         },
-        if worker_run.branch_name.is_empty() {
-            "(current checkout)"
-        } else {
-            worker_run.branch_name.as_str()
-        },
+        worker_run_branch_label(worker_run),
         if worker_run.task.is_empty() {
             "(no task text recorded)"
         } else {

@@ -160,10 +160,13 @@ cargo test --locked -p temperpaw --test paw_patrol_foundation -- --nocapture
   33 passed
 
 cargo test --locked -p paw-codex-worker -- --nocapture
-  19 passed
+  20 passed
 
 cargo test --locked -p paw-codex-worker local_worker_claims_only_configured_local_codex_runs -- --nocapture
   passed; proves local Codex WorkerRuns without a branch/worktree assignment are not claimable
+
+cargo test --locked -p paw-codex-worker worker_proof_text_does_not_call_assigned_worktree_current_checkout -- --nocapture
+  passed; proves assigned worktree proof/review text does not label the main checkout
 
 cargo test --manifest-path os-apps/paw-patrol/wasm/worker_run_lifecycle/Cargo.toml -- --nocapture
   1 passed
