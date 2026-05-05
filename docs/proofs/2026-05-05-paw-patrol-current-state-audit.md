@@ -11,13 +11,13 @@ Latest exact-head proof bundle inspected at the time of this audit refresh:
 - proof-bundle head: `83cb8966322cb8025f883f00f4a1ac461daa5ccb`
 - GitHub CI: passed at
   <https://github.com/nerdsane/temperpaw/actions/runs/25403447886>
-- current-head quick acceptance:
+- latest exact-head quick acceptance proof:
   `/tmp/paw-patrol-acceptance-quick-83cb8966`
 - current-head production preflight:
   `/tmp/paw-patrol-production-preflight-83cb8966`
 
-The PR body and the latest production preflight summary remain the canonical
-moving evidence for the actual PR head. The preflight summary records
+The PR #218 body and the latest production preflight summary remain the
+canonical moving evidence for the actual PR head. The preflight summary records
 `git_head`, `git_branch`, `git_status_short`, and `git_clean` so later
 proof-only commits can be audited without trusting this Markdown file by itself.
 

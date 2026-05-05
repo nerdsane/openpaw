@@ -2070,7 +2070,8 @@ fn current_state_audit_uses_live_proof_sources_instead_of_stale_heads() {
 
     for needle in [
         "PR #218 body",
-        "/tmp/paw-patrol-production-preflight-current-railway/summary.json",
+        "latest production preflight summary",
+        "canonical moving evidence",
         "latest exact-head quick acceptance proof",
     ] {
         assert!(
