@@ -215,3 +215,9 @@ struct EvaluationOutcome {
     e2e_summary: String,
     error_message: String,
 }
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct WorktreeEvidence {
+    status_short: String,
+    diff_stat: String,
+}

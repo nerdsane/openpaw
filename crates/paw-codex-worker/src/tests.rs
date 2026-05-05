@@ -293,6 +293,39 @@ mod tests {
     }
 
     #[test]
+    fn codex_success_summary_includes_git_evidence_for_proof_packets() {
+        let worker_run = WorkerRunState {
+            id: "wr-proof".to_string(),
+            status: "Running".to_string(),
+            task: "Fix a Discord trace leak".to_string(),
+            worktree_path: "/tmp/paw-worktree".to_string(),
+            branch_name: "codex/trace-leak".to_string(),
+            runner_kind: "local_codex".to_string(),
+            allowed_worker_id: "mac-mini-codex-1".to_string(),
+        };
+        let evidence = WorktreeEvidence {
+            status_short: " M crates/temperpaw/src/discord.rs\n?? docs/proofs/trace.md\n"
+                .to_string(),
+            diff_stat: "crates/temperpaw/src/discord.rs | 12 ++++++------".to_string(),
+        };
+
+        let summary = format_codex_success_summary(
+            &worker_run,
+            Path::new("/tmp/paw-worktree"),
+            "implemented the fix",
+            &evidence,
+        );
+
+        assert!(summary.contains("codex exec completed for WorkerRun wr-proof"));
+        assert!(summary.contains("Worktree: /tmp/paw-worktree"));
+        assert!(summary.contains("```git-status"));
+        assert!(summary.contains(" M crates/temperpaw/src/discord.rs"));
+        assert!(summary.contains("?? docs/proofs/trace.md"));
+        assert!(summary.contains("```git-diff-stat"));
+        assert!(summary.contains("Codex stdout"));
+    }
+
+    #[test]
     fn review_evaluation_and_work_cycle_state_read_temper_odata_fields() {
         let review = review_run_from_odata_value(json!({
             "entity_id": "rev-1",

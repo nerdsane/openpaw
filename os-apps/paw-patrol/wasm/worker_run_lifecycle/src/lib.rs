@@ -114,7 +114,7 @@ fn handle_done(
             ),
             "visual_summary_url": visual_summary_svg(&worker_run_id, &branch_name, &risk_lane),
             "state_diagram_mermaid": state_diagram_mermaid(),
-            "changed_files_map": changed_files_map(&branch_name),
+            "changed_files_map": changed_files_map(&branch_name, &result_summary),
             "reviewer_verdict": "pending independent reviewer",
             "residual_risks": "Reviewer and automated evaluation have not passed yet."
         }),
@@ -448,13 +448,73 @@ fn state_diagram_mermaid() -> &'static str {
     "stateDiagram-v2\n  WorkerRun --> ReviewRun: ReportDone creates independent reviewer\n  WorkerRun --> EvaluationRun: ReportDone queues gates\n  WorkerRun --> ProofPacket: ReportDone attaches visual ProofPacket draft\n  WorkCycle --> Reviewing: WorkerDone + SubmitForReview\n"
 }
 
-fn changed_files_map(branch_name: &str) -> String {
-    json!({
-        "branch_name": branch_name,
-        "changed_files": "pending reviewer inspection",
-        "dependency_map": "pending evaluator snapshot"
-    })
-    .to_string()
+fn changed_files_map(branch_name: &str, result_summary: &str) -> String {
+    let changed_files = extract_git_status_changed_files(result_summary);
+    if changed_files.is_empty() {
+        json!({
+            "branch_name": branch_name,
+            "changed_files": "pending reviewer inspection",
+            "dependency_map": "pending evaluator snapshot"
+        })
+        .to_string()
+    } else {
+        json!({
+            "branch_name": branch_name,
+            "changed_files": changed_files,
+            "evidence_source": "WorkerRun result_summary git-status block",
+            "dependency_map": "pending evaluator snapshot"
+        })
+        .to_string()
+    }
+}
+
+fn extract_git_status_changed_files(result_summary: &str) -> Vec<String> {
+    let Some(block) = fenced_block(result_summary, "git-status") else {
+        return Vec::new();
+    };
+
+    block
+        .lines()
+        .filter_map(parse_git_status_path)
+        .collect()
+}
+
+fn fenced_block(input: &str, language: &str) -> Option<String> {
+    let fence = format!("```{language}");
+    let start = input.find(&fence)?;
+    let after_start = &input[start + fence.len()..];
+    let after_newline = after_start.strip_prefix('\n').unwrap_or(after_start);
+    let end = after_newline.find("```")?;
+    Some(after_newline[..end].trim_end().to_string())
+}
+
+fn parse_git_status_path(line: &str) -> Option<String> {
+    let line = line.trim_end();
+    if line.len() < 3 || line == "(clean worktree)" {
+        return None;
+    }
+    let status = &line.as_bytes()[..2];
+    let known_status = matches!(
+        status,
+        b" M" | b"M " | b"MM" | b"A " | b" A" | b"D " | b" D" | b"R " | b" R" | b"C " | b" C"
+            | b"??"
+            | b"!!"
+            | b"UU"
+    );
+    if !known_status {
+        return None;
+    }
+    let path = line[2..].trim();
+    let path = path
+        .rsplit_once(" -> ")
+        .map(|(_, renamed)| renamed)
+        .unwrap_or(path)
+        .trim();
+    if path.is_empty() {
+        None
+    } else {
+        Some(path.to_string())
+    }
 }
 
 fn visual_summary_svg(worker_run_id: &str, branch_name: &str, risk_lane: &str) -> String {
@@ -606,5 +666,34 @@ fn truncate(input: &str, max: usize) -> String {
         input.to_string()
     } else {
         format!("{}[truncated]", &input[..max])
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn changed_files_map_extracts_worker_git_status_evidence() {
+        let result_summary = "codex exec completed\n\n```git-status\n M crates/temperpaw/src/discord.rs\n?? docs/proofs/trace.md\n```\n";
+
+        let value: Value = serde_json::from_str(&changed_files_map(
+            "codex/trace-leak",
+            result_summary,
+        ))
+        .expect("changed files map should be json");
+
+        assert_eq!(value["branch_name"], "codex/trace-leak");
+        assert_eq!(
+            value["changed_files"],
+            json!([
+                "crates/temperpaw/src/discord.rs",
+                "docs/proofs/trace.md"
+            ])
+        );
+        assert_eq!(
+            value["evidence_source"],
+            "WorkerRun result_summary git-status block"
+        );
     }
 }

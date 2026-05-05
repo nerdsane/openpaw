@@ -35,10 +35,11 @@ Patrol-controlled Dark Factory:
 | Independent reviewer before user review | `worker_run_lifecycle`, `review_gate_lifecycle`, `paw-codex-worker` reviewer path | Worker completion queues ReviewRun; worker reviewer requires explicit verdict; live smoke reached ReviewRun Approved before ProofPacket Ready | Done |
 | Automated evaluation gates | `evaluation_run.ioa.toml`, `review_gate_lifecycle`, worker evaluation commands | Worker can run configured local commands; live smoke EvaluationRun Passed with `test -f .paw-fake-codex-implementation` | Done |
 | Visual ProofPacket | `proof_packet.ioa.toml`, `worker_run_lifecycle`, `review_gate_lifecycle` | Live smoke ProofPacket reached Ready with final `data:image/svg+xml` visual summary, reviewer verdict, residual risk text, Mermaid state diagram, OData links, and log evidence. The final proof no longer carries stale pending-review/pending-evaluation draft labels | Done |
+| Proof changed-files map comes from worker evidence | `crates/paw-codex-worker/src/execution.rs`, `worker_run_lifecycle`, `review_gate_lifecycle` | Local Codex success summaries now include fenced `git-status` and `git-diff-stat` evidence; `worker_run_lifecycle` extracts changed files into `ProofPacket.changed_files_map`; `review_gate_lifecycle` preserves concrete file lists when marking proof ready. Latest deterministic proof contains `changed_files: [".paw-fake-codex-implementation"]` | Done |
 | Repo-health sweeps | `repo_graph_snapshot.ioa.toml`, `repo_sweep_lifecycle`, worker repo scan, `repo-sweep-brief-smoke.sh` | Live repo-sweep smoke reached RepoGraphSnapshot Ready, WorkCycle Complete, ReviewRun Approved, EvaluationRun Passed, ProofPacket Ready, and produced 51 Quality/Security findings in `repo-graph.json` | Done |
 | Accepted findings become cleanup WorkCycles and resolve on completion | `finding_lifecycle`, `work_cycle_lifecycle` | `accepted_findings_queue_cleanup_work_cycles` and `accepted_finding_work_cycles_resolve_source_findings_on_completion` pass | Done |
 | Recurring sweeps and daily briefs | `patrol_schedule.ioa.toml`, `patrol_schedule_lifecycle`, `daily_brief_lifecycle`, `repo-sweep-brief-smoke.sh` | Foundation tests assert PatrolSchedule recurrence; live repo-sweep/brief smoke rendered DailyBrief Ready with `daily-brief.svg`, ready ProofPacket IDs, done items, and open risk JSON | Done |
-| Fresh installs have a default daily maintenance schedule | `os-apps/paw-patrol/seed-data/default_schedules.toml`, `repo-sweep-brief-smoke.sh` | `patrol-default-daily-maintenance` is seeded through PatrolSchedule `Configure` + `Activate`; live repo-sweep/brief smoke captured `patrol-schedule.json` with status `Active` and `next_run_at = 2026-05-06T11:05:24Z` | Done |
+| Fresh installs have a default daily maintenance schedule | `os-apps/paw-patrol/seed-data/default_schedules.toml`, `repo-sweep-brief-smoke.sh` | `patrol-default-daily-maintenance` is seeded through PatrolSchedule `Configure` + `Activate`; live repo-sweep/brief smoke captured `patrol-schedule.json` with status `Active` and `next_run_at = 2026-05-06T12:26:12Z` | Done |
 | Human-readable proof docs | `docs/proofs/2026-05-04-paw-patrol-dark-factory-foundation.md`, this audit | Proof doc includes diagrams, commands, E2E IDs, and remaining caveats | Done |
 | Temper Cedar supports resource ABAC needed by Patrol policies | Temper worktree `crates/temper-authz/src/engine/*`; TemperPaw `crates/temperpaw/Cargo.toml` | `test_resource_attribute_access_in_policy` passes; resource attributes are now attached to Cedar resource entities. The Temper fix is pushed at `557db7f30814801ad42d28e92725d007c6ce7732`, rebased on current Temper main, and TemperPaw is pinned to that portable git revision | Done in sibling Temper branch |
 | Temper dependency handoff is portable | TemperPaw `crates/temperpaw/Cargo.toml`, `Cargo.lock` | The temporary local path patch was removed. TemperPaw now resolves Temper crates from `https://github.com/nerdsane/temper.git` at `557db7f30814801ad42d28e92725d007c6ce7732`; `cargo check --locked -p temperpaw -p paw-codex-worker` passes | Done |
@@ -103,8 +104,8 @@ crates/paw-codex-worker/scripts/paw-patrol-acceptance.sh quick
 
 crates/paw-codex-worker/scripts/paw-patrol-acceptance.sh live
   passed
-  Proof bundle: /tmp/paw-patrol-acceptance-20260505T120421Z-25682
-  Browser index: /tmp/paw-patrol-acceptance-20260505T120421Z-25682/index.html
+  Proof bundle: /tmp/paw-patrol-acceptance-20260505T122521Z-53784
+  Browser index: /tmp/paw-patrol-acceptance-20260505T122521Z-53784/index.html
   Passed gates: 20
   Visuals embedded: deterministic-smoke/proof.svg,
     webhook-intake-smoke/webhook-intake.svg,
@@ -125,10 +126,13 @@ cargo test --locked -p temperpaw --test paw_patrol_foundation -- --nocapture
   29 passed
 
 cargo test --locked -p paw-codex-worker -- --nocapture
-  18 passed
+  19 passed
+
+cargo test --manifest-path os-apps/paw-patrol/wasm/worker_run_lifecycle/Cargo.toml -- --nocapture
+  1 passed
 
 cargo test --manifest-path os-apps/paw-patrol/wasm/review_gate_lifecycle/Cargo.toml -- --nocapture
-  2 passed
+  3 passed
 
 cargo clippy --locked -p temperpaw -p paw-codex-worker --all-targets -- -D warnings
   passed
@@ -225,7 +229,7 @@ git ls-remote --heads origin codex/cedar-resource-attrs
 ```
 
 The latest live local E2E proof bundle at
-`/tmp/paw-patrol-acceptance-20260505T120421Z-25682` booted local TemperPaw with
+`/tmp/paw-patrol-acceptance-20260505T122521Z-53784` booted local TemperPaw with
 `TEMPERPAW_WASM_STARTUP_POLICY=build`, submitted a PatrolRequest, ran the fake
 local Codex worker, and observed:
 
@@ -238,6 +242,20 @@ local Codex worker, and observed:
   "proof_packet": "Ready",
   "work_cycle": "Complete",
   "factory_case": "Complete"
+}
+```
+
+The deterministic proof inside that bundle also records the concrete
+changed-files map from worker git evidence:
+
+```json
+{
+  "branch_name": "codex/paw-patrol-feca1d27",
+  "changed_files": [".paw-fake-codex-implementation"],
+  "evidence_source": "WorkerRun result_summary git-status block",
+  "review_status": "approved",
+  "evaluation_status": "passed",
+  "proof_status": "ready"
 }
 ```
 

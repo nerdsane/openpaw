@@ -111,7 +111,7 @@ async fn run_codex(config: &Config, worker_run: &WorkerRunState) -> Result<Strin
     let output = Command::new(&config.codex_bin)
         .arg("exec")
         .arg(task)
-        .current_dir(workdir)
+        .current_dir(&workdir)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .output()
@@ -134,21 +134,85 @@ async fn run_codex(config: &Config, worker_run: &WorkerRunState) -> Result<Strin
         );
     }
 
-    Ok(format!(
-        "codex exec completed for WorkerRun {}{}{}{}",
-        worker_run.id,
-        if worker_run.branch_name.is_empty() {
-            ""
-        } else {
-            " on branch "
-        },
-        worker_run.branch_name,
-        if stdout.trim().is_empty() {
-            ""
-        } else {
-            "\n\nCodex output captured in worker logs."
-        }
+    let evidence = collect_worktree_evidence(&workdir)
+        .await
+        .unwrap_or_else(|error| WorktreeEvidence {
+            status_short: format!("git evidence unavailable: {error}"),
+            diff_stat: String::new(),
+        });
+    Ok(format_codex_success_summary(
+        worker_run,
+        &workdir,
+        stdout.as_ref(),
+        &evidence,
     ))
+}
+
+async fn collect_worktree_evidence(workdir: &Path) -> Result<WorktreeEvidence> {
+    let status_short = git_capture(workdir, &["status", "--short"])
+        .await
+        .context("git status --short")?;
+    let diff_stat = git_capture(workdir, &["diff", "--stat", "--"])
+        .await
+        .context("git diff --stat")?;
+
+    Ok(WorktreeEvidence {
+        status_short,
+        diff_stat,
+    })
+}
+
+fn format_codex_success_summary(
+    worker_run: &WorkerRunState,
+    workdir: &Path,
+    stdout: &str,
+    evidence: &WorktreeEvidence,
+) -> String {
+    let branch = if worker_run.branch_name.trim().is_empty() {
+        "(current checkout)"
+    } else {
+        worker_run.branch_name.as_str()
+    };
+    let stdout_tail = nonempty_block(&tail_string(stdout.trim(), 4_000), "(no stdout captured)");
+    let status_short = nonempty_block(&evidence.status_short, "(clean worktree)");
+    let diff_stat = nonempty_block(&evidence.diff_stat, "(no unstaged diff stat)");
+
+    format!(
+        "codex exec completed for WorkerRun {}\nBranch: {branch}\nWorktree: {}\n\nCodex stdout:\n{stdout_tail}\n\nWorktree evidence:\n```git-status\n{status_short}\n```\n\n```git-diff-stat\n{diff_stat}\n```",
+        worker_run.id,
+        workdir.display()
+    )
+}
+
+async fn git_capture(workdir: &Path, args: &[&str]) -> Result<String> {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(workdir)
+        .args(args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .await
+        .with_context(|| format!("run git {}", args.join(" ")))?;
+    if !output.status.success() {
+        bail!(
+            "git {} failed with status {:?}: {}",
+            args.join(" "),
+            output.status.code(),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    Ok(String::from_utf8_lossy(&output.stdout)
+        .trim_end()
+        .to_string())
+}
+
+fn nonempty_block(value: &str, fallback: &str) -> String {
+    if value.trim().is_empty() {
+        fallback.to_string()
+    } else {
+        value.trim_end().to_string()
+    }
 }
 
 async fn run_codex_review(
@@ -489,4 +553,3 @@ fn generated_at_label() -> String {
         .unwrap_or_default();
     format!("unix:{seconds}")
 }
-

@@ -806,8 +806,10 @@ fn replace_pending_map_value(
 ) {
     let needs_replacement = object
         .get(key)
-        .and_then(Value::as_str)
-        .map(|value| value.contains("pending"))
+        .map(|value| match value {
+            Value::String(value) => value.trim().is_empty() || value.contains("pending"),
+            _ => false,
+        })
         .unwrap_or(true);
     if needs_replacement {
         object.insert(key.to_string(), json!(final_value));
@@ -1151,5 +1153,24 @@ mod tests {
         assert!(changed_map.contains("\"evaluation_status\":\"passed\""));
         assert!(!changed_map.contains("pending"));
         assert!(proof_json.contains("\"proof_ready\":true"));
+    }
+
+    #[test]
+    fn final_changed_files_map_preserves_actual_file_lists() {
+        let proof = json!({
+            "fields": {
+                "changed_files_map": "{\"branch_name\":\"codex/test\",\"changed_files\":[\"crates/temperpaw/src/discord.rs\"],\"dependency_map\":{\"crate\":\"temperpaw\"}}"
+            }
+        });
+
+        let changed_map: Value = serde_json::from_str(&final_changed_files_map(&proof))
+            .expect("changed map should stay valid json");
+
+        assert_eq!(
+            changed_map["changed_files"],
+            json!(["crates/temperpaw/src/discord.rs"])
+        );
+        assert_eq!(changed_map["dependency_map"], json!({"crate": "temperpaw"}));
+        assert_eq!(changed_map["proof_status"], "ready");
     }
 }
