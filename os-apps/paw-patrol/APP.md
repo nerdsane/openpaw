@@ -77,6 +77,34 @@ state transitions. It uses `schedule_at` to fire `Trigger`, then
 Patrol seeds `patrol-default-daily-maintenance` as an active daily schedule so a
 fresh install has the recurring maintenance loop visible in Temper immediately.
 
+## PatrolSchedule And CronJob
+
+PatrolSchedule intentionally does not reuse the paw-agent CronJob entity.
+Both entities use Temper's schedule_at timer effect, but they are different
+business state machines.
+
+CronJob is for scheduled agent Session creation: each trigger computes the next
+run and declaratively spawns a `Session`.
+PatrolSchedule is for scheduled Patrol maintenance: each trigger creates
+Patrol-native `RepoGraphSnapshot` and `DailyBrief` entities so repo health and
+briefs stay in the Patrol audit graph.
+
+If the cadence parsing or schedule conventions drift, factor shared helpers or
+platform conventions. Do not route Patrol maintenance through CronJob unless
+CronJob stops meaning "spawn a scheduled agent Session."
+
+## Quality Cleanup Status
+
+Detection is not cleanup. Patrol's repo sweep opens `QualityFinding` and
+`SecurityFinding` entities for cleanup debt, and accepted findings become
+Patrol `WorkCycle`s. The scanner makes giant WASM modules visible and
+reviewable; it does not mark them fixed.
+
+As of this implementation, giant WASM modules remain work to be done. Known
+examples include Monty REPL, provider_caller, context_preparer, and
+route_message. Each should become a scoped cleanup `WorkCycle` with reviewer,
+evaluation, and proof gates before the cleaned area is ratcheted.
+
 ## Intake
 
 Submit everything to Patrol first:

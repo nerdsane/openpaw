@@ -250,6 +250,52 @@ fn paw_patrol_docs_explain_worker_scripts_tests_and_wasms() {
 }
 
 #[test]
+fn paw_patrol_docs_explain_schedule_boundary_and_cleanup_status() {
+    let root = repo_root();
+    let app_doc = read(root.join("os-apps/paw-patrol/APP.md"));
+    for needle in [
+        "## PatrolSchedule And CronJob",
+        "PatrolSchedule intentionally does not reuse the paw-agent CronJob entity",
+        "Both entities use Temper's schedule_at timer effect",
+        "CronJob is for scheduled agent Session creation",
+        "PatrolSchedule is for scheduled Patrol maintenance",
+        "RepoGraphSnapshot and DailyBrief",
+        "## Quality Cleanup Status",
+        "Detection is not cleanup",
+        "giant WASM modules remain work to be done",
+        "Monty REPL",
+        "provider_caller",
+        "context_preparer",
+        "route_message",
+        "QualityFinding",
+        "WorkCycle",
+    ] {
+        assert!(
+            app_doc.contains(needle),
+            "APP.md should explain schedule boundary and cleanup status: {needle}"
+        );
+    }
+
+    let adr = read(
+        root.join("os-apps/paw-patrol/adrs")
+            .join("0001-patrol-controlled-dark-factory.md"),
+    );
+    for needle in [
+        "PatrolSchedule intentionally remains a Patrol entity",
+        "CronJob remains the paw-agent scheduled Session entity",
+        "share the platform schedule_at effect",
+        "RepoGraphSnapshot",
+        "DailyBrief",
+        "Detection is not the same as cleanup",
+    ] {
+        assert!(
+            adr.contains(needle),
+            "Dark Factory ADR should explain schedule boundary and cleanup status: {needle}"
+        );
+    }
+}
+
+#[test]
 fn worker_claims_are_bound_to_the_configured_local_worker() {
     let root = repo_root();
     let spec = read(root.join("os-apps/paw-patrol/specs/worker_run.ioa.toml"));

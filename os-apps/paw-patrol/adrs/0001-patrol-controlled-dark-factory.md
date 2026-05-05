@@ -77,6 +77,17 @@ Every implementation must produce a `ProofPacket` with machine-readable fields
 and human-readable proof. Factual diagrams and SVG summaries are derived from
 structured proof state, not from free-form narrative alone.
 
+PatrolSchedule intentionally remains a Patrol entity rather than a reuse of
+`paw-agent`'s `CronJob`. CronJob remains the paw-agent scheduled Session entity:
+it computes the next run and spawns a `Session`. PatrolSchedule creates
+Patrol-native `RepoGraphSnapshot` and `DailyBrief` entities. The two entities
+share the platform schedule_at effect, but they do not share business meaning.
+
+Detection is not the same as cleanup. Repo-health sweeps make large modules,
+mixed concerns, duplicates, band-aids, security drift, and missing proof
+coverage visible as Patrol findings. Cleanup happens only when accepted
+findings become reviewed and evaluated `WorkCycle`s.
+
 ## Architecture
 
 ```text
