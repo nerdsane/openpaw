@@ -6,9 +6,9 @@ Current branch: `codex/paw-patrol-dark-factory`
 
 Current PR: <https://github.com/nerdsane/temperpaw/pull/218>
 
-Latest exact-head evidence at the time of this audit refresh:
+Latest exact-head proof bundle inspected at the time of this audit refresh:
 
-- PR #218 head: `83cb8966322cb8025f883f00f4a1ac461daa5ccb`
+- proof-bundle head: `83cb8966322cb8025f883f00f4a1ac461daa5ccb`
 - GitHub CI: passed at
   <https://github.com/nerdsane/temperpaw/actions/runs/25403447886>
 - current-head quick acceptance:
@@ -17,9 +17,9 @@ Latest exact-head evidence at the time of this audit refresh:
   `/tmp/paw-patrol-production-preflight-83cb8966`
 
 The PR body and the latest production preflight summary remain the canonical
-moving evidence. The preflight summary records `git_head`, `git_branch`,
-`git_status_short`, and `git_clean` so later proof-only commits can be audited
-without trusting this Markdown file by itself.
+moving evidence for the actual PR head. The preflight summary records
+`git_head`, `git_branch`, `git_status_short`, and `git_clean` so later
+proof-only commits can be audited without trusting this Markdown file by itself.
 
 ## Objective Restated
 
@@ -63,7 +63,7 @@ Patrol-controlled Dark Factory:
 
 ## Current Verification Evidence
 
-- GitHub CI: passed on PR #218 head
+- GitHub CI: passed on inspected proof-bundle head
   `83cb8966322cb8025f883f00f4a1ac461daa5ccb`:
   <https://github.com/nerdsane/temperpaw/actions/runs/25403447886>
 - Live acceptance: `/tmp/paw-patrol-acceptance-live-b8be8d80`

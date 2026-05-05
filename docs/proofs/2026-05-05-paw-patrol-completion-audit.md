@@ -2,9 +2,10 @@
 
 Date: 2026-05-05
 
-Latest exact-head refresh after documentation/readability ratchets:
+Latest exact-head proof bundle inspected after documentation/readability
+ratchets:
 
-- PR #218 head: `83cb8966322cb8025f883f00f4a1ac461daa5ccb`
+- proof-bundle head: `83cb8966322cb8025f883f00f4a1ac461daa5ccb`
 - GitHub CI: passed at
   <https://github.com/nerdsane/temperpaw/actions/runs/25403447886>
 - current-head quick acceptance:
@@ -14,8 +15,8 @@ Latest exact-head refresh after documentation/readability ratchets:
   human-controlled blockers
 
 The older live acceptance bundles below remain the full local E2E evidence for
-the last functional code head; the latest current-head quick proof and CI cover
-the subsequent docs/readability commits.
+the last functional code head. The PR body and latest generated preflight
+summary are the canonical moving evidence for later proof-only commits.
 
 ## Objective Restated
 
