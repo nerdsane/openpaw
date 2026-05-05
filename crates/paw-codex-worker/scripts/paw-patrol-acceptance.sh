@@ -7,6 +7,19 @@ STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 PROOF_DIR="${PROOF_DIR:-/tmp/paw-patrol-acceptance-${STAMP}-$$}"
 ACCEPTANCE_LOG="${PROOF_DIR}/acceptance.log"
 STEPS_FILE="${PROOF_DIR}/steps.tsv"
+GIT_HEAD="$(git -C "$ROOT" rev-parse HEAD)"
+GIT_BRANCH="$(git -C "$ROOT" branch --show-current)"
+if [[ -z "$GIT_BRANCH" ]]; then
+  GIT_BRANCH="(detached)"
+fi
+GIT_STATUS_SHORT="$(git -C "$ROOT" status --short)"
+if [[ -z "$GIT_STATUS_SHORT" ]]; then
+  GIT_CLEAN="true"
+  GIT_STATUS_LABEL="clean"
+else
+  GIT_CLEAN="false"
+  GIT_STATUS_LABEL="dirty"
+fi
 
 log() {
   printf '[paw-patrol-acceptance] %s\n' "$*" | tee -a "$ACCEPTANCE_LOG"
@@ -121,6 +134,8 @@ write_html_index() {
         <div class="meta">
           <span class="pill">mode: ${MODE}</span>
           <span class="pill">status: passed</span>
+          <span class="pill">git: ${GIT_BRANCH} @ ${GIT_HEAD}</span>
+          <span class="pill">worktree: ${GIT_STATUS_LABEL}</span>
           <span class="pill">proof bundle: ${PROOF_DIR}</span>
         </div>
       </header>
@@ -211,6 +226,10 @@ write_summary_and_proof() {
     --arg mode "$MODE" \
     --arg proof_dir "$PROOF_DIR" \
     --arg acceptance_log "$ACCEPTANCE_LOG" \
+    --arg git_head "$GIT_HEAD" \
+    --arg git_branch "$GIT_BRANCH" \
+    --arg git_status_short "$GIT_STATUS_SHORT" \
+    --arg git_clean "$GIT_CLEAN" \
     --arg deterministic "${PROOF_DIR}/deterministic-smoke" \
     --arg webhook "${PROOF_DIR}/webhook-intake-smoke" \
     --arg repo "${PROOF_DIR}/repo-sweep-brief-smoke" \
@@ -226,6 +245,10 @@ write_summary_and_proof() {
       mode: $mode,
       proof_dir: $proof_dir,
       acceptance_log: $acceptance_log,
+      git_head: $git_head,
+      git_branch: $git_branch,
+      git_status_short: $git_status_short,
+      git_clean: ($git_clean == "true"),
       steps: $steps,
       live_proof_bundles: {
         deterministic_smoke: $deterministic,
@@ -247,6 +270,9 @@ write_summary_and_proof() {
 # Paw Patrol Acceptance Proof
 
 Mode: \`${MODE}\`
+Git head: \`${GIT_HEAD}\`
+Git branch: \`${GIT_BRANCH}\`
+Git status: \`${GIT_STATUS_LABEL}\`
 
 ## Flow
 
