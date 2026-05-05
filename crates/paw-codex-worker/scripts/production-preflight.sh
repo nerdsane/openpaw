@@ -101,10 +101,15 @@ fi
 git -C "$ROOT" branch --show-current >"${PROOF_DIR}/git-branch.txt" 2>/dev/null || true
 git -C "$ROOT" rev-parse HEAD >"${PROOF_DIR}/git-head.txt" 2>/dev/null || true
 git -C "$ROOT" status --short >"${PROOF_DIR}/git-status.txt" 2>/dev/null || true
+GIT_BRANCH="$(cat "${PROOF_DIR}/git-branch.txt" 2>/dev/null || true)"
+GIT_HEAD="$(cat "${PROOF_DIR}/git-head.txt" 2>/dev/null || true)"
+GIT_STATUS_SHORT="$(cat "${PROOF_DIR}/git-status.txt" 2>/dev/null || true)"
 if [[ -s "${PROOF_DIR}/git-status.txt" ]]; then
   add_gate "git:clean" "warn" "worktree has local changes; production activation should use a reviewed checkout" "${PROOF_DIR}/git-status.txt"
+  GIT_CLEAN="false"
 else
   add_gate "git:clean" "pass" "worktree is clean" "${PROOF_DIR}/git-status.txt"
+  GIT_CLEAN="true"
 fi
 
 if [[ -d "$REPO_ROOT" ]]; then
@@ -321,6 +326,10 @@ summary_json="$(jq -n \
   --arg repo_root "$REPO_ROOT" \
   --arg workspace_root "$WORKSPACE_ROOT" \
   --arg launchd_label "$LAUNCHD_LABEL" \
+  --arg git_head "$GIT_HEAD" \
+  --arg git_branch "$GIT_BRANCH" \
+  --arg git_status_short "$GIT_STATUS_SHORT" \
+  --arg git_clean "$GIT_CLEAN" \
   --arg strict "$STRICT" \
   --arg check_railway "$CHECK_RAILWAY" \
   --arg check_github "$CHECK_GITHUB" \
@@ -333,6 +342,10 @@ summary_json="$(jq -n \
     repo_root: $repo_root,
     workspace_root: $workspace_root,
     launchd_label: $launchd_label,
+    git_head: $git_head,
+    git_branch: $git_branch,
+    git_status_short: $git_status_short,
+    git_clean: ($git_clean == "true"),
     strict: ($strict == "1"),
     checks: {
       railway: ($check_railway == "1"),
@@ -447,6 +460,9 @@ flowchart TD
 
 - Status: \`${overall_status}\`
 - Worker ID: \`${WORKER_ID}\`
+- Git head: \`${GIT_HEAD}\`
+- Git branch: \`${GIT_BRANCH}\`
+- Git clean: \`${GIT_CLEAN}\`
 - Proof directory: \`${PROOF_DIR}\`
 - Visual summary: \`${PREFLIGHT_SVG}\`
 - Operator handoff: \`${OPERATOR_HANDOFF_MD}\`
@@ -481,6 +497,9 @@ values and the preflight did not mutate Railway, launchd, or Temper.
 
 - Status: \`${overall_status}\`
 - Worker ID: \`${WORKER_ID}\`
+- Git head: \`${GIT_HEAD}\`
+- Git branch: \`${GIT_BRANCH}\`
+- Git clean: \`${GIT_CLEAN}\`
 - Human blockers: \`${blocked_count}\`
 - Railway candidates captured: \`${railway_candidate_count}\`
 - Machine summary: \`${SUMMARY_JSON}\`

@@ -145,15 +145,26 @@ jq -e '
 ' "${PROOF_DIR}/summary.json" >/dev/null
 
 jq -e '
+  (.git_head | type == "string" and length >= 7) and
+  (.git_branch | type == "string") and
+  (.git_status_short | type == "string") and
+  (.git_clean | type == "boolean")
+' "${PROOF_DIR}/summary.json" >/dev/null
+
+jq -e '
   any(.human_blockers[];
     .gate == "railway:linked_project"
   )
 ' "${PROOF_DIR}/summary.json" >/dev/null
 
 grep -Fq 'Railway Candidate Projects' "${PROOF_DIR}/proof.md"
+grep -Fq 'Git head:' "${PROOF_DIR}/proof.md"
+grep -Fq 'Git clean:' "${PROOF_DIR}/proof.md"
 grep -Fq 'Paw Patrol Production Operator Handoff' "${PROOF_DIR}/operator-handoff.md"
 grep -Fq 'Human Blocker Decisions' "${PROOF_DIR}/operator-handoff.md"
 grep -Fq 'Railway Project Choice' "${PROOF_DIR}/operator-handoff.md"
+grep -Fq 'Git head:' "${PROOF_DIR}/operator-handoff.md"
+grep -Fq 'Git clean:' "${PROOF_DIR}/operator-handoff.md"
 grep -Fq 'railway link <project_id>' "${PROOF_DIR}/operator-handoff.md"
 grep -Fq 'export TEMPER_URL=' "${PROOF_DIR}/operator-handoff.md"
 grep -Fq 'CONFIRM_TEMPER_PIN_OK' "${PROOF_DIR}/operator-handoff.md"
