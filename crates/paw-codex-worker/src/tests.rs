@@ -556,6 +556,47 @@ mod tests {
             "// TODO remove band-aid\n// HACK duplicated workaround\n",
         )
         .expect("bandaid source");
+        let duplicate_block = r#"
+fn shared_branch(value: u64) -> u64 {
+    let mut total = value;
+    total += 7;
+    total *= 3;
+    total -= 2;
+    total
+}
+"#;
+        fs::write(
+            root.join("src/duplicate_a.rs"),
+            format!("pub fn a(value: u64) -> u64 {{ shared_branch(value) }}\n{duplicate_block}"),
+        )
+        .expect("duplicate source a");
+        fs::write(
+            root.join("src/duplicate_b.rs"),
+            format!("pub fn b(value: u64) -> u64 {{ shared_branch(value) }}\n{duplicate_block}"),
+        )
+        .expect("duplicate source b");
+        fs::write(
+            root.join("src/polling.rs"),
+            "async fn watch() { loop { tokio::time::sleep(std::time::Duration::from_secs(1)).await; } }\n",
+        )
+        .expect("polling source");
+        fs::create_dir_all(root.join("crate-a")).expect("crate dir");
+        fs::write(
+            root.join("crate-a/Cargo.toml"),
+            "[package]\nname = \"crate-a\"\nversion = \"0.1.0\"\n\n[dependencies]\ntemper = { git = \"https://github.com/nerdsane/temper\", rev = \"abc123\" }\n",
+        )
+        .expect("cargo manifest");
+        fs::create_dir_all(root.join("os-apps/demo/wasm/lifecycle/src")).expect("wasm dir");
+        fs::write(
+            root.join("os-apps/demo/wasm/lifecycle/Cargo.toml"),
+            "[package]\nname = \"demo-lifecycle\"\nversion = \"0.1.0\"\n",
+        )
+        .expect("wasm manifest");
+        fs::write(
+            root.join("os-apps/demo/wasm/lifecycle/src/lib.rs"),
+            "pub fn run() -> &'static str { \"ok\" }\n",
+        )
+        .expect("wasm source");
         fs::write(
             root.join("policies/broad.cedar"),
             "permit(principal, action, resource);",
@@ -580,11 +621,43 @@ mod tests {
         );
         assert!(
             graph
+                .quality_findings
+                .iter()
+                .any(|finding| finding.title.contains("Duplicate logic candidate")),
+            "quality findings should include duplicate logic evidence: {graph:?}"
+        );
+        assert!(
+            graph
+                .quality_findings
+                .iter()
+                .any(|finding| finding.title.contains("Polling loop")),
+            "quality findings should include polling loop evidence: {graph:?}"
+        );
+        assert!(
+            graph
+                .quality_findings
+                .iter()
+                .any(|finding| finding.title.contains("Missing WASM test coverage")),
+            "quality findings should include missing WASM test coverage evidence: {graph:?}"
+        );
+        assert!(
+            graph
                 .security_findings
                 .iter()
                 .any(|finding| finding.title.contains("Broad Cedar")),
             "security findings should include broad Cedar evidence: {graph:?}"
         );
+        assert!(
+            graph
+                .security_findings
+                .iter()
+                .any(|finding| finding.title.contains("Dependency risk")),
+            "security findings should include dependency risk evidence: {graph:?}"
+        );
+        assert!(graph.summary.duplicate_logic_candidates > 0);
+        assert!(graph.summary.polling_loop_hits > 0);
+        assert!(graph.summary.dependency_risk_hits > 0);
+        assert!(graph.summary.missing_test_coverage_hits > 0);
 
         fs::remove_dir_all(root).ok();
     }
