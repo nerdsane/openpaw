@@ -2019,3 +2019,31 @@ fn paw_patrol_wasm_modules_have_startup_build_script() {
         assert!(script.contains(needle), "build.sh should contain {needle}");
     }
 }
+
+#[test]
+fn current_state_audit_uses_live_proof_sources_instead_of_stale_heads() {
+    let root = repo_root();
+    let audit = read(root.join("docs/proofs/2026-05-05-paw-patrol-current-state-audit.md"));
+
+    for needle in [
+        "PR #218 body",
+        "/tmp/paw-patrol-production-preflight-current-railway/summary.json",
+        "latest exact-head quick acceptance proof",
+    ] {
+        assert!(
+            audit.contains(needle),
+            "current-state audit should point readers at live proof source: {needle}"
+        );
+    }
+
+    for stale in [
+        "927d9844bdd22238e6eade507560a16fee7c1a0b",
+        "/tmp/paw-patrol-acceptance-quick-927d9844-preflight-stamp",
+        "25393554285",
+    ] {
+        assert!(
+            !audit.contains(stale),
+            "current-state audit should not pin stale proof evidence: {stale}"
+        );
+    }
+}

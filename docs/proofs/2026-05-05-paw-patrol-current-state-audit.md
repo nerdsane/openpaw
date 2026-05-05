@@ -54,15 +54,15 @@ Patrol-controlled Dark Factory:
 
 ## Current Verification Evidence
 
-- GitHub CI: inspect PR #218 for the latest run. Latest green run at this audit
-  update: <https://github.com/nerdsane/temperpaw/actions/runs/25393554285>
+- GitHub CI: inspect PR #218 for the latest run; the PR #218 body records the
+  current head, latest green run URL, and current quick proof bundle.
 - Live acceptance: `/tmp/paw-patrol-acceptance-live-b8be8d80`
 - Live acceptance status: passed, 29 gates, clean worktree, exact head
   `b8be8d80bf72a5737623dadbb3e22dba3e3e80d8`
-- Current-head quick acceptance after the production-preflight git stamp:
-  `/tmp/paw-patrol-acceptance-quick-927d9844-preflight-stamp`
-- Current-head quick acceptance status: passed, 24 gates, clean worktree, exact
-  head `927d9844bdd22238e6eade507560a16fee7c1a0b`
+- Current-head quick acceptance: use the latest exact-head quick acceptance proof
+  bundle named in the PR #218 body, then verify its `summary.json` stamp.
+- Current-head quick acceptance status: passed, 24 gates, with exact head,
+  branch, status, and clean-worktree stamp recorded in that bundle.
 - Railway-enabled read-only production preflight:
   `/tmp/paw-patrol-production-preflight-current-railway`
 - Production preflight status: `blocked`
