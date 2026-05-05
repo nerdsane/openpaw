@@ -58,8 +58,9 @@ revision is the approved production path, set `CONFIRM_TEMPER_PIN_OK=1` for
 ## Gate 1: Production Preflight
 
 Run the non-mutating preflight first. It records current machine/env readiness,
-Railway link status, launchd status, webhook-secret presence, and remaining
-`human_blockers` without changing Railway, launchd, or Temper.
+Railway link status, read-only Railway project/service candidates, launchd
+status, webhook-secret presence, and remaining `human_blockers` without
+changing Railway, launchd, or Temper.
 
 ```sh
 crates/paw-codex-worker/scripts/production-preflight.sh
@@ -83,10 +84,13 @@ Evidence to capture:
 - `summary.json`;
 - `proof.md`;
 - `gates.tsv`;
+- `railway-candidates.json`;
 - `human_blockers` list.
 
 Pass condition: `summary.json.status` is `passed`, or every remaining
 `human_blockers` item has an explicit operator decision before continuing.
+If `railway:linked_project` is blocked, choose the intended project/service
+from `railway-candidates.json` before running `railway link`.
 
 ## Gate 2: Local Readiness Smoke
 

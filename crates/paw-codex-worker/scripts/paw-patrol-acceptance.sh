@@ -148,6 +148,9 @@ EOF
   write_artifact_link "production-preflight/proof.md" "${PROOF_DIR}/production-preflight/proof.md"
   write_artifact_link "production-preflight/summary.json" "${PROOF_DIR}/production-preflight/summary.json"
   write_artifact_link "production-preflight/preflight.svg" "${PROOF_DIR}/production-preflight/preflight.svg"
+  write_artifact_link "production-preflight-railway-discovery-smoke/proof.md" "${PROOF_DIR}/production-preflight-railway-discovery-smoke/proof.md"
+  write_artifact_link "production-preflight-railway-discovery-smoke/summary.json" "${PROOF_DIR}/production-preflight-railway-discovery-smoke/summary.json"
+  write_artifact_link "production-preflight-railway-discovery-smoke/railway-candidates.json" "${PROOF_DIR}/production-preflight-railway-discovery-smoke/railway-candidates.json"
   write_artifact_link "production-observe-only/proof.md" "${PROOF_DIR}/production-observe-only/proof.md"
   write_artifact_link "production-observe-only/summary.json" "${PROOF_DIR}/production-observe-only/summary.json"
   write_artifact_link "production-observe-only/observe-only.svg" "${PROOF_DIR}/production-observe-only/observe-only.svg"
@@ -175,6 +178,7 @@ EOF
   write_visual_card "Repo Sweep ProofPacket" "${PROOF_DIR}/repo-sweep-brief-smoke/proof.svg"
   write_visual_card "Daily Brief" "${PROOF_DIR}/repo-sweep-brief-smoke/daily-brief.svg"
   write_visual_card "Production Preflight" "${PROOF_DIR}/production-preflight/preflight.svg"
+  write_visual_card "Railway Discovery Preflight" "${PROOF_DIR}/production-preflight-railway-discovery-smoke/preflight.svg"
   write_visual_card "Production Observe-Only" "${PROOF_DIR}/production-observe-only/observe-only.svg"
 
   cat >>"${PROOF_DIR}/index.html" <<EOF
@@ -202,6 +206,7 @@ write_summary_and_proof() {
     --arg webhook "${PROOF_DIR}/webhook-intake-smoke" \
     --arg repo "${PROOF_DIR}/repo-sweep-brief-smoke" \
     --arg preflight "${PROOF_DIR}/production-preflight" \
+    --arg preflight_discovery "${PROOF_DIR}/production-preflight-railway-discovery-smoke" \
     --arg observe "${PROOF_DIR}/production-observe-only" \
     --arg production "${PROOF_DIR}/production-readiness-smoke" \
     --argjson steps "$steps_json" \
@@ -216,6 +221,7 @@ write_summary_and_proof() {
         webhook_intake_smoke: $webhook,
         repo_sweep_brief_smoke: $repo,
         production_preflight: $preflight,
+        production_preflight_railway_discovery_smoke: $preflight_discovery,
         production_observe_only: $observe,
         production_readiness_smoke: $production
       }
@@ -256,6 +262,8 @@ flowchart TD
   - Default PatrolSchedule evidence: ${PROOF_DIR}/repo-sweep-brief-smoke/patrol-schedule.json
 - Production preflight proof bundle: ${PROOF_DIR}/production-preflight
   - Visual summary: ${PROOF_DIR}/production-preflight/preflight.svg
+- Railway discovery preflight proof bundle: ${PROOF_DIR}/production-preflight-railway-discovery-smoke
+  - Candidate list: ${PROOF_DIR}/production-preflight-railway-discovery-smoke/railway-candidates.json
 - Production observe-only proof bundle: ${PROOF_DIR}/production-observe-only
   - Visual summary: ${PROOF_DIR}/production-observe-only/observe-only.svg
 - Production readiness proof bundle: ${PROOF_DIR}/production-readiness-smoke
@@ -297,6 +305,7 @@ run_step syntax-webhook bash -n "${ROOT}/crates/paw-codex-worker/scripts/webhook
 run_step syntax-repo-sweep bash -n "${ROOT}/crates/paw-codex-worker/scripts/repo-sweep-brief-smoke.sh"
 run_step syntax-production-readiness bash -n "${ROOT}/crates/paw-codex-worker/scripts/production-readiness.sh"
 run_step syntax-production-preflight bash -n "${ROOT}/crates/paw-codex-worker/scripts/production-preflight.sh"
+run_step syntax-production-preflight-railway-discovery-smoke bash -n "${ROOT}/crates/paw-codex-worker/scripts/production-preflight-railway-discovery-smoke.sh"
 run_step syntax-production-observe bash -n "${ROOT}/crates/paw-codex-worker/scripts/production-observe-only.sh"
 run_step syntax-production-observe-smoke bash -n "${ROOT}/crates/paw-codex-worker/scripts/production-observe-only-smoke.sh"
 run_step syntax-production-smoke bash -n "${ROOT}/crates/paw-codex-worker/scripts/production-readiness-smoke.sh"
@@ -311,6 +320,9 @@ run_step production-preflight env \
   CHECK_RAILWAY=0 \
   CHECK_GITHUB=0 \
   "${ROOT}/crates/paw-codex-worker/scripts/production-preflight.sh"
+run_step production-preflight-railway-discovery-smoke env \
+  PROOF_DIR="${PROOF_DIR}/production-preflight-railway-discovery-smoke" \
+  "${ROOT}/crates/paw-codex-worker/scripts/production-preflight-railway-discovery-smoke.sh"
 
 if [[ "$MODE" == "live" ]]; then
   run_step deterministic-smoke env \

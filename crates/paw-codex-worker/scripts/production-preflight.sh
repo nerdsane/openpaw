@@ -75,6 +75,7 @@ optional_command_gate() {
 
 mkdir -p "$PROOF_DIR"
 : >"$GATES_TSV"
+railway_candidates_json='[]'
 
 log "repo root: ${ROOT}"
 log "proof dir: ${PROOF_DIR}"
@@ -196,6 +197,48 @@ if [[ "$CHECK_RAILWAY" == "1" ]]; then
     else
       add_gate "railway:linked_project" "blocked" "railway status failed; the checkout is probably not linked to a Railway project/service" "${PROOF_DIR}/railway-status.txt"
     fi
+
+    if capture_command "${PROOF_DIR}/railway-projects.json" railway project list --json; then
+      if railway_candidates_json="$(jq '
+        map({
+          project_id: (.id // ""),
+          project_name: (.name // ""),
+          likely_match: (
+            ((.name // "") | test("temper|paw|openpaw"; "i")) or
+            ([.services.edges[]?.node.name // empty] | map(test("temper|paw|openpaw"; "i")) | any)
+          ),
+          environments: [
+            .environments.edges[]?.node
+            | {
+              environment_id: (.id // ""),
+              environment_name: (.name // ""),
+              can_access: (.canAccess // false),
+              service_ids: [.serviceInstances.edges[]?.node.serviceId // empty]
+            }
+          ],
+          services: [
+            .services.edges[]?.node
+            | {
+              service_id: (.id // ""),
+              service_name: (.name // "")
+            }
+          ]
+        })
+      ' "${PROOF_DIR}/railway-projects.json")"; then
+        printf '%s\n' "$railway_candidates_json" >"${PROOF_DIR}/railway-candidates.json"
+        railway_candidate_count="$(jq 'length' <<<"$railway_candidates_json")"
+        if [[ "$railway_candidate_count" -gt 0 ]]; then
+          add_gate "railway:candidate_projects" "pass" "captured ${railway_candidate_count} read-only Railway project/service candidate(s)" "${PROOF_DIR}/railway-candidates.json"
+        else
+          add_gate "railway:candidate_projects" "warn" "railway project list succeeded but returned no accessible project candidates" "${PROOF_DIR}/railway-projects.json"
+        fi
+      else
+        railway_candidates_json='[]'
+        add_gate "railway:candidate_projects" "warn" "railway project list output was not parseable as expected JSON" "${PROOF_DIR}/railway-projects.json"
+      fi
+    else
+      add_gate "railway:candidate_projects" "warn" "could not list Railway projects for read-only candidate discovery" "${PROOF_DIR}/railway-projects.json"
+    fi
   else
     add_gate "railway:cli" "blocked" "railway CLI is unavailable and CHECK_RAILWAY=1" "install Railway CLI or set CHECK_RAILWAY=0 for local-only proof"
   fi
@@ -258,6 +301,7 @@ summary_json="$(jq -n \
   --arg check_railway "$CHECK_RAILWAY" \
   --arg check_github "$CHECK_GITHUB" \
   --argjson gates "$gates_json" \
+  --argjson railway_candidates "$railway_candidates_json" \
   '{
     status: $status,
     proof_dir: $proof_dir,
@@ -270,6 +314,9 @@ summary_json="$(jq -n \
       railway: ($check_railway == "1"),
       github: ($check_github == "1")
     },
+    railway: {
+      candidates: $railway_candidates
+    },
     gates: $gates,
     human_blockers: ($gates | map(select(.status == "blocked") | {
       gate: .gate,
@@ -278,16 +325,27 @@ summary_json="$(jq -n \
     }))
   }')"
 
+printf '%s\n' "$railway_candidates_json" >"${PROOF_DIR}/railway-candidates.json"
 printf '%s\n' "$summary_json" >"$SUMMARY_JSON"
 
 pass_count="$(jq '[.gates[] | select(.status == "pass")] | length' "$SUMMARY_JSON")"
 warn_count="$(jq '[.gates[] | select(.status == "warn")] | length' "$SUMMARY_JSON")"
 blocked_count="$(jq '.human_blockers | length' "$SUMMARY_JSON")"
+railway_candidate_count="$(jq '.railway.candidates | length' "$SUMMARY_JSON")"
 case "$overall_status" in
   passed) status_color="#137333" ;;
   warn) status_color="#b06000" ;;
   *) status_color="#a50e0e" ;;
 esac
+
+railway_candidates_md="$(jq -r '
+  if length == 0 then
+    "- No Railway project candidates were captured in this run."
+  else
+    .[]
+    | "- \(.project_name) (`\(.project_id)`) - services: \(([.services[].service_name] | join(", ")) // "none"); environments: \(([.environments[].environment_name] | join(", ")) // "none"); likely match: \(.likely_match)"
+  end
+' <<<"$railway_candidates_json")"
 
 cat >"$PREFLIGHT_SVG" <<EOF
 <svg xmlns="http://www.w3.org/2000/svg" width="960" height="540" viewBox="0 0 960 540" role="img" aria-labelledby="title desc">
@@ -311,6 +369,7 @@ cat >"$PREFLIGHT_SVG" <<EOF
   <text x="724" y="238" font-family="ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="34" font-weight="700" fill="#a50e0e">${blocked_count}</text>
   <text x="70" y="326" font-family="ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="18" font-weight="700" fill="#202124">Next Gate</text>
   <text x="70" y="360" font-family="ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="16" fill="#202124">Resolve human_blockers in summary.json, then run production-readiness.sh with execution disabled.</text>
+  <text x="70" y="390" font-family="ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="16" fill="#202124">Railway candidates captured: ${railway_candidate_count}</text>
   <text x="70" y="410" font-family="ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="18" font-weight="700" fill="#202124">Worker</text>
   <text x="70" y="444" font-family="ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="16" fill="#202124">${WORKER_ID}</text>
   <text x="70" y="474" font-family="ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="13" fill="#64615a">Source: ${SUMMARY_JSON}</text>
@@ -348,8 +407,16 @@ flowchart TD
 - Visual summary: \`${PREFLIGHT_SVG}\`
 - Machine summary: \`${SUMMARY_JSON}\`
 - Gate table: \`${GATES_TSV}\`
+- Railway candidates: \`${PROOF_DIR}/railway-candidates.json\`
 
 Run with \`STRICT=1\` when a blocked gate should fail the command.
+
+## Railway Candidate Projects
+
+These are captured with \`railway project list --json\` only. The preflight does
+not run \`railway link\`, select an environment, set variables, or deploy.
+
+${railway_candidates_md}
 
 ## Machine Summary
 
