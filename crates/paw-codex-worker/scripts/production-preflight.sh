@@ -6,6 +6,7 @@ STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 PROOF_DIR="${PROOF_DIR:-/tmp/paw-patrol-production-preflight-${STAMP}-$$}"
 GATES_TSV="${PROOF_DIR}/gates.tsv"
 SUMMARY_JSON="${PROOF_DIR}/summary.json"
+HUMAN_BLOCKERS_JSON="${PROOF_DIR}/human-blockers.json"
 PROOF_MD="${PROOF_DIR}/proof.md"
 PREFLIGHT_SVG="${PROOF_DIR}/preflight.svg"
 OPERATOR_HANDOFF_MD="${PROOF_DIR}/operator-handoff.md"
@@ -364,6 +365,7 @@ summary_json="$(jq -n \
 
 printf '%s\n' "$railway_candidates_json" >"${PROOF_DIR}/railway-candidates.json"
 printf '%s\n' "$summary_json" >"$SUMMARY_JSON"
+jq '.human_blockers' "$SUMMARY_JSON" >"$HUMAN_BLOCKERS_JSON"
 
 pass_count="$(jq '[.gates[] | select(.status == "pass")] | length' "$SUMMARY_JSON")"
 warn_count="$(jq '[.gates[] | select(.status == "warn")] | length' "$SUMMARY_JSON")"
@@ -467,6 +469,7 @@ flowchart TD
 - Visual summary: \`${PREFLIGHT_SVG}\`
 - Operator handoff: \`${OPERATOR_HANDOFF_MD}\`
 - Machine summary: \`${SUMMARY_JSON}\`
+- Standalone blocker list: \`${HUMAN_BLOCKERS_JSON}\`
 - Gate table: \`${GATES_TSV}\`
 - Railway candidates: \`${PROOF_DIR}/railway-candidates.json\`
 
@@ -503,6 +506,7 @@ values and the preflight did not mutate Railway, launchd, or Temper.
 - Human blockers: \`${blocked_count}\`
 - Railway candidates captured: \`${railway_candidate_count}\`
 - Machine summary: \`${SUMMARY_JSON}\`
+- Standalone blocker list: \`${HUMAN_BLOCKERS_JSON}\`
 - Visual summary: \`${PREFLIGHT_SVG}\`
 
 ## Human Blocker Decisions

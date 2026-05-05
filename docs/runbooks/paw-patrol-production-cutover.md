@@ -90,6 +90,8 @@ Evidence to capture:
 
 - proof bundle path under `/tmp/paw-patrol-production-preflight-*`;
 - `summary.json`;
+- `human-blockers.json`, the standalone blocker list for agents and quick
+  human review;
 - `proof.md`;
 - `operator-handoff.md`;
 - `gates.tsv`;

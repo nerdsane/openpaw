@@ -1012,6 +1012,36 @@ fn production_docs_explain_patrol_session_provider_configuration() {
 }
 
 #[test]
+fn production_preflight_exports_standalone_human_blockers_artifact() {
+    let root = repo_root();
+    let script = read(root.join("crates/paw-codex-worker/scripts/production-preflight.sh"));
+    let runbook = read(root.join("docs/runbooks/paw-patrol-production-cutover.md"));
+    let readme = read(root.join("crates/paw-codex-worker/README.md"));
+
+    for needle in [
+        "HUMAN_BLOCKERS_JSON",
+        "human-blockers.json",
+        ".human_blockers",
+    ] {
+        assert!(
+            script.contains(needle),
+            "production preflight should export standalone blocker artifact: {needle}"
+        );
+    }
+
+    for needle in ["human-blockers.json", "standalone blocker list"] {
+        assert!(
+            runbook.contains(needle),
+            "production cutover runbook should mention blocker artifact: {needle}"
+        );
+        assert!(
+            readme.contains(needle),
+            "worker README should mention blocker artifact: {needle}"
+        );
+    }
+}
+
+#[test]
 fn paw_patrol_acceptance_harness_collects_quick_and_live_proofs() {
     let root = repo_root();
     let script = read(root.join("crates/paw-codex-worker/scripts/paw-patrol-acceptance.sh"));

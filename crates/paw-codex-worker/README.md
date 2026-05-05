@@ -290,10 +290,11 @@ review surface with links to logs, JSON, proof markdown, and generated SVGs.
 ## Production Readiness
 
 First run the non-mutating preflight. It writes a small proof bundle with
-`summary.json`, `proof.md`, `operator-handoff.md`, `preflight.svg`,
-`railway-candidates.json`, and `human_blockers` so the operator can see which
+`summary.json`, `human-blockers.json`, `proof.md`, `operator-handoff.md`,
+`preflight.svg`, and `railway-candidates.json` so the operator can see which
 Railway project/service, launchd, webhook, and token gates still need human
-input. It does not mutate Railway, launchd, or Temper:
+input. `human-blockers.json` is the standalone blocker list for agents and
+quick human review. It does not mutate Railway, launchd, or Temper:
 
 ```sh
 crates/paw-codex-worker/scripts/production-preflight.sh
