@@ -6,11 +6,20 @@ Current branch: `codex/paw-patrol-dark-factory`
 
 Current PR: <https://github.com/nerdsane/temperpaw/pull/218>
 
-Exact current head: inspect PR #218 and
-`/tmp/paw-patrol-production-preflight-current-railway/summary.json`. The
-production preflight summary now records `git_head`, `git_branch`,
-`git_status_short`, and `git_clean` so this committed audit file does not become
-the only source of truth when later proof-only commits move the PR head.
+Latest exact-head evidence at the time of this audit refresh:
+
+- PR #218 head: `83cb8966322cb8025f883f00f4a1ac461daa5ccb`
+- GitHub CI: passed at
+  <https://github.com/nerdsane/temperpaw/actions/runs/25403447886>
+- current-head quick acceptance:
+  `/tmp/paw-patrol-acceptance-quick-83cb8966`
+- current-head production preflight:
+  `/tmp/paw-patrol-production-preflight-83cb8966`
+
+The PR body and the latest production preflight summary remain the canonical
+moving evidence. The preflight summary records `git_head`, `git_branch`,
+`git_status_short`, and `git_clean` so later proof-only commits can be audited
+without trusting this Markdown file by itself.
 
 ## Objective Restated
 
@@ -54,21 +63,23 @@ Patrol-controlled Dark Factory:
 
 ## Current Verification Evidence
 
-- GitHub CI: inspect PR #218 for the latest run; the PR #218 body records the
-  current head, latest green run URL, and current quick proof bundle.
+- GitHub CI: passed on PR #218 head
+  `83cb8966322cb8025f883f00f4a1ac461daa5ccb`:
+  <https://github.com/nerdsane/temperpaw/actions/runs/25403447886>
 - Live acceptance: `/tmp/paw-patrol-acceptance-live-b8be8d80`
 - Live acceptance status: passed, 29 gates, clean worktree, exact head
   `b8be8d80bf72a5737623dadbb3e22dba3e3e80d8`
-- Current-head quick acceptance: use the latest exact-head quick acceptance proof
-  bundle named in the PR #218 body, then verify its `summary.json` stamp.
-- Current-head quick acceptance status: passed, 24 gates, with exact head,
-  branch, status, and clean-worktree stamp recorded in that bundle.
+- Current-head quick acceptance:
+  `/tmp/paw-patrol-acceptance-quick-83cb8966`
+- Current-head quick acceptance status: passed, 24 gates, exact head
+  `83cb8966322cb8025f883f00f4a1ac461daa5ccb`, branch
+  `codex/paw-patrol-dark-factory`, clean worktree.
 - Railway-enabled read-only production preflight:
-  `/tmp/paw-patrol-production-preflight-current-railway`
+  `/tmp/paw-patrol-production-preflight-83cb8966`
 - Production preflight status: `blocked`
 - Production preflight exact-head evidence: `git_head`,
   `git_branch`, `git_status_short`, and `git_clean` in
-  `/tmp/paw-patrol-production-preflight-current-railway/summary.json`
+  `/tmp/paw-patrol-production-preflight-83cb8966/summary.json`
 - Production preflight human blockers: 12
 
 Targeted regressions rerun after independent reviewer concerns:

@@ -2,6 +2,21 @@
 
 Date: 2026-05-05
 
+Latest exact-head refresh after documentation/readability ratchets:
+
+- PR #218 head: `83cb8966322cb8025f883f00f4a1ac461daa5ccb`
+- GitHub CI: passed at
+  <https://github.com/nerdsane/temperpaw/actions/runs/25403447886>
+- current-head quick acceptance:
+  `/tmp/paw-patrol-acceptance-quick-83cb8966` with 24/24 gates passed
+- current-head production preflight:
+  `/tmp/paw-patrol-production-preflight-83cb8966`, status `blocked`, with 12
+  human-controlled blockers
+
+The older live acceptance bundles below remain the full local E2E evidence for
+the last functional code head; the latest current-head quick proof and CI cover
+the subsequent docs/readability commits.
+
 ## Objective Restated
 
 Make TemperPaw `paw-patrol` fully working and usable as the
