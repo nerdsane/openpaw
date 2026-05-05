@@ -255,7 +255,12 @@ if [[ "$CHECK_GITHUB" == "1" ]]; then
       elif [[ "${CONFIRM_TEMPER_PIN_OK:-0}" == "1" ]]; then
         add_gate "github:temper_pr_216" "pass" "operator confirmed the current TemperPaw git-revision pin is approved while Temper PR #216 remains unmerged" "${PROOF_DIR}/temper-pr-216.json"
       else
-        add_gate "github:temper_pr_216" "blocked" "Temper Cedar dependency PR #216 is still draft or unmerged; set CONFIRM_TEMPER_PIN_OK=1 only if production may use the pinned Temper revision" "${PROOF_DIR}/temper-pr-216.json"
+        if jq -e '.isDraft == true' "${PROOF_DIR}/temper-pr-216.json" >/dev/null 2>&1; then
+          temper_pr_state="still draft and unmerged"
+        else
+          temper_pr_state="ready for review but unmerged"
+        fi
+        add_gate "github:temper_pr_216" "blocked" "Temper Cedar dependency PR #216 is ${temper_pr_state}; set CONFIRM_TEMPER_PIN_OK=1 only if production may use the pinned Temper revision" "${PROOF_DIR}/temper-pr-216.json"
       fi
     else
       add_gate "github:temper_pr_216" "warn" "could not inspect Temper PR #216" "${PROOF_DIR}/temper-pr-216.json"
