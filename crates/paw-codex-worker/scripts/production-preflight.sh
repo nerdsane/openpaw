@@ -131,6 +131,12 @@ else
   add_gate "env:worker_token" "blocked" "WORKER_TOKEN is missing" "mint or provide a Temper worker credential"
 fi
 
+if [[ -n "${PATROL_OPERATOR_TOKEN:-}" ]]; then
+  add_gate "env:patrol_operator_token" "pass" "PATROL_OPERATOR_TOKEN is set" "value intentionally not printed"
+else
+  add_gate "env:patrol_operator_token" "blocked" "PATROL_OPERATOR_TOKEN is missing; production-observe-only.sh needs an operator/system token for the low-risk proof write" "human input required"
+fi
+
 if [[ "${CONFIRM_LOCAL_CODEX_WORKER_ID:-}" == "$WORKER_ID" || "${LOCAL_CODEX_WORKER_ID_CONFIRMED:-0}" == "1" ]]; then
   add_gate "temper:local_codex_worker_id" "pass" "production local_codex_worker_id is confirmed for ${WORKER_ID}" "operator confirmation"
 else

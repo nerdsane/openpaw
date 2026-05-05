@@ -35,6 +35,8 @@ jobs:
           bash -n crates/paw-codex-worker/scripts/webhook-intake-smoke.sh
           bash -n crates/paw-codex-worker/scripts/production-readiness.sh
           bash -n crates/paw-codex-worker/scripts/production-preflight.sh
+          bash -n crates/paw-codex-worker/scripts/production-observe-only.sh
+          bash -n crates/paw-codex-worker/scripts/production-observe-only-smoke.sh
           bash -n crates/paw-codex-worker/scripts/production-readiness-smoke.sh
           bash -n crates/paw-codex-worker/scripts/paw-patrol-acceptance.sh
       - name: WASM build (os-apps)

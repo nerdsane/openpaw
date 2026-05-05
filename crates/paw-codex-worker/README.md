@@ -231,6 +231,7 @@ a final cutover checklist:
 STRICT=1 \
 TEMPER_URL=https://your-railway-temperpaw.example \
 WORKER_TOKEN="$TEMPER_WORKER_TOKEN" \
+PATROL_OPERATOR_TOKEN="$TEMPER_OPERATOR_TOKEN" \
 CONFIRM_LOCAL_CODEX_WORKER_ID=mac-mini-codex-prod \
 CONFIRM_TEMPER_PIN_OK=1 \
 crates/paw-codex-worker/scripts/production-preflight.sh
@@ -332,6 +333,29 @@ launchctl kickstart -k gui/$(id -u)/com.temperpaw.paw-codex-worker
 Use `paw-codex-worker doctor` with the same plist environment before
 `launchctl bootstrap`; any `fail` line should be fixed before the worker is
 allowed to claim production WorkerRuns.
+
+After launchd is loaded with `PAW_CODEX_ENABLE_EXECUTION=0`, run the guarded
+observe-only proof. This creates a low-risk `RepoGraphSnapshot`, waits for the
+Mac mini worker, independent reviewer, evaluation gate, final `ProofPacket`, and
+`DailyBrief`, and writes `summary.json`, `proof.md`, and `observe-only.svg`.
+The script refuses to write anything unless `ALLOW_PRODUCTION_WRITE=1` and the
+operator confirms the launchd worker is still observe-only:
+
+```sh
+ALLOW_PRODUCTION_WRITE=1 \
+CONFIRM_PAW_CODEX_ENABLE_EXECUTION_0=1 \
+TEMPER_URL=https://your-railway-temperpaw.example \
+TEMPER_TENANT=default \
+PATROL_OPERATOR_TOKEN="$TEMPER_OPERATOR_TOKEN" \
+EXPECTED_WORKER_ID=mac-mini-codex-prod \
+crates/paw-codex-worker/scripts/production-observe-only.sh
+```
+
+To prove the same gate locally with fake Codex and no production writes:
+
+```sh
+crates/paw-codex-worker/scripts/production-observe-only-smoke.sh
+```
 
 The checked-in `launchd/com.temperpaw.paw-codex-worker.plist` remains a static
 template, but `launchd-plist` is the safer production path because it renders

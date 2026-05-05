@@ -43,13 +43,14 @@ Patrol-controlled Dark Factory:
 | Temper Cedar supports resource ABAC needed by Patrol policies | Temper worktree `crates/temper-authz/src/engine/*`; TemperPaw `crates/temperpaw/Cargo.toml` | `test_resource_attribute_access_in_policy` passes; resource attributes are now attached to Cedar resource entities. The Temper fix is pushed at `557db7f30814801ad42d28e92725d007c6ce7732`, rebased on current Temper main, and TemperPaw is pinned to that portable git revision | Done in sibling Temper branch |
 | Temper dependency handoff is portable | TemperPaw `crates/temperpaw/Cargo.toml`, `Cargo.lock` | The temporary local path patch was removed. TemperPaw now resolves Temper crates from `https://github.com/nerdsane/temper.git` at `557db7f30814801ad42d28e92725d007c6ce7732`; `cargo check --locked -p temperpaw -p paw-codex-worker` passes | Done |
 | Worker runbook is usable from a worktree | `crates/paw-codex-worker/README.md` | Local test and deterministic smoke commands use `REPO_ROOT="$(pwd)"` and fixture paths under the current checkout; README calls out `jq`, fake Codex, stop/cleanup, doctor, and launchd-plist flow | Done |
-| One-command acceptance proof is available | `crates/paw-codex-worker/scripts/paw-patrol-acceptance.sh`, `crates/paw-codex-worker/README.md` | Acceptance harness has `quick` and `live` modes; quick collects syntax, fmt, diff, cargo check, foundation, and worker-test evidence into `index.html`, `summary.json`, `proof.md`, and `acceptance.log`; live also runs deterministic, webhook, repo-sweep/brief, and production-readiness smokes into stable subdirectories and embeds available SVG proof visuals in the browser-readable index | Done |
-| Live smoke scripts avoid local port collisions | `deterministic-smoke.sh`, `webhook-intake-smoke.sh`, `repo-sweep-brief-smoke.sh`, `production-readiness-smoke.sh` | Acceptance found an actual collision on the implicit webhook trigger port. The scripts now choose a base port only when both the OData port and `PORT + 12` webhook trigger port are free; foundation test `live_smoke_scripts_choose_non_colliding_odata_and_webhook_ports` passes | Done |
+| One-command acceptance proof is available | `crates/paw-codex-worker/scripts/paw-patrol-acceptance.sh`, `crates/paw-codex-worker/README.md` | Acceptance harness has `quick` and `live` modes; quick collects syntax, fmt, diff, cargo check, foundation, worker-test, and production-preflight evidence into `index.html`, `summary.json`, `proof.md`, and `acceptance.log`; live also runs deterministic, webhook, repo-sweep/brief, production-readiness, and production observe-only smokes into stable subdirectories and embeds available SVG proof visuals in the browser-readable index | Done |
+| Live smoke scripts avoid local port collisions | `deterministic-smoke.sh`, `webhook-intake-smoke.sh`, `repo-sweep-brief-smoke.sh`, `production-readiness-smoke.sh`, `production-observe-only-smoke.sh` | Acceptance found an actual collision on the implicit webhook trigger port. The scripts now choose a base port only when both the OData port and `PORT + 12` webhook trigger port are free; foundation test `live_smoke_scripts_choose_non_colliding_odata_and_webhook_ports` passes | Done |
 | Deterministic smoke can be run as one command | `crates/paw-codex-worker/scripts/deterministic-smoke.sh` | Script boots local TemperPaw, submits a PatrolRequest, starts fake local worker, polls WorkCycle/FactoryCase/Review/Evaluation/Proof states, writes a proof bundle with `summary.json`, `proof.json`, `proof.md`, and `proof.svg`, prints JSON entity summary, and cleans up the temporary worktree/branch | Done |
 | Webhook intake smoke can be run as one command | `crates/paw-codex-worker/scripts/webhook-intake-smoke.sh`, `crates/paw-codex-worker/README.md` | Script boots local TemperPaw, posts to `/triggers/webhook/patrol-request`, `/triggers/webhook/patrol-datadog`, `/triggers/webhook/patrol-github`, and `/triggers/webhook/patrol-discord`, waits for WebhookEvent Processed plus PatrolRequest/Signal Linked states, and writes a visual intake proof bundle | Done |
 | Repo sweep and daily brief smoke can be run as one command | `crates/paw-codex-worker/scripts/repo-sweep-brief-smoke.sh`, `crates/paw-codex-worker/README.md` | Script boots local TemperPaw, starts RepoGraphSnapshot.StartScan, runs the local worker repo scan, waits for review/evaluation/proof closeout, starts DailyBrief, and writes `summary.json`, `repo-graph.json`, `proof.json`, `proof.md`, `proof.svg`, and `daily-brief.svg` | Done |
 | Mac mini production activation is checkable | `crates/paw-codex-worker/scripts/production-readiness.sh`, `production-readiness-smoke.sh`, `README.md` | Script builds the release worker, runs `paw-codex-worker doctor`, renders launchd only with `WRITE_LAUNCHD_PLIST=1`, installs launchd only with `INSTALL_LAUNCHD=1`, defaults execution off, and does not print `WORKER_TOKEN`. Live readiness smoke proved doctor OData/event-stream checks and plist rendering against local TemperPaw without loading launchd | Done locally; production inputs still human-blocked |
-| Production human blockers are machine-readable and visual | `crates/paw-codex-worker/scripts/production-preflight.sh`, `crates/paw-codex-worker/scripts/paw-patrol-acceptance.sh`, `docs/runbooks/paw-patrol-production-cutover.md` | Non-mutating preflight writes `summary.json`, `proof.md`, `gates.tsv`, and `preflight.svg`; default read-only run recorded 10 current `human_blockers`, including missing `TEMPER_URL`, missing `WORKER_TOKEN`, launchd not loaded, Railway project not linked, and Temper PR #216 still draft/unmerged | Done locally; blockers require human input |
+| Production human blockers are machine-readable and visual | `crates/paw-codex-worker/scripts/production-preflight.sh`, `crates/paw-codex-worker/scripts/paw-patrol-acceptance.sh`, `docs/runbooks/paw-patrol-production-cutover.md` | Non-mutating preflight writes `summary.json`, `proof.md`, `gates.tsv`, and `preflight.svg`; default read-only run records current `human_blockers`, including missing `TEMPER_URL`, missing `WORKER_TOKEN`, missing `PATROL_OPERATOR_TOKEN`, launchd not loaded, Railway project not linked, and Temper PR #216 still draft/unmerged | Done locally; blockers require human input |
+| Production observe-only proof is executable | `crates/paw-codex-worker/scripts/production-observe-only.sh`, `production-observe-only-smoke.sh`, `README.md`, `docs/runbooks/paw-patrol-production-cutover.md` | Guarded script refuses production writes unless `ALLOW_PRODUCTION_WRITE=1` and `CONFIRM_PAW_CODEX_ENABLE_EXECUTION_0=1`; local smoke booted TemperPaw, ran the worker in `PAW_CODEX_ENABLE_EXECUTION=0`, created a RepoGraphSnapshot, waited for WorkerRun Done, ReviewRun Approved, EvaluationRun Passed, ProofPacket Ready, DailyBrief Ready, and wrote `summary.json`, `proof.md`, `observe-only.svg`, `proof-packet.svg`, and `daily-brief.svg` | Done locally; production run still needs human tokens/launchd |
 | Mac mini Codex auth/session is checkable before launchd | `crates/paw-codex-worker/src/doctor.rs`, `production-readiness.sh`, `production-readiness-smoke.sh`, `README.md`, `docs/runbooks/paw-patrol-production-cutover.md` | `PAW_CODEX_DOCTOR_EXEC_SMOKE=1` makes `paw-codex-worker doctor` run a tiny `codex exec --skip-git-repo-check` prompt in a temporary directory before launchd is rendered/installed. The guarded local readiness smoke now proves `codex_exec_smoke: "doctor pass"` while `PAW_CODEX_ENABLE_EXECUTION=0` remains observe-only | Done locally; production real-Codex smoke still needs Railway token/user approval |
 | Production cutover blockers are mapped to gates | `docs/runbooks/paw-patrol-production-cutover.md`, `crates/paw-codex-worker/README.md` | Runbook gives a visual cutover map, required human inputs, Railway/Cedar/launchd/webhook gates, exact commands, evidence to capture, and rollback; foundation test `production_cutover_runbook_maps_every_human_blocker_to_a_gate` passes | Done |
 | CI covers Patrol worker and WASM gates | `.github/workflows/ci.yml`, `crates/temperpaw/tests/paw_patrol_foundation.rs` | CI now checks `paw-codex-worker` clippy/test/check, validates deterministic smoke script syntax, and builds `paw-ingest` plus `paw-patrol` WASM modules. Foundation test `ci_covers_paw_patrol_worker_and_wasm_gates` passes | Done locally |
@@ -84,6 +85,12 @@ bash -n crates/paw-codex-worker/scripts/production-readiness.sh
 bash -n crates/paw-codex-worker/scripts/production-preflight.sh
   passed
 
+bash -n crates/paw-codex-worker/scripts/production-observe-only.sh
+  passed
+
+bash -n crates/paw-codex-worker/scripts/production-observe-only-smoke.sh
+  passed
+
 bash -n crates/paw-codex-worker/scripts/production-readiness-smoke.sh
   passed
 
@@ -96,13 +103,15 @@ crates/paw-codex-worker/scripts/paw-patrol-acceptance.sh quick
 
 crates/paw-codex-worker/scripts/paw-patrol-acceptance.sh live
   passed
-  Proof bundle: /tmp/paw-patrol-acceptance-20260505T113636Z-96246
-  Browser index: /tmp/paw-patrol-acceptance-20260505T113636Z-96246/index.html
+  Proof bundle: /tmp/paw-patrol-acceptance-20260505T120421Z-25682
+  Browser index: /tmp/paw-patrol-acceptance-20260505T120421Z-25682/index.html
+  Passed gates: 20
   Visuals embedded: deterministic-smoke/proof.svg,
     webhook-intake-smoke/webhook-intake.svg,
     repo-sweep-brief-smoke/proof.svg,
     repo-sweep-brief-smoke/daily-brief.svg,
-    production-preflight/preflight.svg
+    production-preflight/preflight.svg,
+    production-observe-only/observe-only.svg
   GitHub webhook evidence: webhook-intake-smoke/github-webhook-event.json,
     webhook-intake-smoke/github-signal.json, GitHub Signal Linked
   Default schedule evidence:
@@ -113,7 +122,7 @@ cargo check --locked -p temperpaw -p paw-codex-worker
   passed
 
 cargo test --locked -p temperpaw --test paw_patrol_foundation -- --nocapture
-  28 passed
+  29 passed
 
 cargo test --locked -p paw-codex-worker -- --nocapture
   18 passed
@@ -186,13 +195,26 @@ crates/paw-codex-worker/scripts/production-readiness-smoke.sh
 crates/paw-codex-worker/scripts/production-preflight.sh
   passed as a non-mutating readiness inventory
   Status: blocked
-  Human blockers: 10
+  Human blockers: 11
   Proof bundle: /tmp/paw-patrol-production-preflight-real
   Visual summary: /tmp/paw-patrol-production-preflight-real/preflight.svg
   Key blockers recorded: missing TEMPER_URL, missing WORKER_TOKEN,
-    unconfirmed local_codex_worker_id, missing production webhook secrets,
-    launchd plist not rendered, launchd worker not loaded, Railway project not
-    linked, Temper PR #216 still draft/unmerged
+    missing PATROL_OPERATOR_TOKEN, unconfirmed local_codex_worker_id, missing
+    production webhook secrets, launchd plist not rendered, launchd worker not
+    loaded, Railway project not linked, Temper PR #216 still draft/unmerged
+
+crates/paw-codex-worker/scripts/production-observe-only-smoke.sh
+  passed
+  RepoGraphSnapshot: en-019df804-0260-7642-8515-54014444eece Ready
+  WorkCycle: wc-019df804-0386-7e91-ac2d-d4345885e989 Complete
+  WorkerRun: en-019df804-038f-7080-840f-9d8e0a0198fa Done
+  ReviewRun: en-019df804-05cd-7ad1-8e1a-a42c713f4746 Approved
+  EvaluationRun: en-019df804-05d4-74c3-b78f-96f48d2a6bc4 Passed
+  ProofPacket: en-019df804-05c4-7030-8799-11dfabfdfde4 Ready
+  DailyBrief: en-019df804-0b71-78e3-8791-d3b6d2540ce6 Ready
+  Worker execution enabled: false
+  Proof bundle: /tmp/paw-patrol-observe-smoke-proof-4886-21698
+  Visual summary: /tmp/paw-patrol-observe-smoke-proof-4886-21698/observe-only.svg
 
 codex exec --skip-git-repo-check "PAW_CODEX_DOCTOR_EXEC_SMOKE: ..."
   passed under the current Mac user
@@ -203,7 +225,7 @@ git ls-remote --heads origin codex/cedar-resource-attrs
 ```
 
 The latest live local E2E proof bundle at
-`/tmp/paw-patrol-acceptance-20260505T113636Z-96246` booted local TemperPaw with
+`/tmp/paw-patrol-acceptance-20260505T120421Z-25682` booted local TemperPaw with
 `TEMPERPAW_WASM_STARTUP_POLICY=build`, submitted a PatrolRequest, ran the fake
 local Codex worker, and observed:
 
@@ -235,7 +257,7 @@ The local software loop is implemented and usable:
 The full production loop is not activated in this thread because it requires
 human-provided production inputs:
 
-- Railway TemperPaw URL and worker token;
+- Railway TemperPaw URL, worker token, and Patrol operator token;
 - confirmation of the worker principal/identity to register in production;
 - Mac mini launchd installation approval;
 - production Datadog/Discord/GitHub webhook secret configuration;

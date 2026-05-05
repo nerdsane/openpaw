@@ -29,6 +29,7 @@ flowchart TD
 | --- | --- | --- |
 | Railway TemperPaw URL | Railway production service | The Mac mini worker connects outbound to production `/tdata/$events` and OData. |
 | `WORKER_TOKEN` | Production Temper/Cedar operator | Authenticates the worker without exposing production database access. |
+| `PATROL_OPERATOR_TOKEN` | Production Temper/Cedar operator | Lets the observe-only proof create a low-risk RepoGraphSnapshot and DailyBrief without using the worker credential for operator work. |
 | `local_codex_worker_id` | TemperPaw secret/config | Must match `WORKER_ID=mac-mini-codex-prod` so Cedar can authorize `WorkerRun.Claim`. |
 | Production Datadog webhook secret | Datadog/TemperPaw operator | Protects `/triggers/webhook/patrol-datadog`. |
 | Production Discord webhook secret | Discord/TemperPaw operator | Protects `/triggers/webhook/patrol-discord`. |
@@ -207,15 +208,38 @@ to Railway `/tdata/$events`, and no production token is printed.
 
 ## Gate 6: Production Observe-Only Proof
 
-With `PAW_CODEX_ENABLE_EXECUTION=0`, submit either a low-risk
-`RepoGraphSnapshot.StartScan` or a docs-only PatrolRequest. The first production
-test should prove queue visibility and claim authorization without permitting
-code-change execution.
+With `PAW_CODEX_ENABLE_EXECUTION=0`, run the guarded observe-only proof script.
+It creates a low-risk `RepoGraphSnapshot`, dispatches
+`TemperPaw.Patrol.StartScan`, waits for the queued `WorkerRun` to be claimed by
+`mac-mini-codex-prod`, waits for independent `ReviewRun` and `EvaluationRun`
+passage, captures the final `ProofPacket`, and renders a `DailyBrief`.
+
+The script refuses to create production entities unless `ALLOW_PRODUCTION_WRITE=1`
+and the operator confirms launchd is still observe-only:
+
+```sh
+ALLOW_PRODUCTION_WRITE=1 \
+CONFIRM_PAW_CODEX_ENABLE_EXECUTION_0=1 \
+TEMPER_URL=https://your-railway-temperpaw.example \
+TEMPER_TENANT=default \
+PATROL_OPERATOR_TOKEN="$TEMPER_OPERATOR_TOKEN" \
+EXPECTED_WORKER_ID=mac-mini-codex-prod \
+crates/paw-codex-worker/scripts/production-observe-only.sh
+```
+
+Before production, prove the same gate locally with fake Codex:
+
+```sh
+crates/paw-codex-worker/scripts/production-observe-only-smoke.sh
+```
 
 Evidence to capture:
 
-- PatrolRequest or RepoGraphSnapshot entity link;
-- FactoryCase link when applicable;
+- proof bundle under `/tmp/paw-patrol-production-observe-only-*`;
+- `summary.json`;
+- `proof.md`;
+- `observe-only.svg`;
+- RepoGraphSnapshot entity link;
 - WorkCycle link;
 - WorkerRun link with `allowed_worker_id = mac-mini-codex-prod`;
 - ReviewRun link;
@@ -224,8 +248,9 @@ Evidence to capture:
 - DailyBrief link if the test uses repo sweep or daily summary;
 - worker logs around claim, review, evaluation, and self-report.
 
-Pass condition: the entity graph moves through Temper-visible state
-transitions, and the ProofPacket is human-readable.
+Pass condition: `summary.json.status` is `passed`, WorkerRun is `Done`,
+ReviewRun is `Approved`, EvaluationRun is `Passed`, ProofPacket is `Ready`,
+DailyBrief is `Ready`, and `worker.execution_enabled` is `false`.
 
 ## Gate 7: Webhook Secrets
 

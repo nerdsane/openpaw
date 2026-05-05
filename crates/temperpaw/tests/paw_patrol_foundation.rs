@@ -414,6 +414,7 @@ fn live_smoke_scripts_choose_non_colliding_odata_and_webhook_ports() {
         "webhook-intake-smoke.sh",
         "repo-sweep-brief-smoke.sh",
         "production-readiness-smoke.sh",
+        "production-observe-only-smoke.sh",
     ] {
         let script = read(
             root.join("crates/paw-codex-worker/scripts")
@@ -533,6 +534,7 @@ fn production_readiness_script_keeps_mac_mini_activation_checkable() {
         "human_blockers",
         "TEMPER_URL",
         "WORKER_TOKEN",
+        "PATROL_OPERATOR_TOKEN",
         "launchctl print",
         "railway status",
         "CHECK_RAILWAY",
@@ -590,6 +592,89 @@ fn production_readiness_script_keeps_mac_mini_activation_checkable() {
         assert!(
             env_example.contains(needle),
             ".env.example should document Patrol worker activation: {needle}"
+        );
+    }
+}
+
+#[test]
+fn production_observe_only_script_turns_cutover_gate_into_a_guarded_proof() {
+    let root = repo_root();
+    let script = read(root.join("crates/paw-codex-worker/scripts/production-observe-only.sh"));
+    let smoke = read(root.join("crates/paw-codex-worker/scripts/production-observe-only-smoke.sh"));
+    let acceptance = read(root.join("crates/paw-codex-worker/scripts/paw-patrol-acceptance.sh"));
+    let ci = read(root.join(".github/workflows/ci.yml"));
+    let readme = read(root.join("crates/paw-codex-worker/README.md"));
+    let runbook = read(root.join("docs/runbooks/paw-patrol-production-cutover.md"));
+
+    for needle in [
+        "ALLOW_PRODUCTION_WRITE=1",
+        "PATROL_OPERATOR_TOKEN",
+        "RepoGraphSnapshots",
+        "TemperPaw.Patrol.StartScan",
+        "WorkerRuns",
+        "WorkCycles",
+        "ReviewRuns",
+        "EvaluationRuns",
+        "ProofPackets",
+        "DailyBriefs",
+        "summary.json",
+        "proof.md",
+        "observe-only.svg",
+        "allowed_worker_id",
+        "PAW_CODEX_ENABLE_EXECUTION=0",
+    ] {
+        assert!(
+            script.contains(needle),
+            "production observe-only script should make Gate 6 executable and evidenced: {needle}"
+        );
+    }
+
+    for needle in [
+        "production-observe-only.sh",
+        "ALLOW_PRODUCTION_WRITE=1",
+        "PAW_CODEX_ENABLE_EXECUTION=0",
+        "fixtures/fake-codex.sh",
+        "production observe-only smoke passed",
+        "observe-only.svg",
+    ] {
+        assert!(
+            smoke.contains(needle),
+            "production observe-only smoke should prove the guarded script locally: {needle}"
+        );
+    }
+
+    for needle in [
+        "production-observe-only.sh",
+        "production-observe-only-smoke.sh",
+        "production-observe-only/summary.json",
+        "production-observe-only/observe-only.svg",
+    ] {
+        assert!(
+            acceptance.contains(needle),
+            "acceptance harness should collect observe-only proof evidence: {needle}"
+        );
+    }
+
+    for needle in [
+        "bash -n crates/paw-codex-worker/scripts/production-observe-only.sh",
+        "bash -n crates/paw-codex-worker/scripts/production-observe-only-smoke.sh",
+    ] {
+        assert!(ci.contains(needle), "CI should syntax-check {needle}");
+    }
+
+    for needle in [
+        "production-observe-only.sh",
+        "production-observe-only-smoke.sh",
+        "ALLOW_PRODUCTION_WRITE=1",
+        "PATROL_OPERATOR_TOKEN",
+    ] {
+        assert!(
+            readme.contains(needle),
+            "worker README should document observe-only production proof: {needle}"
+        );
+        assert!(
+            runbook.contains(needle),
+            "production runbook should document observe-only production proof: {needle}"
         );
     }
 }
