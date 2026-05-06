@@ -32,6 +32,10 @@ fn render_launchd_plist(config: &Config, worker_bin: &Path, eval_commands: Optio
             if config.codex_exec_smoke { "1" } else { "0" },
         ),
         (
+            "PAW_CODEX_EXEC_TIMEOUT_SECS",
+            config.codex_exec_timeout.as_secs().to_string().leak(),
+        ),
+        (
             "RUST_LOG",
             env::var("RUST_LOG")
                 .ok()

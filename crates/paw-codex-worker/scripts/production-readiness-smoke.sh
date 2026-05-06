@@ -169,6 +169,7 @@ CODEX_BIN="$ROOT/crates/paw-codex-worker/fixtures/fake-codex.sh" \
 PAW_CODEX_ENABLE_EXECUTION=0 \
 PAW_CODEX_DOCTOR_EXEC_SMOKE=1 \
 PAW_CODEX_POLL_ON_START=1 \
+PAW_CODEX_EXEC_TIMEOUT_SECS=1200 \
 WRITE_LAUNCHD_PLIST=1 \
 INSTALL_LAUNCHD=0 \
 LAUNCHD_PLIST="$LAUNCHD_PLIST" \
@@ -199,6 +200,8 @@ assert_contains "$LAUNCHD_PLIST" "PAW_CODEX_ENABLE_EXECUTION"
 assert_contains "$LAUNCHD_PLIST" "<string>0</string>"
 assert_contains "$LAUNCHD_PLIST" "PAW_CODEX_DOCTOR_EXEC_SMOKE"
 assert_contains "$LAUNCHD_PLIST" "<string>1</string>"
+assert_contains "$LAUNCHD_PLIST" "PAW_CODEX_EXEC_TIMEOUT_SECS"
+assert_contains "$LAUNCHD_PLIST" "<string>1200</string>"
 
 summary_json="$(jq -n \
   --arg temper_url "$TEMPER_URL" \

@@ -18,6 +18,10 @@ fi
 prompt="${1:-}"
 
 case "$prompt" in
+  "PAW_FAKE_CODEX_HANG:"*)
+    sleep "${PAW_FAKE_CODEX_SLEEP_SECS:-5}"
+    echo "fake codex unexpectedly woke up"
+    ;;
   "PAW_CODEX_DOCTOR_EXEC_SMOKE:"*)
     echo "PAW_CODEX_DOCTOR_EXEC_OK"
     ;;
