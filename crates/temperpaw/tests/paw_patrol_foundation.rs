@@ -1150,6 +1150,23 @@ fn ci_covers_paw_patrol_worker_and_wasm_gates() {
 }
 
 #[test]
+fn production_docker_image_builds_patrol_wasm_modules() {
+    let root = repo_root();
+    let dockerfile = read(root.join("Dockerfile"));
+
+    for needle in [
+        "os-apps/paw-ingest/wasm && bash build.sh",
+        "os-apps/paw-managed-agents/wasm && bash build.sh",
+        "os-apps/paw-patrol/wasm && bash build.sh",
+    ] {
+        assert!(
+            dockerfile.contains(needle),
+            "production Docker image should build required app WASM modules: {needle}"
+        );
+    }
+}
+
+#[test]
 fn paw_patrol_is_discoverable_by_the_os_app_catalog() {
     let root = repo_root();
     temper_platform::os_apps::set_os_apps_dir(root.join("os-apps"));

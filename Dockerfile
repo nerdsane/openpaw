@@ -45,8 +45,11 @@ RUN cd os-apps/paw-agent/wasm && bash build.sh \
     && cd /app/os-apps/paw-channels/wasm && bash build.sh \
     && cd /app/os-apps/paw-fs/wasm/blob_adapter && bash build.sh \
     && cd /app/os-apps/paw-fs/wasm/workspace_fs && bash build.sh \
+    && cd /app/os-apps/paw-ingest/wasm && bash build.sh \
+    && cd /app/os-apps/paw-managed-agents/wasm && bash build.sh \
     && cd /app/os-apps/paw-skills/wasm && bash build.sh \
     && cd /app/os-apps/paw-research/wasm && bash build.sh \
+    && cd /app/os-apps/paw-patrol/wasm && bash build.sh \
     && cd /app/os-apps/katagami-curation/wasm && bash build.sh
 
 FROM debian:bookworm-slim
