@@ -570,27 +570,14 @@ mod tests {
     }
 
     #[test]
-    fn event_stream_poll_window_does_not_cancel_active_codex_runs() {
-        let config = Config {
-            temper_url: "http://127.0.0.1:3497".to_string(),
-            tenant: "default".to_string(),
-            worker_id: "mac-mini-codex-1".to_string(),
-            worker_token: Some("secret".to_string()),
-            workspace_root: PathBuf::from("/tmp/worktrees"),
-            repo_root: PathBuf::from("/tmp/temperpaw"),
-            codex_bin: "codex".to_string(),
-            max_concurrent_runs: 1,
-            enable_execution: true,
-            poll_on_start: true,
-            codex_exec_smoke: false,
-            codex_exec_timeout: Duration::from_secs(180),
-        };
+    fn event_stream_idle_timeout_does_not_wrap_active_work() {
+        let main_src = include_str!("main.rs");
 
-        assert_eq!(
-            event_stream_poll_window(&config),
-            Duration::from_secs(240),
-            "outer event-stream timeout must outlive the per-Codex exec timeout"
+        assert!(
+            main_src.contains("match watch_events(&client, &config).await"),
+            "main loop should not wrap the whole event watcher in a timeout"
         );
+        assert_eq!(event_stream_idle_window(), Duration::from_secs(60));
     }
 
     #[test]

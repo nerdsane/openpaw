@@ -19,7 +19,16 @@ async fn connect_and_watch_events(
 
     let mut buffer = String::new();
     let mut stream = response.bytes_stream();
-    while let Some(chunk) = stream.next().await {
+    loop {
+        let Some(chunk) = (match timeout(event_stream_idle_window(), stream.next()).await {
+            Ok(next) => next,
+            Err(_) => {
+                debug!(url, "Temper event stream idle window elapsed; using OData fallback");
+                return Ok(());
+            }
+        }) else {
+            return Ok(());
+        };
         let chunk = chunk.context("read SSE chunk")?;
         buffer.push_str(&String::from_utf8_lossy(&chunk));
 
@@ -31,8 +40,10 @@ async fn connect_and_watch_events(
             }
         }
     }
+}
 
-    Ok(())
+fn event_stream_idle_window() -> Duration {
+    Duration::from_secs(60)
 }
 
 async fn handle_event_payload(client: &reqwest::Client, config: &Config, data: &str) -> Result<()> {
