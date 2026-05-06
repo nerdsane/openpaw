@@ -39,6 +39,7 @@ jobs:
           bash -n crates/paw-codex-worker/scripts/production-preflight-github-smoke.sh
           bash -n crates/paw-codex-worker/scripts/production-observe-only-smoke.sh
           bash -n crates/paw-codex-worker/scripts/production-readiness-smoke.sh
+          bash -n crates/paw-codex-worker/scripts/mac-mini-production-bootstrap.sh
           bash -n crates/paw-codex-worker/scripts/ci-actions-runtime-smoke.sh
           bash -n crates/paw-codex-worker/scripts/paw-patrol-acceptance.sh
           crates/paw-codex-worker/scripts/ci-actions-runtime-smoke.sh

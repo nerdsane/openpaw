@@ -346,6 +346,22 @@ stream, fake Codex availability, a guarded `codex exec` doctor smoke,
 `PAW_CODEX_ENABLE_EXECUTION=0`, plist rendering, and that the worker token was
 not printed to the readiness log.
 
+On the production Mac mini, use the guarded bootstrap wrapper to avoid manually
+copying production tokens. It links the known Railway `openpaw` production
+service, reads `TEMPER_API_KEY` through `railway run` without printing it,
+renders the launchd plist, and optionally loads launchd plus runs the
+observe-only proof:
+
+```sh
+# Review/render plist only, execution disabled.
+crates/paw-codex-worker/scripts/mac-mini-production-bootstrap.sh
+
+# Install launchd and run the observe-only production proof.
+INSTALL_LAUNCHD=1 \
+RUN_OBSERVE_ONLY=1 \
+crates/paw-codex-worker/scripts/mac-mini-production-bootstrap.sh
+```
+
 ```sh
 TEMPER_URL=https://your-railway-temperpaw.example \
 TEMPER_TENANT=default \
