@@ -219,6 +219,11 @@ TriggerComplete schedules the next daily Trigger
 Pause or edit that PatrolSchedule in Temper if production should wait before
 daily repo sweeps and briefs begin.
 
+If a schedule fails because a required WASM module, policy, or secret was not
+loaded yet, repair the missing dependency and dispatch `PatrolSchedule.Recover`.
+Recovery recomputes `next_run_at` through the same `patrol_schedule_lifecycle`
+activation path and keeps the repair visible in the entity history.
+
 ## Mac Mini Worker
 
 The Mac mini runs `paw-codex-worker` under launchd. The worker connects outbound

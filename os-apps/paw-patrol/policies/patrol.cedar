@@ -138,6 +138,7 @@ permit(
     Action::"TriggerComplete",
     Action::"Pause",
     Action::"Resume",
+    Action::"Recover",
     Action::"Expire"
   ],
   resource
@@ -195,6 +196,7 @@ permit(
     Action::"TriggerComplete",
     Action::"Pause",
     Action::"Resume",
+    Action::"Recover",
     Action::"Expire",
     Action::"Fail"
   ],

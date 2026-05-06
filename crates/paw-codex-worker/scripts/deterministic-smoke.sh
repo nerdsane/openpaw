@@ -236,6 +236,8 @@ TEMPERPAW_WASM_STARTUP_POLICY=build \
 PORT="$PORT" \
 TEMPER_API_KEY="$API_KEY" \
 PAW_TENANT="$TENANT" \
+LOCAL_CODEX_WORKER_ID="$WORKER_ID" \
+LOCAL_CODEX_WORKTREE_ROOT="$WORKSPACE_ROOT" \
 TURSO_URL="file:${DB_PATH}" \
 cargo run -p temperpaw >/tmp/paw-patrol-smoke-server.log 2>&1 &
 SERVER_PID="$!"

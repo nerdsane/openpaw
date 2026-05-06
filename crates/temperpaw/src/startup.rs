@@ -1138,6 +1138,19 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
         let api_url = format!("http://127.0.0.1:{actual_port}");
         let _ = vault.cache_platform_secret("temper_api_url", api_url);
 
+        if let Some(worker_id) = std::env::var("LOCAL_CODEX_WORKER_ID")
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+        {
+            let _ = vault.cache_platform_secret("local_codex_worker_id", worker_id);
+        }
+        if let Some(worktree_root) = std::env::var("LOCAL_CODEX_WORKTREE_ROOT")
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+        {
+            let _ = vault.cache_platform_secret("local_codex_worktree_root", worktree_root);
+        }
+
         // Sandbox URL: explicit override for testing, otherwise Tensorlake provisions on demand.
         if let Some(sandbox_url) = std::env::var("SANDBOX_URL").ok().filter(|s| !s.is_empty()) {
             cache_platform_and_persist_secret(

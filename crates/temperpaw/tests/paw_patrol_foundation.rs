@@ -691,6 +691,8 @@ fn repo_sweep_brief_smoke_exports_visual_proof_bundle() {
         "repo-graph.json",
         "daily-brief.svg",
         "proof.svg",
+        "LOCAL_CODEX_WORKER_ID=\"$WORKER_ID\"",
+        "LOCAL_CODEX_WORKTREE_ROOT=\"$WORKSPACE_ROOT\"",
         "## Daily Brief",
         "## OData Links",
         "## Trace And Log Evidence",
@@ -699,6 +701,19 @@ fn repo_sweep_brief_smoke_exports_visual_proof_bundle() {
         assert!(
             script.contains(needle),
             "repo sweep/brief smoke should export maintenance proof evidence: {needle}"
+        );
+    }
+
+    let startup = read(root.join("crates/temperpaw/src/startup.rs"));
+    for needle in [
+        "LOCAL_CODEX_WORKER_ID",
+        "LOCAL_CODEX_WORKTREE_ROOT",
+        "local_codex_worker_id",
+        "local_codex_worktree_root",
+    ] {
+        assert!(
+            startup.contains(needle),
+            "startup should seed local Codex platform secrets from env for portable smoke tests: {needle}"
         );
     }
 }
@@ -1388,6 +1403,9 @@ fn patrol_schedule_recurs_sweeps_and_daily_briefs_inside_patrol() {
         "{ type = \"schedule_at\", field = \"next_run_at\", action = \"Trigger\" }",
         "module = \"patrol_schedule_lifecycle\"",
         "name = \"TriggerComplete\"",
+        "name = \"Recover\"",
+        "from = [\"Failed\"]",
+        "patrol_schedule_recover",
         "last_repo_graph_snapshot_id",
         "last_daily_brief_id",
     ] {
@@ -1440,6 +1458,7 @@ fn patrol_schedule_recurs_sweeps_and_daily_briefs_inside_patrol() {
         "Action::\"Activate\"",
         "Action::\"Trigger\"",
         "Action::\"TriggerComplete\"",
+        "Action::\"Recover\"",
     ] {
         assert!(
             policy.contains(needle),
@@ -1721,6 +1740,8 @@ fn worker_run_done_fans_out_to_review_evaluation_and_proof() {
         "visual ProofPacket",
         "data:image/svg+xml",
         "visual_summary_svg",
+        "wait_for_status",
+        "worker_run_lifecycle: WorkCycle",
     ] {
         assert!(
             lifecycle.contains(needle),
@@ -1802,6 +1823,7 @@ fn reviewer_and_evaluator_results_gate_completion_before_human_review() {
         "TemperPaw.Patrol.Reject",
         "TemperPaw.Patrol.Escalate",
         "record_e2e_if_present",
+        "known_passed_evaluation_run_id",
         "reviewer approved before human review",
         "evaluation gates passed before proof readiness",
     ] {
