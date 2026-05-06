@@ -181,6 +181,7 @@ module = "work_cycle_lifecycle"
 [action.triggers.config]
 temper_api_url = "{secret:temper_api_url}"
 local_codex_worker_id = "{secret:local_codex_worker_id}"
+local_codex_worktree_root = "{secret:local_codex_worktree_root}"
 
 [[action]]
 name = "StartWork"

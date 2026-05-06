@@ -341,8 +341,16 @@ fn worker_claims_are_bound_to_the_configured_local_worker() {
             "{module} should configure WorkerRuns with the registered local worker id"
         );
         assert!(
+            source.contains("configured_local_worktree_root"),
+            "{module} should configure WorkerRun worktree paths with the registered local worktree root"
+        );
+        assert!(
             source.contains("\"allowed_worker_id\":"),
             "{module} should pass allowed_worker_id to WorkerRun.Configure"
+        );
+        assert!(
+            !source.contains("/Users/seshendranalla/Development/temperpaw-worktrees"),
+            "{module} should not hard-code a laptop-specific WorkerRun worktree root"
         );
     }
 
@@ -358,6 +366,10 @@ fn worker_claims_are_bound_to_the_configured_local_worker() {
         assert!(
             source.contains("local_codex_worker_id = \"{secret:local_codex_worker_id}\""),
             "{spec} should pass the registered local Codex worker id into its WASM config"
+        );
+        assert!(
+            source.contains("local_codex_worktree_root = \"{secret:local_codex_worktree_root}\""),
+            "{spec} should pass the registered local Codex worktree root into its WASM config"
         );
     }
 }

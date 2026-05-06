@@ -12,7 +12,7 @@ flowchart TD
     A["Human approval: start production cutover"] --> B["Confirm Temper Cedar fix is merged or pinned"]
     B --> C["Run production-preflight.sh"]
     C --> D["Set Railway TemperPaw URL and WORKER_TOKEN"]
-    D --> E["Set local_codex_worker_id = mac-mini-codex-prod"]
+    D --> E["Set local Codex worker id and worktree root"]
     E --> F["Configure Patrol assessment and brief Sessions"]
     F --> G["Run production-readiness-smoke.sh locally"]
     G --> H["Run production-readiness.sh against Railway with PAW_CODEX_ENABLE_EXECUTION=0 and exec smoke"]
@@ -32,6 +32,7 @@ flowchart TD
 | `WORKER_TOKEN` | Production Temper/Cedar operator | Authenticates the worker without exposing production database access. |
 | `PATROL_OPERATOR_TOKEN` | Production Temper/Cedar operator | Lets the observe-only proof create a low-risk RepoGraphSnapshot and DailyBrief without using the worker credential for operator work. |
 | `local_codex_worker_id` | TemperPaw secret/config | Must match `WORKER_ID=mac-mini-codex-prod` so Cedar can authorize `WorkerRun.Claim`. |
+| `local_codex_worktree_root` | TemperPaw secret/config | Must match the Mac mini `WORKSPACE_ROOT` so Patrol-created `WorkerRun.worktree_path` points at the worker host, not an operator laptop. |
 | Production Datadog webhook secret | Datadog/TemperPaw operator | Protects `/triggers/webhook/patrol-datadog`. |
 | Production Discord webhook secret | Discord/TemperPaw operator | Protects `/triggers/webhook/patrol-discord`. |
 | Production GitHub webhook secret | GitHub/TemperPaw operator | Protects `/triggers/webhook/patrol-github`. |
@@ -183,8 +184,8 @@ TEMPER_URL=https://your-railway-temperpaw.example \
 TEMPER_TENANT=default \
 WORKER_ID=mac-mini-codex-prod \
 WORKER_TOKEN="$TEMPER_WORKER_TOKEN" \
-REPO_ROOT=/Users/seshendranalla/Development/temperpaw \
-WORKSPACE_ROOT=/Users/seshendranalla/Development/temperpaw-worktrees \
+REPO_ROOT=/Users/openclaw/Development/temperpaw \
+WORKSPACE_ROOT=/Users/openclaw/Development/temperpaw-worktrees \
 CODEX_BIN=/Users/seshendranalla/.local/bin/codex \
 PAW_CODEX_ENABLE_EXECUTION=0 \
 PAW_CODEX_DOCTOR_EXEC_SMOKE=1 \
@@ -214,8 +215,8 @@ TEMPER_URL=https://your-railway-temperpaw.example \
 TEMPER_TENANT=default \
 WORKER_ID=mac-mini-codex-prod \
 WORKER_TOKEN="$TEMPER_WORKER_TOKEN" \
-REPO_ROOT=/Users/seshendranalla/Development/temperpaw \
-WORKSPACE_ROOT=/Users/seshendranalla/Development/temperpaw-worktrees \
+REPO_ROOT=/Users/openclaw/Development/temperpaw \
+WORKSPACE_ROOT=/Users/openclaw/Development/temperpaw-worktrees \
 CODEX_BIN=/Users/seshendranalla/.local/bin/codex \
 PAW_CODEX_ENABLE_EXECUTION=0 \
 PAW_CODEX_DOCTOR_EXEC_SMOKE=1 \
@@ -248,8 +249,8 @@ TEMPER_URL=https://your-railway-temperpaw.example \
 TEMPER_TENANT=default \
 WORKER_ID=mac-mini-codex-prod \
 WORKER_TOKEN="$TEMPER_WORKER_TOKEN" \
-REPO_ROOT=/Users/seshendranalla/Development/temperpaw \
-WORKSPACE_ROOT=/Users/seshendranalla/Development/temperpaw-worktrees \
+REPO_ROOT=/Users/openclaw/Development/temperpaw \
+WORKSPACE_ROOT=/Users/openclaw/Development/temperpaw-worktrees \
 CODEX_BIN=/Users/seshendranalla/.local/bin/codex \
 PAW_CODEX_ENABLE_EXECUTION=0 \
 PAW_CODEX_DOCTOR_EXEC_SMOKE=1 \
