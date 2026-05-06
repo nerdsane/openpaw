@@ -111,6 +111,8 @@ The Codex CLI must already be signed in with ChatGPT/Codex auth on the Mac mini.
 for local smoke and production setup is `mac-mini-codex-prod`. `WORKSPACE_ROOT`
 must match Patrol's configured `local_codex_worktree_root`, because Patrol stores
 the assigned worktree path on each `WorkerRun`.
+The launchd plist also sets a Homebrew-aware `PATH` so `/opt/homebrew/bin/codex`
+can find its `env node` runtime when started outside an interactive shell.
 
 ## Deterministic End-to-End Smoke
 

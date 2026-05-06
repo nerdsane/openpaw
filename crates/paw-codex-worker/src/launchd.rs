@@ -17,6 +17,7 @@ fn render_launchd_plist(config: &Config, worker_bin: &Path, eval_commands: Optio
         ("WORKSPACE_ROOT", path_str(&config.workspace_root)),
         ("REPO_ROOT", path_str(&config.repo_root)),
         ("CODEX_BIN", config.codex_bin.as_str()),
+        ("PATH", launchd_path().leak()),
         ("MAX_CONCURRENT_RUNS", "1"),
         (
             "PAW_CODEX_ENABLE_EXECUTION",
@@ -93,6 +94,16 @@ fn render_launchd_plist(config: &Config, worker_bin: &Path, eval_commands: Optio
         escape_plist(&worker_bin.display().to_string()),
         environment
     )
+}
+
+fn launchd_path() -> String {
+    env::var("PAW_CODEX_LAUNCHD_PATH")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| {
+            "/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/Users/openclaw/.cargo/bin"
+                .to_string()
+        })
 }
 
 fn path_str(path: &Path) -> &str {

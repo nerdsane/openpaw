@@ -27,6 +27,8 @@
     <string>/Users/openclaw/Development/temperpaw</string>
     <key>CODEX_BIN</key>
     <string>codex</string>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/Users/openclaw/.cargo/bin</string>
     <key>PAW_CODEX_ENABLE_EXECUTION</key>
     <string>0</string>
     <key>PAW_CODEX_DOCTOR_EXEC_SMOKE</key>
