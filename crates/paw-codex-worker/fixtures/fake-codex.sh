@@ -12,9 +12,44 @@ if [ "${1:-}" != "exec" ]; then
 fi
 
 shift
-if [ "${1:-}" = "--skip-git-repo-check" ]; then
-  shift
-fi
+while [ "$#" -gt 0 ]; do
+  case "${1:-}" in
+    --dangerously-bypass-approvals-and-sandbox)
+      shift
+      ;;
+    --sandbox)
+      shift
+      if [ "$#" -eq 0 ]; then
+        echo "--sandbox requires a value" >&2
+        exit 2
+      fi
+      shift
+      ;;
+    --cd)
+      shift
+      if [ "$#" -eq 0 ]; then
+        echo "--cd requires a directory" >&2
+        exit 2
+      fi
+      cd "$1"
+      shift
+      ;;
+    --skip-git-repo-check)
+      shift
+      ;;
+    --)
+      shift
+      break
+      ;;
+    -*)
+      echo "fake-codex does not support option: $1" >&2
+      exit 2
+      ;;
+    *)
+      break
+      ;;
+  esac
+done
 prompt="${1:-}"
 
 case "$prompt" in

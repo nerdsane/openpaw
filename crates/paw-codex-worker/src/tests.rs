@@ -385,6 +385,27 @@ mod tests {
     }
 
     #[test]
+    fn codex_exec_bypasses_sandbox_for_assigned_worktree() {
+        let args = codex_exec_args(Path::new("/tmp/paw-worktree"), "Create the proof file");
+        let args = args
+            .iter()
+            .map(|arg| arg.to_string_lossy().to_string())
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            args,
+            vec![
+                "exec",
+                "--dangerously-bypass-approvals-and-sandbox",
+                "--cd",
+                "/tmp/paw-worktree",
+                "--skip-git-repo-check",
+                "Create the proof file"
+            ]
+        );
+    }
+
+    #[test]
     fn worker_proof_text_does_not_call_assigned_worktree_current_checkout() {
         let worker_run = WorkerRunState {
             id: "wr-existing-worktree".to_string(),

@@ -95,6 +95,10 @@ Set `PAW_CODEX_ENABLE_EXECUTION=1` only when you want the worker to invoke
 `codex exec` for non-sweep WorkerRuns and their independent ReviewRuns. The
 reviewer invocation is a fresh Codex prompt and must return one explicit marker:
 `VERDICT: approve`, `VERDICT: request_changes`, or `VERDICT: escalate`.
+Worker-launched implementation and reviewer prompts run with
+`--dangerously-bypass-approvals-and-sandbox` and `--cd` set to the assigned
+worktree; keep this worker on a dedicated machine/account whose filesystem
+access matches that trust boundary.
 `PAW_CODEX_EXEC_TIMEOUT_SECS` bounds each implementation/reviewer `codex exec`
 call; the default is 1200 seconds, after which the worker reports failure
 through Temper instead of leaving the run stuck in `Running`.
