@@ -20,6 +20,7 @@ struct Config {
     enable_execution: bool,
     poll_on_start: bool,
     codex_exec_smoke: bool,
+    codex_exec_timeout: Duration,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -74,6 +75,12 @@ impl Config {
         let codex_exec_smoke = env::var("PAW_CODEX_DOCTOR_EXEC_SMOKE")
             .map(|value| value == "1" || value.eq_ignore_ascii_case("true"))
             .unwrap_or(false);
+        let codex_exec_timeout = env::var("PAW_CODEX_EXEC_TIMEOUT_SECS")
+            .ok()
+            .and_then(|value| value.parse::<u64>().ok())
+            .filter(|seconds| *seconds > 0)
+            .map(Duration::from_secs)
+            .unwrap_or_else(|| Duration::from_secs(20 * 60));
 
         if max_concurrent_runs != 1 {
             bail!("MAX_CONCURRENT_RUNS must be 1 in v1 so WorkerRun review remains simple");
@@ -91,6 +98,7 @@ impl Config {
             enable_execution,
             poll_on_start,
             codex_exec_smoke,
+            codex_exec_timeout,
         })
     }
 

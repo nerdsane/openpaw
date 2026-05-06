@@ -95,6 +95,9 @@ Set `PAW_CODEX_ENABLE_EXECUTION=1` only when you want the worker to invoke
 `codex exec` for non-sweep WorkerRuns and their independent ReviewRuns. The
 reviewer invocation is a fresh Codex prompt and must return one explicit marker:
 `VERDICT: approve`, `VERDICT: request_changes`, or `VERDICT: escalate`.
+`PAW_CODEX_EXEC_TIMEOUT_SECS` bounds each implementation/reviewer `codex exec`
+call; the default is 1200 seconds, after which the worker reports failure
+through Temper instead of leaving the run stuck in `Running`.
 The worker refuses to claim a local Codex WorkerRun unless Patrol assigned a
 `branch_name` or `worktree_path`, so implementation, review, evaluation, and
 repo-sweep work do not silently happen in the main checkout.

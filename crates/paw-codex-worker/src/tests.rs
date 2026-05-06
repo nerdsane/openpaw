@@ -158,6 +158,7 @@ mod tests {
             enable_execution: true,
             poll_on_start: false,
             codex_exec_smoke: true,
+            codex_exec_timeout: Duration::from_secs(90),
         };
 
         let plist = render_launchd_plist(
@@ -184,6 +185,8 @@ mod tests {
             "<string>0</string>",
             "<key>PAW_CODEX_DOCTOR_EXEC_SMOKE</key>",
             "<string>1</string>",
+            "<key>PAW_CODEX_EXEC_TIMEOUT_SECS</key>",
+            "<string>90</string>",
             "<key>PAW_CODEX_EVAL_COMMANDS</key>",
             "<string>cargo test -p temperpaw --test paw_patrol_foundation</string>",
         ] {
@@ -223,6 +226,7 @@ mod tests {
             enable_execution: false,
             poll_on_start: true,
             codex_exec_smoke: true,
+            codex_exec_timeout: Duration::from_secs(30),
         };
 
         let check = check_codex_exec_smoke(&config).await;
@@ -233,6 +237,46 @@ mod tests {
             check.detail.contains("PAW_CODEX_DOCTOR_EXEC_OK"),
             "unexpected detail: {}",
             check.detail
+        );
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[tokio::test]
+    async fn run_codex_times_out_stuck_local_exec() {
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/fake-codex.sh");
+        let root = unique_temp_dir();
+        fs::create_dir_all(&root).expect("temp dir");
+        let config = Config {
+            temper_url: "http://127.0.0.1:3497".to_string(),
+            tenant: "default".to_string(),
+            worker_id: "mac-mini-codex-1".to_string(),
+            worker_token: Some("secret".to_string()),
+            workspace_root: root.clone(),
+            repo_root: root.clone(),
+            codex_bin: fixture.display().to_string(),
+            max_concurrent_runs: 1,
+            enable_execution: true,
+            poll_on_start: true,
+            codex_exec_smoke: false,
+            codex_exec_timeout: Duration::from_millis(100),
+        };
+        let worker_run = WorkerRunState {
+            id: "wr-timeout".to_string(),
+            status: "Running".to_string(),
+            task: "PAW_FAKE_CODEX_HANG: simulate a stuck Codex child".to_string(),
+            worktree_path: root.display().to_string(),
+            branch_name: "codex/timeout".to_string(),
+            runner_kind: "local_codex".to_string(),
+            allowed_worker_id: "mac-mini-codex-1".to_string(),
+        };
+
+        let result = run_codex(&config, &worker_run).await;
+
+        let error = result.expect_err("stuck codex exec should time out");
+        let message = format!("{error:#}");
+        assert!(
+            message.contains("codex exec timed out after"),
+            "unexpected timeout error: {message}"
         );
         fs::remove_dir_all(root).ok();
     }
@@ -428,6 +472,7 @@ mod tests {
             enable_execution: false,
             poll_on_start: true,
             codex_exec_smoke: false,
+            codex_exec_timeout: Duration::from_secs(30),
         };
 
         let headers = headers(&config).expect("headers");
@@ -460,6 +505,7 @@ mod tests {
             enable_execution: false,
             poll_on_start: true,
             codex_exec_smoke: false,
+            codex_exec_timeout: Duration::from_secs(30),
         };
 
         let headers = event_stream_headers(&config).expect("headers");
@@ -490,6 +536,7 @@ mod tests {
             enable_execution: false,
             poll_on_start: true,
             codex_exec_smoke: false,
+            codex_exec_timeout: Duration::from_secs(30),
         };
 
         assert_eq!(

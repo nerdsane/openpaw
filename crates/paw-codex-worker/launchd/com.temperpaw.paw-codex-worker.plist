@@ -35,6 +35,8 @@
     <string>1</string>
     <key>PAW_CODEX_POLL_ON_START</key>
     <string>1</string>
+    <key>PAW_CODEX_EXEC_TIMEOUT_SECS</key>
+    <string>1200</string>
     <key>RUST_LOG</key>
     <string>paw_codex_worker=info,info</string>
   </dict>

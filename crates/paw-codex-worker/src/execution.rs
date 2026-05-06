@@ -99,15 +99,7 @@ async fn run_codex(config: &Config, worker_run: &WorkerRunState) -> Result<Strin
     };
 
     info!(worker_run_id = %worker_run.id, workdir = %workdir.display(), "starting local codex");
-    let output = Command::new(&config.codex_bin)
-        .arg("exec")
-        .arg(task)
-        .current_dir(&workdir)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
-        .await
-        .context("run local codex exec")?;
+    let output = run_codex_exec_command(config, &workdir, task, "run local codex exec").await?;
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -225,15 +217,7 @@ async fn run_codex_review(
         workdir = %workdir.display(),
         "starting local Codex reviewer"
     );
-    let output = Command::new(&config.codex_bin)
-        .arg("exec")
-        .arg(prompt)
-        .current_dir(workdir)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
-        .await
-        .context("run local codex review")?;
+    let output = run_codex_exec_command(config, &workdir, prompt, "run local codex review").await?;
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -251,6 +235,30 @@ async fn run_codex_review(
     }
 
     Ok(parse_codex_review_verdict(&combined))
+}
+
+async fn run_codex_exec_command(
+    config: &Config,
+    workdir: &Path,
+    prompt: String,
+    context_label: &str,
+) -> Result<Output> {
+    let mut command = Command::new(&config.codex_bin);
+    command
+        .arg("exec")
+        .arg(prompt)
+        .current_dir(workdir)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
+
+    match timeout(config.codex_exec_timeout, command.output()).await {
+        Ok(output) => output.with_context(|| context_label.to_string()),
+        Err(_) => bail!(
+            "codex exec timed out after {}s during {context_label}",
+            config.codex_exec_timeout.as_secs()
+        ),
+    }
 }
 
 async fn run_code_change_evaluation(
