@@ -174,6 +174,8 @@ mod tests {
             "<string>https://temperpaw.example.test</string>",
             "<key>WORKER_ID</key>",
             "<string>mac-mini-codex-1</string>",
+            "<key>PATH</key>",
+            "<string>/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/Users/openclaw/.cargo/bin</string>",
             "<key>WORKER_TOKEN</key>",
             "<string>secret&amp;token</string>",
             "<key>PAW_CODEX_ENABLE_EXECUTION</key>",
