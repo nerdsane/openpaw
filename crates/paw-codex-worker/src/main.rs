@@ -63,13 +63,27 @@ async fn main() -> Result<()> {
             claim_boot_requested_review_runs(&client, &config).await?;
             claim_boot_queued_evaluation_runs(&client, &config).await?;
         }
-        match timeout(Duration::from_secs(10), watch_events(&client, &config)).await {
+        match timeout(
+            event_stream_poll_window(&config),
+            watch_events(&client, &config),
+        )
+        .await
+        {
             Ok(Ok(())) => {}
             Ok(Err(error)) => warn!(%error, "Temper event stream disconnected"),
             Err(_) => debug!("Temper event stream poll window elapsed; using OData fallback"),
         }
         sleep(Duration::from_secs(1)).await;
     }
+}
+
+fn event_stream_poll_window(config: &Config) -> Duration {
+    std::cmp::max(
+        Duration::from_secs(60),
+        config
+            .codex_exec_timeout
+            .saturating_add(Duration::from_secs(60)),
+    )
 }
 
 include!("worker_types.rs");
