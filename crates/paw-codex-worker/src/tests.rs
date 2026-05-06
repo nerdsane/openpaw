@@ -549,6 +549,30 @@ mod tests {
     }
 
     #[test]
+    fn event_stream_poll_window_does_not_cancel_active_codex_runs() {
+        let config = Config {
+            temper_url: "http://127.0.0.1:3497".to_string(),
+            tenant: "default".to_string(),
+            worker_id: "mac-mini-codex-1".to_string(),
+            worker_token: Some("secret".to_string()),
+            workspace_root: PathBuf::from("/tmp/worktrees"),
+            repo_root: PathBuf::from("/tmp/temperpaw"),
+            codex_bin: "codex".to_string(),
+            max_concurrent_runs: 1,
+            enable_execution: true,
+            poll_on_start: true,
+            codex_exec_smoke: false,
+            codex_exec_timeout: Duration::from_secs(180),
+        };
+
+        assert_eq!(
+            event_stream_poll_window(&config),
+            Duration::from_secs(240),
+            "outer event-stream timeout must outlive the per-Codex exec timeout"
+        );
+    }
+
+    #[test]
     fn worker_event_status_reads_observe_stream_shape() {
         let event: EntityEvent = serde_json::from_value(json!({
             "seq": 12,
