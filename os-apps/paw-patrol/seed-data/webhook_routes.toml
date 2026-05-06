@@ -1,0 +1,78 @@
+# Patrol-owned intake routes through paw-ingest.
+# The HTTP trigger still creates only WebhookEvent and dispatches Received.
+# These route configs make the WASM routing leg create Patrol entities next.
+
+[[instance]]
+id = "patrol-request-route"
+type = "WebhookRoute"
+
+[instance.fields]
+route_key = "patrol-request"
+source_type = "patrol-request"
+event_filter = "*"
+target_entity_type = "PatrolRequest"
+target_action = "TemperPaw.Patrol.Submit"
+webhook_secret = ""
+monitor_resolution_enabled = "false"
+dedup_enabled = "false"
+dedup_window_minutes = "60"
+
+[[instance]]
+id = "patrol-signal-route"
+type = "WebhookRoute"
+
+[instance.fields]
+route_key = "patrol-signal"
+source_type = "patrol-signal"
+event_filter = "*"
+target_entity_type = "Signal"
+target_action = "TemperPaw.Patrol.Ingest"
+webhook_secret = ""
+monitor_resolution_enabled = "false"
+dedup_enabled = "false"
+dedup_window_minutes = "60"
+
+[[instance]]
+id = "patrol-datadog-route"
+type = "WebhookRoute"
+
+[instance.fields]
+route_key = "patrol-datadog"
+source_type = "datadog"
+event_filter = "*"
+target_entity_type = "Signal"
+target_action = "TemperPaw.Patrol.Ingest"
+webhook_secret = ""
+monitor_resolution_enabled = "false"
+dedup_enabled = "false"
+dedup_window_minutes = "60"
+
+[[instance]]
+id = "patrol-github-route"
+type = "WebhookRoute"
+
+[instance.fields]
+route_key = "patrol-github"
+source_type = "github"
+event_filter = "*"
+target_entity_type = "Signal"
+target_action = "TemperPaw.Patrol.Ingest"
+webhook_secret = ""
+monitor_resolution_enabled = "false"
+dedup_enabled = "false"
+dedup_window_minutes = "60"
+
+[[instance]]
+id = "patrol-discord-route"
+type = "WebhookRoute"
+
+[instance.fields]
+route_key = "patrol-discord"
+source_type = "discord"
+event_filter = "*"
+target_entity_type = "Signal"
+target_action = "TemperPaw.Patrol.Ingest"
+webhook_secret = ""
+monitor_resolution_enabled = "false"
+dedup_enabled = "false"
+dedup_window_minutes = "60"

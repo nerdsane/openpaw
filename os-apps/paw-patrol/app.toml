@@ -1,0 +1,77 @@
+name = "paw-patrol"
+description = "Patrol-controlled maintenance: signals, risk, local Codex worker runs, review, proofs, and recurring sweeps"
+version = "0.1.0"
+startup_install = "core"
+dependencies = ["paw-agent", "paw-ingest", "paw-pm"]
+
+[[wasm_modules]]
+name = "patrol_request_router"
+target = "wasm32-unknown-unknown"
+criticality = "app-required"
+startup_loading = "lazy"
+provenance = "bundled-artifact"
+import_class = "temper-host"
+
+[[wasm_modules]]
+name = "signal_router"
+target = "wasm32-unknown-unknown"
+criticality = "app-required"
+startup_loading = "lazy"
+provenance = "bundled-artifact"
+import_class = "temper-host"
+
+[[wasm_modules]]
+name = "worker_run_lifecycle"
+target = "wasm32-unknown-unknown"
+criticality = "app-required"
+startup_loading = "lazy"
+provenance = "bundled-artifact"
+import_class = "temper-host"
+
+[[wasm_modules]]
+name = "work_cycle_lifecycle"
+target = "wasm32-unknown-unknown"
+criticality = "app-required"
+startup_loading = "lazy"
+provenance = "bundled-artifact"
+import_class = "temper-host"
+
+[[wasm_modules]]
+name = "finding_lifecycle"
+target = "wasm32-unknown-unknown"
+criticality = "app-required"
+startup_loading = "lazy"
+provenance = "bundled-artifact"
+import_class = "temper-host"
+
+[[wasm_modules]]
+name = "review_gate_lifecycle"
+target = "wasm32-unknown-unknown"
+criticality = "app-required"
+startup_loading = "lazy"
+provenance = "bundled-artifact"
+import_class = "temper-host"
+
+[[wasm_modules]]
+name = "repo_sweep_lifecycle"
+target = "wasm32-unknown-unknown"
+criticality = "app-required"
+startup_loading = "lazy"
+provenance = "bundled-artifact"
+import_class = "temper-host"
+
+[[wasm_modules]]
+name = "daily_brief_lifecycle"
+target = "wasm32-unknown-unknown"
+criticality = "app-required"
+startup_loading = "lazy"
+provenance = "bundled-artifact"
+import_class = "temper-host"
+
+[[wasm_modules]]
+name = "patrol_schedule_lifecycle"
+target = "wasm32-unknown-unknown"
+criticality = "app-required"
+startup_loading = "lazy"
+provenance = "bundled-artifact"
+import_class = "temper-host"

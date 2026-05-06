@@ -1,0 +1,114 @@
+[automaton]
+name = "DailyBrief"
+states = ["Collecting", "Ready", "Published", "Failed"]
+initial = "Collecting"
+
+allow_indefinite_states = ["Published", "Failed"]
+
+[[state]]
+name = "brief_date"
+type = "string"
+initial = ""
+
+[[state]]
+name = "summary_markdown"
+type = "string"
+initial = ""
+
+[[state]]
+name = "visual_summary_url"
+type = "string"
+initial = ""
+
+[[state]]
+name = "proof_packet_ids"
+type = "string"
+initial = "[]"
+
+[[state]]
+name = "open_risks"
+type = "string"
+initial = "[]"
+
+[[state]]
+name = "done_items"
+type = "string"
+initial = "[]"
+
+[[state]]
+name = "session_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "session_status"
+type = "string"
+initial = "not_started"
+
+[[state]]
+name = "error_message"
+type = "string"
+initial = ""
+
+[[action]]
+name = "Start"
+kind = "input"
+from = ["Collecting"]
+to = "Collecting"
+params = ["brief_date"]
+effect = [{ type = "trigger", name = "daily_brief_started" }]
+hint = "Start collecting the daily Patrol brief."
+
+[[action.triggers]]
+name = "daily_brief_started"
+kind = "wasm"
+module = "daily_brief_lifecycle"
+on_failure = "Fail"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+daily_brief_model = "{secret:daily_brief_model}"
+daily_brief_provider = "{secret:daily_brief_provider}"
+
+[[action]]
+name = "AttachSession"
+kind = "input"
+from = ["Collecting"]
+to = "Collecting"
+params = ["session_id", "session_status"]
+hint = "Attach the agent Session that will synthesize and render this DailyBrief."
+
+[[action]]
+name = "Render"
+kind = "input"
+from = ["Collecting"]
+to = "Ready"
+params = ["summary_markdown", "visual_summary_url", "proof_packet_ids", "open_risks", "done_items"]
+hint = "Render a human-readable brief with visual summary."
+
+[[action]]
+name = "Publish"
+kind = "input"
+from = ["Ready"]
+to = "Published"
+hint = "Publish the daily brief."
+
+[[action]]
+name = "Fail"
+kind = "input"
+from = ["Collecting", "Ready"]
+to = "Failed"
+params = ["error_message"]
+hint = "Daily brief generation or publication failed."
+
+[[state_timeout]]
+state = "Collecting"
+after_seconds = 21600
+on_timeout = "Fail"
+params = { error_message = "DailyBrief stayed Collecting for 6h." }
+
+[[state_timeout]]
+state = "Ready"
+after_seconds = 86400
+on_timeout = "Fail"
+params = { error_message = "DailyBrief stayed Ready for 24h without publication." }

@@ -1,0 +1,32 @@
+# Default Patrol recurring maintenance.
+#
+# This creates an inspectable daily repo-sweep + brief schedule during app
+# install. Activate computes the first next_run_at through
+# patrol_schedule_lifecycle; Trigger is then re-scheduled by Temper
+# schedule_at state transitions.
+
+[[instance]]
+id = "patrol-default-daily-maintenance"
+type = "PatrolSchedule"
+
+[instance.fields]
+name = "Default daily Patrol maintenance"
+cadence = "daily"
+enable_repo_sweep = true
+enable_daily_brief = true
+commit_sha = "current-checkout"
+max_runs = "0"
+
+[[instance.actions]]
+name = "Configure"
+
+[instance.actions.params]
+name = "Default daily Patrol maintenance"
+cadence = "daily"
+enable_repo_sweep = true
+enable_daily_brief = true
+commit_sha = "current-checkout"
+max_runs = "0"
+
+[[instance.actions]]
+name = "Activate"

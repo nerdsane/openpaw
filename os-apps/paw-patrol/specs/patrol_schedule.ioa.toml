@@ -1,0 +1,164 @@
+[automaton]
+name = "PatrolSchedule"
+states = ["Created", "Active", "Paused", "Expired", "Failed"]
+initial = "Created"
+
+allow_indefinite_states = ["Created", "Active", "Paused", "Expired", "Failed"]
+
+[[state]]
+name = "name"
+type = "string"
+initial = ""
+
+[[state]]
+name = "cadence"
+type = "string"
+initial = "daily"
+
+[[state]]
+name = "enable_repo_sweep"
+type = "bool"
+initial = "true"
+
+[[state]]
+name = "enable_daily_brief"
+type = "bool"
+initial = "true"
+
+[[state]]
+name = "commit_sha"
+type = "string"
+initial = "current-checkout"
+
+[[state]]
+name = "next_run_at"
+type = "string"
+initial = ""
+
+[[state]]
+name = "last_run_at"
+type = "string"
+initial = ""
+
+[[state]]
+name = "last_repo_graph_snapshot_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "last_daily_brief_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "last_summary"
+type = "string"
+initial = ""
+
+[[state]]
+name = "run_count"
+type = "counter"
+initial = "0"
+
+[[state]]
+name = "max_runs"
+type = "string"
+initial = "0"
+
+[[state]]
+name = "error_message"
+type = "string"
+initial = ""
+
+[[action]]
+name = "Configure"
+kind = "input"
+from = ["Created"]
+to = "Created"
+params = ["name", "cadence", "enable_repo_sweep", "enable_daily_brief", "commit_sha", "max_runs"]
+hint = "Configure a Patrol recurring schedule for repo sweeps and daily briefs."
+
+[[action]]
+name = "Activate"
+kind = "input"
+from = ["Created"]
+to = "Active"
+effect = [{ type = "trigger", name = "patrol_schedule_activate" }]
+hint = "Activate the schedule and compute its first next_run_at."
+
+[[action.triggers]]
+name = "patrol_schedule_activate"
+kind = "wasm"
+module = "patrol_schedule_lifecycle"
+on_failure = "Fail"
+
+[action.triggers.config]
+mode = "activate"
+temper_api_url = "{secret:temper_api_url}"
+
+[[action]]
+name = "ActivateComplete"
+kind = "input"
+from = ["Active"]
+to = "Active"
+params = ["next_run_at", "last_summary"]
+effect = [{ type = "schedule_at", field = "next_run_at", action = "Trigger" }]
+hint = "Store the first scheduled run time and schedule Trigger."
+
+[[action]]
+name = "Trigger"
+kind = "input"
+from = ["Active"]
+to = "Active"
+params = ["last_run_at"]
+effect = [{ type = "increment", var = "run_count" }, { type = "trigger", name = "patrol_schedule_trigger" }]
+hint = "Run the recurring Patrol jobs now and compute the next run."
+
+[[action.triggers]]
+name = "patrol_schedule_trigger"
+kind = "wasm"
+module = "patrol_schedule_lifecycle"
+on_failure = "Fail"
+
+[action.triggers.config]
+mode = "trigger"
+temper_api_url = "{secret:temper_api_url}"
+
+[[action]]
+name = "TriggerComplete"
+kind = "input"
+from = ["Active"]
+to = "Active"
+params = ["next_run_at", "last_run_at", "last_repo_graph_snapshot_id", "last_daily_brief_id", "last_summary"]
+effect = [{ type = "schedule_at", field = "next_run_at", action = "Trigger" }]
+hint = "Store created job ids and schedule the next recurring run."
+
+[[action]]
+name = "Pause"
+kind = "input"
+from = ["Active"]
+to = "Paused"
+hint = "Pause recurring Patrol jobs."
+
+[[action]]
+name = "Resume"
+kind = "input"
+from = ["Paused"]
+to = "Active"
+effect = [{ type = "trigger", name = "patrol_schedule_activate" }]
+hint = "Resume and compute a fresh next_run_at."
+
+[[action]]
+name = "Expire"
+kind = "input"
+from = ["Active", "Paused"]
+to = "Expired"
+hint = "End the schedule."
+
+[[action]]
+name = "Fail"
+kind = "input"
+from = ["Created", "Active", "Paused"]
+to = "Failed"
+params = ["error_message"]
+hint = "Record schedule failure."

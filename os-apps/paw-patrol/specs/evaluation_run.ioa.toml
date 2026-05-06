@@ -1,0 +1,105 @@
+[automaton]
+name = "EvaluationRun"
+states = ["Queued", "Running", "Passed", "Failed"]
+initial = "Queued"
+
+allow_indefinite_states = ["Passed", "Failed"]
+
+[[state]]
+name = "work_cycle_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "evaluator_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "required_checks"
+type = "string"
+initial = "[]"
+
+[[state]]
+name = "results_json"
+type = "string"
+initial = "{}"
+
+[[state]]
+name = "e2e_summary"
+type = "string"
+initial = ""
+
+[[state]]
+name = "error_message"
+type = "string"
+initial = ""
+
+[[action]]
+name = "Queue"
+kind = "input"
+from = ["Queued"]
+to = "Queued"
+params = ["work_cycle_id", "required_checks", "evaluator_id"]
+hint = "Queue an automated evaluation run for one WorkCycle."
+
+[[action]]
+name = "Claim"
+kind = "input"
+from = ["Queued"]
+to = "Queued"
+params = ["evaluator_id"]
+hint = "Claim this EvaluationRun as the evaluator allowed to start and report the gate."
+
+[[action]]
+name = "Start"
+kind = "input"
+from = ["Queued"]
+to = "Running"
+hint = "Start automated gates."
+
+[[action]]
+name = "Pass"
+kind = "input"
+from = ["Running"]
+to = "Passed"
+params = ["results_json", "e2e_summary"]
+effect = [{ type = "trigger", name = "evaluation_run_passed" }]
+hint = "All required automated checks passed."
+
+[[action.triggers]]
+name = "evaluation_run_passed"
+kind = "wasm"
+module = "review_gate_lifecycle"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+
+[[action]]
+name = "Fail"
+kind = "input"
+from = ["Queued", "Running"]
+to = "Failed"
+params = ["results_json", "error_message"]
+effect = [{ type = "trigger", name = "evaluation_run_failed" }]
+hint = "One or more required automated checks failed."
+
+[[action.triggers]]
+name = "evaluation_run_failed"
+kind = "wasm"
+module = "review_gate_lifecycle"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+
+[[state_timeout]]
+state = "Queued"
+after_seconds = 86400
+on_timeout = "Fail"
+params = { results_json = "{}", error_message = "EvaluationRun was not started within 24h." }
+
+[[state_timeout]]
+state = "Running"
+after_seconds = 21600
+on_timeout = "Fail"
+params = { results_json = "{}", error_message = "EvaluationRun ran for 6h without completing." }

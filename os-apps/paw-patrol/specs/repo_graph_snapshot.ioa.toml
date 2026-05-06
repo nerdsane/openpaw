@@ -1,0 +1,149 @@
+[automaton]
+name = "RepoGraphSnapshot"
+states = ["Created", "Scanning", "Ready", "Failed"]
+initial = "Created"
+
+allow_indefinite_states = ["Ready", "Failed"]
+
+[[state]]
+name = "commit_sha"
+type = "string"
+initial = ""
+
+[[state]]
+name = "graph_json"
+type = "string"
+initial = "{}"
+
+[[state]]
+name = "summary_markdown"
+type = "string"
+initial = ""
+
+[[state]]
+name = "generated_at"
+type = "string"
+initial = ""
+
+[[state]]
+name = "finding_count"
+type = "string"
+initial = "0"
+
+[[state]]
+name = "work_cycle_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "worker_run_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "assessment_session_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "assessment_status"
+type = "string"
+initial = "not_started"
+
+[[state]]
+name = "assessment_summary_markdown"
+type = "string"
+initial = ""
+
+[[state]]
+name = "error_message"
+type = "string"
+initial = ""
+
+[[state]]
+name = "integration"
+type = "string"
+initial = ""
+
+[[action]]
+name = "StartScan"
+kind = "input"
+from = ["Created"]
+to = "Scanning"
+params = ["commit_sha"]
+effect = [{ type = "trigger", name = "repo_sweep_started" }]
+hint = "Start a codebase/dependency graph scan."
+
+[[action.triggers]]
+name = "repo_sweep_started"
+kind = "wasm"
+module = "repo_sweep_lifecycle"
+on_failure = "ScanFailed"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+local_codex_worker_id = "{secret:local_codex_worker_id}"
+
+[[action]]
+name = "AttachWorkerRun"
+kind = "input"
+from = ["Scanning"]
+to = "Scanning"
+params = ["work_cycle_id", "worker_run_id"]
+hint = "Attach the local Codex worker run that will perform this repo graph sweep."
+
+[[action]]
+name = "ScanComplete"
+kind = "input"
+from = ["Scanning"]
+to = "Ready"
+params = ["graph_json", "summary_markdown", "generated_at", "finding_count"]
+effect = [{ type = "trigger", name = "repo_sweep_completed" }]
+hint = "Record completed repo graph snapshot."
+
+[[action.triggers]]
+name = "repo_sweep_completed"
+kind = "wasm"
+module = "repo_sweep_lifecycle"
+on_failure = "ScanFailed"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+repo_assessment_model = "{secret:repo_assessment_model}"
+repo_assessment_provider = "{secret:repo_assessment_provider}"
+
+[[action]]
+name = "AttachAssessmentSession"
+kind = "input"
+from = ["Ready"]
+to = "Ready"
+params = ["assessment_session_id", "assessment_status"]
+hint = "Attach the intelligent assessment Session that reviews deterministic repo graph evidence."
+
+[[action]]
+name = "AssessmentComplete"
+kind = "input"
+from = ["Ready"]
+to = "Ready"
+params = ["assessment_summary_markdown", "assessment_status"]
+hint = "Record the intelligent assessment summary for this repo graph snapshot."
+
+[[action]]
+name = "ScanFailed"
+kind = "input"
+from = ["Created", "Scanning", "Ready"]
+to = "Failed"
+params = ["error_message", "integration"]
+hint = "Record failed repo graph scan."
+
+[[state_timeout]]
+state = "Created"
+after_seconds = 3600
+on_timeout = "ScanFailed"
+params = { error_message = "RepoGraphSnapshot stayed Created for 1h without scanning.", integration = "repo_graph_snapshot_timeout" }
+
+[[state_timeout]]
+state = "Scanning"
+after_seconds = 21600
+on_timeout = "ScanFailed"
+params = { error_message = "RepoGraphSnapshot scan exceeded 6h.", integration = "repo_graph_snapshot_timeout" }

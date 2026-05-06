@@ -1,0 +1,150 @@
+[automaton]
+name = "ReviewRun"
+states = ["Requested", "Claimed", "Reviewing", "ChangesRequested", "Approved", "Escalated", "Failed"]
+initial = "Requested"
+
+allow_indefinite_states = ["ChangesRequested", "Approved", "Escalated", "Failed"]
+
+[[state]]
+name = "work_cycle_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "worker_run_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "reviewer_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "review_summary"
+type = "string"
+initial = ""
+
+[[state]]
+name = "live_e2e_summary"
+type = "string"
+initial = ""
+
+[[state]]
+name = "verdict"
+type = "string"
+initial = ""
+
+[[state]]
+name = "proof_packet_id"
+type = "string"
+initial = ""
+
+[[action]]
+name = "Request"
+kind = "input"
+from = ["Requested"]
+to = "Requested"
+params = ["work_cycle_id", "worker_run_id", "proof_packet_id"]
+hint = "Request independent review for a completed WorkerRun."
+
+[[action]]
+name = "Claim"
+kind = "input"
+from = ["Requested"]
+to = "Claimed"
+params = ["reviewer_id"]
+hint = "Reviewer claims the review."
+
+[[action]]
+name = "StartReview"
+kind = "input"
+from = ["Claimed"]
+to = "Reviewing"
+hint = "Start review of diff, proof, tests, and live verification requirements."
+
+[[action]]
+name = "RequestChanges"
+kind = "input"
+from = ["Reviewing"]
+to = "ChangesRequested"
+params = ["review_summary", "live_e2e_summary", "verdict"]
+effect = [{ type = "trigger", name = "review_run_changes_requested" }]
+hint = "Request implementation changes."
+
+[[action.triggers]]
+name = "review_run_changes_requested"
+kind = "wasm"
+module = "review_gate_lifecycle"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+
+[[action]]
+name = "Approve"
+kind = "input"
+from = ["Reviewing"]
+to = "Approved"
+params = ["review_summary", "live_e2e_summary", "verdict"]
+effect = [{ type = "trigger", name = "review_run_approved" }]
+hint = "Approve after meaningful review and required verification."
+
+[[action.triggers]]
+name = "review_run_approved"
+kind = "wasm"
+module = "review_gate_lifecycle"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+
+[[action]]
+name = "Escalate"
+kind = "input"
+from = ["Reviewing", "Claimed", "Requested"]
+to = "Escalated"
+params = ["review_summary", "verdict"]
+effect = [{ type = "trigger", name = "review_run_escalated" }]
+hint = "Escalate to human when review cannot safely decide."
+
+[[action.triggers]]
+name = "review_run_escalated"
+kind = "wasm"
+module = "review_gate_lifecycle"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+
+[[action]]
+name = "Fail"
+kind = "input"
+from = ["Requested", "Claimed", "Reviewing"]
+to = "Failed"
+params = ["review_summary"]
+effect = [{ type = "trigger", name = "review_run_failed" }]
+hint = "Review failed operationally."
+
+[[action.triggers]]
+name = "review_run_failed"
+kind = "wasm"
+module = "review_gate_lifecycle"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+
+[[state_timeout]]
+state = "Requested"
+after_seconds = 86400
+on_timeout = "Fail"
+params = { review_summary = "ReviewRun was not claimed within 24h." }
+
+[[state_timeout]]
+state = "Claimed"
+after_seconds = 86400
+on_timeout = "Fail"
+params = { review_summary = "ReviewRun was claimed but not started within 24h." }
+
+[[state_timeout]]
+state = "Reviewing"
+after_seconds = 86400
+on_timeout = "Escalate"
+params = { review_summary = "ReviewRun stayed Reviewing for 24h.", verdict = "escalate" }

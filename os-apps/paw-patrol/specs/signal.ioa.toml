@@ -1,0 +1,115 @@
+[automaton]
+name = "Signal"
+states = ["Received", "Normalized", "Triaged", "Linked", "Archived"]
+initial = "Received"
+
+allow_indefinite_states = ["Linked", "Archived"]
+
+[[state]]
+name = "source"
+type = "string"
+initial = ""
+
+[[state]]
+name = "payload"
+type = "string"
+initial = ""
+
+[[state]]
+name = "source_url"
+type = "string"
+initial = ""
+
+[[state]]
+name = "severity"
+type = "string"
+initial = ""
+
+[[state]]
+name = "summary"
+type = "string"
+initial = ""
+
+[[state]]
+name = "factory_case_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "error_message"
+type = "string"
+initial = ""
+
+[[state]]
+name = "integration"
+type = "string"
+initial = ""
+
+[[action]]
+name = "Ingest"
+kind = "input"
+from = ["Received"]
+to = "Received"
+params = ["source", "payload", "source_url", "severity"]
+effect = [{ type = "trigger", name = "route_signal" }]
+hint = "Record a raw machine signal from Discord, Datadog, GitHub, schedule, or sweep."
+
+[[action.triggers]]
+name = "route_signal"
+kind = "wasm"
+module = "signal_router"
+on_failure = "Archive"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+local_codex_worker_id = "{secret:local_codex_worker_id}"
+
+[[action]]
+name = "Normalize"
+kind = "input"
+from = ["Received"]
+to = "Normalized"
+params = ["summary", "severity"]
+hint = "Normalize the signal into a human and agent readable summary."
+
+[[action]]
+name = "Triage"
+kind = "input"
+from = ["Normalized"]
+to = "Triaged"
+params = ["summary"]
+hint = "Record the triage summary for this signal."
+
+[[action]]
+name = "AttachCase"
+kind = "input"
+from = ["Triaged"]
+to = "Linked"
+params = ["factory_case_id"]
+hint = "Attach this signal to a FactoryCase."
+
+[[action]]
+name = "Archive"
+kind = "input"
+from = ["Received", "Normalized", "Triaged", "Linked"]
+to = "Archived"
+params = ["summary", "error_message", "integration"]
+hint = "Archive noise or already-accounted-for signals."
+
+[[state_timeout]]
+state = "Received"
+after_seconds = 86400
+on_timeout = "Archive"
+params = { summary = "Signal was not normalized within 24h.", error_message = "", integration = "signal_timeout" }
+
+[[state_timeout]]
+state = "Normalized"
+after_seconds = 86400
+on_timeout = "Archive"
+params = { summary = "Signal was not triaged within 24h.", error_message = "", integration = "signal_timeout" }
+
+[[state_timeout]]
+state = "Triaged"
+after_seconds = 86400
+on_timeout = "Archive"
+params = { summary = "Signal was not linked within 24h.", error_message = "", integration = "signal_timeout" }

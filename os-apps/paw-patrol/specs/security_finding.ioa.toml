@@ -1,0 +1,134 @@
+[automaton]
+name = "SecurityFinding"
+states = ["Open", "Accepted", "InProgress", "Resolved", "Escalated", "Waived"]
+initial = "Open"
+
+allow_indefinite_states = ["Resolved", "Escalated", "Waived"]
+
+[[state]]
+name = "title"
+type = "string"
+initial = ""
+
+[[state]]
+name = "severity"
+type = "string"
+initial = ""
+
+[[state]]
+name = "risk_lane"
+type = "string"
+initial = "L2"
+
+[[state]]
+name = "evidence"
+type = "string"
+initial = ""
+
+[[state]]
+name = "affected_paths"
+type = "string"
+initial = "[]"
+
+[[state]]
+name = "fingerprint"
+type = "string"
+initial = ""
+
+[[state]]
+name = "pm_issue_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "work_cycle_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "resolution_summary"
+type = "string"
+initial = ""
+
+[[action]]
+name = "OpenFinding"
+kind = "input"
+from = ["Open"]
+to = "Open"
+params = ["title", "severity", "risk_lane", "evidence", "affected_paths", "fingerprint"]
+hint = "Record a security or authorization finding from Patrol sweeps."
+
+[[action]]
+name = "Accept"
+kind = "input"
+from = ["Open"]
+to = "Accepted"
+effect = [{ type = "trigger", name = "security_finding_accepted" }]
+hint = "Accept this finding as actionable security work."
+
+[[action.triggers]]
+name = "security_finding_accepted"
+kind = "wasm"
+module = "finding_lifecycle"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+local_codex_worker_id = "{secret:local_codex_worker_id}"
+
+[[action]]
+name = "LinkPmIssue"
+kind = "input"
+from = ["Accepted", "InProgress"]
+to = "Accepted"
+params = ["pm_issue_id"]
+hint = "Link the paw-pm Issue for this finding."
+
+[[action]]
+name = "StartWork"
+kind = "input"
+from = ["Accepted"]
+to = "InProgress"
+params = ["work_cycle_id"]
+hint = "Start a Patrol WorkCycle for this finding."
+
+[[action]]
+name = "Resolve"
+kind = "input"
+from = ["InProgress", "Accepted"]
+to = "Resolved"
+params = ["resolution_summary"]
+hint = "Resolve after fix, verification, and proof."
+
+[[action]]
+name = "Escalate"
+kind = "input"
+from = ["Open", "Accepted", "InProgress"]
+to = "Escalated"
+params = ["resolution_summary"]
+hint = "Escalate a sensitive security issue."
+
+[[action]]
+name = "Waive"
+kind = "input"
+from = ["Open", "Accepted"]
+to = "Waived"
+params = ["resolution_summary"]
+hint = "Waive with explicit rationale."
+
+[[state_timeout]]
+state = "Open"
+after_seconds = 604800
+on_timeout = "Escalate"
+params = { resolution_summary = "SecurityFinding stayed Open for 7d without triage." }
+
+[[state_timeout]]
+state = "Accepted"
+after_seconds = 604800
+on_timeout = "Escalate"
+params = { resolution_summary = "SecurityFinding stayed Accepted for 7d without work." }
+
+[[state_timeout]]
+state = "InProgress"
+after_seconds = 604800
+on_timeout = "Escalate"
+params = { resolution_summary = "SecurityFinding stayed InProgress for 7d." }

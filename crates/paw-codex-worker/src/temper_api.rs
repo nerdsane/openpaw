@@ -1,0 +1,414 @@
+async fn fetch_claimable_worker_run(
+    client: &reqwest::Client,
+    config: &Config,
+    worker_run_id: &str,
+) -> Result<WorkerRunState> {
+    let mut worker_run = fetch_worker_run(client, config, worker_run_id).await?;
+    for _ in 0..10 {
+        if worker_run.status != "Queued"
+            || (!worker_run.runner_kind.is_empty() && !worker_run.allowed_worker_id.is_empty())
+        {
+            return Ok(worker_run);
+        }
+        sleep(Duration::from_millis(200)).await;
+        worker_run = fetch_worker_run(client, config, worker_run_id).await?;
+    }
+    Ok(worker_run)
+}
+
+async fn fetch_worker_run(
+    client: &reqwest::Client,
+    config: &Config,
+    worker_run_id: &str,
+) -> Result<WorkerRunState> {
+    let response = client
+        .get(config.entity_url("WorkerRuns", worker_run_id))
+        .headers(headers(config)?)
+        .send()
+        .await
+        .context("fetch WorkerRun")?;
+    if !response.status().is_success() {
+        bail!("fetch WorkerRun returned {}", response.status());
+    }
+    let body = response.json().await.context("parse WorkerRun")?;
+    worker_run_from_odata_value(body)
+}
+
+async fn fetch_configured_review_run(
+    client: &reqwest::Client,
+    config: &Config,
+    review_run_id: &str,
+) -> Result<ReviewRunState> {
+    let mut review_run = fetch_review_run(client, config, review_run_id).await?;
+    for _ in 0..10 {
+        if review_run.status != "Requested" || !review_run.worker_run_id.is_empty() {
+            return Ok(review_run);
+        }
+        sleep(Duration::from_millis(200)).await;
+        review_run = fetch_review_run(client, config, review_run_id).await?;
+    }
+    Ok(review_run)
+}
+
+async fn fetch_review_run(
+    client: &reqwest::Client,
+    config: &Config,
+    review_run_id: &str,
+) -> Result<ReviewRunState> {
+    let response = client
+        .get(config.entity_url("ReviewRuns", review_run_id))
+        .headers(headers(config)?)
+        .send()
+        .await
+        .context("fetch ReviewRun")?;
+    if !response.status().is_success() {
+        bail!("fetch ReviewRun returned {}", response.status());
+    }
+    let body = response.json().await.context("parse ReviewRun")?;
+    review_run_from_odata_value(body)
+}
+
+async fn fetch_configured_evaluation_run(
+    client: &reqwest::Client,
+    config: &Config,
+    evaluation_run_id: &str,
+) -> Result<EvaluationRunState> {
+    let mut evaluation_run = fetch_evaluation_run(client, config, evaluation_run_id).await?;
+    for _ in 0..10 {
+        if evaluation_run.status != "Queued" || !evaluation_run.work_cycle_id.is_empty() {
+            return Ok(evaluation_run);
+        }
+        sleep(Duration::from_millis(200)).await;
+        evaluation_run = fetch_evaluation_run(client, config, evaluation_run_id).await?;
+    }
+    Ok(evaluation_run)
+}
+
+async fn fetch_evaluation_run(
+    client: &reqwest::Client,
+    config: &Config,
+    evaluation_run_id: &str,
+) -> Result<EvaluationRunState> {
+    let response = client
+        .get(config.entity_url("EvaluationRuns", evaluation_run_id))
+        .headers(headers(config)?)
+        .send()
+        .await
+        .context("fetch EvaluationRun")?;
+    if !response.status().is_success() {
+        bail!("fetch EvaluationRun returned {}", response.status());
+    }
+    let body = response.json().await.context("parse EvaluationRun")?;
+    evaluation_run_from_odata_value(body)
+}
+
+async fn fetch_work_cycle(
+    client: &reqwest::Client,
+    config: &Config,
+    work_cycle_id: &str,
+) -> Result<WorkCycleState> {
+    let response = client
+        .get(config.entity_url("WorkCycles", work_cycle_id))
+        .headers(headers(config)?)
+        .send()
+        .await
+        .context("fetch WorkCycle")?;
+    if !response.status().is_success() {
+        bail!("fetch WorkCycle returned {}", response.status());
+    }
+    let body = response.json().await.context("parse WorkCycle")?;
+    work_cycle_from_odata_value(body)
+}
+
+async fn fetch_work_cycle_until_review_passed(
+    client: &reqwest::Client,
+    config: &Config,
+    work_cycle_id: &str,
+) -> Result<WorkCycleState> {
+    let mut work_cycle = fetch_work_cycle(client, config, work_cycle_id).await?;
+    for _ in 0..20 {
+        if work_cycle.review_passed {
+            return Ok(work_cycle);
+        }
+        sleep(Duration::from_millis(250)).await;
+        work_cycle = fetch_work_cycle(client, config, work_cycle_id).await?;
+    }
+    Ok(work_cycle)
+}
+
+async fn claim_worker_run(
+    client: &reqwest::Client,
+    config: &Config,
+    worker_run_id: &str,
+) -> Result<()> {
+    info!(
+        worker_run_id,
+        action = ACTION_CLAIM_LABEL,
+        "claiming WorkerRun"
+    );
+    post_action(
+        client,
+        config,
+        worker_run_id,
+        "Claim",
+        json!({ "worker_id": config.worker_id }),
+    )
+    .await
+}
+
+async fn start_local_worker_run(
+    client: &reqwest::Client,
+    config: &Config,
+    worker_run_id: &str,
+) -> Result<()> {
+    post_action(client, config, worker_run_id, "StartLocal", json!({})).await
+}
+
+async fn report_done(
+    client: &reqwest::Client,
+    config: &Config,
+    worker_run: &WorkerRunState,
+    summary: &str,
+) -> Result<()> {
+    info!(
+        worker_run_id = %worker_run.id,
+        action = ACTION_REPORT_DONE_LABEL,
+        "reporting WorkerRun done"
+    );
+    post_action(
+        client,
+        config,
+        &worker_run.id,
+        "ReportDone",
+        json!({
+            "result_summary": summary,
+            "proof_packet_id": "",
+            "branch_name": worker_run.branch_name,
+        }),
+    )
+    .await
+}
+
+async fn report_failed(
+    client: &reqwest::Client,
+    config: &Config,
+    worker_run_id: &str,
+    error_message: &str,
+) -> Result<()> {
+    info!(
+        worker_run_id,
+        action = ACTION_REPORT_FAILED_LABEL,
+        "reporting WorkerRun failed"
+    );
+    post_action(
+        client,
+        config,
+        worker_run_id,
+        "ReportFailed",
+        json!({ "error_message": error_message }),
+    )
+    .await
+}
+
+async fn claim_evaluation_run(
+    client: &reqwest::Client,
+    config: &Config,
+    evaluation_run_id: &str,
+) -> Result<()> {
+    info!(
+        evaluation_run_id,
+        action = EVALUATION_CLAIM_LABEL,
+        "claiming EvaluationRun"
+    );
+    post_entity_action(
+        client,
+        config,
+        "EvaluationRuns",
+        evaluation_run_id,
+        "Claim",
+        json!({ "evaluator_id": config.worker_id }),
+    )
+    .await
+}
+
+async fn post_action(
+    client: &reqwest::Client,
+    config: &Config,
+    worker_run_id: &str,
+    action: &str,
+    body: Value,
+) -> Result<()> {
+    post_entity_action(client, config, "WorkerRuns", worker_run_id, action, body).await
+}
+
+async fn post_entity_action(
+    client: &reqwest::Client,
+    config: &Config,
+    entity_set: &str,
+    entity_id: &str,
+    action: &str,
+    body: Value,
+) -> Result<()> {
+    let response = client
+        .post(config.entity_action_url(entity_set, entity_id, action))
+        .headers(headers(config)?)
+        .header(CONTENT_TYPE, "application/json")
+        .json(&body)
+        .send()
+        .await
+        .with_context(|| format!("dispatch {entity_set}.{action}"))?;
+    if !response.status().is_success() {
+        let status = response.status();
+        let text = response.text().await.unwrap_or_default();
+        bail!("{entity_set}.{action} returned {status}: {text}");
+    }
+    Ok(())
+}
+
+fn worker_run_from_odata_value(value: Value) -> Result<WorkerRunState> {
+    let fields = value.get("fields").cloned().unwrap_or_else(|| json!({}));
+    let id = first_string(&value, &fields, &["entity_id", "id", "Id"], &["id", "Id"]);
+    if id.is_empty() {
+        bail!("WorkerRun response was missing entity_id");
+    }
+
+    Ok(WorkerRunState {
+        id,
+        status: first_string(
+            &value,
+            &fields,
+            &["status", "Status"],
+            &["status", "Status"],
+        ),
+        task: first_string(&value, &fields, &["task", "Task"], &["task", "Task"]),
+        worktree_path: first_string(
+            &value,
+            &fields,
+            &["worktree_path", "WorktreePath"],
+            &["worktree_path", "WorktreePath"],
+        ),
+        branch_name: first_string(
+            &value,
+            &fields,
+            &["branch_name", "BranchName"],
+            &["branch_name", "BranchName"],
+        ),
+        runner_kind: first_string(
+            &value,
+            &fields,
+            &["runner_kind", "RunnerKind"],
+            &["runner_kind", "RunnerKind"],
+        ),
+        allowed_worker_id: first_string(
+            &value,
+            &fields,
+            &["allowed_worker_id", "AllowedWorkerId"],
+            &["allowed_worker_id", "AllowedWorkerId"],
+        ),
+    })
+}
+
+fn review_run_from_odata_value(value: Value) -> Result<ReviewRunState> {
+    let fields = value.get("fields").cloned().unwrap_or_else(|| json!({}));
+    let id = first_string(&value, &fields, &["entity_id", "id", "Id"], &["id", "Id"]);
+    if id.is_empty() {
+        bail!("ReviewRun response was missing entity_id");
+    }
+
+    Ok(ReviewRunState {
+        status: first_string(
+            &value,
+            &fields,
+            &["status", "Status"],
+            &["status", "Status"],
+        ),
+        worker_run_id: first_string(
+            &value,
+            &fields,
+            &["worker_run_id", "WorkerRunId"],
+            &["worker_run_id", "WorkerRunId"],
+        ),
+        proof_packet_id: first_string(
+            &value,
+            &fields,
+            &["proof_packet_id", "ProofPacketId"],
+            &["proof_packet_id", "ProofPacketId"],
+        ),
+    })
+}
+
+fn evaluation_run_from_odata_value(value: Value) -> Result<EvaluationRunState> {
+    let fields = value.get("fields").cloned().unwrap_or_else(|| json!({}));
+    let id = first_string(&value, &fields, &["entity_id", "id", "Id"], &["id", "Id"]);
+    if id.is_empty() {
+        bail!("EvaluationRun response was missing entity_id");
+    }
+
+    Ok(EvaluationRunState {
+        status: first_string(
+            &value,
+            &fields,
+            &["status", "Status"],
+            &["status", "Status"],
+        ),
+        work_cycle_id: first_string(
+            &value,
+            &fields,
+            &["work_cycle_id", "WorkCycleId"],
+            &["work_cycle_id", "WorkCycleId"],
+        ),
+        evaluator_id: first_string(
+            &value,
+            &fields,
+            &["evaluator_id", "EvaluatorId"],
+            &["evaluator_id", "EvaluatorId"],
+        ),
+        required_checks: first_string(
+            &value,
+            &fields,
+            &["required_checks", "RequiredChecks"],
+            &["required_checks", "RequiredChecks"],
+        ),
+    })
+}
+
+fn work_cycle_from_odata_value(value: Value) -> Result<WorkCycleState> {
+    let fields = value.get("fields").cloned().unwrap_or_else(|| json!({}));
+    let id = first_string(&value, &fields, &["entity_id", "id", "Id"], &["id", "Id"]);
+    if id.is_empty() {
+        bail!("WorkCycle response was missing entity_id");
+    }
+
+    Ok(WorkCycleState {
+        id,
+        implementer_worker_run_id: first_string(
+            &value,
+            &fields,
+            &["implementer_worker_run_id", "ImplementerWorkerRunId"],
+            &["implementer_worker_run_id", "ImplementerWorkerRunId"],
+        ),
+        reviewer_run_id: first_string(
+            &value,
+            &fields,
+            &["reviewer_run_id", "ReviewerRunId"],
+            &["reviewer_run_id", "ReviewerRunId"],
+        ),
+        review_passed: first_bool(
+            &value,
+            &fields,
+            &["review_passed", "ReviewPassed"],
+            &["review_passed", "ReviewPassed"],
+        ),
+    })
+}
+
+fn worker_run_is_claimable_by_local_codex(worker_run: &WorkerRunState, worker_id: &str) -> bool {
+    worker_run.status == "Queued"
+        && worker_run.runner_kind == "local_codex"
+        && worker_run.allowed_worker_id == worker_id
+        && worker_run_has_worktree_assignment(worker_run)
+}
+
+fn worker_run_has_worktree_assignment(worker_run: &WorkerRunState) -> bool {
+    !worker_run.worktree_path.trim().is_empty() || !worker_run.branch_name.trim().is_empty()
+}

@@ -4,6 +4,7 @@ members = [
     "crates/temperpaw",
     "crates/temperpaw-cli",
     "crates/paw-transport",
+    "crates/paw-codex-worker",
 ]
 
 [workspace.package]

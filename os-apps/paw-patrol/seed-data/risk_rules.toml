@@ -1,0 +1,75 @@
+# Initial Patrol risk floors.
+# These are conservative and inspectable. Agents may raise risk from these
+# floors, but they cannot silently lower them.
+
+[[instance]]
+id = "risk-docs-proofs-l1"
+type = "RiskRule"
+
+[instance.fields]
+rule_name = "Docs and proofs only"
+minimum_risk_lane = "L1"
+evidence_selector = '{"all_changed_paths_match":["docs/**","**/*.md",".proofs/**","docs/proofs/**"]}'
+required_checks = '["independent_review"]'
+review_policy = "reviewer_agent_required"
+description = "Docs/proof-only changes can be low risk, but still need reviewer-agent review before completion."
+
+[[instance]]
+id = "risk-wasm-logic-l2"
+type = "RiskRule"
+
+[instance.fields]
+rule_name = "WASM business logic touched"
+minimum_risk_lane = "L2"
+evidence_selector = '{"any_changed_path_matches":["os-apps/**/wasm/**"]}'
+required_checks = '["wasm_build","unit_tests","simulated_host_or_e2e","independent_review"]'
+review_policy = "reviewer_agent_then_human_if_behavioral"
+description = "WASM integrations carry entity-transition business logic and require deeper verification."
+
+[[instance]]
+id = "risk-cedar-policy-l2"
+type = "RiskRule"
+
+[instance.fields]
+rule_name = "Cedar policy touched"
+minimum_risk_lane = "L2"
+evidence_selector = '{"any_changed_path_matches":["os-apps/**/policies/**/*.cedar","**/*.cedar"]}'
+required_checks = '["policy_tests","authorization_negative_tests","independent_review"]'
+review_policy = "reviewer_agent_then_human"
+description = "Authorization changes require policy tests and human-visible review after reviewer-agent review."
+
+[[instance]]
+id = "risk-discord-user-facing-l2"
+type = "RiskRule"
+
+[instance.fields]
+rule_name = "Discord or channel user-facing behavior"
+minimum_risk_lane = "L2"
+evidence_selector = '{"any_changed_path_matches":["crates/paw-transport/src/discord/**","os-apps/paw-channels/**","os-apps/paw-agent/wasm/*reply*/**"]}'
+required_checks = '["fake_discord_flow","dm_trace_leak_check","independent_review"]'
+review_policy = "reviewer_agent_then_human_if_dm_behavior_changes"
+description = "User-visible chat behavior needs live or fake transport proof and trace-leak checks."
+
+[[instance]]
+id = "risk-deploy-secrets-billing-l3"
+type = "RiskRule"
+
+[instance.fields]
+rule_name = "Deploy, secrets, billing, or provider surface"
+minimum_risk_lane = "L3"
+evidence_selector = '{"any_changed_path_matches":["crates/temperpaw/src/deploy.rs","crates/temperpaw-cli/src/deploy.rs","**/.env*","**/railway*","**/Railway*","**/provider*","**/billing*"]}'
+required_checks = '["human_approval_before_start","independent_review","staging_or_dry_run_proof"]'
+review_policy = "human_before_start_and_before_merge"
+description = "Deploy, secret, billing, and provider changes need human approval before work starts."
+
+[[instance]]
+id = "risk-migration-data-l3"
+type = "RiskRule"
+
+[instance.fields]
+rule_name = "Migration or data-shape change"
+minimum_risk_lane = "L3"
+evidence_selector = '{"any_changed_path_matches":["**/migrations/**","**/*migration*","**/*backfill*","crates/temperpaw/src/storage.rs","docs/runtime-query-plane-migration-plan.md"]}'
+required_checks = '["human_approval_before_start","migration_dry_run","rollback_plan","independent_review"]'
+review_policy = "human_before_start_and_before_merge"
+description = "Data-shape and migration work is high risk until dry-run and rollback proof exist."

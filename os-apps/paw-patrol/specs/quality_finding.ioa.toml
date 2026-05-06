@@ -1,0 +1,103 @@
+[automaton]
+name = "QualityFinding"
+states = ["Open", "Accepted", "InProgress", "Resolved", "Waived"]
+initial = "Open"
+
+allow_indefinite_states = ["Open", "Accepted", "InProgress", "Resolved", "Waived"]
+
+[[state]]
+name = "title"
+type = "string"
+initial = ""
+
+[[state]]
+name = "severity"
+type = "string"
+initial = ""
+
+[[state]]
+name = "evidence"
+type = "string"
+initial = ""
+
+[[state]]
+name = "affected_paths"
+type = "string"
+initial = "[]"
+
+[[state]]
+name = "fingerprint"
+type = "string"
+initial = ""
+
+[[state]]
+name = "pm_issue_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "work_cycle_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "resolution_summary"
+type = "string"
+initial = ""
+
+[[action]]
+name = "OpenFinding"
+kind = "input"
+from = ["Open"]
+to = "Open"
+params = ["title", "severity", "evidence", "affected_paths", "fingerprint"]
+hint = "Record a code health finding from Patrol sweeps."
+
+[[action]]
+name = "Accept"
+kind = "input"
+from = ["Open"]
+to = "Accepted"
+effect = [{ type = "trigger", name = "quality_finding_accepted" }]
+hint = "Accept this finding as actionable cleanup."
+
+[[action.triggers]]
+name = "quality_finding_accepted"
+kind = "wasm"
+module = "finding_lifecycle"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+local_codex_worker_id = "{secret:local_codex_worker_id}"
+
+[[action]]
+name = "LinkPmIssue"
+kind = "input"
+from = ["Accepted", "InProgress"]
+to = "Accepted"
+params = ["pm_issue_id"]
+hint = "Link the paw-pm Issue for this finding."
+
+[[action]]
+name = "StartWork"
+kind = "input"
+from = ["Accepted"]
+to = "InProgress"
+params = ["work_cycle_id"]
+hint = "Start a Patrol WorkCycle for this finding."
+
+[[action]]
+name = "Resolve"
+kind = "input"
+from = ["InProgress", "Accepted"]
+to = "Resolved"
+params = ["resolution_summary"]
+hint = "Resolve after cleanup and ratchet proof."
+
+[[action]]
+name = "Waive"
+kind = "input"
+from = ["Open", "Accepted"]
+to = "Waived"
+params = ["resolution_summary"]
+hint = "Waive with explicit rationale."
