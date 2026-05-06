@@ -78,6 +78,28 @@ JSON
 }
 JSON
     ;;
+  "pr view 220 --repo nerdsane/temperpaw --json url,isDraft,state,mergeStateStatus,headRefOid")
+    cat <<'JSON'
+{
+  "url": "https://github.com/nerdsane/temperpaw/pull/220",
+  "isDraft": false,
+  "state": "MERGED",
+  "mergeStateStatus": "UNKNOWN",
+  "headRefOid": "patrol-wasm-image-head"
+}
+JSON
+    ;;
+  "pr view 221 --repo nerdsane/temperpaw --json url,isDraft,state,mergeStateStatus,headRefOid")
+    cat <<'JSON'
+{
+  "url": "https://github.com/nerdsane/temperpaw/pull/221",
+  "isDraft": false,
+  "state": "MERGED",
+  "mergeStateStatus": "UNKNOWN",
+  "headRefOid": "patrol-mac-mini-bootstrap-head"
+}
+JSON
+    ;;
   *)
     printf 'unexpected fake gh invocation: %s\n' "$*" >&2
     exit 64
@@ -129,6 +151,16 @@ jq -e '
     .status == "pass" and
     (.detail | contains("operator confirmed"))
   ) and
+  any(.gates[];
+    .gate == "github:temperpaw_pr_220" and
+    .status == "pass" and
+    (.detail | contains("merged"))
+  ) and
+  any(.gates[];
+    .gate == "github:temperpaw_pr_221" and
+    .status == "pass" and
+    (.detail | contains("merged"))
+  ) and
   ([.human_blockers[] | select(.gate == "github:temperpaw_pr_218")] | length == 0)
 ' "${PROOF_DIR}/summary-with-confirm.json" >/dev/null
 
@@ -136,7 +168,7 @@ cat >"${PROOF_DIR}/proof.md" <<EOF
 # Paw Patrol GitHub Preflight Smoke
 
 This smoke uses fake \`gh\` and \`launchctl\` binaries to prove production
-preflight treats TemperPaw PR #218 as a cutover gate.
+preflight treats TemperPaw PR #218, #220, and #221 as cutover gates.
 
 ## Evidence
 

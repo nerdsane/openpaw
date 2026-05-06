@@ -779,6 +779,12 @@ fn production_readiness_script_keeps_mac_mini_activation_checkable() {
         "CONFIRM_TEMPERPAW_PR_OK",
         "statusCheckRollup",
         "TemperPaw PR #218 is clean and green but unmerged",
+        "temperpaw-pr-220.json",
+        "github:temperpaw_pr_220",
+        "TemperPaw PR #220 is merged",
+        "temperpaw-pr-221.json",
+        "github:temperpaw_pr_221",
+        "TemperPaw PR #221 is merged",
         "does not mutate Railway, launchd, or Temper",
     ] {
         assert!(
