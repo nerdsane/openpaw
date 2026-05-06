@@ -67,10 +67,7 @@ fn handle_human_start_approved(
     let task_detail = string_field(fields, "task_detail", "TaskDetail");
     let approval_summary = string_param(ctx, fields, "approval_summary", "ApprovalSummary");
     let branch_name = format!("codex/paw-approved-{}", short_id(&work_cycle_id));
-    let worktree_path = format!(
-        "/Users/seshendranalla/Development/temperpaw-worktrees/{}",
-        branch_name.replace('/', "-")
-    );
+    let worktree_path = worktree_path(ctx, &branch_name);
     let task = if task_detail.trim().is_empty() {
         fallback_task(&work_cycle_id, &case_id, &task_summary, &approval_summary)
     } else {
@@ -363,6 +360,22 @@ fn configured_local_worker_id(ctx: &Context) -> String {
         .filter(|value| !value.trim().is_empty() && !value.contains("{secret:"))
         .cloned()
         .unwrap_or_else(|| "mac-mini-codex-prod".to_string())
+}
+
+fn configured_local_worktree_root(ctx: &Context) -> String {
+    ctx.config
+        .get("local_codex_worktree_root")
+        .filter(|value| !value.trim().is_empty() && !value.contains("{secret:"))
+        .cloned()
+        .unwrap_or_else(|| "/Users/openclaw/Development/temperpaw-worktrees".to_string())
+}
+
+fn worktree_path(ctx: &Context, branch_name: &str) -> String {
+    format!(
+        "{}/{}",
+        configured_local_worktree_root(ctx).trim_end_matches('/'),
+        branch_name.replace('/', "-")
+    )
 }
 
 fn create_entity(

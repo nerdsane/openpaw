@@ -80,10 +80,7 @@ fn handle_accept(
         finding_kind.to_ascii_lowercase(),
         short_id(&finding_id)
     );
-    let worktree_path = format!(
-        "/Users/seshendranalla/Development/temperpaw-worktrees/{}",
-        branch_name.replace('/', "-")
-    );
+    let worktree_path = worktree_path(ctx, &branch_name);
     let allowed_worker_id = configured_local_worker_id(ctx);
     let start_approval_required = requires_human_start_approval(&risk_lane);
     let worker_run_id = if start_approval_required {
@@ -404,6 +401,22 @@ fn configured_local_worker_id(ctx: &Context) -> String {
         .filter(|value| !value.trim().is_empty() && !value.contains("{secret:"))
         .cloned()
         .unwrap_or_else(|| "mac-mini-codex-prod".to_string())
+}
+
+fn configured_local_worktree_root(ctx: &Context) -> String {
+    ctx.config
+        .get("local_codex_worktree_root")
+        .filter(|value| !value.trim().is_empty() && !value.contains("{secret:"))
+        .cloned()
+        .unwrap_or_else(|| "/Users/openclaw/Development/temperpaw-worktrees".to_string())
+}
+
+fn worktree_path(ctx: &Context, branch_name: &str) -> String {
+    format!(
+        "{}/{}",
+        configured_local_worktree_root(ctx).trim_end_matches('/'),
+        branch_name.replace('/', "-")
+    )
 }
 
 fn create_entity(

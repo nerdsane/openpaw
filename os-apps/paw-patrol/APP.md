@@ -225,7 +225,10 @@ The Mac mini runs `paw-codex-worker` under launchd. The worker connects outbound
 to Railway TemperPaw's `/tdata/$events`, watches for `WorkerRun.Queued`, claims
 work through Cedar, starts local Codex, then reports completion back to Temper.
 Patrol sets `WorkerRun.allowed_worker_id` from `local_codex_worker_id` so only
-the registered local worker principal can claim the queued run.
+the registered local worker principal can claim the queued run. Patrol sets
+`WorkerRun.worktree_path` from `local_codex_worktree_root` so queued runs point
+at the worker host's worktree root rather than the machine that submitted the
+request or signal.
 
 This is resource-bound ownership. The principal ID identifies the caller; the
 resource assignment field identifies which exact Temper entity the caller is

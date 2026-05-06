@@ -22,9 +22,9 @@
     <key>WORKER_TOKEN</key>
     <string>replace-with-temper-api-key</string>
     <key>WORKSPACE_ROOT</key>
-    <string>/Users/seshendranalla/Development/temperpaw-worktrees</string>
+    <string>/Users/openclaw/Development/temperpaw-worktrees</string>
     <key>REPO_ROOT</key>
-    <string>/Users/seshendranalla/Development/temperpaw</string>
+    <string>/Users/openclaw/Development/temperpaw</string>
     <key>CODEX_BIN</key>
     <string>codex</string>
     <key>PAW_CODEX_ENABLE_EXECUTION</key>

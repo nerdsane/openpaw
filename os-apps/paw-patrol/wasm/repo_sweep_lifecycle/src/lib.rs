@@ -65,10 +65,7 @@ fn handle_start_scan(
     let work_cycle_id = create_entity(ctx, base_url, headers, WORK_CYCLES_PATH)?;
     let worker_run_id = create_entity(ctx, base_url, headers, WORKER_RUNS_PATH)?;
     let branch_name = format!("codex/paw-repo-sweep-{}", short_id(&snapshot_id));
-    let worktree_path = format!(
-        "/Users/seshendranalla/Development/temperpaw-worktrees/{}",
-        branch_name.replace('/', "-")
-    );
+    let worktree_path = worktree_path(ctx, &branch_name);
     let task_summary = format!("repo graph and dependency sweep for {commit_sha}");
     let task_detail = worker_task(&snapshot_id, &work_cycle_id, &commit_sha);
     let allowed_worker_id = configured_local_worker_id(ctx);
@@ -468,6 +465,22 @@ fn configured_local_worker_id(ctx: &Context) -> String {
         .filter(|value| !value.trim().is_empty() && !value.contains("{secret:"))
         .cloned()
         .unwrap_or_else(|| "mac-mini-codex-prod".to_string())
+}
+
+fn configured_local_worktree_root(ctx: &Context) -> String {
+    ctx.config
+        .get("local_codex_worktree_root")
+        .filter(|value| !value.trim().is_empty() && !value.contains("{secret:"))
+        .cloned()
+        .unwrap_or_else(|| "/Users/openclaw/Development/temperpaw-worktrees".to_string())
+}
+
+fn worktree_path(ctx: &Context, branch_name: &str) -> String {
+    format!(
+        "{}/{}",
+        configured_local_worktree_root(ctx).trim_end_matches('/'),
+        branch_name.replace('/', "-")
+    )
 }
 
 fn configured_session_value(ctx: &Context, key: &str, fallback: &str) -> String {

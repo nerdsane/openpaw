@@ -116,10 +116,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         let work_cycle_id = create_entity(&ctx, &temper_api_url, &headers, WORK_CYCLES_PATH)?;
 
         let branch_name = format!("codex/paw-signal-{}", short_id(&signal_id));
-        let worktree_path = format!(
-            "/Users/seshendranalla/Development/temperpaw-worktrees/{}",
-            branch_name.replace('/', "-")
-        );
+        let worktree_path = worktree_path(&ctx, &branch_name);
         let worker_task = worker_task(
             &signal_id,
             &case_id,
@@ -590,6 +587,22 @@ fn configured_local_worker_id(ctx: &Context) -> String {
         .filter(|value| !value.trim().is_empty() && !value.contains("{secret:"))
         .cloned()
         .unwrap_or_else(|| "mac-mini-codex-prod".to_string())
+}
+
+fn configured_local_worktree_root(ctx: &Context) -> String {
+    ctx.config
+        .get("local_codex_worktree_root")
+        .filter(|value| !value.trim().is_empty() && !value.contains("{secret:"))
+        .cloned()
+        .unwrap_or_else(|| "/Users/openclaw/Development/temperpaw-worktrees".to_string())
+}
+
+fn worktree_path(ctx: &Context, branch_name: &str) -> String {
+    format!(
+        "{}/{}",
+        configured_local_worktree_root(ctx).trim_end_matches('/'),
+        branch_name.replace('/', "-")
+    )
 }
 
 fn create_entity(

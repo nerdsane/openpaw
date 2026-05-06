@@ -54,11 +54,11 @@ impl Config {
             .ok()
             .filter(|value| !value.is_empty());
         let workspace_root = PathBuf::from(env::var("WORKSPACE_ROOT").unwrap_or_else(|_| {
-            "/Users/seshendranalla/Development/temperpaw-worktrees".to_string()
+            "/Users/openclaw/Development/temperpaw-worktrees".to_string()
         }));
         let repo_root = PathBuf::from(
             env::var("REPO_ROOT")
-                .unwrap_or_else(|_| "/Users/seshendranalla/Development/temperpaw".to_string()),
+                .unwrap_or_else(|_| "/Users/openclaw/Development/temperpaw".to_string()),
         );
         let codex_bin = env::var("CODEX_BIN").unwrap_or_else(|_| "codex".to_string());
         let max_concurrent_runs = env::var("MAX_CONCURRENT_RUNS")

@@ -68,7 +68,7 @@ TEMPER_TENANT=default \
 WORKER_ID=mac-mini-codex-prod \
 WORKER_TOKEN="$TEMPER_API_KEY" \
 REPO_ROOT="$(pwd)" \
-WORKSPACE_ROOT=/Users/seshendranalla/Development/temperpaw-worktrees \
+WORKSPACE_ROOT=/Users/openclaw/Development/temperpaw-worktrees \
 PAW_CODEX_ENABLE_EXECUTION=0 \
 cargo run -p paw-codex-worker
 ```
@@ -87,7 +87,7 @@ TEMPER_TENANT=default \
 WORKER_ID=mac-mini-codex-prod \
 WORKER_TOKEN="$TEMPER_API_KEY" \
 REPO_ROOT="$(pwd)" \
-WORKSPACE_ROOT=/Users/seshendranalla/Development/temperpaw-worktrees \
+WORKSPACE_ROOT=/Users/openclaw/Development/temperpaw-worktrees \
 cargo run -p paw-codex-worker -- doctor
 ```
 
@@ -108,7 +108,9 @@ cargo test -p temperpaw --test paw_patrol_foundation -- --nocapture
 
 The Codex CLI must already be signed in with ChatGPT/Codex auth on the Mac mini.
 `WORKER_ID` must match Patrol's configured `local_codex_worker_id`; the default
-for local smoke and production setup is `mac-mini-codex-prod`.
+for local smoke and production setup is `mac-mini-codex-prod`. `WORKSPACE_ROOT`
+must match Patrol's configured `local_codex_worktree_root`, because Patrol stores
+the assigned worktree path on each `WorkerRun`.
 
 ## Deterministic End-to-End Smoke
 
@@ -172,7 +174,7 @@ TEMPER_TENANT=patrol_smoke \
 WORKER_ID=mac-mini-codex-prod \
 WORKER_TOKEN=patrol-smoke \
 REPO_ROOT="$(pwd)" \
-WORKSPACE_ROOT=/Users/seshendranalla/Development/temperpaw-worktrees \
+WORKSPACE_ROOT=/Users/openclaw/Development/temperpaw-worktrees \
 CODEX_BIN="$(pwd)/crates/paw-codex-worker/fixtures/fake-codex.sh" \
 PAW_CODEX_ENABLE_EXECUTION=1 \
 PAW_CODEX_POLL_ON_START=1 \
@@ -367,8 +369,8 @@ TEMPER_URL=https://your-railway-temperpaw.example \
 TEMPER_TENANT=default \
 WORKER_ID=mac-mini-codex-prod \
 WORKER_TOKEN="$TEMPER_WORKER_TOKEN" \
-REPO_ROOT=/Users/seshendranalla/Development/temperpaw \
-WORKSPACE_ROOT=/Users/seshendranalla/Development/temperpaw-worktrees \
+REPO_ROOT=/Users/openclaw/Development/temperpaw \
+WORKSPACE_ROOT=/Users/openclaw/Development/temperpaw-worktrees \
 CODEX_BIN=/Users/seshendranalla/.local/bin/codex \
 PAW_CODEX_ENABLE_EXECUTION=0 \
 PAW_CODEX_DOCTOR_EXEC_SMOKE=1 \
@@ -418,8 +420,8 @@ TEMPER_URL=https://your-railway-temperpaw.example \
 TEMPER_TENANT=default \
 WORKER_ID=mac-mini-codex-prod \
 WORKER_TOKEN="$TEMPER_WORKER_TOKEN" \
-REPO_ROOT=/Users/seshendranalla/Development/temperpaw \
-WORKSPACE_ROOT=/Users/seshendranalla/Development/temperpaw-worktrees \
+REPO_ROOT=/Users/openclaw/Development/temperpaw \
+WORKSPACE_ROOT=/Users/openclaw/Development/temperpaw-worktrees \
 CODEX_BIN=/Users/seshendranalla/.local/bin/codex \
 PAW_CODEX_ENABLE_EXECUTION=0 \
 PAW_CODEX_DOCTOR_EXEC_SMOKE=1 \
