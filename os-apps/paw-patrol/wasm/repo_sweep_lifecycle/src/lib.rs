@@ -93,7 +93,7 @@ fn handle_start_scan(
         &work_cycle_id,
         PATROL_WRITE_PLAN,
         &json!({
-            "plan_summary": "Run the recurring repo graph and dependency sweep: build the code/dependency graph, scan giant modules, duplicate logic, TODO/HACK band-aids, Cedar drift, dependency risks, hidden Rust orchestration, polling loops, and missing proof/test coverage. Report structured JSON to RepoGraphSnapshot.ScanComplete, then self-report WorkerRun.ReportDone with the visual evidence packet."
+            "plan_summary": "Run the recurring repo graph and dependency sweep: build the code/dependency graph, scan giant modules, duplicate logic, TODO/HACK band-aids, Cedar drift, dependency risks, hidden Rust orchestration, polling loops, and missing proof/test coverage. Report structured JSON to RepoGraphSnapshot.ScanComplete, then finish normally so paw-codex-worker can attach the visual evidence packet."
         }),
     )?;
     post_action(
@@ -391,7 +391,7 @@ fn paths_value(value: &Value) -> String {
 
 fn worker_task(snapshot_id: &str, work_cycle_id: &str, commit_sha: &str) -> String {
     format!(
-        "You are the local Codex repo-health worker for TemperPaw paw-patrol.\n\nRepoGraphSnapshot: {snapshot_id}\nWorkCycle: {work_cycle_id}\nCommit: {commit_sha}\n\nRequired loop:\n1. Work in the assigned git worktree and branch.\n2. Build the repo/dependency graph for TemperPaw and the deeply coupled Temper surface.\n3. Scan for giant modules, duplicate logic, TODO/HACK band-aids, Cedar drift, dependency risks, hidden Rust orchestration, polling loops, missing proof coverage, and missing tests.\n4. Produce structured graph_json with quality_findings and security_findings arrays; each finding should include fingerprint, title, severity, evidence, and affected_paths. Security findings also include risk_lane.\n5. Dispatch RepoGraphSnapshot.ScanComplete with graph_json, summary_markdown, generated_at, and finding_count.\n6. Produce a visual ProofPacket with diagrams and links, then self-report WorkerRun.ReportDone or WorkerRun.ReportFailed."
+        "You are the local Codex repo-health worker for TemperPaw paw-patrol.\n\nRepoGraphSnapshot: {snapshot_id}\nWorkCycle: {work_cycle_id}\nCommit: {commit_sha}\n\nRequired loop:\n1. Work in the assigned git worktree and branch.\n2. Build the repo/dependency graph for TemperPaw and the deeply coupled Temper surface.\n3. Scan for giant modules, duplicate logic, TODO/HACK band-aids, Cedar drift, dependency risks, hidden Rust orchestration, polling loops, missing proof coverage, and missing tests.\n4. Produce structured graph_json with quality_findings and security_findings arrays; each finding should include fingerprint, title, severity, evidence, and affected_paths. Security findings also include risk_lane.\n5. Dispatch RepoGraphSnapshot.ScanComplete with graph_json, summary_markdown, generated_at, and finding_count.\n6. Produce a visual ProofPacket with diagrams and links, then finish normally. The paw-codex-worker will report WorkerRun.ReportDone or WorkerRun.ReportFailed to Temper after the local Codex process exits."
     )
 }
 

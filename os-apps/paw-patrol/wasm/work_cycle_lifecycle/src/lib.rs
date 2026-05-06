@@ -270,7 +270,7 @@ fn fallback_task(
     approval_summary: &str,
 ) -> String {
     format!(
-        "You are the local Codex implementer for human-approved L3 work.\n\nFactoryCase: {case_id}\nWorkCycle: {work_cycle_id}\nSummary: {task_summary}\nHuman approval: {approval_summary}\n\nRequired loop:\n1. Work in the assigned git worktree and branch.\n2. Follow red-green TDD before implementation.\n3. Keep orchestration Temper-native: entity specs, WASM integrations, and Cedar policies.\n4. Run focused tests and relevant live/E2E verification.\n5. Produce a visual ProofPacket and self-report WorkerRun.ReportDone or WorkerRun.ReportFailed."
+        "You are the local Codex implementer for human-approved L3 work.\n\nFactoryCase: {case_id}\nWorkCycle: {work_cycle_id}\nSummary: {task_summary}\nHuman approval: {approval_summary}\n\nRequired loop:\n1. Work in the assigned git worktree and branch.\n2. Follow red-green TDD before implementation.\n3. Keep orchestration Temper-native: entity specs, WASM integrations, and Cedar policies.\n4. Run focused tests and relevant live/E2E verification.\n5. Produce a visual ProofPacket and finish normally. The paw-codex-worker will report WorkerRun.ReportDone or WorkerRun.ReportFailed to Temper after the local Codex process exits."
     )
 }
 

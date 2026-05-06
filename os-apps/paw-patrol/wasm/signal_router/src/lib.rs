@@ -539,7 +539,7 @@ fn worker_task(
     payload: &str,
 ) -> String {
     format!(
-        "You are the local Codex implementer for an observed TemperPaw signal.\n\nSignal: {signal_id}\nFactoryCase: {case_id}\nWorkCycle: {work_cycle_id}\nSource: {source}\nSource URL: {source_url}\nSummary: {summary}\n\nPayload:\n{payload}\n\nRequired loop:\n1. Work in the assigned git worktree and branch.\n2. Reproduce or explain the observed failure from the signal evidence.\n3. Follow red-green TDD before implementation.\n4. Keep orchestration Temper-native: entity specs, WASM integrations, and Cedar policies.\n5. Run focused tests and relevant live/E2E verification for the observed failure.\n6. Produce a visual ProofPacket with changed-files map, state diagram, tests, E2E evidence, risk notes, and OData links.\n7. Self-report WorkerRun.ReportDone or WorkerRun.ReportFailed when finished."
+        "You are the local Codex implementer for an observed TemperPaw signal.\n\nSignal: {signal_id}\nFactoryCase: {case_id}\nWorkCycle: {work_cycle_id}\nSource: {source}\nSource URL: {source_url}\nSummary: {summary}\n\nPayload:\n{payload}\n\nRequired loop:\n1. Work in the assigned git worktree and branch.\n2. Reproduce or explain the observed failure from the signal evidence.\n3. Follow red-green TDD before implementation.\n4. Keep orchestration Temper-native: entity specs, WASM integrations, and Cedar policies.\n5. Run focused tests and relevant live/E2E verification for the observed failure.\n6. Produce a visual ProofPacket with changed-files map, state diagram, tests, E2E evidence, risk notes, and OData links.\n7. Finish normally. The paw-codex-worker will report WorkerRun.ReportDone or WorkerRun.ReportFailed to Temper after the local Codex process exits."
     )
 }
 

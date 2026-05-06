@@ -458,7 +458,7 @@ fn worker_task(
     request_text: &str,
 ) -> String {
     format!(
-        "You are the local Codex implementer for TemperPaw paw-patrol.\n\nPatrolRequest: {request_id}\nFactoryCase: {case_id}\nWorkCycle: {work_cycle_id}\nSummary: {summary}\n\nRequest:\n{request_text}\n\nRequired loop:\n1. Work in the assigned git worktree and branch.\n2. Follow red-green TDD before implementation.\n3. Keep orchestration Temper-native: entity specs, WASM integrations, and Cedar policies.\n4. Run focused tests and relevant live/E2E verification for touched behavior.\n5. Produce a visual ProofPacket with changed-files map, state diagram, tests, E2E evidence, risk notes, and OData links.\n6. Self-report WorkerRun.ReportDone or WorkerRun.ReportFailed when finished."
+        "You are the local Codex implementer for TemperPaw paw-patrol.\n\nPatrolRequest: {request_id}\nFactoryCase: {case_id}\nWorkCycle: {work_cycle_id}\nSummary: {summary}\n\nRequest:\n{request_text}\n\nRequired loop:\n1. Work in the assigned git worktree and branch.\n2. Follow red-green TDD before implementation.\n3. Keep orchestration Temper-native: entity specs, WASM integrations, and Cedar policies.\n4. Run focused tests and relevant live/E2E verification for touched behavior.\n5. Produce a visual ProofPacket with changed-files map, state diagram, tests, E2E evidence, risk notes, and OData links.\n6. Finish normally. The paw-codex-worker will report WorkerRun.ReportDone or WorkerRun.ReportFailed to Temper after the local Codex process exits."
     )
 }
 

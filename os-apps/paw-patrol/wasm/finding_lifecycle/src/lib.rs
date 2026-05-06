@@ -321,7 +321,7 @@ fn worker_task(
     affected_paths: &str,
 ) -> String {
     format!(
-        "You are the local Codex implementer for an accepted Patrol finding.\n\nFinding type: {finding_kind}\nFinding: {finding_id}\nRisk lane: {risk_lane}\nSeverity: {severity}\nSummary: {task_summary}\nAffected paths: {affected_paths}\n\nEvidence:\n{evidence}\n\nRequired loop:\n1. Work in the assigned git worktree and branch.\n2. Follow red-green TDD before implementation.\n3. Keep orchestration Temper-native: entity specs, WASM integrations, and Cedar policies.\n4. Fix the finding or codify a ratchet that prevents recurrence in the touched area.\n5. Run focused tests and relevant live/E2E verification.\n6. Produce a visual ProofPacket and self-report WorkerRun.ReportDone or WorkerRun.ReportFailed."
+        "You are the local Codex implementer for an accepted Patrol finding.\n\nFinding type: {finding_kind}\nFinding: {finding_id}\nRisk lane: {risk_lane}\nSeverity: {severity}\nSummary: {task_summary}\nAffected paths: {affected_paths}\n\nEvidence:\n{evidence}\n\nRequired loop:\n1. Work in the assigned git worktree and branch.\n2. Follow red-green TDD before implementation.\n3. Keep orchestration Temper-native: entity specs, WASM integrations, and Cedar policies.\n4. Fix the finding or codify a ratchet that prevents recurrence in the touched area.\n5. Run focused tests and relevant live/E2E verification.\n6. Produce a visual ProofPacket and finish normally. The paw-codex-worker will report WorkerRun.ReportDone or WorkerRun.ReportFailed to Temper after the local Codex process exits."
     )
 }
 

@@ -31,6 +31,10 @@ fn read_worker_sources(root: &Path) -> String {
         .join("\n")
 }
 
+fn paw_patrol_wasm_source(root: &Path, module: &str) -> String {
+    read(root.join(format!("os-apps/paw-patrol/wasm/{module}/src/lib.rs")))
+}
+
 fn agent_context(id: &str, agent_type: &str) -> SecurityContext {
     SecurityContext::from_headers(&[
         ("X-Temper-Principal-Id".to_string(), id.to_string()),
@@ -2291,6 +2295,32 @@ fn daily_brief_renders_visual_human_review_rollup() {
         assert!(
             app_doc.contains(needle),
             "APP.md should explain DailyBrief session synthesis: {needle}"
+        );
+    }
+}
+
+#[test]
+fn local_codex_worker_prompts_leave_worker_run_reporting_to_daemon() {
+    let root = repo_root();
+    for module in [
+        "patrol_request_router",
+        "signal_router",
+        "finding_lifecycle",
+        "work_cycle_lifecycle",
+        "repo_sweep_lifecycle",
+    ] {
+        let source = paw_patrol_wasm_source(&root, module);
+        assert!(
+            !source.contains("Self-report WorkerRun.ReportDone")
+                && !source.contains("self-report WorkerRun.ReportDone")
+                && !source.contains("self-report WorkerRun.ReportFailed"),
+            "{module} prompt must not ask inner Codex to self-report WorkerRun actions"
+        );
+        assert!(
+            source.contains(
+                "paw-codex-worker will report WorkerRun.ReportDone or WorkerRun.ReportFailed"
+            ),
+            "{module} prompt should make the wrapper-owned reporting contract explicit"
         );
     }
 }
