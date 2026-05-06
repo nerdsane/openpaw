@@ -446,6 +446,7 @@ fn local_codex_worker_is_a_real_daemon_scaffold() {
         "check_event_stream",
         "check_codex_binary",
         "check_codex_exec_smoke",
+        "--dangerously-bypass-approvals-and-sandbox",
         "--skip-git-repo-check",
         "LaunchdPlist",
         "render_launchd_plist",

@@ -245,8 +245,7 @@ async fn run_codex_exec_command(
 ) -> Result<Output> {
     let mut command = Command::new(&config.codex_bin);
     command
-        .arg("exec")
-        .arg(prompt)
+        .args(codex_exec_args(workdir, &prompt))
         .current_dir(workdir)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -259,6 +258,17 @@ async fn run_codex_exec_command(
             config.codex_exec_timeout.as_secs()
         ),
     }
+}
+
+fn codex_exec_args(workdir: &Path, prompt: &str) -> Vec<std::ffi::OsString> {
+    vec![
+        "exec".into(),
+        "--dangerously-bypass-approvals-and-sandbox".into(),
+        "--cd".into(),
+        workdir.as_os_str().to_os_string(),
+        "--skip-git-repo-check".into(),
+        prompt.into(),
+    ]
 }
 
 async fn run_code_change_evaluation(
