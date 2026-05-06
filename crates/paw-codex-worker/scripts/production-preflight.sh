@@ -295,6 +295,26 @@ if [[ "$CHECK_GITHUB" == "1" ]]; then
     else
       add_gate "github:temperpaw_pr_218" "warn" "could not inspect TemperPaw PR #218" "${PROOF_DIR}/temperpaw-pr-218.json"
     fi
+
+    if capture_command "${PROOF_DIR}/temperpaw-pr-220.json" gh pr view 220 --repo nerdsane/temperpaw --json url,isDraft,state,mergeStateStatus,headRefOid; then
+      if jq -e '.state == "MERGED"' "${PROOF_DIR}/temperpaw-pr-220.json" >/dev/null 2>&1; then
+        add_gate "github:temperpaw_pr_220" "pass" "TemperPaw PR #220 is merged" "${PROOF_DIR}/temperpaw-pr-220.json"
+      else
+        add_gate "github:temperpaw_pr_220" "blocked" "TemperPaw PR #220 is not merged; production image may be missing Patrol WASM modules" "${PROOF_DIR}/temperpaw-pr-220.json"
+      fi
+    else
+      add_gate "github:temperpaw_pr_220" "warn" "could not inspect TemperPaw PR #220" "${PROOF_DIR}/temperpaw-pr-220.json"
+    fi
+
+    if capture_command "${PROOF_DIR}/temperpaw-pr-221.json" gh pr view 221 --repo nerdsane/temperpaw --json url,isDraft,state,mergeStateStatus,headRefOid; then
+      if jq -e '.state == "MERGED"' "${PROOF_DIR}/temperpaw-pr-221.json" >/dev/null 2>&1; then
+        add_gate "github:temperpaw_pr_221" "pass" "TemperPaw PR #221 is merged" "${PROOF_DIR}/temperpaw-pr-221.json"
+      else
+        add_gate "github:temperpaw_pr_221" "blocked" "TemperPaw PR #221 is not merged; Mac mini bootstrap handoff may be missing" "${PROOF_DIR}/temperpaw-pr-221.json"
+      fi
+    else
+      add_gate "github:temperpaw_pr_221" "warn" "could not inspect TemperPaw PR #221" "${PROOF_DIR}/temperpaw-pr-221.json"
+    fi
   else
     add_gate "github:cli" "warn" "gh CLI is unavailable and CHECK_GITHUB=1" "install gh or set CHECK_GITHUB=0"
   fi
