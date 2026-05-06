@@ -1135,6 +1135,7 @@ fn ci_covers_paw_patrol_worker_and_wasm_gates() {
         "bash -n crates/paw-codex-worker/scripts/production-preflight.sh",
         "bash -n crates/paw-codex-worker/scripts/production-preflight-github-smoke.sh",
         "bash -n crates/paw-codex-worker/scripts/production-readiness-smoke.sh",
+        "bash -n crates/paw-codex-worker/scripts/mac-mini-production-bootstrap.sh",
         "bash -n crates/paw-codex-worker/scripts/paw-patrol-acceptance.sh",
         "os-apps/paw-ingest/wasm/build.sh",
         "os-apps/paw-patrol/wasm/build.sh",
@@ -1145,6 +1146,59 @@ fn ci_covers_paw_patrol_worker_and_wasm_gates() {
         assert!(
             ci.contains(needle),
             "CI should keep the Patrol worker/wasm surface covered: {needle}"
+        );
+    }
+}
+
+#[test]
+fn mac_mini_bootstrap_uses_railway_token_handoff_without_printing_secrets() {
+    let root = repo_root();
+    let script_path = root.join("crates/paw-codex-worker/scripts/mac-mini-production-bootstrap.sh");
+
+    assert!(
+        script_path.is_file(),
+        "Mac mini production bootstrap script should exist"
+    );
+
+    let script = read(script_path);
+    for needle in [
+        "railway link --project",
+        "ad7f8977-cf48-43ef-b129-ba1e17896ae4",
+        "railway run --service openpaw --environment production",
+        "printf %s \"$TEMPER_API_KEY\"",
+        "PAW_CODEX_ENABLE_EXECUTION=\"${PAW_CODEX_ENABLE_EXECUTION:-0}\"",
+        "crates/paw-codex-worker/scripts/production-readiness.sh",
+        "WRITE_LAUNCHD_PLIST=1",
+        "INSTALL_LAUNCHD=\"${INSTALL_LAUNCHD:-0}\"",
+        "crates/paw-codex-worker/scripts/production-observe-only.sh",
+    ] {
+        assert!(
+            script.contains(needle),
+            "Mac mini bootstrap should contain {needle}"
+        );
+    }
+
+    for forbidden in [
+        "echo \"$WORKER_TOKEN\"",
+        "echo \"$TEMPER_API_KEY\"",
+        "set -x",
+    ] {
+        assert!(
+            !script.contains(forbidden),
+            "Mac mini bootstrap must not print secrets via {forbidden}"
+        );
+    }
+
+    let readme = read(root.join("crates/paw-codex-worker/README.md"));
+    for needle in [
+        "mac-mini-production-bootstrap.sh",
+        "without printing it",
+        "INSTALL_LAUNCHD=1",
+        "RUN_OBSERVE_ONLY=1",
+    ] {
+        assert!(
+            readme.contains(needle),
+            "worker README should document Mac mini bootstrap usage: {needle}"
         );
     }
 }
