@@ -57,6 +57,16 @@ case "$prompt" in
     sleep "${PAW_FAKE_CODEX_SLEEP_SECS:-5}"
     echo "fake codex unexpectedly woke up"
     ;;
+  "PAW_FAKE_CODEX_ORPHAN:"*)
+    marker="${prompt#PAW_FAKE_CODEX_ORPHAN:}"
+    (
+      trap "" HUP
+      sleep 1
+      printf '%s\n' "fake orphan survived" > "$marker"
+    ) &
+    sleep "${PAW_FAKE_CODEX_SLEEP_SECS:-5}"
+    echo "fake codex unexpectedly woke up"
+    ;;
   "PAW_CODEX_DOCTOR_EXEC_SMOKE:"*)
     echo "PAW_CODEX_DOCTOR_EXEC_OK"
     ;;

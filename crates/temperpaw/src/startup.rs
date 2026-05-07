@@ -4108,7 +4108,7 @@ mod tests {
             .expect("Required WASM Load Failures monitor query should exist");
         assert_eq!(
             wasm_failure_monitor_query,
-            "sum(last_15m):sum:temper_wasm_module_load_failures_total{service:openpaw}.as_count() > 0"
+            "sum(last_15m):default_zero(sum:temper_wasm_module_load_failures_total{service:openpaw}.as_count()) > 0"
         );
 
         let session_memory_monitor_query = monitors
@@ -4125,20 +4125,20 @@ mod tests {
             .expect("Session Memory Budget Exceeded monitor query should exist");
         assert_eq!(
             session_memory_monitor_query,
-            "sum(last_15m):sum:temper_session_memory_limit_exceeded_total{service:openpaw}.as_count() > 0"
+            "sum(last_15m):default_zero(sum:temper_session_memory_limit_exceeded_total{service:openpaw}.as_count()) > 0"
         );
 
         let dashboard_json = dashboard.to_string();
         let monitors_json = monitors.to_string();
         assert!(
             monitors_json.contains(
-                "sum(last_15m):sum:temper_session_phase_budget_exceeded_total{service:openpaw}.as_count() >= 1"
+                "sum(last_15m):default_zero(sum:temper_session_phase_budget_exceeded_total{service:openpaw}.as_count()) >= 1"
             ),
             "Monitors should alert on session phase budget failures."
         );
         assert!(
             monitors_json.contains(
-                "sum(last_15m):sum:temper_query_projection_update_error_total{service:openpaw}.as_count() >= 1"
+                "sum(last_15m):default_zero(sum:temper_query_projection_update_error_total{service:openpaw}.as_count()) >= 1"
             ),
             "Monitors should alert on background query projection update errors."
         );

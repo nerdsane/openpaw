@@ -353,6 +353,54 @@ mod tests {
         fs::remove_dir_all(root).ok();
     }
 
+    #[tokio::test]
+    async fn run_codex_timeout_cleans_child_process_group() {
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/fake-codex.sh");
+        let root = unique_temp_dir();
+        fs::create_dir_all(&root).expect("temp dir");
+        let marker = root.join("orphan-survived");
+        let config = Config {
+            temper_url: "http://127.0.0.1:3497".to_string(),
+            tenant: "default".to_string(),
+            worker_id: "mac-mini-codex-1".to_string(),
+            worker_token: Some("secret".to_string()),
+            workspace_root: root.clone(),
+            repo_root: root.clone(),
+            codex_bin: fixture.display().to_string(),
+            max_concurrent_runs: 1,
+            enable_execution: true,
+            poll_on_start: true,
+            codex_exec_smoke: false,
+            codex_exec_timeout: Duration::from_millis(100),
+        };
+        let worker_run = WorkerRunState {
+            id: "wr-timeout-tree".to_string(),
+            status: "Running".to_string(),
+            task: format!("PAW_FAKE_CODEX_ORPHAN:{}", marker.display()),
+            worktree_path: root.display().to_string(),
+            branch_name: "codex/timeout-tree".to_string(),
+            runner_kind: "local_codex".to_string(),
+            allowed_worker_id: "mac-mini-codex-1".to_string(),
+            worker_id: "mac-mini-codex-1".to_string(),
+            provider_id: "local-codex".to_string(),
+            required_capabilities: "local_codex,repo_write".to_string(),
+        };
+
+        let result = run_codex(&config, &worker_run).await;
+
+        let error = result.expect_err("stuck codex exec should time out");
+        assert!(
+            format!("{error:#}").contains("codex exec timed out after"),
+            "unexpected timeout error: {error:#}"
+        );
+        sleep(Duration::from_millis(1_500)).await;
+        assert!(
+            !marker.exists(),
+            "timed-out codex exec must not leave descendant processes running"
+        );
+        fs::remove_dir_all(root).ok();
+    }
+
     #[test]
     fn codex_review_verdict_requires_explicit_marker() {
         let approved =

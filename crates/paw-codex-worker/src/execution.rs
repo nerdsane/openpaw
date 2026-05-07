@@ -269,15 +269,71 @@ async fn run_codex_exec_command(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
+    configure_codex_process_group(&mut command);
 
-    match timeout(config.codex_exec_timeout, command.output()).await {
+    let child = command
+        .spawn()
+        .with_context(|| format!("{context_label}: spawn codex exec"))?;
+    let child_pid = child.id();
+
+    match timeout(config.codex_exec_timeout, child.wait_with_output()).await {
         Ok(output) => output.with_context(|| context_label.to_string()),
-        Err(_) => bail!(
-            "codex exec timed out after {}s during {context_label}",
-            config.codex_exec_timeout.as_secs()
-        ),
+        Err(_) => {
+            if let Some(pid) = child_pid {
+                terminate_codex_process_group(pid).await;
+            }
+            bail!(
+                "codex exec timed out after {}s during {context_label}",
+                config.codex_exec_timeout.as_secs()
+            )
+        }
     }
 }
+
+#[cfg(unix)]
+fn configure_codex_process_group(command: &mut Command) {
+    unsafe {
+        command.pre_exec(|| {
+            if libc::setsid() == -1 {
+                Err(std::io::Error::last_os_error())
+            } else {
+                Ok(())
+            }
+        });
+    }
+}
+
+#[cfg(not(unix))]
+fn configure_codex_process_group(_command: &mut Command) {}
+
+#[cfg(unix)]
+async fn terminate_codex_process_group(pid: u32) {
+    let process_group = format!("-{pid}");
+    let term_status = Command::new("kill")
+        .arg("-TERM")
+        .arg(&process_group)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .await;
+    if let Err(error) = term_status {
+        warn!(%error, pid, "failed to send TERM to timed-out Codex process group");
+    }
+    sleep(Duration::from_millis(250)).await;
+    let kill_status = Command::new("kill")
+        .arg("-KILL")
+        .arg(&process_group)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .await;
+    if let Err(error) = kill_status {
+        warn!(%error, pid, "failed to send KILL to timed-out Codex process group");
+    }
+}
+
+#[cfg(not(unix))]
+async fn terminate_codex_process_group(_pid: u32) {}
 
 fn codex_exec_args(workdir: &Path, prompt: &str) -> Vec<std::ffi::OsString> {
     vec![

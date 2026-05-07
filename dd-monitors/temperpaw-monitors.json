@@ -2,8 +2,8 @@
   {
     "name": "[OpenPaw] Error Rate Spike",
     "type": "metric alert",
-    "query": "sum(last_15m):sum:trace.custom.errors{service:openpaw}.as_count() / sum:trace.custom.hits{service:openpaw}.as_count() > 0.1",
-    "message": "OpenPaw error rate exceeds 10% over the last 15 minutes.\n\n@slack-openpaw-alerts",
+    "query": "sum(last_15m):default_zero(sum:openpaw.logs.errors{service:openpaw}.as_count()) / sum:temper_cedar_evaluations_total{service:openpaw}.as_count() > 0.1",
+    "message": "OpenPaw error logs exceed 10% of Cedar-authorized runtime traffic over the last 15 minutes.\n\n@slack-openpaw-alerts",
     "tags": [
       "team:openpaw",
       "severity:high"
@@ -14,32 +14,34 @@
         "warning": 0.05
       },
       "notify_no_data": false,
+      "on_missing_data": "resolve",
       "renotify_interval": 60
     }
   },
   {
     "name": "[OpenPaw] Request Latency Spike (P95)",
     "type": "metric alert",
-    "query": "avg(last_15m):p95:trace.custom{service:openpaw,resource_name:get_*/odata/*} > 5000000000",
-    "message": "OpenPaw P95 OData request latency exceeds 5 seconds.\n\n@slack-openpaw-alerts",
+    "query": "avg(last_15m):avg:temper_dispatch_ask_latency_ms{service:openpaw} > 5000",
+    "message": "OpenPaw dispatch latency exceeds 5 seconds over the last 15 minutes.\n\n@slack-openpaw-alerts",
     "tags": [
       "team:openpaw",
       "severity:medium"
     ],
     "options": {
       "thresholds": {
-        "critical": 5000000000,
-        "warning": 2000000000
+        "critical": 5000,
+        "warning": 2000
       },
       "notify_no_data": false,
+      "on_missing_data": "resolve",
       "renotify_interval": 120
     }
   },
   {
     "name": "[OpenPaw] No Traffic",
     "type": "metric alert",
-    "query": "sum(last_15m):sum:trace.custom.hits{service:openpaw}.as_count() < 1",
-    "message": "No spans received by OpenPaw in 15 minutes. Platform may be down.\n\n@slack-openpaw-alerts",
+    "query": "sum(last_15m):default_zero(sum:temper_cedar_evaluations_total{service:openpaw}.as_count()) < 1",
+    "message": "No Cedar-authorized OpenPaw runtime traffic observed in 15 minutes. Platform may be down or request admission may be blocked.\n\n@slack-openpaw-alerts",
     "tags": [
       "team:openpaw",
       "severity:high"
@@ -48,15 +50,14 @@
       "thresholds": {
         "critical": 1
       },
-      "notify_no_data": true,
-      "no_data_timeframe": 30,
+      "notify_no_data": false,
       "renotify_interval": 60
     }
   },
   {
     "name": "[Temper] Active Entities Drop",
     "type": "metric alert",
-    "query": "min(last_10m):sum:temper_active_entities{service:openpaw}.rollup(avg, 60) < 1",
+    "query": "min(last_10m):avg:temper_active_actors{service:openpaw}.rollup(avg, 60) < 1",
     "message": "Active entity count dropped below 1 for 10 minutes. Either platform is idle or the actor registry has lost state.\n\n@slack-openpaw-alerts",
     "tags": [
       "team:openpaw",
@@ -128,7 +129,7 @@
   {
     "name": "[Temper] Required WASM Load Failures",
     "type": "metric alert",
-    "query": "sum(last_15m):sum:temper_wasm_module_load_failures_total{service:openpaw}.as_count() > 0",
+    "query": "sum(last_15m):default_zero(sum:temper_wasm_module_load_failures_total{service:openpaw}.as_count()) > 0",
     "message": "Required OpenPaw WASM modules failed to load in the last 15 minutes.\n\n@slack-openpaw-alerts",
     "tags": [
       "team:openpaw",
@@ -145,7 +146,7 @@
   {
     "name": "[Temper] Session Memory Budget Exceeded",
     "type": "metric alert",
-    "query": "sum(last_15m):sum:temper_session_memory_limit_exceeded_total{service:openpaw}.as_count() > 0",
+    "query": "sum(last_15m):default_zero(sum:temper_session_memory_limit_exceeded_total{service:openpaw}.as_count()) > 0",
     "message": "OpenPaw sessions exceeded the bounded context memory budget in the last 15 minutes.\n\n@slack-openpaw-alerts",
     "tags": [
       "team:openpaw",
@@ -162,7 +163,7 @@
   {
     "name": "[Temper] Dispatch Retry Budget Exhausted",
     "type": "metric alert",
-    "query": "sum(last_10m):sum:temper_dispatch_ask_outcome_total{service:openpaw,outcome:transient_exhausted}.as_count() > 10",
+    "query": "sum(last_10m):default_zero(sum:temper_dispatch_ask_outcome_total{service:openpaw,outcome:transient_exhausted}.as_count()) > 10",
     "message": "Dispatch retry budget exhausted (ADR-0048) \u2014 sustained transient failures indicate mailbox saturation or a stuck actor.\n\n@slack-openpaw-alerts",
     "tags": [
       "team:openpaw",
@@ -180,7 +181,7 @@
   {
     "name": "[Temper] Permanent Actor Failures",
     "type": "metric alert",
-    "query": "sum(last_15m):sum:temper_dispatch_ask_outcome_total{service:openpaw,outcome:permanent}.as_count() > 20",
+    "query": "sum(last_15m):default_zero(sum:temper_dispatch_ask_outcome_total{service:openpaw,outcome:permanent}.as_count()) > 20",
     "message": "Permanent actor failures elevated \u2014 check for panics, init failures, or restart-exceeded conditions.\n\n@slack-openpaw-alerts",
     "tags": [
       "team:openpaw",
@@ -198,7 +199,7 @@
   {
     "name": "[Temper] Mailbox Saturation (mailbox_full spike)",
     "type": "metric alert",
-    "query": "sum(last_5m):sum:temper_dispatch_ask_error_total{service:openpaw,error_kind:mailbox_full}.as_count() > 50",
+    "query": "sum(last_5m):default_zero(sum:temper_dispatch_ask_error_total{service:openpaw,error_kind:mailbox_full}.as_count()) > 50",
     "message": "Actor mailboxes refusing messages \u2014 tune admission control caps (ADR-0051) or investigate head-of-line blocking.\n\n@slack-openpaw-alerts",
     "tags": [
       "team:openpaw",
@@ -234,7 +235,7 @@
   {
     "name": "[Temper] Excessive Overdue Timers on Replay",
     "type": "metric alert",
-    "query": "sum(last_30m):sum:temper_scheduler_overdue_on_replay_total{service:openpaw}.as_count() > 100",
+    "query": "sum(last_30m):default_zero(sum:temper_scheduler_overdue_on_replay_total{service:openpaw}.as_count()) > 100",
     "message": "Many scheduled-action timers missed their deadline across a server restart window. Review deploy cadence or investigate replay lag.\n\n@slack-openpaw-alerts",
     "tags": [
       "team:openpaw",
@@ -252,7 +253,7 @@
   {
     "name": "[Temper] Spec Liveness Violation",
     "type": "metric alert",
-    "query": "sum(last_5m):sum:temper_spec_liveness_violations_total{service:openpaw}.as_count() > 0",
+    "query": "sum(last_5m):default_zero(sum:temper_spec_liveness_violations_total{service:openpaw}.as_count()) > 0",
     "message": "A spec was loaded with uncovered non-terminal states (ADR-0050). Production should never boot with violations once TEMPER_LIVENESS_ENFORCE=true \u2014 investigate immediately.\n\n@slack-openpaw-alerts",
     "tags": [
       "team:openpaw",
@@ -269,7 +270,7 @@
   {
     "name": "[Temper] Admission Deferred Spike",
     "type": "metric alert",
-    "query": "sum(last_10m):sum:temper_admission_deferred_total{service:openpaw}.as_count() > 20",
+    "query": "sum(last_10m):default_zero(sum:temper_admission_deferred_total{service:openpaw}.as_count()) > 20",
     "message": "Admission control is returning 503 Deferred to callers. Investigate: either bump the cap via /_admin/admission/ or diagnose sustained overload.\n\n@slack-openpaw-alerts",
     "tags": [
       "team:openpaw",
@@ -323,7 +324,7 @@
   {
     "name": "[Temper] Unexpected Mailbox Drops (post-P4)",
     "type": "metric alert",
-    "query": "sum(last_10m):sum:temper_actor_mailbox_full_drop_total{service:openpaw}.as_count() > 5",
+    "query": "sum(last_10m):default_zero(sum:temper_actor_mailbox_full_drop_total{service:openpaw}.as_count()) > 5",
     "message": "Mailbox-full drops are occurring even with admission control in place. Caps may be set above safe concurrency \u2014 reduce, or investigate slow actor consumers.\n\n@slack-openpaw-alerts",
     "tags": [
       "team:openpaw",
@@ -359,7 +360,7 @@
   {
     "name": "[Temper] Session Memory Externalization Spike",
     "type": "metric alert",
-    "query": "sum(last_15m):sum:temper_session_large_content_externalized_total{service:openpaw}.as_count() > 50",
+    "query": "sum(last_15m):default_zero(sum:temper_session_large_content_externalized_total{service:openpaw}.as_count()) > 50",
     "message": "Large session content is being externalized to blob storage at an unusual rate. Agents may be producing unexpectedly large responses \u2014 check for tool-call loops or runaway summaries.\n\n@slack-openpaw-alerts",
     "tags": [
       "team:openpaw",
@@ -449,7 +450,7 @@
   {
     "name": "[Temper] State Timeout Reset Rate Drop",
     "type": "metric alert",
-    "query": "sum(last_1h):sum:temper_state_timeout_reset_total{service:openpaw,state:Executing}.as_count() < 1",
+    "query": "sum(last_1h):default_zero(sum:temper_state_timeout_reset_total{service:openpaw,state:Executing}.as_count()) < 1",
     "message": "State timeout resets on Executing dropped to zero \u2014 the reset_on contract is not firing. Regression signal: the 2026-04-18 Katagami incident surfaced when monty_repl stopped emitting CheckpointToolBatch. Verify progress signals are reaching StateTimeoutTracker.\n\n@slack-openpaw-alerts",
     "tags": [
       "team:openpaw",
@@ -460,8 +461,7 @@
         "critical": 1,
         "warning": 5
       },
-      "notify_no_data": true,
-      "no_data_timeframe": 120,
+      "notify_no_data": false,
       "renotify_interval": 240
     }
   },
@@ -611,7 +611,7 @@
   {
     "name": "[Temper] Profiler Upload Failures",
     "type": "metric alert",
-    "query": "sum(last_15m):sum:datadog.profiling.rust.upload_errors{service:openpaw}.as_count() > 5",
+    "query": "sum(last_15m):default_zero(sum:datadog.profiling.rust.upload_errors{service:openpaw}.as_count()) > 5",
     "message": "Continuous Profiler upload errors exceed 5/15m.\n\n@slack-openpaw-alerts",
     "tags": [
       "team:openpaw",
@@ -629,7 +629,7 @@
   {
     "name": "[Temper] Profiler Uploads Stalled",
     "type": "metric alert",
-    "query": "sum(last_30m):sum:datadog.profiling.rust.profiles_uploaded{service:openpaw}.as_count() < 1",
+    "query": "sum(last_30m):default_zero(sum:datadog.profiling.rust.profiles_uploaded{service:openpaw}.as_count()) < 1",
     "message": "No Continuous Profiler uploads seen in 30m.\n\n@slack-openpaw-alerts",
     "tags": [
       "team:openpaw",
@@ -639,15 +639,14 @@
       "thresholds": {
         "critical": 1
       },
-      "notify_no_data": true,
-      "no_data_timeframe": 60,
+      "notify_no_data": false,
       "renotify_interval": 360
     }
   },
   {
     "name": "[Temper] Integration Silent Exit (ADR-0056)",
     "type": "metric alert",
-    "query": "sum(last_15m):sum:temper_integration_silent_exit_total{service:openpaw}.as_count() >= 1",
+    "query": "sum(last_15m):default_zero(sum:temper_integration_silent_exit_total{service:openpaw}.as_count()) >= 1",
     "message": "A WASM integration returned without causing a state transition on its triggering entity. Under healthy operation this counter is permanently zero; any nonzero reading means one of the silent-exit preventions regressed:\n\n- openpaw ADR-0039 Sub-Decision 3a (monty_repl structural invariant)\n- ADR-0056 Sub-Decision 2 (Turso persist retry)\n\nInvestigate the entity/action/state tags on the fired event, correlate with `temper_turso_write_retries_total{outcome:exhausted}` around the same window, and check llm_caller / monty_repl logs for the offending session.\n\n@slack-openpaw-alerts",
     "tags": [
       "team:openpaw",
@@ -665,7 +664,7 @@
   {
     "name": "[Temper] Hydration Re-arm Overdue Spike",
     "type": "metric alert",
-    "query": "sum(last_10m):sum:temper_state_timeout_armed_on_hydration_total{service:openpaw,elapsed_bucket:overdue}.as_count() > 20",
+    "query": "sum(last_10m):default_zero(sum:temper_state_timeout_armed_on_hydration_total{service:openpaw,elapsed_bucket:overdue}.as_count()) > 20",
     "message": "Hydration re-arm (ADR-0056 Sub-Decision 1) fired `on_timeout` immediately on more than 20 entities in 10 min. A modest burst is normal on deploy (actors hydrating into stale states), but a sustained spike indicates a wave of orphaned entities. Check `temper_state_timeout_fired_total{action:TimeoutFail}` for the downstream TimeoutFails, and inspect the affected entity_type tags.\n\n@slack-openpaw-alerts",
     "tags": [
       "team:openpaw",
@@ -684,7 +683,7 @@
   {
     "name": "[Temper] Turso Write Retry Exhaustion",
     "type": "metric alert",
-    "query": "sum(last_15m):sum:temper_turso_write_retries_total{service:openpaw,outcome:exhausted}.as_count() >= 1",
+    "query": "sum(last_15m):default_zero(sum:temper_turso_write_retries_total{service:openpaw,outcome:exhausted}.as_count()) >= 1",
     "message": "A Turso write exhausted all retry attempts (ADR-0056 Sub-Decision 2). The calling entity's action failed via `on_failure`. If this fires repeatedly, Turso is in sustained trouble — check turso.tech dashboard for quota / region incidents.\n\n@slack-openpaw-alerts",
     "tags": [
       "team:openpaw",
@@ -702,7 +701,7 @@
   {
     "name": "[OpenPaw] Session Phase Budget Exceeded",
     "type": "metric alert",
-    "query": "sum(last_15m):sum:temper_session_phase_budget_exceeded_total{service:openpaw}.as_count() >= 1",
+    "query": "sum(last_15m):default_zero(sum:temper_session_phase_budget_exceeded_total{service:openpaw}.as_count()) >= 1",
     "message": "A fresh agent session phase exceeded its local budget before the state timeout fired. Inspect `phase` and `last_step` tags, then open the corresponding trace for the session.\n\n@slack-openpaw-alerts",
     "tags": [
       "team:openpaw",
@@ -719,7 +718,7 @@
   {
     "name": "[Temper] Query Projection Update Errors",
     "type": "metric alert",
-    "query": "sum(last_15m):sum:temper_query_projection_update_error_total{service:openpaw}.as_count() >= 1",
+    "query": "sum(last_15m):default_zero(sum:temper_query_projection_update_error_total{service:openpaw}.as_count()) >= 1",
     "message": "Background query-plane projection maintenance failed. Entity transitions are no longer blocked by projection writes, so this monitor is the safety rail for projection lag or data-plane errors.\n\n@slack-openpaw-alerts",
     "tags": [
       "team:openpaw",
