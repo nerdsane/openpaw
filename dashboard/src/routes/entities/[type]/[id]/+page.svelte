@@ -1,11 +1,10 @@
 <script lang="ts">
   import { base } from '$app/paths';
-  import { onMount } from 'svelte';
   import { fade } from 'svelte/transition';
   import { page } from '$app/stores';
   import { getEntity } from '$lib/api';
   import StatusBadge from '$lib/components/StatusBadge.svelte';
-  import { fieldLabel, readField, textValue } from '$lib/entity-format';
+  import { fieldLabel, readField, snakeCaseKey, textValue, truncateMiddle } from '$lib/entity-format';
 
   let entitySetParam = $derived($page.params.type ?? '');
   let entityId = $derived($page.params.id ?? '');
@@ -16,6 +15,24 @@
   let error = $state<string | null>(null);
 
   let expandedFields = $state<Set<string>>(new Set());
+
+  const entityLinks: Record<string, string> = {
+    factory_case_id: 'FactoryCases',
+    signal_id: 'Signals',
+    patrol_run_id: 'PatrolRuns',
+    repo_graph_snapshot_id: 'RepoGraphSnapshots',
+    work_cycle_id: 'WorkCycles',
+    implementer_worker_run_id: 'WorkerRuns',
+    worker_run_id: 'WorkerRuns',
+    review_run_id: 'ReviewRuns',
+    reviewer_run_id: 'ReviewRuns',
+    evaluation_run_id: 'EvaluationRuns',
+    proof_packet_id: 'ProofPackets',
+    observability_finding_id: 'ObservabilityFindings',
+    quality_finding_id: 'QualityFindings',
+    security_finding_id: 'SecurityFindings',
+    pm_issue_id: 'Issues'
+  };
 
   function toggleExpand(key: string) {
     const next = new Set(expandedFields);
@@ -46,19 +63,33 @@
     return typeof value === 'string' && value.length > 120;
   }
 
-  onMount(async () => {
-    if (!entityId) {
-      error = `Could not load ${entitySetParam}`;
+  function linkedEntitySet(key: string, value: unknown): string | null {
+    if (typeof value !== 'string' || !value.trim() || isJsonLike(value)) return null;
+    return entityLinks[snakeCaseKey(key)] ?? null;
+  }
+
+  async function loadEntityDetail(type: string, id: string) {
+    entity = null;
+    error = null;
+    loaded = false;
+    expandedFields = new Set();
+
+    if (!id) {
+      error = `Could not load ${type}`;
       loaded = true;
       return;
     }
 
     try {
-      entity = await getEntity(entitySetName, entityId);
+      entity = await getEntity(type, id);
     } catch (err) {
-      error = err instanceof Error ? err.message : `Could not load ${entitySetParam} ${entityId}`;
+      error = err instanceof Error ? err.message : `Could not load ${type} ${id}`;
     }
     loaded = true;
+  }
+
+  $effect(() => {
+    loadEntityDetail(entitySetName, entityId);
   });
 
   let status = $derived(String(readField(entity, 'Status') ?? ''));
@@ -107,6 +138,10 @@
               <span class="field-null">--</span>
             {:else if typeof value === 'boolean'}
               <span class="field-bool">{value ? 'TRUE' : 'FALSE'}</span>
+            {:else if linkedEntitySet(key, value)}
+              <a class="field-link" href={`${base}/entities/${linkedEntitySet(key, value)}/${value}`}>
+                {truncateMiddle(String(value))}
+              </a>
             {:else}
               <span class="field-text">{textValue(value)}</span>
             {/if}
@@ -218,6 +253,19 @@
     font-size: var(--text-sm);
     color: var(--text-1);
     word-break: break-word;
+  }
+
+  .field-link {
+    width: fit-content;
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    color: var(--accent);
+    text-decoration: none;
+    overflow-wrap: anywhere;
+  }
+
+  .field-link:hover {
+    text-decoration: underline;
   }
 
   .field-null {
