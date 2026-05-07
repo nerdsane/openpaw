@@ -248,37 +248,48 @@ async fn fetch_text_attachments(
             );
             continue;
         }
-        match http.get(&att.proxy_url).send().await {
-            Ok(resp) if resp.status().is_success() => match resp.text().await {
-                Ok(body) => results.push((att.filename.clone(), body)),
-                Err(e) => {
-                    tracing::warn!(
-                        attachment_filename = %att.filename,
-                        attachment_size = att.size,
-                        error = %e,
-                        "discord text attachment body could not be read"
-                    );
+        let mut failure = None;
+        for url in attachment_download_urls(att) {
+            match http.get(url).send().await {
+                Ok(resp) if resp.status().is_success() => match resp.text().await {
+                    Ok(body) => {
+                        results.push((att.filename.clone(), body));
+                        failure = None;
+                        break;
+                    }
+                    Err(e) => {
+                        failure = Some(format!("body could not be read: {e}"));
+                    }
+                },
+                Ok(resp) => {
+                    failure = Some(format!("download returned {}", resp.status()));
                 }
-            },
-            Ok(resp) => {
-                tracing::warn!(
-                    attachment_filename = %att.filename,
-                    attachment_size = att.size,
-                    status = %resp.status(),
-                    "discord text attachment download returned a non-success status"
-                );
+                Err(e) => {
+                    failure = Some(format!("download failed: {e}"));
+                }
             }
-            Err(e) => {
-                tracing::warn!(
-                    attachment_filename = %att.filename,
-                    attachment_size = att.size,
-                    error = %e,
-                    "discord text attachment download failed"
-                );
-            }
+        }
+        if let Some(error) = failure {
+            tracing::warn!(
+                attachment_filename = %att.filename,
+                attachment_size = att.size,
+                error = %error,
+                "discord text attachment download failed for all candidate URLs"
+            );
         }
     }
     results
+}
+
+fn attachment_download_urls(att: &DiscordAttachment) -> Vec<&str> {
+    let mut urls = Vec::new();
+    if !att.proxy_url.is_empty() {
+        urls.push(att.proxy_url.as_str());
+    }
+    if !att.url.is_empty() && att.url != att.proxy_url {
+        urls.push(att.url.as_str());
+    }
+    urls
 }
 
 /// Enrich message content by inlining text-type attachment content.
@@ -2173,6 +2184,19 @@ mod tests {
             Some("text/plain"),
             100
         )));
+    }
+
+    #[test]
+    fn attachment_download_urls_try_proxy_then_cdn() {
+        let attachment = make_attachment("message.txt", Some("text/plain"), 100);
+
+        assert_eq!(
+            attachment_download_urls(&attachment),
+            vec![
+                "https://media.discordapp.net/message.txt",
+                "https://cdn.discordapp.com/message.txt",
+            ]
+        );
     }
 
     #[tokio::test]
