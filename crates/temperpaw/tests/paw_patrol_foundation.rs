@@ -394,6 +394,12 @@ fn datadog_observability_patrol_run_uses_temper_state_and_creates_work() {
         "DATADOG_PATROL_RESULT_JSON_BEGIN",
         "monitors, logs, traces, metrics, incidents, and dashboards",
         "required_capabilities",
+        "sensitive_followup_surface",
+        "\"paw-agent\"",
+        "\"paw-channels\"",
+        "\"discord\"",
+        "\"production\"",
+        "\"deploy\"",
     ] {
         assert!(
             lifecycle.contains(needle),

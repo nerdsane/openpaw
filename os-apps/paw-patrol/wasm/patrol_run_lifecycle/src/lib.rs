@@ -746,6 +746,44 @@ fn finding_requires_start_approval(finding: &Value, risk_lane: &str, severity: &
     bool_value(finding, "requires_human_approval")
         || matches!(risk_lane.as_str(), "l2" | "l3")
         || matches!(severity.as_str(), "error" | "critical")
+        || sensitive_followup_surface(finding)
+}
+
+fn sensitive_followup_surface(finding: &Value) -> bool {
+    let affected = finding
+        .get("affected_services")
+        .and_then(Value::as_array)
+        .map(|values| {
+            values
+                .iter()
+                .filter_map(Value::as_str)
+                .collect::<Vec<_>>()
+                .join(" ")
+        })
+        .unwrap_or_default();
+    let combined = format!(
+        "{} {} {} {}",
+        affected,
+        string_value(finding, "title", ""),
+        string_value(finding, "work_summary", ""),
+        string_value(finding, "work_detail", "")
+    )
+    .to_ascii_lowercase();
+    [
+        "paw-agent",
+        "paw-channels",
+        "discord",
+        "channel",
+        "transport",
+        "railway",
+        "deploy",
+        "deployment",
+        "production",
+        "secret",
+        "cedar",
+    ]
+    .iter()
+    .any(|needle| combined.contains(needle))
 }
 
 fn datadog_followup_task(
