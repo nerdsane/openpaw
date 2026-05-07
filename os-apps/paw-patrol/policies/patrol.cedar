@@ -241,7 +241,9 @@ permit(
     Action::"LinkSource",
     Action::"WritePlan",
     Action::"RequestHumanStartApproval",
-    Action::"OpenWorkCycle"
+    Action::"OpenWorkCycle",
+    Action::"AttachDraft",
+    Action::"MarkReady"
   ],
   resource
 ) when {
@@ -251,7 +253,8 @@ permit(
     resource is Signal ||
     resource is ObservabilityFinding ||
     resource is FactoryCase ||
-    resource is WorkCycle
+    resource is WorkCycle ||
+    resource is ProofPacket
   )
 };
 
