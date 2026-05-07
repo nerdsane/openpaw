@@ -464,6 +464,8 @@ fn dashboard_has_generic_app_console_and_paw_patrol_view_manifest() {
         "queryEntities",
         "getEntity",
         "postEntityAction",
+        "'x-temper-principal-kind': 'human'",
+        "'x-temper-principal-id': 'dashboard'",
     ] {
         assert!(api.contains(needle), "dashboard API should expose {needle}");
     }
