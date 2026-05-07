@@ -1,6 +1,6 @@
 async fn claim_boot_queued_runs(client: &reqwest::Client, config: &Config) -> Result<()> {
     let url = format!(
-        "{}/tdata/WorkerRuns?$filter=Status eq 'Queued'&$top=1",
+        "{}/tdata/WorkerRuns?$filter=Status eq 'Queued'&$top=10",
         config.temper_url
     );
     let response = client
@@ -18,16 +18,17 @@ async fn claim_boot_queued_runs(client: &reqwest::Client, config: &Config) -> Re
         .json()
         .await
         .context("parse queued WorkerRun response")?;
-    let Some(run) = body
+    let Some(runs) = body
         .get("value")
         .and_then(Value::as_array)
-        .and_then(|items| items.first())
     else {
         return Ok(());
     };
-    let worker_run = worker_run_from_odata_value(run.clone())?;
-    if worker_run.status == "Queued" {
-        handle_queued_worker_run(client, config, &worker_run.id).await?;
+    for run in runs {
+        let worker_run = worker_run_from_odata_value(run.clone())?;
+        if worker_run.status == "Queued" {
+            handle_queued_worker_run(client, config, &worker_run.id).await?;
+        }
     }
     Ok(())
 }
@@ -111,4 +112,3 @@ async fn watch_events(client: &reqwest::Client, config: &Config) -> Result<()> {
         bail!("no Temper event stream URLs were configured")
     }
 }
-

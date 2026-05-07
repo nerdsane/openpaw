@@ -652,6 +652,16 @@ mod tests {
     }
 
     #[test]
+    fn boot_worker_poll_scans_a_queue_window_not_one_stale_run() {
+        let source = include_str!("boot_watch.rs");
+
+        assert!(
+            source.contains("Status eq 'Queued'&$top=10"),
+            "boot poll should inspect a queue window so one stale WorkerRun cannot starve newer claimable runs"
+        );
+    }
+
+    #[test]
     fn repo_health_patrol_parser_requires_agent_evidence_surfaces() {
         let output = r##"
 REPO_HEALTH_PATROL_RESULT_JSON_BEGIN
