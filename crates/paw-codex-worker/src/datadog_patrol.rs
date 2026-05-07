@@ -430,6 +430,7 @@ WorkerRun: {worker_run_id}
 PatrolKind: datadog_observability
 
 Use your authenticated Datadog MCP tools to actively investigate production observability. Do not read, echo, or print secret values. Do not edit files.
+Keep each Datadog MCP call compact: use max_tokens <= 12000, aggregate before sampling raw events, and summarize the evidence instead of copying long result tables.
 
 Required Datadog MCP investigation surfaces:
 1. monitors: active alert/warn/no-data monitor states related to OpenPaw, Temper, TemperPaw, Railway, Discord, OData, WASM, Cedar, workers, and dashboards.

@@ -19,6 +19,8 @@ fn datadog_patrol_worker_is_mcp_agent_driven_not_rust_datadog_collector() {
         "DATADOG_PATROL_RESULT_JSON_BEGIN",
         "DATADOG_PATROL_RESULT_JSON_END",
         "Datadog MCP",
+        "max_tokens <= 12000",
+        "summarize the evidence",
         "monitors",
         "logs",
         "traces",
