@@ -91,6 +91,28 @@ DATADOG_PATROL_RESULT_JSON_END
 }
 
 #[test]
+fn datadog_patrol_classifier_ignores_followup_and_rework_prompts() {
+    let patrol_task = "You are the local Codex Datadog Patrol agent for TemperPaw paw-patrol.\n\nPatrolRun: en-patrol\nPatrolKind: datadog_observability";
+    let implementer_task = "You are the local Codex implementer for a Paw Patrol Datadog MCP observability finding.\n\nPatrolRun: en-patrol\nPatrol kind: datadog_observability\nFinding: OpenPaw monitor coverage is degraded by No Data states";
+    let rework_task = "You are the local Codex implementer for reviewer-requested rework.\n\nFactoryCase: \nWorkCycle: wc-patrol\nSummary: Risk Patrol\n\nOriginal task:\nYou are the local Codex Datadog Patrol agent for TemperPaw paw-patrol.\n\nPatrolRun: en-patrol\nPatrolKind: datadog_observability";
+
+    assert_eq!(
+        extract_datadog_patrol_run_id(patrol_task).as_deref(),
+        Some("en-patrol")
+    );
+    assert_eq!(
+        extract_datadog_patrol_run_id(implementer_task),
+        None,
+        "Datadog follow-up implementation must not use the patrol writeback collector"
+    );
+    assert_eq!(
+        extract_datadog_patrol_run_id(rework_task),
+        None,
+        "reviewer-requested rework embeds the original patrol task but must run as normal Codex implementation"
+    );
+}
+
+#[test]
 fn datadog_patrol_risk_lanes_control_start_approval() {
     let mut low = DatadogPatrolFinding {
         title: "Minor dashboard freshness drift".to_string(),
