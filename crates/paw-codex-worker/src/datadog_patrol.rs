@@ -147,7 +147,7 @@ async fn run_datadog_patrol(
         .await?;
 
         let work_cycle_id = create_tdata_entity(client, config, "WorkCycles", json!({})).await?;
-        let task_detail = datadog_followup_task(patrol_run_id, &monitor, &evidence);
+        let task_detail = datadog_followup_task(patrol_run_id, monitor, &evidence);
         post_entity_action(
             client,
             config,
@@ -330,7 +330,7 @@ async fn analyze_datadog_evidence_with_codex(
         );
     }
     Ok(truncate_middle(
-        &format!("{}\n{}", stdout.trim(), stderr.trim()).trim().to_string(),
+        format!("{}\n{}", stdout.trim(), stderr.trim()).trim(),
         4_000,
     ))
 }
