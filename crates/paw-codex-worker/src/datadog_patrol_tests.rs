@@ -8,10 +8,13 @@ fn datadog_patrol_worker_is_mcp_agent_driven_not_rust_datadog_collector() {
         "DD-APPLICATION-KEY",
         "query_datadog_monitor_search",
         "active_datadog_monitors",
+        "\"Signals\"",
+        "\"ObservabilityFindings\"",
+        "\"FactoryCases\"",
     ] {
         assert!(
             !source.contains(forbidden),
-            "Datadog Patrol should not collect Datadog evidence directly in Rust: {forbidden}"
+            "Datadog Patrol worker should run the MCP agent and report evidence, not collect or fan out Patrol state directly in Rust: {forbidden}"
         );
     }
 

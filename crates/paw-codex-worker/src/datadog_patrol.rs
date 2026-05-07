@@ -1,5 +1,4 @@
 const DD_ACTION_RECORD_EVIDENCE_LABEL: &str = "TemperPaw.Patrol.RecordEvidence";
-const DD_ACTION_COMPLETE_LABEL: &str = "TemperPaw.Patrol.Complete";
 const DD_ACTION_ESCALATE_LABEL: &str = "TemperPaw.Patrol.Escalate";
 const DATADOG_PATROL_RESULT_BEGIN: &str = "DATADOG_PATROL_RESULT_JSON_BEGIN";
 const DATADOG_PATROL_RESULT_END: &str = "DATADOG_PATROL_RESULT_JSON_END";
@@ -47,232 +46,6 @@ async fn run_datadog_patrol(
         }
     };
 
-    let mut signal_ids = Vec::new();
-    let mut finding_ids = Vec::new();
-    let mut case_ids = Vec::new();
-    let mut work_cycle_ids = Vec::new();
-    let mut implementer_worker_run_ids = Vec::new();
-
-    for finding in investigation.findings.iter().take(8) {
-        let evidence = datadog_finding_evidence_json(patrol_run_id, &investigation, finding);
-        let signal_id = create_tdata_entity(
-            client,
-            config,
-            "Signals",
-            json!({
-                "fields": {
-                    "source": "datadog_mcp",
-                    "payload": evidence.to_string(),
-                    "source_url": finding.source_url,
-                    "severity": finding.severity
-                }
-            }),
-        )
-        .await?;
-        post_entity_action(
-            client,
-            config,
-            "Signals",
-            &signal_id,
-            "Normalize",
-            json!({
-                "summary": finding.title,
-                "severity": finding.severity,
-            }),
-        )
-        .await?;
-        post_entity_action(
-            client,
-            config,
-            "Signals",
-            &signal_id,
-            "Triage",
-            json!({
-                "summary": format!(
-                    "Datadog MCP Patrol found actionable {} evidence: {}",
-                    finding.primary_surface(),
-                    finding.title
-                ),
-            }),
-        )
-        .await?;
-
-        let finding_id = create_tdata_entity(client, config, "ObservabilityFindings", json!({})).await?;
-        post_entity_action(
-            client,
-            config,
-            "ObservabilityFindings",
-            &finding_id,
-            "OpenFinding",
-            json!({
-                "title": finding.title,
-                "severity": finding.severity,
-                "risk_lane": finding.risk_lane,
-                "source": "datadog_mcp",
-                "datadog_monitor_id": finding.datadog_monitor_id,
-                "evidence_json": evidence.to_string(),
-                "affected_services": serde_json::to_string(&finding.affected_services)?,
-                "fingerprint": finding.fingerprint,
-                "patrol_run_id": patrol_run_id,
-                "signal_id": signal_id,
-            }),
-        )
-        .await?;
-
-        let case_id = create_tdata_entity(client, config, "FactoryCases", json!({})).await?;
-        post_entity_action(
-            client,
-            config,
-            "FactoryCases",
-            &case_id,
-            "Open",
-            json!({
-                "summary": finding.title,
-                "signal_id": signal_id,
-                "patrol_request_id": "",
-                "work_request_id": "",
-            }),
-        )
-        .await?;
-        post_entity_action(
-            client,
-            config,
-            "FactoryCases",
-            &case_id,
-            "SetRiskFloor",
-            json!({
-                "minimum_risk_lane": finding.risk_lane,
-                "risk_floor_source": "datadog_patrol:mcp_agent_investigation",
-                "risk_evidence": evidence.to_string(),
-            }),
-        )
-        .await?;
-
-        let work_cycle_id = create_tdata_entity(client, config, "WorkCycles", json!({})).await?;
-        let task_detail = datadog_followup_task(patrol_run_id, finding, &investigation);
-        post_entity_action(
-            client,
-            config,
-            "WorkCycles",
-            &work_cycle_id,
-            "Configure",
-            json!({
-                "factory_case_id": case_id,
-                "pm_issue_id": "",
-                "task_summary": finding.work_summary,
-                "task_detail": task_detail,
-                "risk_lane": finding.risk_lane,
-            }),
-        )
-        .await?;
-        post_entity_action(
-            client,
-            config,
-            "WorkCycles",
-            &work_cycle_id,
-            "LinkSource",
-            json!({
-                "source_entity_type": "ObservabilityFinding",
-                "source_entity_id": finding_id,
-            }),
-        )
-        .await?;
-        post_entity_action(
-            client,
-            config,
-            "WorkCycles",
-            &work_cycle_id,
-            "WritePlan",
-            json!({
-                "plan_summary": "Investigate the Datadog MCP evidence, reproduce or explain the runtime issue, then make the smallest Temper-native fix with red-green tests, targeted live/E2E evidence, independent review, evaluation gates, and a visual ProofPacket.",
-            }),
-        )
-        .await?;
-        if finding.requires_start_approval() {
-            post_entity_action(
-                client,
-                config,
-                "WorkCycles",
-                &work_cycle_id,
-                "RequestHumanStartApproval",
-                json!({
-                    "approval_summary": format!(
-                        "Datadog MCP Patrol classified this as {} / {}; approve before code or deploy changes are queued. Finding: {}",
-                        finding.severity, finding.risk_lane, finding.title
-                    ),
-                }),
-            )
-            .await?;
-        } else {
-            let implementer_worker_run_id =
-                create_tdata_entity(client, config, "WorkerRuns", json!({})).await?;
-            let branch_name = datadog_followup_branch_name(finding, &work_cycle_id);
-            let worktree_path = datadog_followup_worktree_path(config, &branch_name);
-            post_entity_action(
-                client,
-                config,
-                "WorkCycles",
-                &work_cycle_id,
-                "StartWork",
-                json!({}),
-            )
-            .await?;
-            post_entity_action(
-                client,
-                config,
-                "WorkerRuns",
-                &implementer_worker_run_id,
-                "Configure",
-                json!({
-                    "work_cycle_id": work_cycle_id,
-                    "factory_case_id": case_id,
-                    "risk_lane": finding.risk_lane,
-                    "task": task_detail,
-                    "branch_name": branch_name,
-                    "worktree_path": worktree_path,
-                    "runner_kind": "local_codex",
-                    "allowed_worker_id": nonempty_string(&worker_run.allowed_worker_id, &config.worker_id),
-                    "provider_id": nonempty_string(&worker_run.provider_id, "local-codex"),
-                    "required_capabilities": "local_codex,repo_write,datadog_query",
-                }),
-            )
-            .await?;
-            post_entity_action(
-                client,
-                config,
-                "WorkCycles",
-                &work_cycle_id,
-                "AttachWorkerRun",
-                json!({ "implementer_worker_run_id": implementer_worker_run_id }),
-            )
-            .await?;
-            implementer_worker_run_ids.push(implementer_worker_run_id);
-        }
-        post_entity_action(
-            client,
-            config,
-            "FactoryCases",
-            &case_id,
-            "OpenWorkCycle",
-            json!({ "work_cycle_id": work_cycle_id }),
-        )
-        .await?;
-        post_entity_action(
-            client,
-            config,
-            "Signals",
-            &signal_id,
-            "AttachCase",
-            json!({ "factory_case_id": case_id }),
-        )
-        .await?;
-
-        signal_ids.push(signal_id);
-        finding_ids.push(finding_id);
-        case_ids.push(case_id);
-        work_cycle_ids.push(work_cycle_id);
-    }
-
     let evidence_json = serde_json::to_string(&json!({
         "kind": "datadog_observability",
         "evidence_source": "codex_datadog_mcp_agent",
@@ -286,14 +59,7 @@ async fn run_datadog_patrol(
         "finding_count": investigation.findings.len(),
         "findings": investigation.findings,
         "residual_risks": investigation.residual_risks,
-        "recommended_next_queries": investigation.recommended_next_queries,
-        "created": {
-            "signals": &signal_ids,
-            "observability_findings": &finding_ids,
-            "factory_cases": &case_ids,
-            "work_cycles": &work_cycle_ids,
-            "implementer_worker_runs": &implementer_worker_run_ids,
-        }
+        "recommended_next_queries": investigation.recommended_next_queries
     }))
     .context("serialize Datadog MCP Patrol evidence")?;
 
@@ -305,88 +71,18 @@ async fn run_datadog_patrol(
         "RecordEvidence",
         json!({
             "evidence_json": evidence_json.clone(),
-            "observability_finding_ids": serde_json::to_string(&finding_ids)?,
-            "signal_ids": serde_json::to_string(&signal_ids)?,
-            "factory_case_ids": serde_json::to_string(&case_ids)?,
-            "work_cycle_ids": serde_json::to_string(&work_cycle_ids)?,
-        }),
-    )
-    .await?;
-
-    let proof_packet_id = create_tdata_entity(client, config, "ProofPackets", json!({})).await?;
-    let proof_input = DatadogProofSummaryInput {
-        patrol_run_id,
-        worker_run_id: &worker_run.id,
-        investigation: &investigation,
-        signal_ids: &signal_ids,
-        finding_ids: &finding_ids,
-        case_ids: &case_ids,
-        work_cycle_ids: &work_cycle_ids,
-        implementer_worker_run_ids: &implementer_worker_run_ids,
-    };
-    let proof_summary = datadog_proof_summary_markdown(&proof_input);
-    let state_diagram = datadog_state_diagram_mermaid();
-    let visual_summary_url =
-        datadog_visual_summary_url(investigation.evidence_scope.len(), finding_ids.len(), work_cycle_ids.len());
-    post_entity_action(
-        client,
-        config,
-        "ProofPackets",
-        &proof_packet_id,
-        "AttachDraft",
-        json!({
-            "work_cycle_id": work_cycle_ids.first().cloned().unwrap_or_default(),
-            "worker_run_id": &worker_run.id,
-            "review_run_id": "",
-            "evaluation_run_id": "",
-            "summary_markdown": proof_summary,
-            "proof_json": evidence_json.clone(),
-            "visual_summary_url": visual_summary_url,
-            "state_diagram_mermaid": state_diagram,
-            "changed_files_map": "Datadog MCP Patrol does not edit repository files. Actionable findings become WorkCycles with their own implementation, review, evaluation, and proof loop.",
-            "reviewer_verdict": "Patrol evidence packet generated from the local Codex agent's Datadog MCP investigation. Follow-up implementation WorkCycles require independent review before completion.",
-            "residual_risks": investigation.residual_risks.join("\n"),
-        }),
-    )
-    .await?;
-    post_entity_action(
-        client,
-        config,
-        "ProofPackets",
-        &proof_packet_id,
-        "MarkReady",
-        json!({
-            "summary_markdown": datadog_proof_summary_markdown(&proof_input),
-            "proof_json": evidence_json.clone(),
-        }),
-    )
-    .await?;
-    post_entity_action(
-        client,
-        config,
-        "PatrolRuns",
-        patrol_run_id,
-        "Complete",
-        json!({
-            "summary": format!(
-                "Datadog MCP Patrol investigated {} surface(s), opened {} observability finding(s), and queued {} low-risk implementer run(s).",
-                investigation.evidence_scope.len(),
-                finding_ids.len(),
-                implementer_worker_run_ids.len()
-            ),
-            "proof_packet_id": proof_packet_id,
-            "completed_at": generated_at_label(),
+            "observability_finding_ids": "[]",
+            "signal_ids": "[]",
+            "factory_case_ids": "[]",
+            "work_cycle_ids": "[]",
         }),
     )
     .await?;
 
     Ok(format!(
-        "Datadog MCP Patrol completed for PatrolRun {patrol_run_id}: {} surface(s), {} finding(s), {} FactoryCase(s), {} WorkCycle(s), {} low-risk implementer WorkerRun(s). Actions used: {DD_ACTION_RECORD_EVIDENCE_LABEL}, {DD_ACTION_COMPLETE_LABEL}.",
+        "Datadog MCP Patrol reported agent evidence for PatrolRun {patrol_run_id}: {} surface(s), {} finding(s). PatrolRun.RecordEvidence now triggers paw-patrol WASM fan-out and completion. Action used: {DD_ACTION_RECORD_EVIDENCE_LABEL}.",
         investigation.evidence_scope.len(),
-        finding_ids.len(),
-        case_ids.len(),
-        work_cycle_ids.len(),
-        implementer_worker_run_ids.len()
+        investigation.findings.len()
     ))
 }
 
@@ -614,37 +310,11 @@ impl DatadogPatrolFinding {
         }
     }
 
-    fn primary_surface(&self) -> &str {
-        self.evidence_json
-            .get("surface")
-            .and_then(Value::as_str)
-            .unwrap_or("observability")
-    }
-
     fn requires_start_approval(&self) -> bool {
         self.requires_human_approval
             || matches!(self.risk_lane.as_str(), "L2" | "L3")
             || matches!(self.severity.as_str(), "error" | "critical")
     }
-}
-
-fn percent_encode_data_url(input: &str) -> String {
-    let mut encoded = String::new();
-    const HEX: &[u8; 16] = b"0123456789ABCDEF";
-    for byte in input.bytes() {
-        match byte {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                encoded.push(byte as char);
-            }
-            b' ' => encoded.push_str("%20"),
-            _ => {
-                encoded.push('%');
-                encoded.push(HEX[(byte >> 4) as usize] as char);
-                encoded.push(HEX[(byte & 0x0f) as usize] as char);
-            }
-        }
-    }
-    encoded
 }
 
 fn extract_datadog_patrol_run_id(task: &str) -> Option<String> {
@@ -662,68 +332,6 @@ fn extract_datadog_patrol_run_id(task: &str) -> Option<String> {
     })
 }
 
-async fn create_tdata_entity(
-    client: &reqwest::Client,
-    config: &Config,
-    entity_set: &str,
-    body: Value,
-) -> Result<String> {
-    let response = client
-        .post(format!("{}/tdata/{entity_set}", config.temper_url))
-        .headers(headers(config)?)
-        .header(CONTENT_TYPE, "application/json")
-        .json(&body)
-        .send()
-        .await
-        .with_context(|| format!("create {entity_set}"))?;
-    if !response.status().is_success() {
-        let status = response.status();
-        let text = response.text().await.unwrap_or_default();
-        bail!("create {entity_set} returned {status}: {text}");
-    }
-    let value: Value = response
-        .json()
-        .await
-        .with_context(|| format!("parse {entity_set} create response"))?;
-    let fields = value.get("fields").cloned().unwrap_or_else(|| json!({}));
-    let entity_id = first_string(&value, &fields, &["entity_id", "id", "Id"], &["id", "Id"]);
-    if entity_id.is_empty() {
-        bail!("create {entity_set} response was missing entity_id");
-    }
-    Ok(entity_id)
-}
-
-fn datadog_finding_evidence_json(
-    patrol_run_id: &str,
-    investigation: &DatadogPatrolInvestigation,
-    finding: &DatadogPatrolFinding,
-) -> Value {
-    json!({
-        "source": "datadog_mcp",
-        "patrol_run_id": patrol_run_id,
-        "summary": investigation.summary,
-        "evidence_scope": investigation.evidence_scope,
-        "finding": finding,
-    })
-}
-
-fn datadog_followup_task(
-    patrol_run_id: &str,
-    finding: &DatadogPatrolFinding,
-    investigation: &DatadogPatrolInvestigation,
-) -> String {
-    format!(
-        "You are the local Codex implementer for a Paw Patrol Datadog MCP observability finding.\n\nPatrolRun: {patrol_run_id}\nPatrol kind: datadog_observability\nFinding: {}\nSeverity: {}\nRisk lane: {}\nSource URL: {}\n\nPatrol summary:\n{}\n\nEvidence JSON:\n{}\n\nRequired loop:\n1. Work in the assigned git worktree and branch only after this WorkCycle is allowed to start.\n2. Use Datadog MCP read-only evidence to reproduce or explain the issue; run extra Datadog MCP queries when needed.\n3. Keep all orchestration Temper-native: specs, WASM integrations, Cedar policies, dashboard views, and Temper actions.\n4. Make the smallest safe fix with red-green TDD, then run focused tests and live/E2E checks.\n5. Produce a visual ProofPacket with state diagrams, OData links, Datadog links, tests, residual risks, and reviewer/evaluator verdicts.\n\nAgent-provided work detail:\n{}",
-        finding.title,
-        finding.severity,
-        finding.risk_lane,
-        trimmed_or(&finding.source_url, "(not provided)"),
-        investigation.summary,
-        datadog_finding_evidence_json(patrol_run_id, investigation, finding),
-        finding.work_detail,
-    )
-}
-
 fn datadog_followup_branch_name(finding: &DatadogPatrolFinding, work_cycle_id: &str) -> String {
     let mut title = stable_slug(&finding.title);
     if title.len() > 40 {
@@ -738,14 +346,6 @@ fn datadog_followup_branch_name(finding: &DatadogPatrolFinding, work_cycle_id: &
         .take(8)
         .collect::<String>();
     format!("codex/paw-datadog-{title}-{suffix}")
-}
-
-fn datadog_followup_worktree_path(config: &Config, branch_name: &str) -> String {
-    config
-        .workspace_root
-        .join(branch_name.replace('/', "-"))
-        .display()
-        .to_string()
 }
 
 fn require_datadog_surfaces(scopes: &[DatadogEvidenceScope]) -> Result<()> {
@@ -827,13 +427,4 @@ fn stable_slug(value: &str) -> String {
         }
     }
     slug.trim_matches('-').to_string()
-}
-
-fn nonempty_string(value: &str, fallback: &str) -> String {
-    let value = value.trim();
-    if value.is_empty() {
-        fallback.to_string()
-    } else {
-        value.to_string()
-    }
 }

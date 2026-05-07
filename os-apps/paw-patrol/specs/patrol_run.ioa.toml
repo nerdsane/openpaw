@@ -121,7 +121,27 @@ kind = "input"
 from = ["Running"]
 to = "EvidenceReady"
 params = ["evidence_json", "observability_finding_ids", "signal_ids", "factory_case_ids", "work_cycle_ids"]
+effect = [{ type = "trigger", name = "patrol_evidence_recorded" }]
 hint = "Record Datadog Patrol evidence and the created Patrol entities."
+
+[[action.triggers]]
+name = "patrol_evidence_recorded"
+kind = "wasm"
+module = "patrol_run_lifecycle"
+on_failure = "Fail"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+local_codex_worker_id = "{secret:local_codex_worker_id}"
+local_codex_worktree_root = "{secret:local_codex_worktree_root}"
+
+[[action]]
+name = "AttachEvidenceLinks"
+kind = "input"
+from = ["EvidenceReady"]
+to = "EvidenceReady"
+params = ["observability_finding_ids", "signal_ids", "factory_case_ids", "work_cycle_ids"]
+hint = "Attach entities created from an agent-authored Datadog Patrol evidence packet."
 
 [[action]]
 name = "Complete"
