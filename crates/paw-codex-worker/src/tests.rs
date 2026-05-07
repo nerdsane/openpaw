@@ -689,6 +689,16 @@ mod tests {
     }
 
     #[test]
+    fn event_stream_triggers_worker_queue_fallback_after_each_entity_event() {
+        let source = include_str!("event_loop.rs");
+
+        assert!(
+            source.contains("claim_boot_queued_runs(client, config).await?"),
+            "SSE handling should immediately rescan queued WorkerRuns after entity events so missed WorkerRun events cannot wait behind stale stream replay"
+        );
+    }
+
+    #[test]
     fn repo_health_patrol_parser_requires_agent_evidence_surfaces() {
         let output = r##"
 REPO_HEALTH_PATROL_RESULT_JSON_BEGIN

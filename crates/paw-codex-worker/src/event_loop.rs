@@ -37,6 +37,9 @@ async fn connect_and_watch_events(
             buffer = buffer[frame_end + 2..].to_string();
             if let Some(data) = extract_sse_data(&frame) {
                 handle_event_payload(client, config, &data).await?;
+                if config.poll_on_start {
+                    claim_boot_queued_runs(client, config).await?;
+                }
             }
         }
     }
