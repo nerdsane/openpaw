@@ -263,6 +263,7 @@ struct EvaluationOutcome {
     results_json: String,
     e2e_summary: String,
     error_message: String,
+    failure_classification: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

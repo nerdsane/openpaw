@@ -5,6 +5,7 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     include!("datadog_patrol_tests.rs");
+    include!("evaluation_tests.rs");
     include!("event_stream_tests.rs");
     include!("fake_codex_tests.rs");
 

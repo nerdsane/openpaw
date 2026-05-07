@@ -154,6 +154,7 @@
         <Property Name="ResultsJson" Type="Edm.String"/>
         <Property Name="E2eSummary" Type="Edm.String"/>
         <Property Name="ErrorMessage" Type="Edm.String"/>
+        <Property Name="FailureClassification" Type="Edm.String"/>
         <Annotation Term="Paw.Vocab.AuthZ.CedarPolicy" String="policies/patrol.cedar"/>
         <Annotation Term="Paw.Vocab.Agent.Hint" String="Automated gate execution and result capture."/>
       </EntityType>

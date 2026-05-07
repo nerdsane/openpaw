@@ -261,10 +261,21 @@ fn handle_evaluation_failed(
     let work_cycle_id = string_param(ctx, fields, "work_cycle_id", "WorkCycleId");
     let error_message = string_param(ctx, fields, "error_message", "ErrorMessage");
     let results_json = string_param(ctx, fields, "results_json", "ResultsJson");
+    let failure_classification = string_param(
+        ctx,
+        fields,
+        "failure_classification",
+        "FailureClassification",
+    );
     let message = if error_message.trim().is_empty() {
         format!("EvaluationRun {evaluation_run_id} failed. Results: {results_json}")
     } else {
         error_message
+    };
+    let message = if failure_classification.trim().is_empty() {
+        message
+    } else {
+        format!("{message} Failure classification: {failure_classification}.")
     };
 
     if work_cycle_id.is_empty() {

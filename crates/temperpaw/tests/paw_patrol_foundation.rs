@@ -591,6 +591,35 @@ fn paw_patrol_dark_factory_architecture_is_recorded_in_app_adr() {
 }
 
 #[test]
+fn paw_patrol_evaluation_timeout_classification_is_recorded_in_app_adr() {
+    let root = repo_root();
+    let adr = root
+        .join("os-apps/paw-patrol/adrs")
+        .join("0002-evaluation-timeout-classification.md");
+
+    assert!(
+        adr.is_file(),
+        "EvaluationRun timeout classification should be recorded in an app-scoped ADR"
+    );
+
+    let text = read(adr);
+    for needle in [
+        "Evaluation Timeout Classification",
+        "Status: Accepted",
+        "EvaluationRun.Fail",
+        "failure_classification",
+        "evaluator_timeout",
+        "evaluation_entity_timeout",
+        "Temper-native",
+    ] {
+        assert!(
+            text.contains(needle),
+            "paw-patrol evaluation timeout ADR should contain {needle}"
+        );
+    }
+}
+
+#[test]
 fn paw_patrol_docs_explain_worker_scripts_tests_and_wasms() {
     let root = repo_root();
     let app_doc = read(root.join("os-apps/paw-patrol/APP.md"));
@@ -2226,8 +2255,10 @@ fn reviewer_and_evaluator_results_gate_completion_before_human_review() {
     let evaluation_spec = read(patrol.join("specs/evaluation_run.ioa.toml"));
     for needle in [
         "name = \"evaluator_id\"",
+        "name = \"failure_classification\"",
         "name = \"Claim\"",
         "params = [\"evaluator_id\"]",
+        "params = [\"results_json\", \"error_message\", \"failure_classification\"]",
         "effect = [{ type = \"trigger\", name = \"evaluation_run_passed\" }]",
         "effect = [{ type = \"trigger\", name = \"evaluation_run_failed\" }]",
         "module = \"review_gate_lifecycle\"",

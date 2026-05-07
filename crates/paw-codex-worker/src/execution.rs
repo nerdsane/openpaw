@@ -324,7 +324,7 @@ async fn run_codex_exec_command(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
-    configure_codex_process_group(&mut command);
+    configure_process_group(&mut command);
 
     let mut child = command
         .spawn()
@@ -368,7 +368,7 @@ async fn run_codex_exec_command(
         }
         Err(_) => {
             if let Some(pid) = child_pid {
-                terminate_codex_process_group(pid).await;
+                terminate_process_group(pid, "timed-out Codex process group").await;
             }
             let _ = timeout(Duration::from_secs(5), child.wait()).await;
             stdout_task.abort();
@@ -382,7 +382,7 @@ async fn run_codex_exec_command(
 }
 
 #[cfg(unix)]
-fn configure_codex_process_group(command: &mut Command) {
+fn configure_process_group(command: &mut Command) {
     unsafe {
         command.pre_exec(|| {
             if libc::setsid() == -1 {
@@ -395,30 +395,30 @@ fn configure_codex_process_group(command: &mut Command) {
 }
 
 #[cfg(not(unix))]
-fn configure_codex_process_group(_command: &mut Command) {}
+fn configure_process_group(_command: &mut Command) {}
 
 #[cfg(unix)]
-async fn terminate_codex_process_group(pid: u32) {
-    signal_codex_process_group(pid, libc::SIGTERM, "TERM");
+async fn terminate_process_group(pid: u32, context: &str) {
+    signal_process_group(pid, libc::SIGTERM, "TERM", context);
     sleep(Duration::from_millis(250)).await;
-    signal_codex_process_group(pid, libc::SIGKILL, "KILL");
+    signal_process_group(pid, libc::SIGKILL, "KILL", context);
     sleep(Duration::from_millis(50)).await;
 }
 
 #[cfg(unix)]
-fn signal_codex_process_group(pid: u32, signal: libc::c_int, label: &str) {
+fn signal_process_group(pid: u32, signal: libc::c_int, label: &str, context: &str) {
     let process_group = -(pid as libc::pid_t);
     let result = unsafe { libc::kill(process_group, signal) };
     if result == -1 {
         let error = std::io::Error::last_os_error();
         if error.raw_os_error() != Some(libc::ESRCH) {
-            warn!(%error, pid, signal = label, "failed to signal timed-out Codex process group");
+            warn!(%error, pid, signal = label, context, "failed to signal process group");
         }
     }
 }
 
 #[cfg(not(unix))]
-async fn terminate_codex_process_group(_pid: u32) {}
+async fn terminate_process_group(_pid: u32, _context: &str) {}
 
 fn codex_exec_args(workdir: &Path, prompt: &str) -> Vec<std::ffi::OsString> {
     vec![
@@ -476,6 +476,7 @@ async fn run_code_change_evaluation(
             json!({
                 "results_json": outcome.results_json,
                 "error_message": outcome.error_message,
+                "failure_classification": outcome.failure_classification,
             }),
         )
         .await
@@ -486,30 +487,46 @@ async fn run_evaluation_commands(
     config: &Config,
     worker_run: &WorkerRunState,
 ) -> Result<EvaluationOutcome> {
-    let workdir = ensure_worktree(config, worker_run).await?;
     let commands = evaluation_commands(env::var("PAW_CODEX_EVAL_COMMANDS").ok().as_deref());
+    run_evaluation_command_list(config, worker_run, commands).await
+}
+
+async fn run_evaluation_command_list(
+    config: &Config,
+    worker_run: &WorkerRunState,
+    commands: Vec<String>,
+) -> Result<EvaluationOutcome> {
+    let workdir = ensure_worktree(config, worker_run).await?;
     let shell = env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
     let mut results = Vec::new();
     let mut passed = true;
+    let mut failure_classification = "passed";
 
     for command in commands {
         info!(worker_run_id = %worker_run.id, command, "running evaluation command");
-        let output = Command::new(&shell)
-            .arg("-lc")
-            .arg(&command)
-            .current_dir(&workdir)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .output()
-            .await
-            .with_context(|| format!("run evaluation command: {command}"))?;
-        let status = output.status.code().unwrap_or(-1);
-        let success = output.status.success();
+        let output =
+            run_shell_command_with_timeout(config, &workdir, &shell, &command).await?;
+        let status = output.status_code;
+        let success = output.success;
         passed &= success;
+        if output.timed_out {
+            failure_classification = "evaluator_timeout";
+        } else if !success && failure_classification == "passed" {
+            failure_classification = "command_exit_failure";
+        }
         results.push(json!({
             "command": command,
             "success": success,
             "status": status,
+            "timed_out": output.timed_out,
+            "timeout_ms": config.codex_exec_timeout.as_millis(),
+            "failure_classification": if output.timed_out {
+                "evaluator_timeout"
+            } else if success {
+                "passed"
+            } else {
+                "command_exit_failure"
+            },
             "stdout_tail": tail_string(&String::from_utf8_lossy(&output.stdout), 4_000),
             "stderr_tail": tail_string(&String::from_utf8_lossy(&output.stderr), 4_000),
         }));
@@ -518,6 +535,8 @@ async fn run_evaluation_commands(
     let results_json = serde_json::to_string(&json!({
         "kind": "code_change_evaluation",
         "worker_run_id": worker_run.id,
+        "failure_classification": failure_classification,
+        "timeout_ms": config.codex_exec_timeout.as_millis(),
         "commands": results,
     }))
     .context("serialize code-change evaluation result")?;
@@ -528,8 +547,8 @@ async fn run_evaluation_commands(
         )
     } else {
         format!(
-            "Code-change evaluation failed for WorkerRun {}; inspect results_json command output.",
-            worker_run.id
+            "Code-change evaluation failed for WorkerRun {} with failure_classification={}; inspect results_json command output.",
+            worker_run.id, failure_classification
         )
     };
     let error_message = if passed {
@@ -543,7 +562,107 @@ async fn run_evaluation_commands(
         results_json,
         e2e_summary,
         error_message,
+        failure_classification: failure_classification.to_string(),
     })
+}
+
+#[derive(Debug)]
+struct ShellCommandOutput {
+    status_code: i32,
+    success: bool,
+    timed_out: bool,
+    stdout: Vec<u8>,
+    stderr: Vec<u8>,
+}
+
+async fn run_shell_command_with_timeout(
+    config: &Config,
+    workdir: &Path,
+    shell: &str,
+    command: &str,
+) -> Result<ShellCommandOutput> {
+    let mut shell_command = Command::new(shell);
+    shell_command
+        .arg("-lc")
+        .arg(command)
+        .current_dir(workdir)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
+    configure_process_group(&mut shell_command);
+
+    let mut child = shell_command
+        .spawn()
+        .with_context(|| format!("spawn evaluation command: {command}"))?;
+    let child_pid = child.id();
+    let mut stdout_pipe = child
+        .stdout
+        .take()
+        .with_context(|| format!("capture evaluation command stdout: {command}"))?;
+    let mut stderr_pipe = child
+        .stderr
+        .take()
+        .with_context(|| format!("capture evaluation command stderr: {command}"))?;
+    let stdout_task = tokio::spawn(async move {
+        let mut stdout = Vec::new();
+        stdout_pipe.read_to_end(&mut stdout).await?;
+        std::io::Result::Ok(stdout)
+    });
+    let stderr_task = tokio::spawn(async move {
+        let mut stderr = Vec::new();
+        stderr_pipe.read_to_end(&mut stderr).await?;
+        std::io::Result::Ok(stderr)
+    });
+
+    match timeout(config.codex_exec_timeout, child.wait()).await {
+        Ok(status) => {
+            let status = status.with_context(|| format!("run evaluation command: {command}"))?;
+            let stdout = stdout_task
+                .await
+                .with_context(|| format!("join evaluation command stdout reader: {command}"))?
+                .with_context(|| format!("read evaluation command stdout: {command}"))?;
+            let stderr = stderr_task
+                .await
+                .with_context(|| format!("join evaluation command stderr reader: {command}"))?
+                .with_context(|| format!("read evaluation command stderr: {command}"))?;
+            Ok(ShellCommandOutput {
+                status_code: status.code().unwrap_or(-1),
+                success: status.success(),
+                timed_out: false,
+                stdout,
+                stderr,
+            })
+        }
+        Err(_) => {
+            if let Some(pid) = child_pid {
+                terminate_process_group(pid, "timed-out evaluation command process group").await;
+            }
+            let _ = timeout(Duration::from_secs(5), child.wait()).await;
+            stdout_task.abort();
+            stderr_task.abort();
+            Ok(ShellCommandOutput {
+                status_code: -1,
+                success: false,
+                timed_out: true,
+                stdout: Vec::new(),
+                stderr: format!(
+                    "evaluation command timed out after {}",
+                    duration_label(config.codex_exec_timeout)
+                )
+                .into_bytes(),
+            })
+        }
+    }
+}
+
+fn duration_label(duration: Duration) -> String {
+    if duration.as_millis() < 1_000 {
+        format!("{}ms", duration.as_millis())
+    } else if duration.subsec_millis() == 0 {
+        format!("{}s", duration.as_secs())
+    } else {
+        format!("{}ms", duration.as_millis())
+    }
 }
 
 fn codex_review_prompt(worker_run: &WorkerRunState, review_run: &ReviewRunState) -> String {
