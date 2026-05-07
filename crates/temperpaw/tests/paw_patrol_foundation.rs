@@ -1675,6 +1675,24 @@ fn production_docker_image_builds_patrol_wasm_modules() {
 }
 
 #[test]
+fn startup_rehydrates_os_app_verification_for_unchanged_apps() {
+    let root = repo_root();
+    let startup = read(root.join("crates/temperpaw/src/startup.rs"));
+    let skipped_start = startup
+        .find("Ok(OsAppReconcileResult::Skipped")
+        .expect("startup should handle skipped OS app reconciliation");
+    let installed_start = startup
+        .find("Ok(OsAppReconcileResult::Installed")
+        .expect("startup should handle installed OS app reconciliation");
+    let skipped_branch = &startup[skipped_start..installed_start];
+
+    assert!(
+        skipped_branch.contains("persist_os_app_verification"),
+        "unchanged OS apps must repopulate the in-memory verification registry after deploy/restart"
+    );
+}
+
+#[test]
 fn paw_patrol_is_discoverable_by_the_os_app_catalog() {
     let root = repo_root();
     temper_platform::os_apps::set_os_apps_dir(root.join("os-apps"));

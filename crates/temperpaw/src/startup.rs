@@ -1458,6 +1458,7 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
         }
         match reconcile_os_app(&state, &tenant, app_name).await {
             Ok(OsAppReconcileResult::Skipped { bundle_digest, .. }) => {
+                persist_os_app_verification(&state, platform_store, &tenant, app_name).await;
                 record_os_app_reconcile(app_name, "skipped", app_started.elapsed());
                 tracing::info!(
                     app = %app_name,
