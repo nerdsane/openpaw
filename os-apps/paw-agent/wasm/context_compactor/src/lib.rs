@@ -599,6 +599,7 @@ fn build_compaction_request_body(
                 "role": "user",
                 "content": user_text,
             }],
+            "store": false,
         }),
         "openrouter" => json!({
             "model": model,
@@ -930,6 +931,7 @@ mod tests {
                     .contains("conversation text"),
                 "{provider}: user content must include conversation text"
             );
+            assert_eq!(body["store"], json!(false));
         }
     }
 
