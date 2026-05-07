@@ -679,6 +679,22 @@ mod tests {
     }
 
     #[test]
+    fn datadog_patrol_classifier_ignores_followup_implementation_prompts() {
+        let patrol_task = "You are the local Codex Datadog Patrol agent for TemperPaw paw-patrol.\n\nPatrolRun: en-patrol\nPatrolKind: datadog_observability";
+        let implementer_task = "You are the local Codex implementer for a Paw Patrol Datadog MCP observability finding.\n\nPatrolRun: en-patrol\nPatrol kind: datadog_observability\nFinding: OpenPaw monitor coverage is degraded by No Data states";
+
+        assert_eq!(
+            extract_datadog_patrol_run_id(patrol_task).as_deref(),
+            Some("en-patrol")
+        );
+        assert_eq!(
+            extract_datadog_patrol_run_id(implementer_task),
+            None,
+            "Datadog follow-up implementer work must run as normal Codex implementation, not as the patrol writeback collector"
+        );
+    }
+
+    #[test]
     fn boot_poll_scans_newest_queue_window_not_old_stale_runs() {
         let source = include_str!("boot_watch.rs");
 

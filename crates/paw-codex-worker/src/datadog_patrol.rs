@@ -648,7 +648,9 @@ fn percent_encode_data_url(input: &str) -> String {
 }
 
 fn extract_datadog_patrol_run_id(task: &str) -> Option<String> {
-    if !task.contains("datadog_observability") {
+    if !task.contains("PatrolKind: datadog_observability")
+        && !task.contains("local Codex Datadog Patrol agent")
+    {
         return None;
     }
     task.lines().find_map(|line| {
