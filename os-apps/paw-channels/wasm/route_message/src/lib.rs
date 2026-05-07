@@ -1442,7 +1442,15 @@ fn is_terminal_status(status: &str) -> bool {
 }
 
 fn is_steerable_status(status: &str) -> bool {
-    matches!(status, "Thinking" | "Executing" | "Steering" | "Compacting")
+    matches!(
+        status,
+        "PreparingContext"
+            | "CallingProvider"
+            | "Thinking"
+            | "Executing"
+            | "Steering"
+            | "Compacting"
+    )
 }
 
 /// Maximum staleness, in seconds, before `route_message` preemptively
@@ -1769,6 +1777,16 @@ mod tests {
             Some("ResumeCompacting")
         );
         assert_eq!(resume_action_for_status("Steering"), Some("ResumeSteering"));
+    }
+
+    #[test]
+    fn active_provider_and_context_states_are_steerable() {
+        for status in ["PreparingContext", "CallingProvider"] {
+            assert!(
+                is_steerable_status(status),
+                "{status} must accept user steering and stale-session wake-up"
+            );
+        }
     }
 
     #[test]
