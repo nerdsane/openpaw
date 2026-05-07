@@ -142,6 +142,7 @@ async fn run_codex(config: &Config, worker_run: &WorkerRunState) -> Result<Strin
             status_short: format!("git evidence unavailable: {error}"),
             diff_stat: String::new(),
         });
+    ensure_no_forbidden_done_paths(&evidence.status_short)?;
     Ok(format_codex_success_summary(
         worker_run,
         &workdir,
@@ -221,6 +222,60 @@ fn worker_run_branch_label(worker_run: &WorkerRunState) -> String {
     } else {
         "(unassigned worktree)".to_string()
     }
+}
+
+fn ensure_no_forbidden_done_paths(status_short: &str) -> Result<()> {
+    let raw_prefixes = env::var("PAW_CODEX_FORBIDDEN_DONE_PATHS").unwrap_or_default();
+    let violations = forbidden_done_path_violations(status_short, &raw_prefixes);
+    if violations.is_empty() {
+        return Ok(());
+    }
+
+    bail!(
+        "WorkerRun changed deployment-sensitive path(s) forbidden by PAW_CODEX_FORBIDDEN_DONE_PATHS: {}. Refusing WorkerRun.ReportDone.",
+        violations.join(", ")
+    )
+}
+
+fn forbidden_done_path_violations(status_short: &str, raw_prefixes: &str) -> Vec<String> {
+    let prefixes: Vec<&str> = raw_prefixes
+        .split([',', '\n'])
+        .map(str::trim)
+        .filter(|prefix| !prefix.is_empty())
+        .collect();
+    if prefixes.is_empty() {
+        return Vec::new();
+    }
+
+    let mut violations = Vec::new();
+    for path in changed_paths_from_status(status_short) {
+        if prefixes.iter().any(|prefix| path.starts_with(prefix)) {
+            violations.push(path);
+        }
+    }
+    violations.sort();
+    violations.dedup();
+    violations
+}
+
+fn changed_paths_from_status(status_short: &str) -> Vec<String> {
+    let mut paths = Vec::new();
+    for line in status_short.lines() {
+        let Some(rest) = line.get(3..) else {
+            continue;
+        };
+        let rest = rest.trim();
+        if rest.is_empty() {
+            continue;
+        }
+        if let Some((before, after)) = rest.split_once(" -> ") {
+            paths.push(before.trim_matches('"').to_string());
+            paths.push(after.trim_matches('"').to_string());
+        } else {
+            paths.push(rest.trim_matches('"').to_string());
+        }
+    }
+    paths
 }
 
 async fn run_codex_review(

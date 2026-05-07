@@ -252,6 +252,7 @@ mod tests {
             "<string>local_codex,repo_write,review,evaluation,datadog_query</string>",
             "<key>PAW_CODEX_WORKER_ENV_FILE</key>",
             "<string>/Users/openclaw/.config/temperpaw/paw-codex-worker.env</string>",
+            "<key>PAW_CODEX_FORBIDDEN_DONE_PATHS</key>",
             "<key>PAW_CODEX_EVAL_COMMANDS</key>",
             "<string>cargo test -p temperpaw --test paw_patrol_foundation</string>",
         ] {
@@ -416,6 +417,25 @@ mod tests {
         assert_eq!(escalated.action, ReviewDecisionAction::Escalate);
         assert_eq!(unknown.action, ReviewDecisionAction::Escalate);
         assert!(unknown.summary.contains("explicit VERDICT"));
+    }
+
+    #[test]
+    fn forbidden_done_path_scan_catches_deployment_sensitive_edits() {
+        let status = "\
+ M dd-dashboards/temperpaw-overview.json
+ M os-apps/paw-channels/wasm/transport_reconcile/Cargo.lock
+?? .proofs/patrol.md
+";
+
+        let violation = forbidden_done_path_violations(
+            status,
+            "os-apps/paw-agent/,os-apps/paw-channels/,crates/paw-triggers/",
+        );
+
+        assert_eq!(
+            violation,
+            vec!["os-apps/paw-channels/wasm/transport_reconcile/Cargo.lock"]
+        );
     }
 
     #[test]

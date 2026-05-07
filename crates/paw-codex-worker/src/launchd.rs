@@ -56,6 +56,12 @@ fn render_launchd_plist(config: &Config, worker_bin: &Path, eval_commands: Optio
                 .leak(),
         ),
         (
+            "PAW_CODEX_FORBIDDEN_DONE_PATHS",
+            env::var("PAW_CODEX_FORBIDDEN_DONE_PATHS")
+                .unwrap_or_default()
+                .leak(),
+        ),
+        (
             "RUST_LOG",
             env::var("RUST_LOG")
                 .ok()
