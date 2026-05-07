@@ -422,6 +422,19 @@ fn datadog_observability_patrol_run_uses_temper_state_and_creates_work() {
             "paw-codex-worker should run Datadog Patrol and report through Temper: {needle}"
         );
     }
+
+    let policy = read(patrol.join("policies/patrol.cedar"));
+    for needle in [
+        "low-risk Datadog follow-up WorkCycles",
+        "Action::\"StartWork\"",
+        "Action::\"AttachWorkerRun\"",
+        "resource is WorkerRun",
+    ] {
+        assert!(
+            policy.contains(needle),
+            "patrol.cedar should let the Mac mini worker queue low-risk Datadog follow-up work: {needle}"
+        );
+    }
 }
 
 #[test]

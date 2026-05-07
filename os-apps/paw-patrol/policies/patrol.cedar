@@ -225,8 +225,9 @@ permit(
 );
 
 // The registered Mac mini worker performs Datadog evidence collection and
-// writes only Patrol entities needed to make that evidence inspectable. Code or
-// deploy work still flows through WorkCycles and risk gates.
+// writes only Patrol entities needed to make that evidence inspectable. It may
+// also queue low-risk Datadog follow-up WorkCycles; higher-risk code or deploy
+// work still pauses at the human approval gate.
 permit(
   principal is Agent,
   action in [
@@ -240,8 +241,10 @@ permit(
     Action::"Configure",
     Action::"LinkSource",
     Action::"WritePlan",
+    Action::"StartWork",
     Action::"RequestHumanStartApproval",
     Action::"OpenWorkCycle",
+    Action::"AttachWorkerRun",
     Action::"AttachDraft",
     Action::"MarkReady"
   ],
@@ -254,6 +257,7 @@ permit(
     resource is ObservabilityFinding ||
     resource is FactoryCase ||
     resource is WorkCycle ||
+    resource is WorkerRun ||
     resource is ProofPacket
   )
 };
