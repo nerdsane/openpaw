@@ -203,6 +203,7 @@ fn is_public_path(method: &str, path: &str) -> bool {
         || path == "/healthz"
         || path == "/readyz"
         || path.starts_with("/discord/interaction")
+        || path.starts_with("/triggers/webhook/")
         || (method == "GET" && (path == "/tdata" || path == "/tdata/"))
         || is_dashboard_public_path(path)
 }
@@ -627,7 +628,18 @@ mod tests {
     use serde_json::json;
     use tower::ServiceExt;
 
-    use super::{AuthState, claims_from_headers, issue_session_cookie_value, middleware, router};
+    use super::{
+        AuthState, claims_from_headers, is_public_path, issue_session_cookie_value, middleware,
+        router,
+    };
+
+    #[test]
+    fn webhook_trigger_paths_are_public_for_external_providers() {
+        assert!(
+            is_public_path("POST", "/triggers/webhook/patrol-datadog"),
+            "external webhook providers cannot send Temper bearer auth"
+        );
+    }
 
     #[tokio::test]
     async fn register_login_me_and_logout_round_trip() {

@@ -1307,9 +1307,15 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
         build_version: config.build_version.clone(),
         build_sha: config.build_sha.clone(),
     };
+    let webhook_api = paw_transport::PawApiClient::new(paw_transport::PawApiConfig {
+        base_url: format!("http://127.0.0.1:{actual_port}"),
+        tenant: tenant.clone(),
+        api_key: config.temper_api_key.clone(),
+    });
     let router = router
         .merge(crate::setup_api::router(setup_state.clone()))
-        .merge(crate::auth::router(auth_state.clone()));
+        .merge(crate::auth::router(auth_state.clone()))
+        .merge(paw_transport::webhook::router(webhook_api));
 
     let router = router.layer(axum::extract::DefaultBodyLimit::max(50 * 1024 * 1024));
 

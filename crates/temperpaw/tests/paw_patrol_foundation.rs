@@ -1702,6 +1702,12 @@ fn paw_patrol_has_webhook_intake_routes_through_paw_ingest() {
     ] {
         assert!(app_doc.contains(needle), "APP.md should document {needle}");
     }
+
+    let startup = read(root.join("crates/temperpaw/src/startup.rs"));
+    assert!(
+        startup.contains("paw_transport::webhook::router"),
+        "production runtime router should expose /triggers/webhook/{{route_key}} on the main Railway port"
+    );
 }
 
 #[test]
