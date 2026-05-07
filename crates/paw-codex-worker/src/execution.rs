@@ -271,17 +271,53 @@ async fn run_codex_exec_command(
         .kill_on_drop(true);
     configure_codex_process_group(&mut command);
 
-    let child = command
+    let mut child = command
         .spawn()
         .with_context(|| format!("{context_label}: spawn codex exec"))?;
     let child_pid = child.id();
+    let mut stdout_pipe = child
+        .stdout
+        .take()
+        .with_context(|| format!("{context_label}: capture codex stdout"))?;
+    let mut stderr_pipe = child
+        .stderr
+        .take()
+        .with_context(|| format!("{context_label}: capture codex stderr"))?;
+    let stdout_task = tokio::spawn(async move {
+        let mut stdout = Vec::new();
+        stdout_pipe.read_to_end(&mut stdout).await?;
+        std::io::Result::Ok(stdout)
+    });
+    let stderr_task = tokio::spawn(async move {
+        let mut stderr = Vec::new();
+        stderr_pipe.read_to_end(&mut stderr).await?;
+        std::io::Result::Ok(stderr)
+    });
 
-    match timeout(config.codex_exec_timeout, child.wait_with_output()).await {
-        Ok(output) => output.with_context(|| context_label.to_string()),
+    match timeout(config.codex_exec_timeout, child.wait()).await {
+        Ok(status) => {
+            let status = status.with_context(|| context_label.to_string())?;
+            let stdout = stdout_task
+                .await
+                .with_context(|| format!("{context_label}: join codex stdout reader"))?
+                .with_context(|| format!("{context_label}: read codex stdout"))?;
+            let stderr = stderr_task
+                .await
+                .with_context(|| format!("{context_label}: join codex stderr reader"))?
+                .with_context(|| format!("{context_label}: read codex stderr"))?;
+            Ok(Output {
+                status,
+                stdout,
+                stderr,
+            })
+        }
         Err(_) => {
             if let Some(pid) = child_pid {
                 terminate_codex_process_group(pid).await;
             }
+            let _ = timeout(Duration::from_secs(5), child.wait()).await;
+            stdout_task.abort();
+            stderr_task.abort();
             bail!(
                 "codex exec timed out after {}s during {context_label}",
                 config.codex_exec_timeout.as_secs()
@@ -308,27 +344,21 @@ fn configure_codex_process_group(_command: &mut Command) {}
 
 #[cfg(unix)]
 async fn terminate_codex_process_group(pid: u32) {
-    let process_group = format!("-{pid}");
-    let term_status = Command::new("kill")
-        .arg("-TERM")
-        .arg(&process_group)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .await;
-    if let Err(error) = term_status {
-        warn!(%error, pid, "failed to send TERM to timed-out Codex process group");
-    }
+    signal_codex_process_group(pid, libc::SIGTERM, "TERM");
     sleep(Duration::from_millis(250)).await;
-    let kill_status = Command::new("kill")
-        .arg("-KILL")
-        .arg(&process_group)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .await;
-    if let Err(error) = kill_status {
-        warn!(%error, pid, "failed to send KILL to timed-out Codex process group");
+    signal_codex_process_group(pid, libc::SIGKILL, "KILL");
+    sleep(Duration::from_millis(50)).await;
+}
+
+#[cfg(unix)]
+fn signal_codex_process_group(pid: u32, signal: libc::c_int, label: &str) {
+    let process_group = -(pid as libc::pid_t);
+    let result = unsafe { libc::kill(process_group, signal) };
+    if result == -1 {
+        let error = std::io::Error::last_os_error();
+        if error.raw_os_error() != Some(libc::ESRCH) {
+            warn!(%error, pid, signal = label, "failed to signal timed-out Codex process group");
+        }
     }
 }
 
