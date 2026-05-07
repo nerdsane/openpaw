@@ -550,6 +550,32 @@ mod tests {
     }
 
     #[test]
+    fn review_prompt_allows_pr_ready_changes_with_deployment_pending() {
+        let worker_run = WorkerRunState {
+            id: "wr-dashboard".to_string(),
+            status: "Done".to_string(),
+            task: "Update Datadog dashboard JSON but do not deploy production.".to_string(),
+            worktree_path: "/tmp/paw-dashboard".to_string(),
+            branch_name: "codex/dashboard".to_string(),
+            runner_kind: "local_codex".to_string(),
+            allowed_worker_id: "mac-mini-codex-1".to_string(),
+            worker_id: "mac-mini-codex-1".to_string(),
+            provider_id: "local-codex".to_string(),
+            required_capabilities: "local_codex,repo_write,review".to_string(),
+        };
+        let review = ReviewRunState {
+            status: "Requested".to_string(),
+            worker_run_id: worker_run.id.clone(),
+            proof_packet_id: "proof-dashboard".to_string(),
+        };
+
+        let prompt = codex_review_prompt(&worker_run, &review);
+
+        assert!(prompt.contains("deployment-pending residual risk"));
+        assert!(prompt.contains("Do not require production deployment"));
+    }
+
+    #[test]
     fn repo_health_review_prompt_reviews_scan_contract_not_patch_contract() {
         let worker_run = WorkerRunState {
             id: "wr-repo-scan".to_string(),
