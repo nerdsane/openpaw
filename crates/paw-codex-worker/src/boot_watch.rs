@@ -1,6 +1,6 @@
 async fn claim_boot_queued_runs(client: &reqwest::Client, config: &Config) -> Result<()> {
     let url = format!(
-        "{}/tdata/WorkerRuns?$filter=Status eq 'Queued'&$top=10",
+        "{}/tdata/WorkerRuns?$filter=Status eq 'Queued'&$orderby=Id desc&$top=50",
         config.temper_url
     );
     let response = client
@@ -59,7 +59,7 @@ async fn query_boot_entity_ids(
     status: &str,
 ) -> Result<Vec<String>> {
     let url = format!(
-        "{}/tdata/{}?$filter=Status eq '{}'&$top=5",
+        "{}/tdata/{}?$filter=Status eq '{}'&$orderby=Id desc&$top=50",
         config.temper_url, entity_set, status
     );
     let response = client

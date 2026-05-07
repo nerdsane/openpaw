@@ -679,12 +679,12 @@ mod tests {
     }
 
     #[test]
-    fn boot_worker_poll_scans_a_queue_window_not_one_stale_run() {
+    fn boot_poll_scans_newest_queue_window_not_old_stale_runs() {
         let source = include_str!("boot_watch.rs");
 
         assert!(
-            source.contains("Status eq 'Queued'&$top=10"),
-            "boot poll should inspect a queue window so one stale WorkerRun cannot starve newer claimable runs"
+            source.contains("$orderby=Id desc&$top=50"),
+            "boot poll should inspect newest queued entities first so old stale runs cannot starve newer claimable runs"
         );
     }
 
