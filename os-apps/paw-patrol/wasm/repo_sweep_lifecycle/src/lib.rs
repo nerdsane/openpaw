@@ -120,7 +120,9 @@ fn handle_start_scan(
             "branch_name": &branch_name,
             "worktree_path": &worktree_path,
             "runner_kind": "local_codex",
-            "allowed_worker_id": &allowed_worker_id
+            "allowed_worker_id": &allowed_worker_id,
+            "provider_id": "local-codex",
+            "required_capabilities": "local_codex,repo_write,evaluation"
         }),
     )?;
     post_action(

@@ -1,0 +1,86 @@
+[automaton]
+name = "WorkerAgent"
+states = ["Registered", "Active", "Unhealthy", "Disabled"]
+initial = "Registered"
+
+allow_indefinite_states = ["Active", "Unhealthy", "Disabled"]
+
+[[state]]
+name = "worker_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "provider_id"
+type = "string"
+initial = "local-codex"
+
+[[state]]
+name = "display_name"
+type = "string"
+initial = ""
+
+[[state]]
+name = "capabilities"
+type = "string"
+initial = "local_codex,repo_write,review,evaluation,datadog_query"
+
+[[state]]
+name = "host"
+type = "string"
+initial = ""
+
+[[state]]
+name = "worktree_root"
+type = "string"
+initial = ""
+
+[[state]]
+name = "last_seen_at"
+type = "string"
+initial = ""
+
+[[state]]
+name = "status_summary"
+type = "string"
+initial = ""
+
+[[action]]
+name = "Register"
+kind = "input"
+from = ["Registered"]
+to = "Registered"
+params = ["worker_id", "provider_id", "display_name", "capabilities", "host", "worktree_root"]
+hint = "Register one worker agent and its capabilities."
+
+[[action]]
+name = "Activate"
+kind = "input"
+from = ["Registered", "Unhealthy", "Disabled"]
+to = "Active"
+params = ["status_summary"]
+hint = "Mark this worker available for claimable WorkerRuns."
+
+[[action]]
+name = "ReportHeartbeat"
+kind = "input"
+from = ["Registered", "Active", "Unhealthy"]
+to = "Active"
+params = ["last_seen_at", "status_summary", "capabilities"]
+hint = "Record worker liveness and current capability advertisement."
+
+[[action]]
+name = "MarkUnhealthy"
+kind = "input"
+from = ["Registered", "Active"]
+to = "Unhealthy"
+params = ["status_summary"]
+hint = "Mark this worker unhealthy."
+
+[[action]]
+name = "Disable"
+kind = "input"
+from = ["Registered", "Active", "Unhealthy"]
+to = "Disabled"
+params = ["status_summary"]
+hint = "Disable this worker."

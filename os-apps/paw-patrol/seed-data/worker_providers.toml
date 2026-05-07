@@ -1,0 +1,98 @@
+[[instance]]
+id = "local-codex"
+type = "WorkerProvider"
+
+[instance.fields]
+provider_kind = "local_codex"
+display_name = "Local Codex"
+capabilities = "local_codex,repo_write,review,evaluation,datadog_query"
+risk_ceiling = "L3"
+enabled = true
+
+[[instance.actions]]
+name = "Register"
+params = { provider_kind = "local_codex", display_name = "Local Codex", capabilities = "local_codex,repo_write,review,evaluation,datadog_query", risk_ceiling = "L3", enabled = true }
+
+[[instance.actions]]
+name = "Activate"
+params = { status_summary = "Local Mac mini Codex provider is the v1 default provider." }
+
+[[instance]]
+id = "mac-mini-codex-prod"
+type = "WorkerAgent"
+
+[instance.fields]
+worker_id = "mac-mini-codex-prod"
+provider_id = "local-codex"
+display_name = "Mac mini Codex"
+capabilities = "local_codex,repo_write,review,evaluation,datadog_query"
+host = "Margarytas-Mac-mini.local"
+worktree_root = "/Users/openclaw/Development/temperpaw-worktrees"
+
+[[instance.actions]]
+name = "Register"
+params = { worker_id = "mac-mini-codex-prod", provider_id = "local-codex", display_name = "Mac mini Codex", capabilities = "local_codex,repo_write,review,evaluation,datadog_query", host = "Margarytas-Mac-mini.local", worktree_root = "/Users/openclaw/Development/temperpaw-worktrees" }
+
+[[instance.actions]]
+name = "Activate"
+params = { status_summary = "Registered local Codex worker for Patrol implementation, review, evaluation, and Datadog query patrol." }
+
+[[instance]]
+id = "codex-cloud"
+type = "WorkerProvider"
+
+[instance.fields]
+provider_kind = "codex_cloud"
+display_name = "Codex Cloud"
+capabilities = "repo_write,review,evaluation"
+risk_ceiling = "L2"
+enabled = false
+
+[[instance.actions]]
+name = "Register"
+params = { provider_kind = "codex_cloud", display_name = "Codex Cloud", capabilities = "repo_write,review,evaluation", risk_ceiling = "L2", enabled = false }
+
+[[instance]]
+id = "openclaw"
+type = "WorkerProvider"
+
+[instance.fields]
+provider_kind = "openclaw"
+display_name = "OpenClaw"
+capabilities = "manager,triage,patrol_submit"
+risk_ceiling = "L1"
+enabled = false
+
+[[instance.actions]]
+name = "Register"
+params = { provider_kind = "openclaw", display_name = "OpenClaw", capabilities = "manager,triage,patrol_submit", risk_ceiling = "L1", enabled = false }
+
+[[instance]]
+id = "anthropic-managed"
+type = "WorkerProvider"
+
+[instance.fields]
+provider_kind = "anthropic_managed"
+display_name = "Anthropic Managed Agent"
+capabilities = "review,triage"
+risk_ceiling = "L1"
+enabled = false
+
+[[instance.actions]]
+name = "Register"
+params = { provider_kind = "anthropic_managed", display_name = "Anthropic Managed Agent", capabilities = "review,triage", risk_ceiling = "L1", enabled = false }
+
+[[instance]]
+id = "temperpaw-agent"
+type = "WorkerProvider"
+
+[instance.fields]
+provider_kind = "temperpaw_agent"
+display_name = "TemperPaw Agent"
+capabilities = "triage,patrol_submit,datadog_query"
+risk_ceiling = "L1"
+enabled = false
+
+[[instance.actions]]
+name = "Register"
+params = { provider_kind = "temperpaw_agent", display_name = "TemperPaw Agent", capabilities = "triage,patrol_submit,datadog_query", risk_ceiling = "L1", enabled = false }

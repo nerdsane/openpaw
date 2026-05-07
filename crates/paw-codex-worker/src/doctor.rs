@@ -3,6 +3,8 @@ async fn run_doctor(client: &reqwest::Client, config: &Config) -> Result<()> {
     checks.push(check_path("repo_root", &config.repo_root, true));
     checks.push(check_path("workspace_root", &config.workspace_root, false));
     checks.push(check_worker_token(config));
+    checks.push(check_worker_capabilities());
+    checks.push(check_datadog_keys());
     checks.push(check_execution_safety(config));
     checks.push(check_codex_binary(config).await);
     checks.push(check_codex_exec_smoke(config).await);
@@ -14,6 +16,52 @@ async fn run_doctor(client: &reqwest::Client, config: &Config) -> Result<()> {
         bail!("paw-codex-worker doctor found failing checks")
     }
     Ok(())
+}
+
+fn check_worker_capabilities() -> DoctorCheck {
+    let capabilities = worker_capabilities();
+    if capabilities.is_empty() {
+        DoctorCheck::fail(
+            "worker_capabilities",
+            "PAW_CODEX_WORKER_CAPABILITIES resolved to an empty set".to_string(),
+        )
+    } else if capabilities.iter().any(|capability| capability == "datadog_query") {
+        DoctorCheck::pass(
+            "worker_capabilities",
+            format!("advertising {}", capabilities.join(",")),
+        )
+    } else {
+        DoctorCheck::warn(
+            "worker_capabilities",
+            format!(
+                "advertising {}; Datadog Patrol requires datadog_query",
+                capabilities.join(",")
+            ),
+        )
+    }
+}
+
+fn check_datadog_keys() -> DoctorCheck {
+    let present = ["DD_API_KEY", "DD_APP_KEY", "DD_SITE"]
+        .into_iter()
+        .filter(|key| {
+            env::var(key)
+                .ok()
+                .map(|value| !value.trim().is_empty())
+                .unwrap_or(false)
+        })
+        .collect::<Vec<_>>();
+    if present.contains(&"DD_API_KEY") && present.contains(&"DD_APP_KEY") {
+        DoctorCheck::pass(
+            "datadog_secrets",
+            format!("Datadog read-only secret names present: {}", present.join(",")),
+        )
+    } else {
+        DoctorCheck::warn(
+            "datadog_secrets",
+            "DD_API_KEY and DD_APP_KEY are not both set; Datadog Patrol will escalate instead of querying".to_string(),
+        )
+    }
 }
 
 fn check_path(name: &str, path: &Path, must_be_git_repo: bool) -> DoctorCheck {

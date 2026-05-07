@@ -85,6 +85,7 @@ async fn handle_queued_worker_run(
         debug!(
             worker_run_id,
             runner_kind = %worker_run.runner_kind,
+            provider_id = %worker_run.provider_id,
             allowed_worker_id = %worker_run.allowed_worker_id,
             worker_id = %config.worker_id,
             "WorkerRun is not claimable by local Codex"
@@ -97,6 +98,8 @@ async fn handle_queued_worker_run(
 
     let run_result = if let Some(snapshot_id) = extract_repo_sweep_snapshot_id(&worker_run.task) {
         run_repo_sweep(client, config, &worker_run, &snapshot_id).await
+    } else if let Some(patrol_run_id) = extract_datadog_patrol_run_id(&worker_run.task) {
+        run_datadog_patrol(client, config, &worker_run, &patrol_run_id).await
     } else {
         run_codex(config, &worker_run).await
     };

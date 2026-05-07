@@ -1,8 +1,9 @@
-//! Patrol Request Router — turn a submitted request into Patrol work.
+//! Patrol Request Router - turn submitted work intent into Patrol work.
 //!
-//! Triggered by `PatrolRequest.Submit`. The trigger boundary creates only the
-//! PatrolRequest; this WASM integration performs the Temper-native follow-on
-//! transitions: PM issue, FactoryCase, WorkCycle, and queued WorkerRun.
+//! Triggered by `WorkRequest.Submit` and the legacy `PatrolRequest.Submit`.
+//! The trigger boundary creates only the intake entity; this WASM integration
+//! performs the Temper-native follow-on transitions: PM issue, FactoryCase,
+//! WorkCycle, and queued WorkerRun.
 
 use temper_wasm_sdk::prelude::*;
 
@@ -48,10 +49,15 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         let headers = odata_headers(&ctx);
         let summary = summarize_request(&source, &request_text);
         let risk = initial_risk(&source, &request_text);
+        let intake_set = intake_entity_set(&ctx);
+        let (patrol_request_id, work_request_id) = intake_case_links(&ctx, &request_id);
         let risk_evidence = json!({
             "source": &source,
             "requester_id": &requester_id,
-            "patrol_request_id": &request_id,
+            "intake_entity_type": &ctx.entity_type,
+            "intake_entity_id": &request_id,
+            "patrol_request_id": &patrol_request_id,
+            "work_request_id": &work_request_id,
             "matched_evidence": &risk.evidence,
             "rule_scope": "initial_intake_only"
         })
@@ -130,7 +136,8 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             &json!({
                 "summary": &summary,
                 "signal_id": &signal_id,
-                "patrol_request_id": &request_id
+                "patrol_request_id": &patrol_request_id,
+                "work_request_id": &work_request_id
             }),
         )?;
         post_action(
@@ -223,7 +230,9 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                     "branch_name": &branch_name,
                     "worktree_path": &worktree_path,
                     "runner_kind": "local_codex",
-                    "allowed_worker_id": &allowed_worker_id
+                    "allowed_worker_id": &allowed_worker_id,
+                    "provider_id": "local-codex",
+                    "required_capabilities": "local_codex,repo_write"
                 }),
             )?;
             post_action(
@@ -261,7 +270,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             &ctx,
             &temper_api_url,
             &headers,
-            "PatrolRequests",
+            intake_set,
             &request_id,
             PATROL_TRIAGE,
             &json!({ "triage_summary": &triage_summary }),
@@ -270,7 +279,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             &ctx,
             &temper_api_url,
             &headers,
-            "PatrolRequests",
+            intake_set,
             &request_id,
             PATROL_ACCEPT_AS_CASE,
             &json!({ "factory_case_id": &case_id }),
@@ -279,7 +288,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             &ctx,
             &temper_api_url,
             &headers,
-            "PatrolRequests",
+            intake_set,
             &request_id,
             PATROL_LINK_PM_ISSUE,
             &json!({ "pm_issue_id": &issue_id }),
@@ -313,6 +322,29 @@ fn entity_id(ctx: &Context) -> String {
         .and_then(Value::as_str)
         .unwrap_or(&ctx.entity_id)
         .to_string()
+}
+
+fn intake_entity_set(ctx: &Context) -> &'static str {
+    if is_entity_type(ctx, "WorkRequest") {
+        "WorkRequests"
+    } else {
+        "PatrolRequests"
+    }
+}
+
+fn intake_case_links(ctx: &Context, request_id: &str) -> (String, String) {
+    if is_entity_type(ctx, "WorkRequest") {
+        ("".to_string(), request_id.to_string())
+    } else {
+        (request_id.to_string(), "".to_string())
+    }
+}
+
+fn is_entity_type(ctx: &Context, expected: &str) -> bool {
+    ctx.entity_type.eq_ignore_ascii_case(expected)
+        || ctx
+            .entity_type
+            .eq_ignore_ascii_case(&format!("{expected}s"))
 }
 
 fn string_param(ctx: &Context, fields: &Value, snake: &str, pascal: &str) -> String {
@@ -446,7 +478,7 @@ fn issue_description(
     risk_lane: &str,
 ) -> String {
     format!(
-        "Patrol intake created from PatrolRequest {request_id}.\n\nSource: {source}\nRisk lane: {risk_lane}\nFactoryCase: {case_id}\nWorkCycle: {work_cycle_id}\nWorkerRun: {worker_run_id}\n\nRequest:\n{request_text}\n\nExecutor: paw-codex-worker on the registered local Mac mini worker."
+        "Patrol intake created from WorkRequest or legacy PatrolRequest {request_id}.\n\nSource: {source}\nRisk lane: {risk_lane}\nFactoryCase: {case_id}\nWorkCycle: {work_cycle_id}\nWorkerRun: {worker_run_id}\n\nRequest:\n{request_text}\n\nExecutor: paw-codex-worker on the registered local Mac mini worker."
     )
 }
 
@@ -458,7 +490,7 @@ fn worker_task(
     request_text: &str,
 ) -> String {
     format!(
-        "You are the local Codex implementer for TemperPaw paw-patrol.\n\nPatrolRequest: {request_id}\nFactoryCase: {case_id}\nWorkCycle: {work_cycle_id}\nSummary: {summary}\n\nRequest:\n{request_text}\n\nRequired loop:\n1. Work in the assigned git worktree and branch.\n2. Follow red-green TDD before implementation.\n3. Keep orchestration Temper-native: entity specs, WASM integrations, and Cedar policies.\n4. Run focused tests and relevant live/E2E verification for touched behavior.\n5. Produce a visual ProofPacket with changed-files map, state diagram, tests, E2E evidence, risk notes, and OData links.\n6. Finish normally. The paw-codex-worker will report WorkerRun.ReportDone or WorkerRun.ReportFailed to Temper after the local Codex process exits."
+        "You are the local Codex implementer for TemperPaw paw-patrol.\n\nWorkRequest or legacy PatrolRequest: {request_id}\nFactoryCase: {case_id}\nWorkCycle: {work_cycle_id}\nSummary: {summary}\n\nRequest:\n{request_text}\n\nRequired loop:\n1. Work in the assigned git worktree and branch.\n2. Follow red-green TDD before implementation.\n3. Keep orchestration Temper-native: entity specs, WASM integrations, and Cedar policies.\n4. Run focused tests and relevant live/E2E verification for touched behavior.\n5. Produce a visual ProofPacket with changed-files map, state diagram, tests, E2E evidence, risk notes, and OData links.\n6. Finish normally. The paw-codex-worker will report WorkerRun.ReportDone or WorkerRun.ReportFailed to Temper after the local Codex process exits."
     )
 }
 

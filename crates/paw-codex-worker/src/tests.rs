@@ -15,7 +15,9 @@ mod tests {
                 "worktree_path": "/tmp/worktree",
                 "branch_name": "codex/test",
                 "runner_kind": "local_codex",
-                "allowed_worker_id": "mac-mini-codex-1"
+                "allowed_worker_id": "mac-mini-codex-1",
+                "provider_id": "local-codex",
+                "required_capabilities": "local_codex,repo_write"
             }
         });
 
@@ -28,6 +30,8 @@ mod tests {
         assert_eq!(worker_run.branch_name, "codex/test");
         assert_eq!(worker_run.runner_kind, "local_codex");
         assert_eq!(worker_run.allowed_worker_id, "mac-mini-codex-1");
+        assert_eq!(worker_run.provider_id, "local-codex");
+        assert_eq!(worker_run.required_capabilities, "local_codex,repo_write");
     }
 
     #[test]
@@ -40,6 +44,8 @@ mod tests {
             branch_name: "codex/test".to_string(),
             runner_kind: "local_codex".to_string(),
             allowed_worker_id: "mac-mini-codex-1".to_string(),
+            provider_id: "local-codex".to_string(),
+            required_capabilities: "local_codex,repo_write".to_string(),
         };
         let unconfigured = WorkerRunState {
             id: "wr-2".to_string(),
@@ -49,6 +55,8 @@ mod tests {
             branch_name: String::new(),
             runner_kind: String::new(),
             allowed_worker_id: String::new(),
+            provider_id: String::new(),
+            required_capabilities: String::new(),
         };
         let cloud = WorkerRunState {
             id: "wr-3".to_string(),
@@ -58,6 +66,8 @@ mod tests {
             branch_name: String::new(),
             runner_kind: "codex_cloud".to_string(),
             allowed_worker_id: "mac-mini-codex-1".to_string(),
+            provider_id: "local-codex".to_string(),
+            required_capabilities: "local_codex,repo_write".to_string(),
         };
         let no_worktree_assignment = WorkerRunState {
             id: "wr-4".to_string(),
@@ -67,6 +77,8 @@ mod tests {
             branch_name: String::new(),
             runner_kind: "local_codex".to_string(),
             allowed_worker_id: "mac-mini-codex-1".to_string(),
+            provider_id: "local-codex".to_string(),
+            required_capabilities: "local_codex,repo_write".to_string(),
         };
 
         assert!(worker_run_is_claimable_by_local_codex(
@@ -101,6 +113,8 @@ mod tests {
             branch_name: "codex/repo-sweep".to_string(),
             runner_kind: "local_codex".to_string(),
             allowed_worker_id: "mac-mini-codex-1".to_string(),
+            provider_id: "local-codex".to_string(),
+            required_capabilities: "local_codex,repo_write".to_string(),
         };
         let normal_worker_run = WorkerRunState {
             id: "wr-2".to_string(),
@@ -110,6 +124,8 @@ mod tests {
             branch_name: "codex/bugfix".to_string(),
             runner_kind: "local_codex".to_string(),
             allowed_worker_id: "mac-mini-codex-1".to_string(),
+            provider_id: "local-codex".to_string(),
+            required_capabilities: "local_codex,repo_write".to_string(),
         };
 
         assert!(worker_run_is_repo_sweep(&worker_run));
@@ -177,8 +193,6 @@ mod tests {
             "<string>mac-mini-codex-1</string>",
             "<key>PATH</key>",
             "<string>/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/Users/openclaw/.cargo/bin</string>",
-            "<key>WORKER_TOKEN</key>",
-            "<string>secret&amp;token</string>",
             "<key>PAW_CODEX_ENABLE_EXECUTION</key>",
             "<string>1</string>",
             "<key>PAW_CODEX_POLL_ON_START</key>",
@@ -187,11 +201,19 @@ mod tests {
             "<string>1</string>",
             "<key>PAW_CODEX_EXEC_TIMEOUT_SECS</key>",
             "<string>90</string>",
+            "<key>PAW_CODEX_WORKER_CAPABILITIES</key>",
+            "<string>local_codex,repo_write,review,evaluation,datadog_query</string>",
+            "<key>PAW_CODEX_WORKER_ENV_FILE</key>",
+            "<string>/Users/openclaw/.config/temperpaw/paw-codex-worker.env</string>",
             "<key>PAW_CODEX_EVAL_COMMANDS</key>",
             "<string>cargo test -p temperpaw --test paw_patrol_foundation</string>",
         ] {
             assert!(plist.contains(needle), "plist should contain {needle}");
         }
+        assert!(
+            !plist.contains("<key>WORKER_TOKEN</key>"),
+            "launchd plist should keep WORKER_TOKEN in the 0600 env file, not in launchctl-visible environment"
+        );
     }
 
     #[test]
@@ -268,6 +290,8 @@ mod tests {
             branch_name: "codex/timeout".to_string(),
             runner_kind: "local_codex".to_string(),
             allowed_worker_id: "mac-mini-codex-1".to_string(),
+            provider_id: "local-codex".to_string(),
+            required_capabilities: "local_codex,repo_write".to_string(),
         };
 
         let result = run_codex(&config, &worker_run).await;
@@ -361,6 +385,8 @@ mod tests {
             branch_name: "codex/trace-leak".to_string(),
             runner_kind: "local_codex".to_string(),
             allowed_worker_id: "mac-mini-codex-1".to_string(),
+            provider_id: "local-codex".to_string(),
+            required_capabilities: "local_codex,repo_write".to_string(),
         };
         let evidence = WorktreeEvidence {
             status_short: " M crates/temperpaw/src/discord.rs\n?? docs/proofs/trace.md\n"
@@ -415,6 +441,8 @@ mod tests {
             branch_name: String::new(),
             runner_kind: "local_codex".to_string(),
             allowed_worker_id: "mac-mini-codex-1".to_string(),
+            provider_id: "local-codex".to_string(),
+            required_capabilities: "local_codex,repo_write".to_string(),
         };
         let evidence = WorktreeEvidence {
             status_short: String::new(),

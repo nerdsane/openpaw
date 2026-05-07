@@ -75,3 +75,11 @@ criticality = "app-required"
 startup_loading = "lazy"
 provenance = "bundled-artifact"
 import_class = "temper-host"
+
+[[wasm_modules]]
+name = "patrol_run_lifecycle"
+target = "wasm32-unknown-unknown"
+criticality = "app-required"
+startup_loading = "lazy"
+provenance = "bundled-artifact"
+import_class = "temper-host"

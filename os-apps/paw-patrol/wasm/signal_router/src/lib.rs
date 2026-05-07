@@ -183,7 +183,8 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             &json!({
                 "summary": &summary,
                 "signal_id": &signal_id,
-                "patrol_request_id": ""
+                "patrol_request_id": "",
+                "work_request_id": ""
             }),
         )?;
         post_action(
@@ -276,7 +277,9 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                     "branch_name": &branch_name,
                     "worktree_path": &worktree_path,
                     "runner_kind": "local_codex",
-                    "allowed_worker_id": &allowed_worker_id
+                    "allowed_worker_id": &allowed_worker_id,
+                    "provider_id": "local-codex",
+                    "required_capabilities": "local_codex,repo_write"
                 }),
             )?;
             post_action(

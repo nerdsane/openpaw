@@ -1,3 +1,5 @@
+import { pawPatrolView, type AppViewManifest } from '$lib/app-views/paw-patrol';
+
 const BASE = ''; // relative — proxied by Vite in dev, served by tower-http in prod
 
 // Default headers for all OData requests.
@@ -60,6 +62,46 @@ export async function queryEntities(
   const data = await res.json();
   const raw = (data.value || []) as Record<string, unknown>[];
   return raw.map(flattenEntity);
+}
+
+export async function createEntity(
+  entitySet: string,
+  body: Record<string, unknown> = {}
+): Promise<Record<string, unknown>> {
+  const res = await apiFetch(`${BASE}/tdata/${entitySet}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+  if (!res.ok) {
+    throw new Error(`OData create failed: ${res.status} ${res.statusText}`);
+  }
+  const raw = await res.json();
+  return flattenEntity(raw);
+}
+
+export async function postEntityAction(
+  entitySet: string,
+  id: string,
+  action: string,
+  body: Record<string, unknown> = {},
+  namespace = 'TemperPaw.Patrol'
+): Promise<Record<string, unknown>> {
+  const res = await apiFetch(`${BASE}/tdata/${entitySet}('${id}')/${namespace}.${action}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+  if (!res.ok) {
+    throw new Error(`OData action failed: ${res.status} ${res.statusText}`);
+  }
+  const raw = await res.json().catch(() => ({}));
+  return typeof raw === 'object' && raw !== null ? flattenEntity(raw as Record<string, unknown>) : {};
+}
+
+export async function fetchAppViewManifest(name: string): Promise<AppViewManifest | null> {
+  if (name === pawPatrolView.name) return pawPatrolView;
+  return null;
 }
 
 export async function fetchDecisions(status?: string): Promise<DecisionsResponse> {

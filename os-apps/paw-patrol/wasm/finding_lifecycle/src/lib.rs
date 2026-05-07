@@ -1,9 +1,11 @@
 //! Finding Lifecycle - turn accepted findings into cleanup WorkCycles.
 //!
-//! Triggered by `QualityFinding.Accept` and `SecurityFinding.Accept`. A finding
-//! is not just a passive note: accepting it creates a paw-pm Issue, creates a
-//! cleanup WorkCycle for accepted finding evidence, and queues local Codex work
-//! unless the finding is L3 and must pause for human start approval.
+//! Triggered by `QualityFinding.Accept`, `SecurityFinding.Accept`, and
+//! `ObservabilityFinding.Accept`. A finding is not just a passive note:
+//! accepting it creates a paw-pm Issue, creates a cleanup WorkCycle for
+//! accepted finding evidence, and queues local Codex work unless the finding is
+//! L3 and must pause for human start approval.
+//! In short: cleanup WorkCycle for accepted finding.
 
 use temper_wasm_sdk::prelude::*;
 
@@ -58,7 +60,7 @@ fn handle_accept(
     let finding_kind = finding_kind(ctx);
     let title = string_field(fields, "title", "Title");
     let severity = string_field(fields, "severity", "Severity");
-    let evidence = string_field(fields, "evidence", "Evidence");
+    let evidence = evidence_text(fields);
     let affected_paths = string_field(fields, "affected_paths", "AffectedPaths");
     let risk_lane = finding_risk_lane(ctx, fields, &severity);
     let task_summary = format!(
@@ -209,7 +211,9 @@ fn handle_accept(
                 "branch_name": &branch_name,
                 "worktree_path": &worktree_path,
                 "runner_kind": "local_codex",
-                "allowed_worker_id": &allowed_worker_id
+                "allowed_worker_id": &allowed_worker_id,
+                "provider_id": "local-codex",
+                "required_capabilities": finding_required_capabilities(finding_kind)
             }),
         )?;
         post_action(
@@ -256,6 +260,8 @@ fn finding_entity_set(ctx: &Context) -> Result<&'static str, String> {
         Ok("QualityFindings")
     } else if is_entity_type(ctx, "SecurityFinding") {
         Ok("SecurityFindings")
+    } else if is_entity_type(ctx, "ObservabilityFinding") {
+        Ok("ObservabilityFindings")
     } else {
         Err(format!(
             "finding_lifecycle: unsupported entity type {}",
@@ -267,13 +273,15 @@ fn finding_entity_set(ctx: &Context) -> Result<&'static str, String> {
 fn finding_kind(ctx: &Context) -> &'static str {
     if is_entity_type(ctx, "SecurityFinding") {
         "SecurityFinding"
+    } else if is_entity_type(ctx, "ObservabilityFinding") {
+        "ObservabilityFinding"
     } else {
         "QualityFinding"
     }
 }
 
 fn finding_risk_lane(ctx: &Context, fields: &Value, severity: &str) -> String {
-    if is_entity_type(ctx, "SecurityFinding") {
+    if is_entity_type(ctx, "SecurityFinding") || is_entity_type(ctx, "ObservabilityFinding") {
         let risk_lane = string_field(fields, "risk_lane", "RiskLane");
         return empty_fallback(&risk_lane, "L2").to_string();
     }
@@ -281,6 +289,22 @@ fn finding_risk_lane(ctx: &Context, fields: &Value, severity: &str) -> String {
         "critical" | "high" => "L2".to_string(),
         _ => "L1".to_string(),
     }
+}
+
+fn finding_required_capabilities(finding_kind: &str) -> &'static str {
+    if finding_kind == "ObservabilityFinding" {
+        "local_codex,repo_write,datadog_query"
+    } else {
+        "local_codex,repo_write"
+    }
+}
+
+fn evidence_text(fields: &Value) -> String {
+    let evidence = string_field(fields, "evidence", "Evidence");
+    if !evidence.trim().is_empty() {
+        return evidence;
+    }
+    string_field(fields, "evidence_json", "EvidenceJson")
 }
 
 fn requires_human_start_approval(lane: &str) -> bool {

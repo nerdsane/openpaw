@@ -1,0 +1,160 @@
+[automaton]
+name = "PatrolRun"
+states = ["Created", "Queued", "Running", "EvidenceReady", "Complete", "Escalated", "Failed"]
+initial = "Created"
+
+allow_indefinite_states = ["Complete", "Escalated", "Failed"]
+
+[[state]]
+name = "patrol_kind"
+type = "string"
+initial = "datadog_observability"
+
+[[state]]
+name = "summary"
+type = "string"
+initial = ""
+
+[[state]]
+name = "requested_by"
+type = "string"
+initial = ""
+
+[[state]]
+name = "required_capabilities"
+type = "string"
+initial = "datadog_query"
+
+[[state]]
+name = "worker_run_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "evidence_json"
+type = "string"
+initial = "{}"
+
+[[state]]
+name = "observability_finding_ids"
+type = "string"
+initial = "[]"
+
+[[state]]
+name = "signal_ids"
+type = "string"
+initial = "[]"
+
+[[state]]
+name = "factory_case_ids"
+type = "string"
+initial = "[]"
+
+[[state]]
+name = "work_cycle_ids"
+type = "string"
+initial = "[]"
+
+[[state]]
+name = "proof_packet_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "started_at"
+type = "string"
+initial = ""
+
+[[state]]
+name = "completed_at"
+type = "string"
+initial = ""
+
+[[state]]
+name = "error_message"
+type = "string"
+initial = ""
+
+[[state]]
+name = "integration"
+type = "string"
+initial = ""
+
+[[action]]
+name = "Configure"
+kind = "input"
+from = ["Created"]
+to = "Created"
+params = ["patrol_kind", "summary", "requested_by", "required_capabilities"]
+hint = "Configure one Risk Patrol investigation. Supported v1 kind: datadog_observability."
+
+[[action]]
+name = "Start"
+kind = "input"
+from = ["Created"]
+to = "Queued"
+effect = [{ type = "trigger", name = "patrol_run_started" }]
+hint = "Start a Risk Patrol run by queueing a capable worker."
+
+[[action.triggers]]
+name = "patrol_run_started"
+kind = "wasm"
+module = "patrol_run_lifecycle"
+on_failure = "Fail"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+local_codex_worker_id = "{secret:local_codex_worker_id}"
+local_codex_worktree_root = "{secret:local_codex_worktree_root}"
+
+[[action]]
+name = "AttachWorkerRun"
+kind = "input"
+from = ["Queued", "Running"]
+to = "Running"
+params = ["worker_run_id", "started_at"]
+hint = "Attach the worker run that is performing this PatrolRun."
+
+[[action]]
+name = "RecordEvidence"
+kind = "input"
+from = ["Running"]
+to = "EvidenceReady"
+params = ["evidence_json", "observability_finding_ids", "signal_ids", "factory_case_ids", "work_cycle_ids"]
+hint = "Record Datadog Patrol evidence and the created Patrol entities."
+
+[[action]]
+name = "Complete"
+kind = "input"
+from = ["EvidenceReady", "Running"]
+to = "Complete"
+params = ["summary", "proof_packet_id", "completed_at"]
+hint = "Mark this PatrolRun complete after evidence, findings, and work links are recorded."
+
+[[action]]
+name = "Escalate"
+kind = "input"
+from = ["Created", "Queued", "Running", "EvidenceReady"]
+to = "Escalated"
+params = ["error_message", "integration"]
+hint = "Escalate when a capable worker or Datadog evidence source is unavailable."
+
+[[action]]
+name = "Fail"
+kind = "input"
+from = ["Created", "Queued", "Running", "EvidenceReady"]
+to = "Failed"
+params = ["error_message", "integration"]
+hint = "Record a failed PatrolRun."
+
+[[state_timeout]]
+state = "Queued"
+after_seconds = 86400
+on_timeout = "Fail"
+params = { error_message = "PatrolRun stayed Queued for 24h without a worker.", integration = "patrol_run_timeout" }
+
+[[state_timeout]]
+state = "Running"
+after_seconds = 21600
+on_timeout = "Fail"
+params = { error_message = "PatrolRun ran for 6h without evidence.", integration = "patrol_run_timeout" }

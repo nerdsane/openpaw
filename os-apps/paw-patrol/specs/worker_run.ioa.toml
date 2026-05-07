@@ -21,6 +21,16 @@ type = "string"
 initial = "local_codex"
 
 [[state]]
+name = "provider_id"
+type = "string"
+initial = "local-codex"
+
+[[state]]
+name = "required_capabilities"
+type = "string"
+initial = "local_codex"
+
+[[state]]
 name = "work_cycle_id"
 type = "string"
 initial = ""
@@ -75,8 +85,8 @@ name = "Configure"
 kind = "input"
 from = ["Queued"]
 to = "Queued"
-params = ["work_cycle_id", "factory_case_id", "risk_lane", "task", "branch_name", "worktree_path", "runner_kind", "allowed_worker_id"]
-hint = "Configure a queued worker run."
+params = ["work_cycle_id", "factory_case_id", "risk_lane", "task", "branch_name", "worktree_path", "runner_kind", "allowed_worker_id", "provider_id", "required_capabilities"]
+hint = "Configure a queued worker run. Datadog Patrol uses required_capabilities = local_codex,repo_write,datadog_query."
 
 [[action]]
 name = "Claim"

@@ -36,6 +36,26 @@ fn render_launchd_plist(config: &Config, worker_bin: &Path, eval_commands: Optio
             config.codex_exec_timeout.as_secs().to_string().leak(),
         ),
         (
+            "PAW_CODEX_WORKER_CAPABILITIES",
+            env::var("PAW_CODEX_WORKER_CAPABILITIES")
+                .ok()
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or_else(|| {
+                    "local_codex,repo_write,review,evaluation,datadog_query".to_string()
+                })
+                .leak(),
+        ),
+        (
+            "PAW_CODEX_WORKER_ENV_FILE",
+            env::var("PAW_CODEX_WORKER_ENV_FILE")
+                .ok()
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or_else(|| {
+                    "/Users/openclaw/.config/temperpaw/paw-codex-worker.env".to_string()
+                })
+                .leak(),
+        ),
+        (
             "RUST_LOG",
             env::var("RUST_LOG")
                 .ok()
@@ -45,7 +65,11 @@ fn render_launchd_plist(config: &Config, worker_bin: &Path, eval_commands: Optio
         ),
     ];
 
-    if let Some(token) = &config.worker_token {
+    if env::var("PAW_CODEX_ALLOW_SECRET_PLIST")
+        .map(|value| value == "1" || value.eq_ignore_ascii_case("true"))
+        .unwrap_or(false)
+        && let Some(token) = &config.worker_token
+    {
         env_vars.push(("WORKER_TOKEN", token.as_str()));
     }
     if let Ok(path) = env::var("TEMPER_EVENTS_PATH")

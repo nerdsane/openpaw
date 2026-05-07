@@ -1,0 +1,62 @@
+[automaton]
+name = "WorkerProvider"
+states = ["Registered", "Active", "Disabled"]
+initial = "Registered"
+
+allow_indefinite_states = ["Active", "Disabled"]
+
+[[state]]
+name = "provider_kind"
+type = "string"
+initial = "local_codex"
+
+[[state]]
+name = "display_name"
+type = "string"
+initial = ""
+
+[[state]]
+name = "capabilities"
+type = "string"
+initial = "local_codex"
+
+[[state]]
+name = "enabled"
+type = "bool"
+initial = "false"
+
+[[state]]
+name = "risk_ceiling"
+type = "string"
+initial = "L2"
+
+[[state]]
+name = "status_summary"
+type = "string"
+initial = ""
+
+[[action]]
+name = "Register"
+kind = "input"
+from = ["Registered"]
+to = "Registered"
+params = ["provider_kind", "display_name", "capabilities", "risk_ceiling", "enabled"]
+hint = "Register a worker provider such as local_codex, codex_cloud, openclaw, anthropic_managed, or temperpaw_agent."
+
+[[action]]
+name = "Activate"
+kind = "input"
+from = ["Registered", "Disabled"]
+to = "Active"
+params = ["status_summary"]
+effect = "set enabled true"
+hint = "Enable this provider for worker selection."
+
+[[action]]
+name = "Disable"
+kind = "input"
+from = ["Registered", "Active"]
+to = "Disabled"
+params = ["status_summary"]
+effect = "set enabled false"
+hint = "Disable this provider."

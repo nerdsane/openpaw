@@ -156,6 +156,22 @@ async fn claim_worker_run(
     .await
 }
 
+async fn report_worker_heartbeat(client: &reqwest::Client, config: &Config) -> Result<()> {
+    post_entity_action(
+        client,
+        config,
+        "WorkerAgents",
+        &config.worker_id,
+        "ReportHeartbeat",
+        json!({
+            "last_seen_at": generated_at_label(),
+            "status_summary": "paw-codex-worker running under openclaw launchd",
+            "capabilities": worker_capabilities().join(","),
+        }),
+    )
+    .await
+}
+
 async fn start_local_worker_run(
     client: &reqwest::Client,
     config: &Config,
@@ -305,6 +321,18 @@ fn worker_run_from_odata_value(value: Value) -> Result<WorkerRunState> {
             &["allowed_worker_id", "AllowedWorkerId"],
             &["allowed_worker_id", "AllowedWorkerId"],
         ),
+        provider_id: first_string(
+            &value,
+            &fields,
+            &["provider_id", "ProviderId"],
+            &["provider_id", "ProviderId"],
+        ),
+        required_capabilities: first_string(
+            &value,
+            &fields,
+            &["required_capabilities", "RequiredCapabilities"],
+            &["required_capabilities", "RequiredCapabilities"],
+        ),
     })
 }
 
@@ -407,8 +435,51 @@ fn worker_run_is_claimable_by_local_codex(worker_run: &WorkerRunState, worker_id
         && worker_run.runner_kind == "local_codex"
         && worker_run.allowed_worker_id == worker_id
         && worker_run_has_worktree_assignment(worker_run)
+        && worker_run_required_capabilities_satisfied(worker_run)
 }
 
 fn worker_run_has_worktree_assignment(worker_run: &WorkerRunState) -> bool {
     !worker_run.worktree_path.trim().is_empty() || !worker_run.branch_name.trim().is_empty()
+}
+
+fn worker_run_required_capabilities_satisfied(worker_run: &WorkerRunState) -> bool {
+    let advertised = worker_capabilities();
+    let missing = missing_required_capabilities(&worker_run.required_capabilities, &advertised);
+    if !missing.is_empty() {
+        warn!(
+            worker_run_id = %worker_run.id,
+            required_capabilities = %worker_run.required_capabilities,
+            worker_capabilities = %advertised.join(","),
+            missing_capabilities = %missing.join(","),
+            "WorkerRun requires capabilities this worker does not advertise"
+        );
+        return false;
+    }
+    true
+}
+
+fn worker_capabilities() -> Vec<String> {
+    env::var("PAW_CODEX_WORKER_CAPABILITIES")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| "local_codex,repo_write,review,evaluation".to_string())
+        .split(',')
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+fn missing_required_capabilities(required_capabilities: &str, worker_capabilities: &[String]) -> Vec<String> {
+    let advertised = worker_capabilities
+        .iter()
+        .map(|capability| capability.trim().to_ascii_lowercase())
+        .collect::<std::collections::HashSet<_>>();
+    required_capabilities
+        .split(',')
+        .map(str::trim)
+        .filter(|capability| !capability.is_empty())
+        .filter(|capability| !advertised.contains(&capability.to_ascii_lowercase()))
+        .map(str::to_string)
+        .collect()
 }

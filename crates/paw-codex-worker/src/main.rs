@@ -17,6 +17,8 @@ mod repo_health;
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    load_worker_env_file()?;
+
     tracing_subscriber::fmt()
         .with_env_filter(
             env::var("RUST_LOG").unwrap_or_else(|_| "paw_codex_worker=info,info".to_string()),
@@ -48,8 +50,12 @@ async fn main() -> Result<()> {
         tenant = %config.tenant,
         max_concurrent_runs = config.max_concurrent_runs,
         enable_execution = config.enable_execution,
+        worker_capabilities = %worker_capabilities().join(","),
         "paw-codex-worker starting"
     );
+    if let Err(error) = report_worker_heartbeat(&client, &config).await {
+        warn!(%error, "failed to report WorkerAgent heartbeat");
+    }
 
     if config.poll_on_start {
         claim_boot_queued_runs(&client, &config).await?;
@@ -58,6 +64,9 @@ async fn main() -> Result<()> {
     }
 
     loop {
+        if let Err(error) = report_worker_heartbeat(&client, &config).await {
+            debug!(%error, "failed to report WorkerAgent heartbeat");
+        }
         if config.poll_on_start {
             claim_boot_queued_runs(&client, &config).await?;
             claim_boot_requested_review_runs(&client, &config).await?;
@@ -76,6 +85,7 @@ include!("boot_watch.rs");
 include!("doctor.rs");
 include!("event_loop.rs");
 include!("temper_api.rs");
+include!("datadog_patrol.rs");
 include!("cli.rs");
 include!("doctor_report.rs");
 include!("launchd.rs");

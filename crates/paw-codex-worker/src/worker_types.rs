@@ -135,6 +135,39 @@ impl Config {
     }
 }
 
+fn load_worker_env_file() -> Result<()> {
+    let path = env::var("PAW_CODEX_WORKER_ENV_FILE")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("/Users/openclaw/.config/temperpaw/paw-codex-worker.env"));
+    if !path.exists() {
+        return Ok(());
+    }
+    let contents = fs::read_to_string(&path)
+        .with_context(|| format!("read PAW_CODEX_WORKER_ENV_FILE {}", path.display()))?;
+    for line in contents.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        let key = key.trim();
+        if key.is_empty() || (key != "PATH" && env::var_os(key).is_some()) {
+            continue;
+        }
+        let value = value.trim().trim_matches('"').trim_matches('\'');
+        // Rust 2024 marks process environment mutation unsafe because it can
+        // race with other threads. This runs before Tokio starts worker tasks.
+        unsafe {
+            env::set_var(key, value);
+        }
+    }
+    Ok(())
+}
+
 #[derive(Debug, Deserialize)]
 struct EntityEvent {
     #[serde(default, alias = "entityType", alias = "EntityType")]
@@ -168,6 +201,10 @@ struct WorkerRunState {
     runner_kind: String,
     #[serde(default, rename = "AllowedWorkerId")]
     allowed_worker_id: String,
+    #[serde(default, rename = "ProviderId")]
+    provider_id: String,
+    #[serde(default, rename = "RequiredCapabilities")]
+    required_capabilities: String,
 }
 
 #[derive(Debug, Deserialize)]

@@ -13,6 +13,7 @@ use temper_wasm_sdk::prelude::*;
 const FACTORY_CASES_PATH: &str = "/tdata/FactoryCases";
 const QUALITY_FINDINGS_PATH: &str = "/tdata/QualityFindings";
 const SECURITY_FINDINGS_PATH: &str = "/tdata/SecurityFindings";
+const OBSERVABILITY_FINDINGS_PATH: &str = "/tdata/ObservabilityFindings";
 const WORKER_RUNS_PATH: &str = "/tdata/WorkerRuns";
 
 const PATROL_CONFIGURE: &str = "TemperPaw.Patrol.Configure";
@@ -92,7 +93,9 @@ fn handle_human_start_approved(
             "branch_name": &branch_name,
             "worktree_path": &worktree_path,
             "runner_kind": "local_codex",
-            "allowed_worker_id": &allowed_worker_id
+            "allowed_worker_id": &allowed_worker_id,
+            "provider_id": "local-codex",
+            "required_capabilities": required_capabilities_for_task(&task)
         }),
     )?;
 
@@ -221,6 +224,7 @@ fn handle_complete(
     let source_set = match source_entity_type.trim() {
         "QualityFinding" | "QualityFindings" => entity_set(QUALITY_FINDINGS_PATH),
         "SecurityFinding" | "SecurityFindings" => entity_set(SECURITY_FINDINGS_PATH),
+        "ObservabilityFinding" | "ObservabilityFindings" => entity_set(OBSERVABILITY_FINDINGS_PATH),
         other => {
             ctx.log(
                 "warn",
@@ -261,6 +265,14 @@ fn handle_complete(
         ),
     );
     Ok(())
+}
+
+fn required_capabilities_for_task(task: &str) -> &'static str {
+    if task.to_ascii_lowercase().contains("datadog") {
+        "local_codex,repo_write,datadog_query"
+    } else {
+        "local_codex,repo_write"
+    }
 }
 
 fn fallback_task(
