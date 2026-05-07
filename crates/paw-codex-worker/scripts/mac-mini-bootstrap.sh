@@ -13,6 +13,8 @@ REMOTE_ENV_DIR="${REMOTE_HOME}/.config/temperpaw"
 REMOTE_ENV_FILE="${REMOTE_ENV_DIR}/paw-codex-worker.env"
 REMOTE_PLIST="${REMOTE_HOME}/Library/LaunchAgents/com.temperpaw.paw-codex-worker.plist"
 REMOTE_BIN="${REMOTE_REPO}/target/release/paw-codex-worker"
+REMOTE_BRANCH="${REMOTE_BRANCH:-$(git rev-parse --abbrev-ref HEAD)}"
+REMOTE_COMMIT="${REMOTE_COMMIT:-$(git rev-parse HEAD)}"
 
 required_vars=(
   TEMPER_API_KEY
@@ -76,6 +78,7 @@ write_env_payload() {
 ssh "${MAC_MINI_HOST}" "install -d -m 700 '${REMOTE_ENV_DIR}' '${REMOTE_WORKTREES}'"
 write_env_payload | ssh "${MAC_MINI_HOST}" "cat > '${REMOTE_ENV_FILE}' && chmod 600 '${REMOTE_ENV_FILE}'"
 
+ssh "${MAC_MINI_HOST}" "cd '${REMOTE_REPO}' && git fetch origin '${REMOTE_BRANCH}' && git reset --hard '${REMOTE_COMMIT}'"
 ssh "${MAC_MINI_HOST}" "cd '${REMOTE_REPO}' && cargo build -p paw-codex-worker --release"
 ssh "${MAC_MINI_HOST}" "cd '${REMOTE_REPO}' && PAW_CODEX_WORKER_ENV_FILE='${REMOTE_ENV_FILE}' '${REMOTE_BIN}' launchd-plist > '${REMOTE_PLIST}'"
 ssh "${MAC_MINI_HOST}" "launchctl bootout gui/\$(id -u) '${REMOTE_PLIST}' >/dev/null 2>&1 || true"
