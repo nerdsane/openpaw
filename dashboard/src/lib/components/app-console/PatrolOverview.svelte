@@ -28,8 +28,11 @@
   );
   const proofData = $derived(asRecord(parseJsonString(readField(latestProof, 'proof_json'))));
   const created = $derived(asRecord(proofData.created));
-  const activeMonitors = $derived(asArray(proofData.active_monitors).map(asRecord));
-  const triageMemo = $derived(String(proofData.codex_analysis ?? '').trim());
+  const evidenceScope = $derived(asArray(proofData.evidence_scope).map(asRecord));
+  const patrolFindings = $derived(asArray(proofData.findings).map(asRecord));
+  const patrolSummary = $derived(String(proofData.summary ?? '').trim());
+  const residualRisks = $derived(asArray(proofData.residual_risks).map(String));
+  const queuedImplementers = $derived(asArray(created.implementer_worker_runs).length);
   const gatedCycles = $derived(
     workCycles.filter((cycle: Record<string, unknown>) =>
       ['AwaitingHumanStartApproval', 'Planning', 'Scoped'].includes(entityStatus(cycle))
@@ -45,10 +48,10 @@
   <div class="overview-head">
     <div>
       <p class="eyebrow">Latest Patrol Evidence</p>
-      <h2>Datadog monitor coverage looks degraded</h2>
+      <h2>Datadog MCP Patrol</h2>
       <p>
-        This run used read-only Datadog monitor evidence, then the local Mac mini Codex worker turned
-        the evidence into Signals, Findings, Cases, gated WorkCycles, and a ProofPacket.
+        Local Codex investigates Datadog with its authenticated MCP tools, then the worker records
+        the agent's Signals, Findings, Cases, gated WorkCycles, and ProofPacket back into Temper.
       </p>
     </div>
     {#if latestPatrol}
@@ -60,45 +63,53 @@
 
   <div class="metrics" aria-label="Latest Patrol metrics">
     <div>
-      <span>Monitors scanned</span>
-      <strong>{String(proofData.monitor_count ?? '-')}</strong>
+      <span>Surfaces checked</span>
+      <strong>{String(evidenceScope.length || '-')}</strong>
     </div>
     <div>
-      <span>Active / No Data</span>
-      <strong>{String(proofData.active_monitor_count ?? '-')}</strong>
+      <span>MCP findings</span>
+      <strong>{String(patrolFindings.length || '-')}</strong>
     </div>
     <div>
       <span>Findings opened</span>
       <strong>{String(asArray(created.observability_findings).length || findings.length || '-')}</strong>
     </div>
     <div>
-      <span>Approval-gated work</span>
-      <strong>{String(asArray(created.work_cycles).length || gatedCycles.length || '-')}</strong>
+      <span>Queued / gated work</span>
+      <strong>{queuedImplementers}/{String(asArray(created.work_cycles).length || gatedCycles.length || '-')}</strong>
     </div>
   </div>
 
   <div class="evidence-grid">
     <article class="panel panel-main">
-      <h3>What It Found</h3>
-      {#if triageMemo}
-        <pre>{triageMemo}</pre>
+      <h3>Agent Summary</h3>
+      {#if patrolSummary}
+        <p>{patrolSummary}</p>
       {:else}
-        <p>No agent triage memo has been recorded yet.</p>
+        <p>No Datadog MCP patrol summary has been recorded yet.</p>
       {/if}
     </article>
 
     <article class="panel">
-      <h3>Opened Findings</h3>
-      {#if findings.length > 0}
+      <h3>Opened Work</h3>
+      {#if findings.length > 0 || patrolFindings.length > 0}
         <ul class="finding-list">
           {#each findings.slice(0, 5) as finding}
             <li>
               <a href={link('ObservabilityFindings', entityId(finding))}>
                 {textValue(readField(finding, 'title'))}
               </a>
-              <span>{textValue(readField(finding, 'risk_lane'))} · {textValue(readField(finding, 'datadog_monitor_id'))}</span>
+              <span>{textValue(readField(finding, 'risk_lane'))} · {textValue(readField(finding, 'severity'))}</span>
             </li>
           {/each}
+          {#if findings.length === 0}
+            {#each patrolFindings.slice(0, 5) as finding}
+              <li>
+                <span>{textValue(readField(finding, 'title'))}</span>
+                <span>{textValue(readField(finding, 'risk_lane'))} · {textValue(readField(finding, 'severity'))}</span>
+              </li>
+            {/each}
+          {/if}
         </ul>
       {:else}
         <p>No ObservabilityFindings loaded yet.</p>
@@ -106,15 +117,15 @@
     </article>
 
     <article class="panel">
-      <h3>Evidence Scope</h3>
+      <h3>Control Posture</h3>
       <dl>
         <div>
-          <dt>Collected</dt>
-          <dd>{textValue(proofData.datadog_endpoint ?? '/api/v1/monitor/search')}</dd>
+          <dt>Investigator</dt>
+          <dd>{textValue(proofData.evidence_source ?? 'codex_datadog_mcp_agent')}</dd>
         </div>
         <div>
-          <dt>Not Yet A Full Sweep</dt>
-          <dd>Logs, traces, metrics, incidents, and dashboards are named in the agent instruction, but this v1 collector only persisted monitor-search evidence.</dd>
+          <dt>Required Surfaces</dt>
+          <dd>Monitors, logs, traces, metrics, incidents, and dashboards.</dd>
         </div>
         <div>
           <dt>Safety Gate</dt>
@@ -124,20 +135,27 @@
     </article>
   </div>
 
-  {#if activeMonitors.length > 0}
+  {#if evidenceScope.length > 0}
     <div class="monitor-table">
       <div class="table-head">
-        <span>Active Monitor</span>
-        <span>Status</span>
-        <span>Tags</span>
+        <span>Evidence Surface</span>
+        <span>Agent Query</span>
+        <span>Result</span>
       </div>
-      {#each activeMonitors.slice(0, 10) as monitor}
+      {#each evidenceScope as scope}
         <div class="table-row">
-          <span>{textValue(monitor.name)}</span>
-          <span>{textValue(monitor.status)}</span>
-          <span>{asArray(monitor.tags).map(String).join(', ') || '-'}</span>
+          <span>{textValue(readField(scope, 'surface'))}</span>
+          <span>{textValue(readField(scope, 'query'))}</span>
+          <span>{textValue(readField(scope, 'result_summary'))}</span>
         </div>
       {/each}
+    </div>
+  {/if}
+
+  {#if residualRisks.length > 0}
+    <div class="risk-strip">
+      <span>Residual risks</span>
+      <p>{residualRisks.join(' | ')}</p>
     </div>
   {/if}
 </section>
@@ -249,12 +267,8 @@
     grid-row: span 2;
   }
 
-  pre {
-    max-height: 420px;
-    margin: 0;
-    overflow: auto;
-    white-space: pre-wrap;
-    color: var(--text-2);
+  .panel-main p {
+    font-size: var(--text-sm);
   }
 
   .finding-list {
@@ -313,6 +327,26 @@
     color: var(--text-2);
   }
 
+  .risk-strip {
+    display: grid;
+    grid-template-columns: 160px minmax(0, 1fr);
+    gap: var(--sp-3);
+    border: 1px solid var(--border);
+    margin-top: var(--sp-4);
+    padding: var(--sp-3);
+  }
+
+  .risk-strip span {
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    color: var(--text-3);
+    text-transform: uppercase;
+  }
+
+  .risk-strip p {
+    color: var(--text-2);
+  }
+
   @media (max-width: 900px) {
     .overview-head,
     .evidence-grid {
@@ -337,6 +371,10 @@
     .table-row {
       grid-template-columns: 1fr;
       gap: var(--sp-1);
+    }
+
+    .risk-strip {
+      grid-template-columns: 1fr;
     }
   }
 </style>
