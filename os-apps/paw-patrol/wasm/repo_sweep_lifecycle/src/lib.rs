@@ -168,8 +168,8 @@ fn handle_scan_complete(
     let generated_at = string_param(ctx, fields, "generated_at", "GeneratedAt");
     let graph = parse_graph_json(&graph_json)?;
 
-    let quality_count = open_quality_findings(ctx, base_url, headers, &graph)?;
-    let security_count = open_security_findings(ctx, base_url, headers, &graph)?;
+    let quality_count = open_quality_findings(ctx, base_url, headers, &snapshot_id, &graph)?;
+    let security_count = open_security_findings(ctx, base_url, headers, &snapshot_id, &graph)?;
     let assessment_session_id = if has_real_session_provider(ctx, "repo_assessment_provider") {
         let assessment_session_id = spawn_assessment_session(
             ctx,
@@ -293,6 +293,7 @@ fn open_quality_findings(
     ctx: &Context,
     base_url: &str,
     headers: &[(String, String)],
+    snapshot_id: &str,
     graph: &Value,
 ) -> Result<usize, String> {
     let findings = graph
@@ -315,7 +316,8 @@ fn open_quality_findings(
                 "severity": string_value(finding, "severity", "medium"),
                 "evidence": string_value(finding, "evidence", ""),
                 "affected_paths": paths_value(finding),
-                "fingerprint": string_value(finding, "fingerprint", "")
+                "fingerprint": string_value(finding, "fingerprint", ""),
+                "repo_graph_snapshot_id": snapshot_id
             }),
         )?;
     }
@@ -327,6 +329,7 @@ fn open_security_findings(
     ctx: &Context,
     base_url: &str,
     headers: &[(String, String)],
+    snapshot_id: &str,
     graph: &Value,
 ) -> Result<usize, String> {
     let findings = graph
@@ -350,7 +353,8 @@ fn open_security_findings(
                 "risk_lane": string_value(finding, "risk_lane", "L2"),
                 "evidence": string_value(finding, "evidence", ""),
                 "affected_paths": paths_value(finding),
-                "fingerprint": string_value(finding, "fingerprint", "")
+                "fingerprint": string_value(finding, "fingerprint", ""),
+                "repo_graph_snapshot_id": snapshot_id
             }),
         )?;
     }

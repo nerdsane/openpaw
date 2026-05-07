@@ -2412,6 +2412,7 @@ fn repo_graph_snapshot_queues_sweep_and_fans_out_findings() {
         "TemperPaw.Patrol.OpenFinding",
         "agent-led repo health patrol",
         "agent-authored sweep output",
+        "repo_graph_snapshot_id",
         "complete_from_repo_health_agent",
         "repo-health Patrol agent",
         "giant modules",
@@ -2476,6 +2477,7 @@ fn accepted_findings_queue_cleanup_work_cycles() {
             "name = \"LinkPmIssue\"",
             "name = \"StartWork\"",
             "name = \"fingerprint\"",
+            "name = \"repo_graph_snapshot_id\"",
         ] {
             assert!(
                 spec.contains(needle),
