@@ -11,8 +11,7 @@
 
 use temper_wasm_sdk::prelude::*;
 use wasm_helpers::{
-    entity_field_str, find_channel_session_by_agent, find_connected_channel_by_external_id,
-    resolve_temper_api_url,
+    entity_field_str, find_connected_channel_by_external_id, list_entities, resolve_temper_api_url,
 };
 
 #[unsafe(no_mangle)]
@@ -82,8 +81,14 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         // Find the ChannelSession for this agent. Sessions without a channel
         // binding can still be approved via dashboard/API, so do not fail the
         // paused session if transport delivery is unavailable.
-        let session =
-            find_session_by_agent(&ctx, &temper_api_url, tenant, agent_id, parent_session_id)?;
+        let session = find_session_by_agent(
+            &ctx,
+            &temper_api_url,
+            tenant,
+            session_id,
+            agent_id,
+            parent_session_id,
+        )?;
         let Some((session, bound_agent_id)) = session else {
             ctx.log(
                 "warn",
@@ -302,7 +307,10 @@ fn register_gd_callback(
         ("accept".to_string(), "application/json".to_string()),
         ("x-tenant-id".to_string(), "temper-system".to_string()),
         ("x-temper-principal-kind".to_string(), "admin".to_string()),
-        ("x-temper-principal-id".to_string(), "request-approval-wasm".to_string()),
+        (
+            "x-temper-principal-id".to_string(),
+            "request-approval-wasm".to_string(),
+        ),
     ];
 
     let resp = ctx.http_call("GET", &gd_url, &system_headers, "")?;
@@ -344,7 +352,10 @@ fn register_gd_callback(
         ("content-type".to_string(), "application/json".to_string()),
         ("x-tenant-id".to_string(), "temper-system".to_string()),
         ("x-temper-principal-kind".to_string(), "admin".to_string()),
-        ("x-temper-principal-id".to_string(), "request-approval-wasm".to_string()),
+        (
+            "x-temper-principal-id".to_string(),
+            "request-approval-wasm".to_string(),
+        ),
     ];
 
     let resp = ctx.http_call(
@@ -372,21 +383,131 @@ fn find_session_by_agent(
     ctx: &Context,
     temper_api_url: &str,
     tenant: &str,
+    current_session_id: &str,
     agent_id: &str,
     parent_session_id: &str,
 ) -> Result<Option<(Value, String)>, String> {
-    if let Some(session) = find_channel_session_by_agent(ctx, temper_api_url, tenant, agent_id)? {
-        return Ok(Some((session, agent_id.to_string())));
-    }
-
-    let parent_session_id = parent_session_id.trim();
-    if !parent_session_id.is_empty() && parent_session_id != agent_id {
-        if let Some(session) =
-            find_channel_session_by_agent(ctx, temper_api_url, tenant, parent_session_id)?
-        {
-            return Ok(Some((session, parent_session_id.to_string())));
+    for candidate in
+        channel_session_lookup_candidates(current_session_id, agent_id, parent_session_id)
+    {
+        let url = format!(
+            "{temper_api_url}/tdata/ChannelSessions?{}",
+            candidate.filter
+        );
+        if let Some(session) = list_entities(ctx, &url, tenant)?.into_iter().next() {
+            return Ok(Some((session, candidate.bound_id)));
         }
     }
 
     Ok(None)
+}
+
+fn escape_odata(value: &str) -> String {
+    value.replace('\'', "''")
+}
+
+struct ChannelSessionLookup {
+    filter: String,
+    bound_id: String,
+}
+
+fn channel_session_lookup_candidates(
+    current_session_id: &str,
+    agent_id: &str,
+    parent_session_id: &str,
+) -> Vec<ChannelSessionLookup> {
+    let mut candidates = Vec::new();
+    let current_session_id = current_session_id.trim();
+    let parent_session_id = parent_session_id.trim();
+    let agent_id = agent_id.trim();
+
+    if !current_session_id.is_empty() {
+        let escaped = escape_odata(current_session_id);
+        candidates.push(ChannelSessionLookup {
+            filter: format!(
+                "$filter=Status eq 'Active' and session_entity_id eq '{escaped}'&$top=1"
+            ),
+            bound_id: agent_id.to_string(),
+        });
+    }
+
+    if !parent_session_id.is_empty() && parent_session_id != current_session_id {
+        let escaped = escape_odata(parent_session_id);
+        candidates.push(ChannelSessionLookup {
+            filter: format!(
+                "$filter=Status eq 'Active' and session_entity_id eq '{escaped}'&$top=1"
+            ),
+            bound_id: parent_session_id.to_string(),
+        });
+    }
+
+    if !agent_id.is_empty() {
+        let escaped = escape_odata(agent_id);
+        candidates.push(ChannelSessionLookup {
+            filter: format!("$filter=Status eq 'Active' and agent_entity_id eq '{escaped}'&$top=1"),
+            bound_id: agent_id.to_string(),
+        });
+        candidates.push(ChannelSessionLookup {
+            filter: format!("$filter=agent_entity_id eq '{escaped}'&$top=1"),
+            bound_id: agent_id.to_string(),
+        });
+    }
+
+    candidates
+}
+
+#[cfg(test)]
+fn channel_session_lookup_filters(
+    current_session_id: &str,
+    agent_id: &str,
+    parent_session_id: &str,
+) -> Vec<String> {
+    channel_session_lookup_candidates(current_session_id, agent_id, parent_session_id)
+        .into_iter()
+        .map(|candidate| candidate.filter)
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn channel_session_lookup_prefers_current_session_then_parent_then_agent_binding() {
+        let filters = channel_session_lookup_filters("ss-current", "aj-agent", "ss-parent");
+
+        assert_eq!(
+            filters,
+            vec![
+                "$filter=Status eq 'Active' and session_entity_id eq 'ss-current'&$top=1",
+                "$filter=Status eq 'Active' and session_entity_id eq 'ss-parent'&$top=1",
+                "$filter=Status eq 'Active' and agent_entity_id eq 'aj-agent'&$top=1",
+                "$filter=agent_entity_id eq 'aj-agent'&$top=1",
+            ]
+        );
+    }
+
+    #[test]
+    fn channel_session_lookup_deduplicates_resumed_parent_session() {
+        let filters = channel_session_lookup_filters("ss-current", "aj-agent", "ss-current");
+
+        assert_eq!(
+            filters,
+            vec![
+                "$filter=Status eq 'Active' and session_entity_id eq 'ss-current'&$top=1",
+                "$filter=Status eq 'Active' and agent_entity_id eq 'aj-agent'&$top=1",
+                "$filter=agent_entity_id eq 'aj-agent'&$top=1",
+            ]
+        );
+    }
+
+    #[test]
+    fn channel_session_lookup_escapes_odata_values() {
+        let filters = channel_session_lookup_filters("ss'oops", "aj-agent", "");
+
+        assert_eq!(
+            filters[0],
+            "$filter=Status eq 'Active' and session_entity_id eq 'ss''oops'&$top=1"
+        );
+    }
 }
