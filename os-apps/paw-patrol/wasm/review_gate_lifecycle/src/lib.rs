@@ -267,7 +267,35 @@ fn handle_evaluation_failed(
         error_message
     };
 
-    fail_work_cycle_and_escalate_case(ctx, base_url, headers, &work_cycle_id, &message)?;
+    if work_cycle_id.is_empty() {
+        return Err("review_gate_lifecycle: EvaluationRun missing work_cycle_id".to_string());
+    }
+
+    let work_cycle = get_entity(
+        ctx,
+        base_url,
+        headers,
+        entity_set(WORK_CYCLES_PATH),
+        &work_cycle_id,
+    )?;
+    let status = status_from_response(&work_cycle);
+    if status == "Reviewing" {
+        post_action(
+            ctx,
+            base_url,
+            headers,
+            entity_set(WORK_CYCLES_PATH),
+            &work_cycle_id,
+            PATROL_REQUEST_CHANGES,
+            &json!({
+                "error_message": format!(
+                    "Automated evaluation requested rework. EvaluationRun {evaluation_run_id}: {message}"
+                )
+            }),
+        )?;
+    } else {
+        fail_work_cycle_and_escalate_case(ctx, base_url, headers, &work_cycle_id, &message)?;
+    }
 
     let proof_packet_id = find_proof_packet(
         ctx,

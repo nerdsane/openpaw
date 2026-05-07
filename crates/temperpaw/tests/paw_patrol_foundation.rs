@@ -2361,6 +2361,27 @@ fn review_request_changes_requeues_a_revision_worker_run() {
 }
 
 #[test]
+fn evaluation_failures_requeue_rework_instead_of_dead_ending_the_cycle() {
+    let root = repo_root();
+    let patrol = root.join("os-apps/paw-patrol");
+    let lifecycle = read(patrol.join("wasm/review_gate_lifecycle/src/lib.rs"));
+
+    for needle in [
+        "\"Fail\" if is_entity_type(&ctx, \"EvaluationRun\")",
+        "handle_evaluation_failed",
+        "Automated evaluation requested rework",
+        "TemperPaw.Patrol.RequestChanges",
+        "status == \"Reviewing\"",
+        "fail_work_cycle_and_escalate_case(ctx, base_url, headers, &work_cycle_id, &message)",
+    ] {
+        assert!(
+            lifecycle.contains(needle),
+            "evaluation failures should requeue ordinary Reviewing cycles and only fail unexpected states: {needle}"
+        );
+    }
+}
+
+#[test]
 fn high_risk_work_requires_human_start_and_completion_approval() {
     let root = repo_root();
     let patrol = root.join("os-apps/paw-patrol");

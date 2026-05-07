@@ -9,6 +9,12 @@ fn load_monitors() -> Vec<Value> {
     monitors.as_array().unwrap().clone()
 }
 
+fn load_dashboard() -> Value {
+    let repo_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let dashboard_path = repo_root.join("dd-dashboards/temperpaw-overview.json");
+    serde_json::from_str(&std::fs::read_to_string(dashboard_path).unwrap()).unwrap()
+}
+
 fn monitors_by_name(monitors: &[Value]) -> HashMap<&str, &Value> {
     monitors
         .iter()
@@ -109,4 +115,47 @@ fn monitor_queries_use_current_runtime_metric_names_and_zero_fill_sparse_counter
         );
         assert_eq!(monitor["options"]["notify_no_data"].as_bool(), Some(false));
     }
+}
+
+#[test]
+fn platform_dashboard_uses_live_runtime_metrics_instead_of_stale_trace_custom_queries() {
+    let dashboard = load_dashboard();
+    let dashboard_json = dashboard.to_string();
+
+    assert!(
+        !dashboard_json.contains("trace.custom"),
+        "trace.custom is not emitted for service:openpaw and must not back dashboard widgets"
+    );
+    assert!(
+        !dashboard_json.contains("trace.wasm.invoke"),
+        "trace.wasm.invoke migration metrics are not deployable/live for service:openpaw"
+    );
+    assert!(
+        !dashboard_json.contains("temper_active_entities"),
+        "temper_active_entities is a retired dashboard query; use temper_active_actors instead"
+    );
+    assert!(
+        dashboard_json.contains(
+            "top(sum:temper_cedar_evaluations_total{service:openpaw} by {decision}.as_count(), 10, 'sum', 'desc')"
+        ),
+        "Dashboard should replace the stale span-resource toplist with live Cedar runtime traffic"
+    );
+    assert!(
+        dashboard_json.contains("avg:temper_active_actors{service:openpaw}"),
+        "Dashboard should use the live active actor gauge for runtime hydration"
+    );
+    assert!(
+        !dashboard_json.contains("p99:temper_dispatch_ask_latency_ms"),
+        "temper_dispatch_ask_latency_ms does not have percentile aggregations enabled in Datadog"
+    );
+    assert!(
+        dashboard_json.contains(
+            "avg:temper_dispatch_ask_latency_ms{service:openpaw} by {entity_type,action}"
+        ),
+        "Dashboard should replace trace.custom dispatch phase latency with emitted dispatch latency"
+    );
+    assert!(
+        dashboard_json.contains("avg:temper_wasm_invocation_duration_ms{service:openpaw} by {trigger_action}.rollup(avg, 60)"),
+        "Dashboard should use emitted WASM invocation duration instead of trace.wasm.invoke overlays"
+    );
 }
