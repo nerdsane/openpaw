@@ -70,12 +70,12 @@ case "$prompt" in
   "PAW_CODEX_DOCTOR_EXEC_SMOKE:"*)
     echo "PAW_CODEX_DOCTOR_EXEC_OK"
     ;;
-  "You are the independent reviewer"*)
+  "You are the independent reviewer"* | "You are the independent repo-health Patrol scan reviewer"*)
     echo "SUMMARY: Fake reviewer approved the agent-led worker E2E output."
     echo "LIVE_E2E: Confirmed the fake implementer marker exists in the assigned worktree."
     echo "VERDICT: approve"
     ;;
-  *"Datadog MCP Patrol agent"*)
+  *"Datadog MCP Risk Patrol agent"* | *"Datadog MCP Patrol agent"*)
     cat <<'JSON'
 Fake Codex used its Datadog MCP fixture.
 DATADOG_PATROL_RESULT_JSON_BEGIN
@@ -108,6 +108,21 @@ DATADOG_PATROL_RESULT_JSON_BEGIN
   "recommended_next_queries": ["fixture follow-up query"]
 }
 DATADOG_PATROL_RESULT_JSON_END
+JSON
+    ;;
+  *"local Codex DailyBrief agent"*)
+    cat <<'JSON'
+Fake Codex rendered the DailyBrief fixture.
+DAILY_BRIEF_RESULT_JSON_BEGIN
+{
+  "summary_markdown": "# Patrol Daily Brief\n\n```mermaid\nflowchart LR\n  Proofs[\"Ready ProofPackets\"] --> Brief[\"DailyBrief.Render\"]\n  Risks[\"Open risks\"] --> Brief\n```\n\nFake DailyBrief summarized the current Patrol proof and risk facts.",
+  "visual_summary_url": "data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%271200%27%20height%3D%27720%27%20viewBox%3D%270%200%201200%20720%27%3E%3Crect%20width%3D%271200%27%20height%3D%27720%27%20fill%3D%27%23f8fafc%27%2F%3E%3Ctext%20x%3D%2780%27%20y%3D%27140%27%20font-family%3D%27Inter%2C%20Arial%2C%20sans-serif%27%20font-size%3D%2754%27%20font-weight%3D%27700%27%20fill%3D%27%230f172a%27%3EPatrol%20Daily%20Brief%3C%2Ftext%3E%3Ctext%20x%3D%2780%27%20y%3D%27220%27%20font-family%3D%27Inter%2C%20Arial%2C%20sans-serif%27%20font-size%3D%2728%27%20fill%3D%27%23334155%27%3EFake%20Codex%20brief%20fixture%3C%2Ftext%3E%3C%2Fsvg%3E",
+  "proof_packet_ids": [],
+  "open_risks": [],
+  "done_items": [{"type":"DailyBrief","id":"fixture","summary":"Fake DailyBrief rendered"}],
+  "residual_risks": ["fixture only"]
+}
+DAILY_BRIEF_RESULT_JSON_END
 JSON
     ;;
   *"repo-health Patrol agent"*)

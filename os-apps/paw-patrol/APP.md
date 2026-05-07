@@ -85,11 +85,12 @@ surface, dependency risk, or risky deploy/billing/provider change.
 
 ### DailyBrief
 Daily visual and textual summary of completed work, open risks, new findings,
-proof packets, and escalations. It is an agent-driven DailyBrief Session:
-`daily_brief_lifecycle` only gathers source facts, creates the Session, and
-attaches it. The Session writes the visual daily summary and dispatches
-`DailyBrief.Render`, so the brief can include judgment, diagrams, and readable
-prioritization instead of a hidden deterministic "tests passed" rollup.
+proof packets, and escalations. It is an agent-driven DailyBrief Session plus
+local Codex WorkerRun: `daily_brief_lifecycle` gathers source facts, creates the
+Session record, queues the local Codex WorkerRun, and attaches both. Codex writes
+the visual daily summary through `DailyBrief.Render`, then self-reports through
+the normal reviewer/evaluator/proof gates so the brief can include judgment,
+diagrams, and readable prioritization.
 
 ### PatrolSchedule
 Recurring Patrol job that schedules repo sweeps and daily briefs from Temper
@@ -215,7 +216,7 @@ server hosts Temper and triggers, but these modules own the workflow decisions:
   failure, and source-finding resolution.
 - `patrol_schedule_lifecycle`: keeps recurring Patrol schedules inside Temper
   by creating repo sweeps and daily briefs from schedule transitions.
-- `daily_brief_lifecycle`: renders the human-readable daily rollup from
+- `daily_brief_lifecycle`: queues the local Codex DailyBrief WorkerRun from
   finished proof packets, findings, and open risks.
 
 ## Default Schedule

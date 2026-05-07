@@ -332,6 +332,8 @@
         <Property Name="DoneItems" Type="Edm.String"/>
         <Property Name="SessionId" Type="Edm.String"/>
         <Property Name="SessionStatus" Type="Edm.String"/>
+        <Property Name="WorkCycleId" Type="Edm.String"/>
+        <Property Name="WorkerRunId" Type="Edm.String"/>
         <Property Name="ErrorMessage" Type="Edm.String"/>
         <Annotation Term="Paw.Vocab.AuthZ.CedarPolicy" String="policies/patrol.cedar"/>
         <Annotation Term="Paw.Vocab.Agent.Hint" String="Daily visual and textual summary of Patrol outcomes and open risks."/>

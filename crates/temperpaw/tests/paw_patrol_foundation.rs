@@ -431,6 +431,7 @@ fn datadog_observability_patrol_run_uses_temper_state_and_creates_work() {
         "low-risk Datadog follow-up WorkCycles",
         "Action::\"StartWork\"",
         "Action::\"AttachWorkerRun\"",
+        "Action::\"AttachEvidenceLinks\"",
         "resource is WorkerRun",
     ] {
         assert!(
@@ -1025,6 +1026,7 @@ fn live_smoke_scripts_choose_non_colliding_odata_and_webhook_ports() {
         "deterministic-smoke.sh",
         "webhook-intake-smoke.sh",
         "repo-sweep-brief-smoke.sh",
+        "datadog-patrol-smoke.sh",
         "production-readiness-smoke.sh",
         "production-observe-only-smoke.sh",
     ] {
@@ -1047,6 +1049,34 @@ fn live_smoke_scripts_choose_non_colliding_odata_and_webhook_ports() {
 }
 
 #[test]
+fn datadog_patrol_smoke_proves_mcp_agent_fanout() {
+    let root = repo_root();
+    let script = read(root.join("crates/paw-codex-worker/scripts/datadog-patrol-smoke.sh"));
+
+    for needle in [
+        "PatrolRuns",
+        "datadog_observability",
+        "TemperPaw.Patrol.Start",
+        "PAW_CODEX_ENABLE_EXECUTION=1",
+        "PAW_CODEX_WORKER_CAPABILITIES=local_codex,repo_write,review,evaluation,datadog_query",
+        "fixtures/fake-codex.sh",
+        "DATADOG_PATROL_RESULT_JSON_BEGIN",
+        "ObservabilityFindings",
+        "FactoryCases",
+        "Signals",
+        "ProofPackets",
+        "visual_summary_url",
+        "datadog-patrol.svg",
+        "datadog patrol smoke passed",
+    ] {
+        assert!(
+            script.contains(needle),
+            "Datadog Patrol smoke should prove MCP agent fanout: {needle}"
+        );
+    }
+}
+
+#[test]
 fn repo_sweep_brief_smoke_exports_visual_proof_bundle() {
     let root = repo_root();
     let script = read(root.join("crates/paw-codex-worker/scripts/repo-sweep-brief-smoke.sh"));
@@ -1061,6 +1091,7 @@ fn repo_sweep_brief_smoke_exports_visual_proof_bundle() {
         "assessment_session_id",
         "assessment_status",
         "assessment_summary_markdown",
+        "complete_from_repo_health_agent",
         "Assessment Session",
         "DailyBriefs",
         "TemperPaw.Patrol.Start",
@@ -1069,6 +1100,9 @@ fn repo_sweep_brief_smoke_exports_visual_proof_bundle() {
         "proof.svg",
         "LOCAL_CODEX_WORKER_ID=\"$WORKER_ID\"",
         "LOCAL_CODEX_WORKTREE_ROOT=\"$WORKSPACE_ROOT\"",
+        "PAW_CODEX_ENABLE_EXECUTION=1",
+        "norm_key",
+        "top_level",
         "## Daily Brief",
         "## OData Links",
         "## Trace And Log Evidence",
@@ -1400,7 +1434,7 @@ fn production_docs_explain_patrol_session_provider_configuration() {
         "repo_assessment_model",
         "daily_brief_provider",
         "daily_brief_model",
-        "mock provider",
+        "local Codex WorkerRun",
         "AssessmentComplete",
         "DailyBrief.Render",
     ] {
@@ -1413,6 +1447,7 @@ fn production_docs_explain_patrol_session_provider_configuration() {
     for needle in [
         "RepoGraphSnapshot assessment Session",
         "DailyBrief Session",
+        "local Codex WorkerRun",
         "repo_assessment_provider",
         "daily_brief_provider",
     ] {
@@ -1505,6 +1540,8 @@ fn paw_patrol_acceptance_harness_collects_quick_and_live_proofs() {
         "github-webhook-event.json",
         "github-signal.json",
         "GitHub Signal",
+        "datadog-patrol-smoke/datadog-patrol.svg",
+        "Datadog MCP Patrol",
         "repo-sweep-brief-smoke/daily-brief.svg",
         "write_artifact_link",
         "not generated in",
@@ -1545,6 +1582,7 @@ fn ci_covers_paw_patrol_worker_and_wasm_gates() {
         "cargo clippy --locked -p temperpaw -p paw-codex-worker --all-targets -- -D warnings",
         "cargo check --locked -p temperpaw -p paw-codex-worker",
         "bash -n crates/paw-codex-worker/scripts/deterministic-smoke.sh",
+        "bash -n crates/paw-codex-worker/scripts/datadog-patrol-smoke.sh",
         "bash -n crates/paw-codex-worker/scripts/repo-sweep-brief-smoke.sh",
         "bash -n crates/paw-codex-worker/scripts/webhook-intake-smoke.sh",
         "bash -n crates/paw-codex-worker/scripts/production-readiness.sh",
@@ -2634,7 +2672,10 @@ fn daily_brief_renders_visual_human_review_rollup() {
         "on_failure = \"Fail\"",
         "name = \"session_id\"",
         "name = \"session_status\"",
+        "name = \"work_cycle_id\"",
+        "name = \"worker_run_id\"",
         "name = \"AttachSession\"",
+        "name = \"AttachWorkerRun\"",
         "name = \"Render\"",
         "visual_summary_url",
     ] {
@@ -2660,12 +2701,15 @@ fn daily_brief_renders_visual_human_review_rollup() {
         "/tdata/QualityFindings",
         "/tdata/SecurityFindings",
         "/tdata/WorkCycles",
+        "/tdata/WorkerRuns",
         "/tdata/Sessions",
         "TemperPaw.Configure",
         "TemperPaw.Patrol.AttachSession",
+        "TemperPaw.Patrol.AttachWorkerRun",
+        "runner_kind\": \"local_codex",
+        "DailyBrief:",
         "TemperPaw.Patrol.Render",
         "agent-driven DailyBrief Session",
-        "\"mock_plan\"",
         "visual_daily_brief_svg",
         "human-readable daily brief",
         "open risks",
@@ -2683,6 +2727,7 @@ fn daily_brief_renders_visual_human_review_rollup() {
         "DailyBrief",
         "Action::\"Start\"",
         "Action::\"AttachSession\"",
+        "Action::\"AttachWorkerRun\"",
         "Action::\"Render\"",
         "Action::\"Publish\"",
     ] {
@@ -2691,6 +2736,13 @@ fn daily_brief_renders_visual_human_review_rollup() {
             "patrol.cedar should authorize daily brief lifecycle with {needle}"
         );
     }
+
+    assert!(
+        !lifecycle.contains("mock_daily_brief_plan")
+            && !lifecycle.contains("deterministic mock brief")
+            && !lifecycle.contains("\"mock_plan\""),
+        "DailyBrief must be rendered by an intelligent agent path, not a deterministic mock plan"
+    );
 
     let app_doc = read(patrol.join("APP.md"));
     for needle in [

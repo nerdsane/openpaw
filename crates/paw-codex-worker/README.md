@@ -44,6 +44,9 @@ Script inventory:
 
 - `deterministic-smoke.sh`: local fake-Codex implementation, review,
   evaluation, and ProofPacket loop.
+- `datadog-patrol-smoke.sh`: local fake-Codex Datadog MCP Patrol loop from
+  PatrolRun through Signal, ObservabilityFinding, FactoryCase, WorkCycle, and
+  ProofPacket fanout.
 - `webhook-intake-smoke.sh`: trigger boundary for PatrolRequest plus Datadog,
   GitHub, and Discord Signals.
 - `repo-sweep-brief-smoke.sh`: RepoGraphSnapshot, QualityFinding,
@@ -249,10 +252,10 @@ After the agent-led scan, Patrol opens QualityFinding/SecurityFinding entities
 and records `AssessmentComplete` from the agent evidence. If
 `repo_assessment_provider` and `repo_assessment_model` point to a real provider,
 Patrol can also attach a follow-up assessment Session. DailyBrief remains
-Session-shaped for the brief synthesis layer; the worker/proof loop supplies
-the factual source packets the brief must cite. Configure `daily_brief_provider`
-and `daily_brief_model` when the DailyBrief Session should use a real briefing
-agent instead of the local proof-fixture path.
+Session-shaped for audit and optional secondary synthesis, but the primary
+DailyBrief render is now a local Codex WorkerRun. Configure
+`daily_brief_provider` and `daily_brief_model` only when the DailyBrief Session
+should add an extra briefing agent on top of the local worker path.
 
 Run from the TemperPaw repo/worktree root:
 
@@ -269,7 +272,7 @@ stable location.
 Expected result: RepoGraphSnapshot reaches `Ready`, WorkCycle reaches
 `Complete`, the RepoGraphSnapshot assessment Session dispatches
 `AssessmentComplete`, ReviewRun reaches `Approved`, EvaluationRun reaches
-`Passed`, ProofPacket reaches `Ready`, and the DailyBrief Session dispatches
+`Passed`, ProofPacket reaches `Ready`, and the local Codex WorkerRun dispatches
 `DailyBrief.Render` so DailyBrief reaches `Ready`.
 
 ## Acceptance Harness

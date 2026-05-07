@@ -31,6 +31,7 @@ jobs:
       - name: Worker smoke script syntax
         run: |
           bash -n crates/paw-codex-worker/scripts/deterministic-smoke.sh
+          bash -n crates/paw-codex-worker/scripts/datadog-patrol-smoke.sh
           bash -n crates/paw-codex-worker/scripts/repo-sweep-brief-smoke.sh
           bash -n crates/paw-codex-worker/scripts/webhook-intake-smoke.sh
           bash -n crates/paw-codex-worker/scripts/production-readiness.sh

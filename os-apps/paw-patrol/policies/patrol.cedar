@@ -151,6 +151,7 @@ permit(
     Action::"MarkUnhealthy",
     Action::"Disable",
     Action::"RecordEvidence",
+    Action::"AttachEvidenceLinks",
     Action::"Pause",
     Action::"Resume",
     Action::"Recover",
@@ -217,6 +218,7 @@ permit(
     Action::"Start",
     Action::"AttachWorkerRun",
     Action::"RecordEvidence",
+    Action::"AttachEvidenceLinks",
     Action::"Complete",
     Action::"Escalate",
     Action::"Fail"
@@ -297,6 +299,7 @@ permit(
     Action::"create",
     Action::"Start",
     Action::"AttachSession",
+    Action::"AttachWorkerRun",
     Action::"Render",
     Action::"Publish",
     Action::"Fail"

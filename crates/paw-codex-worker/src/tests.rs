@@ -2,10 +2,10 @@
 mod tests {
     use super::*;
     use std::fs;
-    use std::process::Command as StdCommand;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     include!("datadog_patrol_tests.rs");
+    include!("fake_codex_tests.rs");
 
     #[test]
     fn worker_run_state_reads_temper_odata_fields() {
@@ -416,43 +416,6 @@ mod tests {
         assert_eq!(escalated.action, ReviewDecisionAction::Escalate);
         assert_eq!(unknown.action, ReviewDecisionAction::Escalate);
         assert!(unknown.summary.contains("explicit VERDICT"));
-    }
-
-    #[test]
-    fn fake_codex_fixture_only_uses_reviewer_mode_for_reviewer_prompt() {
-        let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/fake-codex.sh");
-        let root = unique_temp_dir();
-        fs::create_dir_all(&root).expect("temp dir");
-
-        let implementation = StdCommand::new(&fixture)
-            .arg("exec")
-            .arg("Implement a task whose request text mentions an independent reviewer later.")
-            .current_dir(&root)
-            .output()
-            .expect("run fake implementation");
-        assert!(
-            implementation.status.success(),
-            "fake implementation should succeed"
-        );
-        assert!(
-            root.join(".paw-fake-codex-implementation").is_file(),
-            "implementation prompt should write the marker even if task text mentions a reviewer"
-        );
-
-        let review = StdCommand::new(&fixture)
-            .arg("exec")
-            .arg("You are the independent reviewer for a TemperPaw paw-patrol WorkerRun.")
-            .current_dir(&root)
-            .output()
-            .expect("run fake reviewer");
-        assert!(review.status.success(), "fake reviewer should succeed");
-        let stdout = String::from_utf8_lossy(&review.stdout);
-        assert!(
-            stdout.contains("VERDICT: approve"),
-            "reviewer prompt should emit an approval verdict: {stdout}"
-        );
-
-        fs::remove_dir_all(root).ok();
     }
 
     #[test]
