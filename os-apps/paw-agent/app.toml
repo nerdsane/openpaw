@@ -21,3 +21,13 @@ startup_loading = "lazy"
 name = "emit_ots_trajectory"
 criticality = "app-required"
 startup_loading = "lazy"
+
+[[wasm_modules]]
+name = "session_link_monitor"
+criticality = "app-required"
+startup_loading = "lazy"
+
+[[wasm_modules]]
+name = "session_recoverer"
+criticality = "app-required"
+startup_loading = "lazy"

@@ -454,12 +454,12 @@ fn orphaned_session_recovery_limit() -> Option<usize> {
     let enabled = std::env::var("TEMPERPAW_ORPHANED_SESSION_RECOVERY")
         .ok()
         .map(|value| {
-            matches!(
+            !matches!(
                 value.trim().to_ascii_lowercase().as_str(),
-                "1" | "true" | "yes" | "on" | "enabled" | "bounded"
+                "0" | "false" | "no" | "off" | "disabled" | "none"
             )
         })
-        .unwrap_or(false);
+        .unwrap_or(true);
     if !enabled {
         return None;
     }
@@ -477,7 +477,7 @@ async fn recover_orphaned_sessions(state: &PlatformState, tenant: &str) {
     let Some(recovery_limit) = orphaned_session_recovery_limit() else {
         tracing::info!(
             tenant,
-            "Orphaned session recovery skipped; set TEMPERPAW_ORPHANED_SESSION_RECOVERY=true to enable bounded recovery"
+            "Orphaned session recovery skipped because TEMPERPAW_ORPHANED_SESSION_RECOVERY is disabled"
         );
         return;
     };
@@ -3254,13 +3254,16 @@ mod tests {
         WASM_MODULE_LOAD_FAILURES_METRIC, actor_passivation_check_interval_secs,
         app_required_wasm_failure, bootstrap_soul, default_agent_specs_bootstrap_needed,
         installed_app_runtime_recovery_result, load_or_create_temper_api_key,
-        local_wasm_startup_policy, paw_soul_content_is_personalized, resolve_startup_secret,
+        local_wasm_startup_policy, orphaned_session_recovery_limit,
+        paw_soul_content_is_personalized, resolve_startup_secret,
         runtime_indexes_required_before_reconcile, runtime_recovery_plan,
         runtime_router_with_startup_gates, soul_lookup_filters, spawn_runtime_server,
         startup_discord_connect_result, startup_discord_summary_label, startup_os_apps,
         startup_surface_runtime_indexes_required_before_reconcile, wait_for_runtime_server,
     };
     use crate::transport_manager::TransportStatus;
+
+    static ORPHANED_SESSION_ENV_LOCK: Mutex<()> = Mutex::new(());
 
     fn empty_install_result() -> temper_platform::os_apps::InstallResult {
         temper_platform::os_apps::InstallResult {
@@ -3287,6 +3290,35 @@ mod tests {
             actor_passivation_check_interval_secs(Some("999999")),
             86_400
         );
+    }
+
+    #[test]
+    fn orphaned_session_recovery_is_enabled_by_default() {
+        let _guard = ORPHANED_SESSION_ENV_LOCK.lock().unwrap();
+        unsafe {
+            std::env::remove_var("TEMPERPAW_ORPHANED_SESSION_RECOVERY");
+            std::env::remove_var("TEMPERPAW_ORPHANED_SESSION_RECOVERY_MAX");
+        }
+
+        assert_eq!(
+            orphaned_session_recovery_limit(),
+            Some(super::DEFAULT_ORPHANED_SESSION_RECOVERY_LIMIT)
+        );
+    }
+
+    #[test]
+    fn orphaned_session_recovery_can_be_explicitly_disabled() {
+        let _guard = ORPHANED_SESSION_ENV_LOCK.lock().unwrap();
+        unsafe {
+            std::env::set_var("TEMPERPAW_ORPHANED_SESSION_RECOVERY", "false");
+            std::env::remove_var("TEMPERPAW_ORPHANED_SESSION_RECOVERY_MAX");
+        }
+
+        assert_eq!(orphaned_session_recovery_limit(), None);
+
+        unsafe {
+            std::env::remove_var("TEMPERPAW_ORPHANED_SESSION_RECOVERY");
+        }
     }
 
     #[test]
@@ -3550,12 +3582,33 @@ mod tests {
             .map(|module| module.name)
             .collect();
 
-        for module in ["agent_reply", "emit_ots_trajectory"] {
+        for module in [
+            "agent_reply",
+            "emit_ots_trajectory",
+            "session_link_monitor",
+            "session_recoverer",
+        ] {
             assert!(
                 module_names.contains(module),
-                "paw-agent app.toml must declare terminal Session module {module}"
+                "paw-agent app.toml must declare session lifecycle module {module}"
             );
         }
+    }
+
+    #[test]
+    fn paw_agent_build_script_builds_session_recoverer() {
+        let repo_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let build_script_path = repo_root.join("os-apps/paw-agent/wasm/build.sh");
+        let build_script = std::fs::read_to_string(&build_script_path)
+            .expect("paw-agent wasm build.sh should be readable");
+        let build_tokens: std::collections::BTreeSet<_> = build_script
+            .split(|ch: char| !(ch.is_ascii_alphanumeric() || ch == '_'))
+            .collect();
+
+        assert!(
+            build_tokens.contains("session_recoverer"),
+            "paw-agent wasm build.sh must build session_recoverer"
+        );
     }
 
     #[test]
