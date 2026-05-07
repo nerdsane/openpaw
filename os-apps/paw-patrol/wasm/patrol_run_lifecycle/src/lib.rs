@@ -3,8 +3,8 @@
 //! `PatrolRun.Start` is the Temper-native control point for active
 //! investigations such as `datadog_observability`. This module looks up a
 //! registered `WorkerAgent` with the required capability, creates a WorkCycle
-//! and WorkerRun for the local Codex Datadog Patrol, then records the linkage
-//! on the PatrolRun. If no capable worker exists, it escalates visibly.
+//! and WorkerRun for the local Codex Datadog MCP Patrol, then records the
+//! linkage on the PatrolRun. If no capable worker exists, it escalates visibly.
 
 use temper_wasm_sdk::prelude::*;
 
@@ -221,7 +221,7 @@ fn find_capable_worker(
 
 fn datadog_patrol_task(patrol_run_id: &str, work_cycle_id: &str, summary: &str) -> String {
     format!(
-        "You are the local Codex Datadog Patrol agent for TemperPaw paw-patrol.\n\nPatrolRun: {patrol_run_id}\nPatrolKind: datadog_observability\nWorkCycle: {work_cycle_id}\nSummary: {summary}\n\nRequired loop:\n1. Work in the assigned git worktree.\n2. Use read-only Datadog evidence from DD_API_KEY/DD_APP_KEY/DD_SITE provided to the worker environment.\n3. Check OpenPaw/Temper monitors, alert states, incidents, error tracking, logs/traces where available, and relevant dashboards/queries.\n4. Create raw Signals for observed evidence, ObservabilityFindings for durable runtime issues, and FactoryCases/WorkCycles for actionable work.\n5. High-risk or production-impacting changes stop at created work and approval gates; do not auto-merge.\n6. Dispatch PatrolRun.RecordEvidence and PatrolRun.Complete with machine-readable evidence and human-readable summary, then finish normally."
+        "You are the local Codex Datadog MCP Patrol agent for TemperPaw paw-patrol.\n\nPatrolRun: {patrol_run_id}\nPatrolKind: datadog_observability\nWorkCycle: {work_cycle_id}\nSummary: {summary}\n\nRequired loop:\n1. Work in the assigned git worktree, but do not edit files for this patrol run.\n2. Use your authenticated Datadog MCP tools to investigate monitors, logs, traces, metrics, incidents, and dashboards for OpenPaw, Temper, TemperPaw, Railway, Discord, OData, WASM, Cedar, workers, and dashboard health.\n3. Do not read, echo, or print secret values.\n4. Return structured findings and proof data between DATADOG_PATROL_RESULT_JSON_BEGIN and DATADOG_PATROL_RESULT_JSON_END. The paw-codex-worker validates that JSON and writes Signals, ObservabilityFindings, FactoryCases, WorkCycles, ProofPackets, and PatrolRun evidence back through Temper actions.\n5. Create findings only for actionable issues that are present or strongly evidenced now. High-risk or production-impacting fixes must require human approval before implementation.\n6. If a Datadog surface is unavailable through MCP, include that surface in evidence_scope with the limitation explained."
     )
 }
 

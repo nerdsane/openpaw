@@ -86,6 +86,7 @@ include!("doctor.rs");
 include!("event_loop.rs");
 include!("temper_api.rs");
 include!("datadog_patrol.rs");
+include!("datadog_patrol_proof.rs");
 include!("cli.rs");
 include!("doctor_report.rs");
 include!("launchd.rs");

@@ -4,7 +4,7 @@ async fn run_doctor(client: &reqwest::Client, config: &Config) -> Result<()> {
     checks.push(check_path("workspace_root", &config.workspace_root, false));
     checks.push(check_worker_token(config));
     checks.push(check_worker_capabilities());
-    checks.push(check_datadog_keys());
+    checks.push(check_datadog_mcp_contract());
     checks.push(check_execution_safety(config));
     checks.push(check_codex_binary(config).await);
     checks.push(check_codex_exec_smoke(config).await);
@@ -41,25 +41,22 @@ fn check_worker_capabilities() -> DoctorCheck {
     }
 }
 
-fn check_datadog_keys() -> DoctorCheck {
-    let present = ["DD_API_KEY", "DD_APP_KEY", "DD_SITE"]
-        .into_iter()
-        .filter(|key| {
-            env::var(key)
-                .ok()
-                .map(|value| !value.trim().is_empty())
-                .unwrap_or(false)
-        })
-        .collect::<Vec<_>>();
-    if present.contains(&"DD_API_KEY") && present.contains(&"DD_APP_KEY") {
+fn check_datadog_mcp_contract() -> DoctorCheck {
+    let capabilities = worker_capabilities();
+    if capabilities
+        .iter()
+        .any(|capability| capability == "datadog_query")
+    {
         DoctorCheck::pass(
-            "datadog_secrets",
-            format!("Datadog read-only secret names present: {}", present.join(",")),
+            "datadog_mcp",
+            "worker advertises datadog_query; Patrol will use the local Codex Datadog MCP contract"
+                .to_string(),
         )
     } else {
         DoctorCheck::warn(
-            "datadog_secrets",
-            "DD_API_KEY and DD_APP_KEY are not both set; Datadog Patrol will escalate instead of querying".to_string(),
+            "datadog_mcp",
+            "worker does not advertise datadog_query; Datadog MCP Patrol runs will not be claimed"
+                .to_string(),
         )
     }
 }

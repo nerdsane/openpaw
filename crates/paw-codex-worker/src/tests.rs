@@ -5,6 +5,8 @@ mod tests {
     use std::process::Command as StdCommand;
     use std::time::{SystemTime, UNIX_EPOCH};
 
+    include!("datadog_patrol_tests.rs");
+
     #[test]
     fn worker_run_state_reads_temper_odata_fields() {
         let value = json!({

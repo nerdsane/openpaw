@@ -374,7 +374,9 @@ fn datadog_observability_patrol_run_uses_temper_state_and_creates_work() {
         "datadog_query",
         "TemperPaw.Patrol.AttachWorkerRun",
         "TemperPaw.Patrol.Escalate",
-        "local Codex Datadog Patrol",
+        "local Codex Datadog MCP Patrol",
+        "DATADOG_PATROL_RESULT_JSON_BEGIN",
+        "monitors, logs, traces, metrics, incidents, and dashboards",
         "required_capabilities",
     ] {
         assert!(
@@ -386,14 +388,21 @@ fn datadog_observability_patrol_run_uses_temper_state_and_creates_work() {
     let worker_sources = read_worker_sources(&root);
     for needle in [
         "run_datadog_patrol",
+        "investigate_datadog_with_codex",
+        "Datadog MCP",
+        "DATADOG_PATROL_RESULT_JSON_BEGIN",
+        "DATADOG_PATROL_RESULT_JSON_END",
+        "codex_datadog_mcp_agent",
         "PatrolRun:",
         "datadog_observability",
-        "DD_API_KEY",
-        "DD_APP_KEY",
-        "DD_SITE",
-        "/api/v1/monitor/search",
+        "monitors",
+        "logs",
+        "traces",
+        "metrics",
+        "incidents",
+        "dashboards",
         "ObservabilityFindings",
-        "TemperPaw.Patrol.OpenFinding",
+        "OpenFinding",
         "TemperPaw.Patrol.RecordEvidence",
         "TemperPaw.Patrol.Complete",
         "ProofPackets",
@@ -404,6 +413,9 @@ fn datadog_observability_patrol_run_uses_temper_state_and_creates_work() {
         "FactoryCases",
         "WorkCycles",
         "Signals",
+        "StartWork",
+        "local_codex,repo_write,datadog_query",
+        "low-risk implementer WorkerRun",
     ] {
         assert!(
             worker_sources.contains(needle),
