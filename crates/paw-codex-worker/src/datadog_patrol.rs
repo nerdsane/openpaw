@@ -310,6 +310,7 @@ impl DatadogPatrolFinding {
         }
     }
 
+    #[cfg(test)]
     fn requires_start_approval(&self) -> bool {
         self.requires_human_approval
             || matches!(self.risk_lane.as_str(), "L2" | "L3")
@@ -332,6 +333,7 @@ fn extract_datadog_patrol_run_id(task: &str) -> Option<String> {
     })
 }
 
+#[cfg(test)]
 fn datadog_followup_branch_name(finding: &DatadogPatrolFinding, work_cycle_id: &str) -> String {
     let mut title = stable_slug(&finding.title);
     if title.len() > 40 {
