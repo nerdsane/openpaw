@@ -2,7 +2,6 @@ const ACTION_CLAIM_LABEL: &str = "WorkerRun.Claim";
 const ACTION_REPORT_DONE_LABEL: &str = "WorkerRun.ReportDone";
 const ACTION_REPORT_FAILED_LABEL: &str = "WorkerRun.ReportFailed";
 const REVIEW_CLAIM_LABEL: &str = "ReviewRun.Claim";
-const REVIEW_APPROVE_LABEL: &str = "ReviewRun.Approve";
 const EVALUATION_CLAIM_LABEL: &str = "EvaluationRun.Claim";
 const EVALUATION_START_LABEL: &str = "EvaluationRun.Start";
 const EVALUATION_PASS_LABEL: &str = "EvaluationRun.Pass";

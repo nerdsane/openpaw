@@ -800,7 +800,9 @@ fn local_codex_worker_is_a_real_daemon_scaffold() {
         "WorkerRun.ReportDone",
         "RepoGraphSnapshot",
         "ScanComplete",
-        "scan_repo_health",
+        "repo_health_agent_prompt",
+        "parse_repo_health_agent_output",
+        "REPO_HEALTH_PATROL_RESULT_JSON_BEGIN",
         "git",
         "worktree",
         "doctor",
@@ -884,7 +886,7 @@ fn local_worker_can_review_and_evaluate_repo_sweep_runs() {
 
     for needle in [
         "ReviewRun.Claim",
-        "ReviewRun.Approve",
+        "ReviewDecisionAction::Approve",
         "EvaluationRun.Start",
         "EvaluationRun.Pass",
         "handle_requested_review_run",
@@ -2408,10 +2410,10 @@ fn repo_graph_snapshot_queues_sweep_and_fans_out_findings() {
         "TemperPaw.Patrol.AttachAssessmentSession",
         "TemperPaw.Patrol.AssessmentComplete",
         "TemperPaw.Patrol.OpenFinding",
-        "repo graph and dependency sweep",
-        "deterministic repo graph evidence",
-        "intelligent assessment Session",
-        "\"mock_plan\"",
+        "agent-led repo health patrol",
+        "agent-authored sweep output",
+        "complete_from_repo_health_agent",
+        "repo-health Patrol agent",
         "giant modules",
         "duplicate logic",
         "fingerprint",
@@ -2445,8 +2447,8 @@ fn repo_graph_snapshot_queues_sweep_and_fans_out_findings() {
 
     let app_doc = read(patrol.join("APP.md"));
     for needle in [
-        "deterministic graph evidence",
-        "intelligent assessment Session",
+        "agent-led investigation",
+        "structured findings",
         "AssessmentComplete",
     ] {
         assert!(

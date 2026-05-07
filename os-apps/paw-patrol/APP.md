@@ -66,12 +66,13 @@ raise risk but cannot silently lower the rule-derived floor.
 
 ### RepoGraphSnapshot
 Recurring codebase/dependency graph snapshot for routing, quality cleanup,
-security sweeps, and agent orientation. The local Codex worker first produces
-deterministic graph evidence: file/dependency indexes, pattern matches, giant
-module candidates, duplicate candidates, and seeded findings. Patrol then
-attaches an intelligent assessment Session that reviews the deterministic graph
-evidence, adds security/readability judgment, produces visual diagrams, and
-closes the assessment by dispatching `AssessmentComplete`.
+security sweeps, and agent orientation. The local Codex worker performs an
+agent-led investigation of the repo/dependency graph, giant modules, duplicate
+logic, specs, Cedar policies, WASM modules, dependencies, tests, proofs,
+security drift, and readability. Patrol validates the structured findings,
+opens QualityFinding/SecurityFinding entities, records the visual summary, and
+dispatches `AssessmentComplete` from the agent evidence unless a configured real
+assessment Session is available.
 
 ### QualityFinding
 Readable code health finding: giant modules, duplicated logic, TODO/HACK

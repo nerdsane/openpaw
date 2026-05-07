@@ -4,19 +4,38 @@ async fn run_repo_sweep(
     worker_run: &WorkerRunState,
     snapshot_id: &str,
 ) -> Result<String> {
-    let scan_root = ensure_worktree(config, worker_run).await?;
+    let workdir = ensure_worktree(config, worker_run).await?;
 
     info!(
         worker_run_id = %worker_run.id,
         snapshot_id,
-        root = %scan_root.display(),
-        "running repo graph and dependency sweep"
+        root = %workdir.display(),
+        "starting local Codex repo-health patrol"
     );
 
-    let graph = scan_repo_health(&scan_root)?;
-    let graph_json = serde_json::to_string(&graph).context("serialize repo sweep graph")?;
-    let finding_count = graph.quality_findings.len() + graph.security_findings.len();
-    let summary = repo_sweep_summary_markdown(&scan_root, &graph);
+    let prompt = repo_health_agent_prompt(snapshot_id, worker_run);
+    let output = run_codex_exec_command(config, &workdir, prompt, "run local Codex repo-health patrol").await?;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let combined = if stderr.trim().is_empty() {
+        stdout.to_string()
+    } else {
+        format!("{stdout}\n\n[stderr]\n{stderr}")
+    };
+    if !output.status.success() {
+        bail!(
+            "repo-health Codex patrol failed with status {:?}: {}",
+            output.status.code(),
+            truncate_middle(&combined, 4_000)
+        );
+    }
+
+    let agent_output = parse_repo_health_agent_output(&combined)?;
+    let graph_json = serde_json::to_string(&agent_output.graph)
+        .context("serialize agent-led repo sweep graph")?;
+    let finding_count =
+        agent_output.graph.quality_findings.len() + agent_output.graph.security_findings.len();
+    let summary = repo_sweep_summary_markdown(&agent_output);
 
     post_entity_action(
         client,
@@ -34,10 +53,10 @@ async fn run_repo_sweep(
     .await?;
 
     Ok(format!(
-        "Repo sweep completed for RepoGraphSnapshot {snapshot_id}: {} quality finding(s), {} security finding(s).\n\n{}",
-        graph.quality_findings.len(),
-        graph.security_findings.len(),
-        repo_sweep_summary_markdown(&scan_root, &graph)
+        "Agent-led repo-health patrol completed for RepoGraphSnapshot {snapshot_id}: {} quality finding(s), {} security finding(s).\n\n{}",
+        agent_output.graph.quality_findings.len(),
+        agent_output.graph.security_findings.len(),
+        repo_sweep_summary_markdown(&agent_output)
     ))
 }
 

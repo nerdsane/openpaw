@@ -130,80 +130,20 @@ async fn handle_requested_review_run(
     }
 
     let worker_run = fetch_worker_run(client, config, &review_run.worker_run_id).await?;
-    if !worker_run_is_repo_sweep(&worker_run) {
-        if !config.enable_execution {
-            debug!(
-                review_run_id,
-                worker_run_id = %worker_run.id,
-                "leaving non-repo-sweep ReviewRun for a reviewer agent"
-            );
-            return Ok(());
-        }
-
-        info!(
+    if !config.enable_execution {
+        debug!(
             review_run_id,
-            action = REVIEW_CLAIM_LABEL,
-            "claiming code-change ReviewRun for local Codex reviewer"
+            worker_run_id = %worker_run.id,
+            "leaving ReviewRun for an enabled reviewer agent"
         );
-        post_entity_action(
-            client,
-            config,
-            "ReviewRuns",
-            review_run_id,
-            "Claim",
-            json!({ "reviewer_id": config.worker_id }),
-        )
-        .await?;
-        post_entity_action(
-            client,
-            config,
-            "ReviewRuns",
-            review_run_id,
-            "StartReview",
-            json!({}),
-        )
-        .await?;
-
-        match run_codex_review(config, &worker_run, &review_run).await {
-            Ok(decision) => {
-                let body = json!({
-                    "review_summary": decision.summary,
-                    "live_e2e_summary": decision.live_e2e_summary,
-                    "verdict": decision.verdict,
-                });
-                let action = match decision.action {
-                    ReviewDecisionAction::Approve => "Approve",
-                    ReviewDecisionAction::RequestChanges => "RequestChanges",
-                    ReviewDecisionAction::Escalate => "Escalate",
-                };
-                return post_entity_action(
-                    client,
-                    config,
-                    "ReviewRuns",
-                    review_run_id,
-                    action,
-                    body,
-                )
-                .await;
-            }
-            Err(error) => {
-                return post_entity_action(
-                    client,
-                    config,
-                    "ReviewRuns",
-                    review_run_id,
-                    "Fail",
-                    json!({ "review_summary": format!("local Codex review failed: {error}") }),
-                )
-                .await;
-            }
-        }
+        return Ok(());
     }
 
     info!(
         review_run_id,
         action = REVIEW_CLAIM_LABEL,
-        "claiming repo-sweep ReviewRun"
+        worker_run_id = %worker_run.id,
+        "claiming ReviewRun for local Codex reviewer"
     );
     post_entity_action(
         client,
@@ -224,37 +164,32 @@ async fn handle_requested_review_run(
     )
     .await?;
 
-    let live_e2e_summary = repo_sweep_live_e2e_summary(client, config, &worker_run)
-        .await
-        .unwrap_or_else(|error| format!("Repo sweep live evidence lookup failed: {error}"));
-    let review_summary = format!(
-        "Automated repo-sweep reviewer checked WorkerRun {}, proof {}, and repo sweep output. This auto-review only applies to Patrol repo-health sweeps; normal code-change ReviewRuns remain queued for an independent reviewer agent.",
-        worker_run.id,
-        if review_run.proof_packet_id.is_empty() {
-            "(pending proof)"
-        } else {
-            review_run.proof_packet_id.as_str()
+    match run_codex_review(config, &worker_run, &review_run).await {
+        Ok(decision) => {
+            let body = json!({
+                "review_summary": decision.summary,
+                "live_e2e_summary": decision.live_e2e_summary,
+                "verdict": decision.verdict,
+            });
+            let action = match decision.action {
+                ReviewDecisionAction::Approve => "Approve",
+                ReviewDecisionAction::RequestChanges => "RequestChanges",
+                ReviewDecisionAction::Escalate => "Escalate",
+            };
+            post_entity_action(client, config, "ReviewRuns", review_run_id, action, body).await
         }
-    );
-
-    info!(
-        review_run_id,
-        action = REVIEW_APPROVE_LABEL,
-        "approving repo-sweep ReviewRun"
-    );
-    post_entity_action(
-        client,
-        config,
-        "ReviewRuns",
-        review_run_id,
-        "Approve",
-        json!({
-            "review_summary": review_summary,
-            "live_e2e_summary": live_e2e_summary,
-            "verdict": "approved_repo_sweep_only"
-        }),
-    )
-    .await
+        Err(error) => {
+            post_entity_action(
+                client,
+                config,
+                "ReviewRuns",
+                review_run_id,
+                "Fail",
+                json!({ "review_summary": format!("local Codex review failed: {error}") }),
+            )
+            .await
+        }
+    }
 }
 
 async fn handle_queued_evaluation_run(

@@ -61,11 +61,11 @@ case "$prompt" in
     echo "PAW_CODEX_DOCTOR_EXEC_OK"
     ;;
   "You are the independent reviewer"*)
-    echo "SUMMARY: Fake reviewer approved the deterministic worker E2E output."
+    echo "SUMMARY: Fake reviewer approved the agent-led worker E2E output."
     echo "LIVE_E2E: Confirmed the fake implementer marker exists in the assigned worktree."
     echo "VERDICT: approve"
     ;;
-  "You are the Datadog MCP Risk Patrol agent"*)
+  *"Datadog MCP Patrol agent"*)
     cat <<'JSON'
 Fake Codex used its Datadog MCP fixture.
 DATADOG_PATROL_RESULT_JSON_BEGIN
@@ -98,6 +98,48 @@ DATADOG_PATROL_RESULT_JSON_BEGIN
   "recommended_next_queries": ["fixture follow-up query"]
 }
 DATADOG_PATROL_RESULT_JSON_END
+JSON
+    ;;
+  *"repo-health Patrol agent"*)
+    cat <<'JSON'
+Fake Codex investigated the repo health fixture.
+REPO_HEALTH_PATROL_RESULT_JSON_BEGIN
+{
+  "summary_markdown": "# Repo Health Patrol\n\n```mermaid\nflowchart LR\n  Codex[\"Codex repo-health agent\"] --> Graph[\"Repo graph evidence\"]\n  Graph --> Findings[\"Quality + security findings\"]\n  Findings --> Temper[\"RepoGraphSnapshot.ScanComplete\"]\n```\n\nFake repo-health patrol found one actionable readability issue.",
+  "evidence_scope": [
+    {"surface":"codebase_graph","query_or_command":"rg --files","result_summary":"fixture file graph inspected"},
+    {"surface":"wasm_modules","query_or_command":"rg os-apps --glob Cargo.toml","result_summary":"fixture WASM surface inspected"},
+    {"surface":"specs_policies","query_or_command":"rg cedar ioa","result_summary":"fixture specs and policies inspected"},
+    {"surface":"dependencies","query_or_command":"cargo metadata --no-deps","result_summary":"fixture dependency surface inspected"},
+    {"surface":"tests_proofs","query_or_command":"rg \"#\\[test\\]|ProofPacket\"","result_summary":"fixture tests and proofs inspected"},
+    {"surface":"security_readability","query_or_command":"rg \"TODO|HACK|tokio::spawn|sleep\"","result_summary":"fixture security/readability patterns inspected"}
+  ],
+  "quality_findings": [
+    {
+      "fingerprint": "quality:fixture-giant-module",
+      "title": "Fixture giant module should be split",
+      "severity": "medium",
+      "evidence": "fixture/src/lib.rs mixes parsing, routing, and proof rendering concerns.",
+      "affected_paths": ["fixture/src/lib.rs"]
+    }
+  ],
+  "security_findings": [],
+  "summary": {
+    "scanned_files": 12,
+    "scanned_lines": 1200,
+    "giant_modules": 1,
+    "todo_hack_hits": 0,
+    "duplicate_logic_candidates": 0,
+    "broad_cedar_policies": 0,
+    "dependency_risk_hits": 0,
+    "rust_orchestration_hits": 0,
+    "polling_loop_hits": 0,
+    "missing_test_coverage_hits": 0
+  },
+  "residual_risks": ["fixture only"],
+  "recommended_next_actions": ["open a cleanup WorkCycle for fixture/src/lib.rs"]
+}
+REPO_HEALTH_PATROL_RESULT_JSON_END
 JSON
     ;;
   *)

@@ -652,139 +652,70 @@ mod tests {
     }
 
     #[test]
-    fn repo_health_scan_emits_quality_and_security_findings() {
-        let root = unique_temp_dir();
-        fs::create_dir_all(root.join("src")).expect("src dir");
-        fs::create_dir_all(root.join("policies")).expect("policy dir");
-
-        let mut huge = String::new();
-        for index in 0..901 {
-            huge.push_str(&format!("fn generated_{index}() {{}}\n"));
-        }
-        fs::write(root.join("src/huge.rs"), huge).expect("huge source");
-        fs::write(
-            root.join("src/bandaid.rs"),
-            "// TODO remove band-aid\n// HACK duplicated workaround\n",
-        )
-        .expect("bandaid source");
-        let duplicate_block = r#"
-fn shared_branch(value: u64) -> u64 {
-    let mut total = value;
-    total += 7;
-    total *= 3;
-    total -= 2;
-    total
+    fn repo_health_patrol_parser_requires_agent_evidence_surfaces() {
+        let output = r##"
+REPO_HEALTH_PATROL_RESULT_JSON_BEGIN
+{
+  "summary_markdown": "# Agent-led repo health",
+  "evidence_scope": [
+    {"surface":"codebase_graph","query_or_command":"rg --files","result_summary":"graph inspected"},
+    {"surface":"wasm_modules","query_or_command":"rg os-apps","result_summary":"wasm inspected"},
+    {"surface":"specs_policies","query_or_command":"rg cedar ioa","result_summary":"specs inspected"},
+    {"surface":"dependencies","query_or_command":"cargo metadata","result_summary":"dependencies inspected"},
+    {"surface":"tests_proofs","query_or_command":"cargo test --no-run","result_summary":"tests inspected"},
+    {"surface":"security_readability","query_or_command":"rg TODO HACK","result_summary":"readability inspected"}
+  ],
+  "quality_findings": [
+    {
+      "title": "Mixed-concern WASM module",
+      "severity": "warn",
+      "evidence": "os-apps/paw-agent/wasm/monty_repl/src/lib.rs mixes REPL, parsing, and orchestration.",
+      "affected_paths": ["./os-apps/paw-agent/wasm/monty_repl/src/lib.rs"]
+    }
+  ],
+  "security_findings": [
+    {
+      "title": "Broad Cedar policy needs review",
+      "severity": "critical",
+      "risk_lane": "l3",
+      "evidence": "policy permits a broad shape.",
+      "affected_paths": ["os-apps/demo/policies/demo.cedar"]
+    }
+  ],
+  "summary": {
+    "scanned_files": 120,
+    "scanned_lines": 44000,
+    "giant_modules": 1,
+    "todo_hack_hits": 4,
+    "duplicate_logic_candidates": 2,
+    "broad_cedar_policies": 1,
+    "dependency_risk_hits": 0,
+    "rust_orchestration_hits": 1,
+    "polling_loop_hits": 1,
+    "missing_test_coverage_hits": 3
+  },
+  "residual_risks": ["human should approve L3"],
+  "recommended_next_actions": ["split Monty REPL"]
 }
-"#;
-        fs::write(
-            root.join("src/duplicate_a.rs"),
-            format!("pub fn a(value: u64) -> u64 {{ shared_branch(value) }}\n{duplicate_block}"),
-        )
-        .expect("duplicate source a");
-        fs::write(
-            root.join("src/duplicate_b.rs"),
-            format!("pub fn b(value: u64) -> u64 {{ shared_branch(value) }}\n{duplicate_block}"),
-        )
-        .expect("duplicate source b");
-        fs::write(
-            root.join("src/polling.rs"),
-            "async fn watch() { loop { tokio::time::sleep(std::time::Duration::from_secs(1)).await; } }\n",
-        )
-        .expect("polling source");
-        fs::create_dir_all(root.join("crate-a")).expect("crate dir");
-        fs::write(
-            root.join("crate-a/Cargo.toml"),
-            "[package]\nname = \"crate-a\"\nversion = \"0.1.0\"\n\n[dependencies]\ntemper = { git = \"https://github.com/nerdsane/temper\", rev = \"abc123\" }\n",
-        )
-        .expect("cargo manifest");
-        fs::create_dir_all(root.join("os-apps/demo/wasm/lifecycle/src")).expect("wasm dir");
-        fs::write(
-            root.join("os-apps/demo/wasm/lifecycle/Cargo.toml"),
-            "[package]\nname = \"demo-lifecycle\"\nversion = \"0.1.0\"\n",
-        )
-        .expect("wasm manifest");
-        fs::write(
-            root.join("os-apps/demo/wasm/lifecycle/src/lib.rs"),
-            "pub fn run() -> &'static str { \"ok\" }\n",
-        )
-        .expect("wasm source");
-        fs::write(
-            root.join("policies/broad.cedar"),
-            "permit(principal, action, resource);",
-        )
-        .expect("policy");
+REPO_HEALTH_PATROL_RESULT_JSON_END
+"##;
 
-        let graph = scan_repo_health(&root).expect("scan");
+        let parsed = parse_repo_health_agent_output(output).expect("parse agent output");
 
+        assert_eq!(parsed.graph.quality_findings.len(), 1);
+        assert_eq!(parsed.graph.security_findings.len(), 1);
+        assert_eq!(parsed.graph.quality_findings[0].severity, "low");
         assert!(
-            graph.quality_findings.iter().any(|finding| {
-                finding.title.contains("Giant module")
-                    && finding.affected_paths.contains(&"src/huge.rs".to_string())
-            }),
-            "quality findings should include giant module evidence: {graph:?}"
+            parsed.graph.quality_findings[0]
+                .fingerprint
+                .starts_with("quality:")
         );
-        assert!(
-            graph
-                .quality_findings
-                .iter()
-                .any(|finding| finding.title.contains("TODO/HACK")),
-            "quality findings should include band-aid evidence: {graph:?}"
+        assert_eq!(parsed.graph.security_findings[0].severity, "high");
+        assert_eq!(parsed.graph.security_findings[0].risk_lane, "L3");
+        assert_eq!(
+            parsed.graph.quality_findings[0].affected_paths,
+            vec!["os-apps/paw-agent/wasm/monty_repl/src/lib.rs"]
         );
-        assert!(
-            graph
-                .quality_findings
-                .iter()
-                .all(|finding| finding.fingerprint.starts_with("quality:")),
-            "quality findings should include stable quality fingerprints: {graph:?}"
-        );
-        assert!(
-            graph
-                .quality_findings
-                .iter()
-                .any(|finding| finding.title.contains("Duplicate logic candidate")),
-            "quality findings should include duplicate logic evidence: {graph:?}"
-        );
-        assert!(
-            graph
-                .quality_findings
-                .iter()
-                .any(|finding| finding.title.contains("Polling loop")),
-            "quality findings should include polling loop evidence: {graph:?}"
-        );
-        assert!(
-            graph
-                .quality_findings
-                .iter()
-                .any(|finding| finding.title.contains("Missing WASM test coverage")),
-            "quality findings should include missing WASM test coverage evidence: {graph:?}"
-        );
-        assert!(
-            graph
-                .security_findings
-                .iter()
-                .any(|finding| finding.title.contains("Broad Cedar")),
-            "security findings should include broad Cedar evidence: {graph:?}"
-        );
-        assert!(
-            graph
-                .security_findings
-                .iter()
-                .any(|finding| finding.title.contains("Dependency risk")),
-            "security findings should include dependency risk evidence: {graph:?}"
-        );
-        assert!(
-            graph
-                .security_findings
-                .iter()
-                .all(|finding| finding.fingerprint.starts_with("security:")),
-            "security findings should include stable security fingerprints: {graph:?}"
-        );
-        assert!(graph.summary.duplicate_logic_candidates > 0);
-        assert!(graph.summary.polling_loop_hits > 0);
-        assert!(graph.summary.dependency_risk_hits > 0);
-        assert!(graph.summary.missing_test_coverage_hits > 0);
-
-        fs::remove_dir_all(root).ok();
     }
 
     fn unique_temp_dir() -> PathBuf {

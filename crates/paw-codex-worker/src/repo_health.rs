@@ -1,36 +1,49 @@
-use anyhow::{Context, Result};
-use serde::Serialize;
-use std::collections::{HashMap, HashSet};
-use std::fs;
-use std::path::{Path, PathBuf};
+use crate::{WorkerRunState, worker_run_branch_label};
+use anyhow::{Context, Result, bail};
+use serde::{Deserialize, Serialize};
+use serde_json::json;
 
-#[derive(Clone, Debug, Serialize)]
+const REPO_HEALTH_RESULT_JSON_BEGIN: &str = "REPO_HEALTH_PATROL_RESULT_JSON_BEGIN";
+const REPO_HEALTH_RESULT_JSON_END: &str = "REPO_HEALTH_PATROL_RESULT_JSON_END";
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub(crate) struct RepoSweepGraph {
     pub(crate) quality_findings: Vec<QualityFindingRecord>,
     pub(crate) security_findings: Vec<SecurityFindingRecord>,
     pub(crate) summary: RepoSweepSummary,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub(crate) struct QualityFindingRecord {
+    #[serde(default)]
     pub(crate) fingerprint: String,
+    #[serde(default)]
     pub(crate) title: String,
+    #[serde(default)]
     pub(crate) severity: String,
+    #[serde(default)]
     pub(crate) evidence: String,
+    #[serde(default)]
     pub(crate) affected_paths: Vec<String>,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub(crate) struct SecurityFindingRecord {
+    #[serde(default)]
     pub(crate) fingerprint: String,
+    #[serde(default)]
     pub(crate) title: String,
+    #[serde(default)]
     pub(crate) severity: String,
+    #[serde(default)]
     pub(crate) risk_lane: String,
+    #[serde(default)]
     pub(crate) evidence: String,
+    #[serde(default)]
     pub(crate) affected_paths: Vec<String>,
 }
 
-#[derive(Clone, Debug, Default, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub(crate) struct RepoSweepSummary {
     pub(crate) scanned_files: usize,
     pub(crate) scanned_lines: usize,
@@ -44,11 +57,23 @@ pub(crate) struct RepoSweepSummary {
     pub(crate) missing_test_coverage_hits: usize,
 }
 
-#[derive(Clone, Debug)]
-struct ScannedFile {
-    path: PathBuf,
-    relative: String,
-    content: String,
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub(crate) struct RepoHealthAgentOutput {
+    pub(crate) summary_markdown: String,
+    pub(crate) graph: RepoSweepGraph,
+    pub(crate) evidence_scope: Vec<RepoHealthEvidenceScope>,
+    pub(crate) residual_risks: Vec<String>,
+    pub(crate) recommended_next_actions: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub(crate) struct RepoHealthEvidenceScope {
+    #[serde(default)]
+    pub(crate) surface: String,
+    #[serde(default)]
+    pub(crate) query_or_command: String,
+    #[serde(default)]
+    pub(crate) result_summary: String,
 }
 
 pub(crate) fn extract_repo_sweep_snapshot_id(task: &str) -> Option<String> {
@@ -61,138 +86,60 @@ pub(crate) fn extract_repo_sweep_snapshot_id(task: &str) -> Option<String> {
     })
 }
 
-pub(crate) fn scan_repo_health(root: &Path) -> Result<RepoSweepGraph> {
-    let mut graph = RepoSweepGraph {
-        quality_findings: Vec::new(),
-        security_findings: Vec::new(),
-        summary: RepoSweepSummary::default(),
-    };
-    let mut files = Vec::new();
-    let mut scanned_files = Vec::new();
-    collect_scan_files(root, root, &mut files)?;
-
-    for path in files {
-        let Ok(metadata) = fs::metadata(&path) else {
-            continue;
-        };
-        if metadata.len() > 1_000_000 {
-            continue;
+pub(crate) fn repo_health_agent_prompt(snapshot_id: &str, worker_run: &WorkerRunState) -> String {
+    format!(
+        "You are the local Codex repo-health Patrol agent for TemperPaw.\n\nRepoGraphSnapshot: {snapshot_id}\nWorkerRun: {}\nBranch: {}\n\nOriginal task from Temper:\n{}\n\nRequired loop:\n1. Work in this assigned worktree. Do not edit files during the patrol scan.\n2. Actively investigate the TemperPaw and deeply coupled Temper surface with agent judgment. Use repo tools such as rg, git, cargo metadata, cargo tree, npm scripts, and targeted source reads.\n3. Inspect these surfaces: codebase graph, giant modules/mixed concerns, duplicate logic, TODO/HACK/band-aids, WASM modules, IOA specs, Cedar policies, Rust orchestration, polling loops, dependencies, security drift, tests, proofs, dashboard breakage, and agent/human readability.\n4. Findings must be actionable and evidenced. Do not turn every heuristic hit into work; use judgment.\n5. Return one JSON object between {REPO_HEALTH_RESULT_JSON_BEGIN} and {REPO_HEALTH_RESULT_JSON_END}. The worker validates that JSON and writes RepoGraphSnapshot.ScanComplete through Temper.\n6. Do not print secrets.\n\nRequired JSON shape:\n{{\n  \"summary_markdown\": \"human-readable markdown with a Mermaid diagram when useful\",\n  \"evidence_scope\": [\n    {{\"surface\":\"codebase_graph\",\"query_or_command\":\"what you ran/read\",\"result_summary\":\"what you learned\"}},\n    {{\"surface\":\"wasm_modules\",\"query_or_command\":\"...\",\"result_summary\":\"...\"}},\n    {{\"surface\":\"specs_policies\",\"query_or_command\":\"...\",\"result_summary\":\"...\"}},\n    {{\"surface\":\"dependencies\",\"query_or_command\":\"...\",\"result_summary\":\"...\"}},\n    {{\"surface\":\"tests_proofs\",\"query_or_command\":\"...\",\"result_summary\":\"...\"}},\n    {{\"surface\":\"security_readability\",\"query_or_command\":\"...\",\"result_summary\":\"...\"}}\n  ],\n  \"quality_findings\": [\n    {{\"fingerprint\":\"quality:<stable-id>\",\"title\":\"...\",\"severity\":\"low|medium|high\",\"evidence\":\"cite paths and concrete reason\",\"affected_paths\":[\"path\"]}}\n  ],\n  \"security_findings\": [\n    {{\"fingerprint\":\"security:<stable-id>\",\"title\":\"...\",\"severity\":\"low|medium|high\",\"risk_lane\":\"L1|L2|L3\",\"evidence\":\"cite paths and concrete reason\",\"affected_paths\":[\"path\"]}}\n  ],\n  \"summary\": {{\n    \"scanned_files\": 0,\n    \"scanned_lines\": 0,\n    \"giant_modules\": 0,\n    \"todo_hack_hits\": 0,\n    \"duplicate_logic_candidates\": 0,\n    \"broad_cedar_policies\": 0,\n    \"dependency_risk_hits\": 0,\n    \"rust_orchestration_hits\": 0,\n    \"polling_loop_hits\": 0,\n    \"missing_test_coverage_hits\": 0\n  }},\n  \"residual_risks\": [\"...\"],\n  \"recommended_next_actions\": [\"...\"]\n}}\n\nIf there are no findings, return empty finding arrays and explain the evidence you checked.",
+        worker_run.id,
+        worker_run_branch_label(worker_run),
+        if worker_run.task.is_empty() {
+            "(no task text recorded)"
+        } else {
+            worker_run.task.as_str()
         }
-        let Ok(content) = fs::read_to_string(&path) else {
-            continue;
-        };
-        let relative = relative_path(root, &path);
-        let line_count = content.lines().count();
-        graph.summary.scanned_files += 1;
-        graph.summary.scanned_lines += line_count;
-        scanned_files.push(ScannedFile {
-            path: path.clone(),
-            relative: relative.clone(),
-            content: content.clone(),
-        });
-
-        if line_count >= 900 && is_source_like(&path) {
-            graph.summary.giant_modules += 1;
-            let title = format!("Giant module exceeds readability budget: {relative}");
-            let affected_paths = vec![relative.clone()];
-            graph.quality_findings.push(QualityFindingRecord {
-                fingerprint: finding_fingerprint("quality", &title, &affected_paths),
-                title,
-                severity: "medium".to_string(),
-                evidence: format!(
-                    "{relative} has {line_count} lines; split concerns before ratcheting this area."
-                ),
-                affected_paths,
-            });
-        }
-
-        let todo_hack_hits = count_markers(&content, &["TODO", "HACK", "band-aid", "bandaid"]);
-        if todo_hack_hits >= 2 && is_source_like(&path) {
-            graph.summary.todo_hack_hits += todo_hack_hits;
-            let title = format!("TODO/HACK band-aids need cleanup: {relative}");
-            let affected_paths = vec![relative.clone()];
-            graph.quality_findings.push(QualityFindingRecord {
-                fingerprint: finding_fingerprint("quality", &title, &affected_paths),
-                title,
-                severity: "low".to_string(),
-                evidence: format!(
-                    "{relative} contains {todo_hack_hits} TODO/HACK/band-aid markers."
-                ),
-                affected_paths,
-            });
-        }
-
-        if is_dependency_manifest(&path)
-            && let Some(finding) = dependency_risk_finding(&relative, &content)
-        {
-            graph.summary.dependency_risk_hits += 1;
-            graph.security_findings.push(finding);
-        }
-
-        if is_source_like(&path) && contains_polling_loop(&content) {
-            graph.summary.polling_loop_hits += 1;
-            let title = format!("Polling loop needs Temper-native self-loop audit: {relative}");
-            let affected_paths = vec![relative.clone()];
-            graph.quality_findings.push(QualityFindingRecord {
-                fingerprint: finding_fingerprint("quality", &title, &affected_paths),
-                title,
-                severity: "medium".to_string(),
-                evidence: format!(
-                    "{relative} combines a loop/while construct with sleep-based waiting."
-                ),
-                affected_paths,
-            });
-        }
-
-        if path.extension().and_then(|ext| ext.to_str()) == Some("cedar")
-            && has_broad_cedar_permit(&content)
-        {
-            graph.summary.broad_cedar_policies += 1;
-            let title = format!("Broad Cedar permit needs review: {relative}");
-            let affected_paths = vec![relative.clone()];
-            graph.security_findings.push(SecurityFindingRecord {
-                fingerprint: finding_fingerprint("security", &title, &affected_paths),
-                title,
-                severity: "high".to_string(),
-                risk_lane: "L2".to_string(),
-                evidence: format!(
-                    "{relative} contains an unrestricted principal/action/resource permit shape."
-                ),
-                affected_paths,
-            });
-        }
-
-        if relative.starts_with("crates/temperpaw/")
-            && is_rust_file(&path)
-            && contains_any(&content, &["tokio::spawn", "sleep(Duration", "loop {"])
-        {
-            graph.summary.rust_orchestration_hits += 1;
-            let title = format!("Rust orchestration needs Temper-native audit: {relative}");
-            let affected_paths = vec![relative.clone()];
-            graph.quality_findings.push(QualityFindingRecord {
-                fingerprint: finding_fingerprint("quality", &title, &affected_paths),
-                title,
-                severity: "medium".to_string(),
-                evidence: format!("{relative} contains spawn/sleep/loop orchestration markers; confirm this is trigger/platform logic, not hidden business flow."),
-                affected_paths,
-            });
-        }
-    }
-
-    add_duplicate_logic_findings(&scanned_files, &mut graph);
-    add_missing_wasm_test_findings(root, &scanned_files, &mut graph);
-
-    Ok(graph)
+    )
 }
 
-pub(crate) fn repo_sweep_summary_markdown(root: &Path, graph: &RepoSweepGraph) -> String {
+pub(crate) fn parse_repo_health_agent_output(output: &str) -> Result<RepoHealthAgentOutput> {
+    let json_text = extract_repo_health_result_json(output)?;
+    let raw: RepoHealthRawOutput =
+        serde_json::from_str(json_text).context("parse repo health Codex JSON")?;
+    raw.into_agent_output()
+}
+
+pub(crate) fn repo_sweep_summary_markdown(output: &RepoHealthAgentOutput) -> String {
+    let graph = &output.graph;
+    let evidence = if output.evidence_scope.is_empty() {
+        "- No evidence scope recorded.".to_string()
+    } else {
+        output
+            .evidence_scope
+            .iter()
+            .map(|scope| {
+                format!(
+                    "- {}: {}",
+                    empty_fallback(&scope.surface, "unknown"),
+                    empty_fallback(&scope.result_summary, "no summary")
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    let residual = if output.residual_risks.is_empty() {
+        "None recorded.".to_string()
+    } else {
+        output.residual_risks.join("; ")
+    };
+
     format!(
-        "# Repo Sweep Summary\n\nRoot: {}\nScanned files: {}\nScanned lines: {}\nQuality findings: {}\nSecurity findings: {}\n\nSignals scanned: giant modules, duplicate logic candidates, TODO/HACK band-aids, Cedar drift, dependency/security risks, hidden Rust orchestration, polling loops, and missing WASM test coverage.\n\nDetected counts: giant_modules={}, duplicate_logic_candidates={}, todo_hack_hits={}, broad_cedar_policies={}, dependency_risk_hits={}, rust_orchestration_hits={}, polling_loop_hits={}, missing_test_coverage_hits={}.",
-        root.display(),
-        graph.summary.scanned_files,
-        graph.summary.scanned_lines,
+        "{}\n\n## Structured Counts\n\n- Quality findings: {}\n- Security findings: {}\n- Scanned files: {}\n- Scanned lines: {}\n- Giant modules: {}\n- Duplicate logic candidates: {}\n- TODO/HACK/band-aid hits: {}\n- Cedar policy risks: {}\n- Dependency risk hits: {}\n- Rust orchestration hits: {}\n- Polling loop hits: {}\n- Missing test/proof coverage hits: {}\n\n## Evidence Scope\n\n{}\n\n## Residual Risks\n\n{}",
+        empty_fallback(
+            &output.summary_markdown,
+            "# Repo Health Patrol\n\nCodex completed an agent-led repo health scan."
+        ),
         graph.quality_findings.len(),
         graph.security_findings.len(),
+        graph.summary.scanned_files,
+        graph.summary.scanned_lines,
         graph.summary.giant_modules,
         graph.summary.duplicate_logic_candidates,
         graph.summary.todo_hack_hits,
@@ -200,294 +147,166 @@ pub(crate) fn repo_sweep_summary_markdown(root: &Path, graph: &RepoSweepGraph) -
         graph.summary.dependency_risk_hits,
         graph.summary.rust_orchestration_hits,
         graph.summary.polling_loop_hits,
-        graph.summary.missing_test_coverage_hits
+        graph.summary.missing_test_coverage_hits,
+        evidence,
+        residual
     )
 }
 
-fn collect_scan_files(root: &Path, current: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
-    if should_skip_path(root, current) {
-        return Ok(());
+fn extract_repo_health_result_json(output: &str) -> Result<&str> {
+    let start = output
+        .find(REPO_HEALTH_RESULT_JSON_BEGIN)
+        .with_context(|| format!("missing {REPO_HEALTH_RESULT_JSON_BEGIN} marker"))?;
+    let after_start = &output[start + REPO_HEALTH_RESULT_JSON_BEGIN.len()..];
+    let end = after_start
+        .find(REPO_HEALTH_RESULT_JSON_END)
+        .with_context(|| format!("missing {REPO_HEALTH_RESULT_JSON_END} marker"))?;
+    let json_text = after_start[..end].trim();
+    if json_text.is_empty() {
+        bail!("repo health Codex result JSON was empty");
     }
-    for entry in fs::read_dir(current).with_context(|| format!("read {}", current.display()))? {
-        let entry = entry?;
-        let path = entry.path();
-        if should_skip_path(root, &path) {
-            continue;
+    Ok(json_text)
+}
+
+#[derive(Debug, Deserialize)]
+struct RepoHealthRawOutput {
+    #[serde(default)]
+    summary_markdown: String,
+    #[serde(default)]
+    evidence_scope: Vec<RepoHealthEvidenceScope>,
+    #[serde(default)]
+    quality_findings: Vec<QualityFindingRecord>,
+    #[serde(default)]
+    security_findings: Vec<SecurityFindingRecord>,
+    #[serde(default)]
+    summary: RepoSweepSummary,
+    #[serde(default)]
+    residual_risks: Vec<String>,
+    #[serde(default)]
+    recommended_next_actions: Vec<String>,
+}
+
+impl RepoHealthRawOutput {
+    fn into_agent_output(mut self) -> Result<RepoHealthAgentOutput> {
+        require_repo_health_surfaces(&self.evidence_scope)?;
+        for finding in &mut self.quality_findings {
+            finding.normalize("quality");
         }
-        if path.is_dir() {
-            collect_scan_files(root, &path, files)?;
-        } else if is_interesting_file(&path) {
-            files.push(path);
+        for finding in &mut self.security_findings {
+            finding.normalize("security");
         }
+
+        Ok(RepoHealthAgentOutput {
+            summary_markdown: self.summary_markdown.trim().to_string(),
+            graph: RepoSweepGraph {
+                quality_findings: self.quality_findings,
+                security_findings: self.security_findings,
+                summary: self.summary,
+            },
+            evidence_scope: self.evidence_scope,
+            residual_risks: self.residual_risks,
+            recommended_next_actions: self.recommended_next_actions,
+        })
+    }
+}
+
+impl QualityFindingRecord {
+    fn normalize(&mut self, prefix: &str) {
+        self.title = self.title.trim().to_string();
+        self.severity = normalize_severity(&self.severity);
+        self.evidence = self.evidence.trim().to_string();
+        self.affected_paths = normalized_paths(&self.affected_paths);
+        if self.fingerprint.trim().is_empty() {
+            self.fingerprint = stable_fingerprint(prefix, &self.title, &self.affected_paths);
+        }
+    }
+}
+
+impl SecurityFindingRecord {
+    fn normalize(&mut self, prefix: &str) {
+        self.title = self.title.trim().to_string();
+        self.severity = normalize_severity(&self.severity);
+        self.risk_lane = normalize_risk_lane(&self.risk_lane);
+        self.evidence = self.evidence.trim().to_string();
+        self.affected_paths = normalized_paths(&self.affected_paths);
+        if self.fingerprint.trim().is_empty() {
+            self.fingerprint = stable_fingerprint(prefix, &self.title, &self.affected_paths);
+        }
+    }
+}
+
+fn require_repo_health_surfaces(scopes: &[RepoHealthEvidenceScope]) -> Result<()> {
+    let required = [
+        "codebase_graph",
+        "wasm_modules",
+        "specs_policies",
+        "dependencies",
+        "tests_proofs",
+        "security_readability",
+    ];
+    let present = scopes
+        .iter()
+        .map(|scope| scope.surface.trim().to_ascii_lowercase())
+        .collect::<Vec<_>>();
+    let missing = required
+        .iter()
+        .filter(|surface| !present.iter().any(|value| value == **surface))
+        .copied()
+        .collect::<Vec<_>>();
+    if !missing.is_empty() {
+        bail!(
+            "repo health Codex output missing evidence surfaces: {}",
+            missing.join(", ")
+        );
     }
     Ok(())
 }
 
-fn should_skip_path(root: &Path, path: &Path) -> bool {
-    let relative = relative_path(root, path);
-    relative.split('/').any(|part| {
-        matches!(
-            part,
-            ".git" | "target" | "node_modules" | ".next" | "dist" | "build"
-        )
+fn normalize_severity(value: &str) -> String {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "low" | "info" | "warn" | "warning" => "low".to_string(),
+        "high" | "critical" | "error" => "high".to_string(),
+        _ => "medium".to_string(),
+    }
+}
+
+fn normalize_risk_lane(value: &str) -> String {
+    match value.trim().to_ascii_uppercase().as_str() {
+        "L1" | "L2" | "L3" => value.trim().to_ascii_uppercase(),
+        _ => "L2".to_string(),
+    }
+}
+
+fn normalized_paths(paths: &[String]) -> Vec<String> {
+    let mut values = paths
+        .iter()
+        .map(|path| path.trim().trim_start_matches("./").to_string())
+        .filter(|path| !path.is_empty())
+        .collect::<Vec<_>>();
+    values.sort();
+    values.dedup();
+    values
+}
+
+fn stable_fingerprint(kind: &str, title: &str, affected_paths: &[String]) -> String {
+    let material = json!({
+        "kind": kind,
+        "title": title,
+        "affected_paths": affected_paths,
     })
-}
-
-fn is_interesting_file(path: &Path) -> bool {
-    matches!(
-        path.extension().and_then(|ext| ext.to_str()),
-        Some(
-            "rs" | "toml"
-                | "cedar"
-                | "md"
-                | "ts"
-                | "tsx"
-                | "js"
-                | "jsx"
-                | "py"
-                | "json"
-                | "yml"
-                | "yaml"
-        )
-    )
-}
-
-fn is_source_like(path: &Path) -> bool {
-    matches!(
-        path.extension().and_then(|ext| ext.to_str()),
-        Some("rs" | "ts" | "tsx" | "js" | "jsx" | "py")
-    )
-}
-
-fn is_rust_file(path: &Path) -> bool {
-    path.extension().and_then(|ext| ext.to_str()) == Some("rs")
-}
-
-fn relative_path(root: &Path, path: &Path) -> String {
-    path.strip_prefix(root)
-        .unwrap_or(path)
-        .to_string_lossy()
-        .replace('\\', "/")
-}
-
-fn count_markers(content: &str, markers: &[&str]) -> usize {
-    let haystack = content.to_ascii_lowercase();
-    markers
-        .iter()
-        .map(|marker| haystack.matches(&marker.to_ascii_lowercase()).count())
-        .sum()
-}
-
-fn has_broad_cedar_permit(content: &str) -> bool {
-    let compact = content.split_whitespace().collect::<Vec<_>>().join(" ");
-    compact.contains("permit(principal, action, resource)")
-        || compact.contains("permit( principal, action, resource")
-        || (compact.contains("permit( principal,")
-            && compact.contains(" action,")
-            && compact.contains(" resource"))
-}
-
-fn contains_any(haystack: &str, needles: &[&str]) -> bool {
-    needles.iter().any(|needle| haystack.contains(needle))
-}
-
-fn add_duplicate_logic_findings(scanned_files: &[ScannedFile], graph: &mut RepoSweepGraph) {
-    let mut windows: HashMap<String, Vec<(String, usize)>> = HashMap::new();
-    for file in scanned_files
-        .iter()
-        .filter(|file| is_source_like(&file.path))
-    {
-        let logic_lines: Vec<(usize, String)> = file
-            .content
-            .lines()
-            .enumerate()
-            .filter_map(|(index, line)| normalize_logic_line(line).map(|line| (index + 1, line)))
-            .collect();
-        if logic_lines.len() < 6 {
-            continue;
-        }
-        for window in logic_lines.windows(6) {
-            let fingerprint = window
-                .iter()
-                .map(|(_, line)| line.as_str())
-                .collect::<Vec<_>>()
-                .join("\n");
-            if fingerprint.len() < 80 {
-                continue;
-            }
-            windows
-                .entry(fingerprint)
-                .or_default()
-                .push((file.relative.clone(), window[0].0));
-        }
-    }
-
-    let mut reported_path_groups = HashSet::new();
-    let mut duplicate_groups = Vec::new();
-    for entries in windows.into_values() {
-        let mut paths = entries
-            .iter()
-            .map(|(path, _)| path.clone())
-            .collect::<Vec<_>>();
-        paths.sort();
-        paths.dedup();
-        if paths.len() < 2 {
-            continue;
-        }
-        let group_key = paths.join("|");
-        if reported_path_groups.insert(group_key) {
-            duplicate_groups.push((paths, entries));
-        }
-    }
-
-    duplicate_groups.sort_by(|left, right| left.0.cmp(&right.0));
-    for (paths, entries) in duplicate_groups.into_iter().take(10) {
-        graph.summary.duplicate_logic_candidates += 1;
-        let evidence = entries
-            .iter()
-            .filter(|(path, _)| paths.contains(path))
-            .take(4)
-            .map(|(path, line)| format!("{path}:{line}"))
-            .collect::<Vec<_>>()
-            .join(", ");
-        let title = format!("Duplicate logic candidate across {} files", paths.len());
-        graph.quality_findings.push(QualityFindingRecord {
-            fingerprint: finding_fingerprint("quality", &title, &paths),
-            title,
-            severity: "medium".to_string(),
-            evidence: format!(
-                "The same normalized six-line logic block appears at {evidence}; review for shared helper extraction."
-            ),
-            affected_paths: paths,
-        });
-    }
-}
-
-fn add_missing_wasm_test_findings(
-    root: &Path,
-    scanned_files: &[ScannedFile],
-    graph: &mut RepoSweepGraph,
-) {
-    for manifest in scanned_files
-        .iter()
-        .filter(|file| is_wasm_crate_manifest(&file.relative))
-    {
-        let lib_path = root.join(
-            Path::new(&manifest.relative)
-                .parent()
-                .unwrap_or_else(|| Path::new(""))
-                .join("src/lib.rs"),
-        );
-        let lib_relative = relative_path(root, &lib_path);
-        let Some(lib) = scanned_files
-            .iter()
-            .find(|file| file.relative == lib_relative)
-        else {
-            continue;
-        };
-        if has_rust_tests(&lib.content) {
-            continue;
-        }
-        graph.summary.missing_test_coverage_hits += 1;
-        let title = format!("Missing WASM test coverage: {}", manifest.relative);
-        let affected_paths = vec![manifest.relative.clone(), lib.relative.clone()];
-        graph.quality_findings.push(QualityFindingRecord {
-            fingerprint: finding_fingerprint("quality", &title, &affected_paths),
-            title,
-            severity: "medium".to_string(),
-            evidence: format!(
-                "{} has a src/lib.rs entry point but no #[test], #[cfg(test)], or test module marker.",
-                manifest.relative
-            ),
-            affected_paths,
-        });
-    }
-}
-
-fn dependency_risk_finding(relative: &str, content: &str) -> Option<SecurityFindingRecord> {
-    if relative.ends_with("Cargo.toml") && content.contains("git =") {
-        let detail = if content.contains("rev =") {
-            "git dependency is pinned; keep freshness and upstream review explicit"
-        } else {
-            "git dependency is not pinned to a rev"
-        };
-        let title = format!("Dependency risk requires freshness review: {relative}");
-        let affected_paths = vec![relative.to_string()];
-        return Some(SecurityFindingRecord {
-            fingerprint: finding_fingerprint("security", &title, &affected_paths),
-            title,
-            severity: "medium".to_string(),
-            risk_lane: "L1".to_string(),
-            evidence: format!("{relative} uses a Cargo git dependency; {detail}."),
-            affected_paths,
-        });
-    }
-
-    if relative.ends_with("package.json") && contains_any(content, &["\"latest\"", "\": \"*\""]) {
-        let title = format!("Dependency risk requires freshness review: {relative}");
-        let affected_paths = vec![relative.to_string()];
-        return Some(SecurityFindingRecord {
-            fingerprint: finding_fingerprint("security", &title, &affected_paths),
-            title,
-            severity: "medium".to_string(),
-            risk_lane: "L1".to_string(),
-            evidence: format!(
-                "{relative} contains a loose npm dependency version such as latest or *."
-            ),
-            affected_paths,
-        });
-    }
-
-    None
-}
-
-fn normalize_logic_line(line: &str) -> Option<String> {
-    let trimmed = line.trim();
-    if trimmed.is_empty()
-        || trimmed == "{"
-        || trimmed == "}"
-        || trimmed.starts_with("//")
-        || trimmed.starts_with('#')
-    {
-        return None;
-    }
-    Some(trimmed.split_whitespace().collect::<Vec<_>>().join(" "))
-}
-
-fn contains_polling_loop(content: &str) -> bool {
-    let lower = content.to_ascii_lowercase();
-    let has_wait = lower.contains("sleep(") || lower.contains("settimeout(");
-    let has_loop = lower.contains("loop {")
-        || lower.contains("while ")
-        || lower.contains("setinterval(")
-        || lower.contains("for (;;)");
-    has_wait && has_loop
-}
-
-fn is_dependency_manifest(path: &Path) -> bool {
-    matches!(
-        path.file_name().and_then(|name| name.to_str()),
-        Some("Cargo.toml" | "package.json")
-    )
-}
-
-fn is_wasm_crate_manifest(relative: &str) -> bool {
-    let parts = relative.split('/').collect::<Vec<_>>();
-    parts.len() == 5 && parts[0] == "os-apps" && parts[2] == "wasm" && parts[4] == "Cargo.toml"
-}
-
-fn has_rust_tests(content: &str) -> bool {
-    content.contains("#[test]") || content.contains("#[cfg(test)]") || content.contains("mod tests")
-}
-
-fn finding_fingerprint(kind: &str, title: &str, affected_paths: &[String]) -> String {
-    let mut paths = affected_paths.to_vec();
-    paths.sort();
-    let material = format!("{kind}|{title}|{}", paths.join("|"));
+    .to_string();
     let mut hash = 0xcbf29ce484222325_u64;
     for byte in material.as_bytes() {
         hash ^= u64::from(*byte);
         hash = hash.wrapping_mul(0x100000001b3);
     }
     format!("{kind}:{hash:016x}")
+}
+
+fn empty_fallback<'a>(value: &'a str, fallback: &'a str) -> &'a str {
+    if value.trim().is_empty() {
+        fallback
+    } else {
+        value
+    }
 }

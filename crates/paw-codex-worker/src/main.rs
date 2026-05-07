@@ -1,6 +1,9 @@
 use anyhow::{Context, Result, bail};
 use futures_util::StreamExt;
-use repo_health::{extract_repo_sweep_snapshot_id, repo_sweep_summary_markdown, scan_repo_health};
+use repo_health::{
+    extract_repo_sweep_snapshot_id, parse_repo_health_agent_output, repo_health_agent_prompt,
+    repo_sweep_summary_markdown,
+};
 use reqwest::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderValue};
 use serde::Deserialize;
 use serde_json::{Value, json};
