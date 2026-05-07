@@ -33,6 +33,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
 
         match ctx.trigger_action.as_str() {
             "ApproveHumanStart" => handle_human_start_approved(&ctx, &base_url, &headers, &fields),
+            "RequestChanges" => handle_review_changes_requested(&ctx, &base_url, &headers, &fields),
             "ApproveHumanCompletion" => {
                 handle_human_completion_approved(&ctx, &base_url, &headers, &fields)
             }
@@ -143,6 +144,76 @@ fn handle_human_start_approved(
         "info",
         &format!(
             "work_cycle_lifecycle: queued human-approved L3 work {work_cycle_id} as WorkerRun {worker_run_id}"
+        ),
+    );
+    Ok(())
+}
+
+fn handle_review_changes_requested(
+    ctx: &Context,
+    base_url: &str,
+    headers: &[(String, String)],
+    fields: &Value,
+) -> Result<(), String> {
+    let work_cycle_id = entity_id(ctx);
+    let case_id = string_field(fields, "factory_case_id", "FactoryCaseId");
+    let risk_lane = {
+        let value = string_field(fields, "risk_lane", "RiskLane");
+        if value.trim().is_empty() {
+            "L1".to_string()
+        } else {
+            value
+        }
+    };
+    let task_summary = string_field(fields, "task_summary", "TaskSummary");
+    let task_detail = string_field(fields, "task_detail", "TaskDetail");
+    let reviewer_feedback = string_param(ctx, fields, "error_message", "ErrorMessage");
+
+    let worker_run_id = create_entity(ctx, base_url, headers, WORKER_RUNS_PATH)?;
+    let branch_name = format!("codex/paw-rework-{}", short_id(&worker_run_id));
+    let worktree_path = worktree_path(ctx, &branch_name);
+    let task = revision_worker_task(
+        &work_cycle_id,
+        &case_id,
+        &task_summary,
+        &task_detail,
+        &reviewer_feedback,
+    );
+
+    post_action(
+        ctx,
+        base_url,
+        headers,
+        entity_set(WORKER_RUNS_PATH),
+        &worker_run_id,
+        PATROL_CONFIGURE,
+        &json!({
+            "work_cycle_id": &work_cycle_id,
+            "factory_case_id": &case_id,
+            "risk_lane": &risk_lane,
+            "task": &task,
+            "branch_name": &branch_name,
+            "worktree_path": &worktree_path,
+            "runner_kind": "local_codex",
+            "allowed_worker_id": configured_local_worker_id(ctx),
+            "provider_id": "local-codex",
+            "required_capabilities": required_capabilities_for_task(&task),
+        }),
+    )?;
+    post_action(
+        ctx,
+        base_url,
+        headers,
+        "WorkCycles",
+        &work_cycle_id,
+        PATROL_ATTACH_WORKER_RUN,
+        &json!({ "implementer_worker_run_id": &worker_run_id }),
+    )?;
+
+    ctx.log(
+        "info",
+        &format!(
+            "work_cycle_lifecycle: queued reviewer-requested rework for WorkCycle {work_cycle_id} as WorkerRun {worker_run_id}"
         ),
     );
     Ok(())
@@ -283,6 +354,18 @@ fn fallback_task(
 ) -> String {
     format!(
         "You are the local Codex implementer for human-approved L3 work.\n\nFactoryCase: {case_id}\nWorkCycle: {work_cycle_id}\nSummary: {task_summary}\nHuman approval: {approval_summary}\n\nRequired loop:\n1. Work in the assigned git worktree and branch.\n2. Follow red-green TDD before implementation.\n3. Keep orchestration Temper-native: entity specs, WASM integrations, and Cedar policies.\n4. Run focused tests and relevant live/E2E verification.\n5. Produce a visual ProofPacket and finish normally. The paw-codex-worker will report WorkerRun.ReportDone or WorkerRun.ReportFailed to Temper after the local Codex process exits."
+    )
+}
+
+fn revision_worker_task(
+    work_cycle_id: &str,
+    case_id: &str,
+    task_summary: &str,
+    task_detail: &str,
+    reviewer_feedback: &str,
+) -> String {
+    format!(
+        "You are the local Codex implementer for reviewer-requested rework.\n\nFactoryCase: {case_id}\nWorkCycle: {work_cycle_id}\nSummary: {task_summary}\n\nOriginal task:\n{task_detail}\n\nReviewer feedback requiring changes:\n{reviewer_feedback}\n\nRequired loop:\n1. Continue in the newly assigned git worktree and branch.\n2. Address the reviewer feedback directly; keep unrelated changes out.\n3. Follow red-green TDD for the correction when a test can express it.\n4. Run the focused tests and live/E2E checks named by the reviewer when applicable.\n5. Produce updated proof in the WorkerRun result. The paw-codex-worker will report WorkerRun.ReportDone or WorkerRun.ReportFailed to Temper after the local Codex process exits."
     )
 }
 

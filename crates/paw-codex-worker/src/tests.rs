@@ -687,14 +687,14 @@ mod tests {
     }
 
     #[test]
-    fn event_stream_idle_timeout_does_not_wrap_active_work() {
+    fn event_stream_watch_does_not_wrap_active_work() {
         let main_src = include_str!("main.rs");
 
         assert!(
             main_src.contains("match watch_events(&client, &config).await"),
             "main loop should not wrap the whole event watcher in a timeout"
         );
-        assert_eq!(event_stream_idle_window(), Duration::from_secs(60));
+        assert_eq!(event_stream_queue_poll_interval(), Duration::from_secs(15));
     }
 
     #[test]
@@ -771,6 +771,20 @@ mod tests {
         assert!(
             source.contains("claim_boot_queued_runs(client, config).await?"),
             "SSE handling should immediately rescan queued WorkerRuns after entity events so missed WorkerRun events cannot wait behind stale stream replay"
+        );
+    }
+
+    #[test]
+    fn event_stream_polls_queue_while_connection_stays_open() {
+        let source = include_str!("event_loop.rs");
+
+        assert!(
+            source.contains("event_stream_queue_poll_interval()"),
+            "an open SSE stream with heartbeats must still poll the queued work window"
+        );
+        assert!(
+            source.contains("claim_event_stream_backlog(client, config).await?"),
+            "periodic stream fallback should process WorkerRun, ReviewRun, and EvaluationRun backlogs"
         );
     }
 

@@ -832,9 +832,10 @@ fn local_codex_worker_is_a_real_daemon_scaffold() {
         "LaunchdPlist",
         "render_launchd_plist",
         "match watch_events(&client, &config).await",
-        "timeout(event_stream_idle_window(), stream.next())",
-        "fn event_stream_idle_window() -> Duration",
-        "Temper event stream idle window elapsed; using OData fallback",
+        "tokio::select!",
+        "event_stream_queue_poll_interval()",
+        "claim_event_stream_backlog(client, config).await?",
+        "Temper event stream is open; polling queued Patrol work",
         "x-temper-principal-kind",
         "codex",
     ] {
@@ -2313,6 +2314,48 @@ fn work_cycle_completion_requires_recorded_live_e2e_evidence() {
         csdl.contains("<Property Name=\"E2eSummary\" Type=\"Edm.String\"/>"),
         "WorkCycle CSDL should expose durable live/E2E evidence"
     );
+}
+
+#[test]
+fn review_request_changes_requeues_a_revision_worker_run() {
+    let root = repo_root();
+    let patrol = root.join("os-apps/paw-patrol");
+
+    let work_cycle = read(patrol.join("specs/work_cycle.ioa.toml"));
+    for needle in [
+        "name = \"RequestChanges\"",
+        "from = [\"Reviewing\"]",
+        "to = \"InProgress\"",
+        "name = \"work_cycle_changes_requested\"",
+        "module = \"work_cycle_lifecycle\"",
+        "effect = [",
+        "{ type = \"set_bool\", var = \"review_passed\", value = false }",
+        "{ type = \"set_bool\", var = \"worker_done\", value = false }",
+        "{ type = \"set_bool\", var = \"evaluation_passed\", value = false }",
+        "{ type = \"trigger\", name = \"work_cycle_changes_requested\" }",
+    ] {
+        assert!(
+            work_cycle.contains(needle),
+            "WorkCycle.RequestChanges should reset gates and trigger rework: {needle}"
+        );
+    }
+
+    let lifecycle = read(patrol.join("wasm/work_cycle_lifecycle/src/lib.rs"));
+    for needle in [
+        "\"RequestChanges\" => handle_review_changes_requested",
+        "reviewer-requested rework",
+        "revision_worker_task",
+        "codex/paw-rework-",
+        "create_entity(ctx, base_url, headers, WORKER_RUNS_PATH)",
+        "TemperPaw.Patrol.AttachWorkerRun",
+        "required_capabilities_for_task(&task)",
+        "work_cycle_lifecycle: queued reviewer-requested rework",
+    ] {
+        assert!(
+            lifecycle.contains(needle),
+            "work_cycle_lifecycle should queue a revision WorkerRun after review feedback: {needle}"
+        );
+    }
 }
 
 #[test]

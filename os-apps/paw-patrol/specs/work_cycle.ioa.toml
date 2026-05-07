@@ -248,8 +248,26 @@ kind = "input"
 from = ["Reviewing"]
 to = "InProgress"
 params = ["error_message"]
-effect = "set review_passed false"
+effect = [
+  { type = "set_bool", var = "review_passed", value = false },
+  { type = "set_bool", var = "worker_done", value = false },
+  { type = "set_bool", var = "evaluation_passed", value = false },
+  { type = "set_bool", var = "proof_attached", value = false },
+  { type = "set_bool", var = "e2e_ok", value = false },
+  { type = "trigger", name = "work_cycle_changes_requested" }
+]
 hint = "Reviewer requests changes; implementation must resume."
+
+[[action.triggers]]
+name = "work_cycle_changes_requested"
+kind = "wasm"
+module = "work_cycle_lifecycle"
+on_failure = "Fail"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+local_codex_worker_id = "{secret:local_codex_worker_id}"
+local_codex_worktree_root = "{secret:local_codex_worktree_root}"
 
 [[action]]
 name = "AttachEvaluationRun"

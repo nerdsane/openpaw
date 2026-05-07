@@ -20,13 +20,16 @@ async fn connect_and_watch_events(
     let mut buffer = String::new();
     let mut stream = response.bytes_stream();
     loop {
-        let Some(chunk) = (match timeout(event_stream_idle_window(), stream.next()).await {
-            Ok(next) => next,
-            Err(_) => {
-                debug!(url, "Temper event stream idle window elapsed; using OData fallback");
-                return Ok(());
+        let chunk = tokio::select! {
+            next = stream.next() => next,
+            _ = sleep(event_stream_queue_poll_interval()), if config.poll_on_start => {
+                debug!(url, "Temper event stream is open; polling queued Patrol work");
+                claim_event_stream_backlog(client, config).await?;
+                continue;
             }
-        }) else {
+        };
+
+        let Some(chunk) = chunk else {
             return Ok(());
         };
         let chunk = chunk.context("read SSE chunk")?;
@@ -38,15 +41,21 @@ async fn connect_and_watch_events(
             if let Some(data) = extract_sse_data(&frame) {
                 handle_event_payload(client, config, &data).await?;
                 if config.poll_on_start {
-                    claim_boot_queued_runs(client, config).await?;
+                    claim_event_stream_backlog(client, config).await?;
                 }
             }
         }
     }
 }
 
-fn event_stream_idle_window() -> Duration {
-    Duration::from_secs(60)
+fn event_stream_queue_poll_interval() -> Duration {
+    Duration::from_secs(15)
+}
+
+async fn claim_event_stream_backlog(client: &reqwest::Client, config: &Config) -> Result<()> {
+    claim_boot_queued_runs(client, config).await?;
+    claim_boot_requested_review_runs(client, config).await?;
+    claim_boot_queued_evaluation_runs(client, config).await
 }
 
 async fn handle_event_payload(client: &reqwest::Client, config: &Config, data: &str) -> Result<()> {
