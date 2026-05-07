@@ -113,6 +113,12 @@ else
   GIT_CLEAN="true"
 fi
 
+if capture_command "${PROOF_DIR}/git-main-ancestry.txt" bash "${ROOT}/crates/paw-codex-worker/scripts/production-git-ancestry-guard.sh"; then
+  add_gate "git:contains_main" "pass" "checkout contains the current main branch before production activation" "${PROOF_DIR}/git-main-ancestry.txt"
+else
+  add_gate "git:contains_main" "blocked" "checkout does not contain current main; production activation would risk dropping merged fixes" "${PROOF_DIR}/git-main-ancestry.txt"
+fi
+
 if [[ -d "$REPO_ROOT" ]]; then
   add_gate "paths:repo_root" "pass" "REPO_ROOT exists" "$REPO_ROOT"
 else
