@@ -1,5 +1,6 @@
 <script lang="ts">
   import { base } from '$app/paths';
+  import { entityId, readField, textValue, truncateMiddle } from '$lib/entity-format';
 
   let {
     title,
@@ -13,14 +14,8 @@
     columns: string[];
   }>();
 
-  function entityId(row: Record<string, unknown>): string {
-    return String(row.Id ?? row._entity_id ?? '');
-  }
-
-  function text(value: unknown): string {
-    if (value === null || value === undefined || value === '') return '-';
-    if (typeof value === 'object') return JSON.stringify(value);
-    return String(value);
+  function cellValue(row: Record<string, unknown>, column: string): string {
+    return textValue(readField(row, column));
   }
 </script>
 
@@ -41,10 +36,10 @@
 
       {#each rows as row (entityId(row))}
         <a class="cell entity" href={`${base}/entities/${entitySet}/${entityId(row)}`}>
-          {entityId(row)}
+          {truncateMiddle(entityId(row))}
         </a>
         {#each columns as column}
-          <div class="cell" title={text(row[column])}>{text(row[column])}</div>
+          <div class="cell" title={cellValue(row, column)}>{cellValue(row, column)}</div>
         {/each}
       {/each}
     </div>

@@ -465,6 +465,25 @@ fn dashboard_has_generic_app_console_and_paw_patrol_view_manifest() {
             "Paw Patrol view manifest should contain {needle}"
         );
     }
+
+    let entity_detail = read(root.join("dashboard/src/routes/entities/[type]/[id]/+page.svelte"));
+    assert!(
+        entity_detail.contains("entitySetParam") && !entity_detail.contains("entityType + 's'"),
+        "entity detail routes should treat /entities/<set>/<id> as an entity set, not append another s"
+    );
+
+    let entity_board =
+        read(root.join("dashboard/src/lib/components/app-console/EntityBoard.svelte"));
+    assert!(
+        entity_board.contains("readField(row, column)"),
+        "dashboard app tables should resolve snake_case Temper fields for readable Patrol columns"
+    );
+
+    assert!(
+        root.join("dashboard/src/lib/components/app-console/PatrolOverview.svelte")
+            .is_file(),
+        "Paw Patrol dashboard should have a visual overview before raw entity tables"
+    );
 }
 
 #[test]

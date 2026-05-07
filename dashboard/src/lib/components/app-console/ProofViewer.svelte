@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { asArray, asRecord, parseJsonString, readField, textValue } from '$lib/entity-format';
+
   let {
     proofs = []
   } = $props<{
@@ -6,11 +8,11 @@
   }>();
 
   const latest = $derived(proofs[0] ?? null);
+  const proofData = $derived(asRecord(parseJsonString(readField(latest, 'proof_json'))));
+  const activeMonitors = $derived(asArray(proofData.active_monitors));
 
   function value(key: string): string {
-    const raw = latest?.[key];
-    if (raw === null || raw === undefined || raw === '') return '-';
-    return String(raw);
+    return textValue(readField(latest, key));
   }
 </script>
 
@@ -24,7 +26,7 @@
     <div class="proof-grid">
       <div>
         <span>Latest</span>
-        <strong>{value('Id') || value('_entity_id')}</strong>
+        <strong>{value('Id')}</strong>
       </div>
       <div>
         <span>Status</span>
@@ -34,7 +36,19 @@
         <span>Reviewer</span>
         <strong>{value('ReviewerVerdict')}</strong>
       </div>
+      <div>
+        <span>Active monitors</span>
+        <strong>{String(proofData.active_monitor_count ?? '-')}</strong>
+      </div>
     </div>
+    {#if activeMonitors.length > 0}
+      <div class="monitor-strip" aria-label="Active monitors found by latest proof">
+        {#each activeMonitors.slice(0, 6) as monitor}
+          {@const item = asRecord(monitor)}
+          <span>{textValue(item.name)} · {textValue(item.status)}</span>
+        {/each}
+      </div>
+    {/if}
     <pre>{value('SummaryMarkdown')}</pre>
   {:else}
     <div class="empty">No ProofPackets yet</div>
@@ -70,7 +84,7 @@
 
   .proof-grid {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: var(--sp-2);
     margin-bottom: var(--sp-3);
   }
@@ -94,6 +108,7 @@
   }
 
   pre,
+  .monitor-strip,
   .empty {
     border: 1px dashed var(--border);
     padding: var(--sp-3);
@@ -104,6 +119,24 @@
   pre {
     color: var(--text-2);
     white-space: pre-wrap;
+  }
+
+  .monitor-strip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--sp-2);
+    margin-bottom: var(--sp-3);
+    border-style: solid;
+  }
+
+  .monitor-strip span {
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    color: var(--text-2);
+    max-width: 320px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   @media (max-width: 720px) {

@@ -5,10 +5,11 @@
   import { page } from '$app/stores';
   import { getEntity } from '$lib/api';
   import StatusBadge from '$lib/components/StatusBadge.svelte';
+  import { fieldLabel, readField, textValue } from '$lib/entity-format';
 
-  let entityType = $derived($page.params.type);
-  let entityId = $derived($page.params.id);
-  let entitySetName = $derived(entityType + 's');
+  let entitySetParam = $derived($page.params.type ?? '');
+  let entityId = $derived($page.params.id ?? '');
+  let entitySetName = $derived(entitySetParam);
 
   let entity = $state<Record<string, unknown> | null>(null);
   let loaded = $state(false);
@@ -47,20 +48,20 @@
 
   onMount(async () => {
     if (!entityId) {
-      error = `Could not load ${entityType}`;
+      error = `Could not load ${entitySetParam}`;
       loaded = true;
       return;
     }
 
     try {
       entity = await getEntity(entitySetName, entityId);
-    } catch {
-      error = `Could not load ${entityType} ${entityId}`;
+    } catch (err) {
+      error = err instanceof Error ? err.message : `Could not load ${entitySetParam} ${entityId}`;
     }
     loaded = true;
   });
 
-  let status = $derived((entity?.Status as string) ?? '');
+  let status = $derived(String(readField(entity, 'Status') ?? ''));
   let fields = $derived.by((): Array<[string, unknown]> => {
     if (!entity) return [];
     return Object.entries(entity).filter(([k]) => !k.startsWith('@odata') && !k.startsWith('odata'));
@@ -81,7 +82,7 @@
   {:else}
     <header class="entity-header">
       <div class="entity-title">
-        <code class="entity-type-label">{entityType}</code>
+        <code class="entity-type-label">{entitySetParam}</code>
         <code class="entity-id-label">{entityId}</code>
       </div>
       {#if status}
@@ -92,7 +93,7 @@
     <div class="field-table">
       {#each fields as [key, value] (key)}
         <div class="field-row">
-          <span class="field-key">{key}</span>
+          <span class="field-key">{fieldLabel(key)}</span>
           <div class="field-value">
             {#if isJsonLike(value)}
               <pre class="field-json">{formatJson(value as string)}</pre>
@@ -107,7 +108,7 @@
             {:else if typeof value === 'boolean'}
               <span class="field-bool">{value ? 'TRUE' : 'FALSE'}</span>
             {:else}
-              <span class="field-text">{value}</span>
+              <span class="field-text">{textValue(value)}</span>
             {/if}
           </div>
         </div>

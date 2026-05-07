@@ -8,6 +8,7 @@
     queryEntities
   } from '$lib/api';
   import EntityBoard from '$lib/components/app-console/EntityBoard.svelte';
+  import PatrolOverview from '$lib/components/app-console/PatrolOverview.svelte';
   import ProofViewer from '$lib/components/app-console/ProofViewer.svelte';
   import RelationTimeline from '$lib/components/app-console/RelationTimeline.svelte';
   import type { AppViewManifest } from '$lib/app-views/paw-patrol';
@@ -97,6 +98,7 @@
     {/if}
 
     <RelationTimeline links={manifest.timeline} />
+    <PatrolOverview {rows} />
     <ProofViewer proofs={rows[manifest.proofEntitySet] ?? []} />
 
     <div class="boards">
