@@ -99,6 +99,38 @@ async fn handle_queued_worker_run(
     claim_worker_run(client, config, worker_run_id).await?;
     start_local_worker_run(client, config, worker_run_id).await?;
 
+    execute_worker_run(client, config, worker_run).await
+}
+
+async fn handle_running_worker_run(
+    client: &reqwest::Client,
+    config: &Config,
+    worker_run_id: &str,
+) -> Result<()> {
+    info!(worker_run_id, "saw running WorkerRun claimed by this worker");
+    let worker_run = fetch_worker_run(client, config, worker_run_id).await?;
+    if !worker_run_is_recoverable_by_local_codex(&worker_run, &config.worker_id) {
+        debug!(
+            worker_run_id,
+            status = %worker_run.status,
+            runner_kind = %worker_run.runner_kind,
+            allowed_worker_id = %worker_run.allowed_worker_id,
+            worker_id = %worker_run.worker_id,
+            local_worker_id = %config.worker_id,
+            "WorkerRun is not recoverable by this local Codex worker"
+        );
+        return Ok(());
+    }
+
+    execute_worker_run(client, config, worker_run).await
+}
+
+async fn execute_worker_run(
+    client: &reqwest::Client,
+    config: &Config,
+    worker_run: WorkerRunState,
+) -> Result<()> {
+    let worker_run_id = worker_run.id.clone();
     let run_result = if let Some(snapshot_id) = extract_repo_sweep_snapshot_id(&worker_run.task) {
         run_repo_sweep(client, config, &worker_run, &snapshot_id).await
     } else if let Some(patrol_run_id) = extract_datadog_patrol_run_id(&worker_run.task) {
@@ -110,8 +142,8 @@ async fn handle_queued_worker_run(
     match run_result {
         Ok(summary) => report_done(client, config, &worker_run, &summary).await,
         Err(error) => {
-            error!(worker_run_id, %error, "local Codex run failed");
-            report_failed(client, config, worker_run_id, &error.to_string()).await
+            error!(worker_run_id = %worker_run_id, %error, "local Codex run failed");
+            report_failed(client, config, &worker_run_id, &error.to_string()).await
         }
     }
 }

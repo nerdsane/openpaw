@@ -321,6 +321,12 @@ fn worker_run_from_odata_value(value: Value) -> Result<WorkerRunState> {
             &["allowed_worker_id", "AllowedWorkerId"],
             &["allowed_worker_id", "AllowedWorkerId"],
         ),
+        worker_id: first_string(
+            &value,
+            &fields,
+            &["worker_id", "WorkerId"],
+            &["worker_id", "WorkerId"],
+        ),
         provider_id: first_string(
             &value,
             &fields,
@@ -434,6 +440,15 @@ fn worker_run_is_claimable_by_local_codex(worker_run: &WorkerRunState, worker_id
     worker_run.status == "Queued"
         && worker_run.runner_kind == "local_codex"
         && worker_run.allowed_worker_id == worker_id
+        && worker_run_has_worktree_assignment(worker_run)
+        && worker_run_required_capabilities_satisfied(worker_run)
+}
+
+fn worker_run_is_recoverable_by_local_codex(worker_run: &WorkerRunState, worker_id: &str) -> bool {
+    worker_run.status == "Running"
+        && worker_run.runner_kind == "local_codex"
+        && worker_run.allowed_worker_id == worker_id
+        && worker_run.worker_id == worker_id
         && worker_run_has_worktree_assignment(worker_run)
         && worker_run_required_capabilities_satisfied(worker_run)
 }

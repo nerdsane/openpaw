@@ -184,7 +184,7 @@ struct EntityEvent {
     status: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 struct WorkerRunState {
     #[serde(default, rename = "Id")]
     id: String,
@@ -200,6 +200,8 @@ struct WorkerRunState {
     runner_kind: String,
     #[serde(default, rename = "AllowedWorkerId")]
     allowed_worker_id: String,
+    #[serde(default, rename = "WorkerId")]
+    worker_id: String,
     #[serde(default, rename = "ProviderId")]
     provider_id: String,
     #[serde(default, rename = "RequiredCapabilities")]

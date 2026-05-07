@@ -61,6 +61,7 @@ async fn main() -> Result<()> {
     }
 
     if config.poll_on_start {
+        recover_boot_running_runs(&client, &config).await?;
         claim_boot_queued_runs(&client, &config).await?;
         claim_boot_requested_review_runs(&client, &config).await?;
         claim_boot_queued_evaluation_runs(&client, &config).await?;
@@ -71,6 +72,7 @@ async fn main() -> Result<()> {
             debug!(%error, "failed to report WorkerAgent heartbeat");
         }
         if config.poll_on_start {
+            recover_boot_running_runs(&client, &config).await?;
             claim_boot_queued_runs(&client, &config).await?;
             claim_boot_requested_review_runs(&client, &config).await?;
             claim_boot_queued_evaluation_runs(&client, &config).await?;

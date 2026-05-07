@@ -18,6 +18,7 @@ mod tests {
                 "branch_name": "codex/test",
                 "runner_kind": "local_codex",
                 "allowed_worker_id": "mac-mini-codex-1",
+                "worker_id": "mac-mini-codex-1",
                 "provider_id": "local-codex",
                 "required_capabilities": "local_codex,repo_write"
             }
@@ -32,6 +33,7 @@ mod tests {
         assert_eq!(worker_run.branch_name, "codex/test");
         assert_eq!(worker_run.runner_kind, "local_codex");
         assert_eq!(worker_run.allowed_worker_id, "mac-mini-codex-1");
+        assert_eq!(worker_run.worker_id, "mac-mini-codex-1");
         assert_eq!(worker_run.provider_id, "local-codex");
         assert_eq!(worker_run.required_capabilities, "local_codex,repo_write");
     }
@@ -46,6 +48,7 @@ mod tests {
             branch_name: "codex/test".to_string(),
             runner_kind: "local_codex".to_string(),
             allowed_worker_id: "mac-mini-codex-1".to_string(),
+            worker_id: String::new(),
             provider_id: "local-codex".to_string(),
             required_capabilities: "local_codex,repo_write".to_string(),
         };
@@ -57,6 +60,7 @@ mod tests {
             branch_name: String::new(),
             runner_kind: String::new(),
             allowed_worker_id: String::new(),
+            worker_id: String::new(),
             provider_id: String::new(),
             required_capabilities: String::new(),
         };
@@ -68,6 +72,7 @@ mod tests {
             branch_name: String::new(),
             runner_kind: "codex_cloud".to_string(),
             allowed_worker_id: "mac-mini-codex-1".to_string(),
+            worker_id: String::new(),
             provider_id: "local-codex".to_string(),
             required_capabilities: "local_codex,repo_write".to_string(),
         };
@@ -79,6 +84,7 @@ mod tests {
             branch_name: String::new(),
             runner_kind: "local_codex".to_string(),
             allowed_worker_id: "mac-mini-codex-1".to_string(),
+            worker_id: String::new(),
             provider_id: "local-codex".to_string(),
             required_capabilities: "local_codex,repo_write".to_string(),
         };
@@ -106,6 +112,43 @@ mod tests {
     }
 
     #[test]
+    fn local_worker_recovers_only_own_running_codex_runs() {
+        let recoverable = WorkerRunState {
+            id: "wr-1".to_string(),
+            status: "Running".to_string(),
+            task: "Resume this work".to_string(),
+            worktree_path: "/tmp/worktree".to_string(),
+            branch_name: "codex/test".to_string(),
+            runner_kind: "local_codex".to_string(),
+            allowed_worker_id: "mac-mini-codex-1".to_string(),
+            worker_id: "mac-mini-codex-1".to_string(),
+            provider_id: "local-codex".to_string(),
+            required_capabilities: "local_codex,repo_write".to_string(),
+        };
+        let other_worker = WorkerRunState {
+            worker_id: "other-worker".to_string(),
+            ..recoverable.clone()
+        };
+        let queued = WorkerRunState {
+            status: "Queued".to_string(),
+            ..recoverable.clone()
+        };
+
+        assert!(worker_run_is_recoverable_by_local_codex(
+            &recoverable,
+            "mac-mini-codex-1"
+        ));
+        assert!(!worker_run_is_recoverable_by_local_codex(
+            &other_worker,
+            "mac-mini-codex-1"
+        ));
+        assert!(!worker_run_is_recoverable_by_local_codex(
+            &queued,
+            "mac-mini-codex-1"
+        ));
+    }
+
+    #[test]
     fn repo_sweep_worker_runs_are_detected_for_review_and_evaluation() {
         let worker_run = WorkerRunState {
             id: "wr-1".to_string(),
@@ -115,6 +158,7 @@ mod tests {
             branch_name: "codex/repo-sweep".to_string(),
             runner_kind: "local_codex".to_string(),
             allowed_worker_id: "mac-mini-codex-1".to_string(),
+            worker_id: String::new(),
             provider_id: "local-codex".to_string(),
             required_capabilities: "local_codex,repo_write".to_string(),
         };
@@ -126,6 +170,7 @@ mod tests {
             branch_name: "codex/bugfix".to_string(),
             runner_kind: "local_codex".to_string(),
             allowed_worker_id: "mac-mini-codex-1".to_string(),
+            worker_id: String::new(),
             provider_id: "local-codex".to_string(),
             required_capabilities: "local_codex,repo_write".to_string(),
         };
@@ -292,6 +337,7 @@ mod tests {
             branch_name: "codex/timeout".to_string(),
             runner_kind: "local_codex".to_string(),
             allowed_worker_id: "mac-mini-codex-1".to_string(),
+            worker_id: "mac-mini-codex-1".to_string(),
             provider_id: "local-codex".to_string(),
             required_capabilities: "local_codex,repo_write".to_string(),
         };
@@ -387,6 +433,7 @@ mod tests {
             branch_name: "codex/trace-leak".to_string(),
             runner_kind: "local_codex".to_string(),
             allowed_worker_id: "mac-mini-codex-1".to_string(),
+            worker_id: "mac-mini-codex-1".to_string(),
             provider_id: "local-codex".to_string(),
             required_capabilities: "local_codex,repo_write".to_string(),
         };
@@ -443,6 +490,7 @@ mod tests {
             branch_name: String::new(),
             runner_kind: "local_codex".to_string(),
             allowed_worker_id: "mac-mini-codex-1".to_string(),
+            worker_id: "mac-mini-codex-1".to_string(),
             provider_id: "local-codex".to_string(),
             required_capabilities: "local_codex,repo_write".to_string(),
         };
@@ -480,6 +528,7 @@ mod tests {
             branch_name: "codex/paw-repo-sweep-snap-1".to_string(),
             runner_kind: "local_codex".to_string(),
             allowed_worker_id: "mac-mini-codex-1".to_string(),
+            worker_id: "mac-mini-codex-1".to_string(),
             provider_id: "local-codex".to_string(),
             required_capabilities: "local_codex,repo_write,evaluation".to_string(),
         };
