@@ -406,8 +406,35 @@ async fn run_evaluation_commands(
 }
 
 fn codex_review_prompt(worker_run: &WorkerRunState, review_run: &ReviewRunState) -> String {
+    if let Some(snapshot_id) = extract_repo_sweep_snapshot_id(&worker_run.task) {
+        return codex_repo_health_review_prompt(worker_run, review_run, &snapshot_id);
+    }
+
     format!(
         "You are the independent reviewer for a TemperPaw paw-patrol WorkerRun.\n\nWorkerRun: {}\nReviewRun worker reference: {}\nProofPacket: {}\nBranch: {}\n\nTask:\n{}\n\nReview requirements:\n1. Treat this as read-only review. Do not modify files.\n2. Inspect the git diff, changed files, tests/proofs, and Temper-native architecture constraints.\n3. Run targeted checks or live/E2E verification when relevant and mention exactly what you ran.\n4. Look for security, Cedar, WASM, Discord/user-facing, dependency, and readability risks.\n5. Return an explicit verdict marker on its own line: VERDICT: approve, VERDICT: request_changes, or VERDICT: escalate.\n6. Include SUMMARY: and LIVE_E2E: lines that are concise and human-readable.\n\nIf you cannot confidently approve, use request_changes or escalate.",
+        worker_run.id,
+        review_run.worker_run_id,
+        if review_run.proof_packet_id.is_empty() {
+            "(not attached yet)"
+        } else {
+            review_run.proof_packet_id.as_str()
+        },
+        worker_run_branch_label(worker_run),
+        if worker_run.task.is_empty() {
+            "(no task text recorded)"
+        } else {
+            worker_run.task.as_str()
+        }
+    )
+}
+
+fn codex_repo_health_review_prompt(
+    worker_run: &WorkerRunState,
+    review_run: &ReviewRunState,
+    snapshot_id: &str,
+) -> String {
+    format!(
+        "You are the independent repo-health Patrol scan reviewer for TemperPaw paw-patrol.\n\nRepoGraphSnapshot: {snapshot_id}\nWorkerRun: {}\nReviewRun worker reference: {}\nProofPacket: {}\nBranch: {}\n\nTask:\n{}\n\nReview requirements:\n1. Treat this as read-only review. Do not modify files, and do not require an implementation patch for a repo-health patrol scan.\n2. Verify the worker satisfied the scan contract: Codex investigated the repo with agent judgment, returned structured JSON, the worker self-reported RepoGraphSnapshot.ScanComplete, and the snapshot opened evidenced QualityFinding/SecurityFinding entities.\n3. Inspect the scan evidence, summary/proof, entity links, and any git status needed to confirm the scan did not silently edit files.\n4. Run targeted read-only checks when useful, such as `git status --short`, `rg` evidence spot checks, or OData entity reads; mention exactly what you ran.\n5. Look for hallucinated findings, missing evidence surfaces, secret leakage, missing RepoGraphSnapshot linkage, or unsafe auto-start of high-risk cleanup work.\n6. Return an explicit verdict marker on its own line: VERDICT: approve, VERDICT: request_changes, or VERDICT: escalate.\n7. Include SUMMARY: and LIVE_E2E: lines that are concise and human-readable.\n\nIf the scan evidence is incomplete, inconsistent, or unsafe, request changes or escalate.",
         worker_run.id,
         review_run.worker_run_id,
         if review_run.proof_packet_id.is_empty() {

@@ -471,6 +471,33 @@ mod tests {
     }
 
     #[test]
+    fn repo_health_review_prompt_reviews_scan_contract_not_patch_contract() {
+        let worker_run = WorkerRunState {
+            id: "wr-repo-scan".to_string(),
+            status: "Done".to_string(),
+            task: "RepoGraphSnapshot: snap-1\nWorkCycle: wc-1\nRun an agent-led repo health patrol.".to_string(),
+            worktree_path: "/tmp/paw-repo-scan".to_string(),
+            branch_name: "codex/paw-repo-sweep-snap-1".to_string(),
+            runner_kind: "local_codex".to_string(),
+            allowed_worker_id: "mac-mini-codex-1".to_string(),
+            provider_id: "local-codex".to_string(),
+            required_capabilities: "local_codex,repo_write,evaluation".to_string(),
+        };
+        let review = ReviewRunState {
+            status: "Requested".to_string(),
+            worker_run_id: worker_run.id.clone(),
+            proof_packet_id: "proof-1".to_string(),
+        };
+
+        let prompt = codex_review_prompt(&worker_run, &review);
+
+        assert!(prompt.contains("repo-health Patrol scan reviewer"));
+        assert!(prompt.contains("RepoGraphSnapshot.ScanComplete"));
+        assert!(prompt.contains("do not require an implementation patch"));
+        assert!(!prompt.contains("Inspect the git diff, changed files, tests/proofs"));
+    }
+
+    #[test]
     fn review_evaluation_and_work_cycle_state_read_temper_odata_fields() {
         let review = review_run_from_odata_value(json!({
             "entity_id": "rev-1",
