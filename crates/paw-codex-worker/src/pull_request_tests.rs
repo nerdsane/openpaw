@@ -1,6 +1,6 @@
 #[tokio::test]
 async fn run_codex_creates_ready_github_pr_when_required_and_changes_exist() {
-    let _guard = ENV_LOCK.lock().expect("env lock");
+    let _guard = ENV_LOCK.lock().await;
     let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/fake-codex.sh");
     let root = unique_temp_dir();
     let remote = unique_temp_dir();

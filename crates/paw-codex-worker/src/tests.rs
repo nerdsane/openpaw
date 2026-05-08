@@ -5,8 +5,8 @@ mod tests {
     use std::fs;
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
-    use std::sync::Mutex;
     use std::time::{SystemTime, UNIX_EPOCH};
+    use tokio::sync::Mutex;
 
     include!("datadog_patrol_tests.rs");
     include!("evaluation_tests.rs");
@@ -15,7 +15,7 @@ mod tests {
     include!("pull_request_tests.rs");
     include!("worker_http_tests.rs");
 
-    static ENV_LOCK: Mutex<()> = Mutex::new(());
+    static ENV_LOCK: Mutex<()> = Mutex::const_new(());
 
     #[test]
     fn worker_run_state_reads_temper_odata_fields() {
