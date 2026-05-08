@@ -7,6 +7,7 @@
     postEntityAction,
     queryEntities
   } from '$lib/api';
+  import { entityId } from '$lib/entity-format';
   import EntityBoard from '$lib/components/app-console/EntityBoard.svelte';
   import PatrolOverview from '$lib/components/app-console/PatrolOverview.svelte';
   import ProofViewer from '$lib/components/app-console/ProofViewer.svelte';
@@ -19,6 +20,10 @@
   let actionBusy = $state(false);
   let error = $state('');
   let actionMessage = $state('');
+
+  function newestFirst(rows: Record<string, unknown>[]): Record<string, unknown>[] {
+    return [...rows].sort((left, right) => entityId(right).localeCompare(entityId(left)));
+  }
 
   async function load() {
     loading = true;
@@ -34,7 +39,8 @@
     const loaded: Record<string, Record<string, unknown>[]> = {};
     await Promise.all(
       manifest.entitySets.map(async (set) => {
-        loaded[set.name] = await queryEntities(set.name, undefined, set.orderby, set.top).catch(() => []);
+        const result = await queryEntities(set.name, undefined, set.orderby, set.top).catch(() => []);
+        loaded[set.name] = newestFirst(result);
       })
     );
     rows = loaded;

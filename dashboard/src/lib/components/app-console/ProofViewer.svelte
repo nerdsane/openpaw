@@ -8,11 +8,15 @@
   }>();
 
   const latest = $derived(proofs[0] ?? null);
-  const proofData = $derived(asRecord(parseJsonString(readField(latest, 'proof_json'))));
+  const readyLatest = $derived(
+    proofs.find((proof: Record<string, unknown>) => textValue(readField(proof, 'Status')) === 'Ready')
+      ?? latest
+  );
+  const proofData = $derived(asRecord(parseJsonString(readField(readyLatest, 'proof_json'))));
   const activeMonitors = $derived(asArray(proofData.active_monitors));
 
   function value(key: string): string {
-    return textValue(readField(latest, key));
+    return textValue(readField(readyLatest, key));
   }
 </script>
 
@@ -22,7 +26,7 @@
     <span>{proofs.length}</span>
   </div>
 
-  {#if latest}
+  {#if readyLatest}
     <div class="proof-grid">
       <div>
         <span>Latest</span>

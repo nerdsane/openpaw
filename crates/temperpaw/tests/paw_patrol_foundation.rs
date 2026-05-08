@@ -516,10 +516,36 @@ fn dashboard_has_generic_app_console_and_paw_patrol_view_manifest() {
         "dashboard app tables should resolve snake_case Temper fields for readable Patrol columns"
     );
 
+    let app_page = read(root.join("dashboard/src/routes/apps/[name]/+page.svelte"));
+    for needle in [
+        "newestFirst",
+        "entityId(right).localeCompare(entityId(left))",
+    ] {
+        assert!(
+            app_page.contains(needle),
+            "dashboard app console should keep newest Patrol entities first: {needle}"
+        );
+    }
+
+    let overview =
+        read(root.join("dashboard/src/lib/components/app-console/PatrolOverview.svelte"));
+    for needle in [
+        "isDatadogMcpProof",
+        "codex_datadog_mcp_agent",
+        "createdFindingIds",
+        "openedFindings",
+    ] {
+        assert!(
+            overview.contains(needle),
+            "Paw Patrol dashboard should prefer latest Datadog MCP proof evidence: {needle}"
+        );
+    }
+
+    let proof_viewer =
+        read(root.join("dashboard/src/lib/components/app-console/ProofViewer.svelte"));
     assert!(
-        root.join("dashboard/src/lib/components/app-console/PatrolOverview.svelte")
-            .is_file(),
-        "Paw Patrol dashboard should have a visual overview before raw entity tables"
+        proof_viewer.contains("readyLatest"),
+        "Paw Patrol proof viewer should show the newest Ready proof instead of a rejected draft"
     );
 }
 

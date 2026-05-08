@@ -22,17 +22,48 @@
   const findings = $derived(rows.ObservabilityFindings ?? []);
   const workCycles = $derived(rows.WorkCycles ?? []);
 
-  const latestPatrol = $derived(patrolRuns[0] ?? null);
-  const latestProof = $derived(
-    proofs.find((proof: Record<string, unknown>) => entityStatus(proof) === 'Ready') ?? proofs[0] ?? null
+  function jsonField(row: Record<string, unknown> | null | undefined, key: string): Record<string, unknown> {
+    return asRecord(parseJsonString(readField(row, key)));
+  }
+
+  function isDatadogMcpProof(proof: Record<string, unknown>): boolean {
+    const data = jsonField(proof, 'proof_json');
+    return data.kind === 'datadog_observability' || data.evidence_source === 'codex_datadog_mcp_agent';
+  }
+
+  function isDatadogMcpPatrol(run: Record<string, unknown>): boolean {
+    const data = jsonField(run, 'evidence_json');
+    return data.evidence_source === 'codex_datadog_mcp_agent';
+  }
+
+  const latestPatrol = $derived(
+    patrolRuns.find((run: Record<string, unknown>) => entityStatus(run) === 'Complete' && isDatadogMcpPatrol(run))
+      ?? patrolRuns.find((run: Record<string, unknown>) => isDatadogMcpPatrol(run))
+      ?? patrolRuns[0]
+      ?? null
   );
-  const proofData = $derived(asRecord(parseJsonString(readField(latestProof, 'proof_json'))));
+  const latestProof = $derived(
+    proofs.find((proof: Record<string, unknown>) => entityStatus(proof) === 'Ready' && isDatadogMcpProof(proof))
+      ?? proofs.find((proof: Record<string, unknown>) => isDatadogMcpProof(proof))
+      ?? proofs.find((proof: Record<string, unknown>) => entityStatus(proof) === 'Ready')
+      ?? proofs[0]
+      ?? null
+  );
+  const proofData = $derived(jsonField(latestProof, 'proof_json'));
   const created = $derived(asRecord(proofData.created));
   const evidenceScope = $derived(asArray(proofData.evidence_scope).map(asRecord));
   const patrolFindings = $derived(asArray(proofData.findings).map(asRecord));
   const patrolSummary = $derived(String(proofData.summary ?? '').trim());
   const residualRisks = $derived(asArray(proofData.residual_risks).map(String));
   const queuedImplementers = $derived(asArray(created.implementer_worker_runs).length);
+  const createdFindingIds = $derived(asArray(created.observability_findings).map(String));
+  const openedFindings = $derived(
+    createdFindingIds.length > 0
+      ? createdFindingIds
+          .map((id: string) => findings.find((finding: Record<string, unknown>) => entityId(finding) === id))
+          .filter((finding): finding is Record<string, unknown> => Boolean(finding))
+      : findings
+  );
   const gatedCycles = $derived(
     workCycles.filter((cycle: Record<string, unknown>) =>
       ['AwaitingHumanStartApproval', 'Planning', 'Scoped'].includes(entityStatus(cycle))
@@ -72,7 +103,7 @@
     </div>
     <div>
       <span>Findings opened</span>
-      <strong>{String(asArray(created.observability_findings).length || findings.length || '-')}</strong>
+      <strong>{String(createdFindingIds.length || findings.length || '-')}</strong>
     </div>
     <div>
       <span>Queued / gated work</span>
@@ -92,9 +123,9 @@
 
     <article class="panel">
       <h3>Opened Work</h3>
-      {#if findings.length > 0 || patrolFindings.length > 0}
+      {#if openedFindings.length > 0 || patrolFindings.length > 0}
         <ul class="finding-list">
-          {#each findings.slice(0, 5) as finding}
+          {#each openedFindings.slice(0, 5) as finding}
             <li>
               <a href={link('ObservabilityFindings', entityId(finding))}>
                 {textValue(readField(finding, 'title'))}
@@ -102,7 +133,7 @@
               <span>{textValue(readField(finding, 'risk_lane'))} · {textValue(readField(finding, 'severity'))}</span>
             </li>
           {/each}
-          {#if findings.length === 0}
+          {#if openedFindings.length === 0}
             {#each patrolFindings.slice(0, 5) as finding}
               <li>
                 <span>{textValue(readField(finding, 'title'))}</span>
