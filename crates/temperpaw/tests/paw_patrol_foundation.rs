@@ -1226,6 +1226,36 @@ fn datadog_patrol_smoke_proves_mcp_agent_fanout() {
 }
 
 #[test]
+fn datadog_patrol_smoke_is_worktree_read_only_safe() {
+    let root = repo_root();
+    let script = read(root.join("crates/paw-codex-worker/scripts/datadog-patrol-smoke.sh"));
+
+    for needle in [
+        "RUNTIME_ROOT",
+        "prepare_runtime_root",
+        "rsync -a --delete",
+        "--exclude '*/target/'",
+        "cd \"$RUNTIME_ROOT\"",
+        "--manifest-path \"$ROOT/Cargo.toml\"",
+        "runtime os-apps:",
+        "ALLOW_REMOTE_TEMPER_URL",
+        "refusing non-local TEMPER_URL",
+        "http://127.0.0.1:",
+        "http://localhost:",
+    ] {
+        assert!(
+            script.contains(needle),
+            "Datadog Patrol smoke should run from a temporary runtime tree instead of mutating the assigned worktree: {needle}"
+        );
+    }
+
+    assert!(
+        !script.contains("cd \"$ROOT/os-apps/paw-patrol/wasm\" && bash build.sh"),
+        "Datadog Patrol smoke must not copy WASM artifacts into the assigned worktree"
+    );
+}
+
+#[test]
 fn repo_sweep_brief_smoke_exports_visual_proof_bundle() {
     let root = repo_root();
     let script = read(root.join("crates/paw-codex-worker/scripts/repo-sweep-brief-smoke.sh"));

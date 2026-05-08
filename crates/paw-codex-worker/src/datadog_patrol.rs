@@ -320,8 +320,9 @@ impl DatadogPatrolFinding {
 
 fn extract_datadog_patrol_run_id(task: &str) -> Option<String> {
     let task = task.trim_start();
-    if !task.starts_with("You are the local Codex Datadog Patrol agent")
-        || !task.contains("PatrolKind: datadog_observability")
+    let is_datadog_patrol_task = task.starts_with("You are the local Codex Datadog Patrol agent")
+        || task.starts_with("You are the local Codex Datadog MCP Patrol agent");
+    if !is_datadog_patrol_task || !task.contains("PatrolKind: datadog_observability")
     {
         return None;
     }
