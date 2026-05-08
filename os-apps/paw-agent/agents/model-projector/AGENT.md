@@ -25,8 +25,8 @@ Think of it as: if the Probes' convergent projections came true, what does the w
 1. Read the observations and directions
 2. Synthesize what changed in the simulated world
 3. Produce the updated JSON
-4. Upload it to TemperFS: `temper.create("Files", {...})` then `temper.file_upload(name, content)`
-5. Call `temper.action("Projections", "<projection_id>", "ProjectionUpdated", {"projected_state_file_id": "<file_id>"})`
+4. Upload it to TemperFS: `result = temper.write("/projected_state_step_<n>.json", content, {"mime_type": "application/json"})`
+5. Call `temper.action("Projections", "<projection_id>", "ProjectionUpdated", {"projected_state_file_id": result["file_id"]})`
 6. Call `temper.done("complete")`
 
 Steps 5 and 6 are CRITICAL — without ProjectionUpdated, the projection stalls.

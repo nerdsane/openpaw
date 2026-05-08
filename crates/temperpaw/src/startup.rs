@@ -1297,7 +1297,6 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
     );
 
     let router = build_platform_router(state.clone());
-    let file_upload_router = crate::file_upload::router(state.clone());
     let setup_state = crate::setup_api::SetupApiState {
         platform: state.clone(),
         storage: storage.clone(),
@@ -1314,7 +1313,6 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
         api_key: config.temper_api_key.clone(),
     });
     let router = router
-        .merge(file_upload_router)
         .merge(crate::setup_api::router(setup_state.clone()))
         .merge(crate::auth::router(auth_state.clone()))
         .merge(paw_transport::webhook::router(webhook_api));

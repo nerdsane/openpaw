@@ -235,9 +235,8 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                  as the base model but with projected additions>\n\
              }}\n\n\
              Upload this JSON:\n\
-             1. Create a file: result = temper.create(\"Files\", {{\"Name\": \"projected_state_step_{current_step}.json\", \"MimeType\": \"application/json\"}})\n\
-             2. Write content: temper.file_upload(\"projected_state_step_{current_step}.json\", <json_string>)\n\
-             3. The file_id is result[\"entity_id\"]\n\n\
+             result = temper.write(\"/projected_state_step_{current_step}.json\", <json_string>, {{\"mime_type\": \"application/json\"}})\n\
+             file_id = result[\"file_id\"]\n\n\
              Then call ProjectionUpdated with the file_id as instructed above."
         );
 

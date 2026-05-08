@@ -14,7 +14,7 @@ OpenPaw agents interact with Temper through 19 discrete LLM tools (`temper_creat
    - `save_memory` = `temper_create("Memories", {...})`
    - `recall_memory` = `temper_list("Memories", filter=...)`
    - `spawn_agent` = `temper_create("Agents")` + `temper_action("Configure")` + `temper_action("Provision")`
-   - `file_upload` = `temper_create("Files")` + HTTP PUT `$value`
+   - legacy `file_upload` = `temper.write(path, content)` = `CreateFile` + native `PUT Files(...)/$value`
 
 3. **No self-provisioning.** Temper supports hot-loading specs (`POST /api/specs/load-inline`), WASM modules (`POST /api/wasm/modules/<name>`), and OS apps at runtime. Agents have no access to these APIs despite being the primary consumers of new capabilities.
 

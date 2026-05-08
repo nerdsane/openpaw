@@ -4,7 +4,7 @@
 //! They use the same HTTP patterns as dispatch.rs (ctx.http_call, JSON serialization).
 
 use base64::Engine;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use temper_wasm_sdk::context::Context;
 use tool_catalog::DEFAULT_TOOLS_ENABLED;
 use wasm_helpers::{read_content_file_version, read_session_from_temperfs, runtime_headers};
@@ -444,7 +444,7 @@ pub fn recall_memory(
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum WriteUploadContent {
     Text(String),
-    BrowserImageBase64(String),
+    BrowserImageBytes(Vec<u8>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -528,19 +528,9 @@ pub fn write(ctx: &Context, api_url: &str, tenant: &str, args: &[Value]) -> Resu
                 ));
             }
         }
-        WriteUploadContent::BrowserImageBase64(base64_data) => {
-            http_post(
-                ctx,
-                api_url,
-                tenant,
-                eid,
-                &format!("/paw/fs/files/{file_id}/value-base64"),
-                &json!({
-                    "mime_type": mime_type,
-                    "base64_data": base64_data,
-                }),
-            )
-            .map_err(|error| format!("temper.write(): image content upload failed: {error}"))?;
+        WriteUploadContent::BrowserImageBytes(bytes) => {
+            put_file_value_stream(&url, &headers, &bytes)
+                .map_err(|error| format!("temper.write(): image content upload failed: {error}"))?;
         }
     }
 
@@ -549,6 +539,54 @@ pub fn write(ctx: &Context, api_url: &str, tenant: &str, args: &[Value]) -> Resu
         "path": path,
         "workspace_id": ws_id,
     }))
+}
+
+#[cfg(target_arch = "wasm32")]
+fn put_file_value_stream(
+    url: &str,
+    headers: &[(String, String)],
+    bytes: &[u8],
+) -> Result<(), String> {
+    let header_refs: Vec<(&str, &str)> = headers
+        .iter()
+        .map(|(key, value)| (key.as_str(), value.as_str()))
+        .collect();
+    let (mut request_body, response_body, response_head) =
+        temper_wasm_sdk::http_stream::streaming_call("PUT", url, &header_refs)
+            .map_err(|error| format!("streaming PUT $value failed to start: {error}"))?;
+
+    for chunk in bytes.chunks(temper_wasm_sdk::http_stream::STREAM_CHUNK_BYTES) {
+        request_body
+            .write_all_chunk(chunk)
+            .map_err(|error| format!("streaming PUT $value failed while writing body: {error}"))?;
+    }
+    request_body
+        .finish()
+        .map_err(|error| format!("streaming PUT $value failed while closing body: {error}"))?;
+
+    let head = response_head()
+        .map_err(|error| format!("streaming PUT $value failed before response: {error}"))?;
+    let _ = response_body.close();
+    if head.status >= 400 || head.status == 0 {
+        let stream_error = head
+            .headers
+            .iter()
+            .find(|(key, _)| key.eq_ignore_ascii_case("x-temper-stream-error"))
+            .map(|(_, value)| format!(": {value}"))
+            .unwrap_or_default();
+        return Err(format!("HTTP {}{stream_error}", head.status));
+    }
+
+    Ok(())
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn put_file_value_stream(
+    _url: &str,
+    _headers: &[(String, String)],
+    _bytes: &[u8],
+) -> Result<(), String> {
+    Err("streaming file uploads require the Temper WASM host".to_string())
 }
 
 // ---------------------------------------------------------------------------
@@ -1569,7 +1607,7 @@ fn write_upload_from_value(
         .unwrap_or_else(|| mime_from_ext(path))
         .to_string();
 
-    if let Some((base64_data, media_type)) = openpaw_image_candidate(content) {
+    if let Some((base64_data, media_type)) = sandbox_image_candidate(content) {
         let mime_type = media_type.unwrap_or_else(|| declared_mime.clone());
         return browser_image_upload(base64_data.trim(), &mime_type);
     }
@@ -1578,7 +1616,7 @@ fn write_upload_from_value(
         return Err("temper.write(): content must be a string or sandbox image result".to_string());
     };
 
-    if let Some((base64_data, media_type)) = openpaw_image_json_candidate(text) {
+    if let Some((base64_data, media_type)) = sandbox_image_json_candidate(text) {
         let mime_type = media_type.unwrap_or_else(|| declared_mime.clone());
         return browser_image_upload(base64_data.trim(), &mime_type);
     }
@@ -1593,8 +1631,10 @@ fn write_upload_from_value(
     })
 }
 
-fn openpaw_image_candidate(value: &Value) -> Option<(String, Option<String>)> {
-    if value.get("__openpaw_image").and_then(Value::as_bool) != Some(true) {
+fn sandbox_image_candidate(value: &Value) -> Option<(String, Option<String>)> {
+    let is_image = value.get("__temperpaw_image").and_then(Value::as_bool) == Some(true)
+        || value.get("__openpaw_image").and_then(Value::as_bool) == Some(true);
+    if !is_image {
         return None;
     }
     let base64_data = value.get("base64_data")?.as_str()?.trim();
@@ -1611,13 +1651,15 @@ fn openpaw_image_candidate(value: &Value) -> Option<(String, Option<String>)> {
     Some((base64_data.to_string(), media_type))
 }
 
-fn openpaw_image_json_candidate(text: &str) -> Option<(String, Option<String>)> {
+fn sandbox_image_json_candidate(text: &str) -> Option<(String, Option<String>)> {
     let trimmed = text.trim();
-    if !trimmed.starts_with('{') || !trimmed.contains("__openpaw_image") {
+    if !trimmed.starts_with('{')
+        || (!trimmed.contains("__temperpaw_image") && !trimmed.contains("__openpaw_image"))
+    {
         return None;
     }
     let value: Value = serde_json::from_str(trimmed).ok()?;
-    openpaw_image_candidate(&value)
+    sandbox_image_candidate(&value)
 }
 
 fn browser_image_upload(raw: &str, declared_mime: &str) -> Result<WriteUpload, String> {
@@ -1657,7 +1699,7 @@ fn browser_image_upload(raw: &str, declared_mime: &str) -> Result<WriteUpload, S
     }
 
     Ok(WriteUpload {
-        content: WriteUploadContent::BrowserImageBase64(compact),
+        content: WriteUploadContent::BrowserImageBytes(decoded),
         mime_type: detected_mime.to_string(),
     })
 }
@@ -1946,7 +1988,7 @@ mod tests {
         let upload = write_upload_from_value(
             "/tmp/thumbnail.png",
             &json!({
-                "__openpaw_image": true,
+                "__temperpaw_image": true,
                 "media_type": "image/png",
                 "base64_data": PNG_1X1,
                 "source_path": "/tmp/thumbnail.png"
@@ -1956,24 +1998,22 @@ mod tests {
         .unwrap();
 
         assert_eq!(upload.mime_type, "image/png");
-        assert_eq!(
+        assert!(matches!(
             upload.content,
-            WriteUploadContent::BrowserImageBase64(PNG_1X1.to_string())
-        );
+            WriteUploadContent::BrowserImageBytes(bytes) if bytes.starts_with(b"\x89PNG\r\n\x1a\n")
+        ));
     }
 
     #[test]
     fn write_upload_accepts_json_stringified_sandbox_image_object() {
         let upload = write_upload_from_value(
             "/tmp/thumbnail.png",
-            &json!(
-                json!({
-                    "__openpaw_image": true,
-                    "media_type": "image/png",
-                    "base64_data": PNG_1X1
-                })
-                .to_string()
-            ),
+            &json!(json!({
+                "__temperpaw_image": true,
+                "media_type": "image/png",
+                "base64_data": PNG_1X1
+            })
+            .to_string()),
             &json!({}),
         )
         .unwrap();
@@ -1981,7 +2021,27 @@ mod tests {
         assert_eq!(upload.mime_type, "image/png");
         assert!(matches!(
             upload.content,
-            WriteUploadContent::BrowserImageBase64(_)
+            WriteUploadContent::BrowserImageBytes(_)
+        ));
+    }
+
+    #[test]
+    fn write_upload_accepts_legacy_openpaw_image_marker() {
+        let upload = write_upload_from_value(
+            "/tmp/thumbnail.png",
+            &json!({
+                "__openpaw_image": true,
+                "media_type": "image/png",
+                "base64_data": PNG_1X1
+            }),
+            &json!({}),
+        )
+        .unwrap();
+
+        assert_eq!(upload.mime_type, "image/png");
+        assert!(matches!(
+            upload.content,
+            WriteUploadContent::BrowserImageBytes(_)
         ));
     }
 
@@ -1991,10 +2051,10 @@ mod tests {
             write_upload_from_value("/tmp/thumbnail.png", &json!(PNG_1X1), &json!({})).unwrap();
 
         assert_eq!(upload.mime_type, "image/png");
-        assert_eq!(
+        assert!(matches!(
             upload.content,
-            WriteUploadContent::BrowserImageBase64(PNG_1X1.to_string())
-        );
+            WriteUploadContent::BrowserImageBytes(bytes) if bytes.starts_with(b"\x89PNG\r\n\x1a\n")
+        ));
     }
 
     #[test]

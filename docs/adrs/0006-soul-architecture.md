@@ -48,7 +48,7 @@ Project leads are not picked from a roster. Paw creates them by:
 1. Reading `os-apps/paw-agent/skills/project-lead-schema/SKILL.md` — the dimensions to fill (identity, sensibility, stage posture, domain fluency, tradeoff style, worldview, tensions, boundaries, voice)
 2. Generating SOUL.md + STYLE.md content tailored to the specific project
 3. Appending the shared `os-apps/paw-agent/skills/project-lead-playbook/SKILL.md` operational playbook
-4. Uploading the combined content to TemperFS via `file_upload`
+4. Uploading the combined content to TemperFS via native `temper.write(...)`
 5. Creating and publishing a Soul entity
 6. Spawning an agent with that soul
 
@@ -64,9 +64,9 @@ Teaching triggers:
 - After the lead handles something directly (capture the context)
 - When the codebase changes (update skills before next spawn)
 
-### `file_upload` tool enables runtime soul crafting
+### `temper.write(...)` enables runtime soul crafting
 
-A new `file_upload` tool allows agents to create TemperFS files with generated content. This is the missing link that enables Paw to craft souls at runtime — previously only the Rust startup code could upload files.
+The native `temper.write(path, content, opts)` method allows agents to create TemperFS files with generated content. This is the missing link that enables Paw to craft souls at runtime — previously only the Rust startup code could upload files.
 
 ### Skill scope filtering
 
