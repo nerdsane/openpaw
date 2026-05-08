@@ -28,12 +28,14 @@
 
   function isDatadogMcpProof(proof: Record<string, unknown>): boolean {
     const data = jsonField(proof, 'proof_json');
-    return data.kind === 'datadog_observability' || data.evidence_source === 'codex_datadog_mcp_agent';
+    return ['datadog_observability', 'github_repository'].includes(String(data.kind ?? ''))
+      || ['codex_datadog_mcp_agent', 'codex_github_agent'].includes(String(data.evidence_source ?? ''));
   }
 
   function isDatadogMcpPatrol(run: Record<string, unknown>): boolean {
     const data = jsonField(run, 'evidence_json');
-    return data.evidence_source === 'codex_datadog_mcp_agent';
+    return ['codex_datadog_mcp_agent', 'codex_github_agent'].includes(String(data.evidence_source ?? ''))
+      || ['datadog_observability', 'github_repository'].includes(String(readField(run, 'patrol_kind') ?? ''));
   }
 
   const latestPatrol = $derived(
@@ -57,6 +59,9 @@
   const residualRisks = $derived(asArray(proofData.residual_risks).map(String));
   const queuedImplementers = $derived(asArray(created.implementer_worker_runs).length);
   const createdFindingIds = $derived(asArray(created.observability_findings).map(String));
+  const createdSignalIds = $derived(asArray(created.signals).map(String));
+  const proofKind = $derived(String(proofData.kind ?? readField(latestPatrol, 'patrol_kind') ?? 'patrol').trim());
+  const proofTitle = $derived(proofKind === 'github_repository' ? 'GitHub Repository Patrol' : 'Datadog MCP Patrol');
   const openedFindings = $derived(
     createdFindingIds.length > 0
       ? createdFindingIds
@@ -79,10 +84,10 @@
   <div class="overview-head">
     <div>
       <p class="eyebrow">Latest Patrol Evidence</p>
-      <h2>Datadog MCP Patrol</h2>
+      <h2>{proofTitle}</h2>
       <p>
-        Local Codex investigates Datadog with its authenticated MCP tools, then the worker records
-        the agent's Signals, Findings, Cases, gated WorkCycles, and ProofPacket back into Temper.
+        Local Codex investigates the external surface with authenticated tools, then the worker
+        records the agent's Signals, Findings or Cases, gated WorkCycles, and ProofPacket back into Temper.
       </p>
     </div>
     {#if latestPatrol}
@@ -98,12 +103,12 @@
       <strong>{String(evidenceScope.length || '-')}</strong>
     </div>
     <div>
-      <span>MCP findings</span>
+      <span>Agent findings</span>
       <strong>{String(patrolFindings.length || '-')}</strong>
     </div>
     <div>
-      <span>Findings opened</span>
-      <strong>{String(createdFindingIds.length || findings.length || '-')}</strong>
+      <span>Signals / findings opened</span>
+      <strong>{String(createdSignalIds.length || createdFindingIds.length || findings.length || '-')}</strong>
     </div>
     <div>
       <span>Queued / gated work</span>
@@ -152,11 +157,11 @@
       <dl>
         <div>
           <dt>Investigator</dt>
-          <dd>{textValue(proofData.evidence_source ?? 'codex_datadog_mcp_agent')}</dd>
+          <dd>{textValue(proofData.evidence_source ?? 'codex_patrol_agent')}</dd>
         </div>
         <div>
-          <dt>Required Surfaces</dt>
-          <dd>Monitors, logs, traces, metrics, incidents, and dashboards.</dd>
+          <dt>Evidence Areas</dt>
+          <dd>{evidenceScope.map((scope) => textValue(readField(scope, 'surface'))).join(', ') || 'Awaiting agent evidence.'}</dd>
         </div>
         <div>
           <dt>Safety Gate</dt>

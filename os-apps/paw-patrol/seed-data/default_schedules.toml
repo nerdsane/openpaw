@@ -14,6 +14,7 @@ name = "Default daily Patrol maintenance"
 cadence = "daily"
 enable_repo_sweep = true
 enable_daily_brief = true
+enable_github_patrol = true
 commit_sha = "current-checkout"
 max_runs = "0"
 
@@ -25,6 +26,7 @@ name = "Default daily Patrol maintenance"
 cadence = "daily"
 enable_repo_sweep = true
 enable_daily_brief = true
+enable_github_patrol = true
 commit_sha = "current-checkout"
 max_runs = "0"
 

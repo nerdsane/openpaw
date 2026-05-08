@@ -25,7 +25,9 @@ fn check_worker_capabilities() -> DoctorCheck {
             "worker_capabilities",
             "PAW_CODEX_WORKER_CAPABILITIES resolved to an empty set".to_string(),
         )
-    } else if capabilities.iter().any(|capability| capability == "datadog_query") {
+    } else if capabilities.iter().any(|capability| capability == "datadog_query")
+        && capabilities.iter().any(|capability| capability == "github_query")
+    {
         DoctorCheck::pass(
             "worker_capabilities",
             format!("advertising {}", capabilities.join(",")),
@@ -34,7 +36,7 @@ fn check_worker_capabilities() -> DoctorCheck {
         DoctorCheck::warn(
             "worker_capabilities",
             format!(
-                "advertising {}; Datadog Patrol requires datadog_query",
+                "advertising {}; Datadog Patrol requires datadog_query and GitHub Patrol requires github_query",
                 capabilities.join(",")
             ),
         )
@@ -43,20 +45,32 @@ fn check_worker_capabilities() -> DoctorCheck {
 
 fn check_datadog_mcp_contract() -> DoctorCheck {
     let capabilities = worker_capabilities();
-    if capabilities
+    let has_datadog = capabilities
         .iter()
-        .any(|capability| capability == "datadog_query")
-    {
+        .any(|capability| capability == "datadog_query");
+    let has_github = capabilities
+        .iter()
+        .any(|capability| capability == "github_query");
+    if has_datadog && has_github {
         DoctorCheck::pass(
-            "datadog_mcp",
-            "worker advertises datadog_query; Patrol will use the local Codex Datadog MCP contract"
+            "patrol_query_capabilities",
+            "worker advertises datadog_query and github_query; Patrol will use local Codex agent contracts"
                 .to_string(),
         )
     } else {
+        let missing = [
+            (!has_datadog).then_some("datadog_query"),
+            (!has_github).then_some("github_query"),
+        ]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>()
+        .join(",");
         DoctorCheck::warn(
-            "datadog_mcp",
-            "worker does not advertise datadog_query; Datadog MCP Patrol runs will not be claimed"
-                .to_string(),
+            "patrol_query_capabilities",
+            format!(
+                "worker is missing {missing}; Patrol runs with that capability will not be claimed"
+            ),
         )
     }
 }

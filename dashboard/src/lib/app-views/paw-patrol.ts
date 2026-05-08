@@ -41,6 +41,12 @@ export const pawPatrolView: AppViewManifest = {
       requiredCapabilities: 'datadog_query'
     },
     {
+      label: 'Run GitHub Patrol',
+      kind: 'patrol-run',
+      patrolKind: 'github_repository',
+      requiredCapabilities: 'github_query'
+    },
+    {
       label: 'Submit Work',
       kind: 'work-request',
       source: 'dashboard'

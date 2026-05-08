@@ -92,6 +92,7 @@ include!("doctor.rs");
 include!("event_loop.rs");
 include!("temper_api.rs");
 include!("datadog_patrol.rs");
+include!("github_patrol.rs");
 include!("daily_brief.rs");
 include!("cli.rs");
 include!("doctor_report.rs");

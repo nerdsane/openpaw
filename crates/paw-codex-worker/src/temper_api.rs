@@ -477,7 +477,9 @@ fn worker_capabilities() -> Vec<String> {
     env::var("PAW_CODEX_WORKER_CAPABILITIES")
         .ok()
         .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| "local_codex,repo_write,review,evaluation".to_string())
+        .unwrap_or_else(|| {
+            "local_codex,repo_write,review,evaluation,datadog_query,github_query".to_string()
+        })
         .split(',')
         .map(str::trim)
         .filter(|value| !value.is_empty())

@@ -23,7 +23,7 @@ initial = ""
 [[state]]
 name = "capabilities"
 type = "string"
-initial = "local_codex,repo_write,review,evaluation,datadog_query"
+initial = "local_codex,repo_write,review,evaluation,datadog_query,github_query"
 
 [[state]]
 name = "host"

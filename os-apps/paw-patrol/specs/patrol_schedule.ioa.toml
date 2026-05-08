@@ -26,6 +26,11 @@ type = "bool"
 initial = "true"
 
 [[state]]
+name = "enable_github_patrol"
+type = "bool"
+initial = "true"
+
+[[state]]
 name = "commit_sha"
 type = "string"
 initial = "current-checkout"
@@ -47,6 +52,11 @@ initial = ""
 
 [[state]]
 name = "last_daily_brief_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "last_github_patrol_run_id"
 type = "string"
 initial = ""
 
@@ -75,8 +85,8 @@ name = "Configure"
 kind = "input"
 from = ["Created"]
 to = "Created"
-params = ["name", "cadence", "enable_repo_sweep", "enable_daily_brief", "commit_sha", "max_runs"]
-hint = "Configure a Patrol recurring schedule for repo sweeps and daily briefs."
+params = ["name", "cadence", "enable_repo_sweep", "enable_daily_brief", "enable_github_patrol", "commit_sha", "max_runs"]
+hint = "Configure a Patrol recurring schedule for repo sweeps, GitHub issue/PR patrol, and daily briefs."
 
 [[action]]
 name = "Activate"
@@ -129,7 +139,7 @@ name = "TriggerComplete"
 kind = "input"
 from = ["Active"]
 to = "Active"
-params = ["next_run_at", "last_run_at", "last_repo_graph_snapshot_id", "last_daily_brief_id", "last_summary"]
+params = ["next_run_at", "last_run_at", "last_repo_graph_snapshot_id", "last_daily_brief_id", "last_github_patrol_run_id", "last_summary"]
 effect = [{ type = "schedule_at", field = "next_run_at", action = "Trigger" }]
 hint = "Store created job ids and schedule the next recurring run."
 

@@ -144,6 +144,8 @@ async fn execute_worker_run(
         run_repo_sweep(client, config, &worker_run, &snapshot_id).await
     } else if let Some(patrol_run_id) = extract_datadog_patrol_run_id(&worker_run.task) {
         run_datadog_patrol(client, config, &worker_run, &patrol_run_id).await
+    } else if let Some(patrol_run_id) = extract_github_patrol_run_id(&worker_run.task) {
+        run_github_patrol(client, config, &worker_run, &patrol_run_id).await
     } else if let Some(daily_brief_id) = extract_daily_brief_id(&worker_run.task) {
         run_daily_brief(client, config, &worker_run, &daily_brief_id).await
     } else {

@@ -346,7 +346,10 @@ fn handle_complete(
 }
 
 fn required_capabilities_for_task(task: &str) -> &'static str {
-    if task.to_ascii_lowercase().contains("datadog") {
+    let task = task.to_ascii_lowercase();
+    if task.contains("github") {
+        "local_codex,repo_write,github_query"
+    } else if task.contains("datadog") {
         "local_codex,repo_write,datadog_query"
     } else {
         "local_codex,repo_write"

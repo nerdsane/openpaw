@@ -91,6 +91,35 @@ DATADOG_PATROL_RESULT_JSON_END
 }
 
 #[test]
+fn datadog_patrol_parser_turns_missing_expected_surfaces_into_residual_risk() {
+    let output = r#"
+DATADOG_PATROL_RESULT_JSON_BEGIN
+{
+  "summary": "The agent reached Datadog but only the monitor surface was available.",
+  "evidence_scope": [
+    {"surface":"monitors","query":"checked active alert states","result_summary":"no actionable alerts found"}
+  ],
+  "findings": [],
+  "residual_risks": [],
+  "recommended_next_queries": []
+}
+DATADOG_PATROL_RESULT_JSON_END
+"#;
+
+    let investigation =
+        parse_datadog_patrol_investigation_output(output).expect("missing surfaces should not hard-fail an agent patrol");
+
+    assert_eq!(investigation.evidence_scope.len(), 1);
+    assert!(
+        investigation
+            .residual_risks
+            .iter()
+            .any(|risk| risk.contains("logs") && risk.contains("traces")),
+        "missing expected surfaces should be explicit residual risk evidence"
+    );
+}
+
+#[test]
 fn datadog_patrol_classifier_ignores_followup_and_rework_prompts() {
     let patrol_task = "You are the local Codex Datadog Patrol agent for TemperPaw paw-patrol.\n\nPatrolRun: en-patrol\nPatrolKind: datadog_observability";
     let implementer_task = "You are the local Codex implementer for a Paw Patrol Datadog MCP observability finding.\n\nPatrolRun: en-patrol\nPatrol kind: datadog_observability\nFinding: OpenPaw monitor coverage is degraded by No Data states";

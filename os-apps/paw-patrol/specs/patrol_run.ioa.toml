@@ -86,7 +86,7 @@ kind = "input"
 from = ["Created"]
 to = "Created"
 params = ["patrol_kind", "summary", "requested_by", "required_capabilities"]
-hint = "Configure one Risk Patrol investigation. Supported v1 kind: datadog_observability."
+hint = "Configure one Risk Patrol investigation. Supported v1 kinds: datadog_observability and github_repository."
 
 [[action]]
 name = "Start"

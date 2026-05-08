@@ -86,7 +86,7 @@ kind = "input"
 from = ["Queued"]
 to = "Queued"
 params = ["work_cycle_id", "factory_case_id", "risk_lane", "task", "branch_name", "worktree_path", "runner_kind", "allowed_worker_id", "provider_id", "required_capabilities"]
-hint = "Configure a queued worker run. Datadog Patrol uses required_capabilities = local_codex,repo_write,datadog_query."
+hint = "Configure a queued worker run. Patrol uses required_capabilities to route Datadog (datadog_query), GitHub (github_query), implementation, review, and evaluation work to capable agents."
 
 [[action]]
 name = "Claim"

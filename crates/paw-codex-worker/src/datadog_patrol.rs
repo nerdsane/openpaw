@@ -222,7 +222,7 @@ impl DatadogPatrolInvestigation {
         for scope in &mut self.evidence_scope {
             scope.normalize();
         }
-        require_datadog_surfaces(&self.evidence_scope)?;
+        note_missing_datadog_surfaces(&self.evidence_scope, &mut self.residual_risks);
 
         for finding in &mut self.findings {
             finding.normalize();
@@ -351,7 +351,7 @@ fn datadog_followup_branch_name(finding: &DatadogPatrolFinding, work_cycle_id: &
     format!("codex/paw-datadog-{title}-{suffix}")
 }
 
-fn require_datadog_surfaces(scopes: &[DatadogEvidenceScope]) -> Result<()> {
+fn note_missing_datadog_surfaces(scopes: &[DatadogEvidenceScope], residual_risks: &mut Vec<String>) {
     let present = scopes
         .iter()
         .map(|scope| scope.surface.as_str())
@@ -362,10 +362,19 @@ fn require_datadog_surfaces(scopes: &[DatadogEvidenceScope]) -> Result<()> {
         .filter(|surface| !present.contains(surface))
         .collect::<Vec<_>>();
     if !missing.is_empty() {
-        bail!(
-            "Codex Datadog MCP result did not include required evidence_scope surface(s): {}",
+        residual_risks.push(format!(
+            "Datadog MCP Patrol did not return explicit evidence for expected surface(s): {}. Treat this as incomplete evidence, not as a deterministic finding decision.",
             missing.join(", ")
-        );
+        ));
+    }
+}
+
+#[allow(dead_code)]
+fn require_datadog_surfaces(scopes: &[DatadogEvidenceScope]) -> Result<()> {
+    let mut residual_risks = Vec::new();
+    note_missing_datadog_surfaces(scopes, &mut residual_risks);
+    if let Some(message) = residual_risks.first() {
+        bail!("{message}");
     }
     Ok(())
 }

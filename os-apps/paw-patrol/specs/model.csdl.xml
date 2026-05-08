@@ -348,11 +348,13 @@
         <Property Name="Cadence" Type="Edm.String"/>
         <Property Name="EnableRepoSweep" Type="Edm.Boolean"/>
         <Property Name="EnableDailyBrief" Type="Edm.Boolean"/>
+        <Property Name="EnableGithubPatrol" Type="Edm.Boolean"/>
         <Property Name="CommitSha" Type="Edm.String"/>
         <Property Name="NextRunAt" Type="Edm.String"/>
         <Property Name="LastRunAt" Type="Edm.String"/>
         <Property Name="LastRepoGraphSnapshotId" Type="Edm.String"/>
         <Property Name="LastDailyBriefId" Type="Edm.String"/>
+        <Property Name="LastGithubPatrolRunId" Type="Edm.String"/>
         <Property Name="LastSummary" Type="Edm.String"/>
         <Property Name="RunCount" Type="Edm.Int64"/>
         <Property Name="MaxRuns" Type="Edm.String"/>

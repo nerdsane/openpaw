@@ -9,8 +9,11 @@
 use temper_wasm_sdk::prelude::*;
 
 const PROOF_PACKETS_PATH: &str = "/tdata/ProofPackets";
+const PATROL_RUNS_PATH: &str = "/tdata/PatrolRuns";
+const SIGNALS_PATH: &str = "/tdata/Signals";
 const QUALITY_FINDINGS_PATH: &str = "/tdata/QualityFindings";
 const SECURITY_FINDINGS_PATH: &str = "/tdata/SecurityFindings";
+const OBSERVABILITY_FINDINGS_PATH: &str = "/tdata/ObservabilityFindings";
 const SESSIONS_PATH: &str = "/tdata/Sessions";
 const WORK_CYCLES_PATH: &str = "/tdata/WorkCycles";
 const WORKER_RUNS_PATH: &str = "/tdata/WorkerRuns";
@@ -72,6 +75,22 @@ fn handle_start(
         "Status eq 'Complete'",
         20,
     )?;
+    let patrol_runs = query_collection(
+        ctx,
+        base_url,
+        headers,
+        PATROL_RUNS_PATH,
+        "Status eq 'Complete'",
+        20,
+    )?;
+    let linked_signals = query_collection(
+        ctx,
+        base_url,
+        headers,
+        SIGNALS_PATH,
+        "Status eq 'Linked'",
+        20,
+    )?;
     let quality_risks = query_collection(
         ctx,
         base_url,
@@ -88,15 +107,23 @@ fn handle_start(
         "Status eq 'Open'",
         20,
     )?;
+    let observability_risks = query_collection(
+        ctx,
+        base_url,
+        headers,
+        OBSERVABILITY_FINDINGS_PATH,
+        "Status eq 'Open'",
+        20,
+    )?;
 
     let proof_packet_ids = ids_json(&proofs);
-    let done_items = done_items_json(&work_cycles, &proofs);
-    let open_risks = open_risks_json(&quality_risks, &security_risks);
+    let done_items = done_items_json(&work_cycles, &proofs, &patrol_runs, &linked_signals);
+    let open_risks = open_risks_json(&quality_risks, &security_risks, &observability_risks);
     let fallback_visual_summary_url = visual_daily_brief_svg(
         &brief_date,
         proofs.len(),
-        work_cycles.len(),
-        quality_risks.len() + security_risks.len(),
+        work_cycles.len() + patrol_runs.len(),
+        quality_risks.len() + security_risks.len() + observability_risks.len(),
     );
     let session_id = create_entity(ctx, base_url, headers, SESSIONS_PATH)?;
     let work_cycle_id = create_entity(ctx, base_url, headers, WORK_CYCLES_PATH)?;
@@ -109,8 +136,11 @@ fn handle_start(
         open_risks: &open_risks,
         proof_count: proofs.len(),
         completed_work_count: work_cycles.len(),
+        patrol_run_count: patrol_runs.len(),
+        linked_signal_count: linked_signals.len(),
         quality_risk_count: quality_risks.len(),
         security_risk_count: security_risks.len(),
+        observability_risk_count: observability_risks.len(),
         fallback_visual_summary_url: &fallback_visual_summary_url,
     };
 
@@ -235,20 +265,26 @@ struct DailyBriefPrompt<'a> {
     open_risks: &'a str,
     proof_count: usize,
     completed_work_count: usize,
+    patrol_run_count: usize,
+    linked_signal_count: usize,
     quality_risk_count: usize,
     security_risk_count: usize,
+    observability_risk_count: usize,
     fallback_visual_summary_url: &'a str,
 }
 
 fn daily_brief_session_prompt(input: &DailyBriefPrompt<'_>) -> String {
     format!(
-        "You are creating the agent-driven DailyBrief Session for Patrol.\n\nDailyBrief entity: {}\nDate: {}\n\nSource facts collected by daily_brief_lifecycle:\n- Completed WorkCycles: {}\n- Ready ProofPackets: {}\n- Open quality risks: {}\n- Open security risks: {}\n\nproof_packet_ids JSON:\n{}\n\ndone_items JSON:\n{}\n\nopen_risks JSON:\n{}\n\nRequired output action:\nUse `temper.action(\"DailyBriefs\", \"{}\", \"Render\", params)` to dispatch the Patrol render action. The OData action is `{}`.\n\nRender params:\n- summary_markdown: concise daily brief with done items, open risks, escalations, and next actions.\n- visual_summary_url: factual visual daily summary. You may reuse this fallback visual_daily_brief_svg if no better factual diagram is available: {}\n- proof_packet_ids: JSON array string from the source facts, unless you find newer Ready ProofPackets.\n- open_risks: JSON array string, refined only if you can cite Temper evidence.\n- done_items: JSON array string, refined only if you can cite Temper evidence.\n\nRules:\n- Keep the summary super readable for humans and agents.\n- Include Mermaid diagrams in summary_markdown when they clarify state transitions or risk flow.\n- Do not invent work. Query Temper if you need more detail.\n- If you cannot render safely, dispatch `TemperPaw.Patrol.Fail` on this DailyBrief with an error_message explaining the blocker.",
+        "You are creating the agent-driven DailyBrief Session for Patrol.\n\nDailyBrief entity: {}\nDate: {}\n\nSource facts collected by daily_brief_lifecycle:\n- Completed WorkCycles: {}\n- Complete PatrolRuns, including datadog_observability or github_repository patrols: {}\n- Linked Signals, including GitHub/Datadog/webhook signals: {}\n- Ready ProofPackets: {}\n- Open quality risks: {}\n- Open security risks: {}\n- Open observability/repository risks: {}\n\nproof_packet_ids JSON:\n{}\n\ndone_items JSON:\n{}\n\nopen_risks JSON:\n{}\n\nRequired output action:\nUse `temper.action(\"DailyBriefs\", \"{}\", \"Render\", params)` to dispatch the Patrol render action. The OData action is `{}`.\n\nRender params:\n- summary_markdown: concise daily brief with done items, open risks, escalations, GitHub issue/PR patrol anomalies, Datadog patrol findings, and next actions.\n- visual_summary_url: factual visual daily summary. You may reuse this fallback visual_daily_brief_svg if no better factual diagram is available: {}\n- proof_packet_ids: JSON array string from the source facts, unless you find newer Ready ProofPackets.\n- open_risks: JSON array string, refined only if you can cite Temper evidence.\n- done_items: JSON array string, refined only if you can cite Temper evidence.\n\nRules:\n- Keep the summary super readable for humans and agents.\n- Include Mermaid diagrams in summary_markdown when they clarify state transitions or risk flow.\n- Do not invent work. Query Temper if you need more detail.\n- If you cannot render safely, dispatch `TemperPaw.Patrol.Fail` on this DailyBrief with an error_message explaining the blocker.",
         input.brief_id,
         empty_fallback(input.brief_date, "unspecified"),
         input.completed_work_count,
+        input.patrol_run_count,
+        input.linked_signal_count,
         input.proof_count,
         input.quality_risk_count,
         input.security_risk_count,
+        input.observability_risk_count,
         input.proof_packet_ids,
         input.done_items,
         input.open_risks,
@@ -260,14 +296,17 @@ fn daily_brief_session_prompt(input: &DailyBriefPrompt<'_>) -> String {
 
 fn daily_brief_worker_task(input: &DailyBriefPrompt<'_>, work_cycle_id: &str) -> String {
     format!(
-        "You are the local Codex DailyBrief agent for Paw Patrol.\n\nDailyBrief: {}\nWorkCycle: {}\nDate: {}\n\nSource facts collected by DailyBrief.Start:\n- Completed WorkCycles: {}\n- Ready ProofPackets: {}\n- Open quality risks: {}\n- Open security risks: {}\n\nproof_packet_ids JSON:\n{}\n\ndone_items JSON:\n{}\n\nopen_risks JSON:\n{}\n\nFallback factual visual_summary_url:\n{}\n\nRequired loop:\n1. Do not edit files.\n2. Use judgment to synthesize a super-readable daily brief from these Temper facts.\n3. Include a Mermaid diagram in summary_markdown when it clarifies flow or risk.\n4. Return the DailyBrief JSON packet to paw-codex-worker between DAILY_BRIEF_RESULT_JSON_BEGIN and DAILY_BRIEF_RESULT_JSON_END.\n5. The worker will validate the JSON, dispatch DailyBrief.Render, and self-report WorkerRun.ReportDone so reviewer/evaluator/proof gates can run.",
+        "You are the local Codex DailyBrief agent for Paw Patrol.\n\nDailyBrief: {}\nWorkCycle: {}\nDate: {}\n\nSource facts collected by DailyBrief.Start:\n- Completed WorkCycles: {}\n- Complete PatrolRuns, including datadog_observability or github_repository patrols: {}\n- Linked Signals, including GitHub/Datadog/webhook signals: {}\n- Ready ProofPackets: {}\n- Open quality risks: {}\n- Open security risks: {}\n- Open observability/repository risks: {}\n\nproof_packet_ids JSON:\n{}\n\ndone_items JSON:\n{}\n\nopen_risks JSON:\n{}\n\nFallback factual visual_summary_url:\n{}\n\nRequired loop:\n1. Do not edit files.\n2. Use judgment to synthesize a super-readable daily brief from these Temper facts, including GitHub issue/PR patrol results and Datadog patrol results when present.\n3. Include a Mermaid diagram in summary_markdown when it clarifies flow or risk.\n4. Return the DailyBrief JSON packet to paw-codex-worker between DAILY_BRIEF_RESULT_JSON_BEGIN and DAILY_BRIEF_RESULT_JSON_END.\n5. The worker will validate the JSON, dispatch DailyBrief.Render, and self-report WorkerRun.ReportDone so reviewer/evaluator/proof gates can run.",
         input.brief_id,
         work_cycle_id,
         empty_fallback(input.brief_date, "unspecified"),
         input.completed_work_count,
+        input.patrol_run_count,
+        input.linked_signal_count,
         input.proof_count,
         input.quality_risk_count,
         input.security_risk_count,
+        input.observability_risk_count,
         input.proof_packet_ids,
         input.done_items,
         input.open_risks,
@@ -349,7 +388,12 @@ fn ids_json(items: &[Value]) -> String {
     .to_string()
 }
 
-fn done_items_json(work_cycles: &[Value], proofs: &[Value]) -> String {
+fn done_items_json(
+    work_cycles: &[Value],
+    proofs: &[Value],
+    patrol_runs: &[Value],
+    signals: &[Value],
+) -> String {
     let mut items = Vec::new();
     for work_cycle in work_cycles {
         let id = entity_id_from_response(work_cycle).unwrap_or_default();
@@ -368,10 +412,28 @@ fn done_items_json(work_cycles: &[Value], proofs: &[Value]) -> String {
             "summary": "proof ready"
         }));
     }
+    for run in patrol_runs {
+        let id = entity_id_from_response(run).unwrap_or_default();
+        items.push(json!({
+            "type": "PatrolRun",
+            "id": id,
+            "summary": empty_fallback(&string_from_entity(run, "summary", "Summary"), "completed PatrolRun"),
+            "patrol_kind": string_from_entity(run, "patrol_kind", "PatrolKind")
+        }));
+    }
+    for signal in signals {
+        let id = entity_id_from_response(signal).unwrap_or_default();
+        items.push(json!({
+            "type": "Signal",
+            "id": id,
+            "summary": empty_fallback(&string_from_entity(signal, "summary", "Summary"), "linked signal"),
+            "source": string_from_entity(signal, "source", "Source")
+        }));
+    }
     json!(items).to_string()
 }
 
-fn open_risks_json(quality: &[Value], security: &[Value]) -> String {
+fn open_risks_json(quality: &[Value], security: &[Value], observability: &[Value]) -> String {
     let mut risks = Vec::new();
     for item in quality {
         risks.push(json!({
@@ -388,6 +450,16 @@ fn open_risks_json(quality: &[Value], security: &[Value]) -> String {
             "title": empty_fallback(&string_from_entity(item, "title", "Title"), "security risk"),
             "severity": empty_fallback(&string_from_entity(item, "severity", "Severity"), "high"),
             "risk_lane": empty_fallback(&string_from_entity(item, "risk_lane", "RiskLane"), "L2")
+        }));
+    }
+    for item in observability {
+        risks.push(json!({
+            "type": "ObservabilityFinding",
+            "id": entity_id_from_response(item).unwrap_or_default(),
+            "title": empty_fallback(&string_from_entity(item, "title", "Title"), "observability or repository risk"),
+            "severity": empty_fallback(&string_from_entity(item, "severity", "Severity"), "medium"),
+            "risk_lane": empty_fallback(&string_from_entity(item, "risk_lane", "RiskLane"), "L2"),
+            "source": string_from_entity(item, "source", "Source")
         }));
     }
     json!(risks).to_string()

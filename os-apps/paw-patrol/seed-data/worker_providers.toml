@@ -5,13 +5,13 @@ type = "WorkerProvider"
 [instance.fields]
 provider_kind = "local_codex"
 display_name = "Local Codex"
-capabilities = "local_codex,repo_write,review,evaluation,datadog_query"
+capabilities = "local_codex,repo_write,review,evaluation,datadog_query,github_query"
 risk_ceiling = "L3"
 enabled = true
 
 [[instance.actions]]
 name = "Register"
-params = { provider_kind = "local_codex", display_name = "Local Codex", capabilities = "local_codex,repo_write,review,evaluation,datadog_query", risk_ceiling = "L3", enabled = true }
+params = { provider_kind = "local_codex", display_name = "Local Codex", capabilities = "local_codex,repo_write,review,evaluation,datadog_query,github_query", risk_ceiling = "L3", enabled = true }
 
 [[instance.actions]]
 name = "Activate"
@@ -25,17 +25,17 @@ type = "WorkerAgent"
 worker_id = "mac-mini-codex-prod"
 provider_id = "local-codex"
 display_name = "Mac mini Codex"
-capabilities = "local_codex,repo_write,review,evaluation,datadog_query"
+capabilities = "local_codex,repo_write,review,evaluation,datadog_query,github_query"
 host = "Margarytas-Mac-mini.local"
 worktree_root = "/Users/openclaw/Development/temperpaw-worktrees"
 
 [[instance.actions]]
 name = "Register"
-params = { worker_id = "mac-mini-codex-prod", provider_id = "local-codex", display_name = "Mac mini Codex", capabilities = "local_codex,repo_write,review,evaluation,datadog_query", host = "Margarytas-Mac-mini.local", worktree_root = "/Users/openclaw/Development/temperpaw-worktrees" }
+params = { worker_id = "mac-mini-codex-prod", provider_id = "local-codex", display_name = "Mac mini Codex", capabilities = "local_codex,repo_write,review,evaluation,datadog_query,github_query", host = "Margarytas-Mac-mini.local", worktree_root = "/Users/openclaw/Development/temperpaw-worktrees" }
 
 [[instance.actions]]
 name = "Activate"
-params = { status_summary = "Registered local Codex worker for Patrol implementation, review, evaluation, and Datadog query patrol." }
+params = { status_summary = "Registered local Codex worker for Patrol implementation, review, evaluation, Datadog query patrol, and GitHub issue/PR patrol." }
 
 [[instance]]
 id = "codex-cloud"
@@ -89,10 +89,10 @@ type = "WorkerProvider"
 [instance.fields]
 provider_kind = "temperpaw_agent"
 display_name = "TemperPaw Agent"
-capabilities = "triage,patrol_submit,datadog_query"
+capabilities = "triage,patrol_submit,datadog_query,github_query"
 risk_ceiling = "L1"
 enabled = false
 
 [[instance.actions]]
 name = "Register"
-params = { provider_kind = "temperpaw_agent", display_name = "TemperPaw Agent", capabilities = "triage,patrol_submit,datadog_query", risk_ceiling = "L1", enabled = false }
+params = { provider_kind = "temperpaw_agent", display_name = "TemperPaw Agent", capabilities = "triage,patrol_submit,datadog_query,github_query", risk_ceiling = "L1", enabled = false }

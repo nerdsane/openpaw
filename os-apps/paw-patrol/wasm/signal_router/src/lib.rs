@@ -430,63 +430,12 @@ fn is_noise_signal(source: &str, payload: &str, severity: &str) -> bool {
 }
 
 fn initial_risk<'a>(source: &'a str, payload: &'a str, severity: &'a str) -> Risk<'a> {
-    let haystack = format!("{source} {payload} {severity}").to_ascii_lowercase();
     let mut evidence = Vec::new();
-
-    if contains_any(
-        &haystack,
-        &[
-            "secret",
-            "token",
-            "billing",
-            "railway",
-            "deploy",
-            "migration",
-            "database",
-            "prod",
-            "production",
-        ],
-    ) {
-        evidence.push("deploy/secrets/migrations/production");
-        return Risk {
-            lane: "L3",
-            source: "signal_router:initial_signal_intake",
-            evidence,
-        };
-    }
-
-    if contains_any(
-        &haystack,
-        &[
-            "cedar",
-            "permission",
-            "policy",
-            "wasm",
-            "discord",
-            "dm",
-            "datadog",
-            "trace",
-            "panic",
-            "error",
-            "exception",
-            "user-facing",
-        ],
-    ) || matches!(
-        severity.trim().to_ascii_lowercase().as_str(),
-        "critical" | "error" | "warn" | "warning"
-    ) {
-        evidence.push("Datadog/Discord/WASM/Cedar/user-facing signal");
-        return Risk {
-            lane: "L2",
-            source: "signal_router:initial_signal_intake",
-            evidence,
-        };
-    }
-
-    evidence.push("ordinary observable maintenance signal");
+    let _ = (source, payload, severity);
+    evidence.push("agent_triage_required:no_keyword_risk_escalation");
     Risk {
         lane: "L1",
-        source: "signal_router:initial_signal_intake",
+        source: "signal_router:agentic_initial_signal_intake",
         evidence,
     }
 }
@@ -542,7 +491,7 @@ fn worker_task(
     payload: &str,
 ) -> String {
     format!(
-        "You are the local Codex implementer for an observed TemperPaw signal.\n\nSignal: {signal_id}\nFactoryCase: {case_id}\nWorkCycle: {work_cycle_id}\nSource: {source}\nSource URL: {source_url}\nSummary: {summary}\n\nPayload:\n{payload}\n\nRequired loop:\n1. Work in the assigned git worktree and branch.\n2. Reproduce or explain the observed failure from the signal evidence.\n3. Follow red-green TDD before implementation.\n4. Keep orchestration Temper-native: entity specs, WASM integrations, and Cedar policies.\n5. Run focused tests and relevant live/E2E verification for the observed failure.\n6. Produce a visual ProofPacket with changed-files map, state diagram, tests, E2E evidence, risk notes, and OData links.\n7. Finish normally. The paw-codex-worker will report WorkerRun.ReportDone or WorkerRun.ReportFailed to Temper after the local Codex process exits."
+        "You are the local Codex implementer for an observed TemperPaw signal.\n\nSignal: {signal_id}\nFactoryCase: {case_id}\nWorkCycle: {work_cycle_id}\nSource: {source}\nSource URL: {source_url}\nSummary: {summary}\n\nPayload:\n{payload}\n\nRequired loop:\n1. Work in the assigned git worktree and branch.\n2. Reproduce or explain the observed failure from the signal evidence.\n3. First perform agentic risk triage from actual evidence, not keyword matching. If the work is production-impacting, security/policy-sensitive, deploy/secrets/data-migration related, or otherwise needs human approval, do not make risky changes; report the approval needed and the evidence.\n4. Follow red-green TDD before implementation when implementation is safe to start.\n5. Keep orchestration Temper-native: entity specs, WASM integrations, and Cedar policies.\n6. Run focused tests and relevant live/E2E verification for the observed failure.\n7. Produce a visual ProofPacket with changed-files map, state diagram, tests, E2E evidence, risk notes, and OData links.\n8. Finish normally. The paw-codex-worker will report WorkerRun.ReportDone or WorkerRun.ReportFailed to Temper after the local Codex process exits."
     )
 }
 

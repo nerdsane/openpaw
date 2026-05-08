@@ -317,7 +317,7 @@ fn worker_provider_registry_and_capabilities_gate_datadog_patrol() {
     for needle in [
         "id = \"local-codex\"",
         "id = \"mac-mini-codex-prod\"",
-        "capabilities = \"local_codex,repo_write,review,evaluation,datadog_query\"",
+        "capabilities = \"local_codex,repo_write,review,evaluation,datadog_query,github_query\"",
         "id = \"codex-cloud\"",
         "enabled = false",
     ] {
@@ -448,6 +448,86 @@ fn datadog_observability_patrol_run_uses_temper_state_and_creates_work() {
 }
 
 #[test]
+fn github_repository_patrol_uses_agentic_github_tools_and_creates_work() {
+    let root = repo_root();
+    let patrol = root.join("os-apps/paw-patrol");
+
+    let lifecycle = read(patrol.join("wasm/patrol_run_lifecycle/src/lib.rs"));
+    for needle in [
+        "github_repository",
+        "github_query",
+        "local Codex GitHub Patrol agent",
+        "open issues, open pull requests, checks, reviews",
+        "GITHUB_PATROL_RESULT_JSON_BEGIN",
+        "codex_github_agent",
+        "\"source\": \"github_agent\"",
+        "github_patrol:agent_investigation",
+        "local_codex,repo_write,github_query",
+        "GitHub repository Patrol",
+        "GitHub issue and PR investigation",
+        "risk-gated WorkCycles",
+        "requires_human_approval",
+    ] {
+        assert!(
+            lifecycle.contains(needle),
+            "patrol_run_lifecycle should keep GitHub Patrol agentic and Temper-native: {needle}"
+        );
+    }
+
+    let worker_sources = read_worker_sources(&root);
+    for needle in [
+        "run_github_patrol",
+        "GITHUB_PATROL_RESULT_JSON_BEGIN",
+        "GITHUB_PATROL_RESULT_JSON_END",
+        "open issues",
+        "open pull requests",
+        "checks",
+        "reviews",
+        "anomalies",
+        "TemperPaw.Patrol.RecordEvidence",
+    ] {
+        assert!(
+            worker_sources.contains(needle),
+            "paw-codex-worker should run GitHub Patrol as a Codex/GitHub agent and report evidence: {needle}"
+        );
+    }
+
+    let schedule = read(patrol.join("wasm/patrol_schedule_lifecycle/src/lib.rs"));
+    for needle in [
+        "enable_github_patrol",
+        "github_repository",
+        "required_capabilities\": \"github_query",
+        "last_github_patrol_run_id",
+    ] {
+        assert!(
+            schedule.contains(needle),
+            "PatrolSchedule should include GitHub issue/PR patrol in recurring runs: {needle}"
+        );
+    }
+
+    let daily_brief = read(patrol.join("wasm/daily_brief_lifecycle/src/lib.rs"));
+    for needle in [
+        "PatrolRuns",
+        "Signals",
+        "GitHub issue/PR patrol",
+        "datadog_observability or github_repository",
+    ] {
+        assert!(
+            daily_brief.contains(needle),
+            "DailyBrief should roll GitHub Patrol results into the visual report: {needle}"
+        );
+    }
+
+    let dashboard = read(root.join("dashboard/src/lib/app-views/paw-patrol.ts"));
+    for needle in ["Run GitHub Patrol", "github_repository", "github_query"] {
+        assert!(
+            dashboard.contains(needle),
+            "Paw Patrol dashboard should expose GitHub Patrol: {needle}"
+        );
+    }
+}
+
+#[test]
 fn dashboard_has_generic_app_console_and_paw_patrol_view_manifest() {
     let root = repo_root();
 
@@ -496,6 +576,7 @@ fn dashboard_has_generic_app_console_and_paw_patrol_view_manifest() {
         "ProofPackets",
         "WorkerAgents",
         "Run Datadog Patrol",
+        "Run GitHub Patrol",
         "Submit Work",
         "work-request",
     ] {

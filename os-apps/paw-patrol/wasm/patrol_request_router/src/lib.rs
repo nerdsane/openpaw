@@ -382,77 +382,14 @@ fn summarize_request(source: &str, request_text: &str) -> String {
 }
 
 fn initial_risk<'a>(source: &'a str, request_text: &'a str) -> Risk<'a> {
-    let haystack = format!("{} {}", source, request_text).to_ascii_lowercase();
     let mut evidence = Vec::new();
-
-    if contains_any(
-        &haystack,
-        &[
-            "secret",
-            "token",
-            "billing",
-            "railway",
-            "deploy",
-            "deploys",
-            "migration",
-            "migrations",
-            "database",
-            "prod",
-            "production",
-        ],
-    ) {
-        evidence.push("deploy/secrets/migrations/production");
-        return Risk {
-            lane: "L3",
-            source: "patrol_request_router:initial_intake",
-            evidence,
-        };
-    }
-
-    if contains_any(
-        &haystack,
-        &[
-            "cedar",
-            "permission",
-            "policy",
-            "wasm",
-            "discord",
-            "dm",
-            "dms",
-            "user-facing",
-            "trace",
-            "datadog",
-            "error",
-        ],
-    ) {
-        evidence.push("cedar/wasm/discord/datadog/user-facing");
-        return Risk {
-            lane: "L2",
-            source: "patrol_request_router:initial_intake",
-            evidence,
-        };
-    }
-
-    evidence.push("ordinary maintenance request");
+    let _ = (source, request_text);
+    evidence.push("agent_triage_required:no_keyword_risk_escalation");
     Risk {
         lane: "L1",
-        source: "patrol_request_router:initial_intake",
+        source: "patrol_request_router:agentic_initial_intake",
         evidence,
     }
-}
-
-fn contains_any(haystack: &str, needles: &[&str]) -> bool {
-    let tokens = haystack
-        .split(|ch: char| !(ch.is_ascii_alphanumeric() || ch == '-'))
-        .filter(|token| !token.is_empty())
-        .collect::<Vec<_>>();
-    needles.iter().any(|needle| {
-        if needle.contains(char::is_whitespace) {
-            haystack.contains(needle)
-        } else {
-            tokens.iter().any(|token| token == needle)
-        }
-    })
 }
 
 fn priority_for_lane(lane: &str) -> &str {
@@ -490,7 +427,7 @@ fn worker_task(
     request_text: &str,
 ) -> String {
     format!(
-        "You are the local Codex implementer for TemperPaw paw-patrol.\n\nWorkRequest or legacy PatrolRequest: {request_id}\nFactoryCase: {case_id}\nWorkCycle: {work_cycle_id}\nSummary: {summary}\n\nRequest:\n{request_text}\n\nRequired loop:\n1. Work in the assigned git worktree and branch.\n2. Follow red-green TDD before implementation.\n3. Keep orchestration Temper-native: entity specs, WASM integrations, and Cedar policies.\n4. Run focused tests and relevant live/E2E verification for touched behavior.\n5. Produce a visual ProofPacket with changed-files map, state diagram, tests, E2E evidence, risk notes, and OData links.\n6. Finish normally. The paw-codex-worker will report WorkerRun.ReportDone or WorkerRun.ReportFailed to Temper after the local Codex process exits."
+        "You are the local Codex implementer for TemperPaw paw-patrol.\n\nWorkRequest or legacy PatrolRequest: {request_id}\nFactoryCase: {case_id}\nWorkCycle: {work_cycle_id}\nSummary: {summary}\n\nRequest:\n{request_text}\n\nRequired loop:\n1. Work in the assigned git worktree and branch.\n2. First perform agentic risk triage from actual evidence, not keyword matching. If the work is production-impacting, security/policy-sensitive, deploy/secrets/data-migration related, or otherwise needs human approval, do not make risky changes; report the approval needed and the evidence.\n3. Follow red-green TDD before implementation when implementation is safe to start.\n4. Keep orchestration Temper-native: entity specs, WASM integrations, and Cedar policies.\n5. Run focused tests and relevant live/E2E verification for touched behavior.\n6. Produce a visual ProofPacket with changed-files map, state diagram, tests, E2E evidence, risk notes, and OData links.\n7. Finish normally. The paw-codex-worker will report WorkerRun.ReportDone or WorkerRun.ReportFailed to Temper after the local Codex process exits."
     )
 }
 
@@ -633,10 +570,13 @@ mod tests {
     }
 
     #[test]
-    fn risk_matching_still_flags_explicit_production_work() {
+    fn initial_risk_is_agentic_not_keyword_based() {
         let risk = initial_risk("codex-e2e", "Change production deploy secrets for Railway.");
 
-        assert_eq!(risk.lane, "L3");
-        assert_eq!(risk.evidence, vec!["deploy/secrets/migrations/production"]);
+        assert_eq!(risk.lane, "L1");
+        assert_eq!(
+            risk.evidence,
+            vec!["agent_triage_required:no_keyword_risk_escalation"]
+        );
     }
 }

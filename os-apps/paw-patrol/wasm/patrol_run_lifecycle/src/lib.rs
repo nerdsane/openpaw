@@ -1,10 +1,11 @@
 //! Patrol Run Lifecycle - queue capable workers for active Risk Patrol.
 //!
 //! `PatrolRun.Start` is the Temper-native control point for active
-//! investigations such as `datadog_observability`. This module looks up a
-//! registered `WorkerAgent` with the required capability, creates a WorkCycle
-//! and WorkerRun for the local Codex Datadog MCP Patrol, then records the
-//! linkage on the PatrolRun. If no capable worker exists, it escalates visibly.
+//! investigations such as `datadog_observability` and `github_repository`.
+//! This module looks up a registered `WorkerAgent` with the required
+//! capability, creates a WorkCycle and WorkerRun for the local Codex Patrol,
+//! then records the linkage on the PatrolRun. If no capable worker exists, it
+//! escalates visibly.
 
 use temper_wasm_sdk::prelude::*;
 
@@ -63,12 +64,9 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             &string_from_fields(&fields, "summary", "Summary"),
             "Datadog observability Risk Patrol",
         );
-        let required_capabilities = nonempty_or(
-            &string_from_fields(&fields, "required_capabilities", "RequiredCapabilities"),
-            "datadog_query",
-        );
-
-        if patrol_kind != "datadog_observability" {
+        let requested_capabilities =
+            string_from_fields(&fields, "required_capabilities", "RequiredCapabilities");
+        let Some(kind) = patrol_kind_config(&patrol_kind, &summary, &requested_capabilities) else {
             set_success_result(
                 "Escalate",
                 &json!({
@@ -77,7 +75,8 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 }),
             );
             return Ok(());
-        }
+        };
+        let required_capabilities = kind.required_capabilities.clone();
 
         let worker = match find_capable_worker(&ctx, &base_url, &headers, &required_capabilities)? {
             Some(worker) => worker,
@@ -86,7 +85,8 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                     "Escalate",
                     &json!({
                         "error_message": format!(
-                        "No active WorkerAgent advertises required_capabilities '{required_capabilities}' for Datadog Patrol."
+                        "No active WorkerAgent advertises required_capabilities '{required_capabilities}' for {}."
+                        , kind.display_name
                         ),
                         "integration": PATROL_ESCALATE
                     }),
@@ -97,13 +97,16 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
 
         let work_cycle_id = create_entity(&ctx, &base_url, &headers, WORK_CYCLES_PATH)?;
         let worker_run_id = create_entity(&ctx, &base_url, &headers, WORKER_RUNS_PATH)?;
-        let branch_name = format!("codex/paw-datadog-patrol-{}", short_id(&patrol_run_id));
+        let branch_name = format!("{}{}", kind.branch_prefix, short_id(&patrol_run_id));
         let worktree_path = format!(
             "{}/{}",
             configured_local_worktree_root(&ctx).trim_end_matches('/'),
             branch_name.replace('/', "-")
         );
-        let task = datadog_patrol_task(&patrol_run_id, &work_cycle_id, &summary);
+        let task = patrol_task(&patrol_kind, &patrol_run_id, &work_cycle_id, &kind.summary)
+            .ok_or_else(|| {
+                format!("patrol_run_lifecycle: unsupported PatrolRun kind {patrol_kind}")
+            })?;
 
         post_action(
             &ctx,
@@ -115,7 +118,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             &json!({
                 "factory_case_id": "",
                 "pm_issue_id": "",
-                "task_summary": format!("Risk Patrol: {summary}"),
+                "task_summary": format!("Risk Patrol: {}", kind.summary),
                 "task_detail": &task,
                 "risk_lane": "L1"
             }),
@@ -128,7 +131,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             &work_cycle_id,
             PATROL_WRITE_PLAN,
             &json!({
-                "plan_summary": "Run Datadog observability Risk Patrol, create Signals/ObservabilityFindings/Cases/WorkCycles for real issues, and produce proof for review."
+                "plan_summary": kind.plan_summary
             }),
         )?;
         post_action(
@@ -157,7 +160,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 "runner_kind": "local_codex",
                 "allowed_worker_id": worker.worker_id,
                 "provider_id": worker.provider_id,
-                "required_capabilities": required_capabilities
+                "required_capabilities": &required_capabilities
             }),
         )?;
         post_action(
@@ -189,6 +192,51 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
 struct CapableWorker {
     worker_id: String,
     provider_id: String,
+}
+
+struct PatrolKindConfig {
+    display_name: &'static str,
+    summary: String,
+    required_capabilities: String,
+    branch_prefix: &'static str,
+    plan_summary: &'static str,
+}
+
+fn patrol_kind_config(
+    patrol_kind: &str,
+    summary: &str,
+    requested_capabilities: &str,
+) -> Option<PatrolKindConfig> {
+    match patrol_kind {
+        "datadog_observability" => Some(PatrolKindConfig {
+            display_name: "Datadog Patrol",
+            summary: summary.to_string(),
+            required_capabilities: nonempty_or(requested_capabilities, "datadog_query"),
+            branch_prefix: "codex/paw-datadog-patrol-",
+            plan_summary: "Run Datadog observability Risk Patrol, create Signals/ObservabilityFindings/Cases/WorkCycles for real issues, and produce proof for review.",
+        }),
+        "github_repository" => Some(PatrolKindConfig {
+            display_name: "GitHub repository Patrol",
+            summary: summary.to_string(),
+            required_capabilities: nonempty_or(requested_capabilities, "github_query"),
+            branch_prefix: "codex/paw-github-patrol-",
+            plan_summary: "Run GitHub repository Risk Patrol, analyze open issues, open PRs, checks, reviews, and anomalies, create Signals/Cases/WorkCycles for real work, and produce proof for review.",
+        }),
+        _ => None,
+    }
+}
+
+fn patrol_task(
+    patrol_kind: &str,
+    patrol_run_id: &str,
+    work_cycle_id: &str,
+    summary: &str,
+) -> Option<String> {
+    match patrol_kind {
+        "datadog_observability" => Some(datadog_patrol_task(patrol_run_id, work_cycle_id, summary)),
+        "github_repository" => Some(github_patrol_task(patrol_run_id, work_cycle_id, summary)),
+        _ => None,
+    }
 }
 
 fn find_capable_worker(
@@ -238,7 +286,11 @@ fn find_capable_worker(
 
     // Fallback for first boot when seed data has not appeared yet.
     let local_worker = configured_local_worker_id(ctx);
-    if !local_worker.is_empty() && required.iter().all(|capability| capability == "datadog_query") {
+    if !local_worker.is_empty()
+        && required.iter().all(|capability| {
+            matches!(capability.as_str(), "datadog_query" | "github_query")
+        })
+    {
         return Ok(Some(CapableWorker {
             worker_id: local_worker,
             provider_id: "local-codex".to_string(),
@@ -251,6 +303,12 @@ fn find_capable_worker(
 fn datadog_patrol_task(patrol_run_id: &str, work_cycle_id: &str, summary: &str) -> String {
     format!(
         "You are the local Codex Datadog MCP Patrol agent for TemperPaw paw-patrol.\n\nPatrolRun: {patrol_run_id}\nPatrolKind: datadog_observability\nWorkCycle: {work_cycle_id}\nSummary: {summary}\n\nRequired loop:\n1. Work in the assigned git worktree, but do not edit files for this patrol run.\n2. Use your authenticated Datadog MCP tools to investigate monitors, logs, traces, metrics, incidents, and dashboards for OpenPaw, Temper, TemperPaw, Railway, Discord, OData, WASM, Cedar, workers, and dashboard health.\n3. Do not read, echo, or print secret values.\n4. Return structured findings and proof data between DATADOG_PATROL_RESULT_JSON_BEGIN and DATADOG_PATROL_RESULT_JSON_END. The paw-codex-worker validates that JSON and reports it to PatrolRun.RecordEvidence; paw-patrol WASM creates Signals, ObservabilityFindings, FactoryCases, WorkCycles, ProofPackets, and risk-gated follow-up WorkerRuns.\n5. Create findings only for actionable issues that are present or strongly evidenced now. High-risk or production-impacting fixes must require human approval before implementation.\n6. If a Datadog surface is unavailable through MCP, include that surface in evidence_scope with the limitation explained."
+    )
+}
+
+fn github_patrol_task(patrol_run_id: &str, work_cycle_id: &str, summary: &str) -> String {
+    format!(
+        "You are the local Codex GitHub Patrol agent for TemperPaw paw-patrol.\n\nPatrolRun: {patrol_run_id}\nPatrolKind: github_repository\nWorkCycle: {work_cycle_id}\nSummary: {summary}\n\nRequired loop:\n1. Work in the assigned git worktree, but do not edit files or mutate GitHub for this patrol run.\n2. Use your authenticated GitHub tools to investigate open issues, open pull requests, checks, reviews, CI/actions, labels, milestones, stale/blocking conversations, duplicate reports, and anomalies for nerdsane/temperpaw.\n3. Use judgment. Do not turn every old issue or PR into work; create findings only when the evidence is actionable now or needs human/agent attention.\n4. Return structured findings and proof data between GITHUB_PATROL_RESULT_JSON_BEGIN and GITHUB_PATROL_RESULT_JSON_END. The paw-codex-worker validates that JSON and reports it to PatrolRun.RecordEvidence; paw-patrol WASM creates Signals, FactoryCases, WorkCycles, ProofPackets, and risk-gated follow-up WorkerRuns.\n5. High-risk, production-impacting, policy, secrets, deploy, security, or user-facing fixes must require human approval before implementation."
     )
 }
 
@@ -270,6 +328,19 @@ fn handle_record_evidence(
 
     let evidence: Value = serde_json::from_str(&evidence_json)
         .map_err(|err| format!("PatrolRun.RecordEvidence evidence_json was not valid JSON: {err}"))?;
+    let evidence_kind = string_value(&evidence, "kind", "");
+    let evidence_source = string_value(&evidence, "evidence_source", "");
+    if evidence_kind == "github_repository" || evidence_source == "codex_github_agent" {
+        return handle_github_record_evidence(
+            ctx,
+            base_url,
+            headers,
+            fields,
+            &patrol_run_id,
+            &evidence,
+        );
+    }
+
     let summary = string_value(&evidence, "summary", "Datadog MCP Patrol evidence");
     let findings = evidence
         .get("findings")
@@ -599,6 +670,312 @@ fn handle_record_evidence(
     Ok(())
 }
 
+fn handle_github_record_evidence(
+    ctx: &Context,
+    base_url: &str,
+    headers: &[(String, String)],
+    fields: &Value,
+    patrol_run_id: &str,
+    evidence: &Value,
+) -> Result<(), String> {
+    let summary = string_value(evidence, "summary", "GitHub repository Patrol evidence");
+    let findings = evidence
+        .get("findings")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let evidence_scope = evidence
+        .get("evidence_scope")
+        .cloned()
+        .unwrap_or_else(|| json!([]));
+
+    let mut signal_ids = Vec::new();
+    let mut case_ids = Vec::new();
+    let mut work_cycle_ids = Vec::new();
+    let mut implementer_worker_run_ids = Vec::new();
+    let mut finding_fingerprints = Vec::new();
+
+    for finding in findings.iter().take(8) {
+        let title = string_value(finding, "title", "Untitled GitHub Patrol finding");
+        let severity = string_value(finding, "severity", "warn");
+        let risk_lane = string_value(finding, "risk_lane", "L1");
+        let finding_evidence = github_finding_evidence(patrol_run_id, &summary, &evidence_scope, finding);
+        let fingerprint = string_value(finding, "fingerprint", "");
+        if !fingerprint.trim().is_empty() {
+            finding_fingerprints.push(fingerprint);
+        }
+
+        let signal_id = create_entity_with_body(
+            ctx,
+            base_url,
+            headers,
+            SIGNALS_PATH,
+            &json!({
+                "fields": {
+                    "source": "github_agent",
+                    "payload": finding_evidence.to_string(),
+                    "source_url": string_value(finding, "source_url", ""),
+                    "severity": &severity
+                }
+            }),
+        )?;
+        post_action(
+            ctx,
+            base_url,
+            headers,
+            "Signals",
+            &signal_id,
+            PATROL_NORMALIZE,
+            &json!({
+                "summary": &title,
+                "severity": &severity,
+            }),
+        )?;
+        post_action(
+            ctx,
+            base_url,
+            headers,
+            "Signals",
+            &signal_id,
+            PATROL_TRIAGE,
+            &json!({
+                "summary": format!("GitHub Patrol found actionable repository evidence: {title}"),
+            }),
+        )?;
+
+        let case_id = create_entity(ctx, base_url, headers, FACTORY_CASES_PATH)?;
+        post_action(
+            ctx,
+            base_url,
+            headers,
+            "FactoryCases",
+            &case_id,
+            PATROL_OPEN,
+            &json!({
+                "summary": &title,
+                "signal_id": &signal_id,
+                "patrol_request_id": "",
+                "work_request_id": "",
+            }),
+        )?;
+        post_action(
+            ctx,
+            base_url,
+            headers,
+            "FactoryCases",
+            &case_id,
+            PATROL_SET_RISK_FLOOR,
+            &json!({
+                "minimum_risk_lane": &risk_lane,
+                "risk_floor_source": "github_patrol:agent_investigation",
+                "risk_evidence": finding_evidence.to_string(),
+            }),
+        )?;
+
+        let work_cycle_id = create_entity(ctx, base_url, headers, WORK_CYCLES_PATH)?;
+        let task_detail = github_followup_task(patrol_run_id, finding, &summary, &evidence_scope);
+        post_action(
+            ctx,
+            base_url,
+            headers,
+            "WorkCycles",
+            &work_cycle_id,
+            PATROL_CONFIGURE,
+            &json!({
+                "factory_case_id": &case_id,
+                "pm_issue_id": "",
+                "task_summary": string_value(finding, "work_summary", &title),
+                "task_detail": &task_detail,
+                "risk_lane": &risk_lane,
+            }),
+        )?;
+        post_action(
+            ctx,
+            base_url,
+            headers,
+            "WorkCycles",
+            &work_cycle_id,
+            PATROL_WRITE_PLAN,
+            &json!({
+                "plan_summary": "Investigate the GitHub agent evidence, decide whether this should become code/review work, then make the smallest Temper-native fix or request human approval with proof.",
+            }),
+        )?;
+
+        if finding_requires_start_approval(finding, &risk_lane, &severity) {
+            post_action(
+                ctx,
+                base_url,
+                headers,
+                "WorkCycles",
+                &work_cycle_id,
+                PATROL_REQUEST_HUMAN_START_APPROVAL,
+                &json!({
+                    "approval_summary": format!(
+                        "GitHub Patrol classified this as {severity} / {risk_lane}; approve before code or production-impacting changes are queued. Finding: {title}"
+                    ),
+                }),
+            )?;
+        } else {
+            let implementer_worker_run_id = create_entity(ctx, base_url, headers, WORKER_RUNS_PATH)?;
+            let branch_name = github_followup_branch_name(&title, &work_cycle_id);
+            let worktree_path = datadog_followup_worktree_path(ctx, &branch_name);
+            post_action(
+                ctx,
+                base_url,
+                headers,
+                "WorkCycles",
+                &work_cycle_id,
+                PATROL_START_WORK,
+                &json!({}),
+            )?;
+            post_action(
+                ctx,
+                base_url,
+                headers,
+                "WorkerRuns",
+                &implementer_worker_run_id,
+                PATROL_CONFIGURE,
+                &json!({
+                    "work_cycle_id": &work_cycle_id,
+                    "factory_case_id": &case_id,
+                    "risk_lane": &risk_lane,
+                    "task": &task_detail,
+                    "branch_name": &branch_name,
+                    "worktree_path": &worktree_path,
+                    "runner_kind": "local_codex",
+                    "allowed_worker_id": configured_local_worker_id(ctx),
+                    "provider_id": "local-codex",
+                    "required_capabilities": "local_codex,repo_write,github_query",
+                }),
+            )?;
+            post_action(
+                ctx,
+                base_url,
+                headers,
+                "WorkCycles",
+                &work_cycle_id,
+                PATROL_ATTACH_WORKER_RUN,
+                &json!({ "implementer_worker_run_id": &implementer_worker_run_id }),
+            )?;
+            implementer_worker_run_ids.push(implementer_worker_run_id);
+        }
+
+        post_action(
+            ctx,
+            base_url,
+            headers,
+            "FactoryCases",
+            &case_id,
+            PATROL_OPEN_WORK_CYCLE,
+            &json!({ "work_cycle_id": &work_cycle_id }),
+        )?;
+        post_action(
+            ctx,
+            base_url,
+            headers,
+            "Signals",
+            &signal_id,
+            PATROL_ATTACH_CASE,
+            &json!({ "factory_case_id": &case_id }),
+        )?;
+
+        signal_ids.push(signal_id);
+        case_ids.push(case_id);
+        work_cycle_ids.push(work_cycle_id);
+    }
+
+    let proof_packet_id = create_entity(ctx, base_url, headers, PROOF_PACKETS_PATH)?;
+    let worker_run_id = string_param(ctx, fields, "worker_run_id", "WorkerRunId");
+    let proof_json = github_evidence_with_created(
+        evidence,
+        &signal_ids,
+        &case_ids,
+        &work_cycle_ids,
+        &implementer_worker_run_ids,
+        &finding_fingerprints,
+    );
+    let proof_summary = github_proof_summary_markdown(
+        patrol_run_id,
+        &worker_run_id,
+        &summary,
+        &evidence_scope,
+        &findings,
+        &signal_ids,
+        &case_ids,
+        &work_cycle_ids,
+        &implementer_worker_run_ids,
+    );
+    post_action(
+        ctx,
+        base_url,
+        headers,
+        "ProofPackets",
+        &proof_packet_id,
+        PATROL_ATTACH_DRAFT,
+        &json!({
+            "work_cycle_id": work_cycle_ids.first().cloned().unwrap_or_default(),
+            "worker_run_id": &worker_run_id,
+            "review_run_id": "",
+            "evaluation_run_id": "",
+            "summary_markdown": &proof_summary,
+            "proof_json": proof_json.to_string(),
+            "visual_summary_url": github_visual_summary_url(evidence_scope.as_array().map(Vec::len).unwrap_or(0), findings.len(), work_cycle_ids.len()),
+            "state_diagram_mermaid": github_state_diagram_mermaid(),
+            "changed_files_map": "GitHub repository Patrol does not edit repository files. Actionable issue/PR findings become risk-gated WorkCycles with their own implementation, review, evaluation, and proof loop.",
+            "reviewer_verdict": "Patrol evidence packet generated from the local Codex agent's GitHub repository investigation. Follow-up WorkCycles require independent review before completion.",
+            "residual_risks": residual_risks_text(evidence),
+        }),
+    )?;
+    post_action(
+        ctx,
+        base_url,
+        headers,
+        "ProofPackets",
+        &proof_packet_id,
+        PATROL_MARK_READY,
+        &json!({
+            "summary_markdown": &proof_summary,
+            "proof_json": proof_json.to_string(),
+        }),
+    )?;
+    post_action(
+        ctx,
+        base_url,
+        headers,
+        "PatrolRuns",
+        patrol_run_id,
+        PATROL_ATTACH_EVIDENCE_LINKS,
+        &json!({
+            "observability_finding_ids": "[]",
+            "signal_ids": json_string_array(&signal_ids),
+            "factory_case_ids": json_string_array(&case_ids),
+            "work_cycle_ids": json_string_array(&work_cycle_ids),
+        }),
+    )?;
+
+    set_success_result(
+        "Complete",
+        &json!({
+            "summary": format!(
+                "GitHub repository Patrol investigated {} evidence item(s), opened {} repository signal(s), and queued {} low-risk implementer run(s).",
+                evidence_scope.as_array().map(Vec::len).unwrap_or(0),
+                signal_ids.len(),
+                implementer_worker_run_ids.len()
+            ),
+            "proof_packet_id": proof_packet_id,
+            "completed_at": unix_to_iso8601(now_secs()),
+        }),
+    );
+
+    ctx.log(
+        "info",
+        &format!(
+            "patrol_run_lifecycle: fanned out GitHub Patrol evidence for {patrol_run_id}; action={PATROL_RECORD_EVIDENCE}, complete={PATROL_COMPLETE}"
+        ),
+    );
+    Ok(())
+}
+
 fn capability_list(value: &str) -> Vec<String> {
     value
         .split(',')
@@ -740,6 +1117,21 @@ fn datadog_finding_evidence(
     })
 }
 
+fn github_finding_evidence(
+    patrol_run_id: &str,
+    summary: &str,
+    evidence_scope: &Value,
+    finding: &Value,
+) -> Value {
+    json!({
+        "patrol_run_id": patrol_run_id,
+        "source": "github_agent",
+        "summary": summary,
+        "evidence_scope": evidence_scope,
+        "finding": finding,
+    })
+}
+
 fn finding_requires_start_approval(finding: &Value, risk_lane: &str, severity: &str) -> bool {
     let risk_lane = risk_lane.to_ascii_lowercase();
     let severity = severity.to_ascii_lowercase();
@@ -807,9 +1199,39 @@ fn datadog_followup_task(
     )
 }
 
+fn github_followup_task(
+    patrol_run_id: &str,
+    finding: &Value,
+    summary: &str,
+    evidence_scope: &Value,
+) -> String {
+    let title = string_value(finding, "title", "GitHub Patrol follow-up");
+    let severity = string_value(finding, "severity", "warn");
+    let risk_lane = string_value(finding, "risk_lane", "L1");
+    let source_url = string_value(finding, "source_url", "");
+    let source_kind = string_value(finding, "source_kind", "repository");
+    let work_detail = string_value(
+        finding,
+        "work_detail",
+        "Investigate the GitHub agent evidence and make or request the smallest safe Temper-native follow-up.",
+    );
+    format!(
+        "You are the local Codex implementer for a Paw Patrol GitHub repository finding.\n\nPatrolRun: {patrol_run_id}\nPatrol kind: github_repository\nFinding: {title}\nSource kind: {source_kind}\nSeverity: {severity}\nRisk lane: {risk_lane}\nSource URL: {source_url}\n\nPatrol summary:\n{summary}\n\nEvidence JSON:\n{}\n\nRequired loop:\n1. Work in the assigned git worktree and branch only after this WorkCycle is allowed to start.\n2. Use authenticated GitHub tools read-only to inspect the issue, PR, check, review, or repository evidence.\n3. Decide with judgment whether to implement, request changes, or escalate. If the evidence implies L2/L3 work that was not already approved, stop and explain the approval needed instead of making risky changes.\n4. Keep all orchestration Temper-native: specs, WASM integrations, Cedar policies, dashboard views, and Temper actions.\n5. Make the smallest safe fix or follow-up with red-green TDD, then run focused tests and live/E2E checks.\n6. Produce a visual ProofPacket with state diagrams, OData links, GitHub links, tests, residual risks, and reviewer/evaluator verdicts.\n\nAgent-provided work detail:\n{work_detail}",
+        github_finding_evidence(patrol_run_id, summary, evidence_scope, finding)
+    )
+}
+
 fn datadog_followup_branch_name(title: &str, work_cycle_id: &str) -> String {
     format!(
         "codex/paw-datadog-{}-{}",
+        slug(title, 42),
+        short_id(work_cycle_id)
+    )
+}
+
+fn github_followup_branch_name(title: &str, work_cycle_id: &str) -> String {
+    format!(
+        "codex/paw-github-{}-{}",
         slug(title, 42),
         short_id(work_cycle_id)
     )
@@ -869,6 +1291,30 @@ fn datadog_evidence_with_created(
                 "factory_cases": case_ids,
                 "work_cycles": work_cycle_ids,
                 "implementer_worker_runs": implementer_worker_run_ids,
+            }),
+        );
+    }
+    with_created
+}
+
+fn github_evidence_with_created(
+    evidence: &Value,
+    signal_ids: &[String],
+    case_ids: &[String],
+    work_cycle_ids: &[String],
+    implementer_worker_run_ids: &[String],
+    finding_fingerprints: &[String],
+) -> Value {
+    let mut with_created = evidence.clone();
+    if let Some(object) = with_created.as_object_mut() {
+        object.insert(
+            "created".to_string(),
+            json!({
+                "signals": signal_ids,
+                "factory_cases": case_ids,
+                "work_cycles": work_cycle_ids,
+                "implementer_worker_runs": implementer_worker_run_ids,
+                "github_finding_fingerprints": finding_fingerprints,
             }),
         );
     }
@@ -936,8 +1382,72 @@ fn datadog_proof_summary_markdown(
     )
 }
 
+fn github_proof_summary_markdown(
+    patrol_run_id: &str,
+    worker_run_id: &str,
+    summary: &str,
+    evidence_scope: &Value,
+    findings: &[Value],
+    signal_ids: &[String],
+    case_ids: &[String],
+    work_cycle_ids: &[String],
+    implementer_worker_run_ids: &[String],
+) -> String {
+    let surfaces = evidence_scope
+        .as_array()
+        .map(|items| {
+            items
+                .iter()
+                .map(|scope| {
+                    format!(
+                        "- {}: {}",
+                        string_value(scope, "surface", "surface"),
+                        truncate(&string_value(scope, "result_summary", ""), 300)
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("\n")
+        })
+        .unwrap_or_default();
+    let findings_text = findings
+        .iter()
+        .map(|finding| {
+            format!(
+                "- {} [{} / {} / {}] -> {}",
+                string_value(finding, "title", "Untitled finding"),
+                string_value(finding, "source_kind", "repository"),
+                string_value(finding, "severity", "warn"),
+                string_value(finding, "risk_lane", "L1"),
+                string_value(finding, "work_summary", "follow-up work")
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let findings_text = if findings_text.trim().is_empty() {
+        "- No actionable GitHub findings opened.".to_string()
+    } else {
+        findings_text
+    };
+
+    format!(
+        "# GitHub Repository Patrol Proof\n\nPatrolRun `{patrol_run_id}` was executed by WorkerRun `{worker_run_id}` using the local Codex agent and authenticated GitHub repository tools.\n\n```mermaid\n{}\n```\n\n## Result\n\n{}\n\n## Evidence Scope\n\n{}\n\n## Findings\n\n{}\n\n## Created Temper Entities\n\n- Signals: {}\n- FactoryCases: {}\n- WorkCycles: {}\n- Low-risk implementer WorkerRuns queued: {}\n\n## Gate Posture\n\nThe patrol does not mutate code or GitHub. Actionable issue/PR findings become WorkCycles; high-risk or production-impacting work pauses before implementation.",
+        github_state_diagram_mermaid(),
+        summary.trim(),
+        if surfaces.trim().is_empty() { "- No evidence scope recorded." } else { &surfaces },
+        findings_text,
+        signal_ids.len(),
+        case_ids.len(),
+        work_cycle_ids.len(),
+        implementer_worker_run_ids.len(),
+    )
+}
+
 fn datadog_state_diagram_mermaid() -> &'static str {
     "flowchart LR\n  Run[\"PatrolRun datadog_observability\"] --> Worker[\"WorkerRun\"]\n  Worker --> Codex[\"Codex agent\"]\n  Codex --> MCP[\"Datadog MCP investigation\"]\n  MCP --> Scope[\"monitors logs traces metrics incidents dashboards\"]\n  Scope --> Signals[\"Signals\"]\n  Scope --> Findings[\"ObservabilityFindings\"]\n  Findings --> Cases[\"FactoryCases\"]\n  Cases --> Work[\"Risk-gated WorkCycles\"]\n  Worker --> Proof[\"Visual ProofPacket\"]\n  Proof --> Complete[\"PatrolRun Complete\"]"
+}
+
+fn github_state_diagram_mermaid() -> &'static str {
+    "flowchart LR\n  Run[\"PatrolRun github_repository\"] --> Worker[\"WorkerRun\"]\n  Worker --> Codex[\"Codex agent\"]\n  Codex --> GitHub[\"GitHub issue and PR investigation\"]\n  GitHub --> Scope[\"issues PRs checks reviews anomalies\"]\n  Scope --> Signals[\"Signals\"]\n  Signals --> Cases[\"FactoryCases\"]\n  Cases --> Work[\"Risk-gated WorkCycles\"]\n  Worker --> Proof[\"Visual ProofPacket\"]\n  Proof --> Complete[\"PatrolRun Complete\"]"
 }
 
 fn datadog_visual_summary_url(
@@ -947,6 +1457,17 @@ fn datadog_visual_summary_url(
 ) -> String {
     let svg = format!(
         "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"960\" height=\"540\" viewBox=\"0 0 960 540\"><rect width=\"960\" height=\"540\" fill=\"#f7f5ef\"/><rect x=\"40\" y=\"36\" width=\"880\" height=\"468\" rx=\"8\" fill=\"#ffffff\" stroke=\"#d5d2c6\"/><text x=\"70\" y=\"96\" font-family=\"Arial\" font-size=\"32\" font-weight=\"700\" fill=\"#202124\">Datadog MCP Patrol Proof</text><text x=\"70\" y=\"142\" font-family=\"Arial\" font-size=\"16\" fill=\"#64615a\">Codex investigated Datadog via MCP; Patrol WASM created Temper work.</text><text x=\"90\" y=\"260\" font-family=\"Arial\" font-size=\"72\" font-weight=\"700\" fill=\"#a15c00\">{evidence_surface_count}</text><text x=\"90\" y=\"300\" font-family=\"Arial\" font-size=\"18\" fill=\"#64615a\">Evidence surfaces</text><text x=\"390\" y=\"260\" font-family=\"Arial\" font-size=\"72\" font-weight=\"700\" fill=\"#174ea6\">{finding_count}</text><text x=\"390\" y=\"300\" font-family=\"Arial\" font-size=\"18\" fill=\"#64615a\">Findings</text><text x=\"650\" y=\"260\" font-family=\"Arial\" font-size=\"72\" font-weight=\"700\" fill=\"#137333\">{work_cycle_count}</text><text x=\"650\" y=\"300\" font-family=\"Arial\" font-size=\"18\" fill=\"#64615a\">WorkCycles</text><text x=\"70\" y=\"420\" font-family=\"Arial\" font-size=\"18\" fill=\"#202124\">PatrolRun -> Codex -> Datadog MCP -> Signals -> Findings -> Cases -> WorkCycles -> ProofPacket</text></svg>"
+    );
+    format!("data:image/svg+xml,{}", percent_encode_data_url(&svg))
+}
+
+fn github_visual_summary_url(
+    evidence_surface_count: usize,
+    finding_count: usize,
+    work_cycle_count: usize,
+) -> String {
+    let svg = format!(
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"960\" height=\"540\" viewBox=\"0 0 960 540\"><rect width=\"960\" height=\"540\" fill=\"#f6f8fa\"/><rect x=\"40\" y=\"36\" width=\"880\" height=\"468\" rx=\"8\" fill=\"#ffffff\" stroke=\"#d0d7de\"/><text x=\"70\" y=\"96\" font-family=\"Arial\" font-size=\"32\" font-weight=\"700\" fill=\"#24292f\">GitHub Repository Patrol Proof</text><text x=\"70\" y=\"142\" font-family=\"Arial\" font-size=\"16\" fill=\"#57606a\">Codex investigated issues, PRs, checks, reviews, and anomalies; Patrol created Temper work.</text><text x=\"90\" y=\"260\" font-family=\"Arial\" font-size=\"72\" font-weight=\"700\" fill=\"#8250df\">{evidence_surface_count}</text><text x=\"90\" y=\"300\" font-family=\"Arial\" font-size=\"18\" fill=\"#57606a\">Evidence areas</text><text x=\"390\" y=\"260\" font-family=\"Arial\" font-size=\"72\" font-weight=\"700\" fill=\"#0969da\">{finding_count}</text><text x=\"390\" y=\"300\" font-family=\"Arial\" font-size=\"18\" fill=\"#57606a\">Agent findings</text><text x=\"650\" y=\"260\" font-family=\"Arial\" font-size=\"72\" font-weight=\"700\" fill=\"#1a7f37\">{work_cycle_count}</text><text x=\"650\" y=\"300\" font-family=\"Arial\" font-size=\"18\" fill=\"#57606a\">WorkCycles</text><text x=\"70\" y=\"420\" font-family=\"Arial\" font-size=\"18\" fill=\"#24292f\">PatrolRun -> Codex -> GitHub -> Signals -> Cases -> WorkCycles -> ProofPacket</text></svg>"
     );
     format!("data:image/svg+xml,{}", percent_encode_data_url(&svg))
 }

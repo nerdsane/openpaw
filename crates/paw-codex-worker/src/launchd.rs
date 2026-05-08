@@ -41,7 +41,7 @@ fn render_launchd_plist(config: &Config, worker_bin: &Path, eval_commands: Optio
                 .ok()
                 .filter(|value| !value.trim().is_empty())
                 .unwrap_or_else(|| {
-                    "local_codex,repo_write,review,evaluation,datadog_query".to_string()
+                    "local_codex,repo_write,review,evaluation,datadog_query,github_query".to_string()
                 })
                 .leak(),
         ),

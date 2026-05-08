@@ -9,8 +9,11 @@ use temper_wasm_sdk::prelude::*;
 
 const REPO_GRAPH_SNAPSHOTS_PATH: &str = "/tdata/RepoGraphSnapshots";
 const DAILY_BRIEFS_PATH: &str = "/tdata/DailyBriefs";
+const PATROL_RUNS_PATH: &str = "/tdata/PatrolRuns";
 const PATROL_START_SCAN: &str = "TemperPaw.Patrol.StartScan";
 const PATROL_START_DAILY_BRIEF: &str = "TemperPaw.Patrol.Start";
+const PATROL_CONFIGURE: &str = "TemperPaw.Patrol.Configure";
+const PATROL_START: &str = "TemperPaw.Patrol.Start";
 
 #[unsafe(no_mangle)]
 pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
@@ -78,6 +81,7 @@ fn handle_trigger(
 
     let mut repo_graph_snapshot_id = String::new();
     let mut daily_brief_id = String::new();
+    let mut github_patrol_run_id = String::new();
 
     if bool_from_fields(fields, "enable_repo_sweep", "EnableRepoSweep", true) {
         repo_graph_snapshot_id = create_entity(ctx, base_url, headers, REPO_GRAPH_SNAPSHOTS_PATH)?;
@@ -113,11 +117,39 @@ fn handle_trigger(
         )?;
     }
 
+    if bool_from_fields(fields, "enable_github_patrol", "EnableGithubPatrol", true) {
+        github_patrol_run_id = create_entity(ctx, base_url, headers, PATROL_RUNS_PATH)?;
+        post_action(
+            ctx,
+            base_url,
+            headers,
+            "PatrolRuns",
+            &github_patrol_run_id,
+            PATROL_CONFIGURE,
+            &json!({
+                "patrol_kind": "github_repository",
+                "summary": format!("Daily GitHub issue and PR Patrol for schedule {}", entity_id(ctx)),
+                "requested_by": entity_id(ctx),
+                "required_capabilities": "github_query"
+            }),
+        )?;
+        post_action(
+            ctx,
+            base_url,
+            headers,
+            "PatrolRuns",
+            &github_patrol_run_id,
+            PATROL_START,
+            &json!({}),
+        )?;
+    }
+
     let summary = format!(
-        "PatrolSchedule {} ran at {now_label}; repo_graph_snapshot_id={}; daily_brief_id={}; next_run_at={next_run_at}.",
+        "PatrolSchedule {} ran at {now_label}; repo_graph_snapshot_id={}; daily_brief_id={}; github_patrol_run_id={}; next_run_at={next_run_at}.",
         entity_id(ctx),
         empty_label(&repo_graph_snapshot_id),
         empty_label(&daily_brief_id),
+        empty_label(&github_patrol_run_id),
     );
 
     set_success_result(
@@ -127,6 +159,7 @@ fn handle_trigger(
             "last_run_at": now_label,
             "last_repo_graph_snapshot_id": repo_graph_snapshot_id,
             "last_daily_brief_id": daily_brief_id,
+            "last_github_patrol_run_id": github_patrol_run_id,
             "last_summary": summary
         }),
     );

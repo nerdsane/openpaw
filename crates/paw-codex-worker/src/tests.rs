@@ -9,6 +9,7 @@ mod tests {
     use tokio::sync::Mutex;
 
     include!("datadog_patrol_tests.rs");
+    include!("github_patrol_tests.rs");
     include!("evaluation_tests.rs");
     include!("event_stream_tests.rs");
     include!("fake_codex_tests.rs");
@@ -259,7 +260,7 @@ mod tests {
             "<key>PAW_CODEX_EXEC_TIMEOUT_SECS</key>",
             "<string>90</string>",
             "<key>PAW_CODEX_WORKER_CAPABILITIES</key>",
-            "<string>local_codex,repo_write,review,evaluation,datadog_query</string>",
+            "<string>local_codex,repo_write,review,evaluation,datadog_query,github_query</string>",
             "<key>PAW_CODEX_WORKER_ENV_FILE</key>",
             "<string>/Users/openclaw/.config/temperpaw/paw-codex-worker.env</string>",
             "<key>PAW_CODEX_FORBIDDEN_DONE_PATHS</key>",
