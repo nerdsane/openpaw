@@ -2414,7 +2414,8 @@ fn review_request_changes_requeues_a_revision_worker_run() {
         "\"RequestChanges\" => handle_review_changes_requested",
         "reviewer-requested rework",
         "revision_worker_task",
-        "codex/paw-rework-",
+        "previous_worker_assignment",
+        "reuse the existing assigned git worktree and branch",
         "create_entity(ctx, base_url, headers, WORKER_RUNS_PATH)",
         "TemperPaw.Patrol.AttachWorkerRun",
         "required_capabilities_for_task(&task)",
@@ -2425,6 +2426,10 @@ fn review_request_changes_requeues_a_revision_worker_run() {
             "work_cycle_lifecycle should queue a revision WorkerRun after review feedback: {needle}"
         );
     }
+    assert!(
+        !lifecycle.contains("codex/paw-rework-"),
+        "review-requested rework should update the existing branch/PR instead of creating a side PR"
+    );
 }
 
 #[test]
