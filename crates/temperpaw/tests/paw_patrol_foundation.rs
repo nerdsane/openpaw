@@ -1238,6 +1238,10 @@ fn datadog_patrol_smoke_is_worktree_read_only_safe() {
         "cd \"$RUNTIME_ROOT\"",
         "--manifest-path \"$ROOT/Cargo.toml\"",
         "runtime os-apps:",
+        "ALLOW_REMOTE_TEMPER_URL",
+        "refusing non-local TEMPER_URL",
+        "http://127.0.0.1:",
+        "http://localhost:",
     ] {
         assert!(
             script.contains(needle),

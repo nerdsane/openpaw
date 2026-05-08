@@ -46,7 +46,10 @@ Script inventory:
   evaluation, and ProofPacket loop.
 - `datadog-patrol-smoke.sh`: local fake-Codex Datadog MCP Patrol loop from
   PatrolRun through Signal, ObservabilityFinding, FactoryCase, WorkCycle, and
-  ProofPacket fanout.
+  ProofPacket fanout. It runs the local control plane from a temporary
+  `RUNTIME_ROOT` copy of `os-apps` so WASM startup builds and artifact copies do
+  not mutate the assigned worktree, and it refuses non-local `TEMPER_URL` unless
+  `ALLOW_REMOTE_TEMPER_URL=1` is set for an intentional remote run.
 - `webhook-intake-smoke.sh`: trigger boundary for PatrolRequest plus Datadog,
   GitHub, and Discord Signals.
 - `repo-sweep-brief-smoke.sh`: RepoGraphSnapshot, QualityFinding,

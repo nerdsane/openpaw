@@ -36,6 +36,22 @@ elif ! port_is_free "$PORT" || ! port_is_free "$((PORT + 12))"; then
   exit 1
 fi
 
+is_local_temper_url() {
+  case "$1" in
+    http://127.0.0.1:* | http://localhost:*)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+if [[ -n "${TEMPER_URL:-}" && "${ALLOW_REMOTE_TEMPER_URL:-0}" != "1" ]] && ! is_local_temper_url "$TEMPER_URL"; then
+  printf '[paw-patrol-datadog-smoke] refusing non-local TEMPER_URL=%s; unset TEMPER_URL for local smoke or set ALLOW_REMOTE_TEMPER_URL=1 for an intentional remote run\n' "$TEMPER_URL" >&2
+  exit 1
+fi
+
 TEMPER_URL="${TEMPER_URL:-http://127.0.0.1:${PORT}}"
 TENANT="${TEMPER_TENANT:-patrol_datadog_smoke}"
 API_KEY="${TEMPER_API_KEY:-patrol-datadog-smoke}"
