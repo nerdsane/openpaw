@@ -43,6 +43,12 @@ DB_PATH="${DB_PATH:-/tmp/paw-patrol-datadog-smoke-${PORT}-$$.db}"
 WORKER_ID="${WORKER_ID:-mac-mini-codex-prod}"
 READY_ATTEMPTS="${READY_ATTEMPTS:-300}"
 PROOF_DIR="${PROOF_DIR:-/tmp/paw-patrol-datadog-smoke-proof-${PORT}-$$}"
+if [[ -z "${RUNTIME_ROOT:-}" ]]; then
+  RUNTIME_ROOT="$(mktemp -d "/tmp/paw-patrol-datadog-smoke-runtime-${PORT}-XXXXXX")"
+  RUNTIME_ROOT_OWNED="1"
+else
+  RUNTIME_ROOT_OWNED="0"
+fi
 
 SERVER_PID=""
 WORKER_PID=""
@@ -74,6 +80,9 @@ cleanup() {
   fi
   if [[ -n "${BRANCH_NAME}" ]]; then
     git -C "$ROOT" branch -D "$BRANCH_NAME" >/dev/null 2>&1 || true
+  fi
+  if [[ "${KEEP_RUNTIME_ROOT:-0}" != "1" && "${RUNTIME_ROOT_OWNED}" == "1" && -n "${RUNTIME_ROOT}" && -d "${RUNTIME_ROOT}" ]]; then
+    rm -rf "$RUNTIME_ROOT" >/dev/null 2>&1 || true
   fi
 }
 trap cleanup EXIT
@@ -163,6 +172,17 @@ decode_svg_data_uri() {
   fi
 }
 
+prepare_runtime_root() {
+  mkdir -p "$RUNTIME_ROOT"
+  if command -v rsync >/dev/null 2>&1; then
+    rsync -a --delete --exclude '*/target/' "$ROOT/os-apps/" "$RUNTIME_ROOT/os-apps/"
+  else
+    rm -rf "$RUNTIME_ROOT/os-apps"
+    cp -R "$ROOT/os-apps" "$RUNTIME_ROOT/os-apps"
+    find "$RUNTIME_ROOT/os-apps" -type d -name target -prune -exec rm -rf {} +
+  fi
+}
+
 write_proof_bundle() {
   local summary_json="$1"
   local patrol_body="$2"
@@ -233,19 +253,20 @@ require_cmd jq
 log "repo root: ${ROOT}"
 log "workspace root: ${WORKSPACE_ROOT}"
 log "server: ${TEMPER_URL}"
+prepare_runtime_root
+log "runtime os-apps: ${RUNTIME_ROOT}/os-apps"
 
-log "building current paw-patrol WASM modules"
-(cd "$ROOT/os-apps/paw-patrol/wasm" && bash build.sh) \
-  >/tmp/paw-patrol-datadog-smoke-wasm-build.log 2>&1
-
-TEMPERPAW_WASM_STARTUP_POLICY=build \
-PORT="$PORT" \
-TEMPER_API_KEY="$API_KEY" \
-PAW_TENANT="$TENANT" \
-LOCAL_CODEX_WORKER_ID="$WORKER_ID" \
-LOCAL_CODEX_WORKTREE_ROOT="$WORKSPACE_ROOT" \
-TURSO_URL="file:${DB_PATH}" \
-cargo run -p temperpaw >/tmp/paw-patrol-datadog-smoke-server.log 2>&1 &
+(
+  cd "$RUNTIME_ROOT"
+  TEMPERPAW_WASM_STARTUP_POLICY=build \
+  PORT="$PORT" \
+  TEMPER_API_KEY="$API_KEY" \
+  PAW_TENANT="$TENANT" \
+  LOCAL_CODEX_WORKER_ID="$WORKER_ID" \
+  LOCAL_CODEX_WORKTREE_ROOT="$WORKSPACE_ROOT" \
+  TURSO_URL="file:${DB_PATH}" \
+  cargo run --manifest-path "$ROOT/Cargo.toml" -p temperpaw
+) >/tmp/paw-patrol-datadog-smoke-server.log 2>&1 &
 SERVER_PID="$!"
 
 wait_for_metadata
@@ -287,7 +308,7 @@ CODEX_BIN="$ROOT/crates/paw-codex-worker/fixtures/fake-codex.sh" \
 PAW_CODEX_WORKER_CAPABILITIES=local_codex,repo_write,review,evaluation,datadog_query \
 PAW_CODEX_ENABLE_EXECUTION=1 \
 PAW_CODEX_POLL_ON_START=1 \
-cargo run -p paw-codex-worker >/tmp/paw-patrol-datadog-smoke-worker.log 2>&1 &
+cargo run --manifest-path "$ROOT/Cargo.toml" -p paw-codex-worker >/tmp/paw-patrol-datadog-smoke-worker.log 2>&1 &
 WORKER_PID="$!"
 
 patrol_complete_body="$(wait_for_status PatrolRuns "$patrol_run_id" Complete 180)"
@@ -348,6 +369,7 @@ summary_json="$(jq -n \
   --arg branch "$BRANCH_NAME" \
   --arg worktree "$WORKTREE_PATH" \
   --arg allowed_worker "$worker_allowed_id" \
+  --arg runtime_root "$RUNTIME_ROOT" \
   '{
     statuses: {
       patrol_run: $patrol_status,
@@ -377,6 +399,10 @@ summary_json="$(jq -n \
     },
     worker: {
       allowed_worker_id: $allowed_worker
+    },
+    runtime: {
+      root: $runtime_root,
+      os_apps: ($runtime_root + "/os-apps")
     }
   }')"
 
