@@ -14,6 +14,9 @@
   );
   const proofData = $derived(asRecord(parseJsonString(readField(readyLatest, 'proof_json'))));
   const activeMonitors = $derived(asArray(proofData.active_monitors));
+  const visualSummaryUrl = $derived(textValue(readField(readyLatest, 'visual_summary_url') ?? proofData.visual_summary_url));
+  const stateDiagram = $derived(textValue(readField(readyLatest, 'state_diagram') ?? proofData.state_diagram));
+  const changedFiles = $derived(asArray(proofData.changed_files).map(String));
 
   function value(key: string): string {
     return textValue(readField(readyLatest, key));
@@ -52,6 +55,21 @@
           <span>{textValue(item.name)} · {textValue(item.status)}</span>
         {/each}
       </div>
+    {/if}
+    {#if visualSummaryUrl !== '-'}
+      <figure class="visual-proof">
+        <img src={visualSummaryUrl} alt="Visual proof summary for latest Paw Patrol proof packet" />
+      </figure>
+    {/if}
+    {#if changedFiles.length > 0}
+      <div class="file-strip" aria-label="Changed files in latest proof">
+        {#each changedFiles.slice(0, 8) as file}
+          <span>{file}</span>
+        {/each}
+      </div>
+    {/if}
+    {#if stateDiagram !== '-'}
+      <pre class="diagram">{stateDiagram}</pre>
     {/if}
     <pre>{value('SummaryMarkdown')}</pre>
   {:else}
@@ -113,6 +131,8 @@
 
   pre,
   .monitor-strip,
+  .file-strip,
+  .visual-proof,
   .empty {
     border: 1px dashed var(--border);
     padding: var(--sp-3);
@@ -133,7 +153,33 @@
     border-style: solid;
   }
 
-  .monitor-strip span {
+  .file-strip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--sp-2);
+    margin-bottom: var(--sp-3);
+    border-style: solid;
+  }
+
+  .visual-proof {
+    margin: 0 0 var(--sp-3) 0;
+    border-style: solid;
+    max-height: none;
+  }
+
+  .visual-proof img {
+    width: 100%;
+    max-height: 420px;
+    object-fit: contain;
+  }
+
+  .diagram {
+    max-height: 280px;
+    margin-bottom: var(--sp-3);
+  }
+
+  .monitor-strip span,
+  .file-strip span {
     font-family: var(--font-mono);
     font-size: var(--text-xs);
     color: var(--text-2);

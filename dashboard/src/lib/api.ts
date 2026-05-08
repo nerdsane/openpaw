@@ -1,4 +1,5 @@
 import { pawPatrolView, type AppViewManifest } from '$lib/app-views/paw-patrol';
+import { entitySetToEntityType } from '$lib/dashboard-format';
 
 const BASE = ''; // relative — proxied by Vite in dev, served by tower-http in prod
 
@@ -52,6 +53,10 @@ function rowEntityId(row: Record<string, unknown>): string {
   return String(row.Id ?? row.id ?? row.entity_id ?? row._entity_id ?? fields.Id ?? fields.id ?? '');
 }
 
+function entityResource(entitySet: string, id: string): string {
+  return `${entitySet}('${escapeODataString(id)}')`;
+}
+
 export async function queryEntities(
   entitySet: string,
   filter?: string,
@@ -96,9 +101,24 @@ export async function postEntityAction(
   id: string,
   action: string,
   body: Record<string, unknown> = {},
-  namespace = 'TemperPaw.Patrol'
+  namespace = 'Temper'
 ): Promise<Record<string, unknown>> {
-  const res = await apiFetch(`${BASE}/tdata/${entitySet}('${id}')/${namespace}.${action}`, {
+  let target = `${entityResource(entitySet, id)}/${namespace}.${action}`;
+  const entity = await apiFetch(`${BASE}/tdata/${entityResource(entitySet, id)}`);
+  if (entity.ok) {
+    const raw = await entity.json().catch(() => ({}));
+    const actions = Array.isArray(raw['@odata.actions']) ? raw['@odata.actions'] : [];
+    const advertised = actions.find(
+      (item: Record<string, unknown>) =>
+        item.name === action && typeof item.target === 'string'
+    );
+    if (advertised?.target) {
+      target = advertised.target as string;
+    }
+  }
+
+  const path = target.startsWith('/') ? target : `/tdata/${target}`;
+  const res = await apiFetch(`${BASE}${path}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body)
@@ -202,6 +222,14 @@ export async function fetchSessionHistory(
   return (Array.isArray(history) ? history : []).filter(
     (e: SessionHistoryEntry) => e.entity_id === entityId
   );
+}
+
+export async function fetchEntityHistory(
+  entitySet: string,
+  entityId: string,
+  limit: number = 200
+): Promise<SessionHistoryEntry[]> {
+  return fetchSessionHistory(entityId, entitySetToEntityType(entitySet), limit);
 }
 
 export async function queryTeams(): Promise<Record<string, unknown>[]> {

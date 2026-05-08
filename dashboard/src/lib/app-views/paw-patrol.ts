@@ -53,7 +53,8 @@ export const pawPatrolView: AppViewManifest = {
     }
   ],
   entitySets: [
-    { name: 'WorkRequests', label: 'Work Requests', columns: ['Status', 'Source', 'RequestText', 'FactoryCaseId'], orderby: 'Id desc', top: 24 },
+    { name: 'WorkRequests', label: 'Work Requests', columns: ['Status', 'Source', 'RequestText', 'FactoryCaseId'], orderby: 'Id desc', top: 48 },
+    { name: 'PatrolRequests', label: 'Legacy Patrol Requests', columns: ['Status', 'Source', 'RequestText', 'FactoryCaseId'], orderby: 'Id desc', top: 24 },
     { name: 'Signals', label: 'Signals', columns: ['Status', 'Source', 'Severity', 'Summary', 'FactoryCaseId'], orderby: 'Id desc', top: 24 },
     { name: 'PatrolRuns', label: 'Patrol Runs', columns: ['Status', 'PatrolKind', 'Summary', 'WorkerRunId'], orderby: 'Id desc', top: 24 },
     { name: 'ObservabilityFindings', label: 'Observability Findings', columns: ['Status', 'Severity', 'RiskLane', 'Title', 'WorkCycleId'], orderby: 'Id desc', top: 24 },
@@ -68,10 +69,13 @@ export const pawPatrolView: AppViewManifest = {
     { name: 'ProofPackets', label: 'Proof Packets', columns: ['Status', 'WorkCycleId', 'ReviewerVerdict', 'ResidualRisks'], orderby: 'Id desc', top: 24 },
     { name: 'DailyBriefs', label: 'Daily Briefs', columns: ['Status', 'BriefDate', 'RiskSummary', 'ProofPacketIds'], orderby: 'Id desc', top: 12 },
     { name: 'PatrolSchedules', label: 'Patrol Schedules', columns: ['Status', 'ScheduleKind', 'CronExpression', 'LastRunId', 'NextRunAt'], orderby: 'Id desc', top: 12 },
-    { name: 'WorkerAgents', label: 'Worker Agents', columns: ['Status', 'WorkerId', 'ProviderId', 'Capabilities', 'LastSeenAt'], orderby: 'Id desc', top: 24 }
+    { name: 'WorkerAgents', label: 'Worker Agents', columns: ['Status', 'WorkerId', 'ProviderId', 'Capabilities', 'LastSeenAt'], orderby: 'Id desc', top: 24 },
+    { name: 'WorkerProviders', label: 'Worker Providers', columns: ['Status', 'ProviderKind', 'DisplayName', 'Capabilities', 'Enabled', 'RiskCeiling'], orderby: 'Id desc', top: 24 },
+    { name: 'RiskRules', label: 'Risk Rules', columns: ['Status', 'RuleName', 'MinimumRiskLane', 'EvidenceSelector', 'ReviewPolicy'], orderby: 'Id desc', top: 24 }
   ],
   timeline: [
     { from: 'WorkRequests', to: 'FactoryCases', via: 'work_request_id' },
+    { from: 'PatrolRequests', to: 'FactoryCases', via: 'patrol_request_id' },
     { from: 'Signals', to: 'FactoryCases', via: 'signal_id' },
     { from: 'PatrolRuns', to: 'ObservabilityFindings', via: 'patrol_run_id' },
     { from: 'RepoGraphSnapshots', to: 'QualityFindings', via: 'repo_graph_snapshot_id' },

@@ -8,6 +8,7 @@
     queryEntities
   } from '$lib/api';
   import { entityId } from '$lib/entity-format';
+  import { formatDateTimeMs, lastActivityMs } from '$lib/dashboard-format';
   import EntityBoard from '$lib/components/app-console/EntityBoard.svelte';
   import PatrolOverview from '$lib/components/app-console/PatrolOverview.svelte';
   import ProofViewer from '$lib/components/app-console/ProofViewer.svelte';
@@ -16,6 +17,7 @@
 
   let manifest = $state<AppViewManifest | null>(null);
   let rows = $state<Record<string, Record<string, unknown>[]>>({});
+  let loadErrors = $state<Record<string, string>>({});
   let loading = $state(true);
   let actionBusy = $state(false);
   let error = $state('');
@@ -30,7 +32,10 @@
   );
 
   function newestFirst(rows: Record<string, unknown>[]): Record<string, unknown>[] {
-    return [...rows].sort((left, right) => entityId(right).localeCompare(entityId(left)));
+    return [...rows].sort((left, right) => {
+      const byActivity = lastActivityMs(right) - lastActivityMs(left);
+      return byActivity !== 0 ? byActivity : entityId(right).localeCompare(entityId(left));
+    });
   }
 
   async function load() {
@@ -45,15 +50,28 @@
     }
 
     const loaded: Record<string, Record<string, unknown>[]> = {};
+    const errors: Record<string, string> = {};
     await Promise.all(
       manifest.entitySets.map(async (set) => {
-        const result = await queryEntities(set.name, undefined, set.orderby, set.top).catch(() => []);
-        loaded[set.name] = newestFirst(result);
+        try {
+          const result = await queryEntities(set.name, undefined, set.orderby, set.top);
+          loaded[set.name] = newestFirst(result);
+        } catch (err) {
+          loaded[set.name] = [];
+          errors[set.name] = err instanceof Error ? err.message : `Could not load ${set.name}`;
+        }
       })
     );
     rows = loaded;
+    loadErrors = errors;
     loading = false;
   }
+
+  const totalLoaded = $derived(Object.values(rows).reduce((sum, list) => sum + list.length, 0));
+  const lastLoadedAt = $derived.by(() => {
+    const newest = Math.max(...Object.values(rows).flat().map((row) => lastActivityMs(row)), 0);
+    return newest ? formatDateTimeMs(newest) : '-';
+  });
 
   async function runPatrol(action: AppViewManifest['actions'][number]) {
     if (action.kind !== 'patrol-run') return;
@@ -126,6 +144,9 @@
         <p>{manifest.summary}</p>
       </div>
       <div class="actions">
+        <button type="button" disabled={loading || actionBusy} onclick={load}>
+          Refresh
+        </button>
         {#each patrolActions as action}
           <button type="button" disabled={actionBusy} onclick={() => runPatrol(action)}>
             {actionBusy ? 'Running...' : action.label}
@@ -140,6 +161,25 @@
     {#if actionMessage}
       <div class="notice">{actionMessage}</div>
     {/if}
+
+    <section class="console-ledger" aria-label="Paw Patrol dashboard load state">
+      <div>
+        <span>Entity rows</span>
+        <strong>{totalLoaded}</strong>
+      </div>
+      <div>
+        <span>Entity sets</span>
+        <strong>{manifest.entitySets.length}</strong>
+      </div>
+      <div>
+        <span>Load errors</span>
+        <strong>{Object.keys(loadErrors).length}</strong>
+      </div>
+      <div>
+        <span>Newest activity</span>
+        <strong>{lastLoadedAt}</strong>
+      </div>
+    </section>
 
     {#if workRequestAction}
       <section class="work-intake">
@@ -174,6 +214,7 @@
           entitySet={set.name}
           rows={rows[set.name] ?? []}
           columns={set.columns}
+          loadError={loadErrors[set.name] ?? ''}
         />
       {/each}
     </div>
@@ -216,6 +257,43 @@
     flex-wrap: wrap;
     justify-content: flex-end;
     gap: var(--sp-2);
+  }
+
+  .console-ledger {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    margin-bottom: var(--sp-4);
+  }
+
+  .console-ledger div {
+    min-width: 0;
+    padding: var(--sp-3);
+    border-right: 1px solid var(--border);
+  }
+
+  .console-ledger div:last-child {
+    border-right: 0;
+  }
+
+  .console-ledger span,
+  .console-ledger strong {
+    display: block;
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+  }
+
+  .console-ledger span {
+    color: var(--text-3);
+  }
+
+  .console-ledger strong {
+    margin-top: var(--sp-1);
+    color: var(--text-1);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   button {
@@ -321,8 +399,14 @@
     }
 
     .work-intake,
-    .work-intake form {
+    .work-intake form,
+    .console-ledger {
       grid-template-columns: 1fr;
+    }
+
+    .console-ledger div {
+      border-right: 0;
+      border-bottom: 1px solid var(--border);
     }
   }
 </style>
