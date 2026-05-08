@@ -271,3 +271,30 @@ struct WorktreeEvidence {
     status_short: String,
     diff_stat: String,
 }
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PullRequestMode {
+    Disabled,
+    Optional,
+    Required,
+}
+
+impl PullRequestMode {
+    fn as_str(self) -> &'static str {
+        match self {
+            PullRequestMode::Disabled => "disabled",
+            PullRequestMode::Optional => "optional",
+            PullRequestMode::Required => "required",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct PullRequestEvidence {
+    mode: PullRequestMode,
+    url: String,
+    commit_sha: String,
+    branch_name: String,
+    base_branch: String,
+    note: String,
+}
