@@ -2,7 +2,6 @@ const ACTION_CLAIM_LABEL: &str = "WorkerRun.Claim";
 const ACTION_REPORT_DONE_LABEL: &str = "WorkerRun.ReportDone";
 const ACTION_REPORT_FAILED_LABEL: &str = "WorkerRun.ReportFailed";
 const REVIEW_CLAIM_LABEL: &str = "ReviewRun.Claim";
-const REVIEW_APPROVE_LABEL: &str = "ReviewRun.Approve";
 const EVALUATION_CLAIM_LABEL: &str = "EvaluationRun.Claim";
 const EVALUATION_START_LABEL: &str = "EvaluationRun.Start";
 const EVALUATION_PASS_LABEL: &str = "EvaluationRun.Pass";
@@ -135,6 +134,39 @@ impl Config {
     }
 }
 
+fn load_worker_env_file() -> Result<()> {
+    let path = env::var("PAW_CODEX_WORKER_ENV_FILE")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("/Users/openclaw/.config/temperpaw/paw-codex-worker.env"));
+    if !path.exists() {
+        return Ok(());
+    }
+    let contents = fs::read_to_string(&path)
+        .with_context(|| format!("read PAW_CODEX_WORKER_ENV_FILE {}", path.display()))?;
+    for line in contents.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        let key = key.trim();
+        if key.is_empty() || (key != "PATH" && env::var_os(key).is_some()) {
+            continue;
+        }
+        let value = value.trim().trim_matches('"').trim_matches('\'');
+        // Rust 2024 marks process environment mutation unsafe because it can
+        // race with other threads. This runs before Tokio starts worker tasks.
+        unsafe {
+            env::set_var(key, value);
+        }
+    }
+    Ok(())
+}
+
 #[derive(Debug, Deserialize)]
 struct EntityEvent {
     #[serde(default, alias = "entityType", alias = "EntityType")]
@@ -152,7 +184,7 @@ struct EntityEvent {
     status: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 struct WorkerRunState {
     #[serde(default, rename = "Id")]
     id: String,
@@ -168,6 +200,12 @@ struct WorkerRunState {
     runner_kind: String,
     #[serde(default, rename = "AllowedWorkerId")]
     allowed_worker_id: String,
+    #[serde(default, rename = "WorkerId")]
+    worker_id: String,
+    #[serde(default, rename = "ProviderId")]
+    provider_id: String,
+    #[serde(default, rename = "RequiredCapabilities")]
+    required_capabilities: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -225,10 +263,38 @@ struct EvaluationOutcome {
     results_json: String,
     e2e_summary: String,
     error_message: String,
+    failure_classification: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct WorktreeEvidence {
     status_short: String,
     diff_stat: String,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PullRequestMode {
+    Disabled,
+    Optional,
+    Required,
+}
+
+impl PullRequestMode {
+    fn as_str(self) -> &'static str {
+        match self {
+            PullRequestMode::Disabled => "disabled",
+            PullRequestMode::Optional => "optional",
+            PullRequestMode::Required => "required",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct PullRequestEvidence {
+    mode: PullRequestMode,
+    url: String,
+    commit_sha: String,
+    branch_name: String,
+    base_branch: String,
+    note: String,
 }

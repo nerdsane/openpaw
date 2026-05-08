@@ -31,18 +31,22 @@ jobs:
       - name: Worker smoke script syntax
         run: |
           bash -n crates/paw-codex-worker/scripts/deterministic-smoke.sh
+          bash -n crates/paw-codex-worker/scripts/datadog-patrol-smoke.sh
           bash -n crates/paw-codex-worker/scripts/repo-sweep-brief-smoke.sh
           bash -n crates/paw-codex-worker/scripts/webhook-intake-smoke.sh
           bash -n crates/paw-codex-worker/scripts/production-readiness.sh
           bash -n crates/paw-codex-worker/scripts/production-preflight.sh
+          bash -n crates/paw-codex-worker/scripts/production-git-ancestry-guard.sh
           bash -n crates/paw-codex-worker/scripts/production-observe-only.sh
           bash -n crates/paw-codex-worker/scripts/production-preflight-github-smoke.sh
+          bash -n crates/paw-codex-worker/scripts/production-git-ancestry-guard-smoke.sh
           bash -n crates/paw-codex-worker/scripts/production-observe-only-smoke.sh
           bash -n crates/paw-codex-worker/scripts/production-readiness-smoke.sh
           bash -n crates/paw-codex-worker/scripts/mac-mini-production-bootstrap.sh
           bash -n crates/paw-codex-worker/scripts/ci-actions-runtime-smoke.sh
           bash -n crates/paw-codex-worker/scripts/paw-patrol-acceptance.sh
           crates/paw-codex-worker/scripts/ci-actions-runtime-smoke.sh
+          crates/paw-codex-worker/scripts/production-git-ancestry-guard-smoke.sh
       - name: WASM build (os-apps)
         run: |
           set -e

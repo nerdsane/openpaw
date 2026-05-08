@@ -18,6 +18,7 @@ MAX_CONCURRENT_RUNS="${MAX_CONCURRENT_RUNS:-1}"
 WRITE_LAUNCHD_PLIST="${WRITE_LAUNCHD_PLIST:-0}"
 INSTALL_LAUNCHD="${INSTALL_LAUNCHD:-0}"
 LAUNCHD_PLIST="${LAUNCHD_PLIST:-$HOME/Library/LaunchAgents/com.temperpaw.paw-codex-worker.plist}"
+REQUIRE_MAIN_ANCESTRY="${REQUIRE_MAIN_ANCESTRY:-1}"
 
 log() {
   printf '[paw-codex-production] %s\n' "$*"
@@ -60,6 +61,10 @@ require_cmd cargo
 require_cmd git
 require_env TEMPER_URL
 require_env WORKER_TOKEN
+
+if [[ "$REQUIRE_MAIN_ANCESTRY" == "1" ]]; then
+  bash "${ROOT}/crates/paw-codex-worker/scripts/production-git-ancestry-guard.sh"
+fi
 
 log "repo root: ${ROOT}"
 log "temper url: ${TEMPER_URL}"

@@ -31,6 +31,11 @@ type = "string"
 initial = ""
 
 [[state]]
+name = "repo_graph_snapshot_id"
+type = "string"
+initial = ""
+
+[[state]]
 name = "pm_issue_id"
 type = "string"
 initial = ""
@@ -50,7 +55,7 @@ name = "OpenFinding"
 kind = "input"
 from = ["Open"]
 to = "Open"
-params = ["title", "severity", "evidence", "affected_paths", "fingerprint"]
+params = ["title", "severity", "evidence", "affected_paths", "fingerprint", "repo_graph_snapshot_id"]
 hint = "Record a code health finding from Patrol sweeps."
 
 [[action]]

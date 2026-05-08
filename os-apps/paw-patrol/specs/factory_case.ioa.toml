@@ -16,6 +16,11 @@ type = "string"
 initial = ""
 
 [[state]]
+name = "work_request_id"
+type = "string"
+initial = ""
+
+[[state]]
 name = "pm_issue_id"
 type = "string"
 initial = ""
@@ -55,8 +60,8 @@ name = "Open"
 kind = "input"
 from = ["New"]
 to = "Triaging"
-params = ["summary", "signal_id", "patrol_request_id"]
-hint = "Open a case from a PatrolRequest or Signal."
+params = ["summary", "signal_id", "patrol_request_id", "work_request_id"]
+hint = "Open a case from a WorkRequest, legacy PatrolRequest, or Signal."
 
 [[action]]
 name = "SetRiskFloor"

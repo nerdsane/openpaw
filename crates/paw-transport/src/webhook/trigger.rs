@@ -33,6 +33,18 @@ pub struct WebhookTrigger {
     api: PawApiClient,
 }
 
+/// Build the webhook trigger router.
+///
+/// This is used both by the standalone trigger listener and by production
+/// deployments that expose the trigger on the primary HTTP port.
+pub fn router(api: PawApiClient) -> Router {
+    let state = Arc::new(TriggerState { api });
+
+    Router::new()
+        .route("/triggers/webhook/{route_key}", post(handle_webhook))
+        .with_state(state)
+}
+
 impl WebhookTrigger {
     /// Create a new webhook trigger.
     pub fn new(config: WebhookTriggerConfig, api: PawApiClient) -> Self {
@@ -45,13 +57,7 @@ impl WebhookTrigger {
     /// For each request: creates ONE WebhookEvent entity, dispatches ONE
     /// Received action, returns the event ID.
     pub async fn run(&self) -> Result<(), String> {
-        let state = Arc::new(TriggerState {
-            api: self.api.clone(),
-        });
-
-        let app = Router::new()
-            .route("/triggers/webhook/{route_key}", post(handle_webhook))
-            .with_state(state);
+        let app = router(self.api.clone());
 
         let addr = SocketAddr::from(([0, 0, 0, 0], self.config.port));
         println!("  [webhook] Trigger listening on {addr}");

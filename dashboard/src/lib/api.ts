@@ -1,8 +1,12 @@
+import { pawPatrolView, type AppViewManifest } from '$lib/app-views/paw-patrol';
+
 const BASE = ''; // relative — proxied by Vite in dev, served by tower-http in prod
 
 // Default headers for all OData requests.
 const HEADERS: Record<string, string> = {
-  'x-tenant-id': 'default'
+  'x-tenant-id': 'default',
+  'x-temper-principal-kind': 'human',
+  'x-temper-principal-id': 'dashboard'
 };
 
 export async function apiFetch(input: string, init: RequestInit = {}): Promise<Response> {
@@ -39,6 +43,15 @@ function flattenEntity(raw: Record<string, unknown>): Record<string, unknown> {
   };
 }
 
+function escapeODataString(value: string): string {
+  return value.replaceAll("'", "''");
+}
+
+function rowEntityId(row: Record<string, unknown>): string {
+  const fields = (row.fields ?? {}) as Record<string, unknown>;
+  return String(row.Id ?? row.id ?? row.entity_id ?? row._entity_id ?? fields.Id ?? fields.id ?? '');
+}
+
 export async function queryEntities(
   entitySet: string,
   filter?: string,
@@ -60,6 +73,46 @@ export async function queryEntities(
   const data = await res.json();
   const raw = (data.value || []) as Record<string, unknown>[];
   return raw.map(flattenEntity);
+}
+
+export async function createEntity(
+  entitySet: string,
+  body: Record<string, unknown> = {}
+): Promise<Record<string, unknown>> {
+  const res = await apiFetch(`${BASE}/tdata/${entitySet}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+  if (!res.ok) {
+    throw new Error(`OData create failed: ${res.status} ${res.statusText}`);
+  }
+  const raw = await res.json();
+  return flattenEntity(raw);
+}
+
+export async function postEntityAction(
+  entitySet: string,
+  id: string,
+  action: string,
+  body: Record<string, unknown> = {},
+  namespace = 'TemperPaw.Patrol'
+): Promise<Record<string, unknown>> {
+  const res = await apiFetch(`${BASE}/tdata/${entitySet}('${id}')/${namespace}.${action}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+  if (!res.ok) {
+    throw new Error(`OData action failed: ${res.status} ${res.statusText}`);
+  }
+  const raw = await res.json().catch(() => ({}));
+  return typeof raw === 'object' && raw !== null ? flattenEntity(raw as Record<string, unknown>) : {};
+}
+
+export async function fetchAppViewManifest(name: string): Promise<AppViewManifest | null> {
+  if (name === pawPatrolView.name) return pawPatrolView;
+  return null;
 }
 
 export async function fetchDecisions(status?: string): Promise<DecisionsResponse> {
@@ -163,12 +216,28 @@ export async function getEntity(
   entitySet: string,
   id: string
 ): Promise<Record<string, unknown>> {
-  const res = await apiFetch(`${BASE}/tdata/${entitySet}('${id}')`);
-  if (!res.ok) {
-    throw new Error(`OData get failed: ${res.status} ${res.statusText}`);
+  const quotedId = encodeURIComponent(escapeODataString(id));
+  const res = await apiFetch(`${BASE}/tdata/${entitySet}('${quotedId}')`);
+  if (res.ok) {
+    const raw = await res.json();
+    return flattenEntity(raw);
   }
-  const raw = await res.json();
-  return flattenEntity(raw);
+
+  const directError = `${res.status} ${res.statusText}`.trim();
+  const filter = `Id eq '${escapeODataString(id)}'`;
+  const filtered = await queryEntities(entitySet, filter, undefined, 1).catch(() => []);
+  const filteredMatch = filtered.find((row) => rowEntityId(row) === id);
+  if (filteredMatch) {
+    return filteredMatch;
+  }
+
+  const listed = await queryEntities(entitySet, undefined, undefined, 100).catch(() => []);
+  const listedMatch = listed.find((row) => rowEntityId(row) === id);
+  if (listedMatch) {
+    return listedMatch;
+  }
+
+  throw new Error(`Could not load ${entitySet} ${id} (${directError})`);
 }
 
 /** OS App entry from the Temper platform catalog. */

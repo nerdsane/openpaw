@@ -1,9 +1,22 @@
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::ffi::OsString;
     use std::fs;
-    use std::process::Command as StdCommand;
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt;
     use std::time::{SystemTime, UNIX_EPOCH};
+    use tokio::sync::Mutex;
+
+    include!("datadog_patrol_tests.rs");
+    include!("github_patrol_tests.rs");
+    include!("evaluation_tests.rs");
+    include!("event_stream_tests.rs");
+    include!("fake_codex_tests.rs");
+    include!("pull_request_tests.rs");
+    include!("worker_http_tests.rs");
+
+    static ENV_LOCK: Mutex<()> = Mutex::const_new(());
 
     #[test]
     fn worker_run_state_reads_temper_odata_fields() {
@@ -15,7 +28,10 @@ mod tests {
                 "worktree_path": "/tmp/worktree",
                 "branch_name": "codex/test",
                 "runner_kind": "local_codex",
-                "allowed_worker_id": "mac-mini-codex-1"
+                "allowed_worker_id": "mac-mini-codex-1",
+                "worker_id": "mac-mini-codex-1",
+                "provider_id": "local-codex",
+                "required_capabilities": "local_codex,repo_write"
             }
         });
 
@@ -28,6 +44,9 @@ mod tests {
         assert_eq!(worker_run.branch_name, "codex/test");
         assert_eq!(worker_run.runner_kind, "local_codex");
         assert_eq!(worker_run.allowed_worker_id, "mac-mini-codex-1");
+        assert_eq!(worker_run.worker_id, "mac-mini-codex-1");
+        assert_eq!(worker_run.provider_id, "local-codex");
+        assert_eq!(worker_run.required_capabilities, "local_codex,repo_write");
     }
 
     #[test]
@@ -40,6 +59,9 @@ mod tests {
             branch_name: "codex/test".to_string(),
             runner_kind: "local_codex".to_string(),
             allowed_worker_id: "mac-mini-codex-1".to_string(),
+            worker_id: String::new(),
+            provider_id: "local-codex".to_string(),
+            required_capabilities: "local_codex,repo_write".to_string(),
         };
         let unconfigured = WorkerRunState {
             id: "wr-2".to_string(),
@@ -49,6 +71,9 @@ mod tests {
             branch_name: String::new(),
             runner_kind: String::new(),
             allowed_worker_id: String::new(),
+            worker_id: String::new(),
+            provider_id: String::new(),
+            required_capabilities: String::new(),
         };
         let cloud = WorkerRunState {
             id: "wr-3".to_string(),
@@ -58,6 +83,9 @@ mod tests {
             branch_name: String::new(),
             runner_kind: "codex_cloud".to_string(),
             allowed_worker_id: "mac-mini-codex-1".to_string(),
+            worker_id: String::new(),
+            provider_id: "local-codex".to_string(),
+            required_capabilities: "local_codex,repo_write".to_string(),
         };
         let no_worktree_assignment = WorkerRunState {
             id: "wr-4".to_string(),
@@ -67,6 +95,9 @@ mod tests {
             branch_name: String::new(),
             runner_kind: "local_codex".to_string(),
             allowed_worker_id: "mac-mini-codex-1".to_string(),
+            worker_id: String::new(),
+            provider_id: "local-codex".to_string(),
+            required_capabilities: "local_codex,repo_write".to_string(),
         };
 
         assert!(worker_run_is_claimable_by_local_codex(
@@ -92,6 +123,43 @@ mod tests {
     }
 
     #[test]
+    fn local_worker_recovers_only_own_running_codex_runs() {
+        let recoverable = WorkerRunState {
+            id: "wr-1".to_string(),
+            status: "Running".to_string(),
+            task: "Resume this work".to_string(),
+            worktree_path: "/tmp/worktree".to_string(),
+            branch_name: "codex/test".to_string(),
+            runner_kind: "local_codex".to_string(),
+            allowed_worker_id: "mac-mini-codex-1".to_string(),
+            worker_id: "mac-mini-codex-1".to_string(),
+            provider_id: "local-codex".to_string(),
+            required_capabilities: "local_codex,repo_write".to_string(),
+        };
+        let other_worker = WorkerRunState {
+            worker_id: "other-worker".to_string(),
+            ..recoverable.clone()
+        };
+        let queued = WorkerRunState {
+            status: "Queued".to_string(),
+            ..recoverable.clone()
+        };
+
+        assert!(worker_run_is_recoverable_by_local_codex(
+            &recoverable,
+            "mac-mini-codex-1"
+        ));
+        assert!(!worker_run_is_recoverable_by_local_codex(
+            &other_worker,
+            "mac-mini-codex-1"
+        ));
+        assert!(!worker_run_is_recoverable_by_local_codex(
+            &queued,
+            "mac-mini-codex-1"
+        ));
+    }
+
+    #[test]
     fn repo_sweep_worker_runs_are_detected_for_review_and_evaluation() {
         let worker_run = WorkerRunState {
             id: "wr-1".to_string(),
@@ -101,6 +169,9 @@ mod tests {
             branch_name: "codex/repo-sweep".to_string(),
             runner_kind: "local_codex".to_string(),
             allowed_worker_id: "mac-mini-codex-1".to_string(),
+            worker_id: String::new(),
+            provider_id: "local-codex".to_string(),
+            required_capabilities: "local_codex,repo_write".to_string(),
         };
         let normal_worker_run = WorkerRunState {
             id: "wr-2".to_string(),
@@ -110,6 +181,9 @@ mod tests {
             branch_name: "codex/bugfix".to_string(),
             runner_kind: "local_codex".to_string(),
             allowed_worker_id: "mac-mini-codex-1".to_string(),
+            worker_id: String::new(),
+            provider_id: "local-codex".to_string(),
+            required_capabilities: "local_codex,repo_write".to_string(),
         };
 
         assert!(worker_run_is_repo_sweep(&worker_run));
@@ -177,8 +251,6 @@ mod tests {
             "<string>mac-mini-codex-1</string>",
             "<key>PATH</key>",
             "<string>/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/Users/openclaw/.cargo/bin</string>",
-            "<key>WORKER_TOKEN</key>",
-            "<string>secret&amp;token</string>",
             "<key>PAW_CODEX_ENABLE_EXECUTION</key>",
             "<string>1</string>",
             "<key>PAW_CODEX_POLL_ON_START</key>",
@@ -187,11 +259,20 @@ mod tests {
             "<string>1</string>",
             "<key>PAW_CODEX_EXEC_TIMEOUT_SECS</key>",
             "<string>90</string>",
+            "<key>PAW_CODEX_WORKER_CAPABILITIES</key>",
+            "<string>local_codex,repo_write,review,evaluation,datadog_query,github_query</string>",
+            "<key>PAW_CODEX_WORKER_ENV_FILE</key>",
+            "<string>/Users/openclaw/.config/temperpaw/paw-codex-worker.env</string>",
+            "<key>PAW_CODEX_FORBIDDEN_DONE_PATHS</key>",
             "<key>PAW_CODEX_EVAL_COMMANDS</key>",
             "<string>cargo test -p temperpaw --test paw_patrol_foundation</string>",
         ] {
             assert!(plist.contains(needle), "plist should contain {needle}");
         }
+        assert!(
+            !plist.contains("<key>WORKER_TOKEN</key>"),
+            "launchd plist should keep WORKER_TOKEN in the 0600 env file, not in launchctl-visible environment"
+        );
     }
 
     #[test]
@@ -268,6 +349,9 @@ mod tests {
             branch_name: "codex/timeout".to_string(),
             runner_kind: "local_codex".to_string(),
             allowed_worker_id: "mac-mini-codex-1".to_string(),
+            worker_id: "mac-mini-codex-1".to_string(),
+            provider_id: "local-codex".to_string(),
+            required_capabilities: "local_codex,repo_write".to_string(),
         };
 
         let result = run_codex(&config, &worker_run).await;
@@ -277,6 +361,54 @@ mod tests {
         assert!(
             message.contains("codex exec timed out after"),
             "unexpected timeout error: {message}"
+        );
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[tokio::test]
+    async fn run_codex_timeout_cleans_child_process_group() {
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/fake-codex.sh");
+        let root = unique_temp_dir();
+        fs::create_dir_all(&root).expect("temp dir");
+        let marker = root.join("orphan-survived");
+        let config = Config {
+            temper_url: "http://127.0.0.1:3497".to_string(),
+            tenant: "default".to_string(),
+            worker_id: "mac-mini-codex-1".to_string(),
+            worker_token: Some("secret".to_string()),
+            workspace_root: root.clone(),
+            repo_root: root.clone(),
+            codex_bin: fixture.display().to_string(),
+            max_concurrent_runs: 1,
+            enable_execution: true,
+            poll_on_start: true,
+            codex_exec_smoke: false,
+            codex_exec_timeout: Duration::from_millis(100),
+        };
+        let worker_run = WorkerRunState {
+            id: "wr-timeout-tree".to_string(),
+            status: "Running".to_string(),
+            task: format!("PAW_FAKE_CODEX_ORPHAN:{}", marker.display()),
+            worktree_path: root.display().to_string(),
+            branch_name: "codex/timeout-tree".to_string(),
+            runner_kind: "local_codex".to_string(),
+            allowed_worker_id: "mac-mini-codex-1".to_string(),
+            worker_id: "mac-mini-codex-1".to_string(),
+            provider_id: "local-codex".to_string(),
+            required_capabilities: "local_codex,repo_write".to_string(),
+        };
+
+        let result = run_codex(&config, &worker_run).await;
+
+        let error = result.expect_err("stuck codex exec should time out");
+        assert!(
+            format!("{error:#}").contains("codex exec timed out after"),
+            "unexpected timeout error: {error:#}"
+        );
+        sleep(Duration::from_millis(1_500)).await;
+        assert!(
+            !marker.exists(),
+            "timed-out codex exec must not leave descendant processes running"
         );
         fs::remove_dir_all(root).ok();
     }
@@ -299,40 +431,22 @@ mod tests {
     }
 
     #[test]
-    fn fake_codex_fixture_only_uses_reviewer_mode_for_reviewer_prompt() {
-        let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/fake-codex.sh");
-        let root = unique_temp_dir();
-        fs::create_dir_all(&root).expect("temp dir");
+    fn forbidden_done_path_scan_catches_deployment_sensitive_edits() {
+        let status = "\
+ M dd-dashboards/temperpaw-overview.json
+ M os-apps/paw-channels/wasm/transport_reconcile/Cargo.lock
+?? .proofs/patrol.md
+";
 
-        let implementation = StdCommand::new(&fixture)
-            .arg("exec")
-            .arg("Implement a task whose request text mentions an independent reviewer later.")
-            .current_dir(&root)
-            .output()
-            .expect("run fake implementation");
-        assert!(
-            implementation.status.success(),
-            "fake implementation should succeed"
-        );
-        assert!(
-            root.join(".paw-fake-codex-implementation").is_file(),
-            "implementation prompt should write the marker even if task text mentions a reviewer"
+        let violation = forbidden_done_path_violations(
+            status,
+            "os-apps/paw-agent/,os-apps/paw-channels/,crates/paw-triggers/",
         );
 
-        let review = StdCommand::new(&fixture)
-            .arg("exec")
-            .arg("You are the independent reviewer for a TemperPaw paw-patrol WorkerRun.")
-            .current_dir(&root)
-            .output()
-            .expect("run fake reviewer");
-        assert!(review.status.success(), "fake reviewer should succeed");
-        let stdout = String::from_utf8_lossy(&review.stdout);
-        assert!(
-            stdout.contains("VERDICT: approve"),
-            "reviewer prompt should emit an approval verdict: {stdout}"
+        assert_eq!(
+            violation,
+            vec!["os-apps/paw-channels/wasm/transport_reconcile/Cargo.lock"]
         );
-
-        fs::remove_dir_all(root).ok();
     }
 
     #[test]
@@ -361,6 +475,9 @@ mod tests {
             branch_name: "codex/trace-leak".to_string(),
             runner_kind: "local_codex".to_string(),
             allowed_worker_id: "mac-mini-codex-1".to_string(),
+            worker_id: "mac-mini-codex-1".to_string(),
+            provider_id: "local-codex".to_string(),
+            required_capabilities: "local_codex,repo_write".to_string(),
         };
         let evidence = WorktreeEvidence {
             status_short: " M crates/temperpaw/src/discord.rs\n?? docs/proofs/trace.md\n"
@@ -373,6 +490,7 @@ mod tests {
             Path::new("/tmp/paw-worktree"),
             "implemented the fix",
             &evidence,
+            None,
         );
 
         assert!(summary.contains("codex exec completed for WorkerRun wr-proof"));
@@ -415,6 +533,9 @@ mod tests {
             branch_name: String::new(),
             runner_kind: "local_codex".to_string(),
             allowed_worker_id: "mac-mini-codex-1".to_string(),
+            worker_id: "mac-mini-codex-1".to_string(),
+            provider_id: "local-codex".to_string(),
+            required_capabilities: "local_codex,repo_write".to_string(),
         };
         let evidence = WorktreeEvidence {
             status_short: String::new(),
@@ -426,6 +547,7 @@ mod tests {
             Path::new("/tmp/paw-existing-worktree"),
             "inspected",
             &evidence,
+            None,
         );
         let review = ReviewRunState {
             status: "Requested".to_string(),
@@ -438,6 +560,60 @@ mod tests {
         assert!(prompt.contains("Branch: (assigned worktree without branch)"));
         assert!(!summary.contains("Branch: (current checkout)"));
         assert!(!prompt.contains("Branch: (current checkout)"));
+    }
+
+    #[test]
+    fn review_prompt_allows_pr_ready_changes_with_deployment_pending() {
+        let worker_run = WorkerRunState {
+            id: "wr-dashboard".to_string(),
+            status: "Done".to_string(),
+            task: "Update Datadog dashboard JSON but do not deploy production.".to_string(),
+            worktree_path: "/tmp/paw-dashboard".to_string(),
+            branch_name: "codex/dashboard".to_string(),
+            runner_kind: "local_codex".to_string(),
+            allowed_worker_id: "mac-mini-codex-1".to_string(),
+            worker_id: "mac-mini-codex-1".to_string(),
+            provider_id: "local-codex".to_string(),
+            required_capabilities: "local_codex,repo_write,review".to_string(),
+        };
+        let review = ReviewRunState {
+            status: "Requested".to_string(),
+            worker_run_id: worker_run.id.clone(),
+            proof_packet_id: "proof-dashboard".to_string(),
+        };
+
+        let prompt = codex_review_prompt(&worker_run, &review);
+
+        assert!(prompt.contains("deployment-pending residual risk"));
+        assert!(prompt.contains("Do not require production deployment"));
+    }
+
+    #[test]
+    fn repo_health_review_prompt_reviews_scan_contract_not_patch_contract() {
+        let worker_run = WorkerRunState {
+            id: "wr-repo-scan".to_string(),
+            status: "Done".to_string(),
+            task: "RepoGraphSnapshot: snap-1\nWorkCycle: wc-1\nRun an agent-led repo health patrol.".to_string(),
+            worktree_path: "/tmp/paw-repo-scan".to_string(),
+            branch_name: "codex/paw-repo-sweep-snap-1".to_string(),
+            runner_kind: "local_codex".to_string(),
+            allowed_worker_id: "mac-mini-codex-1".to_string(),
+            worker_id: "mac-mini-codex-1".to_string(),
+            provider_id: "local-codex".to_string(),
+            required_capabilities: "local_codex,repo_write,evaluation".to_string(),
+        };
+        let review = ReviewRunState {
+            status: "Requested".to_string(),
+            worker_run_id: worker_run.id.clone(),
+            proof_packet_id: "proof-1".to_string(),
+        };
+
+        let prompt = codex_review_prompt(&worker_run, &review);
+
+        assert!(prompt.contains("repo-health Patrol scan reviewer"));
+        assert!(prompt.contains("RepoGraphSnapshot.ScanComplete"));
+        assert!(prompt.contains("do not require an implementation patch"));
+        assert!(!prompt.contains("Inspect the git diff, changed files, tests/proofs"));
     }
 
     #[test]
@@ -480,138 +656,6 @@ mod tests {
     }
 
     #[test]
-    fn worker_headers_identify_the_daemon_as_an_agent_principal() {
-        let config = Config {
-            temper_url: "http://127.0.0.1:3497".to_string(),
-            tenant: "default".to_string(),
-            worker_id: "mac-mini-codex-1".to_string(),
-            worker_token: Some("secret".to_string()),
-            workspace_root: PathBuf::from("/tmp/worktrees"),
-            repo_root: PathBuf::from("/tmp/temperpaw"),
-            codex_bin: "codex".to_string(),
-            max_concurrent_runs: 1,
-            enable_execution: false,
-            poll_on_start: true,
-            codex_exec_smoke: false,
-            codex_exec_timeout: Duration::from_secs(30),
-        };
-
-        let headers = headers(&config).expect("headers");
-
-        assert_eq!(
-            headers
-                .get("x-temper-principal-kind")
-                .and_then(|value| value.to_str().ok()),
-            Some("agent")
-        );
-        assert_eq!(
-            headers
-                .get("x-temper-principal-id")
-                .and_then(|value| value.to_str().ok()),
-            Some("mac-mini-codex-1")
-        );
-    }
-
-    #[test]
-    fn event_stream_headers_use_token_without_worker_principal_headers() {
-        let config = Config {
-            temper_url: "http://127.0.0.1:3497".to_string(),
-            tenant: "default".to_string(),
-            worker_id: "mac-mini-codex-1".to_string(),
-            worker_token: Some("secret".to_string()),
-            workspace_root: PathBuf::from("/tmp/worktrees"),
-            repo_root: PathBuf::from("/tmp/temperpaw"),
-            codex_bin: "codex".to_string(),
-            max_concurrent_runs: 1,
-            enable_execution: false,
-            poll_on_start: true,
-            codex_exec_smoke: false,
-            codex_exec_timeout: Duration::from_secs(30),
-        };
-
-        let headers = event_stream_headers(&config).expect("headers");
-
-        assert_eq!(
-            headers
-                .get(AUTHORIZATION)
-                .and_then(|value| value.to_str().ok()),
-            Some("Bearer secret")
-        );
-        assert!(
-            !headers.contains_key("x-temper-principal-kind"),
-            "current Temper event stream rejects agent principals; WorkerRun actions still use worker identity"
-        );
-    }
-
-    #[test]
-    fn event_urls_try_planned_and_current_temper_streams() {
-        let config = Config {
-            temper_url: "http://127.0.0.1:3497".to_string(),
-            tenant: "default".to_string(),
-            worker_id: "mac-mini-codex-1".to_string(),
-            worker_token: Some("secret".to_string()),
-            workspace_root: PathBuf::from("/tmp/worktrees"),
-            repo_root: PathBuf::from("/tmp/temperpaw"),
-            codex_bin: "codex".to_string(),
-            max_concurrent_runs: 1,
-            enable_execution: false,
-            poll_on_start: true,
-            codex_exec_smoke: false,
-            codex_exec_timeout: Duration::from_secs(30),
-        };
-
-        assert_eq!(
-            config.events_urls(),
-            vec![
-                "http://127.0.0.1:3497/tdata/$events".to_string(),
-                "http://127.0.0.1:3497/observe/events/stream".to_string()
-            ]
-        );
-    }
-
-    #[test]
-    fn event_stream_idle_timeout_does_not_wrap_active_work() {
-        let main_src = include_str!("main.rs");
-
-        assert!(
-            main_src.contains("match watch_events(&client, &config).await"),
-            "main loop should not wrap the whole event watcher in a timeout"
-        );
-        assert_eq!(event_stream_idle_window(), Duration::from_secs(60));
-    }
-
-    #[test]
-    fn worker_event_status_reads_observe_stream_shape() {
-        let event: EntityEvent = serde_json::from_value(json!({
-            "seq": 12,
-            "entity_type": "WorkerRun",
-            "entity_id": "wr-queued",
-            "action": "Create",
-            "status": "Queued",
-            "tenant": "default"
-        }))
-        .expect("event should parse");
-
-        assert_eq!(event.entity_type, "WorkerRun");
-        assert_eq!(event.entity_id, "wr-queued");
-        assert_eq!(event.status, "Queued");
-    }
-
-    #[test]
-    fn worker_event_status_accepts_status_aliases() {
-        let event: EntityEvent = serde_json::from_value(json!({
-            "entityType": "WorkerRun",
-            "entityId": "wr-queued",
-            "new_status": "Queued"
-        }))
-        .expect("event should parse");
-
-        assert_eq!(event.entity_type, "WorkerRun");
-        assert_eq!(event.entity_id, "wr-queued");
-        assert_eq!(event.status, "Queued");
-    }
-
-    #[test]
     fn repo_sweep_task_is_detected_from_worker_prompt() {
         let task = "RepoGraphSnapshot: en-123\nWorkCycle: wc-456\nRequired loop:";
 
@@ -622,139 +666,70 @@ mod tests {
     }
 
     #[test]
-    fn repo_health_scan_emits_quality_and_security_findings() {
-        let root = unique_temp_dir();
-        fs::create_dir_all(root.join("src")).expect("src dir");
-        fs::create_dir_all(root.join("policies")).expect("policy dir");
-
-        let mut huge = String::new();
-        for index in 0..901 {
-            huge.push_str(&format!("fn generated_{index}() {{}}\n"));
-        }
-        fs::write(root.join("src/huge.rs"), huge).expect("huge source");
-        fs::write(
-            root.join("src/bandaid.rs"),
-            "// TODO remove band-aid\n// HACK duplicated workaround\n",
-        )
-        .expect("bandaid source");
-        let duplicate_block = r#"
-fn shared_branch(value: u64) -> u64 {
-    let mut total = value;
-    total += 7;
-    total *= 3;
-    total -= 2;
-    total
+    fn repo_health_patrol_parser_requires_agent_evidence_surfaces() {
+        let output = r##"
+REPO_HEALTH_PATROL_RESULT_JSON_BEGIN
+{
+  "summary_markdown": "# Agent-led repo health",
+  "evidence_scope": [
+    {"surface":"codebase_graph","query_or_command":"rg --files","result_summary":"graph inspected"},
+    {"surface":"wasm_modules","query_or_command":"rg os-apps","result_summary":"wasm inspected"},
+    {"surface":"specs_policies","query_or_command":"rg cedar ioa","result_summary":"specs inspected"},
+    {"surface":"dependencies","query_or_command":"cargo metadata","result_summary":"dependencies inspected"},
+    {"surface":"tests_proofs","query_or_command":"cargo test --no-run","result_summary":"tests inspected"},
+    {"surface":"security_readability","query_or_command":"rg TODO HACK","result_summary":"readability inspected"}
+  ],
+  "quality_findings": [
+    {
+      "title": "Mixed-concern WASM module",
+      "severity": "warn",
+      "evidence": "os-apps/paw-agent/wasm/monty_repl/src/lib.rs mixes REPL, parsing, and orchestration.",
+      "affected_paths": ["./os-apps/paw-agent/wasm/monty_repl/src/lib.rs"]
+    }
+  ],
+  "security_findings": [
+    {
+      "title": "Broad Cedar policy needs review",
+      "severity": "critical",
+      "risk_lane": "l3",
+      "evidence": "policy permits a broad shape.",
+      "affected_paths": ["os-apps/demo/policies/demo.cedar"]
+    }
+  ],
+  "summary": {
+    "scanned_files": 120,
+    "scanned_lines": 44000,
+    "giant_modules": 1,
+    "todo_hack_hits": 4,
+    "duplicate_logic_candidates": 2,
+    "broad_cedar_policies": 1,
+    "dependency_risk_hits": 0,
+    "rust_orchestration_hits": 1,
+    "polling_loop_hits": 1,
+    "missing_test_coverage_hits": 3
+  },
+  "residual_risks": ["human should approve L3"],
+  "recommended_next_actions": ["split Monty REPL"]
 }
-"#;
-        fs::write(
-            root.join("src/duplicate_a.rs"),
-            format!("pub fn a(value: u64) -> u64 {{ shared_branch(value) }}\n{duplicate_block}"),
-        )
-        .expect("duplicate source a");
-        fs::write(
-            root.join("src/duplicate_b.rs"),
-            format!("pub fn b(value: u64) -> u64 {{ shared_branch(value) }}\n{duplicate_block}"),
-        )
-        .expect("duplicate source b");
-        fs::write(
-            root.join("src/polling.rs"),
-            "async fn watch() { loop { tokio::time::sleep(std::time::Duration::from_secs(1)).await; } }\n",
-        )
-        .expect("polling source");
-        fs::create_dir_all(root.join("crate-a")).expect("crate dir");
-        fs::write(
-            root.join("crate-a/Cargo.toml"),
-            "[package]\nname = \"crate-a\"\nversion = \"0.1.0\"\n\n[dependencies]\ntemper = { git = \"https://github.com/nerdsane/temper\", rev = \"abc123\" }\n",
-        )
-        .expect("cargo manifest");
-        fs::create_dir_all(root.join("os-apps/demo/wasm/lifecycle/src")).expect("wasm dir");
-        fs::write(
-            root.join("os-apps/demo/wasm/lifecycle/Cargo.toml"),
-            "[package]\nname = \"demo-lifecycle\"\nversion = \"0.1.0\"\n",
-        )
-        .expect("wasm manifest");
-        fs::write(
-            root.join("os-apps/demo/wasm/lifecycle/src/lib.rs"),
-            "pub fn run() -> &'static str { \"ok\" }\n",
-        )
-        .expect("wasm source");
-        fs::write(
-            root.join("policies/broad.cedar"),
-            "permit(principal, action, resource);",
-        )
-        .expect("policy");
+REPO_HEALTH_PATROL_RESULT_JSON_END
+"##;
 
-        let graph = scan_repo_health(&root).expect("scan");
+        let parsed = parse_repo_health_agent_output(output).expect("parse agent output");
 
+        assert_eq!(parsed.graph.quality_findings.len(), 1);
+        assert_eq!(parsed.graph.security_findings.len(), 1);
+        assert_eq!(parsed.graph.quality_findings[0].severity, "low");
         assert!(
-            graph.quality_findings.iter().any(|finding| {
-                finding.title.contains("Giant module")
-                    && finding.affected_paths.contains(&"src/huge.rs".to_string())
-            }),
-            "quality findings should include giant module evidence: {graph:?}"
+            parsed.graph.quality_findings[0]
+                .fingerprint
+                .starts_with("quality:")
         );
-        assert!(
-            graph
-                .quality_findings
-                .iter()
-                .any(|finding| finding.title.contains("TODO/HACK")),
-            "quality findings should include band-aid evidence: {graph:?}"
+        assert_eq!(parsed.graph.security_findings[0].severity, "high");
+        assert_eq!(parsed.graph.security_findings[0].risk_lane, "L3");
+        assert_eq!(
+            parsed.graph.quality_findings[0].affected_paths,
+            vec!["os-apps/paw-agent/wasm/monty_repl/src/lib.rs"]
         );
-        assert!(
-            graph
-                .quality_findings
-                .iter()
-                .all(|finding| finding.fingerprint.starts_with("quality:")),
-            "quality findings should include stable quality fingerprints: {graph:?}"
-        );
-        assert!(
-            graph
-                .quality_findings
-                .iter()
-                .any(|finding| finding.title.contains("Duplicate logic candidate")),
-            "quality findings should include duplicate logic evidence: {graph:?}"
-        );
-        assert!(
-            graph
-                .quality_findings
-                .iter()
-                .any(|finding| finding.title.contains("Polling loop")),
-            "quality findings should include polling loop evidence: {graph:?}"
-        );
-        assert!(
-            graph
-                .quality_findings
-                .iter()
-                .any(|finding| finding.title.contains("Missing WASM test coverage")),
-            "quality findings should include missing WASM test coverage evidence: {graph:?}"
-        );
-        assert!(
-            graph
-                .security_findings
-                .iter()
-                .any(|finding| finding.title.contains("Broad Cedar")),
-            "security findings should include broad Cedar evidence: {graph:?}"
-        );
-        assert!(
-            graph
-                .security_findings
-                .iter()
-                .any(|finding| finding.title.contains("Dependency risk")),
-            "security findings should include dependency risk evidence: {graph:?}"
-        );
-        assert!(
-            graph
-                .security_findings
-                .iter()
-                .all(|finding| finding.fingerprint.starts_with("security:")),
-            "security findings should include stable security fingerprints: {graph:?}"
-        );
-        assert!(graph.summary.duplicate_logic_candidates > 0);
-        assert!(graph.summary.polling_loop_hits > 0);
-        assert!(graph.summary.dependency_risk_hits > 0);
-        assert!(graph.summary.missing_test_coverage_hits > 0);
-
-        fs::remove_dir_all(root).ok();
     }
 
     fn unique_temp_dir() -> PathBuf {
@@ -767,4 +742,107 @@ fn shared_branch(value: u64) -> u64 {
             std::process::id()
         ))
     }
+
+    struct EnvOverride {
+        key: &'static str,
+        previous: Option<OsString>,
+    }
+
+    impl EnvOverride {
+        fn set(key: &'static str, value: OsString) -> Self {
+            let previous = env::var_os(key);
+            unsafe {
+                env::set_var(key, value);
+            }
+            Self { key, previous }
+        }
+    }
+
+    impl Drop for EnvOverride {
+        fn drop(&mut self) {
+            unsafe {
+                if let Some(value) = &self.previous {
+                    env::set_var(self.key, value);
+                } else {
+                    env::remove_var(self.key);
+                }
+            }
+        }
+    }
+
+    fn run_raw_git_for_test(args: &[&str]) {
+        let output = std::process::Command::new("git")
+            .args(args)
+            .output()
+            .expect("run git");
+        assert!(
+            output.status.success(),
+            "git {} failed: {}{}{}",
+            args.join(" "),
+            String::from_utf8_lossy(&output.stdout),
+            if output.stdout.is_empty() || output.stderr.is_empty() {
+                ""
+            } else {
+                "\n"
+            },
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    fn run_git_for_test(workdir: &Path, args: &[&str]) {
+        let output = std::process::Command::new("git")
+            .arg("-C")
+            .arg(workdir)
+            .args(args)
+            .output()
+            .expect("run git");
+        assert!(
+            output.status.success(),
+            "git -C {} {} failed: {}{}{}",
+            workdir.display(),
+            args.join(" "),
+            String::from_utf8_lossy(&output.stdout),
+            if output.stdout.is_empty() || output.stderr.is_empty() {
+                ""
+            } else {
+                "\n"
+            },
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    fn run_git_capture_for_test(workdir: &Path, args: &[&str]) -> String {
+        let output = std::process::Command::new("git")
+            .arg("-C")
+            .arg(workdir)
+            .args(args)
+            .output()
+            .expect("run git");
+        assert!(
+            output.status.success(),
+            "git -C {} {} failed: {}{}{}",
+            workdir.display(),
+            args.join(" "),
+            String::from_utf8_lossy(&output.stdout),
+            if output.stdout.is_empty() || output.stderr.is_empty() {
+                ""
+            } else {
+                "\n"
+            },
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8_lossy(&output.stdout)
+            .trim_end()
+            .to_string()
+    }
+
+    #[cfg(unix)]
+    fn make_executable(path: &Path) {
+        let mut permissions = fs::metadata(path).expect("metadata").permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(path, permissions).expect("chmod");
+    }
+
+    #[cfg(not(unix))]
+    fn make_executable(_path: &Path) {}
 }

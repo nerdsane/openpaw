@@ -46,6 +46,16 @@ type = "string"
 initial = "not_started"
 
 [[state]]
+name = "work_cycle_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "worker_run_id"
+type = "string"
+initial = ""
+
+[[state]]
 name = "error_message"
 type = "string"
 initial = ""
@@ -69,6 +79,8 @@ on_failure = "Fail"
 temper_api_url = "{secret:temper_api_url}"
 daily_brief_model = "{secret:daily_brief_model}"
 daily_brief_provider = "{secret:daily_brief_provider}"
+local_codex_worker_id = "{secret:local_codex_worker_id}"
+local_codex_worktree_root = "{secret:local_codex_worktree_root}"
 
 [[action]]
 name = "AttachSession"
@@ -77,6 +89,14 @@ from = ["Collecting"]
 to = "Collecting"
 params = ["session_id", "session_status"]
 hint = "Attach the agent Session that will synthesize and render this DailyBrief."
+
+[[action]]
+name = "AttachWorkerRun"
+kind = "input"
+from = ["Collecting"]
+to = "Collecting"
+params = ["work_cycle_id", "worker_run_id"]
+hint = "Attach the local Codex WorkerRun that renders this DailyBrief through Patrol gates."
 
 [[action]]
 name = "Render"

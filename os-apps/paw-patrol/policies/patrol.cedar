@@ -4,17 +4,22 @@ permit(
   resource
 ) when {
   resource is PatrolRequest ||
+  resource is WorkRequest ||
   resource is Signal ||
   resource is FactoryCase ||
   resource is WorkCycle ||
   resource is WorkerRun ||
+  resource is WorkerProvider ||
+  resource is WorkerAgent ||
   resource is ReviewRun ||
   resource is EvaluationRun ||
   resource is ProofPacket ||
   resource is RiskRule ||
+  resource is PatrolRun ||
   resource is RepoGraphSnapshot ||
   resource is QualityFinding ||
   resource is SecurityFinding ||
+  resource is ObservabilityFinding ||
   resource is DailyBrief ||
   resource is PatrolSchedule
 };
@@ -25,17 +30,22 @@ permit(
   resource
 ) when {
   resource is PatrolRequest ||
+  resource is WorkRequest ||
   resource is Signal ||
   resource is FactoryCase ||
   resource is WorkCycle ||
   resource is WorkerRun ||
+  resource is WorkerProvider ||
+  resource is WorkerAgent ||
   resource is ReviewRun ||
   resource is EvaluationRun ||
   resource is ProofPacket ||
   resource is RiskRule ||
+  resource is PatrolRun ||
   resource is RepoGraphSnapshot ||
   resource is QualityFinding ||
   resource is SecurityFinding ||
+  resource is ObservabilityFinding ||
   resource is DailyBrief ||
   resource is PatrolSchedule
 };
@@ -45,7 +55,7 @@ permit(
   action == Action::"http_call",
   resource is HttpEndpoint
 ) when {
-  ["patrol_request_router", "signal_router", "worker_run_lifecycle", "work_cycle_lifecycle", "finding_lifecycle", "review_gate_lifecycle", "repo_sweep_lifecycle", "daily_brief_lifecycle", "patrol_schedule_lifecycle"].contains(context.module)
+  ["patrol_request_router", "signal_router", "worker_run_lifecycle", "work_cycle_lifecycle", "finding_lifecycle", "review_gate_lifecycle", "repo_sweep_lifecycle", "daily_brief_lifecycle", "patrol_schedule_lifecycle", "patrol_run_lifecycle"].contains(context.module)
 };
 
 // Manager surfaces such as OpenClaw may submit requests and route approvals, but
@@ -68,7 +78,7 @@ permit(
   ],
   resource
 ) when {
-  resource is PatrolRequest || resource is Signal || resource is FactoryCase
+  resource is PatrolRequest || resource is WorkRequest || resource is Signal || resource is FactoryCase
 };
 
 // Patrol's own WASM integrations perform intake routing after the trigger
@@ -136,8 +146,15 @@ permit(
     Action::"ActivateComplete",
     Action::"Trigger",
     Action::"TriggerComplete",
+    Action::"Register",
+    Action::"ReportHeartbeat",
+    Action::"MarkUnhealthy",
+    Action::"Disable",
+    Action::"RecordEvidence",
+    Action::"AttachEvidenceLinks",
     Action::"Pause",
     Action::"Resume",
+    Action::"Recover",
     Action::"Expire"
   ],
   resource
@@ -145,16 +162,21 @@ permit(
   principal.agent_type == "system" &&
   (
     resource is PatrolRequest ||
+    resource is WorkRequest ||
     resource is Signal ||
     resource is FactoryCase ||
     resource is WorkCycle ||
     resource is WorkerRun ||
+    resource is WorkerProvider ||
+    resource is WorkerAgent ||
     resource is ReviewRun ||
     resource is EvaluationRun ||
     resource is ProofPacket ||
+    resource is PatrolRun ||
     resource is RepoGraphSnapshot ||
     resource is QualityFinding ||
     resource is SecurityFinding ||
+    resource is ObservabilityFinding ||
     resource is DailyBrief ||
     resource is PatrolSchedule
   )
@@ -170,7 +192,76 @@ permit(
   ],
   resource
 ) when {
-  resource is QualityFinding || resource is SecurityFinding
+  resource is QualityFinding || resource is SecurityFinding || resource is ObservabilityFinding
+};
+
+permit(
+  principal is Agent,
+  action in [
+    Action::"create",
+    Action::"Register",
+    Action::"Activate",
+    Action::"ReportHeartbeat",
+    Action::"MarkUnhealthy",
+    Action::"Disable"
+  ],
+  resource
+) when {
+  resource is WorkerProvider || resource is WorkerAgent
+};
+
+permit(
+  principal is Agent,
+  action in [
+    Action::"create",
+    Action::"Configure",
+    Action::"Start",
+    Action::"AttachWorkerRun",
+    Action::"RecordEvidence",
+    Action::"AttachEvidenceLinks",
+    Action::"Complete",
+    Action::"Escalate",
+    Action::"Fail"
+  ],
+  resource is PatrolRun
+);
+
+// The registered Mac mini worker performs Datadog evidence collection and
+// writes only Patrol entities needed to make that evidence inspectable. It may
+// also queue low-risk Datadog follow-up WorkCycles; higher-risk code or deploy
+// work still pauses at the human approval gate.
+permit(
+  principal is Agent,
+  action in [
+    Action::"create",
+    Action::"Normalize",
+    Action::"Triage",
+    Action::"AttachCase",
+    Action::"OpenFinding",
+    Action::"Open",
+    Action::"SetRiskFloor",
+    Action::"Configure",
+    Action::"LinkSource",
+    Action::"WritePlan",
+    Action::"StartWork",
+    Action::"RequestHumanStartApproval",
+    Action::"OpenWorkCycle",
+    Action::"AttachWorkerRun",
+    Action::"AttachDraft",
+    Action::"MarkReady"
+  ],
+  resource
+) when {
+  principal.agent_type == "worker" &&
+  principal.id == "mac-mini-codex-prod" &&
+  (
+    resource is Signal ||
+    resource is ObservabilityFinding ||
+    resource is FactoryCase ||
+    resource is WorkCycle ||
+    resource is WorkerRun ||
+    resource is ProofPacket
+  )
 };
 
 permit(
@@ -195,6 +286,7 @@ permit(
     Action::"TriggerComplete",
     Action::"Pause",
     Action::"Resume",
+    Action::"Recover",
     Action::"Expire",
     Action::"Fail"
   ],
@@ -207,6 +299,7 @@ permit(
     Action::"create",
     Action::"Start",
     Action::"AttachSession",
+    Action::"AttachWorkerRun",
     Action::"Render",
     Action::"Publish",
     Action::"Fail"

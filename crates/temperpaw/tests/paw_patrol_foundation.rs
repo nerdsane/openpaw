@@ -31,6 +31,10 @@ fn read_worker_sources(root: &Path) -> String {
         .join("\n")
 }
 
+fn paw_patrol_wasm_source(root: &Path, module: &str) -> String {
+    read(root.join(format!("os-apps/paw-patrol/wasm/{module}/src/lib.rs")))
+}
+
 fn agent_context(id: &str, agent_type: &str) -> SecurityContext {
     SecurityContext::from_headers(&[
         ("X-Temper-Principal-Id".to_string(), id.to_string()),
@@ -137,6 +141,500 @@ fn paw_patrol_owns_the_dark_factory_entities_without_extra_factory_apps() {
 }
 
 #[test]
+fn paw_patrol_renames_human_intake_to_work_request_and_adds_risk_patrol_entities() {
+    let root = repo_root();
+    let patrol = root.join("os-apps/paw-patrol");
+
+    for spec in [
+        "work_request.ioa.toml",
+        "patrol_run.ioa.toml",
+        "observability_finding.ioa.toml",
+        "worker_provider.ioa.toml",
+        "worker_agent.ioa.toml",
+    ] {
+        assert!(
+            patrol.join("specs").join(spec).is_file(),
+            "paw-patrol should define specs/{spec}"
+        );
+    }
+
+    let work_request = read(patrol.join("specs/work_request.ioa.toml"));
+    for needle in [
+        "name = \"WorkRequest\"",
+        "hint = \"Submit human or manager-agent intent into Patrol as work.\"",
+        "effect = [{ type = \"trigger\", name = \"route_work_request\" }]",
+        "module = \"patrol_request_router\"",
+        "request_text",
+        "requester_id",
+    ] {
+        assert!(
+            work_request.contains(needle),
+            "WorkRequest spec should contain {needle}"
+        );
+    }
+
+    let patrol_run = read(patrol.join("specs/patrol_run.ioa.toml"));
+    for needle in [
+        "name = \"PatrolRun\"",
+        "datadog_observability",
+        "name = \"patrol_kind\"",
+        "name = \"required_capabilities\"",
+        "name = \"worker_run_id\"",
+        "name = \"evidence_json\"",
+        "name = \"observability_finding_ids\"",
+        "name = \"factory_case_ids\"",
+        "name = \"Start\"",
+        "module = \"patrol_run_lifecycle\"",
+        "name = \"RecordEvidence\"",
+        "name = \"Complete\"",
+        "name = \"Escalate\"",
+    ] {
+        assert!(
+            patrol_run.contains(needle),
+            "PatrolRun spec should contain {needle}"
+        );
+    }
+
+    let observability = read(patrol.join("specs/observability_finding.ioa.toml"));
+    for needle in [
+        "name = \"ObservabilityFinding\"",
+        "source",
+        "datadog_monitor_id",
+        "evidence_json",
+        "risk_lane",
+        "patrol_run_id",
+        "work_cycle_id",
+        "name = \"OpenFinding\"",
+        "module = \"finding_lifecycle\"",
+    ] {
+        assert!(
+            observability.contains(needle),
+            "ObservabilityFinding spec should contain {needle}"
+        );
+    }
+
+    let csdl = read(patrol.join("specs/model.csdl.xml"));
+    for entity in [
+        "WorkRequest",
+        "PatrolRun",
+        "ObservabilityFinding",
+        "WorkerProvider",
+        "WorkerAgent",
+    ] {
+        assert!(
+            csdl.contains(&format!("<EntityType Name=\"{entity}\">")),
+            "CSDL should expose {entity}"
+        );
+        assert!(
+            csdl.contains(&format!("<EntitySet Name=\"{entity}s\"")),
+            "CSDL should expose {entity}s"
+        );
+    }
+
+    let routes = read(patrol.join("seed-data/webhook_routes.toml"));
+    assert!(
+        routes.contains("target_entity_type = \"WorkRequest\""),
+        "patrol-request webhook should create WorkRequest, not PatrolRequest"
+    );
+
+    let app_doc = read(patrol.join("APP.md"));
+    for needle in [
+        "WorkRequest means human or manager-agent intent",
+        "Signal means observed evidence",
+        "PatrolRun means active investigation",
+        "Risk Patrol",
+    ] {
+        assert!(app_doc.contains(needle), "APP.md should explain {needle}");
+    }
+}
+
+#[test]
+fn worker_provider_registry_and_capabilities_gate_datadog_patrol() {
+    let root = repo_root();
+    let patrol = root.join("os-apps/paw-patrol");
+
+    let worker_provider = read(patrol.join("specs/worker_provider.ioa.toml"));
+    for needle in [
+        "name = \"WorkerProvider\"",
+        "local_codex",
+        "codex_cloud",
+        "openclaw",
+        "anthropic_managed",
+        "temperpaw_agent",
+        "capabilities",
+        "enabled",
+    ] {
+        assert!(
+            worker_provider.contains(needle),
+            "WorkerProvider spec should contain {needle}"
+        );
+    }
+
+    let worker_agent = read(patrol.join("specs/worker_agent.ioa.toml"));
+    for needle in [
+        "name = \"WorkerAgent\"",
+        "worker_id",
+        "provider_id",
+        "capabilities",
+        "local_codex,repo_write,review,evaluation,datadog_query",
+        "ReportHeartbeat",
+    ] {
+        assert!(
+            worker_agent.contains(needle),
+            "WorkerAgent spec should contain {needle}"
+        );
+    }
+
+    let worker_run = read(patrol.join("specs/worker_run.ioa.toml"));
+    for needle in [
+        "name = \"provider_id\"",
+        "name = \"required_capabilities\"",
+        "params = [\"work_cycle_id\", \"factory_case_id\", \"risk_lane\", \"task\", \"branch_name\", \"worktree_path\", \"runner_kind\", \"allowed_worker_id\", \"provider_id\", \"required_capabilities\"]",
+        "datadog_query",
+    ] {
+        assert!(
+            worker_run.contains(needle),
+            "WorkerRun spec should encode provider/capability requirements: {needle}"
+        );
+    }
+
+    let worker_sources = read_worker_sources(&root);
+    for needle in [
+        "worker_capabilities",
+        "PAW_CODEX_WORKER_CAPABILITIES",
+        "required_capabilities",
+        "datadog_query",
+        "worker_run_required_capabilities_satisfied",
+        "WorkerRun requires capabilities this worker does not advertise",
+    ] {
+        assert!(
+            worker_sources.contains(needle),
+            "paw-codex-worker should enforce capability gates: {needle}"
+        );
+    }
+
+    let seed = read(patrol.join("seed-data/worker_providers.toml"));
+    for needle in [
+        "id = \"local-codex\"",
+        "id = \"mac-mini-codex-prod\"",
+        "capabilities = \"local_codex,repo_write,review,evaluation,datadog_query,github_query\"",
+        "id = \"codex-cloud\"",
+        "enabled = false",
+    ] {
+        assert!(
+            seed.contains(needle),
+            "worker_providers.toml should seed provider registry: {needle}"
+        );
+    }
+
+    let bootstrap = read(root.join("crates/paw-codex-worker/scripts/mac-mini-bootstrap.sh"));
+    for needle in [
+        "railway variables --json",
+        "DD_API_KEY",
+        "DD_APP_KEY",
+        "DD_SITE",
+        "PATROL_DATADOG_WEBHOOK_SECRET",
+        "chmod 600",
+        "PAW_CODEX_WORKER_CAPABILITIES",
+        "datadog_query",
+        "launchctl",
+        "paw-codex-worker doctor",
+    ] {
+        assert!(
+            bootstrap.contains(needle),
+            "Mac mini bootstrap script should contain {needle}"
+        );
+    }
+}
+
+#[test]
+fn datadog_observability_patrol_run_uses_temper_state_and_creates_work() {
+    let root = repo_root();
+    let patrol = root.join("os-apps/paw-patrol");
+
+    let manifest = read(patrol.join("app.toml"));
+    for needle in [
+        "name = \"patrol_run_lifecycle\"",
+        "target = \"wasm32-unknown-unknown\"",
+        "criticality = \"app-required\"",
+        "startup_loading = \"lazy\"",
+    ] {
+        assert!(
+            manifest.contains(needle),
+            "app.toml should install patrol_run_lifecycle: {needle}"
+        );
+    }
+
+    let lifecycle = read(patrol.join("wasm/patrol_run_lifecycle/src/lib.rs"));
+    for needle in [
+        "/tdata/WorkerAgents",
+        "/tdata/WorkerRuns",
+        "/tdata/WorkCycles",
+        "datadog_observability",
+        "datadog_query",
+        "TemperPaw.Patrol.AttachWorkerRun",
+        "TemperPaw.Patrol.AttachEvidenceLinks",
+        "TemperPaw.Patrol.Escalate",
+        "ObservabilityFindings",
+        "OpenFinding",
+        "ProofPackets",
+        "AttachDraft",
+        "MarkReady",
+        "visual_summary_url",
+        "state_diagram_mermaid",
+        "FactoryCases",
+        "WorkCycles",
+        "Signals",
+        "create_entity_with_body",
+        "\"source\": \"datadog_mcp\"",
+        "\"payload\": finding_evidence.to_string()",
+        "\"source_url\": string_value(finding, \"source_url\", \"\")",
+        "StartWork",
+        "local Codex Datadog MCP Patrol",
+        "DATADOG_PATROL_RESULT_JSON_BEGIN",
+        "monitors, logs, traces, metrics, incidents, and dashboards",
+        "required_capabilities",
+        "sensitive_followup_surface",
+        "\"paw-agent\"",
+        "\"paw-channels\"",
+        "\"discord\"",
+        "\"production\"",
+        "\"deploy\"",
+    ] {
+        assert!(
+            lifecycle.contains(needle),
+            "patrol_run_lifecycle should queue or escalate Datadog Patrol: {needle}"
+        );
+    }
+
+    let worker_sources = read_worker_sources(&root);
+    for needle in [
+        "run_datadog_patrol",
+        "investigate_datadog_with_codex",
+        "Datadog MCP",
+        "DATADOG_PATROL_RESULT_JSON_BEGIN",
+        "DATADOG_PATROL_RESULT_JSON_END",
+        "codex_datadog_mcp_agent",
+        "PatrolRun:",
+        "datadog_observability",
+        "PatrolRuns",
+        "monitors",
+        "logs",
+        "traces",
+        "metrics",
+        "incidents",
+        "dashboards",
+        "TemperPaw.Patrol.RecordEvidence",
+    ] {
+        assert!(
+            worker_sources.contains(needle),
+            "paw-codex-worker should run Datadog Patrol and report through Temper: {needle}"
+        );
+    }
+
+    let policy = read(patrol.join("policies/patrol.cedar"));
+    for needle in [
+        "low-risk Datadog follow-up WorkCycles",
+        "Action::\"StartWork\"",
+        "Action::\"AttachWorkerRun\"",
+        "Action::\"AttachEvidenceLinks\"",
+        "resource is WorkerRun",
+    ] {
+        assert!(
+            policy.contains(needle),
+            "patrol.cedar should let the Mac mini worker queue low-risk Datadog follow-up work: {needle}"
+        );
+    }
+}
+
+#[test]
+fn github_repository_patrol_uses_agentic_github_tools_and_creates_work() {
+    let root = repo_root();
+    let patrol = root.join("os-apps/paw-patrol");
+
+    let lifecycle = read(patrol.join("wasm/patrol_run_lifecycle/src/lib.rs"));
+    for needle in [
+        "github_repository",
+        "github_query",
+        "local Codex GitHub Patrol agent",
+        "open issues, open pull requests, checks, reviews",
+        "GITHUB_PATROL_RESULT_JSON_BEGIN",
+        "codex_github_agent",
+        "\"source\": \"github_agent\"",
+        "github_patrol:agent_investigation",
+        "local_codex,repo_write,github_query",
+        "GitHub repository Patrol",
+        "GitHub issue and PR investigation",
+        "risk-gated WorkCycles",
+        "requires_human_approval",
+    ] {
+        assert!(
+            lifecycle.contains(needle),
+            "patrol_run_lifecycle should keep GitHub Patrol agentic and Temper-native: {needle}"
+        );
+    }
+
+    let worker_sources = read_worker_sources(&root);
+    for needle in [
+        "run_github_patrol",
+        "GITHUB_PATROL_RESULT_JSON_BEGIN",
+        "GITHUB_PATROL_RESULT_JSON_END",
+        "open issues",
+        "open pull requests",
+        "checks",
+        "reviews",
+        "anomalies",
+        "TemperPaw.Patrol.RecordEvidence",
+    ] {
+        assert!(
+            worker_sources.contains(needle),
+            "paw-codex-worker should run GitHub Patrol as a Codex/GitHub agent and report evidence: {needle}"
+        );
+    }
+
+    let schedule = read(patrol.join("wasm/patrol_schedule_lifecycle/src/lib.rs"));
+    for needle in [
+        "enable_github_patrol",
+        "github_repository",
+        "required_capabilities\": \"github_query",
+        "last_github_patrol_run_id",
+    ] {
+        assert!(
+            schedule.contains(needle),
+            "PatrolSchedule should include GitHub issue/PR patrol in recurring runs: {needle}"
+        );
+    }
+
+    let daily_brief = read(patrol.join("wasm/daily_brief_lifecycle/src/lib.rs"));
+    for needle in [
+        "PatrolRuns",
+        "Signals",
+        "GitHub issue/PR patrol",
+        "datadog_observability or github_repository",
+    ] {
+        assert!(
+            daily_brief.contains(needle),
+            "DailyBrief should roll GitHub Patrol results into the visual report: {needle}"
+        );
+    }
+
+    let dashboard = read(root.join("dashboard/src/lib/app-views/paw-patrol.ts"));
+    for needle in ["Run GitHub Patrol", "github_repository", "github_query"] {
+        assert!(
+            dashboard.contains(needle),
+            "Paw Patrol dashboard should expose GitHub Patrol: {needle}"
+        );
+    }
+}
+
+#[test]
+fn dashboard_has_generic_app_console_and_paw_patrol_view_manifest() {
+    let root = repo_root();
+
+    for path in [
+        "dashboard/src/routes/apps/[name]/+page.svelte",
+        "dashboard/src/lib/components/app-console/EntityBoard.svelte",
+        "dashboard/src/lib/components/app-console/RelationTimeline.svelte",
+        "dashboard/src/lib/components/app-console/ProofViewer.svelte",
+        "dashboard/src/lib/app-views/paw-patrol.ts",
+    ] {
+        assert!(
+            root.join(path).is_file(),
+            "dashboard should provide generic app console file {path}"
+        );
+    }
+
+    let api = read(root.join("dashboard/src/lib/api.ts"));
+    for needle in [
+        "fetchAppViewManifest",
+        "queryEntities",
+        "getEntity",
+        "postEntityAction",
+        "'x-temper-principal-kind': 'human'",
+        "'x-temper-principal-id': 'dashboard'",
+    ] {
+        assert!(api.contains(needle), "dashboard API should expose {needle}");
+    }
+
+    let layout = read(root.join("dashboard/src/routes/+layout.svelte"));
+    assert!(
+        layout.contains("appHref('/apps/paw-patrol')") && layout.contains("Patrol"),
+        "dashboard navigation should include Paw Patrol"
+    );
+
+    let patrol_view = read(root.join("dashboard/src/lib/app-views/paw-patrol.ts"));
+    for needle in [
+        "WorkRequests",
+        "Signals",
+        "PatrolRuns",
+        "ObservabilityFindings",
+        "FactoryCases",
+        "WorkCycles",
+        "WorkerRuns",
+        "ReviewRuns",
+        "EvaluationRuns",
+        "ProofPackets",
+        "WorkerAgents",
+        "Run Datadog Patrol",
+        "Run GitHub Patrol",
+        "Submit Work",
+        "work-request",
+    ] {
+        assert!(
+            patrol_view.contains(needle),
+            "Paw Patrol view manifest should contain {needle}"
+        );
+    }
+
+    let entity_detail = read(root.join("dashboard/src/routes/entities/[type]/[id]/+page.svelte"));
+    assert!(
+        entity_detail.contains("entitySetParam") && !entity_detail.contains("entityType + 's'"),
+        "entity detail routes should treat /entities/<set>/<id> as an entity set, not append another s"
+    );
+
+    let entity_board =
+        read(root.join("dashboard/src/lib/components/app-console/EntityBoard.svelte"));
+    assert!(
+        entity_board.contains("readField(row, column)"),
+        "dashboard app tables should resolve snake_case Temper fields for readable Patrol columns"
+    );
+
+    let app_page = read(root.join("dashboard/src/routes/apps/[name]/+page.svelte"));
+    for needle in [
+        "newestFirst",
+        "entityId(right).localeCompare(entityId(left))",
+        "submitWorkRequest",
+        "postEntityAction('WorkRequests', id, 'Submit'",
+    ] {
+        assert!(
+            app_page.contains(needle),
+            "dashboard app console should keep newest Patrol entities first: {needle}"
+        );
+    }
+
+    let overview =
+        read(root.join("dashboard/src/lib/components/app-console/PatrolOverview.svelte"));
+    for needle in [
+        "isDatadogMcpProof",
+        "codex_datadog_mcp_agent",
+        "createdFindingIds",
+        "openedFindings",
+    ] {
+        assert!(
+            overview.contains(needle),
+            "Paw Patrol dashboard should prefer latest Datadog MCP proof evidence: {needle}"
+        );
+    }
+
+    let proof_viewer =
+        read(root.join("dashboard/src/lib/components/app-console/ProofViewer.svelte"));
+    assert!(
+        proof_viewer.contains("readyLatest"),
+        "Paw Patrol proof viewer should show the newest Ready proof instead of a rejected draft"
+    );
+}
+
+#[test]
 fn worker_run_encodes_local_codex_claiming_and_manual_cloud_overflow() {
     let root = repo_root();
     let spec = read(root.join("os-apps/paw-patrol/specs/worker_run.ioa.toml"));
@@ -205,6 +703,35 @@ fn paw_patrol_dark_factory_architecture_is_recorded_in_app_adr() {
         assert!(
             text.contains(needle),
             "paw-patrol Dark Factory ADR should contain {needle}"
+        );
+    }
+}
+
+#[test]
+fn paw_patrol_evaluation_timeout_classification_is_recorded_in_app_adr() {
+    let root = repo_root();
+    let adr = root
+        .join("os-apps/paw-patrol/adrs")
+        .join("0002-evaluation-timeout-classification.md");
+
+    assert!(
+        adr.is_file(),
+        "EvaluationRun timeout classification should be recorded in an app-scoped ADR"
+    );
+
+    let text = read(adr);
+    for needle in [
+        "Evaluation Timeout Classification",
+        "Status: Accepted",
+        "EvaluationRun.Fail",
+        "failure_classification",
+        "evaluator_timeout",
+        "evaluation_entity_timeout",
+        "Temper-native",
+    ] {
+        assert!(
+            text.contains(needle),
+            "paw-patrol evaluation timeout ADR should contain {needle}"
         );
     }
 }
@@ -304,7 +831,7 @@ fn worker_claims_are_bound_to_the_configured_local_worker() {
 
     for needle in [
         "name = \"allowed_worker_id\"",
-        "params = [\"work_cycle_id\", \"factory_case_id\", \"risk_lane\", \"task\", \"branch_name\", \"worktree_path\", \"runner_kind\", \"allowed_worker_id\"]",
+        "params = [\"work_cycle_id\", \"factory_case_id\", \"risk_lane\", \"task\", \"branch_name\", \"worktree_path\", \"runner_kind\", \"allowed_worker_id\", \"provider_id\", \"required_capabilities\"]",
     ] {
         assert!(
             spec.contains(needle),
@@ -438,7 +965,9 @@ fn local_codex_worker_is_a_real_daemon_scaffold() {
         "WorkerRun.ReportDone",
         "RepoGraphSnapshot",
         "ScanComplete",
-        "scan_repo_health",
+        "repo_health_agent_prompt",
+        "parse_repo_health_agent_output",
+        "REPO_HEALTH_PATROL_RESULT_JSON_BEGIN",
         "git",
         "worktree",
         "doctor",
@@ -451,9 +980,10 @@ fn local_codex_worker_is_a_real_daemon_scaffold() {
         "LaunchdPlist",
         "render_launchd_plist",
         "match watch_events(&client, &config).await",
-        "timeout(event_stream_idle_window(), stream.next())",
-        "fn event_stream_idle_window() -> Duration",
-        "Temper event stream idle window elapsed; using OData fallback",
+        "tokio::select!",
+        "event_stream_queue_poll_interval()",
+        "claim_event_stream_backlog(client, config).await?",
+        "Temper event stream is open; polling queued Patrol work",
         "x-temper-principal-kind",
         "codex",
     ] {
@@ -522,7 +1052,7 @@ fn local_worker_can_review_and_evaluate_repo_sweep_runs() {
 
     for needle in [
         "ReviewRun.Claim",
-        "ReviewRun.Approve",
+        "ReviewDecisionAction::Approve",
         "EvaluationRun.Start",
         "EvaluationRun.Pass",
         "handle_requested_review_run",
@@ -645,6 +1175,7 @@ fn live_smoke_scripts_choose_non_colliding_odata_and_webhook_ports() {
         "deterministic-smoke.sh",
         "webhook-intake-smoke.sh",
         "repo-sweep-brief-smoke.sh",
+        "datadog-patrol-smoke.sh",
         "production-readiness-smoke.sh",
         "production-observe-only-smoke.sh",
     ] {
@@ -667,6 +1198,34 @@ fn live_smoke_scripts_choose_non_colliding_odata_and_webhook_ports() {
 }
 
 #[test]
+fn datadog_patrol_smoke_proves_mcp_agent_fanout() {
+    let root = repo_root();
+    let script = read(root.join("crates/paw-codex-worker/scripts/datadog-patrol-smoke.sh"));
+
+    for needle in [
+        "PatrolRuns",
+        "datadog_observability",
+        "TemperPaw.Patrol.Start",
+        "PAW_CODEX_ENABLE_EXECUTION=1",
+        "PAW_CODEX_WORKER_CAPABILITIES=local_codex,repo_write,review,evaluation,datadog_query",
+        "fixtures/fake-codex.sh",
+        "DATADOG_PATROL_RESULT_JSON_BEGIN",
+        "ObservabilityFindings",
+        "FactoryCases",
+        "Signals",
+        "ProofPackets",
+        "visual_summary_url",
+        "datadog-patrol.svg",
+        "datadog patrol smoke passed",
+    ] {
+        assert!(
+            script.contains(needle),
+            "Datadog Patrol smoke should prove MCP agent fanout: {needle}"
+        );
+    }
+}
+
+#[test]
 fn repo_sweep_brief_smoke_exports_visual_proof_bundle() {
     let root = repo_root();
     let script = read(root.join("crates/paw-codex-worker/scripts/repo-sweep-brief-smoke.sh"));
@@ -681,12 +1240,18 @@ fn repo_sweep_brief_smoke_exports_visual_proof_bundle() {
         "assessment_session_id",
         "assessment_status",
         "assessment_summary_markdown",
+        "complete_from_repo_health_agent",
         "Assessment Session",
         "DailyBriefs",
         "TemperPaw.Patrol.Start",
         "repo-graph.json",
         "daily-brief.svg",
         "proof.svg",
+        "LOCAL_CODEX_WORKER_ID=\"$WORKER_ID\"",
+        "LOCAL_CODEX_WORKTREE_ROOT=\"$WORKSPACE_ROOT\"",
+        "PAW_CODEX_ENABLE_EXECUTION=1",
+        "norm_key",
+        "top_level",
         "## Daily Brief",
         "## OData Links",
         "## Trace And Log Evidence",
@@ -695,6 +1260,19 @@ fn repo_sweep_brief_smoke_exports_visual_proof_bundle() {
         assert!(
             script.contains(needle),
             "repo sweep/brief smoke should export maintenance proof evidence: {needle}"
+        );
+    }
+
+    let startup = read(root.join("crates/temperpaw/src/startup.rs"));
+    for needle in [
+        "LOCAL_CODEX_WORKER_ID",
+        "LOCAL_CODEX_WORKTREE_ROOT",
+        "local_codex_worker_id",
+        "local_codex_worktree_root",
+    ] {
+        assert!(
+            startup.contains(needle),
+            "startup should seed local Codex platform secrets from env for portable smoke tests: {needle}"
         );
     }
 }
@@ -1005,7 +1583,7 @@ fn production_docs_explain_patrol_session_provider_configuration() {
         "repo_assessment_model",
         "daily_brief_provider",
         "daily_brief_model",
-        "mock provider",
+        "local Codex WorkerRun",
         "AssessmentComplete",
         "DailyBrief.Render",
     ] {
@@ -1018,6 +1596,7 @@ fn production_docs_explain_patrol_session_provider_configuration() {
     for needle in [
         "RepoGraphSnapshot assessment Session",
         "DailyBrief Session",
+        "local Codex WorkerRun",
         "repo_assessment_provider",
         "daily_brief_provider",
     ] {
@@ -1110,6 +1689,8 @@ fn paw_patrol_acceptance_harness_collects_quick_and_live_proofs() {
         "github-webhook-event.json",
         "github-signal.json",
         "GitHub Signal",
+        "datadog-patrol-smoke/datadog-patrol.svg",
+        "Datadog MCP Patrol",
         "repo-sweep-brief-smoke/daily-brief.svg",
         "write_artifact_link",
         "not generated in",
@@ -1150,6 +1731,7 @@ fn ci_covers_paw_patrol_worker_and_wasm_gates() {
         "cargo clippy --locked -p temperpaw -p paw-codex-worker --all-targets -- -D warnings",
         "cargo check --locked -p temperpaw -p paw-codex-worker",
         "bash -n crates/paw-codex-worker/scripts/deterministic-smoke.sh",
+        "bash -n crates/paw-codex-worker/scripts/datadog-patrol-smoke.sh",
         "bash -n crates/paw-codex-worker/scripts/repo-sweep-brief-smoke.sh",
         "bash -n crates/paw-codex-worker/scripts/webhook-intake-smoke.sh",
         "bash -n crates/paw-codex-worker/scripts/production-readiness.sh",
@@ -1242,6 +1824,24 @@ fn production_docker_image_builds_patrol_wasm_modules() {
 }
 
 #[test]
+fn startup_rehydrates_os_app_verification_for_unchanged_apps() {
+    let root = repo_root();
+    let startup = read(root.join("crates/temperpaw/src/startup.rs"));
+    let skipped_start = startup
+        .find("Ok(OsAppReconcileResult::Skipped")
+        .expect("startup should handle skipped OS app reconciliation");
+    let installed_start = startup
+        .find("Ok(OsAppReconcileResult::Installed")
+        .expect("startup should handle installed OS app reconciliation");
+    let skipped_branch = &startup[skipped_start..installed_start];
+
+    assert!(
+        skipped_branch.contains("persist_os_app_verification"),
+        "unchanged OS apps must repopulate the in-memory verification registry after deploy/restart"
+    );
+}
+
+#[test]
 fn paw_patrol_is_discoverable_by_the_os_app_catalog() {
     let root = repo_root();
     temper_platform::os_apps::set_os_apps_dir(root.join("os-apps"));
@@ -1256,7 +1856,7 @@ fn paw_patrol_is_discoverable_by_the_os_app_catalog() {
         .expect("paw-patrol should load as an OS app bundle");
     assert_eq!(
         bundle.specs.len(),
-        14,
+        19,
         "paw-patrol should expose all Patrol entity specs"
     );
     assert!(
@@ -1285,7 +1885,7 @@ fn paw_patrol_has_webhook_intake_routes_through_paw_ingest() {
     for needle in [
         "id = \"patrol-request-route\"",
         "route_key = \"patrol-request\"",
-        "target_entity_type = \"PatrolRequest\"",
+        "target_entity_type = \"WorkRequest\"",
         "target_action = \"TemperPaw.Patrol.Submit\"",
         "id = \"patrol-signal-route\"",
         "route_key = \"patrol-signal\"",
@@ -1356,6 +1956,12 @@ fn paw_patrol_has_webhook_intake_routes_through_paw_ingest() {
     ] {
         assert!(app_doc.contains(needle), "APP.md should document {needle}");
     }
+
+    let startup = read(root.join("crates/temperpaw/src/startup.rs"));
+    assert!(
+        startup.contains("paw_transport::webhook::router"),
+        "production runtime router should expose /triggers/webhook/{{route_key}} on the main Railway port"
+    );
 }
 
 #[test]
@@ -1384,6 +1990,9 @@ fn patrol_schedule_recurs_sweeps_and_daily_briefs_inside_patrol() {
         "{ type = \"schedule_at\", field = \"next_run_at\", action = \"Trigger\" }",
         "module = \"patrol_schedule_lifecycle\"",
         "name = \"TriggerComplete\"",
+        "name = \"Recover\"",
+        "from = [\"Failed\"]",
+        "patrol_schedule_recover",
         "last_repo_graph_snapshot_id",
         "last_daily_brief_id",
     ] {
@@ -1436,6 +2045,7 @@ fn patrol_schedule_recurs_sweeps_and_daily_briefs_inside_patrol() {
         "Action::\"Activate\"",
         "Action::\"Trigger\"",
         "Action::\"TriggerComplete\"",
+        "Action::\"Recover\"",
     ] {
         assert!(
             policy.contains(needle),
@@ -1717,6 +2327,8 @@ fn worker_run_done_fans_out_to_review_evaluation_and_proof() {
         "visual ProofPacket",
         "data:image/svg+xml",
         "visual_summary_svg",
+        "wait_for_status",
+        "worker_run_lifecycle: WorkCycle",
     ] {
         assert!(
             lifecycle.contains(needle),
@@ -1760,8 +2372,10 @@ fn reviewer_and_evaluator_results_gate_completion_before_human_review() {
     let evaluation_spec = read(patrol.join("specs/evaluation_run.ioa.toml"));
     for needle in [
         "name = \"evaluator_id\"",
+        "name = \"failure_classification\"",
         "name = \"Claim\"",
         "params = [\"evaluator_id\"]",
+        "params = [\"results_json\", \"error_message\", \"failure_classification\"]",
         "effect = [{ type = \"trigger\", name = \"evaluation_run_passed\" }]",
         "effect = [{ type = \"trigger\", name = \"evaluation_run_failed\" }]",
         "module = \"review_gate_lifecycle\"",
@@ -1798,6 +2412,7 @@ fn reviewer_and_evaluator_results_gate_completion_before_human_review() {
         "TemperPaw.Patrol.Reject",
         "TemperPaw.Patrol.Escalate",
         "record_e2e_if_present",
+        "known_passed_evaluation_run_id",
         "reviewer approved before human review",
         "evaluation gates passed before proof readiness",
     ] {
@@ -1849,6 +2464,74 @@ fn work_cycle_completion_requires_recorded_live_e2e_evidence() {
         csdl.contains("<Property Name=\"E2eSummary\" Type=\"Edm.String\"/>"),
         "WorkCycle CSDL should expose durable live/E2E evidence"
     );
+}
+
+#[test]
+fn review_request_changes_requeues_a_revision_worker_run() {
+    let root = repo_root();
+    let patrol = root.join("os-apps/paw-patrol");
+
+    let work_cycle = read(patrol.join("specs/work_cycle.ioa.toml"));
+    for needle in [
+        "name = \"RequestChanges\"",
+        "from = [\"Reviewing\"]",
+        "to = \"InProgress\"",
+        "name = \"work_cycle_changes_requested\"",
+        "module = \"work_cycle_lifecycle\"",
+        "effect = [",
+        "{ type = \"set_bool\", var = \"review_passed\", value = false }",
+        "{ type = \"set_bool\", var = \"worker_done\", value = false }",
+        "{ type = \"set_bool\", var = \"evaluation_passed\", value = false }",
+        "{ type = \"trigger\", name = \"work_cycle_changes_requested\" }",
+    ] {
+        assert!(
+            work_cycle.contains(needle),
+            "WorkCycle.RequestChanges should reset gates and trigger rework: {needle}"
+        );
+    }
+
+    let lifecycle = read(patrol.join("wasm/work_cycle_lifecycle/src/lib.rs"));
+    for needle in [
+        "\"RequestChanges\" => handle_review_changes_requested",
+        "reviewer-requested rework",
+        "revision_worker_task",
+        "previous_worker_assignment",
+        "reuse the existing assigned git worktree and branch",
+        "create_entity(ctx, base_url, headers, WORKER_RUNS_PATH)",
+        "TemperPaw.Patrol.AttachWorkerRun",
+        "required_capabilities_for_task(&task)",
+        "work_cycle_lifecycle: queued reviewer-requested rework",
+    ] {
+        assert!(
+            lifecycle.contains(needle),
+            "work_cycle_lifecycle should queue a revision WorkerRun after review feedback: {needle}"
+        );
+    }
+    assert!(
+        !lifecycle.contains("codex/paw-rework-"),
+        "review-requested rework should update the existing branch/PR instead of creating a side PR"
+    );
+}
+
+#[test]
+fn evaluation_failures_requeue_rework_instead_of_dead_ending_the_cycle() {
+    let root = repo_root();
+    let patrol = root.join("os-apps/paw-patrol");
+    let lifecycle = read(patrol.join("wasm/review_gate_lifecycle/src/lib.rs"));
+
+    for needle in [
+        "\"Fail\" if is_entity_type(&ctx, \"EvaluationRun\")",
+        "handle_evaluation_failed",
+        "Automated evaluation requested rework",
+        "TemperPaw.Patrol.RequestChanges",
+        "status == \"Reviewing\"",
+        "fail_work_cycle_and_escalate_case(ctx, base_url, headers, &work_cycle_id, &message)",
+    ] {
+        assert!(
+            lifecycle.contains(needle),
+            "evaluation failures should requeue ordinary Reviewing cycles and only fail unexpected states: {needle}"
+        );
+    }
 }
 
 #[test]
@@ -2018,10 +2701,11 @@ fn repo_graph_snapshot_queues_sweep_and_fans_out_findings() {
         "TemperPaw.Patrol.AttachAssessmentSession",
         "TemperPaw.Patrol.AssessmentComplete",
         "TemperPaw.Patrol.OpenFinding",
-        "repo graph and dependency sweep",
-        "deterministic repo graph evidence",
-        "intelligent assessment Session",
-        "\"mock_plan\"",
+        "agent-led repo health patrol",
+        "agent-authored sweep output",
+        "repo_graph_snapshot_id",
+        "complete_from_repo_health_agent",
+        "repo-health Patrol agent",
         "giant modules",
         "duplicate logic",
         "fingerprint",
@@ -2055,8 +2739,8 @@ fn repo_graph_snapshot_queues_sweep_and_fans_out_findings() {
 
     let app_doc = read(patrol.join("APP.md"));
     for needle in [
-        "deterministic graph evidence",
-        "intelligent assessment Session",
+        "agent-led investigation",
+        "structured findings",
         "AssessmentComplete",
     ] {
         assert!(
@@ -2084,6 +2768,7 @@ fn accepted_findings_queue_cleanup_work_cycles() {
             "name = \"LinkPmIssue\"",
             "name = \"StartWork\"",
             "name = \"fingerprint\"",
+            "name = \"repo_graph_snapshot_id\"",
         ] {
             assert!(
                 spec.contains(needle),
@@ -2224,7 +2909,10 @@ fn daily_brief_renders_visual_human_review_rollup() {
         "on_failure = \"Fail\"",
         "name = \"session_id\"",
         "name = \"session_status\"",
+        "name = \"work_cycle_id\"",
+        "name = \"worker_run_id\"",
         "name = \"AttachSession\"",
+        "name = \"AttachWorkerRun\"",
         "name = \"Render\"",
         "visual_summary_url",
     ] {
@@ -2250,12 +2938,15 @@ fn daily_brief_renders_visual_human_review_rollup() {
         "/tdata/QualityFindings",
         "/tdata/SecurityFindings",
         "/tdata/WorkCycles",
+        "/tdata/WorkerRuns",
         "/tdata/Sessions",
         "TemperPaw.Configure",
         "TemperPaw.Patrol.AttachSession",
+        "TemperPaw.Patrol.AttachWorkerRun",
+        "runner_kind\": \"local_codex",
+        "DailyBrief:",
         "TemperPaw.Patrol.Render",
         "agent-driven DailyBrief Session",
-        "\"mock_plan\"",
         "visual_daily_brief_svg",
         "human-readable daily brief",
         "open risks",
@@ -2273,6 +2964,7 @@ fn daily_brief_renders_visual_human_review_rollup() {
         "DailyBrief",
         "Action::\"Start\"",
         "Action::\"AttachSession\"",
+        "Action::\"AttachWorkerRun\"",
         "Action::\"Render\"",
         "Action::\"Publish\"",
     ] {
@@ -2281,6 +2973,13 @@ fn daily_brief_renders_visual_human_review_rollup() {
             "patrol.cedar should authorize daily brief lifecycle with {needle}"
         );
     }
+
+    assert!(
+        !lifecycle.contains("mock_daily_brief_plan")
+            && !lifecycle.contains("deterministic mock brief")
+            && !lifecycle.contains("\"mock_plan\""),
+        "DailyBrief must be rendered by an intelligent agent path, not a deterministic mock plan"
+    );
 
     let app_doc = read(patrol.join("APP.md"));
     for needle in [
@@ -2291,6 +2990,32 @@ fn daily_brief_renders_visual_human_review_rollup() {
         assert!(
             app_doc.contains(needle),
             "APP.md should explain DailyBrief session synthesis: {needle}"
+        );
+    }
+}
+
+#[test]
+fn local_codex_worker_prompts_leave_worker_run_reporting_to_daemon() {
+    let root = repo_root();
+    for module in [
+        "patrol_request_router",
+        "signal_router",
+        "finding_lifecycle",
+        "work_cycle_lifecycle",
+        "repo_sweep_lifecycle",
+    ] {
+        let source = paw_patrol_wasm_source(&root, module);
+        assert!(
+            !source.contains("Self-report WorkerRun.ReportDone")
+                && !source.contains("self-report WorkerRun.ReportDone")
+                && !source.contains("self-report WorkerRun.ReportFailed"),
+            "{module} prompt must not ask inner Codex to self-report WorkerRun actions"
+        );
+        assert!(
+            source.contains(
+                "paw-codex-worker will report WorkerRun.ReportDone or WorkerRun.ReportFailed"
+            ),
+            "{module} prompt should make the wrapper-owned reporting contract explicit"
         );
     }
 }

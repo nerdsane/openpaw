@@ -302,7 +302,7 @@ fn advance_work_cycle_to_review(
     review_run_id: &str,
     evaluation_run_id: &str,
 ) -> Result<(), String> {
-    let status = get_status(
+    let mut status = get_status(
         ctx,
         base_url,
         headers,
@@ -319,15 +319,17 @@ fn advance_work_cycle_to_review(
             PATROL_WORKER_DONE,
             &json!({ "implementer_worker_run_id": worker_run_id }),
         )?;
+        status = wait_for_status(
+            ctx,
+            base_url,
+            headers,
+            entity_set(WORK_CYCLES_PATH),
+            work_cycle_id,
+            "Testing",
+            &["Reviewing"],
+        )?;
     }
 
-    let status = get_status(
-        ctx,
-        base_url,
-        headers,
-        entity_set(WORK_CYCLES_PATH),
-        work_cycle_id,
-    )?;
     if status == "Testing" {
         post_action(
             ctx,
@@ -338,15 +340,17 @@ fn advance_work_cycle_to_review(
             PATROL_SUBMIT_FOR_REVIEW,
             &json!({}),
         )?;
+        status = wait_for_status(
+            ctx,
+            base_url,
+            headers,
+            entity_set(WORK_CYCLES_PATH),
+            work_cycle_id,
+            "Reviewing",
+            &[],
+        )?;
     }
 
-    let status = get_status(
-        ctx,
-        base_url,
-        headers,
-        entity_set(WORK_CYCLES_PATH),
-        work_cycle_id,
-    )?;
     if status == "Reviewing" {
         post_action(
             ctx,
@@ -369,6 +373,32 @@ fn advance_work_cycle_to_review(
     }
 
     Ok(())
+}
+
+fn wait_for_status(
+    ctx: &Context,
+    base_url: &str,
+    headers: &[(String, String)],
+    entity_set: &str,
+    entity_id: &str,
+    expected_status: &str,
+    acceptable_later_statuses: &[&str],
+) -> Result<String, String> {
+    let mut last_status = String::new();
+    for _ in 0..8 {
+        last_status = get_status(ctx, base_url, headers, entity_set, entity_id)?;
+        if last_status == expected_status
+            || acceptable_later_statuses
+                .iter()
+                .any(|status| *status == last_status)
+        {
+            return Ok(last_status);
+        }
+    }
+
+    Err(format!(
+        "worker_run_lifecycle: WorkCycle {entity_id} did not reach {expected_status}; last observed status was {last_status}"
+    ))
 }
 
 fn entity_id(ctx: &Context) -> String {

@@ -20,13 +20,16 @@ async fn connect_and_watch_events(
     let mut buffer = String::new();
     let mut stream = response.bytes_stream();
     loop {
-        let Some(chunk) = (match timeout(event_stream_idle_window(), stream.next()).await {
-            Ok(next) => next,
-            Err(_) => {
-                debug!(url, "Temper event stream idle window elapsed; using OData fallback");
-                return Ok(());
+        let chunk = tokio::select! {
+            next = stream.next() => next,
+            _ = sleep(event_stream_queue_poll_interval()), if config.poll_on_start => {
+                debug!(url, "Temper event stream is open; polling queued Patrol work");
+                claim_event_stream_backlog(client, config).await?;
+                continue;
             }
-        }) else {
+        };
+
+        let Some(chunk) = chunk else {
             return Ok(());
         };
         let chunk = chunk.context("read SSE chunk")?;
@@ -37,13 +40,22 @@ async fn connect_and_watch_events(
             buffer = buffer[frame_end + 2..].to_string();
             if let Some(data) = extract_sse_data(&frame) {
                 handle_event_payload(client, config, &data).await?;
+                if config.poll_on_start {
+                    claim_event_stream_backlog(client, config).await?;
+                }
             }
         }
     }
 }
 
-fn event_stream_idle_window() -> Duration {
-    Duration::from_secs(60)
+fn event_stream_queue_poll_interval() -> Duration {
+    Duration::from_secs(15)
+}
+
+async fn claim_event_stream_backlog(client: &reqwest::Client, config: &Config) -> Result<()> {
+    claim_boot_queued_runs(client, config).await?;
+    claim_boot_requested_review_runs(client, config).await?;
+    claim_boot_queued_evaluation_runs(client, config).await
 }
 
 async fn handle_event_payload(client: &reqwest::Client, config: &Config, data: &str) -> Result<()> {
@@ -85,6 +97,7 @@ async fn handle_queued_worker_run(
         debug!(
             worker_run_id,
             runner_kind = %worker_run.runner_kind,
+            provider_id = %worker_run.provider_id,
             allowed_worker_id = %worker_run.allowed_worker_id,
             worker_id = %config.worker_id,
             "WorkerRun is not claimable by local Codex"
@@ -95,8 +108,46 @@ async fn handle_queued_worker_run(
     claim_worker_run(client, config, worker_run_id).await?;
     start_local_worker_run(client, config, worker_run_id).await?;
 
+    execute_worker_run(client, config, worker_run).await
+}
+
+async fn handle_running_worker_run(
+    client: &reqwest::Client,
+    config: &Config,
+    worker_run_id: &str,
+) -> Result<()> {
+    info!(worker_run_id, "saw running WorkerRun claimed by this worker");
+    let worker_run = fetch_worker_run(client, config, worker_run_id).await?;
+    if !worker_run_is_recoverable_by_local_codex(&worker_run, &config.worker_id) {
+        debug!(
+            worker_run_id,
+            status = %worker_run.status,
+            runner_kind = %worker_run.runner_kind,
+            allowed_worker_id = %worker_run.allowed_worker_id,
+            worker_id = %worker_run.worker_id,
+            local_worker_id = %config.worker_id,
+            "WorkerRun is not recoverable by this local Codex worker"
+        );
+        return Ok(());
+    }
+
+    execute_worker_run(client, config, worker_run).await
+}
+
+async fn execute_worker_run(
+    client: &reqwest::Client,
+    config: &Config,
+    worker_run: WorkerRunState,
+) -> Result<()> {
+    let worker_run_id = worker_run.id.clone();
     let run_result = if let Some(snapshot_id) = extract_repo_sweep_snapshot_id(&worker_run.task) {
         run_repo_sweep(client, config, &worker_run, &snapshot_id).await
+    } else if let Some(patrol_run_id) = extract_datadog_patrol_run_id(&worker_run.task) {
+        run_datadog_patrol(client, config, &worker_run, &patrol_run_id).await
+    } else if let Some(patrol_run_id) = extract_github_patrol_run_id(&worker_run.task) {
+        run_github_patrol(client, config, &worker_run, &patrol_run_id).await
+    } else if let Some(daily_brief_id) = extract_daily_brief_id(&worker_run.task) {
+        run_daily_brief(client, config, &worker_run, &daily_brief_id).await
     } else {
         run_codex(config, &worker_run).await
     };
@@ -104,8 +155,8 @@ async fn handle_queued_worker_run(
     match run_result {
         Ok(summary) => report_done(client, config, &worker_run, &summary).await,
         Err(error) => {
-            error!(worker_run_id, %error, "local Codex run failed");
-            report_failed(client, config, worker_run_id, &error.to_string()).await
+            error!(worker_run_id = %worker_run_id, %error, "local Codex run failed");
+            report_failed(client, config, &worker_run_id, &error.to_string()).await
         }
     }
 }
@@ -127,80 +178,20 @@ async fn handle_requested_review_run(
     }
 
     let worker_run = fetch_worker_run(client, config, &review_run.worker_run_id).await?;
-    if !worker_run_is_repo_sweep(&worker_run) {
-        if !config.enable_execution {
-            debug!(
-                review_run_id,
-                worker_run_id = %worker_run.id,
-                "leaving non-repo-sweep ReviewRun for a reviewer agent"
-            );
-            return Ok(());
-        }
-
-        info!(
+    if !config.enable_execution {
+        debug!(
             review_run_id,
-            action = REVIEW_CLAIM_LABEL,
-            "claiming code-change ReviewRun for local Codex reviewer"
+            worker_run_id = %worker_run.id,
+            "leaving ReviewRun for an enabled reviewer agent"
         );
-        post_entity_action(
-            client,
-            config,
-            "ReviewRuns",
-            review_run_id,
-            "Claim",
-            json!({ "reviewer_id": config.worker_id }),
-        )
-        .await?;
-        post_entity_action(
-            client,
-            config,
-            "ReviewRuns",
-            review_run_id,
-            "StartReview",
-            json!({}),
-        )
-        .await?;
-
-        match run_codex_review(config, &worker_run, &review_run).await {
-            Ok(decision) => {
-                let body = json!({
-                    "review_summary": decision.summary,
-                    "live_e2e_summary": decision.live_e2e_summary,
-                    "verdict": decision.verdict,
-                });
-                let action = match decision.action {
-                    ReviewDecisionAction::Approve => "Approve",
-                    ReviewDecisionAction::RequestChanges => "RequestChanges",
-                    ReviewDecisionAction::Escalate => "Escalate",
-                };
-                return post_entity_action(
-                    client,
-                    config,
-                    "ReviewRuns",
-                    review_run_id,
-                    action,
-                    body,
-                )
-                .await;
-            }
-            Err(error) => {
-                return post_entity_action(
-                    client,
-                    config,
-                    "ReviewRuns",
-                    review_run_id,
-                    "Fail",
-                    json!({ "review_summary": format!("local Codex review failed: {error}") }),
-                )
-                .await;
-            }
-        }
+        return Ok(());
     }
 
     info!(
         review_run_id,
         action = REVIEW_CLAIM_LABEL,
-        "claiming repo-sweep ReviewRun"
+        worker_run_id = %worker_run.id,
+        "claiming ReviewRun for local Codex reviewer"
     );
     post_entity_action(
         client,
@@ -221,37 +212,32 @@ async fn handle_requested_review_run(
     )
     .await?;
 
-    let live_e2e_summary = repo_sweep_live_e2e_summary(client, config, &worker_run)
-        .await
-        .unwrap_or_else(|error| format!("Repo sweep live evidence lookup failed: {error}"));
-    let review_summary = format!(
-        "Automated repo-sweep reviewer checked WorkerRun {}, proof {}, and repo sweep output. This auto-review only applies to Patrol repo-health sweeps; normal code-change ReviewRuns remain queued for an independent reviewer agent.",
-        worker_run.id,
-        if review_run.proof_packet_id.is_empty() {
-            "(pending proof)"
-        } else {
-            review_run.proof_packet_id.as_str()
+    match run_codex_review(config, &worker_run, &review_run).await {
+        Ok(decision) => {
+            let body = json!({
+                "review_summary": decision.summary,
+                "live_e2e_summary": decision.live_e2e_summary,
+                "verdict": decision.verdict,
+            });
+            let action = match decision.action {
+                ReviewDecisionAction::Approve => "Approve",
+                ReviewDecisionAction::RequestChanges => "RequestChanges",
+                ReviewDecisionAction::Escalate => "Escalate",
+            };
+            post_entity_action(client, config, "ReviewRuns", review_run_id, action, body).await
         }
-    );
-
-    info!(
-        review_run_id,
-        action = REVIEW_APPROVE_LABEL,
-        "approving repo-sweep ReviewRun"
-    );
-    post_entity_action(
-        client,
-        config,
-        "ReviewRuns",
-        review_run_id,
-        "Approve",
-        json!({
-            "review_summary": review_summary,
-            "live_e2e_summary": live_e2e_summary,
-            "verdict": "approved_repo_sweep_only"
-        }),
-    )
-    .await
+        Err(error) => {
+            post_entity_action(
+                client,
+                config,
+                "ReviewRuns",
+                review_run_id,
+                "Fail",
+                json!({ "review_summary": format!("local Codex review failed: {error}") }),
+            )
+            .await
+        }
+    }
 }
 
 async fn handle_queued_evaluation_run(

@@ -20,6 +20,11 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Guard against stale main deploys
+        run: bash crates/paw-codex-worker/scripts/production-git-ancestry-guard.sh
 
       - name: Determine version
         id: version

@@ -157,6 +157,9 @@ EOF
 EOF
 
   write_artifact_link "deterministic-smoke/proof.md" "${PROOF_DIR}/deterministic-smoke/proof.md"
+  write_artifact_link "datadog-patrol-smoke/proof.md" "${PROOF_DIR}/datadog-patrol-smoke/proof.md"
+  write_artifact_link "datadog-patrol-smoke/summary.json" "${PROOF_DIR}/datadog-patrol-smoke/summary.json"
+  write_artifact_link "datadog-patrol-smoke/datadog-patrol.svg" "${PROOF_DIR}/datadog-patrol-smoke/datadog-patrol.svg"
   write_artifact_link "webhook-intake-smoke/proof.md" "${PROOF_DIR}/webhook-intake-smoke/proof.md"
   write_artifact_link "repo-sweep-brief-smoke/proof.md" "${PROOF_DIR}/repo-sweep-brief-smoke/proof.md"
   write_artifact_link "repo-sweep-brief-smoke/patrol-schedule.json" "${PROOF_DIR}/repo-sweep-brief-smoke/patrol-schedule.json"
@@ -197,6 +200,7 @@ ${steps_rows}
 EOF
 
   write_visual_card "Deterministic WorkerRun Proof" "${PROOF_DIR}/deterministic-smoke/proof.svg"
+  write_visual_card "Datadog MCP Patrol" "${PROOF_DIR}/datadog-patrol-smoke/datadog-patrol.svg"
   write_visual_card "Webhook Intake Proof" "${PROOF_DIR}/webhook-intake-smoke/webhook-intake.svg"
   write_visual_card "Repo Sweep ProofPacket" "${PROOF_DIR}/repo-sweep-brief-smoke/proof.svg"
   write_visual_card "Daily Brief" "${PROOF_DIR}/repo-sweep-brief-smoke/daily-brief.svg"
@@ -231,6 +235,7 @@ write_summary_and_proof() {
     --arg git_status_short "$GIT_STATUS_SHORT" \
     --arg git_clean "$GIT_CLEAN" \
     --arg deterministic "${PROOF_DIR}/deterministic-smoke" \
+    --arg datadog "${PROOF_DIR}/datadog-patrol-smoke" \
     --arg webhook "${PROOF_DIR}/webhook-intake-smoke" \
     --arg repo "${PROOF_DIR}/repo-sweep-brief-smoke" \
     --arg preflight "${PROOF_DIR}/production-preflight" \
@@ -252,6 +257,7 @@ write_summary_and_proof() {
       steps: $steps,
       live_proof_bundles: {
         deterministic_smoke: $deterministic,
+        datadog_patrol_smoke: $datadog,
         webhook_intake_smoke: $webhook,
         repo_sweep_brief_smoke: $repo,
         production_preflight: $preflight,
@@ -282,10 +288,11 @@ flowchart TD
     B --> C{"Mode"}
     C -->|"quick"| D["Acceptance summary"]
     C -->|"live"| E["Deterministic implementation smoke"]
-    E --> F["Webhook intake smoke"]
-    F --> G["Repo sweep and daily brief smoke"]
-    G --> H["Production readiness smoke"]
-    H --> D
+    E --> F["Datadog MCP Patrol smoke"]
+    F --> G["Webhook intake smoke"]
+    G --> H["Repo sweep and daily brief smoke"]
+    H --> I["Production readiness smoke"]
+    I --> D
 \`\`\`
 
 ## Evidence
@@ -294,6 +301,8 @@ flowchart TD
 - Visual index: ${PROOF_DIR}/index.html
 - Acceptance log: ${ACCEPTANCE_LOG}
 - Deterministic proof bundle: ${PROOF_DIR}/deterministic-smoke
+- Datadog MCP Patrol proof bundle: ${PROOF_DIR}/datadog-patrol-smoke
+  - Covers PatrolRun -> WorkerRun -> Codex result envelope -> RecordEvidence -> Signal/ObservabilityFinding/FactoryCase/WorkCycle/ProofPacket fanout.
 - Webhook proof bundle: ${PROOF_DIR}/webhook-intake-smoke
   - Covers patrol-request, patrol-datadog, patrol-github, and patrol-discord.
   - Includes github-webhook-event.json, github-signal.json, and GitHub Signal state evidence.
@@ -347,6 +356,7 @@ log "mode: ${MODE}"
 log "proof dir: ${PROOF_DIR}"
 
 run_step syntax-deterministic bash -n "${ROOT}/crates/paw-codex-worker/scripts/deterministic-smoke.sh"
+run_step syntax-datadog-patrol bash -n "${ROOT}/crates/paw-codex-worker/scripts/datadog-patrol-smoke.sh"
 run_step syntax-webhook bash -n "${ROOT}/crates/paw-codex-worker/scripts/webhook-intake-smoke.sh"
 run_step syntax-repo-sweep bash -n "${ROOT}/crates/paw-codex-worker/scripts/repo-sweep-brief-smoke.sh"
 run_step syntax-production-readiness bash -n "${ROOT}/crates/paw-codex-worker/scripts/production-readiness.sh"
@@ -385,6 +395,10 @@ if [[ "$MODE" == "live" ]]; then
   run_step deterministic-smoke env \
     PROOF_DIR="${PROOF_DIR}/deterministic-smoke" \
     "${ROOT}/crates/paw-codex-worker/scripts/deterministic-smoke.sh"
+
+  run_step datadog-patrol-smoke env \
+    PROOF_DIR="${PROOF_DIR}/datadog-patrol-smoke" \
+    "${ROOT}/crates/paw-codex-worker/scripts/datadog-patrol-smoke.sh"
 
   run_step webhook-intake-smoke env \
     PROOF_DIR="${PROOF_DIR}/webhook-intake-smoke" \

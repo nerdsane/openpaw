@@ -1,20 +1,38 @@
 <script lang="ts">
   import { base } from '$app/paths';
-  import { onMount } from 'svelte';
   import { fade } from 'svelte/transition';
   import { page } from '$app/stores';
   import { getEntity } from '$lib/api';
   import StatusBadge from '$lib/components/StatusBadge.svelte';
+  import { fieldLabel, readField, snakeCaseKey, textValue, truncateMiddle } from '$lib/entity-format';
 
-  let entityType = $derived($page.params.type);
-  let entityId = $derived($page.params.id);
-  let entitySetName = $derived(entityType + 's');
+  let entitySetParam = $derived($page.params.type ?? '');
+  let entityId = $derived($page.params.id ?? '');
+  let entitySetName = $derived(entitySetParam);
 
   let entity = $state<Record<string, unknown> | null>(null);
   let loaded = $state(false);
   let error = $state<string | null>(null);
 
   let expandedFields = $state<Set<string>>(new Set());
+
+  const entityLinks: Record<string, string> = {
+    factory_case_id: 'FactoryCases',
+    signal_id: 'Signals',
+    patrol_run_id: 'PatrolRuns',
+    repo_graph_snapshot_id: 'RepoGraphSnapshots',
+    work_cycle_id: 'WorkCycles',
+    implementer_worker_run_id: 'WorkerRuns',
+    worker_run_id: 'WorkerRuns',
+    review_run_id: 'ReviewRuns',
+    reviewer_run_id: 'ReviewRuns',
+    evaluation_run_id: 'EvaluationRuns',
+    proof_packet_id: 'ProofPackets',
+    observability_finding_id: 'ObservabilityFindings',
+    quality_finding_id: 'QualityFindings',
+    security_finding_id: 'SecurityFindings',
+    pm_issue_id: 'Issues'
+  };
 
   function toggleExpand(key: string) {
     const next = new Set(expandedFields);
@@ -45,22 +63,36 @@
     return typeof value === 'string' && value.length > 120;
   }
 
-  onMount(async () => {
-    if (!entityId) {
-      error = `Could not load ${entityType}`;
+  function linkedEntitySet(key: string, value: unknown): string | null {
+    if (typeof value !== 'string' || !value.trim() || isJsonLike(value)) return null;
+    return entityLinks[snakeCaseKey(key)] ?? null;
+  }
+
+  async function loadEntityDetail(type: string, id: string) {
+    entity = null;
+    error = null;
+    loaded = false;
+    expandedFields = new Set();
+
+    if (!id) {
+      error = `Could not load ${type}`;
       loaded = true;
       return;
     }
 
     try {
-      entity = await getEntity(entitySetName, entityId);
-    } catch {
-      error = `Could not load ${entityType} ${entityId}`;
+      entity = await getEntity(type, id);
+    } catch (err) {
+      error = err instanceof Error ? err.message : `Could not load ${type} ${id}`;
     }
     loaded = true;
+  }
+
+  $effect(() => {
+    loadEntityDetail(entitySetName, entityId);
   });
 
-  let status = $derived((entity?.Status as string) ?? '');
+  let status = $derived(String(readField(entity, 'Status') ?? ''));
   let fields = $derived.by((): Array<[string, unknown]> => {
     if (!entity) return [];
     return Object.entries(entity).filter(([k]) => !k.startsWith('@odata') && !k.startsWith('odata'));
@@ -81,7 +113,7 @@
   {:else}
     <header class="entity-header">
       <div class="entity-title">
-        <code class="entity-type-label">{entityType}</code>
+        <code class="entity-type-label">{entitySetParam}</code>
         <code class="entity-id-label">{entityId}</code>
       </div>
       {#if status}
@@ -92,7 +124,7 @@
     <div class="field-table">
       {#each fields as [key, value] (key)}
         <div class="field-row">
-          <span class="field-key">{key}</span>
+          <span class="field-key">{fieldLabel(key)}</span>
           <div class="field-value">
             {#if isJsonLike(value)}
               <pre class="field-json">{formatJson(value as string)}</pre>
@@ -106,8 +138,12 @@
               <span class="field-null">--</span>
             {:else if typeof value === 'boolean'}
               <span class="field-bool">{value ? 'TRUE' : 'FALSE'}</span>
+            {:else if linkedEntitySet(key, value)}
+              <a class="field-link" href={`${base}/entities/${linkedEntitySet(key, value)}/${value}`}>
+                {truncateMiddle(String(value))}
+              </a>
             {:else}
-              <span class="field-text">{value}</span>
+              <span class="field-text">{textValue(value)}</span>
             {/if}
           </div>
         </div>
@@ -217,6 +253,19 @@
     font-size: var(--text-sm);
     color: var(--text-1);
     word-break: break-word;
+  }
+
+  .field-link {
+    width: fit-content;
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    color: var(--accent);
+    text-decoration: none;
+    overflow-wrap: anywhere;
+  }
+
+  .field-link:hover {
+    text-decoration: underline;
   }
 
   .field-null {

@@ -1,35 +1,56 @@
 async fn claim_boot_queued_runs(client: &reqwest::Client, config: &Config) -> Result<()> {
+    let runs = query_boot_worker_runs(client, config, "Queued").await?;
+    for worker_run in runs {
+        if worker_run.status == "Queued" {
+            handle_queued_worker_run(client, config, &worker_run.id).await?;
+        }
+    }
+    Ok(())
+}
+
+async fn recover_boot_running_runs(client: &reqwest::Client, config: &Config) -> Result<()> {
+    let runs = query_boot_worker_runs(client, config, "Running").await?;
+    for worker_run in runs {
+        if worker_run_is_recoverable_by_local_codex(&worker_run, &config.worker_id) {
+            handle_running_worker_run(client, config, &worker_run.id).await?;
+        }
+    }
+    Ok(())
+}
+
+async fn query_boot_worker_runs(
+    client: &reqwest::Client,
+    config: &Config,
+    status: &str,
+) -> Result<Vec<WorkerRunState>> {
     let url = format!(
-        "{}/tdata/WorkerRuns?$filter=Status eq 'Queued'&$top=1",
-        config.temper_url
+        "{}/tdata/WorkerRuns?$filter=Status eq '{}'&$orderby=Id desc&$top=50",
+        config.temper_url, status
     );
     let response = client
         .get(url)
         .headers(headers(config)?)
         .send()
         .await
-        .context("query queued WorkerRuns on boot")?;
+        .with_context(|| format!("query {status} WorkerRuns on boot"))?;
     if !response.status().is_success() {
-        warn!(status = %response.status(), "queued WorkerRun boot query failed");
-        return Ok(());
+        warn!(http_status = %response.status(), status, "WorkerRun boot query failed");
+        return Ok(Vec::new());
     }
 
     let body: Value = response
         .json()
         .await
-        .context("parse queued WorkerRun response")?;
-    let Some(run) = body
+        .with_context(|| format!("parse {status} WorkerRun response"))?;
+    let Some(runs) = body
         .get("value")
         .and_then(Value::as_array)
-        .and_then(|items| items.first())
     else {
-        return Ok(());
+        return Ok(Vec::new());
     };
-    let worker_run = worker_run_from_odata_value(run.clone())?;
-    if worker_run.status == "Queued" {
-        handle_queued_worker_run(client, config, &worker_run.id).await?;
-    }
-    Ok(())
+    runs.iter()
+        .map(|run| worker_run_from_odata_value(run.clone()))
+        .collect()
 }
 
 async fn claim_boot_requested_review_runs(client: &reqwest::Client, config: &Config) -> Result<()> {
@@ -58,7 +79,7 @@ async fn query_boot_entity_ids(
     status: &str,
 ) -> Result<Vec<String>> {
     let url = format!(
-        "{}/tdata/{}?$filter=Status eq '{}'&$top=5",
+        "{}/tdata/{}?$filter=Status eq '{}'&$orderby=Id desc&$top=50",
         config.temper_url, entity_set, status
     );
     let response = client
@@ -111,4 +132,3 @@ async fn watch_events(client: &reqwest::Client, config: &Config) -> Result<()> {
         bail!("no Temper event stream URLs were configured")
     }
 }
-

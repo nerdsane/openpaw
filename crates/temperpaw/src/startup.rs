@@ -1138,6 +1138,19 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
         let api_url = format!("http://127.0.0.1:{actual_port}");
         let _ = vault.cache_platform_secret("temper_api_url", api_url);
 
+        if let Some(worker_id) = std::env::var("LOCAL_CODEX_WORKER_ID")
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+        {
+            let _ = vault.cache_platform_secret("local_codex_worker_id", worker_id);
+        }
+        if let Some(worktree_root) = std::env::var("LOCAL_CODEX_WORKTREE_ROOT")
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+        {
+            let _ = vault.cache_platform_secret("local_codex_worktree_root", worktree_root);
+        }
+
         // Sandbox URL: explicit override for testing, otherwise Tensorlake provisions on demand.
         if let Some(sandbox_url) = std::env::var("SANDBOX_URL").ok().filter(|s| !s.is_empty()) {
             cache_platform_and_persist_secret(
@@ -1294,9 +1307,15 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
         build_version: config.build_version.clone(),
         build_sha: config.build_sha.clone(),
     };
+    let webhook_api = paw_transport::PawApiClient::new(paw_transport::PawApiConfig {
+        base_url: format!("http://127.0.0.1:{actual_port}"),
+        tenant: tenant.clone(),
+        api_key: config.temper_api_key.clone(),
+    });
     let router = router
         .merge(crate::setup_api::router(setup_state.clone()))
-        .merge(crate::auth::router(auth_state.clone()));
+        .merge(crate::auth::router(auth_state.clone()))
+        .merge(paw_transport::webhook::router(webhook_api));
 
     let router = router.layer(axum::extract::DefaultBodyLimit::max(50 * 1024 * 1024));
 
@@ -1439,6 +1458,7 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
         }
         match reconcile_os_app(&state, &tenant, app_name).await {
             Ok(OsAppReconcileResult::Skipped { bundle_digest, .. }) => {
+                persist_os_app_verification(&state, platform_store, &tenant, app_name).await;
                 record_os_app_reconcile(app_name, "skipped", app_started.elapsed());
                 tracing::info!(
                     app = %app_name,
@@ -4142,7 +4162,7 @@ mod tests {
             .expect("Required WASM Load Failures monitor query should exist");
         assert_eq!(
             wasm_failure_monitor_query,
-            "sum(last_15m):sum:temper_wasm_module_load_failures_total{service:openpaw}.as_count() > 0"
+            "sum(last_15m):default_zero(sum:temper_wasm_module_load_failures_total{service:openpaw}.as_count()) > 0"
         );
 
         let session_memory_monitor_query = monitors
@@ -4159,20 +4179,20 @@ mod tests {
             .expect("Session Memory Budget Exceeded monitor query should exist");
         assert_eq!(
             session_memory_monitor_query,
-            "sum(last_15m):sum:temper_session_memory_limit_exceeded_total{service:openpaw}.as_count() > 0"
+            "sum(last_15m):default_zero(sum:temper_session_memory_limit_exceeded_total{service:openpaw}.as_count()) > 0"
         );
 
         let dashboard_json = dashboard.to_string();
         let monitors_json = monitors.to_string();
         assert!(
             monitors_json.contains(
-                "sum(last_15m):sum:temper_session_phase_budget_exceeded_total{service:openpaw}.as_count() >= 1"
+                "sum(last_15m):default_zero(sum:temper_session_phase_budget_exceeded_total{service:openpaw}.as_count()) >= 1"
             ),
             "Monitors should alert on session phase budget failures."
         );
         assert!(
             monitors_json.contains(
-                "sum(last_15m):sum:temper_query_projection_update_error_total{service:openpaw}.as_count() >= 1"
+                "sum(last_15m):default_zero(sum:temper_query_projection_update_error_total{service:openpaw}.as_count()) >= 1"
             ),
             "Monitors should alert on background query projection update errors."
         );

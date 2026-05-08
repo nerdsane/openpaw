@@ -137,7 +137,7 @@ fn build_action_params(
     let action_name = target_action.rsplit('.').next().unwrap_or(target_action);
 
     match (target_entity_type, action_name) {
-        ("PatrolRequest", "Submit") => {
+        ("WorkRequest" | "PatrolRequest", "Submit") => {
             build_patrol_request_submit_params(&payload, normalized_payload, route_key)
         }
         ("Signal", "Ingest") => build_signal_ingest_params(&payload, normalized_payload, route_key),

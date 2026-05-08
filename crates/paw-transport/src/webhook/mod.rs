@@ -8,4 +8,4 @@
 
 mod trigger;
 
-pub use trigger::{WebhookTrigger, WebhookTriggerConfig};
+pub use trigger::{WebhookTrigger, WebhookTriggerConfig, router};

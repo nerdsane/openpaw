@@ -36,8 +36,8 @@ flowchart TD
 | Production Datadog webhook secret | Datadog/TemperPaw operator | Protects `/triggers/webhook/patrol-datadog`. |
 | Production Discord webhook secret | Discord/TemperPaw operator | Protects `/triggers/webhook/patrol-discord`. |
 | Production GitHub webhook secret | GitHub/TemperPaw operator | Protects `/triggers/webhook/patrol-github`. |
-| `repo_assessment_provider` / `repo_assessment_model` | TemperPaw operator | Selects the real RepoGraphSnapshot assessment Session provider/model. If unset, the mock provider proves loop closure by dispatching `AssessmentComplete` without API billing. |
-| `daily_brief_provider` / `daily_brief_model` | TemperPaw operator | Selects the real DailyBrief Session provider/model. If unset, the mock provider proves loop closure by dispatching `DailyBrief.Render` without API billing. |
+| `repo_assessment_provider` / `repo_assessment_model` | TemperPaw operator | Optional follow-up RepoGraphSnapshot assessment Session provider/model. The primary scan is the local Codex WorkerRun. |
+| `daily_brief_provider` / `daily_brief_model` | TemperPaw operator | Optional follow-up DailyBrief Session provider/model. The primary DailyBrief render is the local Codex WorkerRun, avoiding API billing in v1. |
 | Mac mini launchd approval | Human operator | Allows the always-on local worker to start and reconnect after reboot. |
 
 ## Gate 0: Dependency
@@ -121,11 +121,12 @@ Evidence to capture:
 
 ## Gate 1A: Patrol Session Providers
 
-Configure real agent-driven synthesis before production if the goal is
-intelligent repo assessment and daily briefing. The deterministic worker scan
-still produces `graph_json` and findings, but the deeper security/readability
-judgment lives in the RepoGraphSnapshot assessment Session. The daily summary
-also lives in a DailyBrief Session.
+Configure optional session providers only when you want extra TemperPaw Session
+assessment on top of the local Codex worker path. The primary repo-health scan
+and the primary daily brief are local Codex WorkerRun executions that use
+ChatGPT/Codex auth on the Mac mini instead of raw API billing. The
+RepoGraphSnapshot assessment Session and DailyBrief Session remain available as
+secondary review/briefing layers.
 
 Required TemperPaw secret/config names:
 
@@ -134,11 +135,12 @@ Required TemperPaw secret/config names:
 - `daily_brief_provider`;
 - `daily_brief_model`.
 
-If these are absent, Patrol uses the `mock provider` path. That is useful for
-local and observe-only proof because it avoids API billing and still proves the
-Temper state transition loop: the assessment Session dispatches
-`AssessmentComplete`, and the DailyBrief Session dispatches `DailyBrief.Render`.
-It is not a substitute for the production intelligent review you wanted.
+If these are absent, Patrol does not use a hidden mock brief. The local Codex
+WorkerRun still renders the DailyBrief by dispatching `DailyBrief.Render`, and
+the repo-health WorkerRun still dispatches `RepoGraphSnapshot.ScanComplete`.
+That is the v1 no-API-billing intelligent path; session providers are optional
+overflow or secondary assessment. When a repo assessment Session is configured,
+it closes by dispatching `AssessmentComplete`.
 
 Evidence to capture:
 

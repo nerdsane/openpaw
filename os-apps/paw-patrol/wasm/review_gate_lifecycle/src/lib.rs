@@ -128,6 +128,7 @@ fn handle_review_approved(
         headers,
         &work_cycle_id,
         proof_packet_id.as_str(),
+        "",
     )
 }
 
@@ -231,7 +232,23 @@ fn handle_evaluation_passed(
         &evaluation_run_id,
         &e2e_evidence,
     )?;
-    finalize_if_ready(ctx, base_url, headers, &work_cycle_id, "")
+    wait_for_bool(
+        ctx,
+        base_url,
+        headers,
+        entity_set(WORK_CYCLES_PATH),
+        &work_cycle_id,
+        "e2e_ok",
+        "E2eOk",
+    )?;
+    finalize_if_ready(
+        ctx,
+        base_url,
+        headers,
+        &work_cycle_id,
+        "",
+        &evaluation_run_id,
+    )
 }
 
 fn handle_evaluation_failed(
@@ -244,13 +261,52 @@ fn handle_evaluation_failed(
     let work_cycle_id = string_param(ctx, fields, "work_cycle_id", "WorkCycleId");
     let error_message = string_param(ctx, fields, "error_message", "ErrorMessage");
     let results_json = string_param(ctx, fields, "results_json", "ResultsJson");
+    let failure_classification = string_param(
+        ctx,
+        fields,
+        "failure_classification",
+        "FailureClassification",
+    );
     let message = if error_message.trim().is_empty() {
         format!("EvaluationRun {evaluation_run_id} failed. Results: {results_json}")
     } else {
         error_message
     };
+    let message = if failure_classification.trim().is_empty() {
+        message
+    } else {
+        format!("{message} Failure classification: {failure_classification}.")
+    };
 
-    fail_work_cycle_and_escalate_case(ctx, base_url, headers, &work_cycle_id, &message)?;
+    if work_cycle_id.is_empty() {
+        return Err("review_gate_lifecycle: EvaluationRun missing work_cycle_id".to_string());
+    }
+
+    let work_cycle = get_entity(
+        ctx,
+        base_url,
+        headers,
+        entity_set(WORK_CYCLES_PATH),
+        &work_cycle_id,
+    )?;
+    let status = status_from_response(&work_cycle);
+    if status == "Reviewing" {
+        post_action(
+            ctx,
+            base_url,
+            headers,
+            entity_set(WORK_CYCLES_PATH),
+            &work_cycle_id,
+            PATROL_REQUEST_CHANGES,
+            &json!({
+                "error_message": format!(
+                    "Automated evaluation requested rework. EvaluationRun {evaluation_run_id}: {message}"
+                )
+            }),
+        )?;
+    } else {
+        fail_work_cycle_and_escalate_case(ctx, base_url, headers, &work_cycle_id, &message)?;
+    }
 
     let proof_packet_id = find_proof_packet(
         ctx,
@@ -269,6 +325,7 @@ fn finalize_if_ready(
     headers: &[(String, String)],
     work_cycle_id: &str,
     known_proof_packet_id: &str,
+    known_passed_evaluation_run_id: &str,
 ) -> Result<(), String> {
     let mut work_cycle = get_entity(
         ctx,
@@ -283,13 +340,14 @@ fn finalize_if_ready(
     if status == "Reviewing" {
         let review_passed = bool_from_entity(&work_cycle, "review_passed", "ReviewPassed");
         let evaluation_passed = !evaluation_run_id.is_empty()
-            && get_status(
-                ctx,
-                base_url,
-                headers,
-                entity_set(EVALUATION_RUNS_PATH),
-                &evaluation_run_id,
-            )? == "Passed";
+            && (evaluation_run_id == known_passed_evaluation_run_id
+                || get_status(
+                    ctx,
+                    base_url,
+                    headers,
+                    entity_set(EVALUATION_RUNS_PATH),
+                    &evaluation_run_id,
+                )? == "Passed");
 
         let e2e_ok = bool_from_entity(&work_cycle, "e2e_ok", "E2eOk");
 
@@ -303,12 +361,14 @@ fn finalize_if_ready(
                 PATROL_PASS_EVALUATION,
                 &json!({ "evaluation_run_id": &evaluation_run_id }),
             )?;
-            work_cycle = get_entity(
+            work_cycle = wait_for_entity_status(
                 ctx,
                 base_url,
                 headers,
                 entity_set(WORK_CYCLES_PATH),
                 work_cycle_id,
+                "Proving",
+                &["AwaitingHumanCompletionApproval", "Complete"],
             )?;
             status = status_from_response(&work_cycle);
         } else {
@@ -361,15 +421,17 @@ fn finalize_if_ready(
             PATROL_ATTACH_PROOF_PACKET,
             &json!({ "proof_packet_id": &proof_packet_id }),
         )?;
+        work_cycle = wait_for_bool(
+            ctx,
+            base_url,
+            headers,
+            entity_set(WORK_CYCLES_PATH),
+            work_cycle_id,
+            "proof_attached",
+            "ProofAttached",
+        )?;
     }
 
-    work_cycle = get_entity(
-        ctx,
-        base_url,
-        headers,
-        entity_set(WORK_CYCLES_PATH),
-        work_cycle_id,
-    )?;
     if status_from_response(&work_cycle) == "Proving"
         && bool_from_entity(&work_cycle, "review_passed", "ReviewPassed")
         && bool_from_entity(&work_cycle, "evaluation_passed", "EvaluationPassed")
@@ -1049,6 +1111,56 @@ fn get_status(
 ) -> Result<String, String> {
     let entity = get_entity(ctx, base_url, headers, entity_set, entity_id)?;
     Ok(status_from_response(&entity))
+}
+
+fn wait_for_entity_status(
+    ctx: &Context,
+    base_url: &str,
+    headers: &[(String, String)],
+    entity_set: &str,
+    entity_id: &str,
+    expected_status: &str,
+    acceptable_later_statuses: &[&str],
+) -> Result<Value, String> {
+    let mut last_entity = json!({});
+    let mut last_status = String::new();
+    for _ in 0..8 {
+        last_entity = get_entity(ctx, base_url, headers, entity_set, entity_id)?;
+        last_status = status_from_response(&last_entity);
+        if last_status == expected_status
+            || acceptable_later_statuses
+                .iter()
+                .any(|status| *status == last_status)
+        {
+            return Ok(last_entity);
+        }
+    }
+
+    Err(format!(
+        "review_gate_lifecycle: {entity_set} {entity_id} did not reach {expected_status}; last observed status was {last_status}"
+    ))
+}
+
+fn wait_for_bool(
+    ctx: &Context,
+    base_url: &str,
+    headers: &[(String, String)],
+    entity_set: &str,
+    entity_id: &str,
+    snake: &str,
+    pascal: &str,
+) -> Result<Value, String> {
+    let mut last_entity = json!({});
+    for _ in 0..8 {
+        last_entity = get_entity(ctx, base_url, headers, entity_set, entity_id)?;
+        if bool_from_entity(&last_entity, snake, pascal) {
+            return Ok(last_entity);
+        }
+    }
+
+    Err(format!(
+        "review_gate_lifecycle: {entity_set} {entity_id} did not set {snake}"
+    ))
 }
 
 fn get_entity(

@@ -1,6 +1,9 @@
 use anyhow::{Context, Result, bail};
 use futures_util::StreamExt;
-use repo_health::{extract_repo_sweep_snapshot_id, repo_sweep_summary_markdown, scan_repo_health};
+use repo_health::{
+    extract_repo_sweep_snapshot_id, parse_repo_health_agent_output, repo_health_agent_prompt,
+    repo_sweep_summary_markdown,
+};
 use reqwest::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderValue};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -9,6 +12,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Output, Stdio};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use tokio::io::AsyncReadExt;
 use tokio::process::Command;
 use tokio::time::{sleep, timeout};
 use tracing::{debug, error, info, warn};
@@ -17,6 +21,8 @@ mod repo_health;
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    load_worker_env_file()?;
+
     tracing_subscriber::fmt()
         .with_env_filter(
             env::var("RUST_LOG").unwrap_or_else(|_| "paw_codex_worker=info,info".to_string()),
@@ -48,17 +54,26 @@ async fn main() -> Result<()> {
         tenant = %config.tenant,
         max_concurrent_runs = config.max_concurrent_runs,
         enable_execution = config.enable_execution,
+        worker_capabilities = %worker_capabilities().join(","),
         "paw-codex-worker starting"
     );
+    if let Err(error) = report_worker_heartbeat(&client, &config).await {
+        warn!(%error, "failed to report WorkerAgent heartbeat");
+    }
 
     if config.poll_on_start {
+        recover_boot_running_runs(&client, &config).await?;
         claim_boot_queued_runs(&client, &config).await?;
         claim_boot_requested_review_runs(&client, &config).await?;
         claim_boot_queued_evaluation_runs(&client, &config).await?;
     }
 
     loop {
+        if let Err(error) = report_worker_heartbeat(&client, &config).await {
+            debug!(%error, "failed to report WorkerAgent heartbeat");
+        }
         if config.poll_on_start {
+            recover_boot_running_runs(&client, &config).await?;
             claim_boot_queued_runs(&client, &config).await?;
             claim_boot_requested_review_runs(&client, &config).await?;
             claim_boot_queued_evaluation_runs(&client, &config).await?;
@@ -76,10 +91,15 @@ include!("boot_watch.rs");
 include!("doctor.rs");
 include!("event_loop.rs");
 include!("temper_api.rs");
+include!("datadog_patrol.rs");
+include!("github_patrol.rs");
+include!("daily_brief.rs");
 include!("cli.rs");
 include!("doctor_report.rs");
 include!("launchd.rs");
 include!("doctor_helpers.rs");
+include!("pull_request.rs");
 include!("execution.rs");
 include!("http_headers.rs");
 include!("tests.rs");
+include!("daily_brief_tests.rs");

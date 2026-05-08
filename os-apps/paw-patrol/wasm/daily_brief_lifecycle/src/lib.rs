@@ -1,21 +1,29 @@
-//! Daily Brief Lifecycle - spawn the agent-driven DailyBrief Session.
+//! Daily Brief Lifecycle - queue the local Codex DailyBrief agent.
 //!
 //! Triggered by `DailyBrief.Start`. This integration collects recent proof
-//! packets, completed work cycles, and open risks, then creates a Session that
-//! synthesizes the human-readable daily brief and dispatches `DailyBrief.Render`
-//! with a visual_daily_brief_svg data URI. It keeps the daily rollup
-//! Temper-visible without hiding the judgment work inside deterministic glue.
+//! packets, completed work cycles, and open risks, then creates visible Session
+//! and WorkerRun records. The local Codex worker synthesizes the human-readable
+//! brief and self-reports through Temper actions, so Patrol avoids hidden
+//! rendering while keeping the source facts and proof loop inspectable.
 
 use temper_wasm_sdk::prelude::*;
 
 const PROOF_PACKETS_PATH: &str = "/tdata/ProofPackets";
+const PATROL_RUNS_PATH: &str = "/tdata/PatrolRuns";
+const SIGNALS_PATH: &str = "/tdata/Signals";
 const QUALITY_FINDINGS_PATH: &str = "/tdata/QualityFindings";
 const SECURITY_FINDINGS_PATH: &str = "/tdata/SecurityFindings";
+const OBSERVABILITY_FINDINGS_PATH: &str = "/tdata/ObservabilityFindings";
 const SESSIONS_PATH: &str = "/tdata/Sessions";
 const WORK_CYCLES_PATH: &str = "/tdata/WorkCycles";
+const WORKER_RUNS_PATH: &str = "/tdata/WorkerRuns";
 
 const SESSION_CONFIGURE: &str = "TemperPaw.Configure";
+const PATROL_CONFIGURE: &str = "TemperPaw.Patrol.Configure";
+const PATROL_WRITE_PLAN: &str = "TemperPaw.Patrol.WritePlan";
+const PATROL_START_WORK: &str = "TemperPaw.Patrol.StartWork";
 const PATROL_ATTACH_SESSION: &str = "TemperPaw.Patrol.AttachSession";
+const PATROL_ATTACH_WORKER_RUN: &str = "TemperPaw.Patrol.AttachWorkerRun";
 const PATROL_RENDER: &str = "TemperPaw.Patrol.Render";
 
 #[unsafe(no_mangle)]
@@ -67,6 +75,22 @@ fn handle_start(
         "Status eq 'Complete'",
         20,
     )?;
+    let patrol_runs = query_collection(
+        ctx,
+        base_url,
+        headers,
+        PATROL_RUNS_PATH,
+        "Status eq 'Complete'",
+        20,
+    )?;
+    let linked_signals = query_collection(
+        ctx,
+        base_url,
+        headers,
+        SIGNALS_PATH,
+        "Status eq 'Linked'",
+        20,
+    )?;
     let quality_risks = query_collection(
         ctx,
         base_url,
@@ -83,19 +107,27 @@ fn handle_start(
         "Status eq 'Open'",
         20,
     )?;
+    let observability_risks = query_collection(
+        ctx,
+        base_url,
+        headers,
+        OBSERVABILITY_FINDINGS_PATH,
+        "Status eq 'Open'",
+        20,
+    )?;
 
     let proof_packet_ids = ids_json(&proofs);
-    let done_items = done_items_json(&work_cycles, &proofs);
-    let open_risks = open_risks_json(&quality_risks, &security_risks);
+    let done_items = done_items_json(&work_cycles, &proofs, &patrol_runs, &linked_signals);
+    let open_risks = open_risks_json(&quality_risks, &security_risks, &observability_risks);
     let fallback_visual_summary_url = visual_daily_brief_svg(
         &brief_date,
         proofs.len(),
-        work_cycles.len(),
-        quality_risks.len() + security_risks.len(),
+        work_cycles.len() + patrol_runs.len(),
+        quality_risks.len() + security_risks.len() + observability_risks.len(),
     );
     let session_id = create_entity(ctx, base_url, headers, SESSIONS_PATH)?;
-    let session_model = configured_session_value(ctx, "daily_brief_model", "mock");
-    let session_provider = configured_session_value(ctx, "daily_brief_provider", "mock");
+    let work_cycle_id = create_entity(ctx, base_url, headers, WORK_CYCLES_PATH)?;
+    let worker_run_id = create_entity(ctx, base_url, headers, WORKER_RUNS_PATH)?;
     let prompt_input = DailyBriefPrompt {
         brief_id: &brief_id,
         brief_date: &brief_date,
@@ -104,37 +136,15 @@ fn handle_start(
         open_risks: &open_risks,
         proof_count: proofs.len(),
         completed_work_count: work_cycles.len(),
+        patrol_run_count: patrol_runs.len(),
+        linked_signal_count: linked_signals.len(),
         quality_risk_count: quality_risks.len(),
         security_risk_count: security_risks.len(),
+        observability_risk_count: observability_risks.len(),
         fallback_visual_summary_url: &fallback_visual_summary_url,
     };
-    let session_prompt = if session_provider == "mock" {
-        mock_daily_brief_plan(&prompt_input)
-    } else {
-        daily_brief_session_prompt(&prompt_input)
-    };
 
-    post_action(
-        ctx,
-        base_url,
-        headers,
-        "Sessions",
-        &session_id,
-        SESSION_CONFIGURE,
-        &json!({
-            "system_prompt": "You are a Patrol daily brief agent. Produce factual, visual, human-readable summaries from Temper state, and close the loop by dispatching Temper actions.",
-            "user_message": session_prompt,
-            "model": session_model,
-            "provider": session_provider,
-            "temperature": "0.4",
-            "max_turns": "8",
-            "tools_enabled": "temper_get,temper_list,temper_action,temper_read",
-            "temper_api_url": base_url,
-            "soul_id": "SRE",
-            "agent_id": "paw-patrol-daily-brief",
-            "session_mode": "patrol_daily_brief"
-        }),
-    )?;
+    maybe_configure_session(ctx, base_url, headers, &session_id, &prompt_input)?;
     post_action(
         ctx,
         base_url,
@@ -144,14 +154,104 @@ fn handle_start(
         PATROL_ATTACH_SESSION,
         &json!({
             "session_id": &session_id,
-            "session_status": "running"
+            "session_status": if has_real_session_provider(ctx, "daily_brief_provider") {
+                "running"
+            } else {
+                "local_codex_worker_queued"
+            }
+        }),
+    )?;
+
+    let branch_name = format!("codex/paw-daily-brief-{}", short_id(&brief_id));
+    let worktree_path = worktree_path(ctx, &branch_name);
+    let task_summary = format!(
+        "agent-led Patrol daily brief for {}",
+        empty_fallback(&brief_date, "unspecified date")
+    );
+    let task_detail = daily_brief_worker_task(&prompt_input, &work_cycle_id);
+    let allowed_worker_id = configured_local_worker_id(ctx);
+
+    post_action(
+        ctx,
+        base_url,
+        headers,
+        "WorkCycles",
+        &work_cycle_id,
+        PATROL_CONFIGURE,
+        &json!({
+            "factory_case_id": "",
+            "pm_issue_id": "",
+            "task_summary": &task_summary,
+            "task_detail": &task_detail,
+            "risk_lane": "L0"
+        }),
+    )?;
+    post_action(
+        ctx,
+        base_url,
+        headers,
+        "WorkCycles",
+        &work_cycle_id,
+        PATROL_WRITE_PLAN,
+        &json!({
+            "plan_summary": "Local Codex reads the collected Patrol facts, renders a factual visual human-readable daily brief, and the WorkerRun then enters reviewer/evaluator/proof gates."
+        }),
+    )?;
+    post_action(
+        ctx,
+        base_url,
+        headers,
+        "WorkCycles",
+        &work_cycle_id,
+        PATROL_START_WORK,
+        &json!({}),
+    )?;
+    post_action(
+        ctx,
+        base_url,
+        headers,
+        "WorkerRuns",
+        &worker_run_id,
+        PATROL_CONFIGURE,
+        &json!({
+            "work_cycle_id": &work_cycle_id,
+            "factory_case_id": "",
+            "risk_lane": "L0",
+            "task": &task_detail,
+            "branch_name": &branch_name,
+            "worktree_path": &worktree_path,
+            "runner_kind": "local_codex",
+            "allowed_worker_id": &allowed_worker_id,
+            "provider_id": "local-codex",
+            "required_capabilities": "local_codex,evaluation"
+        }),
+    )?;
+    post_action(
+        ctx,
+        base_url,
+        headers,
+        "WorkCycles",
+        &work_cycle_id,
+        PATROL_ATTACH_WORKER_RUN,
+        &json!({ "implementer_worker_run_id": &worker_run_id }),
+    )?;
+    post_action(
+        ctx,
+        base_url,
+        headers,
+        "DailyBriefs",
+        &brief_id,
+        PATROL_ATTACH_WORKER_RUN,
+        &json!({
+            "work_cycle_id": &work_cycle_id,
+            "worker_run_id": &worker_run_id
         }),
     )?;
 
     ctx.log(
         "info",
         &format!(
-            "daily_brief_lifecycle: attached agent-driven DailyBrief Session {session_id} to {brief_id}"
+            "daily_brief_lifecycle: queued local Codex WorkerRun {worker_run_id} and attached DailyBrief Session {session_id} to {brief_id}"
         ),
     );
     Ok(())
@@ -165,20 +265,26 @@ struct DailyBriefPrompt<'a> {
     open_risks: &'a str,
     proof_count: usize,
     completed_work_count: usize,
+    patrol_run_count: usize,
+    linked_signal_count: usize,
     quality_risk_count: usize,
     security_risk_count: usize,
+    observability_risk_count: usize,
     fallback_visual_summary_url: &'a str,
 }
 
 fn daily_brief_session_prompt(input: &DailyBriefPrompt<'_>) -> String {
     format!(
-        "You are creating the agent-driven DailyBrief Session for Patrol.\n\nDailyBrief entity: {}\nDate: {}\n\nSource facts collected by daily_brief_lifecycle:\n- Completed WorkCycles: {}\n- Ready ProofPackets: {}\n- Open quality risks: {}\n- Open security risks: {}\n\nproof_packet_ids JSON:\n{}\n\ndone_items JSON:\n{}\n\nopen_risks JSON:\n{}\n\nRequired output action:\nUse `temper.action(\"DailyBriefs\", \"{}\", \"Render\", params)` to dispatch the Patrol render action. The OData action is `{}`.\n\nRender params:\n- summary_markdown: concise daily brief with done items, open risks, escalations, and next actions.\n- visual_summary_url: factual visual daily summary. You may reuse this fallback visual_daily_brief_svg if no better factual diagram is available: {}\n- proof_packet_ids: JSON array string from the source facts, unless you find newer Ready ProofPackets.\n- open_risks: JSON array string, refined only if you can cite Temper evidence.\n- done_items: JSON array string, refined only if you can cite Temper evidence.\n\nRules:\n- Keep the summary super readable for humans and agents.\n- Include Mermaid diagrams in summary_markdown when they clarify state transitions or risk flow.\n- Do not invent work. Query Temper if you need more detail.\n- If you cannot render safely, dispatch `TemperPaw.Patrol.Fail` on this DailyBrief with an error_message explaining the blocker.",
+        "You are creating the agent-driven DailyBrief Session for Patrol.\n\nDailyBrief entity: {}\nDate: {}\n\nSource facts collected by daily_brief_lifecycle:\n- Completed WorkCycles: {}\n- Complete PatrolRuns, including datadog_observability or github_repository patrols: {}\n- Linked Signals, including GitHub/Datadog/webhook signals: {}\n- Ready ProofPackets: {}\n- Open quality risks: {}\n- Open security risks: {}\n- Open observability/repository risks: {}\n\nproof_packet_ids JSON:\n{}\n\ndone_items JSON:\n{}\n\nopen_risks JSON:\n{}\n\nRequired output action:\nUse `temper.action(\"DailyBriefs\", \"{}\", \"Render\", params)` to dispatch the Patrol render action. The OData action is `{}`.\n\nRender params:\n- summary_markdown: concise daily brief with done items, open risks, escalations, GitHub issue/PR patrol anomalies, Datadog patrol findings, and next actions.\n- visual_summary_url: factual visual daily summary. You may reuse this fallback visual_daily_brief_svg if no better factual diagram is available: {}\n- proof_packet_ids: JSON array string from the source facts, unless you find newer Ready ProofPackets.\n- open_risks: JSON array string, refined only if you can cite Temper evidence.\n- done_items: JSON array string, refined only if you can cite Temper evidence.\n\nRules:\n- Keep the summary super readable for humans and agents.\n- Include Mermaid diagrams in summary_markdown when they clarify state transitions or risk flow.\n- Do not invent work. Query Temper if you need more detail.\n- If you cannot render safely, dispatch `TemperPaw.Patrol.Fail` on this DailyBrief with an error_message explaining the blocker.",
         input.brief_id,
         empty_fallback(input.brief_date, "unspecified"),
         input.completed_work_count,
+        input.patrol_run_count,
+        input.linked_signal_count,
         input.proof_count,
         input.quality_risk_count,
         input.security_risk_count,
+        input.observability_risk_count,
         input.proof_packet_ids,
         input.done_items,
         input.open_risks,
@@ -188,33 +294,67 @@ fn daily_brief_session_prompt(input: &DailyBriefPrompt<'_>) -> String {
     )
 }
 
-fn mock_daily_brief_plan(input: &DailyBriefPrompt<'_>) -> String {
-    let summary_markdown = format!(
-        "# Patrol Daily Brief\n\nDate: {}\n\n```mermaid\nflowchart LR\n  Work[\"Completed WorkCycles: {}\"] --> Proofs[\"Ready ProofPackets: {}\"]\n  Proofs --> Risks[\"Open risks: {}\"]\n  Risks --> Brief[\"DailyBrief.Render\"]\n```\n\n## Done items\n\n- Completed WorkCycles: {}\n- Ready ProofPackets: {}\n\n## Open risks\n\n- Quality findings: {}\n- Security findings: {}\n\nThis deterministic mock brief proves the agent-driven DailyBrief Session can dispatch `DailyBrief.Render`. Real providers replace this with richer judgment and visual prioritization.",
+fn daily_brief_worker_task(input: &DailyBriefPrompt<'_>, work_cycle_id: &str) -> String {
+    format!(
+        "You are the local Codex DailyBrief agent for Paw Patrol.\n\nDailyBrief: {}\nWorkCycle: {}\nDate: {}\n\nSource facts collected by DailyBrief.Start:\n- Completed WorkCycles: {}\n- Complete PatrolRuns, including datadog_observability or github_repository patrols: {}\n- Linked Signals, including GitHub/Datadog/webhook signals: {}\n- Ready ProofPackets: {}\n- Open quality risks: {}\n- Open security risks: {}\n- Open observability/repository risks: {}\n\nproof_packet_ids JSON:\n{}\n\ndone_items JSON:\n{}\n\nopen_risks JSON:\n{}\n\nFallback factual visual_summary_url:\n{}\n\nRequired loop:\n1. Do not edit files.\n2. Use judgment to synthesize a super-readable daily brief from these Temper facts, including GitHub issue/PR patrol results and Datadog patrol results when present.\n3. Include a Mermaid diagram in summary_markdown when it clarifies flow or risk.\n4. Return the DailyBrief JSON packet to paw-codex-worker between DAILY_BRIEF_RESULT_JSON_BEGIN and DAILY_BRIEF_RESULT_JSON_END.\n5. The worker will validate the JSON, dispatch DailyBrief.Render, and self-report WorkerRun.ReportDone so reviewer/evaluator/proof gates can run.",
+        input.brief_id,
+        work_cycle_id,
         empty_fallback(input.brief_date, "unspecified"),
         input.completed_work_count,
-        input.proof_count,
-        input.quality_risk_count + input.security_risk_count,
-        input.completed_work_count,
+        input.patrol_run_count,
+        input.linked_signal_count,
         input.proof_count,
         input.quality_risk_count,
-        input.security_risk_count
-    );
-    let params = json!({
-        "summary_markdown": summary_markdown,
-        "visual_summary_url": input.fallback_visual_summary_url,
-        "proof_packet_ids": input.proof_packet_ids,
-        "open_risks": input.open_risks,
-        "done_items": input.done_items
-    });
-    mock_temper_action_plan(
-        "mock-daily-brief-render",
-        "DailyBriefs",
-        input.brief_id,
-        "Render",
-        params,
-        "DailyBrief rendered by deterministic mock_plan.",
+        input.security_risk_count,
+        input.observability_risk_count,
+        input.proof_packet_ids,
+        input.done_items,
+        input.open_risks,
+        input.fallback_visual_summary_url
     )
+}
+
+fn maybe_configure_session(
+    ctx: &Context,
+    base_url: &str,
+    headers: &[(String, String)],
+    session_id: &str,
+    prompt_input: &DailyBriefPrompt<'_>,
+) -> Result<(), String> {
+    if !has_real_session_provider(ctx, "daily_brief_provider") {
+        ctx.log(
+            "info",
+            "daily_brief_lifecycle: no DailyBrief Session provider configured; local Codex WorkerRun is the renderer",
+        );
+        return Ok(());
+    }
+
+    let session_model = configured_session_value(ctx, "daily_brief_model", "gpt-5.2");
+    let session_provider = configured_session_value(ctx, "daily_brief_provider", "");
+    let session_prompt = daily_brief_session_prompt(prompt_input);
+
+    post_action(
+        ctx,
+        base_url,
+        headers,
+        "Sessions",
+        session_id,
+        SESSION_CONFIGURE,
+        &json!({
+            "system_prompt": "You are a Patrol daily brief assessment agent. Produce factual, visual, human-readable summaries from Temper state, and close the loop by dispatching Temper actions.",
+            "user_message": session_prompt,
+            "model": session_model,
+            "provider": session_provider,
+            "temperature": "0.4",
+            "max_turns": "8",
+            "tools_enabled": "temper_get,temper_list,temper_action,temper_read",
+            "temper_api_url": base_url,
+            "soul_id": "SRE",
+            "agent_id": "paw-patrol-daily-brief",
+            "session_mode": "patrol_daily_brief"
+        }),
+    )?;
+    Ok(())
 }
 
 fn query_collection(
@@ -248,7 +388,12 @@ fn ids_json(items: &[Value]) -> String {
     .to_string()
 }
 
-fn done_items_json(work_cycles: &[Value], proofs: &[Value]) -> String {
+fn done_items_json(
+    work_cycles: &[Value],
+    proofs: &[Value],
+    patrol_runs: &[Value],
+    signals: &[Value],
+) -> String {
     let mut items = Vec::new();
     for work_cycle in work_cycles {
         let id = entity_id_from_response(work_cycle).unwrap_or_default();
@@ -267,10 +412,28 @@ fn done_items_json(work_cycles: &[Value], proofs: &[Value]) -> String {
             "summary": "proof ready"
         }));
     }
+    for run in patrol_runs {
+        let id = entity_id_from_response(run).unwrap_or_default();
+        items.push(json!({
+            "type": "PatrolRun",
+            "id": id,
+            "summary": empty_fallback(&string_from_entity(run, "summary", "Summary"), "completed PatrolRun"),
+            "patrol_kind": string_from_entity(run, "patrol_kind", "PatrolKind")
+        }));
+    }
+    for signal in signals {
+        let id = entity_id_from_response(signal).unwrap_or_default();
+        items.push(json!({
+            "type": "Signal",
+            "id": id,
+            "summary": empty_fallback(&string_from_entity(signal, "summary", "Summary"), "linked signal"),
+            "source": string_from_entity(signal, "source", "Source")
+        }));
+    }
     json!(items).to_string()
 }
 
-fn open_risks_json(quality: &[Value], security: &[Value]) -> String {
+fn open_risks_json(quality: &[Value], security: &[Value], observability: &[Value]) -> String {
     let mut risks = Vec::new();
     for item in quality {
         risks.push(json!({
@@ -287,6 +450,16 @@ fn open_risks_json(quality: &[Value], security: &[Value]) -> String {
             "title": empty_fallback(&string_from_entity(item, "title", "Title"), "security risk"),
             "severity": empty_fallback(&string_from_entity(item, "severity", "Severity"), "high"),
             "risk_lane": empty_fallback(&string_from_entity(item, "risk_lane", "RiskLane"), "L2")
+        }));
+    }
+    for item in observability {
+        risks.push(json!({
+            "type": "ObservabilityFinding",
+            "id": entity_id_from_response(item).unwrap_or_default(),
+            "title": empty_fallback(&string_from_entity(item, "title", "Title"), "observability or repository risk"),
+            "severity": empty_fallback(&string_from_entity(item, "severity", "Severity"), "medium"),
+            "risk_lane": empty_fallback(&string_from_entity(item, "risk_lane", "RiskLane"), "L2"),
+            "source": string_from_entity(item, "source", "Source")
         }));
     }
     json!(risks).to_string()
@@ -383,45 +556,52 @@ fn configured_session_value(ctx: &Context, key: &str, fallback: &str) -> String 
         .unwrap_or_else(|| fallback.to_string())
 }
 
-fn mock_temper_action_plan(
-    tool_call_id: &str,
-    entity_set: &str,
-    entity_id: &str,
-    action_name: &str,
-    params: Value,
-    final_text: &str,
-) -> String {
-    let params_json = params.to_string();
-    let code = format!(
-        "params = json.loads({})\ntemper.action({}, {}, {}, params)",
-        json_string_literal(&params_json),
-        json_string_literal(entity_set),
-        json_string_literal(entity_id),
-        json_string_literal(action_name)
-    );
-    json!({
-        "mock_plan": {
-            "steps": [
-                {
-                    "tool_calls": [
-                        {
-                            "id": tool_call_id,
-                            "name": "temper.action",
-                            "input": { "code": code }
-                        }
-                    ]
-                },
-                {
-                    "final_text": final_text
-                }
-            ]
-        }
-    })
-    .to_string()
+fn has_real_session_provider(ctx: &Context, key: &str) -> bool {
+    !configured_session_value(ctx, key, "").trim().is_empty()
 }
 
-fn json_string_literal(value: &str) -> String {
-    serde_json::to_string(value).unwrap_or_else(|_| "\"\"".to_string())
+fn configured_local_worker_id(ctx: &Context) -> String {
+    ctx.config
+        .get("local_codex_worker_id")
+        .filter(|value| !value.trim().is_empty() && !value.contains("{secret:"))
+        .cloned()
+        .unwrap_or_else(|| "mac-mini-codex-prod".to_string())
+}
+
+fn configured_local_worktree_root(ctx: &Context) -> String {
+    ctx.config
+        .get("local_codex_worktree_root")
+        .filter(|value| !value.trim().is_empty() && !value.contains("{secret:"))
+        .cloned()
+        .unwrap_or_else(|| "/Users/openclaw/Development/temperpaw-worktrees".to_string())
+}
+
+fn worktree_path(ctx: &Context, branch_name: &str) -> String {
+    format!(
+        "{}/{}",
+        configured_local_worktree_root(ctx).trim_end_matches('/'),
+        branch_name.replace('/', "-")
+    )
+}
+
+fn short_id(entity_id: &str) -> String {
+    let tail: String = entity_id
+        .chars()
+        .rev()
+        .take(8)
+        .collect::<String>()
+        .chars()
+        .rev()
+        .collect();
+    tail.chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() {
+                ch.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
+        .collect()
 }
 
 fn create_entity(

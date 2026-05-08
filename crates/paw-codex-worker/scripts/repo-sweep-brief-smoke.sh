@@ -100,7 +100,18 @@ entity_url() {
 
 field() {
   local key="$1"
-  jq -r --arg key "$key" '.fields[$key] // .fields[($key | ascii_downcase)] // ""'
+  jq -r --arg key "$key" '
+    def norm_key: ascii_downcase | gsub("_"; "");
+    def top_level: . as $root | ($root[$key]
+      // $root[($key | ascii_downcase)]
+      // ($root | to_entries[]? | select(.key | norm_key == ($key | norm_key)) | .value)
+      // empty);
+    (top_level
+      // .fields[$key]
+      // .fields[($key | ascii_downcase)]
+      // (.fields // {} | to_entries[]? | select(.key | norm_key == ($key | norm_key)) | .value)
+      // "")
+  '
 }
 
 wait_for_metadata() {
@@ -281,6 +292,8 @@ TEMPERPAW_WASM_STARTUP_POLICY=build \
 PORT="$PORT" \
 TEMPER_API_KEY="$API_KEY" \
 PAW_TENANT="$TENANT" \
+LOCAL_CODEX_WORKER_ID="$WORKER_ID" \
+LOCAL_CODEX_WORKTREE_ROOT="$WORKSPACE_ROOT" \
 TURSO_URL="file:${DB_PATH}" \
 cargo run -p temperpaw >/tmp/paw-patrol-repo-smoke-server.log 2>&1 &
 SERVER_PID="$!"
@@ -321,7 +334,7 @@ WORKER_TOKEN="$API_KEY" \
 REPO_ROOT="$ROOT" \
 WORKSPACE_ROOT="$WORKSPACE_ROOT" \
 CODEX_BIN="$ROOT/crates/paw-codex-worker/fixtures/fake-codex.sh" \
-PAW_CODEX_ENABLE_EXECUTION=0 \
+PAW_CODEX_ENABLE_EXECUTION=1 \
 PAW_CODEX_POLL_ON_START=1 \
 cargo run -p paw-codex-worker >/tmp/paw-patrol-repo-smoke-worker.log 2>&1 &
 WORKER_PID="$!"
@@ -330,12 +343,11 @@ worker_body="$(wait_for_status WorkerRuns "$worker_run_id" Done 180)"
 WORKTREE_PATH="$(field worktree_path <<<"$worker_body")"
 BRANCH_NAME="$(field branch_name <<<"$worker_body")"
 snapshot_ready_body="$(wait_for_status RepoGraphSnapshots "$snapshot_id" Ready 60)"
-snapshot_ready_body="$(wait_for_field RepoGraphSnapshots "$snapshot_id" assessment_session_id 60)"
 snapshot_ready_body="$(wait_for_field RepoGraphSnapshots "$snapshot_id" assessment_summary_markdown 120)"
 assessment_session_id="$(field assessment_session_id <<<"$snapshot_ready_body")"
 assessment_status="$(field assessment_status <<<"$snapshot_ready_body")"
-if [[ "$assessment_status" != "complete" ]]; then
-  log "RepoGraphSnapshot assessment_status was '${assessment_status}', expected 'complete'"
+if [[ "$assessment_status" != "complete" && "$assessment_status" != "complete_from_repo_health_agent" ]]; then
+  log "RepoGraphSnapshot assessment_status was '${assessment_status}', expected 'complete' or 'complete_from_repo_health_agent'"
   curl_json "$(entity_url RepoGraphSnapshots "$snapshot_id")" | jq .
   exit 1
 fi

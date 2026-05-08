@@ -13,6 +13,7 @@ use temper_wasm_sdk::prelude::*;
 const FACTORY_CASES_PATH: &str = "/tdata/FactoryCases";
 const QUALITY_FINDINGS_PATH: &str = "/tdata/QualityFindings";
 const SECURITY_FINDINGS_PATH: &str = "/tdata/SecurityFindings";
+const OBSERVABILITY_FINDINGS_PATH: &str = "/tdata/ObservabilityFindings";
 const WORKER_RUNS_PATH: &str = "/tdata/WorkerRuns";
 
 const PATROL_CONFIGURE: &str = "TemperPaw.Patrol.Configure";
@@ -21,6 +22,11 @@ const PATROL_ATTACH_WORKER_RUN: &str = "TemperPaw.Patrol.AttachWorkerRun";
 const PATROL_QUEUE_WORK: &str = "TemperPaw.Patrol.QueueWork";
 const PATROL_COMPLETE: &str = "TemperPaw.Patrol.Complete";
 const PATROL_RESOLVE: &str = "TemperPaw.Patrol.Resolve";
+
+struct WorkerAssignment {
+    branch_name: String,
+    worktree_path: String,
+}
 
 #[unsafe(no_mangle)]
 pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
@@ -32,6 +38,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
 
         match ctx.trigger_action.as_str() {
             "ApproveHumanStart" => handle_human_start_approved(&ctx, &base_url, &headers, &fields),
+            "RequestChanges" => handle_review_changes_requested(&ctx, &base_url, &headers, &fields),
             "ApproveHumanCompletion" => {
                 handle_human_completion_approved(&ctx, &base_url, &headers, &fields)
             }
@@ -92,7 +99,9 @@ fn handle_human_start_approved(
             "branch_name": &branch_name,
             "worktree_path": &worktree_path,
             "runner_kind": "local_codex",
-            "allowed_worker_id": &allowed_worker_id
+            "allowed_worker_id": &allowed_worker_id,
+            "provider_id": "local-codex",
+            "required_capabilities": required_capabilities_for_task(&task)
         }),
     )?;
 
@@ -140,6 +149,78 @@ fn handle_human_start_approved(
         "info",
         &format!(
             "work_cycle_lifecycle: queued human-approved L3 work {work_cycle_id} as WorkerRun {worker_run_id}"
+        ),
+    );
+    Ok(())
+}
+
+fn handle_review_changes_requested(
+    ctx: &Context,
+    base_url: &str,
+    headers: &[(String, String)],
+    fields: &Value,
+) -> Result<(), String> {
+    let work_cycle_id = entity_id(ctx);
+    let case_id = string_field(fields, "factory_case_id", "FactoryCaseId");
+    let risk_lane = {
+        let value = string_field(fields, "risk_lane", "RiskLane");
+        if value.trim().is_empty() {
+            "L1".to_string()
+        } else {
+            value
+        }
+    };
+    let task_summary = string_field(fields, "task_summary", "TaskSummary");
+    let task_detail = string_field(fields, "task_detail", "TaskDetail");
+    let reviewer_feedback = string_param(ctx, fields, "error_message", "ErrorMessage");
+
+    let worker_run_id = create_entity(ctx, base_url, headers, WORKER_RUNS_PATH)?;
+    let assignment = previous_worker_assignment(ctx, base_url, headers, fields)?
+        .unwrap_or_else(|| fallback_review_assignment(ctx, &work_cycle_id));
+    let branch_name = assignment.branch_name;
+    let worktree_path = assignment.worktree_path;
+    let task = revision_worker_task(
+        &work_cycle_id,
+        &case_id,
+        &task_summary,
+        &task_detail,
+        &reviewer_feedback,
+    );
+
+    post_action(
+        ctx,
+        base_url,
+        headers,
+        entity_set(WORKER_RUNS_PATH),
+        &worker_run_id,
+        PATROL_CONFIGURE,
+        &json!({
+            "work_cycle_id": &work_cycle_id,
+            "factory_case_id": &case_id,
+            "risk_lane": &risk_lane,
+            "task": &task,
+            "branch_name": &branch_name,
+            "worktree_path": &worktree_path,
+            "runner_kind": "local_codex",
+            "allowed_worker_id": configured_local_worker_id(ctx),
+            "provider_id": "local-codex",
+            "required_capabilities": required_capabilities_for_task(&task),
+        }),
+    )?;
+    post_action(
+        ctx,
+        base_url,
+        headers,
+        "WorkCycles",
+        &work_cycle_id,
+        PATROL_ATTACH_WORKER_RUN,
+        &json!({ "implementer_worker_run_id": &worker_run_id }),
+    )?;
+
+    ctx.log(
+        "info",
+        &format!(
+            "work_cycle_lifecycle: queued reviewer-requested rework for WorkCycle {work_cycle_id} as WorkerRun {worker_run_id}"
         ),
     );
     Ok(())
@@ -221,6 +302,7 @@ fn handle_complete(
     let source_set = match source_entity_type.trim() {
         "QualityFinding" | "QualityFindings" => entity_set(QUALITY_FINDINGS_PATH),
         "SecurityFinding" | "SecurityFindings" => entity_set(SECURITY_FINDINGS_PATH),
+        "ObservabilityFinding" | "ObservabilityFindings" => entity_set(OBSERVABILITY_FINDINGS_PATH),
         other => {
             ctx.log(
                 "warn",
@@ -263,6 +345,17 @@ fn handle_complete(
     Ok(())
 }
 
+fn required_capabilities_for_task(task: &str) -> &'static str {
+    let task = task.to_ascii_lowercase();
+    if task.contains("github") {
+        "local_codex,repo_write,github_query"
+    } else if task.contains("datadog") {
+        "local_codex,repo_write,datadog_query"
+    } else {
+        "local_codex,repo_write"
+    }
+}
+
 fn fallback_task(
     work_cycle_id: &str,
     case_id: &str,
@@ -270,8 +363,68 @@ fn fallback_task(
     approval_summary: &str,
 ) -> String {
     format!(
-        "You are the local Codex implementer for human-approved L3 work.\n\nFactoryCase: {case_id}\nWorkCycle: {work_cycle_id}\nSummary: {task_summary}\nHuman approval: {approval_summary}\n\nRequired loop:\n1. Work in the assigned git worktree and branch.\n2. Follow red-green TDD before implementation.\n3. Keep orchestration Temper-native: entity specs, WASM integrations, and Cedar policies.\n4. Run focused tests and relevant live/E2E verification.\n5. Produce a visual ProofPacket and self-report WorkerRun.ReportDone or WorkerRun.ReportFailed."
+        "You are the local Codex implementer for human-approved L3 work.\n\nFactoryCase: {case_id}\nWorkCycle: {work_cycle_id}\nSummary: {task_summary}\nHuman approval: {approval_summary}\n\nRequired loop:\n1. Work in the assigned git worktree and branch.\n2. Follow red-green TDD before implementation.\n3. Keep orchestration Temper-native: entity specs, WASM integrations, and Cedar policies.\n4. Run focused tests and relevant live/E2E verification.\n5. Produce a visual ProofPacket and finish normally. The paw-codex-worker will report WorkerRun.ReportDone or WorkerRun.ReportFailed to Temper after the local Codex process exits."
     )
+}
+
+fn revision_worker_task(
+    work_cycle_id: &str,
+    case_id: &str,
+    task_summary: &str,
+    task_detail: &str,
+    reviewer_feedback: &str,
+) -> String {
+    format!(
+        "You are the local Codex implementer for reviewer-requested rework.\n\nFactoryCase: {case_id}\nWorkCycle: {work_cycle_id}\nSummary: {task_summary}\n\nOriginal task:\n{task_detail}\n\nReviewer feedback requiring changes:\n{reviewer_feedback}\n\nRequired loop:\n1. Continue in the assigned git worktree and branch, updating the existing PR when one exists.\n2. Address the reviewer feedback directly; keep unrelated changes out.\n3. Follow red-green TDD for the correction when a test can express it.\n4. Run the focused tests and live/E2E checks named by the reviewer when applicable.\n5. Produce updated proof in the WorkerRun result. The paw-codex-worker will report WorkerRun.ReportDone or WorkerRun.ReportFailed to Temper after the local Codex process exits."
+    )
+}
+
+fn previous_worker_assignment(
+    ctx: &Context,
+    base_url: &str,
+    headers: &[(String, String)],
+    fields: &Value,
+) -> Result<Option<WorkerAssignment>, String> {
+    let previous_worker_run_id =
+        string_field(fields, "implementer_worker_run_id", "ImplementerWorkerRunId");
+    if previous_worker_run_id.trim().is_empty() {
+        return Ok(None);
+    }
+
+    let entity = get_entity(
+        ctx,
+        base_url,
+        headers,
+        entity_set(WORKER_RUNS_PATH),
+        &previous_worker_run_id,
+    )?;
+    let branch_name = string_from_entity(&entity, "branch_name", "BranchName");
+    if branch_name.trim().is_empty() {
+        return Ok(None);
+    }
+    let mut assigned_worktree_path = string_from_entity(&entity, "worktree_path", "WorktreePath");
+    if assigned_worktree_path.trim().is_empty() {
+        assigned_worktree_path = worktree_path(ctx, &branch_name);
+    }
+
+    ctx.log(
+        "info",
+        &format!(
+            "work_cycle_lifecycle: reviewer-requested rework will reuse the existing assigned git worktree and branch from WorkerRun {previous_worker_run_id}"
+        ),
+    );
+    Ok(Some(WorkerAssignment {
+        branch_name,
+        worktree_path: assigned_worktree_path,
+    }))
+}
+
+fn fallback_review_assignment(ctx: &Context, work_cycle_id: &str) -> WorkerAssignment {
+    let branch_name = format!("codex/paw-review-fix-{}", short_id(work_cycle_id));
+    WorkerAssignment {
+        worktree_path: worktree_path(ctx, &branch_name),
+        branch_name,
+    }
 }
 
 fn entity_id(ctx: &Context) -> String {
@@ -296,6 +449,25 @@ fn string_field(fields: &Value, snake: &str, pascal: &str) -> String {
         .get(snake)
         .and_then(Value::as_str)
         .or_else(|| fields.get(pascal).and_then(Value::as_str))
+        .unwrap_or("")
+        .to_string()
+}
+
+fn string_from_entity(entity: &Value, snake: &str, pascal: &str) -> String {
+    entity
+        .get(snake)
+        .and_then(Value::as_str)
+        .or_else(|| entity.get(pascal).and_then(Value::as_str))
+        .or_else(|| {
+            entity
+                .pointer(&format!("/fields/{snake}"))
+                .and_then(Value::as_str)
+        })
+        .or_else(|| {
+            entity
+                .pointer(&format!("/fields/{pascal}"))
+                .and_then(Value::as_str)
+        })
         .unwrap_or("")
         .to_string()
 }
@@ -406,6 +578,18 @@ fn get_status(
     let resp = ctx.http_call("GET", &url, headers, "")?;
     let body = parse_json_response(resp, &format!("get {entity_set}('{entity_id}')"))?;
     Ok(status_from_response(&body))
+}
+
+fn get_entity(
+    ctx: &Context,
+    base_url: &str,
+    headers: &[(String, String)],
+    entity_set: &str,
+    entity_id: &str,
+) -> Result<Value, String> {
+    let url = format!("{base_url}/tdata/{entity_set}('{entity_id}')");
+    let resp = ctx.http_call("GET", &url, headers, "")?;
+    parse_json_response(resp, &format!("get {entity_set}('{entity_id}')"))
 }
 
 fn post_action(

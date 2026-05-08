@@ -3,6 +3,8 @@ async fn run_doctor(client: &reqwest::Client, config: &Config) -> Result<()> {
     checks.push(check_path("repo_root", &config.repo_root, true));
     checks.push(check_path("workspace_root", &config.workspace_root, false));
     checks.push(check_worker_token(config));
+    checks.push(check_worker_capabilities());
+    checks.push(check_datadog_mcp_contract());
     checks.push(check_execution_safety(config));
     checks.push(check_codex_binary(config).await);
     checks.push(check_codex_exec_smoke(config).await);
@@ -14,6 +16,63 @@ async fn run_doctor(client: &reqwest::Client, config: &Config) -> Result<()> {
         bail!("paw-codex-worker doctor found failing checks")
     }
     Ok(())
+}
+
+fn check_worker_capabilities() -> DoctorCheck {
+    let capabilities = worker_capabilities();
+    if capabilities.is_empty() {
+        DoctorCheck::fail(
+            "worker_capabilities",
+            "PAW_CODEX_WORKER_CAPABILITIES resolved to an empty set".to_string(),
+        )
+    } else if capabilities.iter().any(|capability| capability == "datadog_query")
+        && capabilities.iter().any(|capability| capability == "github_query")
+    {
+        DoctorCheck::pass(
+            "worker_capabilities",
+            format!("advertising {}", capabilities.join(",")),
+        )
+    } else {
+        DoctorCheck::warn(
+            "worker_capabilities",
+            format!(
+                "advertising {}; Datadog Patrol requires datadog_query and GitHub Patrol requires github_query",
+                capabilities.join(",")
+            ),
+        )
+    }
+}
+
+fn check_datadog_mcp_contract() -> DoctorCheck {
+    let capabilities = worker_capabilities();
+    let has_datadog = capabilities
+        .iter()
+        .any(|capability| capability == "datadog_query");
+    let has_github = capabilities
+        .iter()
+        .any(|capability| capability == "github_query");
+    if has_datadog && has_github {
+        DoctorCheck::pass(
+            "patrol_query_capabilities",
+            "worker advertises datadog_query and github_query; Patrol will use local Codex agent contracts"
+                .to_string(),
+        )
+    } else {
+        let missing = [
+            (!has_datadog).then_some("datadog_query"),
+            (!has_github).then_some("github_query"),
+        ]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>()
+        .join(",");
+        DoctorCheck::warn(
+            "patrol_query_capabilities",
+            format!(
+                "worker is missing {missing}; Patrol runs with that capability will not be claimed"
+            ),
+        )
+    }
 }
 
 fn check_path(name: &str, path: &Path, must_be_git_repo: bool) -> DoctorCheck {

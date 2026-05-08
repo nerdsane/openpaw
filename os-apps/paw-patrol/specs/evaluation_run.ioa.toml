@@ -35,6 +35,11 @@ name = "error_message"
 type = "string"
 initial = ""
 
+[[state]]
+name = "failure_classification"
+type = "string"
+initial = ""
+
 [[action]]
 name = "Queue"
 kind = "input"
@@ -80,7 +85,7 @@ name = "Fail"
 kind = "input"
 from = ["Queued", "Running"]
 to = "Failed"
-params = ["results_json", "error_message"]
+params = ["results_json", "error_message", "failure_classification"]
 effect = [{ type = "trigger", name = "evaluation_run_failed" }]
 hint = "One or more required automated checks failed."
 
@@ -96,10 +101,10 @@ temper_api_url = "{secret:temper_api_url}"
 state = "Queued"
 after_seconds = 86400
 on_timeout = "Fail"
-params = { results_json = "{}", error_message = "EvaluationRun was not started within 24h." }
+params = { results_json = "{}", error_message = "EvaluationRun was not started within 24h.", failure_classification = "evaluation_not_started_timeout" }
 
 [[state_timeout]]
 state = "Running"
 after_seconds = 21600
 on_timeout = "Fail"
-params = { results_json = "{}", error_message = "EvaluationRun ran for 6h without completing." }
+params = { results_json = "{}", error_message = "EvaluationRun ran for 6h without completing.", failure_classification = "evaluation_entity_timeout" }

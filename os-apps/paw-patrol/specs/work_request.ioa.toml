@@ -1,0 +1,131 @@
+[automaton]
+name = "WorkRequest"
+states = ["Draft", "Submitted", "Triaged", "Accepted", "Rejected", "Linked"]
+initial = "Draft"
+
+allow_indefinite_states = ["Draft", "Accepted", "Rejected", "Linked"]
+
+[[state]]
+name = "source"
+type = "string"
+initial = ""
+
+[[state]]
+name = "request_text"
+type = "string"
+initial = ""
+
+[[state]]
+name = "requester_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "signal_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "factory_case_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "pm_issue_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "triage_summary"
+type = "string"
+initial = ""
+
+[[state]]
+name = "error_message"
+type = "string"
+initial = ""
+
+[[state]]
+name = "integration"
+type = "string"
+initial = ""
+
+[[action]]
+name = "Submit"
+kind = "input"
+from = ["Draft"]
+to = "Submitted"
+params = ["source", "request_text", "requester_id"]
+effect = [{ type = "trigger", name = "route_work_request" }]
+hint = "Submit human or manager-agent intent into Patrol as work."
+
+[[action.triggers]]
+name = "route_work_request"
+kind = "wasm"
+module = "patrol_request_router"
+on_failure = "RouteFailed"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+local_codex_worker_id = "{secret:local_codex_worker_id}"
+local_codex_worktree_root = "{secret:local_codex_worktree_root}"
+
+[[action]]
+name = "AttachSignal"
+kind = "input"
+from = ["Submitted", "Triaged"]
+to = "Submitted"
+params = ["signal_id"]
+hint = "Attach an observed signal to this work request."
+
+[[action]]
+name = "Triage"
+kind = "input"
+from = ["Submitted"]
+to = "Triaged"
+params = ["triage_summary"]
+hint = "Record Patrol triage before accepting or rejecting the request."
+
+[[action]]
+name = "AcceptAsCase"
+kind = "input"
+from = ["Triaged"]
+to = "Accepted"
+params = ["factory_case_id"]
+hint = "Accept this request as a FactoryCase."
+
+[[action]]
+name = "LinkPmIssue"
+kind = "input"
+from = ["Accepted", "Linked"]
+to = "Linked"
+params = ["pm_issue_id"]
+hint = "Link the durable paw-pm Issue created or reused by Patrol."
+
+[[action]]
+name = "Reject"
+kind = "input"
+from = ["Triaged", "Submitted"]
+to = "Rejected"
+params = ["triage_summary"]
+hint = "Reject a request that should not become work."
+
+[[action]]
+name = "RouteFailed"
+kind = "input"
+from = ["Submitted", "Triaged", "Accepted"]
+to = "Rejected"
+params = ["error_message", "integration"]
+hint = "Reject a request when the intake router cannot safely create the Patrol case."
+
+[[state_timeout]]
+state = "Submitted"
+after_seconds = 86400
+on_timeout = "Reject"
+params = { triage_summary = "WorkRequest was not triaged within 24h." }
+
+[[state_timeout]]
+state = "Triaged"
+after_seconds = 86400
+on_timeout = "Reject"
+params = { triage_summary = "WorkRequest was not accepted or rejected within 24h." }

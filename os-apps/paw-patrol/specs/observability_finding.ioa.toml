@@ -1,0 +1,137 @@
+[automaton]
+name = "ObservabilityFinding"
+states = ["Open", "Accepted", "InProgress", "Resolved", "Escalated", "Waived"]
+initial = "Open"
+
+allow_indefinite_states = ["Open", "Resolved", "Escalated", "Waived"]
+
+[[state]]
+name = "title"
+type = "string"
+initial = ""
+
+[[state]]
+name = "severity"
+type = "string"
+initial = ""
+
+[[state]]
+name = "risk_lane"
+type = "string"
+initial = "L2"
+
+[[state]]
+name = "source"
+type = "string"
+initial = "datadog"
+
+[[state]]
+name = "datadog_monitor_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "evidence_json"
+type = "string"
+initial = "{}"
+
+[[state]]
+name = "affected_services"
+type = "string"
+initial = "[]"
+
+[[state]]
+name = "fingerprint"
+type = "string"
+initial = ""
+
+[[state]]
+name = "patrol_run_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "signal_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "pm_issue_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "work_cycle_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "resolution_summary"
+type = "string"
+initial = ""
+
+[[action]]
+name = "OpenFinding"
+kind = "input"
+from = ["Open"]
+to = "Open"
+params = ["title", "severity", "risk_lane", "source", "datadog_monitor_id", "evidence_json", "affected_services", "fingerprint", "patrol_run_id", "signal_id"]
+hint = "Record a runtime, Datadog, incident, log, trace, or monitor finding from Risk Patrol."
+
+[[action]]
+name = "Accept"
+kind = "input"
+from = ["Open"]
+to = "Accepted"
+effect = [{ type = "trigger", name = "observability_finding_accepted" }]
+hint = "Accept this observability finding as actionable work."
+
+[[action.triggers]]
+name = "observability_finding_accepted"
+kind = "wasm"
+module = "finding_lifecycle"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+local_codex_worker_id = "{secret:local_codex_worker_id}"
+local_codex_worktree_root = "{secret:local_codex_worktree_root}"
+
+[[action]]
+name = "LinkPmIssue"
+kind = "input"
+from = ["Accepted", "InProgress"]
+to = "Accepted"
+params = ["pm_issue_id"]
+hint = "Link the paw-pm Issue for this observability finding."
+
+[[action]]
+name = "StartWork"
+kind = "input"
+from = ["Accepted"]
+to = "InProgress"
+params = ["work_cycle_id"]
+hint = "Start a Patrol WorkCycle for this observability finding."
+
+[[action]]
+name = "Resolve"
+kind = "input"
+from = ["InProgress", "Accepted"]
+to = "Resolved"
+params = ["resolution_summary"]
+hint = "Resolve after implementation, verification, proof, and risk-gate satisfaction."
+
+[[action]]
+name = "Escalate"
+kind = "input"
+from = ["Open", "Accepted", "InProgress"]
+to = "Escalated"
+params = ["resolution_summary"]
+hint = "Escalate a sensitive or blocked runtime issue."
+
+[[action]]
+name = "Waive"
+kind = "input"
+from = ["Open", "Accepted"]
+to = "Waived"
+params = ["resolution_summary"]
+hint = "Waive with explicit rationale."

@@ -8,14 +8,25 @@ and runs the implementation loop through Temper-visible state transitions.
 
 ## Entity Types
 
+### WorkRequest
+WorkRequest means human or manager-agent intent: "do this work", "clean this
+up", or "investigate this thing." OpenClaw, Discord, or a human dashboard
+submits here instead of writing directly to paw-pm.
+
 ### PatrolRequest
-Human or manager-agent request submitted into Patrol. OpenClaw, Discord, or a
-human dashboard submits here instead of writing directly to paw-pm.
+Legacy name for request intake. New intake should use WorkRequest; Patrol keeps
+PatrolRequest readable so older webhook history and tests remain understandable.
 
 ### Signal
-Machine-observed event from Discord, Datadog, GitHub, schedules, or repo sweeps.
-`Signal.Ingest` routes actionable failures through `signal_router`; obvious
-noise is archived visibly.
+Signal means observed evidence: a machine-observed event from Discord, Datadog,
+GitHub, schedules, or repo sweeps. `Signal.Ingest` routes actionable failures
+through `signal_router`; obvious noise is archived visibly.
+
+### PatrolRun
+PatrolRun means active investigation. Risk Patrol creates a PatrolRun for
+agent-driven sweeps like `datadog_observability`; the run queues a capable
+WorkerRun, records evidence, opens durable findings/cases/work, and completes
+or escalates through Temper actions.
 
 ### FactoryCase
 The operational case that groups one request or signal, its risk floor, linked
@@ -55,12 +66,13 @@ raise risk but cannot silently lower the rule-derived floor.
 
 ### RepoGraphSnapshot
 Recurring codebase/dependency graph snapshot for routing, quality cleanup,
-security sweeps, and agent orientation. The local Codex worker first produces
-deterministic graph evidence: file/dependency indexes, pattern matches, giant
-module candidates, duplicate candidates, and seeded findings. Patrol then
-attaches an intelligent assessment Session that reviews the deterministic graph
-evidence, adds security/readability judgment, produces visual diagrams, and
-closes the assessment by dispatching `AssessmentComplete`.
+security sweeps, and agent orientation. The local Codex worker performs an
+agent-led investigation of the repo/dependency graph, giant modules, duplicate
+logic, specs, Cedar policies, WASM modules, dependencies, tests, proofs,
+security drift, and readability. Patrol validates the structured findings,
+opens QualityFinding/SecurityFinding entities, records the visual summary, and
+dispatches `AssessmentComplete` from the agent evidence unless a configured real
+assessment Session is available.
 
 ### QualityFinding
 Readable code health finding: giant modules, duplicated logic, TODO/HACK
@@ -73,11 +85,12 @@ surface, dependency risk, or risky deploy/billing/provider change.
 
 ### DailyBrief
 Daily visual and textual summary of completed work, open risks, new findings,
-proof packets, and escalations. It is an agent-driven DailyBrief Session:
-`daily_brief_lifecycle` only gathers source facts, creates the Session, and
-attaches it. The Session writes the visual daily summary and dispatches
-`DailyBrief.Render`, so the brief can include judgment, diagrams, and readable
-prioritization instead of a hidden deterministic "tests passed" rollup.
+proof packets, and escalations. It is an agent-driven DailyBrief Session plus
+local Codex WorkerRun: `daily_brief_lifecycle` gathers source facts, creates the
+Session record, queues the local Codex WorkerRun, and attaches both. Codex writes
+the visual daily summary through `DailyBrief.Render`, then self-reports through
+the normal reviewer/evaluator/proof gates so the brief can include judgment,
+diagrams, and readable prioritization.
 
 ### PatrolSchedule
 Recurring Patrol job that schedules repo sweeps and daily briefs from Temper
@@ -122,7 +135,7 @@ Submit everything to Patrol first:
 You / OpenClaw / Discord / Datadog / GitHub / schedule
         |
         v
-PatrolRequest or Signal
+WorkRequest / legacy PatrolRequest / Signal / PatrolRun
         |
         v
 FactoryCase + risk floor
@@ -161,7 +174,7 @@ Webhook intake is provided by `paw-ingest`, with routes seeded by Patrol:
 
 ```text
 POST /triggers/webhook/patrol-request
-  -> WebhookEvent -> PatrolRequest.Submit
+  -> WebhookEvent -> WorkRequest.Submit
 
 POST /triggers/webhook/patrol-signal
 POST /triggers/webhook/patrol-datadog
@@ -172,15 +185,22 @@ POST /triggers/webhook/patrol-discord
 
 Use `patrol-request` for human or manager-agent asks. Use the signal routes for
 observed failures, alerts, traces, GitHub events, and Discord incidents.
+Older diagrams may say `WebhookEvent -> PatrolRequest.Submit`; read that as
+legacy intake compatibility. New human or manager-agent work should flow through
+`WebhookEvent -> WorkRequest.Submit`.
 
 ## WASM Modules
 
 Patrol's business logic lives in WASM integrations on entity actions. The Rust
 server hosts Temper and triggers, but these modules own the workflow decisions:
 
-- `patrol_request_router`: turns an accepted `PatrolRequest` into a
+- `patrol_request_router`: turns an accepted `WorkRequest` or legacy
+  `PatrolRequest` into a
   `FactoryCase`, optional paw-pm Issue linkage, `WorkCycle`, and queued
   `WorkerRun`.
+- `patrol_run_lifecycle`: starts Risk Patrol investigations such as Datadog
+  Observability Patrol, picks a registered worker with the required
+  capabilities, and escalates visibly if no capable worker is available.
 - `signal_router`: routes Datadog, Discord, GitHub, and other machine signals
   into Patrol cases, work cycles, and worker assignments when the signal is
   real work.
@@ -196,7 +216,7 @@ server hosts Temper and triggers, but these modules own the workflow decisions:
   failure, and source-finding resolution.
 - `patrol_schedule_lifecycle`: keeps recurring Patrol schedules inside Temper
   by creating repo sweeps and daily briefs from schedule transitions.
-- `daily_brief_lifecycle`: renders the human-readable daily rollup from
+- `daily_brief_lifecycle`: queues the local Codex DailyBrief WorkerRun from
   finished proof packets, findings, and open risks.
 
 ## Default Schedule
@@ -219,16 +239,27 @@ TriggerComplete schedules the next daily Trigger
 Pause or edit that PatrolSchedule in Temper if production should wait before
 daily repo sweeps and briefs begin.
 
+If a schedule fails because a required WASM module, policy, or secret was not
+loaded yet, repair the missing dependency and dispatch `PatrolSchedule.Recover`.
+Recovery recomputes `next_run_at` through the same `patrol_schedule_lifecycle`
+activation path and keeps the repair visible in the entity history.
+
 ## Mac Mini Worker
 
-The Mac mini runs `paw-codex-worker` under launchd. The worker connects outbound
-to Railway TemperPaw's `/tdata/$events`, watches for `WorkerRun.Queued`, claims
-work through Cedar, starts local Codex, then reports completion back to Temper.
+The Mac mini runs `paw-codex-worker` under launchd as the `openclaw` user. The
+worker connects outbound to Railway TemperPaw's `/tdata/$events`, watches for
+`WorkerRun.Queued`, claims work through Cedar, starts local Codex, then reports
+completion back to Temper. Codex subscription auth and Datadog MCP auth also
+belong to `/Users/openclaw`, so worker worktrees, env files, launchd plist, and
+doctor checks all stay under that user.
 Patrol sets `WorkerRun.allowed_worker_id` from `local_codex_worker_id` so only
 the registered local worker principal can claim the queued run. Patrol sets
 `WorkerRun.worktree_path` from `local_codex_worktree_root` so queued runs point
 at the worker host's worktree root rather than the machine that submitted the
 request or signal.
+Patrol also sets `WorkerRun.required_capabilities`; Datadog Patrol requires
+`datadog_query`, so a generic local Codex worker cannot silently claim
+observability work without the Datadog read capability.
 
 This is resource-bound ownership. The principal ID identifies the caller; the
 resource assignment field identifies which exact Temper entity the caller is
