@@ -14,8 +14,8 @@ up", or "investigate this thing." OpenClaw, Discord, or a human dashboard
 submits here instead of writing directly to paw-pm.
 
 ### PatrolRequest
-Legacy name for request intake. New intake should use WorkRequest; Patrol keeps
-PatrolRequest readable so older webhook history and tests remain understandable.
+Legacy name for request intake. New intake must use WorkRequest; PatrolRequest
+stays readable only for old entity history and compatibility tests.
 
 ### Signal
 Signal means observed evidence: a machine-observed event from Discord, Datadog,
@@ -24,9 +24,9 @@ through `signal_router`; obvious noise is archived visibly.
 
 ### PatrolRun
 PatrolRun means active investigation. Risk Patrol creates a PatrolRun for
-agent-driven sweeps like `datadog_observability`; the run queues a capable
-WorkerRun, records evidence, opens durable findings/cases/work, and completes
-or escalates through Temper actions.
+agent-driven sweeps such as `datadog_observability` and `github_repository`;
+the run queues a capable WorkerRun, records evidence, opens durable
+findings/cases/work, and completes or escalates through Temper actions.
 
 ### FactoryCase
 The operational case that groups one request or signal, its risk floor, linked
@@ -48,11 +48,14 @@ starts local Codex with ChatGPT auth, and self-reports results.
 ### ReviewRun
 Independent reviewer pass over the implementer's diff and proof. The reviewer
 must inspect the implementation, rerun relevant checks, and run live or E2E
-verification when the touched surface requires it.
+verification when the touched surface requires it. The reviewer returns one of
+three meaningful verdicts: approve, request changes, or escalate.
 
 ### EvaluationRun
 Automated gate execution and result capture for tests, proof requirements,
-policy gates, architecture checks, and targeted live verification evidence.
+policy gates, architecture checks, and targeted live verification evidence. If
+an evaluation fails while the WorkCycle is in review, Patrol treats it like
+requested rework and queues the implementer again with the failing evidence.
 
 ### ProofPacket
 Human-readable and machine-readable proof. The human view should include a
@@ -149,6 +152,19 @@ WorkCycle -> WorkerRun -> ReviewRun -> EvaluationRun -> ProofPacket
 Review + evaluation + proof gates close WorkCycle before human escalation
 ```
 
+Use the three intake shapes this way:
+
+| Shape | Use it for | What Patrol creates |
+| --- | --- | --- |
+| WorkRequest | A human or manager-agent says "do this work" | FactoryCase, optional paw-pm Issue, WorkCycle, and a risk-gated WorkerRun |
+| Signal | Observed evidence or error from Datadog, Discord, GitHub, a webhook, or another agent | Normalized/triaged Signal, then a FactoryCase and WorkCycle if actionable |
+| PatrolRun | Active investigation by an agent, such as Datadog or GitHub patrol | WorkerRun for the patrol agent, evidence, Signals, findings, cases, work, and ProofPackets |
+
+Do not submit new work directly to paw-pm. Paw-pm is durable project memory;
+Patrol owns intake, triage, risk, worker assignment, review, evaluation, and
+proof. Patrol creates or links paw-pm Issues only after it decides the input is
+real work.
+
 High-risk work follows the same visible state graph, but with human approval
 gates:
 
@@ -170,6 +186,128 @@ AwaitingHumanCompletionApproval
 Complete
 ```
 
+## Agent Submission API
+
+Use these OData action paths when an agent, OpenClaw, Discord bridge, script, or
+human operator submits work directly to Temper. The examples omit auth headers;
+callers still need a valid bearer token and principal headers that Cedar allows.
+
+### Human or manager-agent task
+
+Create a WorkRequest, then submit it:
+
+```http
+POST /tdata/WorkRequests
+{}
+
+POST /tdata/WorkRequests('<id>')/TemperPaw.Patrol.Submit
+{
+  "source": "openclaw",
+  "request_text": "Fix the broken dashboard detail view and prove it live.",
+  "requester_id": "openclaw"
+}
+```
+
+Expected result: WorkRequest moves through Patrol routing, then links to a
+FactoryCase. If the request is accepted, Patrol creates or links a paw-pm Issue,
+creates a WorkCycle, applies RiskRule floors, and either queues a WorkerRun or
+pauses in `AwaitingHumanStartApproval` for L3 work.
+
+### Observed evidence or error
+
+Create a Signal, then ingest the raw evidence:
+
+```http
+POST /tdata/Signals
+{}
+
+POST /tdata/Signals('<id>')/TemperPaw.Patrol.Ingest
+{
+  "source": "datadog",
+  "payload": "{...raw alert, trace, log, webhook, or agent evidence...}",
+  "source_url": "https://app.datadoghq.com/...",
+  "severity": "error"
+}
+```
+
+Expected result: Signal is normalized and triaged. Noise is archived visibly.
+Actionable evidence links to a FactoryCase, WorkCycle, WorkerRun, and ProofPacket
+through `signal_router`.
+
+### Active patrol run
+
+Create a PatrolRun, configure the patrol kind and worker capability, then start
+it:
+
+```http
+POST /tdata/PatrolRuns
+{}
+
+POST /tdata/PatrolRuns('<id>')/TemperPaw.Patrol.Configure
+{
+  "patrol_kind": "datadog_observability",
+  "summary": "Investigate current OpenPaw/TemperPaw runtime health.",
+  "requested_by": "risk-patrol",
+  "required_capabilities": "datadog_query"
+}
+
+POST /tdata/PatrolRuns('<id>')/TemperPaw.Patrol.Start
+{}
+```
+
+For GitHub issue and PR patrols, use:
+
+```json
+{
+  "patrol_kind": "github_repository",
+  "summary": "Triage open issues, PRs, checks, reviews, and repository anomalies.",
+  "requested_by": "risk-patrol",
+  "required_capabilities": "github_query"
+}
+```
+
+Expected result: `patrol_run_lifecycle` queues a WorkerRun for a worker that
+advertises the required capability. The patrol agent does read-only
+investigation through its tools, returns structured evidence, and Patrol records
+the evidence through `PatrolRun.RecordEvidence`. Datadog patrol fans out to
+Signals, ObservabilityFindings, FactoryCases, risk-gated WorkCycles, and visual
+ProofPackets. GitHub patrol fans out to Signals, FactoryCases, WorkCycles, and
+ProofPackets for actionable repository issues or PR anomalies.
+
+## Review And Rework Loop
+
+Every implementation WorkerRun is followed by an independent ReviewRun,
+EvaluationRun, and ProofPacket. You should not be the first reviewer of normal
+agent work.
+
+```text
+WorkerRun.ReportDone
+        |
+        v
+ReviewRun + EvaluationRun + ProofPacket draft
+        |
+        +--> ReviewRun.Approve        -> evaluation/proof can complete
+        +--> ReviewRun.RequestChanges -> WorkCycle.RequestChanges
+        +--> ReviewRun.Escalate       -> WorkCycle.Fail + FactoryCase escalation
+        +--> ReviewRun.Fail           -> WorkCycle.Fail + FactoryCase escalation
+```
+
+`ReviewRun.RequestChanges` is the ordinary unhappy path. Patrol dispatches
+`WorkCycle.RequestChanges`, creates a new implementer WorkerRun, reuses the
+same branch/worktree when the previous WorkerRun had one, and prompts the
+implementer with the reviewer feedback. This can repeat until review and
+evaluation pass.
+
+`ReviewRun.Escalate` means the reviewer cannot safely decide. Typical reasons:
+the change is security-sensitive, policy-sensitive, production-impacting,
+deployment/secrets/billing/data-migration related, user-facing in a risky way,
+or the available proof is not enough for an agent to approve.
+
+`ReviewRun.Fail` means the reviewer machinery failed rather than judged the
+implementation. Examples: the reviewer timed out, crashed, could not write back
+to Temper, or the reviewer output is invalid because it did not include a
+recognized verdict marker.
+
 Webhook intake is provided by `paw-ingest`, with routes seeded by Patrol:
 
 ```text
@@ -185,9 +323,8 @@ POST /triggers/webhook/patrol-discord
 
 Use `patrol-request` for human or manager-agent asks. Use the signal routes for
 observed failures, alerts, traces, GitHub events, and Discord incidents.
-Older diagrams may say `WebhookEvent -> PatrolRequest.Submit`; read that as
-legacy intake compatibility. New human or manager-agent work should flow through
-`WebhookEvent -> WorkRequest.Submit`.
+PatrolRequest remains a legacy entity set, but new human or manager-agent work
+flows through `WebhookEvent -> WorkRequest.Submit`.
 
 ## WASM Modules
 
@@ -278,4 +415,5 @@ complete.
 ## OpenClaw
 
 OpenClaw may act as a manager surface: summarize events, route approvals, and
-submit PatrolRequests. It should not write code or mutate repo files in v1.
+submit WorkRequests, Signals, or PatrolRuns. It should not write code or mutate
+repo files in v1.
