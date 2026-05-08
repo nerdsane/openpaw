@@ -20,6 +20,14 @@
   let actionBusy = $state(false);
   let error = $state('');
   let actionMessage = $state('');
+  let workSource = $state('dashboard');
+  let workRequestText = $state('');
+  let workSubmitting = $state(false);
+
+  const patrolActions = $derived(manifest?.actions.filter((action) => action.kind === 'patrol-run') ?? []);
+  const workRequestAction = $derived(
+    manifest?.actions.find((action) => action.kind === 'work-request') ?? null
+  );
 
   function newestFirst(rows: Record<string, unknown>[]): Record<string, unknown>[] {
     return [...rows].sort((left, right) => entityId(right).localeCompare(entityId(left)));
@@ -72,6 +80,36 @@
     }
   }
 
+  async function submitWorkRequest(action: AppViewManifest['actions'][number]) {
+    if (action.kind !== 'work-request') return;
+    const requestText = workRequestText.trim();
+    if (!requestText) {
+      error = 'Work request text is required';
+      return;
+    }
+
+    workSubmitting = true;
+    actionMessage = '';
+    error = '';
+    try {
+      const request = await createEntity('WorkRequests');
+      const id = String(request.Id ?? request._entity_id ?? '');
+      if (!id) throw new Error('WorkRequest create response did not include an id');
+      await postEntityAction('WorkRequests', id, 'Submit', {
+        source: workSource.trim() || action.source,
+        request_text: requestText,
+        requester_id: 'dashboard'
+      });
+      actionMessage = `Submitted WorkRequest ${id}`;
+      workRequestText = '';
+      await load();
+    } catch (err) {
+      error = err instanceof Error ? err.message : 'Work request submission failed';
+    } finally {
+      workSubmitting = false;
+    }
+  }
+
   onMount(load);
 </script>
 
@@ -88,7 +126,7 @@
         <p>{manifest.summary}</p>
       </div>
       <div class="actions">
-        {#each manifest.actions as action}
+        {#each patrolActions as action}
           <button type="button" disabled={actionBusy} onclick={() => runPatrol(action)}>
             {actionBusy ? 'Running...' : action.label}
           </button>
@@ -101,6 +139,28 @@
     {/if}
     {#if actionMessage}
       <div class="notice">{actionMessage}</div>
+    {/if}
+
+    {#if workRequestAction}
+      <section class="work-intake">
+        <div>
+          <p class="eyebrow">Work Intake</p>
+          <h2>{workRequestAction.label}</h2>
+        </div>
+        <form onsubmit={(event) => { event.preventDefault(); void submitWorkRequest(workRequestAction); }}>
+          <label>
+            <span>Source</span>
+            <input bind:value={workSource} />
+          </label>
+          <label class="request-text">
+            <span>Request</span>
+            <textarea bind:value={workRequestText} rows="4"></textarea>
+          </label>
+          <button type="submit" disabled={workSubmitting}>
+            {workSubmitting ? 'Submitting...' : workRequestAction.label}
+          </button>
+        </form>
+      </section>
     {/if}
 
     <RelationTimeline links={manifest.timeline} />
@@ -193,6 +253,54 @@
     color: var(--status-error);
   }
 
+  .work-intake {
+    display: grid;
+    grid-template-columns: minmax(160px, 0.35fr) minmax(0, 1fr);
+    gap: var(--sp-4);
+    border-top: 1px solid var(--border);
+    padding: var(--sp-4) 0;
+  }
+
+  .work-intake h2 {
+    margin: 0;
+    font-size: var(--text-base);
+  }
+
+  .work-intake form {
+    display: grid;
+    grid-template-columns: minmax(160px, 0.3fr) minmax(0, 1fr) auto;
+    align-items: end;
+    gap: var(--sp-2);
+  }
+
+  .work-intake label {
+    display: grid;
+    gap: var(--sp-1);
+    min-width: 0;
+  }
+
+  .work-intake label span {
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    color: var(--text-3);
+  }
+
+  .work-intake input,
+  .work-intake textarea {
+    width: 100%;
+    min-width: 0;
+    border: 1px solid var(--border);
+    padding: var(--sp-2);
+    color: var(--text-1);
+    background: var(--surface);
+    font: inherit;
+  }
+
+  .work-intake textarea {
+    resize: vertical;
+    min-height: 84px;
+  }
+
   .boards {
     display: grid;
     grid-template-columns: 1fr;
@@ -210,6 +318,11 @@
     .actions {
       justify-content: flex-start;
       margin-top: var(--sp-3);
+    }
+
+    .work-intake,
+    .work-intake form {
+      grid-template-columns: 1fr;
     }
   }
 </style>

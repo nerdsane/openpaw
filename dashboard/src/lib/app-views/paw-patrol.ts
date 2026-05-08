@@ -6,12 +6,18 @@ export interface AppViewEntitySet {
   top?: number;
 }
 
-export interface AppViewAction {
-  label: string;
-  kind: 'patrol-run';
-  patrolKind: string;
-  requiredCapabilities: string;
-}
+export type AppViewAction =
+  | {
+      label: string;
+      kind: 'patrol-run';
+      patrolKind: string;
+      requiredCapabilities: string;
+    }
+  | {
+      label: string;
+      kind: 'work-request';
+      source: string;
+    };
 
 export interface AppViewManifest {
   name: string;
@@ -33,6 +39,11 @@ export const pawPatrolView: AppViewManifest = {
       kind: 'patrol-run',
       patrolKind: 'datadog_observability',
       requiredCapabilities: 'datadog_query'
+    },
+    {
+      label: 'Submit Work',
+      kind: 'work-request',
+      source: 'dashboard'
     }
   ],
   entitySets: [

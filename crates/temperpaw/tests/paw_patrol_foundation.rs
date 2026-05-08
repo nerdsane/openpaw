@@ -496,6 +496,8 @@ fn dashboard_has_generic_app_console_and_paw_patrol_view_manifest() {
         "ProofPackets",
         "WorkerAgents",
         "Run Datadog Patrol",
+        "Submit Work",
+        "work-request",
     ] {
         assert!(
             patrol_view.contains(needle),
@@ -520,6 +522,8 @@ fn dashboard_has_generic_app_console_and_paw_patrol_view_manifest() {
     for needle in [
         "newestFirst",
         "entityId(right).localeCompare(entityId(left))",
+        "submitWorkRequest",
+        "postEntityAction('WorkRequests', id, 'Submit'",
     ] {
         assert!(
             app_page.contains(needle),
