@@ -249,6 +249,40 @@ fn paw_patrol_renames_human_intake_to_work_request_and_adds_risk_patrol_entities
 }
 
 #[test]
+fn paw_patrol_app_doc_documents_agent_submission_api() {
+    let root = repo_root();
+    let app_doc = read(root.join("os-apps/paw-patrol/APP.md"));
+
+    for needle in [
+        "## Agent Submission API",
+        "Do not submit new work directly to paw-pm",
+        "Human or manager-agent task",
+        "WorkRequests('<id>')/TemperPaw.Patrol.Submit",
+        "\"request_text\"",
+        "Observed evidence or error",
+        "Signals('<id>')/TemperPaw.Patrol.Ingest",
+        "\"severity\"",
+        "Active patrol run",
+        "PatrolRuns('<id>')/TemperPaw.Patrol.Configure",
+        "PatrolRuns('<id>')/TemperPaw.Patrol.Start",
+        "datadog_observability",
+        "datadog_query",
+        "github_repository",
+        "github_query",
+        "ReviewRun.RequestChanges",
+        "new implementer WorkerRun",
+        "same branch/worktree",
+        "ReviewRun.Escalate",
+        "reviewer output is invalid",
+    ] {
+        assert!(
+            app_doc.contains(needle),
+            "APP.md should document agent submission API detail: {needle}"
+        );
+    }
+}
+
+#[test]
 fn worker_provider_registry_and_capabilities_gate_datadog_patrol() {
     let root = repo_root();
     let patrol = root.join("os-apps/paw-patrol");
@@ -1951,7 +1985,7 @@ fn paw_patrol_has_webhook_intake_routes_through_paw_ingest() {
         "/triggers/webhook/patrol-signal",
         "/triggers/webhook/patrol-datadog",
         "/triggers/webhook/patrol-github",
-        "WebhookEvent -> PatrolRequest.Submit",
+        "WebhookEvent -> WorkRequest.Submit",
         "WebhookEvent -> Signal.Ingest",
     ] {
         assert!(app_doc.contains(needle), "APP.md should document {needle}");
