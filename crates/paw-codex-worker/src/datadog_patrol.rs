@@ -320,9 +320,10 @@ impl DatadogPatrolFinding {
 
 fn extract_datadog_patrol_run_id(task: &str) -> Option<String> {
     let task = task.trim_start();
-    if !task.starts_with("You are the local Codex Datadog Patrol agent")
-        || !task.contains("PatrolKind: datadog_observability")
-    {
+    let first_line = task.lines().next().unwrap_or_default();
+    let is_datadog_patrol_prompt = first_line.starts_with("You are the local Codex Datadog")
+        && first_line.contains("Patrol agent");
+    if !is_datadog_patrol_prompt || !task.contains("PatrolKind: datadog_observability") {
         return None;
     }
     task.lines().find_map(|line| {
