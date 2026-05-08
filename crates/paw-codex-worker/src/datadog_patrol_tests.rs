@@ -121,7 +121,7 @@ DATADOG_PATROL_RESULT_JSON_END
 
 #[test]
 fn datadog_patrol_classifier_ignores_followup_and_rework_prompts() {
-    let patrol_task = "You are the local Codex Datadog Patrol agent for TemperPaw paw-patrol.\n\nPatrolRun: en-patrol\nPatrolKind: datadog_observability";
+    let patrol_task = "You are the local Codex Datadog MCP Patrol agent for TemperPaw paw-patrol.\n\nPatrolRun: en-patrol\nPatrolKind: datadog_observability";
     let implementer_task = "You are the local Codex implementer for a Paw Patrol Datadog MCP observability finding.\n\nPatrolRun: en-patrol\nPatrol kind: datadog_observability\nFinding: OpenPaw monitor coverage is degraded by No Data states";
     let rework_task = "You are the local Codex implementer for reviewer-requested rework.\n\nFactoryCase: \nWorkCycle: wc-patrol\nSummary: Risk Patrol\n\nOriginal task:\nYou are the local Codex Datadog Patrol agent for TemperPaw paw-patrol.\n\nPatrolRun: en-patrol\nPatrolKind: datadog_observability";
 

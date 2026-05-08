@@ -430,18 +430,94 @@ fn is_noise_signal(source: &str, payload: &str, severity: &str) -> bool {
 }
 
 fn initial_risk<'a>(source: &'a str, payload: &'a str, severity: &'a str) -> Risk<'a> {
-    let mut evidence = Vec::new();
-    let _ = (source, payload, severity);
-    evidence.push("agent_triage_required:no_keyword_risk_escalation");
-    Risk {
-        lane: "L1",
-        source: "signal_router:agentic_initial_signal_intake",
-        evidence,
+    let evidence = sensitive_intake_evidence(&format!("{source} {payload} {severity}"));
+    if evidence.is_empty() {
+        Risk {
+            lane: "L1",
+            source: "signal_router:ordinary_initial_signal_intake",
+            evidence: vec!["ordinary maintenance signal"],
+        }
+    } else {
+        Risk {
+            lane: "L3",
+            source: "signal_router:sensitive_initial_signal_intake",
+            evidence,
+        }
     }
 }
 
 fn contains_any(haystack: &str, needles: &[&str]) -> bool {
     needles.iter().any(|needle| haystack.contains(needle))
+}
+
+fn sensitive_intake_evidence(input: &str) -> Vec<&'static str> {
+    let normalized = input.to_ascii_lowercase().replace('_', "-");
+    let words = normalized
+        .split(|ch: char| !(ch.is_ascii_alphanumeric() || ch == '-'))
+        .filter(|word| !word.is_empty())
+        .collect::<Vec<_>>();
+    let mut evidence = Vec::new();
+
+    if has_word(&words, &["production", "prod"]) {
+        push_evidence(&mut evidence, "sensitive_intake:production");
+    }
+    if words
+        .iter()
+        .any(|word| word.starts_with("deploy") || word.starts_with("release"))
+    {
+        push_evidence(&mut evidence, "sensitive_intake:deploy");
+    }
+    if has_word(
+        &words,
+        &["secret", "secrets", "credential", "credentials", "token", "tokens"],
+    ) {
+        push_evidence(&mut evidence, "sensitive_intake:secret");
+    }
+    if has_word(&words, &["migration", "migrations", "database", "schema"]) {
+        push_evidence(&mut evidence, "sensitive_intake:migration");
+    }
+    if has_word(&words, &["security", "auth"]) {
+        push_evidence(&mut evidence, "sensitive_intake:security");
+    }
+    if has_word(&words, &["policy", "policies"]) {
+        push_evidence(&mut evidence, "sensitive_intake:policy");
+    }
+    if has_word(&words, &["cedar"]) {
+        push_evidence(&mut evidence, "sensitive_intake:cedar");
+    }
+    if has_word(
+        &words,
+        &[
+            "slack",
+            "channel",
+            "channels",
+            "transport",
+            "transports",
+            "webhook",
+            "webhooks",
+            "user-facing",
+        ],
+    ) {
+        push_evidence(&mut evidence, "sensitive_intake:user_facing");
+    }
+    if has_word(&words, &["discord"]) {
+        push_evidence(&mut evidence, "sensitive_intake:discord");
+    }
+    if has_word(&words, &["railway"]) {
+        push_evidence(&mut evidence, "sensitive_intake:deploy");
+    }
+
+    evidence
+}
+
+fn has_word(words: &[&str], needles: &[&str]) -> bool {
+    words.iter().any(|word| needles.contains(word))
+}
+
+fn push_evidence(evidence: &mut Vec<&'static str>, value: &'static str) {
+    if !evidence.contains(&value) {
+        evidence.push(value);
+    }
 }
 
 fn normalized_severity(severity: &str, lane: &str) -> String {
@@ -615,5 +691,36 @@ fn truncate(input: &str, max: usize) -> String {
         input.to_string()
     } else {
         format!("{}[truncated]", input.chars().take(max).collect::<String>())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ordinary_signal_intake_stays_low_risk() {
+        let risk = initial_risk("datadog", "Cache metric has no data in dev.", "warn");
+
+        assert_eq!(risk.lane, "L1");
+        assert_eq!(risk.evidence, vec!["ordinary maintenance signal"]);
+        assert!(!requires_human_start_approval(risk.lane));
+    }
+
+    #[test]
+    fn sensitive_signal_intake_requires_human_start_approval() {
+        let risk = initial_risk(
+            "github",
+            "Open PR touches Cedar policy for production Discord deploy.",
+            "warn",
+        );
+
+        assert_eq!(risk.lane, "L3");
+        assert_eq!(risk.source, "signal_router:sensitive_initial_signal_intake");
+        assert!(requires_human_start_approval(risk.lane));
+        assert!(risk.evidence.contains(&"sensitive_intake:cedar"));
+        assert!(risk.evidence.contains(&"sensitive_intake:production"));
+        assert!(risk.evidence.contains(&"sensitive_intake:discord"));
+        assert!(risk.evidence.contains(&"sensitive_intake:deploy"));
     }
 }

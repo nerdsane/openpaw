@@ -382,13 +382,19 @@ fn summarize_request(source: &str, request_text: &str) -> String {
 }
 
 fn initial_risk<'a>(source: &'a str, request_text: &'a str) -> Risk<'a> {
-    let mut evidence = Vec::new();
-    let _ = (source, request_text);
-    evidence.push("agent_triage_required:no_keyword_risk_escalation");
-    Risk {
-        lane: "L1",
-        source: "patrol_request_router:agentic_initial_intake",
-        evidence,
+    let evidence = sensitive_intake_evidence(&format!("{source} {request_text}"));
+    if evidence.is_empty() {
+        Risk {
+            lane: "L1",
+            source: "patrol_request_router:ordinary_initial_intake",
+            evidence: vec!["ordinary maintenance request"],
+        }
+    } else {
+        Risk {
+            lane: "L3",
+            source: "patrol_request_router:sensitive_initial_intake",
+            evidence,
+        }
     }
 }
 
@@ -403,6 +409,76 @@ fn priority_for_lane(lane: &str) -> &str {
 
 fn requires_human_start_approval(lane: &str) -> bool {
     lane.eq_ignore_ascii_case("L3")
+}
+
+fn sensitive_intake_evidence(input: &str) -> Vec<&'static str> {
+    let normalized = input.to_ascii_lowercase().replace('_', "-");
+    let words = normalized
+        .split(|ch: char| !(ch.is_ascii_alphanumeric() || ch == '-'))
+        .filter(|word| !word.is_empty())
+        .collect::<Vec<_>>();
+    let mut evidence = Vec::new();
+
+    if has_word(&words, &["production", "prod"]) {
+        push_evidence(&mut evidence, "sensitive_intake:production");
+    }
+    if words
+        .iter()
+        .any(|word| word.starts_with("deploy") || word.starts_with("release"))
+    {
+        push_evidence(&mut evidence, "sensitive_intake:deploy");
+    }
+    if has_word(
+        &words,
+        &["secret", "secrets", "credential", "credentials", "token", "tokens"],
+    ) {
+        push_evidence(&mut evidence, "sensitive_intake:secret");
+    }
+    if has_word(&words, &["migration", "migrations", "database", "schema"]) {
+        push_evidence(&mut evidence, "sensitive_intake:migration");
+    }
+    if has_word(&words, &["security", "auth"]) {
+        push_evidence(&mut evidence, "sensitive_intake:security");
+    }
+    if has_word(&words, &["policy", "policies"]) {
+        push_evidence(&mut evidence, "sensitive_intake:policy");
+    }
+    if has_word(&words, &["cedar"]) {
+        push_evidence(&mut evidence, "sensitive_intake:cedar");
+    }
+    if has_word(
+        &words,
+        &[
+            "slack",
+            "channel",
+            "channels",
+            "transport",
+            "transports",
+            "webhook",
+            "webhooks",
+            "user-facing",
+        ],
+    ) {
+        push_evidence(&mut evidence, "sensitive_intake:user_facing");
+    }
+    if has_word(&words, &["discord"]) {
+        push_evidence(&mut evidence, "sensitive_intake:discord");
+    }
+    if has_word(&words, &["railway"]) {
+        push_evidence(&mut evidence, "sensitive_intake:deploy");
+    }
+
+    evidence
+}
+
+fn has_word(words: &[&str], needles: &[&str]) -> bool {
+    words.iter().any(|word| needles.contains(word))
+}
+
+fn push_evidence(evidence: &mut Vec<&'static str>, value: &'static str) {
+    if !evidence.contains(&value) {
+        evidence.push(value);
+    }
 }
 
 fn issue_description(
@@ -570,13 +646,35 @@ mod tests {
     }
 
     #[test]
-    fn initial_risk_is_agentic_not_keyword_based() {
+    fn sensitive_request_intake_is_high_risk() {
         let risk = initial_risk("codex-e2e", "Change production deploy secrets for Railway.");
 
-        assert_eq!(risk.lane, "L1");
+        assert_eq!(risk.lane, "L3");
         assert_eq!(
             risk.evidence,
-            vec!["agent_triage_required:no_keyword_risk_escalation"]
+            vec![
+                "sensitive_intake:production",
+                "sensitive_intake:deploy",
+                "sensitive_intake:secret"
+            ]
         );
+    }
+
+    #[test]
+    fn sensitive_intake_requires_human_start_approval() {
+        let risk = initial_risk(
+            "human",
+            "Patch the Discord transport in production and rotate the webhook secret.",
+        );
+
+        assert_eq!(risk.lane, "L3");
+        assert_eq!(
+            risk.source,
+            "patrol_request_router:sensitive_initial_intake"
+        );
+        assert!(requires_human_start_approval(risk.lane));
+        assert!(risk.evidence.contains(&"sensitive_intake:production"));
+        assert!(risk.evidence.contains(&"sensitive_intake:secret"));
+        assert!(risk.evidence.contains(&"sensitive_intake:discord"));
     }
 }

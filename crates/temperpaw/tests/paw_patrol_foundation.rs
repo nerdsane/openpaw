@@ -2572,6 +2572,9 @@ fn high_risk_work_requires_human_start_and_completion_approval() {
         "PATROL_REQUEST_HUMAN_START_APPROVAL",
         "if requires_human_start_approval(risk.lane)",
         "queued after human start approval",
+        "sensitive_initial_intake",
+        "sensitive_intake:production",
+        "ordinary maintenance request",
     ] {
         assert!(
             request_router.contains(needle),
@@ -2585,6 +2588,9 @@ fn high_risk_work_requires_human_start_and_completion_approval() {
         "PATROL_REQUEST_HUMAN_START_APPROVAL",
         "if requires_human_start_approval(risk.lane)",
         "queued after human start approval",
+        "sensitive_initial_signal_intake",
+        "sensitive_intake:production",
+        "ordinary maintenance signal",
     ] {
         assert!(
             signal_router.contains(needle),
