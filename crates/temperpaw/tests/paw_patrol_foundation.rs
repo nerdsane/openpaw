@@ -567,6 +567,10 @@ fn dashboard_has_generic_app_console_and_paw_patrol_view_manifest() {
 
     for path in [
         "dashboard/src/routes/apps/[name]/+page.svelte",
+        "dashboard/src/routes/sessions/+page.svelte",
+        "dashboard/src/routes/sessions/[id]/+page.svelte",
+        "dashboard/src/routes/entities/[type]/[id]/+page.svelte",
+        "dashboard/src/lib/dashboard-format.ts",
         "dashboard/src/lib/components/app-console/EntityBoard.svelte",
         "dashboard/src/lib/components/app-console/RelationTimeline.svelte",
         "dashboard/src/lib/components/app-console/ProofViewer.svelte",
@@ -581,9 +585,13 @@ fn dashboard_has_generic_app_console_and_paw_patrol_view_manifest() {
     let api = read(root.join("dashboard/src/lib/api.ts"));
     for needle in [
         "fetchAppViewManifest",
+        "fetchEntityHistory",
         "queryEntities",
         "getEntity",
         "postEntityAction",
+        "entityResource",
+        "'@odata.actions'",
+        "namespace = 'Temper'",
         "'x-temper-principal-kind': 'human'",
         "'x-temper-principal-id': 'dashboard'",
     ] {
@@ -608,6 +616,9 @@ fn dashboard_has_generic_app_console_and_paw_patrol_view_manifest() {
         "ReviewRuns",
         "EvaluationRuns",
         "ProofPackets",
+        "PatrolRequests",
+        "WorkerProviders",
+        "RiskRules",
         "WorkerAgents",
         "Run Datadog Patrol",
         "Run GitHub Patrol",
@@ -636,7 +647,9 @@ fn dashboard_has_generic_app_console_and_paw_patrol_view_manifest() {
     let app_page = read(root.join("dashboard/src/routes/apps/[name]/+page.svelte"));
     for needle in [
         "newestFirst",
-        "entityId(right).localeCompare(entityId(left))",
+        "lastActivityMs(right) - lastActivityMs(left)",
+        "loadErrors",
+        "console-ledger",
         "submitWorkRequest",
         "postEntityAction('WorkRequests', id, 'Submit'",
     ] {
@@ -665,6 +678,56 @@ fn dashboard_has_generic_app_console_and_paw_patrol_view_manifest() {
     assert!(
         proof_viewer.contains("readyLatest"),
         "Paw Patrol proof viewer should show the newest Ready proof instead of a rejected draft"
+    );
+
+    for needle in [
+        "visualSummaryUrl",
+        "visual-proof",
+        "stateDiagram",
+        "changedFiles",
+    ] {
+        assert!(
+            proof_viewer.contains(needle),
+            "Paw Patrol proof viewer should expose visual proof detail: {needle}"
+        );
+    }
+
+    for needle in [
+        "fetchEntityHistory",
+        "entity-summary",
+        "history-table",
+        "WorkCycles",
+        "ProofPackets",
+        "Timeline events",
+        "No history or entity event rows were returned",
+    ] {
+        assert!(
+            entity_detail.contains(needle),
+            "entity detail dashboard should show comprehensive Patrol details: {needle}"
+        );
+    }
+
+    let sessions = read(root.join("dashboard/src/routes/sessions/+page.svelte"));
+    for needle in [
+        "Temporal session ledger",
+        "queryEntities('Sessions', undefined, 'Id desc', 200)",
+        "lastActivityMs(right) - lastActivityMs(left)",
+        "Total loaded",
+        "Tokens / cost",
+        "Relations",
+        "entities/Sessions",
+    ] {
+        assert!(
+            sessions.contains(needle),
+            "sessions dashboard should show chronological comprehensive rows: {needle}"
+        );
+    }
+
+    let session_detail = read(root.join("dashboard/src/routes/sessions/[id]/+page.svelte"));
+    assert!(
+        session_detail.contains("/entities/Sessions/")
+            && session_detail.contains("/entities/WorkCycles/"),
+        "session detail should link to raw Session and plural WorkCycles entity detail routes"
     );
 }
 

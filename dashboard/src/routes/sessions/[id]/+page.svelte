@@ -176,7 +176,10 @@
 </script>
 
 <div class="desk">
-  <a href="{base}/" class="desk-back">&larr; FLOOR</a>
+  <div class="desk-nav">
+    <a href="{base}/sessions" class="desk-back">&larr; SESSIONS</a>
+    <a href="{base}/entities/Sessions/{sessionId}" class="desk-back">RAW ENTITY</a>
+  </div>
 
   {#if !loaded}
     <div class="desk-empty" transition:fade={{ duration: 200 }}>
@@ -308,7 +311,7 @@
         {#if workcycle}
           <div class="context-section">
             <span class="context-label">WORK CYCLE</span>
-            <a href="{base}/entities/WorkCycle/{workcycle.Id}" class="workcycle-link">
+            <a href="{base}/entities/WorkCycles/{workcycle.Id}" class="workcycle-link">
               <span>{workcycle.task_summary || 'Untitled'}</span>
               <StatusBadge status={workcycle.Status} />
               <GatePipeline {workcycle} />
@@ -366,6 +369,12 @@
   }
 
   .desk-back:hover { color: var(--text-1); }
+
+  .desk-nav {
+    display: flex;
+    gap: var(--sp-3);
+    flex-wrap: wrap;
+  }
 
   .desk-empty {
     display: flex;
