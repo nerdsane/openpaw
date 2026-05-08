@@ -3,6 +3,7 @@
 //! These methods are dispatched from `temper.<method>()` calls in Monty code.
 //! They use the same HTTP patterns as dispatch.rs (ctx.http_call, JSON serialization).
 
+use base64::Engine;
 use serde_json::{Value, json};
 use temper_wasm_sdk::context::Context;
 use tool_catalog::DEFAULT_TOOLS_ENABLED;
@@ -440,16 +441,27 @@ pub fn recall_memory(
 // write — temper.write(path, content, opts?)
 // ---------------------------------------------------------------------------
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum WriteUploadContent {
+    Text(String),
+    BrowserImageBase64(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct WriteUpload {
+    content: WriteUploadContent,
+    mime_type: String,
+}
+
 pub fn write(ctx: &Context, api_url: &str, tenant: &str, args: &[Value]) -> Result<Value, String> {
     let path = pos_str(args, 0, "path", "write")?;
-    let content = pos_str(args, 1, "content", "write")?;
+    let content = args
+        .get(1)
+        .ok_or_else(|| "temper.write(): missing 'content' at position 1".to_string())?;
     let opts = obj_arg_or_empty(args, 2);
 
-    let mime_type = opts
-        .get("mime_type")
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| mime_from_ext(&path).to_string());
+    let upload = write_upload_from_value(&path, content, &opts)?;
+    let mime_type = upload.mime_type.clone();
 
     // 1. Resolve the target workspace. Prefer an explicit workspace override,
     // then the session's attached workspace_id, then the legacy "default"
@@ -506,12 +518,30 @@ pub fn write(ctx: &Context, api_url: &str, tenant: &str, args: &[Value]) -> Resu
         ("x-temper-principal-id".to_string(), eid.to_string()),
         ("x-temper-agent-type".to_string(), "system".to_string()),
     ];
-    let resp = ctx.http_call("PUT", &url, &headers, &content)?;
-    if resp.status >= 400 {
-        return Err(format!(
-            "temper.write(): content upload failed (HTTP {})",
-            resp.status
-        ));
+    match upload.content {
+        WriteUploadContent::Text(content) => {
+            let resp = ctx.http_call("PUT", &url, &headers, &content)?;
+            if resp.status >= 400 {
+                return Err(format!(
+                    "temper.write(): content upload failed (HTTP {})",
+                    resp.status
+                ));
+            }
+        }
+        WriteUploadContent::BrowserImageBase64(base64_data) => {
+            http_post(
+                ctx,
+                api_url,
+                tenant,
+                eid,
+                &format!("/paw/fs/files/{file_id}/value-base64"),
+                &json!({
+                    "mime_type": mime_type,
+                    "base64_data": base64_data,
+                }),
+            )
+            .map_err(|error| format!("temper.write(): image content upload failed: {error}"))?;
+        }
     }
 
     Ok(json!({
@@ -1528,6 +1558,172 @@ fn internal_headers() -> Vec<(String, String)> {
     vec![("Content-Type".to_string(), "application/json".to_string())]
 }
 
+fn write_upload_from_value(
+    path: &str,
+    content: &Value,
+    opts: &Value,
+) -> Result<WriteUpload, String> {
+    let declared_mime = opts
+        .get("mime_type")
+        .and_then(|v| v.as_str())
+        .unwrap_or_else(|| mime_from_ext(path))
+        .to_string();
+
+    if let Some((base64_data, media_type)) = openpaw_image_candidate(content) {
+        let mime_type = media_type.unwrap_or_else(|| declared_mime.clone());
+        return browser_image_upload(base64_data.trim(), &mime_type);
+    }
+
+    let Some(text) = content.as_str() else {
+        return Err("temper.write(): content must be a string or sandbox image result".to_string());
+    };
+
+    if let Some((base64_data, media_type)) = openpaw_image_json_candidate(text) {
+        let mime_type = media_type.unwrap_or_else(|| declared_mime.clone());
+        return browser_image_upload(base64_data.trim(), &mime_type);
+    }
+
+    if is_raster_image_mime(&declared_mime) || text.trim_start().starts_with("data:image/") {
+        return browser_image_upload(text.trim(), &declared_mime);
+    }
+
+    Ok(WriteUpload {
+        content: WriteUploadContent::Text(text.to_string()),
+        mime_type: declared_mime,
+    })
+}
+
+fn openpaw_image_candidate(value: &Value) -> Option<(String, Option<String>)> {
+    if value.get("__openpaw_image").and_then(Value::as_bool) != Some(true) {
+        return None;
+    }
+    let base64_data = value.get("base64_data")?.as_str()?.trim();
+    if base64_data.is_empty() {
+        return None;
+    }
+    let media_type = value
+        .get("media_type")
+        .or_else(|| value.get("mime_type"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    Some((base64_data.to_string(), media_type))
+}
+
+fn openpaw_image_json_candidate(text: &str) -> Option<(String, Option<String>)> {
+    let trimmed = text.trim();
+    if !trimmed.starts_with('{') || !trimmed.contains("__openpaw_image") {
+        return None;
+    }
+    let value: Value = serde_json::from_str(trimmed).ok()?;
+    openpaw_image_candidate(&value)
+}
+
+fn browser_image_upload(raw: &str, declared_mime: &str) -> Result<WriteUpload, String> {
+    let normalized_declared = normalize_image_mime(declared_mime)
+        .ok_or_else(|| format!("temper.write(): unsupported image MIME type '{declared_mime}'"))?;
+    let (base64_text, data_url_mime) = split_data_url_base64(raw)?;
+    if let Some(data_url_mime) = data_url_mime {
+        let normalized_data_url_mime = normalize_image_mime(data_url_mime).ok_or_else(|| {
+            format!("temper.write(): unsupported data URL image MIME type '{data_url_mime}'")
+        })?;
+        if normalized_data_url_mime != normalized_declared {
+            return Err(format!(
+                "temper.write(): declared MIME type '{normalized_declared}' does not match data URL MIME type '{normalized_data_url_mime}'"
+            ));
+        }
+    }
+
+    let compact: String = base64_text
+        .chars()
+        .filter(|ch| !ch.is_ascii_whitespace())
+        .collect();
+    if compact.is_empty() {
+        return Err("temper.write(): image payload is empty".to_string());
+    }
+
+    let decoded = base64::engine::general_purpose::STANDARD
+        .decode(compact.as_bytes())
+        .or_else(|_| base64::engine::general_purpose::STANDARD_NO_PAD.decode(compact.as_bytes()))
+        .map_err(|error| format!("temper.write(): image payload is not valid base64: {error}"))?;
+    let detected_mime = detect_browser_image_mime(&decoded).ok_or_else(|| {
+        "temper.write(): decoded payload is not a supported browser image".to_string()
+    })?;
+    if detected_mime != normalized_declared {
+        return Err(format!(
+            "temper.write(): declared MIME type '{normalized_declared}' does not match decoded image bytes '{detected_mime}'"
+        ));
+    }
+
+    Ok(WriteUpload {
+        content: WriteUploadContent::BrowserImageBase64(compact),
+        mime_type: detected_mime.to_string(),
+    })
+}
+
+fn split_data_url_base64(raw: &str) -> Result<(&str, Option<&str>), String> {
+    let Some(rest) = raw.strip_prefix("data:") else {
+        return Ok((raw, None));
+    };
+    let Some((metadata, data)) = rest.split_once(',') else {
+        return Err("temper.write(): data URL is missing ',' separator".to_string());
+    };
+    let mut parts = metadata.split(';');
+    let mime_type = parts.next().unwrap_or("");
+    if !parts.any(|part| part.eq_ignore_ascii_case("base64")) {
+        return Err("temper.write(): data URL image payload must be base64 encoded".to_string());
+    }
+    Ok((data, Some(mime_type)))
+}
+
+fn normalize_image_mime(mime_type: &str) -> Option<&'static str> {
+    match mime_type
+        .split(';')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "image/jpeg" | "image/jpg" => Some("image/jpeg"),
+        "image/png" => Some("image/png"),
+        "image/gif" => Some("image/gif"),
+        "image/webp" => Some("image/webp"),
+        "image/svg+xml" => Some("image/svg+xml"),
+        _ => None,
+    }
+}
+
+fn is_raster_image_mime(mime_type: &str) -> bool {
+    matches!(
+        normalize_image_mime(mime_type),
+        Some("image/jpeg" | "image/png" | "image/gif" | "image/webp")
+    )
+}
+
+fn detect_browser_image_mime(bytes: &[u8]) -> Option<&'static str> {
+    if bytes.starts_with(&[0xff, 0xd8, 0xff]) {
+        return Some("image/jpeg");
+    }
+    if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        return Some("image/png");
+    }
+    if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
+        return Some("image/gif");
+    }
+    if bytes.len() >= 12 && bytes.starts_with(b"RIFF") && &bytes[8..12] == b"WEBP" {
+        return Some("image/webp");
+    }
+
+    let text = std::str::from_utf8(bytes).ok()?.trim_start();
+    if text.starts_with("<svg") || (text.starts_with("<?xml") && text.contains("<svg")) {
+        return Some("image/svg+xml");
+    }
+
+    None
+}
+
 fn http_get(
     ctx: &Context,
     api_url: &str,
@@ -1659,6 +1855,8 @@ fn try_read_global_scoped_path(
 mod tests {
     use super::*;
 
+    const PNG_1X1: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";
+
     #[test]
     fn spawn_session_input_accepts_legacy_positional_arguments() {
         let input = spawn_session_input(&[
@@ -1742,6 +1940,70 @@ mod tests {
             "path eq '/system/knowledge/we''re-here.md' and Status ne 'Archived'"
         );
     }
+
+    #[test]
+    fn write_upload_accepts_sandbox_image_object() {
+        let upload = write_upload_from_value(
+            "/tmp/thumbnail.png",
+            &json!({
+                "__openpaw_image": true,
+                "media_type": "image/png",
+                "base64_data": PNG_1X1,
+                "source_path": "/tmp/thumbnail.png"
+            }),
+            &json!({}),
+        )
+        .unwrap();
+
+        assert_eq!(upload.mime_type, "image/png");
+        assert_eq!(
+            upload.content,
+            WriteUploadContent::BrowserImageBase64(PNG_1X1.to_string())
+        );
+    }
+
+    #[test]
+    fn write_upload_accepts_json_stringified_sandbox_image_object() {
+        let upload = write_upload_from_value(
+            "/tmp/thumbnail.png",
+            &json!(
+                json!({
+                    "__openpaw_image": true,
+                    "media_type": "image/png",
+                    "base64_data": PNG_1X1
+                })
+                .to_string()
+            ),
+            &json!({}),
+        )
+        .unwrap();
+
+        assert_eq!(upload.mime_type, "image/png");
+        assert!(matches!(
+            upload.content,
+            WriteUploadContent::BrowserImageBase64(_)
+        ));
+    }
+
+    #[test]
+    fn write_upload_decodes_raster_base64_for_image_paths() {
+        let upload =
+            write_upload_from_value("/tmp/thumbnail.png", &json!(PNG_1X1), &json!({})).unwrap();
+
+        assert_eq!(upload.mime_type, "image/png");
+        assert_eq!(
+            upload.content,
+            WriteUploadContent::BrowserImageBase64(PNG_1X1.to_string())
+        );
+    }
+
+    #[test]
+    fn write_upload_rejects_base64_text_that_is_not_an_image() {
+        let error = write_upload_from_value("/tmp/thumbnail.png", &json!("aGVsbG8="), &json!({}))
+            .unwrap_err();
+
+        assert!(error.contains("not a supported browser image"));
+    }
 }
 
 fn resolve_workspace_id(
@@ -1824,6 +2086,11 @@ fn mime_from_ext(path: &str) -> &'static str {
         "py" => "text/x-python",
         "xml" => "application/xml",
         "csv" => "text/csv",
+        "jpg" | "jpeg" => "image/jpeg",
+        "png" => "image/png",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "svg" => "image/svg+xml",
         _ => "application/octet-stream",
     }
 }
