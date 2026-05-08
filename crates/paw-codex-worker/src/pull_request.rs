@@ -200,16 +200,21 @@ async fn github_pr_create_url(
         .await
         .context("run gh pr create")?;
     if !output.status.success() {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if let Some(url) = github_pull_request_url_from_text(&format!("{stdout}\n{stderr}")) {
+            return Ok(url);
+        }
         bail!(
             "gh pr create failed with status {:?}: {}{}{}",
             output.status.code(),
-            String::from_utf8_lossy(&output.stdout),
+            stdout,
             if output.stdout.is_empty() || output.stderr.is_empty() {
                 ""
             } else {
                 "\n"
             },
-            String::from_utf8_lossy(&output.stderr)
+            stderr
         );
     }
     let url = String::from_utf8_lossy(&output.stdout).trim().to_string();
@@ -217,6 +222,15 @@ async fn github_pr_create_url(
         bail!("gh pr create succeeded without returning a PR URL");
     }
     Ok(url)
+}
+
+fn github_pull_request_url_from_text(text: &str) -> Option<String> {
+    text.split_whitespace().find_map(|token| {
+        let url = token.trim_matches(|ch: char| {
+            matches!(ch, '"' | '\'' | '(' | ')' | '[' | ']' | '<' | '>' | ',' | '.')
+        });
+        (url.starts_with("https://github.com/") && url.contains("/pull/")).then(|| url.to_string())
+    })
 }
 
 async fn git_capture_owned(workdir: &Path, args: Vec<String>) -> Result<String> {
