@@ -97,6 +97,7 @@ include!("cli.rs");
 include!("doctor_report.rs");
 include!("launchd.rs");
 include!("doctor_helpers.rs");
+include!("pull_request.rs");
 include!("execution.rs");
 include!("http_headers.rs");
 include!("tests.rs");
