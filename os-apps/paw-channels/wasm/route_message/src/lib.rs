@@ -324,8 +324,13 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                             trace_context.as_ref(),
                         )?
                     }
-                } else if is_terminal_status(session_status) {
-                    // Session is done — create a new session under the same persistent Agent
+                } else if should_continue_with_new_session_for_status(session_status) {
+                    // Terminal sessions are done. WaitingForApproval sessions are
+                    // human-gated, but a fresh DM should interrupt that blocked
+                    // turn so the channel thread stays responsive.
+                    if session_status == "WaitingForApproval" {
+                        cancel_session(&ctx, &temper_api_url, &ctx.tenant, &session_entity_id).ok();
+                    }
                     continue_with_new_session(
                         &ctx,
                         &temper_api_url,
@@ -340,7 +345,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                         trace_context.as_ref(),
                     )?
                 } else {
-                    // Non-steerable, non-terminal (e.g. Provisioning, WaitingForApproval)
+                    // Non-steerable, non-terminal bootstrap/recovery states.
                     // Just wait — don't expire or create a new session
                     session_entity_id
                 }
@@ -1441,6 +1446,10 @@ fn is_terminal_status(status: &str) -> bool {
     matches!(status, "Completed" | "Failed" | "Cancelled")
 }
 
+fn should_continue_with_new_session_for_status(status: &str) -> bool {
+    is_terminal_status(status) || status == "WaitingForApproval"
+}
+
 fn is_steerable_status(status: &str) -> bool {
     matches!(
         status,
@@ -1807,6 +1816,22 @@ mod tests {
                 "status {status} must not produce a Resume* action"
             );
         }
+    }
+
+    #[test]
+    fn waiting_for_approval_should_not_swallow_follow_up_messages() {
+        assert!(
+            should_continue_with_new_session_for_status("WaitingForApproval"),
+            "normal DMs to a human-gated session must start a fresh continuation"
+        );
+        assert!(
+            should_continue_with_new_session_for_status("Completed"),
+            "terminal sessions already continue in a new session"
+        );
+        assert!(
+            !should_continue_with_new_session_for_status("Provisioning"),
+            "bootstrap states should keep waiting instead of spawning duplicate sessions"
+        );
     }
 
     #[test]
