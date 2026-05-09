@@ -4,12 +4,15 @@
 //! They use the same HTTP patterns as dispatch.rs (ctx.http_call, JSON serialization).
 
 use base64::Engine;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use temper_wasm_sdk::context::Context;
 use tool_catalog::DEFAULT_TOOLS_ENABLED;
 use wasm_helpers::{read_content_file_version, read_session_from_temperfs, runtime_headers};
 
 use crate::dispatch;
+
+#[cfg(target_arch = "wasm32")]
+const FILE_UPLOAD_STREAM_CHUNK_BYTES: usize = 64 * 1024;
 
 // ---------------------------------------------------------------------------
 // spawn_session
@@ -445,6 +448,7 @@ pub fn recall_memory(
 enum WriteUploadContent {
     Text(String),
     BrowserImageBytes(Vec<u8>),
+    SandboxImageSource(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -454,22 +458,28 @@ struct WriteUpload {
 }
 
 pub fn write(ctx: &Context, api_url: &str, tenant: &str, args: &[Value]) -> Result<Value, String> {
-    let path = pos_str(args, 0, "path", "write")?;
-    let content = args
-        .get(1)
-        .ok_or_else(|| "temper.write(): missing 'content' at position 1".to_string())?;
-    let opts = obj_arg_or_empty(args, 2);
+    write_with_sandbox(ctx, api_url, tenant, "", args)
+}
 
-    let upload = write_upload_from_value(&path, content, &opts)?;
+pub fn write_with_sandbox(
+    ctx: &Context,
+    api_url: &str,
+    tenant: &str,
+    sandbox_url: &str,
+    args: &[Value],
+) -> Result<Value, String> {
+    let input = write_input(args)?;
+    let upload = write_upload_from_value(&input.path, &input.content, &input.opts)?;
+    let upload = resolve_sandbox_upload(ctx, sandbox_url, upload)?;
     let mime_type = upload.mime_type.clone();
 
     // 1. Resolve the target workspace. Prefer an explicit workspace override,
     // then the session's attached workspace_id, then the legacy "default"
     // workspace name.
-    let ws_id = resolve_workspace_id(ctx, api_url, tenant, &opts, true)?;
+    let ws_id = resolve_workspace_id(ctx, api_url, tenant, &input.opts, true)?;
 
     // 2. Parse path to get dir_path for MkDir.
-    let dir_path = match path.rsplit_once('/') {
+    let dir_path = match input.path.rsplit_once('/') {
         Some(("", _)) => "/",
         Some((d, _)) => d,
         None => "/",
@@ -494,7 +504,7 @@ pub fn write(ctx: &Context, api_url: &str, tenant: &str, args: &[Value]) -> Resu
         tenant,
         eid,
         &format!("/tdata/Workspaces('{ws_id}')/Temper.CreateFile?await_integration=true"),
-        &json!({"path": path, "mime_type": mime_type}),
+        &json!({"path": input.path, "mime_type": mime_type}),
     )?;
 
     // Extract file_id from workspace state fields.
@@ -532,13 +542,201 @@ pub fn write(ctx: &Context, api_url: &str, tenant: &str, args: &[Value]) -> Resu
             put_file_value_stream(&url, &headers, &bytes)
                 .map_err(|error| format!("temper.write(): image content upload failed: {error}"))?;
         }
+        WriteUploadContent::SandboxImageSource(_) => {
+            return Err("temper.write(): sandbox image source was not resolved".to_string());
+        }
     }
 
     Ok(json!({
         "file_id": file_id,
-        "path": path,
+        "path": input.path,
         "workspace_id": ws_id,
     }))
+}
+
+#[derive(Debug, Clone)]
+struct WriteInput {
+    path: String,
+    content: Value,
+    opts: Value,
+}
+
+fn write_input(args: &[Value]) -> Result<WriteInput, String> {
+    if let Some(input) = args.first().filter(|value| value.is_object()) {
+        let path = require_str(input, "path", "write")?.to_string();
+        let content = input
+            .get("content")
+            .or_else(|| input.get("body"))
+            .cloned()
+            .or_else(|| {
+                if is_sandbox_image_marker(input) {
+                    Some(input.clone())
+                } else {
+                    None
+                }
+            })
+            .ok_or_else(|| "temper.write(): missing 'content'".to_string())?;
+        let opts = write_opts_from_object_input(input);
+        return Ok(WriteInput {
+            path,
+            content,
+            opts,
+        });
+    }
+
+    let path = pos_str(args, 0, "path", "write")?;
+    let content = args
+        .get(1)
+        .ok_or_else(|| "temper.write(): missing 'content' at position 1".to_string())?
+        .clone();
+    let opts = obj_arg_or_empty(args, 2);
+    Ok(WriteInput {
+        path,
+        content,
+        opts,
+    })
+}
+
+fn write_opts_from_object_input(input: &Value) -> Value {
+    let mut opts = input
+        .get("opts")
+        .filter(|value| value.is_object())
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+
+    let Some(map) = opts.as_object_mut() else {
+        return opts;
+    };
+
+    for key in ["mime_type", "workspace_id", "workspace"] {
+        if !map.contains_key(key)
+            && let Some(value) = input.get(key)
+        {
+            map.insert(key.to_string(), value.clone());
+        }
+    }
+
+    opts
+}
+
+fn resolve_sandbox_upload(
+    ctx: &Context,
+    sandbox_url: &str,
+    upload: WriteUpload,
+) -> Result<WriteUpload, String> {
+    let WriteUpload { content, mime_type } = upload;
+    let WriteUploadContent::SandboxImageSource(source_path) = content else {
+        return Ok(WriteUpload { content, mime_type });
+    };
+
+    let handle = sandbox_handle_for_write(ctx, sandbox_url)?;
+    let bytes = read_sandbox_image_bytes(ctx, &handle, &source_path, &mime_type)?;
+    Ok(WriteUpload {
+        content: WriteUploadContent::BrowserImageBytes(bytes),
+        mime_type,
+    })
+}
+
+fn sandbox_handle_for_write(
+    ctx: &Context,
+    sandbox_url: &str,
+) -> Result<wasm_helpers::sandbox::SandboxHandle, String> {
+    use wasm_helpers::sandbox;
+
+    let resolved_sandbox_url = if sandbox_url.is_empty() {
+        dispatch::peek_lazy_sandbox_url().unwrap_or_default()
+    } else {
+        sandbox_url.to_string()
+    };
+
+    if resolved_sandbox_url.is_empty() {
+        return Err(
+            "temper.write(): sandbox image source requires an attached sandbox".to_string(),
+        );
+    }
+
+    let fields = ctx.entity_state.get("fields").cloned().unwrap_or(json!({}));
+    let provider = fields
+        .get("sandbox_provider")
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .or_else(dispatch::peek_lazy_sandbox_provider)
+        .unwrap_or_else(|| {
+            sandbox::resolve_sandbox_provider(ctx, &fields)
+                .unwrap_or_else(|_| "tensorlake".to_string())
+        });
+    let sandbox_id = fields
+        .get("sandbox_id")
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .or_else(dispatch::peek_lazy_sandbox_id)
+        .unwrap_or_default();
+
+    Ok(sandbox::SandboxHandle {
+        sandbox_url: resolved_sandbox_url,
+        sandbox_id,
+        provider,
+    })
+}
+
+fn read_sandbox_image_bytes(
+    ctx: &Context,
+    handle: &wasm_helpers::sandbox::SandboxHandle,
+    source_path: &str,
+    expected_mime: &str,
+) -> Result<Vec<u8>, String> {
+    let command = format!(
+        "base64 -w0 {} 2>/dev/null || base64 {}",
+        shell_quote(source_path),
+        shell_quote(source_path)
+    );
+    let result = wasm_helpers::sandbox::sandbox_exec(ctx, handle, &command, "/")?;
+    if result.exit_code != 0 {
+        return Err(format!(
+            "temper.write(): failed to read sandbox image source '{source_path}' (exit {}): {}",
+            result.exit_code, result.stderr
+        ));
+    }
+
+    let compact: String = result
+        .stdout
+        .chars()
+        .filter(|ch| !ch.is_ascii_whitespace())
+        .collect();
+    if compact.is_empty() {
+        return Err(format!(
+            "temper.write(): sandbox image source '{source_path}' is empty"
+        ));
+    }
+
+    let decoded = base64::engine::general_purpose::STANDARD
+        .decode(compact.as_bytes())
+        .or_else(|_| base64::engine::general_purpose::STANDARD_NO_PAD.decode(compact.as_bytes()))
+        .map_err(|error| {
+            format!(
+                "temper.write(): sandbox image source '{source_path}' is not valid base64: {error}"
+            )
+        })?;
+    let detected_mime = detect_browser_image_mime(&decoded).ok_or_else(|| {
+        format!(
+            "temper.write(): sandbox image source '{source_path}' is not a supported browser image"
+        )
+    })?;
+    let normalized_expected = normalize_image_mime(expected_mime)
+        .ok_or_else(|| format!("temper.write(): unsupported image MIME type '{expected_mime}'"))?;
+    if detected_mime != normalized_expected {
+        return Err(format!(
+            "temper.write(): declared MIME type '{normalized_expected}' does not match sandbox image bytes '{detected_mime}'"
+        ));
+    }
+
+    Ok(decoded)
+}
+
+fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\"'\"'"))
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -555,7 +753,7 @@ fn put_file_value_stream(
         temper_wasm_sdk::http_stream::streaming_call("PUT", url, &header_refs)
             .map_err(|error| format!("streaming PUT $value failed to start: {error}"))?;
 
-    for chunk in bytes.chunks(temper_wasm_sdk::http_stream::STREAM_CHUNK_BYTES) {
+    for chunk in bytes.chunks(FILE_UPLOAD_STREAM_CHUNK_BYTES) {
         request_body
             .write_all_chunk(chunk)
             .map_err(|error| format!("streaming PUT $value failed while writing body: {error}"))?;
@@ -1607,6 +1805,16 @@ fn write_upload_from_value(
         .unwrap_or_else(|| mime_from_ext(path))
         .to_string();
 
+    if let Some((source_path, media_type)) = sandbox_image_source_candidate(content) {
+        let mime_type = media_type.unwrap_or_else(|| declared_mime.clone());
+        let normalized_mime = normalize_image_mime(&mime_type)
+            .ok_or_else(|| format!("temper.write(): unsupported image MIME type '{mime_type}'"))?;
+        return Ok(WriteUpload {
+            content: WriteUploadContent::SandboxImageSource(source_path),
+            mime_type: normalized_mime.to_string(),
+        });
+    }
+
     if let Some((base64_data, media_type)) = sandbox_image_candidate(content) {
         let mime_type = media_type.unwrap_or_else(|| declared_mime.clone());
         return browser_image_upload(base64_data.trim(), &mime_type);
@@ -1621,6 +1829,16 @@ fn write_upload_from_value(
         return browser_image_upload(base64_data.trim(), &mime_type);
     }
 
+    if let Some((source_path, media_type)) = sandbox_image_source_json_candidate(text) {
+        let mime_type = media_type.unwrap_or_else(|| declared_mime.clone());
+        let normalized_mime = normalize_image_mime(&mime_type)
+            .ok_or_else(|| format!("temper.write(): unsupported image MIME type '{mime_type}'"))?;
+        return Ok(WriteUpload {
+            content: WriteUploadContent::SandboxImageSource(source_path),
+            mime_type: normalized_mime.to_string(),
+        });
+    }
+
     if is_raster_image_mime(&declared_mime) || text.trim_start().starts_with("data:image/") {
         return browser_image_upload(text.trim(), &declared_mime);
     }
@@ -1631,10 +1849,13 @@ fn write_upload_from_value(
     })
 }
 
+fn is_sandbox_image_marker(value: &Value) -> bool {
+    value.get("__temperpaw_image").and_then(Value::as_bool) == Some(true)
+        || value.get("__openpaw_image").and_then(Value::as_bool) == Some(true)
+}
+
 fn sandbox_image_candidate(value: &Value) -> Option<(String, Option<String>)> {
-    let is_image = value.get("__temperpaw_image").and_then(Value::as_bool) == Some(true)
-        || value.get("__openpaw_image").and_then(Value::as_bool) == Some(true);
-    if !is_image {
+    if !is_sandbox_image_marker(value) {
         return None;
     }
     let base64_data = value.get("base64_data")?.as_str()?.trim();
@@ -1651,6 +1872,28 @@ fn sandbox_image_candidate(value: &Value) -> Option<(String, Option<String>)> {
     Some((base64_data.to_string(), media_type))
 }
 
+fn sandbox_image_source_candidate(value: &Value) -> Option<(String, Option<String>)> {
+    if !is_sandbox_image_marker(value) {
+        return None;
+    }
+    let source_path = value
+        .get("source_path")
+        .or_else(|| value.get("sandbox_path"))
+        .and_then(Value::as_str)?
+        .trim();
+    if source_path.is_empty() {
+        return None;
+    }
+    let media_type = value
+        .get("media_type")
+        .or_else(|| value.get("mime_type"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    Some((source_path.to_string(), media_type))
+}
+
 fn sandbox_image_json_candidate(text: &str) -> Option<(String, Option<String>)> {
     let trimmed = text.trim();
     if !trimmed.starts_with('{')
@@ -1660,6 +1903,17 @@ fn sandbox_image_json_candidate(text: &str) -> Option<(String, Option<String>)> 
     }
     let value: Value = serde_json::from_str(trimmed).ok()?;
     sandbox_image_candidate(&value)
+}
+
+fn sandbox_image_source_json_candidate(text: &str) -> Option<(String, Option<String>)> {
+    let trimmed = text.trim();
+    if !trimmed.starts_with('{')
+        || (!trimmed.contains("__temperpaw_image") && !trimmed.contains("__openpaw_image"))
+    {
+        return None;
+    }
+    let value: Value = serde_json::from_str(trimmed).ok()?;
+    sandbox_image_source_candidate(&value)
 }
 
 fn browser_image_upload(raw: &str, declared_mime: &str) -> Result<WriteUpload, String> {
@@ -1990,8 +2244,7 @@ mod tests {
             &json!({
                 "__temperpaw_image": true,
                 "media_type": "image/png",
-                "base64_data": PNG_1X1,
-                "source_path": "/tmp/thumbnail.png"
+                "base64_data": PNG_1X1
             }),
             &json!({}),
         )
@@ -2005,15 +2258,57 @@ mod tests {
     }
 
     #[test]
+    fn write_upload_accepts_sandbox_image_source_handle() {
+        let upload = write_upload_from_value(
+            "/tmp/thumbnail.png",
+            &json!({
+                "__temperpaw_image": true,
+                "media_type": "image/png",
+                "source_path": "/tmp/thumbnail.png"
+            }),
+            &json!({}),
+        )
+        .unwrap();
+
+        assert_eq!(upload.mime_type, "image/png");
+        assert_eq!(
+            upload.content,
+            WriteUploadContent::SandboxImageSource("/tmp/thumbnail.png".to_string())
+        );
+    }
+
+    #[test]
+    fn write_input_accepts_object_shape_and_top_level_options() {
+        let input = write_input(&[json!({
+            "path": "/tmp/thumbnail.jpg",
+            "content": {
+                "__temperpaw_image": true,
+                "media_type": "image/jpeg",
+                "source_path": "/tmp/thumbnail.jpg"
+            },
+            "mime_type": "image/jpeg",
+            "workspace_id": "ws-test"
+        })])
+        .unwrap();
+
+        assert_eq!(input.path, "/tmp/thumbnail.jpg");
+        assert_eq!(input.opts["mime_type"], "image/jpeg");
+        assert_eq!(input.opts["workspace_id"], "ws-test");
+        assert!(is_sandbox_image_marker(&input.content));
+    }
+
+    #[test]
     fn write_upload_accepts_json_stringified_sandbox_image_object() {
         let upload = write_upload_from_value(
             "/tmp/thumbnail.png",
-            &json!(json!({
-                "__temperpaw_image": true,
-                "media_type": "image/png",
-                "base64_data": PNG_1X1
-            })
-            .to_string()),
+            &json!(
+                json!({
+                    "__temperpaw_image": true,
+                    "media_type": "image/png",
+                    "base64_data": PNG_1X1
+                })
+                .to_string()
+            ),
             &json!({}),
         )
         .unwrap();
@@ -2023,6 +2318,29 @@ mod tests {
             upload.content,
             WriteUploadContent::BrowserImageBytes(_)
         ));
+    }
+
+    #[test]
+    fn write_upload_accepts_json_stringified_sandbox_image_source_handle() {
+        let upload = write_upload_from_value(
+            "/tmp/thumbnail.png",
+            &json!(
+                json!({
+                    "__temperpaw_image": true,
+                    "media_type": "image/png",
+                    "source_path": "/tmp/thumbnail.png"
+                })
+                .to_string()
+            ),
+            &json!({}),
+        )
+        .unwrap();
+
+        assert_eq!(upload.mime_type, "image/png");
+        assert_eq!(
+            upload.content,
+            WriteUploadContent::SandboxImageSource("/tmp/thumbnail.png".to_string())
+        );
     }
 
     #[test]
