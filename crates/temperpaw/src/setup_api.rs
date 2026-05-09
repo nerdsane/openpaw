@@ -89,6 +89,11 @@ fn allowed_secret_keys() -> HashSet<&'static str> {
         "railway_environment_id",
         "railway_otel_service_id",
         "railway_service_id",
+        "published_blob_public_base_url",
+        "published_blob_endpoint",
+        "published_blob_bucket",
+        "published_blob_access_key",
+        "published_blob_secret_key",
     ]
     .into_iter()
     .collect()
@@ -245,6 +250,41 @@ fn secrets_schema() -> Vec<SecretSchema> {
             label: "GitHub Token",
             required: false,
             description: "For repo cloning and PR flows",
+        },
+        SecretSchema {
+            key: "published_blob_public_base_url",
+            category: "assets",
+            label: "Published Asset Base URL",
+            required: false,
+            description: "Public CDN/R2 URL prefix for immutable Katagami thumbnails and embodiments",
+        },
+        SecretSchema {
+            key: "published_blob_endpoint",
+            category: "assets",
+            label: "Published Asset S3 Endpoint",
+            required: false,
+            description: "S3/R2 endpoint used by Temper to upload immutable public assets",
+        },
+        SecretSchema {
+            key: "published_blob_bucket",
+            category: "assets",
+            label: "Published Asset Bucket",
+            required: false,
+            description: "Bucket that stores immutable public assets",
+        },
+        SecretSchema {
+            key: "published_blob_access_key",
+            category: "assets",
+            label: "Published Asset Access Key",
+            required: false,
+            description: "Optional S3/R2 access key; falls back to the private blob access key",
+        },
+        SecretSchema {
+            key: "published_blob_secret_key",
+            category: "assets",
+            label: "Published Asset Secret Key",
+            required: false,
+            description: "Optional S3/R2 secret key; falls back to the private blob secret key",
         },
         // DD_* keys are infrastructure config set via Railway env vars (by `temperpaw deploy`).
         // They don't belong in the dashboard — change them in Railway if needed.
@@ -2576,6 +2616,24 @@ mod tests {
                 .any(|secret| secret.key == "modal_bridge_url"),
             "modal_bridge_url should be provisioned by deploy, not shown in the dashboard schema"
         );
+    }
+
+    #[test]
+    fn published_asset_secrets_are_configurable() {
+        let allowed = allowed_secret_keys();
+        for key in [
+            "published_blob_public_base_url",
+            "published_blob_endpoint",
+            "published_blob_bucket",
+            "published_blob_access_key",
+            "published_blob_secret_key",
+        ] {
+            assert!(allowed.contains(key), "{key} should be accepted");
+            assert!(
+                secrets_schema().iter().any(|secret| secret.key == key),
+                "{key} should be shown in the setup schema"
+            );
+        }
     }
 
     #[test]

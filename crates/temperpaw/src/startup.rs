@@ -1240,8 +1240,8 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
             format!("http://127.0.0.1:{actual_port}/_internal/blobs")
         };
         let blob_bucket = std::env::var("BLOB_BUCKET").unwrap_or_else(|_| "temper-fs".into());
-        let _ = vault.cache_platform_secret("blob_endpoint", blob_endpoint);
-        let _ = vault.cache_platform_secret("blob_bucket", blob_bucket);
+        let _ = vault.cache_platform_secret("blob_endpoint", blob_endpoint.clone());
+        let _ = vault.cache_platform_secret("blob_bucket", blob_bucket.clone());
 
         // HMAC credentials for GCS (or any S3-compatible blob store).
         if let Ok(key) = std::env::var("BLOB_ACCESS_KEY") {
@@ -1261,6 +1261,73 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
                 &tenant,
                 "blob_secret_key",
                 key.clone(),
+            )
+            .await;
+        }
+
+        // Public immutable assets for Katagami thumbnails and embodiments.
+        //
+        // The source File/FileVersion remains governed TemperFS data. These
+        // settings only define the serving plane used when Temper promotes a
+        // verified file to a public asset URL.
+        let published_base_url = first_env([
+            "PUBLISHED_BLOB_PUBLIC_BASE_URL",
+            "ASSETS_PUBLIC_BASE_URL",
+            "PUBLIC_BLOB_BASE_URL",
+            "BLOB_PUBLIC_BASE_URL",
+        ]);
+        if let Some(public_base_url) = published_base_url.clone() {
+            cache_platform_and_persist_secret(
+                vault,
+                &storage,
+                &tenant,
+                "published_blob_public_base_url",
+                public_base_url,
+            )
+            .await;
+        }
+
+        let published_endpoint = first_env(["PUBLISHED_BLOB_ENDPOINT", "PUBLISHED_ASSET_ENDPOINT"]);
+        let published_bucket = first_env(["PUBLISHED_BLOB_BUCKET", "PUBLISHED_ASSET_BUCKET"]);
+        if published_base_url.is_some()
+            || published_endpoint.is_some()
+            || published_bucket.is_some()
+        {
+            cache_platform_and_persist_secret(
+                vault,
+                &storage,
+                &tenant,
+                "published_blob_endpoint",
+                published_endpoint.unwrap_or_else(|| blob_endpoint.clone()),
+            )
+            .await;
+            cache_platform_and_persist_secret(
+                vault,
+                &storage,
+                &tenant,
+                "published_blob_bucket",
+                published_bucket.unwrap_or_else(|| blob_bucket.clone()),
+            )
+            .await;
+        }
+
+        if let Some(key) = first_env(["PUBLISHED_BLOB_ACCESS_KEY", "PUBLISHED_ASSET_ACCESS_KEY"]) {
+            cache_platform_and_persist_secret(
+                vault,
+                &storage,
+                &tenant,
+                "published_blob_access_key",
+                key,
+            )
+            .await;
+        }
+        if let Some(key) = first_env(["PUBLISHED_BLOB_SECRET_KEY", "PUBLISHED_ASSET_SECRET_KEY"]) {
+            cache_platform_and_persist_secret(
+                vault,
+                &storage,
+                &tenant,
+                "published_blob_secret_key",
+                key,
             )
             .await;
         }
@@ -1788,6 +1855,14 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn first_env<const N: usize>(names: [&str; N]) -> Option<String> {
+    names.into_iter().find_map(|name| {
+        std::env::var(name)
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+    })
 }
 
 /// Cache a shared platform secret in-memory and persist it under the configured

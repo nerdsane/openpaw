@@ -21,13 +21,16 @@ COPY os-apps ./os-apps
 # "paw-research"] and the Katagami data layer was missing every deploy.
 #
 # Replace the symlinks with real content pulled from the upstream repo
-# on every image build so the catalog discovers them. `--depth 1` keeps
-# the download tiny. Pin via KATAGAMI_REF arg when a reproducible image
-# is needed; defaults to main.
-ARG KATAGAMI_REF=master
+# on every image build so the catalog discovers them. KATAGAMI_REF accepts a
+# branch, tag, or commit SHA; keep production pinned to the exact asset URL
+# contract commit until the change is part of Katagami's default branch.
+ARG KATAGAMI_REF=81d4fd5b944c5030ec1ad21efd2ccf245a6bec99
 RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates && rm -rf /var/lib/apt/lists/* \
     && rm -rf os-apps/katagami-curation os-apps/katagami-commons \
-    && git clone --depth 1 --branch "${KATAGAMI_REF}" https://github.com/arni-labs/katagami.git /tmp/katagami \
+    && git init /tmp/katagami \
+    && git -C /tmp/katagami remote add origin https://github.com/arni-labs/katagami.git \
+    && git -C /tmp/katagami fetch --depth 1 origin "${KATAGAMI_REF}" \
+    && git -C /tmp/katagami checkout --detach FETCH_HEAD \
     && cp -a /tmp/katagami/katagami-curation os-apps/katagami-curation \
     && cp -a /tmp/katagami/katagami-commons  os-apps/katagami-commons  \
     && rm -rf /tmp/katagami
