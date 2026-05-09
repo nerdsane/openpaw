@@ -22,8 +22,8 @@ pub const REPL_METHOD_SPECS: &[ReplMethodSpec] = &[
     ReplMethodSpec {
         object: "sandbox",
         method: "read",
-        signature: "(path)",
-        description: "read file content",
+        signature: "(path, opts=None)",
+        description: "read file content; image paths return a sandbox image handle unless opts.inline is true",
         token: Some("read"),
     },
     ReplMethodSpec {
@@ -120,8 +120,8 @@ pub const REPL_METHOD_SPECS: &[ReplMethodSpec] = &[
     ReplMethodSpec {
         object: "temper",
         method: "write",
-        signature: "(path, content, opts=None)",
-        description: "write file by path (auto-creates workspace/dirs), returns {file_id, path, workspace_id}",
+        signature: "(path, content, opts=None) or ({path, content, opts})",
+        description: "write file by path; accepts text or sandbox image handles and auto-creates workspace/dirs",
         token: Some("temper_write"),
     },
     ReplMethodSpec {

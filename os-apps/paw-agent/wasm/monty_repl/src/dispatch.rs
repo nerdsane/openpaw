@@ -14,6 +14,8 @@ use temper_wasm_sdk::context::{Context, HttpRequest, HttpResponse};
 use tool_catalog::{DEFAULT_TOOLS_ENABLED, enabled_tool_set};
 use wasm_helpers::read_session_from_temperfs;
 
+const MAX_INLINE_SANDBOX_IMAGE_BASE64_CHARS: usize = 16 * 1024;
+
 /// Tools available in plan mode (ADR-004). Blocks sandbox mutation (write, edit)
 /// and governance writes. Allows read ops, research, memory, Plan CRUD, and
 /// TemperFS writes (for plan documents).
@@ -375,22 +377,21 @@ pub fn dispatch(
             // this unblocks the natural Python-style call shape without
             // changing any per-method signature. Methods that don't expect
             // a dict will surface their own clearer error.
-            let temper_args: Vec<Value> =
-                if args.is_empty() && !kwargs.is_empty() {
-                    let mut obj = serde_json::Map::new();
-                    for (k, v) in kwargs {
-                        if let Some(key) = k.as_str() {
-                            obj.insert(key.to_string(), v.clone());
-                        }
+            let temper_args: Vec<Value> = if args.is_empty() && !kwargs.is_empty() {
+                let mut obj = serde_json::Map::new();
+                for (k, v) in kwargs {
+                    if let Some(key) = k.as_str() {
+                        obj.insert(key.to_string(), v.clone());
                     }
-                    vec![Value::Object(obj)]
-                } else if !args.is_empty() && !kwargs.is_empty() {
-                    return Err(format!(
-                        "temper.{method}() does not accept mixed positional and keyword arguments — pass either a single dict or kwargs"
-                    ));
-                } else {
-                    args.to_vec()
-                };
+                }
+                vec![Value::Object(obj)]
+            } else if !args.is_empty() && !kwargs.is_empty() {
+                return Err(format!(
+                    "temper.{method}() does not accept mixed positional and keyword arguments — pass either a single dict or kwargs"
+                ));
+            } else {
+                args.to_vec()
+            };
             dispatch_temper(
                 ctx,
                 temper_api_url,
@@ -402,7 +403,7 @@ pub fn dispatch(
             )
         }
         "sandbox" => {
-            reject_kwargs("sandbox", method, kwargs)?;
+            let sandbox_args = coalesce_sandbox_args(method, args, kwargs)?;
             let fields = ctx.entity_state.get("fields").cloned().unwrap_or(json!({}));
             let (sandbox_id, cached_provider) = sandbox_identity_from_fields(&fields);
             let provider = cached_provider.unwrap_or_else(|| {
@@ -416,7 +417,7 @@ pub fn dispatch(
                 &provider,
                 workdir,
                 method,
-                args,
+                &sandbox_args,
             )
         }
         "json" => dispatch_json(method, args, kwargs),
@@ -518,6 +519,29 @@ fn reject_kwargs(obj_name: &str, method: &str, kwargs: &[(Value, Value)]) -> Res
             format!(": {names}")
         }
     ))
+}
+
+fn coalesce_sandbox_args(
+    method: &str,
+    args: &[Value],
+    kwargs: &[(Value, Value)],
+) -> Result<Vec<Value>, String> {
+    if kwargs.is_empty() {
+        return Ok(args.to_vec());
+    }
+
+    if method == "read" && args.len() == 1 {
+        let mut opts = serde_json::Map::new();
+        for (key, value) in kwargs {
+            if let Some(key) = key.as_str() {
+                opts.insert(key.to_string(), value.clone());
+            }
+        }
+        return Ok(vec![args[0].clone(), Value::Object(opts)]);
+    }
+
+    reject_kwargs("sandbox", method, kwargs)?;
+    Ok(args.to_vec())
 }
 
 fn dispatch_json(method: &str, args: &[Value], kwargs: &[(Value, Value)]) -> Result<Value, String> {
@@ -865,7 +889,7 @@ fn dispatch_temper(
         "steer_session" => super::entity_ops::steer_session(ctx, api_url, tenant, args),
         "save_memory" => super::entity_ops::save_memory(ctx, api_url, tenant, args),
         "recall_memory" => super::entity_ops::recall_memory(ctx, api_url, tenant, args),
-        "write" => super::entity_ops::write(ctx, api_url, tenant, args),
+        "write" => super::entity_ops::write_with_sandbox(ctx, api_url, tenant, sandbox_url, args),
         "read" => super::entity_ops::read(ctx, api_url, tenant, args),
         "ls" => super::entity_ops::ls(ctx, api_url, tenant, args),
         "grep" => super::entity_ops::grep(ctx, api_url, tenant, args),
@@ -2128,6 +2152,7 @@ fn dispatch_sandbox(
     match method {
         "read" => {
             let path = str_arg(args, 0, "path", "read")?;
+            let opts = obj_arg_or_empty(args, 1);
             if is_image_extension(&path) {
                 // Binary-safe read: base64-encode in sandbox to avoid UTF-8 corruption
                 let b64_cmd = format!(
@@ -2147,12 +2172,12 @@ fn dispatch_sandbox(
                     return Err(format!("sandbox.read({path}): image file is empty"));
                 }
                 let media_type = media_type_from_extension(&path);
-                Ok(json!({
-                    "__temperpaw_image": true,
-                    "media_type": media_type,
-                    "base64_data": b64_data,
-                    "source_path": path
-                }))
+                Ok(sandbox_image_read_result(
+                    &path,
+                    &media_type,
+                    b64_data,
+                    &opts,
+                ))
             } else {
                 let content = sandbox::sandbox_file_read(ctx, &handle, &path)?;
                 Ok(json!(content))
@@ -2186,6 +2211,33 @@ fn dispatch_sandbox(
             "unknown sandbox method '{method}'. Available: read, write, edit, bash"
         )),
     }
+}
+
+fn sandbox_image_read_result(
+    path: &str,
+    media_type: &str,
+    base64_data: String,
+    opts: &Value,
+) -> Value {
+    let include_base64 = opts
+        .get("inline")
+        .or_else(|| opts.get("include_base64"))
+        .or_else(|| opts.get("base64"))
+        .and_then(Value::as_bool)
+        .unwrap_or(base64_data.len() <= MAX_INLINE_SANDBOX_IMAGE_BASE64_CHARS);
+    let approx_size_bytes = base64_data.len().saturating_mul(3) / 4;
+    let mut result = json!({
+        "__temperpaw_image": true,
+        "media_type": media_type,
+        "source_path": path,
+        "byte_count": approx_size_bytes,
+    });
+    if include_base64 {
+        result["base64_data"] = json!(base64_data);
+    } else {
+        result["content_ref"] = json!("sandbox_file");
+    }
+    result
 }
 
 /// Edit a file via read-modify-write (consumer-level operation, not provider-level).
@@ -2875,12 +2927,14 @@ fn shell_quote(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        BatchableToolPlan, BatchableToolPlanKind, LAZY_SANDBOX, ODataQueryArg,
-        batchable_tool_plan_from_code, encode_odata_filter_literal, escape_odata_string_literal,
+        BatchableToolPlan, BatchableToolPlanKind, LAZY_SANDBOX,
+        MAX_INLINE_SANDBOX_IMAGE_BASE64_CHARS, ODataQueryArg, batchable_tool_plan_from_code,
+        coalesce_sandbox_args, encode_odata_filter_literal, escape_odata_string_literal,
         fallback_web_search_query, has_model_csdl, interpret_cached_web_query_result,
         interpret_web_query_entity_result, is_image_extension, is_vague_web_search_query,
         json_dumps, json_loads, media_type_from_extension, normalize_odata_query_arg,
-        sandbox_identity_from_fields, web_query_cache_lookup_path, web_search_results_empty,
+        sandbox_identity_from_fields, sandbox_image_read_result, web_query_cache_lookup_path,
+        web_search_results_empty,
     };
     use serde_json::json;
 
@@ -3168,5 +3222,48 @@ mod tests {
             batchable_tool_plan_from_code("temper.get(\"Sessions\", session_id)"),
             None
         );
+    }
+
+    #[test]
+    fn sandbox_read_kwargs_become_options_arg() {
+        let args = coalesce_sandbox_args(
+            "read",
+            &[json!("/tmp/thumbnail.jpg")],
+            &[(json!("inline"), json!(true))],
+        )
+        .unwrap();
+
+        assert_eq!(
+            args,
+            vec![json!("/tmp/thumbnail.jpg"), json!({"inline": true})]
+        );
+    }
+
+    #[test]
+    fn sandbox_image_read_result_omits_large_base64_by_default() {
+        let result = sandbox_image_read_result(
+            "/tmp/thumbnail.jpg",
+            "image/jpeg",
+            "a".repeat(MAX_INLINE_SANDBOX_IMAGE_BASE64_CHARS + 1),
+            &json!({}),
+        );
+
+        assert_eq!(result["__temperpaw_image"], true);
+        assert_eq!(result["source_path"], "/tmp/thumbnail.jpg");
+        assert_eq!(result["content_ref"], "sandbox_file");
+        assert!(result.get("base64_data").is_none());
+    }
+
+    #[test]
+    fn sandbox_image_read_result_includes_base64_when_requested() {
+        let result = sandbox_image_read_result(
+            "/tmp/thumbnail.jpg",
+            "image/jpeg",
+            "abcd".to_string(),
+            &json!({"inline": true}),
+        );
+
+        assert_eq!(result["base64_data"], "abcd");
+        assert!(result.get("content_ref").is_none());
     }
 }
