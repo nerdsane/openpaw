@@ -358,6 +358,51 @@ pub(crate) async fn fetch_dm_channels(
     }
 }
 
+pub(crate) async fn open_dm_channel_at(
+    http: &reqwest::Client,
+    bot_token: &str,
+    api_base: &str,
+    recipient_id: &str,
+) -> Result<String, DiscordApiError> {
+    if recipient_id.is_empty() {
+        return Err(DiscordApiError::RequestFailed(
+            "Discord DM recipient_id is empty".to_string(),
+        ));
+    }
+
+    let url = format!("{}/users/@me/channels", api_base.trim_end_matches('/'));
+    let resp = http
+        .post(url)
+        .header("Authorization", format!("Bot {bot_token}"))
+        .header("Content-Type", "application/json")
+        .json(&serde_json::json!({ "recipient_id": recipient_id }))
+        .send()
+        .await
+        .map_err(|e| DiscordApiError::RequestFailed(format!("Discord open DM error: {e}")))?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        return Err(DiscordApiError::RequestFailed(format!(
+            "Discord open DM returned {status}: {body}"
+        )));
+    }
+
+    let body = resp.json::<serde_json::Value>().await.map_err(|e| {
+        DiscordApiError::RequestFailed(format!("Failed to parse Discord open DM response: {e}"))
+    })?;
+
+    body.get("id")
+        .and_then(|value| value.as_str())
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .ok_or_else(|| {
+            DiscordApiError::RequestFailed(
+                "Discord open DM response missing channel id".to_string(),
+            )
+        })
+}
+
 /// Fetch messages from a Discord channel newer than `after_id`.
 /// Returns messages in chronological order (oldest first).
 pub(crate) async fn fetch_channel_messages(
@@ -704,4 +749,74 @@ pub(crate) async fn register_commands(
         .unwrap_or("global".to_string());
     tracing::info!(scope = %scope, "discord slash commands registered");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{Arc, Mutex};
+
+    use axum::extract::State;
+    use axum::http::{HeaderMap, StatusCode};
+    use axum::{Json, Router, routing::post};
+    use serde_json::json;
+    use tokio::net::TcpListener;
+
+    use super::*;
+
+    #[derive(Clone, Default)]
+    struct OpenDmProbe {
+        authorization: Arc<Mutex<Option<String>>>,
+        recipient_id: Arc<Mutex<Option<String>>>,
+    }
+
+    async fn spawn_test_server(app: Router) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        format!("http://{}", addr)
+    }
+
+    #[tokio::test]
+    async fn open_dm_channel_posts_recipient_and_returns_channel_id() {
+        let probe = OpenDmProbe::default();
+        let app = Router::new()
+            .route(
+                "/users/@me/channels",
+                post(
+                    |State(probe): State<OpenDmProbe>,
+                     headers: HeaderMap,
+                     Json(body): Json<serde_json::Value>| async move {
+                        *probe.authorization.lock().unwrap() = headers
+                            .get("authorization")
+                            .and_then(|value| value.to_str().ok())
+                            .map(str::to_string);
+                        *probe.recipient_id.lock().unwrap() = body
+                            .get("recipient_id")
+                            .and_then(|value| value.as_str())
+                            .map(str::to_string);
+
+                        (StatusCode::OK, Json(json!({ "id": "dm_channel_123" })))
+                    },
+                ),
+            )
+            .with_state(probe.clone());
+        let base_url = spawn_test_server(app).await;
+
+        let channel_id =
+            open_dm_channel_at(&reqwest::Client::new(), "bot-token", &base_url, "user_456")
+                .await
+                .expect("opening a DM channel should return the Discord channel id");
+
+        assert_eq!(channel_id, "dm_channel_123");
+        assert_eq!(
+            probe.authorization.lock().unwrap().as_deref(),
+            Some("Bot bot-token")
+        );
+        assert_eq!(
+            probe.recipient_id.lock().unwrap().as_deref(),
+            Some("user_456")
+        );
+    }
 }

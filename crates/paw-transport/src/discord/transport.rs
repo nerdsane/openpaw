@@ -186,6 +186,44 @@ fn build_rich_fallback_text(content: &str, embeds: &[Embed]) -> String {
     parts.join("\n\n")
 }
 
+async fn resolve_dm_channel_id(
+    http: &reqwest::Client,
+    bot_token: &str,
+    dm_channels: &Arc<RwLock<BTreeMap<String, String>>>,
+    thread_id: &str,
+) -> Result<String, DiscordApiError> {
+    resolve_dm_channel_id_at(http, bot_token, dm_channels, thread_id, DISCORD_API_BASE).await
+}
+
+async fn resolve_dm_channel_id_at(
+    http: &reqwest::Client,
+    bot_token: &str,
+    dm_channels: &Arc<RwLock<BTreeMap<String, String>>>,
+    thread_id: &str,
+    discord_api_base: &str,
+) -> Result<String, DiscordApiError> {
+    if thread_id.is_empty() {
+        return Err(DiscordApiError::RequestFailed(
+            "discord reply webhook has no thread_id".to_string(),
+        ));
+    }
+
+    if let Some(channel_id) = dm_channels.read().await.get(thread_id).cloned() {
+        return Ok(channel_id);
+    }
+
+    tracing::warn!(
+        thread_id,
+        "discord reply webhook missing DM channel cache; reopening DM channel"
+    );
+    let channel_id = open_dm_channel_at(http, bot_token, discord_api_base, thread_id).await?;
+    dm_channels
+        .write()
+        .await
+        .insert(thread_id.to_string(), channel_id.clone());
+    Ok(channel_id)
+}
+
 // ── Attachment helpers ───────────────────────────────────────────────
 
 /// Maximum size (bytes) of a single text attachment to inline.
@@ -1115,11 +1153,21 @@ impl DiscordTransport {
                 let _ = cancel_tx.send(true);
             }
 
-            // thread_id is the Discord user ID (for DMs). Look up their DM channel.
-            let channel_id = state.dm_channels.read().await.get(thread_id).cloned();
-            let Some(channel_id) = channel_id else {
-                tracing::error!(thread_id, "discord reply webhook has no DM channel mapping");
-                return axum::http::StatusCode::NOT_FOUND;
+            // thread_id is the Discord user ID (for DMs). Prefer the warm cache,
+            // but reopen the DM channel after reconnects/redeploys if the cache was lost.
+            let channel_id = match resolve_dm_channel_id(
+                &state.http,
+                &state.bot_token,
+                &state.dm_channels,
+                thread_id,
+            )
+            .await
+            {
+                Ok(channel_id) => channel_id,
+                Err(error) => {
+                    tracing::error!(thread_id, %error, "discord reply webhook could not resolve DM channel");
+                    return axum::http::StatusCode::BAD_GATEWAY;
+                }
             };
 
             if has_rich_content {
@@ -1648,9 +1696,19 @@ impl DiscordTransport {
             if thread_id.is_empty() {
                 return axum::http::StatusCode::BAD_REQUEST;
             }
-            let channel_id = state.dm_channels.read().await.get(thread_id).cloned();
-            let Some(channel_id) = channel_id else {
-                return axum::http::StatusCode::NOT_FOUND;
+            let channel_id = match resolve_dm_channel_id(
+                &state.http,
+                &state.bot_token,
+                &state.dm_channels,
+                thread_id,
+            )
+            .await
+            {
+                Ok(channel_id) => channel_id,
+                Err(error) => {
+                    tracing::warn!(thread_id, %error, "discord typing webhook could not resolve DM channel");
+                    return axum::http::StatusCode::BAD_GATEWAY;
+                }
             };
             send_typing(&state.http, &state.bot_token, &channel_id).await;
             axum::http::StatusCode::OK
@@ -1969,6 +2027,61 @@ mod tests {
             update.get("webhook_url").and_then(|value| value.as_str()),
             Some("http://127.0.0.1:3488/reply"),
             "reused discord channels must refresh the reply webhook target"
+        );
+    }
+
+    #[tokio::test]
+    async fn resolve_dm_channel_id_reopens_and_caches_missing_dm_mapping() {
+        let open_attempts = Arc::new(AtomicUsize::new(0));
+        let attempts_for_route = open_attempts.clone();
+        let app = Router::new().route(
+            "/users/@me/channels",
+            post(move |Json(body): Json<serde_json::Value>| {
+                let attempts = attempts_for_route.clone();
+                async move {
+                    attempts.fetch_add(1, Ordering::SeqCst);
+                    assert_eq!(
+                        body.get("recipient_id").and_then(|value| value.as_str()),
+                        Some("user_456")
+                    );
+                    (StatusCode::OK, Json(json!({ "id": "dm_reopened" })))
+                }
+            }),
+        );
+        let base_url = spawn_test_server(app).await;
+        let dm_channels = Arc::new(RwLock::new(BTreeMap::new()));
+
+        let channel_id = resolve_dm_channel_id_at(
+            &reqwest::Client::new(),
+            "bot-token",
+            &dm_channels,
+            "user_456",
+            &base_url,
+        )
+        .await
+        .expect("missing DM cache entries should be reopened through Discord REST");
+
+        assert_eq!(channel_id, "dm_reopened");
+        assert_eq!(
+            dm_channels.read().await.get("user_456").map(String::as_str),
+            Some("dm_reopened")
+        );
+
+        let cached_id = resolve_dm_channel_id_at(
+            &reqwest::Client::new(),
+            "bot-token",
+            &dm_channels,
+            "user_456",
+            &base_url,
+        )
+        .await
+        .expect("cached DM channel should be reused");
+
+        assert_eq!(cached_id, "dm_reopened");
+        assert_eq!(
+            open_attempts.load(Ordering::SeqCst),
+            1,
+            "expected only one Discord open-DM REST call"
         );
     }
 
