@@ -834,6 +834,35 @@ fn paw_patrol_evaluation_timeout_classification_is_recorded_in_app_adr() {
 }
 
 #[test]
+fn paw_patrol_queued_evaluation_terminal_cleanup_is_recorded_in_app_adr() {
+    let root = repo_root();
+    let adr = root
+        .join("os-apps/paw-patrol/adrs")
+        .join("0003-queued-evaluation-terminal-cleanup.md");
+
+    assert!(
+        adr.is_file(),
+        "queued EvaluationRun terminal cleanup should be recorded in an app-scoped ADR"
+    );
+
+    let text = read(adr);
+    for needle in [
+        "Queued Evaluation Terminal Cleanup",
+        "Status: Accepted",
+        "ReviewRun",
+        "EvaluationRun.Fail",
+        "review_terminal_without_approval",
+        "parent_work_cycle_terminal",
+        "Temper-native",
+    ] {
+        assert!(
+            text.contains(needle),
+            "paw-patrol queued evaluation cleanup ADR should contain {needle}"
+        );
+    }
+}
+
+#[test]
 fn paw_patrol_docs_explain_worker_scripts_tests_and_wasms() {
     let root = repo_root();
     let app_doc = read(root.join("os-apps/paw-patrol/APP.md"));
@@ -2627,6 +2656,26 @@ fn evaluation_failures_requeue_rework_instead_of_dead_ending_the_cycle() {
         assert!(
             lifecycle.contains(needle),
             "evaluation failures should requeue ordinary Reviewing cycles and only fail unexpected states: {needle}"
+        );
+    }
+}
+
+#[test]
+fn terminal_reviews_cleanup_obsolete_queued_evaluation_runs() {
+    let root = repo_root();
+    let patrol = root.join("os-apps/paw-patrol");
+    let lifecycle = read(patrol.join("wasm/review_gate_lifecycle/src/lib.rs"));
+
+    for needle in [
+        "fail_obsolete_evaluation_run_if_needed",
+        "review_terminal_without_approval",
+        "parent_work_cycle_terminal",
+        "is_obsolete_evaluation_failure(&failure_classification)",
+        "obsolete queued EvaluationRun",
+    ] {
+        assert!(
+            lifecycle.contains(needle),
+            "review_gate_lifecycle should terminalize obsolete queued evaluations without reopening parent cycles: {needle}"
         );
     }
 }

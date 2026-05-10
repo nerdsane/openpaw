@@ -127,7 +127,7 @@ async fn fetch_work_cycle_until_review_passed(
 ) -> Result<WorkCycleState> {
     let mut work_cycle = fetch_work_cycle(client, config, work_cycle_id).await?;
     for _ in 0..20 {
-        if work_cycle.review_passed {
+        if work_cycle.review_passed || work_cycle_status_is_terminal(&work_cycle.status) {
             return Ok(work_cycle);
         }
         sleep(Duration::from_millis(250)).await;
@@ -243,6 +243,34 @@ async fn claim_evaluation_run(
         evaluation_run_id,
         "Claim",
         json!({ "evaluator_id": config.worker_id }),
+    )
+    .await
+}
+
+async fn fail_queued_evaluation_run(
+    client: &reqwest::Client,
+    config: &Config,
+    evaluation_run_id: &str,
+    blocker: &EvaluationTerminalBlocker,
+) -> Result<()> {
+    claim_evaluation_run(client, config, evaluation_run_id).await?;
+    info!(
+        evaluation_run_id,
+        action = EVALUATION_FAIL_LABEL,
+        failure_classification = %blocker.failure_classification,
+        "failing queued EvaluationRun that cannot reach review_passed"
+    );
+    post_entity_action(
+        client,
+        config,
+        "EvaluationRuns",
+        evaluation_run_id,
+        "Fail",
+        json!({
+            "results_json": blocker.results_json,
+            "error_message": blocker.error_message,
+            "failure_classification": blocker.failure_classification,
+        }),
     )
     .await
 }
@@ -415,6 +443,12 @@ fn work_cycle_from_odata_value(value: Value) -> Result<WorkCycleState> {
 
     Ok(WorkCycleState {
         id,
+        status: first_string(
+            &value,
+            &fields,
+            &["status", "Status"],
+            &["status", "Status"],
+        ),
         implementer_worker_run_id: first_string(
             &value,
             &fields,
@@ -434,6 +468,96 @@ fn work_cycle_from_odata_value(value: Value) -> Result<WorkCycleState> {
             &["review_passed", "ReviewPassed"],
         ),
     })
+}
+
+fn queued_evaluation_terminal_blocker(
+    work_cycle: &WorkCycleState,
+    review_run: Option<&ReviewRunState>,
+) -> Option<EvaluationTerminalBlocker> {
+    if work_cycle_status_is_terminal(&work_cycle.status) {
+        return Some(evaluation_terminal_blocker(
+            work_cycle,
+            review_run,
+            "parent_work_cycle_terminal",
+            format!(
+                "Queued EvaluationRun cannot proceed because WorkCycle {} is {}.",
+                work_cycle.id, work_cycle.status
+            ),
+        ));
+    }
+
+    if work_cycle.review_passed {
+        return None;
+    }
+
+    let Some(review_run) = review_run else {
+        return None;
+    };
+    if review_status_precludes_approval(&review_run.status) {
+        return Some(evaluation_terminal_blocker(
+            work_cycle,
+            Some(review_run),
+            "review_terminal_without_approval",
+            format!(
+                "Queued EvaluationRun cannot proceed because ReviewRun {} is {} and WorkCycle {} has review_passed=false.",
+                non_empty_or(&work_cycle.reviewer_run_id, "unknown"),
+                review_run.status,
+                work_cycle.id
+            ),
+        ));
+    }
+
+    None
+}
+
+fn evaluation_terminal_blocker(
+    work_cycle: &WorkCycleState,
+    review_run: Option<&ReviewRunState>,
+    failure_classification: &str,
+    error_message: String,
+) -> EvaluationTerminalBlocker {
+    let review_status = review_run
+        .map(|review| review.status.as_str())
+        .unwrap_or("not_fetched");
+    let results_json = serde_json::to_string(&json!({
+        "kind": "queued_evaluation_terminalized",
+        "work_cycle_id": work_cycle.id,
+        "work_cycle_status": work_cycle.status,
+        "reviewer_run_id": work_cycle.reviewer_run_id,
+        "review_run_status": review_status,
+        "review_passed": work_cycle.review_passed,
+        "failure_classification": failure_classification
+    }))
+    .unwrap_or_else(|_| "{}".to_string());
+
+    EvaluationTerminalBlocker {
+        results_json,
+        error_message,
+        failure_classification: failure_classification.to_string(),
+    }
+}
+
+fn work_cycle_status_is_terminal(status: &str) -> bool {
+    matches!(status, "Complete" | "Failed")
+}
+
+fn review_status_precludes_approval(status: &str) -> bool {
+    matches!(status, "ChangesRequested" | "Escalated" | "Failed")
+}
+
+fn evaluation_run_is_claimable_by_worker(
+    evaluation_run: &EvaluationRunState,
+    worker_id: &str,
+) -> bool {
+    evaluation_run.evaluator_id.trim().is_empty() || evaluation_run.evaluator_id == worker_id
+}
+
+fn non_empty_or<'a>(value: &'a str, fallback: &'a str) -> &'a str {
+    if value.trim().is_empty() {
+        fallback
+    } else {
+        value
+    }
 }
 
 fn worker_run_is_claimable_by_local_codex(worker_run: &WorkerRunState, worker_id: &str) -> bool {

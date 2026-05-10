@@ -257,6 +257,18 @@ async fn handle_queued_evaluation_run(
     }
 
     let mut work_cycle = fetch_work_cycle(client, config, &evaluation_run.work_cycle_id).await?;
+    if fail_terminal_queued_evaluation_if_needed(
+        client,
+        config,
+        evaluation_run_id,
+        &evaluation_run,
+        &work_cycle,
+        None,
+    )
+    .await?
+    {
+        return Ok(());
+    }
     if work_cycle.implementer_worker_run_id.is_empty() {
         debug!(evaluation_run_id, work_cycle_id = %work_cycle.id, "WorkCycle has no implementer run yet");
         return Ok(());
@@ -264,6 +276,23 @@ async fn handle_queued_evaluation_run(
     let worker_run =
         fetch_worker_run(client, config, &work_cycle.implementer_worker_run_id).await?;
     let is_repo_sweep = worker_run_is_repo_sweep(&worker_run);
+
+    if !work_cycle.review_passed && !work_cycle.reviewer_run_id.is_empty() {
+        let review_run = fetch_review_run(client, config, &work_cycle.reviewer_run_id).await?;
+        if fail_terminal_queued_evaluation_if_needed(
+            client,
+            config,
+            evaluation_run_id,
+            &evaluation_run,
+            &work_cycle,
+            Some(&review_run),
+        )
+        .await?
+        {
+            return Ok(());
+        }
+    }
+
     if !is_repo_sweep && !config.enable_execution {
         debug!(
             evaluation_run_id,
@@ -278,6 +307,23 @@ async fn handle_queued_evaluation_run(
         work_cycle =
             fetch_work_cycle_until_review_passed(client, config, &evaluation_run.work_cycle_id)
                 .await?;
+        let review_run = if work_cycle.reviewer_run_id.is_empty() {
+            None
+        } else {
+            Some(fetch_review_run(client, config, &work_cycle.reviewer_run_id).await?)
+        };
+        if fail_terminal_queued_evaluation_if_needed(
+            client,
+            config,
+            evaluation_run_id,
+            &evaluation_run,
+            &work_cycle,
+            review_run.as_ref(),
+        )
+        .await?
+        {
+            return Ok(());
+        }
     }
     if !work_cycle.review_passed {
         debug!(
@@ -351,4 +397,30 @@ async fn handle_queued_evaluation_run(
         }),
     )
     .await
+}
+
+async fn fail_terminal_queued_evaluation_if_needed(
+    client: &reqwest::Client,
+    config: &Config,
+    evaluation_run_id: &str,
+    evaluation_run: &EvaluationRunState,
+    work_cycle: &WorkCycleState,
+    review_run: Option<&ReviewRunState>,
+) -> Result<bool> {
+    let Some(blocker) = queued_evaluation_terminal_blocker(work_cycle, review_run) else {
+        return Ok(false);
+    };
+
+    if evaluation_run_is_claimable_by_worker(evaluation_run, &config.worker_id) {
+        fail_queued_evaluation_run(client, config, evaluation_run_id, &blocker).await?;
+    } else {
+        warn!(
+            evaluation_run_id,
+            evaluator_id = %evaluation_run.evaluator_id,
+            worker_id = %config.worker_id,
+            failure_classification = %blocker.failure_classification,
+            "terminal queued EvaluationRun cannot be failed by this worker because it is reserved for a different evaluator"
+        );
+    }
+    Ok(true)
 }
