@@ -490,9 +490,7 @@ fn queued_evaluation_terminal_blocker(
         return None;
     }
 
-    let Some(review_run) = review_run else {
-        return None;
-    };
+    let review_run = review_run?;
     if review_status_precludes_approval(&review_run.status) {
         return Some(evaluation_terminal_blocker(
             work_cycle,
