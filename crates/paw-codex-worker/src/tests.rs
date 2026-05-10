@@ -651,6 +651,7 @@ mod tests {
 
         assert_eq!(review.worker_run_id, "wr-1");
         assert_eq!(evaluation.work_cycle_id, "wc-1");
+        assert_eq!(work_cycle.status, "Reviewing");
         assert_eq!(work_cycle.implementer_worker_run_id, "wr-1");
         assert!(work_cycle.review_passed);
     }

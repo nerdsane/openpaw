@@ -164,6 +164,14 @@ fn handle_review_changes_requested(
                 &json!({ "error_message": &message }),
             )?;
         }
+        fail_obsolete_evaluation_run_if_needed(
+            ctx,
+            base_url,
+            headers,
+            &work_cycle_id,
+            "review_terminal_without_approval",
+            &message,
+        )?;
     }
 
     reject_proof_if_needed(ctx, base_url, headers, &proof_packet_id, &message)
@@ -181,6 +189,14 @@ fn handle_review_escalated(
     let verdict = string_param(ctx, fields, "verdict", "Verdict");
     let message = reviewer_verdict(&verdict, &review_summary, "");
     fail_work_cycle_and_escalate_case(ctx, base_url, headers, &work_cycle_id, &message)?;
+    fail_obsolete_evaluation_run_if_needed(
+        ctx,
+        base_url,
+        headers,
+        &work_cycle_id,
+        "review_terminal_without_approval",
+        &message,
+    )?;
     reject_proof_if_needed(ctx, base_url, headers, &proof_packet_id, &message)
 }
 
@@ -199,6 +215,14 @@ fn handle_review_failed(
         review_summary
     };
     fail_work_cycle_and_escalate_case(ctx, base_url, headers, &work_cycle_id, &message)?;
+    fail_obsolete_evaluation_run_if_needed(
+        ctx,
+        base_url,
+        headers,
+        &work_cycle_id,
+        "review_terminal_without_approval",
+        &message,
+    )?;
     reject_proof_if_needed(ctx, base_url, headers, &proof_packet_id, &message)
 }
 
@@ -280,6 +304,16 @@ fn handle_evaluation_failed(
 
     if work_cycle_id.is_empty() {
         return Err("review_gate_lifecycle: EvaluationRun missing work_cycle_id".to_string());
+    }
+
+    if is_obsolete_evaluation_failure(&failure_classification) {
+        ctx.log(
+            "info",
+            &format!(
+                "review_gate_lifecycle: obsolete queued EvaluationRun {evaluation_run_id} terminalized without changing WorkCycle {work_cycle_id}"
+            ),
+        );
+        return Ok(());
     }
 
     let work_cycle = get_entity(
@@ -662,6 +696,96 @@ fn reject_proof_if_needed(
         )?;
     }
     Ok(())
+}
+
+fn fail_obsolete_evaluation_run_if_needed(
+    ctx: &Context,
+    base_url: &str,
+    headers: &[(String, String)],
+    work_cycle_id: &str,
+    failure_classification: &str,
+    message: &str,
+) -> Result<(), String> {
+    if work_cycle_id.is_empty() {
+        return Ok(());
+    }
+
+    let work_cycle = get_entity(
+        ctx,
+        base_url,
+        headers,
+        entity_set(WORK_CYCLES_PATH),
+        work_cycle_id,
+    )?;
+    let evaluation_run_id =
+        string_from_entity(&work_cycle, "evaluation_run_id", "EvaluationRunId");
+    if evaluation_run_id.is_empty() {
+        return Ok(());
+    }
+
+    let evaluation_run = get_entity(
+        ctx,
+        base_url,
+        headers,
+        entity_set(EVALUATION_RUNS_PATH),
+        &evaluation_run_id,
+    )?;
+    if !matches!(
+        status_from_response(&evaluation_run).as_str(),
+        "Queued" | "Running"
+    ) {
+        return Ok(());
+    }
+
+    post_action(
+        ctx,
+        base_url,
+        headers,
+        entity_set(EVALUATION_RUNS_PATH),
+        &evaluation_run_id,
+        PATROL_FAIL,
+        &json!({
+            "results_json": obsolete_evaluation_results_json(
+                &work_cycle,
+                &evaluation_run_id,
+                failure_classification
+            ),
+            "error_message": message,
+            "failure_classification": failure_classification
+        }),
+    )?;
+
+    ctx.log(
+        "info",
+        &format!(
+            "review_gate_lifecycle: failed obsolete queued EvaluationRun {evaluation_run_id} for WorkCycle {work_cycle_id}"
+        ),
+    );
+    Ok(())
+}
+
+fn obsolete_evaluation_results_json(
+    work_cycle: &Value,
+    evaluation_run_id: &str,
+    failure_classification: &str,
+) -> String {
+    serde_json::to_string(&json!({
+        "kind": "obsolete_evaluation_run",
+        "evaluation_run_id": evaluation_run_id,
+        "work_cycle_id": entity_id_from_response(work_cycle).unwrap_or_default(),
+        "work_cycle_status": status_from_response(work_cycle),
+        "reviewer_run_id": string_from_entity(work_cycle, "reviewer_run_id", "ReviewerRunId"),
+        "review_passed": bool_from_entity(work_cycle, "review_passed", "ReviewPassed"),
+        "failure_classification": failure_classification
+    }))
+    .unwrap_or_else(|_| "{}".to_string())
+}
+
+fn is_obsolete_evaluation_failure(failure_classification: &str) -> bool {
+    matches!(
+        failure_classification,
+        "review_terminal_without_approval" | "parent_work_cycle_terminal"
+    )
 }
 
 fn fail_work_cycle_and_escalate_case(

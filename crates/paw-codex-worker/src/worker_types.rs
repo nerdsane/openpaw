@@ -5,6 +5,7 @@ const REVIEW_CLAIM_LABEL: &str = "ReviewRun.Claim";
 const EVALUATION_CLAIM_LABEL: &str = "EvaluationRun.Claim";
 const EVALUATION_START_LABEL: &str = "EvaluationRun.Start";
 const EVALUATION_PASS_LABEL: &str = "EvaluationRun.Pass";
+const EVALUATION_FAIL_LABEL: &str = "EvaluationRun.Fail";
 
 #[derive(Clone, Debug)]
 struct Config {
@@ -234,6 +235,8 @@ struct EvaluationRunState {
 struct WorkCycleState {
     #[serde(default, rename = "Id")]
     id: String,
+    #[serde(default, rename = "Status")]
+    status: String,
     #[serde(default, rename = "ImplementerWorkerRunId")]
     implementer_worker_run_id: String,
     #[serde(default, rename = "ReviewerRunId")]
@@ -262,6 +265,13 @@ struct EvaluationOutcome {
     passed: bool,
     results_json: String,
     e2e_summary: String,
+    error_message: String,
+    failure_classification: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct EvaluationTerminalBlocker {
+    results_json: String,
     error_message: String,
     failure_classification: String,
 }
