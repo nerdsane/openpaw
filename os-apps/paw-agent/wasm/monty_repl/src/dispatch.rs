@@ -1202,8 +1202,16 @@ fn temper_get_insights(ctx: &Context, api_url: &str, tenant: &str) -> Result<Val
 
 // --- Governance ---
 
+fn tenant_decisions_path(tenant: &str) -> String {
+    format!("/api/tenants/{tenant}/decisions?status=pending")
+}
+
+fn tenant_decision_path(tenant: &str, decision_id: &str) -> String {
+    format!("/api/tenants/{tenant}/decisions/{decision_id}")
+}
+
 fn temper_get_decisions(ctx: &Context, api_url: &str, tenant: &str) -> Result<Value, String> {
-    http_get(ctx, api_url, tenant, "/api/decisions")
+    http_get(ctx, api_url, tenant, &tenant_decisions_path(tenant))
 }
 
 fn temper_poll_decision(
@@ -1219,7 +1227,7 @@ fn temper_poll_decision(
         ctx,
         api_url,
         tenant,
-        &format!("/api/decisions/{decision_id}"),
+        &tenant_decision_path(tenant, &decision_id),
     )
 }
 
@@ -2377,7 +2385,7 @@ fn batchable_direct_get_path(method: &str, args: &[String]) -> Option<(String, b
         }
         "specs" if args.is_empty() => Some(("/observe/specs".to_string(), false)),
         "get_insights" if args.is_empty() => Some(("/api/evolution/insights".to_string(), false)),
-        "get_decisions" if args.is_empty() => Some(("/api/decisions".to_string(), false)),
+        "get_decisions" if args.is_empty() => Some((tenant_decisions_path("{tenant}"), false)),
         "list_policies" if args.is_empty() => {
             Some(("/api/tenants/{tenant}/policies/list".to_string(), false))
         }
@@ -3231,6 +3239,41 @@ mod tests {
                 },
             })
         );
+    }
+
+    #[test]
+    fn batchable_tool_plan_uses_tenant_scoped_decisions_path() {
+        let plan = batchable_tool_plan_from_code("temper.get_decisions()");
+
+        assert_eq!(
+            plan,
+            Some(BatchableToolPlan {
+                tool_name: "temper.get_decisions".to_string(),
+                kind: BatchableToolPlanKind::DirectGet {
+                    path: "/api/tenants/{tenant}/decisions?status=pending".to_string(),
+                    unwrap_value_array: false,
+                },
+            })
+        );
+    }
+
+    #[test]
+    fn decision_poll_path_is_tenant_scoped() {
+        assert_eq!(
+            super::tenant_decision_path("default", "PD-123"),
+            "/api/tenants/default/decisions/PD-123"
+        );
+    }
+
+    #[test]
+    fn cedar_denial_parser_accepts_top_level_decision_id() {
+        let denial = super::check_cedar_denial(
+            403,
+            r#"{"decision_id":"PD-123","error":{"code":"AuthorizationDenied","message":"no matching permit policy Decision PD-123"}}"#,
+        )
+        .expect("decision-bearing denial should parse");
+
+        assert!(denial.starts_with("CEDAR_DENIED:PD-123:"));
     }
 
     #[test]
