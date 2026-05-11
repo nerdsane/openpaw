@@ -13,7 +13,9 @@ use tokio::task::JoinHandle;
 use super::api;
 use super::socket;
 use super::types::*;
-use crate::PawApiClient;
+use crate::{
+    PawApiClient, approval_body_for_scope, approval_scope_from_action, fetch_pending_decision,
+};
 
 /// Configuration for the Slack transport.
 #[derive(Debug, Clone)]
@@ -513,7 +515,8 @@ async fn handle_interactive(
     }
 
     let (action_type, target_id) = (parts[0], parts[1]);
-    if action_type != "approve"
+    let is_decision_approval = approval_scope_from_action(action_type).is_some();
+    if !is_decision_approval
         && action_type != "deny"
         && action_type != "plan_approve"
         && action_type != "plan_request_changes"
@@ -536,20 +539,21 @@ async fn handle_interactive(
     let base_url = api.config().base_url.clone();
     let tenant = api.config().tenant.clone();
     let (_success, status_line) = match action_type {
-        "approve" => {
+        approval_action if approval_scope_from_action(approval_action).is_some() => {
             let approve_url =
                 format!("{base_url}/api/tenants/{tenant}/decisions/{target_id}/approve");
-            let scope = serde_json::json!({
-                "scope": {
-                    "principal": "this_agent",
-                    "action": "this_action",
-                    "resource": "any_of_type",
-                    "duration": "always"
+            let scope =
+                approval_scope_from_action(approval_action).expect("checked approval action above");
+            let decision = fetch_pending_decision(api, &base_url, &tenant, target_id)
+                .await
+                .ok()
+                .flatten();
+            match approval_body_for_scope(scope, decision.as_ref(), format!("slack:{reviewer_id}"))
+            {
+                Ok(body) => match api.raw_post(&approve_url, body).await {
+                    Ok(_) => (true, format!("Approval recorded by <@{reviewer_id}>")),
+                    Err(e) => (false, format!("Approval failed: {e}")),
                 },
-                "decided_by": format!("slack:{reviewer_id}")
-            });
-            match api.raw_post(&approve_url, scope).await {
-                Ok(_) => (true, format!("Approval recorded by <@{reviewer_id}>")),
                 Err(e) => (false, format!("Approval failed: {e}")),
             }
         }

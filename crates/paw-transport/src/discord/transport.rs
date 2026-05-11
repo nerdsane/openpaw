@@ -17,7 +17,10 @@ use tracing::Instrument;
 
 use super::gateway::*;
 use super::types::*;
-use crate::{PawApiClient, apply_current_trace_context};
+use crate::{
+    PawApiClient, apply_current_trace_context, approval_body_for_scope, approval_scope_from_action,
+    fetch_pending_decision,
+};
 
 /// Configuration for the Discord transport.
 #[derive(Debug, Clone)]
@@ -1489,7 +1492,8 @@ impl DiscordTransport {
             }
 
             let (action, target_id) = (parts[0], parts[1]);
-            if action != "approve"
+            let is_decision_approval = approval_scope_from_action(action).is_some();
+            if !is_decision_approval
                 && action != "deny"
                 && action != "plan_approve"
                 && action != "plan_request_changes"
@@ -1559,21 +1563,28 @@ impl DiscordTransport {
                 };
 
                 let (_success, status_line) = match action_owned.as_str() {
-                    "approve" => {
+                    approval_action if approval_scope_from_action(approval_action).is_some() => {
                         let approve_url = format!(
                             "{base_url}/api/tenants/{tenant}/decisions/{target_id_owned}/approve"
                         );
-                        let scope = serde_json::json!({
-                            "scope": {
-                                "principal": "this_agent",
-                                "action": "this_action",
-                                "resource": "any_of_type",
-                                "duration": "always"
+                        let scope = approval_scope_from_action(approval_action)
+                            .expect("checked approval action above");
+                        let decision =
+                            fetch_pending_decision(&api, &base_url, &tenant, &target_id_owned)
+                                .await
+                                .ok()
+                                .flatten();
+                        match approval_body_for_scope(
+                            scope,
+                            decision.as_ref(),
+                            format!("discord:{reviewer_id_owned}"),
+                        ) {
+                            Ok(body) => match api.raw_post(&approve_url, body).await {
+                                Ok(_) => {
+                                    (true, format!("Approval recorded by <@{reviewer_id_owned}>"))
+                                }
+                                Err(e) => (false, format!("Approval failed: {e}")),
                             },
-                            "decided_by": format!("discord:{reviewer_id_owned}")
-                        });
-                        match api.raw_post(&approve_url, scope).await {
-                            Ok(_) => (true, format!("Approval recorded by <@{reviewer_id_owned}>")),
                             Err(e) => (false, format!("Approval failed: {e}")),
                         }
                     }

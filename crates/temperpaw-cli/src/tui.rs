@@ -12,7 +12,9 @@ use crossterm::terminal::{
     Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
 use crossterm::{execute, queue};
-use paw_transport::{PawApiClient, PawApiConfig};
+use paw_transport::{
+    ApprovalScope, PawApiClient, PawApiConfig, approval_body_for_scope, fetch_pending_decision,
+};
 use serde_json::json;
 use tokio::sync::mpsc;
 
@@ -167,7 +169,7 @@ async fn handle_line(
         ParsedLine::Exit => return Ok(false),
         ParsedLine::Help => {
             app.push_system(
-                "/help /status /plan <task> /execute <task> /reset [message] /session <key> /approve <decision> /deny <decision> /plan-approve <plan> /request-changes <plan> [notes] /exit",
+                "/help /status /plan <task> /execute <task> /reset [message] /session <key> /approve-always <decision> /approve-session <decision> /approve-once <decision> /deny <decision> /plan-approve <plan> /request-changes <plan> [notes] /exit",
             );
             return Ok(true);
         }
@@ -199,9 +201,12 @@ async fn handle_line(
             app.push_system(format!("Unknown command `{command}`. Type /help."));
             return Ok(true);
         }
-        ParsedLine::ApproveDecision(decision_id) => {
-            match approve_decision(api, &app.tenant, &decision_id).await {
-                Ok(()) => app.push_system(format!("Approval recorded for `{decision_id}`.")),
+        ParsedLine::ApproveDecision { decision_id, scope } => {
+            match approve_decision(api, &app.tenant, &decision_id, scope).await {
+                Ok(()) => app.push_system(format!(
+                    "Approval recorded for `{decision_id}` ({})",
+                    approval_scope_label(scope)
+                )),
                 Err(error) => {
                     app.push_system(format!("Approval failed for `{decision_id}`: {error}"))
                 }
@@ -371,14 +376,23 @@ fn truncate(text: &str, width: usize) -> String {
 }
 
 enum ParsedLine {
-    Message { content: String, command: String },
+    Message {
+        content: String,
+        command: String,
+    },
     Help,
     Status,
     Session(String),
-    ApproveDecision(String),
+    ApproveDecision {
+        decision_id: String,
+        scope: ApprovalScope,
+    },
     DenyDecision(String),
     ApprovePlan(String),
-    RequestPlanChanges { plan_id: String, notes: String },
+    RequestPlanChanges {
+        plan_id: String,
+        notes: String,
+    },
     Exit,
     Unknown(String),
 }
@@ -408,8 +422,29 @@ fn parse_command(line: &str) -> ParsedLine {
         },
         "session" if !rest.is_empty() => ParsedLine::Session(rest.to_string()),
         "session" => ParsedLine::Unknown("/session requires a key".to_string()),
-        "approve" if !rest.is_empty() => ParsedLine::ApproveDecision(rest.to_string()),
-        "approve" => ParsedLine::Unknown("/approve requires a decision id".to_string()),
+        "approve" | "approve-always" | "allow-always" if !rest.is_empty() => {
+            ParsedLine::ApproveDecision {
+                decision_id: rest.to_string(),
+                scope: ApprovalScope::AlwaysForAgent,
+            }
+        }
+        "approve" | "approve-always" | "allow-always" => {
+            ParsedLine::Unknown(format!("/{command} requires a decision id"))
+        }
+        "approve-session" | "allow-session" if !rest.is_empty() => ParsedLine::ApproveDecision {
+            decision_id: rest.to_string(),
+            scope: ApprovalScope::Session,
+        },
+        "approve-session" | "allow-session" => {
+            ParsedLine::Unknown(format!("/{command} requires a decision id"))
+        }
+        "approve-once" | "allow-once" if !rest.is_empty() => ParsedLine::ApproveDecision {
+            decision_id: rest.to_string(),
+            scope: ApprovalScope::Once,
+        },
+        "approve-once" | "allow-once" => {
+            ParsedLine::Unknown(format!("/{command} requires a decision id"))
+        }
         "deny" if !rest.is_empty() => ParsedLine::DenyDecision(rest.to_string()),
         "deny" => ParsedLine::Unknown("/deny requires a decision id".to_string()),
         "plan-approve" | "approve-plan" if !rest.is_empty() => {
@@ -438,26 +473,28 @@ async fn approve_decision(
     api: &PawApiClient,
     tenant: &str,
     decision_id: &str,
+    scope: ApprovalScope,
 ) -> Result<(), String> {
     validate_key("decision", decision_id).map_err(|error| error.to_string())?;
     let url = format!(
         "{}/api/tenants/{tenant}/decisions/{decision_id}/approve",
         api.config().base_url
     );
-    api.raw_post(
-        &url,
-        json!({
-            "scope": {
-                "principal": "this_agent",
-                "action": "this_action",
-                "resource": "any_of_type",
-                "duration": "always"
-            },
-            "decided_by": format!("cli:{}", author_id())
-        }),
-    )
-    .await?;
+    let decision = fetch_pending_decision(api, &api.config().base_url, tenant, decision_id)
+        .await
+        .ok()
+        .flatten();
+    let body = approval_body_for_scope(scope, decision.as_ref(), format!("cli:{}", author_id()))?;
+    api.raw_post(&url, body).await?;
     Ok(())
+}
+
+fn approval_scope_label(scope: ApprovalScope) -> &'static str {
+    match scope {
+        ApprovalScope::AlwaysForAgent => "allow always",
+        ApprovalScope::Session => "allow session",
+        ApprovalScope::Once => "allow once",
+    }
 }
 
 async fn deny_decision(api: &PawApiClient, tenant: &str, decision_id: &str) -> Result<(), String> {
@@ -623,8 +660,27 @@ mod tests {
     #[test]
     fn parses_review_actions() {
         match parse_command("/approve PD-123") {
-            ParsedLine::ApproveDecision(decision_id) => assert_eq!(decision_id, "PD-123"),
+            ParsedLine::ApproveDecision { decision_id, scope } => {
+                assert_eq!(decision_id, "PD-123");
+                assert_eq!(scope, ApprovalScope::AlwaysForAgent);
+            }
             _ => panic!("expected approve decision command"),
+        }
+
+        match parse_command("/approve-session PD-124") {
+            ParsedLine::ApproveDecision { decision_id, scope } => {
+                assert_eq!(decision_id, "PD-124");
+                assert_eq!(scope, ApprovalScope::Session);
+            }
+            _ => panic!("expected session approval command"),
+        }
+
+        match parse_command("/approve-once PD-125") {
+            ParsedLine::ApproveDecision { decision_id, scope } => {
+                assert_eq!(decision_id, "PD-125");
+                assert_eq!(scope, ApprovalScope::Once);
+            }
+            _ => panic!("expected once approval command"),
         }
 
         match parse_command("/deny PD-456") {
