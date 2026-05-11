@@ -275,7 +275,7 @@ pub fn extract_session_alerts(session: &Value) -> Vec<NoticeEvent> {
             notices.push(NoticeEvent {
                 key: format!("session:{session_id}:decision:{decision_id}"),
                 content: format!(
-                    "Permission Required\nSession `{session_id}` is waiting to run `{method}`.\nDecision: `{decision_id}`\nUse `/approve {decision_id}` or `/deny {decision_id}`."
+                    "Permission Required\nSession `{session_id}` is waiting to run `{method}`.\nDecision: `{decision_id}`\nUse `/approve-always {decision_id}`, `/approve-session {decision_id}`, `/approve-once {decision_id}`, or `/deny {decision_id}`."
                 ),
             });
         }
@@ -338,7 +338,7 @@ pub fn extract_decision_items(
             Some(NoticeEvent {
                 key: format!("decision:{decision_id}"),
                 content: format!(
-                    "Permission Required\nAction: `{action}`\nResource: `{resource_type}:{resource_id}`\nReason: {reason}\nDecision: `{decision_id}`\nUse `/approve {decision_id}` or `/deny {decision_id}`."
+                    "Permission Required\nAction: `{action}`\nResource: `{resource_type}:{resource_id}`\nReason: {reason}\nDecision: `{decision_id}`\nUse `/approve-always {decision_id}`, `/approve-session {decision_id}`, `/approve-once {decision_id}`, or `/deny {decision_id}`."
                 ),
             })
         })
@@ -594,7 +594,9 @@ mod tests {
 
         assert_eq!(alerts.len(), 1);
         assert!(alerts[0].content.contains("Permission Required"));
-        assert!(alerts[0].content.contains("/approve PD-123"));
+        assert!(alerts[0].content.contains("/approve-always PD-123"));
+        assert!(alerts[0].content.contains("/approve-session PD-123"));
+        assert!(alerts[0].content.contains("/approve-once PD-123"));
         assert!(alerts[0].content.contains("/deny PD-123"));
 
         let failed = json!({
@@ -623,7 +625,9 @@ mod tests {
 
         assert_eq!(decisions.len(), 1);
         assert!(decisions[0].content.contains("Permission Required"));
-        assert!(decisions[0].content.contains("/approve PD-abc"));
+        assert!(decisions[0].content.contains("/approve-always PD-abc"));
+        assert!(decisions[0].content.contains("/approve-session PD-abc"));
+        assert!(decisions[0].content.contains("/approve-once PD-abc"));
 
         let plan = json!({
             "entity_id": "pl-1",

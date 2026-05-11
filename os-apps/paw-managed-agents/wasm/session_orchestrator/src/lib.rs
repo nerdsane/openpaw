@@ -49,6 +49,7 @@ fn start_or_resume(
 ) -> Result<(), String> {
     let session_id = ctx.entity_id.as_str();
     let managed_agent_id = field_string(fields, &["AgentId", "agent_id"]);
+    let parent_session_id = field_string(fields, &["ParentSessionId", "parent_session_id"]);
     let environment_id = field_string(fields, &["EnvironmentId", "environment_id"]);
     if managed_agent_id.is_empty() || environment_id.is_empty() {
         temper_wasm_sdk::set_success_result(
@@ -235,6 +236,7 @@ fn start_or_resume(
         "max_turns": max_turns,
         "temper_api_url": base_url,
         "agent_id": inner_agent_id,
+        "parent_session_id": parent_session_id,
     });
     if let Some(configure_object) = configure_body.as_object_mut() {
         let sandbox_params =

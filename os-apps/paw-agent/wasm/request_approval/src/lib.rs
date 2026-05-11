@@ -178,12 +178,28 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             return Ok(());
         }
 
-        // Build the approval message with buttons.
+        let pending_decision =
+            match fetch_pending_decision(&ctx, &temper_api_url, tenant, decision_id) {
+                Ok(decision) => decision,
+                Err(error) => {
+                    ctx.log(
+                        "warn",
+                        &format!(
+                            "notify_approval: decision detail lookup failed for {decision_id}: {error}"
+                        ),
+                    );
+                    None
+                }
+            };
+
+        // Build the approval message with scoped buttons.
         // custom_id uses the platform's decision ID (PD-xxx).
-        let content = format!(
-            "**Permission Required**\n\
-             Agent wants to: **{action_desc}**\n\
-             Decision: `{decision_id}`",
+        let content = format_approval_content(
+            decision_id,
+            agent_id,
+            action_desc,
+            inner_ctx,
+            pending_decision.as_ref(),
         );
 
         let body = json!({
@@ -196,8 +212,20 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                     {
                         "type": 2,
                         "style": 3,
-                        "label": "Approve",
-                        "custom_id": format!("approve:{decision_id}")
+                        "label": "Allow Always",
+                        "custom_id": format!("approve_always:{decision_id}")
+                    },
+                    {
+                        "type": 2,
+                        "style": 1,
+                        "label": "Allow Session",
+                        "custom_id": format!("approve_session:{decision_id}")
+                    },
+                    {
+                        "type": 2,
+                        "style": 1,
+                        "label": "Allow Once",
+                        "custom_id": format!("approve_once:{decision_id}")
                     },
                     {
                         "type": 2,
@@ -223,10 +251,26 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                             "type": "button",
                             "text": {
                                 "type": "plain_text",
-                                "text": "Approve"
+                                "text": "Allow Always"
                             },
-                            "action_id": format!("approve:{decision_id}"),
+                            "action_id": format!("approve_always:{decision_id}"),
                             "style": "primary"
+                        },
+                        {
+                            "type": "button",
+                            "text": {
+                                "type": "plain_text",
+                                "text": "Allow Session"
+                            },
+                            "action_id": format!("approve_session:{decision_id}")
+                        },
+                        {
+                            "type": "button",
+                            "text": {
+                                "type": "plain_text",
+                                "text": "Allow Once"
+                            },
+                            "action_id": format!("approve_once:{decision_id}")
                         },
                         {
                             "type": "button",
@@ -377,6 +421,136 @@ fn register_gd_callback(
         &format!("notify_approval: registered callback on GD {gd_id} → Sessions('{session_id}')"),
     );
     Ok(())
+}
+
+fn fetch_pending_decision(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+    decision_id: &str,
+) -> Result<Option<Value>, String> {
+    let url = format!("{temper_api_url}/api/tenants/{tenant}/decisions?status=pending");
+    let headers = admin_json_headers(tenant, "request-approval-wasm");
+    let resp = ctx.http_call("GET", &url, &headers, "")?;
+    if resp.status == 404 {
+        return Ok(None);
+    }
+    if resp.status != 200 {
+        return Err(format!(
+            "pending decision query failed (HTTP {}): {}",
+            resp.status,
+            &resp.body[..resp.body.len().min(200)]
+        ));
+    }
+    let parsed: Value =
+        serde_json::from_str(&resp.body).unwrap_or_else(|_| json!({ "decisions": [] }));
+    let decisions = parsed
+        .get("decisions")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    Ok(decisions.into_iter().find(|decision| {
+        entity_field_str(decision, &["id", "Id"]).is_some_and(|id| id == decision_id)
+    }))
+}
+
+fn admin_json_headers(tenant: &str, principal_id: &str) -> Vec<(String, String)> {
+    vec![
+        ("accept".to_string(), "application/json".to_string()),
+        ("content-type".to_string(), "application/json".to_string()),
+        ("x-tenant-id".to_string(), tenant.to_string()),
+        ("x-temper-principal-kind".to_string(), "admin".to_string()),
+        (
+            "x-temper-principal-id".to_string(),
+            principal_id.to_string(),
+        ),
+    ]
+}
+
+fn format_approval_content(
+    decision_id: &str,
+    agent_id: &str,
+    fallback_action: &str,
+    tool_context: &Value,
+    decision: Option<&Value>,
+) -> String {
+    let action = decision
+        .and_then(|value| entity_field_str(value, &["action", "Action", "action_name"]))
+        .filter(|value| !value.is_empty())
+        .unwrap_or(fallback_action);
+    let resource_type = decision
+        .and_then(|value| entity_field_str(value, &["resource_type", "ResourceType"]))
+        .unwrap_or("");
+    let resource_id = decision
+        .and_then(|value| entity_field_str(value, &["resource_id", "ResourceId"]))
+        .unwrap_or("");
+    let reason = decision
+        .and_then(|value| entity_field_str(value, &["denial_reason", "DenialReason"]))
+        .unwrap_or("");
+    let module_name = decision
+        .and_then(|value| entity_field_str(value, &["module_name", "ModuleName"]))
+        .unwrap_or("");
+    let session_id = decision
+        .and_then(|value| entity_field_str(value, &["session_id", "SessionId"]))
+        .unwrap_or("");
+
+    let mut lines = vec![
+        "**Permission Required**".to_string(),
+        format!("Agent: `{agent_id}`"),
+        format!("Action: `{action}`"),
+    ];
+
+    if !resource_type.is_empty() || !resource_id.is_empty() {
+        lines.push(format!("Resource: `{resource_type}/{resource_id}`"));
+    }
+    if !module_name.is_empty() {
+        lines.push(format!("Module: `{module_name}`"));
+    }
+    if !session_id.is_empty() {
+        lines.push(format!("Session: `{session_id}`"));
+    }
+    if !reason.is_empty() {
+        lines.push(format!("Reason: {reason}"));
+    }
+
+    let args_preview = format_tool_args_preview(tool_context);
+    if !args_preview.is_empty() {
+        lines.push(format!("Request: `{args_preview}`"));
+    }
+
+    lines.push(format!("Decision: `{decision_id}`"));
+    lines.push(String::new());
+    lines.push("Allow Always: this agent, this action, any resource of this type.".to_string());
+    lines.push("Allow Session: same scope, limited to this session.".to_string());
+    lines.push("Allow Once: this exact resource, limited to this session.".to_string());
+    lines.push("Deny: reject this attempt.".to_string());
+
+    lines.join("\n")
+}
+
+fn format_tool_args_preview(tool_context: &Value) -> String {
+    let args = tool_context.get("args").unwrap_or(&Value::Null);
+    if args.is_null() {
+        return String::new();
+    }
+    let raw = if let Some(text) = args.as_str() {
+        text.to_string()
+    } else {
+        args.to_string()
+    };
+    let trimmed = raw.trim();
+    if trimmed.is_empty() || trimmed == "[]" || trimmed == "{}" {
+        return String::new();
+    }
+    truncate_preview(trimmed, 240)
+}
+
+fn truncate_preview(value: &str, limit: usize) -> String {
+    if value.len() <= limit {
+        return value.to_string();
+    }
+    let boundary = value.floor_char_boundary(limit);
+    format!("{}...", value[..boundary].trim_end())
 }
 
 fn find_session_by_agent(

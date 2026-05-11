@@ -142,6 +142,84 @@ fn session_spec_uses_provider_specific_llm_secrets_and_urls() {
 }
 
 #[test]
+fn governance_approval_prompts_include_decision_details_and_scope_choices() {
+    let root = repo_root();
+    let approval_wasm = read(root.join("os-apps/paw-agent/wasm/request_approval/src/lib.rs"));
+    let transport_lib = read(root.join("crates/paw-transport/src/lib.rs"));
+    let discord_transport = read(root.join("crates/paw-transport/src/discord/transport.rs"));
+    let slack_transport = read(root.join("crates/paw-transport/src/slack/transport.rs"));
+
+    for needle in [
+        "fetch_pending_decision",
+        "format_approval_content",
+        "Action: `",
+        "Resource: `",
+        "Reason: ",
+        "Allow Always",
+        "Allow Session",
+        "Allow Once",
+        "approve_always:",
+        "approve_session:",
+        "approve_once:",
+    ] {
+        assert!(
+            approval_wasm.contains(needle),
+            "request_approval should include detailed approval prompts and scoped button `{needle}`"
+        );
+    }
+
+    for needle in [
+        "approval_scope_from_action",
+        "approval_body_for_scope",
+        "\"action\": \"this_action\"",
+        "\"duration\": \"session\"",
+        "\"resource\": \"this_resource\"",
+    ] {
+        assert!(
+            transport_lib.contains(needle),
+            "transport helper should construct complete scoped Cedar approval body containing `{needle}`"
+        );
+    }
+
+    for (name, source) in [
+        ("discord", discord_transport.as_str()),
+        ("slack", slack_transport.as_str()),
+    ] {
+        for needle in ["approval_scope_from_action", "approval_body_for_scope"] {
+            assert!(
+                source.contains(needle),
+                "{name} approval handling should use scoped Cedar approval helper `{needle}`"
+            );
+        }
+    }
+}
+
+#[test]
+fn managed_agent_inner_sessions_preserve_parent_for_approval_routing() {
+    let root = repo_root();
+    let managed_session_spec =
+        read(root.join("os-apps/paw-managed-agents/specs/managed_session.ioa.toml"));
+    let orchestrator =
+        read(root.join("os-apps/paw-managed-agents/wasm/session_orchestrator/src/lib.rs"));
+    let monty_dispatch = read(root.join("os-apps/paw-agent/wasm/monty_repl/src/dispatch.rs"));
+
+    assert!(
+        managed_session_spec.contains("name = \"parent_session_id\""),
+        "ManagedSession should record the originating Session so inner SWE approvals can route back"
+    );
+    assert!(
+        orchestrator.contains("parent_session_id")
+            && orchestrator.contains("\"parent_session_id\": parent_session_id"),
+        "session_orchestrator should propagate ManagedSession.parent_session_id into inner Session.Configure"
+    );
+    assert!(
+        monty_dispatch.contains("with_managed_session_parent")
+            && monty_dispatch.contains("entity_set == \"ManagedSessions\""),
+        "temper.create should stamp ManagedSessions with the current Session as parent_session_id"
+    );
+}
+
+#[test]
 fn paw_agent_defines_temper_native_openai_codex_auth_entity() {
     let root = repo_root();
     let spec = read(root.join("os-apps/paw-agent/specs/openai_codex_auth.ioa.toml"));

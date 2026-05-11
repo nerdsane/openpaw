@@ -88,6 +88,119 @@ pub(crate) fn apply_current_trace_context(body: &mut serde_json::Value) {
     object.insert("gen_ai_parent_span_id".into(), serde_json::json!(span_id));
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ApprovalScope {
+    AlwaysForAgent,
+    Session,
+    Once,
+}
+
+pub fn approval_scope_from_action(action: &str) -> Option<ApprovalScope> {
+    match action {
+        // Legacy buttons used "approve:{decision_id}". Keep that path working,
+        // but route it through the complete PolicyScopeMatrix body.
+        "approve" | "approve_always" => Some(ApprovalScope::AlwaysForAgent),
+        "approve_session" => Some(ApprovalScope::Session),
+        "approve_once" => Some(ApprovalScope::Once),
+        _ => None,
+    }
+}
+
+pub fn approval_body_for_scope(
+    scope: ApprovalScope,
+    decision: Option<&serde_json::Value>,
+    decided_by: String,
+) -> Result<serde_json::Value, String> {
+    let session_id = decision
+        .and_then(|value| json_str(value, &["session_id", "SessionId"]))
+        .unwrap_or("");
+
+    let mut scope_body = match scope {
+        ApprovalScope::AlwaysForAgent => serde_json::json!({
+            "principal": "this_agent",
+            "action": "this_action",
+            "resource": "any_of_type",
+            "duration": "always"
+        }),
+        ApprovalScope::Session => {
+            if session_id.is_empty() {
+                return Err(
+                    "approval scope requires decision.session_id, but the pending decision did not include one"
+                        .to_string(),
+                );
+            }
+            serde_json::json!({
+                "principal": "this_agent",
+                "action": "this_action",
+                "resource": "any_of_type",
+                "duration": "session",
+                "session_id": session_id
+            })
+        }
+        ApprovalScope::Once => {
+            if session_id.is_empty() {
+                return Err(
+                    "approval scope requires decision.session_id, but the pending decision did not include one"
+                        .to_string(),
+                );
+            }
+            serde_json::json!({
+                "principal": "this_agent",
+                "action": "this_action",
+                "resource": "this_resource",
+                "duration": "session",
+                "session_id": session_id
+            })
+        }
+    };
+
+    if let Some(agent_type) = decision
+        .and_then(|value| json_str(value, &["agent_type", "AgentType"]))
+        .filter(|value| !value.is_empty())
+        && let Some(object) = scope_body.as_object_mut()
+    {
+        object.insert(
+            "agent_type_value".to_string(),
+            serde_json::json!(agent_type),
+        );
+    }
+
+    Ok(serde_json::json!({
+        "scope": scope_body,
+        "decided_by": decided_by
+    }))
+}
+
+pub async fn fetch_pending_decision(
+    api: &PawApiClient,
+    base_url: &str,
+    tenant: &str,
+    decision_id: &str,
+) -> Result<Option<serde_json::Value>, String> {
+    let url = format!("{base_url}/api/tenants/{tenant}/decisions?status=pending");
+    let payload = api.raw_get(&url).await?;
+    let decisions = payload
+        .get("decisions")
+        .and_then(serde_json::Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    Ok(decisions
+        .into_iter()
+        .find(|decision| json_str(decision, &["id", "Id"]) == Some(decision_id)))
+}
+
+fn json_str<'a>(value: &'a serde_json::Value, keys: &[&str]) -> Option<&'a str> {
+    for key in keys {
+        if let Some(text) = value.get(*key).and_then(serde_json::Value::as_str) {
+            return Some(text);
+        }
+    }
+    if let Some(fields) = value.get("fields") {
+        return json_str(fields, keys);
+    }
+    None
+}
+
 impl PawApiClient {
     /// Create a new API client.
     pub fn new(config: PawApiConfig) -> Self {
@@ -318,7 +431,7 @@ mod tests {
     use tracing_opentelemetry::OpenTelemetrySpanExt;
     use tracing_subscriber::prelude::*;
 
-    use super::{PawApiClient, PawApiConfig};
+    use super::{ApprovalScope, PawApiClient, PawApiConfig, approval_body_for_scope};
 
     #[derive(Clone, Default)]
     struct HeaderProbe {
@@ -536,6 +649,58 @@ mod tests {
         assert!(
             error.contains("missing manage_policies"),
             "expected response body in error, got: {error}"
+        );
+    }
+
+    #[test]
+    fn approval_body_for_scope_includes_required_cedar_dimensions() {
+        let decision = json!({
+            "id": "PD-123",
+            "session_id": "ss-123",
+            "agent_type": "swe",
+        });
+
+        let always = approval_body_for_scope(
+            ApprovalScope::AlwaysForAgent,
+            Some(&decision),
+            "test:user".to_string(),
+        )
+        .expect("always approval body");
+        assert_eq!(always["scope"]["principal"], "this_agent");
+        assert_eq!(always["scope"]["action"], "this_action");
+        assert_eq!(always["scope"]["resource"], "any_of_type");
+        assert_eq!(always["scope"]["duration"], "always");
+        assert_eq!(always["scope"]["agent_type_value"], "swe");
+
+        let session = approval_body_for_scope(
+            ApprovalScope::Session,
+            Some(&decision),
+            "test:user".to_string(),
+        )
+        .expect("session approval body");
+        assert_eq!(session["scope"]["resource"], "any_of_type");
+        assert_eq!(session["scope"]["duration"], "session");
+        assert_eq!(session["scope"]["session_id"], "ss-123");
+
+        let once = approval_body_for_scope(
+            ApprovalScope::Once,
+            Some(&decision),
+            "test:user".to_string(),
+        )
+        .expect("once approval body");
+        assert_eq!(once["scope"]["resource"], "this_resource");
+        assert_eq!(once["scope"]["duration"], "session");
+        assert_eq!(once["scope"]["session_id"], "ss-123");
+    }
+
+    #[test]
+    fn session_limited_approval_body_requires_decision_session_id() {
+        let error = approval_body_for_scope(ApprovalScope::Session, None, "test:user".to_string())
+            .expect_err("session approval without decision session id should fail");
+
+        assert!(
+            error.contains("decision.session_id"),
+            "expected actionable session id error, got: {error}"
         );
     }
 

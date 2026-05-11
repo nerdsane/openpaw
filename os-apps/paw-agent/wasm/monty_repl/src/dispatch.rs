@@ -12,7 +12,7 @@ use serde_json::{Value, json};
 use std::{cell::RefCell, collections::BTreeSet};
 use temper_wasm_sdk::context::{Context, HttpRequest, HttpResponse};
 use tool_catalog::{DEFAULT_TOOLS_ENABLED, enabled_tool_set};
-use wasm_helpers::read_session_from_temperfs;
+use wasm_helpers::{entity_field_str, read_session_from_temperfs};
 
 const MAX_INLINE_SANDBOX_IMAGE_BASE64_CHARS: usize = 16 * 1024;
 
@@ -1004,8 +1004,29 @@ fn temper_create(
     args: &[Value],
 ) -> Result<Value, String> {
     let entity_set = str_arg(args, 0, "entity_set", "create")?;
-    let body = obj_arg(args, 1, "fields", "create")?;
+    let body = with_managed_session_parent(ctx, &entity_set, obj_arg(args, 1, "fields", "create")?);
     http_post(ctx, api_url, tenant, &format!("/tdata/{entity_set}"), &body)
+}
+
+fn with_managed_session_parent(ctx: &Context, entity_set: &str, mut body: Value) -> Value {
+    if entity_set == "ManagedSessions" {
+        let has_parent = entity_field_str(&body, &["ParentSessionId", "parent_session_id"])
+            .is_some_and(|value| !value.trim().is_empty());
+        if !has_parent
+            && let Some(parent_session_id) = ctx
+                .entity_state
+                .get("entity_id")
+                .and_then(Value::as_str)
+                .filter(|value| value.starts_with("ss-"))
+            && let Some(object) = body.as_object_mut()
+        {
+            object.insert(
+                "ParentSessionId".to_string(),
+                json!(parent_session_id),
+            );
+        }
+    }
+    body
 }
 
 fn temper_action(

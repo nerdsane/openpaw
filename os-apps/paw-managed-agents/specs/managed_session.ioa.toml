@@ -20,6 +20,11 @@ type = "string"
 initial = ""
 
 [[state]]
+name = "parent_session_id"
+type = "string"
+initial = ""
+
+[[state]]
 name = "environment_id"
 type = "string"
 initial = ""
