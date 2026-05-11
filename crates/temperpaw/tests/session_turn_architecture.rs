@@ -322,6 +322,34 @@ fn record_result_clears_pending_tool_state_on_terminal_completion() {
 }
 
 #[test]
+fn monty_repl_entrypoint_stays_under_readability_budget() {
+    let root = repo_root();
+    let monty_lib_path = root.join("os-apps/paw-agent/wasm/monty_repl/src/lib.rs");
+    let monty = fs::read_to_string(&monty_lib_path).expect("monty_repl lib.rs should exist");
+    let line_count = monty.lines().count();
+
+    assert!(
+        line_count < 900,
+        "monty_repl lib.rs has {line_count} lines; split pure helpers and runtime concerns into focused modules"
+    );
+
+    for module in [
+        "output.rs",
+        "run_control.rs",
+        "repl_state.rs",
+        "repl_driver.rs",
+        "tool_results.rs",
+        "telemetry.rs",
+        "wasm_random.rs",
+    ] {
+        assert!(
+            monty_lib_path.with_file_name(module).is_file(),
+            "monty_repl should keep {module} as a focused helper module"
+        );
+    }
+}
+
+#[test]
 fn finalize_result_clears_pending_tool_state_on_terminal_completion() {
     let root = repo_root();
     let spec = fs::read_to_string(root.join("os-apps/paw-agent/specs/session.ioa.toml"))
