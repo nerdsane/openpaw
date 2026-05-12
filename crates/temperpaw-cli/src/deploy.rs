@@ -84,7 +84,15 @@ fn datadog_runtime_variables(
     variables.push("DD_TAGS=team:temperpaw".to_string());
 
     if datadog_enabled {
-        variables.push("DD_PROFILING_ENABLED=true".to_string());
+        variables.push("TEMPER_PROFILING_ENABLED=true".to_string());
+        variables.push("TEMPER_PROFILING_AUTO_UPLOAD=true".to_string());
+        variables
+            .push("DD_AGENT_HOST=${{datadog-postgres-agent.RAILWAY_PRIVATE_DOMAIN}}".to_string());
+        variables.push("DD_TRACE_AGENT_PORT=8126".to_string());
+        variables.push(
+            "DD_TRACE_AGENT_URL=http://${{datadog-postgres-agent.RAILWAY_PRIVATE_DOMAIN}}:8126"
+                .to_string(),
+        );
     }
 
     variables
@@ -97,6 +105,8 @@ fn datadog_postgres_agent_variables(dd_api_key: &str, dd_site: &str) -> Vec<Stri
         "DD_ENV=prod".to_string(),
         "DD_HOSTNAME=temperpaw-postgres-dbm".to_string(),
         "DD_TAGS=team:temperpaw,service:temperpaw".to_string(),
+        "DD_APM_ENABLED=true".to_string(),
+        "DD_APM_NON_LOCAL_TRAFFIC=true".to_string(),
         "DD_APM_FEATURES=enable_operation_and_resource_name_logic_v2".to_string(),
         "PGHOST=${{Postgres.PGHOST}}".to_string(),
         "PGPORT=${{Postgres.PGPORT}}".to_string(),
@@ -1228,7 +1238,8 @@ fn prompt_datadog_config(
         cliclack::log::info(
             "Datadog skipped. You can enable it later by adding DD_API_KEY\n  \
              to the otel-collector service in Railway, then adding DD_API_KEY\n  \
-             and DD_PROFILING_ENABLED=true to the temperpaw runtime service.",
+             TEMPER_PROFILING_ENABLED=true, and TEMPER_PROFILING_AUTO_UPLOAD=true\n  \
+             to the temperpaw runtime service.",
         )?;
         return Ok((None, None, None));
     }
@@ -2192,6 +2203,10 @@ mod tests {
             !without_datadog.contains(&"DD_PROFILING_ENABLED=true".to_string()),
             "profiling should not start ddprof without an API key"
         );
+        assert!(
+            !without_datadog.contains(&"TEMPER_PROFILING_ENABLED=true".to_string()),
+            "on-demand profile capture should stay disabled without Datadog credentials"
+        );
 
         let with_datadog = datadog_runtime_variables(
             Some("api-key".to_string()),
@@ -2205,13 +2220,21 @@ mod tests {
             "DD_SERVICE=temperpaw",
             "DD_ENV=prod",
             "DD_TAGS=team:temperpaw",
-            "DD_PROFILING_ENABLED=true",
+            "TEMPER_PROFILING_ENABLED=true",
+            "TEMPER_PROFILING_AUTO_UPLOAD=true",
+            "DD_AGENT_HOST=${{datadog-postgres-agent.RAILWAY_PRIVATE_DOMAIN}}",
+            "DD_TRACE_AGENT_PORT=8126",
+            "DD_TRACE_AGENT_URL=http://${{datadog-postgres-agent.RAILWAY_PRIVATE_DOMAIN}}:8126",
         ] {
             assert!(
                 with_datadog.contains(&expected.to_string()),
                 "missing {expected:?} in {with_datadog:?}"
             );
         }
+        assert!(
+            !with_datadog.contains(&"DD_PROFILING_ENABLED=true".to_string()),
+            "Railway deploys must not start ddprof by default because perf_event_open is denied"
+        );
     }
 
     #[test]
@@ -2242,6 +2265,8 @@ mod tests {
             "DD_SITE=datadoghq.com",
             "DD_ENV=prod",
             "DD_TAGS=team:temperpaw,service:temperpaw",
+            "DD_APM_ENABLED=true",
+            "DD_APM_NON_LOCAL_TRAFFIC=true",
             "PGHOST=${{Postgres.PGHOST}}",
             "PGPORT=${{Postgres.PGPORT}}",
             "PGUSER=${{Postgres.PGUSER}}",

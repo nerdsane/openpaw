@@ -28,7 +28,7 @@ fn load_text(relative_path: &str) -> String {
 fn temper_dependency_pin_uses_runtime_llmobs_identity_parent_and_hierarchy_fix() {
     let manifest = load_text("crates/temperpaw/Cargo.toml");
     let lockfile = load_text("Cargo.lock");
-    let expected_rev = "d3d3814a4d076212dbfb378a6c606124afa4b9dd";
+    let expected_rev = "c05aa4c89a15e4bcde2cecbfe26c554b39b766fa";
     let parent_only_rev = "4fbfcb971c7c9513ad6605cb8376a8c492c21482";
     let parentless_rev = "ffa0a15212966dbada3db8da6e652f081e5f261b";
     let legacy_rev = "5a19c5f4406e95533896a860b5da15a7a68a70ee";
@@ -213,7 +213,12 @@ fn monitors_cover_session_trace_llmobs_and_postgres_dbm_health() {
         "[TemperPaw] Postgres DBM Missing APM Correlation",
         "[Temper] Profiler Upload Failures",
         "[Temper] Profiler Uploads Stalled",
-        "temperpaw.agent.session",
+        "trace-analytics alert",
+        "@entity_type:ManagedSession",
+        "@action_name:(StartSession OR ResumeSession)",
+        "@module_name:provider_caller",
+        "operation_name:postgresql.query",
+        "@peer.service:temperpaw-postgres",
         "gen_ai.system",
         "gen_ai.request.model",
         "postgres",
@@ -224,6 +229,12 @@ fn monitors_cover_session_trace_llmobs_and_postgres_dbm_health() {
             "Datadog monitors must include `{required}` coverage"
         );
     }
+
+    assert!(
+        !monitors.contains("trace.temperpaw.agent.session.hits")
+            && !monitors.contains("trace.tool.llm_call.duration"),
+        "Datadog monitors must use live-validated trace analytics queries, not generated trace metrics that are absent in production"
+    );
 }
 
 #[test]
@@ -1099,6 +1110,8 @@ fn deploy_configures_postgres_dbm_agent_when_datadog_is_enabled() {
     let deploy_source =
         std::fs::read_to_string(repo_root().join("crates/temperpaw-cli/src/deploy.rs"))
             .expect("deploy source should be readable");
+    let entrypoint = std::fs::read_to_string(repo_root().join("scripts/temperpaw-entrypoint.sh"))
+        .expect("entrypoint should be readable");
 
     for required in [
         "datadog-postgres-agent",
@@ -1106,7 +1119,13 @@ fn deploy_configures_postgres_dbm_agent_when_datadog_is_enabled() {
         "dbm: true",
         "PGHOST=${{Postgres.PGHOST}}",
         "PGPASSWORD=${{Postgres.PGPASSWORD}}",
+        "DD_APM_ENABLED=true",
+        "DD_APM_NON_LOCAL_TRAFFIC=true",
         "DD_APM_FEATURES=enable_operation_and_resource_name_logic_v2",
+        "TEMPER_PROFILING_ENABLED=true",
+        "TEMPER_PROFILING_AUTO_UPLOAD=true",
+        "DD_AGENT_HOST=${{datadog-postgres-agent.RAILWAY_PRIVATE_DOMAIN}}",
+        "DD_TRACE_AGENT_URL=http://${{datadog-postgres-agent.RAILWAY_PRIVATE_DOMAIN}}:8126",
         "service:temperpaw",
         "team:temperpaw",
     ] {
@@ -1115,6 +1134,15 @@ fn deploy_configures_postgres_dbm_agent_when_datadog_is_enabled() {
             "TemperPaw deploy must configure Postgres DBM agent clause `{required}`"
         );
     }
+
+    assert!(
+        entrypoint.contains("TEMPER_DDPROF_ENABLED"),
+        "ddprof must be explicitly opt-in because Railway denies perf_event_open"
+    );
+    assert!(
+        !entrypoint.contains("[ \"${DD_PROFILING_ENABLED:-false}\" = \"true\" ]"),
+        "DD_PROFILING_ENABLED must not implicitly start ddprof on Railway"
+    );
 }
 
 #[test]
