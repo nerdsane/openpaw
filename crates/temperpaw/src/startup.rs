@@ -3802,9 +3802,7 @@ mod tests {
                     let definition = &inner["definition"];
                     if matches!(
                         definition["title"].as_str()?,
-                        "Process Memory (RSS)"
-                            | "TemperPaw Process Memory (RSS)"
-                            | "TemperPaw Process Memory (RSS)"
+                        "Process Memory (RSS)" | "TemperPaw Process Memory (RSS)"
                     ) {
                         definition["requests"][0]["q"].as_str()
                     } else {
@@ -3868,10 +3866,7 @@ mod tests {
                 let widgets = widget["definition"]["widgets"].as_array()?;
                 widgets.iter().find_map(|inner| {
                     let definition = &inner["definition"];
-                    if matches!(
-                        definition["title"].as_str()?,
-                        "TemperPaw RSS by Host" | "TemperPaw RSS by Host"
-                    ) {
+                    if definition["title"].as_str()? == "TemperPaw RSS by Host" {
                         definition["requests"][0]["q"].as_str()
                     } else {
                         None
