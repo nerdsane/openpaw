@@ -284,6 +284,12 @@ fn docker_image_metadata_uses_temperpaw_identity() {
     );
 
     assert!(
+        workflow.contains("DOCKER_METADATA_ANNOTATIONS_LEVELS: manifest")
+            && !workflow.contains("DOCKER_METADATA_ANNOTATIONS_LEVELS: manifest,index"),
+        "Docker annotations must target manifest level only because the single-platform build cannot export index annotations"
+    );
+
+    assert!(
         !workflow.contains("org.opencontainers.image.description=Open Paw")
             && !workflow.contains("org.opencontainers.image.description=OpenPaw")
             && !workflow.contains("org.opencontainers.image.description=OpenPAW"),
