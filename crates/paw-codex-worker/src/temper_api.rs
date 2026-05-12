@@ -325,6 +325,12 @@ fn worker_run_from_odata_value(value: Value) -> Result<WorkerRunState> {
             &["status", "Status"],
         ),
         task: first_string(&value, &fields, &["task", "Task"], &["task", "Task"]),
+        work_cycle_id: first_string(
+            &value,
+            &fields,
+            &["work_cycle_id", "WorkCycleId"],
+            &["work_cycle_id", "WorkCycleId"],
+        ),
         worktree_path: first_string(
             &value,
             &fields,

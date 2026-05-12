@@ -193,6 +193,8 @@ struct WorkerRunState {
     status: String,
     #[serde(default, rename = "Task")]
     task: String,
+    #[serde(default, rename = "WorkCycleId")]
+    work_cycle_id: String,
     #[serde(default, rename = "WorktreePath")]
     worktree_path: String,
     #[serde(default, rename = "BranchName")]

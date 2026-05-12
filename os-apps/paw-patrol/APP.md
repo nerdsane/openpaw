@@ -40,6 +40,13 @@ testing, review, proof, and completion. L3 work pauses in
 in `AwaitingHumanCompletionApproval` after reviewer, evaluator, and ProofPacket
 gates pass.
 
+Plans are visible WorkCycle state, not private worker scratch. Intake WASM
+modules write a structured plan-mode markdown plan, and the local Codex worker
+runs a read-only Codex Plan Mode pass before implementation. That pass revises
+the WorkCycle plan through `WorkCycle.RevisePlan`, increments
+`plan_revision_count`, and injects the approved plan into the mutating Codex
+run.
+
 ### WorkerRun
 One execution attempt by a registered worker. The first worker type is the Mac
 mini local Codex worker. It claims queued work from Railway Temper over SSE,

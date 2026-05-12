@@ -169,6 +169,7 @@ fn handle_start(
         empty_fallback(&brief_date, "unspecified date")
     );
     let task_detail = daily_brief_worker_task(&prompt_input, &work_cycle_id);
+    let plan_summary = daily_brief_plan(&prompt_input);
     let allowed_worker_id = configured_local_worker_id(ctx);
 
     post_action(
@@ -193,9 +194,7 @@ fn handle_start(
         "WorkCycles",
         &work_cycle_id,
         PATROL_WRITE_PLAN,
-        &json!({
-            "plan_summary": "Local Codex reads the collected Patrol facts, renders a factual visual human-readable daily brief, and the WorkerRun then enters reviewer/evaluator/proof gates."
-        }),
+        &json!({ "plan_summary": &plan_summary }),
     )?;
     post_action(
         ctx,
@@ -311,6 +310,21 @@ fn daily_brief_worker_task(input: &DailyBriefPrompt<'_>, work_cycle_id: &str) ->
         input.done_items,
         input.open_risks,
         input.fallback_visual_summary_url
+    )
+}
+
+fn daily_brief_plan(input: &DailyBriefPrompt<'_>) -> String {
+    format!(
+        "# WorkCycle Plan\n\n## Context\nRender a factual Patrol daily brief from Temper state.\n\nDailyBrief: {}\nDate: {}\nCompleted WorkCycles: {}\nPatrolRuns: {}\nLinked Signals: {}\nReady ProofPackets: {}\nOpen quality/security/observability risks: {}/{}/{}\n\n## Codex Plan Mode\nThis WorkCycle is a synthesis job, so Codex Plan Mode means read-only inspection of collected facts before rendering. The worker must not edit repository files while preparing the brief.\n\n## Approach\n1. Validate the collected WorkCycles, PatrolRuns, Signals, ProofPackets, and open risks from Temper facts.\n2. Synthesize a concise human-readable daily brief with explicit done work, open risks, escalations, and next actions.\n3. Include a factual visual summary or Mermaid diagram when it clarifies flow.\n4. Dispatch `DailyBrief.Render` with JSON fields the worker can validate.\n\n## File Manifest\n- Temper entities are the source of truth; repository files should remain unchanged.\n- `DailyBrief` receives rendered summary, visual URL, proof ids, open risks, and done items.\n- Proof output records the worker/reviewer/evaluator loop.\n\n## Verification Plan\nValidate the DailyBrief JSON packet, dispatch `DailyBrief.Render`, query the DailyBrief and associated WorkCycle state, and confirm reviewer/evaluator/proof gates can close without source file changes.\n\n## Risks\n- Briefs can accidentally invent work; every claim must be grounded in Temper state.\n- Stale or missing Patrol evidence should be called out rather than filled in creatively.\n- The visual summary must remain factual and not leak secrets.\n\n## Open Questions\nCodex Plan Mode must identify any missing source facts before rendering.",
+        input.brief_id,
+        empty_fallback(input.brief_date, "unspecified"),
+        input.completed_work_count,
+        input.patrol_run_count,
+        input.linked_signal_count,
+        input.proof_count,
+        input.quality_risk_count,
+        input.security_risk_count,
+        input.observability_risk_count
     )
 }
 

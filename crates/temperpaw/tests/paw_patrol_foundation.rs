@@ -2392,6 +2392,76 @@ fn signal_ingest_routes_observable_failures_into_patrol_work() {
 }
 
 #[test]
+fn patrol_work_cycles_have_revisable_codex_plan_mode_plans() {
+    let root = repo_root();
+    let patrol = root.join("os-apps/paw-patrol");
+
+    let work_cycle = read(patrol.join("specs/work_cycle.ioa.toml"));
+    for needle in [
+        "name = \"plan_revision_count\"",
+        "name = \"RevisePlan\"",
+        "from = [\"Planned\", \"AwaitingHumanStartApproval\", \"InProgress\"]",
+        "effect = [",
+        "{ type = \"increment\", var = \"plan_revision_count\" }",
+    ] {
+        assert!(
+            work_cycle.contains(needle),
+            "WorkCycle spec should support revising visible plans before and during implementation: {needle}"
+        );
+    }
+
+    let csdl = read(patrol.join("specs/model.csdl.xml"));
+    assert!(
+        csdl.contains("<Property Name=\"PlanRevisionCount\" Type=\"Edm.Int32\"/>"),
+        "WorkCycle CSDL should expose the plan revision counter"
+    );
+
+    let policy = read(patrol.join("policies/patrol.cedar"));
+    assert!(
+        policy.contains("Action::\"RevisePlan\""),
+        "patrol.cedar should authorize Patrol plan revision actions"
+    );
+
+    for module in [
+        "patrol_request_router",
+        "signal_router",
+        "finding_lifecycle",
+        "patrol_run_lifecycle",
+        "repo_sweep_lifecycle",
+        "daily_brief_lifecycle",
+    ] {
+        let source = paw_patrol_wasm_source(&root, module);
+        for needle in [
+            "Codex Plan Mode",
+            "## Context",
+            "## Approach",
+            "## Verification Plan",
+            "## Risks",
+        ] {
+            assert!(
+                source.contains(needle),
+                "{module} should write structured WorkCycle plans with plan-mode sections: {needle}"
+            );
+        }
+    }
+
+    let worker_sources = read_worker_sources(&root);
+    for needle in [
+        "run_codex_plan_mode",
+        "codex_plan_args",
+        "--sandbox",
+        "read-only",
+        "RevisePlan",
+        "<active_workcycle_plan>",
+    ] {
+        assert!(
+            worker_sources.contains(needle),
+            "paw-codex-worker should run a read-only Codex planning pass and attach the plan before implementation: {needle}"
+        );
+    }
+}
+
+#[test]
 fn worker_run_done_fans_out_to_review_evaluation_and_proof() {
     let root = repo_root();
     let patrol = root.join("os-apps/paw-patrol");

@@ -77,6 +77,15 @@ fn handle_accept(
         &evidence,
         &affected_paths,
     );
+    let plan_summary = finding_work_cycle_plan(
+        finding_kind,
+        &finding_id,
+        &task_summary,
+        &risk_lane,
+        &severity,
+        &evidence,
+        &affected_paths,
+    );
     let branch_name = format!(
         "codex/paw-finding-{}-{}",
         finding_kind.to_ascii_lowercase(),
@@ -166,9 +175,7 @@ fn handle_accept(
         "WorkCycles",
         &work_cycle_id,
         PATROL_WRITE_PLAN,
-        &json!({
-            "plan_summary": "Fix or intentionally ratchet the accepted finding in a worktree with red-green TDD, focused tests, live/E2E checks when relevant, and a visual ProofPacket before resolution."
-        }),
+        &json!({ "plan_summary": &plan_summary }),
     )?;
 
     if requires_human_start_approval(&risk_lane) {
@@ -332,6 +339,20 @@ fn issue_description(
 ) -> String {
     format!(
         "Patrol accepted {finding_kind} {finding_id} as actionable cleanup.\n\nRisk lane: {risk_lane}\nSeverity: {severity}\nWorkCycle: {work_cycle_id}\nWorkerRun: {worker_run_id}\nAffected paths: {affected_paths}\n\nEvidence:\n{evidence}\n"
+    )
+}
+
+fn finding_work_cycle_plan(
+    finding_kind: &str,
+    finding_id: &str,
+    task_summary: &str,
+    risk_lane: &str,
+    severity: &str,
+    evidence: &str,
+    affected_paths: &str,
+) -> String {
+    format!(
+        "# WorkCycle Plan\n\n## Context\nPatrol accepted an actionable finding as cleanup work.\n\nFinding type: {finding_kind}\nFinding: {finding_id}\nSummary: {task_summary}\nRisk lane: {risk_lane}\nSeverity: {severity}\nAffected paths: {affected_paths}\n\nEvidence:\n{evidence}\n\n## Codex Plan Mode\nBefore implementation, paw-codex-worker must run Codex with a read-only sandbox to verify the finding, inspect affected paths, and revise this WorkCycle plan with exact tests and file scope.\n\n## Approach\n1. Validate the finding from concrete evidence rather than trusting the summary blindly.\n2. Prefer a small fix that removes the issue; if the finding is intentionally accepted debt, add a focused ratchet so it cannot spread.\n3. Preserve Temper-native architecture: entities for state, WASM for transition logic, Cedar for authorization, Rust triggers only at external boundaries.\n4. Keep the cleanup scoped to the accepted finding and document any deferred broader refactor as residual risk.\n\n## File Manifest\n- Affected paths from the finding should be read first and changed only when they own the behavior.\n- Nearby tests or module-specific test files should receive the red/green coverage.\n- `os-apps/*/specs/`, `os-apps/*/wasm/`, and `os-apps/*/policies/` are in scope only when the finding proves a state/action/policy contract gap.\n- `.proofs/` or `docs/proofs/` must capture the cleanup evidence.\n\n## Verification Plan\nWrite or identify the failing test for the finding, implement the smallest green change, run focused checks plus any live/OData/dashboard verification touched by the fix, and confirm the source finding resolves only after proof gates pass.\n\n## Risks\n- Findings can be stale, duplicated, or intentionally tolerated; Codex Plan Mode must verify before editing.\n- Security, policy, deployment, data, or external API changes may require L3 approval.\n- Ratchets can overfit; keep them tied to the accepted evidence.\n\n## Open Questions\nCodex Plan Mode must confirm whether to fix, waive with evidence, or escalate before mutating files."
     )
 }
 

@@ -25,6 +25,7 @@ async fn evaluation_commands_classify_local_timeouts() {
         id: "wr-eval-timeout".to_string(),
         status: "Done".to_string(),
         task: "Evaluate a code change".to_string(),
+        work_cycle_id: "wc-eval-timeout".to_string(),
         worktree_path: root.display().to_string(),
         branch_name: "codex/eval-timeout".to_string(),
         runner_kind: "local_codex".to_string(),
