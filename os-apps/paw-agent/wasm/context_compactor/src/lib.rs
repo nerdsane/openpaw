@@ -592,13 +592,23 @@ fn build_compaction_request_body(
 ) -> Value {
     let user_text = compaction_user_prompt(conversation_text);
     match provider {
-        "openai" | "openai_codex" => json!({
+        "openai" => json!({
             "model": model,
             "instructions": system_prompt,
             "input": [{
                 "role": "user",
                 "content": user_text,
             }],
+            "store": false,
+        }),
+        "openai_codex" => json!({
+            "model": model,
+            "instructions": system_prompt,
+            "input": [{
+                "role": "user",
+                "content": user_text,
+            }],
+            "stream": true,
             "store": false,
         }),
         "openrouter" => json!({
@@ -933,6 +943,21 @@ mod tests {
             );
             assert_eq!(body["store"], json!(false));
         }
+    }
+
+    #[test]
+    fn codex_compaction_body_requests_streaming_response() {
+        // Regression: the ChatGPT Codex Responses backend pairs the
+        // `text/event-stream` contract with a required `stream: true` body
+        // field, otherwise it returns HTTP 400 "Stream must be set to true".
+        let body = build_compaction_request_body(
+            "openai_codex",
+            "gpt-test",
+            "system text",
+            "conversation text",
+        );
+
+        assert_eq!(body["stream"], json!(true));
     }
 
     #[test]
