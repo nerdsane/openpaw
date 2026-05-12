@@ -261,3 +261,22 @@ fn active_surfaces_do_not_use_legacy_openpaw_identity() {
         failures.join("\n")
     );
 }
+
+#[test]
+fn docker_image_metadata_uses_temperpaw_identity() {
+    let workflow_path = repo_root().join(".github/workflows/docker.yml");
+    let workflow = fs::read_to_string(&workflow_path)
+        .unwrap_or_else(|err| panic!("failed to read {}: {err}", workflow_path.display()));
+
+    assert!(
+        workflow.contains("org.opencontainers.image.description=TemperPaw"),
+        "Docker OCI description must be pinned to TemperPaw so metadata-action cannot inherit stale repository descriptions"
+    );
+
+    assert!(
+        !workflow.contains("org.opencontainers.image.description=Open Paw")
+            && !workflow.contains("org.opencontainers.image.description=OpenPaw")
+            && !workflow.contains("org.opencontainers.image.description=OpenPAW"),
+        "Docker OCI description must not carry legacy OpenPAW identity"
+    );
+}

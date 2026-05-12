@@ -53,6 +53,9 @@ jobs:
             type=sha
             type=semver,pattern={{version}},enable=${{ github.event_name == 'release' }}
             type=semver,pattern={{major}}.{{minor}},enable=${{ github.event_name == 'release' }}
+          labels: |
+            org.opencontainers.image.title=TemperPaw
+            org.opencontainers.image.description=TemperPaw - Agent daemon built on Temper platform
 
       - name: Build and push
         uses: docker/build-push-action@v6
