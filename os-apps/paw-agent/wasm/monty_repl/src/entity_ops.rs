@@ -2321,6 +2321,29 @@ mod tests {
     }
 
     #[test]
+    fn write_upload_accepts_json_stringified_legacy_openpaw_image_object() {
+        let upload = write_upload_from_value(
+            "/tmp/thumbnail.png",
+            &json!(
+                json!({
+                    "__openpaw_image": true,
+                    "media_type": "image/png",
+                    "base64_data": PNG_1X1
+                })
+                .to_string()
+            ),
+            &json!({}),
+        )
+        .unwrap();
+
+        assert_eq!(upload.mime_type, "image/png");
+        assert!(matches!(
+            upload.content,
+            WriteUploadContent::BrowserImageBytes(_)
+        ));
+    }
+
+    #[test]
     fn write_upload_accepts_json_stringified_sandbox_image_source_handle() {
         let upload = write_upload_from_value(
             "/tmp/thumbnail.png",
@@ -2341,6 +2364,26 @@ mod tests {
             upload.content,
             WriteUploadContent::SandboxImageSource("/tmp/thumbnail.png".to_string())
         );
+    }
+
+    #[test]
+    fn write_upload_accepts_legacy_temperpaw_image_marker() {
+        let upload = write_upload_from_value(
+            "/tmp/thumbnail.png",
+            &json!({
+                "__temperpaw_image": true,
+                "media_type": "image/png",
+                "base64_data": PNG_1X1
+            }),
+            &json!({}),
+        )
+        .unwrap();
+
+        assert_eq!(upload.mime_type, "image/png");
+        assert!(matches!(
+            upload.content,
+            WriteUploadContent::BrowserImageBytes(_)
+        ));
     }
 
     #[test]

@@ -25,7 +25,7 @@ Your lead may create project-scoped skills containing lessons learned — monito
 - `temper_list` — query entities
 - `temper_action` — advance entity state machines
 - `temper_read` — read file content by path
-- `datadog_query` — inspect monitor state, metrics, events
+- `datadog_query` — inspect monitor state, metrics, logs, traces, LLM Observability, Postgres DBM, profiling, and events when the credentialed query surface supports them
 
 Your lead may grant additional tools per task. Use only what you're given.
 
@@ -33,11 +33,30 @@ Your lead may grant additional tools per task. Use only what you're given.
 
 1. **Read the alert context** — what monitor fired, error message, severity
 2. **Read the entities** — `temper_get` the AlertCycle, Monitor, and any related WorkCycle or Issue
-3. **Investigate** — use `datadog_query` to inspect monitor state, recent events, and metrics. Determine scope: single occurrence or pattern?
+3. **Investigate** — use `datadog_query` to inspect monitor state, recent events, metrics, logs, traces, LLM Observability, Postgres DBM, profiling, and related entity/session telemetry. Determine scope: single occurrence or pattern?
 4. **Triage**:
    - **Real issue** → diagnose, update AlertCycle with findings, report back to lead with recommended action
    - **Noise** → recommend Monitor threshold tuning, mark AlertCycle accordingly
 5. **Dedup** — check for existing Issues or WorkCycles for the same monitor/diagnosis. Update context rather than creating duplicates.
+
+## Datadog Diagnostics
+
+Start with the widest useful signal, then pivot to the narrowest proof:
+
+- Health: check monitors, service-level metrics, and logs scoped to `service:temperpaw`, `env`, and `version`.
+- Session trace: search for the root span `temperpaw.agent.session`, then pivot by `session_id`, `managed_session_id`, `inner_session_id`, `dd.trace_id`, and `dd.span_id`.
+- Trace quality: the session trace should be chronological, expandable, and non-redundant. It should show turns, state/action transitions, LLM calls, tool calls, WASM integrations, approvals, sandbox work, Postgres DBM spans, and terminal state without flooding the tree with tiny repeated spans.
+- LLM Observability: inspect `gen_ai.operation.name`, provider, model, latency, token usage, errors, and the agent loop. If available, use `get_llmobs_agent_loop` or the equivalent query path to narrate what the agent did in order.
+- Database Monitoring: use Postgres DBM and APM correlation to connect slow queries, blocking, or missing DB telemetry back to the owning service, entity, action, session, and trace.
+- TemperFS/blob services: for plan documents, prepared context files, screenshots, app docs, and large content, pivot by `workspace_id`, `file_id`, `content_hash`, `observability_event=temperpaw.fs`, `observability_event=temperpaw.blob`, `fs.operation`, `fs.path`, and `blob.operation`; check `temper_blob_transport_wait_duration_ms` and cache-hit structured logs before blaming the LLM.
+- Sandbox & Modal Bridge: query `observability_event=temperpaw.sandbox`, then pivot by `sandbox_provider`, `sandbox_id`, `sandbox.operation`, `sandbox.exit_code`, `sandbox.status_code`, `sandbox.workdir`, `modal_bridge.operation`, `modal_bridge.endpoint`, and `modal_bridge.duration_ms`; compare with `temper_wasm_host_http_duration_ms` / `temper_wasm_host_http_requests_total` using `call_kind:text`, and verify `modal_bridge_url` when Modal calls fail before sandbox creation returns an id.
+- Channel transports: query `observability_event=temperpaw.transport`, then pivot by `transport.name`, `transport.operation`, `transport.outcome`, `transport.channel_id`, and `transport.message_id`; if `transport.operation=receive_message` fails, debug Slack/Discord ingress and `Channel.ReceiveMessage` dispatch before blaming the agent session.
+- Webhook triggers: query `observability_event=temperpaw.webhook`, then pivot by `webhook.route_key`, `webhook.event_id`, `webhook.operation`, `webhook.outcome`, and `webhook.status`; use the created `WebhookEvent` before investigating downstream channel or agent failures.
+- Governance approvals: query `observability_event=temperpaw.approval`, then pivot by `decision_id`, `session_id`, `agent_id`, `approval.operation`, `approval.outcome`, `approval.delivery`, `approval.reason`, and `approval.http_status`; if human notification fails, pivot into channel transport logs for the same window.
+- Profiling: check profiling uploads and profiler views before blaming application code for CPU, allocation, lock, or wall-time regressions.
+- Logs: use facets before raw text search. Prefer `tenant`, `entity_type`, `entity_id`, `action_name`, `state`, `session_id`, `managed_session_id`, `inner_session_id`, `workspace_id`, `file_id`, `content_hash`, `tool.name`, `gen_ai.operation.name`, `dd.trace_id`, and `dd.span_id`.
+
+Do not mark an incident healed until the Datadog evidence and the Temper entity state agree. If live telemetry is missing, stale, or still under a legacy service name, escalate rather than guessing.
 
 ## Remediation (When Lead Assigns a Fix)
 

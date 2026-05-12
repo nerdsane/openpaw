@@ -39,18 +39,18 @@ case "$*" in
     cat <<'JSON'
 [
   {
-    "id": "project-openpaw",
-    "name": "openpaw-seshendranalla",
+    "id": "project-temperpaw",
+    "name": "temperpaw-seshendranalla",
     "environments": {
       "edges": [
         {
           "node": {
-            "id": "env-openpaw-production",
+            "id": "env-temperpaw-production",
             "name": "production",
             "canAccess": true,
             "serviceInstances": {
               "edges": [
-                { "node": { "serviceId": "service-openpaw" } },
+                { "node": { "serviceId": "service-temperpaw" } },
                 { "node": { "serviceId": "service-postgres" } }
               ]
             }
@@ -60,7 +60,7 @@ case "$*" in
     },
     "services": {
       "edges": [
-        { "node": { "id": "service-openpaw", "name": "openpaw" } },
+        { "node": { "id": "service-temperpaw", "name": "temperpaw" } },
         { "node": { "id": "service-postgres", "name": "Postgres" } }
       ]
     }
@@ -130,9 +130,9 @@ jq -e '
 
 jq -e '
   any(.railway.candidates[];
-    .project_id == "project-openpaw" and
-    .project_name == "openpaw-seshendranalla" and
-    any(.services[]; .service_id == "service-openpaw" and .service_name == "openpaw") and
+    .project_id == "project-temperpaw" and
+    .project_name == "temperpaw-seshendranalla" and
+    any(.services[]; .service_id == "service-temperpaw" and .service_name == "temperpaw") and
     any(.environments[]; .environment_name == "production" and .can_access == true)
   )
 ' "${PROOF_DIR}/summary.json" >/dev/null

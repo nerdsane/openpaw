@@ -97,7 +97,7 @@ DATADOG_PATROL_RESULT_JSON_BEGIN
       "source_url": "",
       "datadog_monitor_id": "",
       "fingerprint": "datadog:mcp:fixture-discord-trace-leak",
-      "affected_services": ["openpaw-production"],
+      "affected_services": ["temperpaw-production"],
       "evidence_json": {"surface":"logs","sample_count":1},
       "work_summary": "Sanitize Discord trace output",
       "work_detail": "Add regression coverage and live Discord-facing proof for sanitized errors.",

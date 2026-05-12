@@ -142,7 +142,7 @@ impl PrintWriterCallback for BoundedOutputCollector {
 /// Thread-local flag set by `dispatch_success` / `dispatch_error` whenever
 /// this invocation has handed the Session a follow-up action to run. Read
 /// by `run()`'s outer match to enforce the "every WASM exit dispatches an
-/// action on the Session" invariant (openpaw ADR-0039 Sub-Decision 3a).
+/// action on the Session" invariant (temperpaw ADR-0039 Sub-Decision 3a).
 ///
 /// Reset at the top of each `run()` call so re-used WASM instances don't
 /// carry state between invocations.
@@ -466,7 +466,12 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 let saved_state = match save_repl_state(&repl) {
                     Ok(s) => s,
                     Err(e) => {
-                        ctx.log("warn", &format!("monty_repl: checkpoint repl save failed, skipping checkpoint: {e}"));
+                        ctx.log(
+                            "warn",
+                            &format!(
+                                "monty_repl: checkpoint repl save failed, skipping checkpoint: {e}"
+                            ),
+                        );
                         i += 1;
                         continue;
                     }
@@ -481,7 +486,12 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 ) {
                     Ok(id) => id,
                     Err(e) => {
-                        ctx.log("warn", &format!("monty_repl: checkpoint file save failed, skipping checkpoint: {e}"));
+                        ctx.log(
+                            "warn",
+                            &format!(
+                                "monty_repl: checkpoint file save failed, skipping checkpoint: {e}"
+                            ),
+                        );
                         i += 1;
                         continue;
                     }
@@ -648,13 +658,16 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
 
                 // Save REPL state before pausing.
                 // Graceful: if save fails, agent gets a fresh REPL on resume.
-                let repl_file_id = match save_repl_state(&repl)
-                    .and_then(|saved_state| {
-                        session::save_repl_to_file(
-                            &ctx, &temper_api_url, tenant, workspace_id,
-                            repl_file_id, &saved_state,
-                        )
-                    }) {
+                let repl_file_id = match save_repl_state(&repl).and_then(|saved_state| {
+                    session::save_repl_to_file(
+                        &ctx,
+                        &temper_api_url,
+                        tenant,
+                        workspace_id,
+                        repl_file_id,
+                        &saved_state,
+                    )
+                }) {
                     Ok(id) => id,
                     Err(e) => {
                         ctx.log("warn", &format!(
@@ -820,7 +833,10 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                     ) {
                         Ok(id) => id,
                         Err(e) => {
-                            ctx.log("warn", &format!("monty_repl: end-of-batch file save failed: {e}"));
+                            ctx.log(
+                                "warn",
+                                &format!("monty_repl: end-of-batch file save failed: {e}"),
+                            );
                             repl_file_id.to_string()
                         }
                     }
@@ -837,7 +853,10 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 }
             }
             Err(e) => {
-                ctx.log("warn", &format!("monty_repl: end-of-batch repl save failed: {e}"));
+                ctx.log(
+                    "warn",
+                    &format!("monty_repl: end-of-batch repl save failed: {e}"),
+                );
                 repl_file_id.to_string()
             }
         };
@@ -861,7 +880,10 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         ) {
             Ok(p) => p,
             Err(e) => {
-                ctx.log("warn", &format!("monty_repl: persist_results failed, falling back to inline: {e}"));
+                ctx.log(
+                    "warn",
+                    &format!("monty_repl: persist_results failed, falling back to inline: {e}"),
+                );
                 let results_json = serde_json::to_string(&tool_results).unwrap_or_default();
                 json!({"pending_tool_calls": results_json, "repl_file_id": repl_file_id})
             }

@@ -1893,7 +1893,7 @@ fn mac_mini_bootstrap_uses_railway_token_handoff_without_printing_secrets() {
     for needle in [
         "railway link --project",
         "ad7f8977-cf48-43ef-b129-ba1e17896ae4",
-        "railway run --service openpaw --environment production",
+        "railway run --service temperpaw --environment production",
         "printf %s \"$TEMPER_API_KEY\"",
         "PAW_CODEX_ENABLE_EXECUTION=\"${PAW_CODEX_ENABLE_EXECUTION:-0}\"",
         "crates/paw-codex-worker/scripts/production-readiness.sh",

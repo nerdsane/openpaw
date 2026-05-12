@@ -324,21 +324,70 @@ pub fn sandbox_create(
     config: &SandboxConfig,
 ) -> Result<SandboxHandle, String> {
     let api_key = resolve_sandbox_api_key(ctx, provider)?;
-    match provider {
+    let result = match provider {
         "tensorlake" => tensorlake_create(ctx, &api_key, config),
         "modal" => modal_create(ctx, &api_key, config),
         other => Err(format!("unsupported sandbox provider: {other}")),
+    };
+    match &result {
+        Ok(handle) => log_sandbox_observability(
+            ctx,
+            provider,
+            "create",
+            "success",
+            &handle.sandbox_id,
+            None,
+            None,
+            "",
+        ),
+        Err(_) => {
+            log_sandbox_observability(ctx, provider, "create", "error", "", None, None, "");
+        }
     }
+    result
 }
 
 /// Check if a sandbox is ready to accept commands.
 pub fn sandbox_health_check(ctx: &Context, handle: &SandboxHandle) -> Result<bool, String> {
     let api_key = resolve_sandbox_api_key(ctx, &handle.provider)?;
-    match handle.provider.as_str() {
+    let result = match handle.provider.as_str() {
         "tensorlake" => tensorlake_health_check(ctx, &api_key, &handle.sandbox_url),
         "modal" => modal_health_check(ctx, &api_key, &handle.sandbox_id),
         other => Err(format!("unsupported sandbox provider: {other}")),
+    };
+    match &result {
+        Ok(true) => log_sandbox_observability(
+            ctx,
+            &handle.provider,
+            "health",
+            "ready",
+            &handle.sandbox_id,
+            None,
+            Some(200),
+            "",
+        ),
+        Ok(false) => log_sandbox_observability(
+            ctx,
+            &handle.provider,
+            "health",
+            "not_ready",
+            &handle.sandbox_id,
+            None,
+            None,
+            "",
+        ),
+        Err(_) => log_sandbox_observability(
+            ctx,
+            &handle.provider,
+            "health",
+            "error",
+            &handle.sandbox_id,
+            None,
+            None,
+            "",
+        ),
     }
+    result
 }
 
 // ---------------------------------------------------------------------------
@@ -352,11 +401,22 @@ pub fn sandbox_file_read(
     path: &str,
 ) -> Result<String, String> {
     let api_key = resolve_sandbox_api_key(ctx, &handle.provider)?;
-    match handle.provider.as_str() {
+    let result = match handle.provider.as_str() {
         "tensorlake" => tensorlake_file_read(ctx, &api_key, &handle.sandbox_url, path),
         "modal" => modal_file_read(ctx, &api_key, &handle.sandbox_id, path),
         other => Err(format!("unsupported sandbox provider: {other}")),
-    }
+    };
+    log_sandbox_observability(
+        ctx,
+        &handle.provider,
+        "read",
+        if result.is_ok() { "success" } else { "error" },
+        &handle.sandbox_id,
+        None,
+        None,
+        path,
+    );
+    result
 }
 
 /// Write a file to the sandbox.
@@ -367,11 +427,22 @@ pub fn sandbox_file_write(
     content: &str,
 ) -> Result<(), String> {
     let api_key = resolve_sandbox_api_key(ctx, &handle.provider)?;
-    match handle.provider.as_str() {
+    let result = match handle.provider.as_str() {
         "tensorlake" => tensorlake_file_write(ctx, &api_key, &handle.sandbox_url, path, content),
         "modal" => modal_file_write(ctx, &api_key, &handle.sandbox_id, path, content),
         other => Err(format!("unsupported sandbox provider: {other}")),
-    }
+    };
+    log_sandbox_observability(
+        ctx,
+        &handle.provider,
+        "write",
+        if result.is_ok() { "success" } else { "error" },
+        &handle.sandbox_id,
+        None,
+        None,
+        path,
+    );
+    result
 }
 
 /// Delete a file from the sandbox.
@@ -381,11 +452,22 @@ pub fn sandbox_file_delete(
     path: &str,
 ) -> Result<(), String> {
     let api_key = resolve_sandbox_api_key(ctx, &handle.provider)?;
-    match handle.provider.as_str() {
+    let result = match handle.provider.as_str() {
         "tensorlake" => tensorlake_file_delete(ctx, &api_key, &handle.sandbox_url, path),
         "modal" => modal_file_delete(ctx, &api_key, &handle.sandbox_id, path),
         other => Err(format!("unsupported sandbox provider: {other}")),
-    }
+    };
+    log_sandbox_observability(
+        ctx,
+        &handle.provider,
+        "delete",
+        if result.is_ok() { "success" } else { "error" },
+        &handle.sandbox_id,
+        None,
+        None,
+        path,
+    );
+    result
 }
 
 // ---------------------------------------------------------------------------
@@ -400,11 +482,28 @@ pub fn sandbox_exec(
     workdir: &str,
 ) -> Result<ExecResult, String> {
     let api_key = resolve_sandbox_api_key(ctx, &handle.provider)?;
-    match handle.provider.as_str() {
+    let result = match handle.provider.as_str() {
         "tensorlake" => tensorlake_exec(ctx, &api_key, &handle.sandbox_url, command, workdir),
         "modal" => modal_exec(ctx, &api_key, &handle.sandbox_id, command, workdir),
         other => Err(format!("unsupported sandbox provider: {other}")),
-    }
+    };
+    let exit_code = result.as_ref().ok().map(|result| result.exit_code);
+    let outcome = match exit_code {
+        Some(0) => "success",
+        Some(_) => "nonzero_exit",
+        None => "error",
+    };
+    log_sandbox_observability(
+        ctx,
+        &handle.provider,
+        "bash",
+        outcome,
+        &handle.sandbox_id,
+        exit_code,
+        None,
+        workdir,
+    );
+    result
 }
 
 // ---------------------------------------------------------------------------
@@ -500,6 +599,52 @@ gh --version 2>/dev/null || echo 'gh: not installed'
 // ---------------------------------------------------------------------------
 // Shared utilities
 // ---------------------------------------------------------------------------
+
+fn log_sandbox_observability(
+    ctx: &Context,
+    provider: &str,
+    operation: &str,
+    outcome: &str,
+    sandbox_id: &str,
+    exit_code: Option<i64>,
+    status_code: Option<i64>,
+    workdir: &str,
+) {
+    let fields = sandbox_observability_fields(
+        provider,
+        operation,
+        outcome,
+        sandbox_id,
+        exit_code,
+        status_code,
+        workdir,
+    );
+    let _ = ctx.log_structured("info", "temperpaw.sandbox operation", &fields);
+}
+
+fn sandbox_observability_fields(
+    provider: &str,
+    operation: &str,
+    outcome: &str,
+    sandbox_id: &str,
+    exit_code: Option<i64>,
+    status_code: Option<i64>,
+    workdir: &str,
+) -> Value {
+    json!({
+        "observability_event": "temperpaw.sandbox",
+        "sandbox_provider": provider,
+        "sandbox_id": sandbox_id,
+        "sandbox": {
+            "operation": operation,
+            "outcome": outcome,
+            "backend": provider,
+            "exit_code": exit_code.unwrap_or(-1),
+            "status_code": status_code.unwrap_or(0),
+            "workdir": workdir,
+        }
+    })
+}
 
 /// URL-encode a string (path-safe: preserves `/`, `-`, `_`, `.`).
 pub fn url_encode(s: &str) -> String {
@@ -1206,6 +1351,29 @@ mod tests {
             "python3 -m pip install --disable-pip-version-check --no-input rich==13.9.4"
         ));
         assert!(script.contains("npm install -g typescript@5.9.2"));
+    }
+
+    #[test]
+    fn test_sandbox_observability_fields_expose_modal_bridge_context() {
+        let fields = sandbox_observability_fields(
+            "modal",
+            "bash",
+            "success",
+            "sb-123",
+            Some(0),
+            Some(200),
+            "/workspace/repo",
+        );
+
+        assert_eq!(fields["observability_event"], json!("temperpaw.sandbox"));
+        assert_eq!(fields["sandbox_provider"], json!("modal"));
+        assert_eq!(fields["sandbox_id"], json!("sb-123"));
+        assert_eq!(fields["sandbox"]["operation"], json!("bash"));
+        assert_eq!(fields["sandbox"]["outcome"], json!("success"));
+        assert_eq!(fields["sandbox"]["backend"], json!("modal"));
+        assert_eq!(fields["sandbox"]["exit_code"], json!(0));
+        assert_eq!(fields["sandbox"]["status_code"], json!(200));
+        assert_eq!(fields["sandbox"]["workdir"], json!("/workspace/repo"));
     }
 
     #[test]

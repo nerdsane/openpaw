@@ -2,6 +2,11 @@
   "description": "Sensitive-data scanner rules applied at log ingest (ADR-0054). Redacts known secret shapes before logs hit the index so an accidentally-logged token cannot leak even if application code slips.",
   "rules": [
     {
+      "name": "Datadog API/application keys (DD_API_KEY / DD_APP_KEY)",
+      "pattern": "(?i)\\bDD_(?:API|APP|APPLICATION)_KEY\\b\\s*[:=]\\s*[\\\"']?[A-Za-z0-9_-]{20,}",
+      "replacement": "[REDACTED:DATADOG]"
+    },
+    {
       "name": "OpenAI / Anthropic API keys (sk-...)",
       "pattern": "sk-(?:ant-)?[A-Za-z0-9]{20,}",
       "replacement": "[REDACTED:OPENAI]"

@@ -24,6 +24,46 @@ type = "string"
 initial = ""
 
 [[state]]
+name = "observability_event"
+type = "string"
+initial = ""
+
+[[state]]
+name = "managed_session_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "inner_session_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "inner_agent_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "managed_agent_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "parent_session_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "environment_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "action_name"
+type = "string"
+initial = ""
+
+[[state]]
 name = "input"
 type = "string"
 initial = ""

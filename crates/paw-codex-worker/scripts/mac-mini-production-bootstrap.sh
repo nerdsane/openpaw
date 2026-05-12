@@ -5,7 +5,7 @@ ROOT="$(git rev-parse --show-toplevel)"
 PROJECT_ID="ad7f8977-cf48-43ef-b129-ba1e17896ae4"
 ENVIRONMENT="production"
 SERVICE_ID="4a8dedaa-8a2e-4cdd-945b-e06c781bb3f0"
-TEMPER_URL="${TEMPER_URL:-https://openpaw-production.up.railway.app}"
+TEMPER_URL="${TEMPER_URL:-https://temperpaw-production.up.railway.app}"
 TEMPER_TENANT="${TEMPER_TENANT:-default}"
 WORKER_ID="${WORKER_ID:-mac-mini-codex-prod}"
 REPO_ROOT="${REPO_ROOT:-$ROOT}"
@@ -54,12 +54,12 @@ if ! command -v "$CODEX_BIN" >/dev/null 2>&1 && [[ ! -x "$CODEX_BIN" ]]; then
   fail "CODEX_BIN is not executable: ${CODEX_BIN}"
 fi
 
-log "linking Railway project openpaw-seshendranalla / production / openpaw"
+log "linking Railway project temperpaw-seshendranalla / production / temperpaw"
 railway link --project "$PROJECT_ID" --environment "$ENVIRONMENT" --service "$SERVICE_ID" --json >/dev/null
 
 log "reading production worker token from Railway env without printing it"
 WORKER_TOKEN="$(
-  railway run --service openpaw --environment production sh -lc 'printf %s "$TEMPER_API_KEY"'
+  railway run --service temperpaw --environment production sh -lc 'printf %s "$TEMPER_API_KEY"'
 )"
 if [[ -z "$WORKER_TOKEN" ]]; then
   fail "Railway TEMPER_API_KEY is empty; cannot render worker launchd plist"

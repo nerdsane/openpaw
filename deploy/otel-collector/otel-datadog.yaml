@@ -54,6 +54,9 @@ exporters:
       dd-otlp-source: llmobs
 
 service:
+  telemetry:
+    logs:
+      level: info
   pipelines:
     traces/llmobs:
       receivers: [otlp]

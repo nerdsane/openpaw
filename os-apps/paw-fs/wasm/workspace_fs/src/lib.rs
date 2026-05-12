@@ -41,7 +41,13 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             &format!("workspace_fs: op={operation} path={raw_path} ws={ws_id}"),
         );
 
-        match operation.as_str() {
+        let new_path = ctx
+            .trigger_params
+            .get("new_path")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+
+        let op_result = match operation.as_str() {
             "mkdir" => ops::mkdir(&ctx, &api_url, &tenant, &ws_id, raw_path),
             "create_file" => {
                 let mime_type = ctx
@@ -53,16 +59,18 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             "resolve_path" => ops::resolve_path(&ctx, &api_url, &tenant, &ws_id, raw_path),
             "list_dir" => ops::list_dir(&ctx, &api_url, &tenant, &ws_id, raw_path),
             "delete_file" => ops::delete_file(&ctx, &api_url, &tenant, &ws_id, raw_path),
-            "rename" => {
-                let new_path = ctx
+            "rename" => match ctx
                     .trigger_params
                     .get("new_path")
                     .and_then(|v| v.as_str())
-                    .ok_or("workspace_fs: missing new_path parameter")?;
-                ops::rename(&ctx, &api_url, &tenant, &ws_id, raw_path, new_path)
-            }
+            {
+                Some(new_path) => ops::rename(&ctx, &api_url, &tenant, &ws_id, raw_path, new_path),
+                None => Err("workspace_fs: missing new_path parameter".to_string()),
+            },
             other => Err(format!("workspace_fs: unknown operation: {other}")),
-        }
+        };
+        emit_fs_observability(&ctx, &operation, &ws_id, raw_path, new_path, &op_result);
+        op_result
     })();
 
     match result {
@@ -71,5 +79,69 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             set_error_result(&e);
             1
         }
+    }
+}
+
+fn emit_fs_observability(
+    ctx: &Context,
+    operation: &str,
+    workspace_id: &str,
+    path: &str,
+    new_path: &str,
+    result: &Result<(), String>,
+) {
+    let fields = build_fs_observability_fields(operation, workspace_id, path, new_path, result);
+    let _ = ctx.log_structured("info", "temperpaw.fs operation", &fields);
+}
+
+fn build_fs_observability_fields(
+    operation: &str,
+    workspace_id: &str,
+    path: &str,
+    new_path: &str,
+    result: &Result<(), String>,
+) -> Value {
+    let outcome = if result.is_ok() { "success" } else { "error" };
+    let mut fields = json!({
+        "observability_event": "temperpaw.fs",
+        "workspace_id": workspace_id,
+        "fs": {
+            "operation": operation,
+            "outcome": outcome,
+            "backend": "temperfs-workspace",
+            "path": path,
+            "new_path": new_path,
+        }
+    });
+    if let Err(error) = result {
+        fields["error"] = json!({
+            "kind": "WorkspaceFsError",
+            "message": error,
+        });
+    }
+    fields
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fs_observability_fields_expose_workspace_context() {
+        let fields = build_fs_observability_fields(
+            "rename",
+            "workspace-7",
+            "/old.md",
+            "/new.md",
+            &Ok(()),
+        );
+
+        assert_eq!(fields["observability_event"], json!("temperpaw.fs"));
+        assert_eq!(fields["workspace_id"], json!("workspace-7"));
+        assert_eq!(fields["fs"]["operation"], json!("rename"));
+        assert_eq!(fields["fs"]["outcome"], json!("success"));
+        assert_eq!(fields["fs"]["backend"], json!("temperfs-workspace"));
+        assert_eq!(fields["fs"]["path"], json!("/old.md"));
+        assert_eq!(fields["fs"]["new_path"], json!("/new.md"));
     }
 }

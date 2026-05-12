@@ -1,6 +1,6 @@
 name: Monitor Freshness (ADR-0052)
 
-# Runs daily. Opens a GitHub issue for every [OpenPaw]/[Temper] monitor that
+# Runs daily. Opens a GitHub issue for every [TemperPaw]/[Temper] monitor that
 # has been in No-Data state for 7 consecutive days, per ADR-0052
 # sub-decision 3.
 

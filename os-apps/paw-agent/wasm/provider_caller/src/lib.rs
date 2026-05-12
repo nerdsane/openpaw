@@ -18,6 +18,7 @@ use openai_codex_wire::{
 };
 use session_turn_artifacts::{
     PreparedContextArtifact, ProviderResponseArtifact,
+    build_gen_ai_input_messages, build_gen_ai_system_instructions,
     build_provider_response_ready_params_with_inline, parse_prepared_context_artifact,
 };
 use std::collections::BTreeMap;
@@ -1343,6 +1344,80 @@ fn format_gen_ai_prompt_attr(system_prompt: &str, messages: &[Value]) -> String 
     format!("{}…[truncated]", &raw[..cut])
 }
 
+fn append_llm_span_hint_headers(
+    headers: &mut Vec<(String, String)>,
+    provider: &str,
+    model: &str,
+    temperature: f64,
+    max_tokens: u32,
+    system_prompt: &str,
+    messages: &[Value],
+    session_id: &str,
+    completion_pointer: &str,
+) {
+    headers.push(("X-Temper-Span-Name".to_string(), "tool.llm_call".to_string()));
+    headers.push((
+        "X-Temper-Span-Attr-gen_ai.operation.name".to_string(),
+        "chat".to_string(),
+    ));
+    headers.push((
+        "X-Temper-Span-Attr-gen_ai.provider.name".to_string(),
+        provider.to_string(),
+    ));
+    headers.push((
+        "X-Temper-Span-Attr-gen_ai.system".to_string(),
+        provider.to_string(),
+    ));
+    headers.push((
+        "X-Temper-Span-Attr-gen_ai.request.model".to_string(),
+        model.to_string(),
+    ));
+    headers.push((
+        "X-Temper-Span-Attr-gen_ai.response.model".to_string(),
+        model.to_string(),
+    ));
+    headers.push((
+        "X-Temper-Span-Attr-gen_ai.request.temperature".to_string(),
+        format!("{temperature}"),
+    ));
+    headers.push((
+        "X-Temper-Span-Attr-gen_ai.request.max_tokens".to_string(),
+        max_tokens.to_string(),
+    ));
+    if !session_id.trim().is_empty() {
+        headers.push((
+            "X-Temper-Span-Attr-gen_ai.conversation.id".to_string(),
+            session_id.to_string(),
+        ));
+        headers.push((
+            "X-Temper-Span-Attr-session_id".to_string(),
+            session_id.to_string(),
+        ));
+    }
+    headers.push((
+        "X-Temper-Span-Attr-tool.name".to_string(),
+        "provider_caller".to_string(),
+    ));
+    headers.push((
+        "X-Temper-Span-Attr-gen_ai.system_instructions".to_string(),
+        build_gen_ai_system_instructions(system_prompt),
+    ));
+    headers.push((
+        "X-Temper-Span-Attr-gen_ai.input.messages".to_string(),
+        build_gen_ai_input_messages(messages),
+    ));
+    // Keep the legacy prompt/completion hints while Datadog LLMObs rolls out
+    // GenAI semantic convention mappings across every org.
+    headers.push((
+        "X-Temper-Span-Attr-gen_ai.prompt".to_string(),
+        format_gen_ai_prompt_attr(system_prompt, messages),
+    ));
+    headers.push((
+        "X-Temper-Span-Capture-Response-gen_ai.completion".to_string(),
+        completion_pointer.to_string(),
+    ));
+}
+
 /// Format a post-response usage log line using OpenTelemetry
 /// `gen_ai.*` semconv keys so DD's grok parser indexes them as
 /// structured attributes. The `wasm_guest` tracing bridge attaches
@@ -1490,40 +1565,17 @@ fn call_anthropic(
             ("accept".to_string(), "text/event-stream".to_string()),
         ]
     };
-    // Span hint headers — consumed + stripped by the host's split_span_hint_headers
-    // (temper-wasm, ADR-0037) so the resulting wasm.host.http_call span is
-    // renamed `tool.llm_call.anthropic` and carries gen_ai.* semconv attrs.
-    headers.push((
-        "X-Temper-Span-Name".to_string(),
-        "tool.llm_call.anthropic".to_string(),
-    ));
-    headers.push((
-        "X-Temper-Span-Attr-gen_ai.system".to_string(),
-        "anthropic".to_string(),
-    ));
-    headers.push((
-        "X-Temper-Span-Attr-gen_ai.request.model".to_string(),
-        model.to_string(),
-    ));
-    headers.push((
-        "X-Temper-Span-Attr-gen_ai.request.temperature".to_string(),
-        format!("{temperature}"),
-    ));
-    headers.push((
-        "X-Temper-Span-Attr-gen_ai.request.max_tokens".to_string(),
-        LLM_MAX_TOKENS.to_string(),
-    ));
-    // LLM content capture: prompt is request-side (serialize now), completion
-    // is response-side (host resolves pointer against Anthropic's
-    // /v1/messages response, which has {content: [{type, text}, ...]}).
-    headers.push((
-        "X-Temper-Span-Attr-gen_ai.prompt".to_string(),
-        format_gen_ai_prompt_attr(&effective_system, &effective_messages),
-    ));
-    headers.push((
-        "X-Temper-Span-Capture-Response-gen_ai.completion".to_string(),
-        "/content/0/text".to_string(),
-    ));
+    append_llm_span_hint_headers(
+        &mut headers,
+        "anthropic",
+        model,
+        temperature,
+        LLM_MAX_TOKENS,
+        &effective_system,
+        &effective_messages,
+        &ctx.entity_id,
+        "/content/0/text",
+    );
 
     // Retry on transient API errors only until the stream emits visible output.
     // Once the user has seen a semantic delta, replaying the call would duplicate
@@ -1807,38 +1859,17 @@ fn call_openrouter(
     if !app_name.trim().is_empty() {
         headers.push(("X-Title".to_string(), app_name.trim().to_string()));
     }
-    // Span hints (ADR-0037): stripped by the host before sending upstream.
-    headers.push((
-        "X-Temper-Span-Name".to_string(),
-        "tool.llm_call.openrouter".to_string(),
-    ));
-    headers.push((
-        "X-Temper-Span-Attr-gen_ai.system".to_string(),
-        "openrouter".to_string(),
-    ));
-    headers.push((
-        "X-Temper-Span-Attr-gen_ai.request.model".to_string(),
-        model.to_string(),
-    ));
-    headers.push((
-        "X-Temper-Span-Attr-gen_ai.request.temperature".to_string(),
-        format!("{temperature}"),
-    ));
-    headers.push((
-        "X-Temper-Span-Attr-gen_ai.request.max_tokens".to_string(),
-        LLM_MAX_TOKENS.to_string(),
-    ));
-    // LLM content capture: OpenRouter/OpenAI response shape is
-    // {choices: [{message: {content: "..."}}]}. Prompt is serialized
-    // request-side; completion is resolved by the host post-response.
-    headers.push((
-        "X-Temper-Span-Attr-gen_ai.prompt".to_string(),
-        format_gen_ai_prompt_attr(system_prompt, &or_messages),
-    ));
-    headers.push((
-        "X-Temper-Span-Capture-Response-gen_ai.completion".to_string(),
-        "/choices/0/message/content".to_string(),
-    ));
+    append_llm_span_hint_headers(
+        &mut headers,
+        "openrouter",
+        model,
+        temperature,
+        LLM_MAX_TOKENS,
+        system_prompt,
+        &or_messages,
+        &ctx.entity_id,
+        "/choices/0/message/content",
+    );
 
     ctx.log(
         "info",
@@ -2303,6 +2334,17 @@ fn call_openai(
     {
         headers.push(("accept".to_string(), "text/event-stream".to_string()));
     }
+    append_llm_span_hint_headers(
+        &mut headers,
+        provider,
+        model,
+        temperature,
+        LLM_MAX_TOKENS,
+        system_prompt,
+        messages,
+        &ctx.entity_id,
+        "/output/0/content/0/text",
+    );
 
     // Log input types for debugging conversation format issues
     let input_types: Vec<String> = input
@@ -3493,6 +3535,65 @@ mod tests {
     fn gen_ai_usage_log_includes_human_prefix() {
         let msg = format_gen_ai_usage_log("openrouter", "anthropic/claude-sonnet-4.6", 0, 0, 0, 0);
         assert!(msg.starts_with("session_turn: usage "));
+    }
+
+    #[test]
+    fn llm_span_hint_headers_use_datadog_genai_semconv() {
+        let mut headers = Vec::new();
+        append_llm_span_hint_headers(
+            &mut headers,
+            "anthropic",
+            "claude-sonnet-4.6",
+            0.7,
+            LLM_MAX_TOKENS,
+            "You are precise.",
+            &[json!({"role": "user", "content": "Summarize the trace."})],
+            "session-123",
+            "/content/0/text",
+        );
+
+        let lookup = |name: &str| {
+            headers
+                .iter()
+                .find(|(key, _)| key == name)
+                .map(|(_, value)| value.as_str())
+        };
+
+        assert_eq!(lookup("X-Temper-Span-Name"), Some("tool.llm_call"));
+        assert_eq!(
+            lookup("X-Temper-Span-Attr-gen_ai.operation.name"),
+            Some("chat")
+        );
+        assert_eq!(
+            lookup("X-Temper-Span-Attr-gen_ai.provider.name"),
+            Some("anthropic")
+        );
+        assert_eq!(
+            lookup("X-Temper-Span-Attr-gen_ai.system"),
+            Some("anthropic")
+        );
+        assert_eq!(
+            lookup("X-Temper-Span-Attr-gen_ai.request.model"),
+            Some("claude-sonnet-4.6")
+        );
+        assert_eq!(
+            lookup("X-Temper-Span-Attr-gen_ai.conversation.id"),
+            Some("session-123")
+        );
+        assert_eq!(
+            lookup("X-Temper-Span-Attr-session_id"),
+            Some("session-123")
+        );
+        assert_eq!(
+            lookup("X-Temper-Span-Attr-tool.name"),
+            Some("provider_caller")
+        );
+        assert!(lookup("X-Temper-Span-Attr-gen_ai.system_instructions").is_some());
+        assert!(lookup("X-Temper-Span-Attr-gen_ai.input.messages").is_some());
+        assert_eq!(
+            lookup("X-Temper-Span-Capture-Response-gen_ai.completion"),
+            Some("/content/0/text")
+        );
     }
 
     #[test]

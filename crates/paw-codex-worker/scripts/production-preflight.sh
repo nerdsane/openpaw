@@ -217,8 +217,8 @@ if [[ "$CHECK_RAILWAY" == "1" ]]; then
           project_id: (.id // ""),
           project_name: (.name // ""),
           likely_match: (
-            ((.name // "") | test("temper|paw|openpaw"; "i")) or
-            ([.services.edges[]?.node.name // empty] | map(test("temper|paw|openpaw"; "i")) | any)
+            ((.name // "") | test("temper|paw"; "i")) or
+            ([.services.edges[]?.node.name // empty] | map(test("temper|paw"; "i")) | any)
           ),
           environments: [
             .environments.edges[]?.node

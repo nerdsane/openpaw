@@ -30,6 +30,7 @@ type HmacSha256 = Hmac<Sha256>;
 
 unsafe extern "C" {
     fn host_log(level_ptr: i32, level_len: i32, msg_ptr: i32, msg_len: i32);
+    fn host_log_structured(ptr: i32, len: i32) -> i32;
     fn host_get_context(buf_ptr: i32, buf_len: i32) -> i32;
     fn host_set_result(ptr: i32, len: i32);
     fn host_get_secret(key_ptr: i32, key_len: i32, buf_ptr: i32, buf_len: i32) -> i32;
@@ -87,6 +88,8 @@ const CTX_BUF_LEN: usize = 131072; // 128KB — large enough for session-backed 
 const SECRET_BUF_LEN: usize = 1024;
 const HASH_BUF_LEN: usize = 256;
 const TIME_BUF_LEN: usize = 32;
+const BLOB_OBSERVABILITY_EVENT: &str = "temperpaw.blob";
+const BLOB_BACKEND: &str = "temperfs-blob";
 
 static mut CTX_BUF: [u8; CTX_BUF_LEN] = [0u8; CTX_BUF_LEN];
 static mut SECRET_BUF: [u8; SECRET_BUF_LEN] = [0u8; SECRET_BUF_LEN];
@@ -107,10 +110,6 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
 
     // Parse operation from trigger_params
     let operation = extract_json_str(&ctx_json, "operation");
-    let trigger_action = extract_json_str(&ctx_json, "trigger_action");
-
-    log("info", &format!("blob_adapter: trigger={trigger_action} op={operation}"));
-
     match operation.as_str() {
         "put" => handle_upload(&ctx_json),
         "get" => handle_download(&ctx_json),
@@ -132,16 +131,35 @@ fn handle_upload(ctx_json: &str) -> i32 {
     let content_hash = match compute_hash(&stream_id, "sha256") {
         Some(h) => h,
         None => {
+            emit_blob_observability(
+                ctx_json,
+                "put",
+                "hash_failed",
+                "",
+                false,
+                &stream_id,
+                None,
+                &size_bytes,
+                &content_type,
+            );
             set_error_result("failed to compute content hash");
             return 1;
         }
     };
 
-    log("info", &format!("blob_adapter: hash={content_hash}"));
-
     // 2. CAS dedup — skip upload if blob already stored
     if cache_contains(&content_hash) {
-        log("info", "blob_adapter: CAS cache hit, skipping upload");
+        emit_blob_observability(
+            ctx_json,
+            "put",
+            "cache_hit",
+            &content_hash,
+            true,
+            &stream_id,
+            Some(200),
+            &size_bytes,
+            &content_type,
+        );
         let result = build_stream_updated_result(ctx_json, &content_hash, &size_bytes, &content_type);
         set_result(&result);
         return 0;
@@ -159,6 +177,17 @@ fn handle_upload(ctx_json: &str) -> i32 {
     let status = call_http_stream("PUT", &url, &headers_json, &stream_id, "");
 
     if status < 200 || status >= 300 {
+        emit_blob_observability(
+            ctx_json,
+            "put",
+            "upload_failed",
+            &content_hash,
+            false,
+            &stream_id,
+            Some(status),
+            &size_bytes,
+            &content_type,
+        );
         set_error_result(&format!("upload failed with HTTP {status}"));
         return 1;
     }
@@ -167,6 +196,17 @@ fn handle_upload(ctx_json: &str) -> i32 {
     cache_from_stream(&content_hash, &stream_id);
 
     // 7. Return action + params for server to dispatch
+    emit_blob_observability(
+        ctx_json,
+        "put",
+        "uploaded",
+        &content_hash,
+        false,
+        &stream_id,
+        Some(status),
+        &size_bytes,
+        &content_type,
+    );
     let result = build_stream_updated_result(ctx_json, &content_hash, &size_bytes, &content_type);
     set_result(&result);
     0
@@ -176,6 +216,8 @@ fn handle_upload(ctx_json: &str) -> i32 {
 
 fn handle_download(ctx_json: &str) -> i32 {
     let response_stream_id = extract_json_str(ctx_json, "stream_id");
+    let size_bytes = extract_stream_size_bytes(ctx_json);
+    let content_type = extract_stream_content_type(ctx_json);
 
     // Read content_hash from entity_state.fields.content_hash
     // entity_state is nested: {"fields":{"content_hash":"sha256:..."},...}
@@ -194,15 +236,36 @@ fn handle_download(ctx_json: &str) -> i32 {
         }
     };
     if content_hash.is_empty() {
+        emit_blob_observability(
+            ctx_json,
+            "get",
+            "missing_content_hash",
+            "",
+            false,
+            &response_stream_id,
+            None,
+            &size_bytes,
+            &content_type,
+        );
         set_error_result("entity has no content_hash");
         return 1;
     }
 
     // 1. Cache check — skip download if bytes already cached
     if cache_contains(&content_hash) {
-        log("info", "blob_adapter: cache hit for download");
         let copied = cache_to_stream(&content_hash, &response_stream_id);
         if copied >= 0 {
+            emit_blob_observability(
+                ctx_json,
+                "get",
+                "cache_hit",
+                &content_hash,
+                true,
+                &response_stream_id,
+                Some(200),
+                &size_bytes,
+                &content_type,
+            );
             let result = r#"{"success":true}"#;
             set_result(result);
             return 0;
@@ -222,6 +285,17 @@ fn handle_download(ctx_json: &str) -> i32 {
     let status = call_http_stream("GET", &url, &headers_json, "", &response_stream_id);
 
     if status < 200 || status >= 300 {
+        emit_blob_observability(
+            ctx_json,
+            "get",
+            "download_failed",
+            &content_hash,
+            false,
+            &response_stream_id,
+            Some(status),
+            &size_bytes,
+            &content_type,
+        );
         set_error_result(&format!("download failed with HTTP {status}"));
         return 1;
     }
@@ -229,6 +303,17 @@ fn handle_download(ctx_json: &str) -> i32 {
     // 5. Cache for next time
     cache_from_stream(&content_hash, &response_stream_id);
 
+    emit_blob_observability(
+        ctx_json,
+        "get",
+        "downloaded",
+        &content_hash,
+        false,
+        &response_stream_id,
+        Some(status),
+        &size_bytes,
+        &content_type,
+    );
     let result = r#"{"success":true}"#;
     set_result(result);
     0
@@ -245,6 +330,44 @@ fn log(level: &str, msg: &str) {
             msg.len() as i32,
         );
     }
+}
+
+fn log_structured(level: &str, message: &str, fields_json: &str) {
+    let payload = format!(
+        r#"{{"level":"{}","message":"{}","fields":{}}}"#,
+        escape_json(level),
+        escape_json(message),
+        fields_json,
+    );
+    let rc = unsafe { host_log_structured(payload.as_ptr() as i32, payload.len() as i32) };
+    if rc != 0 {
+        log(level, message);
+    }
+}
+
+fn emit_blob_observability(
+    ctx_json: &str,
+    operation: &str,
+    outcome: &str,
+    content_hash: &str,
+    cache_hit: bool,
+    stream_id: &str,
+    status_code: Option<i32>,
+    size_bytes: &str,
+    content_type: &str,
+) {
+    let fields = build_blob_observability_fields(
+        ctx_json,
+        operation,
+        outcome,
+        content_hash,
+        cache_hit,
+        stream_id,
+        status_code,
+        size_bytes,
+        content_type,
+    );
+    log_structured("info", "temperpaw.blob operation", &fields);
 }
 
 fn read_context() -> Option<String> {
@@ -625,6 +748,113 @@ fn extract_field_from_entity_state(entity_state: &str, fields: &str, field: &str
     String::new()
 }
 
+fn extract_stream_size_bytes(ctx_json: &str) -> String {
+    let entity_state = extract_json_object(ctx_json, "entity_state");
+    let fields = if entity_state.is_empty() {
+        String::new()
+    } else {
+        extract_json_object(&entity_state, "fields")
+    };
+    extract_first_field(
+        ctx_json,
+        &entity_state,
+        &fields,
+        &["size_bytes", "SizeBytes"],
+    )
+}
+
+fn extract_stream_content_type(ctx_json: &str) -> String {
+    let entity_state = extract_json_object(ctx_json, "entity_state");
+    let fields = if entity_state.is_empty() {
+        String::new()
+    } else {
+        extract_json_object(&entity_state, "fields")
+    };
+    extract_first_field(
+        ctx_json,
+        &entity_state,
+        &fields,
+        &["content_type", "mime_type", "ContentType", "MimeType"],
+    )
+}
+
+fn extract_first_field(
+    ctx_json: &str,
+    entity_state: &str,
+    fields: &str,
+    candidates: &[&str],
+) -> String {
+    for field in candidates {
+        let value = extract_field_from_entity_state(entity_state, fields, field);
+        if !value.is_empty() {
+            return value;
+        }
+    }
+    for field in candidates {
+        let value = extract_json_str(ctx_json, field);
+        if !value.is_empty() {
+            return value;
+        }
+    }
+    String::new()
+}
+
+fn build_blob_observability_fields(
+    ctx_json: &str,
+    operation: &str,
+    outcome: &str,
+    content_hash: &str,
+    cache_hit: bool,
+    stream_id: &str,
+    status_code: Option<i32>,
+    size_bytes: &str,
+    content_type: &str,
+) -> String {
+    let entity_state = extract_json_object(ctx_json, "entity_state");
+    let fields = if entity_state.is_empty() {
+        String::new()
+    } else {
+        extract_json_object(&entity_state, "fields")
+    };
+    let workspace_id =
+        extract_first_field(ctx_json, &entity_state, &fields, &["workspace_id", "WorkspaceId"]);
+    let file_id = extract_json_str(ctx_json, "entity_id");
+    let status_code = status_code.unwrap_or(0);
+    let size_bytes = numeric_json(size_bytes);
+
+    format!(
+        r#"{{"observability_event":"{}","workspace_id":"{}","file_id":"{}","content_hash":"{}","stream_id":"{}","content_type":"{}","blob":{{"operation":"{}","outcome":"{}","backend":"{}","cache_hit":{},"status_code":{},"size_bytes":{}}}}}"#,
+        BLOB_OBSERVABILITY_EVENT,
+        escape_json(&workspace_id),
+        escape_json(&file_id),
+        escape_json(content_hash),
+        escape_json(stream_id),
+        escape_json(content_type),
+        escape_json(operation),
+        escape_json(outcome),
+        BLOB_BACKEND,
+        if cache_hit { "true" } else { "false" },
+        status_code,
+        size_bytes,
+    )
+}
+
+fn numeric_json(value: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return "0".to_string();
+    }
+    if trimmed
+        .chars()
+        .enumerate()
+        .all(|(idx, ch)| ch.is_ascii_digit() || (idx == 0 && ch == '-'))
+    {
+        trimmed.to_string()
+    } else {
+        "0".to_string()
+    }
+}
+
 /// Minimal JSON string escaping.
 fn escape_json(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
@@ -643,7 +873,7 @@ fn escape_json(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::build_stream_updated_result;
+    use super::{build_blob_observability_fields, build_stream_updated_result};
 
     #[test]
     fn stream_updated_result_includes_version_metadata_for_existing_file() {
@@ -693,5 +923,45 @@ mod tests {
         assert_eq!(parsed["params"]["version_number"], 1);
         assert_eq!(parsed["params"]["previous_version_id"], "");
         assert_eq!(parsed["params"]["created_by"], "");
+    }
+
+    #[test]
+    fn blob_observability_fields_expose_temperfs_diagnostics() {
+        let ctx_json = r#"{
+            "entity_id":"file-123",
+            "entity_state":{
+                "fields":{
+                    "workspace_id":"workspace-7",
+                    "size_bytes":4096,
+                    "mime_type":"image/png"
+                }
+            }
+        }"#;
+
+        let fields = build_blob_observability_fields(
+            ctx_json,
+            "put",
+            "uploaded",
+            "sha256:abc",
+            false,
+            "stream-42",
+            Some(201),
+            "4096",
+            "image/png",
+        );
+        let parsed: serde_json::Value = serde_json::from_str(&fields).unwrap();
+
+        assert_eq!(parsed["observability_event"], "temperpaw.blob");
+        assert_eq!(parsed["workspace_id"], "workspace-7");
+        assert_eq!(parsed["file_id"], "file-123");
+        assert_eq!(parsed["content_hash"], "sha256:abc");
+        assert_eq!(parsed["stream_id"], "stream-42");
+        assert_eq!(parsed["content_type"], "image/png");
+        assert_eq!(parsed["blob"]["operation"], "put");
+        assert_eq!(parsed["blob"]["outcome"], "uploaded");
+        assert_eq!(parsed["blob"]["backend"], "temperfs-blob");
+        assert_eq!(parsed["blob"]["cache_hit"], false);
+        assert_eq!(parsed["blob"]["status_code"], 201);
+        assert_eq!(parsed["blob"]["size_bytes"], 4096);
     }
 }

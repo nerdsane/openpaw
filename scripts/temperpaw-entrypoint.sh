@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 set -eu
 
-export DD_SERVICE="${DD_SERVICE:-openpaw}"
+export DD_SERVICE="${DD_SERVICE:-temperpaw}"
 export DD_ENV="${DD_ENV:-prod}"
 export DD_VERSION="${DD_VERSION:-${BUILD_SHA:-unknown}}"
 

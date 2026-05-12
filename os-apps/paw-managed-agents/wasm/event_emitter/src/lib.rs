@@ -3,7 +3,8 @@ mod common;
 
 use common::{
     content_string_to_text, create_session_event, extract_text_from_value, field_i64, field_string,
-    get_entity, message_blocks_json, next_session_event_sequence, status_of, system_json_headers,
+    get_entity, log_managed_session_event, managed_session_event_context, message_blocks_json,
+    next_session_event_sequence, status_of, system_json_headers, with_session_event_context,
 };
 use session_tree_lib::{EntryType, SessionEntry, SessionTree};
 use temper_wasm_sdk::prelude::*;
@@ -56,6 +57,16 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 existing
             }
         };
+        let event_context = managed_session_event_context(
+            &fields,
+            &ctx.entity_id,
+            &inner_session_id,
+            "",
+            "",
+            "",
+            "",
+            "ManagedAgents.IdleSession",
+        );
         let result_hash = format!("{inner_session_id}:{inner_status}:{result_text}");
         let previous_hash = field_string(
             &fields,
@@ -94,12 +105,17 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                         &ctx.entity_id,
                         &snapshot.tree,
                         emit_from_index,
+                        &event_context,
                         &mut sequence,
                     )?;
                 }
             }
 
             if previous_hash != result_hash && !result_text.trim().is_empty() {
+                let event_fields = with_session_event_context(
+                    &event_context,
+                    json!({ "Content": message_blocks_json(&result_text) }),
+                );
                 let _ = create_session_event(
                     &ctx,
                     &base_url,
@@ -107,12 +123,26 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                     &ctx.entity_id,
                     sequence,
                     "agent.message",
-                    json!({ "Content": message_blocks_json(&result_text) }),
+                    event_fields.clone(),
                 )?;
+                log_managed_session_event(
+                    &ctx,
+                    &event_context,
+                    "agent.message",
+                    sequence,
+                    &event_fields,
+                );
                 sequence += 1;
             }
 
             if previous_hash != result_hash {
+                let event_fields = with_session_event_context(
+                    &event_context,
+                    json!({
+                        "StopReason": stop_reason,
+                        "StopReasonEventIds": "[]",
+                    }),
+                );
                 let _ = create_session_event(
                     &ctx,
                     &base_url,
@@ -120,11 +150,15 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                     &ctx.entity_id,
                     sequence,
                     "session.status_idle",
-                    json!({
-                        "StopReason": stop_reason,
-                        "StopReasonEventIds": "[]",
-                    }),
+                    event_fields.clone(),
                 )?;
+                log_managed_session_event(
+                    &ctx,
+                    &event_context,
+                    "session.status_idle",
+                    sequence,
+                    &event_fields,
+                );
             }
         }
 
@@ -228,6 +262,7 @@ fn emit_tree_events(
     session_id: &str,
     tree: &SessionTree,
     start_index: usize,
+    event_context: &Value,
     sequence: &mut i64,
 ) -> Result<(), String> {
     for entry_id in tree.entry_ids().iter().skip(start_index) {
@@ -249,6 +284,13 @@ fn emit_tree_events(
                 for block in blocks {
                     match block.get("type").and_then(Value::as_str).unwrap_or("") {
                         "thinking" => {
+                            let event_fields = with_session_event_context(
+                                event_context,
+                                json!({
+                                    "Content": serde_json::to_string(&vec![block.clone()])
+                                        .unwrap_or_else(|_| "[]".to_string()),
+                                }),
+                            );
                             let _ = create_session_event(
                                 ctx,
                                 base_url,
@@ -256,14 +298,27 @@ fn emit_tree_events(
                                 session_id,
                                 *sequence,
                                 "agent.thinking",
-                                json!({
-                                    "Content": serde_json::to_string(&vec![block.clone()])
-                                        .unwrap_or_else(|_| "[]".to_string()),
-                                }),
+                                event_fields.clone(),
                             )?;
+                            log_managed_session_event(
+                                ctx,
+                                event_context,
+                                "agent.thinking",
+                                *sequence,
+                                &event_fields,
+                            );
                             *sequence += 1;
                         }
                         "tool_use" => {
+                            let event_fields = with_session_event_context(
+                                event_context,
+                                json!({
+                                    "ToolUseId": block.get("id").and_then(Value::as_str).unwrap_or(""),
+                                    "ToolName": block.get("name").and_then(Value::as_str).unwrap_or(""),
+                                    "Input": block.get("input").map(|value| value.to_string()).unwrap_or_default(),
+                                    "EvaluatedPermission": "allow",
+                                }),
+                            );
                             let _ = create_session_event(
                                 ctx,
                                 base_url,
@@ -271,13 +326,15 @@ fn emit_tree_events(
                                 session_id,
                                 *sequence,
                                 "agent.tool_use",
-                                json!({
-                                    "ToolUseId": block.get("id").and_then(Value::as_str).unwrap_or(""),
-                                    "ToolName": block.get("name").and_then(Value::as_str).unwrap_or(""),
-                                    "Input": block.get("input").map(|value| value.to_string()).unwrap_or_default(),
-                                    "EvaluatedPermission": "allow",
-                                }),
+                                event_fields.clone(),
                             )?;
+                            log_managed_session_event(
+                                ctx,
+                                event_context,
+                                "agent.tool_use",
+                                *sequence,
+                                &event_fields,
+                            );
                             *sequence += 1;
                         }
                         _ => {}
@@ -289,13 +346,8 @@ fn emit_tree_events(
                     if block.get("type").and_then(Value::as_str) != Some("tool_result") {
                         continue;
                     }
-                    let _ = create_session_event(
-                        ctx,
-                        base_url,
-                        headers,
-                        session_id,
-                        *sequence,
-                        "agent.tool_result",
+                    let event_fields = with_session_event_context(
+                        event_context,
                         json!({
                             "ToolUseId": block.get("tool_use_id").and_then(Value::as_str).unwrap_or(""),
                             "Content": message_blocks_json(
@@ -305,7 +357,23 @@ fn emit_tree_events(
                                     .unwrap_or_default()
                             ),
                         }),
+                    );
+                    let _ = create_session_event(
+                        ctx,
+                        base_url,
+                        headers,
+                        session_id,
+                        *sequence,
+                        "agent.tool_result",
+                        event_fields.clone(),
                     )?;
+                    log_managed_session_event(
+                        ctx,
+                        event_context,
+                        "agent.tool_result",
+                        *sequence,
+                        &event_fields,
+                    );
                     *sequence += 1;
                 }
             }

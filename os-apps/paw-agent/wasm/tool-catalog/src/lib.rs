@@ -365,8 +365,8 @@ pub const REPL_METHOD_SPECS: &[ReplMethodSpec] = &[
     ReplMethodSpec {
         object: "temper",
         method: "datadog_query",
-        signature: "(query_kind, monitor_id=None, query=None, ...)",
-        description: "Datadog API",
+        signature: "(query_kind, monitor_id=None, query=None, from=None, to=None, limit=25, ...)",
+        description: "Datadog monitors, metrics, logs, traces, LLMObs, DBM, and profiling",
         token: Some("temper_datadog_query"),
     },
     ReplMethodSpec {

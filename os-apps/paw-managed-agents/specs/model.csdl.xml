@@ -209,6 +209,14 @@
         <Property Name="Sequence" Type="Edm.Int64"/>
         <Property Name="Kind" Type="Edm.String"/>
         <Property Name="Content" Type="Edm.String"/>
+        <Property Name="ObservabilityEvent" Type="Edm.String"/>
+        <Property Name="ManagedSessionId" Type="Edm.String"/>
+        <Property Name="InnerSessionId" Type="Edm.String"/>
+        <Property Name="InnerAgentId" Type="Edm.String"/>
+        <Property Name="ManagedAgentId" Type="Edm.String"/>
+        <Property Name="ParentSessionId" Type="Edm.String"/>
+        <Property Name="EnvironmentId" Type="Edm.String"/>
+        <Property Name="ActionName" Type="Edm.String"/>
         <Property Name="Input" Type="Edm.String"/>
         <Property Name="ToolUseId" Type="Edm.String"/>
         <Property Name="ConfirmationResult" Type="Edm.String"/>

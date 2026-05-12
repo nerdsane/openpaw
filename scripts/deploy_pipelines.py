@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Deploy OpenPaw / Temper Datadog log pipelines and facets (ADR-0054).
+"""Deploy TemperPaw / Temper Datadog log pipelines and facets (ADR-0054).
 
 Reads:
   dd-pipelines/temper-temperpaw.json    — pipeline + processors
@@ -12,6 +12,8 @@ Idempotent:
   - Facets: checked against existing facet list; only missing ones POSTed.
   - SDS rules: matched by name; PUT if exists, POST otherwise.
   - Log metrics: matched by id; PUT if exists, POST otherwise.
+    With --reconcile, legacy openpaw.* log metrics are deleted after the
+    TemperPaw metrics exist.
 
 Requires DD_API_KEY and DD_APP_KEY in env (or .env).
 """
@@ -28,6 +30,8 @@ try:
     import requests
 except ImportError:
     sys.exit("requests is required: pip install requests")
+
+LEGACY_LOG_METRIC_PREFIXES = ("openpaw.",)
 
 
 def load_env() -> None:
@@ -138,11 +142,14 @@ def deploy_sds(base: str, headers: dict, path: Path, dry_run: bool) -> None:
         print(f"SDS rule defined (apply via UI): {rule['name']!r}")
 
 
-def deploy_log_metrics(base: str, headers: dict, path: Path, dry_run: bool) -> None:
+def deploy_log_metrics(
+    base: str, headers: dict, path: Path, dry_run: bool, reconcile: bool
+) -> None:
     data = json.loads(path.read_text())
     r = requests.get(f"{base}/v2/logs/config/metrics", headers=headers)
     r.raise_for_status()
     existing = {m["id"]: m for m in r.json().get("data", [])}
+    desired_ids = {m["id"] for m in data["metrics"]}
 
     for m in data["metrics"]:
         body = {
@@ -175,10 +182,30 @@ def deploy_log_metrics(base: str, headers: dict, path: Path, dry_run: bool) -> N
             r.raise_for_status()
             print(f"created log-metric {m['id']}")
 
+    if not reconcile:
+        return
+
+    for metric_id in sorted(existing):
+        if metric_id in desired_ids or not metric_id.startswith(LEGACY_LOG_METRIC_PREFIXES):
+            continue
+        if dry_run:
+            print(f"[dry-run] would delete legacy log-metric {metric_id}")
+            continue
+        r = requests.delete(
+            f"{base}/v2/logs/config/metrics/{metric_id}", headers=headers
+        )
+        r.raise_for_status()
+        print(f"deleted legacy log-metric {metric_id}")
+
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument(
+        "--reconcile",
+        action="store_true",
+        help="Delete legacy openpaw.* log metrics after creating/updating TemperPaw metrics.",
+    )
     args = parser.parse_args()
 
     load_env()
@@ -199,7 +226,13 @@ def main() -> int:
     deploy_pipeline(base, headers, root / "dd-pipelines" / "temper-temperpaw.json", args.dry_run)
     deploy_facets(base, headers, root / "dd-pipelines" / "facets.json", args.dry_run)
     deploy_sds(base, headers, root / "dd-pipelines" / "sensitive-data-scanner.json", args.dry_run)
-    deploy_log_metrics(base, headers, root / "dd-log-metrics" / "temper-log-metrics.json", args.dry_run)
+    deploy_log_metrics(
+        base,
+        headers,
+        root / "dd-log-metrics" / "temper-log-metrics.json",
+        args.dry_run,
+        args.reconcile,
+    )
     return 0
 
 

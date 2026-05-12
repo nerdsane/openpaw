@@ -38,7 +38,7 @@ write_env_payload() {
   umask 077
   temper_url="$(extract_var TEMPER_URL)"
   if [[ -z "${temper_url}" ]]; then
-    temper_url="$(extract_var RAILWAY_SERVICE_OPENPAW_URL)"
+    temper_url="$(extract_var RAILWAY_SERVICE_TEMPERPAW_URL)"
   fi
   if [[ -z "${temper_url}" ]]; then
     public_domain="$(extract_var RAILWAY_PUBLIC_DOMAIN)"
