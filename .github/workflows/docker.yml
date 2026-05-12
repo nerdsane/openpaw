@@ -45,6 +45,8 @@ jobs:
       - name: Extract metadata
         id: meta
         uses: docker/metadata-action@v5
+        env:
+          DOCKER_METADATA_ANNOTATIONS_LEVELS: manifest,index
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
@@ -56,6 +58,9 @@ jobs:
           labels: |
             org.opencontainers.image.title=TemperPaw
             org.opencontainers.image.description=TemperPaw - Agent daemon built on Temper platform
+          annotations: |
+            org.opencontainers.image.title=TemperPaw
+            org.opencontainers.image.description=TemperPaw - Agent daemon built on Temper platform
 
       - name: Build and push
         uses: docker/build-push-action@v6
@@ -64,6 +69,7 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          annotations: ${{ steps.meta.outputs.annotations }}
           build-args: |
             BUILD_VERSION=${{ steps.version.outputs.version }}
             BUILD_SHA=${{ github.sha }}

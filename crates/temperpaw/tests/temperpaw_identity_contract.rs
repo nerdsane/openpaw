@@ -274,6 +274,16 @@ fn docker_image_metadata_uses_temperpaw_identity() {
     );
 
     assert!(
+        workflow.contains("annotations: |\n            org.opencontainers.image.title=TemperPaw\n            org.opencontainers.image.description=TemperPaw - Agent daemon built on Temper platform"),
+        "Docker manifest annotations must be pinned to TemperPaw so GHCR package metadata cannot inherit stale repository descriptions"
+    );
+
+    assert!(
+        workflow.contains("annotations: ${{ steps.meta.outputs.annotations }}"),
+        "Docker build-push-action must publish docker/metadata-action annotations"
+    );
+
+    assert!(
         !workflow.contains("org.opencontainers.image.description=Open Paw")
             && !workflow.contains("org.opencontainers.image.description=OpenPaw")
             && !workflow.contains("org.opencontainers.image.description=OpenPAW"),
