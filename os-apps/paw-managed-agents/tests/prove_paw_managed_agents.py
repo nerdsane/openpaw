@@ -423,9 +423,19 @@ def main() -> int:
 
     deadline = time.time() + 90
     resumed_idle = None
+    resumed_values: list[dict] = []
+    resumed_kinds: list[str] = []
     while time.time() < deadline:
         current = request("GET", f"/tdata/ManagedSessions('{session_id}')")
-        if current.get("status") == "Idle":
+        resumed_values = fetch_session_events(session_id)
+        resumed_kinds = [item.get("fields", {}).get("Kind") for item in resumed_values]
+        resumed_cycle_done = (
+            resumed_kinds.count("session.status_running") >= 2
+            and resumed_kinds.count("session.status_idle") >= 2
+            and "agent.tool_use" in resumed_kinds
+            and "agent.tool_result" in resumed_kinds
+        )
+        if current.get("status") == "Idle" and resumed_cycle_done:
             resumed_idle = current
             break
         if current.get("status") == "Terminated":
@@ -442,15 +452,6 @@ def main() -> int:
     observed_inner_session_ids = {inner_session_id, resumed_inner_session_id}
 
     print("Fetching resumed events...")
-    resumed_values, resumed_kinds = wait_for_session_event_kinds(
-        session_id,
-        {
-            "session.status_running": 2,
-            "session.status_idle": 2,
-            "agent.tool_use": 1,
-            "agent.tool_result": 1,
-        },
-    )
     print("Resumed event kinds:", resumed_kinds)
 
     if resumed_kinds.count("session.status_running") < 2:

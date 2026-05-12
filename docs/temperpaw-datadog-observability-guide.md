@@ -506,9 +506,10 @@ As of the live baseline proof in `.proofs/074-temperpaw-datadog-live-baseline.md
   `service.namespace:temperpaw`, `team:temperpaw`, and
   `service.version:30feec4fadd171331ea410b83f0cc54a310ec6e4`.
 - The next runtime image pins Temper to
-  `c05aa4c89a15e4bcde2cecbfe26c554b39b766fa`, which includes direct LLMObs
+  `293e083b74ed0cc0956dab7f1fe599cd0f6bcfd8`, which includes direct LLMObs
   hierarchy, Postgres trace/DBM attribution support, and Datadog-compatible
-  pprof upload envelopes.
+  pprof upload envelopes, plus Datadog-visible WASM host span hints for the
+  common session/entity/tool/LLM fields.
 - Live proof session `ss-019e1d97-313d-7063-8cd9-710d454ea497` completed with
   result `TemperPaw DBM full trace verified.`
 - LLMObs trace `134057669320178038853739325168218517190` has exactly one

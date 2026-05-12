@@ -14,7 +14,7 @@
         "warning": 0.05
       },
       "notify_no_data": false,
-      "on_missing_data": "resolve",
+      "on_missing_data": "default",
       "renotify_interval": 60
     }
   },
@@ -810,9 +810,9 @@
   },
   {
     "name": "[TemperPaw] Agent Session Trace Missing",
-    "type": "metric alert",
-    "query": "sum(last_30m):default_zero(sum:trace.temperpaw.agent.session.hits{service:temperpaw}.as_count()) < 1",
-    "message": "No `temperpaw.agent.session` root spans were observed for service:temperpaw in the last 30 minutes. If user traffic exists, the end-to-end agent-session trace contract is broken. Check OTLP collector routing, trace sampling, and log facets `session_id` / `dd.trace_id`.\n\n@slack-temperpaw-alerts",
+    "type": "trace-analytics alert",
+    "query": "trace-analytics(\"service:temperpaw @entity_type:ManagedSession @action_name:(StartSession OR ResumeSession)\").rollup(\"count\").last(\"30m\") < 1",
+    "message": "No managed agent session StartSession/ResumeSession APM spans were observed for service:temperpaw in the last 30 minutes. If user traffic exists, the end-to-end agent-session trace contract is broken. Check OTLP collector routing, trace sampling, and log facets `session_id` / `dd.trace_id`.\n\n@slack-temperpaw-alerts",
     "tags": [
       "team:temperpaw",
       "severity:high",
@@ -823,7 +823,7 @@
         "critical": 1
       },
       "notify_no_data": false,
-      "renotify_interval": 120
+      "renotify_interval": 60
     }
   },
   {
@@ -847,9 +847,9 @@
   },
   {
     "name": "[TemperPaw] LLM Latency Regression",
-    "type": "metric alert",
-    "query": "avg(last_15m):p95:trace.tool.llm_call.duration{service:temperpaw} > 30000000000",
-    "message": "LLM call p95 latency is above 30s. Open the `temperpaw.agent.session` trace, then inspect the LLM Observability span with `gen_ai.system`, `gen_ai.request.model`, token usage, retries, and upstream provider status.\n\n@slack-temperpaw-alerts",
+    "type": "trace-analytics alert",
+    "query": "trace-analytics(\"service:temperpaw @module_name:provider_caller\").rollup(\"pc95\", \"@duration\").last(\"15m\") > 30000000000",
+    "message": "Provider-caller WASM p95 duration is above 30s. Open the session trace, then inspect the LLM Observability span with `gen_ai.system`, `gen_ai.request.model`, token usage, retries, and upstream provider status.\n\n@slack-temperpaw-alerts",
     "tags": [
       "team:temperpaw",
       "severity:medium",
@@ -861,8 +861,7 @@
         "warning": 15000000000
       },
       "notify_no_data": false,
-      "on_missing_data": "resolve",
-      "renotify_interval": 120
+      "renotify_interval": 60
     }
   },
   {
@@ -888,9 +887,9 @@
   },
   {
     "name": "[TemperPaw] Postgres DBM Missing APM Correlation",
-    "type": "metric alert",
-    "query": "sum(last_30m):default_zero(sum:postgresql.queries.count{service:temperpaw}.as_count()) - (1000000 * default_zero(sum:trace.temperpaw.agent.session.hits{service:temperpaw}.as_count())) > 0",
-    "message": "Postgres DBM has query activity for service:temperpaw but no agent-session root traces. DBM/APM correlation is incomplete: verify unified service tagging, Postgres integration tags, and trace propagation from TemperPaw into database calls.\n\n@slack-temperpaw-alerts",
+    "type": "trace-analytics alert",
+    "query": "trace-analytics(\"service:temperpaw operation_name:postgresql.query @peer.service:temperpaw-postgres\").rollup(\"count\").last(\"30m\") < 1",
+    "message": "No Postgres APM client spans were observed for service:temperpaw in the last 30 minutes. If DBM query activity exists, DBM/APM correlation is incomplete: verify unified service tagging, Postgres integration tags, and trace propagation from TemperPaw into database calls.\n\n@slack-temperpaw-alerts",
     "tags": [
       "team:temperpaw",
       "severity:high",
@@ -899,10 +898,10 @@
     ],
     "options": {
       "thresholds": {
-        "critical": 0
+        "critical": 1
       },
       "notify_no_data": false,
-      "renotify_interval": 120
+      "renotify_interval": 60
     }
   },
   {

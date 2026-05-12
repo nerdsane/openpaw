@@ -28,7 +28,7 @@ fn load_text(relative_path: &str) -> String {
 fn temper_dependency_pin_uses_runtime_llmobs_identity_parent_and_hierarchy_fix() {
     let manifest = load_text("crates/temperpaw/Cargo.toml");
     let lockfile = load_text("Cargo.lock");
-    let expected_rev = "c05aa4c89a15e4bcde2cecbfe26c554b39b766fa";
+    let expected_rev = "293e083b74ed0cc0956dab7f1fe599cd0f6bcfd8";
     let parent_only_rev = "4fbfcb971c7c9513ad6605cb8376a8c492c21482";
     let parentless_rev = "ffa0a15212966dbada3db8da6e652f081e5f261b";
     let legacy_rev = "5a19c5f4406e95533896a860b5da15a7a68a70ee";
@@ -48,7 +48,7 @@ fn temper_dependency_pin_uses_runtime_llmobs_identity_parent_and_hierarchy_fix()
         );
         assert!(
             manifest.contains(&manifest_clause),
-            "{temper_crate} must pin the Temper rev with runtime-derived LLMObs service identity, parent stitching, and agent/workflow hierarchy"
+            "{temper_crate} must pin the Temper rev with runtime-derived LLMObs service identity, parent stitching, agent/workflow hierarchy, DBM attribution, profiling envelope, and Datadog-visible WASM span hints"
         );
     }
 

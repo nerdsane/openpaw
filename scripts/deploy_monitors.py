@@ -111,12 +111,37 @@ def main():
     existing_monitors = [
         m for m in resp.json() if is_temperpaw_owned_monitor(m, desired_names)
     ]
-    existing_by_name = {m["name"]: m["id"] for m in existing_monitors}
+    existing_by_name = {m["name"]: m for m in existing_monitors}
 
     for monitor in monitors:
         name = monitor["name"]
         if name in existing_by_name:
-            monitor_id = existing_by_name[name]
+            existing = existing_by_name[name]
+            monitor_id = existing["id"]
+            if existing.get("type") != monitor.get("type"):
+                if args.dry_run:
+                    print(
+                        f"[dry-run] Would recreate: {name} "
+                        f"(id={monitor_id}, {existing.get('type')} -> {monitor.get('type')})"
+                    )
+                    continue
+                resp = requests.delete(
+                    f"{base_url}/monitor/{monitor_id}",
+                    headers=headers,
+                )
+                resp.raise_for_status()
+                resp = requests.post(
+                    f"{base_url}/monitor",
+                    headers=headers,
+                    json=monitor,
+                )
+                resp.raise_for_status()
+                monitor_id = resp.json().get("id", "unknown")
+                print(
+                    f"Recreated: {name} "
+                    f"({existing.get('type')} -> {monitor.get('type')}, id={monitor_id})"
+                )
+                continue
             if args.dry_run:
                 print(f"[dry-run] Would update: {name} (id={monitor_id})")
                 continue

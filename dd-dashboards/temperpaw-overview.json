@@ -210,7 +210,6 @@
         "widgets": [
           {
             "definition": {
-              "title": "Transport Diagnostic Pivots",
               "type": "note",
               "content": "Use Log Explorer for Slack/Discord ingress, reply delivery, slash commands, and approvals: `service:temperpaw @observability_event:temperpaw.transport @transport.name:slack @transport.operation:receive_message`, `@transport.name:discord`, `@transport.outcome:error`, `@transport.channel_id:<channel id>`, and `@transport.message_id:<message id>`. Transport logs intentionally expose message length and IDs, not message bodies."
             }
@@ -226,7 +225,6 @@
         "widgets": [
           {
             "definition": {
-              "title": "Webhook Diagnostic Pivots",
               "type": "note",
               "content": "Use Log Explorer for trigger ingress before downstream routing: `service:temperpaw @observability_event:temperpaw.webhook @webhook.route_key:<route key>`, `@webhook.event_id:<event id>`, `@webhook.operation:receive`, `@webhook.operation:dispatch_received`, and `@webhook.outcome:error`. Webhook trigger logs expose payload length and routing ids, not raw payload bodies."
             }
@@ -664,7 +662,6 @@
         "widgets": [
           {
             "definition": {
-              "title": "TemperFS Metadata Diagnostic Pivots",
               "type": "note",
               "content": "Use structured logs first for metadata failures: `service:temperpaw @observability_event:temperpaw.fs @workspace_id:<workspace id> @fs.operation:create_file @fs.path:<path>`. Blob payload logs use `@observability_event:temperpaw.blob` with `@file_id:<file id>` and `@content_hash:<sha256>`; pivot to blob wait metrics only after File/Workspace metadata succeeded."
             }
@@ -776,7 +773,6 @@
         "widgets": [
           {
             "definition": {
-              "title": "Sandbox Diagnostic Pivots",
               "type": "note",
               "content": "Use structured logs first: `service:temperpaw @observability_event:temperpaw.sandbox @sandbox_provider:modal @sandbox_id:<sandbox id> @sandbox.operation:bash`. Host HTTP metrics cover Modal/Tensorlake bridge calls with `call_kind:text`; verify runtime config key `modal_bridge_url` when Modal requests fail before sandbox creation returns an id."
             }
@@ -1909,7 +1905,6 @@
         "widgets": [
           {
             "definition": {
-              "title": "Approval Diagnostic Pivots",
               "type": "note",
               "content": "Use Log Explorer for approval waits and notification failures: `service:temperpaw @observability_event:temperpaw.approval @decision_id:<decision id>`, `@session_id:<session id>`, `@approval.operation:notify_human`, `@approval.operation:register_callback`, `@approval.outcome:error`, and `@approval.delivery:skipped`. Approval logs expose routing ids and outcomes, not human notification bodies."
             }
