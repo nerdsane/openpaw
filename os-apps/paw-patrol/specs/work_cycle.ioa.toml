@@ -41,6 +41,11 @@ type = "string"
 initial = ""
 
 [[state]]
+name = "plan_revision_count"
+type = "counter"
+initial = "0"
+
+[[state]]
 name = "risk_lane"
 type = "string"
 initial = "L0"
@@ -154,6 +159,17 @@ to = "Planned"
 params = ["plan_summary"]
 effect = "set has_plan true"
 hint = "Write the plan before worker implementation starts."
+
+[[action]]
+name = "RevisePlan"
+kind = "input"
+from = ["Planned", "AwaitingHumanStartApproval", "InProgress"]
+params = ["plan_summary"]
+effect = [
+  { type = "set_bool", var = "has_plan", value = true },
+  { type = "increment", var = "plan_revision_count" }
+]
+hint = "Revise the visible WorkCycle plan after Codex plan-mode exploration without changing the current work state."
 
 [[action]]
 name = "RequestHumanStartApproval"

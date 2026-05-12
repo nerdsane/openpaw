@@ -84,6 +84,7 @@
         <Property Name="SourceEntityType" Type="Edm.String"/>
         <Property Name="SourceEntityId" Type="Edm.String"/>
         <Property Name="PlanSummary" Type="Edm.String"/>
+        <Property Name="PlanRevisionCount" Type="Edm.Int32"/>
         <Property Name="RiskLane" Type="Edm.String"/>
         <Property Name="ImplementerWorkerRunId" Type="Edm.String"/>
         <Property Name="ReviewerRunId" Type="Edm.String"/>

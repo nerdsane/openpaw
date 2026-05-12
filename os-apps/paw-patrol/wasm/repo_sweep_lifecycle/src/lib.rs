@@ -67,6 +67,7 @@ fn handle_start_scan(
     let worktree_path = worktree_path(ctx, &branch_name);
     let task_summary = format!("repo graph and dependency sweep for {commit_sha}");
     let task_detail = worker_task(&snapshot_id, &work_cycle_id, &commit_sha);
+    let plan_summary = repo_sweep_plan(&snapshot_id, &commit_sha);
     let allowed_worker_id = configured_local_worker_id(ctx);
 
     post_action(
@@ -91,9 +92,7 @@ fn handle_start_scan(
         "WorkCycles",
         &work_cycle_id,
         PATROL_WRITE_PLAN,
-        &json!({
-            "plan_summary": "Run the recurring agent-led repo health patrol: build the code/dependency graph, inspect giant modules, duplicate logic, TODO/HACK band-aids, Cedar drift, dependency risks, hidden Rust orchestration, polling loops, and missing proof/test coverage. Return structured evidence to the worker so it can report RepoGraphSnapshot.ScanComplete and attach the visual evidence packet."
-        }),
+        &json!({ "plan_summary": &plan_summary }),
     )?;
     post_action(
         ctx,
@@ -391,6 +390,12 @@ fn paths_value(value: &Value) -> String {
 fn worker_task(snapshot_id: &str, work_cycle_id: &str, commit_sha: &str) -> String {
     format!(
         "You are the local Codex repo-health Patrol agent for TemperPaw paw-patrol.\n\nRepoGraphSnapshot: {snapshot_id}\nWorkCycle: {work_cycle_id}\nCommit: {commit_sha}\n\nRequired loop:\n1. Work in the assigned git worktree and branch; do not edit files during this patrol scan.\n2. Build the repo/dependency graph for TemperPaw and the deeply coupled Temper surface with agent judgment.\n3. Investigate giant modules, mixed concerns, duplicate logic, TODO/HACK band-aids, Cedar drift, dependency risks, hidden Rust orchestration, polling loops, missing proof coverage, missing tests, dashboard breakage, and agent/human readability.\n4. Return structured repo-health patrol JSON to paw-codex-worker. The worker validates it and dispatches RepoGraphSnapshot.ScanComplete through Temper.\n5. Produce a visual, human-readable summary with diagrams and links. The paw-codex-worker will report WorkerRun.ReportDone or WorkerRun.ReportFailed to Temper after the local Codex process exits."
+    )
+}
+
+fn repo_sweep_plan(snapshot_id: &str, commit_sha: &str) -> String {
+    format!(
+        "# WorkCycle Plan\n\n## Context\nRun the recurring agent-led repo health patrol for TemperPaw.\n\nRepoGraphSnapshot: {snapshot_id}\nCommit: {commit_sha}\nRisk lane: L1\n\n## Codex Plan Mode\nThe repo sweep is itself read-only. Codex must still start from plan-mode discipline: inspect the assigned worktree, enumerate evidence surfaces, and avoid repository mutation while building the graph and findings.\n\n## Approach\n1. Build a factual repo/dependency graph for TemperPaw and the tightly coupled Temper surface.\n2. Inspect giant modules, duplicate logic, TODO/HACK band-aids, Cedar drift, dependency risk, Rust orchestration leaks, polling loops, missing proof/test coverage, dashboard breakage, and agent/human readability.\n3. Return structured repo-health JSON to the worker, not ad hoc prose.\n4. Let Patrol state transitions create QualityFinding/SecurityFinding entities from the structured evidence.\n\n## File Manifest\n- `crates/`, `os-apps/`, `dashboard/`, `scripts/`, `docs/`, and dependency manifests are read-only evidence sources.\n- `RepoGraphSnapshot` receives graph JSON and summary markdown through `ScanComplete`.\n- `QualityFindings` and `SecurityFindings` are created by the WASM lifecycle from scan output.\n\n## Verification Plan\nValidate the repo-health JSON shape, dispatch `RepoGraphSnapshot.ScanComplete`, query the snapshot and created findings, and produce a visual proof summary. No implementation diff should be required for this patrol WorkCycle.\n\n## Risks\n- Heuristic scans can over-report; Codex must use judgment and evidence.\n- Dependency/security signals may need human or specialist review before cleanup work starts.\n- The scan must not expose secrets or mutate source files.\n\n## Open Questions\nCodex Plan Mode must record any unavailable evidence surfaces and residual risk in the scan output."
     )
 }
 

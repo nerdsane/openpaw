@@ -131,7 +131,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             &work_cycle_id,
             PATROL_WRITE_PLAN,
             &json!({
-                "plan_summary": kind.plan_summary
+                "plan_summary": &kind.plan_summary
             }),
         )?;
         post_action(
@@ -199,7 +199,7 @@ struct PatrolKindConfig {
     summary: String,
     required_capabilities: String,
     branch_prefix: &'static str,
-    plan_summary: &'static str,
+    plan_summary: String,
 }
 
 fn patrol_kind_config(
@@ -213,17 +213,23 @@ fn patrol_kind_config(
             summary: summary.to_string(),
             required_capabilities: nonempty_or(requested_capabilities, "datadog_query"),
             branch_prefix: "codex/paw-datadog-patrol-",
-            plan_summary: "Run Datadog observability Risk Patrol, create Signals/ObservabilityFindings/Cases/WorkCycles for real issues, and produce proof for review.",
+            plan_summary: patrol_work_cycle_plan("Datadog observability Risk Patrol", summary, "datadog_query"),
         }),
         "github_repository" => Some(PatrolKindConfig {
             display_name: "GitHub repository Patrol",
             summary: summary.to_string(),
             required_capabilities: nonempty_or(requested_capabilities, "github_query"),
             branch_prefix: "codex/paw-github-patrol-",
-            plan_summary: "Run GitHub repository Risk Patrol, analyze open issues, open PRs, checks, reviews, and anomalies, create Signals/Cases/WorkCycles for real work, and produce proof for review.",
+            plan_summary: patrol_work_cycle_plan("GitHub repository Risk Patrol", summary, "github_query"),
         }),
         _ => None,
     }
+}
+
+fn patrol_work_cycle_plan(kind: &str, summary: &str, required_capability: &str) -> String {
+    format!(
+        "# WorkCycle Plan\n\n## Context\nRun an agent-led Patrol investigation.\n\nPatrol kind: {kind}\nSummary: {summary}\nRequired capability: {required_capability}\nRisk lane: L1\n\n## Codex Plan Mode\nThis Patrol WorkCycle is primarily investigative. Codex must use plan-mode discipline: read evidence sources, avoid repository mutation, and return structured findings/proof for Patrol to turn into follow-up WorkCycles.\n\n## Approach\n1. Inspect the relevant external surface through authenticated read-only tools.\n2. Separate actionable current issues from stale, duplicate, or speculative signals.\n3. Create Signals, Findings, FactoryCases, and follow-up WorkCycles only from evidenced issues.\n4. Mark high-risk, production-impacting, policy, security, secrets, deploy, or data work for human approval before implementation.\n\n## File Manifest\n- External Datadog or GitHub surfaces are the primary evidence source.\n- `PatrolRun.RecordEvidence` receives structured JSON from the worker.\n- `Signal`, `ObservabilityFinding`, `FactoryCase`, `WorkCycle`, and `ProofPacket` entities are created by Patrol WASM from evidence.\n\n## Verification Plan\nValidate the patrol JSON markers and schema, dispatch `PatrolRun.RecordEvidence`, query created entities, and confirm the proof packet lists evidence scope, findings, and follow-up WorkCycles.\n\n## Risks\n- External tools can be unavailable or rate-limited; record limitations rather than inventing evidence.\n- Patrol must not mutate GitHub, Datadog, production, or repository files during the investigation.\n- Follow-up work can be riskier than the patrol itself and must retain risk-gated start approval.\n\n## Open Questions\nCodex Plan Mode must identify any unavailable evidence surfaces and unresolved approval needs."
+    )
 }
 
 fn patrol_task(
@@ -455,6 +461,8 @@ fn handle_record_evidence(
 
         let work_cycle_id = create_entity(ctx, base_url, headers, WORK_CYCLES_PATH)?;
         let task_detail = datadog_followup_task(&patrol_run_id, finding, &summary, &evidence_scope);
+        let plan_summary =
+            patrol_followup_plan("Datadog MCP observability finding", &title, &risk_lane, &summary);
         post_action(
             ctx,
             base_url,
@@ -489,9 +497,7 @@ fn handle_record_evidence(
             "WorkCycles",
             &work_cycle_id,
             PATROL_WRITE_PLAN,
-            &json!({
-                "plan_summary": "Investigate the Datadog MCP evidence, reproduce or explain the runtime issue, then make the smallest Temper-native fix with red-green tests, targeted live/E2E evidence, independent review, evaluation gates, and a visual ProofPacket.",
-            }),
+            &json!({ "plan_summary": &plan_summary }),
         )?;
         if finding_requires_start_approval(finding, &risk_lane, &severity) {
             post_action(
@@ -774,6 +780,8 @@ fn handle_github_record_evidence(
 
         let work_cycle_id = create_entity(ctx, base_url, headers, WORK_CYCLES_PATH)?;
         let task_detail = github_followup_task(patrol_run_id, finding, &summary, &evidence_scope);
+        let plan_summary =
+            patrol_followup_plan("GitHub repository finding", &title, &risk_lane, &summary);
         post_action(
             ctx,
             base_url,
@@ -796,9 +804,7 @@ fn handle_github_record_evidence(
             "WorkCycles",
             &work_cycle_id,
             PATROL_WRITE_PLAN,
-            &json!({
-                "plan_summary": "Investigate the GitHub agent evidence, decide whether this should become code/review work, then make the smallest Temper-native fix or request human approval with proof.",
-            }),
+            &json!({ "plan_summary": &plan_summary }),
         )?;
 
         if finding_requires_start_approval(finding, &risk_lane, &severity) {
@@ -1196,6 +1202,12 @@ fn datadog_followup_task(
     format!(
         "You are the local Codex implementer for a Paw Patrol Datadog MCP observability finding.\n\nPatrolRun: {patrol_run_id}\nPatrol kind: datadog_observability\nFinding: {title}\nSeverity: {severity}\nRisk lane: {risk_lane}\nSource URL: {source_url}\n\nPatrol summary:\n{summary}\n\nEvidence JSON:\n{}\n\nRequired loop:\n1. Work in the assigned git worktree and branch only after this WorkCycle is allowed to start.\n2. Use Datadog MCP read-only evidence to reproduce or explain the issue; run extra Datadog MCP queries when needed.\n3. Keep all orchestration Temper-native: specs, WASM integrations, Cedar policies, dashboard views, and Temper actions.\n4. Make the smallest safe fix with red-green TDD, then run focused tests and live/E2E checks.\n5. Produce a visual ProofPacket with state diagrams, OData links, Datadog links, tests, residual risks, and reviewer/evaluator verdicts.\n\nAgent-provided work detail:\n{work_detail}",
         datadog_finding_evidence(patrol_run_id, summary, evidence_scope, finding)
+    )
+}
+
+fn patrol_followup_plan(source_kind: &str, title: &str, risk_lane: &str, patrol_summary: &str) -> String {
+    format!(
+        "# WorkCycle Plan\n\n## Context\nPatrol created follow-up implementation work from an agent investigation.\n\nSource kind: {source_kind}\nFinding: {title}\nRisk lane: {risk_lane}\n\nPatrol summary:\n{patrol_summary}\n\n## Codex Plan Mode\nBefore any mutation, paw-codex-worker must run Codex in a read-only sandbox to inspect the cited evidence and revise this WorkCycle plan with exact file scope, tests, and live checks.\n\n## Approach\n1. Re-open the Datadog or GitHub evidence and verify the issue is current and actionable.\n2. Decide whether the correct response is implementation, a narrower follow-up, a request for human approval, or escalation.\n3. If implementation is safe, write the red test first, make the smallest Temper-native change, and keep unrelated changes out.\n4. Preserve the Patrol chain from finding to FactoryCase to WorkCycle to ProofPacket.\n\n## File Manifest\n- Evidence-linked runtime, WASM, spec, policy, dashboard, or transport files are candidates only after read-only verification.\n- Tests/proofs near the touched behavior must be updated with the red-green evidence.\n- External Datadog/GitHub links should appear in proof when they informed the fix.\n\n## Verification Plan\nRun focused unit/integration tests, exercise any affected webhook/transport/OData/dashboard flow, query WorkCycle/Review/Evaluation/Proof state, and include live evidence from the external source when relevant.\n\n## Risks\n- External investigation may have insufficient evidence; stop and escalate rather than guessing.\n- Risk lane may need to be raised if the plan touches deploys, secrets, policy, security, data, or production operations.\n- Cross-repo fixes must be packaged on reviewable branches and recorded in proof.\n\n## Open Questions\nCodex Plan Mode must confirm whether implementation is safe to start under the current risk lane."
     )
 }
 

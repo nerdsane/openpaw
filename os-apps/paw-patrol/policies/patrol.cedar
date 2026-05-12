@@ -106,6 +106,7 @@ permit(
     Action::"Configure",
     Action::"LinkSource",
     Action::"WritePlan",
+    Action::"RevisePlan",
     Action::"RequestHumanStartApproval",
     Action::"StartWork",
     Action::"AttachWorkerRun",

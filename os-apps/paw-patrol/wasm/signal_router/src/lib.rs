@@ -126,6 +126,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             &summary,
             &payload,
         );
+        let plan_summary = work_cycle_plan(&summary, &source, &source_url, &payload, risk.lane);
         let allowed_worker_id = configured_local_worker_id(&ctx);
         let start_approval_required = requires_human_start_approval(risk.lane);
         let worker_run_id = if start_approval_required {
@@ -232,9 +233,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             "WorkCycles",
             &work_cycle_id,
             PATROL_WRITE_PLAN,
-            &json!({
-                "plan_summary": "Investigate the observed signal in a worktree with red-green TDD, reproduce or explain the failure, run focused and live/E2E checks, then produce a visual proof packet for independent review."
-            }),
+            &json!({ "plan_summary": &plan_summary }),
         )?;
         if requires_human_start_approval(risk.lane) {
             post_action(
@@ -554,6 +553,18 @@ fn issue_description(
 ) -> String {
     format!(
         "Patrol intake created from Signal {signal_id}.\n\nSource: {source}\nSource URL: {source_url}\nRisk lane: {risk_lane}\nFactoryCase: {case_id}\nWorkCycle: {work_cycle_id}\nWorkerRun: {worker_run_id}\n\nPayload:\n{payload}\n\nExecutor: paw-codex-worker on the registered local Mac mini worker."
+    )
+}
+
+fn work_cycle_plan(
+    summary: &str,
+    source: &str,
+    source_url: &str,
+    payload: &str,
+    risk_lane: &str,
+) -> String {
+    format!(
+        "# WorkCycle Plan\n\n## Context\nPatrol routed an observed signal into implementation work.\n\nSummary: {summary}\nSource: {source}\nSource URL: {source_url}\nRisk lane: {risk_lane}\n\nSignal payload:\n{payload}\n\n## Codex Plan Mode\nBefore any mutation, paw-codex-worker must run Codex in a read-only sandbox, inspect the signal path, and revise this WorkCycle plan with concrete source files, tests, and live checks.\n\n## Approach\n1. Reproduce or explain the signal from evidence first; avoid keyword-only risk decisions.\n2. Trace the signal through trigger intake, entity transitions, WASM integrations, Cedar authorization, runtime code, and dashboard visibility.\n3. Write the red test or proof harness for the observed failure before implementation.\n4. Apply the smallest Temper-native correction and keep unrelated state out of the branch.\n\n## File Manifest\n- `crates/paw-transport/` or trigger crates when the signal enters through Discord, Slack, webhooks, or runtime transport.\n- `os-apps/*/specs/`, `os-apps/*/wasm/`, and `os-apps/*/policies/` when entity flow or authorization changes.\n- `dashboard/` when the signal is user-visible in Paw Patrol views.\n- `.proofs/` or `docs/proofs/` for the state-transition and live evidence packet.\n\n## Verification Plan\nRun the focused failing test, then the touched Rust/WASM/dashboard checks. Exercise the original signal path or an equivalent webhook/transport flow, query WorkCycle/WorkerRun/Review/Evaluation/Proof state over OData, and record the live evidence.\n\n## Risks\n- Production, secrets, deployment, policy, migration, and external API changes require L2/L3 caution and possible human approval.\n- Signal evidence may be stale or incomplete; stop and escalate if the read-only plan cannot verify the failure.\n- Long-running transport fixes need liveness metrics so a passing unit test does not hide runtime stalls.\n\n## Open Questions\nThe Codex Plan Mode pass must identify exact reproduction steps and whether additional human approval is required."
     )
 }
 

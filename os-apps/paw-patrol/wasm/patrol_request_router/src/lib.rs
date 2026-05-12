@@ -76,6 +76,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             &summary,
             &request_text,
         );
+        let plan_summary = work_cycle_plan(&summary, &request_text, risk.lane);
         let allowed_worker_id = configured_local_worker_id(&ctx);
         let start_approval_required = requires_human_start_approval(risk.lane);
         let worker_run_id = if start_approval_required {
@@ -185,9 +186,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             "WorkCycles",
             &work_cycle_id,
             PATROL_WRITE_PLAN,
-            &json!({
-                "plan_summary": "Implement in a worktree with red-green TDD, run focused tests plus relevant live/E2E checks, then produce a visual proof packet for independent review."
-            }),
+            &json!({ "plan_summary": &plan_summary }),
         )?;
         if requires_human_start_approval(risk.lane) {
             post_action(
@@ -492,6 +491,12 @@ fn issue_description(
 ) -> String {
     format!(
         "Patrol intake created from WorkRequest or legacy PatrolRequest {request_id}.\n\nSource: {source}\nRisk lane: {risk_lane}\nFactoryCase: {case_id}\nWorkCycle: {work_cycle_id}\nWorkerRun: {worker_run_id}\n\nRequest:\n{request_text}\n\nExecutor: paw-codex-worker on the registered local Mac mini worker."
+    )
+}
+
+fn work_cycle_plan(summary: &str, request_text: &str, risk_lane: &str) -> String {
+    format!(
+        "# WorkCycle Plan\n\n## Context\nPatrol accepted a WorkRequest or legacy PatrolRequest as implementation work.\n\nSummary: {summary}\nRisk lane: {risk_lane}\n\nRequest evidence:\n{request_text}\n\n## Codex Plan Mode\nBefore any file mutation, paw-codex-worker must run Codex with a read-only sandbox to inspect the assigned worktree and revise this WorkCycle plan with concrete file/test findings.\n\n## Approach\n1. Trace the user-facing behavior from ingress through Temper entities, WASM integrations, Cedar policy, transport/runtime code, and dashboard surfaces.\n2. Add the red test that demonstrates the requested behavior or regression.\n3. Make the smallest Temper-native change: state belongs in entities, orchestration belongs in WASM transitions, and authorization belongs in Cedar.\n4. Keep unrelated cleanup out of the branch and preserve the assigned worktree/branch boundary.\n\n## File Manifest\n- `os-apps/*/specs/`: inspect or change only if the state machine contract must move.\n- `os-apps/*/wasm/`: inspect or change business logic that reacts to entity actions.\n- `crates/*`: inspect or change trigger/runtime/worker edges only when the trigger boundary or platform support requires it.\n- `dashboard/`: inspect or change only for user-visible Patrol/dashboard behavior.\n- `.proofs/` or `docs/proofs/`: record evidence from tests and live checks.\n\n## Verification Plan\nRun the focused failing test first, then the minimal green test set for the touched crate/module. Build the affected WASM or Rust crate, exercise the OData/trigger/dashboard flow, query WorkCycle/WorkerRun/Review/Evaluation/Proof state, and capture proof evidence.\n\n## Risks\n- L2/L3 or production-impacting changes need human approval before unsafe mutation.\n- Discord, Datadog, GitHub, deployment, secret, migration, and Cedar changes can have broad blast radius; escalate if evidence is incomplete.\n- If the read-only plan finds the initial risk lane too low, stop and report the approval needed.\n\n## Open Questions\nThe Codex Plan Mode pass must verify exact files, tests, and live checks before implementation."
     )
 }
 

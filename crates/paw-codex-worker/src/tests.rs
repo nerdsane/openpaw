@@ -13,6 +13,7 @@ mod tests {
     include!("evaluation_tests.rs");
     include!("event_stream_tests.rs");
     include!("fake_codex_tests.rs");
+    include!("codex_plan_tests.rs");
     include!("pull_request_tests.rs");
     include!("worker_http_tests.rs");
 
@@ -25,6 +26,7 @@ mod tests {
             "status": "Queued",
             "fields": {
                 "task": "Do useful work",
+                "work_cycle_id": "wc-1",
                 "worktree_path": "/tmp/worktree",
                 "branch_name": "codex/test",
                 "runner_kind": "local_codex",
@@ -40,6 +42,7 @@ mod tests {
         assert_eq!(worker_run.id, "wr-1");
         assert_eq!(worker_run.status, "Queued");
         assert_eq!(worker_run.task, "Do useful work");
+        assert_eq!(worker_run.work_cycle_id, "wc-1");
         assert_eq!(worker_run.worktree_path, "/tmp/worktree");
         assert_eq!(worker_run.branch_name, "codex/test");
         assert_eq!(worker_run.runner_kind, "local_codex");
@@ -55,6 +58,7 @@ mod tests {
             id: "wr-1".to_string(),
             status: "Queued".to_string(),
             task: "Do useful work".to_string(),
+            work_cycle_id: "wc-1".to_string(),
             worktree_path: "/tmp/worktree".to_string(),
             branch_name: "codex/test".to_string(),
             runner_kind: "local_codex".to_string(),
@@ -67,6 +71,7 @@ mod tests {
             id: "wr-2".to_string(),
             status: "Queued".to_string(),
             task: String::new(),
+            work_cycle_id: String::new(),
             worktree_path: String::new(),
             branch_name: String::new(),
             runner_kind: String::new(),
@@ -79,6 +84,7 @@ mod tests {
             id: "wr-3".to_string(),
             status: "Queued".to_string(),
             task: "Cloud overflow".to_string(),
+            work_cycle_id: "wc-cloud".to_string(),
             worktree_path: String::new(),
             branch_name: String::new(),
             runner_kind: "codex_cloud".to_string(),
@@ -91,6 +97,7 @@ mod tests {
             id: "wr-4".to_string(),
             status: "Queued".to_string(),
             task: "Fix a Discord trace leak".to_string(),
+            work_cycle_id: "wc-no-worktree".to_string(),
             worktree_path: String::new(),
             branch_name: String::new(),
             runner_kind: "local_codex".to_string(),
@@ -128,6 +135,7 @@ mod tests {
             id: "wr-1".to_string(),
             status: "Running".to_string(),
             task: "Resume this work".to_string(),
+            work_cycle_id: "wc-1".to_string(),
             worktree_path: "/tmp/worktree".to_string(),
             branch_name: "codex/test".to_string(),
             runner_kind: "local_codex".to_string(),
@@ -165,6 +173,7 @@ mod tests {
             id: "wr-1".to_string(),
             status: "Done".to_string(),
             task: "RepoGraphSnapshot: snap-1\nWorkCycle: wc-1".to_string(),
+            work_cycle_id: "wc-1".to_string(),
             worktree_path: "/tmp/worktree".to_string(),
             branch_name: "codex/repo-sweep".to_string(),
             runner_kind: "local_codex".to_string(),
@@ -177,6 +186,7 @@ mod tests {
             id: "wr-2".to_string(),
             status: "Done".to_string(),
             task: "Fix a Discord reply bug".to_string(),
+            work_cycle_id: "wc-2".to_string(),
             worktree_path: "/tmp/worktree".to_string(),
             branch_name: "codex/bugfix".to_string(),
             runner_kind: "local_codex".to_string(),
@@ -345,6 +355,7 @@ mod tests {
             id: "wr-timeout".to_string(),
             status: "Running".to_string(),
             task: "PAW_FAKE_CODEX_HANG: simulate a stuck Codex child".to_string(),
+            work_cycle_id: "wc-timeout".to_string(),
             worktree_path: root.display().to_string(),
             branch_name: "codex/timeout".to_string(),
             runner_kind: "local_codex".to_string(),
@@ -389,6 +400,7 @@ mod tests {
             id: "wr-timeout-tree".to_string(),
             status: "Running".to_string(),
             task: format!("PAW_FAKE_CODEX_ORPHAN:{}", marker.display()),
+            work_cycle_id: "wc-timeout-tree".to_string(),
             worktree_path: root.display().to_string(),
             branch_name: "codex/timeout-tree".to_string(),
             runner_kind: "local_codex".to_string(),
@@ -471,6 +483,7 @@ mod tests {
             id: "wr-proof".to_string(),
             status: "Running".to_string(),
             task: "Fix a Discord trace leak".to_string(),
+            work_cycle_id: "wc-proof".to_string(),
             worktree_path: "/tmp/paw-worktree".to_string(),
             branch_name: "codex/trace-leak".to_string(),
             runner_kind: "local_codex".to_string(),
@@ -529,6 +542,7 @@ mod tests {
             id: "wr-existing-worktree".to_string(),
             status: "Running".to_string(),
             task: "Inspect an existing assigned worktree".to_string(),
+            work_cycle_id: "wc-existing-worktree".to_string(),
             worktree_path: "/tmp/paw-existing-worktree".to_string(),
             branch_name: String::new(),
             runner_kind: "local_codex".to_string(),
@@ -568,6 +582,7 @@ mod tests {
             id: "wr-dashboard".to_string(),
             status: "Done".to_string(),
             task: "Update Datadog dashboard JSON but do not deploy production.".to_string(),
+            work_cycle_id: "wc-dashboard".to_string(),
             worktree_path: "/tmp/paw-dashboard".to_string(),
             branch_name: "codex/dashboard".to_string(),
             runner_kind: "local_codex".to_string(),
@@ -594,6 +609,7 @@ mod tests {
             id: "wr-repo-scan".to_string(),
             status: "Done".to_string(),
             task: "RepoGraphSnapshot: snap-1\nWorkCycle: wc-1\nRun an agent-led repo health patrol.".to_string(),
+            work_cycle_id: "wc-1".to_string(),
             worktree_path: "/tmp/paw-repo-scan".to_string(),
             branch_name: "codex/paw-repo-sweep-snap-1".to_string(),
             runner_kind: "local_codex".to_string(),

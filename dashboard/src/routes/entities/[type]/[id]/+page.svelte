@@ -63,6 +63,8 @@
     'title',
     'summary',
     'task_summary',
+    'plan_summary',
+    'plan_revision_count',
     'request_text',
     'source',
     'severity',
