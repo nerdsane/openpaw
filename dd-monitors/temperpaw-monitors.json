@@ -487,8 +487,8 @@
   {
     "name": "[Temper] State Timeout Reset Rate Drop",
     "type": "metric alert",
-    "query": "sum(last_1h):default_zero(sum:temper_state_timeout_reset_total{service:temperpaw,state:Executing}.as_count()) < 1",
-    "message": "State timeout resets on Executing dropped to zero \u2014 the reset_on contract is not firing. Regression signal: the 2026-04-18 Katagami incident surfaced when monty_repl stopped emitting CheckpointToolBatch. Verify progress signals are reaching StateTimeoutTracker.\n\n@slack-temperpaw-alerts",
+    "query": "sum(last_1h):sum:temper_state_timeout_reset_total{service:temperpaw,state:Executing}.as_count() < 1",
+    "message": "State timeout resets on Executing dropped below one while Datadog has reset metric data. This monitor resolves no-data periods because idle TemperPaw traffic should not page. Regression signal: the 2026-04-18 Katagami incident surfaced when monty_repl stopped emitting CheckpointToolBatch. Verify progress signals are reaching StateTimeoutTracker.\n\n@slack-temperpaw-alerts",
     "tags": [
       "team:temperpaw",
       "severity:medium"
@@ -498,6 +498,7 @@
         "critical": 1,
         "warning": 5
       },
+      "on_missing_data": "resolve",
       "notify_no_data": false,
       "renotify_interval": 240
     }
@@ -703,23 +704,6 @@
     }
   },
   {
-    "name": "[Temper] Profiler Uploads Stalled",
-    "type": "metric alert",
-    "query": "sum(last_30m):default_zero(sum:datadog.profiling.rust.profiles_uploaded{service:temperpaw}.as_count()) < 1",
-    "message": "No Continuous Profiler uploads seen in 30m.\n\n@slack-temperpaw-alerts",
-    "tags": [
-      "team:temperpaw",
-      "severity:low"
-    ],
-    "options": {
-      "thresholds": {
-        "critical": 1
-      },
-      "notify_no_data": false,
-      "renotify_interval": 360
-    }
-  },
-  {
     "name": "[Temper] Integration Silent Exit (ADR-0056)",
     "type": "metric alert",
     "query": "sum(last_15m):default_zero(sum:temper_integration_silent_exit_total{service:temperpaw}.as_count()) >= 1",
@@ -809,10 +793,10 @@
     }
   },
   {
-    "name": "[TemperPaw] Agent Session Trace Missing",
-    "type": "trace-analytics alert",
-    "query": "trace-analytics(\"service:temperpaw @entity_type:ManagedSession @action_name:(StartSession OR ResumeSession)\").rollup(\"count\").last(\"30m\") < 1",
-    "message": "No managed agent session StartSession/ResumeSession APM spans were observed for service:temperpaw in the last 30 minutes. If user traffic exists, the end-to-end agent-session trace contract is broken. Check OTLP collector routing, trace sampling, and log facets `session_id` / `dd.trace_id`.\n\n@slack-temperpaw-alerts",
+    "name": "[TemperPaw] Agent Session Trace Correlation Missing",
+    "type": "log alert",
+    "query": "logs(\"service:temperpaw @observability_event:temperpaw.agent.session -trace_id:*\").index(\"*\").rollup(\"count\").last(\"15m\") > 0",
+    "message": "A managed-agent session event was logged without Datadog trace correlation. Open the matching `managed_session_id` / `inner_session_id`, then check WASM guest log correlation fields, OTLP log processing, and the active APM trace. This monitor is event-gated, so it stays quiet when there is no managed-session traffic.\n\n@slack-temperpaw-alerts",
     "tags": [
       "team:temperpaw",
       "severity:high",
@@ -820,8 +804,9 @@
     ],
     "options": {
       "thresholds": {
-        "critical": 1
+        "critical": 0
       },
+      "on_missing_data": "resolve",
       "notify_no_data": false,
       "renotify_interval": 60
     }
@@ -867,8 +852,8 @@
   {
     "name": "[TemperPaw] Postgres DBM Query Latency Regression",
     "type": "metric alert",
-    "query": "avg(last_15m):avg:postgresql.queries.time{service:temperpaw} > 1",
-    "message": "Postgres DBM query time is elevated for service:temperpaw. Use Datadog DBM (`source:postgres service:temperpaw`) to group by `query_signature`, inspect waits/explain plans, then pivot back to the APM trace and session_id.\n\n@slack-temperpaw-alerts",
+    "query": "avg(last_15m):avg:postgresql.queries.time{service:temperpaw,database_instance:temperpaw-postgres} > 30000000",
+    "message": "Postgres DBM query time is elevated above 30ms for service:temperpaw. Datadog reports `postgresql.queries.time` in nanoseconds. Use Datadog DBM (`source:postgres service:temperpaw`) to group by `query_signature`, inspect waits/explain plans, then pivot back to the APM trace and session_id.\n\n@slack-temperpaw-alerts",
     "tags": [
       "team:temperpaw",
       "severity:medium",
@@ -877,8 +862,8 @@
     ],
     "options": {
       "thresholds": {
-        "critical": 1,
-        "warning": 0.5
+        "critical": 30000000,
+        "warning": 15000000
       },
       "notify_no_data": false,
       "on_missing_data": "resolve",
@@ -886,10 +871,10 @@
     }
   },
   {
-    "name": "[TemperPaw] Postgres DBM Missing APM Correlation",
-    "type": "trace-analytics alert",
-    "query": "trace-analytics(\"service:temperpaw operation_name:postgresql.query @peer.service:temperpaw-postgres\").rollup(\"count\").last(\"30m\") < 1",
-    "message": "No Postgres APM client spans were observed for service:temperpaw in the last 30 minutes. If DBM query activity exists, DBM/APM correlation is incomplete: verify unified service tagging, Postgres integration tags, and trace propagation from TemperPaw into database calls.\n\n@slack-temperpaw-alerts",
+    "name": "[TemperPaw] Postgres DBM Activity Missing",
+    "type": "metric alert",
+    "query": "sum(last_30m):sum:datadog.dbm.activity_rows{service:temperpaw,database_instance:temperpaw-postgres}.as_count() < 1",
+    "message": "No Postgres DBM activity rows were observed for service:temperpaw / database_instance:temperpaw-postgres in the last 30 minutes. Verify the Railway datadog-postgres-agent service, Postgres integration config, and DBM credentials. To inspect DBM/APM correlation after DBM activity returns, use Trace Explorer query `service:temperpaw type:sql @db.system:postgresql @peer.service:temperpaw-postgres` and DBM samples filtered by `service:temperpaw @trace.caller.service:temperpaw`.\n\n@slack-temperpaw-alerts",
     "tags": [
       "team:temperpaw",
       "severity:high",

@@ -204,20 +204,21 @@ fn dashboard_exposes_session_llm_database_logs_and_trace_surfaces() {
 #[test]
 fn monitors_cover_session_trace_llmobs_and_postgres_dbm_health() {
     let monitors = monitor_search_text();
+    let monitor_defs = load_json("dd-monitors/temperpaw-monitors.json");
 
     for required in [
-        "[TemperPaw] Agent Session Trace Missing",
+        "[TemperPaw] Agent Session Trace Correlation Missing",
         "[TemperPaw] LLM Error Rate Spike",
         "[TemperPaw] LLM Latency Regression",
         "[TemperPaw] Postgres DBM Query Latency Regression",
-        "[TemperPaw] Postgres DBM Missing APM Correlation",
+        "[TemperPaw] Postgres DBM Activity Missing",
         "[Temper] Profiler Upload Failures",
-        "[Temper] Profiler Uploads Stalled",
         "trace-analytics alert",
-        "@entity_type:ManagedSession",
-        "@action_name:(StartSession OR ResumeSession)",
+        "@observability_event:temperpaw.agent.session -trace_id:*",
         "@module_name:provider_caller",
-        "operation_name:postgresql.query",
+        "datadog.dbm.activity_rows",
+        "type:sql",
+        "@db.system:postgresql",
         "@peer.service:temperpaw-postgres",
         "gen_ai.system",
         "gen_ai.request.model",
@@ -231,9 +232,75 @@ fn monitors_cover_session_trace_llmobs_and_postgres_dbm_health() {
     }
 
     assert!(
+        !monitors.contains(
+            "service:temperpaw operation_name:postgresql.query @peer.service:temperpaw-postgres"
+        ),
+        "Postgres DBM correlation monitor must use live indexed DB span attributes instead of the stale operation_name clause"
+    );
+    assert!(
+        !monitors.contains("[TemperPaw] Postgres DBM Missing APM Correlation"),
+        "Datadog trace-analytics absence monitors must not be used for DBM/APM child SQL spans because live Trace Explorer can match them while monitor evaluation reports zero"
+    );
+
+    assert!(
         !monitors.contains("trace.temperpaw.agent.session.hits")
             && !monitors.contains("trace.tool.llm_call.duration"),
         "Datadog monitors must use live-validated trace analytics queries, not generated trace metrics that are absent in production"
+    );
+    assert!(
+        !monitors.contains("@entity_type:ManagedSession @action_name:(StartSession OR ResumeSession)\").rollup(\"count\").last(\"30m\") < 1"),
+        "Agent session trace monitors must not alert on idle managed-session traffic; alert only when actual agent-session events lack trace correlation"
+    );
+    assert!(
+        !monitors.contains("[Temper] Profiler Uploads Stalled"),
+        "Profiler uploads are on-demand in Railway; monitor upload failures and proof uploads, not continuous background upload absence"
+    );
+
+    let dbm_activity_monitor = monitor_defs
+        .as_array()
+        .expect("monitors must be an array")
+        .iter()
+        .find(|monitor| {
+            monitor["name"].as_str() == Some("[TemperPaw] Postgres DBM Activity Missing")
+        })
+        .expect("Postgres DBM activity monitor must exist");
+    assert_eq!(
+        dbm_activity_monitor["type"].as_str(),
+        Some("metric alert"),
+        "Postgres DBM health monitor must use DBM metrics for alerting; APM SQL child-span correlation remains in the runbook/query text for diagnostics"
+    );
+
+    let dbm_latency_monitor = monitor_defs
+        .as_array()
+        .expect("monitors must be an array")
+        .iter()
+        .find(|monitor| {
+            monitor["name"].as_str() == Some("[TemperPaw] Postgres DBM Query Latency Regression")
+        })
+        .expect("Postgres DBM query latency monitor must exist");
+    assert!(
+        dbm_latency_monitor["query"]
+            .as_str()
+            .is_some_and(|query| query.contains("> 30000000")),
+        "Postgres DBM query latency metric is reported in nanoseconds, so the critical threshold must be 30ms/30,000,000ns rather than `> 1`"
+    );
+
+    let state_timeout_reset_monitor = monitor_defs
+        .as_array()
+        .expect("monitors must be an array")
+        .iter()
+        .find(|monitor| monitor["name"].as_str() == Some("[Temper] State Timeout Reset Rate Drop"))
+        .expect("state timeout reset monitor must exist");
+    assert!(
+        state_timeout_reset_monitor["query"]
+            .as_str()
+            .is_some_and(|query| !query.contains("default_zero")),
+        "State timeout reset-drop monitor must not convert idle/no-data periods into alerts"
+    );
+    assert_eq!(
+        state_timeout_reset_monitor["options"]["on_missing_data"].as_str(),
+        Some("resolve"),
+        "State timeout reset-drop monitor must resolve no-data periods unless active Executing workload gating exists"
     );
 }
 
