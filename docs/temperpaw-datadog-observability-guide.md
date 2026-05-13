@@ -1,16 +1,17 @@
 # TemperPaw Datadog Observability Guide
 
-Status: Live verified for core production observability on 2026-05-13. Datadog
-now shows real `service:temperpaw` traffic, ADR-0084 long-lived
+Status: Live verified for the current production deployment on 2026-05-13.
+Datadog now shows real `service:temperpaw` traffic on version
+`e29542078559fb90fa4c46aa30d42fdf8630df7a`, ADR-0084 long-lived
 `Session.workflow` APM roots, corrected LLMObs agent/workflow/LLM hierarchy,
 live logs, chronological session traces, Postgres client spans, Postgres DBM
-samples with full propagation and calling-service correlation, and Rust
-profiling uploads. Dashboard, monitor, log-pipeline, and log-metric assets have
-been applied to Datadog. Trace-analytics monitors now use the spans Datadog
-actually receives. This guide is not final-complete until the remaining Railway
-external resource naming, LLMObs agent-loop timeline, ManagedSession semantic
-span-name export, and Datadog UI-only facet/scanner application gaps are all
-closed.
+samples with propagation and calling-service correlation, and Rust profiling
+uploads. Dashboard, monitor, log-pipeline, and log-metric assets have been
+applied to Datadog. Trace-analytics monitors now use the spans Datadog actually
+receives. Remaining known gaps are external Railway/R2 resource names, the
+empty Datadog `get_llmobs_agent_loop` helper for direct Session traces,
+ManagedSession semantic span-name export, and Datadog UI-only facet/scanner
+application proof.
 
 ## Primary Questions
 
@@ -24,6 +25,79 @@ during operations:
 - Are logs, metrics, traces, LLMObs, DBM, and profiling all correlated by the
   same session/trace vocabulary?
 - Are any Datadog assets still using legacy product identity?
+
+## Current Live Snapshot
+
+Current production deployment:
+
+- TemperPaw commit:
+  `e29542078559fb90fa4c46aa30d42fdf8630df7a`
+- Temper commit pinned by the runtime:
+  `18955ea724fc531deddd534e1319060ac59d8a59`
+- Railway deployment:
+  `d9869809-4bcd-4693-88f8-2d50923f3f25`
+- Railway image digest:
+  `sha256:6400baef44cb65885c7498e6a5ae4ed2f391a2a1bcaf5e2a528220cb369f9390`
+- Railway build output digest:
+  `sha256:99aea99a2fab065d892e997783da3dddb9f4686ab7bb5c1a4c65feb41d384252`
+- Public health endpoint:
+  the Railway-generated readiness URL returned HTTP 200 with Discord connected.
+  The exact generated URL is recorded in proof 076 because it still carries
+  external legacy resource naming.
+
+Final proof session:
+
+- Session: `ss-019e213f-aac6-7981-91b9-1a9df81a9dc4`
+- Result: `TemperPaw e295420 observability verified.`
+- APM trace:
+  `6b66255ce8c679c034ca302230625216`
+- LLMObs/APM decimal trace:
+  `142757767638743301785701158388630704662`
+- LLMObs tree:
+  `temperpaw.agent_session -> Session.ProviderAuthReady -> wasm:provider_caller`
+- LLM span: provider `openai`, model `gpt-5.5`, 213 input tokens, 14 output
+  tokens, 2.219s duration, status OK.
+- APM root: `Session.workflow`, 13.4s duration, 494 hidden child spans,
+  `service.version:e29542078559fb90fa4c46aa30d42fdf8630df7a`.
+- APM resource aggregation for the trace included `Session.Configure` onward,
+  `Session.ProviderAuthReady`, `Session.ProviderResponseReady`,
+  `Session.FinalizeResult`, `wasm.host.read_field`, `dispatch_single_integration`,
+  `wasm:agent_reply`, `emit_ots_trajectory`, and Postgres
+  `entity_field_index`, `entity_catalog`, and `wasm_invocation_logs` spans.
+- Logs query `service:temperpaw
+  @session_id:ss-019e213f-aac6-7981-91b9-1a9df81a9dc4` returned 36 correlated
+  logs with the same version, session id, span ids, provider phase timings, WASM
+  guest progress, and terminal OTS trajectory emission.
+
+WASM artifact repair:
+
+- Datadog monitor `[Temper] Required WASM Load Failures` caught a real
+  packaging regression after target pruning removed the only discoverable
+  `blob_adapter` and `workspace_fs` artifacts.
+- Commit `e2954207` changed app-required paw-fs build scripts to copy each
+  compiled artifact into the module directory (`blob_adapter/blob_adapter.wasm`
+  and `workspace_fs/workspace_fs.wasm`) before target pruning.
+- Post-repair startup logs show
+  `Installed os-app 'paw-fs' ... wasm=["blob_adapter", "workspace_fs"]`, and
+  the missing-artifact log query for version `e295420...` returned zero events.
+- The monitor resolved back to OK.
+
+Other Datadog proof:
+
+- Pipeline `TemperPaw / Temper Logs (ADR-0054)` was updated with id
+  `Wyq_6z_fTviM9uVH9MUIrQ`.
+- Dashboard `mn4-k3k-i66` was updated.
+- Monitor reconciliation updated the TemperPaw monitor set; the required WASM
+  failure monitor was OK after repair.
+- DBM samples are live for `database_instance:temperpaw-postgres` with
+  `service:temperpaw`, `team:temperpaw`, SQLCommenter trace comments, and
+  `trace.caller.service:temperpaw`. The latest DBM sample before the repair
+  deployment was on version `df4fff...`; the current `e295420...` final session
+  still has Postgres APM spans, while DBM sampling did not select the short
+  post-repair burst by the time this guide was updated.
+- On-demand profiling on `e295420...` under 84 concurrent read requests returned
+  HTTP 200 and a 10,564-byte `cpu-profile-5s.pb`; logs show profile capture
+  start, capture complete, and Datadog Agent intake upload.
 
 ## Core Query Vocabulary
 
