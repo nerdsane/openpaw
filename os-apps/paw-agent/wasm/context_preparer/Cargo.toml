@@ -9,7 +9,7 @@ crate-type = ["cdylib"]
 [workspace]
 
 [dependencies]
-temper-wasm-sdk = { git = "https://github.com/nerdsane/temper.git", rev = "18955ea724fc531deddd534e1319060ac59d8a59" }
+temper-wasm-sdk = { git = "https://github.com/nerdsane/temper.git", rev = "4a830f158c01358f0553e126be08d4af5fb3f6db" }
 session-tree-lib = { path = "../session-tree-lib" }
 session-turn-artifacts = { path = "../session-turn-artifacts" }
 tool-catalog = { path = "../tool-catalog" }
