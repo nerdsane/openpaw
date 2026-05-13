@@ -1,7 +1,7 @@
 # TemperPaw Datadog Live Baseline
 
 Date: 2026-05-11T16:19:36Z
-Last local verification refresh: 2026-05-12T23:20:00Z
+Last local verification refresh: 2026-05-13T02:40:00Z
 Last live Datadog/Railway verification refresh: 2026-05-12T23:20:00Z
 
 Purpose: record the live Datadog state observed while converting the active system
@@ -479,6 +479,30 @@ Post-refresh source update:
     suite.
 - TemperPaw source now pins the Temper dependency to
   `314a246d32a91036a0a6e542dfdd66532d7aec7a`. This is not live production
+  proof until a new TemperPaw image is built, deployed, exercised, and verified
+  in Datadog.
+
+Second post-refresh source update:
+
+- Temper commit `974b13bf02342a1b8faafdb1b762572933fe1c3e` was created and
+  pushed on branch `codex/temperpaw-llmobs-service-identity-main`.
+- That commit adds ADR-0084 and introduces long-lived `temper.workflow` root
+  spans for agent/workflow dispatches. Workflow roots are deliberately outside
+  the short inbound HTTP request span, but downstream action/WASM/DB/LLM work
+  adopts the workflow root as parent context. The registry now keeps only valid
+  OpenTelemetry root contexts, so no-exporter tests and deterministic
+  simulations do not retain no-op root spans or schedule no-op cleanup tasks.
+- Temper verification before push:
+  - `cargo fmt --check` passed.
+  - `cargo test -p temper-server workflow_root_span -- --nocapture` passed:
+    4 workflow tracing tests.
+  - `cargo test -p temper-server request_context -- --nocapture` passed:
+    9 request-context tests.
+  - `cargo clippy --workspace -- -D warnings` passed.
+  - The repository pre-push pipeline passed all gates, including the full
+    workspace test suite.
+- TemperPaw source now pins the Temper dependency to
+  `974b13bf02342a1b8faafdb1b762572933fe1c3e`. This is not live production
   proof until a new TemperPaw image is built, deployed, exercised, and verified
   in Datadog.
 
@@ -1678,6 +1702,6 @@ proof on this account.
 | LLM/tool span attributes are ready in TemperPaw | LLMObs span includes provider/model/token metadata; APM/logs include session/entity/action/module fields; guest logs carry trace/span correlation | Live proven for direct Session |
 | Postgres DBM/APM correlation | DBM samples for `temperpaw-postgres` include full-mode SQLCommenter `traceparent`, `trace.caller.service:temperpaw`, and `trace.caller.version:sha-bd419f1`; propagated trace `e817e047f0aedd5edd711707c490cd72` opens to matching APM SQL spans; DBM activity monitor is OK | Live proven |
 | Profiling | On-demand CPU profile uploaded twice to Datadog Agent intake; `datadog.profiling.rust.profiles_uploaded{service:temperpaw,env:prod,version:sha-bd419f1}` returned upload points; upload-error metrics/logs did not show failures | Live proven for on-demand profiling |
-| Temper repo implementation | Temper commit `314a246d32a91036a0a6e542dfdd66532d7aec7a` is pinned by TemperPaw and includes LLMObs hierarchy, DBM attribution, pprof upload envelopes, WASM span hints, and guest-log trace/span correlation; `temper-wasm` tests passed earlier in the refresh | Implemented and pinned |
+| Temper repo implementation | Temper commit `974b13bf02342a1b8faafdb1b762572933fe1c3e` is pinned by TemperPaw source and includes LLMObs hierarchy, DBM attribution, pprof upload envelopes, WASM span hints, guest-log trace/span correlation, and ADR-0084 long-lived workflow root spans; Temper full pre-push gates passed before pinning | Implemented and source-pinned; needs fresh live deploy proof |
 | End-to-end runtime verification | Docker image built and deployed to Railway; `/readyz` returned HTTP 200; live proof Sessions completed through real OData/LLM/DBM/profiling paths; Datadog APM, logs, LLMObs, DBM, profiling, dashboard, and monitor status were queried directly | Live proven |
 | Human/agent guide | `docs/temperpaw-datadog-observability-guide.md` teaches the shared query vocabulary, session trace workflow, agent query surface, logs, channel transports, webhooks, approvals, TemperFS/doc services, sandbox/Modal bridge, LLMObs, metrics/monitors, DBM, profiling, current verification state, and remaining gaps | Updated |

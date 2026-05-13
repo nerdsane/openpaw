@@ -529,11 +529,18 @@ As of the live baseline proof in `.proofs/074-temperpaw-datadog-live-baseline.md
 - APM shows production spans with `service:temperpaw`,
   `service.namespace:temperpaw`, `team:temperpaw`, and
   `service.version:sha-bd419f1`.
-- The runtime image pins Temper to
+- The live runtime image pins Temper to
   `314a246d32a91036a0a6e542dfdd66532d7aec7a`, which includes direct LLMObs
   hierarchy, Postgres trace/DBM attribution support, Datadog-compatible pprof
   upload envelopes, Datadog-visible WASM host span hints for common
   session/entity/tool/LLM fields, and guest-log trace/span correlation fields.
+- The current TemperPaw source pins Temper to
+  `974b13bf02342a1b8faafdb1b762572933fe1c3e`, which keeps the above WASM,
+  LLMObs, DBM, and profiling instrumentation and adds ADR-0084 long-lived
+  workflow root spans so agent-session traces are rooted outside short HTTP
+  request spans. This source pin still needs a new TemperPaw image build,
+  deploy, live agent run, and Datadog verification before it is production
+  proof.
 - Live proof session `ss-019e1e65-c1ff-7ac3-bbf7-0feb6220fc7c` completed with
   result `TemperPaw DBM full trace verified.`
 - LLMObs trace `265924810408958961160905709497239611107` has exactly one
