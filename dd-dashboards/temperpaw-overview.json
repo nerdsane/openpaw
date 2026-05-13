@@ -26,7 +26,7 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "sum:datadog.trace_agent.otlp.spans{*}.as_count()",
+                  "q": "default_zero(sum:datadog.trace_agent.otlp.spans{*}.as_count().rollup(sum, 60))",
                   "display_type": "bars"
                 }
               ]
@@ -38,7 +38,7 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "sum:datadog.trace_agent.otlp.traces{*}.as_count()",
+                  "q": "default_zero(sum:datadog.trace_agent.otlp.traces{*}.as_count().rollup(sum, 60))",
                   "display_type": "bars"
                 }
               ]
@@ -50,11 +50,11 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "sum:datadog.trace_agent.sampler.kept{*}.as_count()",
+                  "q": "default_zero(sum:datadog.trace_agent.sampler.kept{*}.as_count().rollup(sum, 60))",
                   "display_type": "line"
                 },
                 {
-                  "q": "sum:datadog.trace_agent.sampler.seen{*}.as_count()",
+                  "q": "default_zero(sum:datadog.trace_agent.sampler.seen{*}.as_count().rollup(sum, 60))",
                   "display_type": "line"
                 }
               ]
@@ -177,11 +177,11 @@
           },
           {
             "definition": {
-              "title": "LLM Call Hits",
+              "title": "LLM Calls",
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "sum:trace.tool.llm_call.hits{service:temperpaw}.as_count()",
+                  "q": "default_zero(sum:ml_obs.trace{service:temperpaw,ml_app:temperpaw,span_kind:llm}.as_count().rollup(sum, 60))",
                   "display_type": "bars"
                 }
               ]
@@ -189,11 +189,11 @@
           },
           {
             "definition": {
-              "title": "LLM Call Errors",
+              "title": "LLM Span Errors",
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "sum:trace.tool.llm_call.errors{service:temperpaw}.as_count()",
+                  "q": "default_zero(sum:ml_obs.span.error{service:temperpaw,ml_app:temperpaw}.as_count().rollup(sum, 60))",
                   "display_type": "bars"
                 }
               ]
@@ -732,7 +732,7 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "max:temper_monty_repl_observed_active_invocations{service:temperpaw}.rollup(max, 60)",
+                  "q": "default_zero(max:temper_monty_repl_observed_active_invocations{*}.rollup(max, 60))",
                   "display_type": "line"
                 }
               ]
@@ -744,7 +744,7 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "avg:temper_monty_repl_wait_duration_ms{service:temperpaw} by {max_concurrency}.rollup(avg, 60)",
+                  "q": "default_zero(avg:temper_monty_repl_wait_duration_ms{*} by {max_concurrency}.rollup(avg, 60))",
                   "display_type": "line"
                 }
               ]
@@ -756,7 +756,7 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "default_zero(sum:temper_monty_repl_acquisitions_total{service:temperpaw} by {max_concurrency}.as_count().rollup(sum, 60))",
+                  "q": "default_zero(sum:temper_monty_repl_acquisitions_total{*} by {max_concurrency}.as_count().rollup(sum, 60))",
                   "display_type": "line"
                 }
               ]
@@ -944,7 +944,7 @@
                     {
                       "data_source": "metrics",
                       "name": "externalized",
-                      "query": "sum:temper_session_large_content_externalized_total{service:temperpaw} by {entity_type}.as_count()"
+                      "query": "default_zero(sum:temper_session_large_content_externalized_total{*} by {entity_type}.as_count().rollup(sum, 60))"
                     }
                   ],
                   "formulas": [
@@ -1758,140 +1758,13 @@
         "widgets": [
           {
             "definition": {
-              "title": "Deadline Headroom (remaining ms)",
-              "title_size": "16",
-              "title_align": "left",
-              "show_legend": true,
-              "type": "timeseries",
-              "requests": [
-                {
-                  "response_format": "timeseries",
-                  "queries": [
-                    {
-                      "data_source": "metrics",
-                      "name": "rem",
-                      "query": "avg:temper_handler_deadline_remaining_ms{service:temperpaw} by {entity_type,action}"
-                    }
-                  ],
-                  "formulas": [
-                    {
-                      "formula": "rem"
-                    }
-                  ],
-                  "display_type": "line"
-                }
-              ]
-            }
-          },
-          {
-            "definition": {
-              "title": "Handler Deadline Breaches by Dying Span",
-              "title_size": "16",
-              "title_align": "left",
-              "type": "toplist",
-              "requests": [
-                {
-                  "response_format": "scalar",
-                  "queries": [
-                    {
-                      "data_source": "metrics",
-                      "name": "breaches",
-                      "query": "sum:temper_handler_deadline_exceeded_total{service:temperpaw} by {dying_span}.as_count()",
-                      "aggregator": "sum"
-                    }
-                  ],
-                  "formulas": [
-                    {
-                      "formula": "breaches",
-                      "limit": {
-                        "count": 20,
-                        "order": "desc"
-                      }
-                    }
-                  ]
-                }
-              ]
-            }
-          },
-          {
-            "definition": {
-              "title": "Handler Deadline Breaches by Entity × Action",
-              "title_size": "16",
-              "title_align": "left",
-              "show_legend": true,
-              "type": "timeseries",
-              "requests": [
-                {
-                  "response_format": "timeseries",
-                  "queries": [
-                    {
-                      "data_source": "metrics",
-                      "name": "breaches",
-                      "query": "sum:temper_handler_deadline_exceeded_total{service:temperpaw} by {entity_type,action}.as_count()"
-                    }
-                  ],
-                  "formulas": [
-                    {
-                      "formula": "breaches"
-                    }
-                  ],
-                  "display_type": "bars"
-                }
-              ]
-            }
-          },
-          {
-            "definition": {
-              "title": "Epoch Tick Drift p99",
-              "title_size": "16",
-              "title_align": "left",
-              "show_legend": true,
-              "type": "timeseries",
-              "requests": [
-                {
-                  "response_format": "timeseries",
-                  "queries": [
-                    {
-                      "data_source": "metrics",
-                      "name": "p99",
-                      "query": "p99:temper_wasm_epoch_tick_interval_ms{service:temperpaw}"
-                    }
-                  ],
-                  "formulas": [
-                    {
-                      "formula": "p99"
-                    }
-                  ],
-                  "display_type": "line"
-                }
-              ]
-            }
-          },
-          {
-            "definition": {
-              "title": "Handler Kill Latency p99 (detects resistant guests)",
-              "title_size": "16",
-              "title_align": "left",
-              "show_legend": true,
-              "type": "timeseries",
-              "requests": [
-                {
-                  "response_format": "timeseries",
-                  "queries": [
-                    {
-                      "data_source": "metrics",
-                      "name": "p99",
-                      "query": "p99:temper_handler_kill_latency_ms{service:temperpaw} by {entity_type}"
-                    }
-                  ],
-                  "formulas": [
-                    {
-                      "formula": "p99"
-                    }
-                  ],
-                  "display_type": "line"
-                }
-              ]
+              "type": "note",
+              "content": "**Handler Liveness.** Handler liveness metrics are reserved until temper#147 emits the W3 telemetry contract. The blank placeholder widgets were removed so this dashboard only shows live or intentionally zero-filled telemetry.",
+              "background_color": "gray",
+              "font_size": "12",
+              "text_align": "left",
+              "vertical_align": "top",
+              "show_tick": false
             }
           }
         ]
