@@ -164,6 +164,26 @@ fn wasm_sdk_dependencies_pin_same_temper_observability_revision_as_server() {
     );
 }
 
+#[test]
+fn dockerfile_pins_cloned_katagami_wasm_sdk_to_temper_observability_revision() {
+    let dockerfile = load_text("Dockerfile");
+    let expected_rev = "18955ea724fc531deddd534e1319060ac59d8a59";
+
+    for required in [
+        &format!("TEMPER_OBSERVABILITY_REV={expected_rev}"),
+        "os-apps/katagami-curation/wasm",
+        "temper-wasm-sdk",
+        "branch = \\\"main\\\"",
+        "rev = \\\"${TEMPER_OBSERVABILITY_REV}\\\"",
+        "Cargo.lock",
+    ] {
+        assert!(
+            dockerfile.contains(required),
+            "Dockerfile must pin cloned Katagami WASM SDK dependencies with `{required}`"
+        );
+    }
+}
+
 fn monitor_search_text() -> String {
     load_json("dd-monitors/temperpaw-monitors.json")
         .as_array()
