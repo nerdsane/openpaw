@@ -1,12 +1,57 @@
 # TemperPaw Datadog Live Baseline
 
 Date: 2026-05-11T16:19:36Z
-Last local verification refresh: 2026-05-13T02:40:00Z
+Last local verification refresh: 2026-05-13T04:15:49Z
 Last live Datadog/Railway verification refresh: 2026-05-13T03:45:00Z
 
 Purpose: record the live Datadog state observed while converting the active system
 from OpenPAW/OpenPaw/openpaw identity to TemperPaw and while designing the agent
 session observability contract.
+
+## Local publish-artifact regression fix refresh - 2026-05-13T04:15Z
+
+While verifying blob/document observability, Datadog surfaced a fresh
+production error on the published-artifact data path:
+
+- Route: `POST /api/files/publish-artifact`
+- Live APM trace: `895a791073db9e5dafb3b927caf8a266`
+- Service/version at the time: `temperpaw`, `sha-afeca721`
+- Error count: two `POST /api/files/publish-artifact` error spans in the
+  checked `2026-05-13T02:45:00Z` to `2026-05-13T03:50:00Z` window.
+- Expanded span path included
+  `state.publish_file_artifact -> state.read_file_stream_indexed`.
+- Log lookup by lower-64 trace id `12660666558028751462` returned zero logs,
+  so the actionable evidence was the trace tree itself.
+
+Local red/green fix:
+
+- Temper branch: `codex/temperpaw-llmobs-service-identity-main`
+- Temper commit: `81760436f3302f50d50c539cf5b78865ee41b362`
+- Fix: `read_file_stream_indexed` and `read_file_version_stream_indexed` keep
+  the indexed fast path, but fall back to current `File`/`FileVersion` entity
+  state when the query projection is missing or points at stale blob content.
+- Regression tests added in Temper:
+  - missing File query projection with valid File state returns content
+  - stale File query projection with newer File state returns current content
+- Temper pre-push gates passed: rustfmt, clippy, readability ratchet, full test
+  suite, and doctests.
+
+TemperPaw pin refresh:
+
+- `crates/temperpaw/Cargo.toml` and `Cargo.lock` now pin Temper crates to
+  `81760436f3302f50d50c539cf5b78865ee41b362`.
+- Contract test updated to enforce that exact revision.
+- Local verification passed:
+  - `cargo fmt --check`
+  - `git diff --check`
+  - `cargo test --locked -p temperpaw --test datadog_observability_contract -- --nocapture`
+    (`20 passed`)
+
+Next required live proof after build/deploy: publish the new TemperPaw image,
+exercise `POST /api/files/publish-artifact` against a File whose query
+projection is absent or stale, and confirm Datadog shows a non-error
+`state.publish_file_artifact -> state.read_file_stream_indexed` trace under the
+new deployed `DD_VERSION`.
 
 ## Live production verification refresh - 2026-05-13T03:45Z
 

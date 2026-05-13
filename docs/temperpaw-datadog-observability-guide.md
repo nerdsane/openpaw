@@ -279,6 +279,18 @@ context files, screenshots, or other documents, first pivot from the session
 trace/logs to `workspace_id` and `file_id`, then check blob wait metrics and
 structured `temperpaw.blob` events for cache misses or remote transport errors.
 
+Published artifacts use the internal route `POST /api/files/publish-artifact`
+and should show the trace shape
+`POST /api/files/publish-artifact -> state.publish_file_artifact ->
+state.read_file_stream_indexed`. Datadog caught a live 500 on this route in
+trace `895a791073db9e5dafb3b927caf8a266` at service version `sha-afeca721`;
+there were no correlated logs for the lower-64 trace id, so the trace tree was
+the primary diagnostic. Temper commit
+`81760436f3302f50d50c539cf5b78865ee41b362` fixes that class by falling back to
+current `File`/`FileVersion` entity state when the query projection is missing
+or stale. After deploying a TemperPaw image that pins this commit, verify the
+route with Trace Explorer and expect the same span path without `status:error`.
+
 ## Sandbox & Modal Bridge
 
 Sandbox work should be observable as both host HTTP bridge metrics and structured
