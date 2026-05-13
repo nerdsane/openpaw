@@ -157,3 +157,78 @@ fn platform_dashboard_uses_live_runtime_metrics_instead_of_stale_trace_custom_qu
         "Dashboard should use emitted WASM invocation duration instead of trace.wasm.invoke overlays"
     );
 }
+
+#[test]
+fn platform_dashboard_widgets_do_not_blank_on_known_datadog_query_drift() {
+    let dashboard = load_dashboard();
+    let dashboard_json = dashboard.to_string();
+
+    assert!(
+        !dashboard_json.contains("trace.tool.llm_call"),
+        "LLM dashboard widgets must use live LLM Observability metrics, not stale trace.tool.llm_call metrics"
+    );
+    assert!(
+        dashboard_json.contains(
+            "default_zero(sum:ml_obs.trace{service:temperpaw,ml_app:temperpaw,span_kind:llm}.as_count().rollup(sum, 60))"
+        ),
+        "LLM call volume should use the live ml_obs.trace metric and zero-fill quiet windows"
+    );
+    assert!(
+        dashboard_json.contains(
+            "default_zero(sum:ml_obs.span.error{service:temperpaw,ml_app:temperpaw}.as_count().rollup(sum, 60))"
+        ),
+        "LLM error volume should use the live ml_obs.span.error metric and zero-fill quiet windows"
+    );
+
+    for query in [
+        "default_zero(sum:datadog.trace_agent.otlp.spans{*}.as_count().rollup(sum, 60))",
+        "default_zero(sum:datadog.trace_agent.otlp.traces{*}.as_count().rollup(sum, 60))",
+        "default_zero(sum:datadog.trace_agent.sampler.kept{*}.as_count().rollup(sum, 60))",
+        "default_zero(sum:datadog.trace_agent.sampler.seen{*}.as_count().rollup(sum, 60))",
+    ] {
+        assert!(
+            dashboard_json.contains(query),
+            "trace-agent platform widgets should zero-fill inactive windows: {query}"
+        );
+    }
+
+    for stale_filter in [
+        "temper_monty_repl_observed_active_invocations{service:temperpaw}",
+        "temper_monty_repl_wait_duration_ms{service:temperpaw}",
+        "temper_monty_repl_acquisitions_total{service:temperpaw}",
+        "temper_session_large_content_externalized_total{service:temperpaw}",
+    ] {
+        assert!(
+            !dashboard_json.contains(stale_filter),
+            "dashboard must not filter untagged historical metrics with service:temperpaw: {stale_filter}"
+        );
+    }
+
+    for query in [
+        "default_zero(max:temper_monty_repl_observed_active_invocations{*}.rollup(max, 60))",
+        "default_zero(avg:temper_monty_repl_wait_duration_ms{*} by {max_concurrency}.rollup(avg, 60))",
+        "default_zero(sum:temper_monty_repl_acquisitions_total{*} by {max_concurrency}.as_count().rollup(sum, 60))",
+        "default_zero(sum:temper_session_large_content_externalized_total{*} by {entity_type}.as_count().rollup(sum, 60))",
+    ] {
+        assert!(
+            dashboard_json.contains(query),
+            "dashboard should use validated live metric query: {query}"
+        );
+    }
+
+    for unavailable_metric in [
+        "temper_handler_deadline_remaining_ms",
+        "temper_handler_deadline_exceeded_total",
+        "temper_wasm_epoch_tick_interval_ms",
+        "temper_handler_kill_latency_ms",
+    ] {
+        assert!(
+            !dashboard_json.contains(unavailable_metric),
+            "reserved handler-liveness metrics should not appear as blank dashboard widgets until emitted: {unavailable_metric}"
+        );
+    }
+    assert!(
+        dashboard_json.contains("Handler liveness metrics are reserved until temper#147 emits"),
+        "reserved handler-liveness coverage should be explicit instead of blank metric widgets"
+    );
+}
