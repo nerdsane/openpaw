@@ -1,5 +1,9 @@
 use serde_json::Value;
-use std::{collections::BTreeSet, path::Path};
+use std::{
+    collections::BTreeSet,
+    fs,
+    path::{Path, PathBuf},
+};
 
 fn repo_root() -> std::path::PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -22,6 +26,33 @@ fn load_text(relative_path: &str) -> String {
     let path = repo_root().join(relative_path);
     std::fs::read_to_string(&path)
         .unwrap_or_else(|err| panic!("failed to read {}: {err}", path.display()))
+}
+
+fn collect_cargo_manifests(root: &Path, relative_dir: &Path, files: &mut Vec<PathBuf>) {
+    let dir = root.join(relative_dir);
+    let entries =
+        fs::read_dir(&dir).unwrap_or_else(|err| panic!("failed to read {}: {err}", dir.display()));
+
+    for entry in entries {
+        let entry = entry.unwrap_or_else(|err| panic!("failed to read dir entry: {err}"));
+        let relative_path = relative_dir.join(entry.file_name());
+        let file_type = entry
+            .file_type()
+            .unwrap_or_else(|err| panic!("failed to stat {}: {err}", relative_path.display()));
+
+        if file_type.is_dir() {
+            let name = entry.file_name();
+            if name != "target" && name != "node_modules" {
+                collect_cargo_manifests(root, &relative_path, files);
+            }
+        } else if file_type.is_file()
+            && relative_path
+                .file_name()
+                .is_some_and(|name| name == "Cargo.toml")
+        {
+            files.push(relative_path);
+        }
+    }
 }
 
 #[test]
@@ -67,6 +98,69 @@ fn temper_dependency_pin_uses_runtime_llmobs_identity_parent_and_hierarchy_fix()
     assert!(
         lockfile.contains(expected_rev),
         "Cargo.lock must resolve Temper dependencies to the runtime-derived LLMObs service identity, parent-stitching, and agent/workflow hierarchy fix"
+    );
+}
+
+#[test]
+fn wasm_sdk_dependencies_pin_same_temper_observability_revision_as_server() {
+    let root = repo_root();
+    let expected_rev = "18955ea724fc531deddd534e1319060ac59d8a59";
+    let expected_dependency = format!(
+        "temper-wasm-sdk = {{ git = \"https://github.com/nerdsane/temper.git\", rev = \"{expected_rev}\""
+    );
+    let forbidden_dependency =
+        "temper-wasm-sdk = { git = \"https://github.com/nerdsane/temper.git\", branch = \"main\"";
+    let mut manifests = Vec::new();
+    collect_cargo_manifests(&root, Path::new("os-apps"), &mut manifests);
+
+    let mut sdk_manifests = 0usize;
+    let mut sdk_lockfiles = 0usize;
+    for manifest_path in manifests {
+        let manifest = fs::read_to_string(root.join(&manifest_path))
+            .unwrap_or_else(|err| panic!("failed to read {}: {err}", manifest_path.display()));
+        if !manifest.contains("temper-wasm-sdk") {
+            continue;
+        }
+        sdk_manifests += 1;
+        assert!(
+            manifest.contains(&expected_dependency),
+            "{} must pin temper-wasm-sdk to the same Temper rev as the server so guest modules do not drift away from WASM host-boundary observability contracts",
+            manifest_path.display()
+        );
+        assert!(
+            !manifest.contains(forbidden_dependency),
+            "{} must not build temper-wasm-sdk from moving main; production images need one coherent SDK/runtime observability contract",
+            manifest_path.display()
+        );
+
+        let lock_path = manifest_path.with_file_name("Cargo.lock");
+        let absolute_lock_path = root.join(&lock_path);
+        if absolute_lock_path.exists() {
+            let lockfile = fs::read_to_string(&absolute_lock_path)
+                .unwrap_or_else(|err| panic!("failed to read {}: {err}", lock_path.display()));
+            if lockfile.contains("name = \"temper-wasm-sdk\"") {
+                sdk_lockfiles += 1;
+                assert!(
+                    lockfile.contains(expected_rev),
+                    "{} must resolve temper-wasm-sdk to the same Temper observability rev as the server",
+                    lock_path.display()
+                );
+                assert!(
+                    !lockfile.contains("?branch=main#"),
+                    "{} must not keep a moving-main temper-wasm-sdk lock source",
+                    lock_path.display()
+                );
+            }
+        }
+    }
+
+    assert!(
+        sdk_manifests > 20,
+        "contract must inspect the packaged WASM module dependency surface"
+    );
+    assert!(
+        sdk_lockfiles > 20,
+        "contract must inspect checked-in WASM Cargo.lock resolution"
     );
 }
 
