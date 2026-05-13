@@ -927,6 +927,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 ),
             );
         }
+        attach_llmobs_tool_spans(&mut params, &tool_span_events);
 
         // Clear Cedar approval state after successful resume so the next
         // run_tools invocation doesn't erroneously re-enter resume mode.
@@ -1111,6 +1112,19 @@ fn persist_tool_spans_file(ctx: &Context) -> bool {
         .get("persist_tool_spans_file")
         .map(|value| matches!(value.as_str(), "1" | "true" | "yes" | "on"))
         .unwrap_or(false)
+}
+
+fn attach_llmobs_tool_spans(params: &mut Value, tool_span_events: &[Value]) {
+    if tool_span_events.is_empty() {
+        return;
+    }
+    let Some(object) = params.as_object_mut() else {
+        return;
+    };
+    object.insert(
+        "_dd_llmobs_tool_spans".to_string(),
+        Value::Array(tool_span_events.to_vec()),
+    );
 }
 
 /// Drive the Monty REPL event loop to completion.
@@ -1576,6 +1590,25 @@ mod tests {
             events,
             vec![ToolProgressBoundary::Start, ToolProgressBoundary::End]
         );
+    }
+
+    #[test]
+    fn llmobs_tool_spans_are_attached_to_callback_params_when_present() {
+        let mut params = json!({
+            "pending_tool_calls": "[]",
+        });
+        let tool_span_events = vec![json!({
+            "tool_name": "temper.list",
+            "tool_call_id": "call-1",
+            "arguments": "{\"entity_set\":\"Sessions\"}",
+            "result": "{\"value\":[]}",
+            "duration_ms": 42,
+            "is_error": false,
+        })];
+
+        attach_llmobs_tool_spans(&mut params, &tool_span_events);
+
+        assert_eq!(params["_dd_llmobs_tool_spans"], json!(tool_span_events));
     }
 
     #[test]

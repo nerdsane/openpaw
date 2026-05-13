@@ -1392,6 +1392,9 @@ fn temperpaw_span_hints_expose_session_tool_and_llmobs_semconv() {
         repo_root().join("os-apps/paw-agent/wasm/monty_repl/src/dispatch.rs"),
     )
     .expect("monty_repl dispatch source should be readable");
+    let monty_repl =
+        std::fs::read_to_string(repo_root().join("os-apps/paw-agent/wasm/monty_repl/src/lib.rs"))
+            .expect("monty_repl source should be readable");
     let managed_common =
         std::fs::read_to_string(repo_root().join("os-apps/paw-managed-agents/wasm/common.rs"))
             .expect("paw-managed-agents common source should be readable");
@@ -1455,6 +1458,17 @@ fn temperpaw_span_hints_expose_session_tool_and_llmobs_semconv() {
         assert!(
             monty_dispatch.contains(required),
             "tool-call span hints must include `{required}`"
+        );
+    }
+
+    for required in [
+        "attach_llmobs_tool_spans",
+        "_dd_llmobs_tool_spans",
+        "tool_span_events",
+    ] {
+        assert!(
+            monty_repl.contains(required),
+            "monty_repl must forward tool events to Temper's LLMObs tool-span ingestion path via `{required}`"
         );
     }
 }

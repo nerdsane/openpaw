@@ -35,6 +35,10 @@ TemperPaw treats an agent session as the primary observability unit.
 - Tool calls use `gen_ai.operation.name=execute_tool` or an equivalent Datadog
   LLMObs tool-span ingestion path. The span name must be stable enough for
   dashboards while `tool.name` and `tool.call_id` carry the specific call.
+- `monty_repl` emits compact tool-call telemetry once per completed tool call
+  and passes it to Temper through the private `_dd_llmobs_tool_spans` callback
+  parameter. Temper submits those rows as LLMObs `tool` spans and strips the
+  private parameter before entity state is persisted.
 - Parent-child links are part of the contract. Datadog maps OTLP
   `parent_span_id` into LLMObs `parent_id`, so any LLM/tool span with
   `parent_id=undefined` is treated as a broken session trace unless it is a
