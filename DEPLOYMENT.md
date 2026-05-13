@@ -168,6 +168,17 @@ These are set on the `temperpaw` Railway service:
 | `BLOB_BUCKET` | Bucket name |
 | `BLOB_ACCESS_KEY` | S3 access key ID |
 | `BLOB_SECRET_KEY` | S3 secret access key |
+| `PUBLISHED_BLOB_ENDPOINT` | R2/S3-compatible endpoint for immutable public artifacts |
+| `PUBLISHED_BLOB_BUCKET` | Public artifact bucket name, separate from private TemperFS blobs |
+| `PUBLISHED_BLOB_PUBLIC_BASE_URL` | Public/CDN base URL mapped to the public artifact bucket |
+| `PUBLISHED_BLOB_ACCESS_KEY` | Optional public artifact access key; falls back to `BLOB_ACCESS_KEY` |
+| `PUBLISHED_BLOB_SECRET_KEY` | Optional public artifact secret key; falls back to `BLOB_SECRET_KEY` |
+
+The `PUBLISHED_BLOB_*` variables are generic Temper runtime infrastructure.
+They are intentionally not tied to any one app: the runtime publishes immutable
+file-derived artifacts into a separate public bucket so read-only surfaces can
+serve stable bytes without sending browser traffic through governed file reads.
+Do not point `PUBLISHED_BLOB_PUBLIC_BASE_URL` at the private TemperFS bucket.
 
 Turso remains available only as an explicit legacy mode by setting
 `TEMPERPAW_DEPLOY_STORAGE=turso` during deployment and providing `TURSO_URL` /
@@ -311,6 +322,9 @@ BLOB_ENDPOINT=https://...
 BLOB_BUCKET=...
 BLOB_ACCESS_KEY=...
 BLOB_SECRET_KEY=...
+PUBLISHED_BLOB_ENDPOINT=https://...
+PUBLISHED_BLOB_BUCKET=...
+PUBLISHED_BLOB_PUBLIC_BASE_URL=https://assets.example.com
 LLM_PROVIDER=anthropic
 ANTHROPIC_API_KEY=sk-ant-...
 ```
