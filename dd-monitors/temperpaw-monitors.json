@@ -873,8 +873,8 @@
   {
     "name": "[TemperPaw] Postgres DBM Activity Missing",
     "type": "metric alert",
-    "query": "sum(last_30m):sum:datadog.dbm.activity_rows{service:temperpaw,database_instance:temperpaw-postgres}.as_count() < 1",
-    "message": "No Postgres DBM activity rows were observed for service:temperpaw / database_instance:temperpaw-postgres in the last 30 minutes. Verify the Railway datadog-postgres-agent service, Postgres integration config, and DBM credentials. To inspect DBM/APM correlation after DBM activity returns, use Trace Explorer query `service:temperpaw type:sql @db.system:postgresql @peer.service:temperpaw-postgres` and DBM samples filtered by `service:temperpaw @trace.caller.service:temperpaw`.\n\n@slack-temperpaw-alerts",
+    "query": "sum(last_30m):sum:datadog.dbm.activity_rows{service:temperpaw,database_instance:temperpaw-postgres}.as_count() < 0.1",
+    "message": "No Postgres DBM activity rows were observed for service:temperpaw / database_instance:temperpaw-postgres in the last 30 minutes. Datadog can report sparse DBM samples as fractional rollup values, so any value at or above 0.1 is treated as live DBM activity. Verify the Railway datadog-postgres-agent service, Postgres integration config, and DBM credentials. To inspect DBM/APM correlation after DBM activity returns, use Trace Explorer query `service:temperpaw type:sql @db.system:postgresql @peer.service:temperpaw-postgres` and DBM samples filtered by `service:temperpaw @trace.caller.service:temperpaw`.\n\n@slack-temperpaw-alerts",
     "tags": [
       "team:temperpaw",
       "severity:high",
@@ -883,7 +883,7 @@
     ],
     "options": {
       "thresholds": {
-        "critical": 1
+        "critical": 0.1
       },
       "notify_no_data": false,
       "renotify_interval": 60

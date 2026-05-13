@@ -207,18 +207,37 @@ Datadog DBM is live for production Postgres:
 - Team tag: `temperpaw`
 - Calling service: `temperpaw`
 
-The latest DBM sample captured before the e295 repair deployment showed:
+The first proof pass did not catch an e295 DBM sample because DBM sampling had
+not selected the short post-repair burst yet. A later sustained read burst did:
 
-- SQL statement family: `INSERT INTO snapshots`
+- Burst: 240 authenticated `GET /tdata/Sessions?$top=50` requests
+- Latest e295 DBM sample timestamp: `2026-05-13T12:26:58Z`
+- Calling resource: `GET /tdata/Sessions`
+- SQL statement family:
+  `SELECT entity_id, status, fields, sequence_nr FROM entity_catalog ...`
+- Query signature: `12941344394c8422`
+- SQLCommenter version:
+  `ddpv='e29542078559fb90fa4c46aa30d42fdf8630df7a'`
+- SQLCommenter traceparent:
+  `00-f16e96540c3d5762091448123a151a07-fb77aaa48d39dffb-01`
+
+The e295 sample showed:
+
 - SQLCommenter trace propagation
 - `trace.caller.service:temperpaw`
 - `trace.caller.env:prod`
+- `trace.caller.version:e29542078559fb90fa4c46aa30d42fdf8630df7a`
 - `trace.mode:full`
 - `trace.sampled:true`
 
-The final e295 session has Postgres APM spans. DBM sampling did not select the
-short post-repair burst by the time this proof was written, so the DBM sample is
-recorded from the immediately preceding same-instrumentation production version.
+The final e295 session has Postgres APM spans, and the later e295 DBM burst
+proves the same current production version is visible in DBM with APM caller
+correlation.
+
+The DBM activity monitor initially false-alerted because Datadog reports sparse
+`datadog.dbm.activity_rows` rollups as fractional values. The monitor source of
+truth now uses `< 0.1` instead of `< 1`, was reconciled to Datadog, and monitor
+`282522099` returned OK after the update.
 
 ## Profiling Evidence
 
@@ -236,15 +255,22 @@ Datadog logs for the e295 version showed:
 - `ADR-0055: CPU profile capture complete`
 - `profile uploaded to Datadog Agent intake`
 
+After metric ingestion caught up, Datadog also showed one
+`datadog.profiling.rust.profiles_uploaded` point for
+`version:e29542078559fb90fa4c46aa30d42fdf8630df7a,profile_type:cpu`, with no
+matching upload-error series.
+
 ## Remaining Known Gaps
 
-These are not hidden. They remain explicit in the human guide and should be
-closed or accepted as permanent allowlist items before declaring every naming
-item fully complete:
+These are not hidden. They remain explicit in the human guide and either have a
+formal allowlist or need follow-up before the entire goal can be marked fully
+complete:
 
-- Railway project/service/public Railway domain still carry the external legacy
-  name.
-- R2 bucket name still contains the external legacy storage identity.
+- Railway project/service/public Railway domain still carry the external
+  resource name and are documented in
+  `docs/temperpaw-legacy-identity-allowlist.md`.
+- R2 bucket name still contains the external storage identity and is documented
+  in `docs/temperpaw-legacy-identity-allowlist.md`.
 - `temperpaw.katagami.ai` DNS was not resolving during verification.
 - Datadog `get_llmobs_agent_loop` returns an empty helper timeline for the
   direct Session trace even though the LLMObs tree is present.

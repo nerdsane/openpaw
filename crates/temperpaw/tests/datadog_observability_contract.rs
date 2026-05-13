@@ -428,6 +428,17 @@ fn monitors_cover_session_trace_llmobs_and_postgres_dbm_health() {
         Some("metric alert"),
         "Postgres DBM health monitor must use DBM metrics for alerting; APM SQL child-span correlation remains in the runbook/query text for diagnostics"
     );
+    assert!(
+        dbm_activity_monitor["query"]
+            .as_str()
+            .is_some_and(|query| query.contains("< 0.1")),
+        "Postgres DBM activity rows can be fractional after Datadog rollup; the missing-activity threshold must be below one row so sparse-but-valid DBM samples do not false-alert"
+    );
+    assert_eq!(
+        dbm_activity_monitor["options"]["thresholds"]["critical"].as_f64(),
+        Some(0.1),
+        "Postgres DBM activity monitor critical threshold must match the fractional missing-activity query"
+    );
 
     let dbm_latency_monitor = monitor_defs
         .as_array()

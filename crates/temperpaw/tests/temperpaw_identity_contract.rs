@@ -8,7 +8,7 @@ const LEGACY_IDENTITY_TERMS: [&str; 8] = [
     "OPENPAW", "OpenPAW", "OpenPaw", "Open Paw", "openpaw", "open paw", "open_paw", "open-paw",
 ];
 
-const LEGACY_IDENTITY_ALLOWLIST: [(&str, &str, &str); 24] = [
+const LEGACY_IDENTITY_ALLOWLIST: [(&str, &str, &str); 28] = [
     (
         "crates/temperpaw/tests/datadog_observability_contract.rs",
         "\"openpaw.\"",
@@ -129,6 +129,26 @@ const LEGACY_IDENTITY_ALLOWLIST: [(&str, &str, &str); 24] = [
         "service:openpaw OR OpenPAW OR OpenPaw",
         "operator guide records the legacy-query proof used to verify cleanup",
     ),
+    (
+        "docs/temperpaw-legacy-identity-allowlist.md",
+        "Railway project slug: `openpaw-seshendranalla`",
+        "external Railway project name is intentionally allowlisted until a planned cutover",
+    ),
+    (
+        "docs/temperpaw-legacy-identity-allowlist.md",
+        "Railway service name: `openpaw`",
+        "external Railway service name is intentionally allowlisted until a planned cutover",
+    ),
+    (
+        "docs/temperpaw-legacy-identity-allowlist.md",
+        "Railway generated domain: `openpaw-production.up.railway.app`",
+        "external Railway generated domain is intentionally allowlisted until a planned cutover",
+    ),
+    (
+        "docs/temperpaw-legacy-identity-allowlist.md",
+        "R2 bucket: `openpaw-fs-seshendranalla`",
+        "external R2 bucket name is intentionally allowlisted until a planned storage cutover",
+    ),
 ];
 
 fn repo_root() -> PathBuf {
@@ -189,6 +209,28 @@ fn is_allowlisted_legacy_reference(path: &Path, line: &str) -> bool {
             path.as_ref() == *allowed_path
                 && (allowed_line.is_empty() || line.contains(allowed_line))
         })
+}
+
+#[test]
+fn legacy_external_resource_allowlist_documents_live_runtime_residue() {
+    let allowlist_path = repo_root().join("docs/temperpaw-legacy-identity-allowlist.md");
+    let allowlist = fs::read_to_string(&allowlist_path)
+        .unwrap_or_else(|err| panic!("failed to read {}: {err}", allowlist_path.display()));
+
+    for required in [
+        "Railway project slug: `openpaw-seshendranalla`",
+        "Railway service name: `openpaw`",
+        "Railway generated domain: `openpaw-production.up.railway.app`",
+        "R2 bucket: `openpaw-fs-seshendranalla`",
+        "Observed product identity must remain `service:temperpaw`",
+        "Do not create new resources with legacy names.",
+        "Migration requires a planned cutover window",
+    ] {
+        assert!(
+            allowlist.contains(required),
+            "legacy external-resource allowlist must document `{required}`"
+        );
+    }
 }
 
 fn collect_files(root: &Path, relative_dir: &Path, files: &mut Vec<PathBuf>) {
