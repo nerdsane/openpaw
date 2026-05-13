@@ -318,6 +318,28 @@ fn dockerfile_prunes_wasm_build_outputs_before_runtime_copy() {
 }
 
 #[test]
+fn app_required_wasm_build_scripts_publish_module_local_artifacts() {
+    let root = repo_root();
+
+    for (module, script_path) in [
+        ("blob_adapter", "os-apps/paw-fs/wasm/blob_adapter/build.sh"),
+        ("workspace_fs", "os-apps/paw-fs/wasm/workspace_fs/build.sh"),
+    ] {
+        let script = fs::read_to_string(root.join(script_path))
+            .unwrap_or_else(|err| panic!("failed to read {script_path}: {err}"));
+        assert!(
+            script.contains(&format!("{module}.wasm")),
+            "{script_path} must publish the compiled {module}.wasm artifact"
+        );
+        assert!(
+            script.contains(&format!("\"$SCRIPT_DIR/{module}.wasm\""))
+                || script.contains(&format!("\"$(dirname \"$0\")/{module}.wasm\"")),
+            "{script_path} must copy {module}.wasm into the module directory so production target pruning does not remove the only discoverable artifact"
+        );
+    }
+}
+
+#[test]
 fn docker_image_metadata_uses_temperpaw_identity() {
     let workflow_path = repo_root().join(".github/workflows/docker.yml");
     let workflow = fs::read_to_string(&workflow_path)

@@ -5,9 +5,12 @@
 # Output:   target/wasm32-unknown-unknown/release/blob_adapter.wasm
 set -euo pipefail
 
-cd "$(dirname "$0")"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+cd "$SCRIPT_DIR"
 cargo build --target wasm32-unknown-unknown --release
 
-# Copy the built .wasm to a predictable location for tests
-cp target/wasm32-unknown-unknown/release/blob_adapter.wasm ../../wasm/blob_adapter.wasm 2>/dev/null || true
+# Copy the built .wasm to locations the OS-app loader and local tests can find
+# after production images prune nested target directories.
+cp target/wasm32-unknown-unknown/release/blob_adapter.wasm "$SCRIPT_DIR/blob_adapter.wasm"
+cp target/wasm32-unknown-unknown/release/blob_adapter.wasm "$SCRIPT_DIR/../blob_adapter.wasm"
 echo "Built: target/wasm32-unknown-unknown/release/blob_adapter.wasm"
