@@ -14,7 +14,7 @@
         "warning": 0.05
       },
       "notify_no_data": false,
-      "on_missing_data": "default",
+      "on_missing_data": "resolve",
       "renotify_interval": 60
     }
   },

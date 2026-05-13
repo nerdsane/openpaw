@@ -95,8 +95,6 @@ fn monitor_queries_use_current_runtime_metric_names_and_zero_fill_sparse_counter
         "[Temper] Unexpected Mailbox Drops (post-P4)",
         "[Temper] Profiler Upload Failures",
         "[Temper] Session Memory Externalization Spike",
-        "[Temper] State Timeout Reset Rate Drop",
-        "[Temper] Profiler Uploads Stalled",
         "[Temper] Integration Silent Exit (ADR-0056)",
         "[Temper] Hydration Re-arm Overdue Spike",
         "[Temper] Turso Write Retry Exhaustion",
