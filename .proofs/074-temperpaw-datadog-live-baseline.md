@@ -2,7 +2,7 @@
 
 Date: 2026-05-11T16:19:36Z
 Last local verification refresh: 2026-05-13T04:15:49Z
-Last live Datadog/Railway verification refresh: 2026-05-13T03:45:00Z
+Last live Datadog/Railway verification refresh: 2026-05-13T04:58:18Z
 
 Purpose: record the live Datadog state observed while converting the active system
 from OpenPAW/OpenPaw/openpaw identity to TemperPaw and while designing the agent
@@ -47,11 +47,127 @@ TemperPaw pin refresh:
   - `cargo test --locked -p temperpaw --test datadog_observability_contract -- --nocapture`
     (`20 passed`)
 
-Next required live proof after build/deploy: publish the new TemperPaw image,
-exercise `POST /api/files/publish-artifact` against a File whose query
-projection is absent or stale, and confirm Datadog shows a non-error
+Live proof status after build/deploy: the refresh below publishes the new
+TemperPaw image, exercises `POST /api/files/publish-artifact`, and confirms
+Datadog shows a non-error
 `state.publish_file_artifact -> state.read_file_stream_indexed` trace under the
-new deployed `DD_VERSION`.
+new deployed `DD_VERSION`. Missing/stale projection behavior remains covered by
+the local red/green regression tests because directly deleting or corrupting
+live production projections is not a safe verification method.
+
+## Live publish-artifact fallback verification refresh - 2026-05-13T04:58Z
+
+Temper/TemperPaw revisions:
+
+- TemperPaw branch: `codex/temperpaw-observability-live-image`
+- TemperPaw commit: `fe86af8f384a542a221379a8f8cce37f96235405`
+  (`ghcr.io/nerdsane/temperpaw:sha-fe86af8`)
+- Temper branch: `codex/temperpaw-llmobs-service-identity-main`
+- Temper commit: `81760436f3302f50d50c539cf5b78865ee41b362`
+- TemperPaw pins all Temper crates to `81760436f3302f50d50c539cf5b78865ee41b362`.
+
+Build and deploy:
+
+- Docker workflow run `25778012799` completed successfully for commit
+  `fe86af8f384a542a221379a8f8cce37f96235405`.
+- Railway deployment `f0110eeb-872e-4b87-a996-b0bd6596e816` reached
+  `SUCCESS`; deployment created at `2026-05-13T04:47:43.184Z`.
+- Railway build logs pulled
+  `ghcr.io/nerdsane/temperpaw:sha-fe86af8@sha256:6f06f85707bd01c8668cd7f499edb79491a37407cbdcfe5b65915d6ceaff8cfd`.
+- Railway wrapper image digest:
+  `sha256:3550d3c56d0fd603d67cadf14e29d720d2b0a02d145b6cdbba84e4fa15e5b00e`.
+- Runtime Datadog identity was set to `DD_SERVICE=temperpaw`,
+  `DD_ENV=prod`, `DD_VERSION=sha-fe86af8`,
+  `DD_GIT_COMMIT_SHA=fe86af8f384a542a221379a8f8cce37f96235405`, and
+  `DD_GIT_REPOSITORY_URL=https://github.com/nerdsane/temperpaw`.
+- `GET https://openpaw-production.up.railway.app/readyz` returned HTTP 200 in
+  188 ms with `status:"ready"` and Discord `connected:true`.
+
+Publish-artifact route proof:
+
+- Authenticated OData read of `GET /tdata/Files?$top=1` returned
+  `File('bootstrap-soul-file-paw')` with `has_content:true`, MIME
+  `text/markdown`, size `18568`, and content hash
+  `sha256:a7b843737b4e8d4eaab95a060898b7abbaad53b4b618dcbe2c18b14e5a7eeaa9`.
+- Authenticated
+  `POST /api/files/publish-artifact` with label
+  `codex-live-publish-fe86af8-revert-ok` returned HTTP 200 in 405 ms.
+- Returned artifact id:
+  `part-104533d8f1f49e278c47eb3396c62882`.
+- Returned public storage key:
+  `codex-live-proof/CodexProof/f0110eeb-872e-4b87-a996-b0bd6596e816/codex-live-publish-fe86af8-revert-ok-a7b843737b4e8d4eaab95a060898b7abbaad53b4b618dcbe2c18b14e5a7eeaa9.md`.
+- Datadog retained successful trace:
+  `cfebe35b269cb4970f2ced34949f13bb`.
+- Trace deep link:
+  `https://app.datadoghq.com/apm/trace/cfebe35b269cb4970f2ced34949f13bb?graphType=flamegraph&shouldShowLegend=true&spanID=9340654343223372582&timeHint=1778648162291.6514&trace=cfebe35b269cb4970f2ced34949f13bb9340654343223372582&traceQuery=`
+- Trace hierarchy:
+  `http.server.request POST /api/files/publish-artifact` -> API handler
+  `POST /api/files/publish-artifact` -> `state.publish_file_artifact` ->
+  `state.read_file_stream_indexed` -> `postgresql.query`.
+- Root HTTP span: status OK, HTTP 200, duration 354.120864 ms,
+  `service:temperpaw`, `env:prod`, `version:sha-fe86af8`,
+  `service.version:sha-fe86af8`.
+- `state.publish_file_artifact` span includes `tenant:default`,
+  `file_id:bootstrap-soul-file-paw`,
+  `artifact_label:codex-live-publish-fe86af8-revert-ok`,
+  `owner_ref_type:CodexProof`, and
+  `owner_ref_id:f0110eeb-872e-4b87-a996-b0bd6596e816`.
+- `state.read_file_stream_indexed` was a child of `state.publish_file_artifact`
+  and contained the Postgres query child for `entity_catalog` plus
+  `entity_field_index`.
+
+What this proves:
+
+- The deployed `sha-fe86af8` runtime is actually reporting to Datadog with the
+  intended `temperpaw` service/version tags.
+- The published-artifact route no longer reproduces the earlier
+  `state.read_file_stream_indexed` 500 on the exercised production File.
+- The missing/stale projection behavior is covered by the local red/green
+  regression tests in Temper. Production projection mutation was not performed
+  because directly deleting or corrupting live query projections would be an
+  unsafe verification technique.
+
+Datadog logs:
+
+- `service:temperpaw version:sha-fe86af8` logs were present immediately after
+  deploy.
+- In the checked 20-minute window Datadog log analysis returned:
+  `info:10025`, `warn:318`, `error:1`.
+- The single error was the intentional public-bucket permission experiment at
+  `2026-05-13T04:55:16Z`.
+- After reverting that experiment, the query
+  `service:temperpaw version:sha-fe86af8 status:error` from
+  `2026-05-13T04:56:03Z` to `now` returned `0`.
+- Searching logs by successful trace id
+  `cfebe35b269cb4970f2ced34949f13bb` returned no log rows. The HTTP response
+  data is visible as APM span events, but response logs for this route are not
+  currently searchable by trace id. Guest WASM logs remain trace-correlated per
+  the earlier session proof.
+
+Public artifact serving and identity gap:
+
+- The route writes through `PUBLISHED_BLOB_BUCKET`. Live production currently
+  has `PUBLISHED_BLOB_BUCKET=openpaw-fs-seshendranalla` and
+  `PUBLISHED_BLOB_PUBLIC_BASE_URL=https://assets.katagami.ai`.
+- `assets.katagami.ai` is attached to R2 bucket `katagami-published-assets`;
+  `openpaw-fs-seshendranalla` has no custom domain.
+- The route returned a public URL under `https://assets.katagami.ai/...`, but
+  that URL returned HTTP 404 because the bytes were written to the old
+  `openpaw-fs-seshendranalla` bucket.
+- Wrangler verified the object exists in `openpaw-fs-seshendranalla` with
+  18,568 bytes.
+- A direct runtime secret experiment changed `published_blob_bucket` to
+  `katagami-published-assets`; the next publish attempt failed with HTTP 500
+  because the configured S3 credentials received `403 Forbidden` for that
+  bucket. Datadog trace: `f9a9cc3e48ea28fa25c8a9e32a55d8d5`.
+- The experiment was reverted immediately by restoring both the live secret and
+  Railway env var to `openpaw-fs-seshendranalla`, after which publish returned
+  HTTP 200 again.
+- This remains a concrete OpenPAW residual and data-service gap: production
+  public artifact publishing can persist metadata and write bytes, but the
+  public URL is not readable until the bucket, public domain, and R2 write
+  credentials are consolidated onto the same non-OpenPAW public artifact
+  bucket.
 
 ## Live production verification refresh - 2026-05-13T03:45Z
 

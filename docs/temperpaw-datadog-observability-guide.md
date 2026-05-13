@@ -291,6 +291,16 @@ current `File`/`FileVersion` entity state when the query projection is missing
 or stale. After deploying a TemperPaw image that pins this commit, verify the
 route with Trace Explorer and expect the same span path without `status:error`.
 
+Operator caveat from the 2026-05-13 live proof: a 200 response from
+`publish-artifact` proves the API path, metadata upsert, and object-store write,
+but it does not by itself prove the returned public URL is readable. Check that
+`PUBLISHED_BLOB_BUCKET` is the same R2 bucket served by
+`PUBLISHED_BLOB_PUBLIC_BASE_URL`, then curl the returned `public_url`. In the
+current production environment, `assets.katagami.ai` serves
+`katagami-published-assets`, while `PUBLISHED_BLOB_BUCKET` still points at
+`openpaw-fs-seshendranalla`; this is a known remaining OpenPAW residual and
+public artifact serving gap.
+
 ## Sandbox & Modal Bridge
 
 Sandbox work should be observable as both host HTTP bridge metrics and structured
