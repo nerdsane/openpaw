@@ -314,8 +314,10 @@ does not match the writable `PUBLISHED_BLOB_BUCKET=openpaw-fs-seshendranalla`.
 Changing the bucket to `katagami-published-assets` caused R2 HTTP 403 with the
 current S3 credentials, so this is a credential/domain migration gap rather
 than a route-code gap. Until that is fixed, a successful route can prove
-metadata persistence and an app-observed R2 PUT, but the returned public URL can
-still 404.
+metadata persistence and, when checked with the same S3 credentials as the
+runtime, R2 object durability. The returned public URL can still 404 until the
+public domain points at the writable public-artifact bucket or the writable
+credentials are moved to the bucket behind the public domain.
 
 ## Sandbox & Modal Bridge
 

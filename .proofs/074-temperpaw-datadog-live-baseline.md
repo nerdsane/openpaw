@@ -62,10 +62,14 @@ Publish-artifact route proof:
   `https://assets.katagami.ai/codex-live-proof/CodexProof/4a719ff4-3ad4-4c29-bd15-93c20b24ef37/codex-live-publish-aa5c69b-postgres-metadata-writable-a7b843737b4e8d4eaab95a060898b7abbaad53b4b618dcbe2c18b14e5a7eeaa9.md`.
 - Curling the returned public URL returned HTTP 404 in 130 ms with a 9 byte
   `not found` body.
-- `wrangler r2 object get` did not find the returned key in either
-  `openpaw-fs-seshendranalla` or `katagami-published-assets`, despite the live
-  application span recording an R2 PUT HTTP 200. The storage verification
-  discrepancy remains open.
+- `wrangler r2 object get` using the local Cloudflare OAuth token did not find
+  the returned key in either visible bucket, but the AWS S3 API using the same
+  Railway S3 credentials used by the runtime did find it in
+  `openpaw-fs-seshendranalla`.
+- S3 `list-objects-v2` returned `key_count:1` for the exact key. S3
+  `head-object` returned `content_length:18568`, `content_type:text/markdown`,
+  ETag `"e8b8084858e0ab21ca8f805fd0028506"`, and
+  `last_modified:2026-05-13T07:16:46+00:00`.
 - Direct `psql` from the local machine could not resolve Railway's private
   `postgres.railway.internal` host, so the durable metadata proof below uses
   the production Datadog APM SQL spans and metadata persistence event.
@@ -138,7 +142,7 @@ Known remaining gaps from this refresh:
 
 - Public artifact serving is still not correct: the app can write only with the
   current credentials to `openpaw-fs-seshendranalla`, while
-  `assets.katagami.ai` does not serve the returned object.
+  `assets.katagami.ai` does not serve that bucket.
 - Changing `PUBLISHED_BLOB_BUCKET` to `katagami-published-assets` is not enough;
   that bucket needs matching R2 S3 credentials, or the public domain must be
   attached to the writable bucket after a planned migration.
