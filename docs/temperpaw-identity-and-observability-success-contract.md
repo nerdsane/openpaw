@@ -41,6 +41,7 @@ No ad hoc orchestration layer should be introduced just to make telemetry easier
 - Unified tagging is consistent across telemetry: `env`, `service`, `version`, plus stable TemperPaw tags such as tenant, entity type, entity id, action, state, session id, turn id, agent id, model provider, model name, tool name, sandbox provider, deployment id, and workflow/cycle id where applicable.
 - Traces, metrics, and structured logs correlate through trace id and span id.
 - Runtime entity actions, state transitions, trigger ingress, WASM integrations, agent sessions, LLM calls, tool calls, sandbox operations, external API calls, deployment operations, and database operations are observable.
+- WASM observability is explicit host/runtime instrumentation, not an assumption that APM can see inside guest code. Host-boundary spans cover HTTP/text, binary and streaming calls, Connect RPC, secret lookup, spec evaluation, stream/cache/blob field reads and hashes; guest logs and `wasm_guest.progress` events carry `wasm_module`, `workflow_step`, `progress.kind`, trace/span ids, session id, entity id, action, and workflow root/run context.
 - Continuous profiling is configured for Rust/compiled services where the deployment environment supports it.
 - Postgres Database Monitoring is configured and correlated with APM so database load and slow queries can be tied back to TemperPaw services and traces.
 - LLM Observability captures provider, model, latency, errors, token usage, cost-relevant fields when available, session id, prompts/completions where safe and allowed, and agent/tool/workflow structure.
@@ -52,6 +53,8 @@ A completed TemperPaw agent session must have a useful end-to-end trace, not mer
 
 - The root span represents the session, for example `temperpaw.agent.session`.
 - The trace expands into meaningful child spans for turns, context preparation, provider/auth gate, LLM call, response application, tool batch, individual important tool calls, sandbox exec/file operations, entity actions, WASM integration execution, database calls, approvals, recovery, compaction, and external API calls.
+- WASM integrations expand through useful host-boundary spans such as `wasm.host.get_secret`, `wasm.host.evaluate_spec`, `wasm.host.connect_call`, `wasm.host.cache_contains`, `wasm.host.cache_to_stream`, `wasm.host.cache_from_stream`, `wasm.host.read_field`, and `wasm.host.hash_stream`, plus correlated `wasm_guest.progress` and guest-log events.
+- Claims of inside-WASM APM spans are prohibited unless Temper exposes and tests an explicit guest-to-host span API. ADR-0086 records the current design.
 - High-frequency or tiny details become span events or structured logs, not a flood of tiny child spans.
 - Asynchronous or event-sourced work uses correct trace-context propagation or span links instead of misleading parent-child stitching.
 - Chronology is clear: spans and wide events include timestamps plus stable sequence context such as state version, action index, turn id, tool id, entity id, and session id.

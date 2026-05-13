@@ -44,6 +44,7 @@ dashboards, monitors, and agent diagnostics.
 | Trace/log join | `trace_id:<Datadog decimal trace id>`, `@otel.trace_id:<32-char hex trace id>`, `span_id:<span id>`, and `@otel.span_id:<span id>` |
 | LLM provider/model | `@gen_ai.provider.name:<provider>`, `@gen_ai.request.model:<model>` |
 | Tool call | `@tool.name:<tool>` and `@tool.call_id:<call id>` |
+| WASM module/boundary | `@wasm_module:<module>`, `@trigger_action:<action>`, `@workflow_step:<step>`, `@progress.kind:<kind>` |
 | Channel transport | `@observability_event:temperpaw.transport`, `@transport.name:<slack|discord>`, `@transport.operation:<operation>`, `@transport.outcome:<outcome>` |
 | Webhook trigger | `@observability_event:temperpaw.webhook`, `@webhook.route_key:<route key>`, `@webhook.event_id:<event id>`, `@webhook.outcome:<outcome>` |
 | Governance approval | `@observability_event:temperpaw.approval`, `@decision_id:<decision id>`, `@approval.operation:<operation>`, `@approval.outcome:<outcome>` |
@@ -118,6 +119,51 @@ Broken-trace signs:
   same chronological session.
 - Root trace duration hides long background children or appears much shorter
   than the session wall-clock time.
+
+## WASM Host Boundary Visibility
+
+Datadog APM does not automatically see inside a WASM guest. Temper therefore
+makes the useful boundary observable from the host/runtime side, then correlates
+guest logs and progress events with the active trace. Treat these as host-side
+WASM boundary spans, not inside-WASM APM spans.
+
+High-signal host spans to expect:
+
+- `wasm.host.http_call`, `wasm.host.http_call_binary`, and
+  `wasm.host.http_stream` for outbound HTTP, binary body work, and streaming
+  calls.
+- `wasm.host.connect_call` for Connect server-streaming RPC calls.
+- `wasm.host.get_secret` for vault lookup timing and failure context; it records
+  `secret.key`, never the secret value.
+- `wasm.host.evaluate_spec` for host-side state-machine/spec evaluation.
+- `wasm.host.cache_contains`, `wasm.host.cache_to_stream`,
+  `wasm.host.cache_from_stream`, `wasm.host.read_field`, and
+  `wasm.host.hash_stream` for stream/cache/blob-style guest host functions.
+
+Each boundary span should carry `tenant`, `entity_type`, `entity_id`,
+`trigger_action`, `action_name`, `session_id`, `wasm_module`, `workflow_step`,
+`workflow_root_entity_type`, `workflow_root_entity_id`, and `workflow_run_id`
+when that context exists. Guest progress emits a named `wasm_guest.progress`
+event and searchable log with `progress.kind`, `workflow_step`, `tool.name`,
+`success`, `trace_id`, `span_id`, `dd.trace_id`, and `dd.span_id`. Guest logs
+use the same trace/session/module vocabulary.
+
+Useful searches:
+
+```text
+service:temperpaw @wasm_module:<module>
+service:temperpaw @session_id:<session id> @wasm_module:*
+service:temperpaw @progress.kind:* @workflow_step:*
+service:temperpaw resource_name:wasm.host.get_secret
+service:temperpaw resource_name:wasm.host.http_stream @wasm_module:blob_adapter
+```
+
+Do not expect a dense span for every tiny guest statement. The intended shape is
+session/workflow/action -> WASM invocation -> meaningful host boundary spans,
+with smaller detail as `wasm_guest.progress` events, `wasm_guest.log` events,
+metrics, and entity state. ADR-0086 in Temper documents why explicit
+guest-created child spans are deferred until there is a tested host API such as
+`host_start_span`, `host_end_span`, or `host_add_span_event`.
 
 ## Agent Query Surface
 

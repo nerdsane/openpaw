@@ -28,7 +28,8 @@ fn load_text(relative_path: &str) -> String {
 fn temper_dependency_pin_uses_runtime_llmobs_identity_parent_and_hierarchy_fix() {
     let manifest = load_text("crates/temperpaw/Cargo.toml");
     let lockfile = load_text("Cargo.lock");
-    let expected_rev = "7b170cf71246e01c337e81062b54ea8c597b9293";
+    let expected_rev = "18955ea724fc531deddd534e1319060ac59d8a59";
+    let host_boundary_rev = "7b170cf71246e01c337e81062b54ea8c597b9293";
     let parent_only_rev = "4fbfcb971c7c9513ad6605cb8376a8c492c21482";
     let parentless_rev = "ffa0a15212966dbada3db8da6e652f081e5f261b";
     let legacy_rev = "5a19c5f4406e95533896a860b5da15a7a68a70ee";
@@ -48,7 +49,7 @@ fn temper_dependency_pin_uses_runtime_llmobs_identity_parent_and_hierarchy_fix()
         );
         assert!(
             manifest.contains(&manifest_clause),
-            "{temper_crate} must pin the Temper rev with runtime-derived LLMObs service identity, parent stitching, agent/workflow hierarchy, DBM attribution, profiling envelope, and Datadog-visible WASM span hints"
+            "{temper_crate} must pin the Temper rev with runtime-derived LLMObs service identity, parent stitching, agent/workflow hierarchy, DBM attribution, profiling envelope, Datadog-visible WASM span hints, host-boundary spans, and guest progress/log correlation"
         );
     }
 
@@ -58,8 +59,10 @@ fn temper_dependency_pin_uses_runtime_llmobs_identity_parent_and_hierarchy_fix()
             && !manifest.contains(parent_only_rev)
             && !lockfile.contains(parent_only_rev)
             && !manifest.contains(parentless_rev)
-            && !lockfile.contains(parentless_rev),
-        "TemperPaw must not pin Temper revs with hard-coded LLMObs identity, parentless direct LLMObs spans, or one-span LLMObs traces"
+            && !lockfile.contains(parentless_rev)
+            && !manifest.contains(host_boundary_rev)
+            && !lockfile.contains(host_boundary_rev),
+        "TemperPaw must not pin Temper revs without complete WASM host-boundary observability, hard-coded LLMObs identity, parentless direct LLMObs spans, or one-span LLMObs traces"
     );
     assert!(
         lockfile.contains(expected_rev),
@@ -113,6 +116,10 @@ fn agent_operating_guidance_teaches_complete_datadog_diagnostics() {
         "profiling",
         "Database Monitoring",
         "get_llmobs_agent_loop",
+        "wasm_module",
+        "workflow_step",
+        "wasm_guest.progress",
+        "wasm.host.get_secret",
         "non-redundant",
         "chronological",
     ] {
@@ -142,6 +149,7 @@ fn datadog_facets_include_agent_session_diagnostic_fields() {
         "from_status",
         "to_status",
         "observability_event",
+        "trigger_action",
         "session_id",
         "managed_session_id",
         "inner_session_id",
@@ -153,6 +161,9 @@ fn datadog_facets_include_agent_session_diagnostic_fields() {
         "environment_id",
         "tool.name",
         "tool.call_id",
+        "wasm_module",
+        "workflow_step",
+        "progress.kind",
         "gen_ai.operation.name",
         "gen_ai.provider.name",
         "gen_ai.system",
@@ -161,6 +172,9 @@ fn datadog_facets_include_agent_session_diagnostic_fields() {
         "gen_ai.usage.input_tokens",
         "gen_ai.usage.output_tokens",
         "workflow.cycle_id",
+        "workflow_root_entity_type",
+        "workflow_root_entity_id",
+        "workflow_run_id",
         "deployment.id",
         "dd.trace_id",
         "dd.span_id",
@@ -169,6 +183,37 @@ fn datadog_facets_include_agent_session_diagnostic_fields() {
         assert!(
             paths.contains(required),
             "Datadog log facets must make `{required}` searchable for humans and agents"
+        );
+    }
+}
+
+#[test]
+fn guide_teaches_wasm_host_boundary_observability() {
+    let guide = load_text("docs/temperpaw-datadog-observability-guide.md");
+    let success_contract =
+        load_text("docs/temperpaw-identity-and-observability-success-contract.md");
+    let combined = format!("{guide}\n{success_contract}");
+
+    for required in [
+        "WASM Host Boundary Visibility",
+        "wasm.host.get_secret",
+        "wasm.host.evaluate_spec",
+        "wasm.host.connect_call",
+        "wasm.host.cache_contains",
+        "wasm.host.cache_to_stream",
+        "wasm.host.cache_from_stream",
+        "wasm.host.read_field",
+        "wasm.host.hash_stream",
+        "wasm_guest.progress",
+        "wasm_module",
+        "workflow_step",
+        "progress.kind",
+        "not inside-WASM APM spans",
+        "ADR-0086",
+    ] {
+        assert!(
+            combined.contains(required),
+            "observability docs must teach WASM host-boundary diagnostic concept `{required}`"
         );
     }
 }

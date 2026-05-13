@@ -22,6 +22,11 @@
       "type": "string"
     },
     {
+      "path": "trigger_action",
+      "name": "Trigger Action",
+      "type": "string"
+    },
+    {
       "path": "session_event.kind",
       "name": "Session Event Kind",
       "type": "string"
@@ -347,6 +352,21 @@
       "type": "string"
     },
     {
+      "path": "wasm_module",
+      "name": "WASM Module",
+      "type": "string"
+    },
+    {
+      "path": "workflow_step",
+      "name": "Workflow Step",
+      "type": "string"
+    },
+    {
+      "path": "progress.kind",
+      "name": "Progress Kind",
+      "type": "string"
+    },
+    {
       "path": "gen_ai.operation.name",
       "name": "GenAI Operation",
       "type": "string"
@@ -384,6 +404,21 @@
     {
       "path": "workflow.cycle_id",
       "name": "Workflow Cycle ID",
+      "type": "string"
+    },
+    {
+      "path": "workflow_root_entity_type",
+      "name": "Workflow Root Entity Type",
+      "type": "string"
+    },
+    {
+      "path": "workflow_root_entity_id",
+      "name": "Workflow Root Entity ID",
+      "type": "string"
+    },
+    {
+      "path": "workflow_run_id",
+      "name": "Workflow Run ID",
       "type": "string"
     },
     {

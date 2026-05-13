@@ -206,6 +206,15 @@ integrations, LLM calls, tool calls, sandbox exec/file operations, approvals,
 recovery, Postgres DBM spans, and terminal state without a flood of tiny
 duplicate spans.
 
+For WASM diagnosis, use `wasm_module`, `workflow_step`, `progress.kind`,
+`wasm_guest.progress`, and the host-boundary spans
+`wasm.host.get_secret`, `wasm.host.evaluate_spec`,
+`wasm.host.connect_call`, `wasm.host.http_stream`,
+`wasm.host.cache_contains`, `wasm.host.cache_to_stream`,
+`wasm.host.cache_from_stream`, `wasm.host.read_field`, and
+`wasm.host.hash_stream`. These are deliberate host-side boundary spans and
+events, not inside-WASM APM spans.
+
 ### Datadog surfaces to inspect
 
 - Metrics and monitors: start with `service:temperpaw`, `env`, `version`, and
