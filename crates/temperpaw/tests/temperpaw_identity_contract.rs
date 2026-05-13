@@ -273,6 +273,26 @@ fn active_surfaces_do_not_use_legacy_openpaw_identity() {
 }
 
 #[test]
+fn dockerignore_excludes_local_runtime_state_from_production_images() {
+    let dockerignore = fs::read_to_string(repo_root().join(".dockerignore"))
+        .expect(".dockerignore should be readable");
+
+    for required in [
+        ".git",
+        "target",
+        "dashboard/node_modules",
+        ".env",
+        ".proofs",
+        ".wrangler",
+    ] {
+        assert!(
+            dockerignore.lines().any(|line| line.trim() == required),
+            ".dockerignore must exclude `{required}` so production image contexts do not include local state or proof artifacts"
+        );
+    }
+}
+
+#[test]
 fn docker_image_metadata_uses_temperpaw_identity() {
     let workflow_path = repo_root().join(".github/workflows/docker.yml");
     let workflow = fs::read_to_string(&workflow_path)
