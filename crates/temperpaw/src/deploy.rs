@@ -71,13 +71,17 @@ pub async fn run_deploy(config: Config, with_datadog: bool) -> Result<()> {
     );
     let project_name = format!("temperpaw-{owner}");
     let bucket_name = format!("temperpaw-fs-{owner}");
+    let public_artifact_bucket_name = format!("temperpaw-public-artifacts-{owner}");
 
     cliclack::log::step("Provisioning R2 bucket (free tier: 10 GB storage)...")?;
     create_r2_bucket_idempotent(&bucket_name)?;
+    create_r2_bucket_idempotent(&public_artifact_bucket_name)?;
 
     // Use cached R2 credentials if available, otherwise prompt
     let (blob_access_key, blob_secret_key, blob_endpoint) =
         collect_r2_credentials(&bucket_name, &mut cache)?;
+    let public_artifact_base_url =
+        collect_public_artifact_base_url(&public_artifact_bucket_name, &mut cache)?;
 
     cliclack::log::step("Creating Railway project (free tier: 512 MB RAM, 1 vCPU)...")?;
     create_railway_project_idempotent(&project_name)?;
@@ -99,7 +103,16 @@ pub async fn run_deploy(config: Config, with_datadog: bool) -> Result<()> {
         format!("BLOB_BUCKET={bucket_name}"),
         format!("BLOB_ACCESS_KEY={blob_access_key}"),
         format!("BLOB_SECRET_KEY={blob_secret_key}"),
+        format!("PUBLISHED_BLOB_ENDPOINT={blob_endpoint}"),
+        format!("PUBLISHED_BLOB_BUCKET={public_artifact_bucket_name}"),
+        format!("PUBLISHED_BLOB_ACCESS_KEY={blob_access_key}"),
+        format!("PUBLISHED_BLOB_SECRET_KEY={blob_secret_key}"),
     ];
+    if let Some(public_artifact_base_url) = public_artifact_base_url {
+        variables.push(format!(
+            "PUBLISHED_BLOB_PUBLIC_BASE_URL={public_artifact_base_url}"
+        ));
+    }
 
     if let Some(dd_api_key) = config.dd_api_key.clone() {
         variables.push(format!("DD_API_KEY={dd_api_key}"));
@@ -330,6 +343,32 @@ fn collect_r2_credentials(
     cache_set(cache, "r2_endpoint", blob_endpoint.trim());
 
     Ok((blob_access_key, blob_secret_key, blob_endpoint))
+}
+
+fn collect_public_artifact_base_url(
+    bucket_name: &str,
+    cache: &mut HashMap<String, String>,
+) -> Result<Option<String>> {
+    let cached = cache_get(cache, "published_blob_public_base_url");
+    cliclack::log::info(format!(
+        "Public artifacts use a separate R2 bucket ({bucket_name}). \
+         Configure an R2 public development URL or custom domain, then paste its base URL. \
+         Leave blank to set PUBLISHED_BLOB_PUBLIC_BASE_URL later in Railway."
+    ))?;
+    let mut prompt = cliclack::input("Public artifact base URL")
+        .placeholder("https://assets.example.com")
+        .required(false);
+    if let Some(cached) = cached.as_deref() {
+        prompt = prompt.default_input(cached);
+    }
+    let public_base_url: String = prompt.interact()?;
+    let public_base_url = public_base_url.trim().trim_end_matches('/').to_string();
+    if public_base_url.is_empty() {
+        return Ok(None);
+    }
+
+    cache_set(cache, "published_blob_public_base_url", &public_base_url);
+    Ok(Some(public_base_url))
 }
 
 /// Railway: check existing session, fall back to `railway login --browserless`
