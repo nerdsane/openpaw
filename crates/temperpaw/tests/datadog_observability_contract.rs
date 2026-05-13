@@ -59,7 +59,7 @@ fn collect_cargo_manifests(root: &Path, relative_dir: &Path, files: &mut Vec<Pat
 fn temper_dependency_pin_uses_runtime_llmobs_identity_parent_and_hierarchy_fix() {
     let manifest = load_text("crates/temperpaw/Cargo.toml");
     let lockfile = load_text("Cargo.lock");
-    let expected_rev = "4a830f158c01358f0553e126be08d4af5fb3f6db";
+    let expected_rev = "488c521ec2ea3f7fc9b0a97075e6aa052dc47154";
     let host_boundary_rev = "7b170cf71246e01c337e81062b54ea8c597b9293";
     let parent_only_rev = "4fbfcb971c7c9513ad6605cb8376a8c492c21482";
     let parentless_rev = "ffa0a15212966dbada3db8da6e652f081e5f261b";
@@ -104,7 +104,7 @@ fn temper_dependency_pin_uses_runtime_llmobs_identity_parent_and_hierarchy_fix()
 #[test]
 fn wasm_sdk_dependencies_pin_same_temper_observability_revision_as_server() {
     let root = repo_root();
-    let expected_rev = "4a830f158c01358f0553e126be08d4af5fb3f6db";
+    let expected_rev = "488c521ec2ea3f7fc9b0a97075e6aa052dc47154";
     let expected_dependency = format!(
         "temper-wasm-sdk = {{ git = \"https://github.com/nerdsane/temper.git\", rev = \"{expected_rev}\""
     );
@@ -167,7 +167,7 @@ fn wasm_sdk_dependencies_pin_same_temper_observability_revision_as_server() {
 #[test]
 fn dockerfile_pins_cloned_katagami_wasm_sdk_to_temper_observability_revision() {
     let dockerfile = load_text("Dockerfile");
-    let expected_rev = "4a830f158c01358f0553e126be08d4af5fb3f6db";
+    let expected_rev = "488c521ec2ea3f7fc9b0a97075e6aa052dc47154";
 
     for required in [
         &format!("TEMPER_OBSERVABILITY_REV={expected_rev}"),
