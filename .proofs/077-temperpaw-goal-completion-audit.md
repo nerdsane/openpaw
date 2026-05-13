@@ -29,7 +29,7 @@ documented.
 | Surface | Evidence | Status |
 | --- | --- | --- |
 | TemperPaw runtime | Version `86bd073dc89efc6e559cbdf9787ce9e0b92228fe`, runtime label `sha-86bd073`, `/paw/version` returned that SHA. | Covered |
-| Temper dependency | TemperPaw pins Temper `64824d640a915272e21a307029030439a41fdde5`, which includes LLMObs root stability, published-artifact telemetry enrichment, WASM observability, DBM propagation, profiling upload envelopes, and long-lived session roots. | Covered |
+| Temper dependency | Live production proof used Temper `64824d640a915272e21a307029030439a41fdde5`; PR-ready source now pins the merged mainline equivalent `d4797f0bc9e22cf8cc075e18e5a00926a391faf1`, which includes LLMObs root stability, published-artifact telemetry enrichment, WASM observability, DBM propagation, profiling upload envelopes, and long-lived session roots. | Covered |
 | Railway deploy | Deployment `598c9ca9-f026-40c0-9b95-f086d82fe846` served HTTP 200 on `/readyz`. | Covered |
 | Image provenance | GitHub Actions run `25811095072` built `ghcr.io/nerdsane/temperpaw:sha-86bd073`; GHCR digest `sha256:9859786cdbdbc72c76417e94531497b16c04df4af0b4a115a0def7a58d604e3c`; Railway build log pulled that exact tag/digest. | Covered |
 | Deploy drift prevention | `Dockerfile.deploy` now uses `ARG IMAGE_TAG` and `FROM ghcr.io/nerdsane/temperpaw:${IMAGE_TAG}`; `railway.toml` uses `builder = "DOCKERFILE"` and `dockerfilePath = "Dockerfile.deploy"`. | Covered |
@@ -231,10 +231,11 @@ cargo clippy -p temper-server --all-targets --features observe -- -D warnings
 full pre-push gates
 ```
 
-Temper commit:
+Temper commits:
 
 ```text
 64824d640a915272e21a307029030439a41fdde5 fix(observe): enrich published artifact telemetry
+d4797f0bc9e22cf8cc075e18e5a00926a391faf1 Add TemperPaw runtime observability foundations
 ```
 
 TemperPaw gates refreshed after the final guide update:
@@ -256,7 +257,7 @@ cargo fmt --check
 git diff --check
 # passed
 
-rg "488c521|18955ea|e295420|d9869809|sha-afeca|9609583" Dockerfile Cargo.lock crates/temperpaw/Cargo.toml os-apps -S
+rg "64824d640a915272e21a307029030439a41fdde5|488c521|18955ea|e295420|d9869809|sha-afeca|9609583" Dockerfile Cargo.lock crates/temperpaw/Cargo.toml os-apps -S --no-ignore -g '!**/target/**'
 # no active runtime/config hits
 ```
 

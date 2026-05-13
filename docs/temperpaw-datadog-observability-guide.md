@@ -11,8 +11,14 @@ It intentionally distinguishes proven telemetry from account/tooling limitations
 Current production runtime:
 
 - TemperPaw version: `86bd073dc89efc6e559cbdf9787ce9e0b92228fe`
-- Temper revision pinned by TemperPaw:
+- Temper revision used by the live production proof:
   `64824d640a915272e21a307029030439a41fdde5`
+- Temper mainline revision pinned by the PR-ready source after the Temper
+  squash merge:
+  `d4797f0bc9e22cf8cc075e18e5a00926a391faf1`
+- Note: the live proof SHA above is the pre-squash Temper branch commit. The
+  mainline SHA is the merged equivalent used by current source so future
+  builds depend on `main`, not an orphaned PR branch.
 - Runtime build label: `sha-86bd073`
 - Railway deployment: `598c9ca9-f026-40c0-9b95-f086d82fe846`
 - GHCR source image:
