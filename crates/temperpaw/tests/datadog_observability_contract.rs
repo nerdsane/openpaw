@@ -28,7 +28,7 @@ fn load_text(relative_path: &str) -> String {
 fn temper_dependency_pin_uses_runtime_llmobs_identity_parent_and_hierarchy_fix() {
     let manifest = load_text("crates/temperpaw/Cargo.toml");
     let lockfile = load_text("Cargo.lock");
-    let expected_rev = "6021d918d0f8daa88f0c9687f4e3c435a2568f4d";
+    let expected_rev = "7b170cf71246e01c337e81062b54ea8c597b9293";
     let parent_only_rev = "4fbfcb971c7c9513ad6605cb8376a8c492c21482";
     let parentless_rev = "ffa0a15212966dbada3db8da6e652f081e5f261b";
     let legacy_rev = "5a19c5f4406e95533896a860b5da15a7a68a70ee";

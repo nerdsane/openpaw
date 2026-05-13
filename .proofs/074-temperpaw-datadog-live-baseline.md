@@ -2,11 +2,127 @@
 
 Date: 2026-05-11T16:19:36Z
 Last local verification refresh: 2026-05-13T04:15:49Z
-Last live Datadog/Railway verification refresh: 2026-05-13T04:58:18Z
+Last live Datadog/Railway verification refresh: 2026-05-13T06:01:48Z
 
 Purpose: record the live Datadog state observed while converting the active system
 from OpenPAW/OpenPaw/openpaw identity to TemperPaw and while designing the agent
 session observability contract.
+
+## Live public-blob observability verification refresh - 2026-05-13T06:02Z
+
+Temper/TemperPaw revisions:
+
+- TemperPaw branch: `codex/temperpaw-observability-live-image`
+- TemperPaw commit: `702d830f488c702bd9def3decde05d2c35601b5c`
+  (`ghcr.io/nerdsane/temperpaw:sha-702d830`)
+- Temper branch: `codex/temperpaw-llmobs-service-identity-main`
+- Temper commit: `6021d918d0f8daa88f0c9687f4e3c435a2568f4d`
+- TemperPaw pins all Temper crates to `6021d918d0f8daa88f0c9687f4e3c435a2568f4d`.
+
+Build and deploy:
+
+- Docker workflow run `25780311599` completed successfully for commit
+  `702d830f488c702bd9def3decde05d2c35601b5c`.
+- Railway deployment `058db7cd-4f94-4a5c-b6fc-931b9ebe4111` reached
+  `SUCCESS`; deployment created at `2026-05-13T05:55:30.681Z`.
+- Runtime Datadog identity was set to `DD_SERVICE=temperpaw`,
+  `DD_ENV=prod`, `DD_VERSION=sha-702d830`,
+  `DD_GIT_COMMIT_SHA=702d830f488c702bd9def3decde05d2c35601b5c`, and
+  `DD_GIT_REPOSITORY_URL=https://github.com/nerdsane/temperpaw`.
+- `GET https://openpaw-production.up.railway.app/readyz` returned HTTP 200 in
+  69 ms with `status:"ready"` and Discord `connected:true`.
+
+Publish-artifact route proof:
+
+- Authenticated OData read of
+  `GET /tdata/Files('bootstrap-soul-file-paw')` returned `has_content:true`,
+  MIME `text/markdown`, size `18568`, version count `90`, and content hash
+  `sha256:a7b843737b4e8d4eaab95a060898b7abbaad53b4b618dcbe2c18b14e5a7eeaa9`.
+- Authenticated `POST /api/files/publish-artifact` with label
+  `codex-live-publish-702d830-public-blob-span` returned HTTP 200 in 448 ms.
+- Returned artifact id:
+  `part-74c1e8c408dfafdd6a6d3b4f717bc77f`.
+- Returned public storage key:
+  `codex-live-proof/CodexProof/058db7cd-4f94-4a5c-b6fc-931b9ebe4111/codex-live-publish-702d830-public-blob-span-a7b843737b4e8d4eaab95a060898b7abbaad53b4b618dcbe2c18b14e5a7eeaa9.md`.
+- Returned public URL:
+  `https://assets.katagami.ai/codex-live-proof/CodexProof/058db7cd-4f94-4a5c-b6fc-931b9ebe4111/codex-live-publish-702d830-public-blob-span-a7b843737b4e8d4eaab95a060898b7abbaad53b4b618dcbe2c18b14e5a7eeaa9.md`.
+- Curling the returned public URL returned HTTP 404. The API response and
+  Datadog span prove the publish route completed and R2 returned HTTP 200 for
+  the PUT, but they do not prove the public URL is readable.
+- `wrangler r2 object get` did not find the returned key in either
+  `openpaw-fs-seshendranalla` or `katagami-published-assets` during this
+  refresh, despite the runtime span recording an R2 PUT HTTP 200. Treat this as
+  an unresolved storage verification discrepancy until bucket/domain/credential
+  consolidation is complete.
+
+Datadog APM proof:
+
+- Successful trace:
+  `b0bfd80bb2f46a61f6cf07d4cbb2c96f`.
+- Trace deep link:
+  `https://app.datadoghq.com/apm/trace/b0bfd80bb2f46a61f6cf07d4cbb2c96f?graphType=flamegraph&shouldShowLegend=true&spanID=11790653085075478078&timeHint=1778651900073.8010&trace=b0bfd80bb2f46a61f6cf07d4cbb2c96f11790653085075478078&traceQuery=`
+- Trace hierarchy:
+  `http.server.request POST /api/files/publish-artifact` -> API handler
+  `POST /api/files/publish-artifact` -> `state.publish_file_artifact` with
+  child spans `state.read_file_stream_indexed` -> `postgresql.query` and
+  `state.put_public_blob`.
+- Root HTTP span: status OK, HTTP 200, duration 396.591776 ms,
+  `service:temperpaw`, `env:prod`, `service.version:sha-702d830`.
+- `state.publish_file_artifact` span includes `tenant:default`,
+  `file_id:bootstrap-soul-file-paw`,
+  `artifact_label:codex-live-publish-702d830-public-blob-span`,
+  `owner_ref_type:CodexProof`, and
+  `owner_ref_id:058db7cd-4f94-4a5c-b6fc-931b9ebe4111`.
+- `state.read_file_stream_indexed` duration was 123.199960 ms and contained a
+  Postgres query child.
+- `state.put_public_blob` duration was 273.026656 ms and includes
+  `tenant:default`, `bucket:openpaw-fs-seshendranalla`, the full `storage_key`,
+  `endpoint_host:075a5c0a617de3bdc08a44f9794b6f2f.r2.cloudflarestorage.com`,
+  `mime_type:text/markdown`, `byte_length:18568`, and
+  `http.status_code:"200"`.
+- The `state.put_public_blob` span emitted `public blob PUT succeeded` with
+  `http.status_code:"200 OK"`, bucket, storage key, and endpoint host.
+- The parent `state.publish_file_artifact` span emitted
+  `published artifact metadata store unavailable; returning derived artifact row`
+  for the returned artifact id. This is not a healthy steady-state condition:
+  production is Postgres-backed, but published-artifact metadata persistence is
+  currently implemented only through the Turso store path.
+
+Datadog logs:
+
+- `service:temperpaw version:sha-702d830` logs were present after deploy.
+- In the checked 30-minute window Datadog log analysis returned:
+  `info:4887`, `warn:300`, and no `error` rows.
+- Searching for `public blob PUT succeeded` or
+  `published artifact metadata store unavailable` returned exactly the two
+  publish-related logs at `2026-05-13T05:58:20Z`.
+
+What this proves:
+
+- The deployed `sha-702d830` runtime is actually reporting to Datadog with the
+  intended `temperpaw` service/version tags.
+- The published-artifact route now has a useful public blob write boundary span
+  under the route trace, making the file read, database query, and R2 PUT timing
+  visible in one chronological Datadog trace.
+- The route still returns HTTP 200 while metadata persistence is unavailable in
+  the production Postgres path. That warning is now observable, but the
+  persistence gap remains.
+
+Known remaining gaps from this refresh:
+
+- Implement backend-neutral published-artifact metadata persistence for the
+  Postgres production path, or explicitly decide and document a different
+  durable storage model in an ADR.
+- Consolidate public artifact bucket, public domain, and write credentials so
+  the returned `public_url` is readable and no longer depends on
+  `openpaw-fs-seshendranalla`.
+- External Railway project/service/domain/storage names still include
+  `openpaw`; each remaining instance must be renamed, replaced, or explicitly
+  allowlisted as a migration artifact.
+- No ADR was added for the `6021d918...` instrumentation patch because it only
+  added span/log/error context around an existing boundary and did not change
+  architecture. The metadata persistence fix will require ADR treatment if it
+  changes storage contracts or backend ownership.
 
 ## Local publish-artifact regression fix refresh - 2026-05-13T04:15Z
 
@@ -164,10 +280,11 @@ Public artifact serving and identity gap:
   Railway env var to `openpaw-fs-seshendranalla`, after which publish returned
   HTTP 200 again.
 - This remains a concrete OpenPAW residual and data-service gap: production
-  public artifact publishing can persist metadata and write bytes, but the
-  public URL is not readable until the bucket, public domain, and R2 write
-  credentials are consolidated onto the same non-OpenPAW public artifact
-  bucket.
+  public artifact publishing can write bytes and return a derived artifact row,
+  but the public URL is not readable until the bucket, public domain, and R2
+  write credentials are consolidated onto the same non-OpenPAW public artifact
+  bucket. The later `sha-702d830` refresh also proved the Postgres production
+  path is not durably persisting published-artifact metadata yet.
 
 ## Live production verification refresh - 2026-05-13T03:45Z
 
