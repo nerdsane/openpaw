@@ -1,6 +1,8 @@
 .git
 target
+**/target
 dashboard/node_modules
+**/node_modules
 dashboard/.svelte-kit
 dashboard/build
 .env

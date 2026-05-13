@@ -280,7 +280,9 @@ fn dockerignore_excludes_local_runtime_state_from_production_images() {
     for required in [
         ".git",
         "target",
+        "**/target",
         "dashboard/node_modules",
+        "**/node_modules",
         ".env",
         ".proofs",
         ".wrangler",
