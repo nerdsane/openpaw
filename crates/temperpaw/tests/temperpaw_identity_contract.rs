@@ -8,7 +8,7 @@ const LEGACY_IDENTITY_TERMS: [&str; 8] = [
     "OPENPAW", "OpenPAW", "OpenPaw", "Open Paw", "openpaw", "open paw", "open_paw", "open-paw",
 ];
 
-const LEGACY_IDENTITY_ALLOWLIST: [(&str, &str, &str); 22] = [
+const LEGACY_IDENTITY_ALLOWLIST: [(&str, &str, &str); 24] = [
     (
         "crates/temperpaw/tests/datadog_observability_contract.rs",
         "\"openpaw.\"",
@@ -118,6 +118,16 @@ const LEGACY_IDENTITY_ALLOWLIST: [(&str, &str, &str); 22] = [
         "scripts/deploy_dashboard.py",
         "legacy_openpaw_dashboard",
         "Datadog dashboard deploy must find and delete live legacy dashboards",
+    ),
+    (
+        "docs/temperpaw-datadog-observability-guide.md",
+        "PUBLISHED_BLOB_BUCKET=openpaw-fs-seshendranalla",
+        "operator guide documents the current live bucket/domain migration gap",
+    ),
+    (
+        "docs/temperpaw-datadog-observability-guide.md",
+        "service:openpaw OR OpenPAW OR OpenPaw",
+        "operator guide records the legacy-query proof used to verify cleanup",
     ),
 ];
 

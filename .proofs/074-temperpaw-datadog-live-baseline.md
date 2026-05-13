@@ -2,11 +2,149 @@
 
 Date: 2026-05-11T16:19:36Z
 Last local verification refresh: 2026-05-13T04:15:49Z
-Last live Datadog/Railway verification refresh: 2026-05-13T06:01:48Z
+Last live Datadog/Railway verification refresh: 2026-05-13T07:21:04Z
 
 Purpose: record the live Datadog state observed while converting the active system
 from OpenPAW/OpenPaw/openpaw identity to TemperPaw and while designing the agent
 session observability contract.
+
+## Live Postgres metadata persistence verification refresh - 2026-05-13T07:21Z
+
+Temper/TemperPaw revisions:
+
+- TemperPaw branch: `codex/temperpaw-observability-live-image`
+- TemperPaw commit: `aa5c69bbbfe17ab0185468a183fecc05ad52a6b9`
+  (`ghcr.io/nerdsane/temperpaw:sha-aa5c69b`)
+- Temper branch: `codex/temperpaw-llmobs-service-identity-main`
+- Temper commit: `7b170cf71246e01c337e81062b54ea8c597b9293`
+- Temper ADR: `docs/adrs/0085-published-artifacts-postgres-metadata.md`
+- TemperPaw pins all Temper crates to
+  `7b170cf71246e01c337e81062b54ea8c597b9293`.
+
+Build and deploy:
+
+- Docker workflow run `25783023822` completed successfully for commit
+  `aa5c69bbbfe17ab0185468a183fecc05ad52a6b9` in 25m17s.
+- Runtime Datadog identity was set to `DD_SERVICE=temperpaw`,
+  `DD_ENV=prod`, `DD_VERSION=sha-aa5c69b`,
+  `DD_GIT_COMMIT_SHA=aa5c69bbbfe17ab0185468a183fecc05ad52a6b9`, and
+  `DD_GIT_REPOSITORY_URL=https://github.com/nerdsane/temperpaw`.
+- The first Railway deploy of this image,
+  `f90814d6-e628-4d40-947b-5e10d0a2734c`, reached `SUCCESS` at
+  `2026-05-13T07:09:45.781Z` with wrapper digest
+  `sha256:db79bb726d765572a9a0b9d3ab1ef7d9369698643ff0014ebc8f8d9c2ca08ee1`.
+- Before that first startup, `PUBLISHED_BLOB_BUCKET` was changed to
+  `katagami-published-assets` to test whether the public domain and write
+  bucket could be consolidated by config alone. The publish route returned
+  HTTP 500 with an R2 `403 Forbidden` from the bucket. This proves the current
+  S3/R2 write credentials are scoped away from `katagami-published-assets`.
+- `PUBLISHED_BLOB_BUCKET` was restored to `openpaw-fs-seshendranalla`, and the
+  same image was redeployed as Railway deployment
+  `4a719ff4-3ad4-4c29-bd15-93c20b24ef37`; it reached `SUCCESS` at
+  `2026-05-13T07:14:41.265Z` with the same wrapper digest.
+- `GET https://openpaw-production.up.railway.app/readyz` returned HTTP 200 in
+  68 ms with `status:"ready"` and Discord `connected:true`.
+
+Publish-artifact route proof:
+
+- Authenticated OData read of
+  `GET /tdata/Files('bootstrap-soul-file-paw')` returned HTTP 200 in 76 ms
+  with `has_content:true`, MIME `text/markdown`, size `18568`, and content hash
+  `sha256:a7b843737b4e8d4eaab95a060898b7abbaad53b4b618dcbe2c18b14e5a7eeaa9`.
+- Authenticated `POST /api/files/publish-artifact` with label
+  `codex-live-publish-aa5c69b-postgres-metadata-writable` returned HTTP 200 in
+  544 ms.
+- Returned artifact id:
+  `part-199c6b292946f98651137e0ef65331c6`.
+- Returned public storage key:
+  `codex-live-proof/CodexProof/4a719ff4-3ad4-4c29-bd15-93c20b24ef37/codex-live-publish-aa5c69b-postgres-metadata-writable-a7b843737b4e8d4eaab95a060898b7abbaad53b4b618dcbe2c18b14e5a7eeaa9.md`.
+- Returned public URL:
+  `https://assets.katagami.ai/codex-live-proof/CodexProof/4a719ff4-3ad4-4c29-bd15-93c20b24ef37/codex-live-publish-aa5c69b-postgres-metadata-writable-a7b843737b4e8d4eaab95a060898b7abbaad53b4b618dcbe2c18b14e5a7eeaa9.md`.
+- Curling the returned public URL returned HTTP 404 in 130 ms with a 9 byte
+  `not found` body.
+- `wrangler r2 object get` did not find the returned key in either
+  `openpaw-fs-seshendranalla` or `katagami-published-assets`, despite the live
+  application span recording an R2 PUT HTTP 200. The storage verification
+  discrepancy remains open.
+- Direct `psql` from the local machine could not resolve Railway's private
+  `postgres.railway.internal` host, so the durable metadata proof below uses
+  the production Datadog APM SQL spans and metadata persistence event.
+
+Datadog APM proof:
+
+- Successful trace:
+  `edff183f3a864f743ae74c13c14bb79f`.
+- Trace deep link:
+  `https://app.datadoghq.com/apm/trace/edff183f3a864f743ae74c13c14bb79f?graphType=flamegraph&shouldShowLegend=true&spanID=13788590875260027289&timeHint=1778656606545.4075&trace=edff183f3a864f743ae74c13c14bb79f13788590875260027289&traceQuery=`
+- Trace hierarchy:
+  `http.server.request POST /api/files/publish-artifact` -> API handler
+  `POST /api/files/publish-artifact` -> `state.publish_file_artifact` with
+  child spans `state.read_file_stream_indexed`, `state.put_public_blob`, and
+  `postgres.upsert_published_artifact`.
+- Root HTTP span: status OK, HTTP 200, duration 485.615488 ms,
+  `service:temperpaw`, `env:prod`, `service.version:sha-aa5c69b`.
+- `state.publish_file_artifact` duration was 485.396224 ms and includes
+  `tenant:default`, `file_id:bootstrap-soul-file-paw`,
+  `artifact_label:codex-live-publish-aa5c69b-postgres-metadata-writable`,
+  `owner_ref_type:CodexProof`, and
+  `owner_ref_id:4a719ff4-3ad4-4c29-bd15-93c20b24ef37`.
+- `state.read_file_stream_indexed` duration was 194.430320 ms and contained an
+  `entity_catalog` Postgres `SELECT` child.
+- `state.put_public_blob` duration was 268.298208 ms and includes
+  `tenant:default`, `bucket:openpaw-fs-seshendranalla`, the full `storage_key`,
+  `endpoint_host:075a5c0a617de3bdc08a44f9794b6f2f.r2.cloudflarestorage.com`,
+  `mime_type:text/markdown`, `byte_length:18568`, and
+  `http.status_code:"200"`.
+- `postgres.upsert_published_artifact` duration was 22.528208 ms and contained
+  a `published_artifacts` Postgres `INSERT ... ON CONFLICT DO UPDATE` child
+  span (11.477330 ms) plus a `published_artifacts` `SELECT` load child span
+  (10.884542 ms).
+- The parent `state.publish_file_artifact` span emitted
+  `published artifact metadata persisted` with `metadata_backend:"postgres"`
+  for artifact id `part-199c6b292946f98651137e0ef65331c6`.
+
+Datadog logs and DBM:
+
+- Searching `service:temperpaw env:prod` for `public blob PUT succeeded`,
+  `published artifact metadata persisted`, or
+  `published artifact metadata store unavailable` returned exactly two
+  publish-related logs for the successful proof at `2026-05-13T07:16:47Z`:
+  `public blob PUT succeeded` and `published artifact metadata persisted`.
+- Log analysis for
+  `service:temperpaw env:prod version:sha-aa5c69b "published artifact metadata store unavailable"`
+  returned count `0`.
+- Log status counts in the checked 45-minute `sha-aa5c69b` window were
+  `info:9720`, `warn:600`, and `error:2`. The two error logs correspond to the
+  intentional failed `katagami-published-assets` bucket test.
+- DBM sampling did not capture the specific `published_artifacts` INSERT in the
+  short proof window. A broader two-hour DBM query still returned recent
+  TemperPaw samples with SQLCommenter `trace.caller.service:temperpaw` and
+  `database_instance:temperpaw-postgres`, but the durable metadata proof for
+  this route is the APM SQL span tree above.
+
+What this proves:
+
+- The deployed `sha-aa5c69b` runtime is reporting to Datadog with the intended
+  `temperpaw` service/version tags.
+- The production Postgres-backed `publish-artifact` path now persists metadata
+  through `postgres.upsert_published_artifact`; the old
+  `published artifact metadata store unavailable` fallback warning is gone for
+  the successful route proof.
+- Humans and agents can open one Datadog trace and see the chronological file
+  read, R2 PUT, Postgres metadata INSERT/SELECT, status, timings, bucket,
+  storage key, artifact label, owner reference, and backend used.
+
+Known remaining gaps from this refresh:
+
+- Public artifact serving is still not correct: the app can write only with the
+  current credentials to `openpaw-fs-seshendranalla`, while
+  `assets.katagami.ai` does not serve the returned object.
+- Changing `PUBLISHED_BLOB_BUCKET` to `katagami-published-assets` is not enough;
+  that bucket needs matching R2 S3 credentials, or the public domain must be
+  attached to the writable bucket after a planned migration.
+- External Railway service/domain/storage names still include `openpaw`; each
+  remaining instance must be renamed, replaced, or explicitly allowlisted as a
+  migration artifact.
 
 ## Live public-blob observability verification refresh - 2026-05-13T06:02Z
 

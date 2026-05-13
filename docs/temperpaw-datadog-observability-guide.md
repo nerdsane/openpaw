@@ -282,7 +282,8 @@ structured `temperpaw.blob` events for cache misses or remote transport errors.
 Published artifacts use the internal route `POST /api/files/publish-artifact`
 and should show the trace shape
 `POST /api/files/publish-artifact -> state.publish_file_artifact ->
-state.read_file_stream_indexed` plus a sibling `state.put_public_blob` span.
+state.read_file_stream_indexed` plus sibling `state.put_public_blob` and
+`postgres.upsert_published_artifact` spans.
 Datadog caught a live 500 on this route in trace
 `895a791073db9e5dafb3b927caf8a266` at service version `sha-afeca721`; there
 were no correlated logs for the lower-64 trace id, so the trace tree was the
@@ -291,22 +292,30 @@ primary diagnostic. Temper commit
 current `File`/`FileVersion` entity state when the query projection is missing
 or stale. Temper commit `6021d918d0f8daa88f0c9687f4e3c435a2568f4d` adds the
 `state.put_public_blob` span with bucket, storage key, endpoint host, MIME type,
-byte length, and HTTP status. After deploying a TemperPaw image that pins both
-changes, verify the route with Trace Explorer and expect the full span path
-without `status:error`.
+byte length, and HTTP status. Temper commit
+`7b170cf71246e01c337e81062b54ea8c597b9293` adds backend-neutral
+published-artifact metadata persistence for the Postgres production path. After
+deploying a TemperPaw image that pins all three changes, verify the route with
+Trace Explorer and expect the full span path without `status:error`.
 
 Operator caveat from the 2026-05-13 live proof: a 200 response from
 `publish-artifact` proves the API path returned successfully. It does not by
 itself prove durable metadata persistence, successful object-store write, or a
 readable public URL. Check for `state.put_public_blob` with HTTP 200, search the
-trace/logs for `published artifact metadata store unavailable`, verify any
-artifact metadata persistence path, and curl the returned `public_url`. In the
-current production environment, `assets.katagami.ai` serves
-`katagami-published-assets`, while `PUBLISHED_BLOB_BUCKET` still points at
-`openpaw-fs-seshendranalla`; this is a known remaining OpenPAW residual and
-public artifact serving gap. Production also currently warns that the published
-artifact metadata store is unavailable on the Postgres-backed path, so route
-success must not be treated as durable metadata proof until that gap is closed.
+trace/logs for `published artifact metadata persisted` with
+`metadata_backend:postgres`, and confirm the trace contains
+`postgres.upsert_published_artifact` with `published_artifacts` INSERT/SELECT
+children. The old `published artifact metadata store unavailable` warning
+should have count `0` for current production images. Then curl the returned
+`public_url`.
+
+Current production caveat: `assets.katagami.ai` serves a public R2 surface that
+does not match the writable `PUBLISHED_BLOB_BUCKET=openpaw-fs-seshendranalla`.
+Changing the bucket to `katagami-published-assets` caused R2 HTTP 403 with the
+current S3 credentials, so this is a credential/domain migration gap rather
+than a route-code gap. Until that is fixed, a successful route can prove
+metadata persistence and an app-observed R2 PUT, but the returned public URL can
+still 404.
 
 ## Sandbox & Modal Bridge
 
