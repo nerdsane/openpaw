@@ -295,6 +295,29 @@ fn dockerignore_excludes_local_runtime_state_from_production_images() {
 }
 
 #[test]
+fn dockerfile_prunes_wasm_build_outputs_before_runtime_copy() {
+    let dockerfile =
+        fs::read_to_string(repo_root().join("Dockerfile")).expect("Dockerfile should be readable");
+
+    let wasm_build_idx = dockerfile
+        .find("cd /app/os-apps/katagami-curation/wasm && bash build.sh")
+        .expect("Dockerfile should build all runtime WASM modules before pruning");
+    let prune_idx = dockerfile
+        .find("RUN find os-apps -type d -name target -prune -exec rm -rf {} +")
+        .expect(
+            "Dockerfile should prune nested WASM target directories before the runtime image copy",
+        );
+    let runtime_copy_idx = dockerfile
+        .find("COPY --from=rust-build /app/os-apps ./os-apps")
+        .expect("Dockerfile should copy os-apps into the runtime image");
+
+    assert!(
+        wasm_build_idx < prune_idx && prune_idx < runtime_copy_idx,
+        "Dockerfile must remove nested WASM target directories after building modules and before copying os-apps into the runtime image"
+    );
+}
+
+#[test]
 fn docker_image_metadata_uses_temperpaw_identity() {
     let workflow_path = repo_root().join(".github/workflows/docker.yml");
     let workflow = fs::read_to_string(&workflow_path)

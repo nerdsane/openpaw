@@ -54,6 +54,7 @@ RUN cd os-apps/paw-agent/wasm && bash build.sh \
     && cd /app/os-apps/paw-research/wasm && bash build.sh \
     && cd /app/os-apps/paw-patrol/wasm && bash build.sh \
     && cd /app/os-apps/katagami-curation/wasm && bash build.sh
+RUN find os-apps -type d -name target -prune -exec rm -rf {} +
 
 FROM debian:bookworm-slim
 ARG TARGETARCH
