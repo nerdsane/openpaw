@@ -4,8 +4,8 @@ use serde_json::Value;
 
 pub const OPENAI_RESPONSES_URL: &str = "https://api.openai.com/v1/responses";
 pub const OPENAI_CODEX_RESPONSES_URL: &str = "https://chatgpt.com/backend-api/codex/responses";
-pub const OPENAI_CODEX_ORIGINATOR: &str = "openpaw";
-pub const OPENAI_CODEX_USER_AGENT: &str = "openpaw";
+pub const OPENAI_CODEX_ORIGINATOR: &str = "temperpaw";
+pub const OPENAI_CODEX_USER_AGENT: &str = "temperpaw";
 
 const JWT_CLAIM_PATH: &str = "https://api.openai.com/auth";
 const B64_URL_ALPHABET: &[u8; 64] =

@@ -59,6 +59,81 @@ def field_value(fields: dict, *names: str):
     return None
 
 
+BRIDGE_FIELD_ALIASES = {
+    "ObservabilityEvent": ("ObservabilityEvent", "observability_event"),
+    "ManagedSessionId": ("ManagedSessionId", "managed_session_id"),
+    "InnerSessionId": ("InnerSessionId", "inner_session_id"),
+    "InnerAgentId": ("InnerAgentId", "inner_agent_id"),
+    "ManagedAgentId": ("ManagedAgentId", "managed_agent_id"),
+    "ParentSessionId": ("ParentSessionId", "parent_session_id"),
+    "EnvironmentId": ("EnvironmentId", "environment_id"),
+}
+
+
+def assert_bridge_context(
+    event_fields: dict,
+    *,
+    session_id: str,
+    inner_session_id: str | set[str],
+    inner_agent_id: str,
+    managed_agent_id: str,
+    parent_session_id: str,
+    environment_id: str,
+):
+    kind = field_value(event_fields, "Kind", "kind")
+    allowed_inner_session_ids = (
+        {inner_session_id} if isinstance(inner_session_id, str) else inner_session_id
+    )
+    expected = {
+        "ObservabilityEvent": "temperpaw.agent.session",
+        "ManagedSessionId": session_id,
+        "InnerAgentId": inner_agent_id,
+        "ManagedAgentId": managed_agent_id,
+        "ParentSessionId": parent_session_id,
+        "EnvironmentId": environment_id,
+    }
+    actual_inner_session_id = field_value(
+        event_fields,
+        *BRIDGE_FIELD_ALIASES["InnerSessionId"],
+    )
+    if actual_inner_session_id not in allowed_inner_session_ids:
+        raise RuntimeError(
+            f"{kind} missing bridge field InnerSessionId in {sorted(allowed_inner_session_ids)}"
+        )
+    for field, value in expected.items():
+        if field_value(event_fields, *BRIDGE_FIELD_ALIASES[field]) != value:
+            raise RuntimeError(f"{kind} missing bridge field {field}={value}")
+    if not field_value(event_fields, "ActionName", "action_name"):
+        raise RuntimeError(f"{kind} did not store ActionName")
+
+
+def fetch_session_events(session_id: str) -> list[dict]:
+    filter_expr = urllib.parse.quote(f"SessionId eq '{session_id}'", safe="'()")
+    orderby = urllib.parse.quote("Sequence asc")
+    events = request(
+        "GET",
+        f"/tdata/SessionEvents?$filter={filter_expr}&$orderby={orderby}",
+    )
+    return events.get("value", [])
+
+
+def wait_for_session_event_kinds(
+    session_id: str,
+    required_counts: dict[str, int],
+    timeout_seconds: int = 30,
+) -> tuple[list[dict], list[str]]:
+    deadline = time.time() + timeout_seconds
+    values: list[dict] = []
+    kinds: list[str] = []
+    while time.time() < deadline:
+        values = fetch_session_events(session_id)
+        kinds = [item.get("fields", {}).get("Kind") for item in values]
+        if all(kinds.count(kind) >= count for kind, count in required_counts.items()):
+            return values, kinds
+        time.sleep(1)
+    return values, kinds
+
+
 def main() -> int:
     print("== paw-managed-agents proof ==")
 
@@ -180,6 +255,7 @@ def main() -> int:
         {
             "Title": "proof-session",
             "AgentId": agent_id,
+            "ParentSessionId": "parent-proof-session",
             "EnvironmentId": env_id,
             "VaultIds": "[\"vault-proof\"]",
         },
@@ -272,14 +348,14 @@ def main() -> int:
         raise RuntimeError(f"inner agent tools did not match config rows: {enabled_tools}")
 
     print("Fetching emitted events...")
-    filter_expr = urllib.parse.quote(f"SessionId eq '{session_id}'", safe="'()")
-    orderby = urllib.parse.quote("Sequence asc")
-    events = request(
-        "GET",
-        f"/tdata/SessionEvents?$filter={filter_expr}&$orderby={orderby}",
+    values, kinds = wait_for_session_event_kinds(
+        session_id,
+        {
+            "session.status_running": 1,
+            "session.status_idle": 1,
+            "agent.message": 1,
+        },
     )
-    values = events.get("value", [])
-    kinds = [item.get("fields", {}).get("Kind") for item in values]
     print("Event kinds:", kinds)
 
     if "session.status_running" not in kinds:
@@ -288,6 +364,22 @@ def main() -> int:
         raise RuntimeError("idle event missing")
     if "agent.message" not in kinds:
         raise RuntimeError("agent.message missing")
+    for item in values:
+        fields = entity_fields(item)
+        if field_value(fields, "Kind", "kind") in {
+            "session.status_running",
+            "agent.message",
+            "session.status_idle",
+        }:
+            assert_bridge_context(
+                fields,
+                session_id=session_id,
+                inner_session_id=inner_session_id,
+                inner_agent_id=inner_agent_id,
+                managed_agent_id=agent_id,
+                parent_session_id="parent-proof-session",
+                environment_id=env_id,
+            )
 
     print("Posting follow-up user event...")
     request(
@@ -331,9 +423,19 @@ def main() -> int:
 
     deadline = time.time() + 90
     resumed_idle = None
+    resumed_values: list[dict] = []
+    resumed_kinds: list[str] = []
     while time.time() < deadline:
         current = request("GET", f"/tdata/ManagedSessions('{session_id}')")
-        if current.get("status") == "Idle":
+        resumed_values = fetch_session_events(session_id)
+        resumed_kinds = [item.get("fields", {}).get("Kind") for item in resumed_values]
+        resumed_cycle_done = (
+            resumed_kinds.count("session.status_running") >= 2
+            and resumed_kinds.count("session.status_idle") >= 2
+            and "agent.tool_use" in resumed_kinds
+            and "agent.tool_result" in resumed_kinds
+        )
+        if current.get("status") == "Idle" and resumed_cycle_done:
             resumed_idle = current
             break
         if current.get("status") == "Terminated":
@@ -342,14 +444,14 @@ def main() -> int:
 
     if resumed_idle is None:
         raise RuntimeError("managed session did not reach Idle after resume")
+    resumed_idle_fields = entity_fields(resumed_idle)
+    resumed_inner_session_id = (
+        field_value(resumed_idle_fields, "InnerSessionId", "inner_session_id")
+        or inner_session_id
+    )
+    observed_inner_session_ids = {inner_session_id, resumed_inner_session_id}
 
     print("Fetching resumed events...")
-    resumed_events = request(
-        "GET",
-        f"/tdata/SessionEvents?$filter={filter_expr}&$orderby={orderby}",
-    )
-    resumed_values = resumed_events.get("value", [])
-    resumed_kinds = [item.get("fields", {}).get("Kind") for item in resumed_values]
     print("Resumed event kinds:", resumed_kinds)
 
     if resumed_kinds.count("session.status_running") < 2:
@@ -360,6 +462,24 @@ def main() -> int:
         raise RuntimeError("agent.tool_use missing after tool-driven resume")
     if "agent.tool_result" not in resumed_kinds:
         raise RuntimeError("agent.tool_result missing after tool-driven resume")
+    for item in resumed_values:
+        fields = entity_fields(item)
+        if field_value(fields, "Kind", "kind") in {
+            "session.status_running",
+            "agent.message",
+            "agent.tool_use",
+            "agent.tool_result",
+            "session.status_idle",
+        }:
+            assert_bridge_context(
+                fields,
+                session_id=session_id,
+                inner_session_id=observed_inner_session_ids,
+                inner_agent_id=inner_agent_id,
+                managed_agent_id=agent_id,
+                parent_session_id="parent-proof-session",
+                environment_id=env_id,
+            )
 
     print("Terminating session...")
     request(
@@ -411,11 +531,7 @@ def main() -> int:
     terminated_status_events = []
     event_deadline = time.time() + 30
     while time.time() < event_deadline:
-        terminated_events = request(
-            "GET",
-            f"/tdata/SessionEvents?$filter={filter_expr}&$orderby={orderby}",
-        )
-        terminated_values = terminated_events.get("value", [])
+        terminated_values = fetch_session_events(session_id)
         terminated_status_events = [
             entity_fields(item)
             for item in terminated_values
@@ -438,6 +554,15 @@ def main() -> int:
         != "cancelled"
     ):
         raise RuntimeError("terminated event did not store TerminationReason")
+    assert_bridge_context(
+        terminated_status_events[0],
+        session_id=session_id,
+        inner_session_id=observed_inner_session_ids,
+        inner_agent_id=inner_agent_id,
+        managed_agent_id=agent_id,
+        parent_session_id="parent-proof-session",
+        environment_id=env_id,
+    )
 
     print("Negative check: bogus event kind should fail...")
     try:

@@ -2,8 +2,9 @@
 mod common;
 
 use common::{
-    create_session_event, get_entity, is_terminal_status, next_session_event_sequence,
-    post_absolute_action, status_of, system_json_headers,
+    create_session_event, get_entity, is_terminal_status, log_managed_session_event,
+    managed_session_event_context, next_session_event_sequence, post_absolute_action, status_of,
+    system_json_headers, with_session_event_context,
 };
 use temper_wasm_sdk::prelude::*;
 use wasm_helpers::resolve_temper_api_url;
@@ -41,8 +42,27 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             })
             .unwrap_or("cancelled")
             .to_string();
+        let action_name = if ctx.trigger_action.trim().is_empty() {
+            "ManagedAgents.TerminateSession".to_string()
+        } else {
+            format!("ManagedAgents.{}", ctx.trigger_action)
+        };
+        let event_context = managed_session_event_context(
+            &fields,
+            &ctx.entity_id,
+            &inner_session_id,
+            "",
+            "",
+            "",
+            "",
+            &action_name,
+        );
 
         let sequence = next_session_event_sequence(&ctx, &base_url, &headers, &ctx.entity_id)?;
+        let event_fields = with_session_event_context(
+            &event_context,
+            json!({ "TerminationReason": stop_reason.clone() }),
+        );
         let _ = create_session_event(
             &ctx,
             &base_url,
@@ -50,8 +70,15 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             &ctx.entity_id,
             sequence,
             "session.status_terminated",
-            json!({ "TerminationReason": stop_reason }),
+            event_fields.clone(),
         )?;
+        log_managed_session_event(
+            &ctx,
+            &event_context,
+            "session.status_terminated",
+            sequence,
+            &event_fields,
+        );
 
         temper_wasm_sdk::set_success_result(
             "",

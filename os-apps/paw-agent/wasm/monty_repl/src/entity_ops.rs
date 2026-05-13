@@ -1851,7 +1851,6 @@ fn write_upload_from_value(
 
 fn is_sandbox_image_marker(value: &Value) -> bool {
     value.get("__temperpaw_image").and_then(Value::as_bool) == Some(true)
-        || value.get("__openpaw_image").and_then(Value::as_bool) == Some(true)
 }
 
 fn sandbox_image_candidate(value: &Value) -> Option<(String, Option<String>)> {
@@ -1896,9 +1895,7 @@ fn sandbox_image_source_candidate(value: &Value) -> Option<(String, Option<Strin
 
 fn sandbox_image_json_candidate(text: &str) -> Option<(String, Option<String>)> {
     let trimmed = text.trim();
-    if !trimmed.starts_with('{')
-        || (!trimmed.contains("__temperpaw_image") && !trimmed.contains("__openpaw_image"))
-    {
+    if !trimmed.starts_with('{') || !trimmed.contains("__temperpaw_image") {
         return None;
     }
     let value: Value = serde_json::from_str(trimmed).ok()?;
@@ -1907,9 +1904,7 @@ fn sandbox_image_json_candidate(text: &str) -> Option<(String, Option<String>)> 
 
 fn sandbox_image_source_json_candidate(text: &str) -> Option<(String, Option<String>)> {
     let trimmed = text.trim();
-    if !trimmed.starts_with('{')
-        || (!trimmed.contains("__temperpaw_image") && !trimmed.contains("__openpaw_image"))
-    {
+    if !trimmed.starts_with('{') || !trimmed.contains("__temperpaw_image") {
         return None;
     }
     let value: Value = serde_json::from_str(trimmed).ok()?;
@@ -2344,11 +2339,11 @@ mod tests {
     }
 
     #[test]
-    fn write_upload_accepts_legacy_openpaw_image_marker() {
+    fn write_upload_accepts_legacy_temperpaw_image_marker() {
         let upload = write_upload_from_value(
             "/tmp/thumbnail.png",
             &json!({
-                "__openpaw_image": true,
+                "__temperpaw_image": true,
                 "media_type": "image/png",
                 "base64_data": PNG_1X1
             }),

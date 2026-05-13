@@ -14,6 +14,72 @@ use wasm_helpers::{
     entity_field_str, find_connected_channel_by_external_id, list_entities, resolve_temper_api_url,
 };
 
+#[derive(Clone, Copy)]
+struct ApprovalObservability<'a> {
+    operation: &'a str,
+    outcome: &'a str,
+    delivery: &'a str,
+    reason: &'a str,
+    decision_id: &'a str,
+    session_id: &'a str,
+    agent_id: &'a str,
+    parent_session_id: &'a str,
+    active_plan_id: &'a str,
+    bound_agent_id: &'a str,
+    channel_id: &'a str,
+    thread_id: &'a str,
+    action: &'a str,
+    http_status: Option<u16>,
+}
+
+impl<'a> Default for ApprovalObservability<'a> {
+    fn default() -> Self {
+        Self {
+            operation: "",
+            outcome: "",
+            delivery: "",
+            reason: "",
+            decision_id: "",
+            session_id: "",
+            agent_id: "",
+            parent_session_id: "",
+            active_plan_id: "",
+            bound_agent_id: "",
+            channel_id: "",
+            thread_id: "",
+            action: "",
+            http_status: None,
+        }
+    }
+}
+
+fn approval_observability_fields(event: ApprovalObservability<'_>) -> Value {
+    json!({
+        "observability_event": "temperpaw.approval",
+        "decision_id": event.decision_id,
+        "session_id": event.session_id,
+        "agent_id": event.agent_id,
+        "parent_session_id": event.parent_session_id,
+        "active_plan_id": event.active_plan_id,
+        "approval": {
+            "operation": event.operation,
+            "outcome": event.outcome,
+            "delivery": event.delivery,
+            "reason": event.reason,
+            "action": event.action,
+            "bound_agent_id": event.bound_agent_id,
+            "channel_id": event.channel_id,
+            "thread_id": event.thread_id,
+            "http_status": event.http_status.unwrap_or_default(),
+        }
+    })
+}
+
+fn log_approval_event(ctx: &Context, level: &str, message: &str, event: ApprovalObservability<'_>) {
+    let fields = approval_observability_fields(event);
+    let _ = ctx.log_structured(level, message, &fields);
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
     let result = (|| -> Result<(), String> {
@@ -54,6 +120,24 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
 
         if decision_id.is_empty() {
             if !active_plan_id.is_empty() {
+                log_approval_event(
+                    &ctx,
+                    "info",
+                    "temperpaw.approval skipped",
+                    ApprovalObservability {
+                        operation: "resolve_context",
+                        outcome: "skipped",
+                        delivery: "not_applicable",
+                        reason: "plan_review_notification_not_handled_here",
+                        decision_id,
+                        session_id,
+                        agent_id,
+                        parent_session_id,
+                        active_plan_id,
+                        action: action_desc,
+                        ..ApprovalObservability::default()
+                    },
+                );
                 ctx.log(
                     "info",
                     &format!(
@@ -71,12 +155,69 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 return Ok(());
             }
 
+            log_approval_event(
+                &ctx,
+                "warn",
+                "temperpaw.approval missing decision",
+                ApprovalObservability {
+                    operation: "resolve_context",
+                    outcome: "error",
+                    delivery: "not_applicable",
+                    reason: "missing_pending_decision_id",
+                    decision_id,
+                    session_id,
+                    agent_id,
+                    parent_session_id,
+                    active_plan_id,
+                    action: action_desc,
+                    ..ApprovalObservability::default()
+                },
+            );
             return Err("notify_approval: missing pending_decision_id".to_string());
         }
 
         // Register callback before notifying humans so an approval click cannot
         // outpace callback wiring and strand the waiting session.
-        register_gd_callback(&ctx, &temper_api_url, tenant, session_id, decision_id)?;
+        match register_gd_callback(&ctx, &temper_api_url, tenant, session_id, decision_id) {
+            Ok(()) => log_approval_event(
+                &ctx,
+                "info",
+                "temperpaw.approval callback registered",
+                ApprovalObservability {
+                    operation: "register_callback",
+                    outcome: "success",
+                    delivery: "not_applicable",
+                    decision_id,
+                    session_id,
+                    agent_id,
+                    parent_session_id,
+                    active_plan_id,
+                    action: action_desc,
+                    ..ApprovalObservability::default()
+                },
+            ),
+            Err(error) => {
+                log_approval_event(
+                    &ctx,
+                    "warn",
+                    "temperpaw.approval callback registration failed",
+                    ApprovalObservability {
+                        operation: "register_callback",
+                        outcome: "error",
+                        delivery: "not_applicable",
+                        reason: "register_callback_failed",
+                        decision_id,
+                        session_id,
+                        agent_id,
+                        parent_session_id,
+                        active_plan_id,
+                        action: action_desc,
+                        ..ApprovalObservability::default()
+                    },
+                );
+                return Err(error);
+            }
+        }
 
         // Find the ChannelSession for this agent. Sessions without a channel
         // binding can still be approved via dashboard/API, so do not fail the
@@ -90,6 +231,24 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             parent_session_id,
         )?;
         let Some((session, bound_agent_id)) = session else {
+            log_approval_event(
+                &ctx,
+                "warn",
+                "temperpaw.approval delivery skipped",
+                ApprovalObservability {
+                    operation: "notify_human",
+                    outcome: "skipped",
+                    delivery: "skipped",
+                    reason: "no_channel_session",
+                    decision_id,
+                    session_id,
+                    agent_id,
+                    parent_session_id,
+                    active_plan_id,
+                    action: action_desc,
+                    ..ApprovalObservability::default()
+                },
+            );
             ctx.log(
                 "warn",
                 &format!(
@@ -108,6 +267,25 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             return Ok(());
         };
         if bound_agent_id != agent_id {
+            log_approval_event(
+                &ctx,
+                "info",
+                "temperpaw.approval using parent channel session",
+                ApprovalObservability {
+                    operation: "resolve_channel_session",
+                    outcome: "success",
+                    delivery: "not_applicable",
+                    reason: "using_parent_channel_session",
+                    decision_id,
+                    session_id,
+                    agent_id,
+                    parent_session_id,
+                    active_plan_id,
+                    bound_agent_id: &bound_agent_id,
+                    action: action_desc,
+                    ..ApprovalObservability::default()
+                },
+            );
             ctx.log(
                 "info",
                 &format!(
@@ -119,6 +297,27 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         let channel_id = entity_field_str(&session, &["ChannelId", "channel_id"]).unwrap_or("");
         let thread_id = entity_field_str(&session, &["ThreadId", "thread_id"]).unwrap_or("");
         if channel_id.is_empty() || thread_id.is_empty() {
+            log_approval_event(
+                &ctx,
+                "warn",
+                "temperpaw.approval delivery skipped",
+                ApprovalObservability {
+                    operation: "notify_human",
+                    outcome: "skipped",
+                    delivery: "skipped",
+                    reason: "missing_channel_binding",
+                    decision_id,
+                    session_id,
+                    agent_id,
+                    parent_session_id,
+                    active_plan_id,
+                    bound_agent_id: &bound_agent_id,
+                    channel_id,
+                    thread_id,
+                    action: action_desc,
+                    ..ApprovalObservability::default()
+                },
+            );
             ctx.log(
                 "warn",
                 &format!(
@@ -141,6 +340,27 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         let Some(channel) =
             find_connected_channel_by_external_id(&ctx, &temper_api_url, tenant, channel_id)?
         else {
+            log_approval_event(
+                &ctx,
+                "warn",
+                "temperpaw.approval delivery skipped",
+                ApprovalObservability {
+                    operation: "notify_human",
+                    outcome: "skipped",
+                    delivery: "skipped",
+                    reason: "channel_not_connected",
+                    decision_id,
+                    session_id,
+                    agent_id,
+                    parent_session_id,
+                    active_plan_id,
+                    bound_agent_id: &bound_agent_id,
+                    channel_id,
+                    thread_id,
+                    action: action_desc,
+                    ..ApprovalObservability::default()
+                },
+            );
             ctx.log(
                 "warn",
                 &format!(
@@ -160,6 +380,27 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         };
         let webhook_url = entity_field_str(&channel, &["webhook_url", "WebhookUrl"]).unwrap_or("");
         if webhook_url.is_empty() {
+            log_approval_event(
+                &ctx,
+                "warn",
+                "temperpaw.approval delivery skipped",
+                ApprovalObservability {
+                    operation: "notify_human",
+                    outcome: "skipped",
+                    delivery: "skipped",
+                    reason: "missing_webhook_url",
+                    decision_id,
+                    session_id,
+                    agent_id,
+                    parent_session_id,
+                    active_plan_id,
+                    bound_agent_id: &bound_agent_id,
+                    channel_id,
+                    thread_id,
+                    action: action_desc,
+                    ..ApprovalObservability::default()
+                },
+            );
             ctx.log(
                 "warn",
                 &format!(
@@ -182,6 +423,27 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             match fetch_pending_decision(&ctx, &temper_api_url, tenant, decision_id) {
                 Ok(decision) => decision,
                 Err(error) => {
+                    log_approval_event(
+                        &ctx,
+                        "warn",
+                        "temperpaw.approval decision lookup failed",
+                        ApprovalObservability {
+                            operation: "lookup_decision",
+                            outcome: "error",
+                            delivery: "not_applicable",
+                            reason: "decision_lookup_failed",
+                            decision_id,
+                            session_id,
+                            agent_id,
+                            parent_session_id,
+                            active_plan_id,
+                            bound_agent_id: &bound_agent_id,
+                            channel_id,
+                            thread_id,
+                            action: action_desc,
+                            ..ApprovalObservability::default()
+                        },
+                    );
                     ctx.log(
                         "warn",
                         &format!(
@@ -298,6 +560,27 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 resp.status,
                 &resp.body[..resp.body.len().min(200)]
             );
+            log_approval_event(
+                &ctx,
+                "warn",
+                "temperpaw.approval delivery failed",
+                ApprovalObservability {
+                    operation: "notify_human",
+                    outcome: "error",
+                    delivery: "failed",
+                    reason: "webhook_http_error",
+                    decision_id,
+                    session_id,
+                    agent_id,
+                    parent_session_id,
+                    active_plan_id,
+                    bound_agent_id: &bound_agent_id,
+                    channel_id,
+                    thread_id,
+                    action: action_desc,
+                    http_status: Some(resp.status),
+                },
+            );
             ctx.log("warn", &failure);
             set_success_result(
                 "",
@@ -311,6 +594,27 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             return Ok(());
         }
 
+        log_approval_event(
+            &ctx,
+            "info",
+            "temperpaw.approval delivery notified",
+            ApprovalObservability {
+                operation: "notify_human",
+                outcome: "success",
+                delivery: "notified",
+                decision_id,
+                session_id,
+                agent_id,
+                parent_session_id,
+                active_plan_id,
+                bound_agent_id: &bound_agent_id,
+                channel_id,
+                thread_id,
+                action: action_desc,
+                http_status: Some(resp.status),
+                ..ApprovalObservability::default()
+            },
+        );
         ctx.log(
             "info",
             &format!(
@@ -682,6 +986,39 @@ mod tests {
         assert_eq!(
             filters[0],
             "$filter=Status eq 'Active' and session_entity_id eq 'ss''oops'&$top=1"
+        );
+    }
+
+    #[test]
+    fn approval_observability_fields_are_structured_and_do_not_include_message_body() {
+        let fields = approval_observability_fields(ApprovalObservability {
+            operation: "notify_human",
+            outcome: "error",
+            delivery: "failed",
+            reason: "webhook_http_error",
+            decision_id: "pd-123",
+            session_id: "ss-456",
+            agent_id: "aj-789",
+            parent_session_id: "ss-parent",
+            active_plan_id: "pl-111",
+            bound_agent_id: "aj-bound",
+            channel_id: "ch-slack",
+            thread_id: "thread-1",
+            action: "temper.write",
+            http_status: Some(500),
+        });
+
+        assert_eq!(fields["observability_event"], "temperpaw.approval");
+        assert_eq!(fields["decision_id"], "pd-123");
+        assert_eq!(fields["session_id"], "ss-456");
+        assert_eq!(fields["agent_id"], "aj-789");
+        assert_eq!(fields["approval"]["operation"], "notify_human");
+        assert_eq!(fields["approval"]["outcome"], "error");
+        assert_eq!(fields["approval"]["delivery"], "failed");
+        assert_eq!(fields["approval"]["http_status"], 500);
+        assert!(
+            !fields.to_string().contains("Permission Required"),
+            "approval observability must not duplicate human notification bodies"
         );
     }
 }

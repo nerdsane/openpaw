@@ -1,1 +1,2 @@
-FROM ghcr.io/nerdsane/temperpaw:edge
+ARG IMAGE_TAG=latest
+FROM ghcr.io/nerdsane/temperpaw:${IMAGE_TAG}

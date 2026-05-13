@@ -43,11 +43,11 @@ cat >"$BASELINE_SUMMARY" <<'JSON'
   "railway": {
     "candidates": [
       {
-        "project_id": "project-openpaw",
-        "project_name": "openpaw-seshendranalla",
+        "project_id": "project-temperpaw",
+        "project_name": "temperpaw-seshendranalla",
         "likely_match": true,
         "environments": [{ "environment_name": "production" }],
-        "services": [{ "service_name": "openpaw" }]
+        "services": [{ "service_name": "temperpaw" }]
       }
     ]
   }
@@ -73,11 +73,11 @@ cat >"$CURRENT_SUMMARY" <<'JSON'
   "railway": {
     "candidates": [
       {
-        "project_id": "project-openpaw",
-        "project_name": "openpaw-seshendranalla",
+        "project_id": "project-temperpaw",
+        "project_name": "temperpaw-seshendranalla",
         "likely_match": true,
         "environments": [{ "environment_name": "production" }],
-        "services": [{ "service_name": "openpaw" }]
+        "services": [{ "service_name": "temperpaw" }]
       },
       {
         "project_id": "project-temper",

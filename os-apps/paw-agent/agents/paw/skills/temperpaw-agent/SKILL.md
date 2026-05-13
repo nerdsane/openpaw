@@ -185,10 +185,88 @@ temper.run_coding_agent({agent_type: "...", task: "...", workdir: "/path", backg
 
 ### External Integrations (credential-gated)
 ```
-temper.datadog_query({query_kind: "monitor_status"|"metrics_query", ...})
+temper.datadog_query({query_kind: "monitor_status"|"metrics_query"|"logs_query"|"trace_query"|"llmobs_query"|"dbm_query"|"profiling_query", ...})
 temper.railway({action: "deployment_status"|"redeploy", ...})
 temper.vercel({action: "deployment_status"|"list_deployments", ...})
 ```
+
+## TemperPaw Observability
+
+Datadog is the operational source of truth for live TemperPaw behavior. Use it
+with Temper entity state, not as a disconnected graph. The same fields should be
+readable by humans and agents.
+
+### Agent session diagnosis
+
+Search for the session root span `temperpaw.agent.session`, then pivot by
+`session_id`, `managed_session_id`, `inner_session_id`, `dd.trace_id`, and
+`dd.span_id`. A good session trace is chronological, expandable, and
+non-redundant: it shows turns, context preparation, entity actions, WASM
+integrations, LLM calls, tool calls, sandbox exec/file operations, approvals,
+recovery, Postgres DBM spans, and terminal state without a flood of tiny
+duplicate spans.
+
+For WASM diagnosis, use `wasm_module`, `workflow_step`, `progress.kind`,
+`wasm_guest.progress`, and the host-boundary spans
+`wasm.host.get_secret`, `wasm.host.evaluate_spec`,
+`wasm.host.connect_call`, `wasm.host.http_stream`,
+`wasm.host.cache_contains`, `wasm.host.cache_to_stream`,
+`wasm.host.cache_from_stream`, `wasm.host.read_field`, and
+`wasm.host.hash_stream`. These are deliberate host-side boundary spans and
+events, not inside-WASM APM spans.
+
+### Datadog surfaces to inspect
+
+- Metrics and monitors: start with `service:temperpaw`, `env`, `version`, and
+  owner tags. Use monitors to find scope, then move into traces or logs.
+- Logs: use facets such as `tenant`, `entity_type`, `entity_id`,
+  `action_name`, `state`, `session_id`, `managed_session_id`,
+  `inner_session_id`, `workspace_id`, `file_id`, `content_hash`, `tool.name`,
+  `gen_ai.operation.name`, `dd.trace_id`, and `dd.span_id`.
+- Traces: use `dd.trace_id` and `dd.span_id` to pivot between APM, logs, and
+  entity/action state. Prefer span events or structured logs for high-frequency
+  detail.
+- TemperFS/blob services: for plan documents, prepared context, screenshots,
+  app docs, and other file-backed data, query `observability_event=temperpaw.blob`
+  or `observability_event=temperpaw.fs` and pivot by `workspace_id`, `file_id`,
+  `content_hash`, `fs.operation`, `fs.path`, and `blob.operation`; compare
+  cache-hit logs with `temper_blob_transport_wait_duration_ms` before blaming
+  the model or sandbox.
+- Sandbox & Modal Bridge: query `observability_event=temperpaw.sandbox` and
+  pivot by `sandbox_provider`, `sandbox_id`, `sandbox.operation`,
+  `sandbox.exit_code`, `sandbox.status_code`, `sandbox.workdir`,
+  `modal_bridge.operation`, `modal_bridge.endpoint`, and
+  `modal_bridge.duration_ms`; compare with `temper_wasm_host_http_duration_ms` /
+  `temper_wasm_host_http_requests_total` using `call_kind:text`, and verify
+  `modal_bridge_url` when Modal calls fail before sandbox creation returns an id.
+- Channel transports: query `observability_event=temperpaw.transport` and pivot
+  by `transport.name`, `transport.operation`, `transport.outcome`,
+  `transport.channel_id`, and `transport.message_id`; when
+  `transport.operation=receive_message` fails, debug Slack/Discord ingress and
+  `Channel.ReceiveMessage` dispatch before blaming the agent session.
+- Webhook triggers: query `observability_event=temperpaw.webhook` and pivot by
+  `webhook.route_key`, `webhook.event_id`, `webhook.operation`,
+  `webhook.outcome`, and `webhook.status`; use the created `WebhookEvent`
+  before investigating downstream channel or agent failures.
+- Governance approvals: query `observability_event=temperpaw.approval` and
+  pivot by `decision_id`, `session_id`, `agent_id`, `approval.operation`,
+  `approval.outcome`, `approval.delivery`, `approval.reason`, and
+  `approval.http_status`; if human notification fails, pivot into channel
+  transport logs for the same time window.
+- LLM Observability: inspect `gen_ai.operation.name`, provider, model, latency,
+  token usage, errors, prompts/completions when safe, and agent/tool/workflow
+  structure. If available, use `get_llmobs_agent_loop` to reconstruct what the
+  agent did in order.
+- Database Monitoring: use Postgres DBM and APM correlation to tie slow queries,
+  missing indexes, lock waits, or missing DB telemetry back to service, entity,
+  action, session, and trace.
+- Profiling: check profiling uploads and profiler views before diagnosing CPU,
+  allocation, lock, or wall-time bottlenecks from traces alone.
+
+If Datadog shows live telemetry under a legacy service name, missing
+`temperpaw.agent.session` roots, uncorrelated LLM spans, missing Postgres DBM, or
+missing profiling uploads, report that as an observability gap before claiming
+the system is healthy.
 
 ### Completion
 ```

@@ -46,12 +46,12 @@ DATADOG_PATROL_RESULT_JSON_BEGIN
 {
   "summary": "One active Discord-facing error pattern needs follow-up.",
   "evidence_scope": [
-    {"surface":"monitors","query":"searched OpenPaw and Temper monitor states"},
+    {"surface":"monitors","query":"searched TemperPaw and Temper monitor states"},
     {"surface":"logs","query":"searched recent production errors"},
     {"surface":"traces","query":"checked APM traces for Discord request failures"},
     {"surface":"metrics","query":"checked error-rate and latency metrics"},
     {"surface":"incidents","query":"checked open incidents"},
-    {"surface":"dashboards","query":"reviewed OpenPaw runtime dashboards"}
+    {"surface":"dashboards","query":"reviewed TemperPaw runtime dashboards"}
   ],
   "findings": [
     {
@@ -61,7 +61,7 @@ DATADOG_PATROL_RESULT_JSON_BEGIN
       "source_url": "https://app.datadoghq.com/logs?query=discord",
       "datadog_monitor_id": "",
       "fingerprint": "datadog:mcp:discord-trace-leak",
-      "affected_services": ["openpaw-production"],
+      "affected_services": ["temperpaw-production"],
       "evidence_json": {"surface":"logs","sample_count":3},
       "work_summary": "Stop raw trace leakage in Discord DM replies",
       "work_detail": "Reproduce from Datadog log evidence, add regression coverage, and verify Discord-facing output is sanitized.",
@@ -122,7 +122,7 @@ DATADOG_PATROL_RESULT_JSON_END
 #[test]
 fn datadog_patrol_classifier_ignores_followup_and_rework_prompts() {
     let patrol_task = "You are the local Codex Datadog MCP Patrol agent for TemperPaw paw-patrol.\n\nPatrolRun: en-patrol\nPatrolKind: datadog_observability";
-    let implementer_task = "You are the local Codex implementer for a Paw Patrol Datadog MCP observability finding.\n\nPatrolRun: en-patrol\nPatrol kind: datadog_observability\nFinding: OpenPaw monitor coverage is degraded by No Data states";
+    let implementer_task = "You are the local Codex implementer for a Paw Patrol Datadog MCP observability finding.\n\nPatrolRun: en-patrol\nPatrol kind: datadog_observability\nFinding: TemperPaw monitor coverage is degraded by No Data states";
     let rework_task = "You are the local Codex implementer for reviewer-requested rework.\n\nFactoryCase: \nWorkCycle: wc-patrol\nSummary: Risk Patrol\n\nOriginal task:\nYou are the local Codex Datadog Patrol agent for TemperPaw paw-patrol.\n\nPatrolRun: en-patrol\nPatrolKind: datadog_observability";
 
     assert_eq!(

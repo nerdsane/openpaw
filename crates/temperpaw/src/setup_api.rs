@@ -125,7 +125,7 @@ fn secrets_schema() -> Vec<SecretSchema> {
             category: "llm",
             label: "OpenAI Codex Access Token",
             required: false,
-            description: "OpenPaw-managed ChatGPT/Codex subscription OAuth access token",
+            description: "TemperPaw-managed ChatGPT/Codex subscription OAuth access token",
         },
         SecretSchema {
             key: "openrouter_api_key",
@@ -2602,7 +2602,7 @@ mod tests {
             .expect("canonical Codex access token schema");
 
         assert_eq!(codex.label, "OpenAI Codex Access Token");
-        assert!(codex.description.contains("OpenPaw-managed"));
+        assert!(codex.description.contains("TemperPaw-managed"));
         assert!(!codex.description.contains("~/.codex"));
     }
 }

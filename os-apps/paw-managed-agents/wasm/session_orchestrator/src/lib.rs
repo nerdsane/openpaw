@@ -2,10 +2,11 @@
 mod common;
 
 use common::{
-    create_entity, create_session_event, entity_id, escape_odata_string, field_i64, field_string,
-    get_entity, is_terminal_status, managed_agent_provider, managed_environment_sandbox_params,
-    managed_tools_enabled, next_session_event_sequence, pending_user_prompt, post_absolute_action,
-    post_action, status_of, system_json_headers,
+    agent_session_span_hint_headers, create_entity, create_session_event, entity_id,
+    escape_odata_string, field_i64, field_string, get_entity, is_terminal_status,
+    log_managed_session_event, managed_agent_provider, managed_environment_sandbox_params,
+    managed_session_event_context, managed_tools_enabled, next_session_event_sequence, pending_user_prompt,
+    post_absolute_action, post_action, status_of, system_json_headers, with_session_event_context,
 };
 use temper_wasm_sdk::prelude::*;
 use wasm_helpers::resolve_temper_api_url;
@@ -151,9 +152,18 @@ fn start_or_resume(
             &existing_inner_session_id,
         ) {
             if !is_terminal_status(&status_of(&existing_inner)) {
+                let session_headers = agent_session_span_hint_headers(
+                    headers,
+                    session_id,
+                    &existing_inner_session_id,
+                    &managed_agent_id,
+                    &environment_id,
+                    &parent_session_id,
+                    "ManagedAgents.ResumeSession",
+                );
                 let _ = post_absolute_action(
                     ctx,
-                    headers,
+                    &session_headers,
                     &format!(
                         "{base_url}/tdata/Sessions('{existing_inner_session_id}')/TemperPaw.Steer"
                     ),
@@ -163,7 +173,19 @@ fn start_or_resume(
                     }),
                     "steer inner session",
                 )?;
-                record_running_event(ctx, base_url, headers, session_id)?;
+                record_running_event(
+                    ctx,
+                    fields,
+                    base_url,
+                    headers,
+                    session_id,
+                    &existing_inner_session_id,
+                    &inner_agent_id,
+                    &managed_agent_id,
+                    &parent_session_id,
+                    &environment_id,
+                    "ManagedAgents.ResumeSession",
+                )?;
                 temper_wasm_sdk::set_success_result(
                     "InnerSessionReady",
                     &json!({
@@ -251,15 +273,44 @@ fn start_or_resume(
         configure_body["workspace_id"] = json!(workspace_id);
     }
 
+    let session_headers = agent_session_span_hint_headers(
+        headers,
+        session_id,
+        &inner_session_id,
+        &managed_agent_id,
+        &environment_id,
+        &parent_session_id,
+        if is_resume {
+            "ManagedAgents.ResumeSession"
+        } else {
+            "ManagedAgents.StartSession"
+        },
+    );
     let _ = post_absolute_action(
         ctx,
-        headers,
+        &session_headers,
         &format!("{base_url}/tdata/Sessions('{inner_session_id}')/TemperPaw.Configure"),
         &configure_body,
         "configure inner session",
     )?;
 
-    record_running_event(ctx, base_url, headers, session_id)?;
+    record_running_event(
+        ctx,
+        fields,
+        base_url,
+        headers,
+        session_id,
+        &inner_session_id,
+        &inner_agent_id,
+        &managed_agent_id,
+        &parent_session_id,
+        &environment_id,
+        if is_resume {
+            "ManagedAgents.ResumeSession"
+        } else {
+            "ManagedAgents.StartSession"
+        },
+    )?;
     temper_wasm_sdk::set_success_result(
         "InnerSessionReady",
         &json!({
@@ -434,11 +485,28 @@ fn ensure_inner_agent(
 
 fn record_running_event(
     ctx: &Context,
+    fields: &Value,
     base_url: &str,
     headers: &[(String, String)],
     session_id: &str,
+    inner_session_id: &str,
+    inner_agent_id: &str,
+    managed_agent_id: &str,
+    parent_session_id: &str,
+    environment_id: &str,
+    action_name: &str,
 ) -> Result<(), String> {
     let sequence = next_session_event_sequence(ctx, base_url, headers, session_id)?;
+    let event_fields = running_event_content(
+        fields,
+        session_id,
+        inner_session_id,
+        inner_agent_id,
+        managed_agent_id,
+        parent_session_id,
+        environment_id,
+        action_name,
+    );
     let _ = create_session_event(
         ctx,
         base_url,
@@ -446,9 +514,44 @@ fn record_running_event(
         session_id,
         sequence,
         "session.status_running",
-        json!({}),
+        event_fields.clone(),
     )?;
+    log_managed_session_event(ctx, &event_fields, "session.status_running", sequence, &event_fields);
     Ok(())
+}
+
+fn running_event_content(
+    fields: &Value,
+    managed_session_id: &str,
+    inner_session_id: &str,
+    inner_agent_id: &str,
+    managed_agent_id: &str,
+    parent_session_id: &str,
+    environment_id: &str,
+    action_name: &str,
+) -> Value {
+    let context = managed_session_event_context(
+        fields,
+        managed_session_id,
+        inner_session_id,
+        inner_agent_id,
+        managed_agent_id,
+        parent_session_id,
+        environment_id,
+        action_name,
+    );
+    with_session_event_context(&context, json!({
+        "Content": serde_json::to_string(&json!({
+            "observability_event": "temperpaw.agent.session",
+            "managed_session_id": managed_session_id,
+            "inner_session_id": inner_session_id,
+            "inner_agent_id": inner_agent_id,
+            "managed_agent_id": managed_agent_id,
+            "parent_session_id": parent_session_id,
+            "environment_id": environment_id,
+            "action_name": action_name,
+        })).unwrap_or_else(|_| "{}".to_string()),
+    }))
 }
 
 trait Pipe: Sized {
@@ -458,3 +561,47 @@ trait Pipe: Sized {
 }
 
 impl<T> Pipe for T {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn running_event_content_records_bridge_observability_context() {
+        let content = running_event_content(
+            &json!({ "ParentSessionId": "parent-session-1" }),
+            "managed-session-1",
+            "inner-session-1",
+            "inner-agent-1",
+            "managed-agent-1",
+            "parent-session-1",
+            "environment-1",
+            "ManagedAgents.StartSession",
+        );
+        let raw = content["Content"].as_str().expect("content should be JSON");
+        let parsed: Value = serde_json::from_str(raw).expect("content JSON should parse");
+
+        assert_eq!(
+            content["ObservabilityEvent"],
+            "temperpaw.agent.session"
+        );
+        assert_eq!(content["ManagedSessionId"], "managed-session-1");
+        assert_eq!(content["InnerSessionId"], "inner-session-1");
+        assert_eq!(content["InnerAgentId"], "inner-agent-1");
+        assert_eq!(content["ManagedAgentId"], "managed-agent-1");
+        assert_eq!(content["ParentSessionId"], "parent-session-1");
+        assert_eq!(content["EnvironmentId"], "environment-1");
+        assert_eq!(content["ActionName"], "ManagedAgents.StartSession");
+        assert_eq!(
+            parsed["observability_event"],
+            "temperpaw.agent.session"
+        );
+        assert_eq!(parsed["managed_session_id"], "managed-session-1");
+        assert_eq!(parsed["inner_session_id"], "inner-session-1");
+        assert_eq!(parsed["inner_agent_id"], "inner-agent-1");
+        assert_eq!(parsed["managed_agent_id"], "managed-agent-1");
+        assert_eq!(parsed["parent_session_id"], "parent-session-1");
+        assert_eq!(parsed["environment_id"], "environment-1");
+        assert_eq!(parsed["action_name"], "ManagedAgents.StartSession");
+    }
+}

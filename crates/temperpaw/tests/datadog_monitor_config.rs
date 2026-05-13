@@ -23,22 +23,22 @@ fn monitors_by_name(monitors: &[Value]) -> HashMap<&str, &Value> {
 }
 
 #[test]
-fn openpaw_monitors_use_current_emitted_metrics_instead_of_stale_trace_custom_metrics() {
+fn temperpaw_monitors_use_current_emitted_metrics_instead_of_stale_trace_custom_metrics() {
     let monitors = load_monitors();
     let by_name = monitors_by_name(&monitors);
 
     let expected = [
         (
-            "[OpenPaw] Error Rate Spike",
-            "sum(last_15m):default_zero(sum:openpaw.logs.errors{service:openpaw}.as_count()) / sum:temper_cedar_evaluations_total{service:openpaw}.as_count() > 0.1",
+            "[TemperPaw] Error Rate Spike",
+            "sum(last_15m):default_zero(sum:temperpaw.logs.errors{service:temperpaw}.as_count()) / sum:temper_cedar_evaluations_total{service:temperpaw}.as_count() > 0.1",
         ),
         (
-            "[OpenPaw] Request Latency Spike (P95)",
-            "avg(last_15m):avg:temper_dispatch_ask_latency_ms{service:openpaw} > 5000",
+            "[TemperPaw] Request Latency Spike (P95)",
+            "avg(last_15m):avg:temper_dispatch_ask_latency_ms{service:temperpaw} > 5000",
         ),
         (
-            "[OpenPaw] No Traffic",
-            "sum(last_15m):default_zero(sum:temper_cedar_evaluations_total{service:openpaw}.as_count()) < 1",
+            "[TemperPaw] No Traffic",
+            "sum(last_15m):default_zero(sum:temper_cedar_evaluations_total{service:temperpaw}.as_count()) < 1",
         ),
     ];
 
@@ -52,8 +52,8 @@ fn openpaw_monitors_use_current_emitted_metrics_instead_of_stale_trace_custom_me
     }
 
     for name in [
-        "[OpenPaw] Error Rate Spike",
-        "[OpenPaw] Request Latency Spike (P95)",
+        "[TemperPaw] Error Rate Spike",
+        "[TemperPaw] Request Latency Spike (P95)",
     ] {
         assert_eq!(
             by_name[name]["options"]["on_missing_data"].as_str(),
@@ -69,7 +69,7 @@ fn openpaw_monitors_use_current_emitted_metrics_instead_of_stale_trace_custom_me
         .join("\n");
     assert!(
         !all_queries.contains("trace.custom"),
-        "trace.custom is not emitted for service:openpaw and must not back monitors"
+        "trace.custom is not emitted for service:temperpaw and must not back monitors"
     );
 }
 
@@ -80,7 +80,7 @@ fn monitor_queries_use_current_runtime_metric_names_and_zero_fill_sparse_counter
 
     assert_eq!(
         by_name["[Temper] Active Entities Drop"]["query"].as_str(),
-        Some("min(last_10m):avg:temper_active_actors{service:openpaw}.rollup(avg, 60) < 1")
+        Some("min(last_10m):avg:temper_active_actors{service:temperpaw}.rollup(avg, 60) < 1")
     );
 
     let sparse_counter_monitors = [
@@ -95,12 +95,10 @@ fn monitor_queries_use_current_runtime_metric_names_and_zero_fill_sparse_counter
         "[Temper] Unexpected Mailbox Drops (post-P4)",
         "[Temper] Profiler Upload Failures",
         "[Temper] Session Memory Externalization Spike",
-        "[Temper] State Timeout Reset Rate Drop",
-        "[Temper] Profiler Uploads Stalled",
         "[Temper] Integration Silent Exit (ADR-0056)",
         "[Temper] Hydration Re-arm Overdue Spike",
         "[Temper] Turso Write Retry Exhaustion",
-        "[OpenPaw] Session Phase Budget Exceeded",
+        "[TemperPaw] Session Phase Budget Exceeded",
         "[Temper] Query Projection Update Errors",
     ];
 
@@ -124,11 +122,11 @@ fn platform_dashboard_uses_live_runtime_metrics_instead_of_stale_trace_custom_qu
 
     assert!(
         !dashboard_json.contains("trace.custom"),
-        "trace.custom is not emitted for service:openpaw and must not back dashboard widgets"
+        "trace.custom is not emitted for service:temperpaw and must not back dashboard widgets"
     );
     assert!(
         !dashboard_json.contains("trace.wasm.invoke"),
-        "trace.wasm.invoke migration metrics are not deployable/live for service:openpaw"
+        "trace.wasm.invoke migration metrics are not deployable/live for service:temperpaw"
     );
     assert!(
         !dashboard_json.contains("temper_active_entities"),
@@ -136,12 +134,12 @@ fn platform_dashboard_uses_live_runtime_metrics_instead_of_stale_trace_custom_qu
     );
     assert!(
         dashboard_json.contains(
-            "top(sum:temper_cedar_evaluations_total{service:openpaw} by {decision}.as_count(), 10, 'sum', 'desc')"
+            "top(sum:temper_cedar_evaluations_total{service:temperpaw} by {decision}.as_count(), 10, 'sum', 'desc')"
         ),
         "Dashboard should replace the stale span-resource toplist with live Cedar runtime traffic"
     );
     assert!(
-        dashboard_json.contains("avg:temper_active_actors{service:openpaw}"),
+        dashboard_json.contains("avg:temper_active_actors{service:temperpaw}"),
         "Dashboard should use the live active actor gauge for runtime hydration"
     );
     assert!(
@@ -150,12 +148,12 @@ fn platform_dashboard_uses_live_runtime_metrics_instead_of_stale_trace_custom_qu
     );
     assert!(
         dashboard_json.contains(
-            "avg:temper_dispatch_ask_latency_ms{service:openpaw} by {entity_type,action}"
+            "avg:temper_dispatch_ask_latency_ms{service:temperpaw} by {entity_type,action}"
         ),
         "Dashboard should replace trace.custom dispatch phase latency with emitted dispatch latency"
     );
     assert!(
-        dashboard_json.contains("avg:temper_wasm_invocation_duration_ms{service:openpaw} by {trigger_action}.rollup(avg, 60)"),
+        dashboard_json.contains("avg:temper_wasm_invocation_duration_ms{service:temperpaw} by {trigger_action}.rollup(avg, 60)"),
         "Dashboard should use emitted WASM invocation duration instead of trace.wasm.invoke overlays"
     );
 }

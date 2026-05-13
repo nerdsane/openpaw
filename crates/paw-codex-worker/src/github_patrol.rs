@@ -110,7 +110,7 @@ async fn investigate_github_with_codex(
 
 fn github_patrol_prompt(patrol_run_id: &str, worker_run: &WorkerRunState) -> String {
     format!(
-        r##"You are the GitHub repository Risk Patrol agent for TemperPaw / OpenPaw.
+        r##"You are the GitHub repository Risk Patrol agent for TemperPaw.
 
 PatrolRun: {patrol_run_id}
 WorkerRun: {worker_run_id}

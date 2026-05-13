@@ -1,5 +1,5 @@
 {
-  "description": "Official Datadog facets for OpenPaw / Temper logs (ADR-0054). Registering a facet makes a JSON attribute searchable via the Log Explorer dropdown and usable as a log-based metric group-by.",
+  "description": "Official Datadog facets for TemperPaw / Temper logs (ADR-0054). Registering a facet makes a JSON attribute searchable via the Log Explorer dropdown and usable as a log-based metric group-by.",
   "facets": [
     {
       "path": "tenant",
@@ -19,6 +19,411 @@
     {
       "path": "action_name",
       "name": "Action Name",
+      "type": "string"
+    },
+    {
+      "path": "trigger_action",
+      "name": "Trigger Action",
+      "type": "string"
+    },
+    {
+      "path": "session_event.kind",
+      "name": "Session Event Kind",
+      "type": "string"
+    },
+    {
+      "path": "session_event.sequence",
+      "name": "Session Event Sequence",
+      "type": "integer"
+    },
+    {
+      "path": "session_event.stop_reason",
+      "name": "Session Event Stop Reason",
+      "type": "string"
+    },
+    {
+      "path": "session_event.termination_reason",
+      "name": "Session Event Termination Reason",
+      "type": "string"
+    },
+    {
+      "path": "decision_id",
+      "name": "Decision ID",
+      "type": "string"
+    },
+    {
+      "path": "state",
+      "name": "State",
+      "type": "string"
+    },
+    {
+      "path": "from_status",
+      "name": "From Status",
+      "type": "string"
+    },
+    {
+      "path": "to_status",
+      "name": "To Status",
+      "type": "string"
+    },
+    {
+      "path": "observability_event",
+      "name": "Observability Event",
+      "type": "string"
+    },
+    {
+      "path": "session_id",
+      "name": "Session ID",
+      "type": "string"
+    },
+    {
+      "path": "managed_session_id",
+      "name": "Managed Session ID",
+      "type": "string"
+    },
+    {
+      "path": "inner_session_id",
+      "name": "Inner Session ID",
+      "type": "string"
+    },
+    {
+      "path": "parent_session_id",
+      "name": "Parent Session ID",
+      "type": "string"
+    },
+    {
+      "path": "turn_id",
+      "name": "Turn ID",
+      "type": "string"
+    },
+    {
+      "path": "agent_id",
+      "name": "Agent ID",
+      "type": "string"
+    },
+    {
+      "path": "inner_agent_id",
+      "name": "Inner Agent ID",
+      "type": "string"
+    },
+    {
+      "path": "managed_agent_id",
+      "name": "Managed Agent ID",
+      "type": "string"
+    },
+    {
+      "path": "environment_id",
+      "name": "Environment ID",
+      "type": "string"
+    },
+    {
+      "path": "transport.name",
+      "name": "Transport Name",
+      "type": "string"
+    },
+    {
+      "path": "transport.operation",
+      "name": "Transport Operation",
+      "type": "string"
+    },
+    {
+      "path": "transport.outcome",
+      "name": "Transport Outcome",
+      "type": "string"
+    },
+    {
+      "path": "transport.channel_id",
+      "name": "Transport Channel ID",
+      "type": "string"
+    },
+    {
+      "path": "transport.message_id",
+      "name": "Transport Message ID",
+      "type": "string"
+    },
+    {
+      "path": "transport.command",
+      "name": "Transport Command",
+      "type": "string"
+    },
+    {
+      "path": "transport.webhook_port",
+      "name": "Transport Webhook Port",
+      "type": "integer"
+    },
+    {
+      "path": "slack.envelope_id",
+      "name": "Slack Envelope ID",
+      "type": "string"
+    },
+    {
+      "path": "slack.envelope_type",
+      "name": "Slack Envelope Type",
+      "type": "string"
+    },
+    {
+      "path": "approval.operation",
+      "name": "Approval Operation",
+      "type": "string"
+    },
+    {
+      "path": "approval.outcome",
+      "name": "Approval Outcome",
+      "type": "string"
+    },
+    {
+      "path": "approval.delivery",
+      "name": "Approval Delivery",
+      "type": "string"
+    },
+    {
+      "path": "approval.reason",
+      "name": "Approval Reason",
+      "type": "string"
+    },
+    {
+      "path": "approval.action",
+      "name": "Approval Action",
+      "type": "string"
+    },
+    {
+      "path": "approval.http_status",
+      "name": "Approval HTTP Status",
+      "type": "integer"
+    },
+    {
+      "path": "webhook.route_key",
+      "name": "Webhook Route Key",
+      "type": "string"
+    },
+    {
+      "path": "webhook.event_id",
+      "name": "Webhook Event ID",
+      "type": "string"
+    },
+    {
+      "path": "webhook.operation",
+      "name": "Webhook Operation",
+      "type": "string"
+    },
+    {
+      "path": "webhook.outcome",
+      "name": "Webhook Outcome",
+      "type": "string"
+    },
+    {
+      "path": "webhook.status",
+      "name": "Webhook Status",
+      "type": "integer"
+    },
+    {
+      "path": "webhook.payload_bytes",
+      "name": "Webhook Payload Bytes",
+      "type": "integer"
+    },
+    {
+      "path": "workspace_id",
+      "name": "Workspace ID",
+      "type": "string"
+    },
+    {
+      "path": "file_id",
+      "name": "File ID",
+      "type": "string"
+    },
+    {
+      "path": "content_hash",
+      "name": "Content Hash",
+      "type": "string"
+    },
+    {
+      "path": "stream_id",
+      "name": "Stream ID",
+      "type": "string"
+    },
+    {
+      "path": "content_type",
+      "name": "Content Type",
+      "type": "string"
+    },
+    {
+      "path": "blob.operation",
+      "name": "Blob Operation",
+      "type": "string"
+    },
+    {
+      "path": "blob.backend",
+      "name": "Blob Backend",
+      "type": "string"
+    },
+    {
+      "path": "blob.cache_hit",
+      "name": "Blob Cache Hit",
+      "type": "boolean"
+    },
+    {
+      "path": "blob.status_code",
+      "name": "Blob Status Code",
+      "type": "integer"
+    },
+    {
+      "path": "blob.size_bytes",
+      "name": "Blob Size Bytes",
+      "type": "integer"
+    },
+    {
+      "path": "fs.operation",
+      "name": "TemperFS Operation",
+      "type": "string"
+    },
+    {
+      "path": "fs.path",
+      "name": "TemperFS Path",
+      "type": "string"
+    },
+    {
+      "path": "fs.outcome",
+      "name": "TemperFS Outcome",
+      "type": "string"
+    },
+    {
+      "path": "fs.backend",
+      "name": "TemperFS Backend",
+      "type": "string"
+    },
+    {
+      "path": "sandbox_provider",
+      "name": "Sandbox Provider",
+      "type": "string"
+    },
+    {
+      "path": "sandbox_id",
+      "name": "Sandbox ID",
+      "type": "string"
+    },
+    {
+      "path": "sandbox.operation",
+      "name": "Sandbox Operation",
+      "type": "string"
+    },
+    {
+      "path": "sandbox.backend",
+      "name": "Sandbox Backend",
+      "type": "string"
+    },
+    {
+      "path": "sandbox.exit_code",
+      "name": "Sandbox Exit Code",
+      "type": "integer"
+    },
+    {
+      "path": "sandbox.status_code",
+      "name": "Sandbox Status Code",
+      "type": "integer"
+    },
+    {
+      "path": "sandbox.workdir",
+      "name": "Sandbox Workdir",
+      "type": "string"
+    },
+    {
+      "path": "modal_bridge.operation",
+      "name": "Modal Bridge Operation",
+      "type": "string"
+    },
+    {
+      "path": "modal_bridge.endpoint",
+      "name": "Modal Bridge Endpoint",
+      "type": "string"
+    },
+    {
+      "path": "modal_bridge.duration_ms",
+      "name": "Modal Bridge Duration Ms",
+      "type": "integer"
+    },
+    {
+      "path": "tool.name",
+      "name": "Tool Name",
+      "type": "string"
+    },
+    {
+      "path": "tool.call_id",
+      "name": "Tool Call ID",
+      "type": "string"
+    },
+    {
+      "path": "wasm_module",
+      "name": "WASM Module",
+      "type": "string"
+    },
+    {
+      "path": "workflow_step",
+      "name": "Workflow Step",
+      "type": "string"
+    },
+    {
+      "path": "progress.kind",
+      "name": "Progress Kind",
+      "type": "string"
+    },
+    {
+      "path": "gen_ai.operation.name",
+      "name": "GenAI Operation",
+      "type": "string"
+    },
+    {
+      "path": "gen_ai.provider.name",
+      "name": "GenAI Provider Name",
+      "type": "string"
+    },
+    {
+      "path": "gen_ai.system",
+      "name": "GenAI Provider",
+      "type": "string"
+    },
+    {
+      "path": "gen_ai.conversation.id",
+      "name": "GenAI Conversation ID",
+      "type": "string"
+    },
+    {
+      "path": "gen_ai.request.model",
+      "name": "GenAI Model",
+      "type": "string"
+    },
+    {
+      "path": "gen_ai.usage.input_tokens",
+      "name": "GenAI Input Tokens",
+      "type": "integer"
+    },
+    {
+      "path": "gen_ai.usage.output_tokens",
+      "name": "GenAI Output Tokens",
+      "type": "integer"
+    },
+    {
+      "path": "workflow.cycle_id",
+      "name": "Workflow Cycle ID",
+      "type": "string"
+    },
+    {
+      "path": "workflow_root_entity_type",
+      "name": "Workflow Root Entity Type",
+      "type": "string"
+    },
+    {
+      "path": "workflow_root_entity_id",
+      "name": "Workflow Root Entity ID",
+      "type": "string"
+    },
+    {
+      "path": "workflow_run_id",
+      "name": "Workflow Run ID",
+      "type": "string"
+    },
+    {
+      "path": "deployment.id",
+      "name": "Deployment ID",
       "type": "string"
     },
     {

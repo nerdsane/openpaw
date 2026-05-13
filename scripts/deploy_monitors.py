@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
-"""Deploy OpenPaw self-monitoring Datadog monitors.
+"""Deploy TemperPaw self-monitoring Datadog monitors.
 
 Reads dd-monitors/temperpaw-monitors.json and creates or updates each monitor
 via the Datadog REST API. Idempotent: finds existing monitors by name.
 
-With --reconcile, also deletes monitors tagged team:openpaw that are NOT in
-the JSON file. This is the source-of-truth guarantee declared in ADR-0052:
-file-first, Datadog state reconciles to match.
+With --reconcile, also deletes TemperPaw-owned monitors that are NOT in the JSON
+file. Ownership is detected by current team tags, desired monitor names, and
+legacy OpenPaw identity in names, queries, messages, or notification routes.
+This is the source-of-truth guarantee declared in ADR-0052: file-first, Datadog
+state reconciles to match.
 
 Requires DD_API_KEY and DD_APP_KEY in env (or .env file).
 """
@@ -22,6 +24,15 @@ try:
 except ImportError:
     sys.exit("requests is required: pip install requests")
 
+TEAM_TAG = "team:temperpaw"
+LEGACY_OPENPAW_MONITOR_TERMS = (
+    "OpenPaw",
+    "OpenPAW",
+    "openpaw",
+    "service:openpaw",
+    "slack-openpaw-alerts",
+)
+
 
 def load_env():
     """Best-effort .env loading."""
@@ -35,12 +46,38 @@ def load_env():
             os.environ.setdefault(key.strip(), value.strip())
 
 
+def monitor_search_text(monitor: dict) -> str:
+    return "\n".join(
+        [
+            str(monitor.get("name", "")),
+            str(monitor.get("message", "")),
+            str(monitor.get("query", "")),
+            json.dumps(monitor.get("tags", []), sort_keys=True),
+            json.dumps(monitor.get("notifications", []), sort_keys=True),
+        ]
+    )
+
+
+def legacy_openpaw_monitor(monitor: dict) -> bool:
+    text = monitor_search_text(monitor)
+    return any(term in text for term in LEGACY_OPENPAW_MONITOR_TERMS)
+
+
+def is_temperpaw_owned_monitor(monitor: dict, desired_names: set[str]) -> bool:
+    tags = set(monitor.get("tags") or [])
+    return (
+        monitor.get("name") in desired_names
+        or TEAM_TAG in tags
+        or legacy_openpaw_monitor(monitor)
+    )
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--reconcile",
         action="store_true",
-        help="Delete monitors tagged team:openpaw that are not in the JSON file.",
+        help="Delete TemperPaw-owned monitors that are not in the JSON file.",
     )
     parser.add_argument(
         "--dry-run",
@@ -69,18 +106,42 @@ def main():
         "Content-Type": "application/json",
     }
 
-    resp = requests.get(
-        f"{base_url}/monitor",
-        headers=headers,
-        params={"monitor_tags": "team:openpaw"},
-    )
+    resp = requests.get(f"{base_url}/monitor", headers=headers)
     resp.raise_for_status()
-    existing_by_name = {m["name"]: m["id"] for m in resp.json()}
+    existing_monitors = [
+        m for m in resp.json() if is_temperpaw_owned_monitor(m, desired_names)
+    ]
+    existing_by_name = {m["name"]: m for m in existing_monitors}
 
     for monitor in monitors:
         name = monitor["name"]
         if name in existing_by_name:
-            monitor_id = existing_by_name[name]
+            existing = existing_by_name[name]
+            monitor_id = existing["id"]
+            if existing.get("type") != monitor.get("type"):
+                if args.dry_run:
+                    print(
+                        f"[dry-run] Would recreate: {name} "
+                        f"(id={monitor_id}, {existing.get('type')} -> {monitor.get('type')})"
+                    )
+                    continue
+                resp = requests.delete(
+                    f"{base_url}/monitor/{monitor_id}",
+                    headers=headers,
+                )
+                resp.raise_for_status()
+                resp = requests.post(
+                    f"{base_url}/monitor",
+                    headers=headers,
+                    json=monitor,
+                )
+                resp.raise_for_status()
+                monitor_id = resp.json().get("id", "unknown")
+                print(
+                    f"Recreated: {name} "
+                    f"({existing.get('type')} -> {monitor.get('type')}, id={monitor_id})"
+                )
+                continue
             if args.dry_run:
                 print(f"[dry-run] Would update: {name} (id={monitor_id})")
                 continue
@@ -106,9 +167,9 @@ def main():
 
     if args.reconcile:
         orphans = [
-            (name, monitor_id)
-            for name, monitor_id in existing_by_name.items()
-            if name not in desired_names
+            (m["name"], m["id"])
+            for m in existing_monitors
+            if m.get("name") not in desired_names
         ]
         if not orphans:
             print("No orphan monitors to reconcile.")

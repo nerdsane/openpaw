@@ -45,6 +45,177 @@ pub fn system_json_headers(ctx: &Context, tenant: &str, fields: &Value) -> Vec<(
     )
 }
 
+pub fn agent_session_span_hint_headers(
+    headers: &[(String, String)],
+    managed_session_id: &str,
+    inner_session_id: &str,
+    managed_agent_id: &str,
+    environment_id: &str,
+    parent_session_id: &str,
+    action_name: &str,
+) -> Vec<(String, String)> {
+    let mut hinted = headers.to_vec();
+    hinted.push((
+        "X-Temper-Span-Name".to_string(),
+        "temperpaw.agent.session".to_string(),
+    ));
+    push_span_attr(&mut hinted, "gen_ai.operation.name", "invoke_agent");
+    push_span_attr(&mut hinted, "gen_ai.conversation.id", managed_session_id);
+    push_span_attr(&mut hinted, "session_id", managed_session_id);
+    push_span_attr(&mut hinted, "managed_session_id", managed_session_id);
+    push_span_attr(&mut hinted, "inner_session_id", inner_session_id);
+    push_span_attr(&mut hinted, "parent_session_id", parent_session_id);
+    push_span_attr(&mut hinted, "agent_id", managed_agent_id);
+    push_span_attr(&mut hinted, "managed_agent_id", managed_agent_id);
+    push_span_attr(&mut hinted, "environment_id", environment_id);
+    push_span_attr(&mut hinted, "entity_type", "ManagedSession");
+    push_span_attr(&mut hinted, "entity_id", managed_session_id);
+    push_span_attr(&mut hinted, "action_name", action_name);
+    hinted
+}
+
+pub fn managed_session_event_context(
+    fields: &Value,
+    managed_session_id: &str,
+    inner_session_id: &str,
+    inner_agent_id: &str,
+    managed_agent_id: &str,
+    parent_session_id: &str,
+    environment_id: &str,
+    action_name: &str,
+) -> Value {
+    json!({
+        "ObservabilityEvent": "temperpaw.agent.session",
+        "ManagedSessionId": managed_session_id,
+        "InnerSessionId": first_present(inner_session_id, fields, &["InnerSessionId", "inner_session_id"]),
+        "InnerAgentId": first_present(inner_agent_id, fields, &["InnerAgentId", "inner_agent_id"]),
+        "ManagedAgentId": first_present(managed_agent_id, fields, &["ManagedAgentId", "managed_agent_id", "AgentId", "agent_id"]),
+        "ParentSessionId": first_present(parent_session_id, fields, &["ParentSessionId", "parent_session_id"]),
+        "EnvironmentId": first_present(environment_id, fields, &["EnvironmentId", "environment_id"]),
+        "ActionName": action_name,
+    })
+}
+
+pub fn with_session_event_context(context: &Value, event_fields: Value) -> Value {
+    let mut merged = context.clone();
+    if let (Some(target), Some(extra)) = (merged.as_object_mut(), event_fields.as_object()) {
+        for (key, value) in extra {
+            target.insert(key.clone(), value.clone());
+        }
+    }
+    merged
+}
+
+pub fn log_managed_session_event(
+    ctx: &Context,
+    context: &Value,
+    event_kind: &str,
+    sequence: i64,
+    event_fields: &Value,
+) {
+    let fields = managed_session_observability_log_fields(
+        context,
+        event_kind,
+        sequence,
+        event_fields,
+    );
+    let _ = ctx.log_structured("info", "temperpaw.agent.session event", &fields);
+}
+
+pub fn managed_session_observability_log_fields(
+    context: &Value,
+    event_kind: &str,
+    sequence: i64,
+    event_fields: &Value,
+) -> Value {
+    let managed_session_id = field_string(context, &["ManagedSessionId", "managed_session_id"]);
+    let inner_session_id = field_string(context, &["InnerSessionId", "inner_session_id"]);
+    let inner_agent_id = field_string(context, &["InnerAgentId", "inner_agent_id"]);
+    let managed_agent_id = field_string(context, &["ManagedAgentId", "managed_agent_id"]);
+    let parent_session_id = field_string(context, &["ParentSessionId", "parent_session_id"]);
+    let environment_id = field_string(context, &["EnvironmentId", "environment_id"]);
+    let action_name = field_string(context, &["ActionName", "action_name"]);
+
+    let mut fields = json!({
+        "observability_event": "temperpaw.agent.session",
+        "session_id": managed_session_id,
+        "managed_session_id": managed_session_id,
+        "inner_session_id": inner_session_id,
+        "inner_agent_id": inner_agent_id,
+        "managed_agent_id": managed_agent_id,
+        "agent_id": managed_agent_id,
+        "parent_session_id": parent_session_id,
+        "environment_id": environment_id,
+        "action_name": action_name,
+        "session_event": {
+            "kind": event_kind,
+            "sequence": sequence,
+        },
+    });
+
+    if let Some(object) = fields.as_object_mut() {
+        if let Some(session_event) = object
+            .get_mut("session_event")
+            .and_then(Value::as_object_mut)
+        {
+            insert_if_present(
+                session_event,
+                "stop_reason",
+                event_fields,
+                &["StopReason", "stop_reason"],
+            );
+            insert_if_present(
+                session_event,
+                "termination_reason",
+                event_fields,
+                &["TerminationReason", "termination_reason"],
+            );
+        }
+        insert_if_present(
+            object,
+            "tool.name",
+            event_fields,
+            &["ToolName", "tool_name"],
+        );
+        insert_if_present(
+            object,
+            "tool.call_id",
+            event_fields,
+            &["ToolUseId", "tool_use_id"],
+        );
+    }
+
+    fields
+}
+
+fn insert_if_present(
+    target: &mut serde_json::Map<String, Value>,
+    target_key: &str,
+    source: &Value,
+    source_keys: &[&str],
+) {
+    let value = field_string(source, source_keys);
+    if value.trim().is_empty() {
+        return;
+    }
+    target.insert(target_key.to_string(), json!(value));
+}
+
+fn first_present(explicit: &str, fields: &Value, keys: &[&str]) -> String {
+    if explicit.trim().is_empty() {
+        field_string(fields, keys)
+    } else {
+        explicit.to_string()
+    }
+}
+
+fn push_span_attr(headers: &mut Vec<(String, String)>, name: &str, value: &str) {
+    if value.trim().is_empty() {
+        return;
+    }
+    headers.push((format!("X-Temper-Span-Attr-{name}"), value.to_string()));
+}
+
 pub fn entity_id(value: &Value) -> Option<String> {
     value
         .get("entity_id")
@@ -765,5 +936,160 @@ mod tests {
             params["sandbox_packages_json"],
             r#"[{"manager":"apt","name":"jq","version":"1.7"},{"manager":"pip","name":"rich","version":"13.9.4"}]"#
         );
+    }
+
+    #[test]
+    fn agent_session_span_hints_keep_existing_headers_and_session_context() {
+        let headers = agent_session_span_hint_headers(
+            &[("Authorization".to_string(), "Bearer test".to_string())],
+            "managed-session-1",
+            "inner-session-1",
+            "managed-agent-1",
+            "environment-1",
+            "parent-session-1",
+            "ManagedAgents.StartSession",
+        );
+        let lookup = |name: &str| {
+            headers
+                .iter()
+                .find(|(key, _)| key == name)
+                .map(|(_, value)| value.as_str())
+        };
+
+        assert_eq!(lookup("Authorization"), Some("Bearer test"));
+        assert_eq!(
+            lookup("X-Temper-Span-Name"),
+            Some("temperpaw.agent.session")
+        );
+        assert_eq!(
+            lookup("X-Temper-Span-Attr-gen_ai.operation.name"),
+            Some("invoke_agent")
+        );
+        assert_eq!(
+            lookup("X-Temper-Span-Attr-gen_ai.conversation.id"),
+            Some("managed-session-1")
+        );
+        assert_eq!(
+            lookup("X-Temper-Span-Attr-session_id"),
+            Some("managed-session-1")
+        );
+        assert_eq!(
+            lookup("X-Temper-Span-Attr-managed_session_id"),
+            Some("managed-session-1")
+        );
+        assert_eq!(
+            lookup("X-Temper-Span-Attr-inner_session_id"),
+            Some("inner-session-1")
+        );
+        assert_eq!(
+            lookup("X-Temper-Span-Attr-parent_session_id"),
+            Some("parent-session-1")
+        );
+        assert_eq!(
+            lookup("X-Temper-Span-Attr-agent_id"),
+            Some("managed-agent-1")
+        );
+        assert_eq!(
+            lookup("X-Temper-Span-Attr-environment_id"),
+            Some("environment-1")
+        );
+        assert_eq!(
+            lookup("X-Temper-Span-Attr-entity_type"),
+            Some("ManagedSession")
+        );
+        assert_eq!(
+            lookup("X-Temper-Span-Attr-action_name"),
+            Some("ManagedAgents.StartSession")
+        );
+    }
+
+    #[test]
+    fn managed_session_event_context_prefers_explicit_ids_and_fills_parent_context() {
+        let fields = json!({
+            "InnerSessionId": "stale-inner-session",
+            "InnerAgentId": "stale-inner-agent",
+            "AgentId": "managed-agent-from-fields",
+            "ParentSessionId": "parent-session-1",
+            "EnvironmentId": "environment-from-fields",
+        });
+
+        let context = managed_session_event_context(
+            &fields,
+            "managed-session-1",
+            "inner-session-1",
+            "inner-agent-1",
+            "",
+            "",
+            "environment-1",
+            "ManagedAgents.StartSession",
+        );
+
+        assert_eq!(context["ObservabilityEvent"], "temperpaw.agent.session");
+        assert_eq!(context["ManagedSessionId"], "managed-session-1");
+        assert_eq!(context["InnerSessionId"], "inner-session-1");
+        assert_eq!(context["InnerAgentId"], "inner-agent-1");
+        assert_eq!(context["ManagedAgentId"], "managed-agent-from-fields");
+        assert_eq!(context["ParentSessionId"], "parent-session-1");
+        assert_eq!(context["EnvironmentId"], "environment-1");
+        assert_eq!(context["ActionName"], "ManagedAgents.StartSession");
+    }
+
+    #[test]
+    fn with_session_event_context_merges_event_specific_fields() {
+        let context = json!({
+            "ObservabilityEvent": "temperpaw.agent.session",
+            "ManagedSessionId": "managed-session-1",
+        });
+
+        let event = with_session_event_context(
+            &context,
+            json!({
+                "StopReason": "user_input_required",
+            }),
+        );
+
+        assert_eq!(event["ObservabilityEvent"], "temperpaw.agent.session");
+        assert_eq!(event["ManagedSessionId"], "managed-session-1");
+        assert_eq!(event["StopReason"], "user_input_required");
+    }
+
+    #[test]
+    fn managed_session_observability_log_fields_are_flat_and_chronological() {
+        let context = json!({
+            "ObservabilityEvent": "temperpaw.agent.session",
+            "ManagedSessionId": "managed-session-1",
+            "InnerSessionId": "inner-session-1",
+            "InnerAgentId": "inner-agent-1",
+            "ManagedAgentId": "managed-agent-1",
+            "ParentSessionId": "parent-session-1",
+            "EnvironmentId": "environment-1",
+            "ActionName": "ManagedAgents.ResumeSession",
+        });
+        let fields = managed_session_observability_log_fields(
+            &context,
+            "agent.tool_use",
+            7,
+            &json!({
+                "ToolName": "bash",
+                "ToolUseId": "toolu-1",
+                "Content": "do not log message bodies",
+            }),
+        );
+
+        assert_eq!(fields["observability_event"], "temperpaw.agent.session");
+        assert_eq!(fields["session_id"], "managed-session-1");
+        assert_eq!(fields["managed_session_id"], "managed-session-1");
+        assert_eq!(fields["inner_session_id"], "inner-session-1");
+        assert_eq!(fields["inner_agent_id"], "inner-agent-1");
+        assert_eq!(fields["managed_agent_id"], "managed-agent-1");
+        assert_eq!(fields["agent_id"], "managed-agent-1");
+        assert_eq!(fields["parent_session_id"], "parent-session-1");
+        assert_eq!(fields["environment_id"], "environment-1");
+        assert_eq!(fields["action_name"], "ManagedAgents.ResumeSession");
+        assert_eq!(fields["session_event"]["kind"], "agent.tool_use");
+        assert_eq!(fields["session_event"]["sequence"], 7);
+        assert_eq!(fields["tool.name"], "bash");
+        assert_eq!(fields["tool.call_id"], "toolu-1");
+        assert!(fields.get("Content").is_none());
     }
 }

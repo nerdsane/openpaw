@@ -253,7 +253,7 @@ POST /tdata/PatrolRuns
 POST /tdata/PatrolRuns('<id>')/TemperPaw.Patrol.Configure
 {
   "patrol_kind": "datadog_observability",
-  "summary": "Investigate current OpenPaw/TemperPaw runtime health.",
+  "summary": "Investigate current TemperPaw/TemperPaw runtime health.",
   "requested_by": "risk-patrol",
   "required_capabilities": "datadog_query"
 }

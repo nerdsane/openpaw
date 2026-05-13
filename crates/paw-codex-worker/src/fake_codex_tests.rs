@@ -55,7 +55,7 @@ fn fake_codex_fixture_only_uses_reviewer_mode_for_reviewer_prompt() {
     let datadog_patrol = StdCommand::new(&fixture)
         .arg("exec")
         .arg(
-            "You are the Datadog MCP Risk Patrol agent for TemperPaw / OpenPaw.\n\nRequired Datadog MCP investigation surfaces:",
+            "You are the Datadog MCP Risk Patrol agent for TemperPaw and Temper.\n\nRequired Datadog MCP investigation surfaces:",
         )
         .current_dir(&root)
         .output()
