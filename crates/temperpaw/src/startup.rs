@@ -1240,8 +1240,79 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
             format!("http://127.0.0.1:{actual_port}/_internal/blobs")
         };
         let blob_bucket = std::env::var("BLOB_BUCKET").unwrap_or_else(|_| "temper-fs".into());
-        let _ = vault.cache_platform_secret("blob_endpoint", blob_endpoint);
+        let _ = vault.cache_platform_secret("blob_endpoint", blob_endpoint.clone());
         let _ = vault.cache_platform_secret("blob_bucket", blob_bucket);
+
+        // Generic public artifact storage. This is separate from the private
+        // TemperFS blob bucket so read-only public surfaces can serve immutable
+        // published bytes without exposing governed working files.
+        let published_blob_endpoint = std::env::var("PUBLISHED_BLOB_ENDPOINT")
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+            .or_else(|| {
+                if running_on_railway() {
+                    None
+                } else {
+                    Some(blob_endpoint.clone())
+                }
+            });
+        let published_blob_bucket = std::env::var("PUBLISHED_BLOB_BUCKET")
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| "published-artifacts".into());
+        let published_blob_public_base_url = std::env::var("PUBLISHED_BLOB_PUBLIC_BASE_URL")
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+            .or_else(|| {
+                if running_on_railway() {
+                    None
+                } else {
+                    published_blob_endpoint.as_ref().map(|endpoint| {
+                        format!(
+                            "{}/{}",
+                            endpoint.trim_end_matches('/'),
+                            published_blob_bucket.trim_matches('/')
+                        )
+                    })
+                }
+            });
+
+        if let Some(endpoint) = published_blob_endpoint {
+            let _ = vault.cache_platform_secret("published_blob_endpoint", endpoint);
+            let _ = vault.cache_platform_secret("published_blob_bucket", published_blob_bucket);
+        } else {
+            tracing::warn!(
+                "PUBLISHED_BLOB_ENDPOINT is not configured; public artifact publishing is disabled"
+            );
+        }
+        if let Some(public_base_url) = published_blob_public_base_url {
+            let _ = vault.cache_platform_secret("published_blob_public_base_url", public_base_url);
+        } else if running_on_railway() {
+            tracing::warn!(
+                "PUBLISHED_BLOB_PUBLIC_BASE_URL is not configured; public artifact publishing is disabled"
+            );
+        }
+
+        if let Ok(key) = std::env::var("PUBLISHED_BLOB_ACCESS_KEY") {
+            cache_platform_and_persist_secret(
+                vault,
+                &storage,
+                &tenant,
+                "published_blob_access_key",
+                key.clone(),
+            )
+            .await;
+        }
+        if let Ok(key) = std::env::var("PUBLISHED_BLOB_SECRET_KEY") {
+            cache_platform_and_persist_secret(
+                vault,
+                &storage,
+                &tenant,
+                "published_blob_secret_key",
+                key.clone(),
+            )
+            .await;
+        }
 
         // HMAC credentials for GCS (or any S3-compatible blob store).
         if let Ok(key) = std::env::var("BLOB_ACCESS_KEY") {
