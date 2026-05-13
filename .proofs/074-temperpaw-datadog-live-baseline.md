@@ -2,11 +2,93 @@
 
 Date: 2026-05-11T16:19:36Z
 Last local verification refresh: 2026-05-13T04:15:49Z
-Last live Datadog/Railway verification refresh: 2026-05-13T07:21:04Z
+Last live Datadog/Railway verification refresh: 2026-05-13T07:54:12Z
 
 Purpose: record the live Datadog state observed while converting the active system
 from OpenPAW/OpenPaw/openpaw identity to TemperPaw and while designing the agent
 session observability contract.
+
+## Live public artifact URL verification refresh - 2026-05-13T07:54Z
+
+Purpose: close the public URL gap found in the previous refresh without moving
+the already-active `assets.katagami.ai` domain away from the Katagami bucket.
+
+Domain and deployment:
+
+- Added R2 custom domain `temperpaw-assets.katagami.ai` to the currently
+  writable bucket `openpaw-fs-seshendranalla` with Wrangler:
+  `wrangler r2 bucket domain add openpaw-fs-seshendranalla --domain temperpaw-assets.katagami.ai --zone-id 4d7abaf0f0010529691d6ebcb5e442a7 --min-tls 1.2 --force`.
+- Wrangler reports the new domain as `enabled: Yes`,
+  `ownership_status: active`, `ssl_status: active`, and `min_tls_version: 1.2`.
+- Public authoritative DNS trace resolves
+  `temperpaw-assets.katagami.ai` to Cloudflare A records with TTL 300.
+- `PUBLISHED_BLOB_PUBLIC_BASE_URL` was changed to
+  `https://temperpaw-assets.katagami.ai`.
+- Railway deployment `fd079e03-0cf7-49d8-942e-2c180a35b4b3` reached
+  `SUCCESS` at `2026-05-13T07:43:03.881Z` on the same wrapper digest
+  `sha256:db79bb726d765572a9a0b9d3ab1ef7d9369698643ff0014ebc8f8d9c2ca08ee1`.
+- `GET https://openpaw-production.up.railway.app/readyz` returned HTTP 200 in
+  63 ms with `status:"ready"` and Discord `connected:true`.
+
+Publish-artifact route proof:
+
+- Authenticated `POST /api/files/publish-artifact` with label
+  `codex-live-publish-aa5c69b-temperpaw-public-url` returned HTTP 200 in
+  403 ms.
+- Returned artifact id:
+  `part-7989620b5854d0d2c7a05c3c41356c5e`.
+- Returned public storage key:
+  `codex-live-proof/CodexProof/fd079e03-0cf7-49d8-942e-2c180a35b4b3/codex-live-publish-aa5c69b-temperpaw-public-url-a7b843737b4e8d4eaab95a060898b7abbaad53b4b618dcbe2c18b14e5a7eeaa9.md`.
+- Returned public URL:
+  `https://temperpaw-assets.katagami.ai/codex-live-proof/CodexProof/fd079e03-0cf7-49d8-942e-2c180a35b4b3/codex-live-publish-aa5c69b-temperpaw-public-url-a7b843737b4e8d4eaab95a060898b7abbaad53b4b618dcbe2c18b14e5a7eeaa9.md`.
+- Public URL read with Cloudflare public DNS resolution returned HTTP 200 in
+  124 ms, downloaded 18,568 bytes, and produced SHA-256
+  `a7b843737b4e8d4eaab95a060898b7abbaad53b4b618dcbe2c18b14e5a7eeaa9`,
+  matching the source content hash.
+- S3 `head-object` using the runtime credentials returned
+  `content_length:18568`, `content_type:text/markdown`, ETag
+  `"e8b8084858e0ab21ca8f805fd0028506"`, and
+  `last_modified:2026-05-13T07:45:04+00:00`.
+- Immediately after DNS creation, the local macOS/Tailscale resolver and
+  Railway one-off shell resolver still returned NXDOMAIN for the new hostname,
+  while authoritative Cloudflare DNS and public resolvers returned A records.
+  Treat that as propagation/cache lag, not an object-store failure.
+
+Datadog APM proof:
+
+- Successful trace:
+  `4f199e8e4b37b233e7c6844df074f304`.
+- Trace deep link:
+  `https://app.datadoghq.com/apm/trace/4f199e8e4b37b233e7c6844df074f304?graphType=flamegraph&shouldShowLegend=true&spanID=17717225011287168071&timeHint=1778658304509.9753&trace=4f199e8e4b37b233e7c6844df074f30417717225011287168071&traceQuery=`
+- Trace hierarchy:
+  `http.server.request POST /api/files/publish-artifact` -> API handler
+  `POST /api/files/publish-artifact` -> `state.publish_file_artifact` with
+  child spans `state.read_file_stream_indexed`, `state.put_public_blob`, and
+  `postgres.upsert_published_artifact`.
+- Root HTTP span: status OK, HTTP 200, duration 350.122048 ms,
+  `service:temperpaw`, `env:prod`, `service.version:sha-aa5c69b`.
+- `state.put_public_blob` duration was 203.424016 ms and includes
+  `bucket:openpaw-fs-seshendranalla`, the full `storage_key`,
+  `endpoint_host:075a5c0a617de3bdc08a44f9794b6f2f.r2.cloudflarestorage.com`,
+  `mime_type:text/markdown`, `byte_length:18568`, and
+  `http.status_code:"200"`.
+- `postgres.upsert_published_artifact` duration was 14.080003 ms and contained
+  a `published_artifacts` `INSERT ... ON CONFLICT DO UPDATE` child span plus a
+  `published_artifacts` `SELECT` load child span.
+- The parent `state.publish_file_artifact` span emitted
+  `published artifact metadata persisted` with `metadata_backend:"postgres"`.
+
+What this proves:
+
+- New public artifact URLs now use the TemperPaw-specific host
+  `temperpaw-assets.katagami.ai` instead of `assets.katagami.ai`.
+- The returned public URL is readable through public Cloudflare DNS, returns the
+  source markdown bytes, and preserves the source content hash.
+- The remaining external storage identity gap is now narrower:
+  `PUBLISHED_BLOB_BUCKET` and the Railway service/domain still include
+  `openpaw`. Replacing that bucket name still requires new R2 S3 credentials or
+  a planned object migration; it is no longer blocking readable public artifact
+  URLs.
 
 ## Live Postgres metadata persistence verification refresh - 2026-05-13T07:21Z
 

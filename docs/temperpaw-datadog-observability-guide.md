@@ -309,15 +309,16 @@ children. The old `published artifact metadata store unavailable` warning
 should have count `0` for current production images. Then curl the returned
 `public_url`.
 
-Current production caveat: `assets.katagami.ai` serves a public R2 surface that
-does not match the writable `PUBLISHED_BLOB_BUCKET=openpaw-fs-seshendranalla`.
-Changing the bucket to `katagami-published-assets` caused R2 HTTP 403 with the
-current S3 credentials, so this is a credential/domain migration gap rather
-than a route-code gap. Until that is fixed, a successful route can prove
-metadata persistence and, when checked with the same S3 credentials as the
-runtime, R2 object durability. The returned public URL can still 404 until the
-public domain points at the writable public-artifact bucket or the writable
-credentials are moved to the bucket behind the public domain.
+Current production caveat: `PUBLISHED_BLOB_PUBLIC_BASE_URL` now points at
+`https://temperpaw-assets.katagami.ai`, a TemperPaw-specific R2 custom domain
+attached to the writable bucket. New returned public URLs should read back over
+public Cloudflare DNS with HTTP 200 and a content hash matching the source file.
+The old `assets.katagami.ai` host remains attached to
+`katagami-published-assets`; changing the writable bucket to that bucket caused
+R2 HTTP 403 with the current S3 credentials, so bucket-name cleanup still needs
+new R2 S3 credentials or a planned object migration. Until then, the
+user-facing public URL is fixed, but `PUBLISHED_BLOB_BUCKET` still contains the
+legacy external bucket name and must remain allowlisted as a migration artifact.
 
 ## Sandbox & Modal Bridge
 
