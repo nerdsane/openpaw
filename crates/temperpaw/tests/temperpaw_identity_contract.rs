@@ -382,6 +382,35 @@ fn app_required_wasm_build_scripts_publish_module_local_artifacts() {
 }
 
 #[test]
+fn railway_deploy_dockerfile_uses_image_tag_variable() {
+    let deploy_dockerfile = fs::read_to_string(repo_root().join("Dockerfile.deploy"))
+        .expect("Dockerfile.deploy should be readable");
+    let railway_config = fs::read_to_string(repo_root().join("railway.toml"))
+        .expect("railway.toml should be readable");
+
+    assert!(
+        deploy_dockerfile.contains("ARG IMAGE_TAG="),
+        "Dockerfile.deploy must declare IMAGE_TAG so Railway deployments can select the exact verified GHCR image"
+    );
+    assert!(
+        deploy_dockerfile.contains("FROM ghcr.io/nerdsane/temperpaw:${IMAGE_TAG}"),
+        "Dockerfile.deploy must pull ghcr.io/nerdsane/temperpaw using IMAGE_TAG instead of a hard-coded tag"
+    );
+    assert!(
+        !deploy_dockerfile.contains("ghcr.io/nerdsane/temperpaw:edge"),
+        "Dockerfile.deploy must not hard-code edge because production proofs require a pinned image tag"
+    );
+    assert!(
+        railway_config.contains("builder = \"DOCKERFILE\""),
+        "railway.toml must use Railway's explicit DOCKERFILE builder instead of Railpack"
+    );
+    assert!(
+        railway_config.contains("dockerfilePath = \"Dockerfile.deploy\""),
+        "railway.toml must upload Dockerfile.deploy as the production deployment source"
+    );
+}
+
+#[test]
 fn docker_image_metadata_uses_temperpaw_identity() {
     let workflow_path = repo_root().join(".github/workflows/docker.yml");
     let workflow = fs::read_to_string(&workflow_path)
