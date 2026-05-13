@@ -2,11 +2,196 @@
 
 Date: 2026-05-11T16:19:36Z
 Last local verification refresh: 2026-05-13T02:40:00Z
-Last live Datadog/Railway verification refresh: 2026-05-12T23:20:00Z
+Last live Datadog/Railway verification refresh: 2026-05-13T03:45:00Z
 
 Purpose: record the live Datadog state observed while converting the active system
 from OpenPAW/OpenPaw/openpaw identity to TemperPaw and while designing the agent
 session observability contract.
+
+## Live production verification refresh - 2026-05-13T03:45Z
+
+Temper/TemperPaw revisions:
+
+- TemperPaw branch: `codex/temperpaw-observability-live-image`
+- TemperPaw commit: `afeca72116deaa4da019c277bc7b2ca90a49d4c5`
+  (`ghcr.io/nerdsane/temperpaw:sha-afeca72`)
+- Temper branch: `codex/temperpaw-llmobs-service-identity-main`
+- Temper commit: `974b13bf02342a1b8faafdb1b762572933fe1c3e`
+- Temper commit contents include the earlier direct LLMObs hierarchy, Postgres
+  DBM/APM attribution, pprof upload envelopes, WASM span hints, guest-log
+  trace/span correlation, and ADR-0084 long-lived workflow root spans.
+
+Build and deploy:
+
+- Docker workflow run `25774969998` completed successfully.
+- Published image: `ghcr.io/nerdsane/temperpaw:sha-afeca72`
+- GHCR image digest:
+  `sha256:5b111eaa0e7c1bed0aa306609e299496dfdf02ca2c3a61496d9305188bd404e1`
+- Railway variables were corrected to `DD_SERVICE=temperpaw`,
+  `DD_ENV=prod`, `DD_VERSION=sha-afeca721`,
+  `DD_GIT_COMMIT_SHA=afeca72116deaa4da019c277bc7b2ca90a49d4c5`, and
+  `DD_GIT_REPOSITORY_URL=https://github.com/nerdsane/temperpaw`.
+- Railway deployment `20079bb1-1e83-4ed2-84dd-1689df3d2907` reached
+  `SUCCESS` at `2026-05-13T03:17:53Z`.
+- Railway wrapper image digest:
+  `sha256:2f40c46b2d9c907097161f49a9b6aeb05362eec9fd6f42145f45b09ecd4e19e9`
+- `GET https://openpaw-production.up.railway.app/readyz` returned HTTP 200 with
+  `status:"ready"` and Discord `connected:true`.
+- Remaining deployment identity gap: the Railway service/public domain and some
+  external storage/database resource names still use `openpaw` because Railway
+  does not expose a safe rename path through the CLI used in this proof.
+
+Primary live proof session:
+
+- Production Session: `ss-019e1f59-41b4-7993-870f-9bf9ac7e4a18`
+- Result: `TemperPaw workflow root trace verified.`
+- Session started at `2026-05-13T03:20:03Z` and completed at
+  `2026-05-13T03:20:18Z`.
+- APM trace id: `00795a1c90435bf41a99f0a051f9d729`
+- LLMObs trace id: `630095599782866875251990789384427305`
+- Datadog lower-64 log trace id: `1916827687783618345`
+- Session entity fields captured `gen_ai_parent_trace_id`,
+  `gen_ai_parent_span_id`, `llmobs_agent_span_id`, and
+  `llmobs_workflow_span_id`.
+- Wait/event payload showed the expected chronological actions:
+  `Configure`, `ProvisionWorkspace`, `WorkspaceReady`, `ContextReady`,
+  `ProviderAuthReady`, `Heartbeat`, `ProgressMade`, `ProviderResponseReady`,
+  `CheckSteering`, and `FinalizeResult`.
+
+APM:
+
+- `get_datadog_trace(00795a1c90435bf41a99f0a051f9d729,
+  only_service_entry_spans=true)` returned root resource `Session.workflow`,
+  service `temperpaw`, root span id `9416528624571850451`, and duration
+  `15738.067968 ms`.
+- The root span is not a short OData HTTP request. It has `parent: None`,
+  `entity_id:ss-019e1f59-41b4-7993-870f-9bf9ac7e4a18`,
+  `entity_type:Session`, `workflow.root_entity_type:Session`,
+  `workflow.root_entity_id:ss-019e1f59-41b4-7993-870f-9bf9ac7e4a18`,
+  `workflow.run_id:Session:ss-019e1f59-41b4-7993-870f-9bf9ac7e4a18`,
+  `service.version:sha-afeca721`, and `version:sha-afeca721`.
+- The summarized root reported 477 hidden child spans. A raw span search for the
+  trace returned 512 spans.
+- Aggregation by resource/operation returned 55 buckets, including Temper
+  dispatch/action spans, Postgres spans for `entity_catalog`,
+  `entity_field_index`, `events`, `snapshots`, and `wasm_invocation_logs`, and
+  WASM integration spans for `workspace_provisioner`, `context_preparer`,
+  `provider_auth_gate`, `provider_response_applier`, `steering_checker`,
+  `agent_reply`, and `emit_ots_trajectory`.
+- Expanded WASM spans include `module_name`, `trigger_action`,
+  `service.version:sha-afeca721`, `wasm.module`, and guest-log span events.
+
+LLM Observability:
+
+- `search_llmobs_spans(ml_app=temperpaw, tags={session_id})` returned three
+  spans for the same trace. The decimal LLMObs trace id
+  `630095599782866875251990789384427305` maps to APM hex trace id
+  `00795a1c90435bf41a99f0a051f9d729`.
+- `get_llmobs_trace(630095599782866875251990789384427305)` returned:
+  - agent root `temperpaw.agent_session`, span `5327690730953755574`,
+    duration 2838 ms, status ok.
+  - workflow child `Session.ProviderAuthReady`, span
+    `17448521234714304717`, duration 2738 ms.
+  - LLM child `wasm:provider_caller`, span `13098621566835330088`,
+    duration 2638 ms, provider `openai`, model `gpt-5.5`.
+- LLM token metadata reported 209 input tokens, 23 output tokens, total 232,
+  and the output preview matched the proof result.
+- Known gap: `get_llmobs_agent_loop` still returned `iterations:[]`,
+  `timeline:null`, and `total_messages:0`; use the LLMObs tree, APM trace, and
+  OData/OTS chronology instead.
+
+WASM guest logs:
+
+- Log query
+  `service:temperpaw env:prod version:sha-afeca721 @guest_log.target:wasm_guest @session_id:ss-019e1f59-41b4-7993-870f-9bf9ac7e4a18`
+  returned 26 structured WASM guest logs.
+- Querying by the Datadog lower-64 log trace id
+  `trace_id:1916827687783618345 @guest_log.target:wasm_guest` returned the
+  same log set.
+- Representative messages include `workspace_provisioner: starting`,
+  `context_preparer: starting`, `provider_auth_gate: dispatching
+  OpenAICodexAuth.EnsureFresh`, `provider_caller: starting`,
+  `session_turn: calling OpenAI API`, `session_turn: OpenAI Codex response`,
+  `session_phase phase=provider_caller step=provider_http result=ok`,
+  `provider_response_applier: starting`, `steering_checker: starting`,
+  `agent_reply: no channel session linked`, and `emit_ots_trajectory: emitted
+  trajectory`.
+- Each returned log includes top-level `trace_id`, `span_id`, service, env, and
+  version. APM span events additionally include `otel.trace_id`,
+  `otel.span_id`, `dd.trace_id`, and `dd.span_id` attributes.
+
+Postgres DBM and APM correlation:
+
+- The proof session trace itself contains Postgres APM spans, but DBM samples
+  are sparse. To prove DBM with the current version, a read-only OData burst of
+  80 `GET /tdata/Sessions?$top=3` requests ran from `2026-05-13T03:22:25Z` to
+  `2026-05-13T03:22:54Z`.
+- DBM sample query
+  `database_instance:temperpaw-postgres service:temperpaw` returned a fresh
+  `2026-05-13T03:22:26Z` sample for table `entity_catalog`, command `SELECT`,
+  service `temperpaw`, team `temperpaw`, and query signature
+  `12941344394c8422`.
+- The SQLCommenter comment included
+  `dddbs='temperpaw-postgres',ddps='temperpaw',dde='prod',ddpv='sha-afeca721'`
+  and traceparent
+  `00-e5139e30de2db2af1cb696ab7a25d899-d3aad2d3beb6b61e-01`.
+- `get_datadog_trace(e5139e30de2db2af1cb696ab7a25d899)` returned root
+  `GET /tdata/Sessions`, service `temperpaw`, version `sha-afeca721`, duration
+  1612 ms, with a child Postgres span for the same `entity_catalog` statement
+  and `peer.service:temperpaw-postgres`.
+
+Profiling:
+
+- Runtime variables showed `TEMPER_PROFILING_ENABLED=true`,
+  `TEMPER_PROFILING_AUTO_UPLOAD=true`, `DD_AGENT_HOST` pointing at the Datadog
+  Agent, and on-demand pprof upload enabled.
+- `GET /_admin/profile/cpu?seconds=5&frequency=100` with auth returned HTTP
+  200, content type `application/vnd.google.protobuf`, content disposition
+  `cpu-profile-5s.pb`, and 40,450 bytes while read traffic was active.
+- Profile window: `2026-05-13T03:24:31Z` to `2026-05-13T03:24:36Z`.
+- Logs for `service:temperpaw` showed `ADR-0055: starting CPU profile capture`,
+  `ADR-0055: CPU profile capture complete`, and `profile uploaded to Datadog
+  Agent intake`, all with version `sha-afeca721`.
+- Metric query
+  `sum:datadog.profiling.rust.profiles_uploaded{service:temperpaw,env:prod} by {version,profile_type}.as_count()`
+  returned `profile_type:cpu,version:sha-afeca721` with one upload point.
+- Matching upload-error metric query returned no data in the checked window.
+
+Datadog assets and legacy identity checks:
+
+- Dashboard search returned dashboard `mn4-k3k-i66`,
+  `TemperPaw — Platform Overview`, with queries scoped to `service:temperpaw`
+  and profiling coverage included.
+- `monitor_groups_search(group_status:alert (TemperPaw OR Temper))` returned
+  zero active alert groups.
+- Key monitors were `OK`: `[TemperPaw] Postgres DBM Activity Missing`,
+  `[Temper] Profiler Upload Failures`, `[TemperPaw] Agent Session Trace
+  Correlation Missing`, and `[TemperPaw] LLM Error Rate Spike`. Low-traffic
+  monitors that were `No Data` did not have active alert groups.
+- Fresh-window legacy checks returned zero:
+  - logs query
+    `service:temperpaw env:prod version:sha-afeca721 (OpenPAW OR OpenPaw OR "Open Paw" OR openpaw)`
+  - logs query `(service:openpaw OR OpenPAW OR OpenPaw OR "Open Paw")`
+  - APM spans query `service:openpaw OR OpenPAW OR OpenPaw`
+
+Streaming/blob route probe:
+
+- A separate authenticated production streaming probe posted a tiny raw body to
+  `POST /tdata/Blobs/Temper.IngestRaw` with `X-Repository-Id:
+  rp-temperpaw-datadog-proof`.
+- The endpoint returned HTTP 201 and created
+  `Blobs('c251953bbf2daa464647db9ffe6b7d9a80b07c5d')`.
+- Datadog APM retained trace `993e74a7129a8c286ce53d8c5b1e9f8a` with root
+  resource `POST /tdata/Blobs/Temper.IngestRaw`, HTTP 201, duration
+  130.405824 ms, `service.version:sha-afeca721`, and `version:sha-afeca721`.
+- Expanding the trace showed five children, including
+  `constraint.pre_upsert_relation_checks`,
+  `constraint.pre_upsert_field_invariant_checks`,
+  `constraint.post_write_invariant_checks`, and
+  `entity.get_or_create_tenant_entity -> entity.get_or_spawn_tenant_actor_with_fields`.
+- This is accepted as Datadog-retained streaming/blob endpoint proof. The
+  agent-session proof also covers streaming provider HTTP under
+  `wasm:provider_caller`.
 
 ## Live production verification refresh — 2026-05-12T23:20Z
 
@@ -1672,23 +1857,23 @@ edits remain blocked by unavailable governed issue-pickup tooling.
 
 ## Current conclusion
 
-As of the 2026-05-12T23:20Z refresh, the active deployed system emits under
+As of the 2026-05-13T03:45Z refresh, the active deployed system emits under
 `service:temperpaw` and `ml_app:temperpaw`, uses the deployed image
-`ghcr.io/nerdsane/temperpaw:sha-bd419f1`, and exposes a coherent direct
-Session observability story in Datadog: APM has chronological Temper action,
-WASM, log-event, and Postgres spans; LLMObs has an agent -> workflow -> LLM tree;
-logs correlate by `session_id`, `trace_id`, and `otel.trace_id`; DBM has
-full-mode samples with `traceparent` and `trace.caller.*`; profiling uploads are
-visible in logs and metrics; dashboard/monitor/log-pipeline/log-metric assets
-are reconciled; and `monitor_groups_search(status:alert)` returned zero active
-alert groups after false-positive monitor corrections.
+`ghcr.io/nerdsane/temperpaw:sha-afeca72`, and proves ADR-0084 in Datadog:
+the direct Session trace is rooted at long-lived `Session.workflow`, not at a
+short OData HTTP request. The same live session has chronological Temper
+action, WASM, log-event, and Postgres spans; LLMObs has an agent -> workflow ->
+LLM tree on the same trace id; WASM guest logs correlate by `session_id`,
+`trace_id`, and `otel.trace_id`; DBM has full-mode samples with `traceparent`
+and `trace.caller.*` on version `sha-afeca721`; profiling uploads are visible in
+logs and metrics; dashboard/monitor/log-pipeline/log-metric assets are
+reconciled; and `monitor_groups_search(group_status:alert (TemperPaw OR
+Temper))` returned zero active alert groups.
 
 The goal is not globally complete because external Railway resource names and
 some storage/database URLs still carry the old `openpaw` identity, the Datadog
-LLMObs agent-loop helper is empty for direct Session traces, the semantic
-`temperpaw.agent.session` span-hint name is still not exposed as an APM
-operation/resource, and Datadog facet/scanner application still requires UI
-proof on this account.
+LLMObs agent-loop helper is empty for direct Session traces, and Datadog
+facet/scanner application still requires UI proof on this account.
 
 ## Current completion audit
 
@@ -1697,11 +1882,11 @@ proof on this account.
 | Active repo surfaces use TemperPaw identity | Current branch and Datadog assets use `service:temperpaw`, `team:temperpaw`, `ml_app:temperpaw`, and `@slack-temperpaw-alerts`; remaining legacy strings are historical proof/ADR text, allowlist/reconcile logic, or known external resource names | Mostly complete |
 | Datadog assets define TemperPaw dashboards, monitors, facets, pipelines, sensitive-data scanner rules, DBM deploy wiring, agent diagnostic guidance, data/document service diagnostics, Modal/sandbox bridge diagnostics, channel transport diagnostics, webhook trigger diagnostics, governance approval diagnostics, and legacy cleanup paths | `datadog_observability_contract` passed with 20 tests; dashboard `mn4-k3k-i66`, monitors, log pipeline, and log metrics were reconciled live; facets/scanner definitions remain source-of-truth files with UI application still to prove | Strong, UI facet/scanner gap |
 | Live Datadog assets are reconciled | `scripts/deploy_dashboard.py --reconcile`, `scripts/deploy_monitors.py --reconcile`, and `scripts/deploy_pipelines.py --reconcile` succeeded; old false-positive monitors were deleted/recreated/replaced; final alert-group search returned zero active alerts | Complete for API-managed assets |
-| Actual live service emits under `service:temperpaw` | Deployed Railway image `sha-bd419f1` emits APM/log/LLMObs/DBM/profiling telemetry under `service:temperpaw`, `env:prod`, and `version:sha-bd419f1` | Live proven |
-| One coherent chronological agent-session trace | Direct Session proof `ss-019e1e65-c1ff-7ac3-bbf7-0feb6220fc7c` has APM trace `c80f416a8f1a6c61c86d873747ca26e3` with chronological Temper action/WASM/DB/log-event path and LLMObs trace `265924810408958961160905709497239611107` with agent -> workflow -> LLM tree | Live proven for direct Session; LLMObs agent-loop helper still empty |
+| Actual live service emits under `service:temperpaw` | Deployed Railway image `sha-afeca72` emits APM/log/LLMObs/DBM/profiling telemetry under `service:temperpaw`, `env:prod`, and `version:sha-afeca721` | Live proven |
+| One coherent chronological agent-session trace | Direct Session proof `ss-019e1f59-41b4-7993-870f-9bf9ac7e4a18` has APM trace `00795a1c90435bf41a99f0a051f9d729` rooted at `Session.workflow` with chronological Temper action/WASM/DB/log-event path and LLMObs trace `630095599782866875251990789384427305` with agent -> workflow -> LLM tree | Live proven for direct Session; LLMObs agent-loop helper still empty |
 | LLM/tool span attributes are ready in TemperPaw | LLMObs span includes provider/model/token metadata; APM/logs include session/entity/action/module fields; guest logs carry trace/span correlation | Live proven for direct Session |
-| Postgres DBM/APM correlation | DBM samples for `temperpaw-postgres` include full-mode SQLCommenter `traceparent`, `trace.caller.service:temperpaw`, and `trace.caller.version:sha-bd419f1`; propagated trace `e817e047f0aedd5edd711707c490cd72` opens to matching APM SQL spans; DBM activity monitor is OK | Live proven |
-| Profiling | On-demand CPU profile uploaded twice to Datadog Agent intake; `datadog.profiling.rust.profiles_uploaded{service:temperpaw,env:prod,version:sha-bd419f1}` returned upload points; upload-error metrics/logs did not show failures | Live proven for on-demand profiling |
-| Temper repo implementation | Temper commit `974b13bf02342a1b8faafdb1b762572933fe1c3e` is pinned by TemperPaw source and includes LLMObs hierarchy, DBM attribution, pprof upload envelopes, WASM span hints, guest-log trace/span correlation, and ADR-0084 long-lived workflow root spans; Temper full pre-push gates passed before pinning | Implemented and source-pinned; needs fresh live deploy proof |
-| End-to-end runtime verification | Docker image built and deployed to Railway; `/readyz` returned HTTP 200; live proof Sessions completed through real OData/LLM/DBM/profiling paths; Datadog APM, logs, LLMObs, DBM, profiling, dashboard, and monitor status were queried directly | Live proven |
+| Postgres DBM/APM correlation | DBM sample for `temperpaw-postgres` includes full-mode SQLCommenter `traceparent`, `trace.caller.service:temperpaw`, and `trace.caller.version:sha-afeca721`; propagated trace `e5139e30de2db2af1cb696ab7a25d899` opens to matching APM SQL spans; DBM activity monitor is OK | Live proven; the sampled DBM trace came from a read-only OData burst because DBM sampling is sparse |
+| Profiling | On-demand 5s CPU profile returned 40,450 bytes and uploaded to Datadog Agent intake; `datadog.profiling.rust.profiles_uploaded{service:temperpaw,env:prod}` returned `version:sha-afeca721,profile_type:cpu`; upload-error metrics/logs did not show failures | Live proven for on-demand profiling |
+| Temper repo implementation | Temper commit `974b13bf02342a1b8faafdb1b762572933fe1c3e` is pinned by TemperPaw source and live deployment, and includes LLMObs hierarchy, DBM attribution, pprof upload envelopes, WASM span hints, guest-log trace/span correlation, and ADR-0084 long-lived workflow root spans; Temper full pre-push gates passed before pinning | Implemented, source-pinned, and live-proven |
+| End-to-end runtime verification | Docker image built and deployed to Railway; `/readyz` returned HTTP 200; live proof Session completed through real OData/LLM/DB/profiling paths; separate raw blob ingest returned HTTP 201 and retained APM trace `993e74a7129a8c286ce53d8c5b1e9f8a`; Datadog APM, logs, LLMObs, DBM, profiling, dashboard, and monitor status were queried directly | Live proven |
 | Human/agent guide | `docs/temperpaw-datadog-observability-guide.md` teaches the shared query vocabulary, session trace workflow, agent query surface, logs, channel transports, webhooks, approvals, TemperFS/doc services, sandbox/Modal bridge, LLMObs, metrics/monitors, DBM, profiling, current verification state, and remaining gaps | Updated |
