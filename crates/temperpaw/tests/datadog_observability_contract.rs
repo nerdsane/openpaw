@@ -1446,6 +1446,7 @@ fn railway_datadog_capability_check_reports_usm_and_continuous_profiler_boundari
     let script = load_text("scripts/datadog_railway_capability_check.sh");
     let dockerfile = load_text("Dockerfile");
     let guide = load_text("docs/temperpaw-datadog-observability-guide.md");
+    let setup_api = load_text("crates/temperpaw/src/setup_api.rs");
 
     for required in [
         "blocked-on-Railway-system-probe",
@@ -1471,6 +1472,27 @@ fn railway_datadog_capability_check_reports_usm_and_continuous_profiler_boundari
     assert!(
         guide.contains("datadog_railway_capability_check.sh"),
         "operator guide must document how to run the Railway capability check"
+    );
+
+    for required in [
+        "/paw/infra/railway/datadog-capability-check",
+        "DatadogRailwayCapabilityReport",
+        "best-effort-system-probe-not-enabled",
+        "blocked-on-Railway-system-probe",
+        "blocked-on-Railway-perf-permissions",
+        "CAP_PERFMON",
+        "perf_event_paranoid",
+        "ddprof_present",
+    ] {
+        assert!(
+            setup_api.contains(required),
+            "setup API must expose a live Railway Datadog capability proof field `{required}`"
+        );
+    }
+
+    assert!(
+        guide.contains("/paw/infra/railway/datadog-capability-check"),
+        "operator guide must document the authenticated capability endpoint for live Railway proof"
     );
 }
 
@@ -1537,6 +1559,38 @@ fn setup_api_can_ensure_railway_datadog_runtime_agent_without_exposing_tokens() 
     assert!(
         !setup_api.contains("railway_token\" })"),
         "ensure endpoint responses must not serialize the Railway token"
+    );
+}
+
+#[test]
+fn setup_api_can_run_a_temporary_continuous_profiler_canary() {
+    let setup_api = load_text("crates/temperpaw/src/setup_api.rs");
+    let guide = load_text("docs/temperpaw-datadog-observability-guide.md");
+
+    for required in [
+        "/paw/infra/railway/datadog-continuous-profiler-canary",
+        "set_datadog_continuous_profiler_canary",
+        "SetDatadogContinuousProfilerCanaryRequest",
+        "TEMPER_DDPROF_ENABLED",
+        "DD_PROFILING_ENABLED",
+        "railway_redeploy_service",
+        "railway_service_id",
+    ] {
+        assert!(
+            setup_api.contains(required),
+            "setup API must support a narrowly scoped continuous profiler canary contract `{required}`"
+        );
+    }
+
+    assert!(
+        !setup_api.contains("railway_token\" })"),
+        "continuous profiler canary endpoint responses must not serialize Railway tokens"
+    );
+    assert!(
+        guide.contains("/paw/infra/railway/datadog-continuous-profiler-canary")
+            && guide.contains("TEMPER_DDPROF_ENABLED=true")
+            && guide.contains("TEMPER_DDPROF_ENABLED=false"),
+        "operator guide must document how to enable and disable the temporary ddprof canary"
     );
 }
 

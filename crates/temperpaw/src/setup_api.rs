@@ -6,6 +6,7 @@
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::{env, fs};
 
 use anyhow::{Context, Result, anyhow};
 use axum::body::{Body, Bytes};
@@ -316,6 +317,14 @@ pub fn router(state: SetupApiState) -> Router {
         .route(
             "/paw/infra/railway/datadog-runtime-agent/ensure",
             post(ensure_datadog_runtime_agent),
+        )
+        .route(
+            "/paw/infra/railway/datadog-capability-check",
+            get(get_datadog_railway_capability_check),
+        )
+        .route(
+            "/paw/infra/railway/datadog-continuous-profiler-canary",
+            post(set_datadog_continuous_profiler_canary),
         )
         .route("/paw/infra/railway/redeploy", post(railway_redeploy))
         .route("/paw/version", get(get_version))
@@ -1719,6 +1728,243 @@ async fn ensure_datadog_runtime_agent(State(state): State<SetupApiState>) -> imp
             app_redeploy_triggered: true,
             datadog_profile: "datadog-enhanced-railway",
         })
+    }
+    .await;
+
+    match result {
+        Ok(response) => (StatusCode::OK, Json(serde_json::json!(response))).into_response(),
+        Err(error) => (
+            StatusCode::BAD_GATEWAY,
+            Json(serde_json::json!({ "error": error.to_string() })),
+        )
+            .into_response(),
+    }
+}
+
+#[derive(Serialize)]
+struct DatadogRailwayCapabilityReport {
+    usm_status: &'static str,
+    continuous_profiler_status: &'static str,
+    system_probe: DatadogSystemProbeCapabilityReport,
+    continuous_profiler: DatadogContinuousProfilerCapabilityReport,
+}
+
+#[derive(Serialize)]
+struct DatadogSystemProbeCapabilityReport {
+    #[serde(rename = "DD_SYSTEM_PROBE_SERVICE_MONITORING_ENABLED")]
+    dd_system_probe_service_monitoring_enabled: String,
+    #[serde(rename = "CAP_SYS_ADMIN")]
+    cap_sys_admin: bool,
+    #[serde(rename = "CAP_SYS_RESOURCE")]
+    cap_sys_resource: bool,
+    #[serde(rename = "CAP_SYS_PTRACE")]
+    cap_sys_ptrace: bool,
+    #[serde(rename = "CAP_NET_ADMIN")]
+    cap_net_admin: bool,
+    #[serde(rename = "CAP_NET_RAW")]
+    cap_net_raw: bool,
+    #[serde(rename = "CAP_IPC_LOCK")]
+    cap_ipc_lock: bool,
+    #[serde(rename = "CAP_CHOWN")]
+    cap_chown: bool,
+    host_proc: bool,
+    host_cgroup: bool,
+    debugfs: bool,
+    lib_modules: bool,
+}
+
+#[derive(Serialize)]
+struct DatadogContinuousProfilerCapabilityReport {
+    #[serde(rename = "TEMPER_DDPROF_ENABLED")]
+    temper_ddprof_enabled: String,
+    ddprof_present: bool,
+    perf_event_paranoid: String,
+    #[serde(rename = "CAP_PERFMON")]
+    cap_perfmon: bool,
+}
+
+async fn get_datadog_railway_capability_check() -> Json<DatadogRailwayCapabilityReport> {
+    Json(datadog_railway_capability_report())
+}
+
+fn datadog_railway_capability_report() -> DatadogRailwayCapabilityReport {
+    let system_probe_enabled = env::var("DD_SYSTEM_PROBE_SERVICE_MONITORING_ENABLED")
+        .unwrap_or_else(|_| "false".to_string());
+    let cap_sys_admin = effective_capability_bit(21);
+    let cap_sys_resource = effective_capability_bit(24);
+    let cap_sys_ptrace = effective_capability_bit(19);
+    let cap_net_admin = effective_capability_bit(12);
+    let cap_net_raw = effective_capability_bit(13);
+    let cap_ipc_lock = effective_capability_bit(14);
+    let cap_chown = effective_capability_bit(0);
+    let cap_perfmon = effective_capability_bit(38);
+    let host_proc = std::path::Path::new("/host/proc").exists();
+    let host_cgroup = std::path::Path::new("/host/sys/fs/cgroup").exists();
+    let debugfs = std::path::Path::new("/sys/kernel/debug").exists();
+    let lib_modules = std::path::Path::new("/lib/modules").exists();
+
+    let system_probe_host_ready = cap_sys_admin
+        && cap_sys_resource
+        && cap_sys_ptrace
+        && cap_net_admin
+        && cap_net_raw
+        && cap_ipc_lock
+        && cap_chown
+        && host_proc
+        && host_cgroup
+        && debugfs
+        && lib_modules;
+    let usm_status = if system_probe_host_ready && system_probe_enabled == "true" {
+        "supported"
+    } else if system_probe_host_ready {
+        "best-effort-system-probe-not-enabled"
+    } else {
+        "blocked-on-Railway-system-probe"
+    };
+
+    let temper_ddprof_enabled =
+        env::var("TEMPER_DDPROF_ENABLED").unwrap_or_else(|_| "false".to_string());
+    let ddprof_present = command_exists_on_path("ddprof");
+    let perf_event_paranoid = fs::read_to_string("/proc/sys/kernel/perf_event_paranoid")
+        .map(|value| value.trim().to_string())
+        .unwrap_or_else(|_| "unknown".to_string());
+    let continuous_profiler_status = if temper_ddprof_enabled == "true" {
+        if ddprof_present && perf_allows_unprivileged_profiling(&perf_event_paranoid, cap_perfmon) {
+            "supported"
+        } else {
+            "blocked-on-Railway-perf-permissions"
+        }
+    } else {
+        "best-effort-canary-not-enabled"
+    };
+
+    DatadogRailwayCapabilityReport {
+        usm_status,
+        continuous_profiler_status,
+        system_probe: DatadogSystemProbeCapabilityReport {
+            dd_system_probe_service_monitoring_enabled: system_probe_enabled,
+            cap_sys_admin,
+            cap_sys_resource,
+            cap_sys_ptrace,
+            cap_net_admin,
+            cap_net_raw,
+            cap_ipc_lock,
+            cap_chown,
+            host_proc,
+            host_cgroup,
+            debugfs,
+            lib_modules,
+        },
+        continuous_profiler: DatadogContinuousProfilerCapabilityReport {
+            temper_ddprof_enabled,
+            ddprof_present,
+            perf_event_paranoid,
+            cap_perfmon,
+        },
+    }
+}
+
+fn effective_capability_bit(bit: u32) -> bool {
+    let Some(cap_eff) = fs::read_to_string("/proc/self/status")
+        .ok()
+        .and_then(|status| {
+            status.lines().find_map(|line| {
+                line.strip_prefix("CapEff:")
+                    .map(str::trim)
+                    .and_then(|hex| u128::from_str_radix(hex, 16).ok())
+            })
+        })
+    else {
+        return false;
+    };
+
+    (cap_eff & (1u128 << bit)) != 0
+}
+
+fn command_exists_on_path(command: &str) -> bool {
+    env::var_os("PATH")
+        .map(|paths| {
+            env::split_paths(&paths).any(|dir| {
+                let candidate = dir.join(command);
+                candidate.is_file()
+            })
+        })
+        .unwrap_or(false)
+}
+
+fn perf_allows_unprivileged_profiling(perf_event_paranoid: &str, cap_perfmon: bool) -> bool {
+    match perf_event_paranoid.parse::<i64>() {
+        Ok(value) => value <= 2 || cap_perfmon,
+        Err(_) => false,
+    }
+}
+
+#[derive(Deserialize)]
+struct SetDatadogContinuousProfilerCanaryRequest {
+    enabled: bool,
+}
+
+#[derive(Serialize)]
+struct SetDatadogContinuousProfilerCanaryResponse {
+    enabled: bool,
+    service_id: String,
+    variables_set: usize,
+    app_redeploy_triggered: bool,
+}
+
+async fn set_datadog_continuous_profiler_canary(
+    State(state): State<SetupApiState>,
+    Json(req): Json<SetDatadogContinuousProfilerCanaryRequest>,
+) -> impl IntoResponse {
+    let vault = match state.platform.server.secrets_vault.as_ref() {
+        Some(v) => v,
+        None => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": "Vault not initialized" })),
+            )
+                .into_response();
+        }
+    };
+
+    let railway_token = vault.get_secret(&state.tenant, "railway_token");
+    let project_id = vault.get_secret(&state.tenant, "railway_project_id");
+    let environment_id = vault.get_secret(&state.tenant, "railway_environment_id");
+    let app_service_id = vault.get_secret(&state.tenant, "railway_service_id");
+
+    let (Some(token), Some(project), Some(env), Some(app_svc)) =
+        (railway_token, project_id, environment_id, app_service_id)
+    else {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error": "Railway continuous profiler canary requires railway_token, railway_project_id, railway_environment_id, and railway_service_id."
+            })),
+        )
+            .into_response();
+    };
+
+    let value = if req.enabled { "true" } else { "false" }.to_string();
+    let variables = vec![
+        ("TEMPER_DDPROF_ENABLED", value.clone()),
+        ("DD_PROFILING_ENABLED", value),
+    ];
+
+    let client = reqwest::Client::new();
+    let result = async {
+        for (name, value) in &variables {
+            railway_upsert_variable(&client, &token, &project, &env, &app_svc, name, value).await?;
+        }
+        railway_redeploy_service(&client, &token, &env, &app_svc).await?;
+
+        Ok::<SetDatadogContinuousProfilerCanaryResponse, anyhow::Error>(
+            SetDatadogContinuousProfilerCanaryResponse {
+                enabled: req.enabled,
+                service_id: app_svc,
+                variables_set: variables.len(),
+                app_redeploy_triggered: true,
+            },
+        )
     }
     .await;
 

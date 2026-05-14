@@ -60,6 +60,15 @@ service, apply the required Agent and app variables, persist the Runtime Agent
 service id, and redeploy both services without returning infrastructure secrets
 to callers.
 
+The same setup surface exposes proof helpers for environments where the local
+Railway CLI cannot access the production project. `GET
+/paw/infra/railway/datadog-capability-check` reports the USM system-probe and
+continuous `ddprof` host capabilities from inside the Railway container. `POST
+/paw/infra/railway/datadog-continuous-profiler-canary` toggles only
+`TEMPER_DDPROF_ENABLED` and `DD_PROFILING_ENABLED` on the TemperPaw service and
+redeploys it, so continuous profiling can be canary-proven and then disabled
+again.
+
 ## Product Classification
 
 | Product | Classification | Railway proof bar |

@@ -90,6 +90,17 @@ and TemperPaw Datadog-enhanced variables, persists
 `railway_datadog_runtime_agent_service_id`, and redeploys the Agent and app
 without returning the Railway token or Datadog API key.
 
+For live product-boundary proof, call
+`GET /paw/infra/railway/datadog-capability-check` on the Railway app. It returns
+the same USM and continuous-profiler capability fields as
+`./scripts/datadog_railway_capability_check.sh` without requiring shell access
+to the container. To run the temporary continuous profiler canary, call
+`POST /paw/infra/railway/datadog-continuous-profiler-canary` with
+`{"enabled":true}`; this sets `TEMPER_DDPROF_ENABLED=true` and
+`DD_PROFILING_ENABLED=true` on the app service, then redeploys it. After proof,
+call the same endpoint with `{"enabled":false}` to restore
+`TEMPER_DDPROF_ENABLED=false` and `DD_PROFILING_ENABLED=false`.
+
 Product status is green or proven blocked, not guessed:
 
 | Product | Railway status |
@@ -106,9 +117,10 @@ The proof contract is: on-demand profiling remains supported even if continuous 
 Railway. USM is not considered misconfigured when Railway cannot expose the host
 kernel access Datadog system-probe requires.
 
-Run `./scripts/datadog_railway_capability_check.sh` inside the Railway
-TemperPaw container or the temporary continuous-profiler canary before marking
-USM or continuous profiling green. The expected blocked statuses are
+Run `GET /paw/infra/railway/datadog-capability-check` or
+`./scripts/datadog_railway_capability_check.sh` inside the Railway TemperPaw
+container or the temporary continuous-profiler canary before marking USM or
+continuous profiling green. The expected blocked statuses are
 `blocked-on-Railway-system-probe` for missing system-probe host access and
 `blocked-on-Railway-perf-permissions` for continuous profiler OS permission
 failures.
