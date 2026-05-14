@@ -141,6 +141,9 @@ pub struct Config {
     /// Railway otel-collector service ID (captured during deploy).
     pub railway_otel_service_id: Option<String>,
 
+    /// Railway Datadog runtime Agent service ID (captured during deploy).
+    pub railway_datadog_runtime_agent_service_id: Option<String>,
+
     /// Railway main temperpaw service ID (for redeploy from dashboard).
     pub railway_service_id: Option<String>,
 
@@ -232,6 +235,9 @@ impl Config {
             railway_project_id: optional_env("RAILWAY_PROJECT_ID"),
             railway_environment_id: optional_env("RAILWAY_ENVIRONMENT_ID"),
             railway_otel_service_id: optional_env("RAILWAY_OTEL_SERVICE_ID"),
+            railway_datadog_runtime_agent_service_id: optional_env(
+                "RAILWAY_DATADOG_RUNTIME_AGENT_SERVICE_ID",
+            ),
             railway_service_id: optional_env("RAILWAY_SERVICE_ID"),
             vercel_token: optional_env("VERCEL_TOKEN"),
             exa_api_key: optional_env("EXA_API_KEY"),
