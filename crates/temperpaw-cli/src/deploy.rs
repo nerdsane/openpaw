@@ -11,6 +11,7 @@ const MODAL_BRIDGE_SECRET_NAME: &str = "temperpaw-bridge-auth";
 const MODAL_BRIDGE_SECRET_KEY: &str = "BRIDGE_AUTH_TOKEN";
 const MODAL_BRIDGE_APP_NAME: &str = "temperpaw-sandbox-bridge";
 const DATADOG_POSTGRES_AGENT_SERVICE_NAME: &str = "datadog-postgres-agent";
+const DATADOG_RUNTIME_AGENT_SERVICE_NAME: &str = "datadog-runtime-agent";
 const RAILWAY_SERVICE_HEALTHCHECK_TIMEOUT_SECS: u64 = 3600;
 const RAILWAY_HEALTH_POLL_INTERVAL_SECS: u64 = 10;
 const RAILWAY_HEALTH_POLL_ATTEMPTS: u64 =
@@ -86,16 +87,41 @@ fn datadog_runtime_variables(
     if datadog_enabled {
         variables.push("TEMPER_PROFILING_ENABLED=true".to_string());
         variables.push("TEMPER_PROFILING_AUTO_UPLOAD=true".to_string());
-        variables
-            .push("DD_AGENT_HOST=${{datadog-postgres-agent.RAILWAY_PRIVATE_DOMAIN}}".to_string());
-        variables.push("DD_TRACE_AGENT_PORT=8126".to_string());
+        variables.push("TEMPER_DATADOG_RAILWAY_PROFILE=datadog-enhanced-railway".to_string());
+        variables.push("DD_LLMOBS_API_ENABLED=true".to_string());
         variables.push(
-            "DD_TRACE_AGENT_URL=http://${{datadog-postgres-agent.RAILWAY_PRIVATE_DOMAIN}}:8126"
+            "OTEL_EXPORTER_OTLP_ENDPOINT=http://datadog-runtime-agent.railway.internal:4318"
                 .to_string(),
         );
+        variables.push("DD_AGENT_HOST=datadog-runtime-agent.railway.internal".to_string());
+        variables.push("DD_TRACE_AGENT_PORT=8126".to_string());
+        variables.push(
+            "DD_TRACE_AGENT_URL=http://datadog-runtime-agent.railway.internal:8126".to_string(),
+        );
+    } else {
+        variables.push("TEMPER_DATADOG_RAILWAY_PROFILE=portable-otel".to_string());
     }
 
     variables
+}
+
+fn datadog_runtime_agent_variables(dd_api_key: &str, dd_site: &str) -> Vec<String> {
+    vec![
+        format!("DD_API_KEY={dd_api_key}"),
+        format!("DD_SITE={dd_site}"),
+        "DD_ENV=prod".to_string(),
+        "DD_SERVICE=temperpaw".to_string(),
+        "DD_HOSTNAME=temperpaw-runtime-agent".to_string(),
+        "DD_TAGS=team:temperpaw,service:temperpaw,railway_profile:datadog-enhanced".to_string(),
+        "DD_APM_ENABLED=true".to_string(),
+        "DD_APM_NON_LOCAL_TRAFFIC=true".to_string(),
+        "DD_APM_FEATURES=enable_operation_and_resource_name_logic_v2".to_string(),
+        "DD_LOGS_ENABLED=true".to_string(),
+        "DD_OTLP_CONFIG_LOGS_ENABLED=true".to_string(),
+        "DD_OTLP_CONFIG_RECEIVER_PROTOCOLS_HTTP_ENDPOINT=0.0.0.0:4318".to_string(),
+        "DD_OTLP_CONFIG_RECEIVER_PROTOCOLS_GRPC_ENDPOINT=0.0.0.0:4317".to_string(),
+        "DD_PROCESS_AGENT_ENABLED=true".to_string(),
+    ]
 }
 
 fn datadog_postgres_agent_variables(dd_api_key: &str, dd_site: &str) -> Vec<String> {
@@ -136,6 +162,12 @@ instances:
 fn datadog_postgres_agent_dockerfile() -> &'static str {
     "FROM datadog/agent:7\n\
      COPY postgres.yaml /etc/datadog-agent/conf.d/postgres.d/conf.yaml\n"
+}
+
+fn datadog_runtime_agent_dockerfile() -> &'static str {
+    "FROM datadog/agent:7\n\
+     LABEL railway_profile=datadog-enhanced\n\
+     LABEL org.opencontainers.image.description=\"TemperPaw Railway runtime Datadog Agent. USM requires system-probe host capabilities. Continuous ddprof is canary-gated from the temperpaw service.\"\n"
 }
 
 // ---------------------------------------------------------------------------
@@ -372,6 +404,19 @@ pub async fn run_deploy() -> Result<()> {
 
     deploy_otel_collector(&project_id, &env_id)?;
 
+    if let Some(key) = &dd_api_key {
+        deploy_datadog_runtime_agent(
+            &project_id,
+            &env_id,
+            key,
+            dd_site.as_deref().unwrap_or("datadoghq.com"),
+        )?;
+    } else {
+        cliclack::log::info(
+            "Datadog runtime agent skipped because Datadog is disabled for this deploy.",
+        )?;
+    }
+
     if uses_postgres {
         if let Some(key) = &dd_api_key {
             deploy_datadog_postgres_agent(
@@ -397,7 +442,18 @@ pub async fn run_deploy() -> Result<()> {
         )?;
     }
 
-    // Point temperpaw at the collector via Railway private networking
+    // Point temperpaw at the active OTLP route via Railway private networking.
+    let (otel_endpoint, railway_profile) = if dd_api_key.is_some() {
+        (
+            "OTEL_EXPORTER_OTLP_ENDPOINT=http://datadog-runtime-agent.railway.internal:4318",
+            "TEMPER_DATADOG_RAILWAY_PROFILE=datadog-enhanced-railway",
+        )
+    } else {
+        (
+            "OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector.railway.internal:4318",
+            "TEMPER_DATADOG_RAILWAY_PROFILE=portable-otel",
+        )
+    };
     run_interactive(
         "railway",
         &[
@@ -405,8 +461,9 @@ pub async fn run_deploy() -> Result<()> {
             "set",
             "-s",
             "temperpaw",
-            "OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector.railway.internal:4318",
+            otel_endpoint,
             "OTEL_ENABLED=true",
+            railway_profile,
         ],
     )?;
 
@@ -425,6 +482,13 @@ pub async fn run_deploy() -> Result<()> {
     if let Ok(otel_service_id) = resolve_railway_service_id(&project_id, &env_id, "otel-collector")
     {
         meta_vars.push(format!("RAILWAY_OTEL_SERVICE_ID={otel_service_id}"));
+    }
+    if let Ok(runtime_agent_service_id) =
+        resolve_railway_service_id(&project_id, &env_id, DATADOG_RUNTIME_AGENT_SERVICE_NAME)
+    {
+        meta_vars.push(format!(
+            "RAILWAY_DATADOG_RUNTIME_AGENT_SERVICE_ID={runtime_agent_service_id}"
+        ));
     }
 
     // Use the locally-authenticated Railway CLI token for API calls.
@@ -1491,6 +1555,65 @@ fn deploy_otel_collector(project_id: &str, env_id: &str) -> Result<()> {
     Ok(())
 }
 
+fn deploy_datadog_runtime_agent(
+    project_id: &str,
+    env_id: &str,
+    dd_api_key: &str,
+    dd_site: &str,
+) -> Result<()> {
+    cliclack::log::step("Deploying Datadog runtime agent...")?;
+
+    let _ = Command::new("railway")
+        .args(["add", "--service", DATADOG_RUNTIME_AGENT_SERVICE_NAME])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+
+    let mut set_args = vec![
+        "variable".to_string(),
+        "set".to_string(),
+        "-s".to_string(),
+        DATADOG_RUNTIME_AGENT_SERVICE_NAME.to_string(),
+    ];
+    set_args.extend(datadog_runtime_agent_variables(dd_api_key, dd_site));
+    run_interactive("railway", &as_str_slice(&set_args))?;
+
+    let tmp = std::env::temp_dir().join("temperpaw-datadog-runtime-agent-deploy");
+    let _ = std::fs::create_dir_all(&tmp);
+    std::fs::write(tmp.join("Dockerfile"), datadog_runtime_agent_dockerfile())?;
+    std::fs::write(
+        tmp.join("railway.toml"),
+        "[build]\nbuilder = \"dockerfile\"\ndockerfilePath = \"Dockerfile\"\n\n\
+         [deploy]\nrestartPolicyType = \"ON_FAILURE\"\nrestartPolicyMaxRetries = 3\n",
+    )?;
+
+    let status = Command::new("railway")
+        .args([
+            "up",
+            "-s",
+            DATADOG_RUNTIME_AGENT_SERVICE_NAME,
+            "-p",
+            project_id,
+            "-e",
+            env_id,
+        ])
+        .current_dir(&tmp)
+        .stdin(std::process::Stdio::inherit())
+        .stdout(std::process::Stdio::inherit())
+        .stderr(std::process::Stdio::inherit())
+        .status()
+        .context("Failed to deploy Datadog runtime agent")?;
+
+    let _ = std::fs::remove_dir_all(&tmp);
+
+    if !status.success() {
+        anyhow::bail!("Datadog runtime agent deploy failed");
+    }
+
+    cliclack::log::success("Datadog runtime agent deployed ✓")?;
+    Ok(())
+}
+
 fn deploy_datadog_postgres_agent(
     project_id: &str,
     env_id: &str,
@@ -2137,11 +2260,12 @@ mod tests {
     use super::{
         RAILWAY_HEALTH_POLL_ATTEMPTS, RAILWAY_HEALTH_POLL_INTERVAL_SECS,
         RAILWAY_SERVICE_HEALTHCHECK_TIMEOUT_SECS, RailwayStorageTarget,
-        datadog_postgres_agent_config, datadog_postgres_agent_variables, datadog_runtime_variables,
-        generate_temper_api_key, infer_domain, infer_modal_bridge_base_url,
-        modal_bridge_script_path, otel_collector_entrypoint, otel_datadog_config,
-        otel_debug_config, prebuilt_railway_manifest, railway_storage_variables,
-        read_modal_credentials_from_str, slugify,
+        datadog_postgres_agent_config, datadog_postgres_agent_variables,
+        datadog_runtime_agent_dockerfile, datadog_runtime_agent_variables,
+        datadog_runtime_variables, generate_temper_api_key, infer_domain,
+        infer_modal_bridge_base_url, modal_bridge_script_path, otel_collector_entrypoint,
+        otel_datadog_config, otel_debug_config, prebuilt_railway_manifest,
+        railway_storage_variables, read_modal_credentials_from_str, slugify,
     };
 
     #[test]
@@ -2222,9 +2346,12 @@ mod tests {
             "DD_TAGS=team:temperpaw",
             "TEMPER_PROFILING_ENABLED=true",
             "TEMPER_PROFILING_AUTO_UPLOAD=true",
-            "DD_AGENT_HOST=${{datadog-postgres-agent.RAILWAY_PRIVATE_DOMAIN}}",
+            "TEMPER_DATADOG_RAILWAY_PROFILE=datadog-enhanced-railway",
+            "DD_LLMOBS_API_ENABLED=true",
+            "OTEL_EXPORTER_OTLP_ENDPOINT=http://datadog-runtime-agent.railway.internal:4318",
+            "DD_AGENT_HOST=datadog-runtime-agent.railway.internal",
             "DD_TRACE_AGENT_PORT=8126",
-            "DD_TRACE_AGENT_URL=http://${{datadog-postgres-agent.RAILWAY_PRIVATE_DOMAIN}}:8126",
+            "DD_TRACE_AGENT_URL=http://datadog-runtime-agent.railway.internal:8126",
         ] {
             assert!(
                 with_datadog.contains(&expected.to_string()),
@@ -2235,6 +2362,48 @@ mod tests {
             !with_datadog.contains(&"DD_PROFILING_ENABLED=true".to_string()),
             "Railway deploys must not start ddprof by default because perf_event_open is denied"
         );
+    }
+
+    #[test]
+    fn datadog_runtime_agent_variables_enable_agent_otlp_apm_logs_and_profiling_intake() {
+        let variables = datadog_runtime_agent_variables("api-key", "datadoghq.com");
+
+        for expected in [
+            "DD_API_KEY=api-key",
+            "DD_SITE=datadoghq.com",
+            "DD_ENV=prod",
+            "DD_SERVICE=temperpaw",
+            "DD_HOSTNAME=temperpaw-runtime-agent",
+            "DD_TAGS=team:temperpaw,service:temperpaw,railway_profile:datadog-enhanced",
+            "DD_APM_ENABLED=true",
+            "DD_APM_NON_LOCAL_TRAFFIC=true",
+            "DD_LOGS_ENABLED=true",
+            "DD_OTLP_CONFIG_RECEIVER_PROTOCOLS_HTTP_ENDPOINT=0.0.0.0:4318",
+            "DD_OTLP_CONFIG_RECEIVER_PROTOCOLS_GRPC_ENDPOINT=0.0.0.0:4317",
+            "DD_PROCESS_AGENT_ENABLED=true",
+        ] {
+            assert!(
+                variables.contains(&expected.to_string()),
+                "missing runtime agent var {expected:?} in {variables:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn datadog_runtime_agent_dockerfile_records_railway_product_boundary() {
+        let dockerfile = datadog_runtime_agent_dockerfile();
+
+        for expected in [
+            "FROM datadog/agent:7",
+            "railway_profile=datadog-enhanced",
+            "USM requires system-probe host capabilities",
+            "Continuous ddprof is canary-gated from the temperpaw service",
+        ] {
+            assert!(
+                dockerfile.contains(expected),
+                "runtime agent Dockerfile must include `{expected}`"
+            );
+        }
     }
 
     #[test]

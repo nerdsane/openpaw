@@ -77,7 +77,9 @@ COPY --from=rust-build /app/target/release/temperpaw-server ./temperpaw
 COPY --from=rust-build /app/dashboard/build ./dashboard/build
 COPY --from=rust-build /app/os-apps ./os-apps
 COPY scripts/temperpaw-entrypoint.sh ./scripts/temperpaw-entrypoint.sh
+COPY scripts/datadog_railway_capability_check.sh ./scripts/datadog_railway_capability_check.sh
 RUN chmod +x ./scripts/temperpaw-entrypoint.sh
+RUN chmod +x ./scripts/datadog_railway_capability_check.sh
 ENV BUILD_VERSION=${BUILD_VERSION}
 ENV BUILD_SHA=${BUILD_SHA}
 EXPOSE 3467

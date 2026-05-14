@@ -134,10 +134,12 @@ restartPolicyMaxRetries = 3
 
 Railway builds the Docker image from the repo's Dockerfile. The deployment health check hits `/readyz` on the service's assigned port, while `/healthz` remains process liveness. TemperPaw cold boots can take a long time while the server restores state and reconciles OS apps, so the health window is intentionally set to one hour and traffic should not move to a new container until readiness succeeds.
 
-### Two-service architecture
+### Railway service architecture
 
 1. **`temperpaw`** — The main application. Serves the dashboard, OData API, and agent runtime.
-2. **`otel-collector`** — OpenTelemetry Collector sidecar. Receives traces/metrics from temperpaw via Railway's private network (`otel-collector.railway.internal:4318`) and exports to Datadog (or debug logs if no DD_API_KEY).
+2. **`otel-collector`** — Portable OpenTelemetry fallback. Receives traces/metrics from temperpaw via Railway's private network (`otel-collector.railway.internal:4318`) and exports to Datadog (or debug logs if no DD_API_KEY).
+3. **`datadog-runtime-agent`** — Datadog-enhanced Railway runtime Agent. Receives OTLP HTTP/gRPC from temperpaw via `datadog-runtime-agent.railway.internal`, exposes APM intake on `8126`, and handles Datadog logs/process/APM setup status.
+4. **`datadog-postgres-agent`** — Datadog Postgres DBM Agent. Kept separate from runtime intake so database monitoring does not hide APM/OTLP setup state.
 
 ### Pre-built image deploy
 
@@ -199,8 +201,12 @@ Turso remains available only as an explicit legacy mode by setting
 | Variable | Description |
 |----------|-------------|
 | `OTEL_ENABLED` | Set to `true` to enable OTEL export |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | Collector endpoint (set automatically: `http://otel-collector.railway.internal:4318`) |
-| `DD_API_KEY` | Datadog API key (set on `otel-collector` service) |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://datadog-runtime-agent.railway.internal:4318` in `datadog-enhanced-railway`, or `http://otel-collector.railway.internal:4318` in `portable-otel` |
+| `TEMPER_DATADOG_RAILWAY_PROFILE` | `datadog-enhanced-railway` when the Runtime Agent is active; `portable-otel` otherwise |
+| `DD_AGENT_HOST` | `datadog-runtime-agent.railway.internal` in Datadog-enhanced Railway mode |
+| `DD_TRACE_AGENT_URL` | `http://datadog-runtime-agent.railway.internal:8126` in Datadog-enhanced Railway mode |
+| `DD_LLMOBS_API_ENABLED` | Enables direct Datadog LLMObs export when runtime OTLP bypasses the collector |
+| `DD_API_KEY` | Datadog API key (set on `temperpaw`, `datadog-runtime-agent`, and Datadog collector/DBM services when enabled) |
 | `DD_SITE` | Datadog site (e.g., `datadoghq.com`) |
 
 ### Railway Integration (for dashboard redeploy)
@@ -212,6 +218,7 @@ Turso remains available only as an explicit legacy mode by setting
 | `RAILWAY_ENVIRONMENT_ID` | Railway environment UUID |
 | `RAILWAY_SERVICE_ID` | Railway service UUID for the temperpaw service |
 | `RAILWAY_OTEL_SERVICE_ID` | Railway service UUID for the otel-collector |
+| `RAILWAY_DATADOG_RUNTIME_AGENT_SERVICE_ID` | Railway service UUID for `datadog-runtime-agent` when Datadog is enabled |
 
 These enable the dashboard's "Deploy latest build" and "Update" buttons to trigger redeployments without leaving the browser.
 
@@ -284,14 +291,22 @@ After the server starts:
 
 ---
 
-## OTEL Collector
+## OTEL Collector And Runtime Agent
 
 The collector runs as a separate Railway service with two modes:
 
 - **Datadog mode** (when `DD_API_KEY` is set): Exports traces, metrics, and logs to Datadog
 - **Debug mode** (no `DD_API_KEY`): Logs traces to stdout for troubleshooting
 
-The collector is reachable from the temperpaw service via Railway's private network at `otel-collector.railway.internal:4318`. To enable Datadog later, add `DD_API_KEY` to the `otel-collector` service in the Railway dashboard — the collector auto-detects it on restart.
+The collector is reachable from the temperpaw service via Railway's private network at `otel-collector.railway.internal:4318`. It remains the `portable-otel` fallback.
+
+When Datadog credentials are present, the deploy flow also creates
+`datadog-runtime-agent` and points TemperPaw at
+`http://datadog-runtime-agent.railway.internal:4318` for OTLP and
+`http://datadog-runtime-agent.railway.internal:8126` for Datadog trace intake.
+USM is only supported if Railway can provide system-probe host mounts and Linux
+capabilities. Continuous `ddprof` profiling is opt-in canary work; on-demand
+profiling through `/_admin/profile/cpu` remains supported.
 
 ---
 

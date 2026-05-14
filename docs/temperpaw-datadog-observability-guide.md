@@ -69,6 +69,42 @@ the APM tree for chronology and bottlenecks, pivot into logs for details, use
 LLMObs for provider/model/token behavior, use DBM for query samples, and use
 profiling when a CPU path is suspected.
 
+## Railway Datadog Product Coverage
+
+Railway production has two supported observability profiles:
+
+- `datadog-enhanced-railway` sends TemperPaw runtime OTLP to the
+  `datadog-runtime-agent` Railway service at
+  `http://datadog-runtime-agent.railway.internal:4318`, sends Datadog trace
+  client traffic to
+  `http://datadog-runtime-agent.railway.internal:8126`, and enables direct
+  LLMObs export with `DD_LLMOBS_API_ENABLED=true`.
+- `portable-otel` keeps the existing `otel-collector` route as the fallback for
+  non-Datadog and recovery deployments.
+
+Product status is green or proven blocked, not guessed:
+
+| Product | Railway status |
+| --- | --- |
+| APM | Supported by `datadog-runtime-agent` APM intake. |
+| Logs correlation | Supported by decimal Datadog trace/span ids plus OTel ids. |
+| Error Tracking | Supported by normalized exception and Datadog error fields. |
+| LLM Observability | Supported by direct LLMObs export or collector LLMObs routing. |
+| On-demand Profiling | Supported by `/_admin/profile/cpu` capture and upload. |
+| Continuous Profiling | Canary-gated; record `blocked-on-Railway-perf-permissions` if Railway denies OS perf APIs. |
+| Universal Service Monitoring | Capability-gated; record `blocked-on-Railway-system-probe` if Railway cannot provide system-probe mounts/capabilities. |
+
+The proof contract is: on-demand profiling remains supported even if continuous `ddprof` is blocked on
+Railway. USM is not considered misconfigured when Railway cannot expose the host
+kernel access Datadog system-probe requires.
+
+Run `./scripts/datadog_railway_capability_check.sh` inside the Railway
+TemperPaw container or the temporary continuous-profiler canary before marking
+USM or continuous profiling green. The expected blocked statuses are
+`blocked-on-Railway-system-probe` for missing system-probe host access and
+`blocked-on-Railway-perf-permissions` for continuous profiler OS permission
+failures.
+
 ## Core Query Vocabulary
 
 Use these fields first. They are deliberately shared between humans, agents,

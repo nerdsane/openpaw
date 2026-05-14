@@ -1361,8 +1361,9 @@ fn deploy_configures_postgres_dbm_agent_when_datadog_is_enabled() {
         "DD_APM_FEATURES=enable_operation_and_resource_name_logic_v2",
         "TEMPER_PROFILING_ENABLED=true",
         "TEMPER_PROFILING_AUTO_UPLOAD=true",
-        "DD_AGENT_HOST=${{datadog-postgres-agent.RAILWAY_PRIVATE_DOMAIN}}",
-        "DD_TRACE_AGENT_URL=http://${{datadog-postgres-agent.RAILWAY_PRIVATE_DOMAIN}}:8126",
+        "datadog-runtime-agent",
+        "DD_AGENT_HOST=datadog-runtime-agent.railway.internal",
+        "DD_TRACE_AGENT_URL=http://datadog-runtime-agent.railway.internal:8126",
         "service:temperpaw",
         "team:temperpaw",
     ] {
@@ -1379,6 +1380,125 @@ fn deploy_configures_postgres_dbm_agent_when_datadog_is_enabled() {
     assert!(
         !entrypoint.contains("[ \"${DD_PROFILING_ENABLED:-false}\" = \"true\" ]"),
         "DD_PROFILING_ENABLED must not implicitly start ddprof on Railway"
+    );
+}
+
+#[test]
+fn railway_datadog_runtime_agent_product_coverage_is_documented_and_deployable() {
+    let deploy_source =
+        std::fs::read_to_string(repo_root().join("crates/temperpaw-cli/src/deploy.rs"))
+            .expect("deploy source should be readable");
+    let adr = load_text("docs/adrs/0049-railway-datadog-product-coverage.md");
+    let guide = load_text("docs/temperpaw-datadog-observability-guide.md");
+
+    for required in [
+        "datadog-runtime-agent",
+        "DD_OTLP_CONFIG_RECEIVER_PROTOCOLS_HTTP_ENDPOINT=0.0.0.0:4318",
+        "DD_OTLP_CONFIG_RECEIVER_PROTOCOLS_GRPC_ENDPOINT=0.0.0.0:4317",
+        "DD_LOGS_ENABLED=true",
+        "DD_PROCESS_AGENT_ENABLED=true",
+        "DD_AGENT_HOST=datadog-runtime-agent.railway.internal",
+        "DD_TRACE_AGENT_URL=http://datadog-runtime-agent.railway.internal:8126",
+        "DD_LLMOBS_API_ENABLED=true",
+        "TEMPER_DATADOG_RAILWAY_PROFILE=datadog-enhanced-railway",
+        "OTEL_EXPORTER_OTLP_ENDPOINT=http://datadog-runtime-agent.railway.internal:4318",
+    ] {
+        assert!(
+            deploy_source.contains(required),
+            "Railway Datadog runtime-agent deploy must include `{required}`"
+        );
+    }
+
+    for required in [
+        "APM | supported",
+        "Logs correlation | supported",
+        "Error Tracking | supported",
+        "LLM Observability | supported",
+        "On-demand Profiling | supported",
+        "Continuous Profiling | best-effort",
+        "USM | blocked-on-Railway-capability",
+        "No Linux Compose",
+        "No Kubernetes",
+        "No database migration",
+    ] {
+        assert!(
+            adr.contains(required),
+            "Railway Datadog coverage ADR must classify `{required}`"
+        );
+    }
+
+    for required in [
+        "datadog-enhanced-railway",
+        "datadog-runtime-agent",
+        "blocked-on-Railway-system-probe",
+        "blocked-on-Railway-perf-permissions",
+        "on-demand profiling remains supported",
+    ] {
+        assert!(
+            guide.contains(required),
+            "observability guide must explain Railway Datadog product boundary `{required}`"
+        );
+    }
+}
+
+#[test]
+fn railway_datadog_capability_check_reports_usm_and_continuous_profiler_boundaries() {
+    let script = load_text("scripts/datadog_railway_capability_check.sh");
+    let dockerfile = load_text("Dockerfile");
+    let guide = load_text("docs/temperpaw-datadog-observability-guide.md");
+
+    for required in [
+        "blocked-on-Railway-system-probe",
+        "blocked-on-Railway-perf-permissions",
+        "DD_SYSTEM_PROBE_SERVICE_MONITORING_ENABLED",
+        "CAP_SYS_ADMIN",
+        "CAP_SYS_PTRACE",
+        "/sys/kernel/debug",
+        "/host/proc",
+        "TEMPER_DDPROF_ENABLED",
+        "perf_event_paranoid",
+    ] {
+        assert!(
+            script.contains(required),
+            "Railway Datadog capability check must inspect/report `{required}`"
+        );
+    }
+
+    assert!(
+        dockerfile.contains("datadog_railway_capability_check.sh"),
+        "production image must include the Railway Datadog capability check"
+    );
+    assert!(
+        guide.contains("datadog_railway_capability_check.sh"),
+        "operator guide must document how to run the Railway capability check"
+    );
+}
+
+#[test]
+fn railway_runtime_agent_service_id_is_persisted_for_dashboard_status() {
+    let config = load_text("crates/temperpaw/src/config.rs");
+    let startup = load_text("crates/temperpaw/src/startup.rs");
+    let setup_api = load_text("crates/temperpaw/src/setup_api.rs");
+    let dashboard_api = load_text("dashboard/src/lib/api.ts");
+
+    assert!(
+        config.contains("RAILWAY_DATADOG_RUNTIME_AGENT_SERVICE_ID"),
+        "Config must load the Runtime Agent service id env var"
+    );
+
+    for (source_name, source) in [
+        ("Config", config.as_str()),
+        ("startup", startup.as_str()),
+        ("setup API", setup_api.as_str()),
+    ] {
+        assert!(
+            source.contains("railway_datadog_runtime_agent_service_id"),
+            "{source_name} must carry the normalized Runtime Agent service id field"
+        );
+    }
+    assert!(
+        dashboard_api.contains("datadog_runtime_agent_service_id"),
+        "dashboard API type must expose the Runtime Agent service id response field"
     );
 }
 
