@@ -12,4 +12,4 @@ crate-type = ["cdylib"]
 hex = "0.4"
 serde_json = "1"
 sha2 = "0.10"
-temper-wasm-sdk = { git = "https://github.com/nerdsane/temper.git", rev = "d4797f0bc9e22cf8cc075e18e5a00926a391faf1" }
+temper-wasm-sdk = { git = "https://github.com/nerdsane/temper.git", rev = "01288d7bbbbf30f68d5353d3e8982aad5be49ee0" }
