@@ -796,6 +796,9 @@ dd_api_key = "{secret:dd_api_key}"
 dd_app_key = "{secret:dd_app_key}"
 dd_site = "{secret:dd_site}"
 railway_token = "{secret:railway_token}"
+railway_project_id = "{secret:railway_project_id}"
+railway_environment_id = "{secret:railway_environment_id}"
+railway_service_id = "{secret:railway_service_id}"
 vercel_token = "{secret:vercel_token}"
 
 

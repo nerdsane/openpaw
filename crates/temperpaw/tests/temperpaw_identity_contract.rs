@@ -411,6 +411,65 @@ fn railway_deploy_dockerfile_uses_image_tag_variable() {
 }
 
 #[test]
+fn railway_redeploy_uses_current_deployment_api() {
+    let setup_api = fs::read_to_string(repo_root().join("crates/temperpaw/src/setup_api.rs"))
+        .expect("setup_api.rs should be readable");
+
+    assert!(
+        setup_api.contains("deploymentRedeploy(id: $deploymentId)"),
+        "setup API redeploy must use Railway's deploymentRedeploy mutation with variables"
+    );
+    assert!(
+        setup_api.contains("skipDeploys"),
+        "setup API must upsert IMAGE_TAG without triggering an extra variable-change deployment"
+    );
+    assert!(
+        !setup_api.contains("serviceInstanceRedeploy"),
+        "setup API must not use Railway's removed serviceInstanceRedeploy mutation"
+    );
+}
+
+#[test]
+fn railway_agent_tool_uses_project_scoped_variable_lookup() {
+    let railway_tool =
+        fs::read_to_string(repo_root().join("os-apps/paw-agent/wasm/monty_repl/src/railway.rs"))
+            .expect("railway.rs should be readable");
+    let session_spec =
+        fs::read_to_string(repo_root().join("os-apps/paw-agent/specs/session.ioa.toml"))
+            .expect("session.ioa.toml should be readable");
+
+    assert!(
+        railway_tool.contains(
+            "query variables($projectId: String!, $environmentId: String!, $serviceId: String)"
+        ),
+        "railway variables lookup must include Railway's required projectId and environmentId"
+    );
+    assert!(
+        railway_tool.contains("project(id: $projectId)"),
+        "railway deployment_status must use a variableized project lookup"
+    );
+    assert!(
+        railway_tool.contains("deploymentRedeploy(id: $deploymentId)"),
+        "railway redeploy action must use deploymentRedeploy with a deployment id"
+    );
+    assert!(
+        !railway_tool.contains("variables(serviceId:"),
+        "railway variables lookup must not use the old serviceId-only API shape"
+    );
+
+    for required_secret in [
+        "railway_project_id = \"{secret:railway_project_id}\"",
+        "railway_environment_id = \"{secret:railway_environment_id}\"",
+        "railway_service_id = \"{secret:railway_service_id}\"",
+    ] {
+        assert!(
+            session_spec.contains(required_secret),
+            "Session run_tools config must expose `{required_secret}`"
+        );
+    }
+}
+
+#[test]
 fn docker_image_metadata_uses_temperpaw_identity() {
     let workflow_path = repo_root().join(".github/workflows/docker.yml");
     let workflow = fs::read_to_string(&workflow_path)

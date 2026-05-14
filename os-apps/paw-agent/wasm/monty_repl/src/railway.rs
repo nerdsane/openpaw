@@ -32,42 +32,52 @@ pub fn railway(ctx: &Context, args: &[Value]) -> Result<Value, String> {
 
     let query = match action {
         "deployment_status" => {
-            let project_id = require_str(&input, "project_id")?;
-            format!(
-                r#"{{"query":"query {{ project(id: \"{project_id}\") {{ services {{ edges {{ node {{ id name serviceInstances {{ edges {{ node {{ domains {{ serviceDomains {{ domain }} }} latestDeployment {{ id status createdAt }} }} }} }} }} }} }} }}"}}"#
-            )
+            let project_id = input_or_config(ctx, &input, "project_id")?;
+            json!({
+                "query": "query($projectId: String!) { project(id: $projectId) { services { edges { node { id name serviceInstances { edges { node { domains { serviceDomains { domain } } latestDeployment { id status createdAt } } } } } } } } }",
+                "variables": { "projectId": project_id },
+            })
+            .to_string()
         }
         "service_status" => {
-            let service_id = require_str(&input, "service_id")?;
-            format!(
-                r#"{{"query":"query {{ service(id: \"{service_id}\") {{ id name updatedAt serviceInstances {{ edges {{ node {{ latestDeployment {{ id status createdAt }} }} }} }} }} }}"}}"#
-            )
+            let service_id = input_or_config(ctx, &input, "service_id")?;
+            json!({
+                "query": "query($serviceId: String!) { service(id: $serviceId) { id name updatedAt serviceInstances { edges { node { latestDeployment { id status createdAt } } } } } }",
+                "variables": { "serviceId": service_id },
+            })
+            .to_string()
         }
         "redeploy" => {
             let deployment_id = require_str(&input, "deployment_id")?;
-            format!(
-                r#"{{"query":"mutation {{ deploymentRedeploy(id: \"{deployment_id}\") {{ id status }} }}"}}"#
-            )
+            json!({
+                "query": "mutation($deploymentId: String!) { deploymentRedeploy(id: $deploymentId) { id status } }",
+                "variables": { "deploymentId": deployment_id },
+            })
+            .to_string()
         }
         "logs" => {
             let deployment_id = require_str(&input, "deployment_id")?;
-            format!(
-                r#"{{"query":"query {{ deploymentLogs(deploymentId: \"{deployment_id}\", limit: 100) {{ message timestamp severity }} }}"}}"#
-            )
+            json!({
+                "query": "query($deploymentId: String!) { deploymentLogs(deploymentId: $deploymentId, limit: 100) { message timestamp severity } }",
+                "variables": { "deploymentId": deployment_id },
+            })
+            .to_string()
         }
         "variables" => {
-            let service_id = require_str(&input, "service_id")?;
-            let environment_id = input
-                .get("environment_id")
-                .and_then(Value::as_str)
-                .unwrap_or("");
-            if environment_id.is_empty() {
-                format!(r#"{{"query":"query {{ variables(serviceId: \"{service_id}\") }}"}}"#)
-            } else {
-                format!(
-                    r#"{{"query":"query {{ variables(serviceId: \"{service_id}\", environmentId: \"{environment_id}\") }}"}}"#
-                )
+            let project_id = input_or_config(ctx, &input, "project_id")?;
+            let environment_id = input_or_config(ctx, &input, "environment_id")?;
+            let mut variables = json!({
+                "projectId": project_id,
+                "environmentId": environment_id,
+            });
+            if let Some(service_id) = optional_input_or_config(ctx, &input, "service_id") {
+                variables["serviceId"] = json!(service_id);
             }
+            json!({
+                "query": "query variables($projectId: String!, $environmentId: String!, $serviceId: String) { variables(projectId: $projectId, environmentId: $environmentId, serviceId: $serviceId) }",
+                "variables": variables,
+            })
+            .to_string()
         }
         _ => {
             return Err(format!(
@@ -95,4 +105,25 @@ fn require_str<'a>(input: &'a Value, key: &str) -> Result<&'a str, String> {
         .and_then(Value::as_str)
         .filter(|s| !s.is_empty())
         .ok_or_else(|| format!("railway: '{key}' is required"))
+}
+
+fn optional_input_or_config(ctx: &Context, input: &Value, key: &str) -> Option<String> {
+    input
+        .get(key)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .or_else(|| {
+            ctx.config
+                .get(&format!("railway_{key}"))
+                .map(String::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty() && !value.contains("{secret:"))
+                .map(str::to_string)
+        })
+}
+
+fn input_or_config(ctx: &Context, input: &Value, key: &str) -> Result<String, String> {
+    optional_input_or_config(ctx, input, key).ok_or_else(|| format!("railway: '{key}' is required"))
 }

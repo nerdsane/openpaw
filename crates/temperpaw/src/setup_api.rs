@@ -1799,87 +1799,129 @@ async fn railway_redeploy(
                     "serviceId": svc,
                     "name": "IMAGE_TAG",
                     "value": tag,
+                    "skipDeploys": true,
                 }
             }
         });
 
-        match client
-            .post(railway_url)
-            .header("Authorization", format!("Bearer {token}"))
-            .header("Content-Type", "application/json")
-            .json(&var_query)
-            .send()
-            .await
+        if let Err(error) =
+            railway_graphql(&client, railway_url, &token, var_query, "set IMAGE_TAG").await
         {
-            Ok(resp) => {
-                let body: serde_json::Value = resp.json().await.unwrap_or_default();
-                if body.get("errors").is_some() {
-                    let error_msg = body["errors"]
-                        .as_array()
-                        .and_then(|e| e.first())
-                        .and_then(|e| e["message"].as_str())
-                        .unwrap_or("Failed to set IMAGE_TAG");
-                    return (
-                        StatusCode::BAD_GATEWAY,
-                        Json(serde_json::json!({ "error": error_msg })),
-                    )
-                        .into_response();
-                }
-            }
-            Err(e) => {
-                return (
-                    StatusCode::BAD_GATEWAY,
-                    Json(serde_json::json!({ "error": format!("Failed to set IMAGE_TAG: {e}") })),
-                )
-                    .into_response();
-            }
+            return (
+                StatusCode::BAD_GATEWAY,
+                Json(serde_json::json!({ "error": error })),
+            )
+                .into_response();
         }
     }
 
-    // Trigger the redeploy
-    let redeploy_query = format!(
-        "mutation {{ serviceInstanceRedeploy(serviceId: \"{svc}\", environmentId: \"{env}\") }}"
-    );
-
-    match client
-        .post(railway_url)
-        .header("Authorization", format!("Bearer {token}"))
-        .header("Content-Type", "application/json")
-        .json(&serde_json::json!({ "query": redeploy_query }))
-        .send()
-        .await
+    let deployment_id = match railway_latest_deployment_id(&client, railway_url, &token, &svc).await
     {
-        Ok(resp) => {
-            let status = resp.status();
-            let body: serde_json::Value = resp.json().await.unwrap_or_default();
-            if status.is_success() && body.get("errors").is_none() {
-                (
-                    StatusCode::OK,
-                    Json(serde_json::json!({
-                        "triggered": true,
-                        "image_tag": req.image_tag.as_deref().unwrap_or("current"),
-                    })),
-                )
-                    .into_response()
-            } else {
-                let error_msg = body["errors"]
-                    .as_array()
-                    .and_then(|e| e.first())
-                    .and_then(|e| e["message"].as_str())
-                    .unwrap_or("Railway API error");
-                (
-                    StatusCode::BAD_GATEWAY,
-                    Json(serde_json::json!({ "error": error_msg })),
-                )
-                    .into_response()
-            }
+        Ok(id) => id,
+        Err(error) => {
+            return (
+                StatusCode::BAD_GATEWAY,
+                Json(serde_json::json!({ "error": error })),
+            )
+                .into_response();
         }
-        Err(e) => (
+    };
+
+    let redeploy_query = serde_json::json!({
+        "query": "mutation($deploymentId: String!) { deploymentRedeploy(id: $deploymentId) { id status } }",
+        "variables": { "deploymentId": deployment_id },
+    });
+
+    match railway_graphql(&client, railway_url, &token, redeploy_query, "redeploy").await {
+        Ok(body) => (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "triggered": true,
+                "image_tag": req.image_tag.as_deref().unwrap_or("current"),
+                "deployment_id": deployment_id,
+                "redeploy": body.get("data").and_then(|data| data.get("deploymentRedeploy")).cloned(),
+            })),
+        )
+            .into_response(),
+        Err(error) => (
             StatusCode::BAD_GATEWAY,
-            Json(serde_json::json!({ "error": format!("Railway API request failed: {e}") })),
+            Json(serde_json::json!({ "error": error })),
         )
             .into_response(),
     }
+}
+
+async fn railway_graphql(
+    client: &reqwest::Client,
+    railway_url: &str,
+    token: &str,
+    payload: serde_json::Value,
+    operation: &str,
+) -> Result<serde_json::Value, String> {
+    let resp = client
+        .post(railway_url)
+        .bearer_auth(token)
+        .json(&payload)
+        .send()
+        .await
+        .map_err(|e| format!("Railway {operation} request failed: {e}"))?;
+
+    let status = resp.status();
+    let body: serde_json::Value = resp.json().await.unwrap_or_default();
+    if !status.is_success() || body.get("errors").is_some() {
+        let error_msg = body["errors"]
+            .as_array()
+            .and_then(|errors| errors.first())
+            .and_then(|error| error["message"].as_str())
+            .unwrap_or("Railway API error");
+        return Err(format!("Railway {operation} failed: {error_msg}"));
+    }
+
+    Ok(body)
+}
+
+async fn railway_latest_deployment_id(
+    client: &reqwest::Client,
+    railway_url: &str,
+    token: &str,
+    service_id: &str,
+) -> Result<String, String> {
+    let query = serde_json::json!({
+        "query": "query($serviceId: String!) { service(id: $serviceId) { serviceInstances { edges { node { latestDeployment { id status createdAt } } } } } }",
+        "variables": { "serviceId": service_id },
+    });
+
+    let body = railway_graphql(
+        client,
+        railway_url,
+        token,
+        query,
+        "latest deployment lookup",
+    )
+    .await?;
+    let edges = body
+        .get("data")
+        .and_then(|data| data.get("service"))
+        .and_then(|service| service.get("serviceInstances"))
+        .and_then(|instances| instances.get("edges"))
+        .and_then(|edges| edges.as_array())
+        .ok_or_else(|| {
+            "Railway latest deployment lookup returned no service instances".to_string()
+        })?;
+
+    for edge in edges {
+        if let Some(id) = edge
+            .get("node")
+            .and_then(|node| node.get("latestDeployment"))
+            .and_then(|deployment| deployment.get("id"))
+            .and_then(|id| id.as_str())
+            .filter(|id| !id.is_empty())
+        {
+            return Ok(id.to_string());
+        }
+    }
+
+    Err("Railway latest deployment lookup found no latestDeployment.id".to_string())
 }
 
 // ──────────────────────────────── Transports ─────────────────────────────────
